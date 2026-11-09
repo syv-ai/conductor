@@ -13,12 +13,12 @@ from conductor.widgets import Textarea
 
 registry = conductor_nodes.registry(categories=["text"])
 
-# compile never raises for a bad graph; key on each Problem's code
+# compile never raises for a bad graph; key on each Problem's type
 broken = CompiledGraph.from_graph(
     Graph(nodes=[GraphNode(id="loud", type="text-uppercase", version=1, bindings={"text": From("ghost.result")})]),
     registry,
 )
-assert [p.code for p in broken.problems] == ["unknown_ref_node"]
+assert [p.type for p in broken.problems] == ["unknown_ref_node"]
 
 
 @node("approve", title="Approve", description="Asks a person to approve a proposal.", category="review")

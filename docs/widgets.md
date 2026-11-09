@@ -7,12 +7,18 @@ A widget is the control a person edits an input with, plus what that control nee
 The widget goes on the `Param` of a parameter. The title, the description and `connectable` belong to the `Param`:
 
 ```python
+from typing import Annotated
+
+from conductor import Param, Result, node
+from conductor.widgets import TextWidget
+
+
 @node("greet")
-def greet(name: Annotated[Text, Param(title="Name", description="Who to greet", widget=TextWidget())]) -> Annotated[Text, Result(title="Greeting")]:
-    return Text(f"Hello, {name}!")
+def greet(name: Annotated[str, Param(title="Name", description="Who to greet", widget=TextWidget())]) -> Annotated[str, Result(title="Greeting")]:
+    return f"Hello, {name}!"
 ```
 
-There is no default widget for any type, since the same `Text` may be a textarea, a single line or a dropdown. A `Param` with no widget is an input only an edge fills. `Param(connectable=False)` closes an input to edges, and it may then declare any pydantic-validatable type.
+No type has a default widget, since the same `str` may be a textarea, a single line or a dropdown. An input with no widget gets no control in an editor: an edge fills it, or a value set in code. `Param(connectable=False)` closes an input to edges, and it may then declare any type pydantic can validate.
 
 ## Catalog
 
@@ -48,10 +54,10 @@ A widget dumps through pydantic. The dump is for an editor to read, not to load 
 {'kind': 'text', 'min_length': None, 'max_length': None, 'pattern': 'https?://.*'}
 ```
 
-`cls.describe()` is a node's palette entry, and `registry.describe()` is the whole palette.
+`definition.describe()` is a node's palette entry, and `registry.describe()` is the whole palette.
 
 ## Adding a control
 
 The set is closed: `AnyWidget` is built from the `Widget` subclasses in `conductor/widgets.py`. A new control is a class there with a `kind: Literal["..."]` field, a test that an input declaring it dumps with that `kind`, and a component in the host's frontend that renders it.
 
-See [`examples/08_widgets.ipynb`](../examples/08_widgets.ipynb) for every control in use.
+See [`examples/07_widgets.ipynb`](../examples/07_widgets.ipynb) for every control in use.

@@ -7,120 +7,81 @@ All notable changes to the three workspace packages (`syv-conductor`, `syv-condu
 
 ## [Unreleased]
 
-- Names say what they hold, one spelling per idea across the library's own modules: a row is a path, a static is what an author set, a receive mode is how an input receives, the run's record is the ledger, a problem is a `Problem`. At the doors: `ROW_ID_COLUMN`, `ComputeHookError` (was `CompileProblem`), `BranchTaken` (was `Atom`), `older_versions=` on `@node`, `NodeDefinition.current_version`, `RunState.without_nodes`, `DType.polars_column_type`. `InputPlan.arrives` and `.parts` are `.receive_mode` and `.source_plans`; `Series(values, index=..., rows=...)` takes its values first and an index only when it matters, so a `Series` is built without importing `Index`.
+Ships as 2.0.0, a new major. The node contract, the graph record, compile and the engine are each
+replaced, and no alias keeps a 1.x name alive. A 1.x graph does not load as saved; a host converts
+its stored graphs itself. What a 1.x user must change:
 
-- Every level is a table, more of it true now. A list typed into a node is a column at `node.input` (`q.question`, answers beside their questions). A filter, sort or choose-columns node followed by a per-row node works: a `Table` input's `Arriving` is the merged table's type, and a typed-in frame's is the columns it holds. A merged column is named after its source's title, the same at compile and at run through one function, and a clash takes the node id. `row_ids_lost` reaches a table rebuilt inside an embedded graph, the same rule as a graph drawn flat; `EmbeddableGraph.row_ids_must_survive` is gone. A cell Polars can't cast goes through its type's own parsing. A missing column is `table_column_missing` with `ctx["column"]`, on a typed-in value and at a call. Two lists on one node are `lists_on_a_per_row_node`, wired or not. `WaitingUnit.inputs` holds what the unit received, so a form can show the row.
+### Imports
 
-- A node is a function of plain Python: `def hello(name: str) -> str` just works, a plain type (`str`, `int`, `float`, `bool`, `date`, `datetime`, a pydantic model) is what `DType` is, in one place, so a host's closed input says `Param(connectable=False)`. Placing a node reads like calling it: `upper.graph_node("b", text=From("a.result"), times=2)`, a `GraphNode` a checker reads by the function's own signature. A `Table[R]` is a real `polars.DataFrame` to a node and a checker and `Table` itself has no instances: `Table(...)`, `.frame` and `_holding` are gone. An embedded graph is wired by the names it offers, the bare name where unique, its address on a clash, and inner addresses no longer wire. A NaN or infinity on an output declared `float` survives a state's JSON form. `DType.title` is `display_title`. A node's exception reaches `logging.getLogger("conductor")`, its class name in `ctx`. `From`/`Static` are discriminated, an unknown output and a bad typed-in value say what they were and what there is, a typo is one problem, a missing or non-type `from_run` key is an `InvalidCallError` at the call, and `with_inputs` raises for a bad value as for a typo. `conductor_nodes` is declared in `str`, `float` and `bool`; `Text`, `Number` and `Flag` are gone. The provider's `RunRequest` takes `inputs`, forbids extras, and `/run` is a typed response.
-
-- A run's edges hold. A table a node returns is never written to, so a shared or typed-in frame stays as it was and each row gets its own ids. Anything a node raises fails its unit, `SystemExit` and a stray `CancelledError` included. A table's JSON form keeps every column type exactly (`dtype` is a name, or an object with the type's parameters) or the dump refuses, naming the column. NaN and infinity survive JSON as text on a type built on `float` and in a float column; where nothing would read them back as a float the dump refuses. A typed table of no records has its columns and no rows. Sources of a merge on one index match on id and parent row, so a table passed through per row merges row by row under each parent. A damaged state is `state_unreadable` at the call, `outputs` on a complete state of a changed graph is `run_not_complete` with status `stale`, a person's records carry `__row` to keep a table's rows (the question's schema offers it) and are new rows without it, and a node given no rows has none to lose. A node id may not hold `@`, a `choice` question is never `optional`, states dump in row order, and `finished_rows` lists a node complete on no rows with none. `results` reads the state's columns directly, restoring a state is linear, a task exists only for a unit with a free slot, and a leg makes a thread only when every one it has is busy.
-
-- The library's own modules live in `conductor._internal`; the package holds the three doors, `about/` and `_internal/`. Import from `conductor`, `conductor.widgets` and `conductor.events`. `conductor` lists 48 names: gone are `Answers`, `Binding`, `CompiledField`, `CompiledNode`, `Condition`, `ConductorError`, `NodeRunPlan`, `NodeTimeoutError`, `NodeVersion`, `OutputColumn`, `Question`, `RegistryDescription`, `RunStatus`, `VersionDescription`, `WaitingUnit`, `from_wire`, `is_skipped` (`is SKIPPED`) and `model_of`; `ROW_ID` is new. The run plan's arrival `whole` is `entire_value`.
-
-- Compile is one forward walk: each node is compiled from the nodes above it, and stops at the first stage it can't go on from. What compile doesn't know is `None` on the node: `interface`, `wiring`, `version`, `definition`, with `cause` naming why, and `state` read off them. `NodeReadError`, `kind`, `runner` and `validate` are gone; `compiled.field` on a node that isn't wired is a `KeyError` naming the cause, and `embedded_graph` says a node stands for a graph.
-- `compiled.run_plan` says where every ready node runs and what each of its inputs receives, as records and, through `str()`, as text. `Wiring.runs_per_row_of`, `CompiledField.index` and `receives` are no longer public, and `Index` has left the door. A node's fingerprint hashes its run plan. `/compile` in the FastAPI provider answers `{problems, run_plan}`.
-- `row_ids_lost` follows every input that receives a whole table, so a table rebuilt in a node with `**inputs: AsItArrives` or `x: Any` and merged with its source fails; keeping `__row` passes.
-- A node id holding `.` is the `invalid_node_id` problem, as `/` is; `GraphNode` reads it back. `Interface.needs` is a set of types, and `NodeVersion.from_run` says which parameter gets each. `Graph(nodes=...)` takes any sequence, `from_compiled_graphs(versions=graph)` takes one graph as version 1, and `with_inputs` takes a mapping of addresses beside its keywords. A `Series` of a table subclass is `series_of_tables`. An untyped input left empty inside an embedded graph is `embedded_graph_broken`. `NodeFailed.error` is gone: read `cause.msg`.
-
-- A node is a plain function: `@node("upper")` above `def upper(text: Text) -> Text` returns a frozen, callable `NodeDefinition` that registers nothing, so `upper(Text("a"))` is the unit test. The class, `@version`, `@upgrade` and `@deprecated` are gone: older versions are `older=[OlderVersion(fn, upgrade=Upgrade(...))]`, a version's number its place. Titles are optional, plain parameters and returns are legal, `-> None` declares no outputs, `Result(name=...)` names one. A hook is a plain function per version whose parameters name the inputs it reads; `Arriving` gives an edge's type; `compute_inputs` returns what it adds. Declaring `Mapping` or `Any` output with no hook, an unknown `Annotated` extra, and an unexplained field name gone from the next version all raise `NodeDeclarationError`.
-- `NodeRegistry(nodes, types=())` is immutable and built whole; `register`, `add_types` and `upgraded` are gone, and `upgrade_node(graph, node_id, registry, to=None)` refuses with `InvalidCallError`. `conductor_nodes.register_all` is `conductor_nodes.nodes()`.
-- Every field's type is a `DType`: `Any` is the one public word and is held as a private type whose `id` is `any`, and a closed input's plain Python type is wrapped, wire `{"id": "setting", "of": "Schema"}`. A plain type closes an input by itself. `Single` is `AsItArrives`; `**x: T` makes every edge an input declared `T`. `accepts` is asked about one value. `Series[X]` reads as `Sequence[X]` to a type checker and `Table[TypedDict]` is a real generic, with `Table.with_columns` for a hook. `show_handle` is `connectable`, `optional` is `required`, and `authorable`, the public `parameterises`, the receive records and `Interface.of` are gone from the door. `conductor.node` is `conductor.node_decorator`.
-- A value can be blank. If an input's type doesn't say `| None` the node isn't called for that row: its outputs are blank there, a `choice` output is skipped and an output that makes rows has none. `Series[Text]` leaves blanks out row by row across the series on one index, `Series[Text | None]` keeps them, `Any`, `Series[Any]` and `AsItArrives` take them. `| None` on a return makes `None` valid. `node_complete` and `RunState` count `rows_not_called`.
-
-- What goes wrong is one record: `Problem(type, loc, msg, ctx)`, on `compiled.problems`, in `InvalidCallError.errors()` and as `NodeFailed.cause` and `RunState.failure`, so a host has one type to translate and one table, pinned to the new `PROBLEM_CODES`. `ErrorCause`, `InvalidCallDetail`, `Problem.code`/`message`/`details`/`node_id`/`field` and the row on a cause are gone: a compile problem's `loc` is `(node_id, field)`, a node failure's `(node_id, *row)`. `fatal` is a property of the code, read off the one catalogue, English in the same row. A graph that can't run is refused with its own problems, no `graph` prefix. A node raises `NodeError(message, code=..., ctx=...)`; the engine adds the node and the row.
-- `Refuses` is `CompileProblem(code, message, field=None)`; `field=` says where. A hook may not raise a code the catalogue calls non-fatal. A hook that raises anything else is a bug in the hook and leaves `from_graph` as it is. `DType.refuses_whole` is gone: a node that can't read a table with no columns says so in its own hook.
-- A binding on a field a hook took away is `unused_binding`, not fatal; `stale_binding` is always fatal. `unknown_node_type` lists the types there are in `ctx["choices"]`.
-- A node or type declared wrong raises `NodeDeclarationError(TypeError)` at import, with `code` and `node_id`, like pydantic's `PydanticUserError`. The registry's refusals are the same error, no longer `ValueError`.
-- `registry.extended_with(definitions)` takes the definitions, not a dict: each is filed under its own id, with `register`'s checks but its numbering. A definition under an id already registered adds nothing, its types included.
-
-- A leg can save itself while it runs: `stream(checkpoint_every=5.0)` yields `RunCheckpoint(state)`, a state with the new status `running` and whoever is waiting, at most that often and only when a unit finishes. `run` and `answer` go on from it, `outputs` refuses it, a finished unit is not called again and one in flight is, so a unit runs at least once. Off by default, with no extra call on the path. A saved `running` state can't tell a live leg from a crashed one; a host holds a lease.
-- A merge's rows are those of its deepest sources. A source with another wired source's rows under it is only copied down, so a parent row with nothing under it is not a row of the table, and wiring a parent column as well never adds a row. Who is above is decided from every wired source, so a child table a branch skipped gives no rows (the sheet keeps its columns); every other source still brings all its rows, blanks beside. A `Table` input fed only skipped sources skips its node, columns included. A parent column beside a table made per row of it no longer stops the run.
-- A `Series[X]` input gets every value under its node's row, flat, however many levels down: a node running per document with a `Series` on lines gets all the document's lines, where it used to run per paragraph. A `Series` chooses the node's row only when nothing else does; then the node runs once per row of the level right above the series, the shallowest when there are several. A `Table` of a deep column with a per-document value runs instead of stopping with an engine error, and a document with no paragraphs runs with an empty series.
-- A table output that a `Table` input merges with a table it was built from fails its node with `row_ids_lost` when it returns rows and none kept its `__row`, before anything downstream runs. A table used alone, merged with an unrelated table or joined on a key gets fresh ids as before.
-- A run is its `RunState`, and every verb is on `CompiledGraph`: `run`, `run_sync` and `stream` (an async context manager) return or end on the state, `answer(state, answers)` writes a person's answers into a new one, `outputs(state)` and `results(state)` read one, `nodes_changed_since(state)` says what is stale. Module-level `execute`, `run` and `run_sync` are gone, as are `cache=`, `Ledger.inject`, the five `graph_*` endings (one `RunEnd`), `Asks` (`AskPerson`, whose questions are the node's outputs) and `PendingUnit` (`WaitingUnit`, stored in the state). A node that asked is not called again until it, or something above it, changes. Every output has one check for a return, an answer and a stored value. A refused call raises `InvalidCallError` listing every fault in pydantic's shape. A failed run is a `status`; `outputs` refuses a state that is not `complete`. `conductor_router` mounts `/run` and `/run-stream`.
-- Compile stores the read plan a run follows on its compiled values, privately, and the engine's ledger reads it instead of indexing the graph on every leg. A leg runs about 5–8% faster. `CompiledField.listed` says whether the author typed many values into an input, so its node runs once per value.
-- A leg's pending units are listed in execution order, then row order.
-- Compile looks each node up in the registry once, and a compiled node holds the class it resolved to as `definition`. `compiled.node(id).runner` runs that class, so a module reloaded after compile runs once the graph is compiled again. `NodeRegistry.runner_for` is removed.
-- `compiled.node(id)` answers for every node compile met, each with a `state` (`ready`, `wiring_failed`, `resolution_failed`) and its `problems`; a field has `problems` too. Reading what a state lacks raises `NodeResolutionError` or `NodeWiringError`, both `CompilationError`s whose `problems` holds the one `Problem` that explains it; `KeyError` is only for an id the graph lacks. A node whose version is a graph is a `CompiledNode` whose `kind` is `graph` (every other resolved node's is `node`): its `graph_node` is the node as drawn, its `statics` the values typed on it by inner address, and its `runner`, `fingerprint` and `validate` raise `NodeKindError`, since its inner nodes run in its place.
-- `decisions` leaves out a node the walk did not derive.
-- `conductor_providers.mermaid.flowchart` draws any graph, however broken.
-- An input named with a leading underscore, from a `**inputs` edge or a `compute_inputs` hook, is `parameter_name_invalid` at compile. A call's check is built on a node's first `validate`.
-- Removed: `is_input_node` (the graph's inputs are `compiled.interface.inputs`) and `GraphNode.data` (read `node.bindings`).
-- The public API is three doors: `conductor`, `conductor.widgets` and `conductor.events` (new), each with an `__all__` a type checker accepts. `NEVER`, the `Receive` records, `model_of`, `to_wire`, `from_wire`, `Upgrade`, `VersionDescription` and the run state's entries (`StateValue`, `StateSkip`, `DoneUnit`) join the root; `dtype_of` and `DTypeRef` leave it, and `AnyWidget` is imported from `conductor.widgets` only. Each `conductor_nodes` module lists its nodes in `NODES` instead of a `register()` function.
-- A node's result holds only what it produced: an output the node skipped (the branch not taken) is absent from `result_of`, `node_complete` and `RunState.results`, never `SKIPPED`. The FastAPI provider no longer fails streaming a branch node.
-- Restoring a state refuses (`StartRefused`) a value or done unit at a row its field or node cannot have, such as `[0]` on a node that runs once, and a value for a field the graph does not have. Such an entry used to be accepted and ignored, so the node ran again.
-- A unit standing in for rows that were never made sends no `node_progress`; one at a shorter row used to repeat the last progress event. `Ledger.on_a_row` answers whether a unit counts as a row.
-- A row is always a `Row`: a node that runs once, and a unit standing in at the top, is at the empty row `()`, never `None`, and it reads `[]` on the wire, never `null`. `ErrorCause.row` defaults to `()`; `StateValue.row`, `StateSkip.row`, `DoneUnit.row`, `NodeRetryEvent.row` and `PendingUnit.row` are `Row`. A stored state that spells a row `null` fails to read as a `RunState`.
-- A required input with a type and nothing bound is still `unbound_required`, fatal, but no longer breaks its node: the node and everything after it are `ready`, with their types worked out, as for a value that arrives at run time. An input typed `Any` or `Series[Any]` with no edge still breaks its node. A `compute_outputs` hook finds no entry in `values` for such an input, as for a connected one.
-- A node's version is a `NodeVersion` or a `CompiledGraph`; `GraphVersion` is removed. A host compiles each stored graph once and hands the compiled graph over as the version. Compile walks it as one node with the compiled graph's interface, then puts the graph's nodes in its place under the row it runs on, as if they had been drawn there. Only the inputs and outputs the graph offers are reachable from outside: an edge or value on any other inner field is `unknown_ref_output` or `stale_binding`. A graph with anything fatal in it, besides an input it offers left empty, is refused where it is embedded with one `embedded_graph_broken`, and stays one node with nothing inside; its own problems stay on it, in its own words. A value typed on an embedded graph's input, or an edge into an input its author filled, lands on the inner field as if typed or connected there. A value typed there that a hook inside refuses is the hook's own problem on that field of the graph node. Problems found inside are no longer copied onto the graph node, so the problem code `graph_interface_mismatch` and the `placement` and `inner_message` detail keys those copies carried are gone; a type's own `refuses_whole` refusal still carries `inner_message`. Refusing a graph that embeds itself is the host's job. `conductor_providers.mermaid` draws an embedded graph's nodes from `version.graph.nodes`, and a graph compile can't embed as one box.
-- An address means one thing after compile: a node's path and a field, `approve/check.amount` for a field inside an embedded graph. `field()`, `results`, `outputs()` and the graph's `interface` all use it, and `with_inputs` takes it or a bare field name. `CompiledGraph.expanded()` is removed. The author's spelling, an edge to `approve.check.amount`, is read once at compile; `field(Ref("approve", "check.amount"))` is a `KeyError`, since the graph node has no fields of its own. An edge out of a graph nested inside an embedded graph names the inner graph's address: `top.inner/join.result`.
-- The vocabulary: `Iterate` is `PerRow`, `Group` is `RowsUnder`, `CompiledNode.iterates_on` is `runs_per_row_of`, a node makes rows, and a graph inside a graph is an *embedded* graph throughout. Nothing on the wire changes.
-- Every index belongs to the field that makes its rows and is named after it: a series output `split.lines` makes rows on `Index("split.lines")`, not `Index("split")`. Two series outputs of one node are two indexes, each with its own length; the check that they agree in length is gone, and a node fed both per row is `misaligned`. Index ids show wherever an index is printed or sent: series JSON, mermaid's edge labels, reprs. The ledger knows the rows under a row are complete the moment they are made, whoever made them.
-- A list set on a node that runs per row hangs under the rows it runs on: questions set on a node that runs per document make a questions index under the documents index, and the node runs once per question per document. A node that otherwise runs once keeps its list on a root index. A second list on a node that runs per row is the fatal problem `lists_on_a_per_row_node`.
-- A default goes through its input's type: `n: Integer = 3` with nothing bound reaches `run` as an `Integer`, not a plain `int`.
-- `model_of(inputs)` returns a function that checks a mapping of values and returns a plain dict of keyword arguments, defaults filled in, instead of a pydantic model class. An input named like a `BaseModel` attribute (`schema`, `json`) is an ordinary key, with no aliased field. A node's call check runs faster.
-- `Table[columns]` is a whole table as one value, holding a Polars `DataFrame`: a node takes and returns frames. A column's Polars type is read off the builtin its type is built on, and `DType.column` names it where that base is wrong (`Flag` sets `"Boolean"`). Its JSON form is `{columns, data, rows}`, `rows` holding each row's global id (`__row`, `contacts:0`). A table type's description lists its columns (`describe()` adds `columns`, each with its type's record). conductor now depends on `polars>=2.0`, imported only when a table is built, so `import conductor` doesn't load it.
-- Each column of a `Table[...]` output is a field of its own (`csv.result.email`), a series on rows the table output owns: wire it into a single-value input and the node runs once per row of the table, into a `Series[X]` input and it gets every row under its row. The table is stored once, with row ids; a column's values are read from it, never stored cell by cell, and a table nobody reads a column of makes no rows. A blank cell reaches a node as `None`: every input of a call takes it. An output named like a column's field is `view_name_taken`. An output declared `Series[Table[...]]` is `series_of_tables`: a table already holds many rows.
-- Several tables or columns wired into one `Table` input are merged on their rows' ids as the graph runs: the new receive record `Merge` says how each source is received, and a parent's value is copied down onto each row under it. A filtered table merged with its source leaves the filtered rows blank; `sent` from an embedded graph given the whole table lands on the contacts it came from. A source whose rows can't share an origin with the others is the non-fatal problem `no_rows_in_common` when the flow is checked; nothing is refused. `conductor.table.merge` is the one place rows are matched. A column name two sources share takes the second source's node name (`name_crm`). A `Table[...]` input that needs a column nothing wired into it has is `table_column_missing`; a merged table that won't read as the input's type fails that node with `invalid_input`.
-
-## [2.0.0]
-
-A new major. The node contract, the graph record, compile and the engine are each replaced, and
-no alias keeps a 1.x name alive. A 1.x graph does not load as saved. What a 1.x user must change:
+- Import from `conductor`, `conductor.widgets` and `conductor.events`. `conductor_nodes` and
+  `conductor_providers` are public too. Everything else is `conductor._internal`.
 
 ### Nodes
 
-- A node is a `NodeDefinition` subclass with `id`, `title`, `description` and `category`; its typed
-  `run` signature is its interface. `@registry.node`, `BaseNode` and `NodeCategory` are gone.
-- A parameter is `Annotated[DType, Param(title=..., widget=...)]`; one output is
-  `-> Annotated[DType, Result(title=...)]`, several are a frozen dataclass of them.
-- `run` is a plain function run in a worker thread; `async def run` is refused.
-- Versions are `@version(n)` methods on one class, each with a `Policy`. `@upgrade(a, b)` rewrites
-  saved values; `@deprecated` retires a node or a version.
-- `InputMetadata` / `OutputMetadata` are `Input` / `Output`. The hooks are
-  `compute_inputs(declared, values)` and `compute_outputs(declared, values, arriving)`, and a hook
-  that cannot answer raises `Refuses`.
-- `FlowStore` / `store_data` are `Annotated[T, FromRun()]`, filled from `execute(from_run={T: value})`.
-- The widgets are the control alone, with a `kind`; there is no default widget for a type.
-  `Output`, `Checkbox`, `Multiselect`, `DependentDropdown`, `HumanReview`, `TableSource`,
-  `ConditionBuilder` and `ColumnSelect` are gone.
+- `@registry.node("id", version=1, name=...)` and `BaseNode` are `@node("id")` above a plain
+  function, which returns a frozen, callable `NodeDefinition` and registers nothing. Build the
+  registry whole: `NodeRegistry([upper, join])`. `NodeCategory` and auto-discovery are gone.
+- The type hints are the interface: `text: str`, or `Annotated[str, Param(title=..., widget=...)]`.
+  `-> str` is one output named `result`, a frozen dataclass is one output per field, `Result(...)`
+  titles one. `async def` isn't allowed: the function runs in a worker thread.
+- A widget is the control alone, with a `kind`, and no type has a default one. `Output`, `Checkbox`,
+  `Multiselect`, `DependentDropdown`, `HumanReview`, `TableSource`, `ConditionBuilder` and
+  `ColumnSelect` are gone.
+- `InputMetadata` / `OutputMetadata` are `Input` / `Output`. Fields that depend on configuration come
+  from `compute_inputs=` and `compute_outputs=`, plain functions whose parameters name the inputs
+  they read; `Arriving` gives the type on an edge; `ComputeHookError` reports what's wrong.
+- Older versions are `older_versions=[OlderVersion(fn, upgrade=Upgrade(...))]`, oldest first, each
+  with its own `Policy` and hooks. `upgrade_node(graph, node_id, registry)` moves a placed node on.
+- `FlowStore` / `store_data` are a parameter typed `FromRun[T]`, filled from
+  `compiled.run(from_run={T: value})`.
+- `max_retries`, `retry_delay` and `RetryConfig` are `Policy(retries=, delay=, timeout=,
+  concurrency=, retry_on=)`. Only an `ExternalFailure`, or an exception named in `retry_on`, is retried.
 
-### Types
+### Types, rows and tables
 
-- A type is a `DType` class with its own `id`. A registry holds the types its nodes declare plus
-  `registry.add_types(...)`; `target.accepts(source)` is the edge check.
-- `Series[X]` is the one collection. The for-each, while, subprocess and signal marker nodes, and
-  regions, are gone: a series arriving on a scalar input runs the node once per row.
+- Plain Python types and pydantic models travel on edges. Write `class X(DType, str)` with an `id`
+  only for a type of your own; `target.accepts(source)` is the edge check.
+- `Series[X]` is the one collection, and `Table[TypedDict]` a whole table, a `polars.DataFrame`.
+  Conductor depends on `polars>=2.0` and `pydantic>=2.11`.
+- The for-each, while, subprocess and signal nodes and regions are gone. A column arriving on an input
+  declared for one value runs the node once per row; a `Series[X]` input gets every value under the
+  node's row. `compiled.run_plan` says what compile decided.
+- Tables and columns wired into one `Table` input merge on the hidden `__row` column. A parent is
+  copied down onto its children, so the rows are those of the deepest source; sources on one level
+  keep all their rows, with blanks beside.
+- A node isn't called for a blank unless its input says `| None`.
 
 ### Graphs and compile
 
-- `Flow` is `Graph(nodes=[GraphNode(id=, type=, version=, bindings=)])`. An input is bound by
-  `From("node.output")` or `Static(value)`; there is no edge list and no `"id@version"` string.
+- `Flow` is `Graph(nodes=[...])`, and a node you declared is placed with
+  `upper.graph_node("a", text="hello")`. An input is bound by `From("node.output")` or
+  `Static(value)`; there is no edge list and no `"id@version"` string.
 - `compile(...)` is `CompiledGraph.from_graph(graph, registry)`. It never raises for a fault in the
-  graph: read `problems` and `is_runnable`.
-- `conductor.flow_format` is gone: `graph.to_path(...)` / `Graph.from_path(...)`.
-- `registry.upgraded(graph, node_id)` moves a placed node to a newer version.
+  graph: read `problems` and `is_runnable`. A `Problem` is `type`, `loc`, `msg`, `ctx`.
+- `extension_resolver` is gone: a graph embedded as a node is
+  `NodeDefinition.from_compiled_graphs(...)`, wired by the names it offers.
+- `conductor.flow_format` is `graph.to_path(...)` / `Graph.from_path(...)`.
 - CEL guards on edges, shared references, compensation and `on_error` are gone.
 
 ### Running
 
-- `execute`, `run` and `run_sync` are the entry points; `execute_sync`, `collect`, `resume` and
-  checkpoints are gone. A result is `ending.state.results(compiled)[node_id][output]`.
-- A pause is a node returning `Asks`. The run ends `graph_pending`, and the next call is
-  `execute(compiled, state=ending.state, cache={node_id: answers})`.
-- Retries live on the version's `Policy`. Only an `ExternalFailure`, or an exception named in
-  `Policy.retry_on`, is retried. `RetryConfig` and per-registration retry arguments are gone.
-- Every failure carries an `ErrorCause` (`code`, `message`, `details`, `row`). `Flow*` errors and
-  events are `Graph*`; `flow_paused` is `graph_pending`.
+- `execute`, `execute_sync` and `collect` are `compiled.stream()`, `compiled.run()` and
+  `compiled.run_sync()`. A run is its `RunState`: a pause, a failure or a timeout is a `status`, and
+  `compiled.results(state)` or `compiled.outputs(state)` reads it.
+- `HumanInputRequired` and `SignalRequired` are `AskPerson`, returned by a node typed
+  `-> X | AskPerson`. `compiled.answer(state, {unit.id: {output: value}})` returns a state to run
+  from, in place of `resume`.
+- `flow_*` events are `run_start`, `node_failed`, `unit_waiting` and `run_end`, which carries the
+  state. What goes wrong is always a `Problem`; a node's own exception goes to the `conductor` logger.
 
 ### Standard nodes and providers
 
-- `get_default_registry` is `conductor_nodes.registry(categories=...)`. The standard nodes declare
-  their own types in `conductor_nodes.types` (`Text`, `Number`, `Flag`, `Json`).
-- `ExecuteRequest` is `{graph, state, cache}`, and `/execute` answers with the ending frame.
-  `conductor_router`'s per-request hook is `from_run`; `context_factory`, `extension_resolver`
-  and `palette_from_registry` are gone (the palette is `registry.describe()`).
-- Requires pydantic 2.11 or later.
+- `get_default_registry` is `conductor_nodes.registry(categories=...)`, and
+  `conductor_nodes.nodes()` lists the definitions.
+- `/execute` and `/execute-stream` are `/run` and `/run-stream`, with the body
+  `{graph, inputs, state, answers}`. `/run` answers `{state, results}`. `context_factory` is
+  `from_run`, `extension_resolver` and `palette_from_registry` are gone (the palette is
+  `registry.describe()`).
 
 ## [1.12.2]
 

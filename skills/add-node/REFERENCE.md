@@ -11,7 +11,6 @@ from conductor import AskPerson, Arriving, Deprecation, ExternalFailure, FromRun
 from conductor.widgets import Switch, Textarea, TextWidget
 
 
-
 @dataclass(frozen=True)
 class Branches:                       # one output per field; a shared choice makes them a branch
     yes: Annotated[str, Result(title="If yes", choice="answer")]
@@ -58,8 +57,8 @@ def columns(names: Annotated[str, Param(title="Column names", widget=TextWidget(
     return {name: name.upper() for name in names.split(",")}
 
 
-assert approve.versions[1].interface.needs == {"who": Caller}
+assert approve.versions[1].interface.needs == {Caller}
 ```
 
-- A pydantic model returned from `run` is one value, not one output per field.
+- A pydantic model a node returns is one value, not one output per field.
 - Only `ExternalFailure` and `retry_on` classes retry; attempt `n` waits `delay * 2 ** (n - 1)`. A timed-out attempt is final.

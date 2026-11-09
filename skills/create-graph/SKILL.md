@@ -1,6 +1,6 @@
 ---
 name: create-graph
-description: Puts conductor nodes in a Graph, compiles it with CompiledGraph.from_graph and runs it with compiled.run. Use when building, saving, running, drawing, serving or debugging a conductor graph; binding inputs (From, Static, with_inputs); reading outputs, problems or events; answering Asks (state, cache); or on "build a graph", "run a graph", "connect these nodes".
+description: Puts conductor nodes in a Graph, compiles it with CompiledGraph.from_graph and runs it with compiled.run. Use when building, saving, running, drawing, serving or debugging a conductor graph; binding inputs (From, Static, with_inputs); reading outputs, problems or events; answering a node that asked a person (compiled.answer); or on "build a graph", "run a graph", "connect these nodes".
 ---
 
 # Creating and running a conductor graph
@@ -27,12 +27,12 @@ state = ready.run_sync()                               # in a notebook: await re
 assert ready.outputs(state) == {"joined.result": "RED + GREEN"}
 results = ready.results(state)                         # {node_id: {output: value}}
 assert list(results["loud"]["result"]) == ["RED", "GREEN"]   # ran once per word
-assert ready.node("joined").runs_per_row_of is None       # parts is Series[str]: one call
+assert ready.run_plan.nodes["joined"].runs_per_row_of is None   # parts is Series[str]: one call
 ```
 
 A node you declared yourself is placed with `upper.graph_node("b", text=From("a.result"), times=2)`, the same record with the function's own signature for a checker to read. A value is typed in, `From(...)` is an edge, and an input left open is written `GraphNode(...)`.
 
-An input holds one binding: `From("node.output")` over an edge, `Static(value)` typed in (a list on a single-value input runs the node once per item), or none for the default. A single output is named `result`. `GraphNode` is keyword-only; a node id may not contain `.`.
+An input holds one binding: `From("node.output")` over an edge, `Static(value)` typed in (a list on a single-value input runs the node once per item), or none for the default. A single output is named `result`. `GraphNode` is keyword-only; a node id may not contain `.`, `/` or `@`.
 
 ## Quick reference
 
@@ -52,8 +52,9 @@ An input holds one binding: `From("node.output")` over an edge, `Static(value)` 
 |---|---|
 | `try` around `from_graph` | it never raises for a bad graph: read `is_runnable` and `problems` |
 | Rebuilding the `Graph` to change a value per run | `compiled.with_inputs(...)`; store `ready.graph` as what ran |
-| A loop node, or a `for` around `run` | bind a series; the engine runs the node once per row |
+| A loop node, or a `for` around `run` | bind a column; the engine runs the node once per row |
+| A join node to put columns side by side | wire them all into one `Table` input; they merge on `__row` |
 | `except` around `run_sync` for a pause, error or timeout | they are statuses: read `state.status`, `state.failure` |
 | `run_sync` in a notebook or server | `await compiled.run()` |
 
-To debug, read `problems`, then print every event of `compiled.stream()`. A failure's `cause` has a `code` and, on rows, the `row`.
+To debug, read `problems`, then print every event of `compiled.stream()`. A failure is a `Problem`: `type`, `msg`, `ctx`, and `loc` is the node and the row. `print(compiled.run_plan)` says where each node runs and what each input receives.
