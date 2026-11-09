@@ -35,14 +35,15 @@ def waiting_unit_for(node: CompiledNode, row: Row, asked: AskPerson) -> WaitingU
     """The entry for this unit in ``RunState.waiting``. A ``ValueError`` when
     ``asked`` names an output the node does not have or proposes a default that
     is not its output's type: the node's own fault, not the person's."""
-    outputs = {out.name: out for out in node._interface.outputs}
+    assert node.interface is not None and node.wiring is not None  # the engine runs only a runnable graph
+    outputs = {out.name: out for out in node.interface.outputs}
     for name in (*asked.defaults, *asked.widgets):
         if name not in outputs:
             raise ValueError(f"AskPerson names '{name}', which is not one of this node's outputs")
     defaults: dict[str, Any] = {}
     if asked.defaults:
         checked = {name: asked.defaults.get(name, SKIPPED) for name in outputs}
-        cells, faults = validate_unit_outputs(node, row, checked)
+        cells, faults = validate_unit_outputs(node, row, checked, frozenset())
         if faults:
             raise ValueError("; ".join(fault.message for fault in faults))
         defaults = {name: _default_as_wire(cells[name], outputs[name]) for name in asked.defaults}
@@ -87,7 +88,7 @@ def apply_answers(compiled: CompiledGraph, state: RunState, answers: Answers) ->
         if asked is None or asked.node_id in changed:
             faults.append(problem("not_waiting", "answers", waiting_id, waiting_id=waiting_id))
             continue
-        cells = _answered_cells(compiled.node(asked.node_id), asked, given, faults)
+        cells = _answered_cells(compiled.node(asked.node_id), asked, given, faults, compiled._row_ids_must_survive)
         if cells is not ...:
             finished.append((asked, cells))
     if faults:
@@ -95,7 +96,7 @@ def apply_answers(compiled: CompiledGraph, state: RunState, answers: Answers) ->
     return _with_units_finished(compiled, state, finished)
 
 
-def _answered_cells(node: CompiledNode, asked: WaitingUnit, given: Mapping[str, Any] | None, faults: list[Problem]) -> Any:
+def _answered_cells(node: CompiledNode, asked: WaitingUnit, given: Mapping[str, Any] | None, faults: list[Problem], row_ids_must_survive: frozenset[Ref]) -> Any:
     """One unit's answer as the cells it finishes with, ``None`` for a unit
     with no value on its row. Adds its faults and returns ``...`` when it has any."""
     if given is None:
@@ -114,7 +115,7 @@ def _answered_cells(node: CompiledNode, asked: WaitingUnit, given: Mapping[str, 
         if question.choice is not None:
             groups.setdefault(question.choice, []).append(question.name)
     values = _with_choices_and_defaults(questions, groups, given, where, faults)
-    cells, output_faults = validate_unit_outputs(node, asked.row, {name: value for name, value in values.items() if name in questions})
+    cells, output_faults = validate_unit_outputs(node, asked.row, {name: value for name, value in values.items() if name in questions}, row_ids_must_survive)
     for fault in output_faults:
         faults.append(problem("invalid_value", *where, fault.output, reason=fault.message, errors=list(fault.errors)))
     return ... if len(faults) > before else cells
@@ -170,13 +171,14 @@ def _with_units_finished(compiled: CompiledGraph, state: RunState, finished: lis
         answered.add(asked.id)
         finished_rows_of(asked.node_id).append(asked.row)
         node = compiled.node(asked.node_id)
-        for out in node._interface.outputs:
-            ref = node._fields[out.name].ref
+        assert node.interface is not None and node.wiring is not None  # the engine runs only a runnable graph
+        for out in node.interface.outputs:
+            ref = node.wiring.fields[out.name].ref
             value = SKIPPED if cells is None else cells[out.name]
             column = column_of(ref)
             if value is SKIPPED:
                 column.skipped.append(asked.row)
-            elif isinstance(value, list) and not isinstance(value, Table) and node._fields[out.name]._holds_many:
+            elif isinstance(value, list) and not isinstance(value, Table) and node.wiring.fields[out.name]._holds_many:
                 for j, item in enumerate(value):
                     (column.skipped if item is SKIPPED else column.rows).append((*asked.row, j))
                     if item is not SKIPPED:

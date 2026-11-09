@@ -26,6 +26,7 @@ from conductor import (
     CompiledGraph,
     From,
     GraphNode,
+    InputPlan,
     Ref,
 )
 
@@ -41,15 +42,15 @@ def flowchart(compiled: CompiledGraph) -> str:
         lines += _node_lines(compiled, node, node.id, faulty, names, depth=1)
     for node_id in compiled.execution_order:
         node = compiled.node(node_id)
-        for field in node.interface.inputs:
-            ref = Ref(node_id, field.name)
-            binding = compiled.field(ref).binding
+        plan = compiled.run_plan.nodes.get(node_id)
+        for field in () if node.interface is None else node.interface.inputs:
+            binding = node.graph_node.bindings.get(field.name)
             if not isinstance(binding, From) or node_id not in names:
                 continue
             drawn = [source for source in binding.refs if source.node_id in names]
             if not drawn:
                 continue
-            label = _label(compiled.field(ref).receives) if node.state == "ready" else None
+            label = None if plan is None else _label(plan.inputs[field.name])
             arrow = "-->" if label is None else f"-->|{label}|"
             lines += [f"    {names[source.node_id]} {arrow} {names[node_id]}" for source in drawn]
     if faulty:
@@ -66,7 +67,7 @@ def _node_lines(
     title = _quoted(f"{node_id} · {node.type}")
     fault = ":::fault" if node_id in faulty else ""
     found = compiled.node(node_id)
-    if found.state != "ready" or found.kind != "graph":
+    if found.wiring is None or found.embedded_graph is None:
         return [f"{indent}{name}[{title}]{fault}"]  # a graph that couldn't be embedded has nothing inside
     lines = [f"{indent}subgraph {name} [{title}]"]
     for inner in found.version.graph.nodes:
@@ -77,22 +78,21 @@ def _node_lines(
     return lines
 
 
-def _label(receives: Any) -> str | None:
+def _label(input_plan: InputPlan) -> str | None:
     """How an arrow's reading input receives it, in a few words; ``None`` where there is nothing to say."""
-    match type(receives).__name__:
-        case "PerRow":
-            return f"per row of {receives.index.id}"
-        case "RowsUnder":
-            return f"grouped by {receives.index.id}"
-        case "Whole":
+    match input_plan.arrives:
+        case "value_at_row":
+            return f"per row of {input_plan.rows_of}"
+        case "all_rows_under_row":
+            return f"grouped by {input_plan.rows_of}"
+        case "whole":
             return "whole"
-        case "Gather":
+        case "collected":
             return "gathered"
-        case "Merge":
+        case "merged":
             return "merged"
-        case "Broadcast":
+        case "same_value_every_row":
             return None
-    raise TypeError(f"no label for {receives!r}")
 
 
 def _quoted(text: str) -> str:

@@ -77,7 +77,6 @@ class NodeFailed(_EventRecord):
 
     type: Literal["node_failed"] = "node_failed"
     node_id: str
-    error: str
     cause: Problem
 
 

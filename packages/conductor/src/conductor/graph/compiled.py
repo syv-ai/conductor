@@ -80,9 +80,11 @@ from conductor.execution.run_state import Answers, RunState
 from conductor.execution.run_until_idle import Leg
 from conductor.execution.waiting_units import apply_answers
 from conductor.graph.binding import Static
-from conductor.graph.compiled_node import CompiledField, CompiledNode, _gate
-from conductor.graph.compiler import Compilation
-from conductor.graph.embedding import as_drawn
+from conductor.graph.compile_graph import compile_graph
+from conductor.graph.compiled_node import CompiledField, CompiledNode
+from conductor.graph.embedding import EmbeddableGraph, as_drawn, read_embeddable
+from conductor.graph.engine_read_plan import EngineReadPlan, build_engine_read_plan
+from conductor.graph.run_plan import RunPlan
 from conductor.ref import Ref
 
 if TYPE_CHECKING:
@@ -130,140 +132,111 @@ class CompiledGraph:
     #: graph that cannot be embedded is one ``embedded_graph_broken`` on the
     #: graph node; its own problems are on it (``node(id).version.problems``).
     problems: tuple[Problem, ...]
-    #: The finished compile, whose last step builds ``node`` and ``field``'s
-    #: values on the first question. A graph that embeds this
-    #: one reads its records from here and embeds them (``embedding``);
-    #: nothing else does.
-    _compilation: Compilation = field(repr=False)
+    #: Every node compile met, by id: what ``node`` hands back.
+    _nodes: Mapping[str, CompiledNode] = field(repr=False)
+    #: The tables a merge matches against what they were built from.
+    _row_ids_must_survive: frozenset[Ref] = field(repr=False)
 
     @classmethod
     def from_graph(cls, graph: Graph, registry: NodeRegistry) -> CompiledGraph:
         """Compile ``graph`` against ``registry``: the one way to get a ``CompiledGraph``.
 
-        Pure — the same graph and registry always give the same result.
-        Every definition the graph names must already be in the registry.
-        Nothing raises for a fault in the graph; read ``problems`` and
-        ``is_runnable``. A node's hook that raises anything but
-        ``CompileProblem`` is a bug in the node, and that exception leaves
-        here as it is. The steps of compile are ``compiler.Compilation.run``'s;
-        every ``CompiledNode`` and ``CompiledField`` is built once from what
-        they recorded, on the first question about a node (``_nodes``).
+        Pure: the same graph and registry always give the same result. Every
+        definition the graph names must already be in the registry. Nothing
+        raises for a fault in the graph; read ``problems`` and ``is_runnable``.
+        A node's hook that raises anything but ``CompileProblem`` is a bug in
+        the node, and that exception leaves here as it is.
         """
-        compilation = Compilation(graph, registry)
-        compilation.run()
+        records = compile_graph(graph, registry)
         return cls(
-            _registry=registry,
-            _order=compilation.layout.order,
-            interface=compilation.graph_interface,
-            graph=graph,
-            problems=tuple(compilation.problems),
-            _compilation=compilation,
+            _registry=registry, _order=records.order, interface=records.interface, graph=graph, problems=records.problems,
+            _nodes=records.nodes, _row_ids_must_survive=records.row_ids_must_survive,
         )
 
     # -- one node, one field ---------------------------------------------------
 
     @cached_property
-    def _nodes(self) -> Mapping[str, CompiledNode]:
-        """Every node compile met, by its id in the graph that runs, and every node whose version
-        is a graph, by its own: what ``node`` hands back. Folded from the
-        compile's last step on first read (``Compilation.compiled_nodes``),
-        since a graph compiled only to be embedded in another is read through
-        its compile and never asked about a node."""
-        return self._compilation.compiled_nodes()
+    def _read_plan(self) -> EngineReadPlan:
+        """What the engine looks up on every step, built on the first run: compiling alone never pays for it."""
+        return build_engine_read_plan((self._nodes[node_id] for node_id in self._order), self._row_ids_must_survive)
 
     @cached_property
-    def _index_owners(self) -> Mapping[str, CompiledField]:
-        """The field that makes each index's rows, by index id: a series
-        output, or an input holding a list set on its node. It carries the
-        index's share of the read plan. The engine's way back from an index
-        to its owner, read on its first question."""
-        owners: dict[str, CompiledField] = {}
-        for node in self._nodes.values():
-            for compiled_field in node._fields.values():
-                if compiled_field._makes_rows is not None:
-                    owners[compiled_field._makes_rows.id] = compiled_field
-                elif compiled_field._listed:
-                    owners[compiled_field.index.id] = compiled_field
-        return owners
+    def _for_embedding(self) -> EmbeddableGraph:
+        """What a graph that embeds this one asks of it (``conductor.graph.embedding``)."""
+        return read_embeddable(self)
 
     @cached_property
-    def _views(self) -> Mapping[Ref, tuple[Ref, str]]:
-        """Every column of a table output offered as a field, by address: the
-        table output and the column. The engine reads a view's values from
-        the table where they sit."""
-        return self._compilation.iteration.views
+    def run_plan(self) -> RunPlan:
+        """Where every ready node runs and what each of its inputs receives,
+        in execution order: the shape compile decided, for a host to show and
+        compare (``conductor.graph.run_plan``). ``str(compiled.run_plan)`` is
+        that as text. A node that isn't ready is absent."""
+        return RunPlan.model_construct(nodes={
+            node_id: node._run_plan for node_id in self._order if (node := self._nodes[node_id]).wiring is not None
+        })
 
     def node(self, node_id: str) -> CompiledNode:
-        """Look up one compiled node by its id: its path inside an embedded graph (``approve/check``).
-
-        Every node compile saw has an entry, broken or not: each node in the
-        graph and each node inside a graph embedded in it. An id the
-        graph does not have raises ``KeyError``."""
+        """One compiled node by its id: its path inside an embedded graph
+        (``approve/check``). An id the graph does not have raises ``KeyError``."""
         if node_id not in self._nodes:
             raise KeyError(f"{node_id!r} is not a node of this graph")
         return self._nodes[node_id]
 
     def field(self, ref: Ref) -> CompiledField:
-        """Look up one compiled input or output by its address.
+        """One compiled input or output by its address.
 
         A field inside an embedded graph is at its path: ``Ref("emb/all",
-        "result")``. The node ``emb`` itself is a graph and has no fields, so
-        the author's spelling, ``Ref("emb", "all.result")``, raises ``KeyError``
-        like any node or field the graph does not have, since asking for one
-        is a programming error. A node compile could not resolve raises
-        ``NodeReadError``: nobody knows its fields."""
-        node = self._nodes.get(ref.node_id)
-        if node is None:
-            raise KeyError(f"{ref.node_id!r} is not a node of this graph")
-        if node._kind == "graph":
+        "result")``. Anything the graph has no such field for raises
+        ``KeyError``, naming the problem behind it when a node compile
+        couldn't work out is why."""
+        node = self.node(ref.node_id)
+        if node.wiring is None:
+            raise KeyError(f"{ref.node_id!r} has no fields compile could work out: {node.cause.msg if node.cause else ''}")
+        if node.embedded_graph is not None:
             raise KeyError(f"{ref.node_id!r} is a graph; its fields are on the nodes inside it")
-        _gate(node, f"field {ref.field!r}", needs_wiring=False)
-        compiled_field = node._fields.get(ref.field)
+        compiled_field = node.wiring.fields.get(ref.field)
         if compiled_field is None:
             raise KeyError(f"{ref.node_id!r} has no field {ref.field!r} on this node")
         return compiled_field
 
     # -- the interface, from each side --------------------------------------------
 
-    def with_inputs(self, **inputs: Any) -> CompiledGraph:
-        """This graph with some of its inputs filled, compiled again, to run with those values.
+    def with_inputs(self, inputs: Mapping[str, Any] | None = None, /, **by_name: Any) -> CompiledGraph:
+        """This graph with some of its inputs filled, compiled again, to run with those values::
 
-        Each keyword names an input of ``interface.inputs``: by its address
-        (``**{"a.text": ...}``, ``**{"emb/up.text": ...}`` inside an embedded
-        graph), or by its bare field name (``text=...``) when no other input
-        has that name. A name
-        the interface does not offer — unknown, locked, fed by an edge, or
-        shared by several inputs — is refused with ``InvalidCallError``, code
-        ``not_offered``, every such name at once. Each value becomes a ``Static`` on its input in a
-        copy of the authored graph, which compiles against the same
-        registry, so compile is what reads it: a list on an input for one
+            compiled.with_inputs({"a.text": "hello"}, count=3)
+
+        ``inputs`` is keyed by address (``a.text``, or ``emb/up.text`` inside
+        an embedded graph); a keyword is a field name when no other input has
+        that name. A name the interface does not offer is refused with
+        ``InvalidCallError``, code ``not_offered``, every such name at once.
+        Each value becomes a ``Static`` on its input in a copy of the graph,
+        which compiles against the same registry: a list on an input for one
         value runs the graph once per item, a value the type cannot read is
-        ``invalid_static``. The copy still offers every input: a static is a
-        value a caller may answer over, so filling an input again replaces it.
+        ``invalid_static``. The copy still offers every input.
 
         Not a run, and it validates nothing itself.
         """
-        return self._refilled(inputs, ())
+        return self._refilled({**(inputs or {}), **by_name}, ())
 
     def _refilled(self, values: Mapping[str, Any], cleared: Iterable[str]) -> CompiledGraph:
         """This graph compiled again with ``values`` typed on the inputs they
         name and the values its author typed on the ``cleared`` inputs taken
         off, so they arrive at run time. ``with_inputs`` for a caller; a
-        graph that embeds this one asks for the copy one graph node fills
-        (``Compilation._as_embedded``). Names are read as ``with_inputs`` reads them."""
+        graph that embeds this one asks for the copy one graph node fills. Names are read as ``with_inputs`` reads them."""
         offered = [inp.name for inp in self.interface.inputs]
         faults: list[Problem] = []
         filled: dict[str, dict[str, Static]] = {}
         for name, value in values.items():
             ref = self._offered(name, offered, faults)
             if ref is not None:
-                node_id, key = as_drawn(ref, self._compilation.layout.graphs)
+                node_id, key = as_drawn(ref, self._for_embedding.graph_ids)
                 filled.setdefault(node_id, {})[key] = Static(value)
         taken: dict[str, set[str]] = {}
         for name in cleared:
             ref = self._offered(name, offered, faults)
             if ref is not None:
-                node_id, key = as_drawn(ref, self._compilation.layout.graphs)
+                node_id, key = as_drawn(ref, self._for_embedding.graph_ids)
                 taken.setdefault(node_id, set()).add(key)
         if faults:
             raise InvalidCallError(faults)
@@ -316,7 +289,7 @@ class CompiledGraph:
         found: dict[str, dict[str, tuple[str, ...]]] = {}
         for node_id in self._order:
             node = self._nodes[node_id]
-            if node.state != "ready" or node.runs_per_row_of is not None:
+            if node.wiring is None or node.wiring._runs_per_row_of is not None:
                 continue
             groups: dict[str, list[str]] = {}
             for out in node.interface.outputs:
@@ -476,11 +449,12 @@ class CompiledGraph:
         through other nodes: an output, or a column of a table output. Walked
         over the read plan on each call rather than stored, since every node's
         readers stored would cost memory quadratic in a long chain."""
+        read_by = self._read_plan.read_by
         found: set[str] = set()
         frontier = list(node_ids)
         while frontier:
-            for compiled_field in self._nodes[frontier.pop()]._fields.values():
-                for reader, _ in compiled_field._read_by:
+            for compiled_field in self._nodes[frontier.pop()].wiring.fields.values():
+                for reader, _ in read_by[compiled_field.ref]:
                     if reader.node_id not in found:
                         found.add(reader.node_id)
                         frontier.append(reader.node_id)

@@ -7,8 +7,7 @@ derives that surface. Nothing here is stored and nothing here walks the
 graph: the one graph-wide fact it needs, which nodes consume which, comes
 in as the dependency map ``topology.dependencies_of`` builds once per
 compile; a node whose set there is empty is an input node.
-``lock_problems`` is the one check a lock can fail, and
-``field_problems`` the two rules every node's fields obey, both kept
+``field_problems`` is the two rules every node's fields obey, both kept
 apart from the derivation so an editor gets its problems without a
 surface being rebuilt.
 """
@@ -26,25 +25,6 @@ from conductor.interface import Interface
 if TYPE_CHECKING:
     from conductor.graph.model import Graph
     from conductor.metadata import Input, Output
-
-
-def lock_problems(nodes: Mapping[str, GraphNode], interfaces: Mapping[str, Interface]) -> tuple[Problem, ...]:
-    """Which locks point at a field the node does not have?
-
-    A lock (``GraphNode.locked``) is an input the graph's author closed:
-    no caller may fill it, so it leaves the graph's inputs. A lock naming
-    a field that is not on the node's interface is stale. It narrows nothing
-    and blocks nothing, so the problem is non-fatal, and it is reported on
-    every node, connected or not, because it is repairable wherever it
-    sits. A node absent from ``interfaces`` is one compile could not resolve;
-    it carries its own problem.
-    """
-    return tuple(
-        problem("unknown_locked_field", node_id, name)
-        for node_id, interface in interfaces.items()
-        for name in nodes[node_id].locked
-        if name not in {i.name for i in interface.inputs}
-    )
 
 
 def field_problems(
@@ -93,7 +73,7 @@ def derive_interface(
     Each ``Input`` / ``Output`` returned is the node's own record, named by
     its address ``Ref(node_id, field)`` and carrying the title the author
     gave that field on that node. ``needs`` is the union of what the
-    nodes need, by parameter name.
+    nodes need, by type.
 
     ``interfaces`` holds each node's actual fields (its computed
     ``Interface``, which carries the needs of the version it pinned); a
@@ -102,18 +82,17 @@ def derive_interface(
     nobody's set is an output node. Fields come in node order, field order
     within a node.
 
-    Asked once per compile, of the authored graph, for what the graph
-    takes and returns (``Compilation.interface``).
+    Asked once per compile, of the authored graph.
     """
     consumed = frozenset().union(*dependencies.values())
     inputs: list[Input] = []
     outputs: list[Output] = []
-    needs: dict[str, type] = {}
+    needs: set[type] = set()
     for node in graph.nodes:
         if node.id not in interfaces:
             continue
         interface = interfaces[node.id]
-        needs.update(interface.needs)
+        needs |= interface.needs
         if not dependencies[node.id]:
             inputs.extend(
                 _as_offered(node, declared, graphs)
@@ -122,7 +101,7 @@ def derive_interface(
             )
         if node.id not in consumed:
             outputs.extend(_as_offered(node, declared, graphs) for declared in interface.outputs)
-    return Interface(inputs=tuple(inputs), outputs=tuple(outputs), needs=needs)
+    return Interface(inputs=tuple(inputs), outputs=tuple(outputs), needs=frozenset(needs))
 
 
 def _as_offered(node: GraphNode, declared, graphs: Collection[str]):

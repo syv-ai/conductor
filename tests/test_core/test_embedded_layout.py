@@ -6,7 +6,6 @@ from typing import Annotated, Any
 import pytest
 from conductor import NodeRegistry, node
 from conductor.dtype import DType
-from conductor.errors import NodeReadError
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import FieldContent, Graph, GraphNode
@@ -93,12 +92,8 @@ def test_the_inner_nodes_are_nodes_of_the_one_run_under_the_graph_nodes_name():
     assert compiled.node("src").embedded_in is None
     # The node that embeds the graph is not a unit of the run; its inner nodes are.
     emb = compiled.node("emb")
-    assert (emb.kind, emb.graph_node.type, compiled.node("src").kind) == ("graph", "inner-graph", "node")
-    for asked in ("runner", "fingerprint"):
-        with pytest.raises(NodeReadError, match="runs as the nodes inside it"):
-            getattr(emb, asked)
-    with pytest.raises(NodeReadError):
-        emb.validate({})
+    assert emb.embedded_graph is not None and compiled.node("src").embedded_graph is None
+    assert emb.fingerprint is None
 
 
 def test_a_graph_holds_the_values_typed_on_it_by_inner_address():
@@ -129,8 +124,8 @@ def test_an_unconnected_placement_keeps_the_inner_statics_and_lays_out_flat():
 
     assert compiled.is_runnable, compiled.problems
     assert compiled.field(Ref("emb/holder", "value")).binding == Static("inner")
-    assert compiled.node("emb").runs_per_row_of is None
-    assert all(compiled.node(node_id).runs_per_row_of is None for node_id in compiled.execution_order)
+    assert compiled.node("emb").wiring._runs_per_row_of is None
+    assert all(compiled.node(node_id).wiring._runs_per_row_of is None for node_id in compiled.execution_order)
 
 
 def test_a_graph_node_is_a_node_in_the_interface_named_by_inner_address():
@@ -200,7 +195,7 @@ def test_a_broken_edge_into_a_graph_node_is_the_graph_nodes_own_problem():
     assert (problem.type, problem.loc[0], problem.loc[1]) == ("unknown_ref_node", "emb", "holder.value")
     assert problem.ctx == {"source_node": "ghost"}
     assert compiled.node("emb").state == "wiring_failed"
-    assert compiled.node("emb")._cause is problem
+    assert compiled.node("emb").cause is problem
 
 
 def test_a_stale_key_on_the_placement_is_reported_on_the_placement():
@@ -220,9 +215,9 @@ def test_a_series_entering_through_a_scalar_field_makes_the_placement_iterate():
     ])
 
     assert compiled.is_runnable, compiled.problems
-    assert compiled.node("emb").runs_per_row_of == Index("docs.result")
-    assert compiled.node("emb/holder").runs_per_row_of == Index("docs.result")
-    assert compiled.node("emb/up").runs_per_row_of == Index("docs.result")
+    assert compiled.node("emb").wiring._runs_per_row_of == Index("docs.result")
+    assert compiled.node("emb/holder").wiring._runs_per_row_of == Index("docs.result")
+    assert compiled.node("emb/up").wiring._runs_per_row_of == Index("docs.result")
 
 
 def test_an_inner_reduction_over_the_entering_series_is_a_fold_of_one():
@@ -233,8 +228,8 @@ def test_an_inner_reduction_over_the_entering_series_is_a_fold_of_one():
         GraphNode(id="emb", type="inner-graph", version=1, bindings={"holder.value": From("docs.result")}),
     ])
 
-    assert compiled.node("emb/join").runs_per_row_of == Index("docs.result")
-    assert (compiled.field(Ref("emb/join", "result")).type, compiled.field(Ref("emb/join", "result")).index) == (Series[Txt], Index("docs.result"))
+    assert compiled.node("emb/join").wiring._runs_per_row_of == Index("docs.result")
+    assert (compiled.field(Ref("emb/join", "result")).type, compiled.field(Ref("emb/join", "result"))._index) == (Series[Txt], Index("docs.result"))
 
 
 def test_a_series_made_inside_reduces_to_the_outer_row_by_lineage_alone():
@@ -255,9 +250,9 @@ def test_a_series_made_inside_reduces_to_the_outer_row_by_lineage_alone():
     )
 
     assert compiled.is_runnable, compiled.problems
-    made = compiled.field(Ref("emb/lines", "result")).index
+    made = compiled.field(Ref("emb/lines", "result"))._index
     assert (made, made.parent) == (Index("emb/lines.result"), Index("docs.result"))
-    assert compiled.node("emb/join").runs_per_row_of == Index("docs.result")
+    assert compiled.node("emb/join").wiring._runs_per_row_of == Index("docs.result")
 
     # The same, when the series is made off an inner *static* the entering
     # series never touches: the block runs per row, so the new index is a child of
@@ -276,12 +271,12 @@ def test_a_series_made_inside_reduces_to_the_outer_row_by_lineage_alone():
         _registry(unfed, lines),
     )
     assert compiled.is_runnable, compiled.problems
-    made = compiled.field(Ref("emb/lines", "result")).index
+    made = compiled.field(Ref("emb/lines", "result"))._index
     assert (made, made.parent) == (Index("emb/lines.result"), Index("docs.result"))
     # The nodes the entering series never reaches still run once per outer row.
-    assert compiled.node("emb/holder").runs_per_row_of == Index("docs.result")
-    assert compiled.node("emb/lines").runs_per_row_of == Index("docs.result")
-    assert compiled.node("emb/join").runs_per_row_of == Index("docs.result")
+    assert compiled.node("emb/holder").wiring._runs_per_row_of == Index("docs.result")
+    assert compiled.node("emb/lines").wiring._runs_per_row_of == Index("docs.result")
+    assert compiled.node("emb/join").wiring._runs_per_row_of == Index("docs.result")
 
 
 def test_two_crossings_on_one_lineage_make_the_whole_block_iterate_on_the_deeper():
@@ -308,11 +303,11 @@ def test_two_crossings_on_one_lineage_make_the_whole_block_iterate_on_the_deeper
 
     assert compiled.is_runnable, compiled.problems
     per_line = Index("lines.result", parent=Index("docs.result"))
-    assert compiled.node("emb").runs_per_row_of == per_line
-    assert compiled.node("emb/a").runs_per_row_of == per_line
-    assert compiled.node("emb/ua").runs_per_row_of == per_line
-    assert compiled.node("emb/b").runs_per_row_of == per_line
-    assert compiled.field(Ref("emb/ua", "result")).index == per_line
+    assert compiled.node("emb").wiring._runs_per_row_of == per_line
+    assert compiled.node("emb/a").wiring._runs_per_row_of == per_line
+    assert compiled.node("emb/ua").wiring._runs_per_row_of == per_line
+    assert compiled.node("emb/b").wiring._runs_per_row_of == per_line
+    assert compiled.field(Ref("emb/ua", "result"))._index == per_line
 
 
 def test_a_series_entering_a_series_field_is_read_whole_and_the_block_lays_out_flat():
@@ -328,8 +323,8 @@ def test_a_series_entering_a_series_field_is_read_whole_and_the_block_lays_out_f
     )
 
     assert compiled.is_runnable, compiled.problems
-    assert compiled.node("emb").runs_per_row_of is None
-    assert compiled.node("emb/join").runs_per_row_of is None
+    assert compiled.node("emb").wiring._runs_per_row_of is None
+    assert compiled.node("emb/join").wiring._runs_per_row_of is None
     assert compiled.field(Ref("emb/join", "result")).type is Txt
 
 
@@ -354,9 +349,9 @@ def test_two_unrelated_series_entering_one_placement_are_its_misaligned():
     graph_node = compiled.node("emb")
     assert graph_node.state == "wiring_failed"
     assert graph_node.problems == compiled.problems
-    with pytest.raises(NodeReadError) as raised:
-        graph_node.runs_per_row_of
-    assert raised.value.problem == misaligned
+    assert graph_node.wiring is None
+    raised = graph_node.cause
+    assert raised == misaligned
     assert "emb" not in compiled.decisions
 
 
@@ -398,11 +393,11 @@ def test_a_broken_graph_inside_a_graph_breaks_the_graph_around_it():
     assert [(p.type, p.loc[0]) for p in top.version.problems] == [("embedded_graph_broken", "mid")]
     assert [(p.type, p.loc[0]) for p in top.version.node("mid").version.problems] == [("unknown_node_type", "x")]
     for graph_node in (top, top.version.node("mid")):
-        assert (graph_node.state, graph_node.kind) == ("wiring_failed", "graph")
+        assert (graph_node.state, graph_node.embedded_graph is not None) == ("wiring_failed", True)
         assert graph_node.interface is not None  # the box and its handles still draw
-        with pytest.raises(NodeReadError) as raised:
-            graph_node.runs_per_row_of
-        assert raised.value.problem.type == "embedded_graph_broken"
+        assert graph_node.wiring is None
+        raised = graph_node.cause
+        assert raised.type == "embedded_graph_broken"
 
 
 # --- what compile refuses about an embedded graph ---------------------------------------
@@ -453,7 +448,7 @@ def test_an_authored_id_holding_a_slash_is_refused_and_stays_the_authors():
     assert [(p.type, p.loc[0]) for p in compiled.node("e").version.problems] == [("unknown_node_type", "holder")]
     assert compiled.node("e").state == "wiring_failed"
     refused = compiled.node("e/holder")
-    assert (refused.state, refused.embedded_in, refused._cause.type) == ("resolution_failed", None, "invalid_node_id")
+    assert (refused.state, refused.embedded_in, refused.cause.type) == ("resolution_failed", None, "invalid_node_id")
 
 
 def test_misaligned_inside_an_embedded_graph_is_reported_once_with_the_authors_addresses():

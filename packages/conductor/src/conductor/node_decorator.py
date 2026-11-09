@@ -234,6 +234,8 @@ class NodeVersion:
     policy: Policy
     #: This version's own notice; ``None`` means it is not going away.
     deprecation: Deprecation | None = None
+    #: The ``FromRun`` parameters: the value of each type goes under this name in a call.
+    from_run: Mapping[str, type] = field(default_factory=dict)
     #: How a return splits across the outputs (``ReadSignature.returns``).
     returns: Any = None
     #: For a ``**x: T`` no hook owns: what every edge into the node is an input
@@ -283,7 +285,7 @@ def _version(
     elif read.var_keyword is not None:
         open_input = open_input_of(*read.var_keyword)
     return NodeVersion(
-        run=run, interface=read.interface, policy=policy, deprecation=deprecation, returns=read.returns,
+        run=run, interface=read.interface, policy=policy, deprecation=deprecation, from_run=read.from_run, returns=read.returns,
         open_input=open_input, compute_inputs=inputs_hook, compute_outputs=outputs_hook, upgrade_to_next=upgrade,
     )
 
@@ -359,9 +361,11 @@ class NodeDefinition(Generic[_P, _R]):
         tags: Sequence[str] = (),
         docs: str | None = None,
         deprecation: Deprecation | None = None,
-        versions: Mapping[int, CompiledGraph],
+        versions: CompiledGraph | Mapping[int, CompiledGraph],
     ) -> NodeDefinition[..., Any]:
-        """A node whose versions are graphs a host compiled, by number; its numbers may have holes."""
+        """A node whose versions are graphs a host compiled, by number; its numbers may have holes. One graph alone is version 1."""
+        if not isinstance(versions, Mapping):
+            versions = {1: versions}
         if not versions:
             raise NodeDeclarationError(f"{id!r} has no versions; a definition declares at least one", code="versions_empty", node_id=id)
         return NodeDefinition(

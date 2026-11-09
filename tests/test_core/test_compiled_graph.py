@@ -6,7 +6,7 @@ from typing import Annotated, Any
 import pytest
 from conductor import NodeRegistry, OlderVersion, Upgrade, node
 from conductor.dtype import AsItArrives, DType
-from conductor.errors import CompileProblem, NodeReadError, Problem
+from conductor.errors import CompileProblem, Problem
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import FieldContent, Graph, GraphNode
@@ -198,35 +198,23 @@ def test_reading_what_a_state_lacks_names_the_problem():
     """A gated read raises a named error carrying the problem that explains it: the node's own, or the one upstream."""
     compiled = _half_finished()
 
-    with pytest.raises(NodeReadError) as own:
-        compiled.node("b").runs_per_row_of
-    assert own.value.problem.type == "unknown_ref_node" and own.value.problem.loc[0] == "b"
-    with pytest.raises(NodeReadError) as upstream:
-        compiled.node("c").runs_per_row_of
-    assert upstream.value.problem is own.value.problem
-    with pytest.raises(NodeReadError):
+    assert compiled.node("b").wiring is None
+    own = compiled.node("b").cause
+    assert own.type == "unknown_ref_node" and own.loc[0] == "b"
+    assert compiled.node("c").wiring is None
+    upstream = compiled.node("c").cause
+    assert upstream is own
+    with pytest.raises(KeyError):
         compiled.field(Ref("c", "x")).type
-    with pytest.raises(NodeReadError) as lost:
-        compiled.node("x").interface
-    assert lost.value.problem.type == "unknown_node_type"
-    with pytest.raises(NodeReadError):
+    assert compiled.node("x").interface is None
+    lost = compiled.node("x").cause
+    assert lost.type == "unknown_node_type"
+    with pytest.raises(KeyError):
         compiled.field(Ref("x", "x"))
     # What each state has still answers.
     assert compiled.node("c").interface.inputs[0].name == "x"
-    assert compiled.field(Ref("c", "x")).binding == From("b.result")
+    assert compiled.node("c").graph_node.bindings["x"] == From("b.result")
     assert compiled.node("x").graph_node.type == "nope"
-
-
-def test_the_named_errors_are_not_key_errors():
-    """``except KeyError`` catches a caller's wrong id and nothing else; the message names the node, the read and the cause."""
-    compiled = _half_finished()
-    with pytest.raises(NodeReadError) as raised:
-        compiled.node("c").runs_per_row_of
-
-    assert not issubclass(NodeReadError, KeyError)
-    assert raised.value.problem is not None
-    assert "'c'" in str(raised.value) and "runs_per_row_of" in str(raised.value)
-    assert "unknown_ref_node" in str(raised.value)
 
 
 def test_a_node_downstream_of_a_cycle_carries_the_cycle():
@@ -238,9 +226,9 @@ def test_a_node_downstream_of_a_cycle_carries_the_cycle():
 
     assert (compiled.node("a").state, compiled.node("b").state) == ("resolution_failed", "resolution_failed")
     assert compiled.node("c").state == "wiring_failed"
-    with pytest.raises(NodeReadError) as raised:
-        compiled.node("c").runs_per_row_of
-    assert raised.value.problem.type == "cycle"
+    assert compiled.node("c").wiring is None
+    raised = compiled.node("c").cause
+    assert raised.type == "cycle"
 
 
 def test_a_painter_reads_every_node_of_a_broken_graph():
@@ -253,7 +241,7 @@ def test_a_painter_reads_every_node_of_a_broken_graph():
             continue
         assert graph_node.interface.inputs
         if graph_node.state == "ready":
-            assert graph_node.runs_per_row_of is None
+            assert graph_node.wiring._runs_per_row_of is None
             assert all(compiled.field(Ref(drawn.id, i.name)).type is Txt for i in graph_node.interface.inputs)
 
 
@@ -304,7 +292,7 @@ def test_an_empty_typed_input_is_a_value_that_arrives_later():
     assert not compiled.is_runnable
     assert [p.type for p in compiled.problems] == ["unbound_required"]
     assert (compiled.node("n").state, compiled.node("e").state) == ("ready", "ready")
-    assert compiled.field(Ref("n", "text")).receives == Broadcast()
+    assert compiled.field(Ref("n", "text"))._receives == Broadcast()
     assert compiled.field(Ref("e", "result")).type is Txt
 
 
@@ -397,13 +385,11 @@ def _imports_of(module) -> set[str]:
     return reached
 
 
-def test_the_compiler_does_not_know_the_compiled_graph():
-    """``compiled`` imports ``compiler`` and never the other way. Compile's
-    last step builds the stored values (``compiled_node``), but nothing in
-    compile knows the ``CompiledGraph`` that hands them out."""
-    import conductor.graph.compiler as compiler_module
+def test_compile_does_not_know_the_compiled_graph():
+    """``compiled`` imports the walk and never the other way."""
+    import conductor.graph.compile_graph as walk_module
 
-    reached = _imports_of(compiler_module)
+    reached = _imports_of(walk_module)
 
     assert not {name for name in reached if name == "conductor.graph.compiled" or name.startswith("conductor.graph.compiled.")}
     assert not {name for name in reached if name.rsplit(".", 1)[-1] == "CompiledGraph"}
@@ -479,9 +465,9 @@ def test_a_node_type_the_registry_lacks_is_a_fatal_problem():
     assert (problem.type, problem.fatal, problem.loc[0]) == ("unknown_node_type", True, "a")
     assert not compiled.is_runnable
     assert compiled.node("a").state == "resolution_failed"
-    with pytest.raises(NodeReadError) as raised:
-        compiled.node("a").interface
-    assert raised.value.problem == problem
+    assert compiled.node("a").interface is None
+    raised = compiled.node("a").cause
+    assert raised == problem
 
 
 def test_a_version_the_class_no_longer_declares_is_a_fatal_problem():
@@ -580,7 +566,7 @@ def test_needs_is_the_union_of_the_nodes_needs():
     ], _registry(stamped))
 
     assert compiled.is_runnable, compiled.problems
-    assert compiled.interface.needs == {"clock": Clock}
+    assert compiled.interface.needs == {Clock}
 
 
 def test_an_input_arrives_with_its_whole_declaration():
@@ -612,7 +598,7 @@ def test_the_engine_asks_for_a_placement_its_version_and_its_runner():
 
     assert compiled.node("old").graph_node.type == "renamed"
     assert compiled.node("old").version.interface.inputs[0].name == "old"
-    assert compiled.node("old").runner(old=Txt("hej")) == "hej"
+    assert compiled.node("old").version.run(old=Txt("hej")) == "hej"
 
 
 # --- the artifact is a value ------------------------------------------------
@@ -634,7 +620,7 @@ def test_compiling_the_same_graph_twice_gives_the_same_answers():
     assert first.interface == second.interface
     assert first.node("b").interface == second.node("b").interface
     assert first.field(Ref("b", "result")).type is second.field(Ref("b", "result")).type
-    assert first.field(Ref("b", "result")).index == second.field(Ref("b", "result")).index
+    assert first.field(Ref("b", "result"))._index == second.field(Ref("b", "result"))._index
 
 
 def test_compiling_does_not_mutate_the_graph():
@@ -666,12 +652,10 @@ def test_a_compiled_node_validates_a_call_and_hands_back_its_keyword_arguments()
     compiled = _compiled([GraphNode(id="a", type="echo", version=1, bindings={"x": Static("hi")})])
     graph_node = compiled.node("a")
 
-    kwargs = graph_node.validate({"x": Txt("a")})
+    kwargs = graph_node._check({"x": Txt("a")})
     assert set(kwargs) == {"x", "y"} and isinstance(kwargs["x"], Txt) and kwargs["y"] == Txt("")
     with pytest.raises(ValidationError):
-        graph_node.validate({"x": ["not", "text"]})
-    with pytest.raises(NodeReadError):
-        _compiled([GraphNode(id="b", type="echo", version=1, bindings={"x": From("ghost.result")})]).node("b").validate({})
+        graph_node._check({"x": ["not", "text"]})
 
 
 def test_a_default_reaches_the_node_as_its_input_s_type():
@@ -687,7 +671,7 @@ def test_a_default_reaches_the_node_as_its_input_s_type():
 
     compiled = _compiled([GraphNode(id="c", type="counted", version=1)], NodeRegistry((counted,)))
 
-    assert isinstance(compiled.node("c").validate({})["n"], Num)
+    assert isinstance(compiled.node("c")._check({})["n"], Num)
     assert compiled.run_sync().status == "complete"
     assert [type(n) for n in seen] == [Num] and seen == [3.0]
 

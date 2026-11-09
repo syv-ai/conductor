@@ -117,6 +117,8 @@ class Merge:
 
     #: Per source, in wiring order: the source and how the unit receives it.
     parts: tuple[tuple[Ref, PerRow | Broadcast | Whole | RowsUnder], ...]
+    #: The sources whose rows sit above another source's: copied down onto those rows.
+    copied_down: frozenset[Ref] = frozenset()
 
 
 Receive = PerRow | Broadcast | Whole | RowsUnder | Gather | Merge

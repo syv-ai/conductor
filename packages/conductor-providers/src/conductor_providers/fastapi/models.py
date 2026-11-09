@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from conductor import Graph, RunState
+from conductor import Graph, Problem, RunPlan, RunState
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -27,3 +27,10 @@ class RunRequest(BaseModel):
     #: A person's answers, by ``WaitingUnit.id``: a value per output, or
     #: ``null`` for no value on that row. Needs ``state``.
     answers: dict[str, dict[str, Any] | None] = Field(default_factory=dict)
+
+
+class CompileResult(BaseModel):
+    """What ``/compile`` returns: every problem, and where each node runs and what its inputs receive."""
+
+    problems: tuple[Problem, ...]
+    run_plan: RunPlan

@@ -199,7 +199,7 @@ def test_a_parameter_named_like_a_pydantic_model_attribute_validates_without_a_w
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n", type="bad", version=1, bindings={name: Static("x")})]), registry)
-        assert compiled.node("n").validate({name: Txt("x")}) == {name: "x"}
+        assert compiled.node("n")._check({name: Txt("x")}) == {name: "x"}
     assert compiled.run_sync().status == "complete"
 
 
@@ -213,7 +213,7 @@ def test_an_aliased_input_and_an_input_named_like_its_field_both_arrive():
         registry,
     )
 
-    assert compiled.node("n").validate({"json_": Txt("a"), "json": Txt("b")}) == {"json_": "a", "json": "b"}
+    assert compiled.node("n")._check({"json_": Txt("a"), "json": Txt("b")}) == {"json_": "a", "json": "b"}
 
 
 def test_args_stay_refused():

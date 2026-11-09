@@ -1,14 +1,13 @@
-"""``CompiledNode`` and ``CompiledField``: what compile learned about one node, and about one of its inputs or outputs.
+"""``CompiledNode``, ``Wiring`` and ``CompiledField``: what compile learned about one node, and about one of its inputs or outputs.
 
-``CompiledGraph`` (in ``conductor.graph.compiled``) builds each once and
-hands the same value back from ``node(node_id)`` and ``field(ref)``. They
-live here, apart from the graph, so the values can be read and changed
-without the walk that fills them in. The words they use — interface,
-series, index, embedded graph — are defined at the top of
-``conductor.graph.compiled``.
+A node compile could not fully work out says so by what it lacks, never by
+raising: ``interface`` is ``None`` when compile doesn't know what fields it
+has, and ``wiring`` is ``None`` when it couldn't work out its connections.
+``cause`` then names the one problem behind it.
 
 This module knows nothing of the compiler or of ``CompiledGraph``: it holds
-the answers, and the graph's compile puts them in.
+the answers, and compile puts them in. The words it uses (interface, series,
+embedded graph) are defined at the top of ``conductor.graph.compiled``.
 """
 
 from __future__ import annotations
@@ -24,8 +23,9 @@ from pydantic_core import to_jsonable_python
 
 from conductor.codec import reader_of, to_wire
 from conductor.dtype import description_of
-from conductor.errors import NodeReadError
+from conductor.graph.run_plan import NodeRunPlan, plan_of_node
 from conductor.interface import model_of
+from conductor.node_decorator import NodeVersion
 from conductor.series import Series
 from conductor.table import holds_tables
 
@@ -37,40 +37,26 @@ if TYPE_CHECKING:
     from conductor.graph.model import GraphNode
     from conductor.graph.receive import Receive
     from conductor.interface import Interface
-    from conductor.node_decorator import NodeDefinition, NodeVersion
+    from conductor.metadata import Input
+    from conductor.node_decorator import NodeDefinition
     from conductor.ref import Ref
     from conductor.series import Index
 
-#: How far compile got with a node, and so what an editor can show for it.
+#: How far compile got with a node, read off what it holds, for the wire.
 #:
-#: ``ready``: compile worked out everything about the node — its inputs and
-#: outputs, and what its connections decide: the type that arrives on each
-#: field and whether it runs once per row. A graph can run only when every
-#: node in it is ready.
+#: ``ready``: compile worked out its connections (``wiring``). A graph can
+#: run only when every node in it is ready.
 #:
-#: ``wiring_failed``: compile knows the node itself — its inputs and outputs,
-#: its version, the values typed into it — but could not work out its
-#: connections. One of its own edges is broken, a node upstream of it is
-#: broken, or the embedded graph around it does not line up. An editor draws
-#: the node with its fields and marks the broken connection; the author fixes
-#: the edge, or the node upstream, that its problem names.
+#: ``wiring_failed``: compile knows its inputs and outputs (``interface``) but
+#: not its connections: one of its edges is broken, a node upstream of it is,
+#: or the embedded graph it stands for can't be embedded. An editor draws the
+#: node with its fields and marks the problem that ``cause`` names.
 #:
-#: ``resolution_failed``: compile could not make sense of the node at all,
-#: so it does not know what inputs or outputs it has. Its type or version is
-#: unknown, it sits on a cycle, its id was refused, or its ``compute_inputs``
-#: refused the values typed into it. An editor draws it as a bare box with
-#: its problem; the author replaces the node, breaks the cycle, or changes
-#: the values its problem names.
+#: ``resolution_failed``: compile doesn't know what fields it has: its type or
+#: version is unknown, it sits on a cycle, its id was refused or its
+#: ``compute_inputs`` refused the values typed into it. An editor draws a bare
+#: box with its problem.
 NodeState = Literal["ready", "wiring_failed", "resolution_failed"]
-
-#: What a node is. ``node``: it runs as one unit, one call of its version's
-#: ``run`` per row. ``graph``: its version is a graph the host compiled,
-#: which compile embeds, so its inner nodes run in its place and its fields
-#: are theirs, at their path. Compile's last step sets it from the version. It is
-#: read where the two kinds answer differently: ``_gate``, for the reads only
-#: a unit answers, and ``CompiledGraph.field``, since a graph has no fields of
-#: its own. Which nodes are graphs is ``Layout.graphs``'s to say.
-NodeKind = Literal["node", "graph"]
 
 
 def _written(value: Any, dtype: Any, listed: bool) -> Any:
@@ -91,292 +77,169 @@ def _or_blank(dtype: Any) -> Any:
     return Series[dtype.element | None] if dtype.element is not None else dtype | None
 
 
-def _gate(node: CompiledNode, asked: str, *, needs_wiring: bool, needs_one_unit: bool = False) -> None:
-    """Raise when ``node`` cannot answer ``asked``.
+@dataclass(frozen=True, eq=False)
+class Wiring:
+    """What a node's connections decided. Only a node compile fully worked out has one."""
 
-    Everything gated needs a node compile could resolve. ``needs_wiring``
-    also asks for a ready node, whose connections compile worked out;
-    ``needs_one_unit`` asks for a node that runs as one unit rather than as
-    an embedded graph. Only a ready node has no ``_cause``."""
-    cause = node._cause
-    if cause is not None and (needs_wiring or node.state == "resolution_failed"):
-        raise NodeReadError(node.id, asked, cause)
-    if needs_one_unit and node._kind != "node":
-        raise NodeReadError(node.id, asked, None)
-
-
-def _receive_shape(receives: Receive | None) -> list[Any]:
-    """How an input arrives, for ``CompiledNode.fingerprint``: its kind, and for
-    the rows under a row its depth. The fresh index a gather makes is not part of it."""
-    return [type(receives).__name__, getattr(receives, "depth", None)]
+    #: Every input and output by name, and each column a table output offers
+    #: (``rows.email``). Empty on an embedded graph: its fields are the nodes' inside it.
+    fields: Mapping[str, CompiledField]
+    #: The rows the node runs once per row of, ``None`` when it runs once. The
+    #: engine's word for it; a host reads ``CompiledGraph.run_plan``.
+    _runs_per_row_of: Index | None = field(repr=False)
 
 
 @dataclass(frozen=True, eq=False)
 class CompiledNode:
     """What compile worked out about one node in a graph.
 
-    You get one from ``CompiledGraph.node(id)``, which hands back the same
-    object every time. Compile builds it once, the first time anyone asks
-    about a node. Its sibling, ``CompiledField``, does the same for one
-    input or output.
-
-    The engine reads it to run the node: its ``interface``, the values set
-    on it (``statics``), how to call it (``validate``, ``runner``) and
-    whether it runs once per row (``runs_per_row_of``). An editor reads it to
-    draw the node: its ``state`` first, then whatever that state allows,
-    and its ``problems`` for the marks.
-
-    How much you can ask depends on the ``state``:
-
-    - Always: ``id``, ``state``, ``graph_node``, ``embedded_in`` and
-      ``problems``.
-    - Unless compile couldn't make sense of the node at all: its ``kind``,
-      ``definition``, ``version``, ``interface`` and ``statics``.
-    - Only on a ready node: ``runs_per_row_of``.
-
-    A read the state rules out raises ``NodeReadError``, carrying the one
-    problem that explains why.
-
-    A node whose ``kind`` is ``graph`` is a whole graph embedded as a
-    node. It doesn't run itself; its inner nodes run in its place, so
-    ``runner``, ``validate`` and ``fingerprint`` raise ``NodeReadError``.
-    It has no fields of its own: an address on it reads through to the
-    inner node's field. Its own graph's problems are on its ``version``.
+    ``CompiledGraph.node(id)`` hands back the same object every time. The
+    engine reads it to run the node, an editor to draw it: ``problems`` and
+    ``cause`` for the marks, ``interface`` for the fields where compile knows
+    them, and ``CompiledGraph.run_plan`` for where it runs.
     """
 
     #: Its id in the graph that runs: its path, ``"approve/check"``, for an inner node.
     id: str
-    #: How far compile got with it: ``ready``, ``wiring_failed`` or
-    #: ``resolution_failed`` (see ``NodeState``).
-    state: NodeState
-    #: The node as the author stored it: its type, version number, title
-    #: and bindings. An inner node's has its path as its id; a ``graph``'s
-    #: bindings name inner addresses (``check.amount``).
+    #: The node as the author stored it: its type, version number, title and
+    #: bindings. An inner node's has its path as its id.
     graph_node: GraphNode = field(repr=False)
-    #: The id of the node whose embedded graph this node belongs to —
-    #: ``"approve"`` for ``"approve/check"`` — or ``None`` for a node the
-    #: author drew.
+    #: The id of the graph node this node sits inside, or ``None`` for a node the author drew.
     embedded_in: str | None = field(repr=False)
-    #: Every problem about this node or one of its fields, in
-    #: ``CompiledGraph.problems`` order: what an editor marks on it.
+    #: Every problem about this node or one of its fields, in ``CompiledGraph.problems`` order.
     problems: tuple[Problem, ...] = field(repr=False)
-    #: The fatal problem that explains a state other than ``ready``: the
-    #: node's own, the one upstream of it, or the one on the embedded graph
-    #: around it. ``None`` exactly when ready.
-    _cause: Problem | None = field(repr=False)
-    #: The answers a resolved node has; ``None`` on one whose resolution failed.
-    _kind: NodeKind = field(repr=False)
-    _definition: NodeDefinition[..., Any] = field(repr=False)
-    _version: NodeVersion | CompiledGraph = field(repr=False)
-    _interface: Interface = field(repr=False)
-    _statics: Mapping[str, Any] = field(repr=False)
-    #: What the walk decided; ``None`` also on a node that is not ready.
-    _runs_per_row_of: Index | None = field(repr=False)
-    #: The read plan, the engine's alone: the walk's decisions inverted once
-    #: at compile, so the engine looks each up instead of searching the graph
-    #: on every run. ``_reads``: every output an edge into this node reads,
-    #: one per edge ref, with how the input it feeds receives it. Empty on a
-    #: node the walk did not derive, and on a ``graph``. What runs on each
-    #: index sits on the field that makes its rows (``CompiledField``).
-    _reads: tuple[tuple[Ref, Receive], ...] = field(repr=False)
-    #: Every input and output by name: what ``CompiledGraph.field`` hands back.
-    _fields: Mapping[str, CompiledField] = field(repr=False)
+    #: The fatal problem that explains a node with no ``wiring``: its own, or the one upstream of it.
+    cause: Problem | None = field(repr=False)
+    #: The definition its type resolved to, and the version of it it uses; ``None`` when neither could be found.
+    definition: NodeDefinition[..., Any] | None = field(repr=False)
+    version: NodeVersion | CompiledGraph | None = field(repr=False)
+    #: The inputs and outputs this node actually has, with the types its
+    #: edges gave them; ``None`` when compile doesn't know them.
+    interface: Interface | None = field(repr=False)
+    #: The values set directly on this node, each read through its field's
+    #: declared type. An input left to its default is absent. Empty when
+    #: compile couldn't read them. On a graph: by inner address (``check.amount``).
+    statics: Mapping[str, Any] = field(repr=False)
+    #: What its connections decided; ``None`` when compile couldn't work them out.
+    wiring: Wiring | None = field(repr=False)
 
     @property
-    def definition(self) -> NodeDefinition[..., Any]:
-        """The definition this node's type resolved to in the registry compile
-        was given; ``version`` is one of its ``versions``."""
-        _gate(self, "definition", needs_wiring=False)
-        return self._definition
+    def state(self) -> NodeState:
+        """How far compile got with this node (``NodeState``)."""
+        if self.wiring is not None:
+            return "ready"
+        return "wiring_failed" if self.interface is not None else "resolution_failed"
 
     @property
-    def kind(self) -> NodeKind:
-        """What this node is: ``node``, run as one unit, or ``graph``, a node
-        whose version is a graph, run as its inner nodes (``NodeKind``)."""
-        _gate(self, "kind", needs_wiring=False)
-        return self._kind
+    def embedded_graph(self) -> CompiledGraph | None:
+        """The compiled graph this node stands for, ``None`` on a node that is a function."""
+        return None if self.version is None or isinstance(self.version, NodeVersion) else self.version
 
     @property
-    def version(self) -> NodeVersion | CompiledGraph:
-        """The version this node uses: a ``NodeVersion`` — its ``run``,
-        interface and policy — for a ``node``; for a ``graph``, the graph
-        compiled on its own, with any values typed on the graph node in it
-        — its interface, and its own problems in its own words."""
-        _gate(self, "version", needs_wiring=False)
-        return self._version
-
-    @property
-    def interface(self) -> Interface:
-        """The inputs and outputs this node actually has, with every type the
-        edges gave it — not merely what its version declared. The one place
-        anything asks what a node has: the engine validates a call against
-        it and an editor draws the fields from it."""
-        _gate(self, "interface", needs_wiring=False)
-        return self._interface
-
-    @property
-    def statics(self) -> Mapping[str, Any]:
-        """The values set directly on this node, by field.
-
-        Each is read through the field's declared type, so it is the value
-        itself, not its JSON form. An input left to its declared default is
-        absent. When a single-value input is given several values, its entry
-        is the list of them, and the node runs once per value. For a
-        ``graph``, the values set on it, by inner address (``check.amount``),
-        each read by the inner node that holds it.
-        """
-        _gate(self, "statics", needs_wiring=False)
-        return self._statics
-
-    @property
-    def runner(self) -> Callable[..., Any]:
-        """The function that runs this node."""
-        _gate(self, "runner", needs_wiring=False, needs_one_unit=True)
-        return self._version.run
+    def _inputs(self) -> tuple[Input, ...]:
+        assert self.interface is not None
+        return self.interface.inputs
 
     @cached_property
-    def fingerprint(self) -> str:
+    def _run_plan(self) -> NodeRunPlan:
+        return plan_of_node(self)
+
+    @cached_property
+    def fingerprint(self) -> str | None:
         """A hash of how the graph uses this node: its type, version and
-        bindings, and the shape compile gave it: the rows it runs on, how
-        each input arrives and each output's type. A run's state stores one
-        per node, and a leg restored into a graph whose fingerprint differs
-        runs the node again — a static edited, a version bumped, an edge
-        moved, a signature that moves the node to other rows all change it;
-        a title or a position does not. Worked out once, as a compiled node
-        never changes."""
-        _gate(self, "fingerprint", needs_wiring=True, needs_one_unit=True)
-        node = self.graph_node
-        declared = {inp.name: inp.dtype for inp in self._interface.inputs}
+        bindings, its run plan and each output's type. A run's state stores
+        one per node, and a leg restored into a graph whose fingerprint
+        differs runs the node again: a static edited, a version bumped, an
+        edge moved or a signature that moves the node to other rows all
+        change it; a title or a position does not. ``None`` on a node that
+        doesn't run as one unit."""
+        if self.wiring is None or self.embedded_graph is not None:
+            return None
+        node, interface = self.graph_node, self.interface
+        assert interface is not None
+        fields = self.wiring.fields
         bindings: dict[str, Any] = {}
         for name, binding in node.bindings.items():
-            if name in self._statics:
+            if name in self.statics:
                 # The value as its type writes it, never as the author spelled
                 # it: ``2`` and ``2.0`` on a number are one value, and a graph
-                # built in Python with the typed value hashes like the stored
-                # graph with its JSON. The author typed many values exactly
-                # when the input is received one per row of its own index.
-                # A static for an input the node no longer has is hashed as
-                # spelled, since no type reads it.
-                bindings[name] = {"static": _written(self._statics[name], declared[name], self._fields[name].listed)}
+                # built in Python hashes like the stored graph with its JSON.
+                bindings[name] = {"static": _written(self.statics[name], fields[name].type if name in fields else None, fields[name]._listed if name in fields else False)}
             else:
                 bindings[name] = binding.model_dump()
         used = {
             "type": node.type,
             "version": node.version,
             "bindings": bindings,
-            "runs_per_row_of": None if self._runs_per_row_of is None else self._runs_per_row_of.id,
-            "receives": {inp.name: _receive_shape(self._fields[inp.name]._receives) for inp in self._interface.inputs},
-            "outputs": {out.name: description_of(out.dtype) for out in self._interface.outputs},
+            "plan": self._run_plan,
+            "outputs": {out.name: description_of(out.dtype) for out in interface.outputs},
         }
         return hashlib.sha256(json.dumps(to_jsonable_python(used), sort_keys=True).encode("utf-8")).hexdigest()
 
-    def validate(self, inputs: Mapping[str, Any]) -> dict[str, Any]:
-        """The keyword arguments a call of this node runs with: ``inputs``
-        checked against the interface, one value per input, a default
-        filled in where the call gave none. Raises pydantic's
-        ``ValidationError`` when a value is not its input's type or a
-        required input is missing; the engine turns that into the node's
-        failure. The check is built on the first call and kept, not built
-        once per unit."""
-        _gate(self, "validate", needs_wiring=True, needs_one_unit=True)
-        return self._check(inputs)
-
     @cached_property
     def _check(self) -> Callable[[Mapping[str, Any]], dict[str, Any]]:
-        """The check a call goes through (``model_of``), built on first use.
-        Compile has already refused every input name it could not carry
-        (``parameter_name_invalid``), so building it cannot fail here. An
+        """The check a call goes through (``model_of``), built on first use. An
         input that takes a blank is read as its type or ``None``."""
         return model_of(tuple(
-            inp.model_copy(update={"dtype": _or_blank(inp.dtype)}) if inp.takes_blank else inp for inp in self._interface.inputs
+            inp.model_copy(update={"dtype": _or_blank(inp.dtype)}) if inp.takes_blank else inp for inp in self._inputs
         ))
 
     @cached_property
     def _inputs_refusing_a_blank(self) -> tuple[str, ...]:
         """The one-value inputs on which a blank means this node isn't called."""
-        return tuple(inp.name for inp in self._interface.inputs if inp.dtype.element is None and not inp.takes_blank)
+        return tuple(inp.name for inp in self._inputs if inp.dtype.element is None and not inp.takes_blank)
 
     @cached_property
     def _series_inputs_leaving_blanks_out(self) -> tuple[str, ...]:
         """The series inputs whose blank cells, row by row, are left out of the call."""
-        return tuple(inp.name for inp in self._interface.inputs if inp.dtype.element is not None and not inp.takes_blank)
-
-    @property
-    def runs_per_row_of(self) -> Index | None:
-        """The index this node runs once per row of, or ``None`` when it runs
-        once. Read off its edges at compile — a series arriving on a scalar
-        input is what makes a node run per row — and never written on the
-        ``GraphNode``. For a ``graph``, the index its inner nodes run once
-        per row of, where a series entered it."""
-        _gate(self, "runs_per_row_of", needs_wiring=True)
-        return self._runs_per_row_of
+        return tuple(inp.name for inp in self._inputs if inp.dtype.element is not None and not inp.takes_blank)
 
 
 @dataclass(frozen=True, eq=False)
 class CompiledField:
-    """One input or output as the compiler left it: its type, its rows, where its value comes from, how it is received.
+    """One input or output of a node whose connections compile worked out.
 
-    Built once by ``CompiledGraph.from_graph``, held by its node, and
-    handed back by ``CompiledGraph.field(ref)`` on every call; like its
-    node, it is equal only to itself. The engine reads ``index``,
-    ``binding`` and ``receives`` to lay values out per row, to find them
-    and to hand each unit what it takes; an editor reads ``type`` and
-    ``index`` to draw the edge, ``receives`` to label it and ``problems``
-    for its marks. Its sibling is ``CompiledNode``, the same for one node.
-
-    Only a resolved node has fields. ``ref``, ``problems`` and ``binding``
-    answer always; ``type``, ``index``, ``receives`` and ``condition``
-    are decided by the node's connections, and raise ``NodeReadError``
-    on a node whose connections compile could not work out.
-    Asking a field for what its kind does not have is a ``KeyError``: an
-    input has no ``condition``, an output has no ``binding``, ``receives``
-    or ``listed``.
+    Built once, while compile walks the node, and handed back by
+    ``CompiledGraph.field(ref)`` on every call.
     """
 
-    #: The field's address — ``Ref("approve/check", "amount")`` for a field
-    #: inside an embedded graph.
+    #: The field's address: ``Ref("approve/check", "amount")`` for a field inside an embedded graph.
     ref: Ref
-    #: Every problem about this field, in ``CompiledGraph.problems`` order.
+    #: The type that travels on this field. An output of a node that runs once
+    #: per row carries ``Series[X]`` even where its declaration says ``X``.
+    type: Any
+    #: Where this input's value comes from: ``From``, ``Static``, or ``None``
+    #: when its declared default applies. Always ``None`` on an output.
+    binding: Binding | None
+    #: Under which condition this output appears (``ALWAYS`` when nothing gates it). Always ``None`` on an input.
+    condition: Condition | None
+    #: Every problem about this field.
     problems: tuple[Problem, ...] = field(repr=False)
-    #: Its node's ``_cause``: set exactly when the node is not ready.
-    _cause: Problem | None = field(repr=False)
-    #: Which kinds this name is: an input, an output, or both.
-    _input: bool = field(repr=False)
-    _output: bool = field(repr=False)
+    #: Where its rows come from, for a field that carries a series; ``None`` otherwise.
+    _index: Index | None = field(repr=False)
+    #: How a unit of its node receives it; ``None`` exactly on an output.
+    _receives: Receive | None = field(repr=False)
+    #: An input the author typed many values into, so its node runs once per value.
+    _listed: bool = field(repr=False)
+    #: The rows this output makes: a series output or a table output. ``None`` on any other field.
+    _makes_rows: Index | None = field(repr=False)
+    #: For a column of a table output offered as a field: the table output and
+    #: the column. Its values are read from the table, never stored one by one.
+    _view_of: tuple[Ref, str] | None = field(repr=False)
     #: For an output: ``None`` is a value it may be given.
     _takes_blank: bool = field(repr=False)
-    _binding: Binding | None = field(repr=False)
-    #: What the walk decided; ``None`` on a node that is not ready, or for a kind the field is not.
-    _type: Any = field(repr=False)
-    _index: Index | None = field(repr=False)
-    _receives: Receive | None = field(repr=False)
-    _condition: Condition | None = field(repr=False)
-    #: Its share of the read plan (see ``CompiledNode._reads``): every input
-    #: an edge from this output feeds, in execution order, with how it
-    #: receives the value (``_read_by``). A field that makes an index's rows —
-    #: a series output (``_makes_rows``, that index) or a ``listed`` input —
-    #: owns that index's share: the nodes that run once per row of it
-    #: (``_run_per_row_by``), the outputs that sit on it (``_carried_by``) and
-    #: the inputs holding a list set on a node, made under each of its rows
-    #: (``_listed_inputs``), each in execution order. Empty on any other field.
-    _read_by: tuple[tuple[Ref, Receive], ...] = field(repr=False)
-    _listed: bool = field(repr=False)
-    _makes_rows: Index | None = field(repr=False)
-    #: For a column of a table output offered as a field (``rows.email``):
-    #: the table output and the column. Its values are the table's cells,
-    #: read from the table where they sit, never stored one by one.
-    _view_of: tuple[Ref, str] | None = field(repr=False)
-    #: A table output a merge matches against a table it was built from: a
-    #: return where no row kept its id fails the node (``row_ids_lost``).
-    _row_ids_must_survive: bool = field(repr=False)
-    _run_per_row_by: tuple[str, ...] = field(repr=False)
-    _carried_by: tuple[Ref, ...] = field(repr=False)
-    _listed_inputs: tuple[Ref, ...] = field(repr=False)
+    #: For an output: the indexes its rows can trace back to, ``None`` when
+    #: that can't be known (``conductor.graph.row_origins``).
+    _row_origins: frozenset[str] | None = field(repr=False)
+
+    @property
+    def _is_output(self) -> bool:
+        return self._receives is None
 
     @cached_property
     def _cell_type(self) -> Any:
         """The type of one value of this field: the element of a series on rows, the field's own type otherwise."""
-        return self._type if self._index is None or self._type.element is None else self._type.element
+        return self.type if self._index is None or self.type.element is None else self.type.element
 
     @cached_property
     def _read_cell(self) -> Callable[[Any], Any]:
@@ -390,72 +253,4 @@ class CompiledField:
     @cached_property
     def _holds_many(self) -> bool:
         """One unit writes many cells here, one per row it makes: a series output, not a table."""
-        return self._makes_rows is not None and not holds_tables(self._type)
-
-    def _gate(self, asked: str) -> None:
-        if self._cause is not None:
-            raise NodeReadError(self.ref.node_id, asked, self._cause)
-
-    def _only(self, kind: Literal["input", "output"]) -> None:
-        """Raise the ``KeyError`` for a read only an input, or only an output, has."""
-        if not (self._input if kind == "input" else self._output):
-            raise KeyError(f"{self.ref.node_id!r} has no {kind} {self.ref.field!r}")
-
-    @property
-    def type(self) -> Any:
-        """The type that travels on this field: what an edge from it or into
-        it carries. An output of a node that runs once per row carries
-        ``Series[X]`` even where its declaration says ``X``; an input fed a
-        series carries that series, before the engine slices it per row."""
-        self._gate("type")
-        return self._type
-
-    @property
-    def index(self) -> Index | None:
-        """Where the rows of the series on this field come from, or ``None``
-        for a field that carries one value. For an input fed several series
-        gathered together, the fresh index they were gathered onto. Read
-        by the engine to lay values out per row."""
-        self._gate("index")
-        return self._index
-
-    @property
-    def binding(self) -> Binding | None:
-        """Where this input's value comes from: ``From`` when it is wired to
-        other nodes' outputs, ``Static`` when a value is set directly on the
-        node, or ``None`` when neither is and its declared default applies.
-        Only an input has one; asking on an output raises."""
-        self._only("input")
-        return self._binding
-
-    @property
-    def receives(self) -> Receive:
-        """How a unit of this input's node receives the value: the value at
-        its own row (``PerRow``), the one value there is (``Broadcast``),
-        everything on the field (``Whole``), the rows under its row
-        (``RowsUnder``) or its unrelated sources collected (``Gather``) — see
-        ``conductor.graph.receive``. Decided once by the
-        walk over the edges; the engine reads it to tell when a
-        unit is ready and what to hand it, and an editor may label the
-        edge from it. Only an input has one; asking on an output raises."""
-        self._only("input")
-        self._gate("receives")
-        return self._receives
-
-    @property
-    def listed(self) -> bool:
-        """The author typed many values into this scalar input — three files,
-        a list of texts — so its node runs once per value, on an index of
-        the input's own. Only an input is typed into."""
-        self._only("input")
-        return self._listed
-
-    @property
-    def condition(self) -> Condition:
-        """Under which condition this output appears: a boolean formula over
-        the decisions upstream (see ``conductor.graph.conditions``),
-        ``ALWAYS`` when nothing gates it. Derived from ``choice`` groups
-        and edges; the engine never reads it. Only an output has one."""
-        self._only("output")
-        self._gate("condition")
-        return self._condition
+        return self._makes_rows is not None and not holds_tables(self.type)

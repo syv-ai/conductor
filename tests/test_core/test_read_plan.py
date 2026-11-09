@@ -69,14 +69,15 @@ def test_a_node_with_series_outputs_owns_the_index_they_make_rows_of():
     texts, names, up = compiled.field(Ref("docs", "texts")), compiled.field(Ref("docs", "names")), compiled.field(Ref("up", "result"))
 
     assert texts._makes_rows == Index("docs.texts") and names._makes_rows == Index("docs.names")
-    assert texts._run_per_row_by == ("up",) and names._run_per_row_by == ()
-    assert texts._carried_by == (Ref("docs", "texts"), Ref("up", "result"))
-    assert names._carried_by == (Ref("docs", "names"),)
-    assert texts._read_by == ((Ref("up", "text"), PerRow(Index("docs.texts"))),)
-    assert up._read_by == ((Ref("join", "texts"), Whole()),)
-    assert compiled.node("join")._reads == ((Ref("up", "result"), Whole()),)
-    assert (up._makes_rows, up._run_per_row_by, up._carried_by) == (None, (), ())
-    assert compiled._index_owners["docs.texts"] is texts
+    plan = compiled._read_plan
+    assert plan.run_per_row_by["docs.texts"] == ("up",) and plan.run_per_row_by["docs.names"] == ()
+    assert plan.carried_by["docs.texts"] == (Ref("docs", "texts"), Ref("up", "result"))
+    assert plan.carried_by["docs.names"] == (Ref("docs", "names"),)
+    assert plan.read_by[texts.ref] == ((Ref("up", "text"), PerRow(Index("docs.texts"))),)
+    assert plan.read_by[up.ref] == ((Ref("join", "texts"), Whole()),)
+    assert plan.reads["join"] == ((Ref("up", "result"), Whole()),)
+    assert up._makes_rows is None
+    assert plan.owners["docs.texts"] is texts
 
 
 def test_an_input_holding_a_typed_in_list_owns_its_index():
@@ -86,9 +87,10 @@ def test_an_input_holding_a_typed_in_list_owns_its_index():
     )
     typed = compiled.field(Ref("u", "text"))
 
-    assert typed.listed and not compiled.field(Ref("v", "text")).listed
-    assert typed._run_per_row_by == ("u", "v")
-    assert typed._carried_by == (Ref("u", "result"), Ref("v", "result"))
+    assert typed._listed and not compiled.field(Ref("v", "text"))._listed
+    plan = compiled._read_plan
+    assert plan.run_per_row_by["u.text"] == ("u", "v")
+    assert plan.carried_by["u.text"] == (Ref("u", "result"), Ref("v", "result"))
 
 
 def test_a_list_set_on_a_node_inside_an_embedded_graph_running_per_row_is_made_under_each_row():
@@ -97,7 +99,7 @@ def test_a_list_set_on_a_node_inside_an_embedded_graph_running_per_row_is_made_u
         GraphNode(id="emb", type="pair", version=1, bindings={"a.text": From("docs.texts")}),
     )
 
-    assert compiled.field(Ref("docs", "texts"))._listed_inputs == (Ref("emb/b", "text"),)
+    assert compiled._read_plan.listed_inputs["docs.texts"] == (Ref("emb/b", "text"),)
 
 
 def test_downstream_is_every_node_a_value_reaches():

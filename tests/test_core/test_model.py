@@ -85,11 +85,9 @@ def test_a_node_without_a_type_is_refused():
         Graph.model_validate({"nodes": [{"id": "a", "version": 1}]})
 
 
-def test_a_node_id_with_a_dot_is_refused_however_the_node_is_built():
-    with pytest.raises(ValueError, match="contains '.'"):
-        GraphNode(id="a.b", type="echo", version=1)
-    with pytest.raises(ValueError, match="contains '.'"):
-        Graph.from_yaml("nodes:\n- {id: a.b, type: echo, version: 1}\n")
+def test_a_node_id_with_a_dot_reads_back_and_is_for_compile_to_refuse():
+    assert GraphNode(id="a.b", type="echo", version=1).id == "a.b"
+    assert Graph.from_yaml("nodes:\n- {id: a.b, type: echo, version: 1}\n").nodes[0].id == "a.b"
 
 
 def test_an_index_is_its_id_whatever_its_parent():

@@ -709,7 +709,7 @@ def test_a_typed_in_list_inside_an_iterating_embedded_graph_is_a_child_row_under
         ]),
         _registry_with_asks(TypedInside),
     )
-    assert compiled.node("emb/t").runs_per_row_of.parent == Index("docs.texts")
+    assert compiled.node("emb/t").wiring._runs_per_row_of.parent == Index("docs.texts")
 
     results = compiled.results(compiled.run_sync())
 

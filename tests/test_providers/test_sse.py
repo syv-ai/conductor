@@ -48,7 +48,7 @@ def test_a_pending_units_questions_and_a_failures_cause_are_records():
     question = Question(name="result", title="Svar", dtype={"id": "text"}, json_schema={"type": "string"}, widget={"kind": "textarea"}, default="forslag", optional=True)
 
     pending = _payload(UnitWaiting(unit=WaitingUnit(id="ask@1", node_id="ask", row=(1,), questions=(question,))))
-    failed = _payload(NodeFailed(type="node_failed", node_id="n", error="boom", cause=Problem(type="boom", msg="Boom.", loc=("n", 2))))
+    failed = _payload(NodeFailed(type="node_failed", node_id="n", cause=Problem(type="boom", msg="Boom.", loc=("n", 2))))
 
     (asked,) = pending["unit"]["questions"]
     assert (asked["name"], asked["default"], asked["widget"]["kind"]) == ("result", "forslag", "textarea")

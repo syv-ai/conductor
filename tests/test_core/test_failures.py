@@ -82,7 +82,6 @@ def test_a_foreign_exception_runs_once_and_is_execution_failed():
     error = _error(events)
     assert error.cause.type == "execution_failed"
     assert error.cause.msg == "The node failed."
-    assert error.error == "The node failed."
     assert "missing" not in json.dumps(error.cause.model_dump(mode="json"))
 
 
@@ -122,7 +121,7 @@ def test_an_exhausted_external_failure_is_external_failed():
     error = _error(events)
     assert error.cause.type == "external_failed"
     assert error.cause.msg == "An outside service did not answer."
-    assert "socket" not in error.error
+    assert "socket" not in error.cause.msg
     assert compiled.run_sync().status == "failed"
 
 

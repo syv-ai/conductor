@@ -20,7 +20,7 @@ alternative comes from. An alternative naming one decision twice with different
 outputs is dropped, since it can never hold.
 
 Only a decision on a node that runs once gates anything. A node that runs
-once per row (see ``iteration``) may take one branch on some rows and the
+once per row may take one branch on some rows and the
 other on the rest, so each branch output is a series missing the rows
 that went the other way. Nothing downstream is switched off, so such a
 node contributes no atom.
@@ -28,21 +28,20 @@ node contributes no atom.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
+from typing import Any
 
 from conductor.graph.binding import From
-from conductor.graph.model import GraphNode
-from conductor.interface import Interface
+from conductor.metadata import Output
 from conductor.ref import Ref
-from conductor.series import Index
 
 
 @dataclass(frozen=True, slots=True)
 class Atom:
     """One way one decision went: output ``output`` of the ``choice`` group on ``node_id``.
 
-    Made by ``conditions_of`` for every output with a ``choice`` on a node
+    Made by ``output_condition`` for every output with a ``choice`` on a node
     that runs once, and only ever used inside a ``Condition``. The
     engine never sees one: it propagates ``SKIPPED`` without knowing which
     decision caused it.
@@ -59,36 +58,29 @@ ALWAYS: Condition = frozenset({frozenset()})
 NEVER: Condition = frozenset()
 
 
-def conditions_of(
-    nodes: Sequence[GraphNode],
-    interfaces: Mapping[str, Interface],
-    runs_per_row_of: Mapping[str, Index | None],
-) -> dict[Ref, Condition]:
-    """The condition of every output of every node in ``runs_per_row_of`` — the nodes the edge walk resolved.
+def condition_at_node(bindings: Mapping[str, Any], condition_of: Callable[[Ref], Condition]) -> Condition:
+    """The condition under which a node runs at all: every connected input's
+    holds, and an input's holds when any of its sources' does."""
+    at_node = ALWAYS
+    for binding in bindings.values():
+        if isinstance(binding, From):
+            at_node = _all_of(at_node, _any_of(condition_of(ref) for ref in binding.refs))
+    return at_node
 
-    Walks ``nodes`` in execution order. A node's own condition holds
-    when every connected input's does, and an input's holds when any of
-    its sources' does. An output with a ``choice`` on a node that runs
-    once adds its own decision.
-    """
-    conditions: dict[Ref, Condition] = {}
-    for node in nodes:
-        if node.id not in runs_per_row_of:
-            continue
-        at_node = ALWAYS
-        for binding in node.bindings.values():
-            if isinstance(binding, From):
-                at_node = _all_of(at_node, _any_of(conditions.get(ref, ALWAYS) for ref in binding.refs))
-        for out in interfaces[node.id].outputs:
-            gates = out.choice is not None and runs_per_row_of[node.id] is None
-            conditions[Ref(node.id, out.name)] = (
-                _all_of(at_node, frozenset({frozenset({Atom(node.id, out.choice, out.name)})})) if gates else at_node
-            )
-    return conditions
+
+def output_condition(node_id: str, out: Output, at_node: Condition, runs_once: bool) -> Condition:
+    """The condition of one output: its node's, and for a ``choice`` output on
+    a node that runs once, that decision going this way."""
+    if out.choice is None or not runs_once:
+        return at_node
+    return _all_of(at_node, frozenset({frozenset({Atom(node_id, out.choice, out.name)})}))
 
 
 def _any_of(conditions: Iterable[Condition]) -> Condition:
     """Holds when any of ``conditions`` does: their alternatives, pooled."""
+    conditions = tuple(conditions)
+    if len(conditions) == 1:
+        return conditions[0]
     joined: set[frozenset[Atom]] = set()
     for condition in conditions:
         joined |= condition
@@ -98,6 +90,10 @@ def _any_of(conditions: Iterable[Condition]) -> Condition:
 def _all_of(a: Condition, b: Condition) -> Condition:
     """Holds when both ``a`` and ``b`` do: every alternative of one joined
     with every alternative of the other, the impossible ones dropped."""
+    if a is ALWAYS:
+        return b
+    if b is ALWAYS:
+        return a
     return frozenset(
         alternative
         for x in a

@@ -166,7 +166,7 @@ class Leg:
         self.live = LiveRunValues(compiled) if state is None else LiveRunValues.restore(compiled, state)
         self.changed_nodes = [] if state is None else compiled.nodes_changed_since(state)
         for node_id in compiled.execution_order:
-            for name, needed in compiled.node(node_id).version.interface.needs.items():
+            for name, needed in compiled.node(node_id).version.from_run.items():
                 if needed not in from_run:
                     raise TypeError(
                         f"'{node_id}' needs a {needed.__name__} for '{name}', and run() was not given one"
@@ -382,7 +382,7 @@ class Leg:
                 await queue.put(UnitWaiting(unit=asked))
                 await queue.put(_UnitDone(unit))
                 return
-            cells, faults = validate_unit_outputs(node, row, unpack(version.returns, value, node.interface.outputs, version.interface.outputs))
+            cells, faults = validate_unit_outputs(node, row, unpack(version.returns, value, node.interface.outputs, version.interface.outputs), compiled._row_ids_must_survive)
         except ValueError as invalid:  # the wrong shape of return, or an ask naming no output
             await queue.put(_UnitDone(unit, error=self._invalid_output(node_id, row, str(invalid), invalid, code="invalid_output")))
             return
@@ -412,14 +412,14 @@ class Leg:
         node = self.compiled.node(node_id)
         version = node.version
         try:
-            kwargs = node.validate(inputs)
+            kwargs = node._check(inputs)
         except ValidationError as invalid:
             reason = self._describe(invalid, node.interface.inputs)
             raise NodeValidationError(
                 reason, node_id=node_id, original=invalid, code="invalid_input", ctx={"reason": reason},
             ) from invalid
-        kwargs.update({name: self.from_run[needed] for name, needed in version.interface.needs.items()})
-        runner = node.runner
+        kwargs.update({name: self.from_run[needed] for name, needed in version.from_run.items()})
+        runner = version.run
         try:
             return runner(**kwargs)
         except NodeError:
@@ -465,7 +465,7 @@ class Leg:
         a code is ``external_failed`` for an ``ExternalFailure``, ``failed`` for
         the rest, with the message the node wrote."""
         code = failure.code or ("external_failed" if isinstance(failure, ExternalFailure) else "failed")
-        return NodeFailed(node_id=node_id, error=str(failure), cause=Problem(type=code, msg=str(failure), loc=(node_id, *row), ctx=failure.ctx))
+        return NodeFailed(node_id=node_id, cause=Problem(type=code, msg=str(failure), loc=(node_id, *row), ctx=failure.ctx))
 
     @staticmethod
     def _describe(invalid: ValidationError, inputs: tuple[Any, ...]) -> str:

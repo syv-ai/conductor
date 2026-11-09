@@ -36,7 +36,8 @@ def test_a_graph_that_runs_answers_an_empty_list(client):
     ]}})
 
     assert resp.status_code == 200
-    assert resp.json() == []
+    assert resp.json()["problems"] == []
+    assert resp.json()["run_plan"]["nodes"]["n1"]["runs_per_row_of"] is None
 
 
 def test_every_problem_comes_back_anchored(client):
@@ -46,11 +47,11 @@ def test_every_problem_comes_back_anchored(client):
     ]}})
 
     assert resp.status_code == 200
-    assert [(p["type"], p["fatal"], *p["loc"]) for p in resp.json()] == [
+    assert [(p["type"], p["fatal"], *p["loc"]) for p in resp.json()["problems"]] == [
         ("unknown_node_type", True, "n1"),
         ("unknown_ref_node", True, "n2", "text"),
     ]
-    assert resp.json()[1]["ctx"] == {"source_node": "ghost"}
+    assert resp.json()["problems"][1]["ctx"] == {"source_node": "ghost"}
 
 
 # --- a bad request is a 4xx, not a 500 --------------------------------------------------

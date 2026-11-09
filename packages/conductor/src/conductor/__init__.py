@@ -37,6 +37,7 @@ from conductor.graph.compiled import CompiledGraph
 from conductor.graph.compiled_node import CompiledField, CompiledNode
 from conductor.graph.conditions import ALWAYS, NEVER, Atom, Condition
 from conductor.graph.model import FieldContent, Graph, GraphNode
+from conductor.graph.run_plan import InputPlan, NodeRunPlan, RunPlan
 from conductor.graph.topology import dependencies_of
 from conductor.graph.upgrade import upgrade_node
 from conductor.interface import FromRun, Interface, model_of
@@ -55,7 +56,6 @@ from conductor.node_decorator import (
 )
 from conductor.ref import Ref
 from conductor.registry import NodeRegistry, RegistryDescription, TypeDescription
-from conductor.series import Index
 from conductor.table import Table
 
 if TYPE_CHECKING:
@@ -89,9 +89,9 @@ __all__ = [
     "FromRun",
     "Graph",
     "GraphNode",
-    "Index",
     "Input",
     "InvalidCallError",
+    "InputPlan",
     "Interface",
     "NodeDeclarationError",
     "NodeDefinition",
@@ -99,6 +99,7 @@ __all__ = [
     "NodeError",
     "NodeExecutionError",
     "NodeRegistry",
+    "NodeRunPlan",
     "NodeTimeoutError",
     "NodeValidationError",
     "NodeVersion",
@@ -112,6 +113,7 @@ __all__ = [
     "Ref",
     "RegistryDescription",
     "Result",
+    "RunPlan",
     "RunState",
     "RunStatus",
     "Series",

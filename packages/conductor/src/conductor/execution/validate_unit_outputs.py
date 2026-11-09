@@ -26,6 +26,7 @@ from conductor.table import Table, frame_with_no_rows, no_row_kept_its_id, with_
 
 if TYPE_CHECKING:
     from conductor.graph.compiled_node import CompiledField, CompiledNode
+    from conductor.ref import Ref
 
 
 @dataclass(frozen=True)
@@ -39,16 +40,17 @@ class OutputFault:
     code: str = "invalid_output"
 
 
-def validate_unit_outputs(node: CompiledNode, row: Row, named: Mapping[str, Any]) -> tuple[dict[str, Any], list[OutputFault]]:
+def validate_unit_outputs(node: CompiledNode, row: Row, named: Mapping[str, Any], row_ids_must_survive: frozenset[Ref]) -> tuple[dict[str, Any], list[OutputFault]]:
     """``named`` as the cells the state holds, and every output that did not fit.
 
     ``row`` is the unit's own: a table's new rows are named after it. ``SKIPPED``
     passes on any output and on any element of a many-valued one. Only outputs
     that fit are in the cells; a caller with faults writes none of them.
     """
+    assert node.interface is not None and node.wiring is not None  # the engine runs only a runnable graph
     cells: dict[str, Any] = {}
     faults: list[OutputFault] = []
-    for out in node._interface.outputs:
+    for out in node.interface.outputs:
         name = out.name
         if name not in named:
             faults.append(OutputFault(name, f"no value for the output '{name}'"))
@@ -57,9 +59,9 @@ def validate_unit_outputs(node: CompiledNode, row: Row, named: Mapping[str, Any]
         if value is SKIPPED:
             cells[name] = value
             continue
-        field = node._fields[name]
+        field = node.wiring.fields[name]
         try:
-            cells[name] = _read_many(field, name, value) if field._holds_many else _read_one(field, row, value)
+            cells[name] = _read_many(field, name, value) if field._holds_many else _read_one(field, row, value, row_ids_must_survive)
         except ValidationError as invalid:
             faults.append(OutputFault(
                 name,
@@ -71,7 +73,7 @@ def validate_unit_outputs(node: CompiledNode, row: Row, named: Mapping[str, Any]
         except _RowIdsLost:
             faults.append(OutputFault(name, f"'{name}' lost the ids of its rows, so they can't be matched to the table it was built from", code="row_ids_lost"))
     for name in named:
-        if name not in node._fields or not node._fields[name]._output:
+        if name not in node.wiring.fields or not node.wiring.fields[name]._is_output:
             faults.append(OutputFault(name, f"'{name}' is not one of this node's outputs"))
     return cells, faults
 
@@ -87,12 +89,12 @@ def _read_many(field: CompiledField, name: str, value: Any) -> list[Any]:
     return [item if item is SKIPPED else read(item) for item in value]
 
 
-def _read_one(field: CompiledField, row: Row, value: Any) -> Any:
+def _read_one(field: CompiledField, row: Row, value: Any, row_ids_must_survive: frozenset[Ref]) -> Any:
     cell = field._read_cell(value)
     if cell is None and field._makes_rows is not None:  # row-making outputs have no blank form: no rows
         return Table._holding(frame_with_no_rows(field._cell_type))
     if field._makes_rows is not None and isinstance(cell, Table):
-        if field._row_ids_must_survive and no_row_kept_its_id(cell.frame):
+        if field.ref in row_ids_must_survive and no_row_kept_its_id(cell.frame):
             raise _RowIdsLost
         return type(cell)._holding(with_row_ids(cell.frame, field._makes_rows, row))
     return cell

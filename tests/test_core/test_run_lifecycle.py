@@ -14,7 +14,6 @@ from conductor import (
     From,
     Graph,
     GraphNode,
-    Index,
     InvalidCallError,
     NodeDefinition,
     NodeError,
@@ -28,6 +27,7 @@ from conductor import (
     node,
 )
 from conductor.events import RunEnd, RunStart, UnitWaiting
+from conductor.series import Index
 from conductor.widgets import Textarea
 
 

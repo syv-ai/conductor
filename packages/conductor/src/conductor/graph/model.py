@@ -18,7 +18,7 @@ so a graph saves and loads itself (``Graph.from_path``, ``graph.to_yaml()``).
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from pydantic import Field, field_validator
@@ -83,18 +83,6 @@ class GraphNode(ConductorModel):
     #: Chrome: position, size, whatever the canvas keeps. Never parsed here.
     display: Mapping[str, Any] = Field(default_factory=dict)
 
-    @field_validator("id")
-    @classmethod
-    def _one_way_to_read_a_ref(cls, node_id: str) -> str:
-        # ``.`` separates node from field in a ``Ref``, so an id may not
-        # contain one. ``/`` may: the compiler uses it to namespace an
-        # embedded graph's nodes under the graph node's id (``approve/check``).
-        # A copy with a new id is built through the constructor, since
-        # ``model_copy`` does not validate.
-        if "." in node_id:
-            raise ValueError(f"node id {node_id!r} contains '.': a Ref reads as 'node.field' and must read one way")
-        return node_id
-
 
 class Graph(ConductorModel):
     """The persisted graph: its nodes and its chrome.
@@ -108,3 +96,8 @@ class Graph(ConductorModel):
     nodes: tuple[GraphNode, ...]
     #: Chrome, at graph level.
     display: Mapping[str, Any] = Field(default_factory=dict)
+
+    @field_validator("nodes", mode="before")
+    @classmethod
+    def _a_sequence_of_nodes(cls, nodes: Any) -> Any:
+        return tuple(nodes) if isinstance(nodes, Sequence) and not isinstance(nodes, str) else nodes

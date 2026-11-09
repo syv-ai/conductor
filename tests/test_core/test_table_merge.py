@@ -53,7 +53,7 @@ SEND = GraphNode(id="send", type="send", version=1, bindings={"email": From("csv
 def test_send_mail_per_contact_then_excel_has_name_email_and_sent():
     compiled = _compiled(CSV, SEND, GraphNode(id="excel", type="export", version=1, bindings={"table": From("csv.result", "send.result")}))
 
-    assert compiled.field(Ref("excel", "table")).receives == Merge((
+    assert compiled.field(Ref("excel", "table"))._receives == Merge((
         (Ref("csv", "result"), Broadcast()), (Ref("send", "result"), Whole()),
     ))
     assert compiled.problems == ()
@@ -138,7 +138,7 @@ def test_a_table_input_on_a_node_running_per_document_gets_that_documents_rows()
         GraphNode(id="excel", type="export", version=1, bindings={"table": From("read.result", "check.result")}),
     )
 
-    assert compiled.field(Ref("excel", "table")).receives == Merge((
+    assert compiled.field(Ref("excel", "table"))._receives == Merge((
         (Ref("read", "result"), PerRow(Index("docs.result"))),
         (Ref("check", "result"), RowsUnder(Index("read.result", parent=Index("docs.result")), 1)),
     ))
@@ -301,7 +301,7 @@ def test_a_column_two_levels_down_is_received_under_the_nodes_row():
         registry=_registry_with(words),
     )
 
-    parts = dict(compiled.field(Ref("excel", "table")).receives.parts)
+    parts = dict(compiled.field(Ref("excel", "table"))._receives.parts)
     assert parts[Ref("words", "result")] == RowsUnder(Index("words.result", parent=Index("read.result", parent=Index("docs.result"))), 1)
 
 
@@ -413,15 +413,15 @@ def test_a_child_table_a_branch_skipped_gives_no_rows_and_the_sheet_keeps_its_co
 def test_a_series_two_levels_down_with_nothing_else_runs_per_row_of_the_level_above_it():
     compiled = _compiled(*_three_levels("a,b;c|d"), GraphNode(id="n", type="labelled", version=1, bindings={"texts": From("lines.result")}), registry=_deep_registry())
 
-    assert compiled.node("n").runs_per_row_of == Index("paras.result", parent=Index("docs.result"))
+    assert compiled.node("n").wiring._runs_per_row_of == Index("paras.result", parent=Index("docs.result"))
     assert _said(compiled) == ["=a,b", "=c", "=d"]
 
 
 def test_a_value_on_a_document_with_a_series_of_lines_gets_every_line_of_the_document_flat():
     compiled = _compiled(*_three_levels("a,b;c|d"), GraphNode(id="n", type="labelled", version=1, bindings={"label": From("docs.result"), "texts": From("lines.result")}), registry=_deep_registry())
 
-    assert compiled.node("n").runs_per_row_of == Index("docs.result")
-    assert compiled.field(Ref("n", "texts")).receives.depth == 1
+    assert compiled.node("n").wiring._runs_per_row_of == Index("docs.result")
+    assert compiled.field(Ref("n", "texts"))._receives.depth == 1
     assert _said(compiled) == ["a,b;c=a,b,c", "d=d"]
 
 
@@ -446,7 +446,7 @@ def test_a_document_with_no_paragraphs_runs_with_an_empty_series():
 def test_two_series_at_different_depths_are_both_read_per_row_of_the_shallowest_level_above_them():
     compiled = _compiled(*_three_levels("a,b;c|d"), GraphNode(id="n", type="two-columns", version=1, bindings={"a": From("paras.result"), "b": From("lines.result")}), registry=_deep_registry())
 
-    assert compiled.node("n").runs_per_row_of == Index("docs.result")
+    assert compiled.node("n").wiring._runs_per_row_of == Index("docs.result")
     assert _said(compiled) == ["a,b,c+a,b,c", "d+d"]
 
 
@@ -525,5 +525,5 @@ def test_a_table_merged_with_what_it_was_built_from_that_keeps_its_ids_passes():
         GraphNode(id="excel", type="export", version=1, bindings={"table": From("csv.result", "keep.result")}),
     )
 
-    assert compiled.field(Ref("keep", "result"))._row_ids_must_survive
+    assert Ref("keep", "result") in compiled._row_ids_must_survive
     assert compiled.run_sync().status == "complete"

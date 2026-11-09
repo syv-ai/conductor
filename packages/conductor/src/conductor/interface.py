@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field, fields, is_dataclass
+from dataclasses import dataclass, fields, is_dataclass
 from types import NoneType, UnionType
 from typing import Annotated, Any, TypedDict, TypeVar, Union, get_args, get_origin, get_type_hints
 
@@ -78,9 +78,8 @@ class Interface:
 
     inputs: tuple[Input, ...]
     outputs: tuple[Output, ...]
-    #: The types the caller must provide, by parameter name, from every
-    #: ``FromRun`` parameter.
-    needs: dict[str, type] = field(default_factory=dict)
+    #: The types the caller must provide, from every ``FromRun`` parameter.
+    needs: frozenset[type] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -88,6 +87,8 @@ class ReadSignature:
     """What ``read_signature`` found: the interface, and how the function's return and ``**x`` work."""
 
     interface: Interface
+    #: The ``FromRun`` parameters: the value of each type goes under this name in a call.
+    from_run: dict[str, type]
     #: How a return splits across the outputs: a ``DType``, a record class,
     #: ``Mapping``, or ``None`` for a function that declares no outputs.
     returns: Any
@@ -123,12 +124,13 @@ def read_signature(function: Callable[..., Any]) -> ReadSignature:
     returns, outputs = _read_return(hints)
     taken = {i.name for i in inputs} & {o.name for o in outputs}
     if taken:
+        name = sorted(taken)[0]
         raise NodeDeclarationError(
-            f"{sorted(taken)} named on both sides: a field name is unique within a node, "
-            "because a Ref (node_id, field) is an address on either side",
+            f"the parameter {name!r} and the output {name!r} share a name, and a field name is unique within a node; "
+            f"rename the parameter, or name the output with Result(name=...)",
             code="field_on_both_sides",
         )
-    return ReadSignature(Interface(inputs=tuple(inputs), outputs=outputs, needs=needs), returns, var_keyword)
+    return ReadSignature(Interface(inputs=tuple(inputs), outputs=outputs, needs=frozenset(needs.values())), needs, returns, var_keyword)
 
 
 def open_input_of(name: str, hint: Any) -> Input:

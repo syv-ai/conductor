@@ -10,14 +10,13 @@ from conductor import (
     InvalidCallError,
     NodeDescription,
     NodeRegistry,
-    Problem,
     RunState,
 )
 from conductor.events import Event, RunEnd
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
-from conductor_providers.fastapi.models import RunRequest
+from conductor_providers.fastapi.models import CompileResult, RunRequest
 from conductor_providers.fastapi.sse import as_data, sse_frame
 
 
@@ -128,16 +127,17 @@ def conductor_router(
             """
             return entity_resolver(kind, request)
 
-    @router.post("/compile", response_model=list[Problem])
-    def compile_only(req: RunRequest) -> list[Problem]:
+    @router.post("/compile", response_model=CompileResult)
+    def compile_only(req: RunRequest) -> CompileResult:
         """Compile a graph without executing it. Returns every problem the
-        graph has, fatal or not, each anchored on a node; an empty list
-        means the graph runs.
+        graph has, fatal or not, each anchored on a node (none means the graph
+        runs), and the run plan: where each node runs and what its inputs receive.
 
         Debounce-friendly (~10-30 ms): hosts can poll this on every graph
         edit to paint type mismatches and cycles in real time.
         """
-        return list(CompiledGraph.from_graph(req.graph, registry).problems)
+        compiled = CompiledGraph.from_graph(req.graph, registry)
+        return CompileResult(problems=compiled.problems, run_plan=compiled.run_plan)
 
     return router
 

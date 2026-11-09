@@ -360,7 +360,7 @@ def test_a_from_run_parameter_is_a_need_not_an_input():
     iface = read_signature(greet).interface
 
     assert [i.name for i in iface.inputs] == ["text"]
-    assert iface.needs == {"who": Who}
+    assert iface.needs == {Who}
     assert "who" not in model_of(iface.inputs)({"text": "hi", "who": "Ida"})
 
 
@@ -376,7 +376,7 @@ def test_a_name_on_both_sides_is_refused():
     def echo(text: Annotated[Text, Param(title="T", widget=Textarea())] = Text("")) -> Pair:
         return Pair(text=text)
 
-    with pytest.raises(TypeError, match="both sides"):
+    with pytest.raises(TypeError, match="share a name"):
         read_signature(echo).interface
 
 

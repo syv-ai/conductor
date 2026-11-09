@@ -24,8 +24,8 @@ when it goes quiet, where a ready unit nobody started is a bug.
 How a unit receives each input, and who reads what, are compile's
 decisions, read here: a node's ``_reads``, an output's ``_read_by``, and
 per index who runs on it and what sits on it (on the field that makes the
-index's rows, ``CompiledField._makes_rows`` and its kin). A node's ``_runs_per_row_of`` and ``_interface`` are read the
-same way, past the check ``runs_per_row_of`` and ``interface`` make for other
+index's rows, ``CompiledField._makes_rows`` and its kin). A node's ``_runs_per_row_of`` is read the
+same way, for other
 callers: the engine runs only a graph whose every node is ready. Every
 input carries a receive record (``CompiledField.receives``, from
 ``conductor.graph.receive``). ``PerRow`` takes the value at the unit's own
@@ -145,23 +145,6 @@ def _per_row(received: Receive) -> bool:
     return isinstance(received, (PerRow, Broadcast))
 
 
-class _FieldsOf(dict[Ref, "CompiledField"]):
-    """The compiled field at each address, looked up on first use and kept.
-
-    A field is read for every value it reads or writes, about a
-    dozen per unit, so it asks ``CompiledGraph.field`` once per address and
-    keeps the answer: a compiled graph never changes. Not a mirror of the
-    graph: an address nothing asks for is never filled in."""
-
-    def __init__(self, compiled: CompiledGraph) -> None:
-        super().__init__()
-        self._compiled = compiled
-
-    def __missing__(self, ref: Ref) -> CompiledField:
-        field = self[ref] = self._compiled.field(ref)
-        return field
-
-
 class LiveRunValues:
     """The live state of one run over one compiled graph, and what it makes ready.
 
@@ -172,12 +155,12 @@ class LiveRunValues:
     def __init__(self, compiled: CompiledGraph) -> None:
         compiled._refuse_unless_runnable()
         self._compiled = compiled
-        #: Each field read, by the address it was asked under:
-        #: ``compiled.field`` once per address, a dict read after that.
-        self._fields = _FieldsOf(compiled)
+        #: Every lookup the engine makes, in one place (``conductor.graph.engine_read_plan``).
+        self._plan = compiled._read_plan
+        self._fields = self._plan.fields
         #: Every column of a table output offered as a field: its values are the
         #: table's cells, read where the table sits (``_cell``).
-        self._views = compiled._views
+        self._views = self._plan.views
         self._values: dict[Ref, dict[Row, Any]] = {}
         #: The fields with a ``SKIPPED`` written at some row. Only these can
         #: hide a value under a skip above it, so a read of any other field is
@@ -227,14 +210,14 @@ class LiveRunValues:
         roots: list[str] = []
         for node_id in order:
             node = compiled.node(node_id)
-            for inp in node.interface.inputs:
+            for inp in self._plan.interfaces[node_id].inputs:
                 typed = compiled.field(Ref(node_id, inp.name))
-                if not typed.listed or typed.index.parent is not None:
+                if not typed._listed or typed._index.parent is not None:
                     continue
                 for n in range(len(node.statics[inp.name])):
-                    self._made(typed.index.id, (n,))
-                self._close(typed.index.id)
-                roots.append(typed.index.id)
+                    self._made(typed._index.id, (n,))
+                self._close(typed._index.id)
+                roots.append(typed._index.id)
         self._make_root_list_rows(roots)
 
     def _make_root_list_rows(self, roots: list[str]) -> None:
@@ -253,18 +236,18 @@ class LiveRunValues:
     def _owner(self, index_id: str) -> CompiledField:
         """The field that makes an index's rows and carries its read plan: a
         series output, or an input holding a list set on its node, as compile
-        recorded it (``CompiledGraph._index_owners``)."""
-        return self._compiled._index_owners[index_id]
+        recorded it."""
+        return self._plan.owners[index_id]
 
     def _making_rows_on(self, index_id: str) -> list[str]:
         """The indexes whose rows are made by nodes running once per row of this one."""
-        return [made for node_id in self._owner(index_id)._run_per_row_by for made in self._indexes_made_by(node_id)]
+        return [made for node_id in self._plan.run_per_row_by[index_id] for made in self._indexes_made_by(node_id)]
 
     def _indexes_made_by(self, node_id: str) -> list[str]:
         """The indexes this node's series outputs make rows on, one per output."""
         fields = self._fields
         return [
-            index.id for out in self._compiled.node(node_id)._interface.outputs
+            index.id for out in self._plan.interfaces[node_id].outputs
             if (index := fields[Ref(node_id, out.name)]._makes_rows) is not None
         ]
 
@@ -272,23 +255,23 @@ class LiveRunValues:
         """``(reader node, output read, group depth)`` for every reader of a
         series on this index that receives it grouped or whole, not one row
         at a time."""
-        for ref in self._owner(index_id)._carried_by:
-            for inp, received in self._fields[ref]._read_by:
+        for ref in self._plan.carried_by[index_id]:
+            for inp, received in self._plan.read_by[ref]:
                 if not _per_row(received):
                     yield inp.node_id, ref, _rows_under_depth(received)
 
     def _typed_under(self, index_id: str) -> Iterator[tuple[str, int]]:
         """``(index, how many values)`` for each list set on a node, made under every row of this index."""
         compiled = self._compiled
-        for ref in self._owner(index_id)._listed_inputs:
-            yield self._fields[ref].index.id, len(compiled.node(ref.node_id).statics[ref.field])
+        for ref in self._plan.listed_inputs[index_id]:
+            yield self._fields[ref]._index.id, len(compiled.node(ref.node_id).statics[ref.field])
 
     # -- units ---------------------------------------------------------------
 
     def units(self, node_id: str) -> list[Unit]:
         """This node's units right now: one, or — running per row of ``L`` —
         one per row made on ``L``, plus one at each shorter row where ``L`` has no rows."""
-        runs_per_row_of = self._compiled.node(node_id)._runs_per_row_of
+        runs_per_row_of = self._plan.runs_per_row_of[node_id]
         if runs_per_row_of is None:
             return [(node_id, ())]
         no_rows_under = sorted(self._no_rows_under.get(runs_per_row_of.id, ()))
@@ -300,7 +283,7 @@ class LiveRunValues:
 
     def complete(self, node_id: str) -> bool:
         """Every unit this node will ever have is done."""
-        runs_per_row_of = self._compiled.node(node_id)._runs_per_row_of
+        runs_per_row_of = self._plan.runs_per_row_of[node_id]
         if runs_per_row_of is None:
             return (node_id, ()) in self._done
         return (
@@ -323,14 +306,14 @@ class LiveRunValues:
         counts. A unit of a node that runs once, or one standing in at a
         shorter row for rows never made, is not."""
         node_id, row = unit
-        runs_per_row_of = self._compiled.node(node_id)._runs_per_row_of
+        runs_per_row_of = self._plan.runs_per_row_of[node_id]
         return runs_per_row_of is not None and len(row) == runs_per_row_of.depth
 
     def progress(self, node_id: str) -> tuple[int, int | None]:
         """``(done, total)`` rows for a node; ``total`` is ``None`` until the
         node's index is sealed. Cover units stand in for rows that were never
         made, so they count in neither number."""
-        runs_per_row_of = self._compiled.node(node_id)._runs_per_row_of
+        runs_per_row_of = self._plan.runs_per_row_of[node_id]
         if runs_per_row_of is None:
             return int((node_id, ()) in self._done), 1
         total = len(self._rows.get(runs_per_row_of.id, ())) if runs_per_row_of.id in self._sealed else None
@@ -340,7 +323,7 @@ class LiveRunValues:
         """This node's units at ``row`` or beneath it, in no particular order —
         not counting a unit standing in at a shorter row, which is ready
         the moment it exists."""
-        runs_per_row_of = self._compiled.node(node_id)._runs_per_row_of
+        runs_per_row_of = self._plan.runs_per_row_of[node_id]
         if runs_per_row_of is None:
             return [(node_id, ())] if row == () else []
         if row in self._rows.get(runs_per_row_of.id, ()):
@@ -352,10 +335,10 @@ class LiveRunValues:
     def ready(self, unit: Unit) -> bool:
         """Every value this unit needs exists, or its producer is done."""
         node_id, row = unit
-        runs_per_row_of = self._compiled.node(node_id)._runs_per_row_of
+        runs_per_row_of = self._plan.runs_per_row_of[node_id]
         if runs_per_row_of is not None and len(row) < runs_per_row_of.depth:
             return True  # standing in at a shorter row: the skip above it is already known
-        return all(self._read_ready(ref, received, row) for ref, received in self._compiled.node(node_id)._reads)
+        return all(self._read_ready(ref, received, row) for ref, received in self._plan.reads[node_id])
 
     def runnable(self) -> list[Unit]:
         """Every unit that may start now: ready, and neither done nor waiting
@@ -382,13 +365,13 @@ class LiveRunValues:
 
     def _key(self, ref: Ref, row: Row) -> Row:
         """Where a unit at ``row`` reads ``ref`` as a scalar: its row on the ref's index, or ``()``."""
-        index = self._fields[ref].index
+        index = self._fields[ref]._index
         return () if index is None else row[: index.depth]
 
     def _written(self, ref: Ref, group: Row) -> bool:
         """Is every value of ``ref`` a series reader at ``group`` receives written?
         The one value of a field that carries a single value, else the rows under ``group``."""
-        index = self._fields[ref].index
+        index = self._fields[ref]._index
         return self._present(ref, ()) if index is None else self._all_written(ref, index, group)
 
     def _all_written(self, ref: Ref, index: Index, parent_row: Row) -> bool:
@@ -456,15 +439,15 @@ class LiveRunValues:
         """
         node_id, row = unit
         node = self._compiled.node(node_id)
-        runs_per_row_of = node._runs_per_row_of
+        runs_per_row_of = self._plan.runs_per_row_of[node_id]
         if runs_per_row_of is not None and len(row) < runs_per_row_of.depth:
             return Skip(at=row)
         values: dict[str, Any] = {}
-        statics = node._statics
-        for inp in node._interface.inputs:
+        statics = node.statics
+        for inp in self._plan.interfaces[node_id].inputs:
             own = Ref(node_id, inp.name)
             binding = self._fields[own].binding
-            received = self._fields[own].receives
+            received = self._fields[own]._receives
             if binding is None:
                 if isinstance(received, Whole):
                     values[inp.name] = self._typed(received, inp.default, own)
@@ -487,7 +470,7 @@ class LiveRunValues:
             elif isinstance(received, Gather):
                 gathered: list[Any] = []
                 for ref in binding.refs:
-                    index = self._fields[ref].index
+                    index = self._fields[ref]._index
                     value, _ = self._lookup(ref, ())
                     if is_skipped(value):
                         continue
@@ -501,7 +484,7 @@ class LiveRunValues:
                 found = [self._lookup(ref, group) for ref in binding.refs]
                 if all(is_skipped(value) for value, _ in found):
                     return Skip(at=max((at for _, at in found), key=len))
-                index = self._fields[binding.refs[0]].index
+                index = self._fields[binding.refs[0]]._index
                 if index is None:
                     # Received whole from a source that ran once: the one value.
                     ((values[inp.name], _),) = found
@@ -523,14 +506,14 @@ class LiveRunValues:
         skipped = 0
         for source, part in received.parts:
             field = self._fields[source]
-            is_table = holds_tables(field._type)
-            index: Index = field._makes_rows if is_table else field.index  # type: ignore[assignment]
+            is_table = holds_tables(field.type)
+            index: Index = field._makes_rows if is_table else field._index  # type: ignore[assignment]
             group = row[: part.index.depth] if isinstance(part, PerRow) else row[: _rows_under_depth(part)]
             stored, _ = self._lookup(source, group)
             is_skip = is_skipped(stored)
             skipped += is_skip
             if is_table:
-                frame = frame_with_no_rows(field._type) if is_skip else stored.frame
+                frame = frame_with_no_rows(field.type) if is_skip else stored.frame
                 sources.append(MergeSource(source.node_id, frame, index, [(*group, n) for n in range(frame.height)]))
                 continue
             present = [
@@ -549,8 +532,8 @@ class LiveRunValues:
         """The id of the row at ``row`` on ``index``: on a table's rows, the id
         its stored table carries, which may have come in with the table; on
         any other index, the id spelled from the index and the row."""
-        owner = self._compiled._index_owners.get(index.id)
-        if owner is not None and owner._view_of is None and owner._output and holds_tables(owner._type):
+        owner = self._plan.owners.get(index.id)
+        if owner is not None and owner._view_of is None and owner._is_output and holds_tables(owner.type):
             stored, _ = self._lookup(owner.ref, row[:-1])
             return stored.frame[ROW_ID][row[-1]]
         return row_id(index, row)
@@ -583,7 +566,7 @@ class LiveRunValues:
         value.
         """
         if isinstance(received, Whole):
-            return Series(self._fields[own].index, value.values if isinstance(value, Series) else list(value))
+            return Series(self._fields[own]._index, value.values if isinstance(value, Series) else list(value))
         if isinstance(received, PerRow):
             return list(value)[row[received.index.depth - 1]]
         return value
@@ -608,7 +591,7 @@ class LiveRunValues:
         of the table stored at ``key[:-1]``, as its column's type, a blank
         cell ``None``. A skip on the table is a skip here, at its depth."""
         table, column = view
-        if len(key) < self._fields[ref].index.depth:
+        if len(key) < self._fields[ref]._index.depth:
             # A group above the table's rows: only a skip on the table reaches it.
             stored, at = self._lookup(table, key)
             return (stored, at) if is_skipped(stored) else (_MISSING, key)
@@ -663,7 +646,8 @@ class LiveRunValues:
         """
         node_id, row = unit
         node = self._compiled.node(node_id)
-        fields = node._fields
+        assert node.wiring is not None  # the engine runs only a runnable graph
+        fields = node.wiring.fields
         written: list[tuple[Ref, Row]] = []
         made: dict[str, list[Row]] = {}
         no_rows_under: list[tuple[str, Row]] = []
@@ -674,7 +658,7 @@ class LiveRunValues:
             counts = self._rows_not_called.setdefault(node_id, {})
             for name in not_called.blank_inputs:
                 counts[name] = counts.get(name, 0) + 1
-        for out in node._interface.outputs:
+        for out in self._plan.interfaces[node_id].outputs:
             field = fields[out.name]
             ref = field.ref
             if skip_at is not None:
@@ -724,8 +708,8 @@ class LiveRunValues:
     def _columns_read(self, index_id: str) -> bool:
         """Does anything read a column of the table that owns this index? If
         nothing does, a table passing through makes no rows at all."""
-        owner = self._owner(index_id)
-        return bool(owner._run_per_row_by) or any(self._fields[view]._read_by for view in owner._carried_by)
+        plan = self._plan
+        return bool(plan.run_per_row_by[index_id]) or any(plan.read_by[view] for view in plan.carried_by[index_id])
 
     def _write(self, ref: Ref, key: Row, value: Any, written: list[tuple[Ref, Row]]) -> None:
         """Put ``value`` at ``(ref, key)``, noting the address in ``written`` when nothing was there."""
@@ -795,7 +779,7 @@ class LiveRunValues:
             return
         self._done.add(unit)
         node_id, _ = unit
-        if self._compiled.node(node_id)._runs_per_row_of is not None:
+        if self._plan.runs_per_row_of[node_id] is not None:
             counts = self._done_rows if self.on_a_row(unit) else self._done_standing_in
             counts[node_id] = counts.get(node_id, 0) + 1
 
@@ -840,18 +824,18 @@ class LiveRunValues:
         _, row = unit
         woken: set[Unit] = set()
         for ref, key in written:
-            for inp, received in self._fields[ref]._read_by:
+            for inp, received in self._plan.read_by[ref]:
                 depth = _rows_under_depth(received)
                 if _per_row(received) or len(key) < depth:
                     woken.update(self._units_under(inp.node_id, key))
                 else:
                     self._wake_group(ref, inp.node_id, key[:depth], woken)
         for index_id, keys in made.items():
-            readers = self._owner(index_id)._run_per_row_by
+            readers = self._plan.run_per_row_by[index_id]
             for key in keys:
                 woken.update((reader, key) for reader in readers)
         for index_id, key in (*no_rows_under, *lists):
-            woken.update((reader, key) for reader in self._owner(index_id)._run_per_row_by)
+            woken.update((reader, key) for reader in self._plan.run_per_row_by[index_id])
         for index_id in making:
             keys = made.get(index_id, [])
             for reader, ref, depth in self._grouped_on(index_id):
@@ -910,13 +894,13 @@ class LiveRunValues:
         a ``Series``, sparse where rows were skipped — a node whose every row
         was skipped away gives an empty series.
         """
-        outputs = self._compiled.node(node_id)._interface.outputs
+        outputs = self._plan.interfaces[node_id].outputs
         if outputs and all(is_skipped(self._lookup(Ref(node_id, out.name), ())[0]) for out in outputs):
             return None
         result: dict[str, Any] = {}
         for out in outputs:
             ref = Ref(node_id, out.name)
-            index = self._fields[ref].index
+            index = self._fields[ref]._index
             value, _ = self._lookup(ref, ())
             if is_skipped(value):
                 continue
@@ -1028,7 +1012,7 @@ class LiveRunValues:
         except KeyError:
             faults.append(problem("state_unreadable", "state", ref, reason=f"the state has a value for {ref}, which the graph does not have"))
             return
-        depth = 0 if field.index is None else field.index.depth
+        depth = 0 if field._index is None else field._index.depth
         misplaced = [row for row in (*column.rows, *column.skipped) if len(row) > depth]
         for row in misplaced:
             faults.append(problem("state_unreadable", "state", ref, *row, reason=f"the state's value for {ref} is at row {list(row)}, which {ref} has no place for"))
@@ -1050,7 +1034,7 @@ class LiveRunValues:
         """Whether a stored unit sits at a row its node can have; the fault that says it does not, if not."""
         if node_id not in self._compiled._nodes:
             return False
-        if _fits(row, self._compiled.node(node_id).runs_per_row_of):
+        if _fits(row, self._plan.runs_per_row_of[node_id]):
             return True
         faults.append(problem("state_unreadable", *loc, reason=f"the state has {node_id!r} at row {list(row)}, which {node_id!r} has no place for"))
         return False
@@ -1070,7 +1054,7 @@ class LiveRunValues:
         """
         made: dict[str, set[Row]] = {}
         for node_id, row in done:
-            for out in self._compiled.node(node_id)._interface.outputs:
+            for out in self._plan.interfaces[node_id].outputs:
                 ref = Ref(node_id, out.name)
                 index = self._fields[ref]._makes_rows
                 if index is None:

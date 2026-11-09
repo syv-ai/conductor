@@ -22,7 +22,6 @@ returns its ``RunState``.
     ├── NodeDeclarationError    a node or a type was declared wrong; a TypeError, met at import
     ├── CompileProblem          a node's hook cannot answer for what it was given
     ├── InvalidCallError        a verb on a compiled graph was given what it cannot act on
-    ├── NodeReadError           a caller read off a compiled node what compile could not work out
     ├── NodeError               one node failed; carries node_id. Internal: never retried
     │   ├── ExternalFailure         the outside world failed; the one family the engine retries
     │   ├── NodeValidationError     its inputs were wrong
@@ -279,23 +278,6 @@ class InvalidCallError(ConductorError, ValueError):
     def errors(self) -> list[Problem]:
         """Every fault, in the order the call met them."""
         return list(self._problems)
-
-
-class NodeReadError(ConductorError):
-    """A caller read off a compiled node what compile could not work out, or what its kind does not have.
-
-    An editor asks ``node.state`` first and never meets it; the engine runs only
-    runnable graphs. ``problem`` holds the fatal ``Problem`` that says why,
-    and is ``None`` for a read a healthy node of the kind ``graph`` cannot
-    answer: its inner nodes run in its place. Not a ``KeyError``: that is for
-    an id the graph does not have.
-    """
-
-    def __init__(self, node_id: str, asked: str, problem: Problem | None) -> None:
-        self.node_id = node_id
-        self.problem = problem
-        reason = "a graph runs as the nodes inside it" if problem is None else f"{problem.type}: {problem.msg}"
-        super().__init__(f"{node_id!r} has no {asked}: {reason}")
 
 
 class NodeError(ConductorError):

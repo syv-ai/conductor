@@ -57,7 +57,7 @@ def _compiled(text: str) -> CompiledGraph:
 #: Every event's fields and required fields, by its ``type``.
 SHAPES = {
     "node_complete": (["node_id", "result", "rows_not_called", "type"], ["node_id", "result", "rows_not_called", "type"]),
-    "node_failed": (["cause", "error", "node_id", "type"], ["cause", "error", "node_id", "type"]),
+    "node_failed": (["cause", "node_id", "type"], ["cause", "node_id", "type"]),
     "node_progress": (["done", "node_id", "total", "type"], ["done", "node_id", "total", "type"]),
     "node_retry": (
         ["attempt", "delay", "error", "node_id", "retries", "row", "type"],

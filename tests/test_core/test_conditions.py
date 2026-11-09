@@ -3,11 +3,9 @@
 from dataclasses import dataclass
 from typing import Annotated, Any
 
-import pytest
 from conductor import Arriving, NodeRegistry, Param, node
 from conductor._sentinel import SKIPPED
 from conductor.dtype import DType
-from conductor.errors import NodeReadError
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.conditions import ALWAYS, Atom
@@ -151,7 +149,7 @@ def test_an_iterating_decision_masks_rows_and_is_not_a_condition():
     ])
 
     assert compiled.is_runnable, compiled.problems
-    assert compiled.node("g").runs_per_row_of is not None
+    assert compiled.node("g").wiring._runs_per_row_of is not None
     assert compiled.field(Ref("yes", "result")).condition == ALWAYS
     assert compiled.decisions == {}
 
@@ -166,6 +164,6 @@ def test_a_decision_on_a_node_whose_wiring_failed_is_not_one_a_run_makes():
 
     assert compiled.decisions == {}
     assert compiled.node("g").state == "wiring_failed"
-    with pytest.raises(NodeReadError) as raised:
-        compiled.node("g").runs_per_row_of
-    assert raised.value.problem.type == "unknown_ref_output"
+    assert compiled.node("g").wiring is None
+    raised = compiled.node("g").cause
+    assert raised.type == "unknown_ref_output"

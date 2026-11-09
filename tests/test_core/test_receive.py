@@ -9,7 +9,6 @@ compile did.
 
 from typing import Annotated
 
-import pytest
 from conductor import NodeRegistry, node
 from conductor.dtype import AsItArrives, DType
 from conductor.graph.binding import From, Static
@@ -80,7 +79,7 @@ def _edge(*refs):
 
 
 def _receives(compiled, node_id, field):
-    return compiled.field(Ref(node_id, field)).receives
+    return compiled.field(Ref(node_id, field))._receives
 
 
 # --- fed by an edge -------------------------------------------------------------
@@ -102,7 +101,7 @@ def test_a_scalar_input_fed_a_series_receives_one_value_per_row_of_its_index():
     ])
 
     assert _receives(compiled, "up", "text") == PerRow(Index("docs.result"))
-    assert compiled.node("up").runs_per_row_of == Index("docs.result")
+    assert compiled.node("up").wiring._runs_per_row_of == Index("docs.result")
 
 
 def test_a_series_input_fed_one_series_on_a_root_receives_it_whole():
@@ -112,7 +111,7 @@ def test_a_series_input_fed_one_series_on_a_root_receives_it_whole():
     ])
 
     assert _receives(compiled, "j", "texts") == Whole()
-    assert compiled.node("j").runs_per_row_of is None
+    assert compiled.node("j").wiring._runs_per_row_of is None
 
 
 def test_a_series_input_fed_a_series_on_a_child_reduces_under_the_parent_row():
@@ -123,7 +122,7 @@ def test_a_series_input_fed_a_series_on_a_child_reduces_under_the_parent_row():
     ])
 
     assert _receives(compiled, "j", "texts") == RowsUnder(Index("lines.result"), depth=1)
-    assert compiled.node("j").runs_per_row_of == Index("docs.result")
+    assert compiled.node("j").wiring._runs_per_row_of == Index("docs.result")
 
 
 def test_a_series_input_fed_unrelated_sources_gathers_them_onto_the_fields_own_index():
@@ -135,7 +134,7 @@ def test_a_series_input_fed_unrelated_sources_gathers_them_onto_the_fields_own_i
 
     received = _receives(compiled, "j", "texts")
     assert received == Gather(Index(Ref("j", "texts")))
-    assert received.index == compiled.field(Ref("j", "texts")).index
+    assert received.index == compiled.field(Ref("j", "texts"))._index
 
 
 def test_an_open_parameter_receives_its_edge_whole_even_when_a_series_arrives():
@@ -145,7 +144,7 @@ def test_an_open_parameter_receives_its_edge_whole_even_when_a_series_arrives():
     ])
 
     assert _receives(compiled, "s", "v") == Whole()
-    assert compiled.node("s").runs_per_row_of is None
+    assert compiled.node("s").wiring._runs_per_row_of is None
 
 
 # --- nothing feeds it -------------------------------------------------------------
@@ -160,7 +159,7 @@ def test_a_typed_in_scalar_is_received_once_and_a_typed_in_list_once_per_value()
 
     assert _receives(compiled, "one", "text") == Broadcast()
     assert _receives(compiled, "many", "text") == PerRow(Index(Ref("many", "text")))
-    assert compiled.node("many").runs_per_row_of == Index(Ref("many", "text"))
+    assert compiled.node("many").wiring._runs_per_row_of == Index(Ref("many", "text"))
     assert _receives(compiled, "default", "text") == Broadcast()
 
 
@@ -171,7 +170,7 @@ def test_a_series_input_with_a_typed_in_list_or_a_default_receives_it_whole_on_i
     ])
 
     assert _receives(compiled, "typed", "texts") == Whole()
-    assert compiled.field(Ref("typed", "texts")).index == Index(Ref("typed", "texts"))
+    assert compiled.field(Ref("typed", "texts"))._index == Index(Ref("typed", "texts"))
     assert _receives(compiled, "default", "texts") == Whole()
 
 
@@ -183,7 +182,7 @@ def test_a_closed_input_typed_as_a_list_holds_one_value_and_the_node_runs_once()
 
     assert compiled.is_runnable, compiled.problems
     assert _receives(compiled, "t", "tags") == Broadcast()
-    assert compiled.node("t").runs_per_row_of is None
+    assert compiled.node("t").wiring._runs_per_row_of is None
     assert compiled.node("t").statics == {"tags": ["a", "b", "c"]}
 
 
@@ -200,8 +199,7 @@ def test_a_default_is_not_a_static():
 def test_an_output_has_no_receive_record():
     compiled = _compiled([GraphNode(id="a", type="upper", version=1, bindings={"text": Static("hi")})])
 
-    with pytest.raises(KeyError):
-        compiled.field(Ref("a", "result")).receives
+    assert compiled.field(Ref("a", "result"))._receives is None
 
 
 # --- inside an embedded graph ----------------------------------------------------------
@@ -220,7 +218,7 @@ def test_an_inner_reduction_over_the_entering_series_reduces_to_its_own_row():
     assert compiled.is_runnable, compiled.problems
     assert _receives(compiled, "emb/holder", "text") == PerRow(Index("docs.result"))
     assert _receives(compiled, "emb/join", "texts") == RowsUnder(Index("docs.result"), depth=1)
-    assert compiled.node("emb/join").runs_per_row_of == Index("docs.result")
+    assert compiled.node("emb/join").wiring._runs_per_row_of == Index("docs.result")
 
 
 def test_unrelated_rows_inside_an_embedded_graph_are_misaligned_not_paired():

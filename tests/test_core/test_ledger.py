@@ -293,7 +293,7 @@ def test_a_static_list_on_a_scalar_input_makes_the_rows_compile_named():
     value with nothing of its own."""
     ledger = _ledger([GraphNode(id="u", type="upper", version=1, bindings={"text": Static(["a", "b"])})])
 
-    assert ledger._compiled.field(Ref("u", "text")).index == Index("u.text")
+    assert ledger._compiled.field(Ref("u", "text"))._index == Index("u.text")
     assert ledger.units("u") == [("u", (0,)), ("u", (1,))]
     assert ledger.progress("u") == (0, 2)
     assert ledger.inputs_for(("u", (1,))) == {"text": "b"}

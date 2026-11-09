@@ -46,17 +46,17 @@ def test_a_column_is_a_series_on_rows_the_table_output_owns():
     compiled = _compiled(CSV)
     email = compiled.field(Ref("csv", "result.email"))
 
-    assert email.type is Series[Txt] and email.index == Index("csv.result")
+    assert email.type is Series[Txt] and email._index == Index("csv.result")
     assert email._view_of == (Ref("csv", "result"), "email")
     assert compiled.field(Ref("csv", "result"))._makes_rows == Index("csv.result")
-    assert compiled.field(Ref("csv", "result")).index is None
+    assert compiled.field(Ref("csv", "result"))._index is None
 
 
 def test_a_column_wired_into_a_single_value_input_runs_the_node_per_row_of_the_table():
     compiled = _compiled(CSV, GraphNode(id="send", type="send", version=1, bindings={"email": From("csv.result.email")}))
 
     assert compiled.is_runnable, compiled.problems
-    assert compiled.node("send").runs_per_row_of == Index("csv.result")
+    assert compiled.node("send").wiring._runs_per_row_of == Index("csv.result")
 
 
 def test_a_table_per_document_offers_columns_on_rows_under_each_document():
@@ -67,8 +67,8 @@ def test_a_table_per_document_offers_columns_on_rows_under_each_document():
     )
 
     assert compiled.is_runnable, compiled.problems
-    assert compiled.field(Ref("read", "result")).index == Index("docs.result")
-    assert compiled.node("check").runs_per_row_of == Index("read.result", parent=Index("docs.result"))
+    assert compiled.field(Ref("read", "result"))._index == Index("docs.result")
+    assert compiled.node("check").wiring._runs_per_row_of == Index("read.result", parent=Index("docs.result"))
     assert compiled.field(Ref("read", "result.amount")).type is Series[Num]
 
 
@@ -82,7 +82,7 @@ def test_a_bare_table_offers_no_columns():
     compiled = _compiled(GraphNode(id="b", type="bare", version=1), extra=(bare,))
 
     assert compiled.is_runnable, compiled.problems
-    assert set(compiled.node("b")._fields) == {"text", "result"}
+    assert set(compiled.node("b").wiring.fields) == {"text", "result"}
 
 
 def test_an_output_named_like_a_column_is_refused():

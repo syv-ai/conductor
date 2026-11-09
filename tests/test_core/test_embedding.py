@@ -458,13 +458,13 @@ def _what_the_engine_reads(compiled: CompiledGraph) -> dict[str, Any]:
             found = compiled.field(Ref(node_id, declared.name))
             fields[declared.name] = {
                 "type": repr(found.type),
-                "index": repr(found.index),
+                "index": repr(found._index),
                 **({
-                    "receives": repr(found.receives), "binding": repr(found.binding), "listed": found.listed,
+                    "receives": repr(found._receives), "binding": repr(found.binding), "listed": found._listed,
                 } if declared.name in inputs else {"condition": _condition(found.condition)}),
             }
         nodes[node_id] = {
-            "runs_per_row_of": repr(graph_node.runs_per_row_of),
+            "runs_per_row_of": repr(graph_node.wiring._runs_per_row_of),
             "statics": repr(dict(sorted(graph_node.statics.items()))),
             "fields": fields,
         }
@@ -512,7 +512,7 @@ def test_the_placed_node_is_a_graph_whose_version_is_the_compiled_graph():
     compiled = _compiled("read_from_outside")
     graph_node = compiled.node("emb")
 
-    assert (graph_node.state, graph_node.kind) == ("ready", "graph")
+    assert (graph_node.state, graph_node.embedded_graph is not None) == ("ready", True)
     assert isinstance(graph_node.version, CompiledGraph)
     assert compiled.node("emb/join").embedded_in == "emb"
     assert compiled.field(Ref("emb/join", "result")) is compiled.field(Ref("emb/join", "result"))
@@ -666,7 +666,7 @@ def test_a_graph_the_walk_leaves_out_is_one_node_with_nothing_inside():
 
     for compiled, cause in ((upstream_broken, "unknown_node_type"), (unembeddable, "embedded_graph_broken")):
         graph_node = compiled.node("emb")
-        assert (graph_node.state, graph_node.kind, graph_node._cause.type) == ("wiring_failed", "graph", cause)
+        assert (graph_node.state, graph_node.embedded_graph is not None, graph_node.cause.type) == ("wiring_failed", True, cause)
         with pytest.raises(KeyError):
             compiled.node("emb/holder" if compiled is upstream_broken else "emb/a")
     assert unembeddable.node("emb").version.node("a").state == "ready"

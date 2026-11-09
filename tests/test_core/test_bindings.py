@@ -11,7 +11,7 @@ from conductor.graph.binding import From, Static, static_values
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import FieldContent, Graph, GraphNode
 from conductor.graph.topology import dependencies_of
-from conductor.graph.views import derive_interface, lock_problems
+from conductor.graph.views import derive_interface
 from conductor.interface import FromRun, Interface
 from conductor.metadata import Output, Param, Result
 from conductor.ref import Ref
@@ -50,11 +50,12 @@ def test_static_values_extracts_only_static_bindings():
 def test_bindings_are_frozen():
     with pytest.raises(Exception):
         Static(1).value = 2
-def test_a_placement_id_contains_no_dot():
-    """A Ref reads as 'node.field' everywhere it is spelled — an index
-    name, a caller's payload key — so an id with a '.' is refused."""
-    with pytest.raises(ValueError, match="contains '.'"):
-        GraphNode(id="a.b", type="upper", version=1)
+def test_a_node_id_with_a_dot_or_a_slash_is_a_problem_on_the_graph():
+    """A Ref reads as 'node.field', so '.' can't be in an id; '/' is an inner node's path. Both are the one refusal, on the stored graph."""
+    for bad in ("a.b", "a/b"):
+        compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id=bad, type="upper", version=1)]), _registry())
+        assert [(p.type, p.loc) for p in compiled.problems] == [("invalid_node_id", (bad,))]
+        assert compiled.node(bad).interface is None
 
 
 def test_a_slash_is_the_namespace_separator():
@@ -242,8 +243,7 @@ def _interface(graph, registry=None):
 
 
 def _locks(graph, registry=None):
-    interfaces, _ = _resolved(graph, registry)
-    return lock_problems({n.id: n for n in graph.nodes}, interfaces)
+    return tuple(p for p in CompiledGraph.from_graph(graph, registry or _registry()).problems if p.type == "unknown_locked_field")
 
 
 def test_the_interface_is_derived_node_level():
@@ -262,7 +262,7 @@ def test_the_interface_is_the_record_a_node_version_declares():
     interface = _interface(_graph())
 
     assert isinstance(interface, Interface)
-    assert interface.needs == {}
+    assert interface.needs == frozenset()
 
 
 def test_a_graph_level_name_is_the_address_a_ref_spells():
@@ -283,7 +283,7 @@ def test_needs_is_the_union_of_the_nodes_needs():
         GraphNode(id="c", type="text-input", version=1),
     ])
 
-    assert _interface(graph).needs == {"clock": Clock}
+    assert _interface(graph).needs == {Clock}
 
 
 def test_a_field_reports_the_title_its_node_carries():
