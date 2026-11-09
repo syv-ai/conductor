@@ -745,10 +745,10 @@ def test_a_typed_in_list_inside_an_iterating_embedded_graph_is_a_child_row_under
     assert results["emb/t"]["result"].rows == tuple((i, n) for i in range(len(joined)) for n in range(2))
 
 
-def test_a_restore_leaves_a_list_set_on_a_node_under_a_skipped_outer_row_complete():
-    """A skip above the embedded graph leaves its list set on a node with no rows
-    under the outer row, and a restore works that out again, so the inner
-    node that stood in is still complete on the next leg."""
+def test_a_skip_above_an_embedded_list_leaves_it_with_no_rows_and_the_inner_nodes_complete():
+    """A skip on the row an embedded graph hangs under leaves its list set on a node with
+    no rows there, so its inner nodes have no units and are complete, and a restore
+    works that out again without a stored unit for them."""
     from conductor._internal.execution.run_ledger import RunLedger, SkippedAtRow
 
     compiled = CompiledGraph.from_graph(
@@ -756,13 +756,12 @@ def test_a_restore_leaves_a_list_set_on_a_node_under_a_skipped_outer_row_complet
         _registry_with_asks(TypedInside),
     )
     live = RunLedger(compiled)
-    live.record(("docs", ()), SkippedAtRow(row=()))
-    for node_id in compiled.execution_order[1:]:
-        live.record((node_id, ()), live.inputs_for((node_id, ())))
+    recorded = live.record(("docs", ()), SkippedAtRow(row=()))
 
     restored = RunLedger.restore(compiled, live.state("complete"))
 
-    assert restored.units("emb/t") == live.units("emb/t") == [("emb/t", ())]
+    assert restored.units("emb/t") == live.units("emb/t") == []
+    assert set(recorded.nodes_completed) == set(compiled.execution_order)
     assert restored.completed_nodes() == live.completed_nodes() == set(compiled.execution_order)
 
 

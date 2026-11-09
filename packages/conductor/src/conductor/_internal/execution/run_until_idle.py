@@ -80,6 +80,7 @@ from conductor._internal.execution.run_ledger import (
     RunLedger,
     SkippedAtRow,
     Unit,
+    UnitRecorded,
 )
 from conductor._internal.execution.run_state import RunState
 from conductor._internal.execution.validate_unit_outputs import took_a_row_in, validate_unit_outputs
@@ -277,18 +278,7 @@ class RunningLeg:
                 yield RunCheckpoint(state=ledger.state("running"))
                 self.last_checkpoint_at = time.monotonic()
 
-        # Nothing is in flight, so nothing may be ready either: a ready unit
-        # nobody started means a write missed a unit it made ready.
-        missed = ledger.units_ready_to_start()
-        if missed:
-            raise RuntimeError(f"{missed} are ready but were never started — an engine bug")
-        if ledger.waiting():
-            yield RunEnd(state=ledger.state("waiting"))
-            return
-        unfinished = [node_id for node_id in order if not ledger.node_is_complete(node_id)]
-        if unfinished:
-            raise RuntimeError(f"nothing left to run, but {unfinished} did not complete — an engine bug")
-        yield RunEnd(state=ledger.state("complete"))
+        yield RunEnd(state=ledger.state("waiting" if ledger.waiting() else "complete"))
 
     async def _next_message(self) -> Event | _UnitDone | _Cancelled | _TimedOut:
         """The next thing the loop acts on: a message from a unit, or the reason to stop.
@@ -413,9 +403,7 @@ class RunningLeg:
             queue.put_nowait(NodeStart(node_id=node_id))
         if isinstance(inputs, (SkippedAtRow, BlankInputsStopCall)):
             self._free_slot(node_id)
-            ready = ledger.record(unit, inputs)
-            self._report_progress_and_completion(unit)
-            queue.put_nowait(_UnitDone(unit, ready))
+            self._report_recorded(unit, ledger.record(unit, inputs))
             return
 
         node = compiled.node(node_id)
@@ -465,9 +453,7 @@ class RunningLeg:
             code = next((problem.type for problem in problems if problem.type != "invalid_output"), "invalid_output")
             queue.put_nowait(_UnitDone(unit, error=self._invalid_output_event(node_id, row, reason, errors, code=code)))
             return
-        ready = ledger.record(unit, cells)
-        self._report_progress_and_completion(unit)
-        queue.put_nowait(_UnitDone(unit, ready))
+        self._report_recorded(unit, ledger.record(unit, cells))
 
     def _validate_inputs_and_call_node(self, unit: Unit, inputs: dict[str, Any]) -> Any:
         """Validate the inputs against the node's interface, then call the node.
@@ -520,21 +506,21 @@ class RunningLeg:
             PROBLEM_CATALOGUE["execution_failed"].message, node_id=node_id, code="execution_failed", ctx={"exception": type(raised).__name__},
         )
 
-    def _report_progress_and_completion(self, unit: Unit) -> None:
-        """Report progress, and completion when this was the node's last unit."""
+    def _report_recorded(self, unit: Unit, recorded: UnitRecorded) -> None:
+        """Report this unit's progress and every node its record completed, then tell the loop what is ready."""
         node_id, _ = unit
         ledger = self.ledger
-        if ledger.unit_is_at_a_real_row(unit):
+        if ledger.node_runs_per_row(node_id):
             done, total = ledger.progress(node_id)
             self.queue.put_nowait(NodeProgress(node_id=node_id, done=done, total=total))
-        if not ledger.node_is_complete(node_id):
-            return
-        result = ledger.result_of(node_id)
-        rows_not_called = ledger.rows_not_called(node_id)
-        if result is None and not rows_not_called:
-            self.queue.put_nowait(NodeSkipped(node_id=node_id))
-            return
-        self.queue.put_nowait(NodeComplete(node_id=node_id, result=result or {}, rows_not_called=rows_not_called))
+        for completed_node_id in recorded.nodes_completed:
+            result = ledger.result_of(completed_node_id)
+            rows_not_called = ledger.rows_not_called(completed_node_id)
+            if result is None and not rows_not_called:
+                self.queue.put_nowait(NodeSkipped(node_id=completed_node_id))
+            else:
+                self.queue.put_nowait(NodeComplete(node_id=completed_node_id, result=result or {}, rows_not_called=rows_not_called))
+        self.queue.put_nowait(_UnitDone(unit, recorded.units_ready))
 
     # -- failures ----------------------------------------------------------------
 

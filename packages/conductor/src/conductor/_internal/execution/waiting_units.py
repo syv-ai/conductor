@@ -5,9 +5,9 @@ of ``RunState.waiting``. ``apply_answers`` is the other half, and the verb
 ``CompiledGraph.answer``: it checks every answer against what its unit asked,
 raises with every problem it found, and otherwise writes the answered units
 into a new state as finished, with the same cells a node's return would have
-written. No node runs. Each call passes over every waiting unit and copies the
-columns it writes to, so answering many units costs least as one call. Whether
-the rest of the graph can then run is the next leg's business.
+written. No node runs: the state is read back into a ledger, each answer
+recorded, and the state written again. Whether the rest of the graph can then
+run is the next leg's business.
 """
 
 from __future__ import annotations
@@ -17,16 +17,14 @@ from typing import TYPE_CHECKING, Any
 
 from conductor._internal.codec import to_wire
 from conductor._internal.errors import InvalidCallError, Problem, make_problem
-from conductor._internal.execution.run_ledger import RunLedger
+from conductor._internal.execution.run_ledger import RunLedger, SkippedAtRow
 from conductor._internal.execution.run_state import (
     Answers,
-    OutputColumn,
     Question,
     RunState,
     WaitingUnit,
 )
 from conductor._internal.execution.validate_unit_outputs import validate_unit_outputs
-from conductor._internal.ref import Ref
 from conductor._internal.series import Row
 from conductor._internal.skip_and_ask import SKIPPED, AskPerson
 from conductor.widgets import Widget
@@ -105,7 +103,10 @@ def apply_answers(compiled: CompiledGraph, state: RunState, answers: Answers) ->
             finished.append((waiting_unit, cells))
     if problems:
         raise InvalidCallError(problems)
-    return _with_units_finished(compiled, state, finished)
+    ledger = RunLedger.restore(compiled, state)
+    for waiting_unit, cells in finished:
+        ledger.record((waiting_unit.node_id, waiting_unit.row), SkippedAtRow(waiting_unit.row) if cells is None else cells)
+    return ledger.state(state.status, state.failure)
 
 
 def _answered_cells(node: CompiledNode, waiting_unit: WaitingUnit, answer: Mapping[str, Any] | None) -> tuple[dict[str, Any] | None, list[Problem]]:
@@ -154,64 +155,3 @@ def _with_choices_and_defaults(
             values[name] = SKIPPED  # the problem below stops the call; a value in its place keeps the other questions checked
             problems.append(make_problem("missing", *problem_location, name, name=name))
     return values
-
-
-def _with_units_finished(compiled: CompiledGraph, state: RunState, finished: list[tuple[WaitingUnit, dict[str, Any] | None]]) -> RunState:
-    """A new state holding these units' cells, each output copied once, however many units wrote to it."""
-    columns = dict(state.output_columns)
-    finished_rows = dict(state.finished_rows)
-    outputs_copied: set[Ref] = set()
-    nodes_copied: set[str] = set()
-    answered: set[str] = set()
-    made_no_rows = False
-
-    def column_of(ref: Ref) -> OutputColumn:
-        if ref not in outputs_copied:
-            old = columns.get(ref)
-            columns[ref] = OutputColumn.model_construct(
-                rows=[*old.rows] if old else [], values=[*old.values] if old else [], skipped=[*old.skipped] if old else [],
-            )
-            outputs_copied.add(ref)
-        return columns[ref]
-
-    def finished_rows_of(node_id: str) -> list[Row]:
-        if node_id not in nodes_copied:
-            finished_rows[node_id] = [*finished_rows.get(node_id, ())]
-            nodes_copied.add(node_id)
-        return finished_rows[node_id]
-
-    for waiting_unit, cells in finished:
-        answered.add(waiting_unit.id)
-        finished_rows_of(waiting_unit.node_id).append(waiting_unit.row)
-        node = compiled.node(waiting_unit.node_id)
-        assert node.interface is not None and node.wiring is not None  # the engine runs only a runnable graph
-        for out in node.interface.outputs:
-            ref = node.wiring.fields[out.name].ref
-            value = SKIPPED if cells is None else cells[out.name]
-            column = column_of(ref)
-            makes_rows = value is not SKIPPED and node.wiring.fields[out.name]._makes_rows is not None
-            made_no_rows = made_no_rows or (makes_rows and len(value) == 0)
-            if value is SKIPPED:
-                column.skipped.append(waiting_unit.row)
-            elif isinstance(value, list) and node.wiring.fields[out.name]._unit_writes_many_cells:
-                for j, item in enumerate(value):
-                    (column.skipped if item is SKIPPED else column.rows).append((*waiting_unit.row, j))
-                    if item is not SKIPPED:
-                        column.values.append(item)
-            else:
-                column.rows.append(waiting_unit.row)
-                column.values.append(value)
-    updated = state.model_copy(update={
-        "waiting": tuple(unit for unit in state.waiting if unit.id not in answered),
-        "output_columns": columns,
-        "finished_rows": finished_rows,
-    })
-    return _with_nodes_complete_on_no_rows(compiled, updated) if made_no_rows else updated
-
-
-def _with_nodes_complete_on_no_rows(compiled: CompiledGraph, state: RunState) -> RunState:
-    """``state`` with every node an answer of no rows has left nothing to do listed as
-    finished on none, as a leg would. Working that out means making the rows again, so
-    only an answer that made no rows pays for it."""
-    finished = RunLedger.restore(compiled, state).state(state.status, state.failure).finished_rows
-    return state.model_copy(update={"finished_rows": {**{node_id: rows for node_id, rows in finished.items() if not rows}, **state.finished_rows}})

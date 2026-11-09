@@ -25,6 +25,7 @@ when a state is loaded, so a loaded state holds one frame per digest.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from itertools import chain, islice
 from typing import Any, Literal, Self
 
 from pydantic import (
@@ -63,9 +64,12 @@ Answers = Mapping[str, Mapping[str, Any] | None]
 class OutputColumn(ConductorModel):
     """What one output holds: a value per row, and the rows it was skipped at.
 
-    ``rows`` and ``values`` line up. A row in ``skipped`` holds nothing, and
-    neither does any row under it. A ``Table`` is one value at its parent's
-    row, its rows inside it.
+    ``rows`` and ``values`` line up, one value at the row of the unit that
+    wrote it. On an output that makes rows, the value is the list of cells of the rows
+    under that row. A ``Table`` is one value at its parent's row, its rows
+    inside it. A row in ``skipped`` holds nothing, and neither does any row
+    under it. A row one step deeper than a row in ``rows`` is a cell of that row's
+    list skipped alone; a ``None`` stands in its place in the list.
     """
 
     rows: list[Row] = Field(default_factory=list)
@@ -77,6 +81,15 @@ class OutputColumn(ConductorModel):
         if len(self.rows) != len(self.values):
             raise ValueError(f"{len(self.rows)} rows for {len(self.values)} values")
         return self
+
+
+def _column_values_to_wire(values: list[Any]) -> list[Any]:
+    """A column's values, each written by its own type: a list holds a row's cells and is
+    written cell by cell, all of them in one pass."""
+    if not values or not all(type(value) is list for value in values):
+        return values_to_wire(values)
+    written = iter(values_to_wire(list(chain.from_iterable(values))))
+    return [list(islice(written, len(value))) for value in values]
 
 
 class Question(ConductorModel):
@@ -165,7 +178,7 @@ class RunState(ConductorModel):
         written: dict[str, Any] = {}
         for ref, column in columns.items():
             try:
-                values = values_to_wire(column.values)
+                values = _column_values_to_wire(column.values)
             except Exception as unwritable:
                 raise TypeError(f"{ref}: a value has no JSON form ({unwritable})") from unwritable
             written[ref] = {"rows": column.rows, "values": values, "skipped": column.skipped}

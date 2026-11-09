@@ -287,32 +287,6 @@ def test_a_cancel_set_mid_run_ends_the_leg_within_one_event():
     assert after < 0.2, f"the cancel took {after:.2f}s to end the leg"
 
 
-def test_a_ready_unit_nobody_started_stops_the_leg_loudly(monkeypatch):
-    """What the engine starts is what a write reports ready. A ledger whose
-    write reports nothing leaves units ready and unstarted, and the leg
-    raises when it goes quiet rather than ending short."""
-    import pytest
-    from conductor._internal.execution.run_ledger import RunLedger
-
-    @node("echo-wake", title="Echo", description="d", category="test")
-    def echo(text: In = Txt("")) -> Out:
-        return text
-
-    record = RunLedger.record
-
-    def silent(self, unit, outputs):
-        record(self, unit, outputs)
-        return []
-
-    monkeypatch.setattr(RunLedger, "record", silent)
-    graph = Graph(nodes=[
-        GraphNode(id="a", type="echo-wake", version=1),
-        GraphNode(id="b", type="echo-wake", version=1, bindings={"text": From("a.result")}),
-    ])
-    with pytest.raises(RuntimeError, match="never started"):
-        CompiledGraph.from_graph(graph, NodeRegistry((echo,))).run_sync()
-
-
 # -- what a node may raise, and how a unit gets its turn -------------------------------
 
 

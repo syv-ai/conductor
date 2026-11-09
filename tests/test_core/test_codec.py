@@ -164,7 +164,7 @@ def test_a_skip_is_listed_beside_the_values():
     wire = json.loads(state.model_dump_json())["output_columns"]
 
     assert wire["up.result"] == {"rows": [[1]], "values": ["B"], "skipped": [[0]]}
-    assert wire["split.result"] == {"rows": [[0], [1]], "values": ["a", "b"], "skipped": []}
+    assert wire["split.result"] == {"rows": [[]], "values": [["a", "b"]], "skipped": []}
 
 
 def test_a_value_with_no_json_form_raises_naming_the_field():

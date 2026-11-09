@@ -120,3 +120,8 @@ class Merge:
 
 
 ReceiveMode = PerRow | Broadcast | EntireValue | RowsUnder | Gather | Merge
+
+
+def group_depth_of_read(receive_mode: ReceiveMode) -> int:
+    """The depth of the row a reader of many values is read under: a ``RowsUnder``'s, else ``0`` (everything on the field)."""
+    return receive_mode.depth if isinstance(receive_mode, RowsUnder) else 0

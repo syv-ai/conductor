@@ -77,6 +77,11 @@ its stored graphs itself. What a 1.x user must change:
   `output_columns` values, `WaitingUnit.inputs` and question defaults. A plain `model_dump_json()`
   is one document, and a load holds one frame per digest. An event writes its tables whole.
 
+- A node's output that makes rows is one value in a `RunState`: `OutputColumn.rows` holds the row it
+  was written at and `values` the list of its cells, a cell skipped alone a `None` there and a row
+  in `skipped`. A skip that left an index with no rows leaves nothing of its own in `finished_rows`
+  or `skipped`; the nodes running on it complete through the state.
+
 ### Standard nodes and providers
 
 - `get_default_registry` is `conductor_nodes.registry(categories=...)`, and
