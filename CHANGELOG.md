@@ -73,6 +73,9 @@ its stored graphs itself. What a 1.x user must change:
   from, in place of `resume`.
 - `flow_*` events are `run_start`, `node_failed`, `unit_waiting` and `run_end`, which carries the
   state. What goes wrong is always a `Problem`; a node's own exception goes to the `conductor` logger.
+- A dumped `RunState` holds each table once, under `tables` by digest, with `{"table": digest}` in
+  `output_columns` values, `WaitingUnit.inputs` and question defaults. A plain `model_dump_json()`
+  is one document, and a load holds one frame per digest. An event writes its tables whole.
 
 ### Standard nodes and providers
 

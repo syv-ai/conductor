@@ -9,6 +9,9 @@ checkpoints also emits ``RunCheckpoint`` along the way.
 
 A value in ``NodeComplete.result`` is a typed value (a ``Series`` for anything
 on an index), and a host that sends the event on serialises it at that edge.
+An event stands alone on the stream, so a table in one (in ``NodeComplete.result``, a
+waiting unit's ``inputs``) is written whole; ``RunEnd.state`` and ``RunCheckpoint.state``
+are states, each with its own ``tables``.
 """
 
 from __future__ import annotations

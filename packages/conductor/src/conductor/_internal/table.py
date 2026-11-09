@@ -41,15 +41,20 @@ Polars is imported the first time a table is built, never at
 from __future__ import annotations
 
 import datetime
+import hashlib
+import io
 import json
 import sys
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from functools import cache
 from itertools import count
+from types import NoneType
 from typing import TYPE_CHECKING, Any, ClassVar, Generic, TypeVar, get_type_hints, is_typeddict
 
-from pydantic import TypeAdapter, ValidationError
+from pydantic import BaseModel, TypeAdapter, ValidationError
 from pydantic_core import PydanticCustomError, PydanticSerializationError, core_schema, to_json
 
 from conductor._internal.dtype import DType, dtype_of
@@ -64,6 +69,12 @@ if TYPE_CHECKING:
 ROW_ID_COLUMN = "__row"
 #: While a merge runs, the row above each row of a source whose index repeats an id.
 _GROUP_ROW_COLUMN = "__under_row"
+#: The one key of what stands in a document for a table held under its digest.
+_TABLE_REFERENCE_KEY = "table"
+#: What a walk over a document's values passes by without looking inside.
+_HOLDS_NO_TABLE = (str, int, float, bool, NoneType)
+#: The attribute a frame keeps its digest in, once worked out.
+_DIGEST_ATTRIBUTE = "_conductor_digest"
 
 #: The Polars column type of a value built on each builtin, by the dtype's name.
 _COLUMN_OF_BASE: dict[type, str] = {
@@ -200,6 +211,8 @@ def merge_tables_on_row_ids(sources: Sequence[MergeSource]) -> pl.DataFrame:
     """
     import polars as pl
 
+    if len(sources) == 1 and sources[0].frame.columns[:1] == [ROW_ID_COLUMN]:
+        return sources[0].frame  # one table has nothing to match with; handed on as itself, whatever holds it holds one frame
     parent_indexes = {s.index for s in sources for other in sources if other.index != s.index and s.index in other.index.lineage}
     row_id_by_row_on_parent: dict[Index, dict[Row, str]] = {}
     for source in sources:
@@ -457,7 +470,8 @@ class Table(DType, Generic[RowsOf]):
 
     @classmethod
     def __get_pydantic_core_schema__(cls, source_type: Any, handler: GetCoreSchemaHandler) -> core_schema.CoreSchema:
-        """In: a frame, records or the JSON form, read as this type. Out, as JSON:
+        """In: a frame, records or the JSON form, read as this type. Out, as JSON (a reference
+        instead inside a document that holds each table once, see ``writing_each_table_once``):
         ``{"columns": [{"name", "dtype"}], "data": {name: [...]}, "rows": [...]}``, where
         ``rows`` holds the ``__row`` ids (``null`` on a table that has none), ``columns``
         never lists ``__row``, ``dtype`` is the column's Polars type (a name, or an object
@@ -469,13 +483,92 @@ class Table(DType, Generic[RowsOf]):
         )
 
 
+#: The tables of the document being written, by digest; ``None`` outside one, where a table is written whole.
+_tables_of_document_being_written: ContextVar[dict[str, Any] | None] = ContextVar("tables_of_document_being_written", default=None)
+
+
+@contextmanager
+def writing_each_table_once() -> Iterator[dict[str, Any]]:
+    """While this is open, every table written goes into the dict it yields, by digest, and leaves ``{"table": digest}`` where it stood.
+
+    The one thing a document that holds each table once has to do while it is written; how it
+    got to the table, through a list, a series or a slot typed ``Any``, doesn't matter."""
+    tables: dict[str, Any] = {}
+    token = _tables_of_document_being_written.set(tables)
+    try:
+        yield tables
+    finally:
+        _tables_of_document_being_written.reset(token)
+
+
 def _table_to_wire(frame: pl.DataFrame) -> dict[str, Any]:
+    """The only writer of a table's JSON form: the table itself, or in a document that holds each table once, a reference to it there."""
+    tables = _tables_of_document_being_written.get()
+    if tables is None:
+        return _table_written_whole(frame)
+    digest = _digest_of_frame(frame)
+    if digest not in tables:
+        tables[digest] = _table_written_whole(frame)
+    return {_TABLE_REFERENCE_KEY: digest}
+
+
+def _table_written_whole(frame: pl.DataFrame) -> dict[str, Any]:
     names = [name for name in frame.columns if name != ROW_ID_COLUMN]
     return {
         "columns": [{"name": name, "dtype": _dtype_to_wire(frame[name].dtype)} for name in names],
         "data": {name: _column_to_wire(frame[name]) for name in names},
         "rows": frame[ROW_ID_COLUMN].to_list() if ROW_ID_COLUMN in frame.columns else None,
     }
+
+
+def _digest_of_frame(frame: pl.DataFrame) -> str:
+    """The SHA-256 of what the frame holds, worked out once per frame object.
+
+    Over Arrow IPC at Polars' oldest format: it doesn't depend on how the columns happen to be
+    chunked or how their strings sit in memory. A frame is never changed in place once a run holds it."""
+    import polars as pl
+
+    digest: str | None = getattr(frame, _DIGEST_ATTRIBUTE, None)
+    if digest is not None:
+        return digest
+    written = io.BytesIO()
+    try:
+        frame.write_ipc(written, compat_level=pl.CompatLevel.oldest())
+    except pl.exceptions.ComputeError:
+        _table_written_whole(frame)  # a column IPC can't hold has no JSON form either, and this names it
+        raise
+    digest = hashlib.sha256(written.getbuffer()).hexdigest()
+    setattr(frame, _DIGEST_ATTRIBUTE, digest)
+    return digest
+
+
+def tables_read_once(tables: Any) -> dict[str, pl.DataFrame]:
+    """A document's ``tables`` as one frame per digest. Each frame keeps the digest it was stored under,
+    so a state that's read and dumped again files the table under the same one."""
+    frames = _tables_adapter().validate_python(tables)
+    for digest, frame in frames.items():
+        setattr(frame, _DIGEST_ATTRIBUTE, digest)
+    return frames
+
+
+def with_table_references_read(value: Any, frames: Mapping[str, pl.DataFrame]) -> Any:
+    """``value``, and every value inside it, with the frame in the place of each ``{"table": digest}`` of a table in ``frames``."""
+    if isinstance(value, dict):
+        if len(value) == 1 and isinstance(digest := value.get(_TABLE_REFERENCE_KEY), str) and digest in frames:
+            return frames[digest]
+        return {key: with_table_references_read(nested, frames) for key, nested in value.items()}
+    if isinstance(value, (list, tuple)):
+        if isinstance(value, tuple) and (not value or type(value[0]) is int):  # a row's path
+            return value
+        return type(value)(nested if isinstance(nested, _HOLDS_NO_TABLE) else with_table_references_read(nested, frames) for nested in value)
+    if isinstance(value, BaseModel):
+        return value.model_copy(update={name: with_table_references_read(getattr(value, name), frames) for name in type(value).model_fields})
+    return value
+
+
+@cache
+def _tables_adapter() -> TypeAdapter[Any]:
+    return TypeAdapter(dict[str, Table])
 
 
 def _frame_from_wire(value: Mapping[str, Any]) -> pl.DataFrame:

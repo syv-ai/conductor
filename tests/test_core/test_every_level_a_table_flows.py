@@ -456,7 +456,7 @@ def test_a_waiting_unit_carries_the_inputs_it_received_as_json() -> None:
     assert dumped.waiting[0].inputs == {"vendor": "Ida", "note": "hello"}
 
 
-def test_a_waiting_unit_holds_a_table_and_a_series_it_received_as_json() -> None:
+def test_a_waiting_unit_holds_a_table_and_a_series_it_received() -> None:
     @node("review", category="t")
     def review(values: Series[str], rows: Table) -> Annotated[str, Result(title="OK")] | AskPerson:
         return AskPerson()
@@ -466,4 +466,4 @@ def test_a_waiting_unit_holds_a_table_and_a_series_it_received_as_json() -> None
     assert state.status == "waiting"
     written = RunState.model_validate_json(state.model_dump_json()).waiting[0].inputs
     assert written["values"] == ["Ida", "Bo", "Nina"]
-    assert written["rows"]["data"]["name"] == ["Ida", "Bo", "Nina"]
+    assert written["rows"]["name"].to_list() == ["Ida", "Bo", "Nina"]

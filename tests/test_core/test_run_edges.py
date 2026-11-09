@@ -517,7 +517,8 @@ def test_an_answer_to_a_tampered_row_is_refused_at_the_next_leg():
 def test_a_stored_table_with_no_row_ids_is_unreadable():
     compiled = compiled_of(n("c", "csv", k=Static("a")))
     dumped = json.loads(compiled.run_sync().model_dump_json())
-    dumped["output_columns"]["c.result"]["values"][0]["rows"] = None
+    digest = dumped["output_columns"]["c.result"]["values"][0]["table"]
+    dumped["tables"][digest]["rows"] = None
     with pytest.raises(InvalidCallError) as raised:
         compiled.run_sync(RunState.model_validate(dumped))
     assert {p.type for p in raised.value.errors()} == {"state_unreadable"}
@@ -785,7 +786,7 @@ def test_records_in_the_published_shape_that_keep_row_ids_merge_on_their_source_
     compiled = compiled_of(n("c", "csv", k=Static("a,b")), n("r", "ask_table", t=From("c.result")), n("m", "merged", table=From("c.result", "r.result")))
     state = compiled.run_sync()
     default = state.waiting[0].questions[0].default
-    records = [{ROW_ID_COLUMN: global_row_id, "name": name, "email": "edited"} for global_row_id, name in zip(default["rows"], default["data"]["name"], strict=True)]
+    records = [{ROW_ID_COLUMN: global_row_id, "name": name, "email": "edited"} for global_row_id, name in zip(default[ROW_ID_COLUMN], default["name"], strict=True)]
     ended = compiled.run_sync(compiled.answer(state, {"r": {"result": records}}))
     assert ended.status == "complete", ended.failure
     assert compiled.results(ended)["m"]["result"].height == 2

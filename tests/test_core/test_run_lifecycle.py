@@ -399,9 +399,9 @@ def test_a_table_form_with_rows_that_do_not_line_up_is_a_refusal():
     assert raised.value.errors()[0].type == "invalid_value"
 
 
-def test_a_table_default_dumps_with_the_waiting_unit():
+def test_a_table_default_comes_back_with_the_waiting_unit():
     state = compiled_of(n("t", "ask-table")).run_sync()
-    assert roundtrip(state).waiting[0].questions[0].default["data"]["name"] == ["a"]
+    assert roundtrip(state).waiting[0].questions[0].default["name"].to_list() == ["a"]
 
 
 def test_a_changed_node_asks_again_and_its_old_unit_is_gone():

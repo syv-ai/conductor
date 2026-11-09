@@ -16,7 +16,10 @@ compiled graph: ``compiled.results(state)`` and ``compiled.outputs(state)``.
 
 A state a leg just built holds its values typed; one read from JSON holds
 their wire form, and the graph's validators read that when it is next used.
-Dumped as JSON, each value is written by its own type.
+Dumped as JSON, each value is written by its own type, in one document that
+holds each table once: under ``tables``, by the digest of what it holds, with
+``{"table": digest}`` in every place that held it. Tables are read back
+when a state is loaded, so a loaded state holds one frame per digest.
 """
 
 from __future__ import annotations
@@ -24,13 +27,25 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, Literal, Self
 
-from pydantic import Field, field_serializer, model_validator
+from pydantic import (
+    Field,
+    SerializationInfo,
+    SerializerFunctionWrapHandler,
+    field_serializer,
+    model_serializer,
+    model_validator,
+)
 
-from conductor._internal.codec import values_to_wire
+from conductor._internal.codec import to_wire, values_to_wire
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.errors import Problem
 from conductor._internal.ref import Ref
 from conductor._internal.series import Row, Series
+from conductor._internal.table import (
+    tables_read_once,
+    with_table_references_read,
+    writing_each_table_once,
+)
 
 #: How the last leg ended. ``complete``: every node finished. ``waiting``: the
 #: leg went quiet with units waiting on a person. ``failed``: a node failed.
@@ -70,9 +85,9 @@ class Question(ConductorModel):
     Plain data, so a form renders from a stored state with no graph loaded.
     ``dtype`` and ``widget`` are the dumps of the output's type and control;
     ``json_schema`` is the shape of one answer, for a client to check before
-    sending. ``default`` is in wire form and fills the question when
-    ``optional`` and left out. Questions sharing a ``choice`` are alternatives:
-    the person answers exactly one.
+    sending. ``default`` fills the question when ``optional`` and left out; a
+    state holds it as its cells are held, and writes it as JSON the same way.
+    Questions sharing a ``choice`` are alternatives: the person answers exactly one.
     """
 
     name: str
@@ -85,6 +100,11 @@ class Question(ConductorModel):
     optional: bool = False
     choice: str | None = None
 
+    @field_serializer("default", when_used="json")
+    def _default_as_wire(self, default: Any) -> Any:
+        """The default written by its own type, each value of a list by its own."""
+        return [to_wire(item, type(item)) for item in default] if isinstance(default, list) else to_wire(default, type(default))
+
 
 class WaitingUnit(ConductorModel):
     """One unit waiting on a person: a node, on one row when it runs per row.
@@ -92,7 +112,8 @@ class WaitingUnit(ConductorModel):
     ``id`` is what an answer is keyed by. It is written once, when the node
     asks, and nothing ever reads it apart. ``questions`` are frozen until the
     unit is answered or its node, or something above it, changes. ``inputs``
-    says what the row is about, in a state's size no more than the unit received.
+    says what the row is about. A unit in a state refers to its tables as the
+    state's values do; one on the event stream carries them, since an event stands alone.
     """
 
     id: str
@@ -101,7 +122,7 @@ class WaitingUnit(ConductorModel):
     prompt: str | None = None
     questions: tuple[Question, ...]
     #: What this unit received, by input name, so a form can show the row it is about: exactly the
-    #: values its call would have got, no more; a ``Series`` as a list, a table in its JSON form.
+    #: values its call would have got, no more; a ``Series`` as a list.
     inputs: dict[str, Any] = Field(default_factory=dict)
 
     @field_serializer("inputs", when_used="json")
@@ -116,8 +137,14 @@ class RunState(ConductorModel):
     ``compiled.run(state)`` goes on from one, ``compiled.answer(state, ...)``
     returns a new one with answers written in, and ``without_nodes`` returns one
     that forgets some nodes. Nothing changes one in place.
+
+    Its JSON has ``tables``, each table the state holds, by digest (see the
+    module docstring), so a dump is one self-contained document.
     """
 
+    #: The tables of a JSON document, by digest. Read back into the values that
+    #: refer to them when a state is loaded, so a state in memory never holds any here.
+    tables: dict[str, Any] = Field(default_factory=dict)
     status: RunStatus
     #: Why the leg stopped short: the failed node's cause, or a host's stop.
     #: ``None`` when the leg went quiet by itself (``complete``, ``waiting``).
@@ -143,6 +170,35 @@ class RunState(ConductorModel):
                 raise TypeError(f"{ref}: a value has no JSON form ({unwritable})") from unwritable
             written[ref] = {"rows": column.rows, "values": values, "skipped": column.skipped}
         return written
+
+    @model_serializer(mode="wrap")
+    def _each_table_once(self, write_fields: SerializerFunctionWrapHandler, info: SerializationInfo):  # type: ignore[no-untyped-def]  # a return type here would become the record's published schema
+        """As JSON, one document that has in ``tables`` what its values refer to."""
+        if not info.mode_is_json():
+            return write_fields(self)
+        with writing_each_table_once() as tables:
+            document = write_fields(self) if info.include or info.exclude or info.exclude_none or info.exclude_unset or info.exclude_defaults else self._document_written_in_one_pass()
+        return {**document, "tables": tables}
+
+    def _document_written_in_one_pass(self) -> dict[str, Any]:
+        """Every field, with the two that hold values written here, so their tables go in the one document.
+
+        The bookkeeping fields stay as they are for the JSON writer, which is what keeps a dump of a state with no table as fast as one field at a time."""
+        return {
+            **{name: getattr(self, name) for name in type(self).model_fields},
+            "waiting": [unit.model_dump(mode="json") for unit in self.waiting],
+            "output_columns": self._output_columns_as_wire(self.output_columns),
+        }
+
+    @model_validator(mode="after")
+    def _tables_read_back(self) -> Self:
+        """A document's ``tables`` read once each, and put where its values refer to them."""
+        if self.tables:
+            frames = tables_read_once(self.tables)
+            object.__setattr__(self, "tables", {})
+            for name in type(self).model_fields:
+                object.__setattr__(self, name, with_table_references_read(getattr(self, name), frames))
+        return self
 
     def without_nodes(self, *node_ids: str) -> RunState:
         """This state as if these nodes had never run: a host's "run from here".

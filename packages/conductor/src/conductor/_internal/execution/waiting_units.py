@@ -67,7 +67,7 @@ def _with_defaults_and_widgets(node: CompiledNode, row: Row, ask_person: AskPers
     cells, problems = validate_unit_outputs(node, row, {name: ask_person.defaults.get(name, SKIPPED) for name in names})
     if problems:
         raise ValueError("; ".join(problem.msg for problem in problems))
-    defaults = {name: _default_as_wire(cells[name], name) for name in ask_person.defaults}
+    defaults = {name: _default_that_has_json_form(cells[name], name) for name in ask_person.defaults}
     return tuple(
         question.model_copy(update={
             "default": defaults.get(question.name),
@@ -78,11 +78,14 @@ def _with_defaults_and_widgets(node: CompiledNode, row: Row, ask_person: AskPers
     )
 
 
-def _default_as_wire(cell: Any, name: str) -> Any:
+def _default_that_has_json_form(cell: Any, name: str) -> Any:
+    """``cell``, held typed as a state's values are, refused here if a dump of the state would fail on it."""
     try:
-        return [to_wire(item, type(item)) for item in cell] if isinstance(cell, list) else to_wire(cell, type(cell))
+        for item in cell if isinstance(cell, list) else (cell,):
+            to_wire(item, type(item))
     except Exception as unwritable:
         raise ValueError(f"AskPerson's default for '{name}' has no JSON form: {unwritable}") from unwritable
+    return cell
 
 
 def apply_answers(compiled: CompiledGraph, state: RunState, answers: Answers) -> RunState:

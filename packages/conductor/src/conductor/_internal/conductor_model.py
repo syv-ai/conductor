@@ -58,8 +58,10 @@ class ConductorModel(BaseModel):
         fields = type(self).model_fields
         for name, value in super().__repr_args__():
             field = fields.get(name) if name is not None else None
-            if field is not None and not field.is_required() and value == field.get_default(call_default_factory=True):
-                continue
+            if field is not None and not field.is_required():
+                default = field.get_default(call_default_factory=True)
+                if value is default or (default is not None and value == default):  # a frame compares by cell
+                    continue
             yield name, value
 
     def to_yaml(self) -> str:

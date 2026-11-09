@@ -229,7 +229,7 @@ Three public modules: `conductor`, `conductor.widgets` and `conductor.events`. E
 - Registry: `NodeRegistry(nodes, types=())`, immutable (`in`, `[]`, `len`, iteration, `nodes`, `types`, `accepted_as`, `describe`, `extended_with`), `TypeDescription`
 - Graph: `Graph`, `GraphNode`, `FieldContent`, `From`, `Static`, `dependencies_of`, `CompiledGraph`, `Problem`, `RunPlan`, `InputPlan`, `BranchTaken`, `ALWAYS`, `NEVER`
 - Errors: `NodeDeclarationError`, `ComputeHookError`, `InvalidCallError`, `Problem`, `NodeError`, `ExternalFailure`, `NodeValidationError`, `NodeExecutionError`, `PROBLEM_CODES`
-- A run's state: `RunState` (`status`, `failure`, `waiting`, `output_columns`, `finished_rows`, `node_fingerprints`, `rows_not_called`, `without_nodes(...)`)
+- A run's state: `RunState` (`status`, `failure`, `waiting`, `output_columns`, `finished_rows`, `node_fingerprints`, `rows_not_called`, `without_nodes(...)`); dumped as JSON it is one document holding each table once, under its `tables` key by digest, and a load holds one frame per digest
 - Records (`Graph`, `GraphNode`, …) also have `to_yaml()`, `from_yaml(text)`, `to_path(path)`, `from_path(path)`, plus pydantic's.
 
 ### Running
