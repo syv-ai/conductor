@@ -50,7 +50,7 @@ class CallFailed(NamedTuple):
 
 
 def call_node(
-    node: CompiledNode, row: Row, inputs: dict[str, Any], from_run: Mapping[type, Any], input_hash: str,
+    node: CompiledNode, row: Row, inputs: dict[str, Any], from_run: Mapping[type, Any],
     row_ids_must_survive: frozenset[Ref] = frozenset(),
 ) -> dict[str, Any] | WaitingUnit | CallFailed:
     """Call ``node`` on ``inputs`` at ``row``: the cells it wrote, what it asked a person, or why it failed.
@@ -61,8 +61,7 @@ def call_node(
     raised, ``SystemExit`` and a stray ``CancelledError`` included, is the
     unit's failure: ``external_failed`` when the policy's ``retry_on`` names
     its class, ``execution_failed`` otherwise, with the exception in the log,
-    its class name in ``ctx`` and its text on no event. ``input_hash`` is
-    what a waiting unit is known by; ``row_ids_must_survive`` holds the tables
+    its class name in ``ctx`` and its text on no event. ``row_ids_must_survive`` holds the tables
     a merge matches on the ids of the rows they were built from.
     """
     version = node.version
@@ -83,7 +82,7 @@ def call_node(
         return CallFailed(make_problem("execution_failed", node.id, *row, exception=type(raised).__name__))
 
     if isinstance(returned, AskPerson):
-        asked = waiting_unit_for(node, row, returned, inputs, input_hash)
+        asked = waiting_unit_for(node, row, returned, inputs)
         return _failed_on_its_outputs(node, row, asked) if isinstance(asked, list) else asked
     if row_ids_must_survive and not _took_a_row_in(node, inputs):
         row_ids_must_survive = frozenset()

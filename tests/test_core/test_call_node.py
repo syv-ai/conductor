@@ -70,11 +70,11 @@ def _gives_contacts() -> Contacts:
 
 
 def test_a_good_call_returns_the_cells_it_wrote():
-    assert call_node(_compiled_node_fed_by_an_edge(double, _gives_an_int), (), {"x": 21}, {}, "hash") == {"result": 42}
+    assert call_node(_compiled_node_fed_by_an_edge(double, _gives_an_int), (), {"x": 21}, {}) == {"result": 42}
 
 
 def test_an_input_that_does_not_fit_is_invalid_input_with_the_engines_reason_text():
-    outcome = call_node(_compiled_node_fed_by_an_edge(double, _gives_an_int), (2,), {"x": "not a number"}, {}, "hash")
+    outcome = call_node(_compiled_node_fed_by_an_edge(double, _gives_an_int), (2,), {"x": "not a number"}, {})
 
     assert _failure(outcome)[0] == "invalid_input"
     assert outcome.problem.loc == ("n", 2)
@@ -87,7 +87,7 @@ def test_a_table_without_a_column_it_needs_says_which():
     def needs_email(contacts: Contacts) -> str:
         return "ok"
 
-    outcome = call_node(_compiled_node_fed_by_an_edge(needs_email, _gives_contacts), (), {"contacts": pl.DataFrame({"name": ["Ida"]})}, {}, "hash")
+    outcome = call_node(_compiled_node_fed_by_an_edge(needs_email, _gives_contacts), (), {"contacts": pl.DataFrame({"name": ["Ida"]})}, {})
 
     assert _failure(outcome)[0] == "table_column_missing"
     assert outcome.problem.ctx == {"column": "email"}
@@ -98,7 +98,7 @@ def test_a_node_error_keeps_the_nodes_message_and_is_not_retryable():
     def refuses() -> int:
         raise NodeError("Dokumentet kunne ikke læses.")
 
-    assert _failure(call_node(_compiled_node(refuses), (), {}, {}, "hash")) == ("failed", "Dokumentet kunne ikke læses.", False)
+    assert _failure(call_node(_compiled_node(refuses), (), {}, {})) == ("failed", "Dokumentet kunne ikke læses.", False)
 
 
 def test_a_node_error_with_a_code_of_its_own_keeps_it():
@@ -106,7 +106,7 @@ def test_a_node_error_with_a_code_of_its_own_keeps_it():
     def refuses() -> int:
         raise NodeError("for stort", code="result_too_large", ctx={"limit": 3})
 
-    outcome = call_node(_compiled_node(refuses), (), {}, {}, "hash")
+    outcome = call_node(_compiled_node(refuses), (), {}, {})
 
     assert _failure(outcome) == ("result_too_large", "for stort", False)
     assert outcome.problem.ctx == {"limit": 3}
@@ -117,7 +117,7 @@ def test_an_external_failure_may_be_retried():
     def flaky() -> int:
         raise ExternalFailure("nede")
 
-    assert _failure(call_node(_compiled_node(flaky), (), {}, {}, "hash")) == ("external_failed", "nede", True)
+    assert _failure(call_node(_compiled_node(flaky), (), {}, {})) == ("external_failed", "nede", True)
 
 
 def test_a_class_the_policy_names_is_external_and_its_text_is_not_kept():
@@ -125,7 +125,7 @@ def test_a_class_the_policy_names_is_external_and_its_text_is_not_kept():
     def flaky() -> int:
         raise ConnectionError("secret-token")
 
-    outcome = call_node(_compiled_node(flaky), (), {}, {}, "hash")
+    outcome = call_node(_compiled_node(flaky), (), {}, {})
 
     assert _failure(outcome) == ("external_failed", "An outside service did not answer.", True)
     assert outcome.problem.ctx == {"exception": "ConnectionError"}
@@ -136,7 +136,7 @@ def test_anything_else_a_body_raises_is_execution_failed_even_a_validation_error
     def buggy() -> int:
         return TypeAdapter(int).validate_python("not a number")
 
-    outcome = call_node(_compiled_node(buggy), (), {}, {}, "hash")
+    outcome = call_node(_compiled_node(buggy), (), {}, {})
 
     assert _failure(outcome) == ("execution_failed", "The node failed.", False)
     assert outcome.problem.ctx == {"exception": ValidationError.__name__}
@@ -147,7 +147,7 @@ def test_a_return_that_is_not_the_declared_type_is_invalid_output_with_its_error
     def liar() -> int:
         return "not a number"
 
-    outcome = call_node(_compiled_node(liar), (), {}, {}, "hash")
+    outcome = call_node(_compiled_node(liar), (), {}, {})
 
     assert _failure(outcome)[:2] == ("invalid_output", "The node returned a value that is not what it declared.")
     assert outcome.problem.ctx["reason"] == "'result' must be a int, not a str"
@@ -159,7 +159,7 @@ def test_returning_something_from_a_node_with_no_outputs_is_invalid_output():
     def silent() -> None:
         return 3
 
-    outcome = call_node(_compiled_node(silent), (), {}, {}, "hash")
+    outcome = call_node(_compiled_node(silent), (), {}, {})
 
     assert _failure(outcome)[0] == "invalid_output"
     assert "declares no outputs" in outcome.problem.ctx["reason"]
@@ -173,7 +173,7 @@ def test_a_table_that_lost_its_rows_ids_fails_when_they_must_survive():
     compiled_node = _compiled_node(rebuild)
     held = pl.DataFrame({"name": ["Ida"], "email": ["i@x"], ROW_ID_COLUMN: ["s:0"]})
 
-    outcome = call_node(compiled_node, (), {"contacts": held}, {}, "hash", frozenset({compiled_node._wiring.fields["result"].ref}))
+    outcome = call_node(compiled_node, (), {"contacts": held}, {}, frozenset({compiled_node._wiring.fields["result"].ref}))
 
     assert _failure(outcome)[0] == "row_ids_lost"
 
@@ -183,7 +183,7 @@ def test_a_returned_table_is_given_its_rows_ids():
     def csv() -> Annotated[Contacts, Result(title="Contacts")]:
         return pl.DataFrame({"name": ["Ida", "Bo"], "email": ["i@x", "b@x"]})
 
-    cells = call_node(_compiled_node(csv), (), {}, {}, "hash")
+    cells = call_node(_compiled_node(csv), (), {}, {})
 
     assert cells["result"][ROW_ID_COLUMN].to_list() == ["n.result:0", "n.result:1"]
 
@@ -193,10 +193,10 @@ def test_an_ask_is_the_waiting_unit_it_makes():
     def asks(x: int) -> str | AskPerson:
         return AskPerson(prompt="Hvad?")
 
-    outcome = call_node(_compiled_node(asks), (1,), {"x": 1}, {}, "the-hash")
+    outcome = call_node(_compiled_node(asks), (1,), {"x": 1}, {})
 
     assert isinstance(outcome, WaitingUnit)
-    assert (outcome.row, outcome.prompt, outcome.reuse_key, outcome.inputs) == ((1,), "Hvad?", "the-hash", {"x": 1})
+    assert (outcome.row, outcome.prompt, outcome.inputs) == ((1,), "Hvad?", {"x": 1})
 
 
 def test_an_ask_that_is_not_sound_is_invalid_output():
@@ -204,7 +204,7 @@ def test_an_ask_that_is_not_sound_is_invalid_output():
     def asks() -> str | AskPerson:
         return AskPerson(defaults={"nope": 1})
 
-    outcome = call_node(_compiled_node(asks), (), {}, {}, "hash")
+    outcome = call_node(_compiled_node(asks), (), {}, {})
 
     assert _failure(outcome)[0] == "invalid_output"
     assert "not one of this node's outputs" in outcome.problem.ctx["reason"]
@@ -215,7 +215,7 @@ def test_an_ask_proposing_a_widget_that_is_no_widget_is_invalid_output():
     def asks() -> str | AskPerson:
         return AskPerson(widgets={"result": Textarea})
 
-    assert _failure(call_node(_compiled_node(asks), (), {}, {}, "hash"))[0] == "invalid_output"
+    assert _failure(call_node(_compiled_node(asks), (), {}, {}))[0] == "invalid_output"
 
 
 # -- a call's output check is off the event loop --------------------------------------------

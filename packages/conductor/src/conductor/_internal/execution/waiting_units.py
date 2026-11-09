@@ -23,7 +23,6 @@ from conductor._internal.execution.run_state import (
     Question,
     RunState,
     WaitingUnit,
-    id_of_waiting_unit,
 )
 from conductor._internal.execution.validate_unit_outputs import validate_unit_outputs
 from conductor._internal.index import Row
@@ -35,9 +34,9 @@ if TYPE_CHECKING:
     from conductor._internal.graph.compiled_node import CompiledNode
 
 
-def waiting_unit_for(node: CompiledNode, row: Row, ask_person: AskPerson, inputs: dict[str, Any], input_hash: str) -> WaitingUnit | list[Problem]:
+def waiting_unit_for(node: CompiledNode, row: Row, ask_person: AskPerson, inputs: dict[str, Any]) -> WaitingUnit | list[Problem]:
     """The entry for this unit in ``RunState.waiting``, with the ``inputs`` it was
-    called with; or what is wrong when ``ask_person`` names an output the node does
+    called with and yet no ``id``, which ``RunLedger.mark_waiting`` gives it; or what is wrong when ``ask_person`` names an output the node does
     not have or proposes a default that is not its output's type: the node's
     own doing, not the person's."""
     assert node.interface is not None and node._wiring is not None  # the engine runs only a runnable graph
@@ -48,12 +47,11 @@ def waiting_unit_for(node: CompiledNode, row: Row, ask_person: AskPerson, inputs
             return asked
         questions = asked
     return WaitingUnit(
-        id=id_of_waiting_unit(node.id, row, input_hash),
+        id="",
         node_id=node.id,
         row=row,
         prompt=ask_person.prompt,
         questions=questions,
-        reuse_key=input_hash,
         inputs=inputs,
     )
 
@@ -106,7 +104,7 @@ def apply_answers(compiled: CompiledGraph, state: RunState, answers: Answers) ->
     ledger = RunLedger.restore(compiled, state)
     for waiting_unit, cells in finished:
         unit = (waiting_unit.node_id, waiting_unit.row)
-        ledger.record(unit, SkippedAtRow(waiting_unit.row) if cells is None else cells, waiting_unit.reuse_key)
+        ledger.record(unit, SkippedAtRow(waiting_unit.row) if cells is None else cells)
         ledger.mark_answered(unit)
     return ledger.state(state.status, state.failure)
 

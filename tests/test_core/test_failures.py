@@ -188,7 +188,7 @@ def test_a_foreign_exceptions_text_is_on_no_problem():
     def buggy(text: In = Txt("")) -> Out:
         raise KeyError("secret-token")
 
-    outcome = call_node(_compiled(buggy).node("n1"), (), {"text": "x"}, {}, "hash")
+    outcome = call_node(_compiled(buggy).node("n1"), (), {"text": "x"}, {})
 
     assert isinstance(outcome, CallFailed) and not outcome.retryable
     assert (outcome.problem.type, outcome.problem.msg, outcome.problem.ctx) == ("execution_failed", "The node failed.", {"exception": "KeyError"})

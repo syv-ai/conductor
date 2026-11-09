@@ -160,10 +160,9 @@ class UnitRecorded(NamedTuple):
 
 
 class CallTheNode(NamedTuple):
-    """This unit runs: call the node on ``inputs``. ``input_hash`` is the hash of them."""
+    """This unit runs: call the node on ``inputs``."""
 
     inputs: dict[str, Any]
-    input_hash: str
 
 
 class FinishedWithoutACall(NamedTuple):
@@ -216,6 +215,8 @@ class RunLedger:
         values = self._values = ValuesOfRun(lookups)
         self._value_or_skip_at = values.value_or_skip_at
         self._rows = values.rows
+        #: Per unit handed out to be called, the hash of the inputs it was handed.
+        self._input_hash_of_call: dict[Unit, str] = {}
         #: Each finished unit's reuse key, ``None`` for one not called.
         #: Kept in the order units finished, which ``state`` then has little to sort.
         self._done: dict[Unit, str | None] = {}
@@ -371,9 +372,10 @@ class RunLedger:
                 self._waiting[unit] = earlier
                 return WaitsOnAPersonAgain(earlier)
             if earlier is not None:
-                cells, reuse_key = earlier
-                return FinishedWithoutACall(self.record(unit, cells, reuse_key))
-        return CallTheNode(inputs, input_hash)
+                cells, self._input_hash_of_call[unit] = earlier
+                return FinishedWithoutACall(self.record(unit, cells))
+        self._input_hash_of_call[unit] = input_hash
+        return CallTheNode(inputs)
 
     def _tables_received_by(self, node_id: str, inputs: dict[str, Any]) -> list[pl.DataFrame]:
         """The stored tables this unit received whole, as they are, and of a merged one its ids: what its own table's ids can have come from."""
@@ -547,7 +549,7 @@ class RunLedger:
 
     # -- recording -----------------------------------------------------------------
 
-    def record(self, unit: Unit, outputs: dict[str, Any] | SkippedAtRow | BlankInputsStopCall, reuse_key: str | None = None) -> UnitRecorded:
+    def record(self, unit: Unit, outputs: dict[str, Any] | SkippedAtRow | BlankInputsStopCall) -> UnitRecorded:
         """Record what this unit produced, and hand back what that makes ready.
 
         ``outputs`` are cells that passed their outputs' checks, per output: one
@@ -561,9 +563,6 @@ class RunLedger:
         reduction may then have run first on an empty group, and what it
         returned is hidden by the skip, so a run's results don't depend on
         which came first, though the number of calls can.
-
-        ``reuse_key`` is what a later leg reuses the unit by; ``None`` for a
-        unit that wasn't called.
 
         The units returned are the ones whose first need this write finished,
         asked again; the engine starts those and asks nothing else.
@@ -589,9 +588,9 @@ class RunLedger:
             else:
                 value = outputs[out.name]  # type: ignore[index]
             write(field, row if skip_row is None else skip_row, value, rows_made)
-        if self._waiting:
-            self._waiting.pop(unit, None)
-        self._mark_done(unit, reuse_key)
+        was_waiting = self._waiting.pop(unit, None)
+        input_hash = self._input_hash_of_call.pop(unit, None)  # an attempt that failed left one, and this one may be a skip
+        self._mark_done(unit, was_waiting.reuse_key if was_waiting is not None else None if skip_row is not None or not_called is not None else input_hash)
         return self._what_this_write_makes_ready(unit, rows_made)
 
     def _mark_done(self, unit: Unit, reuse_key: str | None) -> None:
@@ -651,12 +650,10 @@ class RunLedger:
 
     def mark_waiting(self, unit: Unit, waiting_unit: WaitingUnit) -> WaitingUnit:
         """Hold this unit as waiting: its node asked a person, on this row. It and whatever reads it
-        wait. Hands back the unit as held, its question bound to the row it was asked on."""
-        reuse_key = self._reuse_key_of_question(unit, waiting_unit.reuse_key)
-        if reuse_key != waiting_unit.reuse_key:
-            waiting_unit = waiting_unit.model_copy(update={"reuse_key": reuse_key, "id": id_of_waiting_unit(unit[0], unit[1], reuse_key)})
-        self._waiting[unit] = waiting_unit
-        return waiting_unit
+        wait. Hands back the unit as held, its question bound to the row it was asked on and known by that."""
+        reuse_key = self._reuse_key_of_question(unit, self._input_hash_of_call.pop(unit))
+        held = self._waiting[unit] = waiting_unit.model_copy(update={"reuse_key": reuse_key, "id": id_of_waiting_unit(unit[0], unit[1], reuse_key)})
+        return held
 
     def mark_answered(self, unit: Unit) -> None:
         """Note that a person answered this unit."""

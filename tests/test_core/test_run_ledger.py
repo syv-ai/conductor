@@ -23,7 +23,6 @@ from conductor import (
     node,
 )
 from conductor._internal.execution.run_ledger import (
-    BlankInputsStopCall,
     CallTheNode,
     CouldNotReadInputs,
     FinishedWithoutACall,
@@ -366,13 +365,13 @@ def _drive_graph(seed: int, check_after_each_record) -> None:
         if in_flight:
             unit = rng.choice(sorted(in_flight))
             in_flight.discard(unit)
-            inputs = ledger.inputs_for(unit)
-            if isinstance(inputs, (SkippedAtRow, BlankInputsStopCall)):
-                recorded = ledger.record(unit, inputs)
+            started = ledger.start_unit(unit)
+            if not isinstance(started, CallTheNode):
+                recorded = started.recorded
             else:
-                outputs = _unit_outputs(ledger, compiled, unit, inputs)
+                outputs = _unit_outputs(ledger, compiled, unit, started.inputs)
                 if isinstance(outputs, AskPerson):
-                    waiting_unit = waiting_unit_for(compiled.node(unit[0]), unit[1], outputs, inputs, "0" * 32)
+                    waiting_unit = waiting_unit_for(compiled.node(unit[0]), unit[1], outputs, started.inputs)
                     ledger.mark_waiting(unit, waiting_unit)
                     parked_answers.append((unit, {"result": Txt("answered")}))
                     check_after_each_record(ledger, compiled, in_flight, [])
@@ -429,8 +428,8 @@ def test_a_unit_with_its_inputs_is_to_be_called():
     ledger.record(("docs", ()), {"texts": ["a"], "names": ["x"]})
 
     match ledger.start_unit(("up", (0,))):
-        case CallTheNode(inputs, input_hash):
-            assert inputs == {"text": "a"} and input_hash
+        case CallTheNode(inputs):
+            assert inputs == {"text": "a"}
         case other:
             raise AssertionError(other)
     assert ("up", (0,)) not in ledger._done, "what is to be called isn't recorded yet"
@@ -451,6 +450,17 @@ def test_a_unit_a_skip_reaches_is_recorded_skipped():
     assert isinstance(started, SkippedWithoutACall)
     assert [event.type for event in started.recorded.node_events] == ["node_skipped"]
     assert ("empty", ()) in ledger._done
+
+
+def test_a_unit_skipped_after_a_failed_attempt_has_no_reuse_key():
+    ledger = _per_row_over_docs()
+    ledger.units_ready_to_start()
+    ledger.record(("docs", ()), {"texts": ["a"], "names": ["x"]})
+    assert isinstance(ledger.start_unit(("up", (0,))), CallTheNode)
+
+    ledger.record(("up", (0,)), SkippedAtRow(row=(0,)))
+
+    assert ledger._done[("up", (0,))] is None
 
 
 def test_a_unit_a_blank_stops_is_recorded_without_a_call():

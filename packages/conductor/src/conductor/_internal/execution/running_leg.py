@@ -120,7 +120,6 @@ class _CallOnAThread:
     attempt: int
     node: CompiledNode
     inputs: dict[str, Any]
-    input_hash: str
     attempt_timer: asyncio.TimerHandle | None = None
 
 
@@ -365,9 +364,9 @@ class RunningLeg:
         """This attempt's turn: hand it to a thread, or finish it here if it needs no call."""
         node_id, _ = unit
         match self.ledger.start_unit(unit):
-            case CallTheNode(inputs, input_hash):
+            case CallTheNode(inputs):
                 self._announce_node_started(node_id)
-                self._hand_to_a_thread(unit, attempt, inputs, input_hash)
+                self._hand_to_a_thread(unit, attempt, inputs)
             case SkippedWithoutACall(recorded):
                 self._free_slot(node_id)
                 self._report_recorded(unit, recorded)
@@ -387,12 +386,12 @@ class RunningLeg:
             self.nodes_announced_started.add(node_id)
             self.out.append(NodeStart(node_id=node_id))
 
-    def _hand_to_a_thread(self, unit: Unit, attempt: int, inputs: dict[str, Any], input_hash: str) -> None:
+    def _hand_to_a_thread(self, unit: Unit, attempt: int, inputs: dict[str, Any]) -> None:
         """Hand this call to a thread, making one only when every thread made so far is busy.
 
         The count is the loop's own, so its peak is the number of calls in
         flight at once. The attempt's clock starts here, with the thread."""
-        call = _CallOnAThread(unit, attempt, self.compiled.node(unit[0]), inputs, input_hash)
+        call = _CallOnAThread(unit, attempt, self.compiled.node(unit[0]), inputs)
         attempt_timeout = self._policy_of(unit[0]).attempt_timeout
         if attempt_timeout is not None:
             call.attempt_timer = self._loop.call_later(attempt_timeout, self._post, self._attempt_timed_out, unit, call)
@@ -421,7 +420,7 @@ class RunningLeg:
         while not self.stopped and (call := self.calls.get()) is not None:
             unit = call.unit
             try:
-                outcome = call_node(call.node, unit[1], call.inputs, self.from_run, call.input_hash, row_ids_must_survive)
+                outcome = call_node(call.node, unit[1], call.inputs, self.from_run, row_ids_must_survive)
             except BaseException as raised:
                 outcome = CallFailed(_engine_error(unit, raised))
             try:
@@ -440,7 +439,7 @@ class RunningLeg:
         if call.attempt_timer is not None:
             call.attempt_timer.cancel()
         if outcome.__class__ is dict:
-            self._report_recorded(unit, self.ledger.record(unit, outcome, call.input_hash))  # type: ignore[arg-type]
+            self._report_recorded(unit, self.ledger.record(unit, outcome))  # type: ignore[arg-type]
         elif isinstance(outcome, WaitingUnit):
             self._report_waiting(self.ledger.mark_waiting(unit, outcome))
         else:
