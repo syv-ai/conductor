@@ -9,10 +9,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Annotated
 
-from conductor import SKIPPED, Param, Result
-from conductor.widgets import Switch, Textarea, TextWidget
+from conductor import SKIPPED, Result
 
-from conductor_nodes.types import stdlib_node
+from conductor_nodes.types import Flag, Line, LongText, stdlib_node
 
 
 @dataclass(frozen=True)
@@ -39,19 +38,14 @@ class Equality:
 
 
 @stdlib_node("logic-if-empty", title="If Empty", description="Routes text based on whether it is empty (after strip)", category="control")
-def if_empty(text: Annotated[str, Param(widget=Textarea())]
-) -> Emptiness:
+def if_empty(text: LongText) -> Emptiness:
     if text.strip():
         return Emptiness(not_empty=text, empty=SKIPPED)
     return Emptiness(not_empty=SKIPPED, empty=text)
 
 
 @stdlib_node("logic-if-equals", title="If Equals", description="Routes based on whether two strings are equal", category="control")
-def if_equals(
-    a: Annotated[str, Param(widget=TextWidget())],
-    b: Annotated[str, Param(widget=TextWidget())],
-    case_sensitive: Annotated[bool, Param(widget=Switch())] = True,
-) -> Equality:
+def if_equals(a: Line, b: Line, case_sensitive: Flag = True) -> Equality:
     left = a if case_sensitive else a.lower()
     right = b if case_sensitive else b.lower()
     if left == right:
@@ -60,8 +54,7 @@ def if_equals(
 
 
 @stdlib_node("logic-not", title="Not", description="Logical negation of a boolean", category="logic")
-def not_node(value: Annotated[bool, Param(widget=Switch())]
-) -> Annotated[bool, Result(title="Negated")]:
+def not_node(value: Flag) -> Annotated[bool, Result(title="Negated")]:
     return (not value)
 
 

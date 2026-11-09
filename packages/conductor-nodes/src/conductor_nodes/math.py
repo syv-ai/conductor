@@ -5,50 +5,35 @@ from __future__ import annotations
 from typing import Annotated
 
 from conductor import Param, Result, Series
-from conductor.widgets import ListWidget, NumberWidget, Range
+from conductor.widgets import ListWidget, Range
 
-from conductor_nodes.types import stdlib_node
+from conductor_nodes.types import Number, stdlib_node
 
 
 @stdlib_node("math-add", title="Add", description="a + b", category="math")
-def add(
-    a: Annotated[float, Param(widget=NumberWidget())],
-    b: Annotated[float, Param(widget=NumberWidget())],
-) -> Annotated[float, Result(title="Sum")]:
+def add(a: Number, b: Number) -> Annotated[float, Result(title="Sum")]:
     return float(a + b)
 
 
 @stdlib_node("math-subtract", title="Subtract", description="a - b", category="math")
-def subtract(
-    a: Annotated[float, Param(widget=NumberWidget())],
-    b: Annotated[float, Param(widget=NumberWidget())],
-) -> Annotated[float, Result(title="Difference")]:
+def subtract(a: Number, b: Number) -> Annotated[float, Result(title="Difference")]:
     return float(a - b)
 
 
 @stdlib_node("math-multiply", title="Multiply", description="a * b", category="math")
-def multiply(
-    a: Annotated[float, Param(widget=NumberWidget())],
-    b: Annotated[float, Param(widget=NumberWidget())],
-) -> Annotated[float, Result(title="Product")]:
+def multiply(a: Number, b: Number) -> Annotated[float, Result(title="Product")]:
     return float(a * b)
 
 
 @stdlib_node("math-divide", title="Divide", description="a / b — fails on b == 0", category="math")
-def divide(
-    a: Annotated[float, Param(widget=NumberWidget())],
-    b: Annotated[float, Param(widget=NumberWidget())],
-) -> Annotated[float, Result(title="Quotient")]:
+def divide(a: Number, b: Number) -> Annotated[float, Result(title="Quotient")]:
     if b == 0:
         raise ValueError("Division by zero")
     return float(a / b)
 
 
 @stdlib_node("math-modulo", title="Modulo", description="a % b", category="math")
-def modulo(
-    a: Annotated[float, Param(widget=NumberWidget())],
-    b: Annotated[float, Param(widget=NumberWidget())],
-) -> Annotated[float, Result(title="Remainder")]:
+def modulo(a: Number, b: Number) -> Annotated[float, Result(title="Remainder")]:
     if b == 0:
         raise ValueError("Modulo by zero")
     return float(a % b)
@@ -56,7 +41,7 @@ def modulo(
 
 @stdlib_node("math-round", title="Round", description="Rounds to the given number of decimals", category="math")
 def round_node(
-    value: Annotated[float, Param(widget=NumberWidget())],
+    value: Number,
     decimals: Annotated[
         float, Param(ge=0, le=10, widget=Range(step=1))
     ] = 0.0,
@@ -87,8 +72,7 @@ def max_node(
 
 
 @stdlib_node("math-abs", title="Absolute", description="|value|", category="math")
-def absolute(value: Annotated[float, Param(widget=NumberWidget())]
-) -> Annotated[float, Result(title="Absolute")]:
+def absolute(value: Number) -> Annotated[float, Result(title="Absolute")]:
     return float(abs(value))
 
 

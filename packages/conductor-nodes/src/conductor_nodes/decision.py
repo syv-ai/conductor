@@ -23,9 +23,8 @@ from dataclasses import dataclass
 from typing import Annotated, Any
 
 from conductor import SKIPPED, ArrivingType, Output, Param, Result
-from conductor.widgets import Switch
 
-from conductor_nodes.types import stdlib_node
+from conductor_nodes.types import Flag, stdlib_node
 
 
 @dataclass(frozen=True)
@@ -48,7 +47,7 @@ def decision_outputs(value: ArrivingType) -> tuple[Output, Output]:
 @stdlib_node("decision", title="Decision", description="Routes a value to one of two branches according to `when`.", category="control", compute_outputs=decision_outputs)
 def decision(
     value: Annotated[Any, Param()],
-    when: Annotated[bool, Param(widget=Switch())] = True,
+    when: Flag = True,
 ) -> Branches:
     if when:
         return Branches(if_true=value, if_false=SKIPPED)

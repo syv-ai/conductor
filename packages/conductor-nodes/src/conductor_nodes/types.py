@@ -10,12 +10,19 @@ section.
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from conductor import DType, node
+from conductor import DType, Param, node
+from conductor.widgets import NumberWidget, Switch, Textarea, TextWidget
 from pydantic_core import core_schema
 
 Category = Literal["control", "json", "logic", "math", "regex", "text"]
+
+#: The inputs most of these nodes take: a value and the control a person sets it with.
+Number = Annotated[float, Param(widget=NumberWidget())]
+LongText = Annotated[str, Param(widget=Textarea())]
+Line = Annotated[str, Param(widget=TextWidget())]
+Flag = Annotated[bool, Param(widget=Switch())]
 
 
 def stdlib_node(id: str, *, category: Category, **declared: Any) -> Any:

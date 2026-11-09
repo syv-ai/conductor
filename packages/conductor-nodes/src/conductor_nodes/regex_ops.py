@@ -15,9 +15,9 @@ from typing import Annotated, Any
 
 import regex
 from conductor import NodeError, Param, Result, Series
-from conductor.widgets import Switch, Textarea, TextWidget
+from conductor.widgets import TextWidget
 
-from conductor_nodes.types import stdlib_node
+from conductor_nodes.types import Flag, Line, LongText, stdlib_node
 
 TOO_SLOW = "The pattern took too long."
 
@@ -35,32 +35,24 @@ def _timed(operation: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
 
 
 @stdlib_node("regex-match", title="Regex Match", description="True if the pattern matches anywhere in the text", category="regex")
-def match(
-    text: Annotated[str, Param(widget=Textarea())],
-    pattern: Annotated[str, Param(widget=TextWidget())],
-    ignore_case: Annotated[bool, Param(widget=Switch())] = False,
-) -> Annotated[bool, Result(title="Matched")]:
+def match(text: LongText, pattern: Line, ignore_case: Flag = False) -> Annotated[bool, Result(title="Matched")]:
     flags = regex.IGNORECASE if ignore_case else 0
     return bool(_timed(regex.search, pattern, text, flags=flags) is not None)
 
 
 @stdlib_node("regex-replace", title="Regex Replace", description="Replaces all pattern matches with `replacement`", category="regex")
 def replace_all(
-    text: Annotated[str, Param(widget=Textarea())],
-    pattern: Annotated[str, Param(widget=TextWidget())],
+    text: LongText,
+    pattern: Line,
     replacement: Annotated[str, Param(title="Replace with", widget=TextWidget())] = "",
-    ignore_case: Annotated[bool, Param(widget=Switch())] = False,
+    ignore_case: Flag = False,
 ) -> Annotated[str, Result(title="Result")]:
     flags = regex.IGNORECASE if ignore_case else 0
     return _timed(regex.sub, pattern, replacement, text, flags=flags)
 
 
 @stdlib_node("regex-extract", title="Regex Extract", description="Every match (or the first group of each, if the pattern has groups)", category="regex")
-def extract(
-    text: Annotated[str, Param(widget=Textarea())],
-    pattern: Annotated[str, Param(widget=TextWidget())],
-    ignore_case: Annotated[bool, Param(widget=Switch())] = False,
-) -> Annotated[Series[str], Result(title="Matches")]:
+def extract(text: LongText, pattern: Line, ignore_case: Flag = False) -> Annotated[Series[str], Result(title="Matches")]:
     flags = regex.IGNORECASE if ignore_case else 0
     compiled = regex.compile(pattern, flags=flags)
     if compiled.groups:
