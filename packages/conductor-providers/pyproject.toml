@@ -1,7 +1,7 @@
 [project]
 name = "syv-conductor-providers"
 version = "2.0.0"
-description = "Adapters for conductor: mount it on FastAPI and draw a compiled graph in Mermaid."
+description = "Adapters for conductor: draw a compiled graph in Mermaid."
 requires-python = ">=3.12"
 authors = [{ name = "Syvai", email = "billy@syv.ai" }]
 license = "Apache-2.0"
@@ -16,11 +16,6 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = ["syv-conductor==2.0.0"]
-
-[project.optional-dependencies]
-# `conductor_providers.fastapi` — HTTP transport adapter. Optional because
-# a consumer of the Mermaid provider alone doesn't need fastapi.
-fastapi = ["fastapi>=0.100", "pydantic>=2.11"]
 
 [project.urls]
 Repository = "https://github.com/syv-ai/conductor"

@@ -82,7 +82,7 @@ SHAPES = {
     "node_skipped": (["node_id", "type"], ["node_id", "type"]),
     "node_start": (["node_id", "type"], ["node_id", "type"]),
     "run_checkpoint": (["state", "type"], ["state", "type"]),
-    "run_end": (["state", "type"], ["state", "type"]),
+    "run_end": (["status", "type"], ["status", "type"]),
     "run_start": (["changed_nodes", "reused_nodes", "type", "waiting"], ["changed_nodes", "reused_nodes", "type", "waiting"]),
     "unit_waiting": (["type", "unit"], ["type", "unit"]),
 }

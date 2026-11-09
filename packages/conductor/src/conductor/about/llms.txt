@@ -201,7 +201,7 @@ A failed unit ends the leg `failed`, its problem on `state.failure`; `compiled.r
 
 ### Events
 
-`async with compiled.stream(state) as events:` yields frozen models from `conductor.events`, the union `Event` on `type`; checks are made at the call. `run_start` is always first and `run_end` always last. An event is a record, and it writes itself as JSON: `event.model_dump(mode="json")`, `event.model_dump_json()` and a TypeAdapter of `Event` write each value by its own type, a table whole. `to_jsonable(value)` writes a value the same way, as `to_jsonable(compiled.results(state))`. A float that isn't finite is the text `"NaN"`, `"Infinity"` or `"-Infinity"` wherever it stands: a `float` output reads it back; a value typed `Any` comes back as that text, as it comes back as the JSON form of everything else it held. A value with no JSON form raises.
+`async with compiled.stream(state) as events:` yields frozen models from `conductor.events`, the union `Event` on `type`; checks are made at the call. `run_start` is always first and `run_end` always last. `run_end` writes only `status`: `event.state` is for the host to save, each value already went out on its own event, and a host that wants the state on the wire writes `event.state.model_dump_json()`. An event is a record, and it writes itself as JSON: `event.model_dump(mode="json")`, `event.model_dump_json()` and a TypeAdapter of `Event` write each value by its own type, a table whole. `to_jsonable(value)` writes a value the same way, as `to_jsonable(compiled.results(state))`. A float that isn't finite is the text `"NaN"`, `"Infinity"` or `"-Infinity"` wherever it stands: a `float` output reads it back; a value typed `Any` comes back as that text, as it comes back as the JSON form of everything else it held. A value with no JSON form raises.
 
 | Event | Carries |
 |---|---|
@@ -213,7 +213,7 @@ A failed unit ends the leg `failed`, its problem on `state.failure`; `compiled.r
 | `unit_waiting` | `unit` |
 | `run_start` | `reused_nodes`, `changed_nodes`, `waiting` |
 | `run_checkpoint` | `state`, with status `running` (only with `checkpoint_every`) |
-| `run_end` | `state` |
+| `run_end` | `state`, which it does not write; `status` is what `event.model_dump` holds |
 
 `compiled.stream(state, checkpoint_every=5.0)` also yields `RunCheckpoint` at most every 5 seconds, when a unit finishes (`0`: every time one does), so a crash loses only what came after the last one saved. `run` and `answer` take its `state` like any other, `results` reads it, and `outputs` refuses it. A finished unit is not called again and one in flight is: a unit runs at least once, so a node with side effects must allow for that. A stored `running` state can't tell a live leg from a crashed one, so a host holds a lease before it resumes one. Building the state is a pass over every value so far, on the event loop; the state is a copy, so dump it on another thread.
 
@@ -300,7 +300,7 @@ Standard nodes declare `str`, `float` and `bool`; `conductor_nodes.types` has `J
 ### conductor-providers
 
 - `conductor_providers.mermaid`: `flowchart(compiled)`, a Mermaid flowchart labelling how each edge is received.
-- `conductor_providers.fastapi`: `conductor_router(registry, *, prefix, tags, dependencies, from_run)` mounts `GET /nodes` (`registry.describe()`), `POST /compile` (takes a `Graph`, answers `compiled.describe()`), `POST /run` and `POST /run-stream`. An `InvalidCallError` is a 422 with its `errors()` as the `detail`. The body of the last two has `graph`, `inputs`, `state` and `answers`, the answers as `compiled.answer` takes them. `/run` answers `{"state": ..., "results": ...}`; on the stream a value goes out in its `node_complete`.
+- There is no HTTP adapter. `docs/serving-runs.md` is a page of FastAPI routes to copy into your own application: `GET /nodes`, `POST /compile`, and a run you start, follow, read, answer and cancel by id. A leg is an asyncio task on the process that started it, so following and cancelling work only there.
 
 ## Project Structure
 
@@ -310,7 +310,7 @@ packages/
 │   ├── about/                          this document
 │   └── _internal/                      everything else; import nothing from here
 ├── conductor-nodes/src/conductor_nodes/
-└── conductor-providers/src/conductor_providers/   react/  mermaid/  fastapi/
+└── conductor-providers/src/conductor_providers/   mermaid/
 ```
 
 ## CLI Reference (this document)

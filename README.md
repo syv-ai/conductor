@@ -43,7 +43,7 @@ Python 3.12+. Three packages, released together at one version:
 ```bash
 uv add syv-conductor                # the engine: import conductor
 uv add syv-conductor-nodes          # standard nodes: import conductor_nodes
-uv add syv-conductor-providers      # FastAPI and Mermaid adapters: import conductor_providers
+uv add syv-conductor-providers      # a Mermaid drawing: import conductor_providers
 ```
 
 To work on the repository:
@@ -111,7 +111,7 @@ print(results["how_many"]["result"])            # 2
 
 ## Watching a run
 
-`async with compiled.stream() as events:` yields `run_start`, `node_start`, `node_progress`, `node_complete`, `node_skipped`, `node_retry`, `node_failed` and `unit_waiting`, and ends with `run_end`, which carries the run's `state`. Leaving the block stops every unit. An event writes itself as JSON: `event.model_dump(mode="json")` or `model_dump_json()`, tables whole, and `conductor.to_jsonable(compiled.results(state))` does the same for results. `node_progress` arrives at most four times a second per node, its last count always among them.
+`async with compiled.stream() as events:` yields `run_start`, `node_start`, `node_progress`, `node_complete`, `node_skipped`, `node_retry`, `node_failed` and `unit_waiting`, and ends with `run_end`. Its `state` is the run to save, and it stays out of what the event writes. Leaving the block stops every unit. An event writes itself as JSON: `event.model_dump(mode="json")` or `model_dump_json()`, tables whole, and `conductor.to_jsonable(compiled.results(state))` does the same for results. `node_progress` arrives at most four times a second per node, its last count always among them.
 
 `compiled.stream(checkpoint_every=5.0)` also yields `run_checkpoint`, a state with status `running` you can save as the run goes. After a crash, `compiled.run(state)` skips the finished units and calls the ones that were in flight again, so a unit runs at least once. A saved state can't tell whether its run is still alive, so a host that resumes one holds a lease of its own.
 
@@ -149,12 +149,13 @@ print(results["how_many"]["result"])            # 2
 
 `conductor_nodes.registry(categories=[...])` builds a registry of the standard nodes (`text`, `math`, `logic`, `control`, `json`, `regex`), declared in plain Python types and `conductor_nodes.types.Json`. `conductor_nodes.nodes()` lists them for a registry of your own.
 
-`conductor_providers.fastapi.conductor_router(registry)` mounts `/nodes`, `/compile`, `/run` and `/run-stream`. `conductor_providers.mermaid.flowchart(compiled)` draws a compiled graph.
+`conductor_providers.mermaid.flowchart(compiled)` draws a compiled graph. To serve runs over HTTP, copy [`docs/serving-runs.md`](docs/serving-runs.md) onto your own FastAPI application: start, follow, read, answer and cancel.
 
 ## Learn more
 
 - [`docs/OVERVIEW.md`](docs/OVERVIEW.md): the architecture on one page.
 - [`docs/widgets.md`](docs/widgets.md): every control and its options.
+- [`docs/serving-runs.md`](docs/serving-runs.md): a run over HTTP, as a page to copy.
 - [`examples/`](examples/): Jupyter notebooks on nodes, graphs, tables, versions, a person in the loop and widgets.
 - [`skills/`](skills/): agent skills for adding a node and building a graph.
 - `python -m conductor.about`: the library reference that ships in the wheel.

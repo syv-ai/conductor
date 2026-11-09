@@ -207,14 +207,15 @@ def test_a_table_nothing_holds_any_more_is_not_written() -> None:
     assert len(json.loads(state.without_nodes("x").model_dump_json())["tables"]) == 1
 
 
-def test_an_event_stands_alone_and_a_state_in_an_event_has_its_tables() -> None:
+def test_an_event_stands_alone_and_a_state_has_its_own_tables() -> None:
     compiled, state = _chain_and_waiting_units(2, 1)
     (unit,) = state.waiting
     alone = UnitWaiting(unit=unit).model_dump(mode="json")
     assert alone["unit"]["inputs"]["table"]["data"]["name"] == ["name-0", "name-1"]
-    ended = RunEnd(state=state).model_dump(mode="json")
-    assert len(ended["state"]["tables"]) == 1
-    assert set(ended["state"]["waiting"][0]["inputs"]["table"]) == {"table"}
+    assert RunEnd(state=state).model_dump(mode="json") == {"type": "run_end", "status": "waiting"}
+    kept = state.model_dump(mode="json")
+    assert len(kept["tables"]) == 1
+    assert set(kept["waiting"][0]["inputs"]["table"]) == {"table"}
 
 
 def test_the_published_schema_has_the_tables_of_a_document() -> None:

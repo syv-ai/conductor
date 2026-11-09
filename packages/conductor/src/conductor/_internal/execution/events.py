@@ -12,20 +12,21 @@ for an output holding many, ``ValuesOnRows``). ``model_dump(mode="json")``, ``mo
 ``TypeAdapter(Event).dump_json`` write any event as JSON, each value by its own
 type (see ``conductor.to_jsonable``), so a host sends one as it is.
 An event stands alone on the stream, so a table in one (in ``NodeComplete.result``, a
-waiting unit's ``inputs``) is written whole; ``RunEnd.state`` and ``RunCheckpoint.state``
-are states, each with its own ``tables``.
+waiting unit's ``inputs``) is written whole. ``RunCheckpoint.state`` is a state, with its
+own ``tables``. ``RunEnd.state`` is the host's to keep and stays out of what the event
+writes, so a stream sends each value once and no state reaches a browser by default.
 """
 
 from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import ConfigDict, Field
+from pydantic import ConfigDict, Field, computed_field
 
 from conductor._internal.codec import TypedValue
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.errors import Problem
-from conductor._internal.execution.run_state import RunState, WaitingUnit
+from conductor._internal.execution.run_state import RunState, RunStatus, WaitingUnit
 from conductor._internal.index import Row
 
 
@@ -131,10 +132,18 @@ class RunCheckpoint(_EventBase):
 
 
 class RunEnd(_EventBase):
-    """The leg ended. ``state`` is the run as this leg left it, for any way of ending."""
+    """The leg ended. ``state`` is the run as this leg left it, for any way of
+    ending. It is left out of what the event writes, which says only ``status``:
+    every value already went out on its own event. A host that wants the state
+    on the wire writes ``event.state.model_dump_json()``."""
 
     type: Literal["run_end"] = "run_end"
-    state: RunState
+    state: RunState = Field(exclude=True)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def status(self) -> RunStatus:
+        return self.state.status
 
 
 Event = Annotated[

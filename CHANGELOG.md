@@ -136,20 +136,23 @@ its stored graphs itself. What a 1.x user must change:
 
 - `get_default_registry` is `conductor_nodes.registry(categories=...)`, and
   `conductor_nodes.nodes()` lists the definitions.
-- `/execute` and `/execute-stream` are `/run` and `/run-stream`, with the body
-  `{graph, inputs, state, answers}`. `/run` answers `{state, results}`. `context_factory` is
-  `from_run`, `extension_resolver` and `palette_from_registry` are gone (the palette is
-  `registry.describe()`).
-- `run_end` on `/run-stream` carries no `results`; a value goes out in its `node_complete`. `/run`
-  keeps `results`. An event writes itself with `event.model_dump_json()`.
+- `conductor_providers.fastapi` is gone, and the `fastapi` extra with it: `conductor_router`,
+  `/execute`, `/execute-stream`, `/nodes`, `/compile`, `context_factory`, `extension_resolver` and
+  `palette_from_registry`. Write the routes on your own application instead:
+  `docs/serving-runs.md` is one page to copy, with start, follow, read, answer and cancel, and
+  `/nodes` (`registry.describe()`) and `/compile` (`CompiledGraph.from_graph(graph, registry).describe()`).
+  It needs `fastapi>=0.135`. `context_factory` is a `Depends` on your route, passed as `from_run`.
+  `conductor_providers` holds the Mermaid drawing.
+- An event writes itself with `event.model_dump_json()`. `RunEnd` keeps its `state` for the host
+  and writes only `type` and `status`, so a stream sends each value once, in its `node_complete`,
+  and no state reaches a browser unless the host writes `event.state.model_dump_json()`.
 - `conductor_providers.react` is gone: `graph_to_react`, `react_to_graph` and `topological_positions`.
   A canvas stores the `Graph` as it is. Its edges are one per ref of each `From` binding, source
   `ref.node_id`/`ref.field`, target the node and input; give each an id that includes the ref's
   position in `binding.refs`, since a ref may be wired twice. A node's position is
   `node.display["position"]`. To lay out nodes that have none, use the canvas's own layout engine
   (elk, dagre), or `dependencies_of(graph.nodes)` for the order.
-- `/entities/{kind}`, `entity_resolver`, `sse_frame` and `RunRequest` on the door are gone. `GET /nodes`
-  answers `registry.describe()`; `POST /compile` takes a `Graph` and answers `compiled.describe()`.
+- `/entities/{kind}`, `entity_resolver` and `sse_frame` are gone.
 
 ## [1.12.2]
 

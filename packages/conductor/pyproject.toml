@@ -28,7 +28,7 @@ nodes = ["syv-conductor-nodes==2.0.0"]
 providers = ["syv-conductor-providers==2.0.0"]
 all = [
     "syv-conductor-nodes==2.0.0",
-    "syv-conductor-providers[fastapi]==2.0.0",
+    "syv-conductor-providers==2.0.0",
 ]
 
 [project.urls]

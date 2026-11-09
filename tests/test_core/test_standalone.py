@@ -29,7 +29,7 @@ SOURCES = sorted(
 IMPORTS = {
     "conductor": {"conductor", "pydantic", "pydantic_core", "yaml", "polars"},
     "conductor-nodes": {"conductor_nodes", "conductor", "pydantic", "pydantic_core", "regex"},
-    "conductor-providers": {"conductor_providers", "conductor", "pydantic", "pydantic_core", "fastapi"},
+    "conductor-providers": {"conductor_providers", "conductor", "pydantic", "pydantic_core"},
 }
 
 #: What each ``pyproject.toml`` declares, extras included. A dependency added
@@ -37,7 +37,7 @@ IMPORTS = {
 DISTRIBUTIONS = {
     "conductor": {"pydantic", "pyyaml", "polars", "syv-conductor-nodes", "syv-conductor-providers"},
     "conductor-nodes": {"syv-conductor", "pydantic", "regex"},
-    "conductor-providers": {"syv-conductor", "fastapi", "pydantic"},
+    "conductor-providers": {"syv-conductor"},
 }
 
 #: A line as words: identifiers split at case and underscores, lowercased,
@@ -164,7 +164,7 @@ def test_a_host_word_is_found_in_any_spelling(line):
     "line",
     [
         "data flow and control flow", "app = FastAPI()",
-        "app.include_router(conductor_router(registry))", "append the rows", "Mapping[str, Any]",
+        "app.include_router(router)", "append the rows", "Mapping[str, Any]",
         "require_admin", "what a developer wrote", "overflow", "the first group of each",
     ],
 )

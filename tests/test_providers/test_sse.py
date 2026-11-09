@@ -16,7 +16,7 @@ def _payload(event: Event) -> dict:
     return json.loads(event.model_dump_json())
 
 
-def test_many_values_keep_their_rows_and_an_ending_dumps_its_state():
+def test_many_values_keep_their_rows_and_an_ending_says_only_its_status():
     lines = {"rows": [(0, 0), (1, 0)], "values": ["a", "b"]}
     state = RunState(status="complete", output_columns={"split.result": OutputColumn(rows=[(0,)], values=["a"])}, node_fingerprints={"split": "f" * 64})
 
@@ -27,7 +27,7 @@ def test_many_values_keep_their_rows_and_an_ending_dumps_its_state():
         "rows": [[0, 0], [1, 0]],
         "values": ["a", "b"],
     }
-    assert ending["state"] == state.model_dump(mode="json")
+    assert ending == {"type": "run_end", "status": "complete"}
 
 
 def test_a_pending_units_questions_and_a_failures_cause_are_records():
