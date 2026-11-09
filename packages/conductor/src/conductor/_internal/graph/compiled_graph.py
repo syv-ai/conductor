@@ -210,16 +210,7 @@ class CompiledGraph:
         read is an ``invalid_static``, raised with any names it doesn't offer.
         The copy offers every input as this one does. Not a run.
         """
-        return self._recompiled_with({**(inputs or {}), **by_name}, (), raise_on_unreadable_values=True)
-
-    def _recompiled_with(self, values: Mapping[str, Any], input_names_to_clear: Iterable[str], *, raise_on_unreadable_values: bool = False) -> CompiledGraph:
-        """This graph compiled again with ``values`` set on the inputs they
-        name and the statics on the inputs in ``input_names_to_clear`` taken
-        off, so they arrive at run time. ``with_inputs`` for a caller; a
-        graph that embeds this one asks for the copy one graph node fills. Names are read as ``with_inputs`` reads them.
-        A graph that embeds this one wants a value its input can't read as
-        a problem of the compile, so it says so with ``raise_on_unreadable_values=False``; a caller
-        gets it raised."""
+        values = {**(inputs or {}), **by_name}
         offered = [input_.name for input_ in self.interface.inputs]
         problems: list[Problem] = []
         statics_to_set: dict[str, dict[str, Static]] = {}
@@ -229,24 +220,15 @@ class CompiledGraph:
             if ref is not None:
                 statics_to_set.setdefault(ref.node_id, {})[ref.field] = Static(value)
                 written_as[ref.node_id, ref.field] = name
-        statics_to_remove: dict[str, set[str]] = {}
-        for name in input_names_to_clear:
-            ref = self._offered_input_named(name, offered, problems)
-            if ref is not None:
-                statics_to_remove.setdefault(ref.node_id, set()).add(ref.field)
         graph = self.graph.model_copy(update={"nodes": tuple(
-            node.model_copy(update={"bindings": {
-                **{field: binding for field, binding in node.bindings.items() if field not in statics_to_remove.get(node.id, ())},
-                **statics_to_set.get(node.id, {}),
-            }})
+            node.model_copy(update={"bindings": {**node.bindings, **statics_to_set.get(node.id, {})}})
             for node in self.graph.nodes
         )})
         refilled = CompiledGraph.from_graph(graph, self._registry)
-        if raise_on_unreadable_values:
-            problems += [
-                problem.model_copy(update={"loc": ("inputs", written_as[problem.loc])})  # type: ignore[index]
-                for problem in refilled.problems if problem.type in ("invalid_static", "table_column_missing") and problem.loc in written_as
-            ]
+        problems += [
+            problem.model_copy(update={"loc": ("inputs", written_as[problem.loc])})  # type: ignore[index]
+            for problem in refilled.problems if problem.type in ("invalid_static", "table_column_missing") and problem.loc in written_as
+        ]
         if problems:
             raise InvalidCallError(problems)
         return refilled
@@ -479,7 +461,7 @@ class CompiledGraph:
         frontier = list(node_ids)
         while frontier:
             for compiled_field in self._nodes[frontier.pop()].wiring.fields.values():
-                for reader, _ in read_by[compiled_field.ref]:
+                for reader in read_by[compiled_field.ref]:
                     if reader.node_id not in found:
                         found.add(reader.node_id)
                         frontier.append(reader.node_id)

@@ -1,28 +1,13 @@
-"""A compiled graph embedded as one node: its nodes, as they stand under the row that node runs on.
+"""A compiled graph embedded as one node: what it offers, and how its nodes are placed.
 
 A host compiles each graph version once and hands the ``CompiledGraph`` to
 conductor as the node's version. The outer compile wires the graph node as a
-plain node with the graph's interface, which decides the row it runs on, and
-this module then puts the graph's nodes in its place, under that row, so the
-graph that embeds it reads exactly as if they had been drawn there. It asks
-the embedded graph through one small record, ``EmbeddableGraph``.
-
-Embedding, rule by rule:
-
-1. Every index inside is renamed under the graph node (``emb/lines``), and
-   its root hangs under the row the graph node runs on.
-2. When the node runs per row, a value that ran once inside becomes a series
-   on that row: ``Txt`` becomes ``Series[Txt]``, no index becomes the row,
-   and an edge-fed ``Broadcast`` becomes ``PerRow``.
-3. ``EntireValue`` becomes ``RowsUnder`` at the row's depth; a ``Gather`` whose
-   every source carries one value becomes ``RowsUnder`` on the row, since
-   per row the sources line up; a ``RowsUnder`` goes as many rows deeper
-   as the row is deep.
-4. An inner field the outer graph feeds takes what the outer compile
-   decided for the graph node's field of that address.
-5. Row origins are worked out again from the node's place in the outer graph,
-   by the same rule as a node drawn there, so a table that crosses in carries
-   its origins through and ``row_ids_lost`` reaches a table rebuilt inside.
+plain node with the graph's interface, which decides the row it runs on, then
+compiles each node of the graph where it stands, under that row (``runs_under``
+of ``compile_one_node``): the same walk, so an embedded graph follows every
+rule a graph drawn there would. Its author's own problems were reported when
+it was compiled; a problem only this graph node's edges or values cause is the
+graph node's. Its inner nodes' ids take the graph node's path (``emb/lines``).
 
 A graph that embeds itself is the host's to catch, as it builds the
 versions: a compiled graph can't contain itself, but a host that swaps a
@@ -43,41 +28,21 @@ Inner addresses stay for reading a run (``approve/check``).
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from conductor._internal.graph.binding import Binding, From, Static
-from conductor._internal.graph.compiled_node import CompiledField, CompiledNode, Wiring
-from conductor._internal.graph.output_conditions import (
-    ALWAYS,
-    Condition,
-    condition_node_runs_under,
-    output_condition,
-)
-from conductor._internal.graph.receive_modes import (
-    Broadcast,
-    EntireValue,
-    Gather,
-    Merge,
-    PerRow,
-    ReceiveMode,
-    RowsUnder,
-)
-from conductor._internal.graph.row_origins import (
-    RowOriginsSeen,
-    origins_taken_in,
-    sources_taken_in_whole,
-)
-from conductor._internal.node_definition import NodeVersion
+from conductor._internal.graph.compiled_node import CompiledNode
 from conductor._internal.node_signature import Interface
 from conductor._internal.ref import Ref
-from conductor._internal.series import Index, Series
-from conductor._internal.table import columns_of, is_table_or_series_of_tables
+from conductor._internal.table import columns_of
 
 if TYPE_CHECKING:
     from conductor._internal.errors import Problem
+    from conductor._internal.field_records import Input
     from conductor._internal.graph.compiled_graph import CompiledGraph
+    from conductor._internal.graph.graph_records import GraphNode
 
 
 NODE_PATH_SEPARATOR = "/"
@@ -101,84 +66,61 @@ def parent_graph_of_node_id(node_id: str) -> str | None:
 
 
 @dataclass(frozen=True)
-class OfferedInput:
-    """What an embedding graph needs to know about one input a graph offers."""
-
-    #: Its address in that graph's own interface: the node its author drew, and the field there.
-    authored_address: Ref
-    #: Where the value lands in the graph that runs, ``check/inner.amount`` through a nested graph.
-    address_in_run: Ref
-    #: Its author set a static on it, so nothing needs connecting where it's embedded.
-    has_static_inside: bool
-    #: Its author set a list on it, so the node holding it runs once per item.
-    list_on_node_inside: bool
-    #: A hook of the node it lands on reads its value.
-    read_by_a_hook: bool
-
-
-@dataclass(frozen=True)
 class EmbeddableGraph:
     """What a compiled graph tells a graph that embeds it (``CompiledGraph._embeddable``)."""
 
     #: The interface the embedding graph sees: the same fields under ``offered_names``.
     interface: Interface
-    #: The inputs it offers, by their offered names.
-    inputs: Mapping[str, OfferedInput]
+    #: The inputs it offers, by their offered names: the node its author drew and the field there.
+    inputs: Mapping[str, Ref]
     #: The outputs it offers and each column of a table output, by offered name, each with where it is in the run.
     outputs: Mapping[str, Ref]
     #: Every fatal problem but an input it offers left empty, which a value from outside fills.
     problems: tuple[Problem, ...]
-    #: Its nodes, in the order compile met them: sources before readers.
-    nodes: Mapping[str, CompiledNode]
 
 
 def embeddable_view_of(graph: CompiledGraph) -> EmbeddableGraph:
     """The record a graph that embeds ``graph`` asks."""
     nodes = graph._nodes
 
-    def address_in_the_run(ref: Ref, side: str) -> Ref:
-        """Where a field of ``graph``'s interface is in the run: on a node that is itself a graph, the place inside it."""
+    def output_address_in_the_run(ref: Ref) -> Ref:
+        """Where an output of ``graph``'s interface is in the run: on a node that is itself a graph, the place inside it."""
         embedded = nodes[ref.node_id].embedded_graph
         if embedded is None:
             return ref
-        offered = embedded._embeddable
-        outer_address_of_inner_ref = offered.inputs[ref.field].address_in_run if side == "input" else offered.outputs[ref.field]
-        return Ref(f"{ref.node_id}{NODE_PATH_SEPARATOR}{outer_address_of_inner_ref.node_id}", outer_address_of_inner_ref.field)
+        inside = embedded._embeddable.outputs[ref.field]
+        return Ref(f"{ref.node_id}{NODE_PATH_SEPARATOR}{inside.node_id}", inside.field)
 
     # One namespace for both sides: a field name is unique within the node this graph becomes.
     names = offered_names(Ref(field.name) for field in (*graph.interface.inputs, *graph.interface.outputs))
-    input_names = {Ref(input_.name): names[Ref(input_.name)] for input_ in graph.interface.inputs}
-    inputs: dict[str, OfferedInput] = {}
-    for ref in input_names:
-        node = nodes[ref.node_id]
-        field = None if node.wiring is None else node.wiring.fields.get(ref.field)
-        inputs[input_names[ref]] = OfferedInput(
-            authored_address=ref, address_in_run=address_in_the_run(ref, "input"),
-            has_static_inside=isinstance(node.graph_node.bindings.get(ref.field), Static),
-            list_on_node_inside=field is not None and field._is_list_on_node,
-            read_by_a_hook=isinstance(node.version, NodeVersion) and ref.field in node.version.inputs_read_by_hooks,
-        )
+    inputs = {names[Ref(input_.name)]: Ref(input_.name) for input_ in graph.interface.inputs}
     outputs: dict[str, Ref] = {}
     for out in graph.interface.outputs:
-        name, at = names[Ref(out.name)], address_in_the_run(Ref(out.name), "output")
+        name, at = names[Ref(out.name)], output_address_in_the_run(Ref(out.name))
         outputs[name] = at
         outputs.update({f"{name}.{column}": Ref(at.node_id, f"{at.field}.{column}") for column, _ in columns_of(out.dtype)})
     interface = Interface(
-        inputs=tuple(input_.model_copy(update={"name": input_names[Ref(input_.name)]}) for input_ in graph.interface.inputs),
+        inputs=tuple(_as_offered(input_, names[Ref(input_.name)], nodes[Ref(input_.name).node_id]) for input_ in graph.interface.inputs),
         outputs=tuple(out.model_copy(update={"name": names[Ref(out.name)]}) for out in graph.interface.outputs),
         needs=graph.interface.needs,
     )
-    return EmbeddableGraph(
-        interface=interface, inputs=inputs, outputs=outputs, problems=tuple(_problems_blocking_embedding(graph, nodes, inputs)), nodes=nodes,
-    )
+    return EmbeddableGraph(interface=interface, inputs=inputs, outputs=outputs, problems=tuple(_problems_blocking_embedding(graph, nodes, inputs)))
 
 
-def _problems_blocking_embedding(graph: CompiledGraph, nodes: Mapping[str, CompiledNode], offered: Mapping[str, OfferedInput]) -> list[Problem]:
+def _as_offered(input_: Input, name: str, node: CompiledNode) -> Input:
+    """``input_`` as a graph node offers it, under ``name``: one its author filled inside is optional there."""
+    update: dict[str, Any] = {"name": name}
+    if isinstance(node.graph_node.bindings.get(Ref(input_.name).field), Static):
+        update["required"] = False
+    return input_.model_copy(update=update)
+
+
+def _problems_blocking_embedding(graph: CompiledGraph, nodes: Mapping[str, CompiledNode], offered: Mapping[str, Ref]) -> list[Problem]:
     """A graph can be embedded only when nothing in it is fatal but an input it
     offers left empty, which a value from outside fills. An empty input the
     graph doesn't offer can never be filled, and one with no type of its own
     leaves its node unworked-out, so each stays a problem."""
-    offered_addresses = {input_.authored_address for input_ in offered.values()}
+    offered_addresses = set(offered.values())
 
     def a_value_from_outside_fills_it(problem: Problem) -> bool:
         if problem.type != "unbound_required":
@@ -189,173 +131,11 @@ def _problems_blocking_embedding(graph: CompiledGraph, nodes: Mapping[str, Compi
     return [problem for problem in graph.problems if problem.fatal and not a_value_from_outside_fills_it(problem)]
 
 
-@dataclass(frozen=True)
-class OuterEdgeIntoGraphInput:
-    """What the outer compile decided for one input of the graph node that an
-    outer edge feeds: the type, rows and receive mode the inner field takes."""
-
-    type: Any
-    index: Index | None
-    receive_mode: ReceiveMode
-
-
-def place_inner_nodes_under_graph_node(
-    embeddable: EmbeddableGraph,
-    node_id: str,
-    edges: Mapping[Ref, From],
-    values: Mapping[Ref, Any],
-    runs_per_row_of: Index | None,
-    outer_edges: Mapping[Ref, OuterEdgeIntoGraphInput],
-    field_above: Callable[[Ref], CompiledField | None],
-    row_origins: RowOriginsSeen,
-) -> dict[str, CompiledNode]:
-    """Every node of ``embeddable`` as it stands embedded at ``node_id``, running once per row of ``runs_per_row_of``.
-
-    Each of ``edges``, ``outer_edges`` and ``values`` is keyed by where it lands
-    in the run: the edge connected there, what the outer compile decided for
-    it, and the static on the graph node, as if set on the inner field.
-    ``field_above`` answers for a field outside the graph; its row origins are
-    carried on through ``row_origins``, as a node drawn there would."""
-    prefix = f"{node_id}{NODE_PATH_SEPARATOR}"
-    inner_nodes = embeddable.nodes
-
-    def outer_address_of_inner_ref(ref: Ref) -> Ref:
-        node_part, _, field_part = ref.partition(".")
-        return Ref._from_checked_parts(prefix + node_part, field_part)
-
-    edges_on: dict[str, dict[str, From]] = {}
-    for ref, edge in edges.items():
-        edges_on.setdefault(ref.node_id, {})[ref.field] = edge
-    values_on: dict[str, dict[str, Any]] = {}
-    for ref, value in values.items():
-        values_on.setdefault(ref.node_id, {})[ref.field] = value
-
-    placed_nodes: dict[str, CompiledNode] = {}
-
-    def field_at(ref: Ref) -> CompiledField | None:
-        node = placed_nodes.get(ref.node_id)
-        return field_above(ref) if node is None else None if node.wiring is None else node.wiring.fields.get(ref.field)
-
-    def condition_of(ref: Ref) -> Condition:
-        found = field_at(ref)
-        return found.condition if found is not None and found.condition is not None else ALWAYS
-
-    for inner_id, inner in inner_nodes.items():
-        new_id = prefix + inner_id
-        bindings: dict[str, Binding] = {
-            name: (From(*(outer_address_of_inner_ref(ref) for ref in binding.refs)) if isinstance(binding, From) else binding)
-            for name, binding in inner.graph_node.bindings.items()
-        }
-        fed_from_outside = edges_on.get(inner_id, ())
-        bindings.update(fed_from_outside)
-        statics = {name: value for name, value in inner.statics.items() if name not in fed_from_outside}
-        for name, value in values_on.get(inner_id, {}).items():
-            bindings[name], statics[name] = Static(value), value
-        graph_node = inner.graph_node.model_copy(update={"id": new_id, "bindings": bindings, "locked": ()})
-        assert inner.wiring is not None and inner.interface is not None  # an embeddable graph is wired throughout
-        inner_runs_per_row_of = inner.wiring._runs_per_row_of
-        new_runs_per_row_of = runs_per_row_of if inner_runs_per_row_of is None else index_inside_embedding(inner_runs_per_row_of, prefix, runs_per_row_of)
-        if inner.embedded_graph is not None:
-            fields: dict[str, CompiledField] = {}
-        else:
-            node_condition = condition_node_runs_under(bindings, condition_of)
-            runs_once = new_runs_per_row_of is None
-            outputs_of = {out.name: out for out in inner.interface.outputs}
-            fields = {}
-            taken: list[CompiledField] = []
-            for name, binding in bindings.items():
-                if isinstance(binding, From) and name in inner.wiring.fields:
-                    arriving = [source for ref in binding.refs if (source := field_at(ref)) is not None]
-                    taken.extend(sources_taken_in_whole(inner.wiring.fields[name].type, arriving))
-            taken_in = origins_taken_in(taken)
-            for name, field in inner.wiring.fields.items():
-                condition = None
-                if field._column_of_table is not None:  # a column appears exactly when its table does
-                    condition = fields[field._column_of_table[0].field].condition
-                elif field._is_output:
-                    condition = output_condition(new_id, outputs_of[name], node_condition, runs_once)
-                dtype, index, receive_mode = _field_inside_embedding(field, outer_edges, inner_nodes, prefix, runs_per_row_of, outer_address_of_inner_ref)
-                makes = None if field._makes_rows is None else index_inside_embedding(field._makes_rows, prefix, runs_per_row_of)
-                is_list = field._is_list_on_node and name not in fed_from_outside
-                if isinstance(receive_mode, Merge) and field.ref not in outer_edges:
-                    row_origins.check_merge(new_id, name, [(source, found) for source, _ in receive_mode.receive_mode_by_source if (found := field_at(source)) is not None])
-                origins: frozenset[str] | None = None
-                if field._is_output:
-                    origins = row_origins.record_table(makes, taken_in) if makes is not None and is_table_or_series_of_tables(dtype) else row_origins.origins_of_rows_on(index)
-                elif is_list:
-                    origins = row_origins.origins_of_rows_on(index)
-                fields[name] = CompiledField(
-                    ref=Ref._from_checked_parts(new_id, name), type=dtype, binding=bindings.get(name) if not field._is_output else None, condition=condition,
-                    problems=(), _index=index, _receive_mode=receive_mode, _is_list_on_node=is_list,
-                    _makes_rows=makes, _column_of_table=None if field._column_of_table is None else (outer_address_of_inner_ref(field._column_of_table[0]), field._column_of_table[1]),
-                    _takes_blank=field._takes_blank, _title=field._title, _row_origins=origins,
-                )
-        placed_nodes[new_id] = CompiledNode(
-            id=new_id, graph_node=graph_node, embedded_in=parent_graph_of_node_id(new_id), problems=(), cause=None,
-            definition=inner.definition, version=inner.version, interface=inner.interface, statics=statics,
-            wiring=Wiring(fields, new_runs_per_row_of),
-        )
-    return placed_nodes
-
-
-def _field_inside_embedding(
-    field: CompiledField, outer_edges: Mapping[Ref, OuterEdgeIntoGraphInput], nodes: Mapping[str, CompiledNode], prefix: str,
-    runs_per_row_of: Index | None, outer_address_of_inner_ref: Callable[[Ref], Ref],
-) -> tuple[Any, Index | None, ReceiveMode | None]:
-    """An inner field's type, rows and receive mode, as it stands embedded (rules 2-4)."""
-    outer_edge = outer_edges.get(field.ref) if outer_edges else None
-    if outer_edge is not None:
-        return outer_edge.type, outer_edge.index, outer_edge.receive_mode
-    dtype, index, receive_mode = field.type, field._index, field._receive_mode
-    is_output = field._is_output
-    edge_fed = isinstance(field.binding, From)
-    once_per_row = runs_per_row_of is not None and index is None and (is_output or edge_fed)
-    new_type = Series[dtype] if once_per_row else dtype
-    new_index = runs_per_row_of if once_per_row else index_inside_embedding(index, prefix, runs_per_row_of)
-    if is_output:
-        return new_type, new_index, None
-    if once_per_row and isinstance(receive_mode, Broadcast):
-        return new_type, new_index, PerRow(runs_per_row_of)
-    if runs_per_row_of is not None and isinstance(receive_mode, Gather) and edge_fed and all(_source_index(source, nodes) is None for source in field.binding.refs):
-        return new_type, runs_per_row_of, RowsUnder(runs_per_row_of, runs_per_row_of.depth)
-    if isinstance(receive_mode, Merge):
-        return new_type, new_index, Merge(
-            tuple((outer_address_of_inner_ref(source), _merge_source_mode_inside_embedding(source_receive_mode, _source_index(source, nodes), prefix, runs_per_row_of)) for source, source_receive_mode in receive_mode.receive_mode_by_source),
-            frozenset(outer_address_of_inner_ref(source) for source in receive_mode.copied_down),
-        )
-    return new_type, new_index, _receive_mode_inside_embedding(receive_mode, index, prefix, runs_per_row_of)
-
-
-def _source_index(source: Ref, nodes: Mapping[str, CompiledNode]) -> Index | None:
-    return nodes[source.node_id].wiring.fields[source.field]._index
-
-
-def index_inside_embedding(index: Index | None, prefix: str, runs_per_row_of: Index | None) -> Index | None:
-    """An inner index as it stands embedded: each id prefixed, its root hung under ``runs_per_row_of`` (rule 1)."""
-    if index is None:
-        return None
-    parent = runs_per_row_of
-    for step in index.lineage:
-        parent = Index(f"{prefix}{step.id}", parent=parent)
-    return parent
-
-
-def _merge_source_mode_inside_embedding(source_receive_mode: Any, index: Index | None, prefix: str, runs_per_row_of: Index | None) -> Any:
-    """One source of an inner ``Table`` input as it stands embedded: a table the
-    inner graph makes once is one per ``runs_per_row_of`` when the graph runs per row."""
-    if isinstance(source_receive_mode, Broadcast) and index is None and runs_per_row_of is not None:
-        return PerRow(runs_per_row_of)
-    return _receive_mode_inside_embedding(source_receive_mode, index, prefix, runs_per_row_of)
-
-
-def _receive_mode_inside_embedding(receive_mode: ReceiveMode, index: Index | None, prefix: str, runs_per_row_of: Index | None) -> ReceiveMode:
-    """An inner receive mode as it stands embedded (rules 1 and 3)."""
-    if isinstance(receive_mode, PerRow):
-        return PerRow(index_inside_embedding(receive_mode.index, prefix, runs_per_row_of))
-    if isinstance(receive_mode, RowsUnder):
-        return RowsUnder(index_inside_embedding(receive_mode.index, prefix, runs_per_row_of), receive_mode.depth + (0 if runs_per_row_of is None else runs_per_row_of.depth))
-    if isinstance(receive_mode, Gather):
-        return Gather(index_inside_embedding(receive_mode.index, prefix, runs_per_row_of))
-    if isinstance(receive_mode, EntireValue):
-        return receive_mode if runs_per_row_of is None else RowsUnder(index_inside_embedding(index, prefix, runs_per_row_of), runs_per_row_of.depth)
-    return receive_mode
+def inner_node_placed_at(inner: GraphNode, prefix: str, filled_from_outside: Mapping[str, Binding]) -> GraphNode:
+    """``inner`` as the node it is once embedded at ``prefix``: its id and edges under that path, and any edge or static the graph node set on it in place."""
+    bindings: dict[str, Binding] = {
+        name: From(*(Ref._from_checked_parts(prefix + ref.node_id, ref.field) for ref in binding.refs)) if isinstance(binding, From) else binding
+        for name, binding in inner.bindings.items()
+    }
+    bindings.update(filled_from_outside)
+    return inner.model_copy(update={"id": prefix + inner.id, "bindings": bindings, "locked": ()})

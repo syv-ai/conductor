@@ -4,18 +4,19 @@ Find its definition and version; read the statics; ask
 ``compute_inputs``; check its bindings; wire each input from the nodes above;
 ask ``compute_outputs``; build its fields. It returns at the first stage that
 can't go on, with what it has, and the node says so by what it lacks
-(``interface``, ``wiring``). A node a graph stands for gets its inner nodes
-placed under the row it runs on, as if they had been drawn there.
+(``interface``, ``wiring``). A node a graph stands for then compiles each node
+of that graph the same way, under the row it runs on.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 from conductor._internal.dtype import is_untyped
 from conductor._internal.errors import ComputeHookError, Problem, make_problem
 from conductor._internal.field_records import Input, Output
-from conductor._internal.graph.binding import From
+from conductor._internal.graph.binding import Binding, From
 from conductor._internal.graph.compiled_node import CompiledField, CompiledNode, Wiring
 from conductor._internal.graph.decide_rows_and_receive_modes import (
     WhatArrivesOnInputs,
@@ -24,10 +25,8 @@ from conductor._internal.graph.decide_rows_and_receive_modes import (
 )
 from conductor._internal.graph.embedding import (
     NODE_PATH_SEPARATOR,
-    EmbeddableGraph,
-    OuterEdgeIntoGraphInput,
+    inner_node_placed_at,
     parent_graph_of_node_id,
-    place_inner_nodes_under_graph_node,
 )
 from conductor._internal.graph.graph_interface import field_problems
 from conductor._internal.graph.graph_records import GraphNode
@@ -55,8 +54,10 @@ def _interface_with_fields(interface: Interface, inputs: tuple[Input, ...], outp
     return Interface(inputs=inputs, outputs=outputs, needs=interface.needs)
 
 
-def compile_one_node(node: GraphNode, progress: CompileProgress, registry: NodeRegistry) -> None:
-    """Compile ``node`` and add it to ``progress``, with its inner nodes if a graph stands for it."""
+def compile_one_node(node: GraphNode, progress: CompileProgress, registry: NodeRegistry, runs_under: Index | None = None) -> None:
+    """Compile ``node`` and add it to ``progress``, with its inner nodes if a graph stands for it.
+
+    ``runs_under``, on a node inside an embedded graph, is the row the graph node runs on."""
     problems = progress.problems_found_early.pop(node.id, [])
     if node.type not in registry:
         problems.append(make_problem("unknown_node_type", node.id, node_type=node.type, choices=", ".join(sorted(registry)) or "none"))
@@ -67,7 +68,9 @@ def compile_one_node(node: GraphNode, progress: CompileProgress, registry: NodeR
         problems.append(make_problem("unknown_node_version", node.id, node_type=node.type, version=node.version))
         return _record_compiled_node(progress, node, problems)
     drawn = node
-    if progress.embedded_graph_node_ids:
+    #: An inner node's edges read as compile left them, and its fields passed the same checks when its graph was compiled.
+    placed_inside_a_graph = NODE_PATH_SEPARATOR in node.id
+    if progress.embedded_graph_node_ids and not placed_inside_a_graph:
         node = _with_edges_out_of_embedded_graphs_resolved(node, progress)
     is_graph = not isinstance(version, NodeVersion)
     if is_graph:
@@ -88,12 +91,12 @@ def compile_one_node(node: GraphNode, progress: CompileProgress, registry: NodeR
         statics, inputs_given_a_list, unreadable_static_problems = {**statics, **statics_added}, inputs_given_a_list | lists_added, [*unreadable_static_problems, *unreadable_added]
     problems.extend(unreadable_static_problems)
 
-    embeddable = None
     can_be_wired = True
     if is_graph:
-        version, can_be_wired = _graph_as_this_node_fills_it(node, version, definition.title, statics, inputs_given_a_list, problems)
-        embeddable = version._embeddable
-        inputs_given_a_list = frozenset()
+        inputs_given_a_list = frozenset()  # a list typed on a graph node lands on the node inside
+        if version._embeddable.problems:
+            can_be_wired = False
+            problems.append(make_problem("embedded_graph_broken", node.id, graph=definition.title, problems=len(version._embeddable.problems)))
     elif version.open_input_template is not None:
         named = {input_.name for input_ in inputs}
         inputs = (*inputs, *(
@@ -102,11 +105,12 @@ def compile_one_node(node: GraphNode, progress: CompileProgress, registry: NodeR
             if name not in named and isinstance(binding, From)
         ))
 
-    can_be_wired = _bindings_can_be_wired(drawn, inputs, version, embeddable, progress, problems) and can_be_wired
+    hooks_decide_fields = not is_graph and (version.compute_inputs is not None or version.compute_outputs is not None)
+    can_be_wired = (placed_inside_a_graph and not hooks_decide_fields) or (_bindings_can_be_wired(drawn, inputs, version, progress, problems) and can_be_wired)
     if not can_be_wired:
         return _record_compiled_node(progress, node, problems, definition, version, _interface_with_fields(declared, inputs, declared.outputs), statics)
 
-    inputs_read = read_what_arrives_on_inputs(node, inputs, inputs_given_a_list, progress, problems)
+    inputs_read = read_what_arrives_on_inputs(node, inputs, statics, inputs_given_a_list, progress, problems)
     if inputs_read.stopped_at_unreadable_source:
         return _record_compiled_node(progress, node, problems, definition, version, _interface_without_wiring(node, version, inputs, inputs_read, statics, problems), statics)
     inputs_typed_by_their_edges = tuple(_with_type_from_its_edge(input_, inputs_read.type_given_by_edge) for input_ in inputs)
@@ -116,19 +120,20 @@ def compile_one_node(node: GraphNode, progress: CompileProgress, registry: NodeR
         problems.append(hook_error.as_problem_on_node(node.id))
         return _record_compiled_node(progress, node, problems, definition, version, _interface_with_fields(version.interface, inputs_typed_by_their_edges, ()), statics)
     interface = _interface_with_fields(version.interface, inputs_typed_by_their_edges, outputs)
-    problems_found = field_problems(node.id, outputs, frozenset(input_.name for input_ in inputs_typed_by_their_edges), untyped_ok=False)
-    problems_found += [make_problem("series_of_tables", node.id, out.name) for out in outputs if out.dtype.element is not None and is_table_or_series_of_tables(out.dtype.element)]
+    problems_found: list[Problem] = []
+    if not placed_inside_a_graph or hooks_decide_fields:
+        problems_found = field_problems(node.id, outputs, frozenset(input_.name for input_ in inputs_typed_by_their_edges), untyped_ok=False)
+        problems_found += [make_problem("series_of_tables", node.id, out.name) for out in outputs if out.dtype.element is not None and is_table_or_series_of_tables(out.dtype.element)]
     if problems_found:
         problems.extend(problems_found)
         return _record_compiled_node(progress, node, problems, definition, version, interface, statics)
     if not outputs and (is_graph or version.return_shape is not None):
         problems.append(make_problem("no_outputs", node.id))
-    rows_agree, runs_per_row_of = decide_runs_per_row_of_and_receive_modes(node, inputs_read, problems, progress.row_origins)
+    rows_agree, runs_per_row_of = decide_runs_per_row_of_and_receive_modes(node, inputs_read, problems, progress.row_origins, runs_under)
     if not rows_agree:
         return _record_compiled_node(progress, node, problems, definition, version, interface, statics)
     if is_graph:
-        _place_embedded_graph(node, definition, version, embeddable, interface, statics, runs_per_row_of, inputs_read, progress, problems)
-        return
+        return _place_embedded_graph(node, definition, version, interface, statics, runs_per_row_of, progress, problems)
     wiring = _wiring_of_function_node(node, interface, inputs_read, inputs_given_a_list, runs_per_row_of, progress, problems)
     _record_compiled_node(progress, node, problems, definition, version, interface, statics, wiring)
 
@@ -186,43 +191,8 @@ def _with_edges_out_of_embedded_graphs_resolved(node: GraphNode, progress: Compi
     }})
 
 
-def _graph_as_this_node_fills_it(
-    node: GraphNode, stored: CompiledGraph, title: str, statics: dict[str, Any], inputs_given_a_list: frozenset[str], problems: list[Problem],
-) -> tuple[CompiledGraph, bool]:
-    """The compiled graph as this graph node fills it, and whether it can be embedded.
-
-    A static on an embedded graph's input belongs to the node inside, and
-    an outer edge into an input the graph's own author filled replaces that
-    static. Mostly that just puts the value or edge on the inner field. But a
-    value can decide something when compile runs: a list makes the node
-    holding it run per item, and a hook reads the statics on its node.
-    Only then is the graph compiled again with the graph node's values.
-    """
-    embeddable = stored._embeddable
-    values_needing_recompile = {name: value for name, value in statics.items() if name in inputs_given_a_list or (name in embeddable.inputs and embeddable.inputs[name].read_by_a_hook)}
-    statics_to_remove = [
-        name for name, binding in node.bindings.items()
-        if isinstance(binding, From) and name in embeddable.inputs and embeddable.inputs[name].has_static_inside
-        and (embeddable.inputs[name].list_on_node_inside or embeddable.inputs[name].read_by_a_hook)
-    ]
-    recompiled_graph = stored._recompiled_with(values_needing_recompile, statics_to_remove) if values_needing_recompile or statics_to_remove else stored
-    problems_found = recompiled_graph._embeddable.problems
-    if not problems_found:
-        return recompiled_graph, True
-    # A problem this graph node's own values brought in is its author's to fix,
-    # so it is reported where they set it; every other problem is the graph's.
-    existing_problems = {(problem.type, problem.loc) for problem in embeddable.problems} if recompiled_graph is not stored else None
-    problems_from_this_node = [problem for problem in problems_found if existing_problems is not None and (problem.type, problem.loc) not in existing_problems]
-    for problem in problems_from_this_node:
-        input_name = next((name for name in values_needing_recompile if embeddable.inputs[name].authored_address.node_id == problem.loc[0]), None)
-        problems.append(problem.model_copy(update={"loc": (node.id,) if input_name is None else (node.id, input_name)}))
-    if len(problems_from_this_node) < len(problems_found):
-        problems.append(make_problem("embedded_graph_broken", node.id, graph=title, problems=len(problems_found) - len(problems_from_this_node)))
-    return recompiled_graph, False
-
-
 def _bindings_can_be_wired(
-    node: GraphNode, inputs: tuple[Input, ...], version: Any, embeddable: EmbeddableGraph | None, progress: CompileProgress, problems: list[Problem],
+    node: GraphNode, inputs: tuple[Input, ...], version: Any, progress: CompileProgress, problems: list[Problem],
 ) -> bool:
     """The stored bindings against the inputs the node actually has, and those
     inputs against the field rules. ``False`` when its edges can't be wired.
@@ -242,7 +212,7 @@ def _bindings_can_be_wired(
         problems.extend(problems_found)
     for name, binding in node.bindings.items():
         if name not in declared:
-            hook_decides_inputs = embeddable is None and version.compute_inputs is not None
+            hook_decides_inputs = isinstance(version, NodeVersion) and version.compute_inputs is not None
             problems.append(make_problem("unused_binding" if hook_decides_inputs else "stale_binding", node.id, name, inputs=", ".join(sorted(declared)) or "none"))
             unbound_explained_by_typos += not hook_decides_inputs
             continue
@@ -253,9 +223,9 @@ def _bindings_can_be_wired(
             problems.append(make_problem("edge_into_unconnectable_input", node.id, name))
         for ref in binding.refs:
             source_id = ref.node_id
-            if source_id in progress.invalid_node_ids:
+            if source_id in progress.invalid_node_ids and NODE_PATH_SEPARATOR not in node.id:
                 can_wire = False
-            elif NODE_PATH_SEPARATOR in source_id or source_id not in progress.compiled:
+            elif source_id not in progress.compiled or (NODE_PATH_SEPARATOR in source_id and NODE_PATH_SEPARATOR not in node.id):  # only a placed inner node reads a path
                 can_wire = False
                 problems.append(make_problem("unknown_ref_node", node.id, name, source_node=source_id))
     for input_ in inputs:
@@ -263,9 +233,7 @@ def _bindings_can_be_wired(
             if isinstance(node.bindings.get(input_.name), From):
                 continue
             can_wire = False
-        elif not input_.required or input_.name in node.bindings or (
-            embeddable is not None and input_.name in embeddable.inputs and embeddable.inputs[input_.name].has_static_inside
-        ):
+        elif not input_.required or input_.name in node.bindings:
             continue
         if unbound_explained_by_typos:
             unbound_explained_by_typos -= 1
@@ -382,15 +350,40 @@ def _wiring_of_function_node(
 
 
 def _place_embedded_graph(
-    node: GraphNode, definition: Any, graph: CompiledGraph, embeddable: EmbeddableGraph, interface: Interface, statics: dict[str, Any], runs_per_row_of: Index | None,
-    inputs_read: WhatArrivesOnInputs, progress: CompileProgress, problems: list[Problem],
+    node: GraphNode, definition: Any, graph: CompiledGraph, interface: Interface, statics: dict[str, Any], runs_per_row_of: Index | None, progress: CompileProgress, problems: list[Problem],
 ) -> None:
-    """The graph node's record, and every node inside it under ``runs_per_row_of``."""
-    offered = embeddable.inputs
-    connected = [name for name, binding in node.bindings.items() if isinstance(binding, From) and name in offered]
-    edges: dict[Ref, From] = {offered[name].address_in_run: node.bindings[name] for name in connected}  # type: ignore[misc]
-    outer_edges = {offered[name].address_in_run: OuterEdgeIntoGraphInput(type=inputs_read.carries[name].dtype, index=inputs_read.carries[name].index, receive_mode=inputs_read.receive_modes[name]) for name in connected}
-    values = {offered[name].address_in_run: value for name, value in statics.items()}
-    placed_nodes = place_inner_nodes_under_graph_node(embeddable, node.id, edges, values, runs_per_row_of, outer_edges, lambda ref: _field_above(progress, ref), progress.row_origins)
-    _record_compiled_node(progress, node, problems, definition, graph, interface, statics, Wiring({}, runs_per_row_of))
-    progress.compiled.update(placed_nodes)
+    """The graph node's record, and every node inside it compiled where it stands.
+
+    A fatal problem the walk finds is one this graph node's edges or values
+    brought in, so it is reported on the graph node, and the graph is not
+    embedded. Anything else was its author's to see when it was compiled."""
+    prefix = f"{node.id}{NODE_PATH_SEPARATOR}"
+    offered = graph._embeddable.inputs
+    filled_from_outside: dict[str, dict[str, Binding]] = {}
+    for name, binding in node.bindings.items():
+        if name in offered and (isinstance(binding, From) or name in statics):
+            filled_from_outside.setdefault(offered[name].node_id, {})[offered[name].field] = binding
+    problems_before = len(progress.problems)
+    _record_compiled_node(progress, node, problems, definition, graph, interface, statics, Wiring({}, runs_per_row_of))  # inner nodes read the row off this record
+    problems_from_this_node = len(progress.problems)
+    placed_after = len(progress.compiled)
+    for inner in graph._nodes.values():
+        if inner.embedded_in is None:
+            compile_one_node(inner_node_placed_at(inner.graph_node, prefix, filled_from_outside.get(inner.id, {})), progress, graph._registry, runs_under=runs_per_row_of)
+    found_inside = progress.problems[problems_from_this_node:]
+    del progress.problems[problems_before:]
+    offered_at = {prefix + address.node_id: name for name, address in offered.items() if name in node.bindings}
+    brought_in = [
+        problem.model_copy(update={"loc": (node.id, offered_at[problem.loc[0]]) if problem.loc[0] in offered_at else (node.id,)})
+        for problem in found_inside if problem.fatal and not _is_an_offered_input_left_empty(problem, prefix, offered)
+    ]
+    problems.extend(brought_in)
+    if brought_in:
+        for inner_id in list(progress.compiled)[placed_after:]:
+            del progress.compiled[inner_id]
+    _record_compiled_node(progress, node, problems, definition, graph, interface, statics, None if brought_in else Wiring({}, runs_per_row_of))
+
+
+def _is_an_offered_input_left_empty(problem: Problem, prefix: str, offered: Mapping[str, Ref]) -> bool:
+    """The graph node already said this one: the input it offers has nothing in it."""
+    return problem.type == "unbound_required" and any(str(problem.loc[0]) == prefix + address.node_id and str(problem.loc[1]) == address.field for address in offered.values())

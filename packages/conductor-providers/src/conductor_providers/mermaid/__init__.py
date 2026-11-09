@@ -26,7 +26,7 @@ from conductor import (
     CompiledGraph,
     From,
     GraphNode,
-    InputPlan,
+    ReceiveMode,
     Ref,
 )
 
@@ -78,13 +78,13 @@ def _node_lines(
     return lines
 
 
-def _label(input_plan: InputPlan) -> str | None:
+def _label(input_plan: ReceiveMode) -> str | None:
     """How an arrow's reading input receives it, in a few words; ``None`` where there is nothing to say."""
     match input_plan.receive_mode:
         case "value_at_row":
-            return f"per row of {input_plan.rows_of}"
+            return f"per row of {input_plan.rows_of}"  # type: ignore[union-attr]
         case "all_rows_under_row":
-            return f"grouped by {input_plan.rows_of}"
+            return f"grouped by {input_plan.rows_of}"  # type: ignore[union-attr]
         case "entire_value":
             return "whole"
         case "collected":

@@ -144,7 +144,7 @@ def test_a_parent_merged_with_rows_under_it_is_copied_down():
         _node("excel", "excel", table=From("upload.result", "split.result")),
     ).run_plan
 
-    assert [part.copied_down for part in plan.nodes["excel"].inputs["table"].source_plans] == [True, False]
+    assert plan.nodes["excel"].inputs["table"].copied_down == ("upload.result",)
     assert "table: merged: upload.result [copied down] + split.result" in str(plan)
 
 

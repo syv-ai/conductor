@@ -50,13 +50,12 @@ from conductor._internal.errors import (
 )
 from conductor._internal.execution.run_state import OutputColumn, RunState, RunStatus, WaitingUnit
 from conductor._internal.graph.receive_modes import (
-    Broadcast,
-    EntireValue,
+    Cell,
+    FixedValue,
     Gather,
     Merge,
-    PerRow,
     ReceiveMode,
-    group_depth_of_read,
+    RowsUnder,
 )
 from conductor._internal.ref import Ref
 from conductor._internal.series import Index, Row, Series
@@ -195,6 +194,7 @@ class RunLedger:
         self._counted_depths = lookups.depths_finished_units_are_counted_at
         self._waiting_on_rows_made_by = lookups.nodes_finished_when_rows_made_by
         self._maker_node_of_index = lookups.node_making_rows_of_index
+        self._table_holding_row_ids = lookups.table_holding_row_ids_of_index
         self._values: dict[Ref, dict[Row, Any]] = {}
         #: The fields that may hold ``SKIPPED`` at a row, or sit on an index with
         #: no rows beneath some row. Only these can have a skip above a value,
@@ -379,66 +379,64 @@ class RunLedger:
 
         A ``SkippedAtRow`` comes from ``SKIPPED`` on an input received per row, on
         the series an input receives whole or reduced, or at a row above
-        this unit's. A gather drops skipped sources instead — an empty
-        gather is an empty series — because gathering is how "whichever
+        this unit's. A gather drops skipped sources instead, an empty
+        gather being an empty series, because gathering is how "whichever
         branch fired" is expressed.
         """
-        node_id, row = unit
-        node = self._compiled.node(node_id)
+        node_id = unit[0]
         values: dict[str, Any] = {}
-        statics = node.statics
-        for input_ in self._lookups.interfaces[node_id].inputs:
-            own = Ref(node_id, input_.name)
-            binding = self._fields[own].binding
-            receive_mode = self._fields[own]._receive_mode
-            if binding is None:
-                if isinstance(receive_mode, EntireValue):
-                    values[input_.name] = self._static_or_default_for_unit(receive_mode, input_.default, own)
-                continue  # a scalar default is the node's own; the call applies it
-            if input_.name in statics:
-                values[input_.name] = self._static_or_default_for_unit(receive_mode, statics[input_.name], own, row)
-                continue
-            if isinstance(receive_mode, (PerRow, Broadcast)):
-                covering, skips = self._values_covering_row(node_id, binding.refs, row)
-                if not covering:
-                    return SkippedAtRow(row=max(skips, key=len))
-                (values[input_.name],) = covering
-            elif isinstance(receive_mode, Merge):
-                merged = self._merged_table_for_unit(receive_mode, row)
-                if merged is None:
-                    return SkippedAtRow(row=row)
-                # Read through the input's own type when the call is checked, so a
-                # merged table it won't take fails this node, naming the column.
-                values[input_.name] = merged
-            elif isinstance(receive_mode, Gather):
-                gathered: list[Any] = []
-                for ref in binding.refs:
-                    index = self._fields[ref]._index
-                    value, _ = self._value_or_skip_at(ref, ())
-                    if value is SKIPPED:
-                        continue
-                    if index is None:
-                        gathered.append(value)
-                    else:
-                        gathered.extend(self._series_on_rows(node_id, (ref,), index, self._rows[index.id].rows_under(())).values)
-                values[input_.name] = Series(gathered, index=receive_mode.index)
-            else:
-                group_row = row[: group_depth_of_read(receive_mode)]
-                found = [self._value_or_skip_at(ref, group_row) for ref in binding.refs]
-                if all(value is SKIPPED for value, _ in found):
-                    return SkippedAtRow(row=max((value_row for _, value_row in found), key=len))
-                index = self._fields[binding.refs[0]]._index
-                if index is None:
-                    # Received whole from a source that ran once: the one value.
-                    ((values[input_.name], _),) = found
-                else:
-                    values[input_.name] = self._series_on_rows(node_id, binding.refs, index, self._rows[index.id].rows_under(group_row))
-        blank = tuple(name for name in node._inputs_rejecting_a_blank if values.get(name, _MISSING) is None)
+        for name, receive_mode in self._lookups.receive_modes_of_node[node_id]:
+            value = self.read_input(receive_mode, unit)
+            if value.__class__ is SkippedAtRow:
+                return value
+            values[name] = value
+        node = self._compiled.node(node_id)
+        blank = tuple(name for name in node._inputs_rejecting_a_blank if values[name] is None)
         if blank:
             return BlankInputsStopCall(blank)
         if node._series_inputs_leaving_blanks_out:
             _leave_out_blank_rows(values, node._series_inputs_leaving_blanks_out)
         return values
+
+    def read_input(self, receive_mode: ReceiveMode, unit: Unit) -> Any | SkippedAtRow:
+        """What this unit receives on an input that receives ``receive_mode``, or a ``SkippedAtRow``:
+        the one match over receive modes a run needs. What it waits for first is ``reads_of_input``, once, at compile."""
+        node_id, row = unit
+        match receive_mode:
+            case Cell(sources=sources, depth=depth):
+                covering, skips = self._values_covering_row(node_id, sources, row[:depth])
+                return covering[0] if covering else SkippedAtRow(row=max(skips, key=len))
+            case FixedValue(value=value):
+                return value
+            case RowsUnder(sources=sources, depth=depth):
+                found = [self._value_or_skip_at(ref, row[:depth]) for ref in sources]
+                if all(value is SKIPPED for value, _ in found):
+                    return SkippedAtRow(row=max((value_row for _, value_row in found), key=len))
+                index = self._fields[sources[0]]._index
+                assert index is not None  # a series read as rows has an index
+                return self._series_on_rows(node_id, sources, index, self._rows[index.id].rows_under(row[:depth]))
+            case Gather():
+                return self._gathered_for_unit(receive_mode, node_id, row)
+            case Merge():
+                merged = self._merged_table_for_unit(receive_mode, row)
+                # Read through the input's own type when the call is checked, so a
+                # merged table it won't take fails this node, naming the column.
+                return SkippedAtRow(row=row) if merged is None else merged
+
+    def _gathered_for_unit(self, receive_mode: Gather, node_id: str, row: Row) -> Series[Any]:
+        """The series a unit at ``row`` gathers from its sources, left out where skipped."""
+        group_row = row[: receive_mode.depth]
+        gathered: list[Any] = []
+        for ref in receive_mode.sources:
+            value, _ = self._value_or_skip_at(ref, group_row)
+            if value is SKIPPED:
+                continue
+            index = self._fields[ref]._index
+            if index is None or index.depth <= len(group_row):
+                gathered.append(value)
+            else:
+                gathered.extend(self._series_on_rows(node_id, (ref,), index, self._rows[index.id].rows_under(group_row)).values)
+        return Series(gathered, index=Index(receive_mode.collected_onto))
 
     def _merged_table_for_unit(self, receive_mode: Merge, row: Row) -> pl.DataFrame | None:
         """The one table a unit at ``row`` receives from every source of a ``Table``
@@ -447,35 +445,37 @@ class RunLedger:
         and still counts as a source."""
         sources: list[MergeSource] = []
         skipped = 0
-        for source, source_receive_mode in receive_mode.receive_mode_by_source:
+        for plan in receive_mode.source_plans:
+            (source,) = plan.sources
             field = self._fields[source]
             is_table = is_table_or_series_of_tables(field.type)
             index: Index = field._makes_rows if is_table else field._index  # type: ignore[assignment]
-            group_row = row[: source_receive_mode.index.depth] if isinstance(source_receive_mode, PerRow) else row[: group_depth_of_read(source_receive_mode)]
+            group_row = row[: plan.depth]
+            copied_down = source in receive_mode.copied_down
             stored, _ = self._value_or_skip_at(source, group_row)
             is_skip = stored is SKIPPED
             skipped += is_skip
             if is_table:
                 frame = frame_with_no_rows(field.type) if is_skip else stored
-                sources.append(MergeSource(source.node_id, frame, index, [(*group_row, position) for position in range(frame.height)]))
+                sources.append(MergeSource(source.node_id, frame, index, [(*group_row, position) for position in range(frame.height)], copied_down))
                 continue
             present = [
                 (row, value) for row in self._rows[index.id].rows_under(group_row)
                 if (value := self._value_or_skip_at(source, row)[0]) is not SKIPPED and value is not _MISSING
             ]
             frame = one_column_frame_with_row_ids(field._title, field._cell_type, [self._row_id(index, row) for row, _ in present], [value for _, value in present])
-            sources.append(MergeSource(source.node_id, frame, index, [row for row, _ in present]))
+            sources.append(MergeSource(source.node_id, frame, index, [row for row, _ in present], copied_down))
         return None if skipped == len(sources) else merge_tables_on_row_ids(sources)
 
     def _row_id(self, index: Index, row: Row) -> str:
         """The id of the row at ``row`` on ``index``: on a table's rows, the id
         its stored table carries, which may have come in with the table; on
         any other index, the id spelled from the index and the row."""
-        maker = self._lookups.field_making_rows_of_index.get(index.id)
-        if maker is not None and maker._column_of_table is None and maker._is_output and is_table_or_series_of_tables(maker.type):
-            stored, _ = self._value_or_skip_at(maker.ref, row[:-1])
-            return stored[ROW_ID_COLUMN][row[-1]]
-        return global_row_id(index, row)
+        table = self._table_holding_row_ids.get(index.id)
+        if table is None:
+            return global_row_id(index, row)
+        stored, _ = self._value_or_skip_at(table, row[:-1])
+        return stored[ROW_ID_COLUMN][row[-1]]
 
     def _values_covering_row(self, node_id: str, refs: tuple[Ref, ...], row: Row) -> tuple[list[Any], list[Row]]:
         """Of several refs read at one row: the values that cover it, and the
@@ -485,7 +485,7 @@ class RunLedger:
         covering: list[Any] = []
         skips: list[Row] = []
         for ref in refs:
-            value, value_row = self._value_or_skip_at(ref, row[: self._depth_of_field[ref]])
+            value, value_row = self._value_or_skip_at(ref, row)
             if value is _MISSING:
                 raise KeyError(f"{ref} has no value at {value_row} — the unit was not ready")
             if value is SKIPPED:
@@ -495,20 +495,6 @@ class RunLedger:
         if len(covering) > 1:
             raise NodeExecutionError(PROBLEM_CATALOGUE["row_covered_twice"].message, node_id=node_id, code="row_covered_twice", ctx={"edges": len(covering), "row": list(row)})
         return covering, skips
-
-    def _static_or_default_for_unit(self, receive_mode: ReceiveMode, value: Any, own: Ref, row: Row = ()) -> Any:
-        """A static (or the declared default) as the unit receives it.
-
-        Received whole, it is a series on the input's own index; received
-        per row of an index of the input's own, it is a list set on the node
-        and the unit takes the value at its row; broadcast, it is the one
-        value.
-        """
-        if isinstance(receive_mode, EntireValue):
-            return Series(value.values if isinstance(value, Series) else list(value), index=self._fields[own]._index)
-        if isinstance(receive_mode, PerRow):
-            return self._list_cells[own][row[receive_mode.index.depth - 1]]
-        return value
 
     def _value_or_skip_at(self, ref: Ref, row: Row) -> tuple[Any, Row]:
         """``(value, row)`` for the value at ``(ref, row)``: ``SKIPPED`` at the

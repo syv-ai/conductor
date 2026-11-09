@@ -172,6 +172,8 @@ class MergeSource:
     frame: pl.DataFrame
     index: Index
     rows: Sequence[Row]
+    #: Its rows sit above another source's, so it brings no rows and its values are copied down onto those.
+    copied_down: bool
 
 
 def one_column_frame_with_row_ids(name: str, dtype: type[DType], ids: list[str], values: list[Any]) -> pl.DataFrame:
@@ -211,9 +213,7 @@ def merge_tables_on_row_ids(sources: Sequence[MergeSource]) -> pl.DataFrame:
     """
     import polars as pl
 
-    if len(sources) == 1 and sources[0].frame.columns[:1] == [ROW_ID_COLUMN]:
-        return sources[0].frame  # one table has nothing to match with; handed on as itself, whatever holds it holds one frame
-    parent_indexes = {s.index for s in sources for other in sources if other.index != s.index and s.index in other.index.lineage}
+    parent_indexes = {source.index for source in sources if source.copied_down}
     row_id_by_row_on_parent: dict[Index, dict[Row, str]] = {}
     for source in sources:
         if source.index in parent_indexes:

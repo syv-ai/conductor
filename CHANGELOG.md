@@ -56,6 +56,11 @@ its stored graphs itself. What a 1.x user must change:
 - `Flow` is `Graph(nodes=[...])`, and a node you declared is placed with
   `upper.graph_node("a", text="hello")`. An input is bound by `From("node.output")` or
   `Static(value)`; there is no edge list and no `"id@version"` string.
+- An embedded graph is compiled in place, each of its nodes by the rule that compiles any node; a list
+  or a hook inside reads the graph node's values with no second compile.
+- `compiled.run_plan.nodes[id].inputs[name]` is a `ReceiveMode`, the record the run reads: a `kind` of
+  `cell`, `rows_under`, `fixed`, `gather` or `merge`, and the author's `receive_mode` word as before.
+  `InputPlan` is gone. A table wired alone into a `Table` input is received as that table, unmerged.
 - `compile(...)` is `CompiledGraph.from_graph(graph, registry)`. It never raises for a fault in the
   graph: read `problems` and `is_runnable`. A `Problem` is `type`, `loc`, `msg`, `ctx`.
 - `extension_resolver` is gone: a graph embedded as a node is

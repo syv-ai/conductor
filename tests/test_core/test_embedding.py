@@ -1,27 +1,24 @@
-"""A node whose version is a compiled graph: embedded as one node, then laid out under the row it runs on.
+"""A node whose version is a compiled graph: embedded as one node, its inner nodes compiled under the row it runs on.
 
 A host compiles each graph version once and hands the ``CompiledGraph``
 to conductor as the version. The outer compile treats the graph node as
 a plain node with the compiled graph's interface, which decides the row it
-runs on; embedding (``graph_as_embedded``) then puts the graph's own records
-under that row. What the engine reads must come out exactly as inlining
-the raw graph gave it: the oracle below checks every scenario, field by
-field, against the values that path gave, pinned in
-``fixtures/embedded_expected.json``, and a run of some of them against
-``fixtures/embedded_expected_results.json``.
+runs on, then compiles the graph's own nodes under that row. What the engine
+reads must come out as the graph drawn there: the oracle below checks every
+scenario, field by field, against ``fixtures/embedded_expected.json``, and a
+run of some of them against ``fixtures/embedded_expected_results.json``.
 
-Which scenario pins which embedding rule:
+Which scenario pins which rule of a node compiled under a row:
 
 1. an index renamed and hung under the row: ``rows_made_inside``, ``nested_iterating``;
 2. a value that ran once becomes a series on the row: ``entering_scalar``, ``gather_two_inside``;
-3. ``EntireValue`` → ``RowsUnder``, a ``Gather`` of single values → ``RowsUnder``: ``rows_made_inside``, ``gather_two_inside``;
-4. a crossing takes the outer walk's record: ``two_crossings``, ``series_field``, ``gathered_into_the_graph_node``;
+3. a ``Series[X]`` input over one value per run of the graph reads it at its row, several of them gathered there: ``rows_made_inside``, ``gather_two_inside``;
+4. an edge in from outside reads as it would anywhere: ``two_crossings``, ``series_field``, ``gathered_into_the_graph_node``;
 5. an output read outside takes the inner field's index: ``rows_made_inside_exposed``, ``read_from_outside``, ``rows_made_under_a_row_inside``;
 6. conditions put in place: every ``cond_`` scenario.
 
-A value typed on the graph node's input is not carried over: the graph is
-compiled again with it, as if typed inside (``value_on_the_graph_node``,
-``many_values_on_the_graph_node``).
+A value typed on the graph node's input lands on the inner node, read through
+its type (``value_on_the_graph_node``, ``many_values_on_the_graph_node``).
 """
 
 import json
@@ -33,6 +30,7 @@ import pytest
 from conductor import (
     SKIPPED,
     Arriving,
+    AsItArrives,
     CompiledGraph,
     ComputeHookError,
     DType,
@@ -476,7 +474,7 @@ def _what_compile_says(compiled: CompiledGraph) -> dict[str, Any]:
 
 
 @pytest.mark.parametrize("name", sorted(SCENARIOS))
-def test_a_compiled_graph_embedded_reads_exactly_as_the_raw_graph_inlined(name):
+def test_a_compiled_graph_embedded_reads_as_the_pinned_graph_drawn_in_place(name):
     assert _what_compile_says(_compiled(name)) == json.loads(FIXTURE.read_text())[name]
 
 
@@ -488,7 +486,7 @@ def test_the_pinned_values_are_the_scenarios():
 RUN = (
     "entering_scalar", "rows_made_inside_exposed", "gathered_into_the_graph_node", "many_values_on_the_graph_node",
     "nested_iterating", "cond_outer_gate_into_graph", "cond_nested_per_row",
-    "per_row_output_read_outside", "value_and_edge_per_row", "required_input_filled_inside",
+    "per_row_output_read_outside", "value_and_edge_per_row", "required_input_filled_inside", "gather_two_inside",
     "edge_into_a_value_filled_inside", "edge_into_a_list_filled_inside",
 )
 
@@ -570,7 +568,7 @@ def test_an_outer_edge_may_only_read_what_the_graph_offers():
 def test_two_series_made_by_different_nodes_inside_do_not_line_up_outside():
     """Each series output of an embedded graph sits on the index of the node
     inside that makes it, so two unrelated ones are ``misaligned`` where they
-    meet, exactly as when the raw graph was inlined."""
+    meet, exactly as if the graph were drawn in place."""
     scenario = Scenario((("two-series", (
         N(id="a", type="lines", version=1, bindings={"text": Static("x\ny")}),
         N(id="b", type="lines", version=1, bindings={"text": Static("p\nq")}),
@@ -625,7 +623,7 @@ def test_a_graph_with_an_empty_input_it_does_not_offer_cannot_be_embedded():
 
 
 def test_a_value_typed_on_a_placed_graph_that_a_hook_inside_refuses_is_the_outer_authors_problem():
-    """Compiled again with the value, the graph refuses it. The outer author
+    """Inside the graph, the value is refused. The outer author
     typed it, so they see the hook's own words on the field they typed in."""
     compiled = _embedded_alone((N(id="p", type="picky", version=1),), **{"mode": Static("bad")})
 
@@ -633,6 +631,36 @@ def test_a_value_typed_on_a_placed_graph_that_a_hook_inside_refuses_is_the_outer
         ("picky_refuses", "Not that mode.", "emb", "mode"),
     ]
     assert compiled.node("emb").state == "wiring_failed"
+
+
+def test_an_input_filled_inside_is_offered_as_not_required():
+    """The graph node is whole without it: its author already put a value there."""
+    graph = CompiledGraph.from_graph(Graph(nodes=[N(id="n", type="need", version=1, bindings={"text": Static("inside")})]), _plain_registry())
+    empty = CompiledGraph.from_graph(Graph(nodes=[N(id="n", type="need", version=1)]), _plain_registry())
+
+    assert [(input_.name, input_.required) for input_ in graph._embeddable.interface.inputs] == [("text", False)]
+    assert [(input_.name, input_.required) for input_ in empty._embeddable.interface.inputs] == [("text", True)]
+
+
+def _pass_on_what_arrives(**arriving: Arriving):
+    return (Output("result", arriving["thing"], title="Thing"),)
+
+
+@node("as_it_arrives", title="As it arrives", description="d", category="test", compute_outputs=_pass_on_what_arrives)
+def as_it_arrives(**thing: AsItArrives) -> Annotated[Any, Result(title="Thing")]:
+    return thing["thing"]
+
+
+def test_a_value_inside_a_graph_run_per_row_arrives_as_itself_on_an_as_it_arrives_input():
+    """One value per run of the graph: a hook is told its type, and the call gets it at its own row."""
+    inner = CompiledGraph.from_graph(Graph(nodes=[N(id="h", type="holder", version=1), N(id="kw", type="as_it_arrives", version=1, bindings={"thing": From("h.result")})]), _plain_registry().extended_with([as_it_arrives]))
+    registry = _plain_registry().extended_with([as_it_arrives, _definition("g", inner)])
+    compiled = CompiledGraph.from_graph(Graph(nodes=[N(id="docs", type="docs", version=1), N(id="emb", type="g", version=1, bindings={"value": From("docs.result")})]), registry)
+
+    assert compiled.is_runnable, compiled.problems
+    plan = compiled.run_plan.nodes["emb/kw"].inputs["thing"]
+    assert (plan.receive_mode, plan.rows_of) == ("value_at_row", "docs.result")
+    assert [str(value) for value in compiled.results(compiled.run_sync())["emb/kw"]["result"]] == ["a", "b"]
 
 
 def test_a_graph_run_per_row_sees_an_input_fed_whole_as_a_whole():

@@ -80,6 +80,20 @@
    "result": "Series(['A', 'B'], index=Index('docs.result'))"
   }
  },
+ "gather_two_inside": {
+  "docs": {
+   "result": "Series(['a', 'b'], index=Index('docs.result'))"
+  },
+  "emb/holder": {
+   "result": "Series(['a', 'b'], index=Index('docs.result'))"
+  },
+  "emb/join": {
+   "result": "Series(['a+A', 'b+B'], index=Index('docs.result'))"
+  },
+  "emb/up": {
+   "result": "Series(['A', 'B'], index=Index('docs.result'))"
+  }
+ },
  "gathered_into_the_graph_node": {
   "after": {
    "result": "'A+B'"

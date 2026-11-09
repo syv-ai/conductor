@@ -12,15 +12,8 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 
-from conductor._internal.graph.binding import From
 from conductor._internal.graph.compiled_node import CompiledField, CompiledNode
-from conductor._internal.graph.receive_modes import (
-    Broadcast,
-    Merge,
-    PerRow,
-    ReceiveMode,
-    group_depth_of_read,
-)
+from conductor._internal.graph.receive_modes import ReceiveMode, reads_of_input
 from conductor._internal.node_signature import Interface
 from conductor._internal.ref import Ref
 from conductor._internal.series import Index, Series
@@ -35,10 +28,10 @@ class EngineLookups:
     runs_per_row_of: dict[str, Index | None]
     #: Per node: its inputs and outputs.
     interfaces: dict[str, Interface]
-    #: Per output, every input an edge from it feeds, in execution order, with how it receives the value.
-    read_by: dict[Ref, tuple[tuple[Ref, ReceiveMode], ...]]
-    #: Per node, every output an edge into it reads, one per edge ref.
-    reads: dict[str, tuple[tuple[Ref, ReceiveMode], ...]]
+    #: Per node, how each of its inputs receives its value, by input name.
+    receive_modes_of_node: dict[str, tuple[tuple[str, ReceiveMode], ...]]
+    #: Per output, every input an edge from it feeds, in execution order.
+    read_by: dict[Ref, tuple[Ref, ...]]
     #: Per index id: the nodes that run once per row of it.
     nodes_running_per_row_of_index: dict[str, tuple[str, ...]]
     #: Per index id: the outputs whose values sit on it, and a list set on a node whose own rows they are.
@@ -49,6 +42,8 @@ class EngineLookups:
     field_making_rows_of_index: dict[str, CompiledField]
     #: Every column of a table output offered as a field: the table output and the column.
     table_column_fields: dict[Ref, tuple[Ref, str]]
+    #: Per index whose rows are those of a table: the table output, whose stored table holds their ids.
+    table_holding_row_ids_of_index: dict[str, Ref]
     #: The table outputs a merge matches against a table they were built from: a
     #: return where no row kept its id can never match (``row_ids_lost``).
     row_ids_must_survive: frozenset[Ref]
@@ -82,8 +77,9 @@ def build_engine_lookups(nodes: Iterable[CompiledNode], row_ids_must_survive: fr
     fields: dict[Ref, CompiledField] = {}
     runs_per_row_of: dict[str, Index | None] = {}
     interfaces: dict[str, Interface] = {}
-    reads: dict[str, list[tuple[Ref, ReceiveMode]]] = {}
-    read_by: dict[Ref, list[tuple[Ref, ReceiveMode]]] = {}
+    receive_modes_of_node: dict[str, list[tuple[str, ReceiveMode]]] = {}
+    read_by: dict[Ref, list[Ref]] = {}
+    read_at_depth: dict[str, list[tuple[Ref, int]]] = {}
     nodes_running_per_row_of_index: dict[str, list[str]] = {}
     outputs_on_index: dict[str, list[Ref]] = {}
     lists_on_nodes_under_index: dict[str, list[Ref]] = {}
@@ -101,7 +97,8 @@ def build_engine_lookups(nodes: Iterable[CompiledNode], row_ids_must_survive: fr
         wiring = node.wiring
         if wiring is None or node.embedded_graph is not None or node.interface is None:
             continue
-        node_reads = reads.setdefault(node.id, [])
+        node_receive_modes = receive_modes_of_node.setdefault(node.id, [])
+        node_reads = read_at_depth.setdefault(node.id, [])
         runs_per_row_of[node.id] = wiring._runs_per_row_of
         interfaces[node.id] = node.interface
         if (index := wiring._runs_per_row_of) is not None:
@@ -112,12 +109,11 @@ def build_engine_lookups(nodes: Iterable[CompiledNode], row_ids_must_survive: fr
             read_by.setdefault(ref, [])
             receive_mode = field._receive_mode
             if receive_mode is not None:
-                if isinstance(field.binding, From):
-                    receive_mode_of_each_source = dict(receive_mode.receive_mode_by_source) if isinstance(receive_mode, Merge) else {}
-                    for source in field.binding.refs:
-                        receive_mode = receive_mode_of_each_source.get(source, receive_mode)
-                        read_by.setdefault(source, []).append((ref, receive_mode))
-                        node_reads.append((source, receive_mode))
+                node_receive_modes.append((ref.field, receive_mode))
+                for source, depth in reads_of_input(receive_mode):
+                    if source != ref:  # a list set on this input is read off the input itself: there is nothing to wait for
+                        read_by.setdefault(source, []).append(ref)
+                        node_reads.append((source, depth))
                 if field._is_list_on_node and field._index is not None:
                     register_index_owner(field._index.id, field)
                     outputs_on_index[field._index.id].append(ref)
@@ -162,11 +158,10 @@ def build_engine_lookups(nodes: Iterable[CompiledNode], row_ids_must_survive: fr
         if maker_node is not None:
             count_finished_units_at(maker_node, depth)
 
-    for node_id, node_reads_of_it in reads.items():
+    for node_id, node_reads_of_it in read_at_depth.items():
         waits: list[tuple[str, int]] = []
-        for source, receive_mode in node_reads_of_it:
+        for source, depth_read in node_reads_of_it:
             field = fields[source]
-            depth_read = depth_of_field[source] if isinstance(receive_mode, (PerRow, Broadcast)) else group_depth_of_read(receive_mode)
             writer = source.node_id if not field._is_list_on_node else node_making_rows_of_index[field._index.id]  # type: ignore[union-attr]
             if writer is None:
                 continue
@@ -189,14 +184,17 @@ def build_engine_lookups(nodes: Iterable[CompiledNode], row_ids_must_survive: fr
             if (index := fields[Ref(node_id, out.name)]._makes_rows) is not None
             for on_rows in nodes_on_rows_and_lists_under(index.id)
         )
+    table_holding_row_ids_of_index = {
+        index_id: maker.ref for index_id, maker in field_making_rows_of_index.items() if maker._makes_rows is not None and not maker._unit_writes_many_cells
+    }
     cell_is_held_in: dict[Ref, str | None] = {
         ref: None if field._column_of_table is None else field._column_of_table[1]
         for ref, field in fields.items()
         if field._column_of_table is not None or field._is_list_on_node or field._unit_writes_many_cells
     }
     return EngineLookups(
-        fields, runs_per_row_of, interfaces, _lists_as_tuples(read_by), _lists_as_tuples(reads), _lists_as_tuples(nodes_running_per_row_of_index), _lists_as_tuples(outputs_on_index), _lists_as_tuples(lists_on_nodes_under_index),
-        field_making_rows_of_index, table_column_fields, row_ids_must_survive,
+        fields, runs_per_row_of, interfaces, _lists_as_tuples(receive_modes_of_node), _lists_as_tuples(read_by), _lists_as_tuples(nodes_running_per_row_of_index), _lists_as_tuples(outputs_on_index), _lists_as_tuples(lists_on_nodes_under_index),
+        field_making_rows_of_index, table_column_fields, table_holding_row_ids_of_index, row_ids_must_survive,
         _lists_as_tuples(what_each_read_waits_for),
         {node_id: tuple(sorted(depths)) for node_id, depths in depths_counted.items()},
         nodes_finished_when_rows_made_by, node_making_rows_of_index, _lists_as_tuples(index_ids_by_parent), cell_is_held_in, cells_of_list_on_node, depth_of_field,

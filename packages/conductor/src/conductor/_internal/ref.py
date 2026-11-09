@@ -70,6 +70,11 @@ class Ref(str):
         """``Ref(node_id, field)`` for an id compile has already checked: read for every field of a graph."""
         return str.__new__(cls, f"{node_id}.{field}")
 
+    @classmethod
+    def _from_checked_address(cls, address: str) -> Ref:
+        """``Ref(address)`` for an index id, which compile spelled from a checked node and field."""
+        return str.__new__(cls, address)
+
     @property
     def node_id(self) -> str:
         """The node part — everything before the first dot."""

@@ -27,7 +27,8 @@ from conductor._internal.graph.binding import From, Static
 from conductor._internal.graph.compiled_graph import CompiledGraph
 from conductor._internal.graph.graph_records import FieldContent, Graph, GraphNode
 from conductor._internal.graph.output_conditions import ALWAYS, NEVER, BranchTaken
-from conductor._internal.graph.run_plan import InputPlan, RunPlan
+from conductor._internal.graph.receive_modes import ReceiveMode
+from conductor._internal.graph.run_plan import RunPlan
 from conductor._internal.graph.topology import dependencies_of
 from conductor._internal.graph.upgrade import upgrade_node
 from conductor._internal.node_definition import (
@@ -76,7 +77,6 @@ __all__ = [
     "Graph",
     "GraphNode",
     "Input",
-    "InputPlan",
     "Interface",
     "InvalidCallError",
     "NodeDeclarationError",
@@ -91,6 +91,7 @@ __all__ = [
     "Param",
     "Policy",
     "Problem",
+    "ReceiveMode",
     "Ref",
     "Result",
     "RunPlan",

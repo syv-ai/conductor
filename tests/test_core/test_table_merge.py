@@ -169,7 +169,7 @@ def test_merge_matches_rows_on_their_ids_and_keeps_a_clashing_name_apart():
     left = pl.DataFrame({ROW_ID_COLUMN: ["c:0", "c:1"], "name": ["Ida", "Bo"]})
     right = pl.DataFrame({ROW_ID_COLUMN: ["c:1", "x:0"], "name": ["Bob", "Ole"]})
 
-    assert merge_tables_on_row_ids([MergeSource("csv", left, Index("c"), [(0,), (1,)]), MergeSource("crm", right, Index("c"), [(1,), (2,)])]).to_dicts() == [
+    assert merge_tables_on_row_ids([MergeSource("csv", left, Index("c"), [(0,), (1,)], False), MergeSource("crm", right, Index("c"), [(1,), (2,)], False)]).to_dicts() == [
         {ROW_ID_COLUMN: "c:0", "name": "Ida", "name_crm": None},
         {ROW_ID_COLUMN: "c:1", "name": "Bo", "name_crm": "Bob"},
         {ROW_ID_COLUMN: "x:0", "name": None, "name_crm": "Ole"},
@@ -181,7 +181,7 @@ def test_merge_copies_a_parent_down_by_each_rows_path():
     lines = pl.DataFrame({ROW_ID_COLUMN: ["l:0.0", "l:0.1"], "line": ["x", "y"]})
     parent = Index("d")
 
-    assert merge_tables_on_row_ids([MergeSource("docs", docs, parent, [(0,), (1,)]), MergeSource("split", lines, Index("l", parent=parent), [(0, 0), (0, 1)])]).to_dicts() == [
+    assert merge_tables_on_row_ids([MergeSource("docs", docs, parent, [(0,), (1,)], True), MergeSource("split", lines, Index("l", parent=parent), [(0, 0), (0, 1)], False)]).to_dicts() == [
         {ROW_ID_COLUMN: "l:0.0", "doc": "a", "line": "x"},
         {ROW_ID_COLUMN: "l:0.1", "doc": "a", "line": "y"},
     ]
