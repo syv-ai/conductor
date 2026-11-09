@@ -174,3 +174,21 @@ def test_dtype_of_returns_None_for_a_type_no_edge_can_carry():
     assert dtype_of(list[int]) is None
 
 
+def test_conductor_declares_no_domain_types_of_its_own():
+    """The ABC is conductor's, the vocabulary is the host's: a new registry
+    has no words until a node declares one or the host adds it.
+
+    `Series` is the exception and is deliberate — a collection is structure,
+    not domain: it means the same thing in every host — and it is not a
+    word either (``test_standalone.py`` checks every module of the library).
+    """
+    from conductor import NodeRegistry
+
+    assert NodeRegistry().types == {}
+
+
+def test_the_vocabulary_is_importable_from_the_root():
+    import conductor
+
+    for name in ("DType", "AsItArrives", "Series", "Ref", "Result"):
+        assert getattr(conductor, name) is not None
