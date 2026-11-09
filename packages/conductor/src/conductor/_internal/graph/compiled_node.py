@@ -24,7 +24,7 @@ from pydantic_core import to_jsonable_python
 from conductor._internal.codec import cell_validator_for, json_schema_of, to_jsonable
 from conductor._internal.execution.run_state import Question
 from conductor._internal.field_records import was_titled_by_its_author
-from conductor._internal.graph.output_conditions import run_once_condition
+from conductor._internal.graph.output_conditions import ALWAYS, run_once_condition
 from conductor._internal.graph.receive_modes import FixedValue
 from conductor._internal.graph.run_plan import NodeRunPlan, plan_of_node
 from conductor._internal.node_definition import NodeVersion
@@ -269,7 +269,7 @@ class CompiledField:
     ) -> None:
         """Compile builds one per field of a graph, so this sets them in one step, not one at a time."""
         self.__dict__.update(
-            ref=ref, type=type, binding=binding, condition=None if _condition_with_rows is None else run_once_condition(_condition_with_rows), problems=problems,
+            ref=ref, type=type, binding=binding, condition=_condition_with_rows if _condition_with_rows is None or _condition_with_rows is ALWAYS else run_once_condition(_condition_with_rows), problems=problems,
             _condition_with_rows=_condition_with_rows, _index=_index, _receive_mode=_receive_mode, _held_as=_held_as, _takes_blank=_takes_blank, _row_origins=_row_origins,
         )
 

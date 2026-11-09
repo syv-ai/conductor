@@ -57,7 +57,6 @@ rows and is named after it.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, NamedTuple, cast
 
 from conductor._internal.dtype import (
@@ -111,8 +110,7 @@ class ReceivedAtTheRow(NamedTuple):
     receive_mode: ReceiveMode
 
 
-@dataclass(frozen=True, slots=True)
-class ReadingOfInput:
+class ReadingOfInput(NamedTuple):
     """How one input reads what arrives on it, what a call's row depends on, and how it is received once the row is known.
 
     One function per kind of input builds one of these, whole: everything about
@@ -327,8 +325,16 @@ def decide_runs_per_row_of(node_id: str, readings: tuple[ReadingOfInput, ...], p
     """The index the node runs once per row of. ``runs_under`` is the row of the graph it sits inside: the node runs at least
     per row of it. ``False`` when its inputs disagree, with the problem in ``problems``."""
     field_address_of = lambda name: Ref(node_id, name)  # noqa: E731
-    rows_required = tuple((index, reading.input.name) for reading in readings for index in reading.requires_rows_of)
-    reductions = [reading for reading in readings if reading.reduces is not None]
+    rows_required: tuple[tuple[Index, str], ...] = ()
+    reductions: list[ReadingOfInput] = []
+    lists: list[ReadingOfInput] = []
+    for reading in readings:
+        if reading.requires_rows_of:
+            rows_required += tuple((index, reading.input.name) for index in reading.requires_rows_of)
+        if reading.reduces is not None:
+            reductions.append(reading)
+        if reading.is_list_on_node:
+            lists.append(reading)
     runs_per_row_of, disagreeing = _deepest_index_on_one_line_of_descent(rows_required or _row_above_reductions(reductions))
     if disagreeing is not None:
         problems.append(_misaligned(node_id, field_address_of(disagreeing[0]), field_address_of(disagreeing[1])))
@@ -336,7 +342,6 @@ def decide_runs_per_row_of(node_id: str, readings: tuple[ReadingOfInput, ...], p
     if not rows_required and any(runs_per_row_of not in reading.reduces.lineage for reading in reductions):  # type: ignore[union-attr]  # kept above
         problems.append(_misaligned(node_id, field_address_of(reductions[0].input.name), field_address_of(reductions[1].input.name)))
         return False, None
-    lists = [reading for reading in readings if reading.is_list_on_node]
     if len(lists) > 1:
         problems.append(make_problem("lists_on_a_per_row_node", node_id, lists[1].input.name, a=str(field_address_of(lists[0].input.name)), b=str(field_address_of(lists[1].input.name))))
         return False, None

@@ -78,6 +78,8 @@ def run_once_condition(condition: Condition) -> Condition:
 
 
 def _keeping_only(condition: Condition, keep: Callable[[BranchTaken], bool]) -> Condition:
+    if condition is ALWAYS:
+        return condition
     if all(keep(branch) for alternative in condition for branch in alternative):
         return condition
     return frozenset(frozenset(filter(keep, alternative)) for alternative in condition)

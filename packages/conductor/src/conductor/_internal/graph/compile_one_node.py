@@ -124,7 +124,7 @@ def compile_one_node(node: GraphNode, progress: CompileProgress, registry: NodeR
         return _record_compiled_node(progress, node, problems, definition, version, _interface_without_wiring(node, version, inputs, inputs_read, statics, problems), statics)
     inputs_typed_by_their_edges = _with_types_from_their_edges(inputs, inputs_read)
     try:
-        outputs = _outputs_after_compute_outputs(version, _arriving_types(inputs_read), statics)
+        outputs = _outputs_after_compute_outputs(version, inputs_read, statics)
     except ComputeHookError as hook_error:
         problems.append(hook_error.as_problem_on_node(node.id))
         return _record_compiled_node(progress, node, problems, definition, version, _interface_with_fields(version.interface, inputs_typed_by_their_edges, ()), statics)
@@ -261,7 +261,7 @@ def _interface_without_wiring(
 ) -> Interface:
     """A source couldn't be read: complete the node's fields from what did arrive, so an editor can draw it."""
     try:
-        answered = _outputs_after_compute_outputs(version, _arriving_types(inputs_read), statics)
+        answered = _outputs_after_compute_outputs(version, inputs_read, statics)
     except ComputeHookError:
         # The broken source carries the problem; a problem about its missing
         # arrival would report the same fact twice.
@@ -271,12 +271,12 @@ def _interface_without_wiring(
     return _interface_with_fields(version.interface, inputs_typed_by_their_edges, answered)
 
 
-def _outputs_after_compute_outputs(version: Any, arriving_types: dict[str, Any], statics: dict[str, Any]) -> tuple[Output, ...]:
+def _outputs_after_compute_outputs(version: Any, inputs_read: WhatArrivesOnInputs, statics: dict[str, Any]) -> tuple[Output, ...]:
     """What ``compute_outputs`` says once it can be told what arrives."""
     if version.compute_outputs is None:
         return version.interface.outputs
     values = {**{input_.name: input_.default for input_ in version.interface.inputs if not input_.required}, **statics}
-    answered = version.compute_outputs.call_with(values, arriving_types, statics)
+    answered = version.compute_outputs.call_with(values, _arriving_types(inputs_read), statics)
     return version.interface.outputs if answered is None else answered
 
 
@@ -288,6 +288,8 @@ def _arriving_types(inputs_read: WhatArrivesOnInputs) -> dict[str, Any]:
 def _with_types_from_their_edges(inputs: tuple[Input, ...], inputs_read: WhatArrivesOnInputs) -> tuple[Input, ...]:
     """``inputs``, each with what its edge gave it, if an edge gave anything."""
     given = {reading.input.name: reading.given_by_edge for reading in inputs_read.readings if reading.given_by_edge}
+    if not given:
+        return inputs
     return tuple(input_.model_copy(update=given[input_.name]) if input_.name in given else input_ for input_ in inputs)
 
 
@@ -295,14 +297,6 @@ def _field_above(progress: CompileProgress, ref: Ref) -> CompiledField | None:
     """The field ``ref`` names on a node compiled so far, if it was worked out."""
     node = progress.compiled.get(ref.node_id)
     return None if node is None or node._wiring is None else node._wiring.fields.get(ref.field)
-
-
-def _condition_lookup_for_sources(progress: CompileProgress) -> Any:
-    def condition_of(ref: Ref) -> Condition:
-        field = _field_above(progress, ref)
-        return field._condition_with_rows if field is not None and field._condition_with_rows is not None else ALWAYS
-
-    return condition_of
 
 
 def _wiring_of_function_node(
@@ -335,8 +329,13 @@ def _wiring_of_function_node(
             _row_origins=progress.row_origins.origins_of_rows_on(field_type.index) if is_list_set_on_it else None,
         )
     rows_of_this_node = frozenset() if runs_per_row_of is None else frozenset(step.id for step in runs_per_row_of.lineage)
-    condition_above = _condition_lookup_for_sources(progress)
-    node_condition = condition_node_runs_under(node.bindings, lambda ref: condition_for_reader_on_rows(condition_above(ref), rows_of_this_node))
+
+    def condition_at_this_nodes_row(ref: Ref) -> Condition:
+        field = _field_above(progress, ref)
+        condition = None if field is None else field._condition_with_rows
+        return ALWAYS if condition is None or condition is ALWAYS else condition_for_reader_on_rows(condition, rows_of_this_node)
+
+    node_condition = condition_node_runs_under(node.bindings, condition_at_this_nodes_row)
     on_rows_of = None if runs_per_row_of is None else runs_per_row_of.id
     for out in outputs:
         ref = Ref._from_checked_parts(node_id, out.name)
