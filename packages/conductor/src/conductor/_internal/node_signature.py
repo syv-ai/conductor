@@ -179,11 +179,7 @@ def _input_from_parameter(name: str, declared: Any, extras: tuple[Any, ...], par
     if declared is DType:
         raise NodeDeclarationError(f"parameter {name!r} must declare a concrete DType, or Any for whatever arrives; the base would accept anything", code="parameter_base_dtype")
     param = next((extra for extra in extras if isinstance(extra, Param)), Param())
-    has_default = parameter.default is not inspect.Parameter.empty
-    return Input(
-        name, declared, title=param.title, description=param.description, widget=param.widget, connectable=param.connectable,
-        **param.bounds, **({"default": parameter.default} if has_default else {}),
-    )
+    return Input(name, declared, title=param.title, description=param.description, widget=param.widget, connectable=param.connectable, default=parameter.default, **param.bounds)
 
 
 def _return_shape_and_outputs(hints: Mapping[str, Any]) -> tuple[Any, tuple[Output, ...]]:

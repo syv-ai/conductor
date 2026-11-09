@@ -38,6 +38,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import date
 from functools import cache
+from inspect import Parameter
 from typing import Annotated, Any, Final, TypedDict, Unpack
 
 from pydantic import (
@@ -63,16 +64,6 @@ from conductor._internal.dtype import (
 )
 from conductor._internal.errors import NodeDeclarationError
 from conductor.widgets import Widget
-
-
-class _NoDefault:
-    """The default of an input that has none."""
-
-    def __repr__(self) -> str:
-        return "REQUIRED"
-
-
-_NO_DEFAULT: Final = _NoDefault()
 
 
 @with_config(ConfigDict(extra="forbid"))
@@ -234,7 +225,7 @@ class Input(ConductorModel):
         description: str | None = None,
         widget: Widget | None = None,
         connectable: bool = True,
-        default: Any = _NO_DEFAULT,
+        default: Any = Parameter.empty,
         **bounds: Unpack[ValueBounds],
     ) -> None:
         one_value, many, says_blank = read_field_annotation(dtype)
@@ -245,7 +236,7 @@ class Input(ConductorModel):
         takes_blank = says_blank or one_value is Any or is_untyped(dtype)
         if many and bounds.keys() - {"min_length", "max_length"}:
             raise NodeDeclarationError(f"input {name!r} takes many values, so it is held to min_length and max_length only; a limit on each value goes on its own node", code="bound_invalid")
-        required = default is _NO_DEFAULT
+        required = default is Parameter.empty
         if default is None and not takes_blank:
             raise NodeDeclarationError(f"input {name!r} defaults to None, which is a blank; write its type with | None", code="none_default_needs_blank")
         checked_bounds = _checked_bounds(bounds)
