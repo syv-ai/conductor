@@ -5,11 +5,14 @@ from typing import Annotated, Any, Literal
 
 import pytest
 from conductor import (
+    CompiledGraph,
     ComputeHookError,
+    Deprecation,
     Graph,
     GraphNode,
     Input,
     NodeDeclarationError,
+    NodeDefinition,
     NodeRegistry,
     Param,
     Policy,
@@ -68,6 +71,24 @@ def test_a_chain_written_wrong_is_refused_where_it_is_written(written, code):
     assert raised.value.code == code and raised.value.node_id is not None
 
 
+def _compiled_inner():
+    @node("up")
+    def up(text: str) -> str:
+        return text.upper()
+
+    return CompiledGraph.from_graph(Graph(nodes=(GraphNode(id="u", type="up", version=1),)), NodeRegistry([up]))
+
+
+def test_a_version_that_is_a_graph_has_the_fields_it_offers_and_the_notice_of_any_version():
+    inner = _compiled_inner()
+    definition = NodeDefinition.from_compiled_graphs("wrapped", versions={1: inner, 3: inner}, deprecation=Deprecation(header="Gone"))
+
+    assert definition.versions[3].embedded_graph is inner and definition.versions[3].policy is None
+    assert [input_.name for input_ in definition.versions[3].interface.inputs] == ["text"]
+    assert definition.versions[1].deprecation is None and definition.versions[3].deprecation == Deprecation(header="Gone")
+    assert definition.describe().versions[3].deprecation == Deprecation(header="Gone")
+
+
 @node("temper")
 def temper(temperature: Annotated[float, Param(ge=0, le=2, widget=Range())] = 1.0, name: Annotated[str | None, Param(max_length=3)] = None) -> float:
     return temperature
@@ -75,6 +96,17 @@ def temper(temperature: Annotated[float, Param(ge=0, le=2, widget=Range())] = 1.
 
 def _temper_graph(**statics) -> Graph:
     return Graph(nodes=(GraphNode(id="t", type="temper", version=1, bindings={name: Static(value) for name, value in statics.items()}),))
+
+
+def test_a_typed_in_value_outside_its_bounds_is_a_problem_at_compile():
+    compiled = CompiledGraph.from_graph(_temper_graph(temperature=5.0), NodeRegistry([temper]))
+
+    assert [(problem.type, problem.loc) for problem in compiled.problems] == [("invalid_static", ("t", "temperature"))]
+
+
+def test_a_blank_on_an_input_that_takes_one_is_held_to_no_bound():
+    assert not CompiledGraph.from_graph(_temper_graph(temperature=1.0), NodeRegistry([temper])).problems
+    assert temper.versions[1].interface.inputs[1].bounds == {"max_length": 3}
 
 
 def test_bounds_are_on_the_input_an_editor_reads():
@@ -100,6 +132,20 @@ def _graph_with_hook(error: ComputeHookError) -> tuple[Graph, NodeRegistry]:
     def hooked() -> Mapping[str, Any]: ...
 
     return Graph(nodes=(GraphNode(id="h", type="hooked", version=1),)), NodeRegistry([hooked])
+
+
+def test_a_hook_writes_its_error_as_any_author_error_is_written():
+    graph, registry = _graph_with_hook(ComputeHookError("The schema has no columns.", code="schema_empty", ctx={"schema": "s"}, field="columns"))
+
+    (problem,) = CompiledGraph.from_graph(graph, registry).problems
+
+    assert (problem.type, problem.msg, problem.loc, problem.ctx) == ("schema_empty", "The schema has no columns.", ("h", "columns"), {"schema": "s"})
+
+
+def test_a_hook_error_with_no_code_still_has_one_a_host_can_translate():
+    graph, registry = _graph_with_hook(ComputeHookError("No."))
+
+    assert CompiledGraph.from_graph(graph, registry).problems[0].type == "compute_hook_failed"
 
 
 @node("first_two")

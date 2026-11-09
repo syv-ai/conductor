@@ -4,13 +4,18 @@ from typing import Annotated, Any
 
 import pytest
 from conductor import (
+    CompiledGraph,
     DType,
+    From,
+    Graph,
+    GraphNode,
     Input,
     NodeDeclarationError,
     NodeRegistry,
     Output,
     Param,
     Series,
+    Static,
     node,
 )
 from conductor._internal.dtype import read_field_annotation
@@ -96,6 +101,26 @@ def collect_with_default(parts: Series[Text] | None = None) -> Text:
 
 
 REGISTRY = NodeRegistry([split_series, collect, collect_with_default])
+
+
+def _run(*nodes: GraphNode) -> dict[str, Any]:
+    compiled = CompiledGraph.from_graph(Graph(nodes=list(nodes)), REGISTRY)
+    assert compiled.is_runnable, compiled.problems
+    return compiled.results(compiled.run_sync())
+
+
+def test_a_scalar_is_not_silently_wrapped_into_many():
+    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="c", type="collect", version=1, bindings={"parts": Static("x")})]), REGISTRY)
+    assert [problem.type for problem in compiled.problems] == ["invalid_static"]
+
+
+def test_a_field_on_rows_is_many_and_its_type_is_one_value():
+    compiled = CompiledGraph.from_graph(
+        Graph(nodes=[GraphNode(id="s", type="split-series", version=1, bindings={"text": Static("a")}), GraphNode(id="c", type="collect", version=1, bindings={"parts": From("s.result")})]),
+        REGISTRY,
+    )
+    field = compiled.node("s")._wiring.fields["result"]
+    assert (field.type, field.many) == (Text, True)
 
 
 # --- an index ----------------------------------------------------------------

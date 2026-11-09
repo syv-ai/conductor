@@ -1,0 +1,8016 @@
+{
+ "cond_inner_choice_once": {
+  "nodes": {
+   "after": {
+    "fields": {
+     "result": {
+      "condition": [
+       [
+        "BranchTaken(node_id='emb/gate', exclusive_group='branches', output='if_true')"
+       ]
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "text": {
+      "binding": "From(refs=('emb/up.result',))",
+      "type": "Txt",
+      "many": false
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 0,
+       "kind": "cell",
+       "receive_mode": "same_value_every_row",
+       "rows_of": null,
+       "sources": [
+        "emb/up.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "after",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   },
+   "emb/gate": {
+    "fields": {
+     "if_false": {
+      "condition": [
+       [
+        "BranchTaken(node_id='emb/gate', exclusive_group='branches', output='if_false')"
+       ]
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "if_true": {
+      "condition": [
+       [
+        "BranchTaken(node_id='emb/gate', exclusive_group='branches', output='if_true')"
+       ]
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "value": {
+      "binding": "From(refs=('emb/holder.result',))",
+      "type": "Txt",
+      "many": false
+     },
+     "when": {
+      "binding": "None",
+      "type": "Flag",
+      "many": false
+     }
+    },
+    "plan": {
+     "inputs": {
+      "value": {
+       "depth": 0,
+       "kind": "cell",
+       "receive_mode": "same_value_every_row",
+       "rows_of": null,
+       "sources": [
+        "emb/holder.result"
+       ]
+      },
+      "when": {
+       "kind": "fixed",
+       "receive_mode": "same_value_every_row"
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/gate",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   },
+   "emb/holder": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "value": {
+      "binding": "Static(value='x')",
+      "type": "Txt",
+      "many": false
+     }
+    },
+    "plan": {
+     "inputs": {
+      "value": {
+       "kind": "fixed",
+       "receive_mode": "same_value_every_row"
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/holder",
+     "runs_per_row_of": null
+    },
+    "statics": "{'value': 'x'}"
+   },
+   "emb/single": {
+    "fields": {
+     "result": {
+      "condition": [
+       [
+        "BranchTaken(node_id='emb/gate', exclusive_group='branches', output='if_false')"
+       ],
+       [
+        "BranchTaken(node_id='emb/gate', exclusive_group='branches', output='if_true')"
+       ]
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "values": {
+      "binding": "From(refs=('emb/gate.if_true', 'emb/gate.if_false'))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "values": {
+       "kind": "gather",
+       "receive_mode": "collected",
+       "source_reads": [
+        {
+         "receive_mode": "same_value_every_row",
+         "sources": [
+          "emb/gate.if_true"
+         ],
+         "rows_of": null,
+         "depth": 0,
+         "kind": "cell"
+        },
+        {
+         "receive_mode": "same_value_every_row",
+         "sources": [
+          "emb/gate.if_false"
+         ],
+         "rows_of": null,
+         "depth": 0,
+         "kind": "cell"
+        }
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/single",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   },
+   "emb/up": {
+    "fields": {
+     "result": {
+      "condition": [
+       [
+        "BranchTaken(node_id='emb/gate', exclusive_group='branches', output='if_true')"
+       ]
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "text": {
+      "binding": "From(refs=('emb/gate.if_true',))",
+      "type": "Txt",
+      "many": false
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 0,
+       "kind": "cell",
+       "receive_mode": "same_value_every_row",
+       "rows_of": null,
+       "sources": [
+        "emb/gate.if_true"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/up",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   }
+  },
+  "order": [
+   "emb/holder",
+   "emb/gate",
+   "emb/up",
+   "emb/single",
+   "after"
+  ]
+ },
+ "cond_inner_choice_per_row": {
+  "nodes": {
+   "after": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "values": {
+      "binding": "From(refs=('emb/up.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "values": {
+       "depth": 0,
+       "grouped_under": null,
+       "kind": "rows_under",
+       "receive_mode": "entire_value",
+       "rows_of": null,
+       "sources": [
+        "emb/up.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "after",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   },
+   "docs": {
+    "fields": {
+     "folder": {
+      "binding": "None",
+      "type": "Txt",
+      "many": false
+     },
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "folder": {
+       "kind": "fixed",
+       "receive_mode": "same_value_every_row"
+      }
+     },
+     "makes_rows": [
+      "docs.result"
+     ],
+     "node_id": "docs",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   },
+   "emb/gate": {
+    "fields": {
+     "if_false": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "if_true": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "value": {
+      "binding": "From(refs=('emb/holder.result',))",
+      "type": "Txt",
+      "many": true
+     },
+     "when": {
+      "binding": "None",
+      "type": "Flag",
+      "many": false
+     }
+    },
+    "plan": {
+     "inputs": {
+      "value": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "emb/holder.result"
+       ]
+      },
+      "when": {
+       "kind": "fixed",
+       "receive_mode": "same_value_every_row"
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/gate",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "emb/holder": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "value": {
+      "binding": "From(refs=('docs.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "value": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "docs.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/holder",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "emb/single": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "values": {
+      "binding": "From(refs=('emb/gate.if_true', 'emb/gate.if_false'))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "values": {
+       "kind": "gather",
+       "receive_mode": "collected",
+       "source_reads": [
+        {
+         "receive_mode": "all_rows_under_row",
+         "sources": [
+          "emb/gate.if_true"
+         ],
+         "rows_of": "docs.result",
+         "grouped_under": "docs.result",
+         "depth": 1,
+         "kind": "rows_under"
+        },
+        {
+         "receive_mode": "all_rows_under_row",
+         "sources": [
+          "emb/gate.if_false"
+         ],
+         "rows_of": "docs.result",
+         "grouped_under": "docs.result",
+         "depth": 1,
+         "kind": "rows_under"
+        }
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/single",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "emb/up": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('emb/gate.if_true',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "emb/gate.if_true"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/up",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   }
+  },
+  "order": [
+   "docs",
+   "emb/holder",
+   "emb/gate",
+   "emb/up",
+   "emb/single",
+   "after"
+  ]
+ },
+ "cond_merge_inside": {
+  "nodes": {
+   "emb/a": {
+    "fields": {
+     "result": {
+      "condition": [
+       [
+        "BranchTaken(node_id='og', exclusive_group='branches', output='if_true')"
+       ]
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "value": {
+      "binding": "From(refs=('og.if_true',))",
+      "type": "Txt",
+      "many": false
+     }
+    },
+    "plan": {
+     "inputs": {
+      "value": {
+       "depth": 0,
+       "kind": "cell",
+       "receive_mode": "same_value_every_row",
+       "rows_of": null,
+       "sources": [
+        "og.if_true"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/a",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   },
+   "emb/b": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "value": {
+      "binding": "Static(value='z')",
+      "type": "Txt",
+      "many": false
+     }
+    },
+    "plan": {
+     "inputs": {
+      "value": {
+       "kind": "fixed",
+       "receive_mode": "same_value_every_row"
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/b",
+     "runs_per_row_of": null
+    },
+    "statics": "{'value': 'z'}"
+   },
+   "emb/g": {
+    "fields": {
+     "if_false": {
+      "condition": [
+       [
+        "BranchTaken(node_id='emb/g', exclusive_group='branches', output='if_false')"
+       ]
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "if_true": {
+      "condition": [
+       [
+        "BranchTaken(node_id='emb/g', exclusive_group='branches', output='if_true')"
+       ]
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "value": {
+      "binding": "From(refs=('emb/b.result',))",
+      "type": "Txt",
+      "many": false
+     },
+     "when": {
+      "binding": "None",
+      "type": "Flag",
+      "many": false
+     }
+    },
+    "plan": {
+     "inputs": {
+      "value": {
+       "depth": 0,
+       "kind": "cell",
+       "receive_mode": "same_value_every_row",
+       "rows_of": null,
+       "sources": [
+        "emb/b.result"
+       ]
+      },
+      "when": {
+       "kind": "fixed",
+       "receive_mode": "same_value_every_row"
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/g",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   },
+   "emb/single": {
+    "fields": {
+     "result": {
+      "condition": [
+       [
+        "BranchTaken(node_id='emb/g', exclusive_group='branches', output='if_true')"
+       ],
+       [
+        "BranchTaken(node_id='og', exclusive_group='branches', output='if_true')"
+       ]
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "values": {
+      "binding": "From(refs=('emb/a.result', 'emb/g.if_true'))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "values": {
+       "kind": "gather",
+       "receive_mode": "collected",
+       "source_reads": [
+        {
+         "receive_mode": "same_value_every_row",
+         "sources": [
+          "emb/a.result"
+         ],
+         "rows_of": null,
+         "depth": 0,
+         "kind": "cell"
+        },
+        {
+         "receive_mode": "same_value_every_row",
+         "sources": [
+          "emb/g.if_true"
+         ],
+         "rows_of": null,
+         "depth": 0,
+         "kind": "cell"
+        }
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/single",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   },
+   "h": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "value": {
+      "binding": "Static(value='y')",
+      "type": "Txt",
+      "many": false
+     }
+    },
+    "plan": {
+     "inputs": {
+      "value": {
+       "kind": "fixed",
+       "receive_mode": "same_value_every_row"
+      }
+     },
+     "makes_rows": [],
+     "node_id": "h",
+     "runs_per_row_of": null
+    },
+    "statics": "{'value': 'y'}"
+   },
+   "og": {
+    "fields": {
+     "if_false": {
+      "condition": [
+       [
+        "BranchTaken(node_id='og', exclusive_group='branches', output='if_false')"
+       ]
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "if_true": {
+      "condition": [
+       [
+        "BranchTaken(node_id='og', exclusive_group='branches', output='if_true')"
+       ]
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "value": {
+      "binding": "From(refs=('h.result',))",
+      "type": "Txt",
+      "many": false
+     },
+     "when": {
+      "binding": "None",
+      "type": "Flag",
+      "many": false
+     }
+    },
+    "plan": {
+     "inputs": {
+      "value": {
+       "depth": 0,
+       "kind": "cell",
+       "receive_mode": "same_value_every_row",
+       "rows_of": null,
+       "sources": [
+        "h.result"
+       ]
+      },
+      "when": {
+       "kind": "fixed",
+       "receive_mode": "same_value_every_row"
+      }
+     },
+     "makes_rows": [],
+     "node_id": "og",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   }
+  },
+  "order": [
+   "h",
+   "og",
+   "emb/a",
+   "emb/b",
+   "emb/g",
+   "emb/single"
+  ]
+ },
+ "cond_nested_once": {
+  "nodes": {
+   "after": {
+    "fields": {
+     "result": {
+      "condition": [
+       [
+        "BranchTaken(node_id='top/b/gate', exclusive_group='branches', output='if_true')",
+        "BranchTaken(node_id='top/g', exclusive_group='branches', output='if_true')"
+       ],
+       [
+        "BranchTaken(node_id='top/g', exclusive_group='branches', output='if_false')"
+       ]
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "text": {
+      "binding": "From(refs=('top/s.result',))",
+      "type": "Txt",
+      "many": false
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 0,
+       "kind": "cell",
+       "receive_mode": "same_value_every_row",
+       "rows_of": null,
+       "sources": [
+        "top/s.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "after",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   },
+   "top/b/gate": {
+    "fields": {
+     "if_false": {
+      "condition": [
+       [
+        "BranchTaken(node_id='top/b/gate', exclusive_group='branches', output='if_false')",
+        "BranchTaken(node_id='top/g', exclusive_group='branches', output='if_true')"
+       ]
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "if_true": {
+      "condition": [
+       [
+        "BranchTaken(node_id='top/b/gate', exclusive_group='branches', output='if_true')",
+        "BranchTaken(node_id='top/g', exclusive_group='branches', output='if_true')"
+       ]
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "value": {
+      "binding": "From(refs=('top/b/holder.result',))",
+      "type": "Txt",
+      "many": false
+     },
+     "when": {
+      "binding": "None",
+      "type": "Flag",
+      "many": false
+     }
+    },
+    "plan": {
+     "inputs": {
+      "value": {
+       "depth": 0,
+       "kind": "cell",
+       "receive_mode": "same_value_every_row",
+       "rows_of": null,
+       "sources": [
+        "top/b/holder.result"
+       ]
+      },
+      "when": {
+       "kind": "fixed",
+       "receive_mode": "same_value_every_row"
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/b/gate",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   },
+   "top/b/holder": {
+    "fields": {
+     "result": {
+      "condition": [
+       [
+        "BranchTaken(node_id='top/g', exclusive_group='branches', output='if_true')"
+       ]
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "value": {
+      "binding": "From(refs=('top/g.if_true',))",
+      "type": "Txt",
+      "many": false
+     }
+    },
+    "plan": {
+     "inputs": {
+      "value": {
+       "depth": 0,
+       "kind": "cell",
+       "receive_mode": "same_value_every_row",
+       "rows_of": null,
+       "sources": [
+        "top/g.if_true"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/b/holder",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   },
+   "top/b/single": {
+    "fields": {
+     "result": {
+      "condition": [
+       [
+        "BranchTaken(node_id='top/b/gate', exclusive_group='branches', output='if_false')",
+        "BranchTaken(node_id='top/g', exclusive_group='branches', output='if_true')"
+       ],
+       [
+        "BranchTaken(node_id='top/b/gate', exclusive_group='branches', output='if_true')",
+        "BranchTaken(node_id='top/g', exclusive_group='branches', output='if_true')"
+       ]
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "values": {
+      "binding": "From(refs=('top/b/gate.if_true', 'top/b/gate.if_false'))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "values": {
+       "kind": "gather",
+       "receive_mode": "collected",
+       "source_reads": [
+        {
+         "receive_mode": "same_value_every_row",
+         "sources": [
+          "top/b/gate.if_true"
+         ],
+         "rows_of": null,
+         "depth": 0,
+         "kind": "cell"
+        },
+        {
+         "receive_mode": "same_value_every_row",
+         "sources": [
+          "top/b/gate.if_false"
+         ],
+         "rows_of": null,
+         "depth": 0,
+         "kind": "cell"
+        }
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/b/single",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   },
+   "top/b/up": {
+    "fields": {
+     "result": {
+      "condition": [
+       [
+        "BranchTaken(node_id='top/b/gate', exclusive_group='branches', output='if_true')",
+        "BranchTaken(node_id='top/g', exclusive_group='branches', output='if_true')"
+       ]
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "text": {
+      "binding": "From(refs=('top/b/gate.if_true',))",
+      "type": "Txt",
+      "many": false
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 0,
+       "kind": "cell",
+       "receive_mode": "same_value_every_row",
+       "rows_of": null,
+       "sources": [
+        "top/b/gate.if_true"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/b/up",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   },
+   "top/g": {
+    "fields": {
+     "if_false": {
+      "condition": [
+       [
+        "BranchTaken(node_id='top/g', exclusive_group='branches', output='if_false')"
+       ]
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "if_true": {
+      "condition": [
+       [
+        "BranchTaken(node_id='top/g', exclusive_group='branches', output='if_true')"
+       ]
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "value": {
+      "binding": "From(refs=('top/h.result',))",
+      "type": "Txt",
+      "many": false
+     },
+     "when": {
+      "binding": "None",
+      "type": "Flag",
+      "many": false
+     }
+    },
+    "plan": {
+     "inputs": {
+      "value": {
+       "depth": 0,
+       "kind": "cell",
+       "receive_mode": "same_value_every_row",
+       "rows_of": null,
+       "sources": [
+        "top/h.result"
+       ]
+      },
+      "when": {
+       "kind": "fixed",
+       "receive_mode": "same_value_every_row"
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/g",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   },
+   "top/h": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "value": {
+      "binding": "Static(value='m')",
+      "type": "Txt",
+      "many": false
+     }
+    },
+    "plan": {
+     "inputs": {
+      "value": {
+       "kind": "fixed",
+       "receive_mode": "same_value_every_row"
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/h",
+     "runs_per_row_of": null
+    },
+    "statics": "{'value': 'm'}"
+   },
+   "top/s": {
+    "fields": {
+     "result": {
+      "condition": [
+       [
+        "BranchTaken(node_id='top/b/gate', exclusive_group='branches', output='if_true')",
+        "BranchTaken(node_id='top/g', exclusive_group='branches', output='if_true')"
+       ],
+       [
+        "BranchTaken(node_id='top/g', exclusive_group='branches', output='if_false')"
+       ]
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "values": {
+      "binding": "From(refs=('top/b/up.result', 'top/g.if_false'))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "values": {
+       "kind": "gather",
+       "receive_mode": "collected",
+       "source_reads": [
+        {
+         "receive_mode": "same_value_every_row",
+         "sources": [
+          "top/b/up.result"
+         ],
+         "rows_of": null,
+         "depth": 0,
+         "kind": "cell"
+        },
+        {
+         "receive_mode": "same_value_every_row",
+         "sources": [
+          "top/g.if_false"
+         ],
+         "rows_of": null,
+         "depth": 0,
+         "kind": "cell"
+        }
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/s",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   }
+  },
+  "order": [
+   "top/h",
+   "top/g",
+   "top/b/holder",
+   "top/b/gate",
+   "top/b/up",
+   "top/b/single",
+   "top/s",
+   "after"
+  ]
+ },
+ "cond_nested_per_row": {
+  "nodes": {
+   "after": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "values": {
+      "binding": "From(refs=('top/s.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "values": {
+       "depth": 0,
+       "grouped_under": null,
+       "kind": "rows_under",
+       "receive_mode": "entire_value",
+       "rows_of": null,
+       "sources": [
+        "top/s.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "after",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   },
+   "docs": {
+    "fields": {
+     "folder": {
+      "binding": "None",
+      "type": "Txt",
+      "many": false
+     },
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "folder": {
+       "kind": "fixed",
+       "receive_mode": "same_value_every_row"
+      }
+     },
+     "makes_rows": [
+      "docs.result"
+     ],
+     "node_id": "docs",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   },
+   "top/b/gate": {
+    "fields": {
+     "if_false": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "if_true": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "value": {
+      "binding": "From(refs=('top/b/holder.result',))",
+      "type": "Txt",
+      "many": true
+     },
+     "when": {
+      "binding": "None",
+      "type": "Flag",
+      "many": false
+     }
+    },
+    "plan": {
+     "inputs": {
+      "value": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "top/b/holder.result"
+       ]
+      },
+      "when": {
+       "kind": "fixed",
+       "receive_mode": "same_value_every_row"
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/b/gate",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "top/b/holder": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "value": {
+      "binding": "From(refs=('top/g.if_true',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "value": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "top/g.if_true"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/b/holder",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "top/b/single": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "values": {
+      "binding": "From(refs=('top/b/gate.if_true', 'top/b/gate.if_false'))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "values": {
+       "kind": "gather",
+       "receive_mode": "collected",
+       "source_reads": [
+        {
+         "receive_mode": "all_rows_under_row",
+         "sources": [
+          "top/b/gate.if_true"
+         ],
+         "rows_of": "docs.result",
+         "grouped_under": "docs.result",
+         "depth": 1,
+         "kind": "rows_under"
+        },
+        {
+         "receive_mode": "all_rows_under_row",
+         "sources": [
+          "top/b/gate.if_false"
+         ],
+         "rows_of": "docs.result",
+         "grouped_under": "docs.result",
+         "depth": 1,
+         "kind": "rows_under"
+        }
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/b/single",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "top/b/up": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('top/b/gate.if_true',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "top/b/gate.if_true"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/b/up",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "top/g": {
+    "fields": {
+     "if_false": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "if_true": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "value": {
+      "binding": "From(refs=('top/h.result',))",
+      "type": "Txt",
+      "many": true
+     },
+     "when": {
+      "binding": "None",
+      "type": "Flag",
+      "many": false
+     }
+    },
+    "plan": {
+     "inputs": {
+      "value": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "top/h.result"
+       ]
+      },
+      "when": {
+       "kind": "fixed",
+       "receive_mode": "same_value_every_row"
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/g",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "top/h": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "value": {
+      "binding": "From(refs=('docs.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "value": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "docs.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/h",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "top/s": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "values": {
+      "binding": "From(refs=('top/b/up.result', 'top/g.if_false'))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "values": {
+       "kind": "gather",
+       "receive_mode": "collected",
+       "source_reads": [
+        {
+         "receive_mode": "all_rows_under_row",
+         "sources": [
+          "top/b/up.result"
+         ],
+         "rows_of": "docs.result",
+         "grouped_under": "docs.result",
+         "depth": 1,
+         "kind": "rows_under"
+        },
+        {
+         "receive_mode": "all_rows_under_row",
+         "sources": [
+          "top/g.if_false"
+         ],
+         "rows_of": "docs.result",
+         "grouped_under": "docs.result",
+         "depth": 1,
+         "kind": "rows_under"
+        }
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/s",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   }
+  },
+  "order": [
+   "docs",
+   "top/h",
+   "top/g",
+   "top/b/holder",
+   "top/b/gate",
+   "top/b/up",
+   "top/b/single",
+   "top/s",
+   "after"
+  ]
+ },
+ "cond_outer_gate_into_graph": {
+  "nodes": {
+   "after": {
+    "fields": {
+     "result": {
+      "condition": [
+       [
+        "BranchTaken(node_id='emb/gate', exclusive_group='branches', output='if_false')",
+        "BranchTaken(node_id='og', exclusive_group='branches', output='if_false')"
+       ],
+       [
+        "BranchTaken(node_id='emb/gate', exclusive_group='branches', output='if_true')",
+        "BranchTaken(node_id='og', exclusive_group='branches', output='if_false')"
+       ]
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "text": {
+      "binding": "From(refs=('emb/single.result',))",
+      "type": "Txt",
+      "many": false
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 0,
+       "kind": "cell",
+       "receive_mode": "same_value_every_row",
+       "rows_of": null,
+       "sources": [
+        "emb/single.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "after",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   },
+   "emb/gate": {
+    "fields": {
+     "if_false": {
+      "condition": [
+       [
+        "BranchTaken(node_id='emb/gate', exclusive_group='branches', output='if_false')",
+        "BranchTaken(node_id='og', exclusive_group='branches', output='if_false')"
+       ]
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "if_true": {
+      "condition": [
+       [
+        "BranchTaken(node_id='emb/gate', exclusive_group='branches', output='if_true')",
+        "BranchTaken(node_id='og', exclusive_group='branches', output='if_false')"
+       ]
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "value": {
+      "binding": "From(refs=('emb/holder.result',))",
+      "type": "Txt",
+      "many": false
+     },
+     "when": {
+      "binding": "None",
+      "type": "Flag",
+      "many": false
+     }
+    },
+    "plan": {
+     "inputs": {
+      "value": {
+       "depth": 0,
+       "kind": "cell",
+       "receive_mode": "same_value_every_row",
+       "rows_of": null,
+       "sources": [
+        "emb/holder.result"
+       ]
+      },
+      "when": {
+       "kind": "fixed",
+       "receive_mode": "same_value_every_row"
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/gate",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   },
+   "emb/holder": {
+    "fields": {
+     "result": {
+      "condition": [
+       [
+        "BranchTaken(node_id='og', exclusive_group='branches', output='if_false')"
+       ]
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "value": {
+      "binding": "From(refs=('og.if_false',))",
+      "type": "Txt",
+      "many": false
+     }
+    },
+    "plan": {
+     "inputs": {
+      "value": {
+       "depth": 0,
+       "kind": "cell",
+       "receive_mode": "same_value_every_row",
+       "rows_of": null,
+       "sources": [
+        "og.if_false"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/holder",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   },
+   "emb/single": {
+    "fields": {
+     "result": {
+      "condition": [
+       [
+        "BranchTaken(node_id='emb/gate', exclusive_group='branches', output='if_false')",
+        "BranchTaken(node_id='og', exclusive_group='branches', output='if_false')"
+       ],
+       [
+        "BranchTaken(node_id='emb/gate', exclusive_group='branches', output='if_true')",
+        "BranchTaken(node_id='og', exclusive_group='branches', output='if_false')"
+       ]
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "values": {
+      "binding": "From(refs=('emb/gate.if_true', 'emb/gate.if_false'))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "values": {
+       "kind": "gather",
+       "receive_mode": "collected",
+       "source_reads": [
+        {
+         "receive_mode": "same_value_every_row",
+         "sources": [
+          "emb/gate.if_true"
+         ],
+         "rows_of": null,
+         "depth": 0,
+         "kind": "cell"
+        },
+        {
+         "receive_mode": "same_value_every_row",
+         "sources": [
+          "emb/gate.if_false"
+         ],
+         "rows_of": null,
+         "depth": 0,
+         "kind": "cell"
+        }
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/single",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   },
+   "emb/up": {
+    "fields": {
+     "result": {
+      "condition": [
+       [
+        "BranchTaken(node_id='emb/gate', exclusive_group='branches', output='if_true')",
+        "BranchTaken(node_id='og', exclusive_group='branches', output='if_false')"
+       ]
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "text": {
+      "binding": "From(refs=('emb/gate.if_true',))",
+      "type": "Txt",
+      "many": false
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 0,
+       "kind": "cell",
+       "receive_mode": "same_value_every_row",
+       "rows_of": null,
+       "sources": [
+        "emb/gate.if_true"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/up",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   },
+   "h": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "value": {
+      "binding": "Static(value='y')",
+      "type": "Txt",
+      "many": false
+     }
+    },
+    "plan": {
+     "inputs": {
+      "value": {
+       "kind": "fixed",
+       "receive_mode": "same_value_every_row"
+      }
+     },
+     "makes_rows": [],
+     "node_id": "h",
+     "runs_per_row_of": null
+    },
+    "statics": "{'value': 'y'}"
+   },
+   "og": {
+    "fields": {
+     "if_false": {
+      "condition": [
+       [
+        "BranchTaken(node_id='og', exclusive_group='branches', output='if_false')"
+       ]
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "if_true": {
+      "condition": [
+       [
+        "BranchTaken(node_id='og', exclusive_group='branches', output='if_true')"
+       ]
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "value": {
+      "binding": "From(refs=('h.result',))",
+      "type": "Txt",
+      "many": false
+     },
+     "when": {
+      "binding": "None",
+      "type": "Flag",
+      "many": false
+     }
+    },
+    "plan": {
+     "inputs": {
+      "value": {
+       "depth": 0,
+       "kind": "cell",
+       "receive_mode": "same_value_every_row",
+       "rows_of": null,
+       "sources": [
+        "h.result"
+       ]
+      },
+      "when": {
+       "kind": "fixed",
+       "receive_mode": "same_value_every_row"
+      }
+     },
+     "makes_rows": [],
+     "node_id": "og",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   }
+  },
+  "order": [
+   "h",
+   "og",
+   "emb/holder",
+   "emb/gate",
+   "emb/up",
+   "emb/single",
+   "after"
+  ]
+ },
+ "edge_into_a_list_filled_inside": {
+  "nodes": {
+   "after": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "text": {
+      "binding": "From(refs=('emb/j.result',))",
+      "type": "Txt",
+      "many": false
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 0,
+       "kind": "cell",
+       "receive_mode": "same_value_every_row",
+       "rows_of": null,
+       "sources": [
+        "emb/j.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "after",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   },
+   "emb/j": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "texts": {
+      "binding": "From(refs=('emb/n.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "texts": {
+       "kind": "gather",
+       "receive_mode": "collected",
+       "source_reads": [
+        {
+         "receive_mode": "same_value_every_row",
+         "sources": [
+          "emb/n.result"
+         ],
+         "rows_of": null,
+         "depth": 0,
+         "kind": "cell"
+        }
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/j",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   },
+   "emb/n": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "text": {
+      "binding": "From(refs=('h.result',))",
+      "type": "Txt",
+      "many": false
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 0,
+       "kind": "cell",
+       "receive_mode": "same_value_every_row",
+       "rows_of": null,
+       "sources": [
+        "h.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/n",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   },
+   "h": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "value": {
+      "binding": "Static(value='outside')",
+      "type": "Txt",
+      "many": false
+     }
+    },
+    "plan": {
+     "inputs": {
+      "value": {
+       "kind": "fixed",
+       "receive_mode": "same_value_every_row"
+      }
+     },
+     "makes_rows": [],
+     "node_id": "h",
+     "runs_per_row_of": null
+    },
+    "statics": "{'value': 'outside'}"
+   }
+  },
+  "order": [
+   "h",
+   "emb/n",
+   "emb/j",
+   "after"
+  ]
+ },
+ "edge_into_a_value_filled_inside": {
+  "nodes": {
+   "after": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "text": {
+      "binding": "From(refs=('emb/u.result',))",
+      "type": "Txt",
+      "many": false
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 0,
+       "kind": "cell",
+       "receive_mode": "same_value_every_row",
+       "rows_of": null,
+       "sources": [
+        "emb/u.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "after",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   },
+   "emb/n": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "text": {
+      "binding": "From(refs=('h.result',))",
+      "type": "Txt",
+      "many": false
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 0,
+       "kind": "cell",
+       "receive_mode": "same_value_every_row",
+       "rows_of": null,
+       "sources": [
+        "h.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/n",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   },
+   "emb/u": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "text": {
+      "binding": "From(refs=('emb/n.result',))",
+      "type": "Txt",
+      "many": false
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 0,
+       "kind": "cell",
+       "receive_mode": "same_value_every_row",
+       "rows_of": null,
+       "sources": [
+        "emb/n.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/u",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   },
+   "h": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "value": {
+      "binding": "Static(value='outside')",
+      "type": "Txt",
+      "many": false
+     }
+    },
+    "plan": {
+     "inputs": {
+      "value": {
+       "kind": "fixed",
+       "receive_mode": "same_value_every_row"
+      }
+     },
+     "makes_rows": [],
+     "node_id": "h",
+     "runs_per_row_of": null
+    },
+    "statics": "{'value': 'outside'}"
+   }
+  },
+  "order": [
+   "h",
+   "emb/n",
+   "emb/u",
+   "after"
+  ]
+ },
+ "embedded_3": {
+  "nodes": {
+   "docs": {
+    "fields": {
+     "folder": {
+      "binding": "None",
+      "type": "Txt",
+      "many": false
+     },
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "folder": {
+       "kind": "fixed",
+       "receive_mode": "same_value_every_row"
+      }
+     },
+     "makes_rows": [
+      "docs.result"
+     ],
+     "node_id": "docs",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   },
+   "e0/holder": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "value": {
+      "binding": "From(refs=('docs.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "value": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "docs.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e0/holder",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "e0/join": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "texts": {
+      "binding": "From(refs=('e0/up.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "texts": {
+       "depth": 1,
+       "grouped_under": "docs.result",
+       "kind": "rows_under",
+       "receive_mode": "all_rows_under_row",
+       "rows_of": "e0/lines.result",
+       "sources": [
+        "e0/up.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e0/join",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "e0/lines": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('e0/s7.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "e0/s7.result"
+       ]
+      }
+     },
+     "makes_rows": [
+      "e0/lines.result"
+     ],
+     "node_id": "e0/lines",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "e0/s0": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('e0/holder.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "e0/holder.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e0/s0",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "e0/s1": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('e0/s0.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "e0/s0.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e0/s1",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "e0/s2": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('e0/s1.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "e0/s1.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e0/s2",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "e0/s3": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('e0/s2.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "e0/s2.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e0/s3",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "e0/s4": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('e0/s3.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "e0/s3.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e0/s4",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "e0/s5": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('e0/s4.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "e0/s4.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e0/s5",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "e0/s6": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('e0/s5.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "e0/s5.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e0/s6",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "e0/s7": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('e0/s6.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "e0/s6.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e0/s7",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "e0/up": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('e0/lines.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 2,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "e0/lines.result",
+       "sources": [
+        "e0/lines.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e0/up",
+     "runs_per_row_of": "e0/lines.result"
+    },
+    "statics": "{}"
+   },
+   "e1/holder": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "value": {
+      "binding": "From(refs=('docs.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "value": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "docs.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e1/holder",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "e1/join": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "texts": {
+      "binding": "From(refs=('e1/up.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "texts": {
+       "depth": 1,
+       "grouped_under": "docs.result",
+       "kind": "rows_under",
+       "receive_mode": "all_rows_under_row",
+       "rows_of": "e1/lines.result",
+       "sources": [
+        "e1/up.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e1/join",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "e1/lines": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('e1/s7.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "e1/s7.result"
+       ]
+      }
+     },
+     "makes_rows": [
+      "e1/lines.result"
+     ],
+     "node_id": "e1/lines",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "e1/s0": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('e1/holder.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "e1/holder.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e1/s0",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "e1/s1": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('e1/s0.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "e1/s0.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e1/s1",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "e1/s2": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('e1/s1.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "e1/s1.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e1/s2",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "e1/s3": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('e1/s2.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "e1/s2.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e1/s3",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "e1/s4": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('e1/s3.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "e1/s3.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e1/s4",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "e1/s5": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('e1/s4.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "e1/s4.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e1/s5",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "e1/s6": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('e1/s5.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "e1/s5.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e1/s6",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "e1/s7": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('e1/s6.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "e1/s6.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e1/s7",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "e1/up": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('e1/lines.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 2,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "e1/lines.result",
+       "sources": [
+        "e1/lines.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e1/up",
+     "runs_per_row_of": "e1/lines.result"
+    },
+    "statics": "{}"
+   },
+   "e2/holder": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "value": {
+      "binding": "From(refs=('docs.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "value": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "docs.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e2/holder",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "e2/join": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "texts": {
+      "binding": "From(refs=('e2/up.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "texts": {
+       "depth": 1,
+       "grouped_under": "docs.result",
+       "kind": "rows_under",
+       "receive_mode": "all_rows_under_row",
+       "rows_of": "e2/lines.result",
+       "sources": [
+        "e2/up.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e2/join",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "e2/lines": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('e2/s7.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "e2/s7.result"
+       ]
+      }
+     },
+     "makes_rows": [
+      "e2/lines.result"
+     ],
+     "node_id": "e2/lines",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "e2/s0": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('e2/holder.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "e2/holder.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e2/s0",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "e2/s1": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('e2/s0.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "e2/s0.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e2/s1",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "e2/s2": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('e2/s1.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "e2/s1.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e2/s2",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "e2/s3": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('e2/s2.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "e2/s2.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e2/s3",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "e2/s4": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('e2/s3.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "e2/s3.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e2/s4",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "e2/s5": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('e2/s4.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "e2/s4.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e2/s5",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "e2/s6": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('e2/s5.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "e2/s5.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e2/s6",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "e2/s7": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('e2/s6.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "e2/s6.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e2/s7",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "e2/up": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('e2/lines.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 2,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "e2/lines.result",
+       "sources": [
+        "e2/lines.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "e2/up",
+     "runs_per_row_of": "e2/lines.result"
+    },
+    "statics": "{}"
+   }
+  },
+  "order": [
+   "docs",
+   "e0/holder",
+   "e0/s0",
+   "e0/s1",
+   "e0/s2",
+   "e0/s3",
+   "e0/s4",
+   "e0/s5",
+   "e0/s6",
+   "e0/s7",
+   "e0/lines",
+   "e0/up",
+   "e0/join",
+   "e1/holder",
+   "e1/s0",
+   "e1/s1",
+   "e1/s2",
+   "e1/s3",
+   "e1/s4",
+   "e1/s5",
+   "e1/s6",
+   "e1/s7",
+   "e1/lines",
+   "e1/up",
+   "e1/join",
+   "e2/holder",
+   "e2/s0",
+   "e2/s1",
+   "e2/s2",
+   "e2/s3",
+   "e2/s4",
+   "e2/s5",
+   "e2/s6",
+   "e2/s7",
+   "e2/lines",
+   "e2/up",
+   "e2/join"
+  ]
+ },
+ "entering_scalar": {
+  "nodes": {
+   "docs": {
+    "fields": {
+     "folder": {
+      "binding": "None",
+      "type": "Txt",
+      "many": false
+     },
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "folder": {
+       "kind": "fixed",
+       "receive_mode": "same_value_every_row"
+      }
+     },
+     "makes_rows": [
+      "docs.result"
+     ],
+     "node_id": "docs",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   },
+   "emb/holder": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "value": {
+      "binding": "From(refs=('docs.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "value": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "docs.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/holder",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "emb/join": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "texts": {
+      "binding": "From(refs=('emb/up.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "texts": {
+       "kind": "gather",
+       "receive_mode": "collected",
+       "source_reads": [
+        {
+         "receive_mode": "all_rows_under_row",
+         "sources": [
+          "emb/up.result"
+         ],
+         "rows_of": "docs.result",
+         "grouped_under": "docs.result",
+         "depth": 1,
+         "kind": "rows_under"
+        }
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/join",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "emb/up": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('emb/holder.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "emb/holder.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/up",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   }
+  },
+  "order": [
+   "docs",
+   "emb/holder",
+   "emb/up",
+   "emb/join"
+  ]
+ },
+ "gather_two_inside": {
+  "nodes": {
+   "docs": {
+    "fields": {
+     "folder": {
+      "binding": "None",
+      "type": "Txt",
+      "many": false
+     },
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "folder": {
+       "kind": "fixed",
+       "receive_mode": "same_value_every_row"
+      }
+     },
+     "makes_rows": [
+      "docs.result"
+     ],
+     "node_id": "docs",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   },
+   "emb/holder": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "value": {
+      "binding": "From(refs=('docs.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "value": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "docs.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/holder",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "emb/join": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "texts": {
+      "binding": "From(refs=('emb/holder.result', 'emb/up.result'))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "texts": {
+       "kind": "gather",
+       "receive_mode": "collected",
+       "source_reads": [
+        {
+         "receive_mode": "all_rows_under_row",
+         "sources": [
+          "emb/holder.result"
+         ],
+         "rows_of": "docs.result",
+         "grouped_under": "docs.result",
+         "depth": 1,
+         "kind": "rows_under"
+        },
+        {
+         "receive_mode": "all_rows_under_row",
+         "sources": [
+          "emb/up.result"
+         ],
+         "rows_of": "docs.result",
+         "grouped_under": "docs.result",
+         "depth": 1,
+         "kind": "rows_under"
+        }
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/join",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "emb/up": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('emb/holder.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "emb/holder.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/up",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   }
+  },
+  "order": [
+   "docs",
+   "emb/holder",
+   "emb/up",
+   "emb/join"
+  ]
+ },
+ "gathered_into_the_graph_node": {
+  "nodes": {
+   "after": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "text": {
+      "binding": "From(refs=('emb/join.result',))",
+      "type": "Txt",
+      "many": false
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 0,
+       "kind": "cell",
+       "receive_mode": "same_value_every_row",
+       "rows_of": null,
+       "sources": [
+        "emb/join.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "after",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   },
+   "emb/join": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "texts": {
+      "binding": "From(refs=('h1.result', 'h2.result'))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "texts": {
+       "kind": "gather",
+       "receive_mode": "collected",
+       "source_reads": [
+        {
+         "receive_mode": "same_value_every_row",
+         "sources": [
+          "h1.result"
+         ],
+         "rows_of": null,
+         "depth": 0,
+         "kind": "cell"
+        },
+        {
+         "receive_mode": "same_value_every_row",
+         "sources": [
+          "h2.result"
+         ],
+         "rows_of": null,
+         "depth": 0,
+         "kind": "cell"
+        }
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/join",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   },
+   "h1": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "value": {
+      "binding": "Static(value='a')",
+      "type": "Txt",
+      "many": false
+     }
+    },
+    "plan": {
+     "inputs": {
+      "value": {
+       "kind": "fixed",
+       "receive_mode": "same_value_every_row"
+      }
+     },
+     "makes_rows": [],
+     "node_id": "h1",
+     "runs_per_row_of": null
+    },
+    "statics": "{'value': 'a'}"
+   },
+   "h2": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "value": {
+      "binding": "Static(value='b')",
+      "type": "Txt",
+      "many": false
+     }
+    },
+    "plan": {
+     "inputs": {
+      "value": {
+       "kind": "fixed",
+       "receive_mode": "same_value_every_row"
+      }
+     },
+     "makes_rows": [],
+     "node_id": "h2",
+     "runs_per_row_of": null
+    },
+    "statics": "{'value': 'b'}"
+   }
+  },
+  "order": [
+   "h1",
+   "h2",
+   "emb/join",
+   "after"
+  ]
+ },
+ "many_values_on_the_graph_node": {
+  "nodes": {
+   "after": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "texts": {
+      "binding": "From(refs=('emb/join.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "texts": {
+       "kind": "gather",
+       "receive_mode": "collected",
+       "source_reads": [
+        {
+         "receive_mode": "same_value_every_row",
+         "sources": [
+          "emb/join.result"
+         ],
+         "rows_of": null,
+         "depth": 0,
+         "kind": "cell"
+        }
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "after",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   },
+   "emb/holder": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "value": {
+      "binding": "Static(value=['a', 'b'])",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "value": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "emb/holder.value",
+       "sources": [
+        "emb/holder.value"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/holder",
+     "runs_per_row_of": "emb/holder.value"
+    },
+    "statics": "{'value': ['a', 'b']}"
+   },
+   "emb/join": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "texts": {
+      "binding": "From(refs=('emb/up.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "texts": {
+       "depth": 0,
+       "grouped_under": null,
+       "kind": "rows_under",
+       "receive_mode": "entire_value",
+       "rows_of": null,
+       "sources": [
+        "emb/up.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/join",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   },
+   "emb/up": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('emb/holder.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "emb/holder.value",
+       "sources": [
+        "emb/holder.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/up",
+     "runs_per_row_of": "emb/holder.value"
+    },
+    "statics": "{}"
+   }
+  },
+  "order": [
+   "emb/holder",
+   "emb/up",
+   "emb/join",
+   "after"
+  ]
+ },
+ "nested_2": {
+  "nodes": {
+   "docs": {
+    "fields": {
+     "folder": {
+      "binding": "None",
+      "type": "Txt",
+      "many": false
+     },
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "folder": {
+       "kind": "fixed",
+       "receive_mode": "same_value_every_row"
+      }
+     },
+     "makes_rows": [
+      "docs.result"
+     ],
+     "node_id": "docs",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   },
+   "top/holder": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "value": {
+      "binding": "From(refs=('docs.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "value": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "docs.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/holder",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "top/inner/holder": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "value": {
+      "binding": "From(refs=('top/holder.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "value": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "top/holder.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/inner/holder",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "top/inner/join": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "texts": {
+      "binding": "From(refs=('top/inner/up.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "texts": {
+       "depth": 1,
+       "grouped_under": "docs.result",
+       "kind": "rows_under",
+       "receive_mode": "all_rows_under_row",
+       "rows_of": "top/inner/lines.result",
+       "sources": [
+        "top/inner/up.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/inner/join",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "top/inner/lines": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('top/inner/s7.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "top/inner/s7.result"
+       ]
+      }
+     },
+     "makes_rows": [
+      "top/inner/lines.result"
+     ],
+     "node_id": "top/inner/lines",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "top/inner/s0": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('top/inner/holder.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "top/inner/holder.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/inner/s0",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "top/inner/s1": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('top/inner/s0.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "top/inner/s0.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/inner/s1",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "top/inner/s2": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('top/inner/s1.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "top/inner/s1.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/inner/s2",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "top/inner/s3": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('top/inner/s2.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "top/inner/s2.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/inner/s3",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "top/inner/s4": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('top/inner/s3.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "top/inner/s3.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/inner/s4",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "top/inner/s5": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('top/inner/s4.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "top/inner/s4.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/inner/s5",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "top/inner/s6": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('top/inner/s5.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "top/inner/s5.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/inner/s6",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "top/inner/s7": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('top/inner/s6.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "top/inner/s6.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/inner/s7",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "top/inner/up": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('top/inner/lines.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 2,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "top/inner/lines.result",
+       "sources": [
+        "top/inner/lines.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/inner/up",
+     "runs_per_row_of": "top/inner/lines.result"
+    },
+    "statics": "{}"
+   },
+   "top/join": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "texts": {
+      "binding": "From(refs=('top/up.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "texts": {
+       "depth": 1,
+       "grouped_under": "docs.result",
+       "kind": "rows_under",
+       "receive_mode": "all_rows_under_row",
+       "rows_of": "top/lines.result",
+       "sources": [
+        "top/up.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/join",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "top/lines": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('top/inner/join.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "top/inner/join.result"
+       ]
+      }
+     },
+     "makes_rows": [
+      "top/lines.result"
+     ],
+     "node_id": "top/lines",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "top/up": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('top/lines.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 2,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "top/lines.result",
+       "sources": [
+        "top/lines.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/up",
+     "runs_per_row_of": "top/lines.result"
+    },
+    "statics": "{}"
+   }
+  },
+  "order": [
+   "docs",
+   "top/holder",
+   "top/inner/holder",
+   "top/inner/s0",
+   "top/inner/s1",
+   "top/inner/s2",
+   "top/inner/s3",
+   "top/inner/s4",
+   "top/inner/s5",
+   "top/inner/s6",
+   "top/inner/s7",
+   "top/inner/lines",
+   "top/inner/up",
+   "top/inner/join",
+   "top/lines",
+   "top/up",
+   "top/join"
+  ]
+ },
+ "nested_4": {
+  "nodes": {
+   "docs": {
+    "fields": {
+     "folder": {
+      "binding": "None",
+      "type": "Txt",
+      "many": false
+     },
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "folder": {
+       "kind": "fixed",
+       "receive_mode": "same_value_every_row"
+      }
+     },
+     "makes_rows": [
+      "docs.result"
+     ],
+     "node_id": "docs",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   },
+   "top/holder": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "value": {
+      "binding": "From(refs=('docs.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "value": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "docs.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/holder",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "top/inner/holder": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "value": {
+      "binding": "From(refs=('top/holder.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "value": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "top/holder.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/inner/holder",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "top/inner/inner/holder": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "value": {
+      "binding": "From(refs=('top/inner/holder.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "value": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "top/inner/holder.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/inner/inner/holder",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "top/inner/inner/inner/holder": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "value": {
+      "binding": "From(refs=('top/inner/inner/holder.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "value": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "top/inner/inner/holder.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/inner/inner/inner/holder",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "top/inner/inner/inner/join": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "texts": {
+      "binding": "From(refs=('top/inner/inner/inner/up.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "texts": {
+       "depth": 1,
+       "grouped_under": "docs.result",
+       "kind": "rows_under",
+       "receive_mode": "all_rows_under_row",
+       "rows_of": "top/inner/inner/inner/lines.result",
+       "sources": [
+        "top/inner/inner/inner/up.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/inner/inner/inner/join",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "top/inner/inner/inner/lines": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('top/inner/inner/inner/s7.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "top/inner/inner/inner/s7.result"
+       ]
+      }
+     },
+     "makes_rows": [
+      "top/inner/inner/inner/lines.result"
+     ],
+     "node_id": "top/inner/inner/inner/lines",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "top/inner/inner/inner/s0": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('top/inner/inner/inner/holder.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "top/inner/inner/inner/holder.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/inner/inner/inner/s0",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "top/inner/inner/inner/s1": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('top/inner/inner/inner/s0.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "top/inner/inner/inner/s0.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/inner/inner/inner/s1",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "top/inner/inner/inner/s2": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('top/inner/inner/inner/s1.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "top/inner/inner/inner/s1.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/inner/inner/inner/s2",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "top/inner/inner/inner/s3": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('top/inner/inner/inner/s2.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "top/inner/inner/inner/s2.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/inner/inner/inner/s3",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "top/inner/inner/inner/s4": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('top/inner/inner/inner/s3.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "top/inner/inner/inner/s3.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/inner/inner/inner/s4",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "top/inner/inner/inner/s5": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('top/inner/inner/inner/s4.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "top/inner/inner/inner/s4.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/inner/inner/inner/s5",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "top/inner/inner/inner/s6": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('top/inner/inner/inner/s5.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "top/inner/inner/inner/s5.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/inner/inner/inner/s6",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "top/inner/inner/inner/s7": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('top/inner/inner/inner/s6.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "top/inner/inner/inner/s6.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/inner/inner/inner/s7",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "top/inner/inner/inner/up": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('top/inner/inner/inner/lines.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 2,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "top/inner/inner/inner/lines.result",
+       "sources": [
+        "top/inner/inner/inner/lines.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/inner/inner/inner/up",
+     "runs_per_row_of": "top/inner/inner/inner/lines.result"
+    },
+    "statics": "{}"
+   },
+   "top/inner/inner/join": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "texts": {
+      "binding": "From(refs=('top/inner/inner/up.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "texts": {
+       "depth": 1,
+       "grouped_under": "docs.result",
+       "kind": "rows_under",
+       "receive_mode": "all_rows_under_row",
+       "rows_of": "top/inner/inner/lines.result",
+       "sources": [
+        "top/inner/inner/up.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/inner/inner/join",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "top/inner/inner/lines": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('top/inner/inner/inner/join.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "top/inner/inner/inner/join.result"
+       ]
+      }
+     },
+     "makes_rows": [
+      "top/inner/inner/lines.result"
+     ],
+     "node_id": "top/inner/inner/lines",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "top/inner/inner/up": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('top/inner/inner/lines.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 2,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "top/inner/inner/lines.result",
+       "sources": [
+        "top/inner/inner/lines.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/inner/inner/up",
+     "runs_per_row_of": "top/inner/inner/lines.result"
+    },
+    "statics": "{}"
+   },
+   "top/inner/join": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "texts": {
+      "binding": "From(refs=('top/inner/up.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "texts": {
+       "depth": 1,
+       "grouped_under": "docs.result",
+       "kind": "rows_under",
+       "receive_mode": "all_rows_under_row",
+       "rows_of": "top/inner/lines.result",
+       "sources": [
+        "top/inner/up.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/inner/join",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "top/inner/lines": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('top/inner/inner/join.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "top/inner/inner/join.result"
+       ]
+      }
+     },
+     "makes_rows": [
+      "top/inner/lines.result"
+     ],
+     "node_id": "top/inner/lines",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "top/inner/up": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('top/inner/lines.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 2,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "top/inner/lines.result",
+       "sources": [
+        "top/inner/lines.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/inner/up",
+     "runs_per_row_of": "top/inner/lines.result"
+    },
+    "statics": "{}"
+   },
+   "top/join": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "texts": {
+      "binding": "From(refs=('top/up.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "texts": {
+       "depth": 1,
+       "grouped_under": "docs.result",
+       "kind": "rows_under",
+       "receive_mode": "all_rows_under_row",
+       "rows_of": "top/lines.result",
+       "sources": [
+        "top/up.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/join",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "top/lines": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('top/inner/join.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "top/inner/join.result"
+       ]
+      }
+     },
+     "makes_rows": [
+      "top/lines.result"
+     ],
+     "node_id": "top/lines",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "top/up": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('top/lines.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 2,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "top/lines.result",
+       "sources": [
+        "top/lines.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/up",
+     "runs_per_row_of": "top/lines.result"
+    },
+    "statics": "{}"
+   }
+  },
+  "order": [
+   "docs",
+   "top/holder",
+   "top/inner/holder",
+   "top/inner/inner/holder",
+   "top/inner/inner/inner/holder",
+   "top/inner/inner/inner/s0",
+   "top/inner/inner/inner/s1",
+   "top/inner/inner/inner/s2",
+   "top/inner/inner/inner/s3",
+   "top/inner/inner/inner/s4",
+   "top/inner/inner/inner/s5",
+   "top/inner/inner/inner/s6",
+   "top/inner/inner/inner/s7",
+   "top/inner/inner/inner/lines",
+   "top/inner/inner/inner/up",
+   "top/inner/inner/inner/join",
+   "top/inner/inner/lines",
+   "top/inner/inner/up",
+   "top/inner/inner/join",
+   "top/inner/lines",
+   "top/inner/up",
+   "top/inner/join",
+   "top/lines",
+   "top/up",
+   "top/join"
+  ]
+ },
+ "nested_iterating": {
+  "nodes": {
+   "after": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "texts": {
+      "binding": "From(refs=('top/join.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "texts": {
+       "depth": 0,
+       "grouped_under": null,
+       "kind": "rows_under",
+       "receive_mode": "entire_value",
+       "rows_of": null,
+       "sources": [
+        "top/join.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "after",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   },
+   "docs": {
+    "fields": {
+     "folder": {
+      "binding": "None",
+      "type": "Txt",
+      "many": false
+     },
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "folder": {
+       "kind": "fixed",
+       "receive_mode": "same_value_every_row"
+      }
+     },
+     "makes_rows": [
+      "docs.result"
+     ],
+     "node_id": "docs",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   },
+   "top/holder": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "value": {
+      "binding": "From(refs=('docs.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "value": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "docs.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/holder",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "top/join": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "texts": {
+      "binding": "From(refs=('top/leafy/join.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "texts": {
+       "depth": 1,
+       "grouped_under": "docs.result",
+       "kind": "rows_under",
+       "receive_mode": "all_rows_under_row",
+       "rows_of": "top/lines.result",
+       "sources": [
+        "top/leafy/join.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/join",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "top/leafy/holder": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "value": {
+      "binding": "From(refs=('top/lines.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "value": {
+       "depth": 2,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "top/lines.result",
+       "sources": [
+        "top/lines.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/leafy/holder",
+     "runs_per_row_of": "top/lines.result"
+    },
+    "statics": "{}"
+   },
+   "top/leafy/join": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "texts": {
+      "binding": "From(refs=('top/leafy/up.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "texts": {
+       "depth": 2,
+       "grouped_under": "top/lines.result",
+       "kind": "rows_under",
+       "receive_mode": "all_rows_under_row",
+       "rows_of": "top/leafy/lines.result",
+       "sources": [
+        "top/leafy/up.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/leafy/join",
+     "runs_per_row_of": "top/lines.result"
+    },
+    "statics": "{}"
+   },
+   "top/leafy/lines": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('top/leafy/s2.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 2,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "top/lines.result",
+       "sources": [
+        "top/leafy/s2.result"
+       ]
+      }
+     },
+     "makes_rows": [
+      "top/leafy/lines.result"
+     ],
+     "node_id": "top/leafy/lines",
+     "runs_per_row_of": "top/lines.result"
+    },
+    "statics": "{}"
+   },
+   "top/leafy/s0": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('top/leafy/holder.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 2,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "top/lines.result",
+       "sources": [
+        "top/leafy/holder.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/leafy/s0",
+     "runs_per_row_of": "top/lines.result"
+    },
+    "statics": "{}"
+   },
+   "top/leafy/s1": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('top/leafy/s0.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 2,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "top/lines.result",
+       "sources": [
+        "top/leafy/s0.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/leafy/s1",
+     "runs_per_row_of": "top/lines.result"
+    },
+    "statics": "{}"
+   },
+   "top/leafy/s2": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('top/leafy/s1.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 2,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "top/lines.result",
+       "sources": [
+        "top/leafy/s1.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/leafy/s2",
+     "runs_per_row_of": "top/lines.result"
+    },
+    "statics": "{}"
+   },
+   "top/leafy/up": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('top/leafy/lines.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 3,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "top/leafy/lines.result",
+       "sources": [
+        "top/leafy/lines.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "top/leafy/up",
+     "runs_per_row_of": "top/leafy/lines.result"
+    },
+    "statics": "{}"
+   },
+   "top/lines": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('top/holder.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "top/holder.result"
+       ]
+      }
+     },
+     "makes_rows": [
+      "top/lines.result"
+     ],
+     "node_id": "top/lines",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   }
+  },
+  "order": [
+   "docs",
+   "top/holder",
+   "top/lines",
+   "top/leafy/holder",
+   "top/leafy/s0",
+   "top/leafy/s1",
+   "top/leafy/s2",
+   "top/leafy/lines",
+   "top/leafy/up",
+   "top/leafy/join",
+   "top/join",
+   "after"
+  ]
+ },
+ "per_row_output_read_outside": {
+  "nodes": {
+   "after": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "texts": {
+      "binding": "From(refs=('emb/up.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "texts": {
+       "depth": 1,
+       "grouped_under": "docs.result",
+       "kind": "rows_under",
+       "receive_mode": "all_rows_under_row",
+       "rows_of": "emb/lines.result",
+       "sources": [
+        "emb/up.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "after",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "docs": {
+    "fields": {
+     "folder": {
+      "binding": "None",
+      "type": "Txt",
+      "many": false
+     },
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "folder": {
+       "kind": "fixed",
+       "receive_mode": "same_value_every_row"
+      }
+     },
+     "makes_rows": [
+      "docs.result"
+     ],
+     "node_id": "docs",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   },
+   "emb/holder": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "value": {
+      "binding": "From(refs=('docs.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "value": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "docs.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/holder",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "emb/lines": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('emb/holder.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "emb/holder.result"
+       ]
+      }
+     },
+     "makes_rows": [
+      "emb/lines.result"
+     ],
+     "node_id": "emb/lines",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "emb/up": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('emb/lines.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 2,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "emb/lines.result",
+       "sources": [
+        "emb/lines.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/up",
+     "runs_per_row_of": "emb/lines.result"
+    },
+    "statics": "{}"
+   }
+  },
+  "order": [
+   "docs",
+   "emb/holder",
+   "emb/lines",
+   "emb/up",
+   "after"
+  ]
+ },
+ "read_from_outside": {
+  "nodes": {
+   "after": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "texts": {
+      "binding": "From(refs=('emb/join.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "texts": {
+       "depth": 0,
+       "grouped_under": null,
+       "kind": "rows_under",
+       "receive_mode": "entire_value",
+       "rows_of": null,
+       "sources": [
+        "emb/join.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "after",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   },
+   "docs": {
+    "fields": {
+     "folder": {
+      "binding": "None",
+      "type": "Txt",
+      "many": false
+     },
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "folder": {
+       "kind": "fixed",
+       "receive_mode": "same_value_every_row"
+      }
+     },
+     "makes_rows": [
+      "docs.result"
+     ],
+     "node_id": "docs",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   },
+   "emb/holder": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "value": {
+      "binding": "From(refs=('docs.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "value": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "docs.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/holder",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "emb/join": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "texts": {
+      "binding": "From(refs=('emb/up.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "texts": {
+       "kind": "gather",
+       "receive_mode": "collected",
+       "source_reads": [
+        {
+         "receive_mode": "all_rows_under_row",
+         "sources": [
+          "emb/up.result"
+         ],
+         "rows_of": "docs.result",
+         "grouped_under": "docs.result",
+         "depth": 1,
+         "kind": "rows_under"
+        }
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/join",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "emb/up": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('emb/holder.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "emb/holder.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/up",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   }
+  },
+  "order": [
+   "docs",
+   "emb/holder",
+   "emb/up",
+   "emb/join",
+   "after"
+  ]
+ },
+ "required_input_filled_inside": {
+  "nodes": {
+   "after": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "text": {
+      "binding": "From(refs=('emb/u.result',))",
+      "type": "Txt",
+      "many": false
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 0,
+       "kind": "cell",
+       "receive_mode": "same_value_every_row",
+       "rows_of": null,
+       "sources": [
+        "emb/u.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "after",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   },
+   "emb/n": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "text": {
+      "binding": "Static(value='inside')",
+      "type": "Txt",
+      "many": false
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "kind": "fixed",
+       "receive_mode": "same_value_every_row"
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/n",
+     "runs_per_row_of": null
+    },
+    "statics": "{'text': 'inside'}"
+   },
+   "emb/u": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "text": {
+      "binding": "From(refs=('emb/n.result',))",
+      "type": "Txt",
+      "many": false
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 0,
+       "kind": "cell",
+       "receive_mode": "same_value_every_row",
+       "rows_of": null,
+       "sources": [
+        "emb/n.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/u",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   }
+  },
+  "order": [
+   "emb/n",
+   "emb/u",
+   "after"
+  ]
+ },
+ "required_input_left_empty": {
+  "nodes": {
+   "docs": {
+    "fields": {
+     "folder": {
+      "binding": "None",
+      "type": "Txt",
+      "many": false
+     },
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "folder": {
+       "kind": "fixed",
+       "receive_mode": "same_value_every_row"
+      }
+     },
+     "makes_rows": [
+      "docs.result"
+     ],
+     "node_id": "docs",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   },
+   "emb/join": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "texts": {
+      "binding": "From(refs=('emb/u.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "texts": {
+       "kind": "gather",
+       "receive_mode": "collected",
+       "source_reads": [
+        {
+         "receive_mode": "all_rows_under_row",
+         "sources": [
+          "emb/u.result"
+         ],
+         "rows_of": "docs.result",
+         "grouped_under": "docs.result",
+         "depth": 1,
+         "kind": "rows_under"
+        }
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/join",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "emb/n": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('docs.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "docs.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/n",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "emb/u": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('emb/n.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "emb/n.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/u",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   }
+  },
+  "order": [
+   "docs",
+   "emb/n",
+   "emb/u",
+   "emb/join"
+  ]
+ },
+ "rows_made_inside": {
+  "nodes": {
+   "docs": {
+    "fields": {
+     "folder": {
+      "binding": "None",
+      "type": "Txt",
+      "many": false
+     },
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "folder": {
+       "kind": "fixed",
+       "receive_mode": "same_value_every_row"
+      }
+     },
+     "makes_rows": [
+      "docs.result"
+     ],
+     "node_id": "docs",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   },
+   "emb/holder": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "value": {
+      "binding": "From(refs=('docs.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "value": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "docs.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/holder",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "emb/join": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "texts": {
+      "binding": "From(refs=('emb/lines.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "texts": {
+       "depth": 1,
+       "grouped_under": "docs.result",
+       "kind": "rows_under",
+       "receive_mode": "all_rows_under_row",
+       "rows_of": "emb/lines.result",
+       "sources": [
+        "emb/lines.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/join",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "emb/lines": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('emb/holder.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "emb/holder.result"
+       ]
+      }
+     },
+     "makes_rows": [
+      "emb/lines.result"
+     ],
+     "node_id": "emb/lines",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   }
+  },
+  "order": [
+   "docs",
+   "emb/holder",
+   "emb/lines",
+   "emb/join"
+  ]
+ },
+ "rows_made_inside_exposed": {
+  "nodes": {
+   "after": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "texts": {
+      "binding": "From(refs=('emb/lines.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "texts": {
+       "depth": 1,
+       "grouped_under": "docs.result",
+       "kind": "rows_under",
+       "receive_mode": "all_rows_under_row",
+       "rows_of": "emb/lines.result",
+       "sources": [
+        "emb/lines.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "after",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "docs": {
+    "fields": {
+     "folder": {
+      "binding": "None",
+      "type": "Txt",
+      "many": false
+     },
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "folder": {
+       "kind": "fixed",
+       "receive_mode": "same_value_every_row"
+      }
+     },
+     "makes_rows": [
+      "docs.result"
+     ],
+     "node_id": "docs",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   },
+   "emb/holder": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "value": {
+      "binding": "From(refs=('docs.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "value": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "docs.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/holder",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "emb/lines": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('emb/holder.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "emb/holder.result"
+       ]
+      }
+     },
+     "makes_rows": [
+      "emb/lines.result"
+     ],
+     "node_id": "emb/lines",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   }
+  },
+  "order": [
+   "docs",
+   "emb/holder",
+   "emb/lines",
+   "after"
+  ]
+ },
+ "rows_made_inside_unfed": {
+  "nodes": {
+   "docs": {
+    "fields": {
+     "folder": {
+      "binding": "None",
+      "type": "Txt",
+      "many": false
+     },
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "folder": {
+       "kind": "fixed",
+       "receive_mode": "same_value_every_row"
+      }
+     },
+     "makes_rows": [
+      "docs.result"
+     ],
+     "node_id": "docs",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   },
+   "emb/entered": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "value": {
+      "binding": "From(refs=('docs.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "value": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "docs.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/entered",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "emb/holder": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "value": {
+      "binding": "Static(value='a\\nb')",
+      "type": "Txt",
+      "many": false
+     }
+    },
+    "plan": {
+     "inputs": {
+      "value": {
+       "kind": "fixed",
+       "receive_mode": "same_value_every_row"
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/holder",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{'value': 'a\\nb'}"
+   },
+   "emb/join": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "texts": {
+      "binding": "From(refs=('emb/lines.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "texts": {
+       "depth": 1,
+       "grouped_under": "docs.result",
+       "kind": "rows_under",
+       "receive_mode": "all_rows_under_row",
+       "rows_of": "emb/lines.result",
+       "sources": [
+        "emb/lines.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/join",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "emb/lines": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('emb/holder.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "emb/holder.result"
+       ]
+      }
+     },
+     "makes_rows": [
+      "emb/lines.result"
+     ],
+     "node_id": "emb/lines",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   }
+  },
+  "order": [
+   "docs",
+   "emb/holder",
+   "emb/entered",
+   "emb/lines",
+   "emb/join"
+  ]
+ },
+ "rows_made_under_a_row_inside": {
+  "nodes": {
+   "after": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "texts": {
+      "binding": "From(refs=('emb/lines.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "texts": {
+       "depth": 1,
+       "grouped_under": "emb/docs.result",
+       "kind": "rows_under",
+       "receive_mode": "all_rows_under_row",
+       "rows_of": "emb/lines.result",
+       "sources": [
+        "emb/lines.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "after",
+     "runs_per_row_of": "emb/docs.result"
+    },
+    "statics": "{}"
+   },
+   "emb/docs": {
+    "fields": {
+     "folder": {
+      "binding": "None",
+      "type": "Txt",
+      "many": false
+     },
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "folder": {
+       "kind": "fixed",
+       "receive_mode": "same_value_every_row"
+      }
+     },
+     "makes_rows": [
+      "emb/docs.result"
+     ],
+     "node_id": "emb/docs",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   },
+   "emb/lines": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('emb/docs.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "emb/docs.result",
+       "sources": [
+        "emb/docs.result"
+       ]
+      }
+     },
+     "makes_rows": [
+      "emb/lines.result"
+     ],
+     "node_id": "emb/lines",
+     "runs_per_row_of": "emb/docs.result"
+    },
+    "statics": "{}"
+   }
+  },
+  "order": [
+   "emb/docs",
+   "emb/lines",
+   "after"
+  ]
+ },
+ "runs_once": {
+  "nodes": {
+   "emb/holder": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "value": {
+      "binding": "Static(value='inner')",
+      "type": "Txt",
+      "many": false
+     }
+    },
+    "plan": {
+     "inputs": {
+      "value": {
+       "kind": "fixed",
+       "receive_mode": "same_value_every_row"
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/holder",
+     "runs_per_row_of": null
+    },
+    "statics": "{'value': 'inner'}"
+   },
+   "emb/join": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "texts": {
+      "binding": "From(refs=('emb/up.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "texts": {
+       "kind": "gather",
+       "receive_mode": "collected",
+       "source_reads": [
+        {
+         "receive_mode": "same_value_every_row",
+         "sources": [
+          "emb/up.result"
+         ],
+         "rows_of": null,
+         "depth": 0,
+         "kind": "cell"
+        }
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/join",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   },
+   "emb/up": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "text": {
+      "binding": "From(refs=('emb/holder.result',))",
+      "type": "Txt",
+      "many": false
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 0,
+       "kind": "cell",
+       "receive_mode": "same_value_every_row",
+       "rows_of": null,
+       "sources": [
+        "emb/holder.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/up",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   }
+  },
+  "order": [
+   "emb/holder",
+   "emb/up",
+   "emb/join"
+  ]
+ },
+ "runs_once_fed": {
+  "nodes": {
+   "emb/holder": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "value": {
+      "binding": "From(refs=('h.result',))",
+      "type": "Txt",
+      "many": false
+     }
+    },
+    "plan": {
+     "inputs": {
+      "value": {
+       "depth": 0,
+       "kind": "cell",
+       "receive_mode": "same_value_every_row",
+       "rows_of": null,
+       "sources": [
+        "h.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/holder",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   },
+   "emb/join": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "texts": {
+      "binding": "From(refs=('emb/up.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "texts": {
+       "kind": "gather",
+       "receive_mode": "collected",
+       "source_reads": [
+        {
+         "receive_mode": "same_value_every_row",
+         "sources": [
+          "emb/up.result"
+         ],
+         "rows_of": null,
+         "depth": 0,
+         "kind": "cell"
+        }
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/join",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   },
+   "emb/up": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "text": {
+      "binding": "From(refs=('emb/holder.result',))",
+      "type": "Txt",
+      "many": false
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 0,
+       "kind": "cell",
+       "receive_mode": "same_value_every_row",
+       "rows_of": null,
+       "sources": [
+        "emb/holder.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/up",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   },
+   "h": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "value": {
+      "binding": "Static(value='z')",
+      "type": "Txt",
+      "many": false
+     }
+    },
+    "plan": {
+     "inputs": {
+      "value": {
+       "kind": "fixed",
+       "receive_mode": "same_value_every_row"
+      }
+     },
+     "makes_rows": [],
+     "node_id": "h",
+     "runs_per_row_of": null
+    },
+    "statics": "{'value': 'z'}"
+   }
+  },
+  "order": [
+   "h",
+   "emb/holder",
+   "emb/up",
+   "emb/join"
+  ]
+ },
+ "series_field": {
+  "nodes": {
+   "docs": {
+    "fields": {
+     "folder": {
+      "binding": "None",
+      "type": "Txt",
+      "many": false
+     },
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "folder": {
+       "kind": "fixed",
+       "receive_mode": "same_value_every_row"
+      }
+     },
+     "makes_rows": [
+      "docs.result"
+     ],
+     "node_id": "docs",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   },
+   "emb/join": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "texts": {
+      "binding": "From(refs=('docs.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "texts": {
+       "depth": 0,
+       "grouped_under": null,
+       "kind": "rows_under",
+       "receive_mode": "entire_value",
+       "rows_of": null,
+       "sources": [
+        "docs.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/join",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   }
+  },
+  "order": [
+   "docs",
+   "emb/join"
+  ]
+ },
+ "two_crossings": {
+  "nodes": {
+   "docs": {
+    "fields": {
+     "folder": {
+      "binding": "None",
+      "type": "Txt",
+      "many": false
+     },
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "folder": {
+       "kind": "fixed",
+       "receive_mode": "same_value_every_row"
+      }
+     },
+     "makes_rows": [
+      "docs.result"
+     ],
+     "node_id": "docs",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   },
+   "emb/a": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "value": {
+      "binding": "From(refs=('docs.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "value": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "docs.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/a",
+     "runs_per_row_of": "lines.result"
+    },
+    "statics": "{}"
+   },
+   "emb/b": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "value": {
+      "binding": "From(refs=('lines.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "value": {
+       "depth": 2,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "lines.result",
+       "sources": [
+        "lines.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/b",
+     "runs_per_row_of": "lines.result"
+    },
+    "statics": "{}"
+   },
+   "emb/ua": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('emb/a.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 2,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "lines.result",
+       "sources": [
+        "emb/a.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/ua",
+     "runs_per_row_of": "lines.result"
+    },
+    "statics": "{}"
+   },
+   "lines": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('docs.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "docs.result"
+       ]
+      }
+     },
+     "makes_rows": [
+      "lines.result"
+     ],
+     "node_id": "lines",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   }
+  },
+  "order": [
+   "docs",
+   "lines",
+   "emb/a",
+   "emb/b",
+   "emb/ua"
+  ]
+ },
+ "typed_list_inside": {
+  "nodes": {
+   "docs": {
+    "fields": {
+     "folder": {
+      "binding": "None",
+      "type": "Txt",
+      "many": false
+     },
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "folder": {
+       "kind": "fixed",
+       "receive_mode": "same_value_every_row"
+      }
+     },
+     "makes_rows": [
+      "docs.result"
+     ],
+     "node_id": "docs",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   },
+   "emb/h": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('docs.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "docs.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/h",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "emb/j": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "texts": {
+      "binding": "From(refs=('emb/t.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "texts": {
+       "depth": 1,
+       "grouped_under": "docs.result",
+       "kind": "rows_under",
+       "receive_mode": "all_rows_under_row",
+       "rows_of": "emb/t.b",
+       "sources": [
+        "emb/t.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/j",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "emb/t": {
+    "fields": {
+     "a": {
+      "binding": "From(refs=('emb/h.result',))",
+      "type": "Txt",
+      "many": true
+     },
+     "b": {
+      "binding": "Static(value=['p', 'q'])",
+      "type": "Txt",
+      "many": true
+     },
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "a": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "emb/h.result"
+       ]
+      },
+      "b": {
+       "depth": 2,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "emb/t.b",
+       "sources": [
+        "emb/t.b"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/t",
+     "runs_per_row_of": "emb/t.b"
+    },
+    "statics": "{'b': ['p', 'q']}"
+   }
+  },
+  "order": [
+   "docs",
+   "emb/h",
+   "emb/t",
+   "emb/j"
+  ]
+ },
+ "value_and_edge_per_row": {
+  "nodes": {
+   "after": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "texts": {
+      "binding": "From(refs=('emb/p.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "texts": {
+       "depth": 1,
+       "grouped_under": "docs.result",
+       "kind": "rows_under",
+       "receive_mode": "all_rows_under_row",
+       "rows_of": "emb/lines.result",
+       "sources": [
+        "emb/p.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "after",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "docs": {
+    "fields": {
+     "folder": {
+      "binding": "None",
+      "type": "Txt",
+      "many": false
+     },
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "folder": {
+       "kind": "fixed",
+       "receive_mode": "same_value_every_row"
+      }
+     },
+     "makes_rows": [
+      "docs.result"
+     ],
+     "node_id": "docs",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   },
+   "emb/a": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "value": {
+      "binding": "From(refs=('docs.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "value": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "docs.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/a",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "emb/b": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "value": {
+      "binding": "Static(value='x\\ny')",
+      "type": "Txt",
+      "many": false
+     }
+    },
+    "plan": {
+     "inputs": {
+      "value": {
+       "kind": "fixed",
+       "receive_mode": "same_value_every_row"
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/b",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{'value': 'x\\ny'}"
+   },
+   "emb/lines": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('emb/b.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "emb/b.result"
+       ]
+      }
+     },
+     "makes_rows": [
+      "emb/lines.result"
+     ],
+     "node_id": "emb/lines",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   },
+   "emb/p": {
+    "fields": {
+     "a": {
+      "binding": "From(refs=('emb/ua.result',))",
+      "type": "Txt",
+      "many": true
+     },
+     "b": {
+      "binding": "From(refs=('emb/lines.result',))",
+      "type": "Txt",
+      "many": true
+     },
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "a": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "emb/ua.result"
+       ]
+      },
+      "b": {
+       "depth": 2,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "emb/lines.result",
+       "sources": [
+        "emb/lines.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/p",
+     "runs_per_row_of": "emb/lines.result"
+    },
+    "statics": "{}"
+   },
+   "emb/ua": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": true
+     },
+     "text": {
+      "binding": "From(refs=('emb/a.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 1,
+       "kind": "cell",
+       "receive_mode": "value_at_row",
+       "rows_of": "docs.result",
+       "sources": [
+        "emb/a.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/ua",
+     "runs_per_row_of": "docs.result"
+    },
+    "statics": "{}"
+   }
+  },
+  "order": [
+   "docs",
+   "emb/a",
+   "emb/b",
+   "emb/ua",
+   "emb/lines",
+   "emb/p",
+   "after"
+  ]
+ },
+ "value_on_the_graph_node": {
+  "nodes": {
+   "after": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "text": {
+      "binding": "From(refs=('emb/join.result',))",
+      "type": "Txt",
+      "many": false
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 0,
+       "kind": "cell",
+       "receive_mode": "same_value_every_row",
+       "rows_of": null,
+       "sources": [
+        "emb/join.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "after",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   },
+   "emb/holder": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "value": {
+      "binding": "Static(value='set outside')",
+      "type": "Txt",
+      "many": false
+     }
+    },
+    "plan": {
+     "inputs": {
+      "value": {
+       "kind": "fixed",
+       "receive_mode": "same_value_every_row"
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/holder",
+     "runs_per_row_of": null
+    },
+    "statics": "{'value': 'set outside'}"
+   },
+   "emb/join": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "texts": {
+      "binding": "From(refs=('emb/up.result',))",
+      "type": "Txt",
+      "many": true
+     }
+    },
+    "plan": {
+     "inputs": {
+      "texts": {
+       "kind": "gather",
+       "receive_mode": "collected",
+       "source_reads": [
+        {
+         "receive_mode": "same_value_every_row",
+         "sources": [
+          "emb/up.result"
+         ],
+         "rows_of": null,
+         "depth": 0,
+         "kind": "cell"
+        }
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/join",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   },
+   "emb/up": {
+    "fields": {
+     "result": {
+      "condition": [
+       []
+      ],
+      "type": "Txt",
+      "many": false
+     },
+     "text": {
+      "binding": "From(refs=('emb/holder.result',))",
+      "type": "Txt",
+      "many": false
+     }
+    },
+    "plan": {
+     "inputs": {
+      "text": {
+       "depth": 0,
+       "kind": "cell",
+       "receive_mode": "same_value_every_row",
+       "rows_of": null,
+       "sources": [
+        "emb/holder.result"
+       ]
+      }
+     },
+     "makes_rows": [],
+     "node_id": "emb/up",
+     "runs_per_row_of": null
+    },
+    "statics": "{}"
+   }
+  },
+  "order": [
+   "emb/holder",
+   "emb/up",
+   "emb/join",
+   "after"
+  ]
+ }
+}

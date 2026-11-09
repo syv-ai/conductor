@@ -4,18 +4,22 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Annotated, TypedDict
+from typing import Annotated, Any, TypedDict
 
 import polars as pl
 import pytest
 from conductor import (
+    OPEN,
     SKIPPED,
     AskPerson,
+    CompiledGraph,
     From,
     FromRun,
     Graph,
+    GraphNode,
     InvalidCallError,
     NodeDeclarationError,
+    NodeRegistry,
     Param,
     Policy,
     Result,
@@ -31,6 +35,10 @@ from pydantic import BaseModel
 @dataclass(frozen=True)
 class _RunBy:
     name: str
+
+
+def _compiled(*placed: GraphNode, nodes: list[Any]) -> CompiledGraph:
+    return CompiledGraph.from_graph(Graph(nodes=list(placed)), NodeRegistry(nodes))
 
 
 class _Amount(TypedDict):
@@ -91,6 +99,13 @@ def _with_branches(branches: Annotated[list[_Branch], Param(connectable=False)] 
     return "x"
 
 
+def test_describe_writes_as_json_whatever_a_host_set_on_a_closed_input() -> None:
+    compiled = _compiled(_with_rule.graph_node("a"), _with_branches.graph_node("b"), nodes=[_with_rule, _with_branches])
+    written = compiled.describe().model_dump_json()
+    assert '"title":"a"' in written
+    NodeRegistry([_with_rule, _with_branches]).describe().model_dump_json()
+
+
 @node("people")
 def _people() -> Series[str]:
     return ["Ida", "Bo", "Nina"]
@@ -121,6 +136,16 @@ def _zip_open(**columns: Series) -> str:
     return ",".join("/".join(str(cell) for cell in row) for row in zip(*columns.values(), strict=True))
 
 
+def _two_columns_with_skips(reader: Any, **wired: Any) -> CompiledGraph:
+    return _compiled(
+        _people.graph_node("p"),
+        _skip_bo.graph_node("up", name=From("p.result")),
+        _skip_nina.graph_node("low", name=From("p.result")),
+        reader,
+        nodes=[_people, _skip_bo, _skip_nina, _zip_pairs, _zip_only_full, _zip_open],
+    )
+
+
 # -- a node that reads the world ----------------------------------------------
 
 
@@ -144,6 +169,12 @@ def _mail_line(line: str) -> str:
 @node("ask-line")
 def _ask_line(line: str) -> str | AskPerson:
     return AskPerson()
+
+
+def _file_flow(*extra: GraphNode, nodes: tuple[Any, ...] = ()) -> CompiledGraph:
+    _CALLS.clear()
+    _SEEN_ROWS.clear()
+    return _compiled(_read_file.graph_node("read", path="a.csv"), _mail_line.graph_node("mail", line=From("read.result")), *extra, nodes=[_read_file, _mail_line, *nodes])
 
 
 # -- outputs that are alternatives ------------------------------------------------
@@ -218,6 +249,11 @@ def _sheet_of(table: Table) -> Table:
     return table
 
 
+def _sheet_from(*placed: GraphNode, wired: tuple[str, ...]) -> tuple[CompiledGraph, pl.DataFrame]:
+    compiled = _compiled(*placed, _sheet_of.graph_node("sheet", table=From(*wired)), nodes=[_contacts, _first_two, _sent_to, _shout, _sheet_of])
+    return compiled, compiled.results(compiled.run_sync())["sheet"]["result"].drop("__row")
+
+
 # -- placing a node, in the checker's eye ---------------------------------------------
 
 
@@ -237,6 +273,13 @@ def test_with_values_types_a_value_in_anywhere_and_refuses_an_address_it_cant_se
     with pytest.raises(InvalidCallError) as refused:
         graph.with_values({"nope.text": 1, "b.text": 2, "bad": 3})
     assert [problem.type for problem in refused.value.errors()] == ["not_offered"] * 3
+
+
+def test_a_compiled_graph_does_not_offer_a_value_with_inputs_doesnt_take() -> None:
+    graph = Graph(nodes=[_open_text.graph_node("a", text="x", suffix="!"), _open_text.graph_node("b", text=From("a.result"), suffix=OPEN)])
+    compiled = CompiledGraph.from_graph(graph, NodeRegistry([_open_text]))
+    with pytest.raises(InvalidCallError, match="not_offered"):
+        compiled.with_inputs(**{"a.suffix": "!!", "a.nope": 1})
 
 
 def test_a_table_typed_dict_may_say_a_column_can_be_blank() -> None:
@@ -269,6 +312,13 @@ def test_a_typo_in_graph_node_names_the_node_and_its_inputs() -> None:
 def test_an_unknown_param_argument_is_called_unknown() -> None:
     with pytest.raises(NodeDeclarationError, match="no argument 'titel'"):
         Param(titel="Text")  # type: ignore[call-arg]
+
+
+def test_a_plan_reads_like_what_a_node_was_wired_to() -> None:
+    compiled = _compiled(_contacts.graph_node("c"), _shout.graph_node("loud", name=From("c.result.name")), nodes=[_contacts, _shout])
+    assert "c.result.name" in str(compiled.run_plan)
+    once = _compiled(_open_text.graph_node("a", text="x", suffix="y"), _open_text.graph_node("b", text=From("a.result"), suffix="!"), nodes=[_open_text])
+    assert "text: a.result" in str(once.run_plan)
 
 
 # -- series inputs on opposite branches -----------------------------------------------
@@ -308,8 +358,25 @@ def _add_all(values: Series[int]) -> int:
 _PARITY_NODES = [_numbers, _parity, _add_both, _pair_both, _add_all]
 
 
+def test_series_inputs_on_opposite_branches_are_refused_where_every_row_would_leave() -> None:
+    compiled = _compiled(_numbers.graph_node("n"), _parity.graph_node("r", n=From("n.result")), _add_both.graph_node("c", a=From("r.even"), b=From("r.odd")), nodes=_PARITY_NODES)
+    (told,) = compiled.problems
+    assert (told.type, told.fatal, told.loc) == ("series_inputs_never_share_a_row", True, ("c", "a"))
+    assert (told.ctx["a"], told.ctx["b"]) == ("a", "b")
+    assert "Series[X | None]" in told.msg and not compiled.is_runnable
+
+
 @node("plus-one")
 def _plus_one(x: int) -> int:
     return x + 1
+
+
+def test_series_inputs_reading_what_hangs_off_opposite_per_row_branches_are_refused() -> None:
+    compiled = _compiled(
+        _numbers.graph_node("n"), _parity.graph_node("r", n=From("n.result")),
+        _plus_one.graph_node("x", x=From("r.even")), _plus_one.graph_node("y", x=From("r.odd")), _add_both.graph_node("c", a=From("x.result"), b=From("y.result")),
+        nodes=[*_PARITY_NODES, _plus_one],
+    )
+    assert [problem.type for problem in compiled.problems] == ["series_inputs_never_share_a_row"]
 
 
