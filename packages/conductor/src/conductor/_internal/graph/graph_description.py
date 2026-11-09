@@ -43,8 +43,6 @@ class CompiledNodeDescription(ConductorModel):
     status: NodeStatus
     #: Its inputs and outputs, with the types its edges gave them; ``None`` on a ``resolution_failed`` node.
     interface: Interface | None
-    #: Whether any of the graph's inputs is on this node.
-    takes_graph_inputs: bool
 
 
 class GraphDescription(ConductorModel):
@@ -67,13 +65,11 @@ def describe_graph(compiled: CompiledGraph) -> GraphDescription:
     """The record of ``compiled``: one entry per node the author drew and per field of each."""
     nodes: dict[str, CompiledNodeDescription] = {}
     fields: dict[Ref, FieldDescription] = {}
-    nodes_taking_graph_inputs = {Ref(input_.name).node_id for input_ in compiled.interface.inputs}
     for drawn in compiled.graph.nodes:
         node = compiled.node(drawn.id)
         nodes[drawn.id] = CompiledNodeDescription(
             status=node.status,
             interface=node.interface,
-            takes_graph_inputs=drawn.id in nodes_taking_graph_inputs,
         )
         if node.status == "ready":
             assert node.interface is not None

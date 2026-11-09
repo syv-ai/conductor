@@ -303,7 +303,7 @@ def _fields_of_function_node(
         field_type = received[input_.name]
         is_list_set_on_it = input_.name in lists_set_on_inputs
         fields[input_.name] = CompiledField(
-            ref=Ref(node_id, input_.name), dtype=field_type.dtype, binding=node.bindings.get(input_.name), _condition_with_rows=None,
+            ref=Ref(node_id, input_.name), dtype=field_type.dtype, _condition_with_rows=None,
             problems=tuple(problems_by_field.get(input_.name, ())), _index=field_type.index, _receive_mode=field_type.receive_mode,
             _held_as=ListOnNode(field_type.index, list(lists_set_on_inputs[input_.name])) if is_list_set_on_it else NotHeld(),  # type: ignore[arg-type]  # a list on a node has its index
             _takes_blank=False,
@@ -328,7 +328,7 @@ def _fields_of_function_node(
             table_rows_index = Index(str(ref), parent=runs_per_row_of)
             origins = progress.row_origins.record_table(table_rows_index, taken_in)
             fields[out.name] = CompiledField(
-                ref=ref, dtype=dtype, binding=None, _condition_with_rows=condition, problems=field_problems_here,
+                ref=ref, dtype=dtype, _condition_with_rows=condition, problems=field_problems_here,
                 _index=runs_per_row_of, _receive_mode=None, _held_as=TableAtRow(table_rows_index), _takes_blank=takes_blank, _row_origins=origins,
             )
             for column, column_dtype in columns_of(dtype):
@@ -336,13 +336,13 @@ def _fields_of_function_node(
                 if name in names:
                     continue
                 fields[name] = CompiledField(
-                    ref=Ref(node_id, name), dtype=column_dtype, binding=None, _condition_with_rows=condition, problems=(),
+                    ref=Ref(node_id, name), dtype=column_dtype, _condition_with_rows=condition, problems=(),
                     _index=table_rows_index, _receive_mode=None, _held_as=ColumnOfTable(ref, column), _takes_blank=True, _row_origins=origins,
                 )
             continue
         index = Index(str(ref), parent=runs_per_row_of) if out.many else runs_per_row_of
         fields[out.name] = CompiledField(
-            ref=ref, dtype=dtype, binding=None, _condition_with_rows=condition, problems=field_problems_here,
+            ref=ref, dtype=dtype, _condition_with_rows=condition, problems=field_problems_here,
             _index=index, _receive_mode=None, _held_as=CellsInAList(index) if out.many else OneValue(), _takes_blank=takes_blank,
             _row_origins=progress.row_origins.origins_of_rows_on(index),
         )

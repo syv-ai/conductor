@@ -426,14 +426,6 @@ def test_execution_order_follows_the_edges():
 # --- a field's binding ----------------------------------------------------
 
 
-def test_an_unbound_input_reads_as_None_once_compiled():
-    """None means "nothing binds it, so the declared default applies" — the
-    only "nothing binds this" state there is."""
-    compiled = _compiled([GraphNode(id="a", type="echo", version=1)])
-
-    assert compiled.field(Ref("a", "y")).binding is None
-
-
 def test_a_field_the_node_does_not_have_has_no_view():
     """A programming error, not a state of the graph."""
     compiled = _compiled([GraphNode(id="a", type="echo", version=1)])
@@ -616,7 +608,7 @@ def test_compiling_the_same_graph_twice_gives_the_same_answers():
 
     assert first.execution_order == second.execution_order
     assert first.problems == second.problems
-    assert first.field(Ref("b", "x")).binding == second.field(Ref("b", "x")).binding
+    assert first.node("b").graph_node.bindings.get("x") == second.node("b").graph_node.bindings.get("x")
     assert first.interface == second.interface
     assert first.node("b").interface == second.node("b").interface
     assert first.field(Ref("b", "result")).dtype is second.field(Ref("b", "result")).dtype

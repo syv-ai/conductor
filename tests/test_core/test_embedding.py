@@ -461,7 +461,7 @@ def _what_compile_says(compiled: CompiledGraph) -> dict[str, Any]:
             fields[declared.name] = {
                 "type": repr(found.dtype),
                 "many": found.many,
-                **({"binding": repr(found.binding)} if declared.name in inputs else {"condition": _condition(found.condition)}),
+                **({"binding": repr(graph_node.graph_node.bindings.get(declared.name))} if declared.name in inputs else {"condition": _condition(found.condition)}),
             }
         nodes[node_id] = {
             "plan": compiled.run_plan.nodes[node_id].model_dump(mode="json"),
@@ -523,7 +523,7 @@ def test_a_value_set_on_the_placed_node_is_read_by_the_inner_node():
 
     assert compiled.node("emb/holder").statics == {"value": Txt("set outside")}
     assert compiled.node("emb").statics == {"value": Txt("set outside")}
-    assert compiled.field(Ref("emb/holder", "value")).binding == Static("set outside")
+    assert compiled.node("emb/holder").graph_node.bindings.get("value") == Static("set outside")
 
 
 def _broken_graph_registry():

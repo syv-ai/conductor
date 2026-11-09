@@ -516,10 +516,6 @@ class Table(DType, Generic[RowsOf]):
             described["columns"] = [{"name": name, "type": dtype.describe()} for name, dtype in cls.columns]
         return described
 
-    @classmethod
-    def as_text(cls, value: Any) -> str:
-        return f"{value.height} rows"
-
     # -- pydantic -------------------------------------------------------------
 
     @classmethod

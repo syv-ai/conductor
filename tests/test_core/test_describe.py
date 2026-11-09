@@ -108,11 +108,9 @@ def test_a_node_compile_could_not_resolve_is_there_with_its_state_alone():
     assert not any(address.node_id == "gone" for address in described.fields)
 
 
-def test_a_node_says_whether_the_graph_takes_inputs_on_it_and_a_hook_changes_its_fields():
+def test_a_hook_changes_a_nodes_fields_in_its_description():
     described = _compiled().describe()
 
-    assert described.nodes["emb"].takes_graph_inputs is True
-    assert described.nodes["words"].takes_graph_inputs is False
     hook = described.nodes["hook"]
     assert hook.status == "ready" and [input_.name for input_ in hook.interface.inputs] == ["language", "en"]
     assert described.nodes["emb"].interface.needs == {Caller}

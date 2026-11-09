@@ -34,7 +34,6 @@ if TYPE_CHECKING:
     from conductor._internal.errors import Problem
     from conductor._internal.execution.values_of_run import HeldAs
     from conductor._internal.field_records import Input
-    from conductor._internal.graph.binding import Binding
     from conductor._internal.graph.compiled_graph import CompiledGraph
     from conductor._internal.graph.graph_records import GraphNode
     from conductor._internal.graph.output_conditions import Condition
@@ -221,9 +220,6 @@ class CompiledField:
     ref: Ref
     #: The type of one value on this field. Whether it holds many is ``many``.
     dtype: Any
-    #: Where this input's value comes from: ``From``, ``Static``, or ``None``
-    #: when its declared default applies. Always ``None`` on an output.
-    binding: Binding | None
     #: Under which condition this output appears: the decisions on nodes that run once
     #: (``ALWAYS`` when none holds it back). Always ``None`` on an input.
     condition: Condition | None
@@ -244,13 +240,13 @@ class CompiledField:
     _row_origins: frozenset[str] | None = field(repr=False)
 
     def __init__(
-        self, ref: Ref, dtype: Any, binding: Binding | None, problems: tuple[Problem, ...], *,
+        self, ref: Ref, dtype: Any, problems: tuple[Problem, ...], *,
         _condition_with_rows: Condition | None, _index: Index | None, _receive_mode: ReceiveMode | None, _held_as: HeldAs,
         _takes_blank: bool, _row_origins: frozenset[str] | None,
     ) -> None:
         """Compile builds one per field of a graph, so this sets them in one step, not one at a time."""
         self.__dict__.update(
-            ref=ref, dtype=dtype, binding=binding, condition=_condition_with_rows if _condition_with_rows is None or _condition_with_rows is ALWAYS else run_once_condition(_condition_with_rows), problems=problems,
+            ref=ref, dtype=dtype, condition=_condition_with_rows if _condition_with_rows is None or _condition_with_rows is ALWAYS else run_once_condition(_condition_with_rows), problems=problems,
             _condition_with_rows=_condition_with_rows, _index=_index, _receive_mode=_receive_mode, _held_as=_held_as, _takes_blank=_takes_blank, _row_origins=_row_origins,
         )
 

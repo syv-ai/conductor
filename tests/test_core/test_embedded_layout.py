@@ -120,15 +120,15 @@ def test_the_graph_nodes_bindings_move_onto_the_inner_fields_they_name():
         GraphNode(id="after", type="upper", version=1, bindings={"text": From("emb.result")}),
     ])
 
-    assert compiled.field(Ref("emb/holder", "value")).binding == From("src.result")
-    assert compiled.field(Ref("after", "text")).binding == From("emb/join.result")
+    assert compiled.node("emb/holder").graph_node.bindings.get("value") == From("src.result")
+    assert compiled.node("after").graph_node.bindings.get("text") == From("emb/join.result")
 
 
 def test_an_unconnected_placement_keeps_the_inner_statics_and_lays_out_flat():
     compiled = _compiled([GraphNode(id="emb", type="inner-graph", version=1)])
 
     assert compiled.is_runnable, compiled.problems
-    assert compiled.field(Ref("emb/holder", "value")).binding == Static("inner")
+    assert compiled.node("emb/holder").graph_node.bindings.get("value") == Static("inner")
     assert all(plan.runs_per_row_of is None for plan in compiled.run_plan.nodes.values())
 
 
@@ -156,7 +156,7 @@ def test_a_field_inside_a_placement_is_reached_by_its_place_or_the_name_it_is_of
     ])
 
     assert compiled.field(Ref("emb/join", "result")).dtype is Txt
-    assert compiled.field(Ref("emb/holder", "value")).binding == From("src.result")
+    assert compiled.node("emb/holder").graph_node.bindings.get("value") == From("src.result")
     assert compiled.field(Ref("emb", "result")) is compiled.field(Ref("emb/join", "result"))
     with pytest.raises(KeyError, match="'emb' offers no field"):
         compiled.field(Ref("emb", "join.result"))
@@ -182,7 +182,7 @@ def test_a_field_name_with_a_dot_beside_an_embedded_graph_is_a_plain_field():
 
     assert compiled.is_runnable, compiled.problems
     assert compiled.field(Ref("sheet", "excl. VAT")).dtype is Txt
-    assert compiled.field(Ref("emb/holder", "value")).binding == From(Ref("sheet", "excl. VAT"))
+    assert compiled.node("emb/holder").graph_node.bindings.get("value") == From(Ref("sheet", "excl. VAT"))
     assert compiled.results(compiled.run_sync())["after"]["result"] == "NET"
 
 
@@ -372,7 +372,7 @@ def test_a_nested_embedded_graph_is_addressed_by_its_path():
     assert compiled.execution_order == ("top/pre", "top/inner/holder", "top/inner/up", "top/inner/join", "after")
     assert compiled.node("top/inner/up").embedded_in == "top/inner"
     assert compiled.node("top/pre").embedded_in == "top"
-    assert compiled.field(Ref("after", "text")).binding == From("top/inner/join.result")
+    assert compiled.node("after").graph_node.bindings.get("text") == From("top/inner/join.result")
     assert compiled.field(Ref("top/inner/join", "result")).dtype is Txt
 
 
@@ -414,7 +414,7 @@ def test_an_authored_id_with_a_slash_is_refused_and_never_collides_with_an_inner
 
     assert [(p.type, p.fatal, p.loc[0]) for p in compiled.problems] == [("invalid_node_id", True, "e/holder")]
     assert compiled.execution_order.count("e/holder") == 1
-    assert compiled.field(Ref("e/holder", "value")).binding == Static("inner")
+    assert compiled.node("e/holder").graph_node.bindings.get("value") == Static("inner")
 
 
 def test_a_refused_authored_id_is_not_the_problem_of_the_inner_node_sharing_it():
