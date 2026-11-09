@@ -78,8 +78,8 @@ def test_an_input_that_does_not_fit_is_invalid_input_with_the_engines_reason_tex
 
     assert _failure(outcome)[0] == "invalid_input"
     assert outcome.problem.loc == ("n", 2)
-    assert outcome.problem.msg.startswith("Invalid input — ")
-    assert outcome.problem.ctx == {"reason": outcome.problem.msg}
+    assert outcome.problem.msg == "The node received a value it cannot use."
+    assert outcome.problem.ctx["reason"].startswith("Invalid input — ")
 
 
 def test_a_table_without_a_column_it_needs_says_which():

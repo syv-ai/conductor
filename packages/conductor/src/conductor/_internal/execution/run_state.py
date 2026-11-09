@@ -132,6 +132,7 @@ class Question(ConductorModel):
     json_schema: dict[str, Any]
     widget: dict[str, Any] | None = None
     default: TypedValue = None
+    #: Whether it must be answered; on an alternative, read only as one of its ``exclusive_group``.
     required: bool = True
     exclusive_group: str | None = None
 

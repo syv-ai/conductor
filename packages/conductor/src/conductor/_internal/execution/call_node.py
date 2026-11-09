@@ -107,7 +107,7 @@ def _problem_of_invalid_inputs(node: CompiledNode, row: Row, invalid: Validation
     column = missing_column_in(invalid)
     if column is not None:
         return Problem(type="table_column_missing", msg=reason, loc=(node.id, *row), ctx={"column": column})
-    return Problem(type="invalid_input", msg=reason, loc=(node.id, *row), ctx={"reason": reason})
+    return make_problem("invalid_input", node.id, *row, reason=reason)
 
 
 def _failed_on_its_outputs(node: CompiledNode, row: Row, problems: list[Problem]) -> CallFailed:

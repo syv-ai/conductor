@@ -114,7 +114,7 @@ def test_what_a_node_received_is_not_in_the_failure_of_its_input():
     state = compiled.run_sync()
     assert (state.status, state.cause.type) == ("failed", "invalid_input")
     assert SECRET not in state.cause.model_dump_json()
-    assert "Identifier" in state.cause.msg
+    assert "Identifier" in state.cause.ctx["reason"]
 
 
 def test_a_stored_value_is_not_in_the_refusal_to_read_a_state_back():
