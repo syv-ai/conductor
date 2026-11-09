@@ -1,11 +1,34 @@
-"""One leg in flight: the loop that starts ready units, and each unit's run.
+"""One leg, start to finish: the loop that starts every ready unit, and each unit's run.
 
-``execute`` in ``conductor.execution.engine`` is the public way in; it
-makes a ``Leg`` per call, enters it, and hands its events on. This module
-is what runs underneath: the loop, the tasks it starts for each unit, the
-thread each node's ``run`` is called in, and the teardown that stops all
-of them when the leg ends. What a unit and a leg are, and why a leg
-ends, is the engine module's docstring.
+The engine doesn't schedule whole nodes. It schedules *units*: one call of a
+node's ``run``, a node on one row. A node that runs once is one unit, on the
+empty row ``()``; a node that runs per row of a series is one unit per row, so
+row 3 can move on down the graph while row 10 is still waiting its turn.
+
+A *leg* is one call of ``CompiledGraph.run`` or ``stream``: it starts every
+unit it can, and stops when nothing more can start. The loop asks the run's
+live values (``conductor.execution.live_run_values``) which units are ready,
+starts each under its node's concurrency limit and records what comes back;
+each record answers with the units it made ready, and the loop starts those.
+
+**The leg owns its work.** Every node's ``run`` is called in a thread the leg
+owns, from a pool with one worker per unit that may be in flight, so a unit
+never waits for a worker and a node's timeout counts only the time its thread
+ran. Leaving the ``async with`` of a stream stops every unit before the block
+is gone. What a leg cannot do is interrupt a thread: a ``run`` that has
+started finishes on its own and what it returns is dropped. A timed-out attempt
+is therefore final, and the thread keeps the node's concurrency slot until it
+returns.
+
+**A run has legs.** A unit whose node returned ``AskPerson`` is neither done
+nor failed: it waits, whatever reads it waits, and the rest of the graph runs
+on. Nothing is checkpointed and nothing resumes: the next leg is an ordinary
+run over live values that already hold what earlier legs produced, and a node
+the graph has changed since, or that reads one, runs again.
+
+**Every leg ends the same way:** one ``RunEnd`` carrying the state. A failed
+unit fails the leg: the other units are stopped and the cause, with the row,
+is on ``state.failure``.
 """
 
 from __future__ import annotations
@@ -15,11 +38,11 @@ import time
 from collections.abc import AsyncGenerator, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
 
-from conductor._sentinel import is_asking
+from conductor._sentinel import AskPerson
 from conductor.errors import (
     MESSAGES,
     ErrorCause,
@@ -30,23 +53,25 @@ from conductor.errors import (
     NodeValidationError,
 )
 from conductor.execution.events import (
-    ExecutionEvent,
-    GraphCancelledEvent,
-    GraphCompleteEvent,
-    GraphErrorEvent,
-    GraphPendingEvent,
-    GraphTimeoutEvent,
-    NodeCompleteEvent,
-    NodeErrorEvent,
-    NodeProgressEvent,
-    NodeRetryEvent,
-    NodeSkippedEvent,
-    NodeStartEvent,
+    Event,
+    NodeComplete,
+    NodeFailed,
+    NodeProgress,
+    NodeRetry,
+    NodeSkipped,
+    NodeStart,
+    RunEnd,
+    RunStart,
+    UnitWaiting,
 )
-from conductor.execution.ledger import Ledger, Skip, Unit
-from conductor.execution.state import RunState
-from conductor.graph.compiled import CompiledGraph
+from conductor.execution.live_run_values import LiveRunValues, Skip, Unit
+from conductor.execution.run_state import RunState
+from conductor.execution.validate_unit_outputs import validate_unit_outputs
+from conductor.execution.waiting_units import waiting_unit_for
 from conductor.returns import unpack
+
+if TYPE_CHECKING:
+    from conductor.graph.compiled import CompiledGraph
 
 # -- what the loop reads besides events --------------------------------------------
 
@@ -62,19 +87,19 @@ class _UnitDone:
 
     unit: Unit
     ready: list[Unit] = field(default_factory=list)
-    error: NodeErrorEvent | None = None
+    error: NodeFailed | None = None
 
 
 @dataclass(frozen=True)
 class _Cancelled:
-    """The host set its cancel event; the leg ends ``graph_cancelled``."""
+    """The host set its cancel event; the leg ends ``cancelled``."""
 
 
 @dataclass(frozen=True)
 class _TimedOut:
-    """The leg's own deadline passed; the leg ends ``graph_timeout``.
+    """The leg's own deadline passed; the leg ends ``timed_out``.
 
-    ``seconds`` is the timeout that ran out, which the ending reports."""
+    ``seconds`` is the timeout that ran out, which the state's failure reports."""
 
     seconds: float
 
@@ -85,15 +110,14 @@ class _TimedOut:
 class Leg:
     """One leg in flight: the loop that starts ready units, and each unit's run.
 
-    ``execute`` makes one per call and drops it when the leg ends; the
-    ledger outlives it as the state every ending carries. It is an async
-    context manager: entering it starts the watchers for the host's cancel
-    event and the leg's deadline, and leaving it — however the leg ended,
-    the consumer closing the stream included — stops every unit, both
-    watchers and the thread pool, so nothing outlives the ``async with``.
-    ``events`` is the loop, and runs only inside it.
+    What ``CompiledGraph.stream`` returns. Building one makes every check a
+    start needs, so a refused start raises at the call. It is an async context
+    manager: entering it starts the watchers for the host's cancel event and
+    the leg's deadline and gives the event stream; leaving it — however the leg
+    ended, the consumer dropping out included — stops every unit, both watchers
+    and the thread pool, so nothing outlives the ``async with``.
 
-    It holds what the loop and the unit tasks share: the ledger, the
+    It holds what the loop and the unit tasks share: the live values, the
     thread pool every ``run`` is called on (``executor``), one semaphore
     per node sized by its policy's concurrency (``gates``), the nodes that
     have emitted ``node_start`` (``started``), the queue the unit tasks
@@ -126,29 +150,31 @@ class Leg:
         cancel: asyncio.Event,
     ) -> None:
         self.compiled = compiled
-        self.ledger = Ledger(compiled) if state is None else Ledger.restore(compiled, state)
+        self.live = LiveRunValues(compiled) if state is None else LiveRunValues.restore(compiled, state)
+        self.changed_nodes = [] if state is None else compiled.nodes_changed_since(state)
         for node_id in compiled.execution_order:
             for name, needed in compiled.node(node_id).version.interface.needs.items():
                 if needed not in from_run:
                     raise TypeError(
-                        f"'{node_id}' needs a {needed.__name__} for '{name}', and execute() was not given one"
+                        f"'{node_id}' needs a {needed.__name__} for '{name}', and run() was not given one"
                     )
         self.from_run = dict(from_run)
         self.timeout = timeout
         self.cancel = cancel
-        self.started = self.ledger.completed_nodes()
+        self.started = self.live.completed_nodes()
         in_flight = sum(compiled.node(node_id).version.policy.concurrency for node_id in compiled.execution_order)
         self.executor = ThreadPoolExecutor(max_workers=max(1, in_flight), thread_name_prefix="conductor")
         self.gates: dict[str, asyncio.Semaphore] = {}
-        self.queue: asyncio.Queue[ExecutionEvent | _UnitDone] = asyncio.Queue()
+        self.queue: asyncio.Queue[Event | _UnitDone] = asyncio.Queue()
         self.running: dict[Unit, asyncio.Task[None]] = {}
 
-    async def __aenter__(self) -> Leg:
+    async def __aenter__(self) -> AsyncGenerator[Event, None]:
         self.started_at = time.monotonic()
         self._watchers = [asyncio.ensure_future(self._cancelled())]
         if self.timeout is not None:
             self._watchers.append(asyncio.ensure_future(self._timed_out(self.timeout)))
-        return self
+        self._stream = self._events()
+        return self._stream
 
     async def __aexit__(self, *exc: object) -> None:
         """Stop every unit and the watchers, and let the threads go.
@@ -158,6 +184,7 @@ class Leg:
         pool is shut down without waiting: a thread mid-run finishes on its
         own and what it returns is dropped, and a call that never started
         is not started."""
+        await self._stream.aclose()
         tasks = [*self.running.values(), *self._watchers]
         self.running.clear()
         for task in tasks:
@@ -176,34 +203,24 @@ class Leg:
 
     # -- the loop ----------------------------------------------------------------
 
-    async def events(self, cache: dict[str, dict[str, Any]]) -> AsyncGenerator[ExecutionEvent, None]:
-        """Seed the cached nodes, then start every ready unit until the leg ends."""
-        for node_id, outputs in cache.items():
-            self.ledger.inject(node_id, outputs)
-            self.started.add(node_id)
-            if not self.ledger.complete(node_id):
-                done, total = self.ledger.progress(node_id)
-                yield NodeProgressEvent(type="node_progress", node_id=node_id, done=done, total=total)
-                continue
-            result = self.ledger.result_of(node_id)
-            if result is None:
-                yield NodeSkippedEvent(type="node_skipped", node_id=node_id)
-            else:
-                yield NodeCompleteEvent(type="node_complete", node_id=node_id, result=result, cached=True)
-
-        self._start(self.ledger.runnable())
+    async def _events(self) -> AsyncGenerator[Event, None]:
+        """Say what this leg starts from, then start every ready unit until the leg ends."""
+        ledger, order = self.live, self.compiled.execution_order
+        yield RunStart(
+            reused_nodes=[node_id for node_id in order if node_id in self.started],
+            changed_nodes=self.changed_nodes,
+            waiting=ledger.waiting(),
+        )
+        self._start(ledger.runnable())
         while self.running:
             message = await self._next()
             if isinstance(message, _Cancelled):
-                yield GraphCancelledEvent(type="graph_cancelled", state=self.ledger.state())
+                yield RunEnd(state=ledger.state("cancelled", self._cause(code="run_cancelled", row=())))
                 return
             if isinstance(message, _TimedOut):
-                yield GraphTimeoutEvent(
-                    type="graph_timeout",
-                    state=self.ledger.state(),
-                    elapsed_seconds=time.monotonic() - self.started_at,
-                    timeout_seconds=message.seconds,
-                )
+                elapsed = time.monotonic() - self.started_at
+                failure = self._cause(code="run_timed_out", row=(), details={"elapsed_seconds": elapsed, "timeout_seconds": message.seconds})
+                yield RunEnd(state=ledger.state("timed_out", failure))
                 return
             if not isinstance(message, _UnitDone):
                 yield message
@@ -211,33 +228,24 @@ class Leg:
             self.running.pop(message.unit, None)
             if message.error is not None:
                 yield message.error
-                yield GraphErrorEvent(
-                    type="graph_error",
-                    node_id=message.error.node_id,
-                    error=message.error.error,
-                    cause=message.error.cause,
-                    state=self.ledger.state(),
-                )
+                yield RunEnd(state=ledger.state("failed", message.error.cause))
                 return
             self._start(message.ready)
 
         # Quiescence: nothing in flight. Nothing may be runnable either; a
-        # ready unit nobody started is a wake the ledger missed.
-        missed = self.ledger.runnable()
+        # ready unit nobody started is a wake that was missed.
+        missed = ledger.runnable()
         if missed:
             raise RuntimeError(f"{missed} are ready but were never started — a missed wake, an engine bug")
-        pending = self.ledger.pending()
-        if pending:
-            yield GraphPendingEvent(
-                type="graph_pending", pending=pending, state=self.ledger.state()
-            )
+        if ledger.waiting():
+            yield RunEnd(state=ledger.state("waiting"))
             return
-        unfinished = [node_id for node_id in self.compiled.execution_order if not self.ledger.complete(node_id)]
+        unfinished = [node_id for node_id in order if not ledger.complete(node_id)]
         if unfinished:
             raise RuntimeError(f"nothing left to run, but {unfinished} did not complete — an engine bug")
-        yield GraphCompleteEvent(type="graph_complete", state=self.ledger.state())
+        yield RunEnd(state=ledger.state("complete"))
 
-    async def _next(self) -> ExecutionEvent | _UnitDone | _Cancelled | _TimedOut:
+    async def _next(self) -> Event | _UnitDone | _Cancelled | _TimedOut:
         """The next thing the loop acts on: a message from a unit, or the reason to stop.
 
         The queue and the watchers are awaited together; whichever is first
@@ -259,9 +267,9 @@ class Leg:
         """Start a task for each of these ready units not already running, done or waiting.
 
         A unit two records both made ready is in both lists; the second finds it running."""
-        ledger = self.ledger
+        ledger = self.live
         for unit in units:
-            if unit in self.running or ledger.is_done(unit) or ledger.is_pending(unit):
+            if unit in self.running or ledger.is_done(unit) or ledger.is_waiting(unit):
                 continue
             self.running[unit] = asyncio.create_task(self._run_unit(unit), name=f"unit-{unit}")
 
@@ -295,7 +303,7 @@ class Leg:
     async def _unit(self, unit: Unit) -> None:
         """One unit: its inputs, its attempts under the node's policy, and what it produced."""
         node_id, row = unit
-        compiled, ledger, queue = self.compiled, self.ledger, self.queue
+        compiled, ledger, queue = self.compiled, self.live, self.queue
         try:
             inputs = ledger.inputs_for(unit)
         except NodeError as failure:  # two edges into one input both supplied this row
@@ -309,7 +317,7 @@ class Leg:
 
         if node_id not in self.started:
             self.started.add(node_id)
-            await queue.put(NodeStartEvent(type="node_start", node_id=node_id))
+            await queue.put(NodeStart(node_id=node_id))
 
         version = compiled.node(node_id).version
         policy = version.policy
@@ -339,32 +347,29 @@ class Leg:
                 return
             attempt += 1
             delay = policy.delay * (2 ** (attempt - 1))
-            await queue.put(NodeRetryEvent(
-                type="node_retry", node_id=node_id, row=row,
+            await queue.put(NodeRetry(
+                node_id=node_id, row=row,
                 attempt=attempt, retries=policy.retries, error=str(failure), delay=delay,
             ))
             await asyncio.sleep(delay)
 
-        if is_asking(value):
-            # A person must answer. The unit waits; the rest of the leg runs
-            # on and the leg ends pending once quiet. A node with no
-            # questions of its own asks for its declared outputs.
-            questions = value.questions or tuple(out.question() for out in compiled.node(node_id).interface.outputs)
-            ledger.pend(unit, questions, value.prompt)
-            await queue.put(_UnitDone(unit))
-            return
+        node = compiled.node(node_id)
         try:
-            outputs = unpack(version.interface.returns, value, compiled.node(node_id).interface.outputs)
-            ready = ledger.record(unit, outputs)
-        except ValueError as invalid:
-            # What the node returned does not fit what it declared — the
-            # wrong type, the wrong shape, series outputs of two lengths.
-            failure = NodeExecutionError(
-                MESSAGES["invalid_output"], node_id=node_id, original=invalid,
-                cause=self._cause(code="invalid_output", row=row, details={"reason": str(invalid)}),
-            )
-            await queue.put(_UnitDone(unit, error=self._error_event(node_id, failure, row)))
+            if isinstance(value, AskPerson):
+                asked = waiting_unit_for(node, row, value)
+                ledger.mark_waiting(unit, asked)
+                await queue.put(UnitWaiting(unit=asked))
+                await queue.put(_UnitDone(unit))
+                return
+            cells, faults = validate_unit_outputs(node, row, unpack(version.interface.returns, value, node.interface.outputs))
+        except ValueError as invalid:  # the wrong shape of return, or an ask naming no output
+            await queue.put(_UnitDone(unit, error=self._invalid_output(node_id, row, str(invalid), invalid)))
             return
+        if faults:
+            reason = "; ".join(fault.message for fault in faults)
+            await queue.put(_UnitDone(unit, error=self._invalid_output(node_id, row, reason, None, [e for fault in faults for e in fault.errors])))
+            return
+        ready = ledger.record(unit, cells)
         await self._after(unit)
         await queue.put(_UnitDone(unit, ready))
 
@@ -413,17 +418,17 @@ class Leg:
     async def _after(self, unit: Unit) -> None:
         """Report progress, and completion when this was the node's last unit."""
         node_id, _ = unit
-        ledger = self.ledger
+        ledger = self.live
         if ledger.on_a_row(unit):
             done, total = ledger.progress(node_id)
-            await self.queue.put(NodeProgressEvent(type="node_progress", node_id=node_id, done=done, total=total))
+            await self.queue.put(NodeProgress(node_id=node_id, done=done, total=total))
         if not ledger.complete(node_id):
             return
         result = ledger.result_of(node_id)
         if result is None:
-            await self.queue.put(NodeSkippedEvent(type="node_skipped", node_id=node_id))
+            await self.queue.put(NodeSkipped(node_id=node_id))
             return
-        await self.queue.put(NodeCompleteEvent(type="node_complete", node_id=node_id, result=result))
+        await self.queue.put(NodeComplete(node_id=node_id, result=result))
 
     # -- failures ----------------------------------------------------------------
 
@@ -432,8 +437,16 @@ class Leg:
         """A cause the engine writes itself, with the generic message for its code."""
         return ErrorCause(code=code, message=MESSAGES[code], details=details or {}, row=row)
 
+    def _invalid_output(self, node_id: str, row: Any, reason: str, original: Exception | None, errors: list[Any] | None = None) -> NodeFailed:
+        """The failure of a node that returned what it did not declare."""
+        details: dict[str, Any] = {"reason": reason}
+        if errors:
+            details["errors"] = errors
+        failure = NodeExecutionError(MESSAGES["invalid_output"], node_id=node_id, original=original, cause=self._cause(code="invalid_output", row=row, details=details))
+        return self._error_event(node_id, failure, row)
+
     @staticmethod
-    def _error_event(node_id: str, failure: NodeError, row: Any) -> NodeErrorEvent:
+    def _error_event(node_id: str, failure: NodeError, row: Any) -> NodeFailed:
         """The event for a failed unit. A ``NodeError`` the node raised without
         a cause gets one with the message the node wrote: code ``external_failed``
         for an ``ExternalFailure``, ``failed`` for the rest."""
@@ -443,9 +456,7 @@ class Leg:
             cause = ErrorCause(code="external_failed", message=str(failure), row=row)
         else:
             cause = ErrorCause(code="failed", message=str(failure), row=row)
-        if cause.row == ():
-            cause = cause.model_copy(update={"row": row})
-        return NodeErrorEvent(type="node_error", node_id=node_id, error=str(failure), cause=cause)
+        return NodeFailed(node_id=node_id, error=str(failure), cause=cause.model_copy(update={"row": cause.row or row, "node_id": node_id}))
 
     @staticmethod
     def _describe(invalid: ValidationError, inputs: tuple[Any, ...]) -> str:

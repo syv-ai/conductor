@@ -5,7 +5,7 @@ A node in a graph runs as units, one per row of its index (``runs_per_row_of``)
 module answers is: *at a unit's row, which of the input's values does the
 unit receive?* Compile answers it once, while it walks the edges, and
 stores the answer on the field (``CompiledField.receives``). The engine's
-ledger reads that record to decide when a unit is ready and what to hand
+engine reads that record to decide when a unit is ready and what to hand
 it, and never works the answer out again from the types and indexes.
 
 Six records, one per input, named for what happens to the value on its

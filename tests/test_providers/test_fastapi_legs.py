@@ -1,6 +1,6 @@
 """A run in legs, through the FastAPI provider router.
 
-A node that returns ``Asks`` ends the leg pending. ``/execute`` answers
+A node that returns ``AskPerson`` ends the leg waiting. ``/run`` answers
 with that ending — the questions, what ran, and the state — the same frame
 ``/execute-stream`` ends on. The next request sends the state back with the
 answers in ``cache`` and the run goes on from where it stopped: nothing that
@@ -19,8 +19,8 @@ import pytest
 pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
 
-from conductor import Asks, NodeRegistry  # noqa: E402
-from conductor.metadata import Input, Param, Result  # noqa: E402
+from conductor import AskPerson, NodeRegistry  # noqa: E402
+from conductor.metadata import Param, Result  # noqa: E402
 from conductor.node import NodeDefinition  # noqa: E402
 from conductor.series import Series  # noqa: E402
 from conductor.widgets import Switch, Textarea  # noqa: E402
@@ -53,9 +53,9 @@ def client(calls: list[str]) -> TestClient:
         description = "asks a person"
         category = "test"
 
-        def run(self, text: Annotated[Text, Param(title="Text", widget=Textarea())]) -> Annotated[Flag, Result(title="Approved")] | Asks:
+        def run(self, text: Annotated[Text, Param(title="Text", widget=Textarea())]) -> Annotated[Flag, Result(title="Approved")] | AskPerson:
             calls.append("approve")
-            return Asks(questions=(Input(name="result", dtype=Flag, title="Approved", widget=Switch()),))
+            return AskPerson(widgets={"result": Switch()})
 
     registry = NodeRegistry()
     registry.register(Words)
@@ -76,65 +76,66 @@ PER_ROW = {
 
 
 def _stream(client: TestClient, body: dict) -> list[dict]:
-    with client.stream("POST", "/execute-stream", json=body) as resp:
+    with client.stream("POST", "/run-stream", json=body) as resp:
         assert resp.status_code == 200
         return [json.loads(line[len("data: "):]) for line in resp.iter_lines() if line.startswith("data: ")]
 
 
-def test_a_completed_leg_answers_with_its_ending(client):
-    ending = client.post("/execute", json={"graph": {"nodes": PER_ROW["nodes"][:1]}}).json()
+def test_a_completed_leg_answers_with_its_state_and_results(client):
+    ended = client.post("/run", json={"graph": {"nodes": PER_ROW["nodes"][:1]}}).json()
 
-    assert ending["type"] == "graph_complete"
-    assert ending["results"]["w"]["result"]["values"] == ["red", "green"]
-    assert "state" in ending
+    assert ended["state"]["status"] == "complete"
+    assert ended["results"]["w"]["result"]["values"] == ["red", "green"]
 
 
-def test_a_leg_that_asks_answers_pending_and_the_next_leg_goes_on(client, calls):
-    pending = client.post("/execute", json={"graph": ONCE})
+def test_a_leg_that_asks_answers_waiting_and_the_next_leg_goes_on(client, calls):
+    pending = client.post("/run", json={"graph": ONCE})
 
     assert pending.status_code == 200
     body = pending.json()
-    assert body["type"] == "graph_pending"
-    [unit] = body["pending"]
-    assert unit["node_id"] == "ok" and unit["row"] == []
-    assert unit["questions"][0]["name"] == "ok.result"
+    assert body["state"]["status"] == "waiting"
+    [unit] = body["state"]["waiting"]
+    assert unit["id"] == "ok" and unit["row"] == []
+    assert unit["questions"][0]["name"] == "result"
 
-    done = client.post("/execute", json={"graph": ONCE, "state": body["state"], "cache": {"ok": {"result": True}}}).json()
+    done = client.post("/run", json={"graph": ONCE, "state": body["state"], "answers": {"ok": {"result": True}}}).json()
 
-    assert done["type"] == "graph_complete"
+    assert done["state"]["status"] == "complete"
     assert done["results"]["ok"]["result"] == 1  # a Flag, written as its own type writes it
     assert calls == ["approve"]
 
 
-def test_an_answer_for_a_node_that_runs_per_row_names_the_rows_it_answers(client, calls):
-    first = client.post("/execute", json={"graph": PER_ROW}).json()
-    assert [unit["row"] for unit in first["pending"]] == [[0], [1]]
+def test_each_row_of_a_per_row_node_is_answered_by_its_own_id(client, calls):
+    first = client.post("/run", json={"graph": PER_ROW}).json()
+    assert [unit["id"] for unit in first["state"]["waiting"]] == ["ok@0", "ok@1"]
 
-    second = client.post(
-        "/execute",
-        json={"graph": PER_ROW, "state": first["state"], "cache": {"ok": {"result": {"rows": [[1]], "values": [False]}}}},
-    ).json()
+    second = client.post("/run", json={"graph": PER_ROW, "state": first["state"], "answers": {"ok@1": {"result": False}}}).json()
 
-    assert second["type"] == "graph_pending"
-    assert [unit["row"] for unit in second["pending"]] == [[0]]
+    assert second["state"]["status"] == "waiting"
+    assert [unit["row"] for unit in second["state"]["waiting"]] == [[0]]
 
-    third = client.post(
-        "/execute",
-        json={"graph": PER_ROW, "state": second["state"], "cache": {"ok": {"result": {"rows": [[0]], "values": [True]}}}},
-    ).json()
+    third = client.post("/run", json={"graph": PER_ROW, "state": second["state"], "answers": {"ok@0": {"result": True}}}).json()
 
-    assert third["type"] == "graph_complete"
+    assert third["state"]["status"] == "complete"
     assert third["results"]["ok"]["result"]["values"] == [True, False]
     assert calls.count("words") == 1
 
 
-def test_the_stream_takes_the_state_too(client, calls):
+def test_the_stream_takes_the_state_and_the_answers_too(client, calls):
     first = _stream(client, {"graph": PER_ROW})
-    assert first[-1]["type"] == "graph_pending"
+    assert first[-1]["type"] == "run_end" and first[-1]["state"]["status"] == "waiting"
 
-    answer = {"ok": {"result": {"rows": [[0], [1]], "values": [True, True]}}}
-    second = _stream(client, {"graph": PER_ROW, "state": first[-1]["state"], "cache": answer})
+    answers = {"ok@0": {"result": True}, "ok@1": {"result": True}}
+    second = _stream(client, {"graph": PER_ROW, "state": first[-1]["state"], "answers": answers})
 
-    assert second[-1]["type"] == "graph_complete"
+    assert second[-1]["state"]["status"] == "complete"
     assert second[-1]["results"]["ok"]["result"]["values"] == [True, True]
     assert calls.count("words") == 1
+
+
+def test_a_wrong_answer_is_a_422_listing_every_fault(client):
+    first = client.post("/run", json={"graph": ONCE}).json()
+
+    refused = client.post("/run", json={"graph": ONCE, "state": first["state"], "answers": {"ghost": {}}})
+    assert refused.status_code == 422
+    assert [(d["type"], d["loc"]) for d in refused.json()["detail"]] == [("not_waiting", ["answers", "ghost"])]

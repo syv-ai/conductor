@@ -3,7 +3,7 @@
 from typing import Annotated
 
 import polars as pl
-from conductor import CompiledGraph, GraphNode, NodeRegistry, Param, Static, Table, run_sync
+from conductor import CompiledGraph, GraphNode, NodeRegistry, Param, Static, Table
 from conductor.graph.binding import From
 from conductor.graph.model import Graph
 from conductor.graph.receive import Broadcast, Merge, PerRow, RowsUnder, Whole
@@ -56,7 +56,7 @@ def _compiled(*nodes: GraphNode, registry: NodeRegistry | None = None) -> Compil
 
 def _sheet(compiled: CompiledGraph, node: str = "excel") -> pl.DataFrame:
     assert compiled.is_runnable, compiled.problems
-    return run_sync(compiled).state.results(compiled)[node]["result"].frame.drop(ROW_ID)
+    return compiled.results(compiled.run_sync())[node]["result"].frame.drop(ROW_ID)
 
 
 SEND = GraphNode(id="send", type="send", version=1, bindings={"email": From("csv.result.email")})
@@ -154,7 +154,7 @@ def test_a_table_input_on_a_node_running_per_document_gets_that_documents_rows()
         (Ref("read", "result"), PerRow(Index("docs.result"))),
         (Ref("check", "result"), RowsUnder(Index("read.result", parent=Index("docs.result")), 1)),
     ))
-    sheets = run_sync(compiled).state.results(compiled)["excel"]["result"]
+    sheets = compiled.results(compiled.run_sync())["excel"]["result"]
     assert [sheet.frame.drop(ROW_ID).to_dicts() for sheet in sheets] == [
         [{"vendor": "acme", "amount": 10.0, "result": "acme ok"}, {"vendor": "beta", "amount": 5.0, "result": "beta ok"}],
         [{"vendor": "gamma", "amount": 7.0, "result": "gamma ok"}],
@@ -308,7 +308,7 @@ def test_a_merged_table_that_wont_read_as_the_input_fails_that_node():
     assert compiled.is_runnable, compiled.problems
 
     events = list(_events(compiled))
-    (failed,) = [event for event in events if event.type == "node_error"]
+    (failed,) = [event for event in events if event.type == "node_failed"]
     assert (failed.node_id, failed.cause.code) == ("s", "invalid_input")
 
 

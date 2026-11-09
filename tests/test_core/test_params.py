@@ -6,7 +6,7 @@ on the ``Param`` inside ``Annotated``, and becomes the ``Input`` the node
 carries. The widget is the control and nothing else: it has no title of
 its own, and a bare widget in ``Annotated`` is refused when the class is
 defined. ``Param(title=...)`` with no widget is an input only an edge can
-fill. ``Asks()`` with no questions asks for the node's declared outputs,
+fill. ``AskPerson()`` with no questions asks for the node's declared outputs,
 and a per-row node's answer may be a plain list.
 """
 
@@ -14,17 +14,16 @@ import asyncio
 from typing import Annotated, Any
 
 import pytest
-from conductor import SKIPPED, Asks, CompiledGraph, GraphNode, NodeRegistry
+from conductor import SKIPPED, AskPerson, CompiledGraph, GraphNode, NodeRegistry
 from conductor.dtype import DType
-from conductor.execution.engine import execute
 from conductor.graph.binding import From, Static
 from conductor.graph.model import Graph
 from conductor.interface import Interface
 from conductor.metadata import Input, Param, Result
 from conductor.node import NodeDefinition
-from conductor.ref import Ref
 from conductor.series import Index, Series
 from conductor.widgets import NumberWidget, Textarea
+from helpers import stream_of
 
 
 class Txt(DType, str):
@@ -112,19 +111,19 @@ def test_an_inputs_widget_reads_back_its_dump():
     assert dumped["dtype"] == Txt.describe()
 
 
-# -- Asks() asks the declared outputs ---------------------------------------------------
+# -- AskPerson() asks the declared outputs ---------------------------------------------------
 
 
 class AskEach(NodeDefinition):
-    """Asks a person about every row, with no questions of its own."""
+    """AskPerson a person about every row, with no questions of its own."""
 
     id = "ask-each"
     title = "Ask each"
     description = "d"
     category = "test"
 
-    def run(self, proposal: Annotated[Txt, Param(title="Proposal", widget=Textarea())] = Txt("")) -> Out | Asks:
-        return Asks()
+    def run(self, proposal: Annotated[Txt, Param(title="Proposal", widget=Textarea())] = Txt("")) -> Out | AskPerson:
+        return AskPerson()
 
 
 class SkipShort(NodeDefinition):
@@ -159,7 +158,7 @@ def _registry() -> NodeRegistry:
 
 def _leg(compiled: CompiledGraph, **kw: Any) -> list[dict]:
     async def run() -> list[dict]:
-        return [event async for event in execute(compiled, **kw)]
+        return [event async for event in stream_of(compiled, **kw)]
 
     return asyncio.run(run())
 
@@ -185,31 +184,30 @@ def _asking_per_row(text: str) -> CompiledGraph:
     return compiled
 
 
-def test_asks_with_no_questions_asks_the_declared_outputs():
-    ending = _leg(_asking_once())[-1]
+def test_a_node_that_asks_is_asked_its_declared_outputs():
+    ending = _leg(_asking_once())[-1].state
 
-    assert ending.type == "graph_pending"
-    (pending,) = ending.pending
+    assert ending.status == "waiting"
+    (pending,) = ending.waiting
     (question,) = pending.questions
-    assert question == Input(name=Ref("ask", "result"), dtype=Txt, title="Answer")
+    assert (question.name, question.title, question.dtype) == ("result", "Answer", Txt.describe())
     assert question.widget is None
 
 
-def test_a_list_answers_a_per_row_node():
+def test_each_row_of_a_per_row_node_is_answered_by_its_own_id():
     compiled = _asking_per_row("a,b,c")
-    first = _leg(compiled)[-1]
-    assert [w.row for w in first.pending] == [(0,), (1,), (2,)]
+    first = _leg(compiled)[-1].state
+    assert [w.row for w in first.waiting] == [(0,), (1,), (2,)]
 
-    second = _leg(compiled, state=first.state, cache={"ask": {"result": ["x", "y", "z"]}})
+    second = _leg(compiled, state=first, answers={"ask@0": {"result": "x"}, "ask@1": {"result": "y"}, "ask@2": {"result": "z"}})
 
-    assert second[-1].type == "graph_complete"
-    assert list(second[-1].state.results(compiled)["ask"]["result"]) == ["x", "y", "z"]
-    assert second[-1].state.results(compiled)["ask"]["result"] == Series(Index("docs.result"), [Txt("x"), Txt("y"), Txt("z")], rows=[(0,), (1,), (2,)])
+    assert second[-1].state.status == "complete"
+    assert list(compiled.results(second[-1].state)["ask"]["result"]) == ["x", "y", "z"]
+    assert compiled.results(second[-1].state)["ask"]["result"] == Series(Index("docs.result"), [Txt("x"), Txt("y"), Txt("z")], rows=[(0,), (1,), (2,)])
 
 
-def test_a_list_answers_the_rows_still_open_and_leaves_a_skipped_row_alone():
-    """Row 1 was skipped upstream, so the asking node never asked about it;
-    a list answers the two rows that are open, in order."""
+def test_a_row_skipped_upstream_never_asks():
+    """Row 1 was skipped upstream, so the asking node never asked about it."""
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[
             GraphNode(id="docs", type="docs", version=1, bindings={"text": Static("aa,b,cc")}),
@@ -219,18 +217,10 @@ def test_a_list_answers_the_rows_still_open_and_leaves_a_skipped_row_alone():
         _registry(),
     )
     assert compiled.is_runnable, compiled.problems
-    first = _leg(compiled)[-1]
-    assert [w.row for w in first.pending] == [(0,), (2,)]
+    first = _leg(compiled)[-1].state
+    assert [w.row for w in first.waiting] == [(0,), (2,)]
 
-    second = _leg(compiled, state=first.state, cache={"ask": {"result": ["x", "z"]}})
+    second = _leg(compiled, state=first, answers={"ask@0": {"result": "x"}, "ask@2": {"result": "z"}})
 
-    assert second[-1].type == "graph_complete"
-    assert second[-1].state.results(compiled)["ask"]["result"] == Series(Index("docs.result"), [Txt("x"), Txt("z")], rows=[(0,), (2,)])
-
-
-def test_a_list_of_the_wrong_length_is_refused_naming_node_and_output():
-    compiled = _asking_per_row("a,b,c")
-    first = _leg(compiled)[-1]
-
-    with pytest.raises(ValueError, match=r"'ask'.*'result'.*3 rows still open"):
-        _leg(compiled, state=first.state, cache={"ask": {"result": ["x", "y"]}})
+    assert second[-1].state.status == "complete"
+    assert compiled.results(second[-1].state)["ask"]["result"] == Series(Index("docs.result"), [Txt("x"), Txt("z")], rows=[(0,), (2,)])

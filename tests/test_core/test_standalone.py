@@ -212,7 +212,6 @@ def test_a_package_that_declares_types_is_found():
 
 def test_an_iteration_and_a_reduction_run_on_the_standard_nodes_alone():
     import conductor_nodes
-    from conductor import run_sync
 
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[
@@ -224,7 +223,7 @@ def test_an_iteration_and_a_reduction_run_on_the_standard_nodes_alone():
     )
     assert compiled.is_runnable, compiled.problems
 
-    results = run_sync(compiled).state.results(compiled)
+    results = compiled.results(compiled.run_sync())
 
     assert compiled.node("upper").runs_per_row_of is not None
     assert list(results["upper"]["result"]) == ["A", "B", "C"]

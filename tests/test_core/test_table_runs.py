@@ -13,16 +13,14 @@ from typing import Annotated, Any
 import polars as pl
 from conductor import (
     SKIPPED,
-    Asks,
+    AskPerson,
     CompiledGraph,
     GraphNode,
     NodeRegistry,
     Param,
     Static,
     Table,
-    run_sync,
 )
-from conductor.execution.engine import execute
 from conductor.graph.binding import From
 from conductor.graph.model import Graph
 from conductor.metadata import Result
@@ -31,6 +29,7 @@ from conductor.ref import Ref
 from conductor.series import Index, Series
 from conductor.table import ROW_ID
 from conductor.widgets import Textarea
+from helpers import stream_of
 
 from test_core.embedded import embedded_graph_node
 from test_core.test_table import Num, Txt
@@ -144,8 +143,8 @@ class Approve(NodeDefinition):
     description = "d"
     category = "test"
 
-    def run(self, vendor: Annotated[Txt, Param(title="Vendor", widget=Textarea())] = Txt("")) -> Annotated[Txt, Result(title="Approved by")] | Asks:
-        return Asks()
+    def run(self, vendor: Annotated[Txt, Param(title="Vendor", widget=Textarea())] = Txt("")) -> Annotated[Txt, Result(title="Approved by")] | AskPerson:
+        return AskPerson()
 
 
 class Gate(NodeDefinition):
@@ -171,12 +170,12 @@ def _compiled(*nodes: GraphNode, registry: NodeRegistry | None = None) -> Compil
 
 
 def _results(compiled: CompiledGraph) -> dict[str, dict[str, Any]]:
-    return run_sync(compiled).state.results(compiled)
+    return compiled.results(compiled.run_sync())
 
 
 def _leg(compiled: CompiledGraph, **kw: Any) -> list[Any]:
     async def run() -> list[Any]:
-        return [event async for event in execute(compiled, **kw)]
+        return [event async for event in stream_of(compiled, **kw)]
 
     return asyncio.run(run())
 
@@ -203,9 +202,9 @@ def test_the_stored_table_carries_its_row_ids():
 
 def test_a_table_nobody_reads_a_column_of_makes_no_rows_and_is_stored_once():
     compiled = _compiled(CSV)
-    ending = run_sync(compiled)
+    ending = compiled.run_sync()
 
-    assert [entry.ref for entry in ending.state.values] == [Ref("csv", "result")]
+    assert list(ending.output_columns) == [Ref("csv", "result")]
 
 
 def test_invoices_per_document_get_their_check_and_a_skipped_check_is_a_gap_on_its_own_row():
@@ -260,15 +259,15 @@ def test_a_person_approves_each_invoice_and_the_document_totals_once_its_invoice
         GraphNode(id="approve", type="approve", version=1, bindings={"vendor": From("read.result.vendor")}),
         GraphNode(id="all", type="join", version=1, bindings={"texts": From("approve.result")}),
     )
-    first = _leg(compiled)[-1]
-    assert first.type == "graph_pending"
-    assert [unit.row for unit in first.pending] == [(0, 0), (0, 1), (1, 0)]
+    first = _leg(compiled)[-1].state
+    assert first.status == "waiting"
+    assert [unit.row for unit in first.waiting] == [(0, 0), (0, 1), (1, 0)]
 
     # A paused run resumes on the same rows: the stored tables make them again.
-    second = _leg(compiled, state=first.state, cache={"approve": {"result": ["Ida", "Bo", "Nina"]}})[-1]
+    second = _leg(compiled, state=first, answers={"approve@0,0": {"result": "Ida"}, "approve@0,1": {"result": "Bo"}, "approve@1,0": {"result": "Nina"}})[-1].state
 
-    assert second.type == "graph_complete"
-    results = second.state.results(compiled)
+    assert second.status == "complete"
+    results = compiled.results(second)
     assert results["approve"]["result"].rows == ((0, 0), (0, 1), (1, 0))
     assert list(results["all"]["result"]) == ["Ida+Bo", "Nina"]
 

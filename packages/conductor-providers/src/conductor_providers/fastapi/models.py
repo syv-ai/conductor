@@ -12,22 +12,18 @@ from __future__ import annotations
 from typing import Any
 
 from conductor import Graph, RunState
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
-class ExecuteRequest(BaseModel):
-    """The POST body shared by ``/execute``, ``/execute-stream``, and ``/compile``, which reads only ``graph``."""
+class RunRequest(BaseModel):
+    """The POST body shared by ``/run``, ``/run-stream``, and ``/compile``, which reads only ``graph``."""
 
     model_config = ConfigDict(extra="ignore")
 
     graph: Graph
-    # Outputs recorded by node id without running the node: a person's
-    # answers to a pending leg, or an earlier run's results. The engine reports
-    # a node the cache completes as ``node_complete`` with ``cached=True``. For
-    # a node that runs per row, each output is a series in the form one is
-    # dumped in, ``{"rows": [...], "values": [...]}``, naming only the rows it
-    # answers. Unset = run all.
-    cache: dict[str, Any] | None = None
-    # The ``state`` of an earlier leg's ending, handed back so this leg goes
-    # on from where that one stopped. Unset = a fresh run.
+    #: The state of an earlier leg, handed back so this leg goes on from where
+    #: that one stopped. Unset = a fresh run.
     state: RunState | None = None
+    #: A person's answers, by ``WaitingUnit.id``: a value per output, or
+    #: ``null`` for no value on that row. Needs ``state``.
+    answers: dict[str, dict[str, Any] | None] = Field(default_factory=dict)

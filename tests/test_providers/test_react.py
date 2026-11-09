@@ -15,7 +15,7 @@ from typing import Annotated
 
 import conductor_nodes
 import pytest
-from conductor import CompiledGraph, Graph, GraphNode, NodeRegistry, run_sync
+from conductor import CompiledGraph, Graph, GraphNode, NodeRegistry
 from conductor.graph.binding import From, Static
 from conductor.metadata import Result
 from conductor.node import NodeDefinition
@@ -152,7 +152,7 @@ class TestEndToEnd:
         graph_out = react.react_to_graph(back)
 
         compiled = CompiledGraph.from_graph(graph_out, registry)
-        results = run_sync(compiled).state.results(compiled)
+        results = compiled.results(compiled.run_sync())
         assert results["down"]["result"] == "OLLEH"
 
 

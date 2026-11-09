@@ -109,8 +109,7 @@ class Input(Param):
     widget so the record's JSON schema is discriminated per control.
 
     ``Interface.of`` builds one per parameter; ``compute_inputs`` may build
-    more for a node whose fields depend on its values; ``Asks`` carries
-    them as the questions a person answers. Read by ``model_of`` to
+    more for a node whose fields depend on its values. Read by ``model_of`` to
     validate a call, by the compiler to type a typed-in value and to decide
     whether an edge may land, and by an editor to draw the row.
     """
@@ -141,9 +140,3 @@ class Output(Result):
     name: str
     dtype: DTypeRef
     title: str
-
-    def question(self) -> Input:
-        """The question a person answers in this output's place: the same
-        name, type, title and description, with no widget — the host picks
-        the control from the type. What ``Asks()`` asks by default."""
-        return Input(name=self.name, dtype=self.dtype, title=self.title, description=self.description)

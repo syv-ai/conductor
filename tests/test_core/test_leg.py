@@ -13,15 +13,15 @@ import threading
 import time
 from typing import Annotated
 
-from conductor import CompiledGraph, GraphNode, NodeRegistry, Param, run_sync
+from conductor import CompiledGraph, GraphNode, NodeRegistry, Param
 from conductor.dtype import DType
-from conductor.execution.engine import execute
 from conductor.graph.binding import From, Static
 from conductor.graph.model import Graph
 from conductor.metadata import Result
 from conductor.node import NodeDefinition, Policy, version
 from conductor.series import Series
 from conductor.widgets import Textarea
+from helpers import stream_of
 
 
 class Txt(DType, str):
@@ -73,7 +73,7 @@ def _single(cls: type[NodeDefinition]) -> CompiledGraph:
 
 def _events(compiled: CompiledGraph, **kw) -> list[dict]:
     async def run() -> list[dict]:
-        return [event async for event in execute(compiled, **kw)]
+        return [event async for event in stream_of(compiled, **kw)]
 
     return asyncio.run(run())
 
@@ -104,7 +104,7 @@ def test_closing_the_stream_after_one_event_stops_the_rest():
     compiled = _per_row(_sleeper(0.05, calls), 20)
 
     async def run() -> tuple[int, int]:
-        events = execute(compiled)
+        events = stream_of(compiled)
         async for event in events:
             if event.type == "node_start" and event.node_id == "slow":
                 break  # the twenty rows are started; one is in its thread
@@ -128,7 +128,7 @@ def test_cancelling_the_consumer_stops_the_rest():
         started = asyncio.Event()
 
         async def consume() -> None:
-            async for event in execute(compiled):
+            async for event in stream_of(compiled):
                 if event.type == "node_start" and event.node_id == "slow":
                     started.set()
 
@@ -177,8 +177,8 @@ def test_an_instant_node_beside_forty_slow_rows_does_not_time_out():
 
     events = _events(compiled)
 
-    assert events[-1].type == "graph_complete", events[-1]
-    assert events[-1].state.results(compiled)["instant"]["result"] == "now"
+    assert events[-1].state.status == "complete", events[-1]
+    assert compiled.results(events[-1].state)["instant"]["result"] == "now"
     assert len(calls) == 40
 
 
@@ -222,8 +222,8 @@ def test_concurrency_one_with_a_timeout_never_has_two_calls_in_flight():
 
     assert most == 1
     assert [e.type for e in events if e.type == "node_retry"] == []
-    assert events[-1].type == "graph_error"
-    assert events[-1].cause.code == "timeout"
+    assert events[-1].state.status == "failed"
+    assert events[-1].state.failure.code == "timeout"
     assert elapsed < 0.45, f"the leg waited {elapsed:.2f}s for an abandoned thread"
 
 
@@ -246,7 +246,7 @@ def test_a_timed_out_attempt_is_final_and_its_cause_is_timeout():
     time.sleep(0.4)
 
     assert len(calls) == 1
-    error = next(e for e in events if e.type == "node_error")
+    error = next(e for e in events if e.type == "node_failed")
     assert error.cause.code == "timeout"
     assert error.cause.message == "The node did not answer in time."
     assert error.cause.details == {"seconds": 0.1}
@@ -267,14 +267,13 @@ def test_execute_has_no_deadline_by_default_and_runs_a_slow_node_to_the_end():
             time.sleep(1.0)
             return Txt("done")
 
-    assert inspect.signature(execute).parameters["timeout"].default is None
-    assert "timeout_seconds" not in inspect.signature(execute).parameters
+    assert inspect.signature(CompiledGraph.run).parameters["timeout"].default is None
 
     compiled = _single(Slow)
-    assert run_sync(compiled).state.results(compiled)["n1"]["result"] == "done"
+    assert compiled.results(compiled.run_sync())["n1"]["result"] == "done"
 
 
-def test_a_leg_deadline_ends_the_leg_at_once_with_graph_timeout():
+def test_a_leg_deadline_ends_the_leg_at_once_timed_out():
     class Slow(NodeDefinition):
         id = "slow-second"
         title = "Slow"
@@ -289,9 +288,9 @@ def test_a_leg_deadline_ends_the_leg_at_once_with_graph_timeout():
     events = _events(_single(Slow), timeout=0.2)
     elapsed = time.monotonic() - start
 
-    assert events[-1].type == "graph_timeout"
-    assert events[-1].timeout_seconds == 0.2
-    assert 0.2 <= events[-1].elapsed_seconds < 0.5
+    assert events[-1].state.status == "timed_out"
+    assert events[-1].state.failure.details["timeout_seconds"] == 0.2
+    assert 0.2 <= events[-1].state.failure.details["elapsed_seconds"] < 0.5
     assert elapsed < 0.5
 
 
@@ -304,7 +303,7 @@ def test_a_cancel_set_mid_run_ends_the_leg_within_one_event():
         cancel = asyncio.Event()
         types: list[str] = []
         set_at = 0.0
-        async for event in execute(compiled, cancel=cancel):
+        async for event in stream_of(compiled, cancel=cancel):
             types.append(event.type)
             if event.type == "node_start" and event.node_id == "slow":
                 cancel.set()
@@ -313,8 +312,8 @@ def test_a_cancel_set_mid_run_ends_the_leg_within_one_event():
 
     types, after = asyncio.run(run())
 
-    assert types[-1] == "graph_cancelled"
-    assert types[types.index("graph_cancelled") - 1] == "node_start"
+    assert types[-1] == "run_end"
+    assert types[-2] == "node_start"
     assert after < 0.2, f"the cancel took {after:.2f}s to end the leg"
 
 
@@ -323,7 +322,7 @@ def test_a_ready_unit_nobody_started_stops_the_leg_loudly(monkeypatch):
     write reports nothing leaves units ready and unstarted, and the leg
     raises when it goes quiet rather than ending short."""
     import pytest
-    from conductor.execution.ledger import Ledger
+    from conductor.execution.live_run_values import LiveRunValues
 
     class Echo(NodeDefinition):
         id = "echo-wake"
@@ -334,16 +333,16 @@ def test_a_ready_unit_nobody_started_stops_the_leg_loudly(monkeypatch):
         def run(self, text: In = Txt("")) -> Out:
             return text
 
-    record = Ledger.record
+    record = LiveRunValues.record
 
     def silent(self, unit, outputs):
         record(self, unit, outputs)
         return []
 
-    monkeypatch.setattr(Ledger, "record", silent)
+    monkeypatch.setattr(LiveRunValues, "record", silent)
     graph = Graph(nodes=[
         GraphNode(id="a", type="echo-wake", version=1),
         GraphNode(id="b", type="echo-wake", version=1, bindings={"text": From("a.result")}),
     ])
     with pytest.raises(RuntimeError, match="missed wake"):
-        run_sync(CompiledGraph.from_graph(graph, NodeRegistry(nodes=(Echo,))))
+        CompiledGraph.from_graph(graph, NodeRegistry(nodes=(Echo,))).run_sync()

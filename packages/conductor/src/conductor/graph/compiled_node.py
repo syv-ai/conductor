@@ -22,11 +22,12 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic_core import to_jsonable_python
 
-from conductor.codec import to_wire
+from conductor.codec import reader_of, to_wire
 from conductor.errors import NodeKindError, NodeResolutionError, NodeWiringError
 from conductor.interface import model_of
 from conductor.node import runner_of
 from conductor.series import Series
+from conductor.table import holds_tables
 
 if TYPE_CHECKING:
     from conductor.graph.binding import Binding
@@ -163,7 +164,7 @@ class CompiledNode:
     #: What the walk decided; ``None`` also on a node that is not ready.
     _runs_per_row_of: Index | None = field(repr=False)
     #: The read plan, the engine's alone: the walk's decisions inverted once
-    #: at compile, so the ledger looks each up instead of searching the graph
+    #: at compile, so the engine looks each up instead of searching the graph
     #: on every run. ``_reads``: every output an edge into this node reads,
     #: one per edge ref, with how the input it feeds receives it. Empty on a
     #: node the walk did not derive, and on a ``graph``. What runs on each
@@ -226,13 +227,13 @@ class CompiledNode:
         _gate(self, "runner", needs_wiring=False, needs_one_unit=True)
         return runner_of(self._definition, self._version)
 
-    @property
+    @cached_property
     def fingerprint(self) -> str:
         """A hash of how the graph uses this node: its type, version and
         bindings. A run's state stores one per node, and a leg restored into
         a graph whose fingerprint differs runs the node again — a static
         edited, a version bumped, an edge moved all change it; a title or a
-        position does not."""
+        position does not. Worked out once, as a compiled node never changes."""
         _gate(self, "fingerprint", needs_wiring=True, needs_one_unit=True)
         node = self.graph_node
         declared = {inp.name: inp.dtype for inp in self._interface.inputs}
@@ -343,6 +344,24 @@ class CompiledField:
     _carried_by: tuple[Ref, ...] = field(repr=False)
     _listed_inputs: tuple[Ref, ...] = field(repr=False)
 
+    @cached_property
+    def _cell_type(self) -> Any:
+        """The type of one value of this field: the element of a series on rows, the field's own type otherwise."""
+        element = getattr(self._type, "element", None)
+        return self._type if self._index is None or element is None else element
+
+    @cached_property
+    def _read_cell(self) -> Callable[[Any], Any]:
+        """The one check a value of this output passes to enter a run's state
+        (``conductor.codec.reader_of``), returned by a node, answered by a
+        person or read back from a stored state."""
+        return reader_of(self._cell_type)
+
+    @cached_property
+    def _holds_many(self) -> bool:
+        """One unit writes many cells here, one per row it makes: a series output, not a table."""
+        return self._makes_rows is not None and not holds_tables(self._type)
+
     def _gate(self, asked: str) -> None:
         if self._cause is not None:
             raise NodeWiringError(self.ref.node_id, asked, self._cause)
@@ -386,7 +405,7 @@ class CompiledField:
         everything on the field (``Whole``), the rows under its row
         (``RowsUnder``) or its unrelated sources collected (``Gather``) — see
         ``conductor.graph.receive``. Decided once by the
-        walk over the edges; the engine's ledger reads it to tell when a
+        walk over the edges; the engine reads it to tell when a
         unit is ready and what to hand it, and an editor may label the
         edge from it. Only an input has one; asking on an output raises."""
         self._only("input")

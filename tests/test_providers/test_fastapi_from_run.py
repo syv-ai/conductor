@@ -60,17 +60,17 @@ def _from_header(request: Request) -> dict[type, object]:
 def test_the_hook_supplies_each_request_on_both_endpoints():
     client = _client(from_run=_from_header)
 
-    ran = client.post("/execute", json=GRAPH, headers={"x-caller": "Ida"})
-    with client.stream("POST", "/execute-stream", json=GRAPH, headers={"x-caller": "Bo"}) as streamed:
+    ran = client.post("/run", json=GRAPH, headers={"x-caller": "Ida"})
+    with client.stream("POST", "/run-stream", json=GRAPH, headers={"x-caller": "Bo"}) as streamed:
         events = [json.loads(line[len("data: "):]) for line in streamed.iter_lines() if line.startswith("data: ")]
 
     assert ran.json()["results"]["g"]["result"] == "hi Ida"
-    assert events[-1]["type"] == "graph_complete"
+    assert events[-1]["state"]["status"] == "complete"
     assert events[-1]["results"]["g"]["result"] == "hi Bo"
 
 
 def test_a_run_missing_what_it_needs_fails_the_request_on_both_endpoints():
     client = _client()
 
-    assert client.post("/execute", json=GRAPH).status_code == 500
-    assert client.post("/execute-stream", json=GRAPH).status_code == 500
+    assert client.post("/run", json=GRAPH).status_code == 500
+    assert client.post("/run-stream", json=GRAPH).status_code == 500

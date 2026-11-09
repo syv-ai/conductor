@@ -1,4 +1,4 @@
-"""The two values a node's ``run`` may return that are not results: ``SKIPPED`` and ``Asks``.
+"""The two values a node's ``run`` may return that are not results: ``SKIPPED`` and ``AskPerson``.
 
 The engine acts on the returned value itself. Nothing on the node class
 declares that it may skip or ask.
@@ -13,23 +13,19 @@ Nothing that reads a skipped output runs. When the node runs once per row
 of a series (a value with many rows), the skip applies to that row alone
 and the series it produces is sparse.
 
-``Asks``, returned where a result would be, means a person must answer
-before the graph can continue. It carries the questions, one ``Input`` (the
-record that describes one field a node takes) per value the person
-supplies — or none, and the node's declared outputs are the questions.
-The engine reports them and ends the leg pending — a leg is one call of
-``execute``, and a run takes several when a person must answer in
-between. The answers reach the next leg as the node's outputs through
-``execute(cache=...)``, so ``run`` is not called again.
+``AskPerson``, returned where a result would be, means a person must answer
+before the graph can continue. The node's declared outputs are what is asked:
+an answer becomes the node's outputs and ``run`` is not called again.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from conductor.metadata import Input
+    from conductor.widgets import Widget
 
 
 class _SkippedType:
@@ -53,40 +49,27 @@ SKIPPED = _SkippedType()
 
 
 @dataclass(frozen=True)
-class Asks:
-    """A request for a person's input, returned by ``run`` in place of a result.
+class AskPerson:
+    """What ``run`` returns in place of a result when a person must answer first.
 
-    ``questions`` are the fields the person fills in, one ``Input`` per
-    output of the node; the engine re-keys them by address (``node.field``)
-    when it reports them. ``Asks()`` with no questions asks for the node's
-    declared outputs as they are — name, type, title, description, and
-    no widget, so the host picks the control from the type. A node writes
-    its own questions when it has a default to offer or a control to
-    insist on. ``prompt`` is optional text for the person; when ``None``
-    the host shows the node's own title and description::
+    The questions are the node's outputs, with the name, type and title the
+    return annotation already gives them, so ``-> Approved | AskPerson`` is the
+    only thing a class says about asking. ``prompt`` is text for the person;
+    when ``None`` the host shows the node's own title and description.
+    ``defaults`` proposes an answer, by output name, and a question with one may
+    be left blank. ``widgets`` insists on a control, by output name; otherwise
+    the host picks one from the type::
 
-        def run(self, proposal: Annotated[Txt, Param(title="Proposal", widget=Textarea())] = Txt("")) -> Out | Asks:
-            return Asks(questions=(
-                Input(name="result", dtype=Txt, title="Answer",
-                      widget=Textarea(), default=proposal, optional=True),
-            ))
+        def run(self, proposal: Annotated[Txt, Param(title="Proposal", widget=Textarea())]) -> Out | AskPerson:
+            return AskPerson(defaults={"result": proposal}, widgets={"result": Textarea()})
 
-    The engine is the only reader: ``is_asking`` on the returned value
-    parks the unit — one run of one node, on one row when the node runs
-    per row — through ``Ledger.pend``, and the leg ends ``graph_pending``
-    once nothing else can run; ``conductor.run`` returns that ending like any other.
-    Its sibling is ``SKIPPED``, the other value that
-    is not a result. A ``run`` that may ask says so only in its return
-    annotation, ``-> X | Asks``.
+    Its sibling is ``SKIPPED``, the other value that is not a result.
     """
 
-    questions: tuple[Input, ...] = ()
     prompt: str | None = None
+    defaults: Mapping[str, Any] = field(default_factory=dict)
+    widgets: Mapping[str, Widget] = field(default_factory=dict)
 
 
 def is_skipped(value: Any) -> bool:
     return value is SKIPPED
-
-
-def is_asking(value: Any) -> bool:
-    return isinstance(value, Asks)

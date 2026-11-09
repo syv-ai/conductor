@@ -6,7 +6,7 @@ everything a caller outside the library imports; ``__all__`` lists it.
 Every other module is the library's own and may move.
 """
 
-from conductor._sentinel import SKIPPED, Asks, is_asking, is_skipped
+from conductor._sentinel import SKIPPED, AskPerson, is_skipped
 from conductor.codec import from_wire, to_wire
 from conductor.dtype import DType, Single
 from conductor.errors import (
@@ -14,7 +14,8 @@ from conductor.errors import (
     ConductorError,
     ErrorCause,
     ExternalFailure,
-    InputNotOffered,
+    InvalidCallDetail,
+    InvalidCallError,
     NodeError,
     NodeExecutionError,
     NodeKindError,
@@ -23,10 +24,15 @@ from conductor.errors import (
     NodeValidationError,
     NodeWiringError,
     Refuses,
-    StartRefused,
 )
-from conductor.execution.engine import execute, run, run_sync
-from conductor.execution.state import DoneUnit, RunState, StateSkip, StateValue
+from conductor.execution.run_state import (
+    Answers,
+    OutputColumn,
+    Question,
+    RunState,
+    RunStatus,
+    WaitingUnit,
+)
 from conductor.graph.binding import Binding, From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.compiled_node import CompiledField, CompiledNode
@@ -58,7 +64,8 @@ __all__ = [
     "ALWAYS",
     "NEVER",
     "SKIPPED",
-    "Asks",
+    "Answers",
+    "AskPerson",
     "Atom",
     "Binding",
     "Broadcast",
@@ -70,7 +77,6 @@ __all__ = [
     "ConductorError",
     "DType",
     "Deprecation",
-    "DoneUnit",
     "ErrorCause",
     "ExternalFailure",
     "FieldContent",
@@ -81,7 +87,8 @@ __all__ = [
     "GraphNode",
     "Index",
     "Input",
-    "InputNotOffered",
+    "InvalidCallDetail",
+    "InvalidCallError",
     "Interface",
     "NodeDefinition",
     "NodeDescription",
@@ -95,10 +102,12 @@ __all__ = [
     "NodeWiringError",
     "NodeResolutionError",
     "Output",
+    "OutputColumn",
     "Param",
     "PerRow",
     "Policy",
     "Problem",
+    "Question",
     "Receive",
     "Ref",
     "Refuses",
@@ -106,26 +115,21 @@ __all__ = [
     "Result",
     "RowsUnder",
     "RunState",
+    "RunStatus",
     "Series",
     "Single",
-    "StartRefused",
-    "StateSkip",
-    "StateValue",
     "Static",
     "Table",
     "TypeDescription",
     "Upgrade",
     "VersionDescription",
+    "WaitingUnit",
     "Whole",
     "dependencies_of",
     "deprecated",
-    "execute",
     "from_wire",
-    "is_asking",
     "is_skipped",
     "model_of",
-    "run",
-    "run_sync",
     "to_wire",
     "upgrade",
     "version",

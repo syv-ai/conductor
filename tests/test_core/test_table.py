@@ -120,13 +120,13 @@ def test_a_table_that_kept_its_row_ids_keeps_them():
     assert kept[ROW_ID].to_list() == ["contacts:0", "contacts:2"]
 
 
-def test_a_table_without_ids_or_with_one_twice_gets_new_rows():
+def test_a_row_without_an_id_or_with_one_an_earlier_row_holds_is_a_new_row():
     contacts = with_row_ids(pl.DataFrame({"name": ["Ida", "Bo"]}), Index("contacts"), ())
     chosen = with_row_ids(contacts.select("name"), Index("chosen"), (3,))
     doubled = with_row_ids(pl.concat([contacts, contacts]), Index("doubled"), ())
 
     assert chosen[ROW_ID].to_list() == ["chosen:3.0", "chosen:3.1"]
-    assert doubled[ROW_ID].to_list() == ["doubled:0", "doubled:1", "doubled:2", "doubled:3"]
+    assert doubled[ROW_ID].to_list() == ["contacts:0", "contacts:1", "doubled:0", "doubled:1"]
 
 
 def test_a_table_input_takes_a_table_with_at_least_its_columns():
@@ -161,7 +161,7 @@ def test_importing_conductor_does_not_import_polars():
 def test_a_node_returns_a_frame_and_its_output_holds_the_table_type():
     from typing import Annotated
 
-    from conductor import CompiledGraph, GraphNode, NodeRegistry, Param, Static, run_sync
+    from conductor import CompiledGraph, GraphNode, NodeRegistry, Param, Static
     from conductor.graph.model import Graph
     from conductor.metadata import Result
     from conductor.node import NodeDefinition
@@ -177,7 +177,7 @@ def test_a_node_returns_a_frame_and_its_output_holds_the_table_type():
             return pl.DataFrame({"name": text.split(","), "score": [1.0] * len(text.split(","))})
 
     compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="r", type="read", version=1, bindings={"text": Static("Ida,Bo")})]), NodeRegistry(nodes=(Read,)))
-    contacts = run_sync(compiled).state.results(compiled)["r"]["result"]
+    contacts = compiled.results(compiled.run_sync())["r"]["result"]
 
     assert type(contacts) is Contacts
     assert contacts.frame["name"].to_list() == ["Ida", "Bo"]

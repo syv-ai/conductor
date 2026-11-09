@@ -6,11 +6,11 @@ Conductor compiles and runs graphs of typed nodes. It ships as three packages: `
 
 A node's `run` signature is read once into `Input` and `Output` records. Execution calls `run` on a fresh instance. Validation builds a pydantic model from the inputs. An editor reads `describe()`, the palette entry with each field's type, widget and title. Nothing is declared twice.
 
-## Declare, compile, execute
+## Declare, compile, run
 
 - **Declare.** A class is checked when it is defined: a missing `id`, `title`, `description` or `category`, a widget written bare instead of on a `Param`, or an `async def run` fails at import. `NodeRegistry.register` adds the catalogue's rules, such as versions numbered from 1 with no holes.
 - **Compile.** `CompiledGraph.from_graph(graph, registry)` resolves each node's version, validates the bindings, types each field from its edges, decides which nodes run once per row, asks the field hooks and puts each embedded graph's nodes in its place. Everything wrong is a `Problem`; `is_runnable` says whether a run may start.
-- **Execute.** `execute(compiled)` is an async generator of events. `await run(compiled)` returns the ending, and `run_sync(compiled)` does the same from a script. Every ending carries `state`, a `RunState`; `state.results(compiled)` reads every node's values.
+- **Run.** `async with compiled.stream() as events:` yields the events of one leg; `await compiled.run()` returns the state it ended on, and `compiled.run_sync()` does the same from a script.
 
 ## The row engine
 
@@ -24,7 +24,7 @@ A `Series[X]` input receives the whole series, or the rows under each parent row
 
 A node returns `SKIPPED` on a branch it did not take. A skip at a row leaves the series downstream sparse; a skip above a node's rows skips everything under it.
 
-A node returns `Asks` when a person must answer. The rest of the graph runs on and the run ends `graph_pending`. The next call to `execute` takes `state` from that ending and the answers in `cache`, so nothing runs twice.
+A node returns `AskPerson` when a person must answer. The rest of the graph runs on and the state ends `waiting`. `compiled.answer(state, answers)` writes the answers in, and `compiled.run(state)` goes on from there, running no node twice.
 
 ## Retries and timeouts
 

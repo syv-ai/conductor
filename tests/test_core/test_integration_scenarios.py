@@ -5,16 +5,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Annotated
 
-from conductor import CompiledGraph, GraphNode, NodeRegistry, Param, run_sync
+from conductor import CompiledGraph, GraphNode, NodeRegistry, Param
 from conductor._sentinel import SKIPPED
 from conductor.dtype import DType
 from conductor.errors import ExternalFailure, NodeExecutionError
-from conductor.execution.engine import execute
 from conductor.graph.binding import From, Static
 from conductor.graph.model import Graph
 from conductor.metadata import Result
 from conductor.node import NodeDefinition, Policy, version
 from conductor.widgets import NumberWidget, Textarea
+from helpers import stream_of
 
 
 class Txt(DType, str):
@@ -116,7 +116,7 @@ def _registry(*extra: type[NodeDefinition]) -> NodeRegistry:
 
 async def _events(compiled) -> list[dict]:
     """Every event of one run, including those after a ``graph_error``."""
-    return [event async for event in execute(compiled)]
+    return [event async for event in stream_of(compiled)]
 
 
 def _kinds(events: list[dict]) -> list[str]:
@@ -144,7 +144,7 @@ class TestDecisionCombinations:
                 GraphNode(id="a", type="tally", version=1, bindings={"label": Static("A"), "number": From('d.high')}),
                 GraphNode(id="b", type="always-fail", version=1, bindings={"number": From('d.low')}),
             ]), _registry())
-        r = run_sync(compiled).state.results(compiled)
+        r = compiled.results(compiled.run_sync())
         # A ran; B was skipped so it never failed
         assert r["a"]["result"] == "A"
         assert "b" not in r
@@ -181,7 +181,7 @@ class TestRetry:
                 return Txt("ok")
 
         compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n1", type="flaky", version=1)]), _registry(Flaky))
-        r = run_sync(compiled).state.results(compiled)
+        r = compiled.results(compiled.run_sync())
         assert r["n1"]["result"] == "ok"
         assert calls == 2  # one failure + one success
 
@@ -225,7 +225,7 @@ class TestEdgeCases:
                 GraphNode(id="taken", type="tally", version=1, bindings={"label": Static("TAKEN"), "number": From('d.high')}),
                 GraphNode(id="other", type="tally", version=1, bindings={"label": Static("OTHER"), "number": From('d.low')}),
             ]), _registry())
-        r = run_sync(compiled).state.results(compiled)
+        r = compiled.results(compiled.run_sync())
         assert r["taken"]["result"] == "TAKEN"
         assert "other" not in r
 
@@ -238,6 +238,6 @@ class TestEdgeCases:
                 GraphNode(id="taken", type="echo", version=1, bindings={"text": From('d.match')}),
                 GraphNode(id="else_b", type="echo", version=1, bindings={"text": From('d.other')}),
             ]), _registry(Route))
-        r = run_sync(compiled).state.results(compiled)
+        r = compiled.results(compiled.run_sync())
         assert r["taken"]["result"] == "data"
         assert "else_b" not in r

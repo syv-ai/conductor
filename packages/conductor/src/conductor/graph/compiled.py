@@ -1,4 +1,4 @@
-"""``CompiledGraph`` — everything the compiler learned about a graph, as one immutable value.
+"""``CompiledGraph`` — everything the compiler learned about a graph, as one immutable value, and every verb that runs it.
 
 ``CompiledGraph.from_graph`` builds it from a ``Graph`` and a ``NodeRegistry``.
 Everyone else asks it questions and never reads the nodes' bindings
@@ -7,6 +7,11 @@ actually has, where each input's value comes from and how each unit
 receives it, what type travels on every field, which nodes run once per
 row and in what order, under which condition each output appears, and
 what is wrong. The engine is one more caller.
+
+It also owns every step and question of a run, and holds no run itself:
+``run``, ``run_sync`` and ``stream`` take a ``RunState`` and return or end on
+one, ``answer`` writes a person's answers into one, and ``outputs``,
+``results`` and ``nodes_changed_since`` read one.
 
 The questions come at three scales. The graph itself answers what it
 takes and returns (``interface``), what is wrong with it (``problems``,
@@ -61,12 +66,19 @@ cached, and "compile this and assert what it says" is a complete test.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+import asyncio
+from collections.abc import AsyncIterator, Iterable, Mapping
+from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
 from functools import cached_property
 from typing import TYPE_CHECKING, Any
 
-from conductor.errors import InputNotOffered
+from conductor.errors import InvalidCallDetail, InvalidCallError
+from conductor.execution.events import Event, RunEnd
+from conductor.execution.live_run_values import LiveRunValues
+from conductor.execution.run_state import Answers, RunState
+from conductor.execution.run_until_idle import Leg
+from conductor.execution.waiting_units import apply_answers
 from conductor.graph.binding import Static
 from conductor.graph.compiled_node import CompiledField, CompiledNode, _gate
 from conductor.graph.compiler import Compilation
@@ -162,7 +174,7 @@ class CompiledGraph:
     def _index_owners(self) -> Mapping[str, CompiledField]:
         """The field that makes each index's rows, by index id: a series
         output, or an input holding a list set on its node. It carries the
-        index's share of the read plan. The ledger's way back from an index
+        index's share of the read plan. The engine's way back from an index
         to its owner, read on its first question."""
         owners: dict[str, CompiledField] = {}
         for node in self._nodes.values():
@@ -176,7 +188,7 @@ class CompiledGraph:
     @cached_property
     def _views(self) -> Mapping[Ref, tuple[Ref, str]]:
         """Every column of a table output offered as a field, by address: the
-        table output and the column. The ledger reads a view's values from
+        table output and the column. The engine reads a view's values from
         the table where they sit."""
         return self._compilation.iteration.views
 
@@ -213,23 +225,22 @@ class CompiledGraph:
     # -- the interface, from each side --------------------------------------------
 
     def with_inputs(self, **inputs: Any) -> CompiledGraph:
-        """This graph with some of its inputs filled, compiled again: what ``run`` takes to run it with those values.
+        """This graph with some of its inputs filled, compiled again, to run with those values.
 
         Each keyword names an input of ``interface.inputs``: by its address
         (``**{"a.text": ...}``, ``**{"emb/up.text": ...}`` inside an embedded
         graph), or by its bare field name (``text=...``) when no other input
         has that name. A name
         the interface does not offer — unknown, locked, fed by an edge, or
-        shared by several inputs — is an ``InputNotOffered`` that lists the names
-        it does offer. Each value becomes a ``Static`` on its input in a
+        shared by several inputs — is refused with ``InvalidCallError``, code
+        ``not_offered``, every such name at once. Each value becomes a ``Static`` on its input in a
         copy of the authored graph, which compiles against the same
         registry, so compile is what reads it: a list on an input for one
         value runs the graph once per item, a value the type cannot read is
         ``invalid_static``. The copy still offers every input: a static is a
         value a caller may answer over, so filling an input again replaces it.
 
-        Not a run, and it validates nothing itself. ``Ledger.inject`` is the
-        different act of recording a node's *outputs* from ``cache``.
+        Not a run, and it validates nothing itself.
         """
         return self._refilled(inputs, ())
 
@@ -240,14 +251,21 @@ class CompiledGraph:
         graph that embeds this one asks for the copy one graph node fills
         (``Compilation._as_embedded``). Names are read as ``with_inputs`` reads them."""
         offered = [inp.name for inp in self.interface.inputs]
+        faults: list[InvalidCallDetail] = []
         filled: dict[str, dict[str, Static]] = {}
         for name, value in values.items():
-            node_id, key = as_drawn(self._offered(name, offered), self._compilation.layout.graphs)
-            filled.setdefault(node_id, {})[key] = Static(value)
+            ref = self._offered(name, offered, faults)
+            if ref is not None:
+                node_id, key = as_drawn(ref, self._compilation.layout.graphs)
+                filled.setdefault(node_id, {})[key] = Static(value)
         taken: dict[str, set[str]] = {}
         for name in cleared:
-            node_id, key = as_drawn(self._offered(name, offered), self._compilation.layout.graphs)
-            taken.setdefault(node_id, set()).add(key)
+            ref = self._offered(name, offered, faults)
+            if ref is not None:
+                node_id, key = as_drawn(ref, self._compilation.layout.graphs)
+                taken.setdefault(node_id, set()).add(key)
+        if faults:
+            raise InvalidCallError(faults)
         graph = self.graph.model_copy(update={"nodes": tuple(
             node.model_copy(update={"bindings": {
                 **{field: binding for field, binding in node.bindings.items() if field not in taken.get(node.id, ())},
@@ -257,17 +275,20 @@ class CompiledGraph:
         )})
         return CompiledGraph.from_graph(graph, self._registry)
 
-    def _offered(self, name: str, offered: list[Ref]) -> Ref:
-        """The input a keyword to ``with_inputs`` names, or an ``InputNotOffered`` listing what is offered."""
-        listing = ", ".join(str(ref) for ref in offered) if offered else "none"
+    def _offered(self, name: str, offered: list[Ref], faults: list[InvalidCallDetail]) -> Ref | None:
+        """The input a keyword to ``with_inputs`` names; or ``None``, and the fault that lists what is offered."""
         matches = [ref for ref in offered if ref == name] or [ref for ref in offered if ref.field == name]
         if len(matches) == 1:
             return matches[0]
         if matches:
             both = ", ".join(str(ref) for ref in matches)
-            raise InputNotOffered(f"{name!r} is an input of several nodes ({both}); name one by its address")
-        raise InputNotOffered(f"{name!r} is not an input this graph offers; it offers {listing}"
-                        if offered else f"{name!r}: this graph takes no inputs")
+            message = f"{name!r} is an input of several nodes ({both}); name one by its address"
+        elif offered:
+            message = f"{name!r} is not an input this graph offers; it offers {', '.join(str(ref) for ref in offered)}"
+        else:
+            message = f"{name!r}: this graph takes no inputs"
+        faults.append({"type": "not_offered", "loc": ("inputs", name), "msg": message, "ctx": {"offered": [str(ref) for ref in offered]}})
+        return None
 
     # -- the run ------------------------------------------------------------------
 
@@ -303,6 +324,169 @@ class CompiledGraph:
             if groups:
                 found[node_id] = {choice: tuple(names) for choice, names in groups.items()}
         return found
+
+    # -- running it ----------------------------------------------------------------
+
+    def stream(
+        self,
+        state: RunState | None = None,
+        /,
+        *,
+        from_run: Mapping[type, Any] | None = None,
+        timeout: float | None = None,
+        cancel: asyncio.Event | None = None,
+    ) -> AbstractAsyncContextManager[AsyncIterator[Event]]:
+        """One leg, as a stream of events; leaving the block stops every unit::
+
+            async with compiled.stream(state, timeout=300) as events:
+                async for event in events:
+                    ...
+
+        The first event is ``RunStart`` and the last ``RunEnd``, whose ``state``
+        says how the leg ended. Every check is made at this call, before the
+        block is entered, so a refused start raises here (``InvalidCallError``).
+
+        ``state`` is where to go on from, ``None`` for a fresh run: a node the
+        graph has changed since, and whatever reads it, runs again. ``from_run``
+        supplies values by type to parameters annotated
+        ``Annotated[X, FromRun()]``; a type no one supplied is a ``TypeError``.
+        ``timeout`` bounds the leg in seconds and ends it ``timed_out``;
+        setting ``cancel`` ends it ``cancelled`` at once.
+        """
+        return Leg(self, state=state, from_run=from_run or {}, timeout=timeout, cancel=cancel or asyncio.Event())
+
+    async def run(
+        self,
+        state: RunState | None = None,
+        /,
+        *,
+        from_run: Mapping[type, Any] | None = None,
+        timeout: float | None = None,
+        cancel: asyncio.Event | None = None,
+    ) -> RunState:
+        """One leg to its end, and the state it ended on: ``stream``, drained.
+
+        A pause or a failure is a ``status``, not an exception. For code with
+        no event loop, ``run_sync``.
+        """
+        ended: Event | None = None
+        async with self.stream(state, from_run=from_run, timeout=timeout, cancel=cancel) as events:
+            async for ended in events:
+                pass
+        if not isinstance(ended, RunEnd):
+            raise RuntimeError(f"the leg ended on {ended!r}, not a RunEnd — an engine bug")
+        return ended.state
+
+    def run_sync(
+        self,
+        state: RunState | None = None,
+        /,
+        *,
+        from_run: Mapping[type, Any] | None = None,
+        timeout: float | None = None,
+        cancel: asyncio.Event | None = None,
+    ) -> RunState:
+        """``run`` for a script or a test. Inside a running event loop it
+        refuses, since ``asyncio.run`` cannot nest: ``await compiled.run(...)``."""
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(self.run(state, from_run=from_run, timeout=timeout, cancel=cancel))
+        raise RuntimeError("a loop is running; use await compiled.run(...)")
+
+    def answer(self, state: RunState, answers: Answers, /) -> RunState:
+        """``state`` with these waiting units answered; no node runs.
+
+        ``answers`` maps ``WaitingUnit.id`` to a value per output, or to
+        ``None`` for no value on that row. Every answer is checked here, with a
+        wrong one refused from this call (``InvalidCallError``, every fault at
+        once) and ``state`` untouched. A unit left out goes on waiting, so
+        people can answer rows days apart. ``run`` the result to go on.
+        """
+        return apply_answers(self, state, answers)
+
+    def results(self, state: RunState, /) -> dict[str, dict[str, Any]]:
+        """Every node's outputs so far in ``state``, typed, by node id
+        (``emb/up`` inside an embedded graph), whatever way the leg ended.
+
+        A node with nothing finished is absent, and so is an output a node
+        skipped (the branch not taken). One that runs per row is a ``Series``
+        of the rows that have values so far, so a host can show a table filling
+        in as people answer. A node the graph has changed since, and whatever
+        reads it, is left out.
+        """
+        return LiveRunValues.restore(self, state).results()
+
+    def outputs(self, state: RunState, /) -> dict[str, Any]:
+        """What the graph returned: each output of ``interface.outputs`` by its address.
+
+        Only a ``complete`` state has any: on another, a call asking for the
+        result raises ``InvalidCallError`` with the code ``run_not_complete``,
+        its ``ctx`` holding the status and the failure's cause, rather than a
+        ``KeyError`` far from the cause. An output whose node skipped it is
+        absent. ``results`` reads what a stopped run did produce.
+        """
+        if state.status != "complete":
+            failure = state.failure
+            said = "" if failure is None else f": {failure.message}"
+            raise InvalidCallError([{
+                "type": "run_not_complete",
+                "loc": ("state", "status"),
+                "msg": f"the run is {state.status}, so it has no outputs yet{said}",
+                "ctx": {"status": state.status, "failure": None if failure is None else failure.model_dump(mode="json")},
+            }])
+        results = self.results(state)
+        returned: dict[str, Any] = {}
+        for output in self.interface.outputs:
+            at = output.name
+            if at.field in results.get(at.node_id, {}):
+                returned[str(at)] = results[at.node_id][at.field]
+        return returned
+
+    def nodes_changed_since(self, state: RunState, /) -> list[str]:
+        """Every node ``state`` holds nothing current for, in execution order,
+        then the nodes it names that the graph no longer has.
+
+        Changed means its fingerprint differs or is missing: a static edited,
+        a version bumped, an edge moved. Whatever reads such a node is in the
+        answer too, directly or through other nodes. The one place that decides
+        what is stale; a host wanting a strict pin refuses when the list is
+        not empty.
+        """
+        self._refuse_unless_runnable()
+        fingerprints = state.node_fingerprints
+        changed = {node_id for node_id in self._order if fingerprints.get(node_id) != self._nodes[node_id].fingerprint}
+        stale = changed | self._readers_of(changed)
+        named = {*fingerprints, *state.finished_rows, *(ref.node_id for ref in state.output_columns), *(unit.node_id for unit in state.waiting)}
+        return [node_id for node_id in self._order if node_id in stale] + sorted(named - set(self._order))
+
+    def _readers_of(self, node_ids: Iterable[str]) -> set[str]:
+        """Every node that reads a field of one of ``node_ids``, directly or
+        through other nodes: an output, or a column of a table output. Walked
+        over the read plan on each call rather than stored, since every node's
+        readers stored would cost memory quadratic in a long chain."""
+        found: set[str] = set()
+        frontier = list(node_ids)
+        while frontier:
+            for compiled_field in self._nodes[frontier.pop()]._fields.values():
+                for reader, _ in compiled_field._read_by:
+                    if reader.node_id not in found:
+                        found.add(reader.node_id)
+                        frontier.append(reader.node_id)
+        return found
+
+    def _refuse_unless_runnable(self) -> None:
+        """Refuse any verb on a graph with a fatal problem, naming every one."""
+        if not self.is_runnable:
+            raise InvalidCallError([
+                {
+                    "type": p.code,
+                    "loc": ("graph", p.node_id) if p.field is None else ("graph", p.node_id, p.field),
+                    "msg": p.message,
+                    "ctx": dict(p.details),
+                }
+                for p in self.problems if p.fatal
+            ])
 
     # -- what is wrong -------------------------------------------------------------
 

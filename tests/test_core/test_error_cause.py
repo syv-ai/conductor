@@ -5,9 +5,9 @@ from conductor.errors import (
     CompilationError,
     ConductorError,
     ErrorCause,
+    InvalidCallError,
     NodeError,
     NodeExecutionError,
-    StartRefused,
 )
 
 
@@ -54,7 +54,7 @@ def test_the_errors_a_caller_catches_sit_under_conductor_error():
     """A failed node is a ``NodeError``; a refused start is a ``ValueError``
     as well, so a host's ``except ValueError`` catches it."""
     assert issubclass(NodeExecutionError, NodeError) and issubclass(NodeError, ConductorError)
-    assert issubclass(StartRefused, ConductorError) and issubclass(StartRefused, ValueError)
+    assert issubclass(InvalidCallError, ConductorError) and issubclass(InvalidCallError, ValueError)
 
 
 def test_every_code_the_engine_emits_is_declared_once():

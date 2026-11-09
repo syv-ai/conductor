@@ -55,9 +55,9 @@ class FromRun:
 
     ``clock: Annotated[Clock, FromRun()]`` says: this is not an
     input — no widget, no handle, no binding — but a value the host hands
-    to ``execute(from_run={Clock: ...})``, which the engine passes
+    to ``compiled.run(from_run={Clock: ...})``, which the engine passes
     in by type. ``Interface.of`` collects such parameters into
-    ``Interface.needs``, and ``execute`` refuses to start a graph whose
+    ``Interface.needs``, and a run will not start a graph whose
     nodes need a type it was not given.
 
     Not a context bag: a node receives only what its own signature names.
@@ -88,7 +88,7 @@ class Interface:
     #: uses to split ``run``'s return across the outputs.
     returns: Any
     #: The types the caller must provide, by parameter name, from every
-    #: ``FromRun`` parameter. ``execute`` refuses to start a graph whose
+    #: ``FromRun`` parameter. A run will not start a graph whose
     #: nodes need a type it was not given.
     needs: dict[str, type] = field(default_factory=dict)
     #: The shape of an open interface, or ``None`` for a closed one:

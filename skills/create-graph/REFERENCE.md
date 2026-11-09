@@ -7,7 +7,7 @@ import asyncio
 from typing import Annotated
 
 import conductor_nodes
-from conductor import Asks, CompiledGraph, execute, From, Graph, GraphNode, Input, NodeDefinition, Param, Result, RunState, Series, Static
+from conductor import AskPerson, CompiledGraph, From, Graph, GraphNode, NodeDefinition, Param, Result, RunState, Static
 from conductor.widgets import Textarea
 from conductor_nodes.types import Text
 
@@ -27,8 +27,8 @@ class Approve(NodeDefinition):
     description = "Asks a person to approve a proposal."
     category = "review"
 
-    def run(self, proposal: Annotated[Text, Param(title="Proposal", widget=Textarea())]) -> Annotated[Text, Result(title="Decision")] | Asks:
-        return Asks(questions=(Input(name="result", dtype=Text, title="Decision", widget=Textarea(), default=proposal),))
+    def run(self, proposal: Annotated[Text, Param(title="Proposal", widget=Textarea())]) -> Annotated[Text, Result(title="Decision")] | AskPerson:
+        return AskPerson(defaults={"result": proposal}, widgets={"result": Textarea()})
 
 
 registry.register(Approve)
@@ -42,18 +42,18 @@ asking = CompiledGraph.from_graph(
 
 
 async def legs():
-    first = [event async for event in execute(asking)][-1]
-    assert first.type == "graph_pending" and [unit.row for unit in first.pending] == [(0,), (1,)]
-    stored = RunState.model_validate(first.state.model_dump())      # how a host keeps the state between legs
-    answer = Series(asking.node("approve").runs_per_row_of, [Text("Second, approved")], rows=[(1,)])
-    second = [event async for event in execute(asking, state=stored, cache={"approve": {"result": answer}})][-1]
-    assert [unit.row for unit in second.pending] == [(0,)]
+    first = await asking.run()
+    assert first.status == "waiting" and [unit.row for unit in first.waiting] == [(0,), (1,)]
+    stored = RunState.model_validate_json(first.model_dump_json())  # how a host keeps the state between legs
+    answered = asking.answer(stored, {"approve@1": {"result": "Second, approved"}})
+    second = await asking.run(answered)
+    assert [unit.row for unit in second.waiting] == [(0,)]
 
 
 asyncio.run(legs())
 ```
 
-- An asking node waits with its readers; the rest runs on. Each pending unit carries `node_id`, `row`, `prompt`, `questions`.
-- For a node that runs once, the answer is the value: `cache={"approve": {"result": Text("Yes")}}`. A row left out asks again.
-- Answering a done unit or an unproduced row raises `ValueError`; a missing `FromRun` value raises `TypeError`. A node changed since the state was taken reruns with its readers.
-- Events are records, not JSON; `conductor_providers.fastapi.sse.sse_frame` serialises one. Wrap `execute` in `contextlib.aclosing` so a `break` stops every unit.
+- An asking node waits with its readers; the rest runs on. Each entry of `state.waiting` carries `id`, `node_id`, `row`, `prompt`, `questions`.
+- An answer is `{unit.id: {output: value}}`; for a node that runs once the id is the node id: `{"approve": {"result": "Yes"}}`. A unit left out goes on waiting and is not called again.
+- A wrong answer raises `InvalidCallError`, every fault listed; a missing `FromRun` value raises `TypeError`. A node changed since the state was taken reruns with its readers.
+- Events are records, not JSON; `conductor_providers.fastapi.sse.sse_frame` serialises one. Leaving `async with compiled.stream() as events:` stops every unit.

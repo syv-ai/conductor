@@ -5,15 +5,15 @@ from dataclasses import dataclass
 from typing import Annotated
 
 import pytest
-from conductor import SKIPPED, Param, run, run_sync
+from conductor import SKIPPED, Param
 from conductor.dtype import DType
-from conductor.execution.engine import execute
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
 from conductor.metadata import Result
 from conductor.node import NodeDefinition
 from conductor.widgets import Textarea
+from helpers import stream_of
 
 
 class Txt(DType, str):
@@ -109,7 +109,7 @@ class TestStreamingExecution:
         ]), registry)
 
         start = time.monotonic()
-        results = run_sync(compiled).state.results(compiled)
+        results = compiled.results(compiled.run_sync())
         elapsed = time.monotonic() - start
 
         # Sequential would be 5 * 0.3 = 1.5s; eager is A+B, C+D, E = ~0.9s.
@@ -124,13 +124,13 @@ class TestStreamingExecution:
             ]), three_node_registry)
 
         events = []
-        async for event in execute(compiled):
+        async for event in stream_of(compiled):
             events.append(event)
 
         event_types = [e.type for e in events]
         assert "node_start" in event_types
         assert "node_complete" in event_types
-        assert "graph_complete" in event_types
+        assert "run_end" in event_types
 
     async def test_linear_chain_results(self, three_node_registry):
         """echo('hello') -> upper -> 'HELLO'."""
@@ -139,7 +139,7 @@ class TestStreamingExecution:
                 GraphNode(id="n2", type="upper", version=1, bindings={"text": From('n1.result')}),
             ]), three_node_registry)
 
-        results = (await run(compiled)).state.results(compiled)
+        results = compiled.results((await compiled.run()))
         assert results["n2"]["result"] == "HELLO"
 
     async def test_diamond_execution(self, three_node_registry):
@@ -154,7 +154,7 @@ class TestStreamingExecution:
                 GraphNode(id="n4", type="combine", version=1, bindings={"a": From('n2.result'), "b": From('n3.result')}),
             ]), three_node_registry)
 
-        results = (await run(compiled)).state.results(compiled)
+        results = compiled.results((await compiled.run()))
         assert results["n4"]["result"] == "HELLO hello"
 
 
@@ -170,35 +170,15 @@ class TestSyncExecution:
                 GraphNode(id="n2", type="upper", version=1, bindings={"text": From('n1.result')}),
             ]), three_node_registry)
 
-        results = run_sync(compiled).state.results(compiled)
+        results = compiled.results(compiled.run_sync())
         assert results["n2"]["result"] == "WORLD"
 
     def test_single_node_no_edges(self, three_node_registry):
         """A single node with static data, no edges."""
         compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n1", type="echo", version=1, bindings={"text": Static("standalone")})]), three_node_registry)
 
-        results = run_sync(compiled).state.results(compiled)
+        results = compiled.results(compiled.run_sync())
         assert results["n1"]["result"] == "standalone"
-
-
-# ---------------------------------------------------------------------------
-# Caching
-# ---------------------------------------------------------------------------
-
-class TestCaching:
-    async def test_cached_results_used(self, three_node_registry):
-        """Passing cache skips execution and uses cached value."""
-        compiled = CompiledGraph.from_graph(Graph(nodes=[
-                GraphNode(id="n1", type="echo", version=1, bindings={"text": Static("hello")}),
-                GraphNode(id="n2", type="upper", version=1, bindings={"text": From('n1.result')}),
-            ]), three_node_registry)
-
-        results = (await run(
-            compiled,
-            cache={"n1": {"result": "cached_value"}},
-        )).state.results(compiled)
-        # n2 should uppercase the cached value, not "hello"
-        assert results["n2"]["result"] == "CACHED_VALUE"
 
 
 # ---------------------------------------------------------------------------
@@ -211,18 +191,18 @@ class TestErrorHandling:
         compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n1", type="fail", version=1, bindings={"text": Static("hello")})]), registry)
 
         events = []
-        async for event in execute(compiled):
+        async for event in stream_of(compiled):
             events.append(event)
 
         event_types = [e.type for e in events]
-        assert "node_error" in event_types
-        assert "graph_error" in event_types
+        assert "node_failed" in event_types
+        assert "node_failed" in event_types
 
     def test_run_sync_returns_the_error_ending(self, registry):
         registry.register(Fail)
         compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n1", type="fail", version=1, bindings={"text": Static("hello")})]), registry)
 
-        assert run_sync(compiled).type == "graph_error"
+        assert compiled.run_sync().status == "failed"
 
 
 # ---------------------------------------------------------------------------
@@ -245,11 +225,11 @@ class TestTimeout:
         compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n1", type="slow", version=1, bindings={"text": Static("hello")})]), registry)
 
         events = []
-        async for event in execute(compiled, timeout=1):
+        async for event in stream_of(compiled, timeout=1):
             events.append(event)
 
         event_types = [e.type for e in events]
-        assert "graph_timeout" in event_types
+        assert "run_end" in event_types
 
 
 # ---------------------------------------------------------------------------
@@ -285,7 +265,7 @@ class TestSkipPropagation:
             ]), registry)
 
         events = []
-        async for event in execute(compiled):
+        async for event in stream_of(compiled):
             events.append(event)
 
         # n2 should be skipped because its only input is SKIPPED

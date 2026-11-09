@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Annotated
 
 import pytest
-from conductor import NodeRegistry, run_sync
+from conductor import NodeRegistry
 from conductor._sentinel import SKIPPED
 from conductor.dtype import DType
 from conductor.graph.binding import From, Static, static_values
@@ -491,7 +491,7 @@ def test_a_graph_of_bindings_compiles_and_runs():
         ],
     )
     compiled = CompiledGraph.from_graph(graph=graph, registry=_echo_registry())
-    results = run_sync(compiled).state.results(compiled)
+    results = compiled.results(compiled.run_sync())
 
     assert results["a"]["result"] == "HI"
     assert results["b"]["result"] == "HI"
@@ -503,7 +503,7 @@ def test_an_unbound_input_falls_back_to_its_declared_default():
 
     compiled = CompiledGraph.from_graph(graph=graph, registry=_echo_registry())
 
-    assert run_sync(compiled).state.results(compiled)["a"]["result"] == ""
+    assert compiled.results(compiled.run_sync())["a"]["result"] == ""
 
 
 def test_a_branch_not_taken_is_skipped_downstream():
@@ -535,7 +535,7 @@ def test_a_branch_not_taken_is_skipped_downstream():
         ],
     )
     compiled = CompiledGraph.from_graph(graph=graph, registry=registry)
-    results = run_sync(compiled).state.results(compiled)
+    results = compiled.results(compiled.run_sync())
 
     assert results["yes"]["result"] == "HI"
     # The results a leg ends with omit a skipped node.

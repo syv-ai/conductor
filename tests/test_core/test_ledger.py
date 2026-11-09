@@ -4,11 +4,11 @@ from dataclasses import dataclass
 from typing import Annotated
 
 import pytest
-from conductor import NodeRegistry, Param
+from conductor import NodeRegistry, Param, WaitingUnit
 from conductor._sentinel import SKIPPED
 from conductor.dtype import DType
 from conductor.errors import NodeExecutionError
-from conductor.execution.ledger import Ledger, Skip
+from conductor.execution.live_run_values import LiveRunValues, Skip
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
@@ -111,7 +111,7 @@ def _registry():
 def _ledger(nodes):
     compiled = CompiledGraph.from_graph(Graph(nodes=nodes), _registry())
     assert compiled.is_runnable, compiled.problems
-    return Ledger(compiled)
+    return LiveRunValues(compiled)
 
 
 def _edge(*refs):
@@ -578,7 +578,7 @@ def test_the_ledger_restores_from_its_state():
     ledger.record(("docs", ()), {"texts": ["a", "b"], "names": ["x", "y"]})
     ledger.record(("up", (0,)), Skip(at=(0,)))
 
-    restored = Ledger.restore(ledger._compiled, ledger.state())
+    restored = LiveRunValues.restore(ledger._compiled, ledger.state("complete"))
 
     assert restored.units("up") == ledger.units("up")
     assert restored.is_done(("up", (0,))) and not restored.is_done(("up", (1,)))
@@ -588,7 +588,7 @@ def test_the_ledger_restores_from_its_state():
 
 def _restores_as_it_was(ledger):
     """A restore of this ledger's state has the units, completeness and progress it has."""
-    back = Ledger.restore(ledger._compiled, ledger.state())
+    back = LiveRunValues.restore(ledger._compiled, ledger.state("complete"))
     for node_id in ledger._compiled.execution_order:
         assert back.units(node_id) == ledger.units(node_id), node_id
         assert back.complete(node_id) == ledger.complete(node_id), node_id
@@ -639,7 +639,7 @@ def test_a_restored_ledger_names_the_nodes_an_earlier_leg_completed():
     ledger.record(("docs", ()), {"texts": ["a", "b"], "names": ["x", "y"]})
     ledger.record(("up", (0,)), {"result": "A"})
 
-    restored = Ledger.restore(ledger._compiled, ledger.state())
+    restored = LiveRunValues.restore(ledger._compiled, ledger.state("complete"))
 
     assert restored.completed_nodes() == {"docs"}
     restored.record(("up", (1,)), {"result": "B"})
@@ -650,19 +650,16 @@ def test_a_pending_unit_waits_and_so_does_what_reads_it():
     """A unit whose node asked a person is neither done nor
     failed; its node is incomplete, its consumers are not ready, and the
     leg's pending set names the question by address."""
-    from conductor.metadata import Input
-    from conductor.widgets import Textarea
 
     ledger = _ledger([
         GraphNode(id="a", type="upper", version=1, bindings={"text": Static("a")}),
         GraphNode(id="b", type="upper", version=1, bindings={"text": _edge(("a", "result"))}),
     ])
-    ledger.pend(("a", ()), (Input(name="result", dtype=Txt, title="Svar", widget=Textarea()),))
+    ledger.mark_waiting(("a", ()), WaitingUnit(id="a", node_id="a", row=(), questions=()))
 
-    assert ledger.is_pending(("a", ())) and not ledger.is_done(("a", ()))
+    assert ledger.is_waiting(("a", ())) and not ledger.is_done(("a", ()))
     assert not ledger.complete("a")
     assert not ledger.ready(("b", ()))
-    (waiting,) = ledger.pending()
+    (waiting,) = ledger.waiting()
     assert (waiting.node_id, waiting.row) == ("a", ())
-    assert waiting.questions[0].name == Ref("a", "result")
-    assert ("a", ()) not in Ledger.restore(ledger._compiled, ledger.state())._done
+    assert ("a", ()) not in LiveRunValues.restore(ledger._compiled, ledger.state("complete"))._done

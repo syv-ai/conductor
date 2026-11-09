@@ -46,8 +46,8 @@ registry.register(Greet)
 | Several outputs | a frozen dataclass of `Result` fields as the return type |
 | A whole list in one call | a `Series[X]` input |
 | A branch | return `SKIPPED` on the output not taken; share a `choice` |
-| A person's answer | `-> X \| Asks`, returning `Asks(questions=(Input(...),))` |
-| A client, a clock, the caller | `Annotated[T, FromRun()]`, supplied by `execute(from_run={T: value})` |
+| A person's answer | `-> X \| AskPerson`, returning `AskPerson(defaults=..., widgets=...)`; the declared outputs are the questions |
+| A client, a clock, the caller | `Annotated[T, FromRun()]`, supplied by `compiled.run(from_run={T: value})` |
 | Retries, a timeout, a concurrency bound | `@version(1, policy=Policy(retries=3, timeout=10, concurrency=4))` |
 | A second version | `@version(n)` on every version, `run` included, and `@upgrade(n - 1, n)` |
 | Fields that depend on configuration | override `compute_inputs` / `compute_outputs` |

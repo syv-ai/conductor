@@ -9,7 +9,7 @@ A host-agnostic Python engine that compiles and runs graphs of typed nodes. A no
 ```python
 from typing import Annotated
 
-from conductor import CompiledGraph, Graph, GraphNode, NodeDefinition, NodeRegistry, Param, Result, run_sync, Static
+from conductor import CompiledGraph, Graph, GraphNode, NodeDefinition, NodeRegistry, Param, Result, Static
 from conductor.widgets import TextWidget
 from conductor_nodes.types import Number, Text
 
@@ -32,7 +32,7 @@ compiled = CompiledGraph.from_graph(
     registry,
 )
 assert compiled.is_runnable, compiled.problems
-list(run_sync(compiled).state.results(compiled)["size"]["result"])   # [1.0, 3.0]: one run per value typed in
+list(compiled.results(compiled.run_sync())["size"]["result"])   # [1.0, 3.0]: one run per value typed in
 ```
 
 ## Read next

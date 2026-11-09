@@ -1,81 +1,85 @@
-"""The events ``execute`` yields while a leg runs — a leg being one call of
-``execute``; a run takes several when a node waits on a person in between.
+"""What a leg emits while it runs.
 
-Each event is a frozen ``ConductorModel``, one of a union discriminated on
-``type``: a caller reads ``ending.state`` and can ``match`` on the class.
-The engine builds each one validated, like every other record; an event is
-built about once a unit and costs well under a microsecond, where a unit
-costs a hundred or more. An event carries records, not their
-serialisations — an ``ErrorCause`` on ``node_error`` and ``graph_error``,
-a ``Series`` (a value with many rows) inside ``node_complete``'s
-``result`` — and the host that sends an event over the network serialises
-it at that edge.
+A *leg* is one call of ``CompiledGraph.stream`` or ``run``; a run takes several
+when a node waits on a person. Each event is a frozen record, one of a union
+discriminated on ``type``, so a caller can ``match`` on the class and a host
+can send one over the network as it is. ``RunStart`` is always first and
+``RunEnd`` always last; ``RunEnd.state`` says how the leg ended.
 
-Every event that ends a leg is an ``Ending``: it says why it stopped and carries ``state``:
-the ``RunState`` of the run so far, a frozen snapshot in wire form,
-which ``execute(state=...)`` starts the next leg from. The values in it
-are read through the compiled graph: ``state.results(compiled)``.
-A row on an event is a ``Row``, the path of positions the ledger uses.
+A value in ``NodeComplete.result`` is a typed value (a ``Series`` for anything
+on an index), and a host that sends the event on serialises it at that edge.
 """
 
 from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
-from pydantic import Field
+from pydantic import ConfigDict, Field
 
 from conductor.errors import ErrorCause
-from conductor.execution.state import RunState
+from conductor.execution.run_state import RunState, WaitingUnit
 from conductor.model import ConductorModel
 from conductor.series import Row
 
 
-class NodeStartEvent(ConductorModel):
-    type: Literal["node_start"]
+class _EventRecord(ConductorModel):
+    """Every event: its schema marks ``type`` and every field a dump always writes as required, so a generated client can rely on them."""
+
+    model_config = ConfigDict(json_schema_serialization_defaults_required=True)
+
+
+class RunStart(_EventRecord):
+    """A leg began. On a leg going on from a state: the nodes kept from it
+    (``reused_nodes``), the nodes it left out because they or something above
+    them changed (``changed_nodes``), and the units still waiting."""
+
+    type: Literal["run_start"] = "run_start"
+    reused_nodes: list[str] = Field(default_factory=list)
+    changed_nodes: list[str] = Field(default_factory=list)
+    waiting: tuple[WaitingUnit, ...] = ()
+
+
+class NodeStart(_EventRecord):
+    type: Literal["node_start"] = "node_start"
     node_id: str
 
 
-class NodeProgressEvent(ConductorModel):
+class NodeProgress(_EventRecord):
     """A node running once per row finished one more row. ``total`` is
-    ``None`` until the number of rows it will run over is known, then the
-    count ("4 of 10")."""
+    ``None`` until the number of rows it will run over is known."""
 
-    type: Literal["node_progress"]
+    type: Literal["node_progress"] = "node_progress"
     node_id: str
     done: int
     total: int | None
 
 
-class NodeCompleteEvent(ConductorModel):
-    """A node finished; ``result`` is its outputs by name. ``cached`` is
-    ``True`` when the outputs came from ``execute(cache=...)`` and the node
-    did not run."""
+class NodeComplete(_EventRecord):
+    """A node finished; ``result`` is its outputs by name: a value, or a
+    ``Series`` for anything on an index."""
 
-    type: Literal["node_complete"]
+    type: Literal["node_complete"] = "node_complete"
     node_id: str
-    #: The node's outputs by name: a value, or a ``Series`` for anything on an index.
     result: dict[str, Any]
-    cached: bool = False
 
 
-class NodeSkippedEvent(ConductorModel):
-    type: Literal["node_skipped"]
+class NodeSkipped(_EventRecord):
+    type: Literal["node_skipped"] = "node_skipped"
     node_id: str
 
 
-class NodeErrorEvent(ConductorModel):
-    """A node failed — or one row of a node that runs per row. ``cause.code``
-    says what kind of failure — ``invalid_input``, ``timeout``,
-    ``execution_failed`` — for a consumer to key on."""
+class NodeFailed(_EventRecord):
+    """A node failed, or one row of a node that runs per row. ``cause.code``
+    says what kind of failure, for a consumer to key on."""
 
-    type: Literal["node_error"]
+    type: Literal["node_failed"] = "node_failed"
     node_id: str
     error: str
     cause: ErrorCause
 
 
-class NodeRetryEvent(ConductorModel):
-    type: Literal["node_retry"]
+class NodeRetry(_EventRecord):
+    type: Literal["node_retry"] = "node_retry"
     node_id: str
     row: Row
     attempt: int
@@ -84,84 +88,22 @@ class NodeRetryEvent(ConductorModel):
     delay: float
 
 
-class Ending(ConductorModel):
-    """What every event that ends a leg is: the reason in ``type``, and the
-    run's ``state`` so far, which ``execute(state=...)`` starts the next leg
-    from. The five endings subclass it, so ``isinstance(event, Ending)``
-    tells an ending from the events a leg streams on the way; a caller that
-    wants each ending's own fields narrows on ``EndingEvent`` instead."""
+class UnitWaiting(_EventRecord):
+    """A node asked a person something, on this leg. The unit waits, whatever
+    reads it waits, and the rest of the graph runs on."""
 
-    type: str
+    type: Literal["unit_waiting"] = "unit_waiting"
+    unit: WaitingUnit
+
+
+class RunEnd(_EventRecord):
+    """The leg ended. ``state`` is the run as of now, for any way of ending."""
+
+    type: Literal["run_end"] = "run_end"
     state: RunState
 
 
-class GraphCompleteEvent(Ending):
-    """The leg completed. ``state`` is the run's whole state, which a host
-    can store and hand back to ``execute(state=...)`` to start a new run
-    from this one; ``state.results(compiled)`` is what it produced."""
-
-    type: Literal["graph_complete"]
-
-
-class PendingUnit(ConductorModel):
-    """One node waiting on a person — or one row of a node that runs per
-    row: the node, its row (``()`` when it runs once), the prompt, and the
-    questions as ``Input`` records named by address (``node.field``)."""
-
-    node_id: str
-    row: Row
-    prompt: str | None
-    questions: tuple[Any, ...]
-
-
-class GraphPendingEvent(Ending):
-    """The leg ended with nodes (or rows of them) waiting on a person — all
-    of them at once. ``state`` holds what the leg completed; the next leg
-    starts from it with the answers in ``cache``."""
-
-    type: Literal["graph_pending"]
-    pending: list[PendingUnit]
-
-
-class GraphErrorEvent(Ending):
-    """A node (or one row of one) failed and the leg stopped. Like every
-    ending it carries ``state`` beside the cause, so a host can start a new
-    run from a failed one without losing what ran."""
-
-    type: Literal["graph_error"]
-    node_id: str
-    error: str
-    cause: ErrorCause
-
-
-class GraphCancelledEvent(Ending):
-    """The host set ``cancel``. ``state`` travels with the reason, as on
-    every ending."""
-
-    type: Literal["graph_cancelled"]
-
-
-class GraphTimeoutEvent(Ending):
-    """The leg ran longer than the ``timeout`` its caller set (carried as
-    ``timeout_seconds``). ``state`` travels with the reason, as on every
-    ending."""
-
-    type: Literal["graph_timeout"]
-    elapsed_seconds: float
-    timeout_seconds: float
-
-
-#: The five endings as one union, what ``run`` returns: narrowing on
-#: ``ending.type`` reaches each one's own fields (``pending``, ``cause``).
-EndingEvent = GraphCompleteEvent | GraphPendingEvent | GraphErrorEvent | GraphCancelledEvent | GraphTimeoutEvent
-
-ExecutionEvent = Annotated[
-    NodeStartEvent
-    | NodeProgressEvent
-    | NodeCompleteEvent
-    | NodeSkippedEvent
-    | NodeErrorEvent
-    | NodeRetryEvent
-    | EndingEvent,
+Event = Annotated[
+    RunStart | NodeStart | NodeProgress | NodeComplete | NodeSkipped | NodeFailed | NodeRetry | UnitWaiting | RunEnd,
     Field(discriminator="type"),
 ]

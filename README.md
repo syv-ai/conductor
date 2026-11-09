@@ -32,7 +32,7 @@ uv run pytest tests/ -q
 
 ```python
 from typing import Annotated
-from conductor import CompiledGraph, From, Graph, GraphNode, NodeDefinition, NodeRegistry, Param, Result, run_sync, Static
+from conductor import CompiledGraph, From, Graph, GraphNode, NodeDefinition, NodeRegistry, Param, Result, Static
 from conductor.widgets import Textarea, TextWidget
 from conductor_nodes.types import Text
 
@@ -64,18 +64,19 @@ graph = Graph(nodes=[
 ])
 compiled = CompiledGraph.from_graph(graph, registry)
 
-results = run_sync(compiled).state.results(compiled)
+state = compiled.run_sync()   # in async code: await compiled.run()
+results = compiled.results(state)
 print(results["n2"]["result"])  # HELLO WORLD
 ```
 
-A graph's interface is the inputs nothing feeds and the outputs nothing reads. `with_inputs` returns a copy with inputs filled, by name or by address, and `state.outputs` reads what the graph returned:
+A graph's interface is the inputs nothing feeds and the outputs nothing reads. `with_inputs` returns a copy with inputs filled, by name or by address, and `compiled.outputs` reads what the graph returned:
 
 ```python
 ready = compiled.with_inputs(text="good night")
-print(run_sync(ready).state.outputs(ready))  # {'n2.result': 'GOOD NIGHT'}
+print(ready.outputs(ready.run_sync()))  # {'n2.result': 'GOOD NIGHT'}
 ```
 
-To watch a run, iterate `execute(compiled)`. It yields `node_start`, `node_progress`, `node_complete`, `node_skipped`, `node_retry` and `node_error`, and ends with one of `graph_complete`, `graph_pending`, `graph_error`, `graph_cancelled` or `graph_timeout`. Every ending carries the run's `state`. Close a stream you leave early, with `async with aclosing(execute(compiled)) as events:`, and every unit stops.
+To watch a run, `async with compiled.stream() as events:`. It yields `run_start`, `node_start`, `node_progress`, `node_complete`, `node_skipped`, `node_retry`, `node_failed` and `unit_waiting`, and ends with `run_end`, carrying the run's `state`. Leaving the block stops every unit.
 
 ## Concepts
 
@@ -91,13 +92,13 @@ To watch a run, iterate `execute(compiled)`. It yields `node_start`, `node_progr
 
 **Branching.** A node returns `SKIPPED` on the branch it did not take, and nodes fed only `SKIPPED` are skipped in turn. Outputs that are exclusive alternatives share a `choice`.
 
-**A person in the loop.** A node returns `Asks` with its questions, annotated `-> X | Asks`. The rest of the graph runs on and the run ends `graph_pending`. The next call carries the answers: `run_sync(compiled, state=ending.state, cache={node_id: answers})`.
+**A person in the loop.** A node returns `AskPerson`, annotated `-> X | AskPerson`, and its declared outputs are what is asked. The rest of the graph runs on and the state ends `waiting`, each waiting unit and its questions in `state.waiting`. `compiled.answer(state, {unit.id: {output: answer}})` checks the answers and returns a new state; `compiled.run_sync(state)` goes on from it.
 
 **Versions and retries.** Several versions live in one class as `@version(n)` methods, each with a `Policy` (`retries`, `delay`, `timeout`, `concurrency`, `retry_on`). `@upgrade(1, 2)` rewrites values saved against version 1, and `@deprecated` retires a node or a version. Only an `ExternalFailure`, or an exception class named in `retry_on`, is retried.
 
-**Failures.** Every run-time failure carries an `ErrorCause` (`code`, `message`, `details`, `row`) on the exception and on the event. All exceptions inherit from `ConductorError`.
+**Failures.** Every run-time failure carries an `ErrorCause` (`code`, `message`, `details`, `row`, `node_id`) on the exception, the event and `state.failure`. A call that cannot be acted on raises `InvalidCallError`, every fault listed. All exceptions inherit from `ConductorError`.
 
-**Values the host supplies.** A parameter marked `Annotated[T, FromRun()]` is filled by type from `run_sync(compiled, from_run={T: value})`, not from an edge.
+**Values the host supplies.** A parameter marked `Annotated[T, FromRun()]` is filled by type from `compiled.run_sync(from_run={T: value})`, not from an edge.
 
 **Widgets.** A widget is the control a person edits an input with: `TextWidget`, `Textarea`, `Dropdown`, `NumberWidget`, `Switch`, `FileUpload` and more. Each is a pydantic model with a `kind`. There is no default widget for any type, so every input declares its own.
 
@@ -105,7 +106,7 @@ To watch a run, iterate `execute(compiled)`. It yields `node_start`, `node_progr
 
 `conductor_nodes.registry(categories=[...])` builds a registry of the standard nodes (`text`, `math`, `logic`, `control`, `json`, `regex`), declared in the types `conductor_nodes.types` ships: `Text`, `Number`, `Flag`, `Json`. `conductor_nodes.register_all(registry)` adds them to a registry you already have.
 
-`conductor_providers.react` turns a graph into ReactFlow JSON and back. `conductor_providers.fastapi.conductor_router(registry)` mounts `/nodes`, `/compile`, `/execute` and `/execute-stream`. `conductor_providers.mermaid.flowchart(compiled)` draws a compiled graph.
+`conductor_providers.react` turns a graph into ReactFlow JSON and back. `conductor_providers.fastapi.conductor_router(registry)` mounts `/nodes`, `/compile`, `/run` and `/run-stream`. `conductor_providers.mermaid.flowchart(compiled)` draws a compiled graph.
 
 ## Learn more
 

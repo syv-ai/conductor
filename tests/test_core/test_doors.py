@@ -23,16 +23,16 @@ ROOT = Path(__file__).resolve().parents[2]
 
 DOORS: dict[str, list[str]] = {
     "conductor": [
-        "ALWAYS", "Asks", "Atom", "Binding", "Broadcast", "CompilationError", "CompiledField", "CompiledGraph",
-        "CompiledNode", "Condition", "ConductorError", "DType", "Deprecation", "DoneUnit",
+        "ALWAYS", "Answers", "AskPerson", "Atom", "Binding", "Broadcast", "CompilationError", "CompiledField", "CompiledGraph",
+        "CompiledNode", "Condition", "ConductorError", "DType", "Deprecation",
         "ErrorCause", "ExternalFailure", "FieldContent", "From", "FromRun", "Gather", "Graph", "GraphNode",
-        "Index", "Input", "InputNotOffered", "Interface", "NEVER",
+        "Index", "Input", "Interface", "InvalidCallDetail", "InvalidCallError", "NEVER",
         "NodeDefinition", "NodeDescription", "NodeError", "NodeExecutionError", "NodeKindError", "NodeRegistry", "NodeResolutionError",
-        "NodeTimeoutError", "NodeValidationError", "NodeVersion", "NodeWiringError", "Output", "Param", "PerRow", "Policy", "Problem",
-        "Receive", "Ref", "Refuses", "RegistryDescription", "Result", "RowsUnder", "RunState", "SKIPPED", "Series", "Single",
-        "StartRefused", "StateSkip", "StateValue", "Static", "Table", "TypeDescription", "Upgrade", "VersionDescription",
-        "Whole", "dependencies_of", "deprecated", "execute", "from_wire", "is_asking", "is_skipped", "model_of",
-        "run", "run_sync", "to_wire", "upgrade", "version",
+        "NodeTimeoutError", "NodeValidationError", "NodeVersion", "NodeWiringError", "Output", "OutputColumn", "Param", "PerRow", "Policy", "Problem", "Question",
+        "Receive", "Ref", "Refuses", "RegistryDescription", "Result", "RowsUnder", "RunState", "RunStatus", "SKIPPED", "Series", "Single",
+        "Static", "Table", "TypeDescription", "Upgrade", "VersionDescription",
+        "WaitingUnit", "Whole", "dependencies_of", "deprecated", "from_wire", "is_skipped", "model_of",
+        "to_wire", "upgrade", "version",
     ],
     "conductor.widgets": [
         "AnyWidget", "Choice", "CodeEditor", "DatePicker", "Dropdown", "EntityDropdown", "FileUpload",
@@ -40,9 +40,8 @@ DOORS: dict[str, list[str]] = {
         "TableInput", "Tags", "TemplateTextarea", "TextWidget", "Textarea",
     ],
     "conductor.events": [
-        "Ending", "EndingEvent", "ExecutionEvent", "GraphCancelledEvent", "GraphCompleteEvent", "GraphErrorEvent",
-        "GraphPendingEvent", "GraphTimeoutEvent", "NodeCompleteEvent", "NodeErrorEvent", "NodeProgressEvent",
-        "NodeRetryEvent", "NodeSkippedEvent", "NodeStartEvent", "PendingUnit",
+        "Event", "NodeComplete", "NodeFailed", "NodeProgress", "NodeRetry", "NodeSkipped", "NodeStart",
+        "RunEnd", "RunStart", "UnitWaiting",
     ],
 }
 

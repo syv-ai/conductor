@@ -10,22 +10,20 @@ pytest.importorskip("fastapi")
 
 from conductor.errors import ErrorCause  # noqa: E402
 from conductor.execution.events import (  # noqa: E402
-    ExecutionEvent,
-    GraphCompleteEvent,
-    GraphPendingEvent,
-    NodeCompleteEvent,
-    NodeErrorEvent,
-    PendingUnit,
+    Event,
+    NodeComplete,
+    NodeFailed,
+    RunEnd,
+    UnitWaiting,
 )
-from conductor.execution.state import RunState  # noqa: E402
-from conductor.metadata import Input  # noqa: E402
+from conductor.execution.run_state import OutputColumn, Question, RunState, WaitingUnit  # noqa: E402
 from conductor.series import Index, Series  # noqa: E402
-from conductor.widgets import Textarea  # noqa: E402
 from conductor_nodes.types import Json, Text  # noqa: E402
 from conductor_providers.fastapi.sse import sse_frame  # noqa: E402
+from helpers import stream_of
 
 
-def _payload(event: ExecutionEvent) -> dict:
+def _payload(event: Event) -> dict:
     frame = sse_frame(event)
     assert frame.startswith("data: ") and frame.endswith("\n\n")
     return json.loads(frame[len("data: "):])
@@ -33,10 +31,10 @@ def _payload(event: ExecutionEvent) -> dict:
 
 def test_a_series_keeps_its_index_and_rows_and_an_ending_dumps_its_state():
     lines = Series(Index("lines", parent=Index("docs")), [Text("a"), Text("b")], rows=((0, 0), (1, 0)))
-    state = RunState(values=[{"ref": "split.result", "row": [0], "value": "a"}], node_fingerprints={"split": "f" * 64})
+    state = RunState(status="complete", output_columns={"split.result": OutputColumn(rows=[(0,)], values=["a"])}, node_fingerprints={"split": "f" * 64})
 
-    payload = _payload(NodeCompleteEvent(type="node_complete", node_id="split", result={"result": lines}))
-    ending = _payload(GraphCompleteEvent(type="graph_complete", state=state))
+    payload = _payload(NodeComplete(type="node_complete", node_id="split", result={"result": lines}))
+    ending = _payload(RunEnd(state=state))
 
     assert payload["result"]["result"] == {
         "index": {"id": "lines", "parent": {"id": "docs", "parent": None}},
@@ -47,35 +45,31 @@ def test_a_series_keeps_its_index_and_rows_and_an_ending_dumps_its_state():
 
 
 def test_a_pending_units_questions_and_a_failures_cause_are_records():
-    question = Input(name="ask.result", dtype=Text, title="Svar", widget=Textarea(), default=Text("forslag"), optional=True)
+    question = Question(name="result", title="Svar", dtype={"id": "text"}, json_schema={"type": "string"}, widget={"kind": "textarea"}, default="forslag", optional=True)
 
-    pending = _payload(GraphPendingEvent(
-        type="graph_pending",
-        pending=[PendingUnit(node_id="ask", row=(1,), prompt=None, questions=(question,))],
-        state=RunState(),
-    ))
-    failed = _payload(NodeErrorEvent(type="node_error", node_id="n", error="boom", cause=ErrorCause(code="boom", message="Boom.", row=(2,))))
+    pending = _payload(UnitWaiting(unit=WaitingUnit(id="ask@1", node_id="ask", row=(1,), questions=(question,))))
+    failed = _payload(NodeFailed(type="node_failed", node_id="n", error="boom", cause=ErrorCause(code="boom", message="Boom.", row=(2,))))
 
-    (asked,) = pending["pending"][0]["questions"]
-    assert (asked["name"], asked["default"], asked["widget"]["kind"]) == ("ask.result", "forslag", "textarea")
-    assert pending["pending"][0]["row"] == [1]
-    assert failed["cause"] == {"code": "boom", "message": "Boom.", "details": {}, "row": [2]}
+    (asked,) = pending["unit"]["questions"]
+    assert (asked["name"], asked["default"], asked["widget"]["kind"]) == ("result", "forslag", "textarea")
+    assert pending["unit"]["row"] == [1]
+    assert failed["cause"] == {"code": "boom", "message": "Boom.", "details": {}, "row": [2], "node_id": None}
 
 
 def test_a_typed_value_dumps_through_its_own_type_and_one_with_no_form_raises():
     parsed = Series(Index("parts"), [Json({"a": 1}), Json([2])])
 
-    assert _payload(NodeCompleteEvent(type="node_complete", node_id="parse", result={"result": parsed}))["result"]["result"]["values"] == [{"a": 1}, [2]]
-    assert _payload(NodeCompleteEvent(type="node_complete", node_id="n", result={"n": float("nan")}))["result"] == {"n": None}
+    assert _payload(NodeComplete(type="node_complete", node_id="parse", result={"result": parsed}))["result"]["result"]["values"] == [{"a": 1}, [2]]
+    assert _payload(NodeComplete(type="node_complete", node_id="n", result={"n": float("nan")}))["result"] == {"n": None}
     with pytest.raises(Exception, match="object"):
-        sse_frame(NodeCompleteEvent(type="node_complete", node_id="n", result={"x": object()}))
+        sse_frame(NodeComplete(type="node_complete", node_id="n", result={"x": object()}))
 
 
 def test_a_branch_nodes_completion_streams_with_only_the_branch_taken():
     import asyncio
 
     import conductor_nodes
-    from conductor import CompiledGraph, GraphNode, execute
+    from conductor import CompiledGraph, GraphNode
     from conductor.graph.binding import Static
     from conductor.graph.model import Graph
 
@@ -84,8 +78,8 @@ def test_a_branch_nodes_completion_streams_with_only_the_branch_taken():
         conductor_nodes.registry(),
     )
 
-    async def events() -> list[ExecutionEvent]:
-        return [event async for event in execute(compiled)]
+    async def events() -> list[Event]:
+        return [event async for event in stream_of(compiled)]
 
     (completed,) = [_payload(event) for event in asyncio.run(events()) if event.type == "node_complete"]
 

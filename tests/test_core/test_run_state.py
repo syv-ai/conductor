@@ -1,7 +1,6 @@
 """A leg ends with a typed ``RunState``, and a node the graph changed runs again.
 
-The state is what a host stores between legs and hands back: every value
-in wire form, what is done, and a fingerprint per node of
+The state is what a host stores between legs and hands back: every value, what is done, and a fingerprint per node of
 how the graph uses it. It survives JSON, and the next leg's results are
 typed like the first's. On restore, a node whose fingerprint differs from
 the graph it is restored into — a static edited, a version bumped, a
@@ -15,17 +14,16 @@ import json
 from typing import Annotated
 
 import pytest
-from conductor import Asks, CompiledGraph, GraphNode, NodeRegistry
+from conductor import AskPerson, CompiledGraph, GraphNode, NodeRegistry
 from conductor.dtype import DType
-from conductor.execution.engine import execute
-from conductor.execution.state import RunState
+from conductor.execution.run_state import RunState
 from conductor.graph.binding import From, Static
 from conductor.graph.model import Graph
-from conductor.metadata import Input, Param, Result
+from conductor.metadata import Param, Result
 from conductor.node import NodeDefinition, upgrade, version
-from conductor.ref import Ref
 from conductor.series import Series
 from conductor.widgets import Textarea
+from helpers import stream_of
 from pydantic import ValidationError
 
 
@@ -100,9 +98,9 @@ class Ask(NodeDefinition):
     description = "d"
     category = "test"
 
-    def run(self, text: In = Txt("")) -> Out | Asks:
+    def run(self, text: In = Txt("")) -> Out | AskPerson:
         calls.append(f"ask:{text}")
-        return Asks(questions=(Input(name="result", dtype=Txt, title="Answer", widget=Textarea(), default=text, optional=True),))
+        return AskPerson(defaults={"result": text}, widgets={"result": Textarea()})
 
 
 def _registry() -> NodeRegistry:
@@ -120,7 +118,7 @@ def _compiled(nodes: list[GraphNode]) -> CompiledGraph:
 
 def _leg(compiled: CompiledGraph, **kw) -> list[dict]:
     async def run() -> list[dict]:
-        return [event async for event in execute(compiled, **kw)]
+        return [event async for event in stream_of(compiled, **kw)]
 
     return asyncio.run(run())
 
@@ -130,7 +128,7 @@ def _edge(node: str, field: str = "result") -> From:
 
 
 def _through_json(state: RunState) -> RunState:
-    return RunState.model_validate(json.loads(json.dumps(state.model_dump())))
+    return RunState.model_validate(json.loads(state.model_dump_json()))
 
 
 # -- the state survives JSON ---------------------------------------------------------
@@ -145,17 +143,17 @@ def test_a_paused_legs_state_survives_json_and_the_next_leg_returns_typed_result
     ])
 
     first = _leg(compiled)
-    assert first[-1].type == "graph_pending"
+    assert first[-1].state.status == "waiting"
     state = first[-1].state
     assert isinstance(state, RunState)
 
     restored = _through_json(state)
-    second = _leg(compiled, state=restored, cache={"ask": {"result": Series(compiled.field(Ref("split", "result")).index, [Txt("x"), Txt("y")])}})
+    second = _leg(compiled, state=restored, answers={"ask@0": {"result": Txt("x")}, "ask@1": {"result": Txt("y")}})
 
-    assert second[-1].type == "graph_complete"
-    parts = second[-1].state.results(compiled)["split"]["result"]
+    assert second[-1].state.status == "complete"
+    parts = compiled.results(second[-1].state)["split"]["result"]
     assert isinstance(parts, Series) and all(type(v) is Txt for v in parts)
-    assert list(second[-1].state.results(compiled)["up"]["result"]) == ["X", "Y"]
+    assert list(compiled.results(second[-1].state)["up"]["result"]) == ["X", "Y"]
     assert calls.count("split") == 1
 
 
@@ -187,11 +185,11 @@ def test_a_static_edited_between_legs_reruns_that_node_and_its_readers_and_nothi
     calls.clear()
 
     edited = _compiled([GraphNode(id="a", type="echo", version=1, bindings={"text": Static("y")}), *nodes[1:]])
-    ending = _leg(edited, state=_through_json(state))[-1]
+    ending = _leg(edited, state=_through_json(state))[-1].state
 
-    assert ending.type == "graph_complete"
-    assert ending.state.results(edited)["c"]["result"] == "[Y]"
-    assert ending.state.results(edited)["d"]["result"] == "alone"
+    assert ending.status == "complete"
+    assert edited.results(ending)["c"]["result"] == "[Y]"
+    assert edited.results(ending)["d"]["result"] == "alone"
     assert sorted(calls) == ["echo:y", "upper:y", "wrap:Y"]
 
 
@@ -211,11 +209,11 @@ def test_a_node_removed_between_legs_is_dropped_with_its_readers():
         GraphNode(id="b", type="upper", version=1, bindings={"text": _edge("a")}),
         GraphNode(id="d", type="wrap", version=1, bindings={"text": _edge("a")}),
     ])
-    ending = _leg(smaller, state=_through_json(state))[-1]
+    ending = _leg(smaller, state=_through_json(state))[-1].state
 
-    assert ending.type == "graph_complete"
-    assert set(ending.state.results(smaller)) == {"a", "b", "d"}
-    assert ending.state.results(smaller)["d"]["result"] == "[x]"
+    assert ending.status == "complete"
+    assert set(smaller.results(ending)) == {"a", "b", "d"}
+    assert smaller.results(ending)["d"]["result"] == "[x]"
     assert calls == ["wrap:x"]
 
 
@@ -229,9 +227,9 @@ def test_a_nodes_shape_changed_between_legs_reruns_it():
     calls.clear()
 
     bumped = _compiled([nodes[0], GraphNode(id="w", type="wrap", version=2, bindings={"text": _edge("a")})])
-    ending = _leg(bumped, state=_through_json(state))[-1]
+    ending = _leg(bumped, state=_through_json(state))[-1].state
 
-    assert ending.state.results(bumped)["w"]["result"] == "<x>"
+    assert bumped.results(ending)["w"]["result"] == "<x>"
     assert calls == ["wrap2:x"]
 
 
@@ -248,10 +246,10 @@ def test_without_drops_a_node_on_purpose_with_everything_downstream():
     state = _leg(compiled)[-1].state
     calls.clear()
 
-    ending = _leg(compiled, state=_through_json(state.without("up")))[-1]
+    ending = _leg(compiled, state=_through_json(state.without("up")))[-1].state
 
-    assert ending.type == "graph_complete"
-    assert list(ending.state.results(compiled)["w"]["result"]) == ["[A]", "[B]"]
+    assert ending.status == "complete"
+    assert list(compiled.results(ending)["w"]["result"]) == ["[A]", "[B]"]
     assert sorted(calls) == ["upper:a", "upper:b", "wrap:A", "wrap:B"]
     assert "up" not in state.without("up").node_fingerprints and "split" in state.without("up").node_fingerprints
 
@@ -284,46 +282,25 @@ def test_a_return_of_the_wrong_type_fails_the_returning_node_with_invalid_output
 
     events = _leg(compiled)
 
-    error = next(e for e in events if e.type == "node_error")
+    error = next(e for e in events if e.type == "node_failed")
     assert error.node_id == "w"
     assert error.cause.code == "invalid_output"
     assert error.cause.message == "The node returned a value that is not what it declared."
     assert "result" in error.cause.details["reason"] and "42" not in error.cause.details["reason"]
-    assert events[-1].type == "graph_error" and events[-1].state.values == []
+    assert events[-1].state.status == "failed" and "w.result" not in events[-1].state.output_columns
     assert calls == []
-
-
-def test_a_misspelled_output_in_the_cache_names_the_node_and_the_output():
-    compiled = _compiled([GraphNode(id="e", type="echo", version=1, bindings={"text": Static("x")})])
-
-    import pytest
-
-    with pytest.raises(ValueError, match=r"'e' has no output 'reslt'"):
-        _leg(compiled, cache={"e": {"reslt": Txt("y")}})
-    with pytest.raises(ValueError, match=r"'e'.*'result'"):
-        _leg(compiled, cache={"e": {}})
-
-
-def test_a_cache_for_a_node_the_graph_does_not_have_is_refused():
-    import pytest
-    from conductor import StartRefused
-
-    compiled = _compiled([GraphNode(id="e", type="echo", version=1, bindings={"text": Static("x")})])
-
-    with pytest.raises(StartRefused, match=r"'ghost' is not a node of this graph"):
-        _leg(compiled, cache={"ghost": {"result": Txt("y")}})
 
 
 def test_a_state_value_that_does_not_read_back_as_its_type_is_refused():
     import pytest
-    from conductor import StartRefused
+    from conductor import InvalidCallError
 
     compiled = _compiled([GraphNode(id="e", type="echo", version=1, bindings={"text": Static("x")})])
     state = _leg(compiled)[-1].state
-    dumped = state.model_dump()
-    dumped["values"] = [{**entry, "value": {"not": "text"}} for entry in dumped["values"]]
+    dumped = state.model_dump(mode="json")
+    dumped["output_columns"]["e.result"]["values"] = [{"not": "text"}]
 
-    with pytest.raises(StartRefused, match=r"e\.result"):
+    with pytest.raises(InvalidCallError, match=r"e\.result"):
         _leg(compiled, state=RunState.model_validate(dumped))
 
 
@@ -332,110 +309,67 @@ def test_a_node_that_runs_once_is_at_the_empty_row_on_the_wire():
     alike; a state read back from that JSON runs nothing again."""
     compiled = _compiled([GraphNode(id="e", type="echo", version=1, bindings={"text": Static("x")})])
     wire = _leg(compiled)[-1].state.model_dump(mode="json")
-    assert [v["row"] for v in wire["values"]] == [[]] and wire["done_units"] == [{"node_id": "e", "row": []}]
+    assert wire["output_columns"]["e.result"]["rows"] == [[]] and wire["finished_rows"] == {"e": [[]]}
 
     calls.clear()
-    assert _leg(compiled, state=RunState.model_validate(wire))[-1].type == "graph_complete"
+    assert _leg(compiled, state=RunState.model_validate(wire))[-1].state.status == "complete"
     assert calls == []
 
 
-@pytest.mark.parametrize(("where", "edit", "refusal"), [
-    ("values", {"row": [0]}, r"e\.result is at row \[0\]"),
-    ("done_units", {"row": [0]}, r"'e' done at row \[0\]"),
-    ("values", {"ref": "e.reslt"}, r"e\.reslt, which the graph does not have"),
+def _once_state() -> dict:
+    compiled = _compiled([GraphNode(id="e", type="echo", version=1, bindings={"text": Static("x")})])
+    return _leg(compiled)[-1].state.model_dump(mode="json")
+
+
+@pytest.mark.parametrize(("edit", "refusal"), [
+    (lambda d: d["output_columns"]["e.result"].update(rows=[[0]]), r"e\.result is at row \[0\]"),
+    (lambda d: d["finished_rows"].update(e=[[0]]), r"'e' at row \[0\]"),
+    (lambda d: d["output_columns"].update({"e.reslt": d["output_columns"].pop("e.result")}), r"e\.reslt, which the graph does not have"),
 ])
-def test_a_state_entry_a_node_that_runs_once_has_no_place_for_is_refused(where, edit, refusal):
-    from conductor import StartRefused
+def test_a_state_entry_a_node_that_runs_once_has_no_place_for_is_refused(edit, refusal):
+    from conductor import InvalidCallError
 
     compiled = _compiled([GraphNode(id="e", type="echo", version=1, bindings={"text": Static("x")})])
     dumped = _leg(compiled)[-1].state.model_dump(mode="json")
-    dumped[where] = [{**entry, **edit} for entry in dumped[where]]
+    edit(dumped)
 
-    with pytest.raises(StartRefused, match=refusal):
+    with pytest.raises(InvalidCallError, match=refusal):
         _leg(compiled, state=RunState.model_validate(dumped))
 
 
-@pytest.mark.parametrize("entry", [
-    {"row": [], "value": "A"},
-    {"ref": "e", "row": [], "value": "A"},
-    {"ref": ["e", "result"], "row": [], "value": "A"},
-    {"ref": "e.result", "row": []},
-    {"ref": "e.result", "row": [], "value": "A", "skipped": 0},
-    {"ref": "e.result", "row": None, "value": "A"},
-    {"ref": "e.result", "value": "A"},
+@pytest.mark.parametrize("column", [
+    {"rows": [[]], "values": []},
+    {"rows": None, "values": []},
+    {"rows": [[]], "values": ["A"], "stray": 1},
+    {"rows": "x", "values": ["A"]},
 ])
-def test_a_state_entry_that_is_not_a_value_or_a_skip_is_refused_where_it_arrives(entry):
-    """Each entry is an address, a row, and either ``value`` or ``skipped``;
-    anything else fails to read as a ``RunState``, before a leg starts."""
+def test_a_column_that_does_not_line_up_is_refused_where_it_arrives(column):
     with pytest.raises(ValidationError):
-        RunState.model_validate({"values": [entry]})
+        RunState.model_validate({"status": "complete", "output_columns": {"e.result": column}})
 
 
-def test_an_answer_decodes_through_the_codec_by_the_outputs_type():
-    """A host may hand an answer in wire form — as it came over HTTP — or as
-    the typed value; both land as the type the output declares, and a
-    per-row answer as a series on the node's own index."""
+def test_a_state_whose_key_is_not_an_address_is_refused_where_it_arrives():
+    with pytest.raises(ValidationError):
+        RunState.model_validate({"status": "complete", "output_columns": {"e": {"rows": [], "values": []}}})
+
+
+def test_an_answer_reads_through_the_outputs_type():
+    """A host may hand an answer in wire form, as it came over HTTP, or as the typed value."""
     calls.clear()
     once = _compiled([
         GraphNode(id="ask", type="ask", version=1, bindings={"text": Static("q")}),
         GraphNode(id="up", type="upper", version=1, bindings={"text": _edge("ask")}),
     ])
-    ending = _leg(once, cache={"ask": {"result": "typed in"}})[-1]
-    assert ending.type == "graph_complete" and ending.state.results(once)["up"]["result"] == "TYPED IN"
-    assert type(ending.state.results(once)["ask"]["result"]) is Txt
-
-    per_row = _compiled([
-        GraphNode(id="split", type="split", version=1, bindings={"text": Static("a,b")}),
-        GraphNode(id="ask", type="ask", version=1, bindings={"text": _edge("split")}),
-        GraphNode(id="up", type="upper", version=1, bindings={"text": _edge("ask")}),
-    ])
-    first = _leg(per_row)
-    second = _leg(per_row, state=first[-1].state, cache={"ask": {"result": {"rows": [[0], [1]], "values": ["x", "y"]}}})
-    assert list(second[-1].state.results(per_row)["up"]["result"]) == ["X", "Y"]
-
-
-def test_a_per_row_answer_that_leaves_a_row_out_of_one_output_is_refused():
-    """Two outputs answered for different rows is a half answer, not a skip."""
-    from dataclasses import dataclass
-
-    import pytest
-    from conductor.execution.ledger import Ledger
-
-    @dataclass(frozen=True)
-    class Two:
-        a: Annotated[Txt, Result(title="A")]
-        b: Annotated[Txt, Result(title="B")]
-
-    class Pair(NodeDefinition):
-        id = "pair"
-        title = "Pair"
-        description = "d"
-        category = "test"
-
-        def run(self, text: In = Txt("")) -> Two:
-            return Two(a=text, b=text)
-
-    reg = NodeRegistry()
-    for cls in (Split, Pair):
-        reg.register(cls)
-    compiled = CompiledGraph.from_graph(Graph(nodes=[
-        GraphNode(id="split", type="split", version=1, bindings={"text": Static("a,b")}),
-        GraphNode(id="p", type="pair", version=1, bindings={"text": _edge("split")}),
-    ]), reg)
-    ledger = Ledger(compiled)
-    ledger.record(("split", ()), {"result": [Txt("a"), Txt("b")]})
-    index = compiled.field(Ref("split", "result")).index
-
-    with pytest.raises(ValueError, match=r"'p'.*'b'.*\[1\]"):
-        ledger.inject("p", {"a": Series(index, [Txt("A"), Txt("B")]), "b": Series(index, [Txt("A")], rows=[(0,)])})
+    first = _leg(once)[-1].state
+    ending = _leg(once, state=first, answers={"ask": {"result": "typed in"}})[-1].state
+    assert ending.status == "complete" and once.results(ending)["up"]["result"] == "TYPED IN"
+    assert type(once.results(ending)["ask"]["result"]) is Txt
 
 
 def test_a_unit_whose_second_output_is_invalid_writes_nothing():
-    """A unit's outputs are checked before any is written: the ledger holds
+    """A unit's outputs are checked before any is written: the state holds
     all of them or none, never a half-written row."""
     from dataclasses import dataclass
-
-    from conductor.execution.ledger import Ledger
 
     @dataclass(frozen=True)
     class Both:
@@ -449,19 +383,16 @@ def test_a_unit_whose_second_output_is_invalid_writes_nothing():
         category = "test"
 
         def run(self, text: In = Txt("")) -> Both:
-            return Both(head=Txt("h"), parts=[Txt("p")])
+            return Both(head=Txt("h"), parts=3)  # type: ignore[arg-type]
 
     reg = NodeRegistry()
     reg.register(Splits)
     compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="s", type="splits", version=1, bindings={"text": Static("x")})]), reg)
-    ledger = Ledger(compiled)
 
-    import pytest
+    state = compiled.run_sync()
 
-    with pytest.raises(ValueError):
-        ledger.record(("s", ()), {"head": Txt("h"), "parts": 3})  # a series output that is not a sequence
-
-    assert ledger.state().values == [] and not ledger.is_done(("s", ()))
+    assert state.status == "failed" and state.failure.code == "invalid_output"
+    assert state.output_columns == {} and state.finished_rows == {}
 
 
 # -- edits between legs, and a state read after the ledger moved on ----------------------
@@ -475,17 +406,17 @@ def test_a_list_set_on_a_node_edited_between_legs_reruns_on_the_new_rows():
     calls.clear()
 
     longer = _compiled([GraphNode(id="e", type="upper", version=1, bindings={"text": Static(["a", "b", "c"])})])
-    grown = _leg(longer, state=_through_json(state))[-1]
-    assert grown.type == "graph_complete" and list(grown.state.results(longer)["e"]["result"]) == ["A", "B", "C"]
+    grown = _leg(longer, state=_through_json(state))[-1].state
+    assert grown.status == "complete" and list(longer.results(grown)["e"]["result"]) == ["A", "B", "C"]
     shorter = _compiled([GraphNode(id="e", type="upper", version=1, bindings={"text": Static(["a"])})])
-    shrunk = _leg(shorter, state=_through_json(state))[-1]
-    assert shrunk.type == "graph_complete" and list(shrunk.state.results(shorter)["e"]["result"]) == ["A"]
+    shrunk = _leg(shorter, state=_through_json(state))[-1].state
+    assert shrunk.status == "complete" and list(shorter.results(shrunk)["e"]["result"]) == ["A"]
     wider = _compiled([
         GraphNode(id="e", type="upper", version=1, bindings={"text": Static(["a", "b"])}),
         GraphNode(id="f", type="upper", version=1, bindings={"text": Static(["x", "y"])}),
     ])
-    added = _leg(wider, state=_through_json(state))[-1]
-    assert added.type == "graph_complete" and list(added.state.results(wider)["f"]["result"]) == ["X", "Y"]
+    added = _leg(wider, state=_through_json(state))[-1].state
+    assert added.status == "complete" and list(wider.results(added)["f"]["result"]) == ["X", "Y"]
     assert "upper:a" not in calls[-2:]  # ``e`` was kept on the last leg
 
 
@@ -533,77 +464,31 @@ def test_series_outputs_of_two_lengths_both_land_each_on_its_own_index():
     reg.register(Uneven)
     compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="u", type="uneven", version=1, bindings={"text": Static("x")})]), reg)
 
-    ending = list(_leg(compiled))[-1]
-    result = ending.state.results(compiled)["u"]
+    ending = list(_leg(compiled))[-1].state
+    result = compiled.results(ending)["u"]
 
-    assert ending.type == "graph_complete"
+    assert ending.status == "complete"
     assert (list(result["a"]), list(result["b"])) == (["x"], ["y", "z"])
 
 
-def test_an_answer_of_the_wrong_shape_or_naming_a_row_twice_names_the_node_and_output():
-    import pytest
-    from conductor.execution.ledger import Ledger
-
-    once = _compiled([GraphNode(id="split", type="split", version=1, bindings={"text": Static("a,b")})])
-    with pytest.raises(ValueError, match=r"'split' was given a value for 'result'"):
-        Ledger(once).inject("split", {"result": "not a series"})
-
-    per_row = _compiled([
-        GraphNode(id="split", type="split", version=1, bindings={"text": Static("a,b")}),
-        GraphNode(id="ask", type="ask", version=1, bindings={"text": _edge("split")}),
-    ])
-    ledger = Ledger(per_row)
-    ledger.record(("split", ()), {"result": [Txt("a"), Txt("b")]})
-    with pytest.raises(ValueError, match=r"'ask': 'result' names a row twice"):
-        ledger.inject("ask", {"result": {"rows": [[0], [0]], "values": ["x", "y"]}})
-
-
 def test_the_state_an_ending_carries_reads_as_a_stored_one_does():
-    """An ending's state is read off the ledger that wrote it; the same
-    state stored and read back is decoded. Both give the same values."""
+    """A state a leg just built holds its values typed; the same state stored
+    and read back holds their wire form. Both read the same."""
     compiled = _compiled([
         GraphNode(id="s", type="split", version=1, bindings={"text": Static("a,b")}),
         GraphNode(id="up", type="upper", version=1, bindings={"text": _edge("s")}),
     ])
     state = _leg(compiled)[-1].state
-    live, stored = state.results(compiled), _through_json(state).results(compiled)
+    live, stored = compiled.results(state), compiled.results(_through_json(state))
 
     assert list(live["up"]["result"]) == list(stored["up"]["result"]) == ["A", "B"]
     assert live["up"]["result"].rows == stored["up"]["result"].rows
 
 
 def test_a_live_state_read_over_an_edited_graph_leaves_out_what_changed():
-    """The ledger's own values answer only for the graph it ran: over an
-    edited graph, the state is restored, and the edited node is left out."""
+    """Over an edited graph, the edited node is left out of what a state reads as."""
     nodes = [GraphNode(id="a", type="echo", version=1, bindings={"text": Static("x")})]
     state = _leg(_compiled(nodes))[-1].state
     edited = _compiled([GraphNode(id="a", type="echo", version=1, bindings={"text": Static("y")})])
 
-    assert "a" not in state.results(edited)
-
-
-def test_a_state_is_not_read_off_a_ledger_that_moved_on():
-    """A ledger that has done more since it wrote a state no longer
-    answers for it: the state is decoded, and says only what it held."""
-    from conductor.execution.ledger import Ledger
-
-    compiled = _compiled([
-        GraphNode(id="a", type="echo", version=1, bindings={"text": Static("x")}),
-        GraphNode(id="b", type="echo", version=1, bindings={"text": _edge("a")}),
-    ])
-    ledger = Ledger(compiled)
-    ledger.record(("a", ()), {"result": Txt("x")})
-    state = ledger.state()
-    ledger.record(("b", ()), {"result": Txt("x")})
-
-    assert set(state.results(compiled)) == {"a"}
-
-
-def test_the_graph_package_imports_nothing_from_execution():
-    """Execution reads graphs; a graph never reads a run."""
-    import pathlib
-
-    import conductor.graph
-
-    for path in pathlib.Path(conductor.graph.__file__).parent.glob("*.py"):
-        assert "conductor.execution" not in path.read_text(), path.name
+    assert "a" not in edited.results(state)

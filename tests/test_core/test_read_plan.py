@@ -5,7 +5,6 @@ from typing import Annotated
 
 from conductor import NodeRegistry
 from conductor.dtype import DType
-from conductor.execution.ledger import Ledger
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph, GraphNode
@@ -125,8 +124,6 @@ def test_downstream_is_every_node_a_value_reaches():
         GraphNode(id="d", type="upper", version=1),
     )
 
-    ledger = Ledger(compiled)
-
-    assert ledger._downstream(["a"]) == {"b", "c"}
-    assert ledger._downstream(["d"]) == frozenset()
-    assert ledger._downstream(["b", "d"]) == {"c"}
+    assert compiled._readers_of(["a"]) == {"b", "c"}
+    assert compiled._readers_of(["d"]) == set()
+    assert compiled._readers_of(["b", "d"]) == {"c"}

@@ -10,7 +10,7 @@ compile did.
 from typing import Annotated
 
 import pytest
-from conductor import NodeRegistry, run_sync
+from conductor import NodeRegistry
 from conductor.dtype import DType, Single
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
@@ -307,5 +307,5 @@ def test_a_closed_list_input_runs_once_with_its_list_and_with_its_default():
     typed = _compiled([GraphNode(id="t", type="tags", version=1, bindings={"tags": Static(["a", "b", "c"])})])
     defaulted = _compiled([GraphNode(id="t", type="tags", version=1)])
 
-    assert run_sync(typed).state.results(typed)["t"]["result"] == "a|b|c"
-    assert run_sync(defaulted).state.results(defaulted)["t"]["result"] == "x"
+    assert typed.results(typed.run_sync())["t"]["result"] == "a|b|c"
+    assert defaulted.results(defaulted.run_sync())["t"]["result"] == "x"

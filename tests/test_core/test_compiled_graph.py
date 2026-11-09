@@ -760,7 +760,6 @@ def test_a_compiled_node_validates_a_call_and_hands_back_its_keyword_arguments()
 def test_a_default_reaches_the_node_as_its_input_s_type():
     """A default is a value of its input like any other: ``n: Num = 3``
     with nothing bound reaches ``run`` as a ``Num``, not a bare ``int``."""
-    from conductor import run_sync
 
     seen = []
 
@@ -777,7 +776,7 @@ def test_a_default_reaches_the_node_as_its_input_s_type():
     compiled = _compiled([GraphNode(id="c", type="counted", version=1)], NodeRegistry(nodes=(Counted,)))
 
     assert isinstance(compiled.node("c").validate({})["n"], Num)
-    assert run_sync(compiled).type == "graph_complete"
+    assert compiled.run_sync().status == "complete"
     assert [type(n) for n in seen] == [Num] and seen == [3.0]
 
 

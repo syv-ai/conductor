@@ -11,7 +11,7 @@ Scenarios covered:
    count and a value propagates end-to-end.
 2. **Cancel mid-retry.** Setting the ``cancel`` event while a node is
    asleep between retry attempts honours the cancel: no further attempt
-   runs and ``graph_cancelled`` is emitted.
+   runs and the leg is emitted.
 """
 
 from __future__ import annotations
@@ -21,15 +21,15 @@ import time
 from typing import Annotated
 
 import pytest
-from conductor import CompiledGraph, GraphNode, NodeRegistry, Param, run_sync
+from conductor import CompiledGraph, GraphNode, NodeRegistry, Param
 from conductor.errors import ExternalFailure
-from conductor.execution.engine import execute
 from conductor.graph.binding import From, Static
 from conductor.graph.model import Graph
 from conductor.metadata import Result
 from conductor.node import NodeDefinition, Policy, version
 from conductor.widgets import Textarea
 from conductor_nodes.types import Text
+from helpers import stream_of
 
 Out = Annotated[Text, Result(title="Output")]
 
@@ -78,7 +78,7 @@ def test_500_node_linear_chain_compile_and_execute() -> None:
     )
 
     t0 = time.monotonic()
-    results = run_sync(compiled, timeout=120).state.results(compiled)
+    results = compiled.results(compiled.run_sync(timeout=120))
     elapsed = time.monotonic() - t0
     assert elapsed < 60.0, (
         f"execution took {elapsed:.2f}s; expected <60s"
@@ -97,7 +97,7 @@ async def test_cancellation_honored_during_retry_sleep() -> None:
     the engine spends most of its time in ``await asyncio.sleep(delay)``
     between attempts. Once a ``node_retry`` event has been observed, the
     ``cancel`` event handed to ``execute`` is set. The engine's main loop polls cancellation
-    every 500ms, so within ~1s ``graph_cancelled`` follows and no further
+    every 500ms, so within ~1s the leg follows and no further
     attempt runs.
     """
     call_count = 0
@@ -127,7 +127,7 @@ async def test_cancellation_honored_during_retry_sleep() -> None:
     first_retry_seen = asyncio.Event()
 
     async def consume() -> None:
-        async for ev in execute(compiled, timeout=60, cancel=cancel):
+        async for ev in stream_of(compiled, timeout=60, cancel=cancel):
             events.append(ev)
             if ev.type == "node_retry" and not first_retry_seen.is_set():
                 first_retry_seen.set()
@@ -163,12 +163,12 @@ async def test_cancellation_honored_during_retry_sleep() -> None:
     assert "node_retry" in event_types, (
         f"expected at least one node_retry before cancel; got {event_types}"
     )
-    assert "graph_cancelled" in event_types, (
-        f"expected graph_cancelled; got {event_types}"
+    assert events[-1].state.status == "cancelled", (
+        f"expected a cancelled end; got {event_types}"
     )
-    # ``graph_cancelled`` comes *after* at least one ``node_retry`` —
+    # The end comes *after* at least one ``node_retry`` —
     # cancellation interrupted the retry sleep, not the first attempt.
-    cancel_idx = event_types.index("graph_cancelled")
+    cancel_idx = event_types.index("run_end")
     retry_idx = event_types.index("node_retry")
     assert retry_idx < cancel_idx, (
         f"expected retry before cancel in {event_types}"

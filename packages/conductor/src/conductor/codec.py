@@ -3,7 +3,7 @@
 A value lives in memory as its type — a ``Text`` is a ``str`` subclass, a
 ``Series[X]`` an object with an index and rows, a host's file a name and
 bytes. Whenever such a value crosses into JSON and back — the state of
-a run, a cached answer a host hands in, a result a host stores
+a run, an answer a host hands in, a result a host stores
 — this module is the one crossing, and the declared type decides the
 form: ``to_wire(value, dtype)`` writes it, ``from_wire(data, dtype)``
 reads it back as the same type. Nothing else in the library turns a
@@ -19,9 +19,8 @@ through the element type — because a series is the engine's own idea:
 ``Series`` points its pydantic schema at ``series_to_wire`` and
 ``series_from_wire`` here, so both directions live in one place.
 
-What this is not: the skip marker. A skip has no type to cross by; the
-ledger writes ``{"skipped": <depth>}`` beside the value's address
-instead of a value, and reads it back as ``SKIPPED``.
+What this is not: the skip marker. A skip has no type to cross by; a run's
+state lists the rows skipped beside the values, instead of a value.
 """
 
 from __future__ import annotations
@@ -30,7 +29,7 @@ from collections.abc import Callable, Mapping, Sequence
 from functools import cache
 from typing import Any
 
-from pydantic import TypeAdapter
+from pydantic import PydanticUserError, TypeAdapter
 from pydantic_core import to_jsonable_python
 
 from conductor.series import Index, Series
@@ -57,6 +56,59 @@ def from_wire(data: Any, dtype: Any) -> Any:
     if dtype is Any:
         return data
     return _adapter(dtype).validate_python(data)
+
+
+def reader_of(dtype: Any) -> Callable[[Any], Any]:
+    """The one check a value of ``dtype`` passes to enter a run's state.
+
+    A node's return, a person's answer and a stored value all go through it.
+    What it takes is the value or its JSON form; what comes back is an instance
+    of ``dtype``. A value that already is one passes untouched, so a typed
+    value costs one comparison however often it is read. It raises pydantic's
+    ``ValidationError``. A type whose validator hands back something other than
+    the type is a bug in the type, and a ``TypeError`` naming it.
+    """
+    if dtype is Any:
+        return _unchanged
+    validate = _adapter(dtype).validate_python
+
+    def read(value: Any) -> Any:
+        if type(value) is dtype:
+            return value
+        made = validate(value)
+        if not isinstance(made, dtype):
+            raise TypeError(f"{dtype.__name__} read a {type(value).__name__} as a {type(made).__name__}; a type's validator must return the type")
+        return made
+
+    return read
+
+
+def _unchanged(value: Any) -> Any:
+    return value
+
+
+def values_to_wire(values: list[Any]) -> list[Any]:
+    """Each value as JSON-ready data, written by its own type. Values all of
+    one type, the usual case, are written through one adapter in one call."""
+    kinds = {type(value) for value in values}
+    if len(kinds) == 1:
+        return _adapter(list[kinds.pop()]).dump_python(values, mode="json", fallback=_by_own_type)  # type: ignore[misc]
+    return [to_wire(value, type(value)) for value in values]
+
+
+def json_schema_of(dtype: Any) -> dict[str, Any]:
+    """The JSON schema of what a person may send for one value of ``dtype``:
+    the type's own, the elements' as an array for a series, ``{}`` when a type
+    publishes none."""
+    element = getattr(dtype, "element", None)
+    if element is not None:
+        return {"type": "array", "items": json_schema_of(element)}
+    if dtype is Any:
+        return {}
+    try:
+        return _adapter(dtype).json_schema()
+    except PydanticUserError:
+        return {}
 
 
 def _by_own_type(value: Any) -> Any:

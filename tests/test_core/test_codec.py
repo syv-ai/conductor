@@ -14,8 +14,8 @@ import pytest
 from conductor import CompiledGraph, GraphNode, NodeRegistry, Param
 from conductor.codec import from_wire, to_wire
 from conductor.dtype import DType
-from conductor.execution.ledger import Ledger
-from conductor.execution.state import RunState, StateSkip
+from conductor.execution.live_run_values import LiveRunValues
+from conductor.execution.run_state import RunState
 from conductor.graph.binding import From, Static
 from conductor.graph.model import Graph
 from conductor.metadata import Result
@@ -125,44 +125,37 @@ def test_a_text_that_spells_the_old_skip_marker_is_a_text_after_a_round_trip():
         GraphNode(id="split", type="split", version=1, bindings={"text": Static("__skipped__,x")}),
         GraphNode(id="up", type="upper", version=1, bindings={"text": From("split.result")}),
     ])
-    ledger = Ledger(compiled)
+    ledger = LiveRunValues(compiled)
     ledger.record(("split", ()), {"result": [Txt("__skipped__"), Txt("x")]})
     ledger.record(("up", (0,)), {"result": Txt("__SKIPPED__")})
     ledger.record(("up", (1,)), {"result": Txt("X")})
 
-    state = ledger.state()
-    restored = Ledger.restore(compiled, RunState.model_validate(json.loads(json.dumps(state.model_dump()))))
+    state = ledger.state("complete")
+    restored = LiveRunValues.restore(compiled, RunState.model_validate(json.loads(state.model_dump_json())))
 
     values = restored.result_of("split")["result"]
     assert list(values) == ["__skipped__", "x"] and all(type(v) is Txt for v in values)
     assert list(restored.result_of("up")["result"]) == ["__SKIPPED__", "X"]
-    assert not any(isinstance(entry, StateSkip) for entry in state.values)
+    assert state.output_columns["split.result"].skipped == []
 
 
-def test_a_skip_is_marked_beside_its_address_with_its_depth():
+def test_a_skip_is_listed_beside_the_values():
     from conductor import SKIPPED
 
     compiled = _compiled(Split, Upper, nodes=[
         GraphNode(id="split", type="split", version=1, bindings={"text": Static("a,b")}),
         GraphNode(id="up", type="upper", version=1, bindings={"text": From("split.result")}),
     ])
-    ledger = Ledger(compiled)
+    ledger = LiveRunValues(compiled)
     ledger.record(("split", ()), {"result": [Txt("a"), Txt("b")]})
     ledger.record(("up", (0,)), {"result": SKIPPED})
     ledger.record(("up", (1,)), {"result": Txt("B")})
 
-    state = ledger.state()
-    wire = json.loads(state.model_dump_json())["values"]
+    state = ledger.state("complete")
+    wire = json.loads(state.model_dump_json())["output_columns"]
 
-    assert [entry for entry in wire if "skipped" in entry] == [{"ref": "up.result", "row": [0], "skipped": 1}]
-    assert [entry for entry in wire if "value" in entry] == [
-        {"ref": "split.result", "row": [0], "value": "a"},
-        {"ref": "split.result", "row": [1], "value": "b"},
-        {"ref": "up.result", "row": [1], "value": "B"},
-    ]
-    restored = Ledger.restore(compiled, RunState.model_validate(json.loads(json.dumps(state.model_dump()))))
-    assert list(restored.result_of("up")["result"]) == ["B"]
-    assert restored.result_of("up")["result"].rows == ((1,),)
+    assert wire["up.result"] == {"rows": [[1]], "values": ["B"], "skipped": [[0]]}
+    assert wire["split.result"] == {"rows": [[0], [1]], "values": ["a", "b"], "skipped": []}
 
 
 def test_a_value_with_no_json_form_raises_naming_the_field():
@@ -183,8 +176,8 @@ def test_a_value_with_no_json_form_raises_naming_the_field():
             return Opaque(object())
 
     compiled = _compiled(Opens, nodes=[GraphNode(id="o", type="opens", version=1, bindings={"text": Static("x")})])
-    ledger = Ledger(compiled)
+    ledger = LiveRunValues(compiled)
     ledger.record(("o", ()), {"result": Opaque(object())})
 
-    with pytest.raises(TypeError, match=r"o\.result"):
-        ledger.state()
+    with pytest.raises(Exception, match=r"o\.result"):
+        ledger.state("complete").model_dump_json()

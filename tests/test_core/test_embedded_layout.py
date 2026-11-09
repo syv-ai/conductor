@@ -4,7 +4,7 @@ from collections.abc import Mapping
 from typing import Annotated, Any
 
 import pytest
-from conductor import NodeRegistry, run_sync
+from conductor import NodeRegistry
 from conductor.dtype import DType
 from conductor.errors import NodeKindError, NodeWiringError
 from conductor.graph.binding import From, Static
@@ -216,7 +216,7 @@ def test_a_field_name_with_a_dot_beside_an_embedded_graph_is_a_plain_field():
     assert compiled.is_runnable, compiled.problems
     assert compiled.field(Ref("sheet", "excl. VAT")).type is Txt
     assert compiled.field(Ref("emb/holder", "value")).binding == From(Ref("sheet", "excl. VAT"))
-    assert run_sync(compiled).state.results(compiled)["after"]["result"] == "NET"
+    assert compiled.results(compiled.run_sync())["after"]["result"] == "NET"
 
 
 def test_a_broken_edge_into_a_graph_node_is_the_graph_nodes_own_problem():

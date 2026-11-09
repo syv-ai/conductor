@@ -12,6 +12,7 @@ belonged to which failure.
     ├── CompilationError        a caller asked for something compile's problems rule out
     │   ├── NodeResolutionError     read off a node compile could not resolve
     │   └── NodeWiringError         read what the connections decide off a node whose wiring failed
+    ├── InvalidCallError        a verb on a compiled graph was given what it cannot act on
     ├── NodeKindError           a caller read off a compiled node what a node of its kind does not have
     ├── NodeError               one node failed; carries node_id and a cause. Internal: never retried
     │   ├── ExternalFailure         the outside world failed; the one family the engine retries
@@ -35,17 +36,16 @@ text of a foreign exception is on the wrapping error's ``original`` for a
 log and never in a cause, because a host streams causes to a browser.
 
 A pause is not an error and nothing raises for one: a node returns
-``Asks`` (the value that says a person must answer before the graph can
-continue) and the leg ends pending — a leg being one call of ``execute``;
-a run takes several when a person must answer in between. Nor is a leg
-that ends in error an exception: ``run`` returns the ending event, and
-the caller reads its ``type``.
+``AskPerson`` and the leg ends with the status ``waiting``. Nor is a leg that
+ends in error an exception: ``run`` returns its ``RunState``, whose ``status``
+and ``failure`` say so. Asking for what the run cannot give is the caller's
+fault, and raises ``InvalidCallError`` from the call that asked.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any
+from collections.abc import Mapping, Sequence
+from typing import TYPE_CHECKING, Any, TypedDict
 
 from pydantic import Field
 
@@ -77,26 +77,35 @@ class Refuses(ConductorError):
         super().__init__(message)
 
 
-class StartRefused(ConductorError, ValueError):
-    """A run cannot start from what its caller handed it: a ``cache`` or a ``state`` that does not fit the graph.
+class InvalidCallDetail(TypedDict):
+    """One fault of a refused call, in pydantic's shape: a stable ``type`` a host
+    translates, the ``loc`` it is about, ``msg`` for a person, ``ctx`` for detail.
+    A graph that cannot run gives one per fatal compile ``Problem``, its code as ``type``."""
 
-    Raised by the ledger while it seeds a leg — an answer for a node the
-    graph does not have, an output left out or not declared, a value that
-    is not its output's type, a row the run has not produced, or a value in
-    a state that does not read back as its field's type. The caller's
-    fault rather than the engine's, so a provider answers it as a 422; a
-    ``ValueError`` too, so a host's ``except ValueError`` catches it.
+    type: str
+    loc: tuple[str | int, ...]
+    msg: str
+    ctx: dict[str, Any]
+
+
+class InvalidCallError(ConductorError, ValueError):
+    """A verb on a compiled graph was given what it cannot act on; nothing happened.
+
+    Raised by ``run``, ``stream``, ``answer``, ``outputs``, ``results`` and
+    ``with_inputs`` from the call that caused it, before anything runs, and
+    listing every fault at once. The state the caller holds is untouched. A provider answers it as a
+    422 with ``errors()`` as the detail; a host translates by each ``type``,
+    every one in ``INVALID_CALL_CODES`` or a compile ``Problem``'s code. A
+    ``ValueError`` too, as pydantic's error is.
     """
 
+    def __init__(self, details: Sequence[InvalidCallDetail]) -> None:
+        self._details = list(details)
+        super().__init__("\n".join([f"{len(self._details)} refused:", *(f"  {'.'.join(str(at) for at in d['loc'])} — {d['type']}: {d['msg']}" for d in self._details)]))
 
-class InputNotOffered(ConductorError, TypeError):
-    """``with_inputs`` was given a name the graph does not offer as an input.
-
-    Unknown, locked, fed by an edge, or a bare field name that several
-    inputs share; the message lists the names the graph does offer. The
-    caller's mistake in naming an argument, so a ``TypeError`` too, the way
-    Python refuses an unexpected keyword.
-    """
+    def errors(self) -> list[InvalidCallDetail]:
+        """Every fault, in the order the call met them."""
+        return list(self._details)
 
 
 class CompilationError(ConductorError):
@@ -105,9 +114,7 @@ class CompilationError(ConductorError):
     Compile itself never raises; what is wrong with a graph is data on the
     ``CompiledGraph``, as ``Problem`` values. This is raised later, when a
     caller asks for something those problems rule out, and ``problems``
-    carries the ones that say why. ``execute`` raises it directly when a
-    caller ignored ``is_runnable``, with every problem of the graph
-    attached. Its two subclasses are raised when a caller reads one broken
+    carries the ones that say why. Its two subclasses are raised when a caller reads one broken
     node: ``NodeResolutionError`` and ``NodeWiringError``, each carrying
     the one problem behind that node's state.
     """
@@ -197,7 +204,22 @@ CODES: frozenset[str] = frozenset({
     "invalid_input",
     "invalid_output",
     "row_covered_twice",
+    "run_cancelled",
+    "run_timed_out",
     "timeout",
+})
+
+#: Every ``type`` a ``InvalidCallError`` carries of its own, beside a compile
+#: ``Problem``'s code for a graph that cannot run.
+INVALID_CALL_CODES: frozenset[str] = frozenset({
+    "choice_unanswered",
+    "invalid_value",
+    "missing",
+    "not_asked",
+    "not_offered",
+    "not_waiting",
+    "run_not_complete",
+    "state_unreadable",
 })
 
 #: What a person reads for each cause the engine writes on its own, by
@@ -205,13 +227,15 @@ CODES: frozenset[str] = frozenset({
 #: the same at every site, and a host translating by code sees the English
 #: it replaces. ``failed`` is not here: it is a ``NodeError`` the node raised
 #: without a cause, and its message is the node's own. ``row_covered_twice``
-#: is the ledger's and carries the rows in its text.
+#: is the run values' and carries the rows in its text.
 MESSAGES: dict[str, str] = {
     "engine_error": "An error in the engine stopped the run.",
     "execution_failed": "The node failed.",
     "external_failed": "An outside service did not answer.",
     "invalid_input": "The node received a value it cannot use.",
     "invalid_output": "The node returned a value that is not what it declared.",
+    "run_cancelled": "The run was cancelled.",
+    "run_timed_out": "The run took too long and was stopped.",
     "timeout": "The node did not answer in time.",
 }
 
@@ -220,7 +244,7 @@ class ErrorCause(ConductorModel):
     """Why a node failed, in a shape a caller can act on.
 
     Created by the engine where the failure is known and carried two ways:
-    on the ``NodeError`` and on the ``node_error`` / ``graph_error`` events.
+    on the ``NodeError`` and on the ``node_failed`` event and ``RunState.failure``.
     A host reads it to decide what to say and serialises it at its own
     edge. ``Problem`` is the compile-time counterpart: that one is about a
     graph that cannot run, this one about a run that went wrong::
@@ -230,7 +254,8 @@ class ErrorCause(ConductorModel):
 
     ``code`` is stable and what a frontend keys on; ``message`` is for a
     person; ``details`` is whatever else the failure knows — a retry delay,
-    a rejected field, an upstream request id; ``row`` is the row a node
+    a rejected field, an upstream request id; ``node_id`` the node, when a
+    node caused it; ``row`` is the row a node
     running once per row was on when it failed, as a path of positions:
     ``(2,)`` for the third row, ``(2, 0)`` for the first row nested under
     that one, and the empty row ``()`` for a node that runs once.
@@ -240,6 +265,7 @@ class ErrorCause(ConductorModel):
     message: str
     details: Mapping[str, Any] = Field(default_factory=dict)
     row: Row = ()
+    node_id: str | None = None
 
 
 class NodeError(ConductorError):

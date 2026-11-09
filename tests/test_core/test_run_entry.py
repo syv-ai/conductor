@@ -14,9 +14,8 @@ import textwrap
 from importlib.resources import files
 from typing import Annotated
 
-import conductor
 import pytest
-from conductor import CompiledGraph, GraphNode, NodeRegistry, Param, Result, run, run_sync
+from conductor import CompiledGraph, GraphNode, NodeRegistry, Param, Result
 from conductor.dtype import DType
 from conductor.graph.binding import Static
 from conductor.graph.model import Graph
@@ -51,16 +50,16 @@ def _compiled() -> CompiledGraph:
 
 def test_run_sync_returns_the_ending():
     compiled = _compiled()
-    ending = run_sync(compiled)
+    ending = compiled.run_sync()
 
-    assert ending.type == "graph_complete"
-    assert ending.state.results(compiled)["u"]["result"] == "HI"
+    assert ending.status == "complete"
+    assert compiled.results(ending)["u"]["result"] == "HI"
 
 
 def test_run_sync_inside_a_loop_refuses_naming_await_run():
     async def inside() -> None:
-        with pytest.raises(RuntimeError, match=r"await conductor\.run\("):
-            run_sync(_compiled())
+        with pytest.raises(RuntimeError, match=r"await compiled\.run\("):
+            _compiled().run_sync()
 
     asyncio.run(inside())
 
@@ -69,16 +68,9 @@ def test_run_returns_the_same_ending_under_a_loop():
     compiled = _compiled()
 
     async def inside() -> dict:
-        return await run(compiled)
+        return await compiled.run()
 
-    assert asyncio.run(inside()).state.results(compiled)["u"]["result"] == "HI"
-
-
-def test_the_three_are_root_exports_and_the_old_names_are_gone():
-    import conductor.execution.engine as engine
-
-    assert conductor.execute is engine.execute and conductor.run is engine.run and conductor.run_sync is engine.run_sync
-    assert not any(name in dir(engine) for name in ("coll" + "ect", "execute_" + "sync"))
+    assert compiled.results(asyncio.run(inside()))["u"]["result"] == "HI"
 
 
 def _quick_start() -> str:

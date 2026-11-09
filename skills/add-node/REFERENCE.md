@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Annotated, Any
 
-from conductor import Asks, deprecated, ExternalFailure, FromRun, Input, NodeDefinition, Output, Param, Policy, Refuses, Result, Series, SKIPPED, upgrade, version
+from conductor import AskPerson, deprecated, ExternalFailure, FromRun, Input, NodeDefinition, Output, Param, Policy, Refuses, Result, Series, SKIPPED, upgrade, version
 from conductor.widgets import Switch, Textarea, TextWidget
 from conductor_nodes.types import Flag, Text
 
@@ -49,9 +49,9 @@ class Approve(NodeDefinition):
     description = "Asks a person to approve or rewrite the proposal."
     category = "review"
 
-    def run(self, proposal: Annotated[Text, Param(title="Proposal", widget=Textarea())], who: Annotated[Caller, FromRun()]) -> Annotated[Text, Result(title="Decision")] | Asks:
-        # a question is an Input named after the output it fills
-        return Asks(questions=(Input(name="result", dtype=Text, title="Decision", widget=Textarea(), default=proposal),), prompt=f"{who.name}, approve?")
+    def run(self, proposal: Annotated[Text, Param(title="Proposal", widget=Textarea())], who: Annotated[Caller, FromRun()]) -> Annotated[Text, Result(title="Decision")] | AskPerson:
+        # what is asked is the declared output; a default proposes an answer
+        return AskPerson(prompt=f"{who.name}, approve?", defaults={"result": proposal}, widgets={"result": Textarea()})
 
 
 class Fetch(NodeDefinition):

@@ -154,16 +154,15 @@ def test_a_registry_prints_a_call_its_constructor_accepts():
 
 def test_a_compilation_error_lists_its_fatal_problems():
     """The message lists the problems, not only 'the graph cannot run'."""
-    from conductor import run_sync
-    from conductor.errors import CompilationError
+    from conductor import InvalidCallError
 
     compiled = _compiled(GraphNode(id="s", type="scale", version=1, bindings={"facter": Static("3")}))
-    with pytest.raises(CompilationError) as raised:
-        run_sync(compiled)
+    with pytest.raises(InvalidCallError) as raised:
+        compiled.run_sync()
 
     assert str(raised.value) == (
-        "the graph cannot run:\n"
-        "  s.facter — stale_binding: Field 'facter' is not an input of the node; it has factor, value."
+        "1 refused:\n"
+        "  graph.s.facter — stale_binding: Field 'facter' is not an input of the node; it has factor, value."
     )
 
 
@@ -214,7 +213,6 @@ def test_a_parameter_named_like_a_pydantic_model_attribute_validates_without_a_w
     any of them, without a warning."""
     import warnings
 
-    from conductor import run_sync
 
     node = _declare(run=_run({name: Annotated[Txt, Param(title="X", widget=Textarea())]}))
     registry = NodeRegistry(nodes=(node,))
@@ -222,7 +220,7 @@ def test_a_parameter_named_like_a_pydantic_model_attribute_validates_without_a_w
         warnings.simplefilter("error")
         compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n", type="bad", version=1, bindings={name: Static("x")})]), registry)
         assert compiled.node("n").validate({name: Txt("x")}) == {name: "x"}
-    assert run_sync(compiled).type == "graph_complete"
+    assert compiled.run_sync().status == "complete"
 
 
 def test_an_aliased_input_and_an_input_named_like_its_field_both_arrive():

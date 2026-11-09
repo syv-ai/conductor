@@ -30,7 +30,7 @@ from pathlib import Path
 from typing import Annotated, Any, ClassVar
 
 import pytest
-from conductor import NodeRegistry, run_sync
+from conductor import NodeRegistry
 from conductor._sentinel import SKIPPED
 from conductor.dtype import DType
 from conductor.errors import Refuses
@@ -563,7 +563,7 @@ def _results(compiled: CompiledGraph) -> dict[str, dict[str, str]]:
     """What a run produced, each value as its repr."""
     return {
         node_id: {name: repr(value) for name, value in outputs.items()}
-        for node_id, outputs in run_sync(compiled).state.results(compiled).items()
+        for node_id, outputs in compiled.results(compiled.run_sync()).items()
     }
 
 
@@ -711,7 +711,7 @@ def test_a_graph_run_per_row_sees_an_input_fed_whole_as_a_whole():
     ))
     compiled = CompiledGraph.from_graph(Graph(nodes=list(scenario.nodes)), _registry(scenario))
 
-    assert [str(value) for value in run_sync(compiled).state.results(compiled)["emb/j"]["result"]] == ["a+b", "a+b"]
+    assert [str(value) for value in compiled.results(compiled.run_sync())["emb/j"]["result"]] == ["a+b", "a+b"]
 
 
 def test_a_broken_graph_with_a_value_typed_on_it_is_one_problem():

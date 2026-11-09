@@ -11,12 +11,13 @@ from __future__ import annotations
 
 import conductor_nodes
 import pytest
-from conductor import CompiledGraph, GraphNode, NodeRegistry, run_sync
+from conductor import CompiledGraph, GraphNode, NodeRegistry
 from conductor._sentinel import SKIPPED
 from conductor.graph.binding import From, Static
 from conductor.graph.model import Graph
 from conductor_nodes.decision import Decision
 from conductor_nodes.types import Flag, Json, Text
+from helpers import stream_of
 
 
 @pytest.fixture
@@ -28,12 +29,12 @@ def full_registry() -> NodeRegistry:
 
 def _ending(reg: NodeRegistry, nodes):
     compiled = CompiledGraph.from_graph(Graph(nodes=nodes), reg)
-    return run_sync(compiled)
+    return compiled.run_sync()
 
 
 def _run(reg: NodeRegistry, nodes):
     compiled = CompiledGraph.from_graph(Graph(nodes=nodes), reg)
-    return run_sync(compiled).state.results(compiled)
+    return compiled.results(compiled.run_sync())
 
 
 class TestPackageSurface:
@@ -184,7 +185,7 @@ class TestMath:
             full_registry,
             [GraphNode(id="n", type="math-divide", version=1, bindings={"a": Static(1), "b": Static(0)})],
         )
-        assert ending.type == "graph_error"
+        assert ending.status == "failed"
 
     def test_modulo(self, full_registry):
         r = _run(
@@ -437,7 +438,6 @@ def test_a_catastrophic_pattern_answers_at_once():
     import asyncio
     import time
 
-    from conductor import execute
 
     graph = Graph(nodes=[GraphNode(id="m", type="regex-match", version=1, bindings={
         "text": Static("a" * 27 + "b"), "pattern": Static("(a+)+$"),
@@ -445,13 +445,13 @@ def test_a_catastrophic_pattern_answers_at_once():
     compiled = CompiledGraph.from_graph(graph, conductor_nodes.registry())
 
     async def events():
-        return [event async for event in execute(compiled)]
+        return [event async for event in stream_of(compiled)]
 
     started = time.monotonic()
     seen = asyncio.run(events())
     assert time.monotonic() - started < conductor_nodes.regex_ops.Match.timeout
     assert "node_start" in [e.type for e in seen]
-    assert seen[-1].state.results(compiled)["m"]["result"] == Flag(False)
+    assert compiled.results(seen[-1].state)["m"]["result"] == Flag(False)
 
 
 def test_a_pattern_that_times_out_fails_its_node_with_a_sentence_for_people(monkeypatch):
@@ -462,10 +462,10 @@ def test_a_pattern_that_times_out_fails_its_node_with_a_sentence_for_people(monk
 
     monkeypatch.setattr(regex, "search", too_slow)
     graph = Graph(nodes=[GraphNode(id="m", type="regex-match", version=1, bindings={"text": Static("x"), "pattern": Static("x")})])
-    ending = run_sync(CompiledGraph.from_graph(graph, conductor_nodes.registry()))
+    ending = CompiledGraph.from_graph(graph, conductor_nodes.registry()).run_sync()
 
-    assert ending.type == "graph_error"
-    assert (ending.cause.code, ending.error) == ("pattern_timeout", "The pattern took too long.")
+    assert ending.status == "failed"
+    assert (ending.failure.code, ending.failure.message) == ("pattern_timeout", "The pattern took too long.")
 
 
 def test_a_grouped_extract_that_times_out_fails_with_the_same_code(monkeypatch):
@@ -475,10 +475,10 @@ def test_a_grouped_extract_that_times_out_fails_with_the_same_code(monkeypatch):
     graph = Graph(nodes=[GraphNode(id="x", type="regex-extract", version=1, bindings={
         "text": Static("a" * 40), "pattern": Static("((?:(?:a|aa)+)+b)"),
     })])
-    ending = run_sync(CompiledGraph.from_graph(graph, conductor_nodes.registry()))
+    ending = CompiledGraph.from_graph(graph, conductor_nodes.registry()).run_sync()
 
-    assert ending.type == "graph_error"
-    assert ending.cause.code == "pattern_timeout"
+    assert ending.status == "failed"
+    assert ending.failure.code == "pattern_timeout"
 
 
 def test_categories_filter_on_each_nodes_own_category():

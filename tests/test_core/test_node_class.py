@@ -1,7 +1,7 @@
 from typing import Annotated, ClassVar
 
 import pytest
-from conductor import NodeRegistry, run_sync
+from conductor import NodeRegistry
 from conductor.dtype import DType
 from conductor.graph.binding import Static
 from conductor.graph.compiled import CompiledGraph
@@ -102,7 +102,7 @@ def test_a_bare_widget_fails_at_import():
 
 
 def test_a_class_says_nothing_about_what_the_engine_must_do():
-    """There is no role. ``SKIPPED`` and ``Asks`` are values a
+    """There is no role. ``SKIPPED`` and ``AskPerson`` are values a
     ``run`` returns, and the engine acts on the value. A flag per
     capability is the same fact under another name."""
 
@@ -1003,7 +1003,7 @@ def test_a_class_node_executes_in_a_graph():
     registry.register(Shout)
 
     compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="a", type="shout", version=1, bindings={"text": Static("hi")})]), registry)
-    results = run_sync(compiled).state.results(compiled)
+    results = compiled.results(compiled.run_sync())
     assert results["a"]["result"] == "HI!"
 
 
@@ -1035,7 +1035,7 @@ def test_two_versions_of_one_class_execute_independently():
 
     for pinned, expected in ((1, "hi"), (2, "hi?")):
         compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="a", type="suffix", version=pinned, bindings={"text": Static("hi")})]), registry)
-        assert run_sync(compiled).state.results(compiled)["a"]["result"] == expected
+        assert compiled.results(compiled.run_sync())["a"]["result"] == expected
 
 
 def test_a_version_a_class_does_not_declare_is_refused():

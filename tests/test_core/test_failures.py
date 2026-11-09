@@ -13,7 +13,7 @@ import json
 from typing import Annotated
 
 import pytest
-from conductor import CompiledGraph, GraphNode, NodeRegistry, Param, run_sync
+from conductor import CompiledGraph, GraphNode, NodeRegistry, Param
 from conductor.dtype import DType
 from conductor.errors import (
     MESSAGES,
@@ -23,14 +23,14 @@ from conductor.errors import (
     NodeExecutionError,
     NodeValidationError,
 )
-from conductor.execution.engine import execute
-from conductor.execution.leg import Leg
+from conductor.execution.run_until_idle import Leg
 from conductor.graph.binding import From, Static
 from conductor.graph.model import Graph
 from conductor.metadata import Result
 from conductor.node import NodeDefinition, Policy, version
 from conductor.series import Series
 from conductor.widgets import Textarea
+from helpers import stream_of
 
 
 class Txt(DType, str):
@@ -54,13 +54,13 @@ def _compiled(node_cls: type[NodeDefinition], *more: type[NodeDefinition]) -> Co
 
 def _events(compiled: CompiledGraph) -> list[dict]:
     async def run() -> list[dict]:
-        return [event async for event in execute(compiled)]
+        return [event async for event in stream_of(compiled)]
 
     return asyncio.run(run())
 
 
 def _error(events: list[dict]) -> dict:
-    return next(e for e in events if e.type == "node_error")
+    return next(e for e in events if e.type == "node_failed")
 
 
 # -- the families -----------------------------------------------------------------
@@ -116,8 +116,8 @@ def test_a_foreign_exception_named_in_retry_on_is_external_and_retries():
     retries = [e for e in events if e.type == "node_retry"]
     assert [(e.attempt, e.retries, e.node_id) for e in retries] == [(1, 2, "n1"), (2, 2, "n1")]
     assert retries[0].error == "An outside service did not answer."
-    assert events[-1].type == "graph_complete"
-    assert events[-1].state.results(compiled)["n1"]["result"] == "ok"
+    assert events[-1].state.status == "complete"
+    assert compiled.results(events[-1].state)["n1"]["result"] == "ok"
 
 
 def test_an_exhausted_external_failure_is_external_failed():
@@ -142,7 +142,7 @@ def test_an_exhausted_external_failure_is_external_failed():
     assert error.cause.code == "external_failed"
     assert error.cause.message == "An outside service did not answer."
     assert "socket" not in error.error
-    assert run_sync(compiled).type == "graph_error"
+    assert compiled.run_sync().status == "failed"
 
 
 def test_an_external_failure_the_node_raised_retries_and_keeps_its_message():
@@ -223,7 +223,7 @@ def test_a_validation_error_the_node_raised_is_never_retried():
             calls.append(1)
             raise NodeValidationError("intentionally invalid input")
 
-    assert run_sync(_compiled(Picky)).type == "graph_error"
+    assert _compiled(Picky).run_sync().status == "failed"
 
     assert len(calls) == 1
 
@@ -261,7 +261,7 @@ def test_a_foreign_exceptions_text_is_on_original_and_nowhere_else():
 def test_the_generic_messages_cover_the_engines_own_codes():
     """``MESSAGES`` says what people read for each code the engine writes
     itself; ``failed`` is the node's own message and has no generic line."""
-    assert set(MESSAGES) == {"engine_error", "execution_failed", "external_failed", "invalid_input", "invalid_output", "timeout"}
+    assert set(MESSAGES) == {"engine_error", "execution_failed", "external_failed", "invalid_input", "invalid_output", "run_cancelled", "run_timed_out", "timeout"}
 
 
 def test_node_error_has_no_retryable_flag():
@@ -330,7 +330,7 @@ def test_a_failed_row_is_retried_alone():
         reg,
     )
 
-    results = run_sync(compiled).state.results(compiled)
+    results = compiled.results(compiled.run_sync())
 
     assert list(results["rows"]["result"]) == ["A", "B", "C"]
     assert sorted(calls) == ["a", "b", "b", "c"]
@@ -383,7 +383,7 @@ def test_a_flaky_node_in_one_branch_retries_while_the_other_branch_completes():
         reg,
     )
 
-    results = run_sync(compiled).state.results(compiled)
+    results = compiled.results(compiled.run_sync())
 
     assert results["n3"]["result"] == "A:x+B:y"
     assert calls == {"a": 2, "b": 1}
@@ -431,8 +431,8 @@ def test_a_type_whose_validator_does_not_return_the_type_fails_loud():
     registry.register(Draws)
     compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="d", type="draws", version=1)]), registry)
 
-    ending = run_sync(compiled)
+    ending = compiled.run_sync()
 
-    assert ending.type == "graph_error" and ending.node_id == "d"
-    assert ending.cause.code == "engine_error" and ending.cause.details == {"exception": "TypeError"}
-    assert ending.state.results(compiled) == {}
+    assert ending.status == "failed" and ending.failure.node_id == "d"
+    assert ending.failure.code == "engine_error" and ending.failure.details == {"exception": "TypeError"}
+    assert compiled.results(ending) == {}

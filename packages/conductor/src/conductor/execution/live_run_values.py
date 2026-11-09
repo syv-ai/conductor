@@ -1,4 +1,4 @@
-"""The ledger: what a run has produced so far, and what that lets run next.
+"""One leg's live table: what a run has produced so far, and what that lets run next.
 
 The engine runs a graph as units. A unit is one node on one row. A node
 that runs once is a single unit on the empty row ``()``; a node fed a series on
@@ -8,7 +8,7 @@ made under ``(i,)``, so a unit deep in the tree finds its row on an
 ancestor index by taking a prefix. Rows are made when the unit producing
 the series writes it; until then nobody knows how many there will be.
 
-The ledger keeps everything a run has written, one value per field and
+This table keeps everything a run has written, one value per field and
 row, and answers the engine's two questions: is this unit ready, and
 what does it run with. The engine is a loop over those calls. Nothing in
 here is asynchronous and nothing in here schedules.
@@ -32,7 +32,7 @@ input carries a receive record (``CompiledField.receives``, from
 row, ``Broadcast`` the one value there is, ``Whole`` everything on the
 field, ``RowsUnder`` the rows under the unit's row cut to a depth, and
 ``Gather`` unrelated sources collected onto the input's own index. The
-ledger switches on the record to say when a unit is ready and what to
+this module switches on the record to say when a unit is ready and what to
 hand it, and derives none of this from types or indexes itself.
 
 A skip has a depth. ``SKIPPED`` written at row ``k`` means the field
@@ -43,39 +43,35 @@ found it. A unit whose every series output is skipped makes no rows, so
 a node that would run per row of that index runs once at the shorter row
 instead. That is how a skip keeps its reach down a chain.
 
-What the ledger holds is the run's state. ``state()`` writes down its
-values, its done units and a fingerprint per node, and ``restore`` starts
-the next leg from them, working the rows out again from the values. A
-leg is one call of ``execute``; a run takes several when a node waits on
-a person. Nothing is pruned, so a unit done in one leg stays done in
-the next. Every value crosses through the codec (``conductor.codec``) by
-the type compile gave its field, and a skip is marked ``{"skipped":
-<depth>}`` beside its address, since a skip has no type to cross by.
+What it holds is the run's state: ``state()`` writes that down when a leg
+ends and ``restore`` starts the next leg from it, working the rows out again
+from the values. Nothing is pruned, so a unit done in one leg stays done in
+the next. A value written here has already passed its output's check
+(``conductor.execution.validate_unit_outputs``); inside a leg it is trusted.
 """
 
 from __future__ import annotations
 
-import weakref
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Iterator
 
+from pydantic import ValidationError
+
 from conductor._sentinel import SKIPPED, is_skipped
-from conductor.codec import from_wire, to_wire
-from conductor.errors import ErrorCause, NodeExecutionError, StartRefused
-from conductor.execution.events import PendingUnit
-from conductor.execution.state import DoneUnit, RunState, StateSkip, StateValue
-from conductor.graph.compiled import CompiledGraph
-from conductor.graph.compiled_node import CompiledField
+from conductor.errors import ErrorCause, InvalidCallDetail, InvalidCallError, NodeExecutionError
+from conductor.execution.run_state import OutputColumn, RunState, RunStatus, WaitingUnit
 from conductor.graph.receive import Broadcast, Gather, Merge, PerRow, Receive, RowsUnder, Whole
-from conductor.metadata import Input
 from conductor.ref import Ref
 from conductor.series import Index, Row, Series
 from conductor.table import ROW_ID, Table, column_type, holds_tables, merge, row_id, with_row_ids
 
 if TYPE_CHECKING:
     import polars as pl
+
+    from conductor.graph.compiled import CompiledGraph
+    from conductor.graph.compiled_node import CompiledField
 
 #: One run of one node: the node id and the row it runs on — ``()`` for
 #: a node that runs once; a row shorter than the index the node runs per row of, for the one
@@ -94,7 +90,7 @@ class Skip:
     ``at`` is the unit's own row, or a shorter prefix when the skip sits
     above it. The unit re-emits ``SKIPPED`` at ``at``, so the skip keeps its
     reach down the chain.
-    Written and read inside the ledger only. Not the same thing as
+    Written and read inside this module only. Not the same thing as
     ``SKIPPED``, which is the value a node returns and carries no row.
     """
 
@@ -124,15 +120,10 @@ def _per_row(received: Receive) -> bool:
     return isinstance(received, (PerRow, Broadcast))
 
 
-#: The ledger each ``RunState`` it wrote came from, and how many units it had
-#: done then, keyed by the state's id while that state lives: reading the
-#: state an ending carries needs no decoding (``Ledger.results_of``).
-_WRITTEN_BY: dict[int, tuple[Ledger, int]] = {}
-
-class _FieldsOf(dict[Ref, CompiledField]):
+class _FieldsOf(dict[Ref, "CompiledField"]):
     """The compiled field at each address, looked up on first use and kept.
 
-    The ledger reads a field for every value it reads or writes, about a
+    A field is read for every value it reads or writes, about a
     dozen per unit, so it asks ``CompiledGraph.field`` once per address and
     keeps the answer: a compiled graph never changes. Not a mirror of the
     graph: an address nothing asks for is never filled in."""
@@ -146,16 +137,17 @@ class _FieldsOf(dict[Ref, CompiledField]):
         return field
 
 
-class Ledger:
+class LiveRunValues:
     """The live state of one run over one compiled graph, and what it makes ready.
 
-    Built empty by ``execute`` for a first leg, or from the ``state()`` of an
-    earlier leg by ``restore``. The engine is the only caller.
+    Built empty for a first leg, or from the ``state()`` of an earlier leg by
+    ``restore``. The engine is the only caller.
     """
 
     def __init__(self, compiled: CompiledGraph) -> None:
+        compiled._refuse_unless_runnable()
         self._compiled = compiled
-        #: Each field the ledger reads, by the address it was asked under:
+        #: Each field read, by the address it was asked under:
         #: ``compiled.field`` once per address, a dict read after that.
         self._fields = _FieldsOf(compiled)
         #: Every column of a table output offered as a field: its values are the
@@ -182,15 +174,12 @@ class Ledger:
         #: something above them was skipped.
         self._no_rows_under: dict[str, set[Row]] = {}
         self._done: set[Unit] = set()
-        #: The type of one value of each field, worked out once: a state
-        #: writes or reads every value through it.
-        self._value_types: dict[Ref, Any] = {}
         #: Per node that runs once per row, how many of its units are done:
         #: at a row of its index, and standing in at a shorter row.
         self._done_rows: dict[str, int] = {}
         self._done_standing_in: dict[str, int] = {}
-        #: Units waiting on a person: their prompt and questions, named by address.
-        self._pending: dict[Unit, tuple[str | None, tuple[Input, ...]]] = {}
+        #: Units waiting on a person, each as the state carries it.
+        self._waiting: dict[Unit, WaitingUnit] = {}
         #: Per group a series is read by — a field and the row it is read
         #: under — its rows in order and how many from the first are written.
         #: Kept once every row of the group is made, so no row is read twice.
@@ -235,26 +224,6 @@ class Ledger:
         series output, or an input holding a list set on its node, as compile
         recorded it (``CompiledGraph._index_owners``)."""
         return self._compiled._index_owners[index_id]
-
-    def _downstream(self, node_ids: Iterable[str]) -> frozenset[str]:
-        """Every node that reads an output of one of ``node_ids``, directly or
-        through other nodes. A restore leaves out, with each node that
-        changed, everything its values reached, so those units run again. A
-        node of ``node_ids`` is in the answer only when another of them reads
-        it. Walked over the read plan on each call rather than stored, since
-        every node's readers stored would cost memory quadratic in a long
-        chain."""
-        compiled = self._compiled
-        found: set[str] = set()
-        frontier = list(node_ids)
-        while frontier:
-            node_id = frontier.pop()
-            for out in compiled.node(node_id)._interface.outputs:
-                for reader, _ in self._fields[Ref(node_id, out.name)]._read_by:
-                    if reader.node_id not in found:
-                        found.add(reader.node_id)
-                        frontier.append(reader.node_id)
-        return frozenset(found)
 
     def _making_rows_on(self, index_id: str) -> list[str]:
         """The indexes whose rows are made by nodes running once per row of this one."""
@@ -312,7 +281,7 @@ class Ledger:
     def completed_nodes(self) -> set[str]:
         """The nodes ``complete`` holds for, among those with a unit done.
 
-        A leg starting on a restored ledger reads it so it does not announce
+        A leg starting from a state reads it so it does not announce
         ``node_start`` again for a node an earlier leg finished. A node with
         no units at all — its index sealed with no rows — is not in it; it
         never starts, so there is nothing to announce."""
@@ -366,7 +335,7 @@ class Ledger:
             for node_id in self._compiled.execution_order
             if not self.complete(node_id)
             for unit in self.units(node_id)
-            if unit not in self._done and unit not in self._pending and self.ready(unit)
+            if unit not in self._done and unit not in self._waiting and self.ready(unit)
         ]
 
     def _read_ready(self, ref: Ref, received: Receive, row: Row) -> bool:
@@ -515,7 +484,7 @@ class Ledger:
             name = view[1] if view is not None else source.field
             frame = pl.DataFrame([
                 pl.Series(ROW_ID, [self._row_id(index, at) for at, _ in present], dtype=pl.String),
-                pl.Series(name, [value for _, value in present], dtype=column_type(self._value_type(source)), strict=False),
+                pl.Series(name, [value for _, value in present], dtype=column_type(self._fields[source]._cell_type), strict=False),
             ])
             pieces.append((source.node_id, frame, index, [at for at, _ in present]))
         if not pieces:
@@ -615,7 +584,7 @@ class Ledger:
         if key[-1] >= len(cells):
             return _MISSING, key
         cell = cells[key[-1]]
-        return (None if cell is None else self._value_type(ref)(cell)), key
+        return (None if cell is None else self._fields[ref]._cell_type(cell)), key
 
     def _rows_under(self, index_id: str, parent_row: Row) -> list[Row]:
         """The rows of an index whose path starts with ``parent_row``: every
@@ -641,86 +610,59 @@ class Ledger:
         """Record that this unit produced ``outputs``, or a ``Skip`` because it
         did not run, and return the units that are ready because of it.
 
-        A scalar output is one value at the unit's row; so is ``SKIPPED`` on
-        any output. A series output makes rows under the unit's row on an
-        index of its own — ``(j,)`` for a node that ran once, ``row + (j,)``
-        for one running per row — so two series outputs of one unit may differ
-        in length. A skipped series output leaves its index with no rows under
-        that row; an empty one makes no rows and leaves an empty group, so a
-        reduction over it still runs.
-
-        A node returns plain sequences for series outputs, never an index:
-        the node does not know where it sits in the graph, so the ledger, not the
-        node, says which index a series lives on.
+        ``outputs`` are cells that passed their outputs' checks: one cell, a
+        ``SKIPPED``, or a list of cells for an output that makes a row per
+        value. A scalar output is one value at the unit's row; so is
+        ``SKIPPED`` on any output. A many-valued output makes rows under the
+        unit's row on an index of its own — ``(j,)`` for a node that ran once,
+        ``row + (j,)`` for one running per row — so two of them from one unit
+        may differ in length. A skipped one leaves its index with no rows
+        under that row; an empty one makes no rows and leaves an empty group,
+        so a reduction over it still runs. A table is one value, and makes
+        rows on its columns' index only when something reads a column.
 
         The units returned are the ones this write could have made ready and
         that answer ``ready`` now, in execution order; the engine starts
         those and asks nothing else.
         """
         node_id, row = unit
-        interface = self._compiled.node(node_id)._interface
-        fields = self._fields
+        node = self._compiled.node(node_id)
+        fields = node._fields
         written: list[tuple[Ref, Row]] = []
         made: dict[str, list[Row]] = {}
         no_rows_under: list[tuple[str, Row]] = []
         making: list[str] = []
-        if isinstance(outputs, Skip):
-            for out in interface.outputs:
-                ref = Ref(node_id, out.name)
-                self._write(ref, outputs.at, SKIPPED, written)
-                if (index := fields[ref]._makes_rows) is not None:
-                    making.append(index.id)
-                    self._rows.setdefault(index.id, set())
-                    no_rows_under.append((index.id, outputs.at))
-        else:
-            # Every output is checked before any value is written, so the
-            # ledger holds all of a unit's outputs or none of them.
-            scalars: dict[Ref, Any] = {}
-            series: dict[Ref, tuple[Index, list[Any]]] = {}
-            for out in interface.outputs:
-                ref = Ref(node_id, out.name)
-                value = outputs[out.name]
-                if out.dtype.element is None or is_skipped(value):
-                    scalars[ref] = value
-                    continue
-                if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
-                    raise ValueError(f"{node_id}: '{out.name}' is a series output and must be a sequence, not a {type(value).__name__}")
-                index = fields[ref]._makes_rows
-                if index is None:
-                    raise RuntimeError(f"compile gave the series output {ref} no index of its own")
-                series[ref] = (index, list(value))
-            for ref, value in scalars.items():
-                index = fields[ref]._makes_rows
-                if index is not None and isinstance(value, Table):
-                    # A table: stored once, its rows given ids, and made on its
-                    # columns' index only when something reads a column.
-                    value = type(value)._holding(with_row_ids(value.frame, index, row))
-                    self._write(ref, row, value, written)
-                    making.append(index.id)
-                    self._rows.setdefault(index.id, set())
-                    if self._columns_read(index.id):
-                        keys = made.setdefault(index.id, [])
-                        for j in range(value.frame.height):
-                            if self._made(index.id, (*row, j)):
-                                keys.append((*row, j))
-                    self._groups.add((index.id, row))
-                    continue
-                self._write(ref, row, value, written)
-                if index is not None:
-                    making.append(index.id)
-                    self._rows.setdefault(index.id, set())
-                    no_rows_under.append((index.id, row))
-            for ref, (index, values) in series.items():
-                index_id = index.id
-                making.append(index_id)
-                self._rows.setdefault(index_id, set())
-                keys = made.setdefault(index_id, [])
-                for j, item in enumerate(values):
-                    key = (*row, j)
-                    if self._made(index_id, key):
+        skip_at = outputs.at if isinstance(outputs, Skip) else None
+        for out in node._interface.outputs:
+            field = fields[out.name]
+            ref = field.ref
+            value = SKIPPED if skip_at is not None else outputs[out.name]  # type: ignore[index]
+            at = row if skip_at is None else skip_at
+            index = field._makes_rows
+            if index is None:
+                self._write(ref, at, value, written)
+                continue
+            making.append(index.id)
+            self._rows.setdefault(index.id, set())
+            if value is SKIPPED:
+                self._write(ref, at, value, written)
+                no_rows_under.append((index.id, at))
+            elif isinstance(value, Table):
+                self._write(ref, at, value, written)
+                if self._columns_read(index.id):
+                    keys = made.setdefault(index.id, [])
+                    for j in range(value.frame.height):
+                        if self._made(index.id, (*at, j)):
+                            keys.append((*at, j))
+                self._groups.add((index.id, at))
+            else:
+                keys = made.setdefault(index.id, [])
+                for j, item in enumerate(value):
+                    key = (*at, j)
+                    if self._made(index.id, key):
                         keys.append(key)
                     self._write(ref, key, item, written)
-                self._groups.add((index_id, row))
+                self._groups.add((index.id, at))
         lists = [child for index_id, keys in made.items() for key in keys for child in self._made_lists(index_id, key)]
         for index_id, at in no_rows_under:
             self._no_rows_under.setdefault(index_id, set()).add(at)
@@ -872,7 +814,7 @@ class Ledger:
             for reader, ref, depth in self._grouped_on(index_id):
                 if depth == 0:
                     self._wake_group(ref, reader, (), woken)
-        ready = [u for u in woken if u not in self._done and u not in self._pending and self.ready(u)]
+        ready = [u for u in woken if u not in self._done and u not in self._waiting and self.ready(u)]
         return sorted(ready, key=lambda u: (self._position[u[0]], u[1]))
 
     def _wake_group(self, ref: Ref, reader: str, group: Row, woken: set[Unit]) -> None:
@@ -880,115 +822,21 @@ class Ledger:
         if self._written(ref, group):
             woken.update(self._units_under(reader, group))
 
-    def inject(self, node_id: str, outputs: Mapping[str, Any]) -> None:
-        """Record ``outputs`` as what this node produced, without running it —
-        a person's answers, or an earlier run's results.
-
-        Each value is read through the codec as the type its output
-        declares, so a host may hand in the typed value or its JSON form.
-        For a node that runs once, ``outputs`` is its result. For a node
-        running per row, each output is a series on the index it runs per row of — a
-        ``Series``, ``{"rows": [...], "values": [...]}`` as it came over
-        the wire, or a plain list with one value per row still to answer
-        (made and not yet done), in row order — and only the rows it
-        names are recorded:
-        answering row ``(1,)`` leaves rows ``(0,)`` and ``(2,)`` as they
-        were, done or still to run; every output answers the same rows.
-
-        A node the graph does not have, an output the node does not have,
-        an output left out, a unit that is already done, a row the run has
-        not produced, and a row one output answers and another does not all
-        raise ``StartRefused``, naming the node and the output.
-        """
-        try:
-            node = self._compiled.node(node_id)
-        except KeyError:
-            raise StartRefused(f"'{node_id}' is not a node of this graph, so it cannot be given a result") from None
-        declared = [out.name for out in node._interface.outputs]
-        for name in outputs:
-            if name not in declared:
-                raise StartRefused(f"'{node_id}' has no output '{name}'")
-        for name in declared:
-            if name not in outputs:
-                raise StartRefused(f"'{node_id}' was given no value for its output '{name}'")
-        runs_per_row_of = node._runs_per_row_of
-        if runs_per_row_of is None:
-            # The node's whole output at once: a series output is answered as the series.
-            self._inject((node_id, ()), {
-                name: self._answer(node_id, name, value, self._fields[Ref(node_id, name)].type) for name, value in outputs.items()
-            })
-            return
-        made = self._rows.get(runs_per_row_of.id, set())
-        open_rows = [row for row in sorted(made) if (node_id, row) not in self._done]
-        by_output = {name: self._answered_rows(node_id, name, value, open_rows) for name, value in outputs.items()}
-        for row in sorted({row for rows in by_output.values() for row in rows}):
-            if row not in made:
-                raise StartRefused(f"'{node_id}' has no row {list(row)} to record: the run has not produced it")
-            for name, answered in by_output.items():
-                if row not in answered:
-                    raise StartRefused(f"'{node_id}' answers '{name}' for no row {list(row)}: every output answers the same rows")
-            at_row = {name: answered[row] for name, answered in by_output.items()}
-            self._inject((node_id, row), Skip(at=row) if all(is_skipped(v) for v in at_row.values()) else at_row)
-
-    def _answer(self, node_id: str, name: str, value: Any, dtype: Any | None = None) -> Any:
-        """One answered value as ``dtype`` — the type of one value of its field unless given; ``SKIPPED`` passes."""
-        if is_skipped(value):
-            return value
-        declared = self._value_type(Ref(node_id, name)) if dtype is None else dtype
-        try:
-            return from_wire(value, declared)
-        except (TypeError, ValueError) as invalid:
-            raise StartRefused(f"'{node_id}' was given a value for '{name}' that is not a {getattr(declared, '__name__', declared)}") from invalid
-
-    def _answered_rows(self, node_id: str, name: str, value: Any, open_rows: list[Row]) -> dict[Row, Any]:
-        """A per-row answer as ``{row: value}``: from a ``Series``, from
-        ``rows`` and ``values`` as they came over the wire, or from a plain
-        list answering every row in ``open_rows`` — the rows still to
-        answer — in order."""
-        if isinstance(value, Series):
-            rows, values = value.rows, value.values
-        elif isinstance(value, Mapping) and {"rows", "values"} <= set(value):
-            rows, values = [tuple(row) for row in value["rows"]], value["values"]
-        elif isinstance(value, Sequence) and not isinstance(value, str | bytes):
-            if len(value) != len(open_rows):
-                raise StartRefused(f"'{node_id}': '{name}' answers {len(value)} values for {len(open_rows)} rows still open; a list answers every open row in order")
-            rows, values = open_rows, list(value)
-        else:
-            raise StartRefused(f"'{node_id}' runs per row, so '{name}' is answered as a series, as rows and values, or as a list")
-        if len(rows) != len(values):
-            raise StartRefused(f"'{node_id}': '{name}' names {len(rows)} rows for {len(values)} values")
-        if len(set(rows)) != len(rows):
-            raise StartRefused(f"'{node_id}': '{name}' names a row twice")
-        return {row: self._answer(node_id, name, item) for row, item in zip(rows, values, strict=True)}
-
-    def _inject(self, unit: Unit, outputs: dict[str, Any] | Skip) -> None:
-        if unit in self._done:
-            node_id, row = unit
-            where = "" if row == () else f" at row {list(row)}"
-            raise StartRefused(f"'{node_id}'{where} is already done, so it cannot be given a result")
-        self.record(unit, outputs)
-
     # -- waiting on a person ---------------------------------------------
 
-    def pend(self, unit: Unit, questions: tuple[Input, ...], prompt: str | None = None) -> None:
-        """Park this unit: its node returned ``Asks``. It and everything that
-        reads it wait; the questions are re-keyed by address (``node.field``)."""
-        node_id, _ = unit
-        self._pending[unit] = (prompt, tuple(q.model_copy(update={"name": Ref(node_id, q.name)}) for q in questions))
+    def mark_waiting(self, unit: Unit, asked: WaitingUnit) -> None:
+        """Park this unit: its node asked a person. It and whatever reads it wait."""
+        self._waiting[unit] = asked
 
-    def is_pending(self, unit: Unit) -> bool:
-        return unit in self._pending
+    def is_waiting(self, unit: Unit) -> bool:
+        return unit in self._waiting
 
-    def pending(self) -> list[PendingUnit]:
-        """Every unit waiting on a person, as ``PendingUnit`` records, in
-        execution order and row order within a node: not the order their
-        concurrent calls happened to ask in."""
-        return [
-            PendingUnit(node_id=node_id, row=row, prompt=prompt, questions=questions)
-            for (node_id, row), (prompt, questions) in sorted(
-                self._pending.items(), key=lambda item: (self._position[item[0][0]], item[0][1])
-            )
-        ]
+    def waiting(self) -> tuple[WaitingUnit, ...]:
+        """Every unit waiting on a person, in execution order and row order
+        within a node: not the order their concurrent calls happened to ask in."""
+        return tuple(
+            asked for _, asked in sorted(self._waiting.items(), key=lambda item: (self._position[item[0][0]], item[0][1]))
+        )
 
     # -- what the run produced -------------------------------------------------------
 
@@ -1015,14 +863,18 @@ class Ledger:
             if index is None:
                 result[out.name] = value
             else:
-                result[out.name] = self._series(node_id, (ref,), index, self._rows_under(index.id, ()))
+                written = [row for row in self._rows_under(index.id, ()) if self._present(ref, row)]
+                result[out.name] = self._series(node_id, (ref,), index, written)
         return result
 
     def results(self) -> dict[str, dict[str, Any]]:
-        """Every complete node's outputs, by node id. A node that did not run is absent."""
+        """Every node's outputs so far, by node id: a node with a finished
+        unit or none to run, its per-row outputs holding the rows written so far.
+        A node that did not run is absent."""
+        started = {node_id for node_id, _ in self._done}
         produced: dict[str, dict[str, Any]] = {}
         for node_id in self._compiled.execution_order:
-            if not self.complete(node_id):
+            if node_id not in started and not self.complete(node_id):
                 continue
             result = self.result_of(node_id)
             if result is not None:
@@ -1031,123 +883,115 @@ class Ledger:
 
     # -- the state ----------------------------------------------------------------
 
-    def state(self) -> RunState:
+    def state(self, status: RunStatus, failure: ErrorCause | None = None) -> RunState:
         """Everything this leg has produced, as the ``RunState`` a host stores.
 
-        A host keeps it as the run's state and hands it back to
-        ``execute(state=...)`` for the next leg, or for a new run seeded from
-        this one. A waiting unit is not in it: it produced nothing and asks
-        again next leg unless answered through ``cache``. Each value goes
-        through the codec by its type; a skipped one carries
-        ``skipped`` (the depth of its row) in place of ``value``; and every
-        node's fingerprint is stored, so a restore can tell what changed.
-        """
-        snapshot = RunState(
-            values=[self._value_wire(ref, row, value) for ref, by_row in self._values.items() for row, value in by_row.items()],
-            done_units=[DoneUnit(node_id=node_id, row=row) for node_id, row in self._done],
-            node_fingerprints={node_id: self._compiled.node(node_id).fingerprint for node_id in self._compiled.execution_order},
+        Built without validation from values that already passed, and holding
+        them typed: the next read costs nothing to decode, and a dump writes
+        each one by its own type."""
+        columns: dict[Ref, OutputColumn] = {}
+        for ref, by_row in self._values.items():
+            rows: list[Row] = []
+            values: list[Any] = []
+            skipped: list[Row] = []
+            for row, value in by_row.items():
+                if value is SKIPPED:
+                    skipped.append(row)
+                else:
+                    rows.append(row)
+                    values.append(value)
+            columns[ref] = OutputColumn.model_construct(rows=rows, values=values, skipped=skipped)
+        finished: dict[str, list[Row]] = {}
+        for node_id, row in self._done:
+            finished.setdefault(node_id, []).append(row)
+        compiled = self._compiled
+        return RunState.model_construct(
+            status=status,
+            failure=failure,
+            waiting=self.waiting(),
+            output_columns=columns,
+            finished_rows=finished,
+            node_fingerprints={node_id: compiled.node(node_id).fingerprint for node_id in compiled.execution_order},
         )
-        _WRITTEN_BY[id(snapshot)] = (self, len(self._done))
-        weakref.finalize(snapshot, _WRITTEN_BY.pop, id(snapshot), None)
-        return snapshot
 
     @classmethod
-    def results_of(cls, compiled: CompiledGraph, state: RunState) -> dict[str, dict[str, Any]]:
-        """Every complete node's outputs in ``state``, typed, by node id: what ``RunState.results`` answers.
+    def restore(cls, compiled: CompiledGraph, state: RunState) -> LiveRunValues:
+        """Live values holding what an earlier leg recorded, over the graph as it is now.
 
-        A state this process's ledger just wrote — the one an ending
-        carries — is read off that ledger, which still holds every value
-        typed, as long as it is asked about the graph it ran and has done
-        nothing since. Any other state, a stored one included, is restored
-        over ``compiled`` and read back through the codec, so a node the
-        graph has changed since, and everything reading it, is left out.
+        Every node ``compiled.nodes_changed_since(state)`` names is left out,
+        so its units run again; a node gone from the graph drops with them.
+        The rest is restored, each value through its output's check. The rows
+        are not stored: each finished unit's values make them again, as its
+        write did (``_remake_rows``), and the indexes whose producers are
+        complete are sealed again. The rows of a list set on a node come from
+        the graph as it is now, as for a fresh run.
+
+        A stored value that does not read as its output's type, a value or a
+        unit at a row its field or node has no place for, and a value for a
+        field the graph does not have are all reported at once, as
+        ``InvalidCallError`` with the code ``state_unreadable``. A ``None``
+        passes on any output: a blank is a legal value in a state.
         """
-        written = _WRITTEN_BY.get(id(state))
-        if written is not None:
-            ledger, done = written
-            if ledger._compiled is compiled and len(ledger._done) == done:
-                return ledger.results()
-        return cls.restore(compiled, state).results()
-
-    def _value_wire(self, ref: Ref, row: Row, value: Any) -> StateValue | StateSkip:
-        """One value as the state carries it: its address, and the value through the codec or its skip."""
-        if is_skipped(value):
-            return StateSkip(ref=ref, row=row, skipped=len(row))
-        try:
-            wire = to_wire(value, self._value_type(ref))
-        except Exception as unwritable:
-            raise TypeError(f"{ref} at row {row}: the value has no JSON form ({unwritable})") from unwritable
-        return StateValue(ref=ref, row=row, value=wire)
-
-    def _value_type(self, ref: Ref) -> Any:
-        """The type of one value of ``ref``: the element of the series on a
-        field with rows, the field's own type otherwise."""
-        if ref not in self._value_types:
-            field = self._fields[ref]
-            element = field.type.element
-            self._value_types[ref] = field.type if field.index is None or element is None else element
-        return self._value_types[ref]
-
-    @classmethod
-    def restore(cls, compiled: CompiledGraph, state: RunState) -> Ledger:
-        """A ledger holding what an earlier leg recorded, over the graph as it is now.
-
-        A node the state fingerprints differently from ``compiled`` — or
-        does not fingerprint at all, or that ``compiled`` no longer has — is
-        left out together with everything that reads it
-        (``_downstream``), so those units run again; the rest is restored, each value read back through the codec
-        by its field's type. The rows are not stored: each done unit's values
-        make them again, as its write did (``_remake_rows``), and the indexes
-        whose producers are complete are sealed again. The rows of a list set
-        on a node come from the graph as it is now, which says how many values
-        the author set, and a fresh ledger makes them. A
-        value or a done unit for a node the graph does not have is left out
-        too. A value that does not read back as its field's type, a value
-        or a done unit at a row its field or node cannot have (``[]``, or
-        ``[0]`` on a node that runs once) and a value for a field the graph
-        does not have are each a ``StartRefused``.
-        """
-        ledger = cls(compiled)
-        current = {node_id: compiled.node(node_id).fingerprint for node_id in compiled.execution_order}
-        changed = {node_id for node_id, fingerprint in current.items() if state.node_fingerprints.get(node_id) != fingerprint}
-        #: A node the state names that the graph does not have.
-        gone = (
-            {*state.node_fingerprints}
-            | {entry.ref.node_id for entry in state.values}
-            | {unit.node_id for unit in state.done_units}
-        ) - current.keys()
-        dropped = changed | ledger._downstream(changed) | gone
-        for entry in state.values:
-            ref = entry.ref
-            if ref.node_id in dropped:
+        restored = cls(compiled)
+        dropped = set(compiled.nodes_changed_since(state))
+        faults: list[InvalidCallDetail] = []
+        for ref, column in state.output_columns.items():
+            if ref.node_id not in dropped:
+                restored._restore_column(ref, column, faults)
+        done: list[Unit] = []
+        for node_id, rows in state.finished_rows.items():
+            if node_id in dropped:
                 continue
-            try:
-                index = compiled.field(ref).index
-            except KeyError as unknown:
-                raise StartRefused(f"the state has a value for {ref}, which the graph does not have") from unknown
-            if not _fits(entry.row, index):
-                raise StartRefused(f"the state's value for {ref} is at row {list(entry.row)}, which {ref} has no place for")
-            if isinstance(entry, StateSkip):
-                value = SKIPPED
-                ledger._skipped_on.add(ref)
-            else:
-                try:
-                    value = from_wire(entry.value, ledger._value_type(ref))
-                except (KeyError, TypeError, ValueError) as unreadable:
-                    raise StartRefused(f"the state's value for {ref} does not read back: {unreadable}") from unreadable
-            ledger._values.setdefault(ref, {})[entry.row] = value
-        done = [(unit.node_id, unit.row) for unit in state.done_units if unit.node_id not in dropped]
-        for node_id, row in done:
-            if not _fits(row, compiled.node(node_id).runs_per_row_of):
-                raise StartRefused(f"the state marks {node_id!r} done at row {list(row)}, which {node_id!r} has no place for")
-        ledger._remake_rows(done)
+            for row in rows:
+                if restored._fits_node(node_id, row, faults, ("state", node_id, *row)):
+                    done.append((node_id, row))
+        for asked in state.waiting:
+            if asked.node_id not in dropped and restored._fits_node(asked.node_id, asked.row, faults, ("state", asked.id)):
+                restored._waiting[(asked.node_id, asked.row)] = asked
+        if faults:
+            raise InvalidCallError(faults)
+        restored._remake_rows(done)
         for unit in done:
-            ledger._finish(unit)
-        ledger._seal([
+            restored._finish(unit)
+        restored._seal([
             index_id for node_id in reversed(compiled.execution_order) if node_id not in dropped
-            for index_id in ledger._indexes_made_by(node_id)
+            for index_id in restored._indexes_made_by(node_id)
         ])
-        return ledger
+        return restored
+
+    def _restore_column(self, ref: Ref, column: OutputColumn, faults: list[InvalidCallDetail]) -> None:
+        """One output's stored rows and cells written in, or the faults that stop them."""
+        try:
+            field = self._compiled.field(ref)
+        except KeyError:
+            faults.append(_unreadable(("state", ref), f"the state has a value for {ref}, which the graph does not have"))
+            return
+        depth = 0 if field.index is None else field.index.depth
+        misplaced = [row for row in (*column.rows, *column.skipped) if len(row) > depth]
+        for row in misplaced:
+            faults.append(_unreadable(("state", ref, *row), f"the state's value for {ref} is at row {list(row)}, which {ref} has no place for"))
+        if misplaced:
+            return
+        by_row = self._values.setdefault(ref, {})
+        read = field._read_cell
+        for row, stored in zip(column.rows, column.values, strict=True):
+            try:
+                by_row[row] = _restored_cell(field, row, stored, read)
+            except (TypeError, ValueError) as unreadable:
+                faults.append(_unreadable(("state", ref, *row), f"the state's value for {ref} at row {list(row)} does not read back: {_reason(unreadable)}"))
+        if column.skipped:
+            self._skipped_on.add(ref)
+            for row in column.skipped:
+                by_row[row] = SKIPPED
+
+    def _fits_node(self, node_id: str, row: Row, faults: list[InvalidCallDetail], loc: tuple[str | int, ...]) -> bool:
+        """Whether a stored unit sits at a row its node can have; the fault that says it does not, if not."""
+        if node_id not in self._compiled._nodes:
+            return False
+        if _fits(row, self._compiled.node(node_id).runs_per_row_of):
+            return True
+        faults.append(_unreadable(loc, f"the state has {node_id!r} at row {list(row)}, which {node_id!r} has no place for"))
+        return False
 
     def _remake_rows(self, done: list[Unit]) -> None:
         """Make again the rows the done units' writes made, and mark again
@@ -1188,3 +1032,27 @@ class Ledger:
                 for key in sorted(made.get(index_id, ())):
                     self._made(index_id, key)
                     self._made_lists(index_id, key)
+
+
+def _restored_cell(field: CompiledField, row: Row, stored: Any, read: Any) -> Any:
+    """A stored value as its cell. A value already of its type came from a
+    leg in this process and is as that leg left it; a ``None`` is a blank. Any
+    other goes through the output's check, and a table from JSON gets the ids
+    it may lack, as a returned one does."""
+    if stored is None or type(stored) is field._cell_type:
+        return stored
+    cell = read(stored)
+    if field._makes_rows is not None and isinstance(cell, Table):
+        return type(cell)._holding(with_row_ids(cell.frame, field._makes_rows, row))
+    return cell
+
+
+def _unreadable(loc: tuple[str | int, ...], message: str) -> InvalidCallDetail:
+    return {"type": "state_unreadable", "loc": loc, "msg": message, "ctx": {}}
+
+
+def _reason(unreadable: Exception) -> str:
+    """Why a value did not read: pydantic's first message when pydantic said, never the value."""
+    if isinstance(unreadable, ValidationError):
+        return unreadable.errors(include_url=False, include_input=False, include_context=False)[0]["msg"]
+    return str(unreadable)

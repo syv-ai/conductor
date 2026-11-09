@@ -17,7 +17,9 @@ The return type *is* the output declaration. Three shapes are read::
         ...   # the outputs were computed for the node; returned by name
 
 ``outputs_of`` turns the annotation into ``Output`` records and ``unpack``
-splits a returned value across those outputs by name. Nothing is
+splits a returned value across those outputs by name; each value is then
+checked against its output at the door to the state
+(``conductor.execution.validate_unit_outputs``). Nothing is
 positional and nothing is auto-named: an output's name is what other nodes
 edge to, so it is always a name the author chose. A ``run`` that returns
 the wrong shape raises at the point of disagreement.
@@ -28,9 +30,9 @@ branches, its ``choice`` group. ``Output`` is the record the node ends up
 with. A return may be ``Any`` in place of a ``DType`` when the node passes
 a value through without reading it.
 
-A ``run`` that may return ``Asks`` — the value a node returns when a
+A ``run`` that may return ``AskPerson`` — the value a node returns when a
 person must answer before the graph can continue — says so in the same
-place, as a union: ``-> Annotated[Text, Result(...)] | Asks``. The union
+place, as a union: ``-> Annotated[Text, Result(...)] | AskPerson``. The union
 member declares no output; ``outputs_of`` reads the declaration past it.
 It is the one thing a class says about asking, and it is a fact about the
 return, not a capability: the engine still acts on the value alone.
@@ -38,16 +40,14 @@ return, not a capability: the engine still acts on the value alone.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import fields, is_dataclass
 from types import UnionType
 from typing import Annotated, Any, Union, get_args, get_origin, get_type_hints
 
-from conductor._sentinel import Asks, is_skipped
-from conductor.codec import from_wire
+from conductor._sentinel import AskPerson
 from conductor.dtype import DType, dtype_of
 from conductor.metadata import Output, Param, Result
-from conductor.series import Series
 
 RESULT_KEY = "result"
 
@@ -63,12 +63,12 @@ def outputs_of(return_hint: Any) -> tuple[Any, tuple[Output, ...]]:
     node's computed outputs are used). Anything else is a
     ``TypeError``, as is a ``DType`` or a field without a ``Result``.
 
-    ``X | Asks`` is read as ``X``: a node that pauses to ask a person
+    ``X | AskPerson`` is read as ``X``: a node that pauses to ask a person
     declares no output for it.
     """
     if get_origin(return_hint) in (Union, UnionType):
-        members = tuple(member for member in get_args(return_hint) if member is not Asks)
-        if len(members) == 1 and Asks in get_args(return_hint):
+        members = tuple(member for member in get_args(return_hint) if member is not AskPerson)
+        if len(members) == 1 and AskPerson in get_args(return_hint):
             return outputs_of(members[0])
     if Param.on(return_hint) is not None:
         raise TypeError("the return carries a Param; a return carries a Result, and Param belongs on a parameter")
@@ -101,71 +101,21 @@ def outputs_of(return_hint: Any) -> tuple[Any, tuple[Output, ...]]:
 
 
 def unpack(returns: Any, value: Any, outputs: tuple[Output, ...]) -> dict[str, Any]:
-    """Split what ``run`` returned into ``{output name: value}``, each checked against its output.
+    """Split what ``run`` returned into ``{output name: value}``.
 
     ``returns`` is the ``declared`` half of ``outputs_of``'s answer. A
     ``DType`` (or ``Any``) return lands on ``"result"``; a record is read
-    field by field; a ``Mapping`` must name exactly the declared outputs.
-    Each value is then read as the type its output declares, the way an
-    input is on the way in, so a ``-> Text`` that returns ``42`` fails
-    here and not in the node that reads it. A value of the wrong shape or
-    type is a ``ValueError`` naming the output and never quoting the value.
+    field by field; a ``Mapping`` must name exactly the declared outputs. A
+    value of the wrong shape is a ``ValueError`` that never quotes the value.
     """
     if returns is Any or (isinstance(returns, type) and issubclass(returns, DType)):
-        named = {RESULT_KEY: value}
-    elif returns is Mapping:
+        return {RESULT_KEY: value}
+    if returns is Mapping:
         names = {output.name for output in outputs}
         if not isinstance(value, Mapping) or set(value) != names:
             given = sorted(value) if isinstance(value, Mapping) else type(value).__name__
             raise ValueError(f"run() must return exactly the outputs its interface names, {sorted(names)}, not {given}")
-        named = dict(value)
-    elif not isinstance(value, returns):
+        return dict(value)
+    if not isinstance(value, returns):
         raise ValueError(f"run() must return a {returns.__name__}, not a {type(value).__name__}")
-    else:
-        named = {field.name: getattr(value, field.name) for field in fields(returns)}
-    return {name: _declared_type(name, given, outputs) for name, given in named.items()}
-
-
-def _declared_type(name: str, value: Any, outputs: tuple[Output, ...]) -> Any:
-    """``value`` as the type output ``name`` declares; ``SKIPPED`` and an
-    ``Any`` output pass as they are, and an output the interface does not
-    name is a ``ValueError``."""
-    output = next((out for out in outputs if out.name == name), None)
-    if output is None:
-        raise ValueError(f"run() returned '{name}', which is not one of its outputs")
-    if is_skipped(value) or output.dtype is Any:
-        return value
-    element = output.dtype.element
-    if element is None:
-        return _read_as(name, value, output.dtype)
-    # A series output: each element is read as the element type, and a
-    # skipped element stays skipped — that row is absent downstream.
-    if isinstance(value, Series):
-        return Series(value.index, [_read_as(name, item, element) for item in value.values], rows=value.rows)
-    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
-        return [_read_as(name, item, element) for item in value]
-    raise ValueError(f"'{name}' is a series output and must be a sequence, not a {type(value).__name__}")
-
-
-def _read_as(name: str, value: Any, dtype: Any) -> Any:
-    """``value`` as ``dtype``; ``SKIPPED`` and ``Any`` pass; anything the type refuses names the output.
-
-    What comes back is an instance of ``dtype``, so a value on a field is
-    always its field's type, in the leg that wrote it as in the next one,
-    which reads it back from JSON. A type whose validator hands back
-    something else — lets an instance of a wider type through as it is —
-    is a bug in the type, and a ``TypeError`` naming it, not the node's
-    ``invalid_output``.
-    """
-    if is_skipped(value) or dtype is Any:
-        return value
-    try:
-        read = from_wire(value, dtype)
-    except ValueError as invalid:
-        raise ValueError(f"'{name}' must be a {dtype.__name__}, not a {type(value).__name__}") from invalid
-    if isinstance(dtype, type) and not isinstance(read, dtype):
-        raise TypeError(
-            f"'{name}': {dtype.__name__} read a {type(value).__name__} as a {type(read).__name__}, "
-            f"not as a {dtype.__name__}; a type's validator must return the type"
-        )
-    return read
+    return {field.name: getattr(value, field.name) for field in fields(returns)}

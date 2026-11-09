@@ -873,7 +873,7 @@ class _ReadPlan:
     arrives. The engine needs the other direction: when a value is written,
     who is waiting for it. ``of`` builds that once, over the nodes the walk
     worked out, and ``compiled_nodes`` stores each node's and field's share
-    on it; only the engine's ledger reads it.
+    on it; only the engine reads it.
 
     - ``read_by``: per output, every input that reads it and how.
     - ``reads``: per node, every output its inputs read and how.

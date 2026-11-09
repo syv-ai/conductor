@@ -12,7 +12,7 @@ import time
 from dataclasses import dataclass
 from typing import Annotated
 
-from conductor import NodeRegistry, Param, execute
+from conductor import NodeRegistry, Param
 from conductor._sentinel import SKIPPED
 from conductor.dtype import DType
 from conductor.graph.binding import From, Static
@@ -22,6 +22,7 @@ from conductor.metadata import Result
 from conductor.node import NodeDefinition
 from conductor.series import Series
 from conductor.widgets import Textarea
+from helpers import stream_of
 
 
 class Txt(DType, str):
@@ -123,22 +124,22 @@ def _compiled(rows: int) -> CompiledGraph:
 
 
 async def _drain(compiled: CompiledGraph) -> dict:
-    """Run one leg through ``execute``, the way a host does, and return its ending."""
+    """Run one leg through ``stream``, the way a host does, and return its ending."""
     ending = None
-    async for ending in execute(compiled):
+    async for ending in stream_of(compiled):
         pass
-    return ending
+    return ending.state
 
 
 def _seconds(rows: int) -> float:
-    """The best of three runs over ``rows`` rows, through ``execute``, checking the results."""
+    """The best of three runs over ``rows`` rows, through ``stream``, checking the results."""
     compiled = _compiled(rows)
     best = float("inf")
     for _ in range(3):
         started = time.perf_counter()
         ending = asyncio.run(_drain(compiled))
         best = min(best, time.perf_counter() - started)
-        results = ending.state.results(compiled)
+        results = compiled.results(ending)
     short = len(range(0, rows, 3))
     assert len(results["long-joined"]["result"].split("+")) == rows - short
     assert len(results["short-joined"]["result"].split("+")) == short
@@ -147,7 +148,7 @@ def _seconds(rows: int) -> float:
 
 
 def test_four_times_the_rows_takes_at_most_eight_times_as_long():
-    """Measured as a host runs a graph, through ``execute``, with nothing
+    """Measured as a host runs a graph, through ``stream``, with nothing
     patched. Linear is fourfold and quadratic sixteen; the best of three
     runs at each size, and a bound of eight, leave room for a busy machine."""
     _seconds(50)  # warm imports and caches before timing

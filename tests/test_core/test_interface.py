@@ -437,7 +437,7 @@ def test_a_control_does_not_close_its_own_handle():
 def test_no_widget_decides_wireability():
     """Whether an edge can reach an input is the ``Param``'s answer; no
     control carries one. A widget that changed engine control does not
-    exist: a pause is a node returning Asks."""
+    exist: a pause is a node returning AskPerson."""
     import conductor.widgets as w
 
     carrying = sorted(

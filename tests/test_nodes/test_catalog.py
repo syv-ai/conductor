@@ -57,7 +57,7 @@ def test_the_markers_and_the_signals_are_gone(registry):
     """Compound and signal node types are not in the catalog.
 
     Iteration is a ``Series`` reaching a scalar input, an embedded graph is
-    a definition the host builds, and a pause is a node returning ``Asks``,
+    a definition the host builds, and a pause is a node returning ``AskPerson``,
     so none of these needs a node of its own.
     """
     for gone in (

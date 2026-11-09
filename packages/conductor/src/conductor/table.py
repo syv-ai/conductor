@@ -21,8 +21,9 @@ Rows keep who they are. A table the engine stores carries a hidden column,
 row there (``contacts:0``, ``structured.invoices:0.1``). Polars keeps the
 column through a filter, a sort and a join, so a node that only narrows or
 reorders a table hands its rows back with their ids, and a later merge can
-match them. A table that comes back with ``__row`` missing or repeated has
-new rows, and gets fresh ids (``with_row_ids``).
+match them. A row that comes back with no id, or with one an earlier row
+already holds, is a new row and gets a fresh id; the others keep theirs
+(``with_row_ids``).
 
 Polars is imported the first time a table is built, never at
 ``import conductor``, so a host that runs no tables never pays for it.
@@ -32,8 +33,10 @@ from __future__ import annotations
 
 import datetime
 from collections.abc import Mapping, Sequence
+from itertools import count
 from typing import TYPE_CHECKING, Any, ClassVar
 
+from pydantic import TypeAdapter
 from pydantic_core import core_schema, to_jsonable_python
 
 from conductor.dtype import DType
@@ -87,18 +90,26 @@ def row_id(index: Index, row: Row) -> str:
 
 
 def with_row_ids(frame: pl.DataFrame, index: Index, parent: Row) -> pl.DataFrame:
-    """``frame`` with its ``__row`` kept when every row has one and no two
-    share it; otherwise with fresh ids for rows ``parent + (i,)`` on
-    ``index``, since a row with no id or a shared one is a new row."""
+    """``frame`` with an id on every row, each row's own if it has one.
+
+    A row with no id, or with an id an earlier row holds, is a new row: a
+    person added it, or a node copied one. It gets the first id spelled
+    from ``parent + (n,)`` on ``index`` that no row holds, so a row added
+    to a table leaves every other row's id where it was."""
     import polars as pl
 
-    if ROW_ID in frame.columns:
-        ids = frame[ROW_ID]
-        if ids.null_count() == 0 and ids.n_unique() == frame.height:
-            return frame
-        frame = frame.drop(ROW_ID)
-    fresh = pl.Series(ROW_ID, [row_id(index, (*parent, n)) for n in range(frame.height)], dtype=pl.String)
-    return frame.insert_column(0, fresh)
+    if ROW_ID not in frame.columns:
+        spelled = [row_id(index, (*parent, n)) for n in range(frame.height)]
+        return frame.insert_column(0, pl.Series(ROW_ID, spelled, dtype=pl.String))
+    ids = frame[ROW_ID]
+    if ids.null_count() == 0 and ids.n_unique() == frame.height:
+        return frame
+    written = ids.to_list()
+    taken = {value for value in written if value is not None}
+    seen: set[str] = set()
+    spare = (spelled for spelled in (row_id(index, (*parent, n)) for n in count()) if spelled not in taken)
+    fresh = [next(spare) if value is None or value in seen or seen.add(value) else value for value in written]  # type: ignore[func-returns-value]
+    return frame.drop(ROW_ID).insert_column(0, pl.Series(ROW_ID, fresh, dtype=pl.String))
 
 
 def merge(parts: Sequence[tuple[str, pl.DataFrame, str]]) -> pl.DataFrame:
@@ -210,7 +221,10 @@ class Table(DType):
         elif isinstance(value, Mapping) and "columns" in value and "data" in value:
             frame = _from_wire(value)
         elif isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
-            frame = pl.DataFrame([dict(record) for record in value])
+            try:
+                frame = pl.DataFrame([dict(record) for record in value])
+            except (TypeError, ValueError, pl.exceptions.PolarsError) as unreadable:
+                raise ValueError(f"a list of records could not be read as a table: {unreadable}") from unreadable
         else:
             raise ValueError(f"a table is a DataFrame, a list of records or a table's JSON form, not a {type(value).__name__}")
         if not cls.columns:
@@ -269,6 +283,15 @@ class Table(DType):
     # -- pydantic -------------------------------------------------------------
 
     @classmethod
+    def __get_pydantic_json_schema__(cls, schema: core_schema.CoreSchema, handler: Any) -> dict[str, Any]:
+        """A list of records, each column under its name: the form a person's answer is sent in."""
+        record: dict[str, Any] = {"type": "object"}
+        if cls.columns:
+            record["properties"] = {name: TypeAdapter(dtype).json_schema() for name, dtype in cls.columns}
+            record["required"] = [name for name, _ in cls.columns]
+        return {"type": "array", "items": record}
+
+    @classmethod
     def __get_pydantic_core_schema__(cls, source_type: Any, handler: GetCoreSchemaHandler) -> core_schema.CoreSchema:
         """In: a table, a frame, records or the JSON form, read as this type. Out, as JSON:
         ``{"columns": [{"name", "dtype"}], "data": {name: [...]}, "rows": [...]}``, where
@@ -296,13 +319,16 @@ def _to_wire(table: Table) -> dict[str, Any]:
 def _from_wire(value: Mapping[str, Any]) -> pl.DataFrame:
     import polars as pl
 
-    columns = [
-        _cast(pl.Series(column["name"], value["data"][column["name"]], strict=False), _dtype_named(column["dtype"]), column["dtype"])
-        for column in value["columns"]
-    ]
-    if value.get("rows") is not None:
-        columns.insert(0, pl.Series(ROW_ID, value["rows"], dtype=pl.String))
-    return pl.DataFrame(columns)
+    try:
+        columns = [
+            _cast(pl.Series(column["name"], value["data"][column["name"]], strict=False), _dtype_named(column["dtype"]), column["dtype"])
+            for column in value["columns"]
+        ]
+        if value.get("rows") is not None:
+            columns.insert(0, pl.Series(ROW_ID, value["rows"], dtype=pl.String))
+        return pl.DataFrame(columns)
+    except (KeyError, TypeError, AttributeError, pl.exceptions.PolarsError) as malformed:
+        raise ValueError(f"a table's JSON form does not line up: {malformed}") from malformed
 
 
 def _dtype_named(name: str) -> pl.DataType | None:

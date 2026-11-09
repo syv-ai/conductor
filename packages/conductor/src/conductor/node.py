@@ -324,7 +324,7 @@ class NodeDefinition(ABC, metaclass=_NodeMeta):
     and implements ``run``; the class is checked and its versions derived
     the moment it is defined. Nothing here tells the engine what to do
     with the node: a node that skips an output returns ``SKIPPED`` on it, a
-    node that needs a person's answer returns ``Asks``, and the engine
+    node that needs a person's answer returns ``AskPerson``, and the engine
     acts on the value.
     """
 

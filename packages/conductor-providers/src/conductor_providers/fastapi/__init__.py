@@ -1,6 +1,6 @@
 """FastAPI adapter for conductor.
 
-Mount conductor's core endpoints (``/nodes``, ``/execute``, ``/execute-stream``,
+Mount conductor's core endpoints (``/nodes``, ``/run``, ``/run-stream``,
 ``/compile``) as a FastAPI ``APIRouter`` without hand-rolling the pydantic
 payloads or SSE framing in every host.
 
@@ -34,12 +34,12 @@ Requires ``fastapi`` installed (declared as an optional extra:
 ``uv add "syv-conductor-providers[fastapi]"``).
 """
 
-from conductor_providers.fastapi.models import ExecuteRequest
+from conductor_providers.fastapi.models import RunRequest
 from conductor_providers.fastapi.router import conductor_router
 from conductor_providers.fastapi.sse import sse_frame
 
 __all__ = [
     "conductor_router",
-    "ExecuteRequest",
+    "RunRequest",
     "sse_frame",
 ]

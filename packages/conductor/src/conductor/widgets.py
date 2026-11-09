@@ -14,7 +14,7 @@ input — its title and description — and whether an edge can reach it are
 the ``Param``'s, not the widget's, so each fact is written once and a
 dumped widget reads back into one. An input with no widget is filled by an
 edge only: ``Param(title=...)`` alone declares it. Nor does a widget
-change how the engine runs: a pause is a node that returns ``Asks``, not a
+change how the engine runs: a pause is a node that returns ``AskPerson``, not a
 widget kind.
 
 Conductor ships no default widget for any type: a text may be a

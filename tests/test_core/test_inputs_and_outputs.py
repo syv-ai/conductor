@@ -2,17 +2,16 @@
 
 ``compiled.with_inputs(...)`` is a copy of the graph with those inputs
 filled, compiled again; ``run`` takes the copy like any other, and
-``ending.state.outputs(compiled)`` reads what the graph returns, keyed
+``compiled.outputs(ending)`` reads what the graph returns, keyed
 by address. The two are the graph's interface, used from each side.
 """
 
 from typing import Annotated
 
 import pytest
-from conductor import GraphNode, InputNotOffered, NodeRegistry, Param, run_sync
+from conductor import GraphNode, InvalidCallError, NodeRegistry, Param
 from conductor._sentinel import SKIPPED
 from conductor.dtype import DType
-from conductor.execution.events import GraphCompleteEvent, GraphErrorEvent
 from conductor.graph.binding import From, Static
 from conductor.graph.compiled import CompiledGraph
 from conductor.graph.model import Graph
@@ -84,9 +83,9 @@ def _compiled(*nodes: GraphNode) -> CompiledGraph:
 
 
 def _outputs(compiled: CompiledGraph) -> dict:
-    ending = run_sync(compiled)
-    assert isinstance(ending, GraphCompleteEvent), ending
-    return ending.state.outputs(compiled)
+    ending = compiled.run_sync()
+    assert ending.status == "complete", ending
+    return compiled.outputs(ending)
 
 
 def test_a_bare_name_fills_the_one_input_that_has_it():
@@ -121,7 +120,7 @@ def test_a_filled_input_stays_offered_and_filling_it_again_overrides_it():
 def test_a_bare_name_two_inputs_share_is_refused_naming_both_and_the_address_fills_one():
     compiled = _compiled(GraphNode(id="a", type="upper", version=1), GraphNode(id="b", type="upper", version=1))
 
-    with pytest.raises(InputNotOffered, match=r"a\.text.*b\.text"):
+    with pytest.raises(InvalidCallError, match=r"a\.text.*b\.text"):
         compiled.with_inputs(text="hi")
     assert _outputs(compiled.with_inputs(**{"a.text": "x", "b.text": "y"})) == {"a.result": "X", "b.result": "Y"}
 
@@ -129,17 +128,16 @@ def test_a_bare_name_two_inputs_share_is_refused_naming_both_and_the_address_fil
 def test_an_unknown_name_is_refused_listing_the_names_offered():
     compiled = _compiled(GraphNode(id="a", type="upper", version=1))
 
-    assert issubclass(InputNotOffered, TypeError)
-    with pytest.raises(InputNotOffered, match=r"'txt'.*a\.text"):
+    with pytest.raises(InvalidCallError, match=r"'txt'.*a\.text"):
         compiled.with_inputs(txt="hi")
-    with pytest.raises(InputNotOffered, match=r"'b\.text'.*a\.text"):
+    with pytest.raises(InvalidCallError, match=r"'b\.text'.*a\.text"):
         compiled.with_inputs(**{"b.text": "hi"})
 
 
 def test_a_locked_input_is_refused_by_name():
     compiled = _compiled(GraphNode(id="a", type="upper", version=1, locked=("text",)))
 
-    with pytest.raises(InputNotOffered, match="takes no inputs"):
+    with pytest.raises(InvalidCallError, match="takes no inputs"):
         compiled.with_inputs(text="hi")
 
 
@@ -179,9 +177,11 @@ def test_outputs_leave_out_a_skipped_output_and_read_what_a_failed_leg_produced(
         GraphNode(id="a", type="upper", version=1, bindings={"text": Static("ok")}),
         GraphNode(id="f", type="fails", version=1),
     )
-    ending = run_sync(failed)
-    assert isinstance(ending, GraphErrorEvent)
-    assert ending.state.outputs(failed) == {"a.result": "OK"}
+    ending = failed.run_sync()
+    assert ending.status == "failed"
+    assert failed.results(ending)["a"]["result"] == "OK"
+    with pytest.raises(InvalidCallError, match="run_not_complete"):
+        failed.outputs(ending)
 
 
 def test_two_fillings_are_two_graphs_with_two_fingerprints():
