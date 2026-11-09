@@ -320,7 +320,7 @@ def _wiring_of_function_node(
         field_type = received[input_.name]
         is_list_set_on_it = input_.name in lists_set_on_inputs
         fields[input_.name] = CompiledField(
-            ref=Ref._from_checked_parts(node_id, input_.name), type=field_type.dtype, binding=node.bindings.get(input_.name), _condition_with_rows=None,
+            ref=Ref(node_id, input_.name), type=field_type.dtype, binding=node.bindings.get(input_.name), _condition_with_rows=None,
             problems=tuple(problems_by_field.get(input_.name, ())), _index=field_type.index, _receive_mode=field_type.receive_mode,
             _held_as=ListOnNode(field_type.index, list(lists_set_on_inputs[input_.name])) if is_list_set_on_it else NotHeld(),  # type: ignore[arg-type]  # a list on a node has its index
             _takes_blank=False,
@@ -336,7 +336,7 @@ def _wiring_of_function_node(
     node_condition = condition_node_runs_under(node.bindings, condition_at_this_nodes_row)
     on_rows_of = None if runs_per_row_of is None else runs_per_row_of.id
     for out in outputs:
-        ref = Ref._from_checked_parts(node_id, out.name)
+        ref = Ref(node_id, out.name)
         condition = output_condition(node_id, out, node_condition, on_rows_of)
         takes_blank, field_problems_here = out.takes_blank, tuple(problems_by_field.get(out.name, ()))
         dtype = out.dtype
@@ -352,7 +352,7 @@ def _wiring_of_function_node(
                 if name in names:
                     continue
                 fields[name] = CompiledField(
-                    ref=Ref._from_checked_parts(node_id, name), type=column_dtype, binding=None, _condition_with_rows=condition, problems=(),
+                    ref=Ref(node_id, name), type=column_dtype, binding=None, _condition_with_rows=condition, problems=(),
                     _index=table_rows_index, _receive_mode=None, _held_as=ColumnOfTable(ref, column), _takes_blank=True, _row_origins=origins,
                 )
             continue

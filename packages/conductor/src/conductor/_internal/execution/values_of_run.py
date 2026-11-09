@@ -521,7 +521,7 @@ class ValuesOfRun:
         """What this node's outputs hold, as a state writes it. An output nothing was written to is left out."""
         columns: dict[str, OutputColumn] = {}
         for out in self._lookups.interfaces[node_id].outputs:
-            ref = Ref._from_checked_parts(node_id, out.name)
+            ref = Ref(node_id, out.name)
             if ref in self._values:
                 columns[out.name] = output_column_of(self._values[ref], self._fields[ref])
         return columns

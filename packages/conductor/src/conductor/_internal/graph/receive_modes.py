@@ -200,14 +200,14 @@ def cell_at_the_row(sources: tuple[Ref, ...], index: Index | None) -> Cell:
     """The ``Cell`` of ``sources``, which sit on ``index``, or hold one value with none."""
     if index is None:
         return Cell("same_value_every_row", sources, None, 0)
-    return Cell("value_at_row", sources, Ref._from_checked_address(index.id), index.depth)
+    return Cell("value_at_row", sources, Ref(index.id), index.depth)
 
 
 def rows_under_the_row(sources: tuple[Ref, ...], index: Index, depth: int) -> RowsUnder:
     """The ``RowsUnder`` of ``sources`` on ``index``, grouped under its step at ``depth``, ``0`` being all of them."""
     if depth == 0:
         return RowsUnder("entire_value", sources, None, None, 0)
-    return RowsUnder("all_rows_under_row", sources, Ref._from_checked_address(index.id), Ref._from_checked_address(index.lineage[depth - 1].id), depth)
+    return RowsUnder("all_rows_under_row", sources, Ref(index.id), Ref(index.lineage[depth - 1].id), depth)
 
 
 def reads_of_input(receive_mode: Cell | RowsUnder | FixedValue | Gather | Merge) -> list[tuple[Ref, int]]:

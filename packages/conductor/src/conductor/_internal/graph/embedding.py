@@ -135,7 +135,7 @@ def _problems_blocking_embedding(graph: CompiledGraph, nodes: Mapping[str, Compi
 def inner_node_placed_at(inner: GraphNode, prefix: str, filled_from_outside: Mapping[str, Binding]) -> GraphNode:
     """``inner`` as the node it is once embedded at ``prefix``: its id and edges under that path, and any edge or static the graph node set on it in place."""
     bindings: dict[str, Binding] = {
-        name: From(*(Ref._from_checked_parts(prefix + ref.node_id, ref.field) for ref in binding.refs)) if isinstance(binding, From) else binding
+        name: From(*(Ref(prefix + ref.node_id, ref.field) for ref in binding.refs)) if isinstance(binding, From) else binding
         for name, binding in inner.bindings.items()
     }
     bindings.update(filled_from_outside)
