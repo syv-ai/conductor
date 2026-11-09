@@ -234,3 +234,10 @@ def test_a_stream_says_not_to_cache_it():
         assert response.headers["content-type"].startswith("text/event-stream")
 
     _run(scenario)
+
+
+def test_an_unknown_runs_events_are_a_404_not_an_empty_stream():
+    async def scenario() -> None:
+        assert (await _Host().client.get("/runs/nope/events")).status_code == 404
+
+    _run(scenario)

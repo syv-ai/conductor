@@ -7,7 +7,8 @@ Three things hold it up, all on `CompiledGraph`: `stream` runs one leg (the stre
 ```python
 import asyncio
 import uuid
-from collections.abc import AsyncIterable, Mapping
+from collections.abc import AsyncIterable, AsyncIterator, Mapping
+from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
 from typing import Annotated, Any
 
@@ -68,7 +69,7 @@ legs: dict[str, Leg] = {}
 tasks: set[asyncio.Task[None]] = set()  # the event loop only holds a task weakly
 
 
-async def run_leg(run_id: str, stream: Any, leg: Leg) -> None:
+async def run_leg(run_id: str, stream: AbstractAsyncContextManager[AsyncIterator[Event]], leg: Leg) -> None:
     try:
         async with stream as events:
             async for event in events:
@@ -95,7 +96,7 @@ def launch(run_id: str, compiled: CompiledGraph, state: RunState | None, from_ru
     task.add_done_callback(tasks.discard)
 
 
-def saved_run(run_id: str) -> SavedRun:
+async def saved_run(run_id: str) -> SavedRun:
     if run_id not in saved:
         raise HTTPException(404, "no such run")
     return saved[run_id]
@@ -129,7 +130,7 @@ def read(run: Annotated[SavedRun, Depends(saved_run)]) -> RunView:
 
 
 @app.get("/runs/{run_id}/events", response_class=EventSourceResponse)
-async def follow(run_id: str) -> AsyncIterable[Event]:
+async def follow(run_id: str, _: Annotated[SavedRun, Depends(saved_run)]) -> AsyncIterable[Event]:
     leg, seen = legs.get(run_id), 0
     while leg is not None:
         async with leg.changed:
@@ -143,8 +144,8 @@ async def follow(run_id: str) -> AsyncIterable[Event]:
 
 @app.post("/runs/{run_id}/answers", status_code=202)
 async def answer(run_id: str, answers: dict[str, dict[str, Any] | None], caller: CallerDep) -> dict[str, str]:
-    run = saved_run(run_id)
-    if run.status != "waiting":
+    run = await saved_run(run_id)
+    if run.status != "waiting" or run.state is None:
         raise HTTPException(409, "the run is not waiting")
     compiled = CompiledGraph.from_graph(run.graph, registry)
     launch(run_id, compiled, compiled.answer(run.state, answers), {Caller: caller})

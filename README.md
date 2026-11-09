@@ -32,7 +32,7 @@ state = compiled.run_sync()  # in async code: await compiled.run()
 print(compiled.outputs(state))  # {'b.result': 'HELLO!!'}
 ```
 
-A node is a function, and its type hints are its interface. The same hints drive validation, the run and the palette a visual editor shows. `node.graph_node(...)` places a node: the first argument is its id in the graph, and a type checker reads the rest as the function's own parameters. A plain value is typed in; `From("a.result")` is an edge. The result is a plain `GraphNode`, the form a graph is stored in, which is also what you write for an input left open for the caller or a value the run supplies.
+A node is a function, and its type hints are its interface. The same hints drive validation, the run and the palette a visual editor shows. `node.graph_node(...)` places a node: the first argument is its id in the graph, and a type checker reads the rest as the function's own parameters. A plain value is typed in; `From("a.result")` is an edge. The result is a plain `GraphNode`, the form a graph is stored in. Write `text=OPEN` for an input left open for the caller, or for a value the run supplies.
 
 The core has no web framework, database or auth in it. It depends on pydantic, polars and pyyaml.
 
@@ -56,12 +56,14 @@ uv run pytest tests/ -q
 
 ## Inputs and outputs
 
-A graph takes the inputs nothing feeds and returns the outputs nothing reads. `with_inputs` returns a copy with inputs filled, by name or by address:
+A graph takes the inputs of its first nodes, those with no edge into any of their inputs, and returns the outputs nothing reads. `with_inputs` returns a copy with inputs filled, by name or by address, and it takes nothing else, since it is what you hand an end user's values to:
 
 ```python
 ready = compiled.with_inputs(text="good night")
 print(ready.outputs(ready.run_sync()))  # {'b.result': 'GOOD NIGHT!!'}
 ```
+
+As the author you can type a value in anywhere an edge doesn't feed: `graph = graph.with_values({"b.times": 3})`.
 
 ## Tables
 
@@ -111,7 +113,16 @@ print(results["how_many"]["result"])            # 2
 
 ## Watching a run
 
-`async with compiled.stream() as events:` yields `run_start`, `node_start`, `node_progress`, `node_complete`, `node_skipped`, `node_retry`, `node_failed` and `unit_waiting`, and ends with `run_end`. Its `state` is the run to save, and it stays out of what the event writes. Leaving the block stops every unit. An event writes itself as JSON: `event.model_dump(mode="json")` or `model_dump_json()`, tables whole, and `conductor.to_jsonable(compiled.results(state))` does the same for results. `node_progress` arrives at most four times a second per node, its last count always among them.
+```python
+async with compiled.stream() as events:
+    async for event in events:
+        if event.type == "node_complete":
+            print(event.node_id, event.outputs)
+        elif event.type == "run_end":
+            state = event.state  # the run to save
+```
+
+A leg yields `run_start`, `node_start`, `node_progress`, `node_complete`, `node_skipped`, `node_retry`, `node_failed` and `unit_waiting`, and ends with `run_end`, whose `state` stays out of what the event writes. Leaving the block stops every unit. An event writes itself as JSON: `event.model_dump(mode="json")` or `model_dump_json()`, tables whole, and `conductor.to_jsonable(compiled.results(state))` does the same for results. `node_progress` arrives at most four times a second per node, its last count always among them.
 
 `compiled.stream(checkpoint_every=5.0)` also yields `run_checkpoint`, a state with status `running` you can save as the run goes. After a crash, `compiled.run(state)` skips the finished units and calls the ones that were in flight again, so a unit runs at least once. A saved state can't tell whether its run is still alive, so a host that resumes one holds a lease of its own.
 
@@ -127,15 +138,47 @@ print(results["how_many"]["result"])            # 2
 
 **Rows.** A series arriving on an input declared for one value runs the node once per row, up to its policy's `concurrency` at a time. A `Series[X]` input receives every value under the node's row, flat, however many levels down. When nothing else says where the node runs, it runs once per row of the level right above the series.
 
-**Merging tables.** A table carries a hidden `__row` column (`contacts:0`) saying which row is which. You never declare it, and a row you return without an id gets a fresh one. Wire several tables or columns into one `Table` input and they are merged on those ids. A parent column beside its children is copied down, so the rows are those of the deepest source and a parent with nothing under it has no row in that table. Sources on the same level keep all their rows, with blanks where one has nothing. A table rebuilt in a node and merged with its source has to keep `__row`, or the node fails with `row_ids_lost`.
+**Merging tables.** Every table carries a `__row` column (`contacts:0`) saying which row is which. You never declare it, and a row you return without an id gets a fresh one. Wire several tables or columns into one `Table` input and they are merged on those ids. A parent column beside its children is copied down, so the rows are those of the deepest source and a parent with nothing under it has no row in that table. Sources on the same level keep all their rows, with blanks where one has nothing. A table rebuilt in a node and merged with its source has to keep `__row`, or the node fails with `row_ids_lost`. A column is named after its output (or, from a table, keeps its own name). A column a table carries on from the table it was made from is one column with it, read from the newer table where that has the row. Two columns of one name that aren't related: the later takes its output's name (`name_contacts`, `result_2`). Tables with no rows in common are refused when the graph is checked (`no_rows_in_common`): join them on a key in a node of your own.
 
-**Blanks.** A value can be blank (`None`, a cell with nothing in it). If an input's type doesn't say `| None`, the node isn't called for that row and its outputs are blank there; to get the blank, write `email: str | None`. A default is for an input nothing is wired to. `Series[str]` leaves blanks out row by row, `Series[str | None]` keeps them. `node_complete` counts the rows not called, per input (`rows_not_called`).
+**Blanks.** A value can be blank (`None`, a cell with nothing in it). If an input's type doesn't say `| None`, the node isn't called for that row and its outputs are blank there; to get the blank, write `email: str | None`. A default is for an input nothing is wired to. `Series[str]` leaves blanks out row by row, `Series[str | None]` keeps them. A row one column skipped counts as blank there, so `Series` inputs reading one table stay on the same rows whatever a node zips: a row `Series[str]` can't take leaves all of them. `node_complete` counts the rows not called, per input (`rows_not_called`).
 
-**Branching.** A node returns `SKIPPED` on the branch it did not take, and nodes fed only `SKIPPED` are skipped in turn. Outputs that are alternatives share a `choice`.
+**Branching.** A node returns `SKIPPED` on the branch it did not take, and nodes fed only `SKIPPED` are skipped in turn. Outputs that are alternatives share an `exclusive_group`. Exclusive tables wired into one `Table` input are the branch that ran.
 
-**A person in the loop.** A node returns `AskPerson`, annotated `-> X | AskPerson`, and its declared outputs are what is asked. The rest of the graph runs on and the state ends `waiting`, each waiting unit and its questions in `state.waiting`. `compiled.answer(state, {unit.id: {output: answer}})` checks the answers and returns a new state; `compiled.run_sync(state)` goes on from it.
+```python
+from dataclasses import dataclass
+from typing import Annotated
 
-**Running again.** Pass the state of an earlier leg and a node nothing changed above is restored whole; a changed node reuses the result of every row that received the same as before, even if it moved. Add one row to a CSV and one mail goes out: `state = compiled.with_inputs(contacts=edited).run_sync(state)`. A person's answer stays with the row it was asked on: when that row is replaced or any of its columns edited, the person is asked again. A node that reads the world says so: `Policy(reuse_when_inputs_match=False)`. A state goes back only to the runner it came from.
+from conductor import SKIPPED, Result, node
+
+
+@dataclass(frozen=True)
+class Routed:
+    big: Annotated[str, Result(exclusive_group="size")]
+    small: Annotated[str, Result(exclusive_group="size")]
+
+
+@node("route")
+def route(text: str) -> Routed:
+    return Routed(text, SKIPPED) if len(text) > 3 else Routed(SKIPPED, text)
+```
+
+**A person in the loop.** A node returns `AskPerson`, annotated `-> X | AskPerson`, and its declared outputs are what is asked. The rest of the graph runs on and the state ends `waiting`, each waiting unit and its questions in `state.waiting`.
+
+```python
+from conductor import AskPerson, node
+
+
+@node("approve")
+def approve(invoice: str) -> str | AskPerson:
+    return AskPerson(prompt=f"Approve {invoice}?")
+
+
+paused = compiled.run_sync()                                                   # paused.status == "waiting"
+answered = compiled.answer(paused, {unit.id: {"result": "yes"} for unit in paused.waiting})  # checks them; no node runs
+state = compiled.run_sync(answered)
+```
+
+**Running again.** Pass the state of an earlier leg and a node nothing changed above is restored whole; a changed node reuses the result of every row that received the same as before, even if it moved. Add one row to a CSV and one mail goes out: `state = compiled.with_inputs(contacts=edited).run_sync(state)`. A person's answer stays with the row it was asked on: when that row is replaced or any of its columns edited, the person is asked again. A node that reads the world says so with `Policy(reuse_when_inputs_match=False)`: a node reading a file by its path is called again on a new leg from a `complete` state, so an edited file is read, and the rows below it reuse as they always do. A leg going on from a waiting, failed or cancelled state keeps what it read, so answering a person doesn't re-read the file. To read one again in any state, `state.without_nodes("read")`. A state goes back only to the runner it came from.
 
 **Versions and retries.** A newer version names the one it replaces, itself a `@node` of the same id: `@node("split", replaces=split_v1, upgrade=Upgrade(renamed_inputs={"sep": "separator"}))`. Each version has its own `Policy` (`retries`, `retry_delay`, `attempt_timeout`, `concurrency`, `retry_on`, `reuse_when_inputs_match`) and hooks. `upgrade_node(graph, node_id, registry)` moves a node forward, and `Deprecation(...)` retires a version; on the newest, the node. Only an `ExternalFailure`, or an exception class named in `retry_on`, is retried.
 

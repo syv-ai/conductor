@@ -40,7 +40,7 @@ registry = NodeRegistry([greet])
 | Several outputs | a frozen dataclass of `Result` fields as the return type |
 | A whole list in one call | a `Series[X]` input |
 | A whole table in or out | `Table[Contact]` (a `TypedDict` names the columns) or bare `Table`; it is a `polars.DataFrame` |
-| A branch | return `SKIPPED` on the output not taken; share a `choice` |
+| A branch | return `SKIPPED` on the output not taken; share an `exclusive_group` |
 | A blank (an empty cell) | `email: str \| None`; otherwise the node is not called for that row and its outputs are blank there |
 | A person's answer | `-> X \| AskPerson`, returning `AskPerson(defaults=..., widgets=...)`; the declared outputs are the questions |
 | A client, a clock, the caller | `FromRun[T]`, supplied by `compiled.run(from_run={T: value})` |

@@ -24,9 +24,9 @@ A node that returns many values makes a new table under the row it ran on. Table
 
 A `Series[X]` input receives all the rows under the node's row, however many levels down, flat. It chooses the node's row only when nothing else does; then the node runs once per row of the level right above the series. A node's rows run at most `Policy.concurrency` at a time.
 
-A `Table` input receives a `polars.DataFrame`. Each column of a table output is a field an edge can read (`csv.result.email`). A hidden `__row` column holds each row's id (`contacts:0`). No node declares anything about rows: a returned row with no id, or with one an earlier row holds, gets a fresh one.
+A `Table` input receives a `polars.DataFrame`. Each column of a table output is a field an edge can read (`csv.result.email`). A `__row` column every table carries holds each row's id (`contacts:0`). No node declares anything about rows: a returned row with no id, or with one an earlier row holds, gets a fresh one.
 
-Tables and columns wired into one `Table` input are merged on those ids as the graph runs. A parent column beside its children is copied down, so the rows are those of the deepest source, and a parent with nothing under it has no row in that table. Sources on the same level keep all their rows, with blanks where one has nothing. Compile never stops a merge: sources that can never match are the non-fatal `no_rows_in_common`.
+Tables and columns wired into one `Table` input are merged on those ids as the graph runs. A parent column beside its children is copied down, so the rows are those of the deepest source, and a parent with nothing under it has no row in that table. Sources on the same level keep all their rows, with blanks where one has nothing. Sources that can never match are refused when the graph is checked (`no_rows_in_common`), and alternatives (outputs of one `exclusive_group` or what hangs off them) are the branch that ran, not a merge.
 
 A blank reaches a node only if its input says `| None`. Otherwise the node isn't called for that row and its outputs are blank there.
 
