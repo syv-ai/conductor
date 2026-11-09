@@ -134,7 +134,7 @@ One call of `compiled.run` is one leg. A run is its `RunState`: every leg return
 ```python
 paused = compiled.run_sync()                                    # paused.status == "waiting"
 answers = {asked.id: {"result": Text("Approved")} for asked in paused.waiting}
-answered = compiled.answer(paused, answers)                     # refused here if wrong; no node runs
+answered = compiled.answer(paused, answers)                     # raises here if wrong; no node runs
 state = compiled.run_sync(answered)
 ```
 

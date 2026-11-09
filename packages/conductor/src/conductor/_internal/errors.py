@@ -20,7 +20,7 @@ returns its ``RunState``.
 
     ConductorError
     ├── NodeDeclarationError    a node or a type was declared wrong; a TypeError, met at import
-    ├── CompileProblem          a node's hook cannot answer for what it was given
+    ├── ComputeHookError        a node's hook cannot answer for what it was given
     ├── InvalidCallError        a verb on a compiled graph was given what it cannot act on
     ├── NodeError               one node failed; carries node_id. Internal: never retried
     │   ├── ExternalFailure         the outside world failed; the one family the engine retries
