@@ -612,6 +612,7 @@ def test_an_outer_edge_never_reads_inside_an_embedding_by_an_inner_id():
 def test_an_edge_from_a_missing_node_into_an_embedding_is_its_problem_at_the_field_it_offers():
     [problem] = OUTSIDE.load({"nodes": [{"id": "e", "node": "enrich"}], "edges": [["ghost.result", "e.text"]]}).problems
     assert (problem.type, problem.loc, problem.ctx["node_id"]) == ("edge_names_missing_node", ("e", "text"), "ghost")
+    assert (problem.ctx["source"], problem.ctx["target"]) == ("ghost.result", "e.text")
 
 
 def test_a_hook_inside_refusing_a_value_typed_on_the_embedding_is_the_embeddings_problem():
@@ -630,3 +631,10 @@ def test_two_inner_inputs_sharing_a_name_are_offered_by_the_inner_records_ids():
     graph = OUTSIDE.load({"nodes": [{"id": "s", "node": "upper"}, {"id": "c", "node": "halves"}], "edges": [["s.result", "c.x.text"]]})
     assert graph.problems == []
     assert graph.run({"s.text": "a", "c.y.text": "b"}).outputs == {"c.result": "AB"}
+
+
+def test_an_authored_id_with_a_slash_beside_an_embedding_is_refused_alone_and_stays_the_authors():
+    beside = OUTSIDE.load({"nodes": [{"id": "e", "node": "enrich"}, {"id": "e/upper", "node": "upper"}]}).problems
+    assert [(p.type, p.loc) for p in beside] == [("invalid_node_id", ("e/upper",))]
+    broken = REGISTRY.load({"nodes": [{"id": "e", "node": "gone"}, {"id": "e/upper", "node": "upper"}]}).problems
+    assert sorted((p.type, p.loc) for p in broken) == [("invalid_node_id", ("e/upper",)), ("unknown_node", ("e",))]
