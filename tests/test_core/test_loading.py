@@ -535,3 +535,98 @@ def test_a_graph_with_a_required_input_on_a_later_node_nobody_feeds_cannot_be_em
 def test_a_value_typed_on_a_broken_embedding_adds_no_second_problem():
     graph = BROKEN.load({"nodes": [{"id": "g", "node": "gone_inside", "values": {"text": "x"}}]})
     assert [(p.type, p.loc) for p in graph.problems] == [("embedded_graph_broken", ("g",))]
+
+
+@node("both_halves")
+def both_halves(a: str, b: str) -> str:
+    return a + b
+
+
+def _taken(formula: str) -> dict[str, Any]:
+    return {"formula": float}
+
+
+@node("taken", compute_added_inputs=_taken)
+def taken(formula: str = "", **values: float) -> float:
+    return 0.0
+
+
+def _refuses_bad(mode: str) -> dict[str, Any]:
+    if mode == "bad":
+        raise ValueError("Not that mode.")
+    return {"result": str}
+
+
+@node("refuses_bad", compute_outputs=_refuses_bad)
+def refuses_bad(mode: str = "ok") -> dict[str, Any]:
+    return {"result": mode}
+
+
+halves = node("halves")(GraphRecord(
+    nodes=[NodeRecord(id="x", node="upper"), NodeRecord(id="y", node="upper"), NodeRecord(id="b", node="both_halves")],
+    edges=[("x.result", "b.a"), ("y.result", "b.b")],
+))
+picky = node("picky")(make_graph(refuses_bad))
+OUTSIDE = registry_of(upper, tail, refuses_bad, both_halves, taken, enrich, halves, picky)
+
+
+def test_only_the_nodes_on_a_cycle_are_a_cycle_and_a_node_below_keeps_its_fields():
+    graph = REGISTRY.load({
+        "nodes": [{"id": "a", "node": "upper"}, {"id": "b", "node": "upper"}, {"id": "c", "node": "tail"}],
+        "edges": [["a.result", "b.text"], ["b.result", "a.text"], ["b.result", "c.text"]],
+    })
+    assert [(p.type, p.loc) for p in graph.problems] == [("cycle", ("a",)), ("cycle", ("b",))]
+    assert set(graph.describe()["nodes"]) == {"a", "b", "c"}
+
+
+def test_an_editor_reads_every_node_of_a_half_broken_graph_and_which_ones_loaded():
+    graph = REGISTRY.load({
+        "nodes": [{"id": "a", "node": "upper"}, {"id": "b", "node": "upper"}, {"id": "c", "node": "tail"}, {"id": "x", "node": "gone"}],
+        "edges": [["a.nope", "b.text"], ["b.result", "c.text"]],
+    })
+    drawn = json.loads(json.dumps(graph.describe()))["nodes"]
+    assert list(drawn) == ["a", "b", "c", "x"]
+    assert {node_id: d["loaded"] for node_id, d in drawn.items()} == {"a": True, "b": False, "c": False, "x": False}
+
+
+def test_an_input_a_hook_adds_under_a_name_the_node_declares_is_the_hooks_failure():
+    [problem] = OUTSIDE.load({"nodes": [{"id": "d", "node": "taken", "values": {"formula": "x"}}]}).problems
+    assert (problem.type, problem.loc, problem.ctx["error"]) == ("compute_hook_failed", ("d",), "added_input_taken")
+
+
+def test_a_wrong_address_on_an_embedding_is_unknown_output_or_unknown_input_on_it():
+    def found(record: dict[str, Any]) -> list[tuple[str, tuple[Any, ...]]]:
+        return [(p.type, p.loc) for p in OUTSIDE.load(record).problems]
+
+    nodes = [{"id": "e", "node": "enrich"}, {"id": "u", "node": "upper"}]
+    assert found({"nodes": nodes, "edges": [["e.nope", "u.text"]]}) == [("unknown_output", ("u", "text"))]
+    assert found({"nodes": nodes, "edges": [["e.upper.result", "u.text"]]}) == [("unknown_output", ("u", "text"))]
+    assert found({"nodes": nodes[::-1], "edges": [["u.result", "e.tail"]]}) == [("unknown_input", ("e", "tail"))]
+
+
+def test_an_outer_edge_never_reads_inside_an_embedding_by_an_inner_id():
+    problems = OUTSIDE.load({"nodes": [{"id": "e", "node": "enrich"}, {"id": "u", "node": "upper"}], "edges": [["e/upper.result", "u.text"]]}).problems
+    assert [(p.type, p.loc, p.ctx["node_id"]) for p in problems] == [("edge_names_missing_node", ("u", "text"), "e/upper")]
+
+
+def test_an_edge_from_a_missing_node_into_an_embedding_is_its_problem_at_the_field_it_offers():
+    [problem] = OUTSIDE.load({"nodes": [{"id": "e", "node": "enrich"}], "edges": [["ghost.result", "e.text"]]}).problems
+    assert (problem.type, problem.loc, problem.ctx["node_id"]) == ("edge_names_missing_node", ("e", "text"), "ghost")
+
+
+def test_a_hook_inside_refusing_a_value_typed_on_the_embedding_is_the_embeddings_problem():
+    [problem] = OUTSIDE.load({"nodes": [{"id": "p", "node": "picky", "values": {"mode": "bad"}}]}).problems
+    assert (problem.type, problem.loc) == ("compute_hook_failed", ("p",))
+
+
+def test_an_embeddings_inputs_are_filled_by_its_own_address():
+    graph = OUTSIDE.load({"nodes": [{"id": "e", "node": "enrich"}, {"id": "u", "node": "upper"}]})
+    assert {name: i.address for name, i in graph.inputs.items()} == {"e.text": "e.text", "u.text": "u.text"}
+    assert graph.run({"e.text": "hi", "u.text": "yo"}).outputs == {"e.result": "HI.", "u.result": "YO"}
+
+
+def test_two_inner_inputs_sharing_a_name_are_offered_by_the_inner_records_ids():
+    assert [f["name"] for f in next(n for n in OUTSIDE.describe()["nodes"] if n["id"] == "halves")["inputs"]] == ["x.text", "y.text"]
+    graph = OUTSIDE.load({"nodes": [{"id": "s", "node": "upper"}, {"id": "c", "node": "halves"}], "edges": [["s.result", "c.x.text"]]})
+    assert graph.problems == []
+    assert graph.run({"s.text": "a", "c.y.text": "b"}).outputs == {"c.result": "AB"}
