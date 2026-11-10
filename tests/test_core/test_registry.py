@@ -18,6 +18,7 @@ from conductor import (
     NodeRecord,
     NodeRegistry,
     Param,
+    Series,
     Upgrade,
     node,
 )
@@ -428,3 +429,178 @@ def test_var_positional_is_refused():
         @node("varpos", title="VarPos", description="Dynamic", category="test")
         def var_pos(text: Annotated[Txt, Param(title="Text", widget=Textarea())], *args: Any) -> Out:
             return text
+
+
+# --- the types a registry holds ---------------------------------------------
+
+
+class Text(str):
+    id = "text"
+    display_title = "Text"
+
+
+class Number(float):
+    id = "number"
+    display_title = "Number"
+
+
+class AnotherText(str):
+    """A second class claiming ``text``: what a second library, or a notebook cell run again, makes."""
+
+    id = "text"
+    display_title = "Text"
+
+
+def _declare_text() -> type:
+    """What a notebook cell does when it runs again: the same class body, a new class."""
+
+    class Text(str):
+        id = "text"
+        display_title = "Text"
+
+    return Text
+
+
+@node("weigh")
+def weigh(text: Text, weights: Series[Number], tags: list[str] = []) -> Text:  # noqa: B006
+    return text
+
+
+def test_a_new_registry_holds_no_types():
+    assert dict(NodeRegistry().types) == {}
+
+
+def test_a_hosts_type_is_described_by_its_own_id_and_title():
+    registry = NodeRegistry(types=[Text])
+
+    assert registry.describe()["types"] == [{"id": "text", "title": "Text", "accepted_as": ["text"]}]
+
+
+def test_a_type_without_an_id_or_title_is_known_by_its_class_name():
+    class Plain(str):
+        pass
+
+    assert NodeRegistry(types=[Plain]).describe()["types"] == [{"id": "Plain", "title": "Plain", "accepted_as": ["Plain"]}]
+
+
+def test_adding_a_node_adds_the_types_it_declares_a_series_giving_its_item():
+    registry = NodeRegistry()
+    registry.add(weigh)
+
+    assert dict(registry.types) == {"text": Text, "number": Number}
+
+
+def test_two_classes_may_claim_one_id_until_one_registry_holds_both():
+    first, second = _declare_text(), _declare_text()
+    assert first is not second
+
+    assert dict(NodeRegistry(types=[first]).types) == {"text": first}
+    assert dict(NodeRegistry(types=[second]).types) == {"text": second}
+    with pytest.raises(NodeDeclarationError, match="type id 'text'") as raised:
+        NodeRegistry(types=[first, second])
+    assert raised.value.code == "duplicate_type_id"
+
+
+def test_one_id_from_two_classes_is_refused_naming_both_and_one_class_twice_is_not():
+    assert dict(NodeRegistry(types=[Text, Text]).types) == {"text": Text}
+
+    with pytest.raises(NodeDeclarationError) as raised:
+        NodeRegistry(types=[Text, AnotherText])
+
+    assert f"{Text.__module__}.Text" in str(raised.value)
+    assert f"{AnotherText.__module__}.AnotherText" in str(raised.value)
+
+
+def test_one_node_declaring_two_classes_under_one_id_is_refused():
+    @node("copy")
+    def copy(text: Text) -> AnotherText:
+        return AnotherText(text)
+
+    with pytest.raises(NodeDeclarationError, match="type id 'text'"):
+        NodeRegistry().add(copy)
+
+
+def test_a_type_clash_on_add_names_both_classes_and_adds_nothing():
+    @node("whisper")
+    def whisper(text: AnotherText) -> AnotherText:
+        return AnotherText(text.lower())
+
+    registry = NodeRegistry()
+    registry.add(weigh)
+
+    with pytest.raises(NodeDeclarationError) as raised:
+        registry.add(whisper)
+
+    assert "Text" in str(raised.value) and "AnotherText" in str(raised.value)
+    assert "whisper" not in registry
+    assert dict(registry.types) == {"text": Text, "number": Number}
+
+
+def test_a_subclass_without_its_own_id_cannot_sit_beside_its_parent():
+    """A subclass is a type of its own; under its parent's id it would travel as the parent."""
+
+    class Short(Text):
+        display_title = "Short"
+
+    @node("cut")
+    def cut(text: Short) -> Short:
+        return text
+
+    registry = NodeRegistry(types=[Text])
+
+    with pytest.raises(NodeDeclarationError, match="type id 'text'") as raised:
+        registry.add(cut)
+
+    assert raised.value.code == "duplicate_type_id"
+    assert dict(registry.types) == {"text": Text}
+
+
+def test_the_types_are_read_only_and_filter_keeps_the_named_ones():
+    class Score(float):
+        id = "score"
+
+    registry = NodeRegistry(types=[Score])
+    registry.add(weigh)
+
+    with pytest.raises(TypeError):
+        registry.types["score"] = Score  # type: ignore[index]
+
+    assert registry.filter(lambda definition: True).types == registry.types
+    assert dict(registry.filter(lambda definition: False).types) == {"score": Score}
+
+
+def test_a_bug_in_a_types_accepts_is_not_swallowed():
+    class Broken(str):
+        id = "broken"
+
+        @classmethod
+        def accepts(cls, source: Any) -> bool:
+            raise TypeError("a bug in accepts")
+
+    registry = NodeRegistry(types=[Number, Broken])
+
+    with pytest.raises(TypeError, match="a bug in accepts"):
+        registry.describe()
+
+
+# --- what a registry is -----------------------------------------------------
+
+
+def test_something_that_is_not_a_node_is_refused():
+    def plain(text: str) -> str:
+        return text
+
+    with pytest.raises(NodeDeclarationError, match="declare one with @node") as raised:
+        NodeRegistry().add(plain)  # type: ignore[arg-type]
+
+    assert raised.value.code == "not_a_node_definition"
+
+
+def test_a_registry_is_a_container_and_not_a_mapping():
+    """``in``, ``[]``, ``len`` and looping over definitions, and no ``get`` answering a typo with ``None``."""
+    from collections.abc import Container, Mapping
+
+    registry = _registry_with(echo)
+
+    assert isinstance(registry, Container) and not isinstance(registry, Mapping)
+    assert not hasattr(registry, "get") and not hasattr(registry, "items")
