@@ -164,7 +164,8 @@ class Leg:
     """
 
     def __init__(self, run: Run, emit: Callable[[_EventBase], None] | None, stop: Callable[[], Problem | None] | None, from_run: dict[type, Any]) -> None:
-        self.run, self.emit, self.stop, self.from_run = run, emit, stop, from_run
+        self.run, self.stop, self.from_run = run, stop, from_run
+        self.emit = emit if emit is None or not run.graph._spliced else self._as_seen_from_outside(emit)
         self.nodes = list(run.graph._nodes.values())
         self.position = {p.id: i for i, p in enumerate(self.nodes)}
         self.ready: list[tuple[int, Key]] = []  # (node position, row), tried in that order
@@ -322,7 +323,7 @@ class Leg:
             elif self.attempts.get((node_id, key)) == -1 - attempt and (node_id, key) in self.running:  # the attempt still runs
                 del self.running[(node_id, key)]
                 seconds = placed.definition.policy.attempt_timeout
-                self._record(placed, key, make_problem("timeout", self.run.graph.outward(node_id), *key, seconds=seconds))
+                self._record(placed, key, make_problem("timeout", node_id, *key, seconds=seconds))
 
     def _returned(self, node_id: str, key: Key, attempt: int, out: Any, error: BaseException | None) -> None:
         placed = self.run.graph._nodes[node_id]
@@ -346,7 +347,7 @@ class Leg:
         self.running[(placed.id, key)] = kwargs
         heapq.heappush(self.timers, (time.monotonic() + delay, len(self.timers), placed.id, key, attempt + 1))
         if self.emit:
-            self.emit(NodeRetry(node_id=self.run.graph.outward(placed.id), row=key, attempt=attempt + 1, retries=policy.retries, delay=delay, cause=self._failure(placed, key, error)))
+            self.emit(NodeRetry(node_id=placed.id, row=key, attempt=attempt + 1, retries=policy.retries, delay=delay, cause=self._failure(placed, key, error)))
         return True
 
     def _outcome(self, placed: PlacedNode, key: Key, kwargs: dict[str, Any], out: Any, error: BaseException | None) -> Unit | Problem:
@@ -358,31 +359,30 @@ class Leg:
                 try:
                     question["asked"] = asked(error, placed.definition)
                 except WrongAsk as wrong:
-                    return make_problem("invalid_ask", self.run.graph.outward(placed.id), *key, reason=str(wrong))
+                    return make_problem("invalid_ask", placed.id, *key, reason=str(wrong))
             return Unit("waiting", None, question)
         return self._failure(placed, key, error)
 
     def _failure(self, placed: PlacedNode, key: Key, error: BaseException) -> Problem:
         """The problem a node's exception is: its own words for a ``NodeError``; for any other, only its class, the text to the log."""
-        outer = self.run.graph.outward(placed.id)  # a node of an embedding fails as the embedding, from outside
         if isinstance(error, NodeError):
-            return error._as_problem_at(outer, *key)
+            return error._as_problem_at(placed.id, *key)
         if isinstance(error, Refused):
-            return make_problem(error.code, outer, *key, reason=error.reason, **error.ctx)
+            return make_problem(error.code, placed.id, *key, reason=error.reason, **error.ctx)
         _logger.error("node %r failed on row %r", placed.id, key, exc_info=error)
         if isinstance(error, placed.definition.policy.retry_on):
-            return make_problem("external_failed", outer, *key, error=type(error).__name__)
-        return make_problem("execution_failed", outer, *key, error=type(error).__name__)
+            return make_problem("external_failed", placed.id, *key, error=type(error).__name__)
+        return make_problem("execution_failed", placed.id, *key, error=type(error).__name__)
 
     def _record(self, placed: PlacedNode, key: Key, unit: Unit | Problem, walking: bool = False) -> None:
         """Keep what a unit came to, and make ready what reads it."""
         run = self.run
         if isinstance(unit, Problem):
             if run.cause is None:
-                run.status, run.cause = "failed", unit
+                run.status, run.cause = "failed", run.graph._seen_from_outside(unit)  # a node of an embedding fails as the embedding
                 self._start_nothing_more()
                 if self.emit:
-                    self.emit(NodeFailed(node_id=self.run.graph.outward(placed.id), cause=unit))
+                    self.emit(NodeFailed(node_id=placed.id, cause=unit))
             return
         units = run._units[placed.id]
         if units and key not in units and key < next(reversed(units)):
@@ -470,6 +470,19 @@ class Leg:
         return False
 
     # -- what the leg says --------------------------------------------------------------------
+
+    def _as_seen_from_outside(self, emit: Callable[[_EventBase], None]) -> Callable[[_EventBase], None]:
+        """``emit``, with every event about a node an embedding put in its place said of the embedding, its cause too."""
+        graph = self.run.graph
+
+        def say(event: _EventBase) -> None:
+            node_id = getattr(event, "node_id", None)
+            if node_id in graph._spliced:
+                cause = getattr(event, "cause", None)
+                event = event.model_copy(update={"node_id": graph.outward(node_id), **({"cause": graph._seen_from_outside(cause)} if cause is not None else {})})
+            emit(event)
+
+        return say
 
     def _announce(self, placed: PlacedNode) -> None:
         outer = self.run.graph.outward(placed.id)

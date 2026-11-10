@@ -557,12 +557,16 @@ class Run:
                 items: list[tuple[Level, Key, Any]] = []
                 skipped_above = 0
                 skips = []  # for each item that is a skip: whether its branch was decided at or above the row it is gathered under, and where
+                lone = plan.sources[0]
                 on: dict[Level, list[Source]] = {}  # sources on one table are read row by row, in the table's order
-                for source in plan.sources:
-                    if source.node_id is None and not source.made:  # the caller's list, given whole
-                        items.extend(((source.output,), (i,), v) for i, v in enumerate(self.inputs[source.output]))
-                        continue
-                    on.setdefault(source.level, []).append(source)
+                if len(plan.sources) == 1 and (lone.node_id is not None or lone.made):
+                    on[lone.level] = plan.sources
+                else:
+                    for source in plan.sources:
+                        if source.node_id is None and not source.made:  # the caller's list, given whole
+                            items.extend(((source.output,), (i,), v) for i, v in enumerate(self.inputs[source.output]))
+                            continue
+                        on.setdefault(source.level, []).append(source)
                 for level, sources in on.items():
                     under = row[: sources[0].anchor]
                     keys, complete = self._rows(level, under)
@@ -570,6 +574,18 @@ class Run:
                         return PENDING
                     if not keys:
                         skipped_above += sum(self._skipped_above(source, under) for source in sources)
+                    if len(sources) == 1:  # one source: each row is its value, or a skip
+                        (source,) = sources
+                        for key in keys:
+                            value = self._cell(source, key)
+                            if value is PENDING:
+                                return PENDING
+                            if value is SKIPPED:
+                                origin = self._skip_origin(source, key)
+                                skips.append((len(key) > len(under) and origin <= len(under), origin))
+                                value = None
+                            items.append((level, key, value))
+                        continue
                     for key in keys:
                         values, origins = [], []
                         for source in sources:
