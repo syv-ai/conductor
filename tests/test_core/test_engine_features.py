@@ -12,7 +12,7 @@ import pytest
 from conductor import (
     SKIPPED,
     Ask,
-    ExternalFailure,
+    ExternalError,
     FromRun,
     InvalidCallError,
     Param,
@@ -218,7 +218,7 @@ def test_retries_external_failures_then_succeeds():
     def fetch(text: str) -> str:
         tries[text] = tries.get(text, 0) + 1
         if tries[text] < 3:
-            raise ExternalFailure("busy")
+            raise ExternalError("busy")
         return text
 
     @node("client", policy=Policy(retries=1, retry_delay=0.01, retry_on=(Flaky,), concurrency=2))
@@ -242,7 +242,7 @@ def test_retries_run_out_and_plain_errors_never_retry():
     @node("down", policy=Policy(retries=1, retry_delay=0.01))
     def down(text: str) -> str:
         calls.append(text)
-        raise ExternalFailure("down")
+        raise ExternalError("down")
 
     @node("bug", policy=Policy(retries=3, retry_delay=0.01))
     def bug(text: str) -> str:

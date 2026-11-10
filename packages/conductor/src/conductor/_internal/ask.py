@@ -32,7 +32,7 @@ from conductor._internal.fields import (
     SKIPPED,
     FieldDescription,
     FieldSpec,
-    Refused,
+    FieldValueError,
     choice_record,
     read_strictly,
 )
@@ -227,7 +227,7 @@ def _offered(spec: FieldSpec, choices: list[Any]) -> list[dict[str, Any]]:
     ids = [choice_record(choice)["id"] for choice in choices]
     try:
         kept = _as_json(spec, read_answer(spec, ids)) if spec.shape == "many" else [_as_json(spec, read_answer(spec, i)) for i in ids]
-    except Refused as refused:
+    except FieldValueError as refused:
         raise InvalidAskError(f"a choice for '{spec.name}' is not what it returns: {refused.reason}") from None
     if len({repr(k) for k in kept}) != len(kept):
         raise InvalidAskError(f"a choice for '{spec.name}' is offered twice")
@@ -247,7 +247,7 @@ def _proposed(spec: FieldSpec, default: Any, offered: list[dict[str, Any]] | Non
     """
     try:
         proposed: JsonValue = _as_json(spec, _checked_answer(spec, default, offered))
-    except Refused as refused:
+    except FieldValueError as refused:
         raise InvalidAskError(f"the default for '{spec.name}' is not an answer it takes: {refused.reason}") from None
     return proposed
 
@@ -328,7 +328,7 @@ def answer_outputs(placed: PlacedNode, value: Any, overrides: Mapping[str, Quest
         ((name, spec),) = outputs.items()
         try:
             return {name: _checked_answer(spec, value, overrides.get(name, {}).get("choices", placed.questions[name].choices))}, []
-        except Refused as refused:
+        except FieldValueError as refused:
             return {}, [(None, refused.reason)]
     if value is None and not outputs:
         return {}, []  # a node that returns nothing is answered with nothing: the person only says to go on
@@ -351,7 +351,7 @@ def answer_outputs(placed: PlacedNode, value: Any, overrides: Mapping[str, Quest
                 read[name] = read_answer(spec, override.get("default", question.default))  # a default, or a blank where the type takes one
             else:
                 faults.append((name, f"'{name}' was not answered"))
-        except Refused as refused:
+        except FieldValueError as refused:
             faults.append((name, f"'{name}': {refused.reason}"))
         if group is not None:
             groups.setdefault(group, []).append(name)
@@ -365,7 +365,7 @@ def _checked_answer(spec: FieldSpec, value: Any, offered: list[dict[str, Any]] |
     """Reads one question's answer into the node's own form, held to the choices ``offered``.
 
     Raises:
-        Refused: The answer is not a value of the output's type, not one of the choices, or, for a pick of several,
+        FieldValueError: The answer is not a value of the output's type, not one of the choices, or, for a pick of several,
             picks a choice twice.
     """
     read = read_answer(spec, value)
@@ -374,9 +374,9 @@ def _checked_answer(spec: FieldSpec, value: Any, offered: list[dict[str, Any]] |
         picks = picked if spec.shape == "many" else [picked]
         ids = [choice["id"] for choice in offered]
         if any(item not in ids for item in picks):
-            raise Refused("the answer is not one of the choices")
+            raise FieldValueError("the answer is not one of the choices")
         if len({repr(item) for item in picks}) != len(picks):
-            raise Refused("a choice is picked twice")
+            raise FieldValueError("a choice is picked twice")
     return read
 
 
@@ -384,7 +384,7 @@ def read_answer(spec: FieldSpec, value: Any) -> Any:
     """Reads ``value`` as one value of the output ``spec``: a table from records or a frame, anything else by its type.
 
     Raises:
-        Refused: The value is not one the output takes.
+        FieldValueError: The value is not one the output takes.
     """
     if spec.shape == "table":
         return _read_table(spec, value)
@@ -395,7 +395,7 @@ def _read_table(spec: FieldSpec, value: Any) -> pl.DataFrame:
     """Reads a table answer, a ``polars.DataFrame`` or a list of records; a table with a row type has exactly its columns.
 
     Raises:
-        Refused: The value is not a table, or has a column the row type doesn't, or a cell its column refuses.
+        FieldValueError: The value is not a table, or has a column the row type doesn't, or a cell its column refuses.
     """
     if isinstance(value, pl.DataFrame):
         records = value.to_dicts()
@@ -403,21 +403,21 @@ def _read_table(spec: FieldSpec, value: Any) -> pl.DataFrame:
         try:
             records = RECORDS.validate_python(value)
         except ValidationError:
-            raise Refused("a table is a list of records, one object per row") from None
+            raise FieldValueError("a table is a list of records, one object per row") from None
     if spec.columns is None:
         try:
             return pl.DataFrame(records)
         except Exception:  # noqa: BLE001  polars' own account may quote a cell
-            raise Refused("the records don't make a table") from None
+            raise FieldValueError("the records don't make a table") from None
     unknown = sorted({key for record in records for key in record} - spec.columns.keys())
     if unknown:
-        raise Refused(f"the table has no column '{unknown[0]}'; it has {', '.join(spec.columns)}")
+        raise FieldValueError(f"the table has no column '{unknown[0]}'; it has {', '.join(spec.columns)}")
     columns = {}
     for column, adapter in spec.column_adapters.items():
         try:
             columns[column] = read_strictly(adapter, [record.get(column) for record in records])
-        except Refused as refused:
-            raise Refused(f"column '{column}': {refused.reason}") from None
+        except FieldValueError as refused:
+            raise FieldValueError(f"column '{column}': {refused.reason}") from None
     return pl.DataFrame(columns, strict=False)
 
 

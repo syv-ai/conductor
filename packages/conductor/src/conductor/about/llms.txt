@@ -207,7 +207,7 @@ second = first.again(contact=[*contacts, "eva@c.dk"])     # one row added: one m
 
 Retries live on the node's `Policy`, per unit.
 
-- Only `ExternalFailure` retries: raised by the node, or a class in `Policy.retry_on` (`external_failed`). Anything else is `execution_failed` or the node's own `NodeError` code, run once. A `NodeError` other than `ExternalFailure`, an `invalid_output` and an `Ask` are never retried, even when `retry_on` names a class they derive from, such as `Exception`.
+- Only `ExternalError` retries: raised by the node, or a class in `Policy.retry_on` (`external_failed`). Anything else is `execution_failed` or the node's own `NodeError` code, run once. A `NodeError` other than `ExternalError`, an `invalid_output` and an `Ask` are never retried, even when `retry_on` names a class they derive from, such as `Exception`.
 - Attempt `n` waits `retry_delay * 2 ** (n - 1)` and emits `node_retry`.
 - `Policy.attempt_timeout` bounds one attempt: the unit fails with the code `timeout`, final; the thread is not interrupted.
 - `run.resume(timeout=60)` ends the leg `timed_out` (a `timeout` or `checkpoint_every` that is not a finite number of seconds above 0, a `bool` included, is `invalid_timeout` or `invalid_checkpoint_every` at the call, and a `max_rows` of `True` is `invalid_max_rows`); `run.stream(cancel=asyncio.Event())` ends it `cancelled` when set, and so does leaving the loop once the stream is closed: Python closes an async generator left early only when it is collected, so hold it with `async with contextlib.aclosing(run.stream()) as events:` and loop over `events`. Either way the calls already made finish and are kept, so resuming repeats none of them.
@@ -220,7 +220,7 @@ The classes are exported from `conductor`. What is wrong is always one record, `
 NodeDeclarationError    a node or registry declared wrong, at import; a TypeError, with code
 InvalidCallError        a call was given what it cannot act on, every fault listed
 NodeError               a node's own failure: message, code, ctx
-└── ExternalFailure         retried
+└── ExternalError         retried
 ```
 
 A failed unit ends the leg `failed`, its problem on `run.cause`: nothing more starts, the calls already on a thread are waited for (each as far as its `attempt_timeout`) and kept, so resuming doesn't repeat them. A call that can't be acted on raises `InvalidCallError`, whose `errors()` lists a `Problem` for every fault, and nothing changes. Running a graph with problems raises it too, listing them. A failure never quotes a value the run handled: a node's exception other than a `NodeError` goes to `logging.getLogger("conductor")` and only its class name reaches `ctx`.
@@ -262,7 +262,7 @@ Five public modules: `conductor`, `conductor.widgets`, `conductor.events`, `cond
 ### conductor
 
 - Nodes: `node`, `NodeDefinition`, `Upgrade`, `Policy`, `Deprecation`, `Param`, `FromRun`, `Series`, `Table`
-- In a node: `SKIPPED`, `Ask`, `Choice`, `NodeError`, `ExternalFailure`
+- In a node: `SKIPPED`, `Ask`, `Choice`, `NodeError`, `ExternalError`
 - Registry: `NodeRegistry(*, category="", tags=(), extra={}, types=())` (`@registry.node`, `add(*definitions)`, `replace(definition)`, `remove(node_id)`, `add_subregistry(registry)`, `filter(predicate)`, `load(record)`, `upgrade(record, node_id, to=None)`, `in`, `[]`, `len`, iteration over the definitions, `types`, `describe`). A node entering a registry takes its defaults: tags add up, outermost first; the node's own `category` and `extra` keys win. A second node under one id raises; a subregistry is copied in when added.
 - Graph: `GraphRecord`, `NodeRecord`, `make_graph`, `Graph`
 - A run: `Run`, `Waiting`

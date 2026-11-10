@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import Annotated
 
 from conductor import (
-    Ask, ExternalFailure, FromRun, GraphRecord, InvalidCallError, NodeDeclarationError,
+    Ask, ExternalError, FromRun, GraphRecord, InvalidCallError, NodeDeclarationError,
     NodeError, NodeRegistry, Param, Policy, Series, Upgrade, make_graph, node,
 )
 from conductor.testing import check_registry

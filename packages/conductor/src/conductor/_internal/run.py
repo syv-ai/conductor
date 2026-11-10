@@ -40,7 +40,7 @@ from conductor._internal.errors import InvalidCallError, Problem, make_problem, 
 from conductor._internal.fields import (
     SKIPPED,
     FieldSpec,
-    Refused,
+    FieldValueError,
     carried_list,
     is_a_number,
     read_value,
@@ -488,7 +488,7 @@ class Run:
         """Call ``placed`` on what a unit received: its outputs as a run keeps them, or what went wrong.
 
         A value an edge brings is checked against the input first where its source's type doesn't settle it, and what
-        the node returns against its declared outputs; either refusal is a ``Refused``, which quotes no value.
+        the node returns against its declared outputs; either refusal is a ``FieldValueError``, which quotes no value.
         """
         try:
             for name in placed.checked:
@@ -502,7 +502,7 @@ class Run:
             return None, error
         try:
             return checked_outputs(placed.definition, returned), None
-        except Refused as wrong:
+        except FieldValueError as wrong:
             return None, wrong
 
     def _stop(self, table: str, count: int) -> None:
@@ -764,7 +764,7 @@ class Run:
         """The run as JSON: its inputs, every unit, and what it went on from, a column per output of each node."""
         try:
             return self._written()
-        except _Unreadable as unwritable:
+        except _SaveError as unwritable:
             raise InvalidCallError([make_problem("state_unwritable", "state", unwritable.at, at=unwritable.at, reason=unwritable.reason)]) from None
 
     def _written(self) -> str:
@@ -834,31 +834,31 @@ def run_from_json(graph: Graph, saved: str | bytes | Mapping[str, Any]) -> Run:
         fields = graph._input_fields
         unknown = sorted(data.inputs.keys() - fields.keys())
         if unknown:
-            raise _Unreadable(unknown[0], "the graph has no such input")
+            raise _SaveError(unknown[0], "the graph has no such input")
         graph = graph._compiled_for(frozenset(a for a, v in data.inputs.items() if fields[a].spec.per_item and isinstance(v, list)))
         if graph.problems:
             raise InvalidCallError(graph.problems)
         unknown = sorted(data.non_finite_inputs.keys() - data.inputs.keys())
         if unknown:
-            raise _Unreadable(unknown[0], "the graph has no such input")
+            raise _SaveError(unknown[0], "the graph has no such input")
         written = {address: _with_non_finite(v, data.non_finite_inputs.get(address, ()), address) for address, v in data.inputs.items()}
         inputs = {address: _load_input(graph, address, v) for address, v in written.items()}
         run = start_run(graph, inputs, data.max_rows)
         for saved_nodes in (data.units, data.earlier):
             unknown = sorted(saved_nodes.keys() - graph._nodes.keys())
             if unknown:
-                raise _Unreadable(unknown[0], "the graph has no such node")
+                raise _SaveError(unknown[0], "the graph has no such node")
         for n, dumped in data.units.items():
             loaded = _load_units(graph._nodes[n], dumped)
             run._units[n] = dict(loaded)
             if len(run._units[n]) != len(loaded):
-                raise _Unreadable(n, "a row is listed twice")
+                raise _SaveError(n, "a row is listed twice")
         run._ran_as = {n: digest for n, digest in data.code.items() if n in graph._nodes and digest != graph._nodes[n].reuse_digest}
         for n, dumped in data.earlier.items():
             if n in run._ran_as:
                 continue  # made with other code: never reused
             if len(dumped.fingerprints) != len(dumped.states):
-                raise _Unreadable(n, f"it holds {len(dumped.fingerprints)} fingerprints for {len(dumped.states)} units")
+                raise _SaveError(n, f"it holds {len(dumped.fingerprints)} fingerprints for {len(dumped.states)} units")
             by: dict[str, list[Unit]] = {}
             for fp, (_, unit) in zip(dumped.fingerprints, _load_units(graph._nodes[n], dumped), strict=True):
                 by.setdefault(fp, []).append(unit)
@@ -871,9 +871,9 @@ def run_from_json(graph: Graph, saved: str | bytes | Mapping[str, Any]) -> Run:
             made, _ = run._rows(placed.level, ())
             stray = sorted(set(units) - set(made))
             if stray:
-                raise _Unreadable(n, f"it holds the row {list(stray[0])}, which the saved run never made")
+                raise _SaveError(n, f"it holds the row {list(stray[0])}, which the saved run never made")
         return run
-    except _Unreadable as unreadable:
+    except _SaveError as unreadable:
         raise InvalidCallError([make_problem("state_unreadable", "state", unreadable.at, at=unreadable.at, reason=unreadable.reason)]) from None
 
 
@@ -919,7 +919,7 @@ def checked_outputs(definition: NodeDefinition[..., Any], returned: Any) -> Any:
 
     Each is read strictly by its declared type (a value already of its class as it is, a model from a dict, never
     ``"12"`` for an ``int``), and of an ``exclusive_group`` at most one output holds a value. A fault raises
-    ``Refused`` with the code ``invalid_output``.
+    ``FieldValueError`` with the code ``invalid_output``.
     """
     if returned is SKIPPED:
         return SKIPPED
@@ -931,20 +931,20 @@ def checked_outputs(definition: NodeDefinition[..., Any], returned: Any) -> Any:
         spread = {"result": returned}
     elif definition.compute_outputs is not None:
         if not isinstance(returned, Mapping):
-            raise Refused(f"the node returns its outputs as a mapping of {', '.join(outputs) or 'nothing'}, not a {type(returned).__name__}", code="invalid_output")
+            raise FieldValueError(f"the node returns its outputs as a mapping of {', '.join(outputs) or 'nothing'}, not a {type(returned).__name__}", code="invalid_output")
         unknown = sorted(set(returned) - outputs.keys())
         missing = [name for name in outputs if name not in returned]
         if unknown or missing:
             name = (missing or unknown)[0]
-            raise Refused(f"'{name}' is {'missing from' if missing else 'not one of'} the outputs it returns", code="invalid_output", name=str(name))
+            raise FieldValueError(f"'{name}' is {'missing from' if missing else 'not one of'} the outputs it returns", code="invalid_output", name=str(name))
         spread = {name: returned[name] for name in outputs}
     elif definition.outputs_class is not None:
         if not isinstance(returned, definition.outputs_class):
-            raise Refused(f"the node returns a {definition.outputs_class.__name__}, not a {type(returned).__name__}", code="invalid_output")
+            raise FieldValueError(f"the node returns a {definition.outputs_class.__name__}, not a {type(returned).__name__}", code="invalid_output")
         spread = {name: getattr(returned, name) for name in outputs}
     else:
         if returned is not None:
-            raise Refused(f"the node declares no outputs, but returned a {type(returned).__name__}", code="invalid_output")
+            raise FieldValueError(f"the node declares no outputs, but returned a {type(returned).__name__}", code="invalid_output")
         return {}
     groups: dict[str, str] = {}
     for name, spec in outputs.items():
@@ -952,24 +952,24 @@ def checked_outputs(definition: NodeDefinition[..., Any], returned: Any) -> Any:
         group = spec.param.exclusive_group
         if group is not None and spread[name] is not SKIPPED:
             if group in groups:
-                raise Refused(f"'{groups[group]}' and '{name}' are alternatives of '{group}', and both hold a value", code="invalid_output", name=name)
+                raise FieldValueError(f"'{groups[group]}' and '{name}' are alternatives of '{group}', and both hold a value", code="invalid_output", name=name)
             groups[group] = name
     return kept_outputs(outputs, spread)
 
 
 def checked_input(spec: FieldSpec, name: str, value: Any) -> Any:
-    """A value an edge brought, read by the input's type as a typed-in value is; ``Refused`` as ``invalid_edge_value`` if it can't be."""
+    """A value an edge brought, read by the input's type as a typed-in value is; ``FieldValueError`` as ``invalid_edge_value`` if it can't be."""
     return _checked(spec, name, value, code="invalid_edge_value")
 
 
 def _checked(spec: FieldSpec, name: str, value: Any, *, code: str) -> Any:
     try:
         read = read_value(spec, value, strict=code == "invalid_output")
-    except Refused as refused:
+    except FieldValueError as refused:
         refused.code, refused.ctx = code, {"name": name, **refused.ctx}
         raise
     if code == "invalid_output" and spec.shape == "one" and spec.plain_classes and read is not SKIPPED and not isinstance(read, spec.plain_classes):
-        raise Refused(f"its type's own check gave a {type(read).__name__}, not a {type_id(without_none(spec.type))}", code="invalid_output", name=name)
+        raise FieldValueError(f"its type's own check gave a {type(read).__name__}, not a {type_id(without_none(spec.type))}", code="invalid_output", name=name)
     return read
 
 
@@ -1070,8 +1070,13 @@ _SAVED = TypeAdapter(_SavedRun)
 _SAVED_TABLE = TypeAdapter(_SavedTable)
 
 
-class _Unreadable(Exception):
-    """What a saved run says that this graph can't read, and where: ``node.output`` or ``node.output.column``."""
+class _SaveError(Exception):
+    """A run that can't be written to its save, or a save this graph can't read.
+
+    Attributes:
+        at: Where: an input's address, ``node.output`` or ``node.output.column``.
+        reason: Why, quoting nothing of the value.
+    """
 
     def __init__(self, at: str, reason: str) -> None:
         super().__init__(reason)
@@ -1079,7 +1084,7 @@ class _Unreadable(Exception):
 
 
 def _load_units(placed: PlacedNode, dumped: _SavedUnits) -> list[tuple[Key, Unit]]:
-    """A node's saved units, each output read by its own type; anything that doesn't fit raises ``_Unreadable`` naming where."""
+    """A node's saved units, each output read by its own type; anything that doesn't fit raises ``_SaveError`` naming where."""
     states = dumped.states
     done = states.count("done")
     columns: dict[str, list[Any]] = {}
@@ -1088,7 +1093,7 @@ def _load_units(placed: PlacedNode, dumped: _SavedUnits) -> list[tuple[Key, Unit
         column = dumped.outputs.get(name)
         if column is None:
             if done:
-                raise _Unreadable(at, "the output is missing")
+                raise _SaveError(at, "the output is missing")
             continue
         values: list[Any]
         try:
@@ -1097,27 +1102,27 @@ def _load_units(placed: PlacedNode, dumped: _SavedUnits) -> list[tuple[Key, Unit
             else:
                 values = spec.column_adapter.validate_python(_with_non_finite(column.values, column.non_finite, at))
         except ValidationError as error:
-            raise _Unreadable(at, value_free_errors(error)[0]["msg"]) from None
+            raise _SaveError(at, value_free_errors(error)[0]["msg"]) from None
         if len(values) != done:
-            raise _Unreadable(at, f"it holds {len(values)} values for {done} finished units")
+            raise _SaveError(at, f"it holds {len(values)} values for {done} finished units")
         for i in column.skipped:
             if i >= done:
-                raise _Unreadable(at, f"it skips the value {i} of {done}")
+                raise _SaveError(at, f"it skips the value {i} of {done}")
             values[i] = SKIPPED
         for n, positions in column.skipped_items.items():
             if n >= done or not isinstance(values[n], list) or any(i >= len(values[n]) for i in positions):
-                raise _Unreadable(at, f"it skips an item the value {n} doesn't hold")
+                raise _SaveError(at, f"it skips an item the value {n} doesn't hold")
             for i in positions:
                 values[n][i] = SKIPPED
         if spec.shape != "one" and not spec.optional and any(v is None for v in values):
-            raise _Unreadable(at, "a finished unit has no value on an output that makes rows")
+            raise _SaveError(at, "a finished unit has no value on an output that makes rows")
         columns[name] = values
     unknown = sorted(dumped.outputs.keys() - placed.definition.outputs.keys())
     if unknown:
-        raise _Unreadable(f"{placed.id}.{unknown[0]}", "the node has no such output")
+        raise _SaveError(f"{placed.id}.{unknown[0]}", "the node has no such output")
     keys = dumped.keys if dumped.keys is not None else [() for _ in states]
     if len(keys) != len(states):
-        raise _Unreadable(placed.id, f"it holds {len(keys)} rows for {len(states)} units")
+        raise _SaveError(placed.id, f"it holds {len(keys)} rows for {len(states)} units")
     loaded: list[tuple[Key, Unit]] = []
     n = 0
     for i, (key, state) in enumerate(zip(keys, states, strict=True)):
@@ -1128,7 +1133,7 @@ def _load_units(placed: PlacedNode, dumped: _SavedUnits) -> list[tuple[Key, Unit
         question = dumped.questions.get(i)
         if state == "waiting":
             if question is None:
-                raise _Unreadable(placed.id, f"the waiting unit {i} holds no question")
+                raise _SaveError(placed.id, f"the waiting unit {i} holds no question")
             loaded.append((key, WaitingUnit(question)))
         else:
             loaded.append((key, Unit(state, out, question, dumped.blank_inputs.get(i), dumped.skipped_from.get(i))))
@@ -1166,7 +1171,7 @@ def _with_non_finite(written: Any, paths: Any, at: str) -> Any:
                 raise LookupError(last)
             holder[last] = float(holder[last])  # a text holder can't take it: TypeError
     except (LookupError, TypeError):
-        raise _Unreadable(at, "it marks a float where the value has none") from None
+        raise _SaveError(at, "it marks a float where the value has none") from None
     return root[0]
 
 
@@ -1179,11 +1184,11 @@ def _load_frame(spec: FieldSpec, saved: _SavedTable, at: str) -> Frame:
     rows, columns = saved.rows, {}
     for c, values in saved.columns:
         if len(values) != rows:
-            raise _Unreadable(f"{at}.{c}", f"it holds {len(values)} cells for {rows} rows")
+            raise _SaveError(f"{at}.{c}", f"it holds {len(values)} cells for {rows} rows")
         try:
             columns[c] = _column_adapter(spec, c, saved.types.get(c)).validate_python(values)
         except ValidationError as error:
-            raise _Unreadable(f"{at}.{c}", value_free_errors(error)[0]["msg"]) from None
+            raise _SaveError(f"{at}.{c}", value_free_errors(error)[0]["msg"]) from None
     return Frame(rows, columns)
 
 
@@ -1204,11 +1209,11 @@ def _dump_frame(spec: FieldSpec, frame: Frame, at: str) -> dict[str, Any]:
 
 
 def _written_as_json(adapter: TypeAdapter[Any], values: list[Any], at: str) -> Any:
-    """``values`` as JSON; a value with no JSON form raises ``_Unreadable`` naming where, never quoting it."""
+    """``values`` as JSON; a value with no JSON form raises ``_SaveError`` naming where, never quoting it."""
     try:
         written = adapter.dump_python(values, mode="json")
     except Exception as error:  # noqa: BLE001  pydantic's and the codec's errors both quote the value
-        raise _Unreadable(at, f"a value has no JSON form ({type(error).__name__})") from None
+        raise _SaveError(at, f"a value has no JSON form ({type(error).__name__})") from None
     return written
 
 
@@ -1232,7 +1237,7 @@ _ANY_COLUMN = carried_list(Any)
 
 def _dump_input(graph: Graph, address: str, value: Any) -> Any:
     """A caller's input as JSON: a table as a saved table output is, anything else by its field; a value with no JSON
-    form raises ``_Unreadable`` naming the input."""
+    form raises ``_SaveError`` naming the input."""
     field = graph._input_fields[address]
     if field.spec.shape == "table":
         return None if value is None else _dump_frame(field.spec, Frame(value.height, value.to_dict(as_series=False)), address)
@@ -1248,7 +1253,7 @@ def _load_input(graph: Graph, address: str, saved: Any) -> Any:
             return (field.spec.list_adapter if field.listed else field.spec.adapter).validate_python(saved)
         return None if saved is None else _load_frame(field.spec, _SAVED_TABLE.validate_python(saved), address).frame()
     except ValidationError as error:
-        raise _Unreadable(address, value_free_errors(error)[0]["msg"]) from None
+        raise _SaveError(address, value_free_errors(error)[0]["msg"]) from None
 
 
 def _frame_json(value: Any) -> Any:
@@ -1258,7 +1263,7 @@ def _frame_json(value: Any) -> Any:
 
 
 def jsonable(kwargs: dict[str, Any]) -> Any:
-    """What a unit received, as JSON; a float that isn't finite as text. ``Refused`` as ``question_unwritable`` names
+    """What a unit received, as JSON; a float that isn't finite as text. ``FieldValueError`` as ``question_unwritable`` names
     the first input with no JSON form."""
     try:
         return pydantic_core.from_json(pydantic_core.to_json(kwargs, fallback=_frame_json, inf_nan_mode="strings"))
@@ -1267,7 +1272,7 @@ def jsonable(kwargs: dict[str, Any]) -> Any:
             try:
                 pydantic_core.to_json(value, fallback=_frame_json, inf_nan_mode="strings")
             except (TypeError, ValueError, pydantic_core.PydanticSerializationError) as unwritable:
-                raise Refused(str(unwritable), code="question_unwritable", input=name) from None
+                raise FieldValueError(str(unwritable), code="question_unwritable", input=name) from None
         raise error
 
 

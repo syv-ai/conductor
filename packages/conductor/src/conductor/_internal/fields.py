@@ -182,7 +182,7 @@ class Param:
         fault, ids = "", []
         try:
             ids = [read_strictly(reader, choice_record(choice)["id"]) for choice in self.choices]
-        except Refused as refused:
+        except FieldValueError as refused:
             fault = f"a choice is not a value of the field's type: {refused.reason}"
         offered = literal_values(source)
         if not fault and (len({repr(i) for i in ids}) != len(ids) or not ids):
@@ -880,7 +880,7 @@ def _declared(cls: type, name: str) -> str | None:
 # -- reading a value as its field ---------------------------------------------------------------
 
 
-class Refused(Exception):
+class FieldValueError(Exception):
     """A value its field can't take: ``reason`` says why and quotes nothing of it; ``ctx`` has pydantic's ``errors``
     without the value, the field's ``name`` and, for a table, the ``column``. ``code`` is the problem it is where it
     was met: ``invalid_output`` for a node's return, ``invalid_edge_value`` for what an edge brought."""
@@ -906,11 +906,11 @@ def read_strictly(adapter: TypeAdapter[Any], value: Any) -> Any:
     try:
         written = to_json(value, inf_nan_mode="constants")
     except PydanticSerializationError:
-        raise Refused("the value has no JSON form") from None
+        raise FieldValueError("the value has no JSON form") from None
     try:
         return adapter.validate_json(written, strict=True)
     except ValidationError as error:
-        raise Refused(value_free_errors(error)[0]["msg"]) from None
+        raise FieldValueError(value_free_errors(error)[0]["msg"]) from None
 
 
 def _a_number_type(option: Any) -> bool:
@@ -933,7 +933,7 @@ def _not_a_bool(value: Any) -> Any:
 
 
 def read_given(spec: FieldSpec, value: Any, *, items: bool) -> Any:
-    """``value`` typed into ``spec`` or given for it by a caller, a list of its values with ``items``; ``Refused`` if
+    """``value`` typed into ``spec`` or given for it by a caller, a list of its values with ``items``; ``FieldValueError`` if
     it can't be. A table may be a list of records."""
     try:
         if items:
@@ -978,20 +978,20 @@ def read_table(spec: FieldSpec, value: Any, *, strict: bool, given: bool = False
         try:
             records = RECORDS.validate_python(value)
         except ValidationError:
-            raise Refused("a table is a frame or a list of records, one object per row") from None
+            raise FieldValueError("a table is a frame or a list of records, one object per row") from None
         names = list(spec.columns) if spec.columns is not None else list(dict.fromkeys(k for r in records for k in r))
         present = {k for r in records for k in r}
         try:
             value = pl.DataFrame({c: [r.get(c) for r in records] for c in names if c in present or not records}, strict=False)
         except Exception:  # noqa: BLE001  polars' own account may quote a cell
-            raise Refused("the records don't make a table") from None
+            raise FieldValueError("the records don't make a table") from None
     if not isinstance(value, pl.DataFrame):
-        raise Refused(f"a table is a polars DataFrame, not a {type(value).__name__}")
+        raise FieldValueError(f"a table is a polars DataFrame, not a {type(value).__name__}")
     if spec.columns is None:
         return value
     missing = [c for c in spec.columns if c not in value.columns and (value.height or not given)]
     if missing:
-        raise Refused(f"the column '{missing[0]}' its row type declares is missing", column=missing[0])
+        raise FieldValueError(f"the column '{missing[0]}' its row type declares is missing", column=missing[0])
     read = {}
     for column, hint in spec.columns.items():
         if column not in value.columns:
@@ -1001,18 +1001,18 @@ def read_table(spec: FieldSpec, value: Any, *, strict: bool, given: bool = False
                 read[column] = spec.column_adapters[column].validate_python(value[column].to_list(), strict=strict)
             except ValidationError as error:
                 refused = _refused(error, _list_of(hint))
-                raise Refused(f"column '{column}': {refused.reason}", column=column, **refused.ctx) from None
+                raise FieldValueError(f"column '{column}': {refused.reason}", column=column, **refused.ctx) from None
     if given:
         return pl.DataFrame({c: read[c] if c in read else value[c] for c in spec.columns}, strict=False)
     return value.with_columns(pl.Series(c, cells, strict=False) for c, cells in read.items()) if read else value
 
 
-def _refused(error: ValidationError, hint: Any) -> Refused:
+def _refused(error: ValidationError, hint: Any) -> FieldValueError:
     """``error`` of reading a value of ``hint``, its errors without the value: each ``loc`` only as far as ``hint`` declares."""
     errors = value_free_errors(error)
     for said, raw in zip(errors, error.errors(include_url=False, include_input=False), strict=True):
         said["loc"] = _declared_loc(hint, raw["loc"])
-    return Refused(errors[0]["msg"], errors=errors)
+    return FieldValueError(errors[0]["msg"], errors=errors)
 
 
 def _declared_loc(hint: Any, loc: tuple[int | str, ...]) -> tuple[int | str, ...]:

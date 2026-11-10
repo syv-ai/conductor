@@ -62,7 +62,7 @@ from conductor._internal.fields import (
     REQUIRED,
     FieldDescription,
     FieldSpec,
-    Refused,
+    FieldValueError,
     accepts,
     already,
     given_as_items,
@@ -660,7 +660,7 @@ class Graph:
                 value = [value]  # one value where many are taken is a list of one
             try:
                 values[key] = read_given(spec, value, items=offered.listed)
-            except Refused as refused:
+            except FieldValueError as refused:
                 problems.append(make_problem("invalid_input", "inputs", name, name=name, reason=refused.reason, **refused.ctx))
         if problems:
             raise InvalidCallError(problems)
@@ -1003,7 +1003,7 @@ class Graph:
         """``value`` as ``spec`` reads it (a list of them with ``items``), or ``REQUIRED`` with the problem noted."""
         try:
             return read_given(spec, value, items=items)
-        except Refused as refused:
+        except FieldValueError as refused:
             problem = make_problem("invalid_value", node_id, name, reason=refused.reason, **refused.ctx)
             if problem not in self.problems:  # a hook reads the value its node's input reads, and is told once
                 self.problems.append(problem)

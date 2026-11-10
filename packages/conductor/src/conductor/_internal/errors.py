@@ -22,11 +22,11 @@ the ``Run``, whose ``cause`` says why.
     ├── NodeDeclarationError    a node was declared wrong; a TypeError, met at import
     ├── InvalidCallError        a call on a graph or run was given what it cannot act on
     └── NodeError               one node failed, with a message for people. Internal: never retried
-        └── ExternalFailure         the outside world failed; the one family the engine retries
+        └── ExternalError         the outside world failed; the one family the engine retries
 
 **Two families of failure.** A node's failure is internal — a bug, bad
 data, a schema that didn't fit — unless the outside world caused it: a network
-error, a rate limit, an upstream 5xx. Only ``ExternalFailure`` is retried
+error, a rate limit, an upstream 5xx. Only ``ExternalError`` is retried
 under the version's ``Policy``; a node raises it itself, or names the
 exception classes of the client it calls in ``Policy(retry_on=...)`` and
 the engine wraps those. Every other exception a node lets out is the code
@@ -280,13 +280,13 @@ class NodeError(ConductorError):
     a ``Problem`` of code ``failed`` with that text; ``code`` and ``ctx`` give it
     a code of the node's own and what the host needs beyond the text.
     The engine adds the node and the row. It never retries a ``NodeError``;
-    a failure the outside world caused is an ``ExternalFailure``.
+    a failure the outside world caused is an ``ExternalError``.
     """
 
     _code_when_none_given = "failed"
 
 
-class ExternalFailure(NodeError):
+class ExternalError(NodeError):
     """The outside world failed: a network error, a rate limit, an upstream 5xx.
 
     The one failure the engine retries, under the node's ``Policy``. A node

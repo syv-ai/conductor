@@ -5,7 +5,7 @@ from typing import Annotated, Any
 import pytest
 from conductor import (
     Ask,
-    ExternalFailure,
+    ExternalError,
     FromRun,
     InvalidCallError,
     NodeRegistry,
@@ -184,7 +184,7 @@ def test_an_example_that_does_not_run_to_the_end_or_a_pause_is_run_failed():
 
     @node("offline")
     def offline(text: str) -> str:
-        raise ExternalFailure("The service is down.")
+        raise ExternalError("The service is down.")
 
     examples = {"unsure": [{"text": "a"}], "offline": [{"text": "a"}], "who": [{"text": "no session"}], "upper": [{"txt": "a"}]}
     problems = check_registry(registry_of(unsure, offline, who, upper), examples=examples)

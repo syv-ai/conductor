@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING
 from conductor._internal.ask import Ask, Waiting
 from conductor._internal.errors import (
     PROBLEM_CODES,
-    ExternalFailure,
+    ExternalError,
     InvalidCallError,
     NodeDeclarationError,
     NodeError,
@@ -57,7 +57,7 @@ __all__ = [
     "Ask",
     "Choice",
     "Deprecation",
-    "ExternalFailure",
+    "ExternalError",
     "Feed",
     "FieldDescription",
     "FromRun",

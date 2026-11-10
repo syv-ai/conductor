@@ -66,7 +66,7 @@ What changes in how you work, before the name-by-name tables:
   calling only the rows that changed (`run.again(...)`). A leg's `max_rows` is a whole number of
   at least 1 and its `timeout` and `checkpoint_every` finite seconds above 0, a `bool` neither,
   refused at the call (`invalid_max_rows`, `invalid_timeout`, `invalid_checkpoint_every`).
-- **Only an outside failure is retried.** `ExternalFailure`, or a class in `Policy(retry_on=)`;
+- **Only an outside failure is retried.** `ExternalError`, or a class in `Policy(retry_on=)`;
   a `NodeError`, a wrong output or an `Ask` never is, whatever `retry_on` names.
   A node's own exception goes to the `conductor` logger, never to an event.
 - **Two companion packages, rebuilt on this API.** `syv-conductor-nodes` holds 29 nodes that only
@@ -230,7 +230,7 @@ Every public name of 1.12.2, by the module it was imported from. A name not list
 | `FlowPausedError` | gone: a paused leg returns its `Run`, `status` `waiting` |
 | `HumanInputRequired` | `raise Ask(prompt, choices=, default=)`; each has the answer's shape, so on several outputs each goes by output name; a question's widget is its output type's `Param` |
 | `LoopRunawayError` | `graph.run(max_rows=)`, the problem `row_ceiling` |
-| `NodeConnectionError` | `ExternalFailure`, the one failure that is retried |
+| `NodeConnectionError` | `ExternalError`, the one failure that is retried |
 | `NodeError` | `NodeError(message, code=, ctx=)`, never retried |
 | `NodeExecutionError` | `NodeError(message, code=, ctx=)` |
 | `NodeTimeoutError` | `Policy(attempt_timeout=)`; the unit fails with the code `timeout` |

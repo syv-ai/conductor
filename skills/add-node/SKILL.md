@@ -68,7 +68,7 @@ A body is called only for a node given an example (a node may send mail), once p
 
 | Mistake | Fix |
 |---|---|
-| A retry loop inside the node | `Policy(retries=...)`; raise `ExternalFailure` or set `retry_on` |
+| A retry loop inside the node | `Policy(retries=...)`; raise `ExternalError` or set `retry_on` |
 | "flow" in a docstring or message | conductor's word is graph |
 | Catching `Exception` around an `Ask` | `Ask` is a `BaseException`, so `except Exception` lets it through; don't catch `BaseException` |
 | `Ask(default=value)` on a node of several outputs | `default={"field": value}`, by output name as the answer is; an `Ask` that doesn't fit the outputs fails the node as `invalid_ask` |

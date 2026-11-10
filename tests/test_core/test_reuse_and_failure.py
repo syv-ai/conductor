@@ -18,7 +18,7 @@ import polars as pl
 import pytest
 from conductor import (
     Ask,
-    ExternalFailure,
+    ExternalError,
     FromRun,
     GraphRecord,
     InvalidCallError,
@@ -130,13 +130,13 @@ def test_an_exhausted_external_failure_is_external_failed_without_its_text():
 
 
 def test_an_external_failure_the_node_raised_retries_and_keeps_its_message():
-    """A node that knows the outside world failed says so with ``ExternalFailure``; the message it wrote is what people read."""
+    """A node that knows the outside world failed says so with ``ExternalError``; the message it wrote is what people read."""
     calls: list[int] = []
 
     @node("bank", policy=Policy(retries=1, retry_delay=0.01))
     def bank(text: str = "") -> str:
         calls.append(1)
-        raise ExternalFailure("Nationalbanken svarede ikke.")
+        raise ExternalError("Nationalbanken svarede ikke.")
 
     run = _alone(bank).run()
 
@@ -200,7 +200,7 @@ def test_a_failed_row_is_retried_alone():
     def flaky_on_b(text: str) -> str:
         calls.append(text)
         if text == "b" and calls.count("b") == 1:
-            raise ExternalFailure("transient")
+            raise ExternalError("transient")
         return text.upper()
 
     graph = registry_of(split, flaky_on_b).load(make_graph(split, flaky_on_b, values={"split.text": "a,b,c"}))
@@ -216,7 +216,7 @@ def test_a_flaky_node_in_one_branch_retries_while_the_other_branch_completes():
     def flaky_a(text: str) -> str:
         calls["a"] += 1
         if calls["a"] == 1:
-            raise ExternalFailure("first try")
+            raise ExternalError("first try")
         return f"A:{text}"
 
     @node("fast-b")

@@ -19,7 +19,7 @@ import pytest
 from conductor import (
     SKIPPED,
     Ask,
-    ExternalFailure,
+    ExternalError,
     FromRun,
     GraphRecord,
     InvalidCallError,
@@ -244,13 +244,13 @@ def test_the_policy_of_the_version_the_graph_is_pinned_at_is_the_one_a_run_obeys
     def fetch_one(text: str) -> str:
         calls.append(1)
         if len(calls) < 3:
-            raise ExternalFailure("try again")
+            raise ExternalError("try again")
         return "one"
 
     @node("fetch", replaces=fetch_one, policy=Policy(retries=0))
     def fetch_two(text: str) -> str:
         calls.append(2)
-        raise ExternalFailure("never retried")
+        raise ExternalError("never retried")
 
     registry = registry_of(fetch_two)
     pinned = registry.load(GraphRecord(nodes=[NodeRecord(id="f", node="fetch", version=1)]))
@@ -305,7 +305,7 @@ def test_the_retry_delay_doubles_each_time_and_another_row_takes_the_slot_while_
     def flaky(text: str) -> str:
         tries[text] = tries.get(text, 0) + 1
         if text == "flaky" and tries[text] <= 3:
-            raise ExternalFailure("try again")
+            raise ExternalError("try again")
         finished.append(text)
         return text
 
@@ -514,7 +514,7 @@ def test_no_retry_starts_once_the_leg_has_failed():
         if text == "0":
             raise ValueError("no")
         release.wait(BOUND)
-        raise ExternalFailure("try again")
+        raise ExternalError("try again")
 
     events = _releasing_on_failure(_per_row(flaky, 2).with_inputs(), release)
 
@@ -663,7 +663,7 @@ def test_a_cancel_during_a_retry_delay_ends_the_leg_before_every_attempt_has_run
     @node("flaky", policy=Policy(retries=5, retry_delay=0.2))
     def flaky(text: str) -> str:
         calls.append(1)
-        raise ExternalFailure("try again")
+        raise ExternalError("try again")
 
     prepared = registry_of(flaky).load(GraphRecord(nodes=[NodeRecord(id="f", node="flaky")])).with_inputs(text="x")
 

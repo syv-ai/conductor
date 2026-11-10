@@ -88,11 +88,11 @@ class Policy:
 
     ``concurrency`` rows are called at once, on threads; with 1 and no
     ``attempt_timeout`` the node is called in order, on the leg's own thread.
-    A call that raises ``ExternalFailure``, or one of the ``retry_on`` classes
+    A call that raises ``ExternalError``, or one of the ``retry_on`` classes
     of the node's own client, is tried ``retries`` more times, waiting from
     ``retry_delay`` seconds (the reference has the schedule); anything else
     fails at once, since repeating a computation repeats its failure. A
-    ``NodeError`` other than ``ExternalFailure``, an output its type refuses
+    ``NodeError`` other than ``ExternalError``, an output its type refuses
     and an ``Ask`` are never tried again, whatever ``retry_on`` names. An
     attempt that runs past ``attempt_timeout`` fails the unit, finally: its
     thread can't be stopped, and a second call beside it would repeat its

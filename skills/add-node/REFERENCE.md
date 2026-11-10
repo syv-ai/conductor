@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Annotated, Any
 
-from conductor import SKIPPED, Ask, Choice, Deprecation, ExternalFailure, FromRun, Param, Policy, Series, Upgrade, node
+from conductor import SKIPPED, Ask, Choice, Deprecation, ExternalError, FromRun, Param, Policy, Series, Upgrade, node
 from conductor.widgets import Switch, Textarea, TextInput
 
 
@@ -57,7 +57,7 @@ def fetch_v1(url: Annotated[str, Param(title="URL", widget=TextInput())]) -> Ann
 @node("fetch", title="Fetch", description="Fetches a page.", category="http", policy=Policy(retries=3, retry_delay=0.5, attempt_timeout=10.0, concurrency=4, retry_on=(TimeoutError,)), replaces=node("fetch", deprecation=Deprecation(header="Use version 2"))(fetch_v1), upgrade=Upgrade(renamed_inputs={"url": "address"}))
 def fetch(address: Annotated[str, Param(title="Address", widget=TextInput())]) -> Annotated[str, Param(title="Body")]:
     if not address:
-        raise ExternalFailure("no address")          # retried, like any retry_on class
+        raise ExternalError("no address")          # retried, like any retry_on class
     return f"<html>{address}</html>"
 
 
@@ -76,4 +76,4 @@ assert approve.from_run == {"who": Caller}
 
 - A pydantic model a node returns is one value, not one output per field.
 - `Ask` is a `BaseException`: an `except Exception` in the node lets it through.
-- Only `ExternalFailure` and `retry_on` classes retry, on the schedule `python -m conductor.about` gives. A timed-out attempt is final.
+- Only `ExternalError` and `retry_on` classes retry, on the schedule `python -m conductor.about` gives. A timed-out attempt is final.

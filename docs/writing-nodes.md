@@ -231,10 +231,10 @@ print(run.status, run.cause.type, run.cause.msg)  # failed not_a_number The text
 
 Any other exception fails the node too. Its traceback goes to the `conductor` logger, and only its class name reaches the host, so a value your node handled never leaks into an event.
 
-Raise `ExternalFailure` when the outside world failed: a timeout, a rate limit, a server error. Only that is retried, under the node's `Policy`. A bug fails the same way every time, so it isn't retried:
+Raise `ExternalError` when the outside world failed: a timeout, a rate limit, a server error. Only that is retried, under the node's `Policy`. A bug fails the same way every time, so it isn't retried:
 
 ```python
-from conductor import ExternalFailure, Policy
+from conductor import ExternalError, Policy
 
 attempts: list[str] = []
 
@@ -243,7 +243,7 @@ attempts: list[str] = []
 def fetch(url: str) -> str:
     attempts.append(url)
     if len(attempts) < 3:
-        raise ExternalFailure("The server did not answer.")
+        raise ExternalError("The server did not answer.")
     return "<html>"
 
 

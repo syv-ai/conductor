@@ -26,7 +26,7 @@ from conductor import (
     PROBLEM_CODES,
     SKIPPED,
     Deprecation,
-    ExternalFailure,
+    ExternalError,
     InvalidCallError,
     NodeDeclarationError,
     NodeError,
@@ -273,8 +273,8 @@ def test_the_errors_a_caller_catches_share_one_base():
 
 
 def test_an_external_failure_is_a_node_error_and_there_is_no_retry_flag():
-    """The family is the class: an ``ExternalFailure`` is retried, nothing else is."""
-    assert issubclass(ExternalFailure, NodeError)
+    """The family is the class: an ``ExternalError`` is retried, nothing else is."""
+    assert issubclass(ExternalError, NodeError)
     assert not hasattr(NodeError("x"), "retryable")
 
 

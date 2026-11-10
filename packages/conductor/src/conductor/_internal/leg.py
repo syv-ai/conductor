@@ -37,8 +37,8 @@ from pydantic.json_schema import SkipJsonSchema
 
 from conductor._internal.ask import Ask, InvalidAskError, Waiting, row_question
 from conductor._internal.conductor_model import ConductorModel
-from conductor._internal.errors import ExternalFailure, NodeError, Problem, make_problem
-from conductor._internal.fields import SKIPPED, Refused
+from conductor._internal.errors import ExternalError, NodeError, Problem, make_problem
+from conductor._internal.fields import SKIPPED, FieldValueError
 from conductor._internal.graph import shared_depth
 from conductor._internal.run import (
     PENDING,
@@ -56,7 +56,7 @@ if TYPE_CHECKING:
 
 #: What a call can raise that is never tried again, whatever a ``Policy``'s ``retry_on`` names: the node's own failure,
 #: an output its type refused, a question for a person. Repeating the call repeats it.
-_NEVER_RETRIED = (NodeError, Refused, Ask)
+_NEVER_RETRIED = (NodeError, FieldValueError, Ask)
 
 #: The least time between two ``NodeProgress`` of one node.
 _SECONDS_BETWEEN_PROGRESS = 0.25
@@ -406,12 +406,12 @@ class Leg:
             self._record(placed, key, self._outcome(placed, key, kwargs, out, error))
 
     def _retry(self, placed: PlacedNode, key: Key, kwargs: dict[str, Any], attempt: int, error: BaseException | None) -> bool:
-        """Put a failed attempt on a timer if the policy says to try again: an ``ExternalFailure``, or a class ``retry_on``
+        """Put a failed attempt on a timer if the policy says to try again: an ``ExternalError``, or a class ``retry_on``
         names, never a node's own ``NodeError``, an output its type refused or an ``Ask``."""
         policy = placed.definition.policy
         if error is None or attempt >= policy.retries or self.run.status != "running":
             return False
-        if not isinstance(error, ExternalFailure) and (isinstance(error, _NEVER_RETRIED) or not isinstance(error, policy.retry_on)):
+        if not isinstance(error, ExternalError) and (isinstance(error, _NEVER_RETRIED) or not isinstance(error, policy.retry_on)):
             return False
         delay = policy.retry_delay * 2**attempt
         self.running[(placed.id, key)] = kwargs
@@ -426,7 +426,7 @@ class Leg:
         if isinstance(error, Ask):
             try:
                 inputs = jsonable(kwargs)
-            except Refused as unwritable:  # a person can't be shown what the node received
+            except FieldValueError as unwritable:  # a person can't be shown what the node received
                 return self._failure(placed, key, unwritable)
             try:
                 return WaitingUnit(row_question(error, placed.definition.outputs, inputs))
@@ -438,7 +438,7 @@ class Leg:
         """The problem a node's exception is: its own words for a ``NodeError``; for any other, only its class, the text to the log."""
         if isinstance(error, NodeError):
             return error._as_problem_at(placed.id, *key)
-        if isinstance(error, Refused):
+        if isinstance(error, FieldValueError):
             return make_problem(error.code, placed.id, *key, reason=error.reason, **error.ctx)
         _logger.error("node %r failed on row %r", placed.id, key, exc_info=error)
         if isinstance(error, placed.definition.policy.retry_on):
