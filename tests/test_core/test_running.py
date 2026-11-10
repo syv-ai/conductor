@@ -207,6 +207,22 @@ def test_a_fast_node_over_many_rows_reports_progress_a_few_times_a_second_ending
 
 
 
+def test_a_leg_that_ends_waiting_reports_the_last_count_of_the_node_still_waiting():
+    @node("maybe")
+    def maybe(text: str) -> str:
+        if text == "ask":
+            raise Ask("Is this right?")
+        return text
+
+    graph = registry_of(split, maybe).load(make_graph(split, maybe, values={"split.text": "ask,b,c"}))
+
+    events = _events(graph.with_inputs())
+
+    last = [e for e in events if e.type == "node_progress" and e.node_id == "maybe"][-1]
+    assert (last.done, last.total) == (2, 3)
+    assert events[-1].status == "waiting"
+
+
 def test_a_node_above_rows_that_were_never_made_reports_no_progress():
     @node("echo")
     def echo(text: str) -> str:
