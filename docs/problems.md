@@ -600,7 +600,7 @@ print(refused(lambda: uppering.run(text="a", max_rows=0)))  # ['invalid_max_rows
 > The record is not a graph record at '{at}': {reason}. Fix the record's JSON.
 
 ```python
-print(refused(lambda: registry.load({"nodes": [{"id": "u", "type": "upper"}]})))  # ['invalid_record']
+print(refused(lambda: registry.load({"nodes": [{"id": "u", "type": "upper"}]})))  # ['invalid_record', 'invalid_record']: 1.x's 'type', and no 'node'
 ```
 
 **Fix.** Fix the record's JSON: `ctx.at` says where it stopped being a graph record. A drawing that is well formed but unfinished loads, with its problems in `graph.problems`.
@@ -641,7 +641,7 @@ print(refused(lambda: make_graph(upper, greet)))  # ['not_a_chain']
 > The graph has no input '{name}'; it has {inputs}.
 
 ```python
-print(refused(lambda: uppering.run(txt="a")))  # ['not_offered']
+print(refused(lambda: uppering.run(text="a", txt="a")))  # ['not_offered']
 ```
 
 **Fix.** Use one of the inputs `ctx.inputs` lists.

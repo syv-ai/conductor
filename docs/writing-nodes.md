@@ -313,12 +313,12 @@ problems = check_registry(registry, examples={
     "review": [{"proposal": "Move the server"}],
     "parse": [{"text": "12"}],
     "fetch": [{"url": "https://example.com"}],
-    "sign": [{"text": "Done", "who": Caller("Ida")}],
+    "sign": [{"text": "Done"}],
     "greet": [{"person": "Ida"}],
     "route": [{"amount": 5}],
     "assign": [{"ticket": "T-1"}],
     "notify": [{"amount": 5}],
-})
+}, from_run={Caller: Caller("Ida")})
 print(problems)  # []
 ```
 
