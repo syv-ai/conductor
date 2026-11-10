@@ -147,20 +147,21 @@ def run_router(
 
     # -- legs -------------------------------------------------------------------------------------
 
-    async def claim(row: StoredRun, run: str | None = None) -> bool:
-        """Take ``row`` for this worker if nobody holds it and it is still at the ``rev`` read. Of two workers, one wins."""
+    async def claim(row: StoredRun, changes: RunChanges | None = None) -> bool:
+        """Take ``row`` for this worker if nobody holds it and it is still at the ``rev`` read, writing ``changes`` too.
+        Of two workers, one wins. A cancel asked of the run stays asked: only a resume clears it."""
         now = time.time()
         if row.owner is not None and row.lease_until >= now:
             return False
-        changes: RunChanges = {"status": "running", "owner": worker, "lease_until": now + lease, "cancel": False}
-        if run is not None:
-            changes["run"] = run
-        return await store.update(row.id, row.rev, changes)
+        return await store.update(row.id, row.rev, {"status": "running", "owner": worker, "lease_until": now + lease, **(changes or {})})
 
-    def launch(run_id: str, rev: int, ceiling: int | None = None) -> None:
-        """Run the next leg of a run this worker has just claimed at ``rev``, in the background."""
-        legs[run_id] = _Leg(rev=rev)
-        task = asyncio.get_running_loop().create_task(drive(run_id, legs[run_id], ceiling))
+    def launch(run_id: str, rev: int, ceiling: int | None = None, cancelled: bool = False) -> None:
+        """Run the next leg of a run this worker has just claimed at ``rev``, in the background; ``cancelled`` when a
+        cancel was asked of it, which the leg then hears before its first unit."""
+        leg = legs[run_id] = _Leg(rev=rev, asked=cancelled)
+        if cancelled:
+            leg.cancel.set()
+        task = asyncio.get_running_loop().create_task(drive(run_id, leg, ceiling))
         tasks.add(task)
         task.add_done_callback(tasks.discard)
 
@@ -206,7 +207,8 @@ def run_router(
             await write(run_id, leg, {"status": "failed", "owner": None})
         finally:
             keep_lease.cancel()
-            legs.pop(run_id, None)
+            if legs.get(run_id) is leg:  # an answer queued during this leg may have launched the next one already
+                del legs[run_id]
 
     async def finish(run_id: str, leg: _Leg, run: Run) -> None:
         """Write how the leg ended. A leg this worker stopped to shut down is handed back for any worker to go on with."""
@@ -229,7 +231,7 @@ def run_router(
         while True:
             for row in await store.expired(time.time()):
                 if row.id not in legs and await claim(row):
-                    launch(row.id, row.rev + 1)
+                    launch(row.id, row.rev + 1, cancelled=row.cancel)
             await asyncio.sleep(lease / 3)
 
     async def apply_pending(run_id: str) -> None:
@@ -364,7 +366,7 @@ def run_router(
             answered = await asyncio.to_thread(lambda: load(row).answer(answers).to_json())
         except InvalidCallError as error:
             raise _unprocessable(error) from None
-        if (if_match is not None and if_match != row.rev) or not await claim(row, answered):
+        if (if_match is not None and if_match != row.rev) or not await claim(row, {"run": answered}):
             raise HTTPException(409, "the run changed since it was read")
         launch(row.id, row.rev + 1)
         return Answered(answers="started")
@@ -375,7 +377,7 @@ def run_router(
         again. ``{"max_rows": ...}`` raises the ceiling of a run that stopped at it; a resume needs no body."""
         if row.status not in _RESUMABLE:
             raise HTTPException(409, f"the run is {row.status}")
-        if not await claim(row):
+        if not await claim(row, {"cancel": False}):
             raise HTTPException(409, "the run changed since it was read")
         launch(row.id, row.rev + 1, max_rows)
         return Started(id=row.id)

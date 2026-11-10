@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import threading
+import time
 from typing import Annotated, Any, TypedDict
 
 import pytest
@@ -12,7 +14,7 @@ import pytest
 httpx = pytest.importorskip("httpx")
 
 import polars as pl  # noqa: E402
-from conductor import GraphRecord, NodeRecord, NodeRegistry, Series, Table, make_graph  # noqa: E402
+from conductor import Ask, GraphRecord, NodeRecord, NodeRegistry, Series, Table, make_graph  # noqa: E402
 from conductor_providers.fastapi import RunChanges, StoredRun, run_router  # noqa: E402
 from fastapi import FastAPI, Header  # noqa: E402
 
@@ -156,5 +158,83 @@ def test_a_table_made_on_each_row_reads_as_a_list_of_records_per_row() -> None:
             run_id = (await client.post("/runs", json={"graph": graph, "inputs": {"text": "a,b"}})).json()["id"]
             ended = await _until_ended(client, run_id, "anna")
             assert (ended["status"], ended["outputs"]) == ("complete", {"as-table.result": [[{"text": "a"}], [{"text": "b"}]]})
+
+    asyncio.run(scenario())
+
+
+def _gated() -> tuple[NodeRegistry, GraphRecord, dict[str, threading.Event], list[str]]:
+    """A graph whose first leg waits on ``first`` beside a question, and whose leg after the answer waits on ``second``
+    on its first row of two; ``held`` is set once that row is called."""
+    registry, gates, calls = NodeRegistry(), {name: threading.Event() for name in ("first", "second", "held")}, []
+
+    @registry.node("items")
+    def items(text: str) -> Series[str]:
+        return text.split(",")
+
+    @registry.node("busy")
+    def busy(text: str) -> str:
+        gates["first"].wait(5)
+        return text
+
+    @registry.node("approve")
+    def approve(text: str) -> bool:
+        raise Ask("Go on?")
+
+    @registry.node("hold")
+    def hold(item: str, ok: bool) -> str:
+        calls.append(item)
+        gates["held"].set()
+        gates["second"].wait(5)
+        return item
+
+    graph = make_graph(items, busy, approve, hold, edges=[("items.result", "hold.item"), ("approve.result", "hold.ok")])
+    return registry, graph, gates, calls
+
+
+def test_a_cancel_reaches_the_leg_an_answer_queued_during_the_last_one_started() -> None:
+    registry, graph, gates, calls = _gated()
+    for gate in ("first", "second"):
+        gates[gate].set()
+    (waiting,) = registry.load(graph).run({"items.text": "a,b", "busy.text": "x", "approve.text": "y"}).waiting
+    gates["first"].clear()
+    gates["second"].clear()
+    calls.clear()
+    app = FastAPI()
+    app.include_router(run_router(store=MemoryStore(), registry=registry, caller=_caller))
+
+    async def scenario() -> None:
+        async with app.router.lifespan_context(app), httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as client:
+            inputs = {"items.text": "a,b", "busy.text": "x", "approve.text": "y"}
+            run_id = (await client.post("/runs", json={"graph": graph.model_dump(mode="json"), "inputs": inputs})).json()["id"]
+            assert (await client.post(f"/runs/{run_id}/answers", json={waiting.id: True})).json() == {"answers": "queued"}
+            gates["first"].set()
+            await asyncio.to_thread(gates["held"].wait, 5)
+            assert (await client.post(f"/runs/{run_id}/cancel")).json() == {"cancelled": True}
+            gates["second"].set()
+            assert (await _until_ended(client, run_id, "anna"))["status"] == "cancelled" and calls == ["a"]
+
+    asyncio.run(scenario())
+
+
+def test_a_cancel_sent_while_a_dead_worker_held_the_run_is_kept_when_another_takes_it_over() -> None:
+    registry, graph, gates, calls = _gated()
+    for gate in gates.values():
+        gate.set()
+    run = registry.load(graph).run({"items.text": "a,b", "busy.text": "x", "approve.text": "y"})
+    answered = run.answer({run.waiting[0].id: True})
+    calls.clear()
+    store = MemoryStore()
+    app = FastAPI()
+    app.include_router(run_router(store=store, registry=registry, caller=_caller, lease=0.6))
+
+    async def scenario() -> None:
+        await store.create(StoredRun(
+            id="taken", graph=graph.model_dump_json(), caller='"anna"', run=answered.to_json(), status="running", owner="a-dead-worker", lease_until=time.time() + 0.3,
+        ))
+        async with app.router.lifespan_context(app), httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as client:
+            assert (await client.post("/runs/taken/cancel")).json() == {"cancelled": True}
+            assert (await _until_ended(client, "taken", "anna"))["status"] == "cancelled" and calls == []
+            assert (await client.post("/runs/taken/resume", json={})).status_code == 202
+            assert (await _until_ended(client, "taken", "anna"))["status"] == "complete" and calls == ["a", "b"]
 
     asyncio.run(scenario())
