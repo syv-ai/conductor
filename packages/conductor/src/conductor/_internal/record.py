@@ -40,12 +40,13 @@ from typing import TYPE_CHECKING, Annotated, Any
 import polars as pl
 from pydantic import (
     AfterValidator,
+    ConfigDict,
     Field,
     JsonValue,
     ValidationError,
     field_validator,
 )
-from pydantic_core import PydanticSerializationError, to_jsonable_python
+from pydantic_core import PydanticSerializationError, from_json, to_json
 
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.errors import InvalidCallError, Problem, make_problem
@@ -72,6 +73,10 @@ def _empty(value: Mapping[str, Any]) -> bool:
     return not value
 
 
+#: A record holds JSON, which has no float that isn't finite: one is refused, so a record equals what its JSON reads back.
+_JSON_ONLY = ConfigDict(allow_inf_nan=False)
+
+
 class NodeRecord(ConductorModel):
     """One node of a graph record: which definition it uses, and what is typed into its inputs.
 
@@ -79,6 +84,8 @@ class NodeRecord(ConductorModel):
     addresses say it; ``node`` is the definition's id. The node's inputs and
     outputs are what loading answers (``graph.describe()``), not stored here.
     """
+
+    model_config = ConductorModel.model_config | _JSON_ONLY
 
     id: str
     #: The id of the node definition this node uses.
@@ -100,6 +107,8 @@ class GraphRecord(ConductorModel):
     stored: the open inputs of the nodes nothing feeds, and the outputs of the
     nodes nothing reads.
     """
+
+    model_config = ConductorModel.model_config | _JSON_ONLY
 
     #: Any sequence going in; a tuple once built.
     nodes: Sequence[NodeRecord] = ()
@@ -147,12 +156,13 @@ def _said_of_shape(error: Any) -> str:
 
 
 def typed_in(node_id: str, values: Mapping[str, Any]) -> tuple[dict[str, JsonValue], list[Problem]]:
-    """``values`` typed into the node ``node_id`` as its record keeps them, JSON; and an ``invalid_value`` for each with no JSON form."""
+    """``values`` typed into the node ``node_id`` as its record keeps them, each as its JSON reads back (a date as its ISO
+    text, a float that isn't finite as ``"NaN"`` or ``"Infinity"``); and an ``invalid_value`` for each with no JSON form."""
     typed: dict[str, JsonValue] = {}
     problems: list[Problem] = []
     for name, value in values.items():
         try:
-            typed[name] = to_jsonable_python(value)
+            typed[name] = from_json(to_json(value, inf_nan_mode="strings"))
         except PydanticSerializationError:
             reason = "a value typed into a graph is saved with it as JSON"
             if isinstance(value, pl.DataFrame):

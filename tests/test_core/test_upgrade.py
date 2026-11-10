@@ -309,3 +309,31 @@ def test_an_upgrade_that_leaves_an_output_gone_and_not_renamed_is_refused_where_
 def test_an_output_an_upgrade_renamed_or_rewrites_is_accounted_for():
     assert node("o", replaces=node("o")(_older_out), upgrade=Upgrade(renamed_outputs={"x": "y"}))(_newer_out).version == 2
     assert node("o", replaces=node("o")(_older_out), upgrade=Upgrade(rewrite=lambda v: v))(_newer_out).version == 2
+
+
+def test_a_rewrite_is_written_as_json_and_one_with_no_json_form_is_invalid_value_at_the_node():
+    import datetime
+
+    import polars as pl
+
+    @node("when")
+    def when_v1(day: str) -> str:
+        return day
+
+    saved = GraphRecord.model_validate({"nodes": [{"id": "w", "node": "when", "values": {"day": "2026-01-02"}}]})
+    for returned, written in ((datetime.date(2026, 1, 2), "2026-01-02"), (pl.DataFrame({"a": [1]}), None)):
+
+        @node("when", replaces=when_v1, upgrade=Upgrade(rewrite=lambda typed, r=returned: {"day": r}))
+        def when(day: datetime.date) -> str:
+            return day.isoformat()
+
+        registry = NodeRegistry()
+        registry.add(when)
+        if written is None:
+            with pytest.raises(InvalidCallError) as refused:
+                registry.upgrade(saved, "w")
+            assert [(p.type, p.loc) for p in refused.value.errors()] == [("invalid_value", ("w", "day"))]
+        else:
+            upgraded = registry.upgrade(saved, "w")
+            assert upgraded.nodes[0].values == {"day": written}
+            assert GraphRecord.model_validate_json(upgraded.model_dump_json()) == upgraded

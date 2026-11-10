@@ -735,3 +735,29 @@ def test_a_record_holds_only_json_in_its_values_and_display():
         GraphRecord(nodes=[], display={"x": object()})
     with pytest.raises(ValidationError):
         NodeRecord(id="a", node="a", values={"x": object()})
+
+
+def test_a_float_that_isnt_finite_typed_in_is_written_as_its_text_so_a_record_equals_its_json():
+    from conductor import Ask
+
+    @node("half")
+    def half(n: float) -> float:
+        return n / 2
+
+    @node("ask")
+    def ask(x: float) -> str:
+        raise Ask("ok?")
+
+    registry = registry_of(half, ask)
+    record = make_graph(half, values={"half.n": float("nan")})
+    reloaded = GraphRecord.model_validate_json(record.model_dump_json())
+    waiting = registry.load(make_graph(half, ask, values={"half.n": float("inf")}))
+
+    assert record.nodes[0].values == {"n": "NaN"}
+    assert reloaded == record and registry.load(reloaded).fingerprint == registry.load(record).fingerprint
+    stored = registry.load(waiting.record.model_dump_json())
+    assert stored.load_run(waiting.run().to_json()).status == "waiting"
+    with pytest.raises(ValidationError):
+        GraphRecord(display={"z": float("inf")})
+    with pytest.raises(ValidationError):
+        NodeRecord(id="x", node="half", values={"x": float("nan")})

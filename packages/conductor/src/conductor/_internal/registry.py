@@ -56,7 +56,7 @@ from conductor._internal.fields import (
     without_none,
 )
 from conductor._internal.node_definition import NodeDefinition, NodeDescription, checked_extra, node
-from conductor._internal.record import GraphRecord, NodeRecord, as_record
+from conductor._internal.record import GraphRecord, NodeRecord, as_record, typed_in
 
 if TYPE_CHECKING:
     from conductor._internal.graph import Graph
@@ -272,8 +272,10 @@ class NodeRegistry:
         returns the record as it is. The record returned is not loaded here:
         load it to show the author what the newer version makes of it.
 
-        A node the record does not have, a node this registry does not, and a
-        version it can't move to are each an ``InvalidCallError``.
+        What a rewrite returns is written as JSON, as ``make_graph`` writes a
+        value typed in. A node the record does not have, a node this registry
+        does not, a version it can't move to and a rewrite returning a value
+        with no JSON form (``invalid_value``) are each an ``InvalidCallError``.
         """
         graph = as_record(record)
         placed = next((n for n in graph.nodes if n.id == node_id), None)
@@ -299,7 +301,9 @@ class NodeRegistry:
         for upgrade in (s.upgrade for s in reversed(steps) if s.upgrade is not None):
             values, defaults = _with_keys_renamed(values, upgrade.renamed_inputs), _with_keys_renamed(defaults, upgrade.renamed_inputs)
             if upgrade.rewrite is not None:
-                rewritten = upgrade.rewrite({**defaults, **values})
+                rewritten, faults = typed_in(node_id, upgrade.rewrite({**defaults, **values}))
+                if faults:
+                    raise InvalidCallError(faults)
                 defaults = {name: value for name, value in rewritten.items() if name in defaults and name not in values}
                 values = {name: value for name, value in rewritten.items() if name not in defaults}
             edges = [
