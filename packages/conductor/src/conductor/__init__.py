@@ -14,7 +14,7 @@ Everything in ``conductor._internal`` is the library's own and may move.
 
 from typing import TYPE_CHECKING
 
-from conductor._internal.ask import Ask, Choice, Waiting
+from conductor._internal.ask import Ask, Waiting
 from conductor._internal.errors import (
     PROBLEM_CODES,
     ExternalFailure,
@@ -23,7 +23,15 @@ from conductor._internal.errors import (
     NodeError,
     Problem,
 )
-from conductor._internal.fields import SKIPPED, FieldDescription, FromRun, Named, Param, Series
+from conductor._internal.fields import (
+    SKIPPED,
+    Choice,
+    FieldDescription,
+    FromRun,
+    Named,
+    Param,
+    Series,
+)
 from conductor._internal.graph import Feed, Graph, GraphDescription, GraphInput, RunsOn
 from conductor._internal.node_definition import (
     Deprecation,

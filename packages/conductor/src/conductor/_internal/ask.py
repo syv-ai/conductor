@@ -23,27 +23,12 @@ from pydantic_core import PydanticSerializationError, to_json, to_jsonable_pytho
 
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.errors import value_free_errors
-from conductor._internal.fields import SKIPPED, FieldDescription, FieldSpec, Refused
+from conductor._internal.fields import SKIPPED, FieldDescription, FieldSpec, Refused, choice_record
 
 if TYPE_CHECKING:
     from conductor._internal.graph import PlacedNode
     from conductor._internal.node_definition import NodeDefinition
     from conductor.widgets import Widget
-
-
-class Choice(ConductorModel):
-    """One option a person may pick: the ``id`` the answer holds and the ``title`` they read: ``Choice("ida", "Ida B.")``.
-
-    A host subclasses it to carry more about an option; the fields it adds
-    reach the question, and a dropdown, as written.
-    """
-
-    id: Any
-    title: str
-
-    def __init__(self, id: Any, title: str, **more: Any) -> None:  # noqa: A002  the word a host's option has
-        fields: dict[str, Any] = {"id": id, "title": title, **more}  # the base's own signature names no fields
-        super().__init__(**fields)
 
 
 class AskArguments(TypedDict, total=False):
@@ -157,12 +142,12 @@ def _added(spec: FieldSpec, kind: str, value: Any, offered: list[dict[str, Any]]
         raise WrongAsk(f"'{spec.name}' is a table, which takes no choices")
     if isinstance(value, (str, bytes, Mapping)) or not isinstance(value, Sequence):
         raise WrongAsk(f"the choices for '{spec.name}' are a list")
-    ids = [choice.id if isinstance(choice, Choice) else choice for choice in value]
+    ids = [choice_record(choice)["id"] for choice in value]
     try:  # a choice is what an answer picks, so it is read as an answer is: a Series' as one pick of them all
         kept = _as_json(spec, read_answer(spec, ids)) if spec.shape == "many" else [_as_json(spec, read_answer(spec, i)) for i in ids]
     except Refused as refused:
         raise WrongAsk(f"a choice for '{spec.name}' is not what it returns: {refused.reason}") from None
-    offered = [{**choice.model_dump(mode="json"), "id": k} if isinstance(choice, Choice) else {"id": k, "title": str(k)} for choice, k in zip(value, kept, strict=True)]
+    offered = [{**choice_record(choice, mode="json"), "id": k} for choice, k in zip(value, kept, strict=True)]
     if not offered:
         raise WrongAsk(f"'{spec.name}' is offered no choices")
     if len({repr(choice["id"]) for choice in offered}) != len(offered):

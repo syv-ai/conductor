@@ -170,7 +170,7 @@ class Param:
         object.__setattr__(self, "widget", widget)
         object.__setattr__(self, "exclusive_group", exclusive_group)
         object.__setattr__(self, "setting", setting)
-        object.__setattr__(self, "choices", None if choices is None else tuple(_choice(choice) for choice in choices))
+        object.__setattr__(self, "choices", None if choices is None else tuple(choice_record(choice) for choice in choices))
         object.__setattr__(self, "constraints", constraints)
 
     def __get_pydantic_core_schema__(self, source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
@@ -186,11 +186,25 @@ class Param:
         return written
 
 
-def _choice(given: Any) -> dict[str, Any]:
+class Choice(ConductorModel):
+    """One option a person may pick: the ``id`` the answer holds and the ``title`` they read: ``Choice("ida", "Ida B.")``.
+
+    A host subclasses it to carry more about an option; the fields it adds
+    reach the question, and a dropdown, as written.
+    """
+
+    id: Any
+    title: str
+
+    def __init__(self, id: Any, title: str, **more: Any) -> None:  # noqa: A002  the word a host's option has
+        fields: dict[str, Any] = {"id": id, "title": title, **more}  # the base's own signature names no fields
+        super().__init__(**fields)
+
+
+def choice_record(given: Any, *, mode: Literal["python", "json"] = "python") -> dict[str, Any]:
     """One choice as a record: a ``Choice`` (or a host's subclass of it) as its fields, any other value as itself titled by its text."""
-    dump = getattr(given, "model_dump", None)
-    if callable(dump) and hasattr(given, "id") and hasattr(given, "title"):
-        return dict(dump())
+    if isinstance(given, Choice):
+        return given.model_dump(mode=mode)
     return {"id": given, "title": str(given)}
 
 

@@ -768,3 +768,28 @@ def test_a_choice_is_read_as_its_answer_would_be_so_one_a_number_refuses_fails_t
     _, run = _once(pick)
     assert (run.status, run.cause.type) == ("failed", "invalid_ask")
     assert run.cause.ctx["reason"] == "a choice for 'result' is not what it returns: Input should be a valid integer"
+
+
+def test_a_model_that_isnt_a_choice_is_a_value_to_param_and_to_ask_alike() -> None:
+    from pydantic import BaseModel
+
+    class Option(BaseModel):  # a host's own option record, not a Choice
+        id: str
+        title: str
+
+    ida = Option(id="ida", title="Ida B.")
+    with pytest.raises(NodeDeclarationError) as declared:
+
+        @node("assign_by_param")
+        def assign_by_param(who: Annotated[str, Param(choices=[ida])]) -> str:
+            return who
+
+    assert declared.value.code == "choices_invalid"
+
+    @node("assign")
+    def assign() -> str:
+        raise Ask("Who?", choices=[ida])
+
+    _, run = _once(assign)
+    assert (run.status, run.cause.type) == ("failed", "invalid_ask")
+    assert run.cause.ctx["reason"] == "a choice for 'result' is not what it returns: Input should be a valid string"
