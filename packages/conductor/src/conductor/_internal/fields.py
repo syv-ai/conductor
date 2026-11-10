@@ -391,7 +391,7 @@ class FieldSpec:
     @functools.cached_property
     def column_adapters(self) -> dict[str, TypeAdapter[Any]]:
         """For a table, a check and writer of each column its row type names."""
-        return {column: TypeAdapter(_column_of(_carried(Union[hint, None])), config=_FLOATS_AS_TEXT) for column, hint in (self.columns or {}).items()}  # noqa: UP007  a cell may be blank
+        return {column: TypeAdapter(_column_of(_carried(Union[_no_bool_on_a_number(hint), None])), config=_FLOATS_AS_TEXT) for column, hint in (self.columns or {}).items()}  # noqa: UP007  a cell may be blank
 
     @overload
     def describe(self, record: None = None, /, **changed: Any) -> FieldDescription: ...
@@ -764,6 +764,26 @@ def accepts(target: Any, source: Any) -> bool:
     return all(any(_one_accepts(t, s) for t in targets) for s in _options(source) if s is not type(None))
 
 
+def is_a_number(cls: Any, kind: type | tuple[type, ...] = (int, float)) -> bool:
+    """Whether ``cls`` is a class of number of ``kind`` (``int`` or ``float``, or a class of theirs), never ``bool``: a
+    yes or no is not a number, though Python counts ``True`` as 1. A value is one when ``is_a_number(type(value))``."""
+    return isinstance(cls, type) and issubclass(cls, kind) and not issubclass(cls, bool)
+
+
+def lands_as_it_is(target: type, source: type) -> bool:
+    """Whether a value of class ``source`` is one of class ``target`` as it is: its own class or a class of it, a yes
+    or no never on a number."""
+    return issubclass(source, target) and not (issubclass(source, bool) and is_a_number(target))
+
+
+def _no_bool_on_a_number(hint: Any) -> Any:
+    """A column's ``hint``, refusing a yes or no where it takes a number and no yes or no, as pydantic's lax ``int`` and ``float`` don't."""
+    options = _options(without_none(hint))
+    if any(is_a_number(o) for o in options) and bool not in options:
+        return Annotated[hint, BeforeValidator(_not_a_bool)]
+    return hint
+
+
 def _options(hint: Any) -> list[Any]:
     """The types a hint allows."""
     return list(get_args(hint)) if get_origin(hint) in (Union, types.UnionType) else [hint]
@@ -783,9 +803,9 @@ def _one_accepts(target: Any, source: Any) -> bool:
         return _typeddict_accepts(target, source)
     if isinstance(target, type) and isinstance(source, type):
         own = getattr(target, "accepts", None)  # a host's type may widen what lands on it
-        if issubclass(source, bool) and issubclass(target, (int, float)) and not issubclass(target, bool):
-            return False  # a yes or no is never a number, a host's own included, though Python counts True as 1
-        return issubclass(source, target) or (target is float and issubclass(source, int)) or (callable(own) and bool(own(source)))
+        if issubclass(source, bool) and is_a_number(target):
+            return False  # a yes or no is never a number, a host's own included
+        return lands_as_it_is(target, source) or (target is float and issubclass(source, int)) or (callable(own) and bool(own(source)))
     return False
 
 
@@ -850,7 +870,7 @@ def already(target: Any, source: Any) -> bool:
         return True
     targets = [t for t in _options(target) if isinstance(t, type) and not typing.is_typeddict(t)]
     sources = [s for s in _options(source) if s is not type(None)]
-    return all(isinstance(s, type) and not typing.is_typeddict(s) and any(issubclass(s, t) for t in targets) for s in sources)
+    return all(isinstance(s, type) and not typing.is_typeddict(s) and any(lands_as_it_is(t, s) for t in targets) for s in sources)
 
 
 def read_strictly(adapter: TypeAdapter[Any], value: Any) -> Any:

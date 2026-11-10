@@ -66,6 +66,7 @@ from conductor._internal.fields import (
     accepts,
     already,
     given_as_items,
+    is_a_number,
     read_field,
     read_given,
     takes_a_blank,
@@ -482,7 +483,7 @@ class Graph:
         node has run. An embedded graph counts the calls of every node in it.
         """
         given = {**(lengths or {}), **by_name}
-        bad = [name for name, n in given.items() if isinstance(n, bool) or not isinstance(n, int) or n < 0]
+        bad = [name for name, n in given.items() if not is_a_number(type(n), int) or n < 0]
         if bad:
             raise InvalidCallError([make_problem("invalid_input", "inputs", name, name=name, reason="a length is a whole number of 0 or more") for name in bad])
         by_key, problems = self._given_by_key(given)

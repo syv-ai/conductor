@@ -199,6 +199,22 @@ def test_a_float_column_for_an_int_one_fails_even_when_whole_and_an_int_column_w
     assert table.to_dicts() == [{"item": "a", "amount": 12}, {"item": "b", "amount": None}]
 
 
+def test_a_column_of_yes_or_no_is_never_an_int_column_returned_brought_or_given():
+    """A yes or no never lands on a number, though Python counts ``True`` as 1: a column is held to it as a value is."""
+    yes_no = pl.DataFrame({"item": ["a", "b"], "amount": [True, False]})
+    assert (_returning(yes_no, Table[Line]).cause.type, _returning(yes_no, Table[Line]).cause.ctx["column"]) == ("invalid_output", "amount")
+
+    @node("total")
+    def total(lines: Table[Line]) -> int:
+        return int(lines["amount"].sum())
+
+    brought = _feeding(yes_no, Table, total)
+    assert (brought.cause.type, brought.cause.loc, brought.cause.ctx["column"]) == ("invalid_input", ("b",), "amount")
+    with pytest.raises(InvalidCallError) as given:
+        registry_of(total).load(GraphRecord(nodes=[NodeRecord(id="t", node="total")])).run(lines=yes_no)
+    assert [p.type for p in given.value.errors()] == ["invalid_input"]
+
+
 @pytest.mark.parametrize(("returned", "return_type"), [("no", bool), ("12", int), ("2026-01-02", datetime.date), (12.0, int)],
                          ids=["a-word-for-a-bool", "text-for-an-int", "text-for-a-date", "a-float-for-an-int"])
 def test_an_output_is_read_strictly_never_from_text_that_spells_it(returned, return_type):

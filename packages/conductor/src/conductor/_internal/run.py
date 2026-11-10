@@ -40,6 +40,7 @@ from conductor._internal.fields import (
     FieldSpec,
     Refused,
     carried_list,
+    is_a_number,
     read_value,
     takes_a_blank,
     type_id,
@@ -879,11 +880,11 @@ def checked_leg(*, max_rows: int | None = None, timeout: float | None = None, ch
 
 
 def _a_ceiling(value: Any) -> bool:
-    return isinstance(value, int) and not isinstance(value, bool) and value >= 1
+    return is_a_number(type(value), int) and value >= 1
 
 
 def _seconds(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and value > 0
+    return is_a_number(type(value)) and math.isfinite(value) and value > 0
 
 
 # -- values -------------------------------------------------------------------------------------
