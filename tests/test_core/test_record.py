@@ -398,3 +398,147 @@ def test_a_series_of_tables_is_refused_where_it_is_declared():
             return [pl.DataFrame()]
 
     assert raised.value.code == "series_of_tables"
+
+
+# -- an embedded graph is one node from outside -------------------------------------
+
+
+@node("tail")
+def tail(text: str) -> str:
+    return text + "."
+
+
+@node("split")
+def split(text: str) -> Series[str]:
+    return text.split(",")
+
+
+ENRICH = node("enrich")(make_graph(upper, tail))
+PAIR = node("pair")(GraphRecord(nodes=[NodeRecord(id="x", node="upper"), NodeRecord(id="y", node="upper"), NodeRecord(id="b", node="both")],
+                                edges=[("x.result", "b.yes"), ("y.result", "b.no")]))
+GATHER = node("gather")(GraphRecord(nodes=[NodeRecord(id="hold", node="upper"), NodeRecord(id="all", node="join")], edges=[("hold.result", "all.texts")]))
+EMBEDDED = registry_of(upper, tail, split, join, both, ENRICH, PAIR, GATHER)
+
+
+def test_an_embedding_is_filled_wired_and_read_by_its_own_id():
+    graph = EMBEDDED.load({"nodes": [{"id": "e", "node": "enrich"}, {"id": "u", "node": "upper"}], "edges": [["e.result", "u.text"]]})
+
+    assert graph.problems == [] and {n: i.address for n, i in graph.inputs.items()} == {"text": "e.text"}
+    run = graph.run({"e.text": "hi"})
+    assert run.outputs == {"u.result": "HI."} and set(run.results) == {"e", "u"} and run.results["e"] == {"result": "HI."}
+    assert set(graph.plan) == {"e", "u"} and set(graph.describe()["nodes"]) == {"e", "u"}
+    assert [f["name"] for f in graph.describe()["nodes"]["e"]["inputs"]] == ["text"]
+
+
+def test_a_wrong_address_on_an_embedding_is_a_problem_on_it_and_never_names_an_inner_node():
+    graph = EMBEDDED.load({"nodes": [{"id": "e", "node": "enrich"}, {"id": "u", "node": "upper"}, {"id": "v", "node": "upper"}],
+                           "edges": [["e.nope", "u.text"], ["v.result", "e.tail"], ["e/upper.result", "v.text"]]})
+
+    found = sorted((p.type, p.loc) for p in graph.problems)
+    assert found == [("edge_names_missing_node", ("v", "text")), ("unknown_input", ("e", "tail")), ("unknown_output", ("u", "text"))]
+    assert not any("/" in str(p.loc) for p in graph.problems)
+
+
+def test_inner_fields_sharing_a_name_are_offered_by_the_inner_node_as_its_record_says_it():
+    graph = EMBEDDED.load({"nodes": [{"id": "s", "node": "upper"}, {"id": "c", "node": "pair"}], "edges": [["s.result", "c.x.text"]]})
+
+    assert graph.problems == [] and {n: i.address for n, i in graph.inputs.items()} == {"text": "s.text", "y.text": "c.y.text"}
+    assert graph.run({"s.text": "a", "c.y.text": "b"}).outputs == {"c.result": "AB"}
+
+
+def test_a_graph_embedded_per_outer_row_folds_its_inner_reductions_per_outer_row():
+    graph = EMBEDDED.load({"nodes": [{"id": "s", "node": "split"}, {"id": "g", "node": "gather"}], "edges": [["s.result", "g.text"]]})
+
+    assert graph.plan == {"s": "once", "g": "per row of s.result"}
+    assert graph.run(text="a,b,c").outputs == {"g.result": ["A", "B", "C"]}
+
+
+def test_a_stored_graph_offers_its_fields_in_the_palette_of_the_registry_that_holds_its_nodes():
+    described = next(n for n in EMBEDDED.describe()["nodes"] if n["id"] == "pair")
+
+    assert [f["name"] for f in described["inputs"]] == ["x.text", "y.text"] and [f["name"] for f in described["outputs"]] == ["result"]
+
+
+def test_a_reduction_over_rows_a_branch_never_made_is_skipped_not_called_on_nothing():
+    calls: list[list[str]] = []
+
+    @node("gate")
+    def gate(text: str) -> YesNo:
+        return YesNo(text, SKIPPED) if text.startswith("y") else YesNo(SKIPPED, text)
+
+    @node("count-all")
+    def count_all(texts: Series[str]) -> str:
+        calls.append(list(texts))
+        return str(len(texts))
+
+    graph = registry_of(gate, split, count_all).load({"nodes": [{"id": "g", "node": "gate"}, {"id": "s", "node": "split"}, {"id": "c", "node": "count-all"}],
+                                                      "edges": [["g.no", "s.text"], ["s.result", "c.texts"]]})
+
+    assert graph.run(text="yes").results["c"]["result"] is None and calls == []
+    assert graph.run(text="a,b").outputs == {"c.result": "2"}
+
+
+def test_a_skipped_item_of_a_series_output_is_a_gap_that_reads_back_from_json():
+    @node("some")
+    def some(text: str) -> Series[str]:
+        return ["a", SKIPPED, "c"]
+
+    graph = registry_of(some, upper).load(make_graph(some, upper))
+    run = graph.run(text="x")
+
+    assert run.results["some"]["result"] == ["a", None, "c"] and run.results["upper"]["result"] == ["A", None, "C"]
+    assert graph.load_run(run.to_json()).results == run.results
+
+
+def test_a_table_input_gets_its_declared_columns_and_a_source_lacking_one_is_refused_at_load():
+    from typing import TypedDict
+
+    import polars as pl
+    from conductor import Table
+
+    class Names(TypedDict):
+        name: str
+
+    class Contacts(TypedDict):
+        name: str
+        email: str
+
+    @node("contacts")
+    def contacts() -> Table[Contacts]:
+        return pl.DataFrame({"name": ["a"], "email": ["a@x"]})
+
+    @node("names")
+    def names() -> Table[Names]:
+        return pl.DataFrame({"name": ["a"]})
+
+    @node("columns")
+    def columns(table: Table[Names]) -> str:
+        return ",".join(table.columns)
+
+    @node("emails")
+    def emails(table: Table[Contacts]) -> str:
+        return ",".join(table.columns)
+
+    registry = registry_of(contacts, names, columns, emails)
+    narrowed = registry.load({"nodes": [{"id": "c", "node": "contacts"}, {"id": "n", "node": "columns"}], "edges": [["c.result", "n.table"]]})
+    short = registry.load({"nodes": [{"id": "n", "node": "names"}, {"id": "e", "node": "emails"}], "edges": [["n.result", "e.table"]]})
+
+    assert narrowed.run().outputs == {"n.result": "name"}
+    assert [(p.type, p.loc) for p in short.problems] == [("type_mismatch", ("e", "table"))]
+
+
+def test_a_node_gathering_two_series_of_different_depths_runs_above_the_shallower():
+    @node("parts")
+    def parts(text: str) -> Series[str]:
+        return text.split("|")
+
+    @node("pair-lists")
+    def pair_lists(a: Series[str], b: Series[str]) -> str:
+        return f"{len(a)}/{len(b)}"
+
+    graph = registry_of(parts, split, pair_lists).load({
+        "nodes": [{"id": "p", "node": "parts"}, {"id": "s", "node": "split"}, {"id": "x", "node": "pair-lists"}],
+        "edges": [["p.result", "s.text"], ["p.result", "x.a"], ["s.result", "x.b"]],
+    })
+
+    assert graph.plan["x"] == "once" and graph.run(text="a,b|c").outputs == {"x.result": "2/3"}

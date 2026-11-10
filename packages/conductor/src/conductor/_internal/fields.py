@@ -214,7 +214,7 @@ class FieldSpec:
     def column_adapter(self) -> TypeAdapter[Any]:
         """Checks and writes one output's values over many units, blanks included."""
         carried = _carried(self.type)
-        one: Any = _list_of(carried) if self.shape == "many" else carried
+        one: Any = _list_of(carried | None) if self.shape == "many" else carried  # a skipped item is written as null
         return TypeAdapter(_list_of(one | None), config=_FLOATS_AS_TEXT)
 
     @functools.cached_property

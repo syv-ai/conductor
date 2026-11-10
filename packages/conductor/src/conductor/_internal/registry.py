@@ -46,7 +46,7 @@ from pydantic import JsonValue
 from conductor._internal.errors import InvalidCallError, NodeDeclarationError, make_problem
 from conductor._internal.fields import accepts, type_id, type_title, without_none
 from conductor._internal.node_definition import NodeDefinition, checked_extra, node
-from conductor._internal.record import GraphRecord, as_record
+from conductor._internal.record import GraphRecord, NodeRecord, as_record
 
 if TYPE_CHECKING:
     from conductor._internal.graph import Graph
@@ -223,9 +223,17 @@ class NodeRegistry:
     def describe(self) -> dict[str, Any]:
         """This registry as an editor reads it, as JSON: every node, and every type with where a value of it may land."""
         return {
-            "nodes": [definition.describe() for definition in self._nodes.values()],
+            "nodes": [self._described(definition) for definition in self._nodes.values()],
             "types": [{"id": type_id_, "title": type_title(held), "accepted_as": list(self.accepted_as(held))} for type_id_, held in self._types.items()],
         }
+
+    def _described(self, definition: NodeDefinition[..., Any]) -> dict[str, Any]:
+        """A node as the palette shows it; a stored graph with the fields it offers, worked out against this registry."""
+        described = definition.describe()
+        if definition.graph is not None:
+            placed = self.load(GraphRecord(nodes=[NodeRecord(id="node", node=definition.id, version=definition.version)])).describe()["nodes"]["node"]
+            described["inputs"], described["outputs"] = placed.get("inputs", []), placed.get("outputs", [])
+        return described
 
     # -- graphs ------------------------------------------------------------------
 

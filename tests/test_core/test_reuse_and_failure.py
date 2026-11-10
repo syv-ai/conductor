@@ -420,7 +420,7 @@ def test_inner_units_of_an_embedded_graph_are_reused_like_any_others():
 
     again = first.again(text="ida,bo,al")
 
-    assert sent == ["AL"] and again.results["n/mail"]["result"] == ["sent IDA", "sent BO", "sent AL"]
+    assert sent == ["AL"] and again.results["n"]["result"] == ["sent IDA", "sent BO", "sent AL"]
 
 
 def test_an_answer_stays_with_its_row_when_a_row_is_inserted_above_and_an_edited_row_asks_again():
@@ -621,7 +621,7 @@ def test_again_with_changed_rows_above_an_embedded_graph_gives_its_inner_fixed_v
     direct = graph.run(text=rows.replace(",", "|"))
 
     assert again.status == "complete" and again.results == direct.results
-    assert again.results["t/pair"]["result"] == [f"p:{r}" for r in rows.split(",")]
+    assert again.results["t"]["result"] == [f"p:{r}" for r in rows.split(",")]
 
 
 def test_an_input_filled_again_overrides_the_first_value_and_the_earlier_run_is_untouched():

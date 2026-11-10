@@ -247,7 +247,7 @@ def test_embedded_graph_runs_per_row():
     reg = registry_of(split, upper, tail, join, enrich)
     graph = reg.load({"nodes": [{"id": "s", "node": "split"}, {"id": "e", "node": "enrich"}, {"id": "j", "node": "join"}],
                       "edges": [["s.result", "e.text"], ["e.result", "j.texts"]]})
-    assert graph.plan["e/upper"] == "per row of s.result"
+    assert graph.plan["e"] == "per row of s.result" and "e/upper" not in graph.plan
     assert graph.run(text="a,b").outputs == {"j.result": "A.+B."}
 
 

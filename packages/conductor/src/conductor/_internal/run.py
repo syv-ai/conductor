@@ -207,7 +207,7 @@ class Run:
         node is not called for it. Inputs are given as ``graph.with_inputs``
         takes them, and checked the same way.
         """
-        given = {name: self.inputs[graph_input.address] for name, graph_input in self.graph.inputs.items() if graph_input.address in self.inputs}
+        given = {name: self.inputs[graph_input.key] for name, graph_input in self.graph.inputs.items() if graph_input.key in self.inputs}
         fresh = self.graph.with_inputs({**given, **(inputs or {}), **by_name}, max_rows=max_rows if max_rows is not None else self.max_rows)
         earlier: dict[str, dict[str, dict[str, Any]]] = {}
         for n, units in self._units.items():
@@ -245,14 +245,22 @@ class Run:
     def not_called(self) -> list[dict[str, Any]]:
         """Rows a node wasn't called on because a plain input was blank: which node, row and input."""
         return [
-            {"node_id": n, "row": k, "input": u.question["input"]}
+            {"node_id": self.graph._outer_id(n), "row": k, "input": self.graph._outer.get(f"{n}.{u.question['input']}", f".{u.question['input']}").partition(".")[2]}
             for n, units in self._units.items() for k, u in units.items() if u.state == "blank" and u.question
         ]
 
     @property
     def results(self) -> dict[str, dict[str, Any]]:
-        """Each node's outputs: one value on a node that ran once, else a list in row order, ``None`` where a row has none."""
-        return {n: {o: self._collect(p, o) for o in p.definition.outputs} for n, p in self.graph._nodes.items()}
+        """Each node's outputs: one value on a node that ran once, else a list in row order, ``None`` where a row has none.
+
+        An embedded graph is one node here, with the outputs it offers.
+        """
+        found = {n: {o: self._collect(p, o) for o in p.definition.outputs} for n, p in self.graph._nodes.items() if "/" not in n}
+        for e, (_, outs) in self.graph._offers.items():
+            found[e] = {
+                name: self._collect(self.graph._nodes[a.partition(".")[0]], a.partition(".")[2]) for name, a in outs.items() if a.partition(".")[0] in self.graph._nodes
+            }
+        return found
 
     @property
     def outputs(self) -> dict[str, Any]:
@@ -269,7 +277,7 @@ class Run:
         for key in keys:
             unit = self._units[placed.id].get(key)
             value = unit.out.get(output) if unit is not None and unit.out is not None else None
-            values.append(None if value is SKIPPED else value.frame() if isinstance(value, Frame) else value)
+            values.append(None if value is SKIPPED else value.frame() if isinstance(value, Frame) else [None if v is SKIPPED else v for v in value] if isinstance(value, list) else value)
         return values[0] if not placed.level else values
 
     # -- what a leg reads -------------------------------------------------------
@@ -334,6 +342,14 @@ class Run:
             keys = below
         return keys, complete
 
+    def _skipped_above(self, source: Source, row: Key) -> bool:
+        """Whether the table ``source`` reads under ``row`` was never made because its maker took no branch there."""
+        if len(row) >= len(source.level) or source.node_id is None:
+            return False
+        node_id, _ = self.graph._makers[source.level[len(row)]]
+        unit = self._units[node_id].get(row) if node_id is not None else None
+        return unit is not None and unit.state == "skipped"
+
     def _cell(self, source: Source, key: Key) -> Any:
         if source.node_id is None:
             value = self.inputs[source.output]
@@ -378,6 +394,7 @@ class Run:
                     kwargs[name] = None  # a Series that may be None, and nothing was given
                     continue
                 items: list[tuple[Level, Key, Any]] = []
+                skipped_above = 0
                 for source in plan.sources:
                     if source.node_id is None and not source.made:  # the caller's list, given whole
                         items.extend(((source.output,), (i,), v) for i, v in enumerate(self.inputs[source.output]))
@@ -385,14 +402,18 @@ class Run:
                     keys, complete = self._rows(source.level, row)
                     if not complete:
                         return PENDING
+                    if not keys and self._skipped_above(source, row):
+                        skipped_above += 1
                     for key in keys:
                         value = self._cell(source, key)
                         if value is PENDING:
                             return PENDING
                         items.append((source.level, key, None if value is SKIPPED else value))
+                if skipped_above and skipped_above == len(plan.sources):
+                    return SKIPPED  # every source was a branch not taken above this row: so is the call
                 gathered[name] = items
             else:
-                table = self._table(plan.sources, plan.table_level, row)
+                table = self._table(plan.sources, plan.table_level, row, spec.columns)
                 if table is PENDING:
                     return PENDING
                 kwargs[name] = table
@@ -405,11 +426,15 @@ class Run:
                 kwargs[name] = [v for lvl, k, v in items if (keep_blank or v is not None) and not any((lvl, k) in rows for rows in others)]
         return kwargs
 
-    def _table(self, sources: list[Source], level: Level, row: Key) -> Any:
+    def _table(self, sources: list[Source], level: Level, row: Key, declared: Mapping[str, Any] | None = None) -> Any:
+        """The table a ``Table`` input receives on ``row``: its sources' columns on the rows of ``level``, only the declared ones when it names them."""
         keys, complete = self._rows(level, row)
         if not complete:
             return PENDING
         columns: dict[str, list[Any]] = {}
+        for source in sources:
+            for column in (source.columns or {}) if source.whole_table else ():
+                columns[column] = [None] * len(keys)  # a table with no rows under this row still has its columns
         for source in sources:
             depth = len(source.level)
             cells = [self._cell(source, key[:depth]) for key in keys]
@@ -421,6 +446,8 @@ class Run:
                         columns.setdefault(column, [None] * len(keys))[i] = value
             else:
                 columns[source.name] = [None if c is SKIPPED else c for c in cells]
+        if declared is not None:
+            columns = {c: columns.get(c, [None] * len(keys)) for c in declared}
         return pl.DataFrame(columns, strict=False)
 
     # -- JSON -------------------------------------------------------------------
@@ -488,7 +515,7 @@ def _outputs(placed: PlacedNode, returned: Any) -> Any:
                 raise TypeError(f"{name} lacks the columns {missing} its row type declares")
             spread[name] = Frame(value.height, value.to_dict(as_series=False))
         elif spec.shape == "many":
-            spread[name] = list(value)
+            spread[name] = list(value)  # a SKIPPED item is a row whose branch wasn't taken
     return spread
 
 
@@ -544,8 +571,10 @@ def _dump_units(placed: PlacedNode, units: Mapping[Key, Unit], keyed: bool = Tru
                 for v in values
             ]
         else:
-            dumped = spec.column_adapter.dump_python([None if v is SKIPPED else v for v in values], mode="json")
-        outputs[name] = {"values": dumped, "skipped": skipped}
+            plain = [None if v is SKIPPED else [None if i is SKIPPED else i for i in v] if spec.shape == "many" else v for v in values]
+            dumped = spec.column_adapter.dump_python(plain, mode="json")
+        items = {str(n): [i for i, item in enumerate(v) if item is SKIPPED] for n, v in enumerate(values) if spec.shape == "many" and v is not SKIPPED}
+        outputs[name] = {"values": dumped, "skipped": skipped, **({"skipped_items": {k: v for k, v in items.items() if v}} if any(items.values()) else {})}
     out: dict[str, Any] = {"states": [u.state for u in units.values()], "questions": {str(i): u.question for i, u in enumerate(units.values()) if u.question}, "outputs": outputs}
     if keyed:
         out["keys"] = [list(k) for k in units]
@@ -566,6 +595,9 @@ def _load_units(placed: PlacedNode, dumped: Mapping[str, Any]) -> list[tuple[Key
             values = spec.column_adapter.validate_python(column["values"])
         for i in column["skipped"]:
             values[i] = SKIPPED
+        for n, positions in column.get("skipped_items", {}).items():
+            for i in positions:
+                values[int(n)][i] = SKIPPED  # type: ignore[index]
         columns[name] = values
     keys = dumped.get("keys") or [[] for _ in states]
     loaded, n = [], 0
@@ -587,7 +619,7 @@ _ANY_COLUMN = carried_list(Any)
 
 
 def _input_adapter(graph: Graph, address: str) -> TypeAdapter[Any]:
-    graph_input = next(p for p in graph.inputs.values() if p.address == address)
+    graph_input = next(p for p in graph.inputs.values() if p.key == address)
     return carried_list(graph_input.spec.type) if graph_input.many else graph_input.spec.adapter
 
 

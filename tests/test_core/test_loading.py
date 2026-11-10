@@ -412,12 +412,12 @@ def test_with_inputs_refuses_every_fault_at_once_listing_what_it_offers():
 # -- embedded graphs -------------------------------------------------------------------------------
 
 
-def test_an_embedding_offers_its_inner_open_input_and_output_and_runs_them_under_its_id():
+def test_an_embedding_offers_its_inner_open_input_and_output_as_one_node():
     assert enrich.title == "Enrich"
     graph = REGISTRY.load({"nodes": [{"id": "e", "node": "enrich"}]})
     assert graph.problems == [] and list(graph.inputs) == ["text"] and graph.inputs["text"].describe()["title"] == "Text"
     run = graph.run(text="hi")
-    assert run.outputs == {"e/tail.result": "HI."} and run.results["e/upper"] == {"result": "HI"}
+    assert run.outputs == {"e.result": "HI."} and run.results["e"] == {"result": "HI."}
 
 
 def test_an_embedding_is_wired_by_the_names_it_offers():
@@ -428,13 +428,13 @@ def test_an_embedding_is_wired_by_the_names_it_offers():
 
 def test_a_value_typed_on_an_embedding_reaches_the_inner_input_it_offers():
     graph = REGISTRY.load({"nodes": [{"id": "e", "node": "enrich", "values": {"text": "hi"}}]})
-    assert graph.problems == [] and graph.inputs == {} and graph.run().outputs == {"e/tail.result": "HI."}
+    assert graph.problems == [] and graph.inputs == {} and graph.run().outputs == {"e.result": "HI."}
 
 
 def test_an_unfed_embedding_keeps_its_inner_defaults_and_runs_once():
     graph = REGISTRY.load({"nodes": [{"id": "d", "node": "defaulted"}]})
-    assert graph.plan == {"d/g": "once"}
-    assert graph.run().outputs == {"d/g.result": "inside"}
+    assert graph.plan == {"d": "once"}
+    assert graph.run().outputs == {"d.result": "inside"}
 
 
 def test_an_inner_input_with_a_default_is_offered_as_not_required():
@@ -442,9 +442,9 @@ def test_an_inner_input_with_a_default_is_offered_as_not_required():
     assert REGISTRY.load({"nodes": [{"id": "e", "node": "enrich"}]}).inputs["text"].required is True
 
 
-def test_a_graph_inside_a_graph_runs_under_its_path():
+def test_a_graph_inside_a_graph_is_one_node_from_outside():
     run = REGISTRY.load({"nodes": [{"id": "t", "node": "top"}]}).run(text="hi")
-    assert run.outputs == {"t/inner/up.result": "HI"} and run.results["t/inner/up"] == {"result": "HI"}
+    assert run.outputs == {"t.result": "HI"} and run.results["t"] == {"result": "HI"}
 
 
 def test_renaming_a_node_inside_an_embedding_breaks_no_caller():
@@ -470,7 +470,7 @@ def test_a_table_made_inside_an_embedding_offers_its_columns():
 
 def test_a_node_built_from_a_graph_offers_its_inner_inputs_and_carries_its_deprecation():
     graph = REGISTRY.load({"nodes": [{"id": "w", "node": "wrapped"}]})
-    assert list(graph.inputs) == ["text"] and graph.run(text="a").outputs == {"w/upper.result": "A"}
+    assert list(graph.inputs) == ["text"] and graph.run(text="a").outputs == {"w.result": "A"}
     assert wrapped.describe()["deprecation"]["header"] == "Gone"
     assert REGISTRY.describe()["nodes"][[n.id for n in REGISTRY].index("wrapped")]["deprecation"]["header"] == "Gone"
 
