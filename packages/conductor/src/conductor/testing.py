@@ -87,39 +87,54 @@ def check_registry(
     from_run: Mapping[type, Any] | None = None,
 ) -> list[Problem]:
     """Every way a node of ``registry`` breaks what a host relies on, all at once; ``[]`` when none does."""
-    examples = examples or {}
     found: list[Problem] = []
-    for key in examples:
-        node_id, version = (key, None) if isinstance(key, str) else key
-        if node_id not in registry or (version is not None and version not in registry[node_id].versions):
-            found.append(_problem("example_for_no_node", node_id, version, f"{key!r} names no node of the registry; check the id, or remove the example"))
+    by_version: dict[tuple[str, int], list[_Example]] = {}
+    for key, calls in (examples or {}).items():
+        said = f"{key!r} names no node of the registry; check the id, or remove the example"
+        if isinstance(key, str):  # the newest version, by the id alone
+            if key not in registry:
+                found.append(_problem("example_for_no_node", (key,), said))
+                continue
+            place = (key, registry[key].version)
+        elif key[0] not in registry or key[1] not in registry[key[0]].versions:
+            found.append(_problem("example_for_no_node", key, said))
+            continue
+        else:
+            place = key
+        by_version.setdefault(place, []).extend(calls)
     for definition in registry:
-        found += _problems_of(definition, registry, examples, from_run or {})
+        found += _problems_of(definition, registry, by_version, from_run or {})
     return _without_waived(found, expected_failures or {})
 
 
 def _problems_of(
-    definition: NodeDefinition[..., Any], registry: NodeRegistry, examples: Mapping[Any, Sequence[_Example]], from_run: Mapping[type, Any],
+    definition: NodeDefinition[..., Any], registry: NodeRegistry, examples: Mapping[tuple[str, int], Sequence[_Example]], from_run: Mapping[type, Any],
 ) -> list[Problem]:
-    found: list[Problem] = []
-    paused = False
-    for version in definition.lineage:
-        given = [*(examples.get(definition.id, ()) if version is definition else ()), *examples.get((definition.id, version.version), ())]
-        if not given:
-            found += _hook_problems(version, registry)
-        if version is not definition:
-            found += _upgrade_problems(version, registry, given)
-        for example in given:
-            problems, asked = _run_problems(version, registry, example, from_run)
-            found += problems
-            paused = paused or (asked and version is definition)
+    found, paused = _version_problems(definition, registry, examples.get((definition.id, definition.version), ()), from_run)
+    for older in definition.lineage[1:]:
+        given = examples.get((older.id, older.version), ())
+        found += _upgrade_problems(older, registry, given)
+        found += _version_problems(older, registry, given, from_run)[0]
     if definition.function is not None and not paused and _may_ask(definition.function):
-        found.append(_problem("pause_untested", definition.id, definition.version, "the body raises Ask, and no example made it pause; add an example that makes it ask"))
+        found.append(_problem("pause_untested", (definition.id, definition.version), "the body raises Ask, and no example made it pause; add an example that makes it ask"))
     return found
 
 
-def _problem(code: str, node_id: str, version: int | None, message: str, **ctx: Any) -> Problem:
-    return Problem(type=code, loc=(node_id,) if version is None else (node_id, version), msg=message, ctx=ctx)
+def _version_problems(version: NodeDefinition[..., Any], registry: NodeRegistry, given: Sequence[_Example], from_run: Mapping[type, Any]) -> tuple[list[Problem], bool]:
+    """The hooks checked when there is no example, else each example run: what went wrong, and whether one paused."""
+    if not given:
+        return _hook_problems(version, registry), False
+    found: list[Problem] = []
+    paused = False
+    for example in given:
+        problems, asked = _run_problems(version, registry, example, from_run)
+        found += problems
+        paused = paused or asked
+    return found, paused
+
+
+def _problem(code: str, loc: tuple[str] | tuple[str, int], message: str, **ctx: Any) -> Problem:
+    return Problem(type=code, loc=loc, msg=message, ctx=ctx)
 
 
 def _placed(version: NodeDefinition[..., Any], values: Mapping[str, Any]) -> GraphRecord:
@@ -145,9 +160,9 @@ def _hook_problems(version: NodeDefinition[..., Any], registry: NodeRegistry) ->
     values = {name: _made_up(version.inputs[name]) for name in read if version.inputs[name].required}
     missing = [name for name, value in values.items() if value is _CANNOT]
     if missing:
-        return [_problem("needs_example", version.id, version.version, f"its hooks read {missing}, and no value could be made up; give an example", inputs=missing)]
+        return [_problem("needs_example", (version.id, version.version), f"its hooks read {missing}, and no value could be made up; give an example", inputs=missing)]
     failed = [p for p in registry.load(_placed(version, values)).problems if p.type in _HOOK_CODES]
-    return [_problem("hook_failed", version.id, version.version, f"a hook failed on the node's defaults and made-up values: {p.msg}", **_causes([p])) for p in failed]
+    return [_problem("hook_failed", (version.id, version.version), f"a hook failed on the node's defaults and made-up values: {p.msg}", **_causes([p])) for p in failed]
 
 
 def _upgrade_problems(older: NodeDefinition[..., Any], registry: NodeRegistry, given: Sequence[_Example]) -> list[Problem]:
@@ -164,54 +179,57 @@ def _upgrade_problems(older: NodeDefinition[..., Any], registry: NodeRegistry, g
     try:
         upgraded = registry.upgrade(placed, older.id)
     except Exception as raised:  # noqa: BLE001  an upgrade's rewrite is the author's code
-        return [_problem("upgrade_broken", older.id, older.version, f"moving to version {newest} raised {type(raised).__name__}: {raised}", error=type(raised).__name__)]
+        return [_problem("upgrade_broken", (older.id, older.version), f"moving to version {newest} raised {type(raised).__name__}: {raised}", error=type(raised).__name__)]
     problems = registry.load(upgraded).problems
     if not problems:
         return []
     said = "; ".join(f"{p.type}: {p.msg}" for p in problems)
-    return [_problem("upgrade_broken", older.id, older.version, f"after moving to version {newest}: {said}", **_causes(problems))]
+    return [_problem("upgrade_broken", (older.id, older.version), f"after moving to version {newest}: {said}", **_causes(problems))]
 
 
 def _run_problems(version: NodeDefinition[..., Any], registry: NodeRegistry, example: _Example, from_run: Mapping[type, Any]) -> tuple[list[Problem], bool]:
     """Run one example through the engine: what went wrong, and whether it paused for a person."""
-    values = dict(example)
-    if version.function is None:  # a stored graph runs on the nodes of the registry
+    function = version.function
+    if function is None:  # a stored graph runs on the nodes of the registry
         definitions, changed = {d.id: d for d in registry}, list[str]()
         definitions[version.id] = version
     else:
-        watched, changed = _watched(version)
+        watched, changed = _watched(version, function)
         definitions = {version.id: watched}
     try:
-        graph = load_graph(_placed(version, values), definitions)
+        placed = _placed(version, dict(example))
     except InvalidCallError as refused:
-        problems = refused.errors()
-    else:
-        problems = graph.problems
-    if problems:
-        code = "hook_failed" if all(p.type in _HOOK_CODES for p in problems) else "run_failed"
-        return [_problem(code, version.id, version.version, "the example doesn't load: " + "; ".join(p.msg for p in problems), **_causes(problems))], False
+        return _not_loaded(version, refused.errors()), False
+    graph = load_graph(placed, definitions)
+    if graph.problems:
+        return _not_loaded(version, graph.problems), False
     try:
         run = graph.run(from_run=from_run)
     except InvalidCallError as refused:
-        return [_problem("run_failed", version.id, version.version, "the example was refused: " + "; ".join(p.msg for p in refused.errors()), **_causes(refused.errors()))], False
+        return [_problem("run_failed", (version.id, version.version), "the example was refused: " + "; ".join(p.msg for p in refused.errors()), **_causes(refused.errors()))], False
     found = [
-        _problem("changed_its_inputs", version.id, version.version, f"the body changed {name!r}, a value it was given; rows of a run can share it, so copy the value before changing it", input=name)
+        _problem("changed_its_inputs", (version.id, version.version), f"the body changed {name!r}, a value it was given; rows of a run can share it, so copy the value before changing it", input=name)
         for name in changed
     ]
     if run.status not in ("complete", "waiting"):
         causes = [run.cause] if run.cause is not None else []
-        found.append(_problem("run_failed", version.id, version.version, f"the example ended {run.status}: {run.cause.msg if run.cause else ''}".rstrip(": "), **_causes(causes)))
+        found.append(_problem("run_failed", (version.id, version.version), f"the example ended {run.status}: {run.cause.msg if run.cause else ''}".rstrip(": "), **_causes(causes)))
     # an Ask the run refused was reached all the same; run_failed says what was wrong with it
     return found, run.status == "waiting" or (run.cause is not None and run.cause.type == "invalid_ask")
 
 
-def _watched(version: NodeDefinition[..., Any]) -> tuple[NodeDefinition[..., Any], list[str]]:
-    """``version`` calling its function once per unit as before, noting each input the call changed; never retried."""
-    function = typing.cast(Callable[..., Any], version.function)
+def _not_loaded(version: NodeDefinition[..., Any], problems: Sequence[Problem]) -> list[Problem]:
+    """The one problem of an example that doesn't load: a hook's when every cause is, else the run's."""
+    code = "hook_failed" if all(p.type in _HOOK_CODES for p in problems) else "run_failed"
+    return [_problem(code, (version.id, version.version), "the example doesn't load: " + "; ".join(p.msg for p in problems), **_causes(problems))]
+
+
+def _watched(version: NodeDefinition[..., Any], function: Callable[..., Any]) -> tuple[NodeDefinition[..., Any], list[str]]:
+    """``version`` calling ``function``, its own, once per unit as before, noting each input the call changed; never retried."""
     changed: list[str] = []
 
     def watched(**kwargs: Any) -> Any:
-        before = {}
+        before: dict[str, object] = {}
         for name, value in kwargs.items():
             if name not in version.from_run:
                 try:
@@ -260,28 +278,39 @@ def _one(hint: Any, limits: Mapping[str, Any]) -> Any:
     return _CANNOT
 
 
-def _may_ask(function: Callable[..., Any], seen: set[types.CodeType] | None = None) -> bool:
-    """Whether ``function`` names ``Ask``, itself or through a function of its globals or closure it calls."""
-    seen = set() if seen is None else seen
-    code = getattr(function, "__code__", None)
-    if not isinstance(code, types.CodeType) or code in seen:
+def _may_ask(function: Callable[..., Any]) -> bool:
+    """Whether ``function`` names ``Ask``, itself or through a function of its globals or closure it calls.
+
+    A node's function is a plain function or a bound method; any other callable (a ``staticmethod`` object, say) has no
+    code to read, so it is taken not to ask.
+    """
+    if isinstance(function, types.MethodType):
+        function = function.__func__
+    if not isinstance(function, types.FunctionType):
         return False
-    seen.add(code)
-    names: Mapping[str, Any] = getattr(function, "__globals__", {})
-    helpers = [cell.cell_contents for cell in getattr(function, "__closure__", None) or () if _filled(cell)]
+    seen: set[types.CodeType] = set()
 
-    def names_ask(code: types.CodeType) -> bool:
-        for name in code.co_names:
-            if name == "Ask" or names.get(name) is Ask:
-                return True
-            if isinstance(names.get(name), types.FunctionType):
-                helpers.append(names[name])
-        return any(names_ask(inner) for inner in code.co_consts if isinstance(inner, types.CodeType))
+    def asks(function: types.FunctionType) -> bool:
+        if function.__code__ in seen:
+            return False
+        seen.add(function.__code__)
+        names: Mapping[str, Any] = function.__globals__
+        helpers = [cell.cell_contents for cell in function.__closure__ or () if _filled(cell)]
 
-    return names_ask(code) or any(isinstance(h, types.FunctionType) and _may_ask(h, seen) for h in helpers)
+        def names_ask(code: types.CodeType) -> bool:
+            for name in code.co_names:
+                if name == "Ask" or names.get(name) is Ask:
+                    return True
+                if isinstance(names.get(name), types.FunctionType):
+                    helpers.append(names[name])
+            return any(names_ask(inner) for inner in code.co_consts if isinstance(inner, types.CodeType))
+
+        return names_ask(function.__code__) or any(isinstance(h, types.FunctionType) and asks(h) for h in helpers)
+
+    return asks(function)
 
 
-def _filled(cell: Any) -> bool:
+def _filled(cell: types.CellType) -> bool:
     try:
         cell.cell_contents  # noqa: B018
     except ValueError:  # a cell not filled yet
@@ -305,11 +334,13 @@ def _same(one: Any, other: Any) -> bool:
 
 
 def _without_waived(found: list[Problem], waived: Mapping[str, str]) -> list[Problem]:
-    used = {key for problem in found if (key := f"{problem.loc[0]}:{problem.type}") in waived}
-    kept = [problem for problem in found if f"{problem.loc[0]}:{problem.type}" not in waived]
-    for key in sorted(waived.keys() - used):
-        node_id = key.partition(":")[0]
-        kept.append(_problem("waiver_not_needed", node_id, None, f"{key} no longer fails; remove the waiver ({waived[key]})", waiver=key))
+    # a code holds no ':', and a node id may, so the id is all before the last one
+    by_place = {(node_id, code): key for key in waived for node_id, _, code in [key.rpartition(":")]}
+    used = {place for problem in found if (place := (problem.loc[0], problem.type)) in by_place}
+    kept = [problem for problem in found if (problem.loc[0], problem.type) not in by_place]
+    for place in sorted(by_place.keys() - used):
+        key = by_place[place]
+        kept.append(_problem("waiver_not_needed", (place[0],), f"{key} no longer fails; remove the waiver ({waived[key]})", waiver=key))
     return kept
 
 

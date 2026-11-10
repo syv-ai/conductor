@@ -290,3 +290,16 @@ def test_a_protocol_from_run_given_under_another_key_is_from_run_missing():
     with pytest.raises(InvalidCallError) as refused:
         graph.run(from_run={str: "a session"})
     assert [p.type for p in refused.value.errors()] == ["from_run_missing"]
+
+
+def test_a_stale_waiver_names_a_node_whose_id_holds_a_colon():
+    from conductor import NodeRegistry, node
+
+    @node("ns:upper")
+    def upper(text: str) -> str:
+        return text.upper()
+
+    registry = NodeRegistry()
+    registry.add(upper)
+    stale = check_registry(registry, expected_failures={"ns:upper:run_failed": "fixed since"})
+    assert [(p.type, p.loc) for p in stale] == [("waiver_not_needed", ("ns:upper",))]
