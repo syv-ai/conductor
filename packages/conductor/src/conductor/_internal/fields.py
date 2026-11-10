@@ -582,8 +582,8 @@ def _one_accepts(target: Any, source: Any) -> bool:
         return all(_one_accepts(target, type(v)) for v in get_args(source))
     if isinstance(target, type) and isinstance(source, type):
         own = getattr(target, "accepts", None)  # a host's type may widen what lands on it
-        if issubclass(source, bool) and target in (int, float):
-            return False  # a yes or no is never a number, though Python counts True as 1
+        if issubclass(source, bool) and issubclass(target, (int, float)) and not issubclass(target, bool):
+            return False  # a yes or no is never a number, a host's own included, though Python counts True as 1
         return issubclass(source, target) or (target is float and issubclass(source, int)) or (callable(own) and bool(own(source)))
     return False
 

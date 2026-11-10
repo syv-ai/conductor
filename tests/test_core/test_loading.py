@@ -826,3 +826,39 @@ def test_a_table_into_a_series_is_said_as_the_table_it_is():
     registry.add(sheet, count)
     (problem,) = registry.load({"nodes": [{"id": "s", "node": "sheet"}, {"id": "c", "node": "count"}], "edges": [["s.result", "c.items"]]}).problems
     assert (problem.ctx["got"], problem.ctx["expected"]) == ("Table", "Series[int]")
+
+
+def test_a_yes_or_no_never_lands_on_a_hosts_number_type_whose_own_rule_lets_an_int_in():
+    from conductor import Ask, Named, NodeRegistry, make_graph
+
+    class Number(float):
+        id = "number"
+
+        @classmethod
+        def accepts(cls, source: type) -> bool:
+            return issubclass(source, int)  # a host's rule that forgot bool
+
+    boolean = Annotated[bool, Named("bool")]
+    registry = NodeRegistry(types=[Number, boolean])
+
+    @registry.node("yes")
+    def yes(value: boolean = True) -> boolean:
+        return value
+
+    @registry.node("half")
+    def half(value: Number) -> Number:
+        return Number(value / 2)
+
+    @registry.node("ask_number")
+    def ask_number() -> Number:
+        raise Ask("How many?")
+
+    assert "number" not in registry.accepted_as(boolean) and "number" in registry.accepted_as(int)
+    assert [p.type for p in registry.load(make_graph(yes, half)).problems] == ["type_mismatch"]
+    (problem,) = registry.load({"nodes": [{"id": "h", "node": "half", "values": {"value": True}}]}).problems
+    assert problem.type == "invalid_value"
+    with pytest.raises(InvalidCallError):
+        registry.load(make_graph(half)).run(value=True)
+    waiting = registry.load(make_graph(ask_number)).run()
+    with pytest.raises(InvalidCallError):
+        waiting.answer(waiting.waiting[0], True)
