@@ -449,9 +449,9 @@ def node(
 _MARKS = frozenset("./@~")
 
 
-def is_node_id(value: object) -> bool:
+def is_node_id(value: str) -> bool:
     """Whether ``value`` can be a node id, of a definition or of a node in a record: a non-empty text without ``. / @ ~``."""
-    return isinstance(value, str) and bool(value) and not _MARKS & set(value)
+    return bool(value) and not _MARKS & set(value)
 
 
 def from_run_values(definitions: Iterable[tuple[str, NodeDefinition[..., Any]]], from_run: Mapping[type, Any] | None) -> dict[type, Any]:
