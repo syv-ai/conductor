@@ -724,3 +724,13 @@ def test_a_form_inside_an_embedding_is_answered_by_the_names_the_embedding_offer
     assert run.answer(answers).resume().results == {"e": {"z1/a": "A", "z1/b": 5, "z2/a": "A", "z2/b": 5}}
     (wrong,) = _refused(lambda: run.answer({run.waiting[0].id: {"z1/a": 3}}))
     assert wrong.ctx["question"] == "z1/a"
+
+
+def test_an_answer_to_a_run_with_nothing_waiting_says_how_the_run_stands():
+    @node("plain")
+    def plain(text: str) -> str:
+        return text
+
+    run = registry_of(plain).load(make_graph(plain)).run(text="a")
+    (problem,) = _refused(lambda: run.answer("plain", "b"))
+    assert (problem.type, problem.ctx["status"]) == ("not_waiting", "complete") and "a run that is complete" in problem.msg

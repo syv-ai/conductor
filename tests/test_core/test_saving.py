@@ -629,3 +629,13 @@ def test_a_float_that_is_not_finite_in_a_models_any_field_and_in_a_callers_dict_
     assert first.v == -math.inf and second.d == {"s": "NaN"}
     options = back.inputs["given.options"]
     assert math.isnan(options["a"]) and options["b"] == [math.inf] and back.inputs["given.level"] == -math.inf
+
+
+def test_a_save_missing_a_key_says_which_key_not_a_python_error():
+    @node("same")
+    def same(text: str) -> str:
+        return text
+
+    graph = registry_of(same).load(make_graph(same))
+    problem = _refused(graph, {})
+    assert problem.ctx["reason"] == "it has no 'graph'" and "KeyError" not in problem.msg

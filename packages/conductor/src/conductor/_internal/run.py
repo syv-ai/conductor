@@ -239,7 +239,7 @@ class Run:
         for unit_id, one in given.items():
             outer, key, fingerprint = _parse_unit(unit_id)
             if key is None:
-                problems.append(make_problem("not_waiting", outer, waiting_id=unit_id))
+                problems.append(make_problem("not_waiting", outer, waiting_id=unit_id, status=self.status))
                 continue
             here = [(n, u) for n in self.graph._placed_as(outer) if (u := self._units[n].get(key)) is not None and u.state == "waiting"]
             matching = [(n, u) for n, u in here if fingerprint is None or _question_fingerprint(self.graph._nodes[n], u) == fingerprint]
@@ -249,7 +249,7 @@ class Run:
                     current = self._waiting(here[0][0], key, here[0][1]).id
                     problems.append(make_problem("answer_stale", outer, *key, waiting_id=unit_id, current=current, **moved))
                 else:
-                    problems.append(make_problem("not_waiting", outer, *key, waiting_id=unit_id, **moved))
+                    problems.append(make_problem("not_waiting", outer, *key, waiting_id=unit_id, status=self.status, **moved))
                 continue
             ((node_id, found),) = matching
             if key in answered.get(node_id, {}):
@@ -827,7 +827,12 @@ def run_from_json(graph: Graph, saved: str | bytes | Mapping[str, Any]) -> Run:
     except _Unreadable as unreadable:
         raise InvalidCallError([make_problem("state_unreadable", "state", unreadable.at, at=unreadable.at, reason=unreadable.reason)]) from None
     except (KeyError, TypeError, ValueError, StopIteration, IndexError) as error:
-        reason = value_free_errors(error)[0]["msg"] if isinstance(error, ValidationError) else f"{type(error).__name__} {error}"
+        if isinstance(error, ValidationError):
+            reason = value_free_errors(error)[0]["msg"]
+        elif isinstance(error, KeyError):
+            reason = f"it has no {error.args[0]!r}"  # a key what run.to_json() writes always has
+        else:
+            reason = f"{type(error).__name__} {error}"
         raise InvalidCallError([make_problem("state_unreadable", "state", at="the run", reason=reason)]) from None
 
 

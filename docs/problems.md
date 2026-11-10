@@ -670,7 +670,7 @@ print(refused(lambda: uppering.run(txt="a")))  # ['not_offered']
 
 ### `not_waiting`
 
-> Nothing is waiting on an answer as {waiting_id!r}; run.waiting lists what is.
+> Nothing is waiting on an answer as {waiting_id!r} in a run that is {status}; run.waiting lists what is.
 
 ```python
 print(refused(lambda: waiting.answer("upper", True)))  # ['not_waiting']
