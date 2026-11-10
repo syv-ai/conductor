@@ -2,6 +2,7 @@
 import dataclasses
 import datetime
 import json
+import typing
 import warnings
 from dataclasses import dataclass
 from typing import Annotated, Any, Literal, TypedDict
@@ -804,3 +805,97 @@ def test_a_hook_adding_an_input_whose_name_an_address_cannot_carry_is_refused():
 
     graph = load(adds)
     assert [(p.type, p.loc) for p in graph.problems] == [("parameter_name_invalid", ("adds", "a.b"))]
+
+
+# -- what a signature says that conductor refuses or reads as written ------------------------
+
+
+def test_a_none_default_on_an_input_that_takes_no_blank_is_refused():
+    def f(x: int = None) -> int:  # type: ignore[assignment]
+        return 1
+
+    with pytest.raises(NodeDeclarationError) as raised:
+        declared(f)
+    assert raised.value.code == "default_invalid"
+
+
+def test_a_default_reaches_the_function_as_its_declared_type():
+    @node("kind")
+    def kind(x: Whole = 3, t: Text = "a") -> str:  # type: ignore[assignment]
+        return f"{type(x).__name__} {type(t).__name__}"
+
+    assert load(kind).run().results["kind"]["result"] == "Whole Text"
+
+
+def test_an_object_in_annotated_that_is_not_a_param_is_refused_naming_param():
+    def widget_alone(x: Annotated[int, TextWidget()]) -> int:
+        return x
+
+    def text_alone(x: Annotated[int, "a note"]) -> int:
+        return x
+
+    for wrong in (widget_alone, text_alone):
+        with pytest.raises(NodeDeclarationError, match="Param") as raised:
+            declared(wrong)
+        assert raised.value.code == "annotated_extra_unknown"
+
+
+def test_a_series_of_series_does_not_exist():
+    def f(x: Series[Series[int]]) -> int:
+        return 1
+
+    with pytest.raises(NodeDeclarationError) as raised:
+        declared(f)
+    assert raised.value.code == "nested_series"
+
+
+def test_a_bare_series_is_many_values_of_anything():
+    @node("count")
+    def count(xs: Series) -> int:
+        return len(xs)
+
+    assert [(i["shape"], i["type"]) for i in count.describe()["inputs"]] == [("many", "Any")]
+    assert load(count, record=GraphRecord(nodes=[placed("c", "count", values={"xs": [1, "a"]})])).run().results["c"]["result"] == 2
+
+
+def test_a_series_that_may_be_none_is_still_many_values():
+    @node("f")
+    def f(xs: Series[int] | None = None) -> str:
+        return repr(xs)
+
+    assert [(i["shape"], i["type"]) for i in f.describe()["inputs"]] == [("many", "int")]
+
+
+def test_table_is_only_a_type():
+    with pytest.raises(TypeError, match="polars.DataFrame"):
+        Table()
+
+
+def test_a_wrongly_typed_limit_is_refused_as_a_bound():
+    def f(x: Annotated[int, Param(ge="a")]) -> int:
+        return x
+
+    with pytest.raises(NodeDeclarationError) as raised:
+        declared(f)
+    assert raised.value.code == "bound_invalid"
+
+
+def test_a_hook_reads_a_whole_table_arriving_with_its_columns():
+    seen = []
+
+    def outputs(rows: type):
+        seen.append(rows)
+        return {"result": str}
+
+    @node("read")
+    def read(text: str) -> Table[Invoice]:
+        return pl.DataFrame({"name": [text], "amount": [1]})
+
+    @node("look", compute_outputs=outputs)
+    def look(rows: Table) -> dict:
+        return {"result": ",".join(rows.columns)}
+
+    graph = load(read, look)
+    row_type = typing.get_args(seen[0])[1].row  # Table[R] carries R, a TypedDict of the arriving columns
+    assert graph.problems == [] and typing.get_type_hints(row_type) == {"name": str, "amount": int}
+    assert graph.run(text="Bo").results["look"]["result"] == "name,amount"
