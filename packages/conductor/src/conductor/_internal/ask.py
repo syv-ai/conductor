@@ -18,11 +18,10 @@ from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any, TypedDict, Unpack
 
 import polars as pl
-from pydantic import JsonValue, TypeAdapter, ValidationError
-from pydantic_core import PydanticSerializationError, to_json, to_jsonable_python
+from pydantic import JsonValue, ValidationError
+from pydantic_core import to_jsonable_python
 
 from conductor._internal.conductor_model import ConductorModel
-from conductor._internal.errors import value_free_errors
 from conductor._internal.fields import (
     RECORDS,
     SKIPPED,
@@ -30,6 +29,7 @@ from conductor._internal.fields import (
     FieldSpec,
     Refused,
     choice_record,
+    read_strictly,
 )
 
 if TYPE_CHECKING:
@@ -250,20 +250,7 @@ def read_answer(spec: FieldSpec, value: Any) -> Any:
     """``value`` read as one value of the output ``spec``: a table from records or a frame, anything else by its type."""
     if spec.shape == "table":
         return _read_table(spec, value)
-    return _strictly(spec.adapter, value)
-
-
-def _strictly(adapter: TypeAdapter[Any], value: Any) -> Any:
-    """``value`` read by ``adapter`` from its JSON form, strictly: a yes or no is ``true`` or ``false``, a number is a
-    number, never a text that spells one; a date is still its ISO text, as JSON writes it."""
-    try:
-        written = to_json(value, inf_nan_mode="constants")
-    except PydanticSerializationError:
-        raise Refused("the answer has no JSON form") from None
-    try:
-        return adapter.validate_json(written, strict=True)
-    except ValidationError as error:
-        raise Refused(value_free_errors(error)[0]["msg"]) from None
+    return read_strictly(spec.adapter, value)
 
 
 def _read_table(spec: FieldSpec, value: Any) -> pl.DataFrame:
@@ -286,7 +273,7 @@ def _read_table(spec: FieldSpec, value: Any) -> pl.DataFrame:
     columns = {}
     for column, adapter in spec.column_adapters.items():
         try:
-            columns[column] = _strictly(adapter, [record.get(column) for record in records])
+            columns[column] = read_strictly(adapter, [record.get(column) for record in records])
         except Refused as refused:
             raise Refused(f"column '{column}': {refused.reason}") from None
     return pl.DataFrame(columns, strict=False)

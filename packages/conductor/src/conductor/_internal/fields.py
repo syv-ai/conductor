@@ -57,7 +57,13 @@ from pydantic import (
 from pydantic import Field as PydanticField
 from pydantic.errors import PydanticInvalidForJsonSchema
 from pydantic.json_schema import JsonSchemaValue
-from pydantic_core import CoreSchema, PydanticCustomError, to_jsonable_python
+from pydantic_core import (
+    CoreSchema,
+    PydanticCustomError,
+    PydanticSerializationError,
+    to_json,
+    to_jsonable_python,
+)
 
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.errors import NodeDeclarationError, value_free_errors
@@ -348,9 +354,9 @@ class FieldSpec:
 
     @functools.cached_property
     def choice_ids(self) -> tuple[Any, ...]:
-        """The ids of ``Param(choices=)``, each read strictly by the field's type and held to its limits."""
+        """The ids of ``Param(choices=)``, each read as an answer is (``read_strictly``) by the field's type and held to its limits."""
         one = TypeAdapter(self._limited)
-        return tuple(one.validate_python(choice["id"], strict=True) for choice in self.param.choices or ())
+        return tuple(read_strictly(one, choice["id"]) for choice in self.param.choices or ())
 
     def _one_of_the_choices(self, value: Any) -> Any:
         if value is not None and value not in self.choice_ids:
@@ -532,8 +538,8 @@ def _check_choices(spec: FieldSpec, where: str) -> None:
     else:
         try:
             ids = spec.choice_ids
-        except ValidationError as error:
-            fault = f"a choice is not a value of the field's type: {value_free_errors(error)[0]['msg']}"
+        except Refused as refused:
+            fault = f"a choice is not a value of the field's type: {refused.reason}"
         else:
             offered = literal_values(spec.type)
             if len({repr(i) for i in ids}) != len(ids) or not ids:
@@ -805,6 +811,20 @@ def already(target: Any, source: Any) -> bool:
     targets = [t for t in _options(target) if isinstance(t, type) and not typing.is_typeddict(t)]
     sources = [s for s in _options(source) if s is not type(None)]
     return all(isinstance(s, type) and not typing.is_typeddict(s) and any(issubclass(s, t) for t in targets) for s in sources)
+
+
+def read_strictly(adapter: TypeAdapter[Any], value: Any) -> Any:
+    """``value`` read by ``adapter`` from its JSON form, strictly, as a person's answer and a choice offered are: a yes
+    or no is ``true`` or ``false``, a number is a number, never a text that spells one; a date is still its ISO text,
+    and an enum its value, as JSON writes them."""
+    try:
+        written = to_json(value, inf_nan_mode="constants")
+    except PydanticSerializationError:
+        raise Refused("the value has no JSON form") from None
+    try:
+        return adapter.validate_json(written, strict=True)
+    except ValidationError as error:
+        raise Refused(value_free_errors(error)[0]["msg"]) from None
 
 
 def _not_a_bool(value: Any) -> Any:

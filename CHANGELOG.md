@@ -31,7 +31,8 @@ What changes in how you work, before the name-by-name tables:
   (`lists_not_collected`) until a node collects one. `graph.calls_for(file=11)` says each node's
   calls before a run, refusing an input given by name and address as `with_inputs` does. A blank skips the node for that row unless its input says `| None`. Each item
   of a list given there is held to the input's limits and choices, as one value is. A choice is
-  read as its answer would be: strictly, held to the field's limits.
+  read as its answer would be: strictly from its JSON form, held to the field's limits, so an enum's
+  value or a date's ISO text is a choice.
 - **Loading never raises for a fault in the graph.** `registry.load(record)` returns a `Graph`;
   read `graph.problems`, each a `Problem(type, loc, msg, ctx)`. Only a record of the wrong shape raises,
   `InvalidCallError` with the code `invalid_record`. A value typed in or given that its field refuses

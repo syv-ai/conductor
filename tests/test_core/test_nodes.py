@@ -1122,3 +1122,27 @@ def test_a_declared_choice_is_read_strictly_and_held_to_the_fields_limits(choice
 
     assert raised.value.code == "choices_invalid"
     assert f"a choice is not a value of the field's type: {reason};" in str(raised.value)
+
+
+def test_a_declared_choice_is_read_as_an_answer_is_so_an_enums_value_or_its_member_is_a_choice() -> None:
+    import enum
+
+    class Color(enum.Enum):
+        RED = "red"
+        BLUE = "blue"
+
+    @node("by-value")
+    def by_value(color: Annotated[Color, Param(choices=["red"])]) -> str:
+        return color.value
+
+    @node("by-member")
+    def by_member(color: Annotated[Color, Param(choices=[Color.RED])]) -> str:
+        return color.value
+
+    @node("a-day")
+    def a_day(day: Annotated[datetime.date, Param(choices=["2024-01-02"])]) -> str:
+        return day.isoformat()
+
+    assert [c["id"] for c in by_value.describe().inputs[0].choices or ()] == ["red"]
+    assert [c["id"] for c in by_member.describe().inputs[0].choices or ()] == ["red"]
+    assert a_day.describe().inputs[0].choices == [{"id": "2024-01-02", "title": "2024-01-02"}]
