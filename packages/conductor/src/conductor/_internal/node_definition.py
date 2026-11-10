@@ -50,7 +50,7 @@ import dataclasses
 import inspect
 import math
 import typing
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Generic, ParamSpec, Protocol, TypeVar, overload
@@ -58,7 +58,7 @@ from typing import Any, Generic, ParamSpec, Protocol, TypeVar, overload
 from pydantic import JsonValue, TypeAdapter, ValidationError
 
 from conductor._internal.conductor_model import ConductorModel
-from conductor._internal.errors import NodeDeclarationError
+from conductor._internal.errors import InvalidCallError, NodeDeclarationError, make_problem
 from conductor._internal.fields import (
     REQUIRED,
     FieldSpec,
@@ -362,6 +362,34 @@ _MARKS = frozenset("./@~")
 def is_node_id(value: object) -> bool:
     """Whether ``value`` can be a node id, of a definition or of a node in a record: a non-empty text without ``. / @ ~``."""
     return isinstance(value, str) and bool(value) and not _MARKS & set(value)
+
+
+def from_run_values(definitions: Iterable[tuple[str, NodeDefinition[..., Any]]], from_run: Mapping[type, Any] | None) -> dict[type, Any]:
+    """The value each ``FromRun`` parameter of these placed nodes takes, by the class it names; ``InvalidCallError`` listing
+    every parameter it can't fill.
+
+    A value keyed by the class itself is taken; else the one value given that is an instance of it, so a subclass
+    (a test double, a session of the host's own) is keyed by its own class or its parent's alike.
+    """
+    given = dict(from_run or {})
+    found: dict[type, Any] = {}
+    problems = []
+    for node_id, definition in definitions:
+        for name, needed in definition.from_run.items():
+            if needed in found:
+                continue
+            if needed in given:
+                found[needed] = given[needed]
+                continue
+            fits = [value for key, value in given.items() if isinstance(value, needed) or (isinstance(key, type) and issubclass(key, needed))]
+            if len(fits) == 1:
+                found[needed] = fits[0]
+                continue
+            names = [getattr(key, "__name__", str(key)) for key in given]
+            problems.append(make_problem("from_run_ambiguous" if fits else "from_run_missing", node_id, name, needs=needed.__name__, parameter=name, given=names))
+    if problems:
+        raise InvalidCallError(problems)
+    return found
 
 
 #: The ``Param`` a ``FromRun`` parameter is read with, so it is told apart from an input.

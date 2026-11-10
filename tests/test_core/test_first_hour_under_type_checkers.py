@@ -190,3 +190,21 @@ def test_a_checker_keeps_a_tables_row_type(tmp_path: pathlib.Path) -> None:
         [sys.executable, "-m", "mypy", "--strict", "--cache-dir", str(tmp_path / "cache"), str(program)], capture_output=True, text=True, cwd=tmp_path,
     )
     assert "_RowsOf[TypedDict(two_row_types.Sale" in done.stdout, done.stdout
+
+
+_WRONG_KEYWORDS = """
+from conductor import Ask, Param
+from conductor.widgets import Textarea
+
+times = Param(gee=1)
+text = Param(widget=Textarea)
+asked = Ask("?", widget=Textarea)
+"""
+
+
+def test_a_checker_refuses_an_unknown_limit_and_a_widget_class_passed_bare(tmp_path: pathlib.Path) -> None:
+    """mypy reads a ``Param`` written outside ``Annotated``; inside it, metadata goes unchecked, and ``Param`` refuses at import."""
+    program = tmp_path / "wrong_keywords.py"
+    program.write_text(_WRONG_KEYWORDS)
+    done = subprocess.run([sys.executable, "-m", "mypy", "--cache-dir", str(tmp_path / "cache"), str(program)], capture_output=True, text=True, cwd=tmp_path)
+    assert [line.split(": error: ")[0].rsplit(":", 1)[1] for line in done.stdout.splitlines() if ": error: " in line] == ["5", "6", "7"], done.stdout

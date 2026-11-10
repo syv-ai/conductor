@@ -20,7 +20,7 @@ from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any, Literal, TypedDict, Unpack, get_args, get_origin
 
 import polars as pl
-from pydantic import TypeAdapter, ValidationError
+from pydantic import JsonValue, TypeAdapter, ValidationError
 from pydantic_core import PydanticSerializationError, to_json, to_jsonable_python
 
 from conductor._internal.conductor_model import ConductorModel
@@ -30,6 +30,7 @@ from conductor._internal.fields import SKIPPED, FieldSpec, without_none
 if TYPE_CHECKING:
     from conductor._internal.graph import PlacedNode
     from conductor._internal.node_definition import NodeDefinition
+    from conductor.widgets import Widget
 
 
 class Choice(ConductorModel):
@@ -52,9 +53,9 @@ class AskArguments(TypedDict, total=False):
 
     choices: Sequence[Any] | Mapping[str, Sequence[Any]]
     default: Any
-    widget: Any
+    widget: Widget | Mapping[str, JsonValue]
     defaults: Mapping[str, Any]
-    widgets: Mapping[str, Any]
+    widgets: Mapping[str, Widget | Mapping[str, JsonValue]]
 
 
 class Ask(BaseException):

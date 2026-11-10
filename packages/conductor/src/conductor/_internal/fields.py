@@ -21,16 +21,31 @@ import datetime
 import functools
 import types
 import typing
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Annotated, Any, Literal, TypeVar, Union, get_args, get_origin
+from typing import (
+    TYPE_CHECKING,
+    Annotated,
+    Any,
+    Literal,
+    TypedDict,
+    TypeVar,
+    Union,
+    Unpack,
+    get_args,
+    get_origin,
+)
 
 import polars as pl
-from pydantic import AfterValidator, ConfigDict, TypeAdapter, ValidationError
+from pydantic import AfterValidator, ConfigDict, JsonValue, TypeAdapter, ValidationError
 from pydantic import Field as PydanticField
 from pydantic.errors import PydanticInvalidForJsonSchema
 from pydantic_core import to_jsonable_python
 
 from conductor._internal.errors import NodeDeclarationError, value_free_errors
+
+if TYPE_CHECKING:
+    from conductor.widgets import Widget
 
 
 class _Required:
@@ -73,6 +88,19 @@ _NUMERIC = frozenset({"ge", "gt", "le", "lt", "multiple_of"})
 _SIZED = frozenset({"min_length", "max_length", "pattern"})
 
 
+class Limits(TypedDict, total=False):
+    """The limits ``Param`` takes, by pydantic's words: a number's or a date's bounds, a text's length and pattern."""
+
+    ge: float | datetime.date
+    gt: float | datetime.date
+    le: float | datetime.date
+    lt: float | datetime.date
+    multiple_of: float
+    min_length: int
+    max_length: int
+    pattern: str
+
+
 @dataclass(frozen=True, init=False)
 class Param:
     """What a person reads about a field, and the limits a value must keep, inside ``Annotated``::
@@ -90,14 +118,15 @@ class Param:
 
     title: str | None = None
     description: str | None = None
-    widget: Any = None
+    widget: Widget | Mapping[str, JsonValue] | None = None
     exclusive_group: str | None = None
     constraints: dict[str, Any] = field(default_factory=dict)
 
     def __init__(
-        self, *, title: str | None = None, description: str | None = None, widget: Any = None, exclusive_group: str | None = None, **constraints: Any,
+        self, *, title: str | None = None, description: str | None = None, widget: Widget | Mapping[str, JsonValue] | None = None,
+        exclusive_group: str | None = None, **constraints: Unpack[Limits],
     ) -> None:
-        unknown = sorted(constraints.keys() - _NUMERIC - _SIZED)
+        unknown = sorted(constraints.keys() - _NUMERIC - _SIZED)  # a caller a type checker didn't see
         if unknown:
             raise NodeDeclarationError(
                 f"Param has no argument {unknown[0]!r}; it takes title, description, widget, exclusive_group and the limits {sorted(_NUMERIC | _SIZED)}",

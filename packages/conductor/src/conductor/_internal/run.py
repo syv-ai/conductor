@@ -38,6 +38,7 @@ from conductor._internal.fields import (
     type_id,
     without_none,
 )
+from conductor._internal.node_definition import from_run_values
 
 if TYPE_CHECKING:
     from conductor._internal.graph import Graph, InputPlan, Level, PlacedNode, Source
@@ -160,8 +161,7 @@ class Run:
         checked_max_rows(max_rows)
         if checkpoint_every is not None and (isinstance(checkpoint_every, bool) or not isinstance(checkpoint_every, (int, float)) or not checkpoint_every > 0):
             raise InvalidCallError([make_problem("invalid_checkpoint_every", "checkpoint_every", checkpoint_every=checkpoint_every)])
-        self._check_from_run(from_run)
-        return self._stream(max_rows, from_run, timeout, cancel, checkpoint_every)
+        return self._stream(max_rows, self._from_run(from_run), timeout, cancel, checkpoint_every)
 
     async def _stream(
         self, max_rows: int | None, from_run: Mapping[type, Any] | None, timeout: float | None, cancel: asyncio.Event | None, checkpoint_every: float | None,
@@ -195,20 +195,16 @@ class Run:
         finally:
             cancelled.set()
 
-    def _check_from_run(self, from_run: Mapping[type, Any] | None) -> None:
-        missing = [
-            make_problem("from_run_missing", p.id, name, needs=needed.__name__, parameter=name)
-            for p in self.graph._nodes.values() for name, needed in p.definition.from_run.items() if needed not in (from_run or {})
-        ]
-        if missing:
-            raise InvalidCallError(missing)
+    def _from_run(self, from_run: Mapping[type, Any] | None) -> dict[type, Any]:
+        """The value each ``FromRun`` parameter of the graph takes; ``InvalidCallError`` when one can't be filled."""
+        return from_run_values(((p.id, p.definition) for p in self.graph._nodes.values()), from_run)
 
     def _leg(self, max_rows: int | None, from_run: Mapping[type, Any] | None, emit: Any, stop: Any, checkpoint_every: float | None = None) -> Run:
         from conductor._internal.leg import Leg
 
-        self._check_from_run(from_run)
+        values = self._from_run(from_run)
         run = self._copy(max_rows=max_rows if max_rows is not None else self.max_rows)
-        Leg(run, emit, stop, dict(from_run or {}), checkpoint_every).go()
+        Leg(run, emit, stop, values, checkpoint_every).go()
         return run
 
     @overload

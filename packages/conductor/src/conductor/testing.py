@@ -9,9 +9,10 @@ A node package or a host puts one line in its test suite::
 
 It checks what ``@node`` can't see in a declaration. A body is called only
 for a node given an example, since a node may send mail; ``examples`` maps a
-node id to the inputs of its calls, by name, a ``FromRun`` parameter's value
-among them, and ``(id, version)`` to those of an older version. Each example
-runs through the engine as a graph of that one node, its inputs typed in.
+node id to the inputs of its calls, by name, and ``(id, version)`` to those
+of an older version. Each example runs through the engine as a graph of that
+one node, its inputs typed in, given ``from_run={T: value}`` as ``graph.run``
+is.
 
 Every problem is a ``Problem``. Its ``loc`` is ``(node_id, version)``, except for
 ``example_for_no_node`` without a version and ``waiver_not_needed``, which are ``(node_id,)``:
@@ -84,6 +85,7 @@ def check_registry(
     *,
     examples: Mapping[str | tuple[str, int], Sequence[_Example]] | None = None,
     expected_failures: Mapping[str, str] | None = None,
+    from_run: Mapping[type, Any] | None = None,
 ) -> list[Problem]:
     """Every way a node of ``registry`` breaks what a host relies on, all at once; ``[]`` when none does."""
     examples = examples or {}
@@ -93,11 +95,13 @@ def check_registry(
         if node_id not in registry or (version is not None and version not in registry[node_id].versions):
             found.append(_problem("example_for_no_node", node_id, version, f"{key!r} names no node of the registry"))
     for definition in registry:
-        found += _problems_of(definition, registry, examples)
+        found += _problems_of(definition, registry, examples, from_run or {})
     return _without_waived(found, expected_failures or {})
 
 
-def _problems_of(definition: NodeDefinition[..., Any], registry: NodeRegistry, examples: Mapping[Any, Sequence[_Example]]) -> list[Problem]:
+def _problems_of(
+    definition: NodeDefinition[..., Any], registry: NodeRegistry, examples: Mapping[Any, Sequence[_Example]], from_run: Mapping[type, Any],
+) -> list[Problem]:
     found: list[Problem] = []
     paused = False
     version: NodeDefinition[..., Any] | None = definition
@@ -108,7 +112,7 @@ def _problems_of(definition: NodeDefinition[..., Any], registry: NodeRegistry, e
         if version is not definition:
             found += _upgrade_problems(version, registry, given)
         for example in given:
-            problems, asked = _run_problems(version, registry, example)
+            problems, asked = _run_problems(version, registry, example, from_run)
             found += problems
             paused = paused or (asked and version is definition)
         version = version.replaces
@@ -147,7 +151,7 @@ def _hook_problems(version: NodeDefinition[..., Any], registry: NodeRegistry) ->
 def _upgrade_problems(older: NodeDefinition[..., Any], registry: NodeRegistry, given: Sequence[_Example]) -> list[Problem]:
     """Place the node at ``older`` with an example's values, or made-up ones, move it to the newest version and load it."""
     if given:
-        values = {name: value for name, value in given[0].items() if name not in older.from_run}
+        values = dict(given[0])
     else:
         values = {name: made for name, spec in older.inputs.items() if (made := _made_up(spec)) is not _CANNOT}
     newest = registry[older.id].version
@@ -162,10 +166,9 @@ def _upgrade_problems(older: NodeDefinition[..., Any], registry: NodeRegistry, g
     return [_problem("upgrade_broken", older.id, older.version, f"after moving to version {newest}: {said}", **_causes(problems))]
 
 
-def _run_problems(version: NodeDefinition[..., Any], registry: NodeRegistry, example: _Example) -> tuple[list[Problem], bool]:
+def _run_problems(version: NodeDefinition[..., Any], registry: NodeRegistry, example: _Example, from_run: Mapping[type, Any]) -> tuple[list[Problem], bool]:
     """Run one example through the engine: what went wrong, and whether it paused for a person."""
-    values = {name: value for name, value in example.items() if name not in version.from_run}
-    from_run = {version.from_run[name]: value for name, value in example.items() if name in version.from_run}
+    values = dict(example)
     if version.function is None:  # a stored graph runs on the nodes of the registry
         definitions, changed = {d.id: d for d in registry}, list[str]()
         definitions[version.id] = version

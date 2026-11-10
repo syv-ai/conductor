@@ -62,7 +62,7 @@ from conductor.testing import check_registry
 assert check_registry(registry, examples={"greet": [{"name": "Ida"}]}) == []
 ```
 
-A body is called only for a node given an example (a node may send mail), once per example, through the engine. `("greet", 1)` keys an older version's examples, and a `FromRun` value goes in by its parameter name. `expected_failures={"greet:run_failed": "why"}` accepts a known failure in the test; one that no longer fails is reported.
+A body is called only for a node given an example (a node may send mail), once per example, through the engine. `("greet", 1)` keys an older version's examples, and `from_run={T: value}` gives the examples' `FromRun` values, as `graph.run` takes them. `expected_failures={"greet:run_failed": "why"}` accepts a known failure in the test; one that no longer fails is reported.
 
 ## Common mistakes
 

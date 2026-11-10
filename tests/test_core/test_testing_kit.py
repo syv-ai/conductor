@@ -2,10 +2,12 @@
 
 from typing import Annotated, Any
 
+import pytest
 from conductor import (
     Ask,
     ExternalFailure,
     FromRun,
+    InvalidCallError,
     NodeRegistry,
     Param,
     Series,
@@ -72,14 +74,28 @@ shout = node("shout")(make_graph(upper))
 GOOD_EXAMPLES: dict[Any, list[dict[str, Any]]] = {
     "upper": [{"text": "a", "times": 2}],
     "approve": [{"text": "the plan"}],
-    "who": [{"session": Session(), "text": "a"}],
+    "who": [{"text": "a"}],
     "shout": [{"text": "hi"}],
     ("count", 1): [{"n": 3}],
 }
 
 
 def test_nodes_that_keep_the_contract_give_no_problem():
-    assert found(registry_of(upper, columns, count, approve, who, shout), examples=GOOD_EXAMPLES) == []
+    assert found(registry_of(upper, columns, count, approve, who, shout), examples=GOOD_EXAMPLES, from_run={Session: Session()}) == []
+
+
+def test_a_from_run_value_of_a_subclass_fills_a_parameter_of_its_parent_in_the_kit_as_in_a_run():
+    class TestSession(Session):
+        pass
+
+    registry = registry_of(who)
+    assert found(registry, examples={"who": [{"text": "a"}]}, from_run={TestSession: TestSession()}) == []
+    graph = registry.load(make_graph(who, values={"who.text": "a"}))
+    assert graph.run(from_run={TestSession: TestSession()}).outputs == {"who.result": "a"}
+    with pytest.raises(InvalidCallError) as refused:
+        graph.run(from_run={int: 3})
+    assert [(p.type, p.ctx["given"]) for p in refused.value.errors()] == [("from_run_missing", ["int"])]
+    assert "it gives int" in refused.value.errors()[0].msg
 
 
 def test_no_body_is_called_without_an_example_and_each_example_calls_it_once():
