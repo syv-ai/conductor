@@ -975,7 +975,7 @@ except NodeDeclarationError as error:
 
 ### `choices_invalid`
 
-> {spec.name}: {fault}
+> {spec.name}: {fault}; give each choice once, as a value of the field's type
 
 ```python
 from typing import Literal
@@ -1164,7 +1164,7 @@ except NodeDeclarationError as error:
 
 ### `named_twice`
 
-> {name}: a type has one name, and this one is Named {[n.id for n in names]}
+> {name}: a type has one name, and this one is Named {[n.id for n in names]}; keep one Named, on an alias used everywhere
 
 ```python
 from conductor import Named

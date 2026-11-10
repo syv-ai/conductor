@@ -429,7 +429,10 @@ def read_field(name: str, hint: Any, default: Any = REQUIRED, where: str = "") -
             return _checked(FieldSpec(name, "table", pl.DataFrame, False, default, param, _columns_of(markers[0].row)), where)
         names = [m for m in meta if isinstance(m, Named)]
         if len(names) > 1:
-            raise NodeDeclarationError(f"{where}{name}: a type has one name, and this one is Named {[n.id for n in names]}", code="named_twice")
+            raise NodeDeclarationError(
+                f"{where}{name}: a type has one name, and this one is Named {[n.id for n in names]}; keep one Named, on an alias used everywhere",
+                code="named_twice",
+            )
         hint = Annotated[base, names[0]] if names else base
     if hint is pl.DataFrame or hint is Table:
         return _checked(FieldSpec(name, "table", pl.DataFrame, False, default, param, None), where)
@@ -455,7 +458,7 @@ def _check_choices(spec: FieldSpec, where: str) -> None:
             elif offered is not None and {repr(i) for i in ids} != {repr(v) for v in offered}:
                 fault = f"on a Literal the choices title its values, one each: {list(offered)}"
     if fault:
-        raise NodeDeclarationError(f"{where}{spec.name}: {fault}", code="choices_invalid")
+        raise NodeDeclarationError(f"{where}{spec.name}: {fault}; give each choice once, as a value of the field's type", code="choices_invalid")
 
 
 def _marked(hint: Any, marker: type) -> bool:
