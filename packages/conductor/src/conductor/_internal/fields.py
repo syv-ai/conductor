@@ -254,7 +254,11 @@ def humanised(name: str) -> str:
 
 @dataclass(frozen=True)
 class FieldSpec:
-    """One input or output: its shape, the type of one value, and how a value is checked."""
+    """One input or output: its shape, the type of one value, and how a value is checked.
+
+    ``optional`` says a blank (``None``) may arrive in place of the field's value: of one value, or of a ``Series``'
+    whole list (``Series[X] | None``). Whether a ``Series``' items may be blank is its item type's own ``| None``.
+    """
 
     name: str
     shape: Literal["one", "many", "table"]
@@ -288,7 +292,10 @@ class FieldSpec:
     @functools.cached_property
     def adapter(self) -> TypeAdapter[Any]:
         """Checks one value of this field (a ``Series``' list of them), held to its limits and choices."""
-        return TypeAdapter(_list_of(self._one) if self.shape == "many" else self._one)
+        if self.shape != "many":
+            return TypeAdapter(self._one)
+        many: Any = Union[_list_of(self._one), None] if self.optional else _list_of(self._one)  # noqa: UP007
+        return TypeAdapter(many)
 
     @functools.cached_property
     def list_adapter(self) -> TypeAdapter[Any]:
@@ -456,7 +463,7 @@ def read_field(name: str, hint: Any, default: Any = REQUIRED, where: str = "") -
                 raise NodeDeclarationError(f"{where}{name}: a Series of tables; a table already holds many rows, so take or return one table", code="series_of_tables")
             if _marked(item, _ManyMarker):
                 raise NodeDeclarationError(f"{where}{name}: a Series of Series; rows are never nested in a field, so return one Series", code="nested_series")
-            return _checked(FieldSpec(name, "many", item, _is_optional(item), default, param), where)
+            return _checked(FieldSpec(name, "many", item, or_none, default, param), where)
         if markers and isinstance(markers[0], _TableMarker):
             return _checked(FieldSpec(name, "table", pl.DataFrame, False, default, param, _columns_of(markers[0].row)), where)
         names = [m for m in meta if isinstance(m, Named)]
@@ -470,7 +477,7 @@ def read_field(name: str, hint: Any, default: Any = REQUIRED, where: str = "") -
         return _checked(FieldSpec(name, "table", pl.DataFrame, False, default, param, None), where)
     if or_none:
         hint = Union[hint, None]  # noqa: UP007
-    return _checked(FieldSpec(name, "one", hint, _is_optional(hint), default, param), where)
+    return _checked(FieldSpec(name, "one", hint, takes_a_blank(hint), default, param), where)
 
 
 def _check_choices(spec: FieldSpec, where: str) -> None:
@@ -521,7 +528,7 @@ def _checked(spec: FieldSpec, where: str) -> FieldSpec:
         ) from None
     if spec.param.choices is not None:
         _check_choices(spec, where)
-    if spec.default is None and spec.shape == "one" and not spec.optional:
+    if spec.default is None and spec.shape != "table" and not spec.optional:
         raise NodeDeclarationError(f"{where}{spec.name}: the default None is a blank; write its type with | None", code="default_invalid")
     if not spec.required and spec.default is not None and spec.default is not SKIPPED:
         try:
@@ -627,7 +634,7 @@ def _schema_takes_an_array(schema: Mapping[str, Any], defs: Mapping[str, Any]) -
     return kind == "array" or (isinstance(kind, list) and "array" in kind)
 
 
-def _is_optional(hint: Any) -> bool:
+def takes_a_blank(hint: Any) -> bool:
     """Whether a blank may arrive: ``X | None``, or ``Any``, which says nothing against one."""
     return hint is Any or (get_origin(hint) in (Union, types.UnionType) and type(None) in get_args(hint))
 
@@ -721,8 +728,6 @@ def _not_a_bool(value: Any) -> Any:
 def read_given(spec: FieldSpec, value: Any, *, items: bool) -> Any:
     """``value`` typed into ``spec`` or given for it by a caller, a list of its values with ``items``; ``Refused`` if
     it can't be. A table may be a list of records."""
-    if value is None and spec.shape == "many" and spec.default is None:
-        return None  # a Series that may be None
     try:
         if items:
             return spec.list_adapter.validate_python(value)
@@ -742,8 +747,6 @@ def read_value(spec: FieldSpec, value: Any, *, strict: bool) -> Any:
         return read_table(spec, value, strict=strict)
     if spec.shape == "one" and type(value) in spec.plain_classes:
         return value
-    if spec.shape == "many" and value is None and spec.default is None:
-        return None  # a Series that may be None
     if spec.shape == "many" and isinstance(value, (tuple, range)):
         value = list(value)  # any sequence a node returns is its rows
     elif spec.shape == "many" and isinstance(value, pl.Series):

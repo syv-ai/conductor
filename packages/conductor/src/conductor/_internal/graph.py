@@ -68,6 +68,7 @@ from conductor._internal.fields import (
     given_as_items,
     read_field,
     read_given,
+    takes_a_blank,
     type_id,
 )
 from conductor._internal.node_definition import NodeDefinition, is_node_id
@@ -906,7 +907,7 @@ class Graph:
                     return True
                 taken |= frozenset.intersection(*branches)
         self._branches[placed.id] = frozenset(taken)
-        series = [(n, [self._branch(s) for s in p.sources]) for n, p in placed.inputs.items() if p.spec.shape == "many" and p.sources and not p.spec.optional]
+        series = [(n, [self._branch(s) for s in p.sources]) for n, p in placed.inputs.items() if p.spec.shape == "many" and p.sources and not takes_a_blank(p.spec.type)]
         for i, (a, on_a) in enumerate(series):
             for b, on_b in series[i + 1:]:
                 if all(_opposed(x, y) for x in on_a for y in on_b):

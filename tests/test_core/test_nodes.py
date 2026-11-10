@@ -323,12 +323,36 @@ def test_a_none_default_with_a_blank_hint_is_optional_and_arrives_as_none():
     assert load(f).run().results["f"]["result"] == "None-None"
 
 
-def test_a_series_that_may_be_none_receives_none_when_nothing_feeds_it():
+def test_a_series_that_may_be_none_takes_none_given_typed_in_or_left_out_and_its_items_are_never_blank():
     @node("f")
     def f(xs: Series[int] | None = None) -> str:
         return repr(xs)
 
-    assert load(f).run().results["f"]["result"] == "None"
+    graph = load(f)
+    assert graph.run().results["f"]["result"] == "None"
+    assert graph.run(xs=None).results["f"]["result"] == "None"
+    assert load(f, record=GraphRecord(nodes=[placed("f", "f", values={"xs": None})])).run().results["f"]["result"] == "None"
+    assert graph.run(xs=[1, 2]).results["f"]["result"] == "[1, 2]"
+    with pytest.raises(InvalidCallError):
+        graph.run(xs=[1, None])
+
+
+def test_a_series_that_may_not_be_none_refuses_none_and_a_default_of_none():
+    @node("f")
+    def f(xs: Series[int]) -> str:
+        return repr(xs)
+
+    with pytest.raises(InvalidCallError) as refused:
+        load(f).run(xs=None)
+    assert [p.type for p in refused.value.errors()] == ["invalid_input"]
+    assert codes(load(f, record=GraphRecord(nodes=[placed("f", "f", values={"xs": None})]))) == ["invalid_value"]
+
+    def g(xs: Series[int] = None) -> int:  # type: ignore[assignment]
+        return 0
+
+    with pytest.raises(NodeDeclarationError) as raised:
+        declared(g)
+    assert raised.value.code == "default_invalid"
 
 
 def test_a_blank_on_an_input_that_takes_one_is_held_to_no_bound():

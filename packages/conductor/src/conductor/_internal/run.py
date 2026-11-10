@@ -34,6 +34,7 @@ from conductor._internal.fields import (
     Refused,
     carried_list,
     read_value,
+    takes_a_blank,
     type_id,
     without_none,
 )
@@ -681,10 +682,10 @@ class Run:
                 kwargs[name] = table
         if gathered:
             # A row a Series input can't take leaves every Series input on that table.
-            blank = {name: {(lvl, k) for lvl, k, v in items if v is None} for name, items in gathered.items() if not placed.inputs[name].spec.optional}
+            blank = {name: {(lvl, k) for lvl, k, v in items if v is None} for name, items in gathered.items() if not takes_a_blank(placed.inputs[name].spec.type)}
             for name, items in gathered.items():
                 others = [rows for other, rows in blank.items() if other != name]
-                keep_blank = placed.inputs[name].spec.optional
+                keep_blank = takes_a_blank(placed.inputs[name].spec.type)
                 kwargs[name] = [v for lvl, k, v in items if (keep_blank or v is not None) and not any((lvl, k) in rows for rows in others)]
         return kwargs
 
