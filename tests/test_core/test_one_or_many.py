@@ -141,6 +141,20 @@ def test_calls_for_counts_none_where_a_node_makes_the_rows_and_refuses_what_a_ru
     assert [p.type for p in refused.value.errors()] == ["invalid_input"]
 
 
+def test_calls_for_a_length_makes_no_list_of_that_length():
+    import tracemalloc
+
+    graph = registry.load(drawn(("r", "review")))
+    tracemalloc.start()
+    try:
+        counts = graph.calls_for(text=10**7)
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    assert counts == {"r": 10**7}
+    assert peak < 1_000_000
+
+
 # -- two uploads ---------------------------------------------------------------------------------------------------
 
 

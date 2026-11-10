@@ -481,7 +481,9 @@ class Graph:
         by_key, unknown = self._given_by_key(given)
         if unknown:
             raise InvalidCallError([make_problem("not_offered", "inputs", name, name=name, inputs=list(self.inputs)) for name in unknown])
-        graph = self._compiled_for(self._listed_in({name: [None] * n for name, n in given.items()}))
+        graph = self._compiled_for(frozenset(  # a length named is a list given; any other input lists as its default does
+            key for key, f in self._input_fields.items() if (f.spec.per_item if key in by_key else given_as_items(f.spec, f.default))
+        ))
         if graph.problems:
             raise InvalidCallError(graph.problems)
         sizes = graph._list_lengths({key: n for key, n in by_key.items() if graph._input_fields[key].listed})
