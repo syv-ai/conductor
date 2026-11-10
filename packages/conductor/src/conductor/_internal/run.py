@@ -249,10 +249,10 @@ class Run:
         It carries this run's work, and what this run carried and didn't use:
         a row that receives what an earlier unit of its node received takes
         that unit's outcome, an answer or a question still waiting included, and
-        the node is not called for it. Identical rows take the earlier ones in
-        row order, the first identical row the first earlier one; with one
-        identical row taken out, which earlier answer stays goes by that order. Inputs are given as
-        ``graph.with_inputs`` takes them, and checked the same way.
+        the node is not called for it. Identical rows match the earlier ones in
+        row order: the first identical row takes the first earlier one, the
+        second the second. Inputs are given as ``graph.with_inputs`` takes
+        them, and checked the same way.
         """
         given = {name: self.inputs[graph_input.key] for name, graph_input in self.graph.inputs.items() if graph_input.key in self.inputs}
         fresh = self.graph.with_inputs({**given, **(inputs or {}), **by_name}, max_rows=max_rows if max_rows is not None else self.max_rows)
@@ -692,7 +692,7 @@ class Run:
 
 
 def run_from_json(graph: Graph, saved: str | bytes | Mapping[str, Any]) -> Run:
-    """A run of ``graph`` from what ``run.to_json()`` wrote; ``graph.load_run`` is the door to it."""
+    """A run of ``graph`` from what ``run.to_json()`` wrote; a caller reaches it through ``graph.load_run``."""
     try:
         data = pydantic_core.from_json(saved) if isinstance(saved, (str, bytes)) else saved
         if data["graph"] != graph.fingerprint:

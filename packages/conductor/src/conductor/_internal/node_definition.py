@@ -275,10 +275,30 @@ def node(
     replaces: NodeDefinition[..., Any] | None = None,
     upgrade: Upgrade | None = None,
 ) -> _Declare:
-    """Make the function below it, or a stored graph, a node (see the module docstring).
+    """Make the function below it, or a stored graph, a node with the id ``id``::
 
-    ``version`` is one past the version it ``replaces``, or 1, unless given:
-    a host whose stored graphs have their own numbers names them.
+        @node("upper")
+        def upper(text: str) -> str:
+            return text.upper()
+
+    It registers nothing: ``upper("a")`` still calls the function, and
+    ``registry.add(upper)`` offers it. ``@registry.node`` takes the same
+    arguments and adds the node too.
+
+    - ``title`` and ``description`` default to the function's name in
+      everyday words and its docstring's first paragraph; ``docs`` is longer
+      help, ``category`` and ``tags`` group it in a palette, and ``extra`` is
+      the host's own JSON, kept and never read here.
+    - ``policy`` says how the engine calls it (retries, a timeout, threads).
+    - ``replaces`` is the version this one replaces, a ``@node`` of the same
+      id, and ``upgrade`` says how a node saved at that version moves here.
+      ``version`` is one past the version replaced, or 1, unless given: a host
+      whose stored graphs have their own numbers names them. ``deprecation``
+      marks this version going away.
+    - ``compute_added_inputs`` and ``compute_outputs`` are hooks run when a
+      graph is loaded, which shape the node from what is typed into it.
+
+    A stored graph is a node too: ``node("enrich")(record)``.
     """
     if not isinstance(id, str) or not id:
         raise NodeDeclarationError(f"@node takes the node's id first, a non-empty string: @node('upper'); got {id!r}", code="node_id_invalid")

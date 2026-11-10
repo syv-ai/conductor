@@ -71,7 +71,7 @@ class Ask(BaseException):
     called again for that row::
 
         @node("assign")
-        def assign(ticket: str, team: str) -> str:
+        def assign(ticket: str) -> str:
             raise Ask(f"Who takes {ticket}?", choices=[Choice("ida", "Ida B."), Choice("bo", "Bo K.")])
 
     A ``BaseException``, so an ``except Exception`` in the node lets it through.

@@ -135,7 +135,7 @@ def make_graph(
     """A graph record written from Python, each node at its version::
 
         make_graph(read_file, upper)                                  # a chain
-        make_graph(read_file, upper, edges=[("read_file.text", "upper.text")])
+        make_graph(read_file, upper, edges=[("read_file.result", "upper.text")])
         make_graph(read_file, upper, values={"read_file.path": "in.txt"})
 
     A node's id in the graph is its definition's id; a definition used more

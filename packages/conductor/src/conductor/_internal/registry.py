@@ -215,8 +215,8 @@ class NodeRegistry:
     def accepted_as(self, value_type: type) -> tuple[str, ...]:
         """The ids of every type here a value of ``value_type`` may land on, its own included.
 
-        Derived from subclassing and each type's ``accepts``, so a type that
-        widens its welcome is served without a table kept by hand.
+        Worked out from subclassing and each type's ``accepts``, so no table of
+        what lands where is kept by hand.
         """
         return tuple(type_id_ for type_id_, target in self._types.items() if accepts(target, value_type))
 

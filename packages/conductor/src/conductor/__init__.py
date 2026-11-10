@@ -5,10 +5,10 @@ A node author writes ``@node`` functions with ``Param``, ``Series``, ``Table``,
 ``GraphRecord`` into a ``Graph``, and runs it: a ``Run`` pauses for a person,
 takes answers, resumes and goes again, and is JSON throughout.
 
-This package is the main public door. With ``conductor.widgets`` (the input
-controls), ``conductor.events`` (what a run says as it goes) and
-``conductor.testing`` (one test for a whole registry) it is everything a
-caller outside the library imports; ``__all__`` lists it.
+This module, ``conductor.widgets`` (the input controls), ``conductor.events``
+(what a run says as it goes) and ``conductor.testing`` (one test for a whole
+registry) are everything a caller outside the library imports; each lists its
+names in ``__all__``.
 Everything in ``conductor._internal`` is the library's own and may move.
 """
 

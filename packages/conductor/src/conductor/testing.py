@@ -36,7 +36,7 @@ Every problem is a ``Problem``. Its ``loc`` is ``(node_id, version)``, except fo
     an example or a waiver names a node or a failure that isn't there.
 
 ``expected_failures`` maps ``"id:code"`` to why it is accepted; it lives in
-the test, not on the node, and one that no longer fails is itself a problem.
+the test, not on the node, and a waiver for a check that passes is itself a problem.
 These codes are the kit's own, not in ``PROBLEM_CODES``: a developer reads
 them in a test run, a host never meets them.
 """

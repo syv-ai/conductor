@@ -17,8 +17,8 @@ Conductor ships the common controls. A host adds its own by subclassing
 
 A widget is the control and nothing more. What a person reads about the
 input, whether an edge can reach it and the limits a value must keep to are
-the ``Param``'s, where they are enforced. An input with no widget is
-filled by an edge only. Nor does a widget change how the engine runs: a
+the ``Param``'s, where they are enforced. An input with no widget
+gets no control in an editor: an edge fills it, or a value set in the graph. Nor does a widget change how the engine runs: a
 pause is a node that raises ``Ask``, not a widget type.
 
 Conductor picks no default widget for any type: a text may be a

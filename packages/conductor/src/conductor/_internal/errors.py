@@ -261,11 +261,11 @@ class NodeError(ConductorError):
 class ExternalFailure(NodeError):
     """The outside world failed: a network error, a rate limit, an upstream 5xx.
 
-    The one family the engine retries, under the version's ``Policy``.
-    A node raises it where it knows the failure is external; the engine
-    treats a foreign exception whose class the policy's ``retry_on`` names
-    the same way, with code ``external_failed`` and the generic message. Not for a bug in the node or a value it cannot use — those
-    are internal, and retrying them repeats the same failure.
+    The one failure the engine retries, under the node's ``Policy``. A node
+    raises it where it knows the failure is external. An exception whose
+    class the policy's ``retry_on`` names is treated the same way, with code
+    ``external_failed`` and a generic message. Not for a bug in the node or a
+    value it cannot use: retrying those repeats the same failure.
     """
 
     _code_when_none_given = "external_failed"
