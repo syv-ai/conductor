@@ -195,6 +195,17 @@ def test_a_saved_run_is_strict_json_when_a_number_is_not_finite():
     assert _strict(saved)["status"] == "complete"
 
 
+def test_a_blank_returned_for_a_blank_taking_series_is_saved_and_read_back_as_a_blank():
+    @node("maybe-readings")
+    def maybe_readings(text: str) -> Series[int] | None:
+        return None
+
+    run = registry_of(maybe_readings).load(GraphRecord(nodes=[NodeRecord(id="m", node="maybe-readings")])).run(text="x")
+
+    assert run.status == "complete"
+    assert _round_trip(run).results["m"]["result"] is None
+
+
 def test_a_float_that_is_not_finite_where_its_type_does_not_say_float_reads_back_as_the_float():
     """A ``dict``, ``Any`` or a model's ``Any`` field holding ``nan`` gives the same value after a save as on a straight run."""
 

@@ -951,12 +951,12 @@ def _dump_units(placed: PlacedNode, units: Mapping[Key, Unit], keyed: bool = Tru
         if spec.shape == "table":
             dumped: Any = [None if v is SKIPPED or v is None else _dump_frame(spec, v, at) for v in values]
         else:
-            plain = [None if v is SKIPPED else [None if i is SKIPPED else i for i in v] if spec.shape == "many" else v for v in values]
+            plain = [None if v is SKIPPED or v is None else [None if i is SKIPPED else i for i in v] if spec.shape == "many" else v for v in values]
             dumped = _written_as_json(spec.column_adapter, plain, at)
         non_finite: list[list[Any]] = []
         if spec.shape != "table" and not spec.plain:
             _find_non_finite(dumped, [], non_finite)
-        items = {str(n): [i for i, item in enumerate(v) if item is SKIPPED] for n, v in enumerate(values) if spec.shape == "many" and v is not SKIPPED}
+        items = {str(n): [i for i, item in enumerate(v) if item is SKIPPED] for n, v in enumerate(values) if spec.shape == "many" and v is not SKIPPED and v is not None}
         outputs[name] = {
             "values": dumped, "skipped": skipped, **({"skipped_items": {k: v for k, v in items.items() if v}} if any(items.values()) else {}),
             **({"non_finite": non_finite} if non_finite else {}),
