@@ -147,8 +147,9 @@ def run_router(
     def started_by(row: StoredRun) -> Any:
         return callers.validate_json(row.caller)
 
-    def load(row: StoredRun) -> Run:
-        return nodes_for(started_by(row)).load(row.graph).load_run(row.run)
+    def load(row: StoredRun, who: Any = None) -> Run:
+        """The stored run, on the nodes of ``who``, or of the caller who started it."""
+        return nodes_for(who if who is not None else started_by(row)).load(row.graph).load_run(row.run)
 
     # -- legs -------------------------------------------------------------------------------------
 
@@ -384,9 +385,10 @@ def run_router(
 
     @router.post("/runs/{run_id}/again", status_code=202)
     async def again(row: Stored, inputs: dict[str, Any], who: Caller) -> Started:
-        """A new run with these inputs changed; a row that receives what it received before isn't called again."""
+        """A new run of the caller's with these inputs changed, on the caller's own nodes; a row that receives what it
+        received before isn't called again."""
         try:
-            run = await asyncio.to_thread(lambda: load(row).with_inputs(inputs))
+            run = await asyncio.to_thread(lambda: load(row, who).with_inputs(inputs))
         except InvalidCallError as error:
             raise _unprocessable(error) from None
         run_id = uuid.uuid4().hex

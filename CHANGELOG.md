@@ -51,7 +51,8 @@ What changes in how you work, before the name-by-name tables:
   `conductor_nodes.registry`. `syv-conductor-providers` holds `run_router`, a FastAPI router that
   starts, follows, answers, resumes and cancels runs on several workers over a `RunStore` you
   write ([`docs/serving-runs.md`](docs/serving-runs.md)). An answer sent while a leg runs waits for it to
-  end, and one that then finds nothing waiting is kept in `refused`. There is no canvas package.
+  end, and one that then finds nothing waiting is kept in `refused`; `again` runs on the nodes of
+  the caller who asks. There is no canvas package.
 
 A 1.x graph doesn't load as saved. Convert each stored graph with the table under
 "Converting a stored 1.x graph", then save the `GraphRecord`.
