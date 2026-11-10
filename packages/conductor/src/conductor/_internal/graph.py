@@ -269,14 +269,17 @@ class Graph:
             if p.id in nodes:
                 nodes[p.id].update({
                     "runs": plan[p.id],
-                    "inputs": [f.describe() for f in p.definition.inputs.values()],
+                    "inputs": [{**f.describe(), "receives": self._receives(p, n)} for n, f in p.definition.inputs.items()],
                     "outputs": [f.describe() for f in p.definition.outputs.values()],
                 })
         for e, (ins, _) in self._offers.items():
             if e in plan:
                 nodes[e].update({
                     "runs": plan[e],
-                    "inputs": [{**self._nodes[n].definition.inputs[i].describe(), "name": name} for name, (n, i) in ins.items() if n in self._nodes],
+                    "inputs": [
+                        {**self._nodes[n].definition.inputs[i].describe(), "name": name, "receives": self._receives(self._nodes[n], i)}
+                        for name, (n, i) in ins.items() if n in self._nodes
+                    ],
                     "outputs": [{**self._nodes[n].definition.outputs[o].describe(), "name": name} for name, (n, o) in self._readable[e].items()],
                 })
         return {
@@ -285,6 +288,29 @@ class Graph:
             "outputs": self.outputs,
             "problems": [p.model_dump(mode="json") for p in self.problems],
         }
+
+    def _receives(self, placed: PlacedNode, name: str) -> str:
+        """How one input receives on each row its node runs on: ``one``, ``copied down from <table>``, ``per row of <table>`` or ``whole column of <table>``."""
+        plan = placed.inputs[name]
+        if not plan.sources:
+            return "one"
+        tables = list(dict.fromkeys(self.outward(s.level[-1], table=True) if s.level else _table(s.level) for s in plan.sources))
+        if plan.spec.shape != "one":
+            return f"whole column of {', '.join(tables)}"
+        level = plan.sources[0].level
+        if len(level) == len(placed.level):
+            return f"per row of {', '.join(tables)}" if level else "one"
+        return f"copied down from {', '.join(tables)}"
+
+    @functools.cached_property
+    def fingerprint(self) -> str:
+        """A short hash of what a run of this graph rests on: each node's id, node, version, values, defaults and ``many``, and the edges.
+
+        ``display`` is left out, as conductor never reads it. A saved run names it, and loading a save into a graph
+        whose fingerprint differs is refused.
+        """
+        written = self.record.model_dump_json(include={"nodes": {"__all__": {"id", "node", "version", "values", "defaults", "many"}}, "edges": True})
+        return hashlib.blake2b(written.encode(), digest_size=8).hexdigest()
 
     # -- running ----------------------------------------------------------------
 

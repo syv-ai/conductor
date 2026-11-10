@@ -1512,3 +1512,19 @@ def test_a_typed_in_frame_on_a_table_of_any_columns_arrives_with_the_columns_it_
               edges=(("s.result.email", "u.text"),), registry=DATED)
 
     assert run.results["s"]["result"].columns == ["email", "n"] and run.results["u"]["result"] == ["A@B.DK"]
+
+
+def test_each_input_in_describe_says_how_it_receives_on_each_row_its_node_runs_on():
+    loaded = graph({"id": "s", "node": "split"}, {"id": "u", "node": "upper"}, {"id": "j", "node": "join"}, {"id": "p", "node": "pair", "values": {"b": "x"}},
+                   {"id": "k", "node": "pair"},
+                   edges=(("s.result", "u.text"), ("u.result", "j.texts"), ("u.result", "p.a"), ("j.result", "k.a"), ("u.result", "k.b")))
+    nodes = loaded.describe()["nodes"]
+
+    def receives(node_id: str) -> dict[str, str]:
+        return {i["name"]: i["receives"] for i in nodes[node_id]["inputs"]}
+
+    assert receives("u") == {"text": "per row of s.result"}
+    assert receives("j") == {"texts": "whole column of s.result"}
+    assert receives("p") == {"a": "per row of s.result", "b": "one"}
+    assert receives("k") == {"a": "copied down from the graph's own row", "b": "per row of s.result"}
+    assert receives("s") == {"text": "one", "sep": "one"}

@@ -435,3 +435,22 @@ def test_a_malformed_table_is_refused():
     saved["units"]["n"]["outputs"]["result"]["values"][0] = {"rows": 2, "columns": {"name": ["ida"]}}
 
     _refused(graph, saved)
+
+
+def test_a_save_names_its_graph_and_an_edited_graph_refuses_it_while_display_alone_changes_nothing():
+    from conductor import NodeRecord as _Node
+
+    @node("shout")
+    def shout(text: str) -> str:
+        return text.upper()
+
+    record = GraphRecord(nodes=[_Node(id="s", node="shout", defaults={"text": "a"})])
+    saved = registry_of(shout).load(record).run().to_json()
+    edited = record.model_copy(update={"nodes": (_Node(id="s", node="shout", defaults={"text": "b"}),)})
+    drawn = record.model_copy(update={"nodes": (_Node(id="s", node="shout", defaults={"text": "a"}, display={"x": 1}),)})
+
+    with pytest.raises(InvalidCallError) as refused:
+        registry_of(shout).load(edited).load_run(saved)
+    (problem,) = refused.value.errors()
+    assert problem.type == "state_of_another_graph" and set(problem.ctx) == {"saved", "graph"}
+    assert registry_of(shout).load(drawn).load_run(saved).results == {"s": {"result": "A"}}

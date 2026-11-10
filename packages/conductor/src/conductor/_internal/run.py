@@ -642,7 +642,10 @@ class Run:
         inputs = {address: _dump_input(self.graph, address, v) for address, v in self.inputs.items()}
         cause = self.cause.model_dump(mode="json") if self.cause else None
         code = {n: self._ran_as.get(n, p.reuse_digest) for n, p in self.graph._nodes.items()}
-        written = {"status": self.status, "cause": cause, "max_rows": self.max_rows, "inputs": inputs, "units": units, "earlier": earlier, "code": code}
+        written = {
+            "graph": self.graph.fingerprint, "status": self.status, "cause": cause, "max_rows": self.max_rows, "inputs": inputs, "units": units, "earlier": earlier,
+            "code": code,
+        }
         return pydantic_core.to_json(written, inf_nan_mode="strings").decode()
 
     def _copy(self, *, share_units: bool = False, **changes: Any) -> Run:
@@ -658,6 +661,8 @@ def run_from_json(graph: Graph, saved: str | bytes | Mapping[str, Any]) -> Run:
     """A run of ``graph`` from what ``run.to_json()`` wrote; ``graph.load_run`` is the door to it."""
     try:
         data = pydantic_core.from_json(saved) if isinstance(saved, (str, bytes)) else saved
+        if data["graph"] != graph.fingerprint:
+            raise InvalidCallError([make_problem("state_of_another_graph", "state", saved=data["graph"], graph=graph.fingerprint)])
         inputs = {address: _load_input(graph, address, v) for address, v in data["inputs"].items()}
         run = Run(graph, inputs, max_rows=data["max_rows"], _door=STARTING)
         unknown = sorted(data["units"].keys() - graph._nodes.keys())
@@ -688,6 +693,8 @@ def run_from_json(graph: Graph, saved: str | bytes | Mapping[str, Any]) -> Run:
             if stray:
                 raise _Unreadable(n, f"it holds the row {list(stray[0])}, which the saved run never made")
         return run
+    except InvalidCallError:
+        raise
     except _Unreadable as unreadable:
         raise InvalidCallError([make_problem("state_unreadable", "state", unreadable.at, at=unreadable.at, reason=unreadable.reason)]) from None
     except (KeyError, TypeError, ValueError, StopIteration, IndexError) as error:
