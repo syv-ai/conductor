@@ -351,8 +351,13 @@ class FieldSpec:
 
     @functools.cached_property
     def plain(self) -> bool:
-        """Whether its values are of plain classes (``SCALARS``): JSON with no keys to order, read back by the type as they were."""
-        return bool(self.plain_classes) and set(self.plain_classes) <= SCALARS
+        """Whether its values are of plain classes (``SCALARS``): JSON with no keys to order, read back by the type as they were.
+
+        Not when it takes both a ``float`` and a ``str``: a float that isn't finite is written as text, and only its
+        mark tells it from the text it reads as.
+        """
+        classes = set(self.plain_classes)
+        return bool(classes) and classes <= SCALARS and not {float, str} <= classes
 
     @functools.cached_property
     def per_item(self) -> bool:

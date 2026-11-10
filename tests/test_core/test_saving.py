@@ -266,6 +266,31 @@ def test_a_float_that_is_not_finite_where_its_type_does_not_say_float_reads_back
     assert math.isnan(results["maybe-mapping"]["result"]["v"])
 
 
+def test_a_float_or_text_field_keeps_a_nan_a_float_and_the_text_nan_text_after_a_save():
+    seen: list[Any] = []
+
+    @node("up")
+    def up(k: int) -> Series[float | str]:
+        return [math.nan, "NaN"]
+
+    @node("down")
+    def down(x: float | str) -> str:
+        seen.append(x)
+        return type(x).__name__
+
+    graph = registry_of(up, down).load(make_graph(up, down, edges=[("up.result", "down.x")]))
+    run = graph.run(k=1)
+    loaded = _round_trip(run)
+    first, text = loaded.results["up"]["result"]
+    assert math.isnan(first) and text == "NaN"
+
+    seen.clear()
+    assert loaded.forget("down").resume().outputs["down.result"] == ["float", "str"]
+    seen.clear()
+    loaded.forget("up").resume()
+    assert seen == []  # down receives what it received before the save, so it is not called again
+
+
 class Point(TypedDict):
     x: int
     y: int
