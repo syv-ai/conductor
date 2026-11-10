@@ -41,13 +41,17 @@ _NOT_GIVEN: Any = _NotGiven()
 
 
 class Choice(ConductorModel):
-    """One option a person may pick: the ``id`` the answer holds and the ``title`` they read: ``Choice("ida", "Ida B.")``."""
+    """One option a person may pick: the ``id`` the answer holds and the ``title`` they read: ``Choice("ida", "Ida B.")``.
+
+    A host subclasses it to carry more about an option; the fields it adds
+    reach the question, and a dropdown, as written.
+    """
 
     id: Any
     title: str
 
-    def __init__(self, id: Any, title: str) -> None:  # noqa: A002  the word a host's option has
-        fields: dict[str, Any] = {"id": id, "title": title}  # the base's own signature names no fields
+    def __init__(self, id: Any, title: str, **more: Any) -> None:  # noqa: A002  the word a host's option has
+        fields: dict[str, Any] = {"id": id, "title": title, **more}  # the base's own signature names no fields
         super().__init__(**fields)
 
 
@@ -164,12 +168,11 @@ def _added(spec: FieldSpec, kind: str, value: Any) -> Any:
     one = spec.item_adapter
     offered = []
     for choice in value:
-        picked, title = (choice.id, choice.title) if isinstance(choice, Choice) else (choice, None)
         try:
-            kept = one.dump_python(one.validate_python(picked), mode="json")
+            kept = one.dump_python(one.validate_python(choice.id if isinstance(choice, Choice) else choice), mode="json")
         except ValidationError as error:
             raise WrongAsk(f"a choice for '{spec.name}' is not what it returns: {value_free_errors(error)[0]['msg']}") from None
-        offered.append({"id": kept, "title": str(kept) if title is None else title})
+        offered.append({**choice.model_dump(mode="json"), "id": kept} if isinstance(choice, Choice) else {"id": kept, "title": str(kept)})
     return offered
 
 

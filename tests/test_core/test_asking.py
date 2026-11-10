@@ -106,6 +106,20 @@ def test_choices_the_run_knows_limit_the_answer_and_a_choice_gives_a_title():
     assert run.answer("q", "bo").resume().outputs == {"q.result": "bo"}
 
 
+class Person(Choice):
+    team: str = ""
+
+
+def test_a_hosts_own_choice_carries_its_fields_to_the_question():
+    @node("assign")
+    def assign(ticket: str) -> str:
+        raise Ask(f"Who takes {ticket}?", choices=[Person("ida", "Ida B.", team="sales")])
+
+    _, run = _once(assign, ticket="T-1")
+    assert run.waiting[0].questions[0]["choices"] == [{"id": "ida", "title": "Ida B.", "team": "sales"}]
+    assert run.answer("q", "ida").resume().outputs == {"q.result": "ida"}
+
+
 def test_a_number_and_a_date_are_read_from_their_json_form_into_the_outputs_type():
     @node("when")
     def when(name: str) -> datetime.date:
