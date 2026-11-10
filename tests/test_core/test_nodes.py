@@ -898,6 +898,41 @@ def test_an_object_in_annotated_that_is_not_a_param_is_refused_naming_param():
         assert raised.value.code == "annotated_extra_unknown"
 
 
+def test_params_stacked_on_an_alias_merge_as_pydantics_fields_do_the_later_one_winning():
+    line = Annotated[str, Param(widget=TextInput(), title="Line")]
+
+    def f(separator: Annotated[line, Param(min_length=1, title="Separator")] = ",") -> int:
+        return 1
+
+    spec = declared(f).inputs["separator"]
+    assert (spec.title, spec.param.widget, spec.param.constraints) == ("Separator", TextInput(), {"min_length": 1})
+    with pytest.raises(ValidationError):
+        spec.lax_adapter.validate_python("")
+
+
+def test_a_param_on_a_series_item_is_the_fields_own_so_an_int_lands_and_a_bool_does_not():
+    count = Annotated[int, Param(ge=0, title="Count")]
+    registry = NodeRegistry()
+
+    @registry.node("length")
+    def length(text: str) -> int:
+        return len(text)
+
+    @registry.node("total")
+    def total(n: Series[count], m: Series[count | None] | None = None) -> int:
+        return sum(n)
+
+    for name, blank in (("n", False), ("m", True)):
+        spec = total.inputs[name]
+        assert (spec.type, spec.title, spec.param.constraints) == (int | None if blank else int, "Count", {"ge": 0})
+        for wrong in ([-1], [True]):
+            with pytest.raises(ValidationError):
+                spec.lax_adapter.validate_python(wrong)
+    graph = registry.load(make_graph(length, total, edges=[("length.result", "total.n")]))
+    assert graph.problems == []
+    assert graph.run(text=["ab", "c"]).outputs == {"total.result": 3}
+
+
 def test_a_series_of_series_does_not_exist():
     def f(x: Series[Series[int]]) -> int:
         return 1

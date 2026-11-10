@@ -59,6 +59,8 @@ for problem in graph.problems:
 
 `make_graph(repeat, values={"repeat.times": 20})` raises that same problem at the call, as an `InvalidCallError`: from Python, the traceback points at the line you wrote.
 
+An alias may be wrapped again: with `Line = Annotated[str, Param(widget=TextInput())]`, `Annotated[Line, Param(min_length=1)]` keeps the widget and adds the limit. Stacked `Param`s merge as pydantic's stacked `Field`s do, the later one winning per argument and per limit. A `Param` on a `Series` item, `Series[Annotated[int, Param(ge=0)]]`, is the field's.
+
 `repeat.describe()` is the node as an editor's palette reads it, a `NodeDescription`, and `registry.describe()` is the whole palette, a `RegistryDescription`: pydantic records a host returns as they are, which `model_dump(mode="json")` writes as JSON.
 
 ### Widgets

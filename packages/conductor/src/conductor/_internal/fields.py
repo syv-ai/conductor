@@ -487,12 +487,14 @@ def read_field(name: str, hint: Any, default: Any = REQUIRED, where: str = "") -
                 code="annotated_extra_unknown",
             )
         params = [m for m in meta if isinstance(m, Param)]
-        param = params[0] if params else param
+        param = _stacked(params)
         markers = [m for m in meta if isinstance(m, (_ManyMarker, _TableMarker))]
         if markers and isinstance(markers[0], _ManyMarker):
             item = get_args(base)[0]
             if isinstance(item, TypeVar):  # a bare Series
                 item = Any
+            item, of_item = _without_params(item)  # an item's Param is the field's: its schema is one item's
+            param = _stacked([*of_item, *params])
             if item is pl.DataFrame or item is Table or marked(item, _TableMarker):
                 raise NodeDeclarationError(f"{where}{name}: a Series of tables; a table already holds many rows, so take or return one table", code="series_of_tables")
             if marked(item, _ManyMarker):
@@ -506,6 +508,32 @@ def read_field(name: str, hint: Any, default: Any = REQUIRED, where: str = "") -
     if or_none:
         hint = Union[hint, None]  # noqa: UP007
     return _checked(FieldSpec(name, "one", hint, takes_a_blank(hint), default, param), where)
+
+
+def _stacked(params: list[Param]) -> Param:
+    """The ``Param``s of one ``Annotated`` as one, as pydantic merges stacked ``Field``s: each argument the last one
+    given, each limit the last one set, so ``Annotated[Line, Param(min_length=1)]`` keeps ``Line``'s widget too."""
+    if len(params) < 2:
+        return params[0] if params else Param()
+    merged = Param()
+    for param in params:
+        for key in ("title", "description", "widget", "exclusive_group", "choices"):
+            if getattr(param, key) is not None:
+                object.__setattr__(merged, key, getattr(param, key))
+        object.__setattr__(merged, "constraints", {**merged.constraints, **param.constraints})
+    return merged
+
+
+def _without_params(hint: Any) -> tuple[Any, list[Param]]:
+    """``hint`` with its ``Param``s taken off, ``Annotated[X, Param(...)] | None`` as ``X | None``, and those ``Param``s."""
+    if get_origin(hint) in (Union, types.UnionType) and type(None) in get_args(hint):
+        rest = [a for a in get_args(hint) if a is not type(None)]
+        if len(rest) == 1:
+            bare, params = _without_params(rest[0])
+            return Union[bare, None], params  # noqa: UP007
+    if get_origin(hint) is Annotated and all(isinstance(m, Param) for m in get_args(hint)[1:]):
+        return get_args(hint)[0], list(get_args(hint)[1:])
+    return hint, []
 
 
 def _check_choices(spec: FieldSpec, where: str) -> None:
