@@ -174,6 +174,7 @@ class Leg:
         self.complete: set[str] = set()
         self.reused = {p.id: 0 for p in self.nodes}
         self.progress_at: dict[str, float] = {}
+        self.progress_said: dict[str, int] = {}
 
     def go(self) -> None:
         run = self.run
@@ -193,6 +194,9 @@ class Leg:
         if self.emit:
             self.touched.update(self.position)
             self._completions()
+            for placed in self.nodes:  # a node the leg left part done says how far it got
+                if placed.level and placed.id in self.progress_said:
+                    self._progress(placed, last=True)
             self.emit(RunEnd(status=run.status, run=run))
 
     def _loop(self) -> None:
@@ -412,12 +416,14 @@ class Leg:
             if self.emit:
                 self.emit(NodeStart(node_id=placed.id))
 
-    def _progress(self, placed: PlacedNode) -> None:
+    def _progress(self, placed: PlacedNode, last: bool = False) -> None:
+        """Say how far a node running per row has got, at most four times a second; ``last`` says its final count, unless already said."""
         now = time.monotonic()
-        if self.emit and now - self.progress_at.get(placed.id, -1.0) >= _SECONDS_BETWEEN_PROGRESS:
-            self.progress_at[placed.id] = now
+        done = len(self.run._units[placed.id])
+        if self.emit and (now - self.progress_at.get(placed.id, -1.0) >= _SECONDS_BETWEEN_PROGRESS or last) and self.progress_said.get(placed.id) != done:
+            self.progress_at[placed.id], self.progress_said[placed.id] = now, done
             keys, known = self.run._rows(placed.level, ())
-            self.emit(NodeProgress(node_id=placed.id, done=len(self.run._units[placed.id]), total=len(keys) if known else None))
+            self.emit(NodeProgress(node_id=placed.id, done=done, total=len(keys) if known else None))
 
     def _completions(self) -> None:
         """Say which touched nodes are complete: nothing they wait on is working, and every row is done."""
@@ -432,6 +438,8 @@ class Leg:
             if node_id in self.complete or not known or any(units.get(k) is None or units[k].state == "waiting" for k in keys):
                 continue
             self.complete.add(node_id)
+            if placed.level and node_id in self.progress_said:
+                self._progress(placed, last=True)
             if keys and all(units[k].state == "skipped" for k in keys):
                 self.emit(NodeSkipped(node_id=node_id))
                 continue

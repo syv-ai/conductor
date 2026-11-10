@@ -555,3 +555,84 @@ def test_a_timed_out_or_cancelled_leg_keeps_the_calls_already_on_threads():
 
     assert stopped.status == "timed_out" and sorted(sent) == ["a", "b", "c", "d"]
     assert finished.status == "complete" and sorted(sent) == ["a", "b", "c", "d"]
+
+
+def test_what_a_signature_says_wrong_is_refused_at_node_with_its_code():
+    from conductor import NodeDeclarationError, Table
+    from conductor.widgets import TextWidget
+
+    cases = {
+        "default_invalid": lambda: node("a")(_fn("x: int = None")),
+        "nested_series": lambda: node("b")(_fn("x: Series[Series[int]]")),
+        "annotated_extra_unknown": lambda: node("c")(_fn("x: Annotated[int, TextWidget()]", TextWidget=TextWidget)),
+        "bound_invalid": lambda: node("d")(_fn('x: Annotated[int, Param(ge="a")]')),
+    }
+    for code, declare in cases.items():
+        try:
+            declare()
+        except NodeDeclarationError as error:
+            assert error.code == code, (code, error.code)
+        else:
+            raise AssertionError(code)
+    try:
+        Table()
+    except TypeError:
+        pass
+    else:
+        raise AssertionError("Table() built an instance")
+
+
+def _fn(parameter: str, **names: Any) -> Any:
+    """A node function taking ``parameter``, written from source so its annotation is read as written."""
+    namespace: dict[str, Any] = {"Annotated": Annotated, "Param": Param, "Series": Series, **names}
+    exec(f"def f({parameter}) -> str:\n    return repr(x)", namespace)
+    return namespace["f"]
+
+
+def test_a_field_reads_as_its_author_wrote_it():
+    from conductor import Table
+
+    class Whole(int):
+        pass
+
+    @node("kinds")
+    def kinds(
+        whole: Whole = 3, maybe: Annotated[str, Param(title="Maybe")] | None = None, anything: Any = None,
+        many: Series = (), some: Series[int] | None = None,
+    ) -> str:
+        return type(whole).__name__
+
+    fields = {f["name"]: f for f in kinds.describe()["inputs"]}
+    assert fields["maybe"]["title"] == "Maybe" and fields["maybe"]["shape"] == "one"
+    assert fields["many"]["shape"] == "many" and fields["some"]["shape"] == "many"
+    graph = registry_of(kinds).load({"nodes": [{"id": "k", "node": "kinds"}]})
+    assert graph.run().outputs == {"k.result": "Whole"}
+    assert Table is not None
+
+
+def test_a_failed_run_has_no_outputs_but_its_results_say_what_it_did():
+    from conductor import InvalidCallError
+
+    @node("each")
+    def each(n: int) -> int:
+        if n == 1:
+            raise ValueError("no")
+        return n
+
+    run = registry_of(each).load({"nodes": [{"id": "e", "node": "each", "many": ["n"]}]}).run(n=[0, 1, 2])
+
+    assert run.status == "failed" and run.results["e"]["result"][0] == 0
+    try:
+        run.outputs
+    except InvalidCallError as error:
+        assert error.errors()[0].type == "run_not_complete"
+    else:
+        raise AssertionError("outputs of a failed run")
+
+
+def test_the_last_progress_of_a_node_is_always_said():
+    graph = registry_of(split, upper).load(chain("split", "upper"))
+    events = collect(graph.with_inputs(text=",".join(str(i) for i in range(3000))))
+
+    progress = [(e.done, e.total) for e in events if e.type == "node_progress"]
+    assert progress[-1] == (3000, 3000)

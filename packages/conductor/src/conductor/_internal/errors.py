@@ -101,6 +101,7 @@ PROBLEM_CATALOGUE: Mapping[str, str] = {
     "node_not_in_graph": "'{node_id}' is not a node of this graph; it has {nodes}.",
     "not_offered": "The graph has no input '{name}'; it has {inputs}.",
     "not_waiting": "Nothing is waiting on an answer as {waiting_id!r}.",
+    "run_not_complete": "The run is {status}, so it has no outputs yet; run.results has what it did. {reason}",
     "state_unreadable": "The saved run does not fit this graph: {reason}",
     # -- why a node or a run stopped -------------------------------------------
     "execution_failed": "The node failed.",

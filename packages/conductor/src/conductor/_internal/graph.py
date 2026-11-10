@@ -141,6 +141,10 @@ class Graph:
         self._branches: dict[str, frozenset[tuple[str, str, str]]] = {}
         self._compile(placed_records, edges)
 
+    def __repr__(self) -> str:
+        state = "runnable" if self.is_runnable else f"{len(self.problems)} problem{'s' if len(self.problems) != 1 else ''}"
+        return f"<Graph of {len(self.record.nodes)} node{'s' if len(self.record.nodes) != 1 else ''}, {state}>"
+
     # -- what a host reads ------------------------------------------------------
 
     @property
@@ -169,16 +173,22 @@ class Graph:
         return found
 
     def describe(self) -> dict[str, Any]:
-        """The loaded graph as an editor draws it: each node's fields as its hooks made them, and where it runs."""
+        """The loaded graph as an editor draws it: every node of the record, with its fields as its hooks made them and where it runs.
+
+        A node that didn't load (an unknown node, a broken edge, or one below it) is there with ``loaded`` false,
+        its problems saying why; an embedded graph's nodes are there under ``<node>/`` ids.
+        """
+        nodes: dict[str, Any] = {}
+        for record in self.record.nodes:
+            nodes[record.id] = {"node": record.node, "version": record.version, "loaded": record.id in self._nodes}
+        for p in self._nodes.values():
+            nodes[p.id] = {
+                "node": p.definition.id, "version": p.definition.version, "loaded": True, "runs": self.plan[p.id],
+                "inputs": [f.describe() for f in p.definition.inputs.values()],
+                "outputs": [f.describe() for f in p.definition.outputs.values()],
+            }
         return {
-            "nodes": {
-                p.id: {
-                    "node": p.definition.id, "version": p.definition.version, "runs": self.plan[p.id],
-                    "inputs": [f.describe() for f in p.definition.inputs.values()],
-                    "outputs": [f.describe() for f in p.definition.outputs.values()],
-                }
-                for p in self._nodes.values()
-            },
+            "nodes": nodes,
             "inputs": {name: i.describe() for name, i in self.inputs.items()},
             "outputs": self.outputs,
             "problems": [p.model_dump(mode="json") for p in self.problems],
@@ -361,8 +371,9 @@ class Graph:
                 waiting[reader] -= 1
                 if not waiting[reader]:
                     heapq.heappush(ready, position[reader])
+        stuck = {n for n in order if waiting[n]}
         for n in order:
-            if waiting[n]:
+            if n in stuck and _reaches(n, n, readers, stuck):  # on the cycle, not only below it
                 self.problems.append(make_problem("cycle", n))
         return done
 
@@ -370,6 +381,10 @@ class Graph:
         if definition.compute_added_inputs is not None:
             added = self._hook(record, definition, definition.compute_added_inputs, edges)
             if added is None:
+                return
+            taken = sorted(added.keys() & definition.inputs.keys())
+            if taken:
+                self.problems.append(make_problem("compute_hook_failed", record.id, reason=f"it adds {taken[0]!r}, which the node already declares", error="added_input_taken"))
                 return
             definition = dataclasses.replace(definition, inputs={**definition.inputs, **added})
         placed = PlacedNode(record.id, definition, record)
@@ -497,10 +512,14 @@ class Graph:
 
     def _typed(self, node_id: str, name: str, spec: FieldSpec, value: Any, many: bool = False) -> Any:
         """``value`` as ``spec`` reads it (a list of them when ``many``), or ``REQUIRED`` with the problem noted."""
+        if value is None and spec.shape == "many" and spec.default is None:
+            return None  # a Series that may be None
         try:
             if many:
                 return carried_list(spec.type).validate_python(value)
-            return spec.adapter.validate_python(value) if spec.shape != "table" else value
+            if spec.shape == "table":
+                return value if isinstance(value, pl.DataFrame) else pl.DataFrame(value)
+            return spec.adapter.validate_python(value)
         except ValidationError as error:
             self.problems.append(make_problem("invalid_value", node_id, name, reason=value_free_errors(error)[0]["msg"]))
             return REQUIRED
@@ -596,6 +615,20 @@ def _follow(address: str, renamed: Mapping[str, str]) -> str:
         if cut and f"{node_id}.{cut}" in renamed:
             return renamed[f"{node_id}.{cut}"] + rest[len(cut):]
     return address
+
+
+def _reaches(start: str, goal: str, readers: Mapping[str, list[str]], within: set[str]) -> bool:
+    """Whether ``goal`` is read, however far down, by what ``start`` feeds, staying ``within`` those nodes."""
+    seen: set[str] = set()
+    stack = list(readers[start])
+    while stack:
+        n = stack.pop()
+        if n == goal:
+            return True
+        if n in within and n not in seen:
+            seen.add(n)
+            stack.extend(readers[n])
+    return False
 
 
 def _under(prefix: Level, level: Level) -> bool:

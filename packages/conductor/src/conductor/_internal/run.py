@@ -150,11 +150,11 @@ class Run:
 
         def leg() -> None:
             try:
-                self._leg(max_rows, from_run, lambda event: loop.call_soon_threadsafe(events.put_nowait, event), stop)
+                self._leg(max_rows, from_run, lambda event: _hand_over(loop, events, event), stop)
             except BaseException as error:  # the engine's own defect reaches the caller
                 failed.append(error)
             finally:
-                loop.call_soon_threadsafe(events.put_nowait, None)
+                _hand_over(loop, events, None)
 
         thread = threading.Thread(target=leg, name="conductor-leg", daemon=True)
         thread.start()
@@ -256,7 +256,10 @@ class Run:
 
     @property
     def outputs(self) -> dict[str, Any]:
-        """The graph's outputs (``graph.outputs``), by address."""
+        """The graph's outputs (``graph.outputs``), by address, once the run is complete; ``results`` reads a run in any state."""
+        if self.status != "complete":
+            reason = self.cause.msg if self.cause is not None else ""
+            raise InvalidCallError([make_problem("run_not_complete", "outputs", status=self.status, reason=reason)])
         results = self.results
         return {address: results[address.split(".")[0]][address.split(".", 1)[1]] for address in self.graph.outputs}
 
@@ -371,6 +374,9 @@ class Run:
                     return name
                 kwargs[name] = value
             elif spec.shape == "many":
+                if len(plan.sources) == 1 and plan.sources[0].node_id is None and self.inputs[plan.sources[0].output] is None:
+                    kwargs[name] = None  # a Series that may be None, and nothing was given
+                    continue
                 items: list[tuple[Level, Key, Any]] = []
                 for source in plan.sources:
                     if source.node_id is None and not source.made:  # the caller's list, given whole
@@ -477,6 +483,9 @@ def _outputs(placed: PlacedNode, returned: Any) -> Any:
         if spec.shape == "table":
             if not isinstance(value, pl.DataFrame):
                 raise TypeError(f"{name} should be a polars DataFrame, got {type(value).__name__}")
+            missing = sorted((spec.columns or {}).keys() - set(value.columns))
+            if missing:
+                raise TypeError(f"{name} lacks the columns {missing} its row type declares")
             spread[name] = Frame(value.height, value.to_dict(as_series=False))
         elif spec.shape == "many":
             spread[name] = list(value)
@@ -589,8 +598,16 @@ def _frame_json(value: Any) -> Any:
 
 
 def jsonable(kwargs: dict[str, Any]) -> Any:
-    """What a unit received, as JSON."""
-    return json.loads(pydantic_core.to_json(kwargs, fallback=_frame_json))
+    """What a unit received, as JSON; a float that isn't finite as text."""
+    return json.loads(pydantic_core.to_json(kwargs, fallback=_frame_json, inf_nan_mode="strings"))
+
+
+def _hand_over(loop: asyncio.AbstractEventLoop, events: asyncio.Queue[Any], event: Any) -> None:
+    """Put an event on the listener's queue from the leg's thread; a listener whose loop has closed is gone, and hears nothing."""
+    try:
+        loop.call_soon_threadsafe(events.put_nowait, event)
+    except RuntimeError:
+        pass
 
 
 def _fingerprint(version: int, kwargs: dict[str, Any]) -> str | None:

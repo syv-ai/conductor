@@ -103,10 +103,19 @@ class Policy:
             raise ValueError(f"{self}: concurrency is at least 1, retries and retry_delay at least 0, attempt_timeout above 0")
         object.__setattr__(self, "threaded", self.concurrency > 1 or self.attempt_timeout is not None)
 
+    def __repr__(self) -> str:
+        """The call that makes it, with only what differs from the defaults: ``Policy(retries=2)``."""
+        fields = ("concurrency", "retries", "retry_delay", "attempt_timeout", "retry_on", "reuse_when_inputs_match")
+        changed = [f"{name}={getattr(self, name)!r}" for name in fields if getattr(self, name) != getattr(_DEFAULT_POLICY, name)]
+        return f"Policy({', '.join(changed)})"
+
     def describe(self) -> dict[str, Any]:
         """The policy as JSON; ``retry_on`` is classes, which have no JSON form, so it is left out."""
         return {"concurrency": self.concurrency, "retries": self.retries, "retry_delay": self.retry_delay,
                 "attempt_timeout": self.attempt_timeout, "reuse_when_inputs_match": self.reuse_when_inputs_match}
+
+
+_DEFAULT_POLICY = Policy()
 
 
 class Deprecation(ConductorModel):

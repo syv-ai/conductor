@@ -345,7 +345,7 @@ def _types_declared_by(definition: NodeDefinition[..., Any]) -> list[type]:
     while step is not None:
         for spec in (*step.inputs.values(), *step.outputs.values()):
             held = without_none(spec.type)
-            if spec.shape != "table" and isinstance(held, type) and held not in found:
+            if spec.shape != "table" and isinstance(held, type) and held is not Any and held not in found:
                 found.append(held)
         step = step.replaces
     return found

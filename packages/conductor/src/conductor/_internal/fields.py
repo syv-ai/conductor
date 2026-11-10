@@ -16,6 +16,7 @@ checked and written as JSON.
 
 from __future__ import annotations
 
+import dataclasses
 import datetime
 import functools
 import types
@@ -165,8 +166,11 @@ else:
 class Table:
     """``Table[R]``: a whole table whose columns the ``TypedDict`` ``R`` names; a ``polars.DataFrame`` to the node.
 
-    A bare ``Table`` is a table of any columns.
+    A bare ``Table`` is a table of any columns. It is a type only: a node returns a ``polars.DataFrame``.
     """
+
+    def __new__(cls, *args: Any, **kwargs: Any) -> Table:
+        raise TypeError("Table is a type for a signature (Table[R]); a node takes and returns a polars.DataFrame")
 
     def __class_getitem__(cls, row: Any) -> Any:
         return Annotated[pl.DataFrame, _TableMarker(row)]
@@ -216,7 +220,7 @@ class FieldSpec:
     @functools.cached_property
     def column_adapters(self) -> dict[str, TypeAdapter[Any]]:
         """For a table, a check and writer of each column its row type names."""
-        return {column: carried_list(hint) for column, hint in (self.columns or {}).items()}
+        return {column: carried_list(Union[hint, None]) for column, hint in (self.columns or {}).items()}  # noqa: UP007  a cell may be blank
 
     def describe(self) -> dict[str, Any]:
         """The field as JSON: its shape, its type's ``id`` and JSON schema, and what a person reads about it."""
@@ -245,28 +249,53 @@ def _schema(hint: Any) -> dict[str, Any]:
 
 
 def read_field(name: str, hint: Any, default: Any = REQUIRED, where: str = "") -> FieldSpec:
-    """Read one annotation into a ``FieldSpec``; a hint conductor can't carry raises ``NodeDeclarationError``."""
+    """Read one annotation into a ``FieldSpec``; a hint conductor can't carry raises ``NodeDeclarationError``.
+
+    ``Annotated[X, Param(...)] | None`` is read as ``X | None`` with that ``Param``, and a bare ``Series`` as many
+    values of any type.
+    """
+    if hint is Series:
+        hint = Series[Any]
+    or_none = False
+    if get_origin(hint) in (Union, types.UnionType):
+        members = [a for a in get_args(hint) if a is not type(None)]
+        if type(None) in get_args(hint) and len(members) == 1 and get_origin(members[0]) is Annotated:
+            hint, or_none = members[0], True
     param = Param()
     if get_origin(hint) is Annotated:
         base, *meta = get_args(hint)
+        unknown = [m for m in meta if not isinstance(m, (Param, _ManyMarker, _TableMarker, _FromRunMarker))]
+        if unknown:
+            raise NodeDeclarationError(
+                f"{where}{name}: Annotated holds {unknown[0]!r}, which conductor doesn't read; a widget, a title or a limit goes on Param(...)",
+                code="annotated_extra_unknown",
+            )
         params = [m for m in meta if isinstance(m, Param)]
         param = params[0] if params else param
         markers = [m for m in meta if isinstance(m, (_ManyMarker, _TableMarker))]
         if markers and isinstance(markers[0], _ManyMarker):
             item = get_args(base)[0]
-            if item is pl.DataFrame or item is Table or (get_origin(item) is Annotated and any(isinstance(m, _TableMarker) for m in get_args(item)[1:])):
+            if item is pl.DataFrame or item is Table or _marked(item, _TableMarker):
                 raise NodeDeclarationError(f"{where}{name}: a Series of tables; a table already holds many rows, so take or return one table", code="series_of_tables")
+            if _marked(item, _ManyMarker):
+                raise NodeDeclarationError(f"{where}{name}: a Series of Series; rows are never nested in a field, so return one Series", code="nested_series")
             return _checked(FieldSpec(name, "many", item, _is_optional(item), default, param), where)
         if markers and isinstance(markers[0], _TableMarker):
             return _checked(FieldSpec(name, "table", pl.DataFrame, False, default, param, _columns_of(markers[0].row)), where)
         hint = base
     if hint is pl.DataFrame or hint is Table:
         return _checked(FieldSpec(name, "table", pl.DataFrame, False, default, param, None), where)
+    if or_none:
+        hint = Union[hint, None]  # noqa: UP007
     return _checked(FieldSpec(name, "one", hint, _is_optional(hint), default, param), where)
 
 
+def _marked(hint: Any, marker: type) -> bool:
+    return get_origin(hint) is Annotated and any(isinstance(m, marker) for m in get_args(hint)[1:])
+
+
 def _checked(spec: FieldSpec, where: str) -> FieldSpec:
-    """``spec``, once its limits fit its type and pydantic can carry it."""
+    """``spec``, once its limits fit its type and pydantic can carry it; a default it declares is made its type."""
     base = without_none(spec.type)
     limits = set(spec.param.constraints)
     if spec.shape == "table" and limits:
@@ -280,12 +309,17 @@ def _checked(spec: FieldSpec, where: str) -> FieldSpec:
     try:
         spec.adapter  # noqa: B018
     except Exception as error:  # noqa: BLE001  pydantic can't build a schema for this type
+        if limits:
+            raise NodeDeclarationError(f"{where}{spec.name}: the limits {spec.param.constraints!r} don't fit {getattr(base, '__name__', base)}: {error}", code="bound_invalid") from None
         raise NodeDeclarationError(f"{where}{spec.name}: conductor can't carry {spec.type!r}: {error}", code="type_not_carried") from None
+    if spec.default is None and spec.shape == "one" and not spec.optional:
+        raise NodeDeclarationError(f"{where}{spec.name}: the default None is a blank; write its type with | None", code="default_invalid")
     if not spec.required and spec.default is not None and spec.default is not SKIPPED:
         try:
-            spec.adapter.validate_python(spec.default)
+            made = spec.adapter.validate_python(spec.default)
         except Exception as error:  # noqa: BLE001  pydantic's own error says why
             raise NodeDeclarationError(f"{where}{spec.name}: the default {spec.default!r} is not a {getattr(base, '__name__', base)}: {error}", code="default_invalid") from None
+        return dataclasses.replace(spec, default=made)
     return spec
 
 
@@ -324,7 +358,8 @@ def _columns_of(row: Any) -> dict[str, Any] | None:
 
 
 def _is_optional(hint: Any) -> bool:
-    return get_origin(hint) in (Union, types.UnionType) and type(None) in get_args(hint)
+    """Whether a blank may arrive: ``X | None``, or ``Any``, which says nothing against one."""
+    return hint is Any or (get_origin(hint) in (Union, types.UnionType) and type(None) in get_args(hint))
 
 
 def without_none(hint: Any) -> Any:
