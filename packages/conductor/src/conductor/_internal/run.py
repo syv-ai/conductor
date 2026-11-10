@@ -962,11 +962,11 @@ def _dump_units(placed: PlacedNode, units: Mapping[Key, Unit], keyed: bool = Tru
             "values": dumped, "skipped": skipped, **({"skipped_items": {k: v for k, v in items.items() if v}} if any(items.values()) else {}),
             **({"non_finite": non_finite} if non_finite else {}),
         }
-    listed = list(units.values())
-    out: dict[str, Any] = {"states": [u.state for u in listed], "questions": {str(i): u.question for i, u in enumerate(listed) if u.question}, "outputs": outputs}
-    if blank := {str(i): u.blank_input for i, u in enumerate(listed) if u.blank_input is not None}:
-        out["blank_inputs"] = blank
-    if decided := {str(i): u.skipped_from for i, u in enumerate(listed) if u.skipped_from is not None}:
+    states = [u.state for u in units.values()]
+    out: dict[str, Any] = {"states": states, "questions": {str(i): u.question for i, u in enumerate(units.values()) if u.question}, "outputs": outputs}
+    if "blank" in states:
+        out["blank_inputs"] = {str(i): u.blank_input for i, u in enumerate(units.values()) if u.blank_input is not None}
+    if decided := "skipped" in states and {str(i): u.skipped_from for i, u in enumerate(units.values()) if u.skipped_from is not None}:
         out["skipped_from"] = decided
     if keyed:
         out["keys"] = [list(k) for k in units]
