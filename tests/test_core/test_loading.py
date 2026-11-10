@@ -865,3 +865,35 @@ def test_a_yes_or_no_never_lands_on_a_hosts_number_type_whose_own_rule_lets_an_i
     waiting = registry.load(make_graph(ask_number)).run()
     with pytest.raises(InvalidCallError):
         waiting.answer(waiting.waiting[0], True)
+
+
+@pytest.mark.parametrize("default", ["a", ["a", "b"]], ids=["one value", "a list"])
+def test_a_loaded_graph_is_compiled_once_and_freed_without_the_cycle_collector(default: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    import gc
+    import weakref
+
+    from conductor._internal import graph as graph_module
+
+    @node("upper")
+    def upper(text: str) -> str:
+        return text.upper()
+
+    loads: list[object] = []
+    load = graph_module.Graph._load
+
+    def counted(self: Any, *args: Any, **kwargs: Any) -> None:
+        loads.append(self)
+        load(self, *args, **kwargs)
+
+    monkeypatch.setattr(graph_module.Graph, "_load", counted)
+    registry = registry_of(upper)
+    gc.disable()
+    try:
+        graph = registry.load({"nodes": [{"id": "u", "node": "upper", "defaults": {"text": default}}]})
+        listed, compiled_twice = graph._listed, any(compiled is graph for compiled in graph._compiles.values())
+        held, loaded = weakref.ref(graph), len(loads)
+        del graph, loads[:]
+        assert (loaded, compiled_twice, listed) == (1, False, frozenset() if default == "a" else frozenset({"u.text"}))
+        assert held() is None
+    finally:
+        gc.enable()

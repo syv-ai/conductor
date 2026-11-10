@@ -256,14 +256,15 @@ class Graph:
 
     def _load(
         self, record: GraphRecord, definitions: Mapping[str, NodeDefinition[..., Any]], embedded_in: tuple[str, ...], alone: dict[Any, list[Problem]],
-        listed: frozenset[str], compiles: dict[frozenset[str], Graph],
+        listed: frozenset[str] | None, compiles: dict[frozenset[str], Graph],
     ) -> None:
         self.record = record
         self._embedded_in = embedded_in
-        #: The open inputs, by the placed node's address, a caller gives a list of items at in a run of this compile.
-        self._listed = listed
-        #: The record's other compiles, by the inputs given lists, shared by them all; never this one, so a graph
-        #: given no lists holds no cycle and is freed as soon as it is let go.
+        #: The open inputs, by the placed node's address, a caller gives a list of items at in a run of this compile;
+        #: ``None`` while compiling for a run given nothing, where each input's default decides.
+        self._listed: frozenset[str] | None = listed
+        #: The record's other compiles, by the inputs given lists, shared by them all; never the one ``load_graph``
+        #: returns, so a loaded graph holds no cycle and is freed as soon as it is let go, whatever its defaults hold.
         self._compiles = compiles
         #: What each embedded graph loaded alone found, by its definition and the graphs it sits in, shared by every graph
         #: this load makes, so each is loaded alone once however deep it nests.
@@ -293,7 +294,7 @@ class Graph:
         self._typed_lists: dict[str, list[Any]] = {}
         #: The given lists whose items go under each row of a table: a caller's under the graph's own row, by that table (``""`` for the graph's own row).
         self._lists_under: dict[str, list[str]] = {}
-        self._graph_inputs: list[tuple[GraphInput, str, FieldSpec, Any]] = []
+        self._graph_inputs: list[tuple[GraphInput, str, FieldSpec, Any, bool]] = []
         #: Each graph input as the run keeps it, by the address of the placed node's input.
         self._input_fields: dict[str, InputField] = {}
         self._position = {r.id: n for n, (r, _) in enumerate(placed_records)}
@@ -723,14 +724,16 @@ class Graph:
             if definition is not None:
                 self._compile_node(node_record, definition, into[node_id])
         self._fed = {}
-        offered = [(self._outside(p, key), key, spec, default) for p, key, spec, default in self._graph_inputs]
+        offered = [(self._outside(p, key), key, spec, default, listed) for p, key, spec, default, listed in self._graph_inputs]
         self._graph_inputs = []
-        bare = [p.name for p, _, _, _ in offered]
+        bare = [p.name for p, *_ in offered]
         self.inputs = {}
-        for p, key, spec, default in offered:
+        for p, key, spec, default, listed in offered:
             name = p.name if bare.count(p.name) == 1 else p.address
             self.inputs[name] = p
-            self._input_fields[key] = InputField(key, name, p.address, spec, default, key in self._listed)
+            self._input_fields[key] = InputField(key, name, p.address, spec, default, listed)
+        if self._listed is None:
+            self._listed = frozenset(key for key, f in self._input_fields.items() if f.listed)
         self._spliced = frozenset(n for n in self._nodes if "/" in n)
         #: The nodes with a ``FromRun`` parameter, as ``from_run_values`` reads them.
         self._needs_from_run = [(p.id, p.definition) for p in self._nodes.values() if p.definition.from_run]
@@ -942,7 +945,7 @@ class Graph:
         Given a list of items in this compile, its rows are the list's own table.
         """
         address = f"{placed.id}.{name}"
-        listed = address in self._listed
+        listed = address in self._listed if self._listed is not None else given_as_items(plan.spec, plan.value)
         level: Level = (address,) if listed else ()
         if listed:
             self._makers[address] = (None, address)
@@ -955,7 +958,7 @@ class Graph:
             GraphInput, address=address, node_id=placed.id, per_item=plan.spec.per_item, required=required,
             default=None if required else plan.spec.list_adapter.dump_python(plan.value, mode="json") if items else _jsonable(plan.spec, plan.value),
         )
-        self._graph_inputs.append((graph_input, address, plan.spec, plan.value))
+        self._graph_inputs.append((graph_input, address, plan.spec, plan.value, listed))
 
     def _source(self, address: str, node_id: str, name: str) -> Source | None:
         source_id, _, rest = address.partition(".")
@@ -1191,12 +1194,10 @@ def load_graph(
     loaded inside, and ``alone`` what the embedded graphs of this load found loaded alone.
 
     ``listed`` names the open inputs given lists of items, and ``compiles`` holds the record's other compiles. With
-    no ``listed``, the graph is compiled as a run given nothing runs: with the lists its defaults hold.
+    no ``listed``, the graph is compiled as a run given nothing runs: with the lists its defaults hold, in one pass.
     """
     graph = Graph.__new__(Graph)
-    graph._load(record, definitions, embedded_in, {} if alone is None else alone, listed or frozenset(), {} if compiles is None else compiles)
-    if listed is None:
-        return graph._compiled_for(graph._listed_in({}))
+    graph._load(record, definitions, embedded_in, {} if alone is None else alone, listed, {} if compiles is None else compiles)
     return graph
 
 
