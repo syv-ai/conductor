@@ -17,11 +17,11 @@ against that record and the node's types before anything runs.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import TYPE_CHECKING, Any, Literal, get_args, get_origin
+from typing import TYPE_CHECKING, Any, Literal, TypedDict, Unpack, get_args, get_origin
 
 import polars as pl
 from pydantic import TypeAdapter, ValidationError
-from pydantic_core import to_jsonable_python
+from pydantic_core import PydanticSerializationError, to_json, to_jsonable_python
 
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.errors import value_free_errors
@@ -30,14 +30,6 @@ from conductor._internal.fields import SKIPPED, FieldSpec, without_none
 if TYPE_CHECKING:
     from conductor._internal.graph import PlacedNode
     from conductor._internal.node_definition import NodeDefinition
-
-
-class _NotGiven:
-    def __repr__(self) -> str:
-        return "NOT_GIVEN"
-
-
-_NOT_GIVEN: Any = _NotGiven()
 
 
 class Choice(ConductorModel):
@@ -53,6 +45,16 @@ class Choice(ConductorModel):
     def __init__(self, id: Any, title: str, **more: Any) -> None:  # noqa: A002  the word a host's option has
         fields: dict[str, Any] = {"id": id, "title": title, **more}  # the base's own signature names no fields
         super().__init__(**fields)
+
+
+class AskArguments(TypedDict, total=False):
+    """What ``Ask`` takes beside its prompt; see ``Ask``."""
+
+    choices: Sequence[Any] | Mapping[str, Sequence[Any]]
+    default: Any
+    widget: Any
+    defaults: Mapping[str, Any]
+    widgets: Mapping[str, Any]
 
 
 class Ask(BaseException):
@@ -75,23 +77,13 @@ class Ask(BaseException):
     A ``BaseException``, so an ``except Exception`` in the node lets it through.
     """
 
-    def __init__(
-        self,
-        prompt: str,
-        *,
-        choices: Sequence[Any] | Mapping[str, Sequence[Any]] | None = None,
-        default: Any = _NOT_GIVEN,
-        widget: Any = None,
-        defaults: Mapping[str, Any] | None = None,
-        widgets: Mapping[str, Any] | None = None,
-    ) -> None:
+    def __init__(self, prompt: str, **given: Unpack[AskArguments]) -> None:
+        #: What the ``Ask`` adds to its questions, by argument; empty for a plain one, which costs nothing more.
+        self.given: dict[str, Any] = dict(given)
         if not isinstance(prompt, str):
             raise TypeError(f"Ask's prompt is the text a person reads, not {type(prompt).__name__}")
         super().__init__(prompt)
-        self.prompt, self.choices, self.default, self.widget = prompt, choices, default, widget
-        self.defaults, self.widgets = defaults, widgets
-        #: Whether the ``Ask`` adds anything to its questions, so a plain one costs nothing more.
-        self._adds = choices is not None or default is not _NOT_GIVEN or widget is not None or bool(defaults) or bool(widgets)
+        self.prompt = prompt
 
 
 class Waiting(ConductorModel):
@@ -102,8 +94,8 @@ class Waiting(ConductorModel):
     said; ``inputs`` is what the node received, as JSON. ``questions`` has one
     entry per output, the field record ``describe()`` gives it (``name``,
     ``title``, ``shape``, ``type``, ``schema``, ``required``, and
-    ``description``, ``widget``, ``exclusive_group`` or ``columns`` when it
-    has them), with ``choices`` (``[{"id", "title"}]``, from the ``Ask`` or a
+    ``description``, ``widget``, ``exclusive_group``, ``constraints`` or
+    ``columns`` when it has them), with ``choices`` (``[{"id", "title"}]``, from the ``Ask`` or a
     ``Literal``), ``default`` and ``widget`` as the ``Ask`` set them. A node
     with one output is answered with its value, one with several with a
     mapping by name.
@@ -124,31 +116,32 @@ class WrongAsk(Exception):
 def asked(ask: Ask, definition: NodeDefinition[..., Any]) -> dict[str, dict[str, Any]]:
     """What ``ask`` adds to each question, by output name, as JSON; ``WrongAsk`` if it doesn't fit the node's outputs."""
     outputs = definition.outputs
+    given = ask.given
+    unknown = sorted(given.keys() - AskArguments.__annotations__.keys())
+    if unknown:
+        raise WrongAsk(f"Ask has no argument '{unknown[0]}'; it takes {', '.join(AskArguments.__annotations__)}")
     lone = next(iter(outputs)) if len(outputs) == 1 else None
+    by_name = isinstance(given.get("choices"), Mapping)
     if lone is not None:
-        if ask.defaults or ask.widgets or isinstance(ask.choices, Mapping):
+        if "defaults" in given or "widgets" in given or by_name:
             raise WrongAsk("the node has one output, so it takes default=, widget= and a list of choices")
-        choices = {} if ask.choices is None else {lone: ask.choices}
-        defaults = {} if ask.default is _NOT_GIVEN else {lone: ask.default}
-        widgets = {} if ask.widget is None else {lone: ask.widget}
+        choices, defaults, widgets = ({lone: given[kind]} if kind in given else {} for kind in ("choices", "default", "widget"))
     else:
-        if ask.default is not _NOT_GIVEN or ask.widget is not None or (ask.choices is not None and not isinstance(ask.choices, Mapping)):
+        if "default" in given or "widget" in given or ("choices" in given and not by_name):
             raise WrongAsk(f"the node has {len(outputs)} outputs, so it takes defaults=, widgets= and choices= by output name")
-        choices, defaults, widgets = dict(ask.choices or {}), dict(ask.defaults or {}), dict(ask.widgets or {})
+        choices, defaults, widgets = (dict(given.get(kind) or {}) for kind in ("choices", "defaults", "widgets"))
     added: dict[str, dict[str, Any]] = {}
     for kind, given in (("choices", choices), ("default", defaults), ("widget", widgets)):
         for name, value in given.items():
             spec = outputs.get(name)
             if spec is None:
                 raise WrongAsk(f"the {kind} names '{name}', which is not an output; the outputs are {', '.join(outputs) or 'none'}")
-            added.setdefault(name, {})[kind] = _added(spec, kind, value)
-    for name, added_here in added.items():
-        _check_default_among_choices(outputs[name], added_here)
+            added.setdefault(name, {})[kind] = _added(spec, kind, value, added.get(name, {}))
     return added
 
 
-def _added(spec: FieldSpec, kind: str, value: Any) -> Any:
-    """One thing an ``Ask`` adds to a question, as JSON."""
+def _added(spec: FieldSpec, kind: str, value: Any, so_far: Mapping[str, Any]) -> Any:
+    """One thing an ``Ask`` adds to a question, as JSON; a default is held to the rules an answer is, against the choices ``so_far``."""
     if kind == "widget":
         try:
             return to_jsonable_python(value)
@@ -158,9 +151,9 @@ def _added(spec: FieldSpec, kind: str, value: Any) -> Any:
         if value is SKIPPED:
             raise WrongAsk(f"the default for '{spec.name}' is SKIPPED; a person answers a value")
         try:
-            return _as_json(spec, read_value(spec, value))
+            return _as_json(spec, _checked_answer(spec, value, so_far))
         except _Refused as refused:
-            raise WrongAsk(f"the default for '{spec.name}' is not what it returns: {refused.reason}") from None
+            raise WrongAsk(f"the default for '{spec.name}' is not an answer it takes: {refused.reason}") from None
     if spec.shape == "table":
         raise WrongAsk(f"'{spec.name}' is a table, which takes no choices")
     if isinstance(value, (str, bytes, Mapping)) or not isinstance(value, Sequence):
@@ -173,16 +166,11 @@ def _added(spec: FieldSpec, kind: str, value: Any) -> Any:
         except ValidationError as error:
             raise WrongAsk(f"a choice for '{spec.name}' is not what it returns: {value_free_errors(error)[0]['msg']}") from None
         offered.append({**choice.model_dump(mode="json"), "id": kept} if isinstance(choice, Choice) else {"id": kept, "title": str(kept)})
+    if not offered:
+        raise WrongAsk(f"'{spec.name}' is offered no choices")
+    if len({repr(choice["id"]) for choice in offered}) != len(offered):
+        raise WrongAsk(f"a choice for '{spec.name}' is offered twice")
     return offered
-
-
-def _check_default_among_choices(spec: FieldSpec, added: dict[str, Any]) -> None:
-    if "default" not in added or "choices" not in added or added["default"] is None:
-        return
-    ids = [choice["id"] for choice in added["choices"]]
-    proposed = added["default"] if spec.shape == "many" else [added["default"]]
-    if any(item not in ids for item in proposed):
-        raise WrongAsk(f"the default for '{spec.name}' is not one of its choices")
 
 
 def questions(placed: PlacedNode, added: Mapping[str, Mapping[str, Any]]) -> list[dict[str, Any]]:
@@ -192,8 +180,7 @@ def questions(placed: PlacedNode, added: Mapping[str, Mapping[str, Any]]) -> lis
         extra = added.get(name)
         if extra:
             question = {**question, **extra}
-            if "default" in extra:
-                question["required"] = False
+            question["required"] = _required(placed.definition.outputs[name], question)
         else:
             question = dict(question)
         out.append(question)
@@ -212,11 +199,18 @@ def _question(spec: FieldSpec, node_title: str | None) -> dict[str, Any]:
         question["title"] = node_title  # a lone output's own name, "result", says nothing to a person
     if not spec.required:  # a field of a returned dataclass with a default proposes it
         question["default"] = _as_json(spec, spec.default)
-    question["required"] = spec.required and spec.param.exclusive_group is None and not (spec.shape == "one" and spec.optional)
     item = without_none(spec.type)
     if spec.shape != "table" and get_origin(item) is Literal:
         question["choices"] = [{"id": to_jsonable_python(v), "title": str(v)} for v in get_args(item)]
+    question["required"] = _required(spec, question)
     return question
+
+
+def _required(spec: FieldSpec, question: Mapping[str, Any]) -> bool:
+    """Whether an answer must give the question: not when it has a default or is one of an exclusive group, nor when its
+    type takes a blank and no choices limit what it takes."""
+    blank = spec.shape == "one" and spec.optional and "choices" not in question
+    return "default" not in question and spec.param.exclusive_group is None and not blank
 
 
 class _Refused(Exception):
@@ -228,7 +222,7 @@ class _Refused(Exception):
 def answer_outputs(placed: PlacedNode, value: Any, added: Mapping[str, Mapping[str, Any]]) -> tuple[dict[str, Any], list[tuple[str | None, str]]]:
     """A person's answer as the node's outputs, or every fault in it as ``(question, reason)``; nothing of the value is quoted."""
     outputs = placed.definition.outputs
-    asked_now = {name: {**question, **added.get(name, {})} for name, question in placed.questions.items()}
+    asked_now = {question["name"]: question for question in questions(placed, added)}
     if len(outputs) == 1:
         (name, spec), = outputs.items()
         try:
@@ -284,8 +278,18 @@ def read_value(spec: FieldSpec, value: Any) -> Any:
     """``value`` read as one value of the output ``spec``: a table from records or a frame, anything else by its type."""
     if spec.shape == "table":
         return _read_table(spec, value)
+    return _strictly(spec.adapter, value)
+
+
+def _strictly(adapter: TypeAdapter[Any], value: Any) -> Any:
+    """``value`` read by ``adapter`` from its JSON form, strictly: a yes or no is ``true`` or ``false``, a number is a
+    number, never a text that spells one; a date is still its ISO text, as JSON writes it."""
     try:
-        return spec.adapter.validate_python(value)
+        written = to_json(value, inf_nan_mode="constants")
+    except PydanticSerializationError:
+        raise _Refused("the answer has no JSON form") from None
+    try:
+        return adapter.validate_json(written, strict=True)
     except ValidationError as error:
         raise _Refused(value_free_errors(error)[0]["msg"]) from None
 
@@ -313,9 +317,9 @@ def _read_table(spec: FieldSpec, value: Any) -> pl.DataFrame:
     columns = {}
     for column, adapter in spec.column_adapters.items():
         try:
-            columns[column] = adapter.validate_python([record.get(column) for record in records])
-        except ValidationError as error:
-            raise _Refused(f"column '{column}': {value_free_errors(error)[0]['msg']}") from None
+            columns[column] = _strictly(adapter, [record.get(column) for record in records])
+        except _Refused as refused:
+            raise _Refused(f"column '{column}': {refused.reason}") from None
     return pl.DataFrame(columns, strict=False)
 
 

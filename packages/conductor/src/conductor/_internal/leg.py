@@ -344,7 +344,7 @@ class Leg:
             return Unit("skipped") if out is SKIPPED else Unit("done", out)
         if isinstance(error, Ask):
             question = {"prompt": error.prompt, "inputs": jsonable(kwargs)}
-            if error._adds:
+            if error.given:
                 try:
                     question["asked"] = asked(error, placed.definition)
                 except WrongAsk as wrong:

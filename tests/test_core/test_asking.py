@@ -193,7 +193,7 @@ def test_a_form_left_short_takes_its_defaults_and_blanks_and_refuses_what_has_ne
     assert [(f.ctx.get("question"), f.msg) for f in faults] == [
         ("colour", "That is not a valid answer: there is no question 'colour'"),
         ("approved", "That is not a valid answer: 'approved' was not answered"),
-        ("amount", "That is not a valid answer: 'amount': Input should be a valid number, unable to parse string as a number"),
+        ("amount", "That is not a valid answer: 'amount': Input should be a valid number"),
     ]
     assert _refused(lambda: run.answer("q@0", True))[0].msg == "That is not a valid answer: answer each question by name: a mapping of approved, amount, note, due"
 
@@ -332,12 +332,15 @@ def test_a_reader_left_with_no_rows_by_an_answer_shows_so_before_the_next_leg():
 
 
 @pytest.mark.parametrize(("ask", "reason"), [
-    (lambda: Ask("?", default=3), "the default for 'result' is not what it returns: Input should be a valid string"),
+    (lambda: Ask("?", default=3), "the default for 'result' is not an answer it takes: Input should be a valid string"),
     (lambda: Ask("?", default=SKIPPED), "the default for 'result' is SKIPPED; a person answers a value"),
     (lambda: Ask("?", widget=Textarea), "the widget for 'result' has no JSON form; give an instance, such as Textarea()"),
     (lambda: Ask("?", choices=["a", 2]), "a choice for 'result' is not what it returns: Input should be a valid string"),
     (lambda: Ask("?", choices="ab"), "the choices for 'result' are a list"),
-    (lambda: Ask("?", choices=["a"], default="b"), "the default for 'result' is not one of its choices"),
+    (lambda: Ask("?", choices=["a"], default="b"), "the default for 'result' is not an answer it takes: the answer is not one of the choices"),
+    (lambda: Ask("?", choices=["a", "a"]), "a choice for 'result' is offered twice"),
+    (lambda: Ask("?", choices=[]), "'result' is offered no choices"),
+    (lambda: Ask("?", choice=["a"]), "Ask has no argument 'choice'; it takes choices, default, widget, defaults, widgets"),  # type: ignore[call-arg]
     (lambda: Ask("?", defaults={"result": "a"}), "the node has one output, so it takes default=, widget= and a list of choices"),
 ])
 def test_a_node_asking_what_its_output_cant_be_answered_with_fails_naming_why(ask, reason):
@@ -368,6 +371,56 @@ def test_a_prompt_is_text():
         raise Ask(3)  # type: ignore[arg-type]
 
     assert _once(wrong)[1].cause.ctx["error"] == "TypeError"
+
+
+def test_a_default_obeys_what_an_answer_must():
+    @node("blank")
+    def blank() -> str | None:
+        raise Ask("?", choices=["a", "b"], default=None)
+
+    @node("twice")
+    def twice() -> Series[str]:
+        raise Ask("?", choices=["t1", "t2"], default=["t1", "t1"])
+
+    assert _once(blank)[1].cause.ctx["reason"] == "the default for 'result' is not an answer it takes: the answer is not one of the choices"
+    assert _once(twice)[1].cause.ctx["reason"] == "the default for 'result' is not an answer it takes: a choice is picked twice"
+
+
+def test_a_question_whose_choices_limit_it_must_be_answered_even_if_its_type_takes_a_blank():
+    @dataclass(frozen=True)
+    class Pick:
+        who: str | None
+        note: str | None
+
+    @node("pick")
+    def pick() -> Pick:
+        raise Ask("?", choices={"who": ["a"]})
+
+    _, run = _once(pick)
+    assert [q["required"] for q in run.waiting[0].questions] == [True, False]
+    assert _refused(lambda: run.answer("q", {}))[0].msg == "That is not a valid answer: 'who' was not answered"
+    assert run.answer("q", {"who": "a"}).resume().outputs == {"q.who": "a", "q.note": None}
+
+
+@pytest.mark.parametrize(("returns", "wrong", "right"), [
+    (bool, ["yes", 1, "true"], True),
+    (int, ["3", True, 3.0 + 0.5], 3),
+    (float, ["nan", True, "1.5"], 1.5),
+    (datetime.date, [20261110, "10/11/2026"], "2026-11-10"),
+])
+def test_an_answer_is_read_strictly_from_its_json_form(returns, wrong, right):
+    _, run = _once(node("strict")(_returning(returns)))
+    for value in wrong:
+        assert [f.type for f in _refused(lambda value=value: run.answer("q", value))] == ["invalid_answer"], value
+    assert run.answer("q", right).resume().status == "complete"
+
+
+def _returning(returns: Any) -> Any:
+    def asks() -> None:
+        raise Ask("?")
+
+    asks.__annotations__ = {"return": returns}
+    return asks
 
 
 def test_a_table_takes_no_choices():

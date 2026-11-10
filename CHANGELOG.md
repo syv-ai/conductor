@@ -101,7 +101,8 @@ its stored graphs itself. What a 1.x user changes:
   imported from `conductor`). Each `Waiting` has `questions`, one per output, in the shape
   `describe()` gives a field, with `choices`, `default` and `widget`. An `Ask` its outputs can't be
   answered with fails the node as `invalid_ask`. In place of `resume`, `run.answer(unit, value)`, or
-  `run.answer({unit_id: value, ...})` for several, returns a run to resume; every wrong answer is an
+  `run.answer({unit_id: value, ...})` for several, returns a run to resume; an answer is read strictly
+  from its JSON form (a yes or no is `true`, a number is no text); every wrong answer is an
   `invalid_answer` at once, naming the `question`, and nothing is answered. A `Param` widget with no
   JSON form raises `widget_not_json`.
 - **Running again.** `run.again(**changed)` (`run.with_inputs(**changed)` to resume or stream it yourself) runs with changed inputs, the rest as before: a row that
