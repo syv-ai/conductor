@@ -419,7 +419,7 @@ class Leg:
     def _progress(self, placed: PlacedNode, last: bool = False) -> None:
         """Say how far a node running per row has got, at most four times a second; ``last`` says its final count, unless already said."""
         now = time.monotonic()
-        done = len(self.run._units[placed.id])
+        done = sum(1 for unit in self.run._units[placed.id].values() if unit.state != "waiting")
         if self.emit and (now - self.progress_at.get(placed.id, -1.0) >= _SECONDS_BETWEEN_PROGRESS or last) and self.progress_said.get(placed.id) != done:
             self.progress_at[placed.id], self.progress_said[placed.id] = now, done
             keys, known = self.run._rows(placed.level, ())

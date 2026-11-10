@@ -308,7 +308,10 @@ class Graph:
         """Resolve each node; an embedded graph's nodes take its place under ``<node>/`` ids."""
         out: list[tuple[NodeRecord, NodeDefinition[..., Any] | None]] = []
         edges = []
+        refused = {n.id for n in record.nodes if any(mark in n.id for mark in "/.@")}
         for a, b in record.edges:
+            if a.partition(".")[0] in refused or b.partition(".")[0] in refused:
+                continue  # its own invalid_node_id says why
             inside = [address.partition(".")[0] for address in (a, b) if "/" in address.partition(".")[0]]
             if inside:  # no node of a record has a '/', so this names a node inside an embedded graph
                 node_id, _, field = b.partition(".")
@@ -320,6 +323,7 @@ class Graph:
         for node_record in record.nodes:
             if any(mark in node_record.id for mark in "/.@"):
                 self.problems.append(make_problem("invalid_node_id", prefix + node_record.id))
+                continue  # never placed, so it can't stand in for a node an embedded graph puts there
             node_record = node_record.model_copy(update={"id": prefix + node_record.id})
             definition = self._resolve(node_record)
             if definition is None or definition.graph is None:
@@ -718,7 +722,7 @@ class Graph:
 
     def _seen_from_outside(self, problem: Problem) -> Problem:
         """A problem as the author of this record reads it: inside an embedded graph, on the node that embeds it."""
-        if not problem.loc or not isinstance(problem.loc[0], str) or problem.loc[0].split("/", 1)[0] not in self._embeddings or "/" not in problem.loc[0]:
+        if problem.type == "invalid_node_id" or not problem.loc or not isinstance(problem.loc[0], str) or problem.loc[0].split("/", 1)[0] not in self._embeddings or "/" not in problem.loc[0]:
             return problem
         inner = problem.loc[0]
         field = problem.loc[1] if len(problem.loc) > 1 and isinstance(problem.loc[1], str) else None
@@ -727,6 +731,9 @@ class Graph:
         if not outer and field is not None and len(problem.loc) > 1:
             loc = (self._outer_id(inner),)
         ctx = {**problem.ctx, **({"node_id": self._outer_id(str(problem.ctx["node_id"]))} if "node_id" in problem.ctx else {})}
+        for key in ("source", "target"):
+            if isinstance(ctx.get(key), str):
+                ctx[key] = self._outer.get(ctx[key], ctx[key])
         return make_problem(problem.type, *loc, **ctx)
 
     def _unrelated(self, placed: PlacedNode, a: Level, b: Level) -> None:

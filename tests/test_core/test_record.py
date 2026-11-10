@@ -542,3 +542,11 @@ def test_a_node_gathering_two_series_of_different_depths_runs_above_the_shallowe
     })
 
     assert graph.plan["x"] == "once" and graph.run(text="a,b|c").outputs == {"x.result": "2/3"}
+
+
+def test_an_authored_id_with_a_slash_beside_an_embedding_is_its_own_problem_and_an_edge_into_an_embedding_says_its_outer_address():
+    beside = EMBEDDED.load({"nodes": [{"id": "e", "node": "enrich"}, {"id": "e/upper", "node": "upper"}]})
+    ghost = EMBEDDED.load({"nodes": [{"id": "e", "node": "enrich"}], "edges": [["ghost.result", "e.text"]]})
+
+    assert [(p.type, p.loc) for p in beside.problems] == [("invalid_node_id", ("e/upper",))]
+    assert [(p.type, p.loc, p.ctx["target"]) for p in ghost.problems] == [("edge_names_missing_node", ("e", "text"), "e.text")]
