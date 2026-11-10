@@ -59,8 +59,8 @@ What changes in how you work, before the name-by-name tables:
 - **A run is one value.** `graph.run(**inputs)` returns a `Run` whose `status` says how the leg
   ended. It pauses for a person (`raise Ask(...)`, then `run.answer(...)` and `run.resume()`), writes
   itself as JSON (`run.to_json()`, `graph.load_run(saved)`, which reads a save from its JSON text; a save that
-  doesn't fit is `state_unreadable`, `ctx.at` its place in the save; a node with no work done is
-  left out of it) and runs again on changed inputs,
+  doesn't fit is `state_unreadable`, `ctx.at` its place in the save; a node with no work done, and a
+  part with nothing in it, is left out of it) and runs again on changed inputs,
   calling only the rows that changed (`run.again(...)`). A leg's `max_rows` is a whole number of
   at least 1 and its `timeout` and `checkpoint_every` finite seconds above 0, a `bool` neither,
   refused at the call (`invalid_max_rows`, `invalid_timeout`, `invalid_checkpoint_every`).

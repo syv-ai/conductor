@@ -21,7 +21,7 @@ import threading
 import time
 from collections.abc import AsyncGenerator, Callable, Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal, overload
+from typing import TYPE_CHECKING, Annotated, Any, Literal, overload
 
 import polars as pl
 import pydantic_core
@@ -29,6 +29,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     NonNegativeInt,
+    PlainSerializer,
     PositiveInt,
     TypeAdapter,
     ValidationError,
@@ -773,20 +774,18 @@ class Run:
             listed = [(fp, unit) for fp, units in by.items() for unit in units]
             if listed:
                 numbered: dict[Key, Unit] = {(i,): unit for i, (_, unit) in enumerate(listed)}
-                earlier[n] = {"fingerprints": [fp for fp, _ in listed], **_dump_units(self.graph._nodes[n], numbered, keyed=False)}
+                earlier[n] = _dump_units(self.graph._nodes[n], numbered, fingerprints=[fp for fp, _ in listed])
         inputs = {address: _dump_input(self.graph, address, v) for address, v in self.inputs.items()}
-        non_finite: dict[str, list[list[Any]]] = {}
+        non_finite: dict[str, list[_Path]] = {}
         for address, written_input in inputs.items():
             if not self.graph._input_fields[address].spec.plain:
                 _find_non_finite(written_input, [], non_finite.setdefault(address, []))
-        cause = self.cause.model_dump(mode="json") if self.cause else None
         code = {n: self._ran_as.get(n) or self.graph._nodes[n].reuse_digest for n, us in self._units.items() if us or n in earlier}
-        written = {
-            "graph": self.graph.fingerprint, "status": self.status, "cause": cause, "max_rows": self.max_rows, "inputs": inputs,
-            **({"non_finite_inputs": {a: paths for a, paths in non_finite.items() if paths}} if any(non_finite.values()) else {}), "units": units, "earlier": earlier,
-            "code": code, "complete": [n for n in self._units if n in self._complete],
-        }
-        return pydantic_core.to_json(written, inf_nan_mode="strings").decode()
+        written = _SavedRun.model_construct(
+            graph=self.graph.fingerprint, status=self.status, cause=self.cause, max_rows=self.max_rows, inputs=inputs, non_finite_inputs={a: paths for a, paths in non_finite.items() if paths},
+            units=units, earlier=earlier, code=code, complete=[n for n in self._units if n in self._complete],
+        )
+        return _SAVED.dump_json(written, exclude_defaults=True).decode()
 
     def _copy(self, *, share_units: bool = False, **changes: Any) -> Run:
         """A copy to change: its own units to record into, or with ``share_units`` this run's, for a caller that replaces whole nodes."""
@@ -978,63 +977,69 @@ def _length(value: Any) -> int:
     return 0 if value is SKIPPED or value is None else value.rows if isinstance(value, Frame) else len(value)
 
 
-def _dump_units(placed: PlacedNode, units: Mapping[Key, Unit], keyed: bool = True) -> dict[str, Any]:
-    """Units as columns: keys, states, questions, and one list per output."""
+def _dump_units(placed: PlacedNode, units: Mapping[Key, Unit], fingerprints: list[str] | None = None) -> _SavedUnits:
+    """Units as columns: keys, states, questions, and one list per output; carried work by what each unit received, in place of its row."""
     done = [u for u in units.values() if u.state == "done" and u.out is not None]
-    outputs: dict[str, Any] = {}
+    outputs: dict[str, _SavedOutput] = {}
     for name, spec in placed.definition.outputs.items():
         values = [u.out[name] for u in done]  # type: ignore[index]
-        skipped = [i for i, v in enumerate(values) if v is SKIPPED]
         at = f"{placed.id}.{name}"
         if spec.shape == "table":
             dumped: Any = [None if v is SKIPPED or v is None else _dump_frame(spec, v, at) for v in values]
         else:
             plain = [None if v is SKIPPED or v is None else [None if i is SKIPPED else i for i in v] if spec.shape == "many" else v for v in values]
             dumped = _written_as_json(spec.column_adapter, plain, at)
-        non_finite: list[list[Any]] = []
+        non_finite: list[_Path] = []
         if spec.shape != "table" and not spec.plain:
             _find_non_finite(dumped, [], non_finite)
-        items = {str(n): [i for i, item in enumerate(v) if item is SKIPPED] for n, v in enumerate(values) if spec.shape == "many" and v is not SKIPPED and v is not None}
-        outputs[name] = {
-            "values": dumped, "skipped": skipped, **({"skipped_items": {k: v for k, v in items.items() if v}} if any(items.values()) else {}),
-            **({"non_finite": non_finite} if non_finite else {}),
-        }
-    states = [u.state for u in units.values()]
-    out: dict[str, Any] = {"states": states, "questions": {str(i): u.question.as_json() for i, u in enumerate(units.values()) if u.question is not None}, "outputs": outputs}
-    if "blank" in states:
-        out["blank_inputs"] = {str(i): u.blank_input for i, u in enumerate(units.values()) if u.blank_input is not None}
-    if decided := "skipped" in states and {str(i): u.skipped_from for i, u in enumerate(units.values()) if u.skipped_from is not None}:
-        out["skipped_from"] = decided
-    if keyed:
-        out["keys"] = [list(k) for k in units]
-    return out
+        items = {n: skips for n, v in enumerate(values) if spec.shape == "many" and v is not SKIPPED and v is not None and (skips := [i for i, item in enumerate(v) if item is SKIPPED])}
+        outputs[name] = _SavedOutput.model_construct(values=dumped, skipped=[i for i, v in enumerate(values) if v is SKIPPED], skipped_items=items, non_finite=non_finite)
+    listed = list(units.values())
+    states = [u.state for u in listed]
+    columns: dict[str, Any] = dict(
+        states=states, questions={i: u.question for i, u in enumerate(listed) if u.question is not None}, outputs=outputs,
+        blank_inputs={i: u.blank_input for i, u in enumerate(listed) if u.blank_input is not None} if "blank" in states else {},
+        skipped_from={i: u.skipped_from for i, u in enumerate(listed) if u.skipped_from is not None} if "skipped" in states else {},
+    )
+    return _SavedUnits.model_construct(keys=list(units), **columns) if fingerprints is None else _SavedEarlier.model_construct(fingerprints=fingerprints, **columns)
 
 
 #: A place in a saved value: a key of a mapping, or an index of a list.
 _Path = list[str | int]
 
+#: A long column of a save that the writer made of the right items already: read typed, written as it is, since checking
+#: each item against its type on the way out costs as much as writing it.
+_AS_IS = PlainSerializer(lambda column: column, return_type=Any)
+
+#: The places of a value's floats that aren't finite.
+_Paths = Annotated[list[_Path], _AS_IS]
+
+
+#: Every part of a save refuses what it doesn't declare, and writes a float that isn't finite as its text.
+_SAVE_CONFIG = ConfigDict(extra="forbid", ser_json_inf_nan="strings")
+
 
 class _SavedTable(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = _SAVE_CONFIG
     rows: NonNegativeInt
     columns: list[tuple[str, list[Any]]]
     types: dict[str, str] = {}
 
 
 class _SavedOutput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = _SAVE_CONFIG
     values: list[Any]
     skipped: list[NonNegativeInt] = []
     skipped_items: dict[NonNegativeInt, list[NonNegativeInt]] = {}
-    non_finite: list[_Path] = []
+    non_finite: _Paths = []
 
 
 class _SavedUnits(BaseModel):
     """A node's units as columns: their rows (none for carried work), states, the questions of the few that carry one, and a column per output."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = _SAVE_CONFIG
     keys: list[tuple[NonNegativeInt, ...]] | None = None
-    states: list[Literal["done", "skipped", "blank", "waiting"]]
+    states: Annotated[list[Literal["done", "skipped", "blank", "waiting"]], _AS_IS]
     questions: dict[NonNegativeInt, RowQuestion] = {}
     blank_inputs: dict[NonNegativeInt, str] = {}
     skipped_from: dict[NonNegativeInt, NonNegativeInt] = {}
@@ -1048,13 +1053,13 @@ class _SavedEarlier(_SavedUnits):
 class _SavedRun(BaseModel):
     """What ``run.to_json()`` writes, read once at ``load_run``: a malformed save is refused here, by where."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = _SAVE_CONFIG
     graph: str
     status: RunStatus
     cause: Problem | None
     max_rows: PositiveInt | None
     inputs: dict[str, Any]
-    non_finite_inputs: dict[str, list[_Path]] = {}
+    non_finite_inputs: dict[str, _Paths] = {}
     units: dict[str, _SavedUnits]
     earlier: dict[str, _SavedEarlier] = {}
     code: dict[str, str] = {}
