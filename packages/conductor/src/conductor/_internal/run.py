@@ -315,12 +315,17 @@ class Run:
                 fresh._earlier.pop(placed_id, None)
         return fresh
 
-    def _carried(self) -> dict[str, dict[str, list[Unit]]]:
-        """What a run going on from this one may take: each node's finished and waiting units by what they received, then what this run carried and didn't take."""
+    def _carried(self, into: Graph | None = None) -> dict[str, dict[str, list[Unit]]]:
+        """What a run going on from this one may take: each node's finished and waiting units by what they received, then what this run carried and didn't take.
+
+        ``into`` another graph keeps only the nodes it holds as they are here (by ``reuse_digest``).
+        """
         earlier: dict[str, dict[str, list[Unit]]] = {}
         for n, units in self._units.items():
             placed = self.graph._nodes[n]
             if not placed.definition.policy.reuse_when_inputs_match or n in self._ran_as:
+                continue
+            if into is not None and (n not in into._nodes or into._nodes[n].reuse_digest != placed.reuse_digest):
                 continue
             by: dict[str, list[Unit]] = {}
             for k, u in self._in_order(n):

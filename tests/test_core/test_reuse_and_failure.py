@@ -1406,3 +1406,38 @@ def test_a_saved_run_stays_the_same_size_over_one_row_edits_at_ten_thousand_rows
         sizes.append(len(run.to_json()))
 
     assert run.status == "complete" and max(sizes) - min(sizes) < 100, sizes
+
+
+def test_an_edited_graph_takes_an_earlier_runs_work_for_the_nodes_the_edit_left_as_they_were():
+    """The author changes the last node's prompt: its rows run again, the 300 calls above it do not."""
+    calls: list[str] = []
+
+    @node("enrich")
+    def enrich(text: str) -> str:
+        calls.append(f"enrich {text}")
+        return text.upper()
+
+    @node("summarize")
+    def summarize(text: str, prompt: str) -> str:
+        calls.append(f"summarize {text}")
+        return f"{prompt}: {text}"
+
+    registry = registry_of(enrich, summarize)
+
+    def drawn(prompt: str) -> Any:
+        return registry.load(GraphRecord(
+            nodes=[NodeRecord(id="e", node="enrich", many={"text"}), NodeRecord(id="s", node="summarize", values={"prompt": prompt})],
+            edges=[("e.result", "s.text")],
+        ))
+
+    texts = [f"t{i}" for i in range(300)]
+    first = drawn("Short").run(text=texts)
+    calls.clear()
+    edited = drawn("Long")
+    assert edited.fingerprint != first.graph.fingerprint
+
+    second = edited.with_inputs(text=texts, earlier=first.graph.load_run(first.to_json())).resume()
+
+    assert second.results["s"]["result"][0] == "Long: T0" and calls == [f"summarize T{i}" for i in range(300)]
+    calls.clear()
+    assert edited.with_inputs(text=texts, earlier=second).resume().results == second.results and calls == []

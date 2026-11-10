@@ -344,20 +344,29 @@ class Graph:
 
     # -- running ----------------------------------------------------------------
 
-    def with_inputs(self, inputs: Mapping[str, Any] | None = None, /, *, max_rows: int | None = None, **by_name: Any) -> Run:
+    def with_inputs(
+        self, inputs: Mapping[str, Any] | None = None, /, *, max_rows: int | None = None, earlier: Run | None = None, **by_name: Any,
+    ) -> Run:
         """A run with the caller's inputs checked, not started; ``run.resume()`` starts it.
 
         Inputs are given by name (``graph.inputs``) or by address
         (``node.input``), as keywords or as one mapping for names Python can't
         take as keywords (``{"a.text": ...}``). ``max_rows`` is a ceiling on
-        the rows any one table of the run may have.
+        the rows any one table of the run may have. ``earlier``, a run of this
+        graph or of an earlier version of it, lends its work as ``run.again``
+        does: a node with the same id, version, code, fields and rows is not
+        called on a row that receives what it received there, so after an
+        edit only the nodes it changes, and what they feed, run again.
         """
         from conductor._internal.run import STARTING, Run, checked_max_rows
 
         if self.problems:
             raise InvalidCallError(self.problems)
         checked_max_rows(max_rows)
-        return Run(self, self._checked_inputs({**(inputs or {}), **by_name}), max_rows=max_rows, _door=STARTING)
+        run = Run(self, self._checked_inputs({**(inputs or {}), **by_name}), max_rows=max_rows, _door=STARTING)
+        if earlier is not None:
+            run._earlier = earlier._carried(into=self)
+        return run
 
     def run(
         self, inputs: Mapping[str, Any] | None = None, /, *, max_rows: int | None = None, from_run: Mapping[type, Any] | None = None,

@@ -36,7 +36,7 @@ A node raises `Ask` when a person must answer. That row waits, and so does whate
 
 ## Running again
 
-`run.again(**changed)` runs with changed inputs. A unit that receives exactly what a unit of its node received before takes that earlier result, or that earlier answer, and its node isn't called. So when one row is added to a CSV of 5,000, a node that runs per row is called for that one row. A node that reads the world rather than its inputs opts out with `Policy(reuse_when_inputs_match=False)`.
+`run.again(**changed)` runs with changed inputs. A unit that receives exactly what a unit of its node received before takes that earlier result, or that earlier answer, and its node isn't called. So when one row is added to a CSV of 5,000, a node that runs per row is called for that one row. A node that reads the world rather than its inputs opts out with `Policy(reuse_when_inputs_match=False)`. After an edit to the graph itself, `edited_graph.with_inputs(..., earlier=old_run).resume()` lends the old run's work the same way: a node the edit left as it was (same id, version, code, fields and rows) isn't called on a row that receives what it received, so changing the last node's prompt calls only that node.
 
 ## Failures
 
