@@ -434,15 +434,20 @@ class FieldSpec:
         out.update(copy.deepcopy(self._schemas))  # the caller may change what it is given
         if not self.required:
             out["default"] = self.default_json
-        offered = literal_values(self.type) if self.shape != "table" else None
-        if self.param.choices is not None:
-            out["choices"] = [{**(said := choice_record(choice)), "id": to_jsonable_python(said["id"])} for choice in self.param.choices]
-        elif offered is not None:
-            out["choices"] = [{"id": to_jsonable_python(value), "title": str(value)} for value in offered]
+        if self._declared_choices is not None:
+            out["choices"] = self._declared_choices  # the record is made with its own copy of each
         for key in ("description", "widget", "exclusive_group"):
             if getattr(self.param, key) is not None:
                 out[key] = to_jsonable_python(getattr(self.param, key), fallback=str)
         return (record or FieldDescription).model_validate({**out, **changed})
+
+    @functools.cached_property
+    def _declared_choices(self) -> list[dict[str, Any]] | None:
+        """The choices the type declares (``Param(choices=)``, else a ``Literal``'s values) as a question shows them."""
+        if self.shape == "table":
+            return None
+        given = self.param.choices if self.param.choices is not None else literal_values(self.type)
+        return None if given is None else shown_choices(self, given)
 
     @functools.cached_property
     def _schemas(self) -> dict[str, Any]:
@@ -988,6 +993,27 @@ def read_strictly(adapter: TypeAdapter[Any], value: Any) -> Any:
         return adapter.validate_json(written, strict=True)
     except ValidationError as error:
         raise FieldValueError(value_free_errors(error)[0]["msg"]) from None
+
+
+def shown_choices(spec: FieldSpec, choices: list[Any] | tuple[Any, ...]) -> list[dict[str, Any]]:
+    """Choices as a question shows them, each id the JSON of the value an answer picking it reads as.
+
+    Args:
+        spec: The field the choices are for.
+        choices: Each a value or a ``Choice``.
+
+    Returns:
+        One ``{"id", "title", ...}`` record per choice, in order.
+
+    Raises:
+        FieldValueError: A choice is not a value of the field's type.
+    """
+    ids = [choice_record(choice)["id"] for choice in choices]
+    if spec.shape == "many":  # a pick of several is one value: the list of them all
+        kept = spec.json_of(read_strictly(spec.adapter, ids))
+    else:
+        kept = [spec.json_of(read_strictly(spec.adapter, i)) for i in ids]
+    return [{**choice_record(choice, mode="json"), "id": k} for choice, k in zip(choices, kept, strict=True)]
 
 
 def _a_number_type(option: Any) -> bool:

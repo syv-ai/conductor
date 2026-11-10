@@ -864,3 +864,22 @@ def test_a_lone_output_is_asked_under_the_label_describe_shows_for_it():
     (waiting,) = graph.run(ticket="t").waiting
 
     assert waiting.questions[0].title == output.title == "Result"
+
+
+def test_a_declared_choice_is_answered_by_the_id_its_question_shows() -> None:
+    from decimal import Decimal
+
+    @node("amount", title="Amount", description="Asks how much.")
+    def amount(ticket: str) -> Annotated[Decimal, Param(choices=[1, 2])]:
+        raise Ask("How much?")
+
+    @node("when", title="When", description="Asks when.")
+    def when(ticket: str) -> Annotated[datetime.datetime, Param(choices=["2024-01-02T09:00"])]:
+        raise Ask("When?")
+
+    for asking, read in ((amount, Decimal(1)), (when, datetime.datetime(2024, 1, 2, 9))):
+        run = registry_of(asking).load(make_graph(asking)).run(ticket="t")
+        (waiting,) = run.waiting
+        shown = waiting.questions[0].choices
+        assert shown is not None
+        assert run.answer(waiting, shown[0]["id"]).resume().outputs == {f"{asking.id}.result": read}

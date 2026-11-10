@@ -32,8 +32,8 @@ from conductor._internal.fields import (
     FieldDescription,
     FieldSpec,
     FieldValueError,
-    choice_record,
     read_strictly,
+    shown_choices,
 )
 
 if TYPE_CHECKING:
@@ -223,14 +223,13 @@ def _offered(spec: FieldSpec, choices: list[Any]) -> list[dict[str, Any]]:
         raise InvalidAskError(f"'{spec.name}' is a table, which takes no choices")
     if not choices:
         raise InvalidAskError(f"'{spec.name}' is offered no choices")
-    ids = [choice_record(choice)["id"] for choice in choices]
     try:
-        kept = spec.json_of(read_answer(spec, ids)) if spec.shape == "many" else [spec.json_of(read_answer(spec, i)) for i in ids]
+        shown = shown_choices(spec, choices)
     except FieldValueError as refused:
         raise InvalidAskError(f"a choice for '{spec.name}' is not what it returns: {refused.reason}") from None
-    if len({repr(k) for k in kept}) != len(kept):
+    if len({repr(choice["id"]) for choice in shown}) != len(shown):
         raise InvalidAskError(f"a choice for '{spec.name}' is offered twice")
-    return [{**choice_record(choice, mode="json"), "id": k} for choice, k in zip(choices, kept, strict=True)]
+    return shown
 
 
 def _proposed(spec: FieldSpec, default: Any, offered: list[dict[str, Any]] | None) -> JsonValue:

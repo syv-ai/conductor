@@ -88,6 +88,7 @@ What changes in how you work, before the name-by-name tables:
   the store fails to take ends before its next unit, so no node is called once the run reads `failed`; `GET /runs/{id}` says the `cause` of a run that
   didn't complete; a float that isn't finite in a run's outputs reads as `"Infinity"` or `"NaN"`.
   There is no canvas package.
+- **A declared choice's `id` is the field type's JSON form.** `Decimal` choices show `"1"` and a `datetime` its seconds, so the id a question shows is an answer it takes.
 
 A 1.x graph doesn't load as saved. Convert each stored graph with the table under
 "Converting a stored 1.x graph", then save the `GraphRecord`.
