@@ -64,7 +64,7 @@ An input takes an edge, a value or a default, never two: `values` are fixed, `de
 | A bound on the leg | `run.resume(timeout=60)`, `run.stream(cancel=asyncio.Event())`, `graph.run(max_rows=1000)` |
 | To save | `record.model_dump_json()`; a run: `run.to_json()`, `graph.load_run(saved)` |
 | A record an editor draws from | `graph.describe()`, and `registry.describe()` for the palette |
-| A registry for one request | `per_request = NodeRegistry()`, `per_request.add_subregistry(registry)`, `per_request.add(*loaded)` |
+| A registry for one request | `per_request = NodeRegistry()`, `per_request.add_subregistry(registry)`, `per_request.add(*definitions)` |
 | HTTP routes | `docs/serving-runs.md`, a page to copy onto your own FastAPI application |
 
 ## Common mistakes

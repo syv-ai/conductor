@@ -95,7 +95,7 @@ PROBLEM_CATALOGUE: Mapping[str, str] = {
     "unbound_on_later_node": "Nothing feeds '{field}', and only a first node takes inputs from the caller.",
     "unknown_input": "'{node_id}' has no input '{field}'; it has {inputs}.",
     "unknown_node": "There is no node '{node}'; the nodes are {choices}.",
-    "unknown_output": "'{source}' is not an output of that node; it has {outputs}.",
+    "unknown_output": "'{source}' is not something that node gives; it gives {outputs}.",
     "unknown_version": "'{node}' has no version {version}; the newest is {newest}.",
     "value_and_default": "Field '{field}' has both a value and a default; keep one.",
     "value_and_edge": "Field '{field}' has an edge and a typed-in value; keep one.",

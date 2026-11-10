@@ -93,7 +93,29 @@ Pass an instance, `widget=Textarea()`. A class passed bare, `widget=Textarea`, i
 
 ## Types
 
-Any type pydantic can check and write as JSON can be an input or an output: `str`, `int`, `float`, `bool`, `date`, a pydantic model, a class of your own.
+Any type pydantic can check and write as JSON can be an input or an output: `str`, `int`, `float`, `bool`, `date`, a pydantic model, a dataclass, a subclass of `str`. A pydantic model is the usual way to carry a record of your own:
+
+```python
+from pydantic import BaseModel
+
+from conductor import node
+
+
+class Address(BaseModel):
+    street: str
+    city: str
+
+
+@node("city")
+def city(address: Address) -> str:
+    return address.city
+
+
+print(city(Address(street="Nørregade 1", city="Aarhus")))  # Aarhus
+```
+
+A class pydantic can't check, such as a plain class with only an `__init__`, is refused when the node is declared, as `type_not_carried`.
+
 
 - `X | None` takes a blank. If an input's type has no `| None`, the node isn't called for a row where it is blank, and its outputs are blank there too.
 - `Series[X]` is many values of `X`, a plain list to your function. Wired to a column, it gets every value of it. Returned, each item is a row.
@@ -138,14 +160,31 @@ print(graph.run(amount=5000).results["notify"])  # {'result': 'told the manager 
 print(graph.run(amount=5).results["notify"])     # {'result': None}
 ```
 
+A branch not taken reads as `None` in `run.results` and `run.outputs`.
+
 ## Asking a person
 
 `raise Ask(prompt)` stops the node on that row and asks a person. Your return type says what they answer: `bool` is yes or no, a `Literal` is one of its values, `str`, `int`, `float` or `date` is a value, `Table[R]` is records, `Series[X]` is several, and a frozen dataclass is a form, one question per field. A field's default is offered as the answer.
 
-`Ask` adds what only the run knows: `choices`, `default` and `widget`. For a node with several outputs, give them by output name with `choices`, `defaults` and `widgets`:
+`Ask` adds what only the run knows: `choices`, `default` and `widget`. On a node with one output, `choices` is a list:
 
 ```python
-from conductor import Ask, Choice
+from conductor import Ask
+
+
+@registry.node("assign")
+def assign(ticket: str) -> str:
+    raise Ask(f"Who takes {ticket}?", choices=["ida", "bo"], default="ida")
+
+
+run = registry.load(make_graph(assign)).run(ticket="T-1")
+print(run.waiting[0].questions[0]["choices"])  # [{'id': 'ida', 'title': 'ida'}, {'id': 'bo', 'title': 'bo'}]
+```
+
+For a node with several outputs, give them by output name with `choices`, `defaults` and `widgets`. A `Choice(id, title)` gives a choice a title of its own:
+
+```python
+from conductor import Choice
 from conductor.widgets import Textarea
 
 
@@ -271,7 +310,7 @@ Loading never upgrades. A host calls `registry.upgrade` and shows the author the
 
 ## Test the whole registry
 
-Calling a node tests its body. `check_registry` tests what a host relies on and a call can't show: a hook that fails, an upgrade that breaks a saved node, a body that changes the value it was given, an `Ask` no example reaches. It returns every problem at once:
+Calling a node tests its body. `check_registry` tests what a host relies on and a call can't show: an upgrade that breaks a saved node, a body that changes the value it was given, an `Ask` no example reaches. It returns every problem at once:
 
 ```python
 from conductor.testing import check_registry
@@ -283,6 +322,7 @@ problems = check_registry(registry, examples={
     "sign": [{"text": "Done", "who": Caller("Ida")}],
     "greet": [{"person": "Ida"}],
     "route": [{"amount": 5}],
+    "assign": [{"ticket": "T-1"}],
     "notify": [{"amount": 5}],
 })
 print(problems)  # []

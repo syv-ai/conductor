@@ -487,7 +487,8 @@ class Graph:
             to_node, _, to_field = b.partition(".")
             if a.partition(".")[0] in offered_here and fa == a:
                 outs = offered_here[a.partition(".")[0]][1]
-                self.problems.append(make_problem("unknown_output", to_node, to_field, source=a, outputs=", ".join(outs) or "none"))
+                source_id = a.partition(".")[0]
+                self.problems.append(make_problem("unknown_output", to_node, to_field, source=a, outputs=", ".join(f"{source_id}.{o}" for o in outs) or "nothing"))
                 continue
             if to_node in offered_here and fb == b:
                 ins = offered_here[to_node][0]
@@ -770,8 +771,13 @@ class Graph:
             return None
         spec = source.definition.outputs.get(output)
         if spec is None or (column and spec.shape != "table") or (column and spec.columns is not None and column not in spec.columns):
+            # What the edge could have named instead: the table's columns when it named a column of one, else the outputs.
+            if column and spec is not None and spec.columns is not None:
+                could = [f"{source_id}.{output}.{c}" for c in spec.columns]
+            else:
+                could = [f"{source_id}.{o}" for o in source.definition.outputs]
             self.problems.append(make_problem(
-                "unknown_output", node_id, name, source=address, outputs=", ".join(source.definition.outputs) or "none", **({"column": column} if column else {}),
+                "unknown_output", node_id, name, source=address, outputs=", ".join(could) or "nothing", **({"column": column} if column else {}),
             ))
             return None
         if spec.shape == "one":

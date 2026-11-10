@@ -5,7 +5,7 @@ waiting for a person: each crosses into JSON, so each is a frozen pydantic
 model on this one base, and reads back what it wrote with pydantic's own
 ``model_dump_json`` and ``model_validate_json``. A widget reads back as
 written too. What loading and the engine build and keep to themselves (a
-loaded graph, a run's ledger) is not a model: those are dataclasses, built
+loaded graph, what a run holds of each unit) is not a model: those are dataclasses, built
 far more often than they are ever parsed.
 """
 

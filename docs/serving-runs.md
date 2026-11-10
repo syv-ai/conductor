@@ -2,7 +2,7 @@
 
 Conductor has no web server in it. A person who answers days later means a run has to outlive a request, and how a host stores that, who may touch it and what a client sees are the host's. This page is the whole thing as one file to copy: start a run, follow it, read it, answer it, cancel it. It needs `fastapi>=0.135`, and it is what the test suite runs.
 
-Three things hold it up: `run.stream()` runs one leg (the stretch between one pause and the next) and says what happens, `run.answer` writes a person's answer into a stopped run, and a `Run` saves as JSON with `run.to_json()` and reads back with `graph.load_run`.
+Three things hold it up: `run.stream()` runs one leg (the stretch between one pause and the next) and says what happens, `run.answer` writes a person's answer into a run whose status is `waiting`, and a `Run` saves as JSON with `run.to_json()` and reads back with `graph.load_run`.
 
 ```python
 import asyncio

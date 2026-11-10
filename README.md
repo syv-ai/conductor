@@ -61,7 +61,7 @@ A node can still be called like the function, so that is its unit test. The regi
 
 ## Load a graph
 
-This is what an editor saves. Each node names the node it uses, and each edge goes from an output to an input. `read.result.name` is the `name` column of the table `read` returns:
+This is what an editor saves. Each node has an `id`, which says where it sits in this graph, and a `node`, which says which of your definitions it uses. The two are often the same, but a graph that uses `approve` twice has two ids. Each edge goes from an output to an input, and `read.result.name` is the `name` column of the table `read` returns:
 
 ```python
 drawing = """{
@@ -146,17 +146,28 @@ The answer is checked against its question before anything runs. A wrong one rai
 
 ## Edit one row
 
-Someone adds Eva to the CSV. Run again with the new input:
+Bo's invoice was for 5500, not 5000. Run again with the corrected CSV:
 
 ```python
-run = run.again(csv=csv + "Eva,7000\n")
+edited = csv.replace("Bo,5000", "Bo,5500")
+run = run.again(csv=edited)
+
+for unit in run.waiting:
+    print(unit.prompt)
+# Approve Bo, 5500 kr.?
+```
+
+A row that gets what it got before isn't called again. Ida's row is the same, so it keeps its result, and only Bo's row is asked again. Adding a row works the same way: only the new row runs.
+
+```python
+run = run.answer(run.waiting[0], True).again(csv=edited + "Eva,7000\n")
 
 for unit in run.waiting:
     print(unit.prompt)
 # Approve Eva, 7000 kr.?
 ```
 
-A row that gets what it got before isn't called again, so Bo keeps his answer and only Eva is asked. `run.with_inputs(...)` is the same run before it starts, for when you want to `stream()` its events.
+`run.with_inputs(...)` is the same run before it starts, for when you want to `stream()` its events.
 
 ## Next
 

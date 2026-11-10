@@ -312,7 +312,11 @@ def _checked(spec: FieldSpec, where: str) -> FieldSpec:
     except Exception as error:  # noqa: BLE001  pydantic can't build a schema for this type
         if limits:
             raise NodeDeclarationError(f"{where}{spec.name}: the limits {spec.param.constraints!r} don't fit {getattr(base, '__name__', base)}: {error}", code="bound_invalid") from None
-        raise NodeDeclarationError(f"{where}{spec.name}: conductor can't carry {spec.type!r}: {error}", code="type_not_carried") from None
+        raise NodeDeclarationError(
+            f"{where}{spec.name}: conductor can't check or write {getattr(base, '__name__', base)} as JSON; "
+            "use a type pydantic knows, such as a pydantic model or a dataclass",
+            code="type_not_carried",
+        ) from None
     if spec.default is None and spec.shape == "one" and not spec.optional:
         raise NodeDeclarationError(f"{where}{spec.name}: the default None is a blank; write its type with | None", code="default_invalid")
     if not spec.required and spec.default is not None and spec.default is not SKIPPED:

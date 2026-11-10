@@ -147,11 +147,11 @@ class RunEnd(_EventBase):
     run: SkipJsonSchema[Run] = Field(exclude=True)
 
 
-#: Any event, told apart by ``type``.
 Event = Annotated[
     RunStart | NodeStart | NodeProgress | NodeComplete | NodeSkipped | NodeFailed | NodeRetry | UnitWaiting | RunEnd,
     Field(discriminator="type"),
 ]
+Event.__doc__ = "Any event ``run.stream()`` yields, told apart by ``type``: ``TypeAdapter(Event)`` reads one back from JSON."
 
 
 # -- the leg ------------------------------------------------------------------------------------
