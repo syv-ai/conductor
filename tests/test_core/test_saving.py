@@ -213,9 +213,14 @@ def test_a_float_that_is_not_finite_where_its_type_does_not_say_float_reads_back
     def anything(text: str) -> Series[Any]:
         return [math.nan, "Infinity", {"z": -math.inf}]
 
-    record = GraphRecord(nodes=[NodeRecord(id=n, node=n) for n in ("loose", "mapping", "anything")])
-    graph = registry_of(loose, mapping, anything).load(record)
-    run = graph.run({"loose.text": "x", "mapping.text": "x", "anything.text": "x"})
+    @node("maybe-mapping")
+    def maybe_mapping(text: str) -> dict[str, Any] | None:
+        return {"v": math.nan}
+
+    names = ("loose", "mapping", "anything", "maybe-mapping")
+    record = GraphRecord(nodes=[NodeRecord(id=n, node=n) for n in names])
+    graph = registry_of(loose, mapping, anything, maybe_mapping).load(record)
+    run = graph.run({f"{n}.text": "x" for n in names})
     _strict(run.to_json())
     results = _round_trip(run).results
 
@@ -225,6 +230,7 @@ def test_a_float_that_is_not_finite_where_its_type_does_not_say_float_reads_back
     assert math.isnan(made["v"]) and made["w"] == [{"x": math.inf}] and made["s"] == "NaN"  # text that was text stays text
     first, text, inner = results["anything"]["result"]
     assert math.isnan(first) and text == "Infinity" and inner == {"z": -math.inf}
+    assert math.isnan(results["maybe-mapping"]["result"]["v"])
 
 
 class Point(TypedDict):

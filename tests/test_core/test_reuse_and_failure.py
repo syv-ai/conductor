@@ -361,6 +361,21 @@ def test_a_series_reordered_is_new_work_and_one_unchanged_is_not():
     assert calls == [["a", "b"], ["b", "a"]]
 
 
+def test_a_dict_given_again_in_another_key_order_is_the_same_work():
+    calls: list[Any] = []
+
+    @node("take-mapping")
+    def take_mapping(value: dict[str, Any] | None) -> int:
+        calls.append(value)
+        return 1
+
+    graph = registry_of(take_mapping).load(GraphRecord(nodes=[NodeRecord(id="t", node="take-mapping")]))
+    first = graph.load_run(graph.run(value={"a": 1, "b": 2}).to_json())
+    first.again(value={"b": 2, "a": 1})
+
+    assert calls == [{"a": 1, "b": 2}]
+
+
 def test_what_a_value_is_stays_apart_in_what_a_unit_received():
     calls: list[Any] = []
 

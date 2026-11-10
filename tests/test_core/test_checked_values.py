@@ -77,6 +77,20 @@ def test_returning_none_needs_the_hint():
     assert _returning(None, str).cause.type == "invalid_output"
 
 
+class Coordinates(TypedDict):
+    x: int
+
+
+@pytest.mark.parametrize(("returned", "return_type"), [([1], list[int] | None), ("a", Literal["a", "b"] | None), ({"x": 1}, Coordinates | None)],
+                         ids=["a-list", "a-literal", "a-typed-dict"])
+def test_a_blank_taking_output_of_a_type_that_is_not_a_class_takes_its_value(returned, return_type):
+    """``-> list[int] | None`` returning ``[1]`` is read by its type as ``-> list[int]`` is, not held to the class ``NoneType``."""
+    run = _returning(returned, return_type)
+
+    assert run.status == "complete"
+    assert run.results["g"]["result"] == returned
+
+
 def test_a_value_read_as_its_type_is_kept_as_the_type():
     """A model returned as a dict, an int for a float, a str for a ``class Text(str)``: each lands as its declared type."""
 

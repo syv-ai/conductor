@@ -359,11 +359,17 @@ class FieldSpec:
 
     @functools.cached_property
     def plain_classes(self) -> tuple[type, ...]:
-        """The classes a value of exactly which needs no reading: the type's own, ``None`` for a blank-taking one; none under limits or ``Any``."""
+        """The classes a value of exactly which needs no reading: the type's own, ``None`` for a blank-taking one.
+
+        None when any option is not a class (``list[int]``, a ``Literal``, a ``TypedDict``, ``Any``) or the field has
+        limits or choices: such a value is always read by the type.
+        """
         options = _options(self.type)
-        if self.param.constraints or self.param.choices is not None or any(option is Any for option in options):
+        if self.param.constraints or self.param.choices is not None:
             return ()
-        return tuple(option for option in options if isinstance(option, type) and not typing.is_typeddict(option))
+        if not all(isinstance(option, type) and option is not Any and not typing.is_typeddict(option) for option in options):
+            return ()
+        return tuple(options)
 
     @functools.cached_property
     def column_adapter(self) -> TypeAdapter[Any]:
