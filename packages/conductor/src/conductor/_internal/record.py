@@ -274,7 +274,7 @@ def _chain_edge(
 ) -> tuple[str, str] | Problem:
     """The one edge from ``before`` into ``after`` in a chain, or the problem ``not_a_chain`` when there isn't exactly one."""
     outputs = list(before.outputs)
-    open_inputs = [name for name, spec in after.inputs.items() if spec.required and name not in typed_in]
+    open_inputs = [name for name, spec in after.inputs.items() if spec.required and not spec.param.setting and name not in typed_in]
     if len(outputs) != 1 or len(open_inputs) != 1:
         return make_problem("not_a_chain", after_id, before=before_id, inputs=open_inputs, outputs=outputs)
     return f"{before_id}.{outputs[0]}", f"{after_id}.{open_inputs[0]}"
