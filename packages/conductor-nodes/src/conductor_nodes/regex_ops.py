@@ -9,7 +9,8 @@ doesn't compile as ``invalid_pattern``, and a replacement that refers to a group
 the pattern lacks as ``invalid_replacement``.
 """
 
-from collections.abc import Callable
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Annotated
 
 import regex
@@ -24,32 +25,33 @@ registry = NodeRegistry(category="regex")
 TIMEOUT = 2.0
 
 
-def _timed[R](operation: Callable[[float], R]) -> R:
-    """``operation(TIMEOUT)``, a call given the timeout, a pattern's faults as the node's own."""
+@contextmanager
+def _pattern_faults(invalid: str = "invalid_pattern", what: str = "pattern") -> Iterator[None]:
+    """Turns a call that ran out of ``TIMEOUT`` and a ``regex.error`` into the node's own faults.
+
+    Args:
+        invalid: The code of a ``regex.error`` raised inside the block.
+        what: What the block's ``regex.error`` is about, as its message names it.
+    """
     try:
-        return operation(TIMEOUT)
+        yield
     except TimeoutError:
         raise NodeError("The pattern took too long.", code="pattern_timeout") from None
     except regex.error as error:
-        raise NodeError(f"The pattern is not valid: {error}.", code="invalid_pattern") from None
+        raise NodeError(f"The {what} is not valid: {error}.", code=invalid) from None
 
 
-def _replaced(compiled: regex.Pattern[str], replacement: str, text: str, timeout: float) -> str:
-    """``compiled.sub(replacement, text)``, a replacement's own fault apart from the pattern's."""
-    try:
-        return compiled.sub(replacement, text, timeout=timeout)
-    except regex.error as error:
-        raise NodeError(f"The replacement is not valid: {error}.", code="invalid_replacement") from None
-
-
-def _flags(ignore_case: bool) -> int:
-    return regex.IGNORECASE if ignore_case else 0
+def _compiled(pattern: str, ignore_case: bool) -> regex.Pattern[str]:
+    with _pattern_faults():
+        return regex.compile(pattern, flags=regex.IGNORECASE if ignore_case else 0)
 
 
 @registry.node("regex-match")
 def match(text: LongText, pattern: Line, ignore_case: Flag = False) -> Annotated[bool, Param(title="Matched")]:
     """Whether the pattern matches anywhere in the text."""
-    return _timed(lambda timeout: regex.search(pattern, text, flags=_flags(ignore_case), timeout=timeout)) is not None
+    compiled = _compiled(pattern, ignore_case)
+    with _pattern_faults():
+        return compiled.search(text, timeout=TIMEOUT) is not None
 
 
 @registry.node("regex-replace")
@@ -60,14 +62,14 @@ def replace_all(
     ignore_case: Flag = False,
 ) -> str:
     """Replaces every match of the pattern."""
-    compiled = _timed(lambda timeout: regex.compile(pattern, flags=_flags(ignore_case)))
-    return _timed(lambda timeout: _replaced(compiled, replacement, text, timeout))
+    compiled = _compiled(pattern, ignore_case)
+    with _pattern_faults("invalid_replacement", "replacement"):
+        return compiled.sub(replacement, text, timeout=TIMEOUT)
 
 
 @registry.node("regex-extract")
 def extract(text: LongText, pattern: Line, ignore_case: Flag = False) -> Annotated[Series[str], Param(title="Matches")]:
     """Every match, a row each, or the first group of each when the pattern has groups; a group that took no part is ``""``."""
-    compiled = _timed(lambda timeout: regex.compile(pattern, flags=_flags(ignore_case)))
-    # ``finditer`` is lazy and the timeout fires while it is walked, so the walk happens inside ``_timed``.
-    found = _timed(lambda timeout: list(compiled.finditer(text, timeout=timeout)))
-    return [m.groups(default="")[0] if compiled.groups else m.group(0) for m in found]
+    compiled = _compiled(pattern, ignore_case)
+    with _pattern_faults():  # ``finditer`` is lazy and the timeout fires while it is walked
+        return [m.groups(default="")[0] if compiled.groups else m.group(0) for m in compiled.finditer(text, timeout=TIMEOUT)]
