@@ -85,7 +85,7 @@ class SqliteRunStore:
 
 ## The app
 
-Mount the router in one line. `caller` is a FastAPI dependency, your login. Its return type is kept on each run as JSON, so whichever worker goes on with a run knows who started it:
+Mount the router in one line. `caller` is a FastAPI dependency, your login: a function, whose return annotation it must have, or a class used as the dependency. The type it gives is kept on each run as JSON, so whichever worker goes on with a run knows who started it; a function with no return annotation is a `TypeError` when the router is made:
 
 ```python
 from dataclasses import dataclass

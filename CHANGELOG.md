@@ -65,7 +65,8 @@ What changes in how you work, before the name-by-name tables:
   starts, follows, answers, resumes and cancels runs on several workers over a `RunStore` you
   write ([`docs/serving-runs.md`](docs/serving-runs.md)). An answer sent while a leg runs waits for it to
   end, and one that then finds nothing waiting, or a leg that needs a resume, is kept in `refused`; `again` runs on the nodes of
-  the caller who asks; `resume` takes no body, and a ceiling it raises holds for the run's later legs; a leg whose event
+  the caller who asks; a `caller` dependency's type is a class's own or a function's return
+  annotation, which it must have; `resume` takes no body, and a ceiling it raises holds for the run's later legs; a leg whose event
   the store fails to take ends before its next unit, so no node is called once the run reads `failed`; `GET /runs/{id}` says the `cause` of a run that
   didn't complete; a float that isn't finite in a run's outputs reads as `"Infinity"` or `"NaN"`.
   There is no canvas package.

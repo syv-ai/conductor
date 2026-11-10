@@ -114,8 +114,9 @@ def run_router(
     - ``store`` keeps runs and events (``RunStore``).
     - ``registry`` is the nodes graphs may use, or a function of the caller giving them, for a registry per tenant.
       It is called again for every request and every leg, so a function caches what it builds.
-    - ``caller`` is a FastAPI dependency giving who is calling: your login. Its return annotation is the type kept
-      on the run as JSON, so a run is built again on any worker.
+    - ``caller`` is a FastAPI dependency giving who is calling: your login. The type it gives (a class used as the
+      dependency, or a function's return annotation, which it must have) is kept on the run as JSON, so a run is
+      built again on any worker.
     - ``from_run`` gives a leg its ``FromRun`` values from the caller who started it. A leg runs on threads of its
       own, so a value is a way to connect, never an open connection.
     - ``may_see(caller, started_by)`` says whether a caller may read and act on a run; by default only the caller
@@ -133,8 +134,7 @@ def run_router(
     tasks: set[asyncio.Task[None]] = set()
     stopping = False
     caller_dependency: Callable[..., Any] = caller if caller is not None else _nobody
-    caller_type = typing.get_type_hints(caller_dependency).get("return", Any)
-    callers: TypeAdapter[Any] = TypeAdapter(caller_type)
+    callers: TypeAdapter[Any] = TypeAdapter(_caller_type(caller_dependency))
     sees = may_see if may_see is not None else _same
 
     def nodes_for(who: Any) -> NodeRegistry:
@@ -459,6 +459,16 @@ def _records(value: Any) -> Any:
     if isinstance(value, pl.DataFrame):
         return value.to_dicts()
     raise TypeError(type(value).__name__)
+
+
+def _caller_type(caller: Callable[..., Any]) -> Any:
+    """The type a ``caller`` dependency gives: the class itself, or a function's return annotation, which it must have."""
+    if isinstance(caller, type):
+        return caller
+    returns = typing.get_type_hints(caller).get("return")
+    if returns is None:
+        raise TypeError(f"caller {caller!r} has no return annotation; annotate it with the type it gives, so a run keeps its caller as that type")
+    return returns
 
 
 def _nobody() -> None:

@@ -15,7 +15,7 @@ import pytest
 httpx = pytest.importorskip("httpx")
 
 import polars as pl  # noqa: E402
-from conductor import Ask, GraphRecord, NodeRecord, NodeRegistry, Series, Table, make_graph  # noqa: E402
+from conductor import Ask, FromRun, GraphRecord, NodeRecord, NodeRegistry, Series, Table, make_graph  # noqa: E402
 from conductor_providers.fastapi import RunChanges, StoredRun, run_router  # noqa: E402
 from fastapi import FastAPI, Header  # noqa: E402
 
@@ -462,3 +462,37 @@ def test_a_leg_whose_event_the_store_fails_to_take_calls_no_node_once_the_run_re
             assert len(started) == at_the_end < 100
 
     asyncio.run(scenario())
+
+
+@dataclasses.dataclass(frozen=True)
+class _Member:
+    """A caller as FastAPI's class dependency: ``Depends(_Member)`` reads ``x_user`` from a header."""
+
+    x_user: Annotated[str, Header()] = "anna"
+
+
+def test_a_class_as_the_caller_is_kept_as_that_class_so_its_starter_sees_the_run() -> None:
+    registry, seen = NodeRegistry(), []
+
+    @registry.node("whoami")
+    def whoami(text: str, who: FromRun[_Member]) -> str:
+        seen.append(who)
+        return who.x_user
+
+    app = FastAPI()
+    app.include_router(run_router(store=MemoryStore(), registry=registry, caller=_Member, from_run=lambda caller: {_Member: caller}))
+    graph = make_graph(whoami).model_dump(mode="json")
+
+    async def scenario() -> None:
+        async with app.router.lifespan_context(app), httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as client:
+            run_id = (await client.post("/runs", json={"graph": graph, "inputs": {"text": "hi"}}, headers={"x-user": "bo"})).json()["id"]
+            row = await _until_ended(client, run_id, "bo")
+            assert (row["status"], row["outputs"]) == ("complete", {"whoami.result": "bo"})
+            assert seen == [_Member("bo")]
+
+    asyncio.run(scenario())
+
+
+def test_a_caller_with_no_return_annotation_is_refused_when_the_router_is_made() -> None:
+    with pytest.raises(TypeError, match="return annotation"):
+        run_router(store=MemoryStore(), registry=NodeRegistry(), caller=lambda: "anna")
