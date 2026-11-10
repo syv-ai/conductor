@@ -53,6 +53,8 @@ def test_every_node_says_what_it_does_and_where_it_is_listed() -> None:
 
 
 def test_each_module_offers_its_own_nodes_and_the_package_all_of_them() -> None:
-    modules = (conductor_nodes.text, conductor_nodes.math, conductor_nodes.logic, conductor_nodes.json_ops, conductor_nodes.regex_ops, conductor_nodes.decision)
+    modules = (conductor_nodes.text, conductor_nodes.math, conductor_nodes.logic, conductor_nodes.json_ops, conductor_nodes.regex_ops, conductor_nodes.control)
     assert sum(len(module.registry) for module in modules) == len(conductor_nodes.registry)
-    assert {d.id for d in conductor_nodes.registry.filter(lambda d: d.category == "math")} == {d.id for d in conductor_nodes.math.registry}
+    for module in modules:
+        (category,) = {d.category for d in module.registry}
+        assert {d.id for d in conductor_nodes.registry.filter(lambda d, c=category: d.category == c)} == {d.id for d in module.registry}

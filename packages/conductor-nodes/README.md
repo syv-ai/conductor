@@ -23,17 +23,17 @@ print(graph.run(text="a,b").outputs)  # {'text-uppercase.result': ['A', 'B']}
 |---|---|---|
 | `text` | `text` | `text-uppercase`, `text-lowercase`, `text-trim`, `text-length`, `text-concat`, `text-replace`, `text-contains`, `text-split`, `text-join`, `text-reverse` |
 | `math` | `math` | `math-add`, `math-subtract`, `math-multiply`, `math-divide`, `math-modulo`, `math-round`, `math-min`, `math-max`, `math-abs` |
-| `logic` | `control`, `logic` | `logic-if-empty`, `logic-if-equals`, `logic-not` |
+| `logic` | `logic` | `logic-not` |
 | `json_ops` | `json` | `json-parse`, `json-stringify`, `json-get` |
 | `regex_ops` | `regex` | `regex-match`, `regex-replace`, `regex-extract` |
-| `decision` | `control` | `decision` |
+| `control` | `control` | `decision`, `logic-if-empty`, `logic-if-equals` |
 
-To pick by category, filter: `conductor_nodes.registry.filter(lambda d: d.category == "math")`.
+A module holds one category, so a module's `registry` and a filter by category pick the same nodes: `conductor_nodes.registry.filter(lambda d: d.category == "math")`.
 
 `decision` gives its `value` on `if_true` or `if_false` by `when`, and what is wired to the other way doesn't run on that row. Its outputs take the type that arrives on `value`:
 
 ```python
-from conductor_nodes.decision import decision
+from conductor_nodes.control import decision
 
 graph = conductor_nodes.registry.load(make_graph(conductor_nodes.text.length, decision, edges=[("text-length.result", "decision.value")]))
 print([field.type for field in graph.describe().nodes["decision"].outputs])  # ['int', 'int']

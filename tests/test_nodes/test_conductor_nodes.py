@@ -5,7 +5,7 @@ from typing import Any
 import conductor_nodes
 import pytest
 from conductor import InvalidCallError, make_graph
-from conductor_nodes import decision, json_ops, regex_ops, text
+from conductor_nodes import control, json_ops, regex_ops, text
 
 
 def _run(node_id: str, **values: Any) -> dict[str, Any]:
@@ -56,7 +56,7 @@ def test_a_node_that_gives_many_values_makes_a_row_of_each_and_a_series_input_ga
 
 
 def test_a_decision_sends_its_value_one_way_and_the_other_way_does_not_run() -> None:
-    graph = conductor_nodes.registry.load(make_graph(decision.decision, text.uppercase, edges=[("decision.if_true", "text-uppercase.text")]))
+    graph = conductor_nodes.registry.load(make_graph(control.decision, text.uppercase, edges=[("decision.if_true", "text-uppercase.text")]))
 
     assert graph.exclusive_groups == {"decision": {"when": ["if_true", "if_false"]}}
     taken = graph.run(value="hi", when=True)
@@ -65,7 +65,7 @@ def test_a_decision_sends_its_value_one_way_and_the_other_way_does_not_run() -> 
 
 
 def test_a_decisions_outputs_take_the_type_that_arrives_on_its_value() -> None:
-    graph = conductor_nodes.registry.load(make_graph(text.length, decision.decision, edges=[("text-length.result", "decision.value")]))
+    graph = conductor_nodes.registry.load(make_graph(text.length, control.decision, edges=[("text-length.result", "decision.value")]))
 
     outputs = graph.describe().nodes["decision"].outputs
     assert [(field.name, field.type) for field in outputs] == [("if_true", "int"), ("if_false", "int")]
