@@ -1,6 +1,7 @@
 """JSON nodes: ``json-parse``, ``json-stringify`` and ``json-get``. A JSON value is pydantic's ``JsonValue``."""
 
 import json
+import re
 from typing import Annotated
 
 from conductor import NodeError, NodeRegistry, Param
@@ -41,7 +42,7 @@ def get_path(value: JsonValue, path: Line) -> Annotated[JsonValue, Param(title="
     for segment in path.split(".") if path else ():
         if isinstance(current, dict):
             current = current.get(segment.strip())
-        elif isinstance(current, list) and segment.strip().lstrip("-").isdigit() and -len(current) <= int(segment) < len(current):
+        elif isinstance(current, list) and re.fullmatch(r"-?[0-9]+", segment.strip()) and -len(current) <= int(segment) < len(current):
             current = current[int(segment)]
         else:
             return None
