@@ -62,7 +62,7 @@ from typing import Any, Generic, Literal, ParamSpec, Protocol, TypeVar, overload
 from pydantic import JsonValue
 
 from conductor._internal.conductor_model import ConductorModel
-from conductor._internal.errors import InvalidCallError, NodeDeclarationError, make_problem
+from conductor._internal.errors import InvalidCallError, NodeDeclarationError, Problem, make_problem
 from conductor._internal.fields import (
     REQUIRED,
     FieldDescription,
@@ -70,6 +70,7 @@ from conductor._internal.fields import (
     _FromRunMarker,
     humanised,
     is_a_number,
+    marked,
     read_field,
 )
 from conductor._internal.record import GraphRecord, as_record
@@ -381,13 +382,17 @@ def node(
         )
     if upgrade is not None and replaces is None:
         raise NodeDeclarationError(f"@node({id!r}) has an upgrade but replaces nothing; name the version it upgrades with replaces=", code="upgrade_without_replaces")
-    if replaces is not None and (not isinstance(replaces, NodeDefinition) or replaces.id != id):
+    if replaces is not None and replaces.id != id:
         raise NodeDeclarationError(f"@node({id!r}) replaces {replaces!r}; a node replaces an earlier @node of its own id", code="replaces_another_node")
     number = version if version is not None else (replaces.version + 1 if replaces is not None else 1)
     if replaces is not None and number <= replaces.version:
         raise NodeDeclarationError(f"@node({id!r}) is version {number}, not after the version {replaces.version} it replaces; leave version= out, or give one above {replaces.version}", code="version_not_after")
 
-    def make(target: Any) -> NodeDefinition[..., Any]:
+    @overload
+    def make(target: GraphRecord | str | bytes | Mapping[str, Any], /) -> NodeDefinition[..., Any]: ...
+    @overload
+    def make(target: Callable[_P, _R], /) -> NodeDefinition[_P, _R]: ...
+    def make(target: GraphRecord | str | bytes | Mapping[str, Any] | Callable[..., Any], /) -> NodeDefinition[..., Any]:
         common: dict[str, Any] = {
             "id": id, "version": number, "category": category, "tags": tuple(tags), "extra": MappingProxyType(dict(extra)), "docs": docs,
             "deprecation": deprecation, "replaces": replaces, "upgrade": upgrade or Upgrade(), "policy": policy or Policy(),
@@ -422,7 +427,7 @@ def node(
             _raise_if_upgrade_is_missing(where, replaces, definition)
         return definition
 
-    return typing.cast(NodeDecorator, make)
+    return make
 
 
 #: What a node id never holds: each means something in an address (``node.field``, ``embedding/inner``) or a waiting id
@@ -444,7 +449,7 @@ def from_run_values(definitions: Iterable[tuple[str, NodeDefinition[..., Any]]],
     """
     given = dict(from_run or {})
     found: dict[type, Any] = {}
-    problems = []
+    problems: list[Problem] = []
     for node_id, definition in definitions:
         for name, needed in definition.from_run.items():
             if needed in found:
@@ -456,18 +461,18 @@ def from_run_values(definitions: Iterable[tuple[str, NodeDefinition[..., Any]]],
             if len(fits) == 1:
                 found[needed] = fits[0]
                 continue
-            names = [getattr(key, "__name__", str(key)) for key in given]
+            names = [key.__name__ for key in given]
             problems.append(make_problem("from_run_ambiguous" if fits else "from_run_missing", node_id, name, needs=needed.__name__, parameter=name, given=names))
     if problems:
         raise InvalidCallError(problems)
     return found
 
 
-def _fits(needed: type, key: Any, value: Any) -> bool:
+def _fits(needed: type, key: type, value: Any) -> bool:
     """Whether ``value``, given under ``key``, is a ``needed``; a class no ``isinstance`` can ask about (a protocol not
     runtime-checkable) is filled only under its own key."""
     try:
-        return isinstance(value, needed) or (isinstance(key, type) and issubclass(key, needed))
+        return isinstance(value, needed) or issubclass(key, needed)
     except TypeError:
         return False
 
@@ -489,10 +494,11 @@ def _read_signature(
             raise NodeDeclarationError(f"{where}{name}: an input needs a type hint; write one, as it is the input's interface", code="input_without_type")
         default = REQUIRED if parameter.default is inspect.Parameter.empty else parameter.default
         hint = hints[name]
-        if typing.get_origin(hint) is typing.Annotated and any(isinstance(m, _FromRunMarker) for m in hint.__metadata__):
-            if not isinstance(typing.get_args(hint)[0], type):
+        if marked(hint, _FromRunMarker):
+            needed = typing.get_args(hint)[0]
+            if not isinstance(needed, type):
                 raise NodeDeclarationError(f"{where}{name}: FromRun names the class of the value the run is given, FromRun[Session]", code="from_run_not_a_class")
-            from_run[name] = typing.get_args(hint)[0]
+            from_run[name] = needed
             continue
         inputs[name] = read_field(name, hint, default, where)
         if inputs[name].param.exclusive_group is not None:
