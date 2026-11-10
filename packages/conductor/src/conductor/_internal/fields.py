@@ -156,6 +156,25 @@ class Param:
         object.__setattr__(self, "constraints", constraints)
 
 
+@dataclass(frozen=True)
+class Named:
+    """The id and title of a type that has no class of its own to carry them, inside ``Annotated``::
+
+        YesNo = Annotated[bool, Named("yes-no", title="Ja/Nej")]
+
+    A field typed ``YesNo`` is a ``bool`` to a node, a type checker and every check, and an editor and a stored graph
+    know its type as ``yes-no``, titled ``Ja/Nej``; a host's own class says the same with ``id`` and ``display_title``.
+    """
+
+    id: str
+    title: str | None = None
+
+
+def _unnamed(hint: Any) -> Any:
+    """``hint`` without its ``Named``: the type every check reads."""
+    return get_args(hint)[0] if _marked(hint, Named) else hint
+
+
 class _ManyMarker:
     pass
 
@@ -303,7 +322,7 @@ def read_field(name: str, hint: Any, default: Any = REQUIRED, where: str = "") -
     param = Param()
     if get_origin(hint) is Annotated:
         base, *meta = get_args(hint)
-        unknown = [m for m in meta if not isinstance(m, (Param, _ManyMarker, _TableMarker, _FromRunMarker))]
+        unknown = [m for m in meta if not isinstance(m, (Param, Named, _ManyMarker, _TableMarker, _FromRunMarker))]
         if unknown:
             raise NodeDeclarationError(
                 f"{where}{name}: Annotated holds {unknown[0]!r}, which conductor doesn't read; a widget, a title or a limit goes on Param(...)",
@@ -323,7 +342,8 @@ def read_field(name: str, hint: Any, default: Any = REQUIRED, where: str = "") -
             return _checked(FieldSpec(name, "many", item, _is_optional(item), default, param), where)
         if markers and isinstance(markers[0], _TableMarker):
             return _checked(FieldSpec(name, "table", pl.DataFrame, False, default, param, _columns_of(markers[0].row)), where)
-        hint = base
+        names = [m for m in meta if isinstance(m, Named)]
+        hint = Annotated[base, names[0]] if names else base
     if hint is pl.DataFrame or hint is Table:
         return _checked(FieldSpec(name, "table", pl.DataFrame, False, default, param, None), where)
     if or_none:
@@ -337,7 +357,7 @@ def _marked(hint: Any, marker: type) -> bool:
 
 def _checked(spec: FieldSpec, where: str) -> FieldSpec:
     """``spec``, once its limits fit its type and pydantic can carry it; a default it declares is made its type."""
-    base = without_none(spec.type)
+    base = _unnamed(without_none(spec.type))
     limits = set(spec.param.constraints)
     if spec.shape == "table" and limits:
         raise NodeDeclarationError(f"{where}{spec.name}: a table takes no limits", code="bound_invalid")
@@ -438,7 +458,8 @@ def accepts(target: Any, source: Any) -> bool:
 
 
 def _options(hint: Any) -> list[Any]:
-    return list(get_args(hint)) if get_origin(hint) in (Union, types.UnionType) else [hint]
+    """The types a hint allows, each as every check reads it (a ``Named`` one as its type)."""
+    return [_unnamed(option) for option in get_args(hint)] if get_origin(hint) in (Union, types.UnionType) else [_unnamed(hint)]
 
 
 def _one_accepts(target: Any, source: Any) -> bool:
@@ -463,12 +484,17 @@ def type_id(hint: Any) -> str:
         return " | ".join(dict.fromkeys(type_id(type(value)) for value in get_args(hint)))
     if get_origin(hint) in (Union, types.UnionType):  # each member by its own name: a host's Text | None is "Text | None"
         return " | ".join("None" if member is type(None) else type_id(member) for member in get_args(hint))
+    if _marked(hint, Named):
+        return next(m for m in get_args(hint)[1:] if isinstance(m, Named)).id
     own = getattr(hint, "id", None)
     return own if isinstance(own, str) else getattr(hint, "__name__", None) or str(hint)
 
 
 def type_title(hint: Any) -> str:
-    """What a person reads for a type: its ``display_title`` if it declares one, else its name."""
+    """What a person reads for a type: its ``display_title`` (or ``Named`` title) if it declares one, else its name."""
+    if _marked(hint, Named):
+        named = next(m for m in get_args(hint)[1:] if isinstance(m, Named))
+        return named.title or named.id
     own = getattr(hint, "display_title", None)
     return own if isinstance(own, str) else getattr(hint, "__name__", None) or str(hint)
 

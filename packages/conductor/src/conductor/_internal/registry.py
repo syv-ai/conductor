@@ -37,6 +37,7 @@ node of a record to a newer version.
 from __future__ import annotations
 
 import dataclasses
+import typing
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Concatenate
@@ -44,7 +45,7 @@ from typing import TYPE_CHECKING, Any, Concatenate
 from pydantic import JsonValue
 
 from conductor._internal.errors import InvalidCallError, NodeDeclarationError, make_problem
-from conductor._internal.fields import accepts, type_id, type_title, without_none
+from conductor._internal.fields import Named, accepts, type_id, type_title, without_none
 from conductor._internal.node_definition import NodeDefinition, checked_extra, node
 from conductor._internal.record import GraphRecord, NodeRecord, as_record
 
@@ -77,7 +78,7 @@ class NodeRegistry:
         category: str = "",
         tags: Sequence[str] = (),
         extra: Mapping[str, JsonValue] | None = None,
-        types: Iterable[type] = (),
+        types: Iterable[Any] = (),
     ) -> None:
         """An empty registry whose nodes default to ``category``, ``tags`` and ``extra``, holding the types in ``types``."""
         self._category = category
@@ -86,12 +87,12 @@ class NodeRegistry:
         #: The types a host names, whether or not a node declares them.
         self._named_types = tuple(types)
         for named in self._named_types:
-            if not isinstance(named, type):
+            if not isinstance(named, type) and not _is_named(named):
                 raise NodeDeclarationError(f"{named!r} is not a type; pass the class itself", code="not_a_type")
         #: The definitions, by id, in the order they arrived.
         self._nodes: dict[str, NodeDefinition[..., Any]] = {}
         #: Every type, by id: the ones the nodes declare, then the named ones.
-        self._types: dict[str, type] = _types_by_id(self._named_types, ())
+        self._types: dict[str, Any] = _types_by_id(self._named_types, ())
 
     def __repr__(self) -> str:
         """How many nodes it holds, then each as its own repr, one per line."""
@@ -208,11 +209,11 @@ class NodeRegistry:
     # -- the types ---------------------------------------------------------------
 
     @property
-    def types(self) -> Mapping[str, type]:
+    def types(self) -> Mapping[str, Any]:
         """Every type by its id: the ones the nodes declare, then the ones a host named. Read-only."""
         return MappingProxyType(self._types)
 
-    def accepted_as(self, value_type: type) -> tuple[str, ...]:
+    def accepted_as(self, value_type: Any) -> tuple[str, ...]:
         """The ids of every type here a value of ``value_type`` may land on, its own included.
 
         Worked out from subclassing and each type's ``accepts``, so no table of
@@ -312,9 +313,9 @@ def _renamed_on(address: str, node_id: str, renames: Mapping[str, str]) -> str:
     return f"{owner}.{renames[field]}{dot}{column}" if owner == node_id and field in renames else address
 
 
-def _types_by_id(named: Iterable[type], definitions: Iterable[NodeDefinition[..., Any]]) -> dict[str, type]:
+def _types_by_id(named: Iterable[Any], definitions: Iterable[NodeDefinition[..., Any]]) -> dict[str, Any]:
     """The types ``definitions`` declare, then the named ones, by id; raises when one id names two classes."""
-    by_id: dict[str, type] = {}
+    by_id: dict[str, Any] = {}
     for held in (*(held for definition in definitions for held in _types_declared_by(definition)), *named):
         existing = by_id.setdefault(type_id(held), held)
         if existing is not held:
@@ -345,18 +346,24 @@ def _where_declared(definition: NodeDefinition[..., Any]) -> str:
     return f"{getattr(definition.function, '__module__', '?')}.{getattr(definition.function, '__qualname__', '?')}"
 
 
-def _types_declared_by(definition: NodeDefinition[..., Any]) -> list[type]:
+def _types_declared_by(definition: NodeDefinition[..., Any]) -> list[Any]:
     """Every class a node's versions declare on their inputs and outputs, each once, in declaration order."""
-    found: list[type] = []
+    found: list[Any] = []
     step: NodeDefinition[..., Any] | None = definition
     while step is not None:
         for spec in (*step.inputs.values(), *step.outputs.values()):
             held = without_none(spec.type)
-            if spec.shape != "table" and isinstance(held, type) and held is not Any and held not in found:
+            if spec.shape != "table" and (isinstance(held, type) or _is_named(held)) and held is not Any and held not in found:
                 found.append(held)
         step = step.replaces
     return found
 
 
-def _qualified_name(held: type) -> str:
+def _is_named(hint: Any) -> bool:
+    return typing.get_origin(hint) is typing.Annotated and any(isinstance(m, Named) for m in hint.__metadata__)
+
+
+def _qualified_name(held: Any) -> str:
+    if _is_named(held):
+        return f"Annotated[{typing.get_args(held)[0].__name__}, Named({type_id(held)!r})]"
     return f"{held.__module__}.{held.__qualname__}"

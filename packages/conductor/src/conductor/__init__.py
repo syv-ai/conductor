@@ -23,7 +23,7 @@ from conductor._internal.errors import (
     NodeError,
     Problem,
 )
-from conductor._internal.fields import SKIPPED, FromRun, Param, Series
+from conductor._internal.fields import SKIPPED, FromRun, Named, Param, Series
 from conductor._internal.graph import Graph, GraphInput, Receives, RunsOn
 from conductor._internal.node_definition import Deprecation, NodeDefinition, Policy, Upgrade, node
 from conductor._internal.record import GraphRecord, NodeRecord, make_graph
@@ -48,6 +48,7 @@ __all__ = [
     "GraphInput",
     "GraphRecord",
     "InvalidCallError",
+    "Named",
     "NodeDeclarationError",
     "NodeDefinition",
     "NodeError",

@@ -616,3 +616,33 @@ def test_a_registry_is_a_container_and_not_a_mapping():
 
     assert isinstance(registry, Container) and not isinstance(registry, Mapping)
     assert not hasattr(registry, "get") and not hasattr(registry, "items")
+
+
+def test_a_type_with_no_class_of_its_own_is_named_with_named():
+    from typing import Annotated
+
+    from conductor import Named, make_graph, node
+
+    YesNo = Annotated[bool, Named("yes-no", title="Ja/Nej")]
+
+    @node("approved")
+    def approved(text: str) -> YesNo:
+        return bool(text)
+
+    @node("note")
+    def note(ok: bool) -> str:
+        return "yes" if ok else "no"
+
+    @node("maybe")
+    def maybe(ok: Annotated[YesNo, Param(title="OK")] = False) -> YesNo | None:
+        return ok
+
+    registry = NodeRegistry(types=[YesNo])
+    registry.add(approved, note, maybe)
+    described = registry.describe()
+    assert {"id": "yes-no", "title": "Ja/Nej", "accepted_as": ["yes-no", "bool"]} in described["types"]
+    assert approved.describe()["outputs"][0]["type"] == "yes-no" and maybe.describe()["outputs"][0]["type"] == "yes-no"
+    assert maybe.describe()["inputs"][0]["title"] == "OK" and maybe.describe()["inputs"][0]["type"] == "yes-no"
+    assert "yes-no" in registry.accepted_as(bool)
+    graph = registry.load(make_graph(approved, note, maybe, edges=[("approved.result", "note.ok"), ("approved.result", "maybe.ok")]))
+    assert graph.problems == [] and graph.run(text="x").outputs == {"note.result": "yes", "maybe.result": True}
