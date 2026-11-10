@@ -733,20 +733,14 @@ class Graph:
                 renamed[f"{node_record.id}.{name}"] = f"{inner_node}.{inner_input}"
             for name, address in outs.items():
                 renamed[f"{node_record.id}.{name}"] = address
-            typed: dict[str, dict[str, dict[str, Any]]] = {}
-            for key in ("values", "defaults"):
-                for name, value in getattr(node_record, key).items():
-                    if name not in ins:
-                        self.problems.append(make_problem("unknown_input", node_record.id, name, inputs=list(ins)))
-                        continue
-                    typed.setdefault(ins[name][0], {}).setdefault(key, {})[ins[name][1]] = value
-            # What the outside gives an input it offers (a value, a default, an edge) takes the place of the inner default.
+            for name in sorted({*node_record.values, *node_record.defaults} - ins.keys()):
+                self.problems.append(make_problem("unknown_input", node_record.id, name, inputs=list(ins)))
             drawn_id = node_record.id[len(prefix):]
-            for _, target in record.edges:
-                to_node, _, name = target.partition(".")
-                if to_node == drawn_id and name in ins:
-                    typed.setdefault(ins[name][0], {}).setdefault("fed", {})[ins[name][1]] = None
-            inner = [(_given_from_outside(r, typed[r.id]) if r.id in typed else r, d) for r, d in inner]
+            fed = {target.partition(".")[2] for _, target in record.edges if target.partition(".")[0] == drawn_id}
+            by_node: dict[str, dict[str, str]] = {}
+            for name, (node_id, inner_input) in ins.items():
+                by_node.setdefault(node_id, {})[name] = inner_input
+            inner = [(_given_from_outside(r, node_record, by_node[r.id], fed) if r.id in by_node else r, d) for r, d in inner]
             out.extend(inner)
             edges.extend(inner_edges)
         followed = []
@@ -1302,14 +1296,27 @@ def load_graph(
     return graph
 
 
-def _given_from_outside(record: NodeRecord, typed: Mapping[str, Mapping[str, Any]]) -> NodeRecord:
-    """An embedded graph's node with what the record embedding it gives its offered inputs: values and defaults typed
-    in, each replacing the inner default of its input, as an edge from outside does."""
-    outside = {name for given in typed.values() for name in given}
-    defaults = {name: value for name, value in record.defaults.items() if name not in outside}
+def _given_from_outside(record: NodeRecord, embedding: NodeRecord, offered: Mapping[str, str], fed: set[str]) -> NodeRecord:
+    """An embedded graph's node with what the record embedding it gives the inputs it offers.
+
+    Args:
+        record: The inner node, under its spliced id.
+        embedding: The node of the outer record that embeds the graph; its values and defaults are by offered name.
+        offered: Each input the embedding offers onto ``record``, by its name there: the input of ``record`` behind it.
+        fed: The offered names an edge of the outer record feeds.
+
+    Returns:
+        ``record`` with each value and default typed on the embedding moved onto its input, and the inner default
+        of every input the outside gives anything (a value, a default or an edge) dropped.
+    """
+    values = {offered[name]: value for name, value in embedding.values.items() if name in offered}
+    defaults = {offered[name]: value for name, value in embedding.defaults.items() if name in offered}
+    replaced = {*values, *defaults, *(inner_input for name, inner_input in offered.items() if name in fed)}
+    if not replaced:
+        return record
     return record.model_copy(update={
-        "values": {**record.values, **typed.get("values", {})},
-        "defaults": {**defaults, **typed.get("defaults", {})},
+        "values": {**record.values, **values},
+        "defaults": {**{k: v for k, v in record.defaults.items() if k not in replaced}, **defaults},
     })
 
 
