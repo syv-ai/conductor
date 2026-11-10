@@ -87,6 +87,15 @@ def test_every_message_says_what_to_do() -> None:
     assert without == []
 
 
+def test_every_declaration_message_says_what_to_do() -> None:
+    """A declaration's message carries its fix too: a clause after what is wrong, past the name of the field it is about."""
+    without = [
+        (code, text) for code, texts in _declaration_codes().items() for text in texts
+        if not re.search(r"[;,] \S", re.sub(r"^\{[^}]+\}: ", "", text))
+    ]
+    assert without == []
+
+
 def test_each_example_prints_its_code(monkeypatch: pytest.MonkeyPatch) -> None:
     page = types.ModuleType("problems_page")  # a dataclass on the page looks its module up by name
     monkeypatch.setitem(sys.modules, page.__name__, page)

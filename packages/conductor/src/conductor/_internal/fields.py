@@ -470,7 +470,7 @@ def _checked(spec: FieldSpec, where: str) -> FieldSpec:
     base = _unnamed(without_none(spec.type))
     limits = set(spec.param.constraints)
     if spec.shape == "table" and limits:
-        raise NodeDeclarationError(f"{where}{spec.name}: a table takes no limits", code="bound_invalid")
+        raise NodeDeclarationError(f"{where}{spec.name}: a table takes no limits; take them off", code="bound_invalid")
     numeric = base in (int, float, datetime.date, datetime.datetime) or (isinstance(base, type) and issubclass(base, (int, float)))
     sized = base in (str, bytes) or (isinstance(base, type) and issubclass(base, (str, bytes)))
     if (limits & _NUMERIC and not numeric) or (limits & _SIZED and not sized):

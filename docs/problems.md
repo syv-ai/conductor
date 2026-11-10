@@ -954,7 +954,7 @@ except NodeDeclarationError as error:
 
 ### `bound_invalid`
 
-> {spec.name}: a table takes no limits
+> {spec.name}: a table takes no limits; take them off
 
 > {spec.name}: {sorted(limits)} can't apply to {getattr(base, '__name__', base)}; ge, gt, le, lt and multiple_of fit numbers and dates, min_length, max_length and pattern texts
 
@@ -994,7 +994,7 @@ except NodeDeclarationError as error:
 
 ### `compute_added_inputs_without_var_keyword`
 
-> a node with compute_added_inputs takes them as **kwargs
+> a node with compute_added_inputs takes them as **kwargs; add **values to its signature
 
 ```python
 def operands(count: int) -> dict[str, type]:
@@ -1113,7 +1113,7 @@ except NodeDeclarationError as error:
 
 ### `hook_parameter_unknown`
 
-> {kind} parameter {name}: a hook's parameters are passed by name
+> {kind} parameter {name}: a hook's parameters are passed by name; name each after an input of the node
 
 > {kind} parameter {name} names no input of the node; it has {sorted(inputs)}
 
@@ -1134,7 +1134,7 @@ except NodeDeclarationError as error:
 
 ### `input_without_type`
 
-> {name}: an input needs a type hint
+> {name}: an input needs a type hint; write one, as it is the input's interface
 
 ```python
 try:
@@ -1222,7 +1222,7 @@ except NodeDeclarationError as error:
 
 ### `output_without_type`
 
-> a node needs a return type
+> a node needs a return type; write one, or -> None for no outputs
 
 ```python
 try:
@@ -1258,7 +1258,7 @@ except NodeDeclarationError as error:
 
 ### `parameter_not_by_name`
 
-> {name}: a node's inputs are passed by name
+> {name}: a node's inputs are passed by name; drop the / and *args
 
 ```python
 try:

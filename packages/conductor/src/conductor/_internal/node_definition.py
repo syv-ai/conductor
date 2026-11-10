@@ -367,7 +367,7 @@ def node(
         inputs = {name: spec for name, spec in inputs.items() if name not in from_run}
         takes_kwargs = any(p.kind is p.VAR_KEYWORD for p in inspect.signature(target).parameters.values())
         if compute_added_inputs is not None and not takes_kwargs:
-            raise NodeDeclarationError(f"{where}a node with compute_added_inputs takes them as **kwargs", code="compute_added_inputs_without_var_keyword")
+            raise NodeDeclarationError(f"{where}a node with compute_added_inputs takes them as **kwargs; add **values to its signature", code="compute_added_inputs_without_var_keyword")
         if compute_added_inputs is None and takes_kwargs:
             raise NodeDeclarationError(f"{where}**kwargs takes the inputs compute_added_inputs adds; the node has no such hook, so remove **kwargs or add compute_added_inputs=", code="var_keyword_without_hook")
         for hook, kind in ((compute_added_inputs, "compute_added_inputs"), (compute_outputs, "compute_outputs")):
@@ -445,9 +445,9 @@ def _read_signature(where: str, function: Callable[..., Any], computed_outputs: 
         if parameter.kind is parameter.VAR_KEYWORD:
             continue
         if parameter.kind in (parameter.VAR_POSITIONAL, parameter.POSITIONAL_ONLY):
-            raise NodeDeclarationError(f"{where}{name}: a node's inputs are passed by name", code="parameter_not_by_name")
+            raise NodeDeclarationError(f"{where}{name}: a node's inputs are passed by name; drop the / and *args", code="parameter_not_by_name")
         if name not in hints:
-            raise NodeDeclarationError(f"{where}{name}: an input needs a type hint", code="input_without_type")
+            raise NodeDeclarationError(f"{where}{name}: an input needs a type hint; write one, as it is the input's interface", code="input_without_type")
         default = REQUIRED if parameter.default is inspect.Parameter.empty else parameter.default
         hint = hints[name]
         if typing.get_origin(hint) is typing.Annotated and any(isinstance(m, _FromRunMarker) for m in hint.__metadata__):
@@ -459,7 +459,7 @@ def _read_signature(where: str, function: Callable[..., Any], computed_outputs: 
         if inputs[name].param.exclusive_group is not None:
             raise NodeDeclarationError(f"{where}{name}: exclusive_group is for outputs; put it on an output's Param", code="exclusive_group_on_input")
     if "return" not in hints:
-        raise NodeDeclarationError(f"{where}a node needs a return type", code="output_without_type")
+        raise NodeDeclarationError(f"{where}a node needs a return type; write one, or -> None for no outputs", code="output_without_type")
     returns = hints["return"]
     if computed_outputs:
         return inputs, {}, returns
@@ -497,7 +497,7 @@ def _check_hook(where: str, hook: Callable[..., Any], kind: str, inputs: Mapping
     for name, parameter in inspect.signature(hook).parameters.items():
         arriving = parameter.annotation in (type, "type")
         if parameter.kind is not parameter.POSITIONAL_OR_KEYWORD and parameter.kind is not parameter.KEYWORD_ONLY:
-            raise NodeDeclarationError(f"{where}{kind} parameter {name!r}: a hook's parameters are passed by name", code="hook_parameter_unknown")
+            raise NodeDeclarationError(f"{where}{kind} parameter {name!r}: a hook's parameters are passed by name; name each after an input of the node", code="hook_parameter_unknown")
         if arriving and kind == "compute_added_inputs":
             raise NodeDeclarationError(f"{where}compute_added_inputs parameter {name!r} reads an arriving type, but inputs are decided before anything arrives; read it in compute_outputs", code="arriving_on_compute_added_inputs")
         if not arriving and name not in inputs:
