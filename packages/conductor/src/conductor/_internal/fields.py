@@ -43,13 +43,16 @@ from pydantic import (
     AfterValidator,
     BeforeValidator,
     ConfigDict,
+    GetCoreSchemaHandler,
+    GetJsonSchemaHandler,
     JsonValue,
     TypeAdapter,
     ValidationError,
 )
 from pydantic import Field as PydanticField
 from pydantic.errors import PydanticInvalidForJsonSchema
-from pydantic_core import PydanticCustomError, to_jsonable_python
+from pydantic.json_schema import JsonSchemaValue
+from pydantic_core import CoreSchema, PydanticCustomError, to_jsonable_python
 
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.errors import NodeDeclarationError, value_free_errors
@@ -165,6 +168,18 @@ class Param:
         object.__setattr__(self, "choices", None if choices is None else tuple(_choice(choice) for choice in choices))
         object.__setattr__(self, "constraints", constraints)
 
+    def __get_pydantic_core_schema__(self, source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
+        """``source`` checked and held to these limits, so ``Annotated[int, Param(ge=0)]`` is checked alike in any pydantic model."""
+        return handler(Annotated[source, PydanticField(**self.constraints)] if self.constraints else source)
+
+    def __get_pydantic_json_schema__(self, schema: CoreSchema, handler: GetJsonSchemaHandler) -> JsonSchemaValue:
+        """The JSON schema of the checked type, with this ``title`` and ``description`` where a model's field would carry them."""
+        written = handler(schema)
+        for key in ("title", "description"):
+            if getattr(self, key) is not None:
+                written[key] = getattr(self, key)
+        return written
+
 
 def _choice(given: Any) -> dict[str, Any]:
     """One choice as a record: a ``Choice`` (or a host's subclass of it) as its fields, any other value as itself titled by its text."""
@@ -259,13 +274,26 @@ class FieldSpec:
         return self.param.title or humanised(self.name)
 
     @functools.cached_property
-    def adapter(self) -> TypeAdapter[Any]:
-        """Checks one value of this field, held to its limits."""
-        carried = _carried(self.type)
-        one: Any = Annotated[carried, PydanticField(**self.param.constraints)] if self.param.constraints else carried
+    def _one(self) -> Any:
+        """The type one value is checked by: the type pydantic reads, its limits, its choices, and no ``bool`` on a number."""
+        one: Any = _carried(self.type)
+        if self.param.constraints:  # a field's title and description are its record's own, not repeated in its schema
+            one = Annotated[one, self.param]
         if self.param.choices is not None and literal_values(self.type) is None:
             one = Annotated[one, AfterValidator(self._one_of_the_choices)]
-        return TypeAdapter(_list_of(one) if self.shape == "many" else one)
+        if self.takes_a_number:  # pydantic's lax int and float take True as 1
+            one = Annotated[one, BeforeValidator(_not_a_bool)]
+        return one
+
+    @functools.cached_property
+    def adapter(self) -> TypeAdapter[Any]:
+        """Checks one value of this field (a ``Series``' list of them), held to its limits and choices."""
+        return TypeAdapter(_list_of(self._one) if self.shape == "many" else self._one)
+
+    @functools.cached_property
+    def list_adapter(self) -> TypeAdapter[Any]:
+        """Checks a list of values of a field that takes one, each run as its own row, and writes it as JSON."""
+        return TypeAdapter(_list_of(self._one), config=_FLOATS_AS_TEXT)
 
     @functools.cached_property
     def choice_ids(self) -> tuple[Any, ...]:
@@ -290,8 +318,10 @@ class FieldSpec:
 
     @functools.cached_property
     def takes_a_number(self) -> bool:
-        """Whether the type is a number's (``int``, ``float`` or a class of theirs), which a ``bool`` must not land on."""
+        """Whether the type is a number's (``int``, ``float``, a class of theirs, or a ``Literal`` of numbers), which a ``bool`` must not land on."""
         base = _unnamed(without_none(self.type))
+        if get_origin(base) is Literal:
+            return all(isinstance(value, (int, float)) and not isinstance(value, bool) for value in get_args(base))
         return base is not bool and isinstance(base, type) and issubclass(base, (int, float))
 
     @functools.cached_property
@@ -335,7 +365,7 @@ class FieldSpec:
         out: dict[str, Any] = {"name": self.name, "title": self.title, "shape": self.shape, "required": self.required}
         if self.shape != "table":
             out["type"] = type_id(without_none(self.type))
-            out["schema"] = _schema(self.type)
+            out["schema"] = _schema(self._one)
         else:
             out["columns"] = {c: _schema(t) for c, t in (self.columns or {}).items()}
         if not self.required:
@@ -350,8 +380,6 @@ class FieldSpec:
                 out[key] = to_jsonable_python(getattr(self.param, key), fallback=str)
         if self.param.setting:
             out["setting"] = True
-        if self.param.constraints:
-            out["constraints"] = to_jsonable_python(self.param.constraints, fallback=str)
         return out
 
 
@@ -381,7 +409,6 @@ class FieldDescription(ConductorModel):
     widget: dict[str, Any] | None = None
     exclusive_group: str | None = None
     setting: bool = False
-    constraints: dict[str, Any] | None = None
 
 
 def literal_values(hint: Any) -> tuple[Any, ...] | None:
@@ -524,7 +551,7 @@ SCALARS = frozenset({str, int, float, bool, type(None), datetime.date, datetime.
 
 
 def carried_list(hint: Any) -> TypeAdapter[Any]:
-    """Checks a list of ``hint``, as a caller gives many values on one input, and writes it as JSON."""
+    """Checks a list of values of ``hint``, as a saved column is read back, and writes it as JSON."""
     return TypeAdapter(_list_of(_carried(hint)), config=_FLOATS_AS_TEXT)
 
 
@@ -685,13 +712,25 @@ def already(target: Any, source: Any) -> bool:
     return all(isinstance(s, type) and not typing.is_typeddict(s) and any(issubclass(s, t) for t in targets) for s in sources)
 
 
-def refuse_a_bool_for_a_number(spec: FieldSpec, value: Any) -> None:
-    """``Refused`` for ``True`` or ``False`` typed in or given where a number is asked for, as an edge from a ``bool`` is."""
-    if not spec.takes_a_number:
-        return
-    values = value if isinstance(value, list) else [value]
-    if any(isinstance(item, bool) for item in values):
-        raise Refused("a yes or no is not a number; give a number")
+def _not_a_bool(value: Any) -> Any:
+    if isinstance(value, bool):
+        raise PydanticCustomError("bool_is_not_a_number", "a yes or no is not a number; give a number")
+    return value
+
+
+def read_given(spec: FieldSpec, value: Any, *, items: bool) -> Any:
+    """``value`` typed into ``spec`` or given for it by a caller, a list of its values with ``items``; ``Refused`` if
+    it can't be. A table may be a list of records."""
+    if value is None and spec.shape == "many" and spec.default is None:
+        return None  # a Series that may be None
+    try:
+        if items:
+            return spec.list_adapter.validate_python(value)
+        if spec.shape == "table":
+            return read_table(spec, value, strict=False, given=True)
+        return spec.adapter.validate_python(value)
+    except ValidationError as error:
+        raise _refused(error) from None
 
 
 def read_value(spec: FieldSpec, value: Any, *, strict: bool) -> Any:

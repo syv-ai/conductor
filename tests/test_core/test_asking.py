@@ -630,7 +630,7 @@ def test_a_question_record_is_json_a_host_draws_from_with_no_graph_loaded():
         "questions": [{
             "name": "result", "title": "Assignee", "shape": "one", "required": False, "type": "str", "schema": {"type": "string"},
             "choices": [{"id": "ida", "title": "Ida B."}], "default": "ida", "widget": {"type": "textarea", "rows": 4},
-            "columns": None, "description": None, "exclusive_group": None, "setting": False, "constraints": None,
+            "columns": None, "description": None, "exclusive_group": None, "setting": False,
         }],
     }
 

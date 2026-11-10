@@ -19,7 +19,9 @@ What changes in how you work, before the name-by-name tables:
 - **A node is a typed function.** `@node("id")` (registers nothing) or `@registry.node("id")`
   returns a frozen, callable `NodeDefinition`. The signature is the interface:
   `Annotated[str, Param(title=, widget=, ge=, ...)]` for what a person sees and the limits a value
-  keeps, `-> X` for one output named `result`, a frozen dataclass for several. `async def` and
+  keeps (pydantic metadata, so it holds inside your own `BaseModel` too, and a field's `schema`
+  carries the limits), `-> X` for one output named `result`, a frozen dataclass for several. A
+  `bool` never lands on a number, a `Literal` of numbers included. `async def` and
   auto-discovery are gone. A node declared wrong raises `NodeDeclarationError` at import, with a
   `code`; [`docs/problems.md`](docs/problems.md) lists them.
 - **Loops are rows.** A list or a column on an input typed for one value runs the node once per
@@ -27,10 +29,12 @@ What changes in how you work, before the name-by-name tables:
   the graph (`graph.inputs[name].per_item` says where a list is rows). `Series[X]` takes many values
   and `Table[R]` a whole `polars.DataFrame`. Two lists meeting at one node are refused
   (`lists_not_collected`) until a node collects one. `graph.calls_for(file=11)` says each node's
-  calls before a run. A blank skips the node for that row unless its input says `| None`.
+  calls before a run. A blank skips the node for that row unless its input says `| None`. Each item
+  of a list given there is held to the input's limits and choices, as one value is.
 - **Loading never raises for a fault in the graph.** `registry.load(record)` returns a `Graph`;
   read `graph.problems`, each a `Problem(type, loc, msg, ctx)`. Only a record of the wrong shape raises,
-  `InvalidCallError` with the code `invalid_record`. `make_graph(*nodes, edges=, values=, defaults=)`
+  `InvalidCallError` with the code `invalid_record`. A value typed in or given that its field refuses
+  (`invalid_value`, `invalid_input`) carries pydantic's value-free `errors` in `ctx`. `make_graph(*nodes, edges=, values=, defaults=)`
   writes a record from Python and raises at the call for a fault of what it was told: an address, a
   value, or an edge whose types don't meet (`type_mismatch`).
 - **A run is one value.** `graph.run(**inputs)` returns a `Run` whose `status` says how the leg

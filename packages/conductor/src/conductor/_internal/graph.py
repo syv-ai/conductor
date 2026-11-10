@@ -48,7 +48,6 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 
 import polars as pl
-from pydantic import ValidationError
 
 from conductor._internal.ask import questions_of
 from conductor._internal.conductor_model import ConductorModel
@@ -58,7 +57,6 @@ from conductor._internal.errors import (
     NodeError,
     Problem,
     make_problem,
-    value_free_errors,
 )
 from conductor._internal.fields import (
     REQUIRED,
@@ -67,11 +65,9 @@ from conductor._internal.fields import (
     Refused,
     accepts,
     already,
-    carried_list,
     given_as_items,
     read_field,
-    read_table,
-    refuse_a_bool_for_a_number,
+    read_given,
     type_id,
 )
 from conductor._internal.node_definition import NodeDefinition, is_node_id
@@ -589,13 +585,7 @@ class Graph:
             if spec.shape == "many" and value is not None and not isinstance(value, (list, tuple, set, frozenset, range, pl.Series)):
                 value = [value]  # one value where many are taken is a list of one
             try:
-                refuse_a_bool_for_a_number(spec, value)
-                if spec.shape == "table":
-                    values[key] = read_table(spec, value, strict=False, given=True)
-                else:
-                    values[key] = (carried_list(spec.type) if offered.listed else spec.adapter).validate_python(value)
-            except ValidationError as error:
-                problems.append(make_problem("invalid_input", "inputs", name, name=name, reason=value_free_errors(error)[0]["msg"]))
+                values[key] = read_given(spec, value, items=offered.listed)
             except Refused as refused:
                 problems.append(make_problem("invalid_input", "inputs", name, name=name, reason=refused.reason, **refused.ctx))
         if problems:
@@ -926,22 +916,12 @@ class Graph:
 
     def _typed(self, node_id: str, name: str, spec: FieldSpec, value: Any, *, items: bool = False) -> Any:
         """``value`` as ``spec`` reads it (a list of them with ``items``), or ``REQUIRED`` with the problem noted."""
-        if value is None and spec.shape == "many" and spec.default is None:
-            return None  # a Series that may be None
         try:
-            refuse_a_bool_for_a_number(spec, value)
-            if items:
-                return carried_list(spec.type).validate_python(value)
-            if spec.shape == "table":
-                return read_table(spec, value, strict=False, given=True)
-            return spec.adapter.validate_python(value)
-        except ValidationError as error:
-            problem = make_problem("invalid_value", node_id, name, reason=value_free_errors(error)[0]["msg"])
+            return read_given(spec, value, items=items)
+        except Refused as refused:
+            problem = make_problem("invalid_value", node_id, name, reason=refused.reason, **refused.ctx)
             if problem not in self.problems:  # a hook reads the value its node's input reads, and is told once
                 self.problems.append(problem)
-            return REQUIRED
-        except Refused as refused:
-            self.problems.append(make_problem("invalid_value", node_id, name, reason=refused.reason, **refused.ctx))
             return REQUIRED
 
     def _typed_list(self, placed: PlacedNode, name: str, plan: InputPlan, value: Any) -> None:
@@ -971,7 +951,7 @@ class Graph:
         items = not required and given_as_items(plan.spec, plan.value)
         graph_input = plan.spec.describe(
             GraphInput, address=address, node_id=placed.id, per_item=plan.spec.per_item, required=required,
-            default=None if required else carried_list(plan.spec.type).dump_python(plan.value, mode="json") if items else _jsonable(plan.spec, plan.value),
+            default=None if required else plan.spec.list_adapter.dump_python(plan.value, mode="json") if items else _jsonable(plan.spec, plan.value),
         )
         self._graph_inputs.append((graph_input, address, plan.spec, plan.value))
 

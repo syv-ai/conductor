@@ -346,7 +346,7 @@ def test_bounds_are_on_the_field_an_editor_reads():
     def f(n: Annotated[int, Param(ge=0, le=9)], s: Annotated[str, Param(max_length=3)] = "a") -> int:
         return n
 
-    assert [i.constraints for i in f.describe().inputs] == [{"ge": 0, "le": 9}, {"max_length": 3}]
+    assert [i.json_schema for i in f.describe().inputs] == [{"type": "integer", "minimum": 0, "maximum": 9}, {"type": "string", "maxLength": 3}]
 
 
 def test_a_value_typed_into_a_series_is_checked_item_by_item_at_load_and_arrives_as_a_list():

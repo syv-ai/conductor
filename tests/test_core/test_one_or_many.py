@@ -8,10 +8,11 @@ from __future__ import annotations
 
 import json
 from collections import Counter
-from typing import Any
+from typing import Annotated, Any, Literal
 
 import pytest
-from conductor import Ask, GraphRecord, InvalidCallError, NodeRegistry, Series, node
+from conductor import Ask, GraphRecord, InvalidCallError, NodeRegistry, Param, Series, node
+from pydantic import BaseModel, ValidationError
 
 CALLS: Counter[str] = Counter()
 registry = NodeRegistry()
@@ -225,3 +226,64 @@ def test_a_run_given_a_list_that_waits_saves_and_loads_back_into_the_same_rows()
     assert done.outputs == {"q.result": [False, True]}
     one = graph.run(text="a")
     assert graph.load_run(one.to_json()).answer(one.waiting[0].id, True).resume().outputs == {"q.result": True}
+
+
+# -- each item of a list is checked as one value is ------------------------------------------------
+
+
+def _checked_registry() -> NodeRegistry:
+    held = NodeRegistry()
+
+    @held.node("count")
+    def count(n: Annotated[int, Param(ge=0)]) -> int:
+        return n
+
+    @held.node("level")
+    def level(n: Literal[1, 2, 3]) -> int:
+        return n
+
+    @held.node("pick")
+    def pick(s: Annotated[str, Param(choices=["a", "b"])]) -> str:
+        return s
+
+    return held
+
+
+def _refused_as(call: Any) -> list[tuple[str, str]]:
+    with pytest.raises(InvalidCallError) as refused:
+        call()
+    return [(p.type, p.ctx["errors"][0]["type"]) for p in refused.value.errors()]
+
+
+@pytest.mark.parametrize(("node_id", "items", "error"), [
+    ("count", [1, -1], "greater_than_equal"),
+    ("count", [1, True], "bool_is_not_a_number"),
+    ("level", [1, True], "bool_is_not_a_number"),
+    ("pick", ["a", "z"], "not_a_choice"),
+], ids=["limit", "bool-on-int", "bool-on-literal", "choice"])
+def test_each_item_of_a_list_given_or_typed_in_keeps_the_inputs_limits_and_choices(node_id, items, error):
+    held = _checked_registry()
+    graph = held.load(GraphRecord(nodes=[{"id": "x", "node": node_id}]))
+    name = "s" if node_id == "pick" else "n"
+
+    assert _refused_as(lambda: graph.run({name: items})) == [("invalid_input", error)]
+    (problem,) = held.load(GraphRecord(nodes=[{"id": "x", "node": node_id, "values": {name: items}}])).problems
+    assert (problem.type, problem.ctx["errors"][0]["type"]) == ("invalid_value", error)
+
+
+def test_a_yes_or_no_never_lands_on_a_literal_of_numbers():
+    graph = _checked_registry().load(GraphRecord(nodes=[{"id": "x", "node": "level"}]))
+
+    assert _refused_as(lambda: graph.run(n=True)) == [("invalid_input", "bool_is_not_a_number")]
+    assert graph.run(n=2).outputs == {"x.result": 2}
+
+
+class Order(BaseModel):
+    count: Annotated[int, Param(title="Count", ge=0)]
+
+
+def test_a_param_holds_its_limits_inside_a_hosts_own_model_and_its_schema_says_them():
+    with pytest.raises(ValidationError) as refused:
+        Order(count=-1)
+    assert refused.value.errors()[0]["type"] == "greater_than_equal"
+    assert Order.model_json_schema()["properties"]["count"] == {"type": "integer", "minimum": 0, "title": "Count"}

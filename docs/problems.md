@@ -272,7 +272,7 @@ print(problems({"nodes": [{"id": "a.b", "node": "upper"}]}))  # ['invalid_node_i
 print(problems({"nodes": [{"id": "c", "node": "count", "values": {"n": "many"}}]}))  # ['invalid_value']
 ```
 
-**Fix.** Type in a value of the field's type. `reason` says what the type refused, without quoting the value.
+**Fix.** Type in a value of the field's type. `reason` says what the type refused, without quoting the value; `errors` is pydantic's list of what it refused (`type`, `loc`, `msg`), each without the value, so a host can key on `greater_than_equal` or `bool_is_not_a_number`.
 
 ### `lists_not_collected`
 
@@ -583,7 +583,7 @@ counting = registry.load(make_graph(count))
 print(refused(lambda: counting.run(n="many")))  # ['invalid_input']
 ```
 
-**Fix.** Give a value of the input's type. `graph.inputs[name].describe()` has its schema.
+**Fix.** Give a value of the input's type. `graph.inputs[name].json_schema` is its schema, limits included. `reason` and `errors` are as `invalid_value` has them.
 
 ### `invalid_max_rows`
 

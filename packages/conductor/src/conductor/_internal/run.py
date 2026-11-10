@@ -1118,8 +1118,7 @@ def _load_input(graph: Graph, address: str, saved: Any) -> Any:
     field = graph._input_fields[address]
     if field.spec.shape == "table":
         return None if saved is None else _load_frame(field.spec, saved, address).frame()
-    adapter = carried_list(field.spec.type) if field.listed else field.spec.adapter
-    return adapter.validate_python(saved)
+    return (field.spec.list_adapter if field.listed else field.spec.adapter).validate_python(saved)
 
 
 def _frame_json(value: Any) -> Any:
