@@ -1714,3 +1714,19 @@ def test_an_embedding_with_outputs_on_two_grains_runs_where_its_outermost_output
     graph = registry.load(make_graph(split, registry["inner"], edges=[("split.result", "inner.value")], values={"split.text": "A-1,B-2"}))
     assert graph.plan["inner"].table == "split.result"
     assert graph.run().results["inner"]["count/result"] == [2, 2]
+
+
+def test_an_embedded_graphs_many_lapses_on_an_input_the_outer_graph_wires():
+    """``many`` says how a caller fills an open input; fed by an outer edge per row, the input takes one value per row."""
+
+    @node("read")
+    def read(file: str) -> str:
+        return file.upper()
+
+    inner = node("each")(GraphRecord(nodes=[NodeRecord(id="r", node="read", many={"file"})]))
+    registry = registry_of(split, read, inner)
+    wired = ran({"id": "s", "node": "split"}, {"id": "e", "node": "each"}, edges=(("s.result", "e.file"),), registry=registry, text="x,y")
+    assert wired.results["e"]["result"] == ["X", "Y"]
+
+    alone = graph({"id": "e", "node": "each"}, registry=registry)
+    assert alone.inputs["file"].many and alone.run(file=["a", "b"]).results["e"]["result"] == ["A", "B"]

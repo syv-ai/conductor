@@ -1144,13 +1144,17 @@ def _interface(
 
 def _given_from_outside(record: NodeRecord, typed: Mapping[str, Mapping[str, Any]], many: set[str] | None) -> NodeRecord:
     """An embedded graph's node with what the record embedding it gives its offered inputs: values and defaults typed in,
-    each replacing the inner default of its input, as an edge from outside does; ``many`` added to its own."""
+    each replacing the inner default of its input, as an edge from outside does; ``many`` added to its own.
+
+    An inner ``many`` says how a caller fills an open input, so it lapses on an input an outer edge feeds.
+    """
     outside = {name for given in typed.values() for name in given}
     defaults = {name: value for name, value in record.defaults.items() if name not in outside}
+    kept = record.many - typed.get("fed", {}).keys()
     return record.model_copy(update={
         "values": {**record.values, **typed.get("values", {})},
         "defaults": {**defaults, **typed.get("defaults", {})},
-        **({"many": record.many | many} if many else {}),
+        **({"many": kept | (many or set())} if many or kept != record.many else {}),
     })
 
 
