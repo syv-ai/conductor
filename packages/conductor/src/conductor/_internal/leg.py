@@ -52,6 +52,10 @@ from conductor._internal.run import (
 if TYPE_CHECKING:
     from conductor._internal.graph import PlacedNode
 
+#: What a call can raise that is never tried again, whatever a ``Policy``'s ``retry_on`` names: the node's own failure,
+#: an output its type refused, a question for a person. Repeating the call repeats it.
+_NEVER_RETRIED = (NodeError, Refused, Ask)
+
 #: The least time between two ``NodeProgress`` of one node.
 _SECONDS_BETWEEN_PROGRESS = 0.25
 
@@ -379,9 +383,12 @@ class Leg:
             self._record(placed, key, self._outcome(placed, key, kwargs, out, error))
 
     def _retry(self, placed: PlacedNode, key: Key, kwargs: dict[str, Any], attempt: int, error: BaseException | None) -> bool:
-        """Put a failed attempt on a timer if the policy says to try again."""
+        """Put a failed attempt on a timer if the policy says to try again: an ``ExternalFailure``, or a class ``retry_on``
+        names, never a node's own ``NodeError``, an output its type refused or an ``Ask``."""
         policy = placed.definition.policy
-        if error is None or attempt >= policy.retries or self.run.status != "running" or not isinstance(error, (ExternalFailure, *policy.retry_on)):
+        if error is None or attempt >= policy.retries or self.run.status != "running":
+            return False
+        if not isinstance(error, ExternalFailure) and (isinstance(error, _NEVER_RETRIED) or not isinstance(error, policy.retry_on)):
             return False
         delay = policy.retry_delay * 2**attempt
         self.running[(placed.id, key)] = kwargs

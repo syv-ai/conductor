@@ -70,6 +70,32 @@ def test_a_foreign_exception_runs_once_and_is_execution_failed_and_quotes_nothin
     assert events[-1].run.status == "failed" and events[-1].run.cause == failed.cause
 
 
+@pytest.mark.parametrize("concurrency", [1, 2])
+def test_a_node_error_a_wrong_output_and_an_ask_are_never_retried_whatever_retry_on_names(concurrency):
+    calls: list[str] = []
+    policy = Policy(retries=3, retry_delay=0.01, retry_on=(BaseException,), concurrency=concurrency)
+
+    @node("own", policy=policy)
+    def own(text: str = "") -> str:
+        calls.append("own")
+        raise NodeError("The document could not be read.", code="unreadable")
+
+    @node("wrong", policy=policy)
+    def wrong(text: str = "") -> int:
+        calls.append("wrong")
+        return "not a number"  # type: ignore[return-value]
+
+    @node("asks", policy=policy)
+    def asks(text: str = "") -> str:
+        calls.append("asks")
+        raise Ask("Which?")
+
+    causes = [_alone(definition).run().cause for definition in (own, wrong)]
+
+    assert [c.type for c in causes] == ["unreadable", "invalid_output"] and _alone(asks).run().status == "waiting"
+    assert calls == ["own", "wrong", "asks"]
+
+
 def test_a_foreign_exception_named_in_retry_on_is_external_and_retries():
     calls: list[int] = []
 

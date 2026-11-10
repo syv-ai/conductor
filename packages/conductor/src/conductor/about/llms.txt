@@ -207,7 +207,7 @@ second = first.again(contact=[*contacts, "eva@c.dk"])     # one row added: one m
 
 Retries live on the node's `Policy`, per unit.
 
-- Only `ExternalFailure` retries: raised by the node, or a class in `Policy.retry_on` (`external_failed`). Anything else is `execution_failed` or the node's own `NodeError` code, run once.
+- Only `ExternalFailure` retries: raised by the node, or a class in `Policy.retry_on` (`external_failed`). Anything else is `execution_failed` or the node's own `NodeError` code, run once. A `NodeError` other than `ExternalFailure`, an `invalid_output` and an `Ask` are never retried, even when `retry_on` names a class they derive from, such as `Exception`.
 - Attempt `n` waits `retry_delay * 2 ** (n - 1)` and emits `node_retry`.
 - `Policy.attempt_timeout` bounds one attempt: the unit fails with the code `timeout`, final; the thread is not interrupted.
 - `run.resume(timeout=60)` ends the leg `timed_out`; `run.stream(cancel=asyncio.Event())` ends it `cancelled` when set, and so does leaving the loop. Either way the calls already made finish and are kept, so resuming repeats none of them.

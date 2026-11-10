@@ -44,7 +44,8 @@ What changes in how you work, before the name-by-name tables:
   itself as JSON (`run.to_json()`, `graph.load_run(saved)`; a save that doesn't fit is `state_unreadable`,
   `ctx.at` its place in the save) and runs again on changed inputs,
   calling only the rows that changed (`run.again(...)`).
-- **Only an outside failure is retried.** `ExternalFailure`, or a class in `Policy(retry_on=)`.
+- **Only an outside failure is retried.** `ExternalFailure`, or a class in `Policy(retry_on=)`;
+  a `NodeError`, a wrong output or an `Ask` never is, whatever `retry_on` names.
   A node's own exception goes to the `conductor` logger, never to an event.
 - **Two companion packages, rebuilt on this API.** `syv-conductor-nodes` holds 29 nodes that only
   compute, a registry per module (`conductor_nodes.text.registry`) and all of them in
