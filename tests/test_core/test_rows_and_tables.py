@@ -22,6 +22,7 @@ from conductor import (
     Param,
     Series,
     Table,
+    make_graph,
     node,
 )
 
@@ -1669,3 +1670,13 @@ def test_a_gather_over_rows_a_blank_kept_from_being_made_is_not_called_and_is_no
     assert run.results["t"]["result"] == 3
     assert {(n["node_id"], n["row"], n["input"]) for n in run.not_called} >= {("c", (1,), "items"), ("w", (1,), "table")}
 
+
+
+def test_a_polars_series_returned_for_a_series_output_is_its_values():
+    import polars as pl
+
+    @node("lengths")
+    def lengths(text: str) -> Series[int]:
+        return pl.Series([len(word) for word in text.split()])
+
+    assert registry_of(lengths).load(make_graph(lengths)).run(text="a bb ccc").outputs == {"lengths.result": [1, 2, 3]}

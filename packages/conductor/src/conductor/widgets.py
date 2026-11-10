@@ -1,12 +1,15 @@
 """Widgets — how a person edits an input.
 
 A widget is the control an input is edited with, plus what that control
-needs: a dropdown's choices, a text area's height. It is a frozen,
+needs: a slider's step, a text area's height. It is a frozen,
 keyword-only record with a ``type``, and neither loading nor the engine
 reads it: conductor carries it from the signature to whatever draws the
 editor. An author writes one on the ``Param`` inside ``Annotated``::
 
-    language: Annotated[Text, Param(widget=Dropdown(choices=(Choice("en", "English"),)))]
+    language: Annotated[Literal["en", "da"], Param(widget=Dropdown())]
+
+The controls are named as an HTML form names them, and each one's ``type``
+is its name in kebab case: ``TextInput`` is ``"text-input"``.
 
 Conductor ships the common controls. A host adds its own by subclassing
 ``Widget`` beside the component that renders it::
@@ -23,10 +26,6 @@ pause is a node that raises ``Ask``, not a widget type.
 
 Conductor picks no default widget for any type: a text may be a
 textarea, a single line or a dropdown, so every input declares its own.
-The three controls whose plain names collide with a host's types are
-named for what they are — ``TextWidget``, ``NumberWidget``,
-``ListWidget`` — so ``from conductor.widgets import TextWidget`` sits
-beside a host's ``Text`` without an alias.
 """
 
 from __future__ import annotations
@@ -43,10 +42,10 @@ class Widget(ConductorModel):
     ``Literal`` overrides nothing and passes a strict type checker."""
 
 
-class TextWidget(Widget):
+class TextInput(Widget):
     """Single-line text."""
 
-    type: Literal["text"] = "text"
+    type: Literal["text-input"] = "text-input"
 
 
 class Textarea(Widget):
@@ -57,32 +56,32 @@ class Textarea(Widget):
 
 
 class Dropdown(Widget):
-    """Pick one of a declared vocabulary of ``Choice``s."""
+    """Pick one of the field's choices: a ``Literal``'s values, which the field's record carries, or else these ``Choice``s."""
 
     type: Literal["dropdown"] = "dropdown"
     choices: tuple[Choice, ...] = ()
 
 
-class Range(Widget):
+class Slider(Widget):
     """A number picked on a slider, between the ``ge`` and ``le`` of its ``Param``."""
 
-    type: Literal["range"] = "range"
+    type: Literal["slider"] = "slider"
     step: float | None = None
 
 
 class FileUpload(Widget):
     """Files a person uploads. ``multiple`` makes a series of them."""
 
-    type: Literal["file"] = "file"
+    type: Literal["file-upload"] = "file-upload"
     accept: tuple[str, ...] | None = None
     max_size_mb: float | None = None
     multiple: bool = False
 
 
-class NumberWidget(Widget):
+class NumberInput(Widget):
     """A number typed in, optionally whole."""
 
-    type: Literal["number"] = "number"
+    type: Literal["number-input"] = "number-input"
     step: float | None = None
     integer_only: bool = False
 
@@ -96,29 +95,28 @@ class Switch(Widget):
 class DatePicker(Widget):
     """A date picked from a calendar."""
 
-    type: Literal["datepicker"] = "datepicker"
+    type: Literal["date-picker"] = "date-picker"
     #: ``"today"`` asks the editor to write today's date into the field
-    #: when the node is added. Declared here because "today" is not a
-    #: constant a default could hold.
-    seed: Literal["today"] | None = None
+    #: when the node is added, a value no default could hold.
+    initial: Literal["today"] | None = None
 
 
-class ListWidget(Widget):
+class ListInput(Widget):
     """A list of values typed by hand. The per-item control is derived by
     the host from the element type, so none is declared here."""
 
-    type: Literal["list"] = "list"
+    type: Literal["list-input"] = "list-input"
 
 
 __all__ = [
     "DatePicker",
     "Dropdown",
     "FileUpload",
-    "ListWidget",
-    "NumberWidget",
-    "Range",
+    "ListInput",
+    "NumberInput",
+    "Slider",
     "Switch",
-    "TextWidget",
+    "TextInput",
     "Textarea",
     "Widget",
 ]

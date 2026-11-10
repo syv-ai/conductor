@@ -250,12 +250,21 @@ class FieldSpec:
             out["columns"] = {c: _schema(t) for c, t in (self.columns or {}).items()}
         if not self.required:
             out["default"] = to_jsonable_python(self.default, fallback=lambda _: None)
+        offered = literal_values(self.type) if self.shape != "table" else None
+        if offered is not None:
+            out["choices"] = [{"id": to_jsonable_python(value), "title": str(value)} for value in offered]
         for key in ("description", "widget", "exclusive_group"):
             if getattr(self.param, key) is not None:
                 out[key] = to_jsonable_python(getattr(self.param, key), fallback=str)
         if self.param.constraints:
             out["constraints"] = to_jsonable_python(self.param.constraints, fallback=str)
         return out
+
+
+def literal_values(hint: Any) -> tuple[Any, ...] | None:
+    """The values a ``Literal`` type (``| None`` aside) allows, the one place a field's choices are declared; ``None`` for any other type."""
+    item = without_none(hint)
+    return get_args(item) if get_origin(item) is Literal else None
 
 
 def _schema(hint: Any) -> dict[str, Any]:
@@ -334,6 +343,10 @@ def _checked(spec: FieldSpec, where: str) -> FieldSpec:
             "use a type pydantic knows, such as a pydantic model or a dataclass",
             code="type_not_carried",
         ) from None
+    if getattr(spec.param.widget, "choices", None) and literal_values(spec.type) is not None:
+        raise NodeDeclarationError(
+            f"{where}{spec.name}: the choices are the Literal's values, so the widget declares none; write Dropdown()", code="choices_declared_twice",
+        )
     if spec.default is None and spec.shape == "one" and not spec.optional:
         raise NodeDeclarationError(f"{where}{spec.name}: the default None is a blank; write its type with | None", code="default_invalid")
     if not spec.required and spec.default is not None and spec.default is not SKIPPED:
@@ -471,6 +484,8 @@ def read_value(spec: FieldSpec, value: Any, *, strict: bool) -> Any:
         return None  # a Series that may be None
     if spec.shape == "many" and isinstance(value, (tuple, range)):
         value = list(value)  # any sequence a node returns is its rows
+    elif spec.shape == "many" and isinstance(value, pl.Series):
+        value = value.to_list()  # a column of a frame is its values, as a frame is a Table
     try:
         return spec.adapter.validate_python(value, strict=strict)
     except ValidationError as error:

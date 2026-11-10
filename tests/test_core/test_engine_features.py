@@ -559,12 +559,12 @@ def test_a_timed_out_or_cancelled_leg_keeps_the_calls_already_on_threads():
 
 def test_what_a_signature_says_wrong_is_refused_at_node_with_its_code():
     from conductor import NodeDeclarationError, Table
-    from conductor.widgets import TextWidget
+    from conductor.widgets import TextInput
 
     cases = {
         "default_invalid": lambda: node("a")(_fn("x: int = None")),
         "nested_series": lambda: node("b")(_fn("x: Series[Series[int]]")),
-        "annotated_extra_unknown": lambda: node("c")(_fn("x: Annotated[int, TextWidget()]", TextWidget=TextWidget)),
+        "annotated_extra_unknown": lambda: node("c")(_fn("x: Annotated[int, TextInput()]", TextInput=TextInput)),
         "bound_invalid": lambda: node("d")(_fn('x: Annotated[int, Param(ge="a")]')),
     }
     for code, declare in cases.items():

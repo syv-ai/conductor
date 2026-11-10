@@ -351,7 +351,7 @@ def _streamed_events() -> list[Any]:
 
 def _every_event() -> list[Any]:
     streamed = _streamed_events()
-    waiting = Waiting(id="n", node_id="n", row=(), prompt="Q?", questions=[{"name": "result", "default": 1.5}], inputs={"x": "a"})
+    waiting = Waiting(id="n", node_id="n", row=(), prompt="Q?", questions=[{"name": "result", "title": "Result", "shape": "one", "required": False, "default": 1.5}], inputs={"x": "a"})
     cause = Problem(type="external_failed", msg="e", loc=("n",), ctx={"error": "OSError"})
     built = [
         RunStart(waiting=(waiting,)),

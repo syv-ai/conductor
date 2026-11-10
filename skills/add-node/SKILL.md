@@ -11,15 +11,15 @@ A node is a function; its type hints are its interface, so `def greet(name: str)
 from typing import Annotated
 
 from conductor import NodeRegistry, Param
-from conductor.widgets import NumberWidget, TextWidget
+from conductor.widgets import NumberInput, TextInput
 
 registry = NodeRegistry(category="text")   # its nodes' category, unless one sets its own
 
 
 @registry.node("greet")                 # the id; a graph pins it with a version
 def greet(
-    name: Annotated[str, Param(title="Name", widget=TextWidget())],
-    times: Annotated[int, Param(title="Times", widget=NumberWidget(integer_only=True))] = 1,
+    name: Annotated[str, Param(title="Name", widget=TextInput())],
+    times: Annotated[int, Param(title="Times", widget=NumberInput(integer_only=True))] = 1,
 ) -> str:
     """Produces a greeting."""
     return " ".join(f"hello {name}" for _ in range(times))

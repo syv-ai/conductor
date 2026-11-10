@@ -24,7 +24,7 @@ from conductor import (
     make_graph,
     node,
 )
-from conductor.widgets import Dropdown, ListWidget, Textarea, TextWidget, Widget
+from conductor.widgets import Dropdown, ListInput, Textarea, TextInput, Widget
 from pydantic import BaseModel, ValidationError
 
 
@@ -314,7 +314,7 @@ def test_the_bare_type_is_what_a_field_is_typed_as_when_it_may_be_blank():
 
 def test_a_none_default_with_a_blank_hint_is_optional_and_arrives_as_none():
     @node("f")
-    def f(x: int | None = None, picked: Annotated[str | None, Param(widget=TextWidget())] = None) -> str:
+    def f(x: int | None = None, picked: Annotated[str | None, Param(widget=TextInput())] = None) -> str:
         return f"{x}-{picked}"
 
     assert [i["required"] for i in f.describe()["inputs"]] == [False, False]
@@ -518,14 +518,14 @@ def test_a_widget_is_frozen_keyword_only_and_refuses_a_key_it_does_not_have():
         Textarea(row=5)
     with pytest.raises(TypeError):
         Textarea(5)  # type: ignore[misc]
-    shown = TextWidget()
+    shown = TextInput()
     with pytest.raises(ValidationError):
         shown.type = "textarea"  # type: ignore[misc]
 
 
 def test_a_widget_dumps_its_type_and_its_own_config_only():
     assert Dropdown(choices=(Choice(id="a", title="A"),)).model_dump(mode="json") == {"type": "dropdown", "choices": [{"id": "a", "title": "A"}]}
-    assert ListWidget().model_dump(mode="json") == {"type": "list"}
+    assert ListInput().model_dump(mode="json") == {"type": "list-input"}
     assert Textarea().type == "textarea"
 
 
@@ -856,7 +856,7 @@ def test_a_default_reaches_the_function_as_its_declared_type():
 
 
 def test_an_object_in_annotated_that_is_not_a_param_is_refused_naming_param():
-    def widget_alone(x: Annotated[int, TextWidget()]) -> int:
+    def widget_alone(x: Annotated[int, TextInput()]) -> int:
         return x
 
     def text_alone(x: Annotated[int, "a note"]) -> int:
@@ -947,3 +947,23 @@ def test_a_bare_series_is_many_values_of_any_type() -> None:
         return len(items)
 
     assert count.inputs["items"].shape == "many" and count.inputs["items"].type is Any
+
+
+def test_a_literal_inputs_choices_are_in_its_record_and_a_widget_draws_them():
+    @node("priority")
+    def priority(level: Annotated[Literal["low", "high"], Param(widget=Dropdown())]) -> str:
+        return level
+
+    described = priority.describe()["inputs"][0]
+    assert described["choices"] == [{"id": "low", "title": "low"}, {"id": "high", "title": "high"}]
+    assert described["widget"] == {"type": "dropdown", "choices": []}
+
+
+def test_a_literal_input_whose_widget_declares_choices_too_is_refused():
+    with pytest.raises(NodeDeclarationError) as raised:
+
+        @node("priority")
+        def priority(level: Annotated[Literal["low", "high"], Param(widget=Dropdown(choices=(Choice("low", "Low"),)))]) -> str:
+            return level
+
+    assert raised.value.code == "choices_declared_twice"

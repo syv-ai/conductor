@@ -14,7 +14,7 @@ Everything in ``conductor._internal`` is the library's own and may move.
 
 from typing import TYPE_CHECKING
 
-from conductor._internal.ask import Ask, Choice, Waiting
+from conductor._internal.ask import Ask, Choice, Question, Waiting
 from conductor._internal.errors import (
     PROBLEM_CODES,
     ExternalFailure,
@@ -56,6 +56,7 @@ __all__ = [
     "Param",
     "Policy",
     "Problem",
+    "Question",
     "Receives",
     "Run",
     "RunsOn",

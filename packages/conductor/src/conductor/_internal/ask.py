@@ -16,8 +16,9 @@ against that record and the node's types before anything runs.
 
 from __future__ import annotations
 
+import typing
 from collections.abc import Mapping, Sequence
-from typing import TYPE_CHECKING, Any, Literal, TypedDict, Unpack, get_args, get_origin
+from typing import TYPE_CHECKING, Any, Literal, Required, TypedDict, Unpack
 
 import polars as pl
 from pydantic import JsonValue, TypeAdapter, ValidationError
@@ -25,7 +26,7 @@ from pydantic_core import PydanticSerializationError, to_json, to_jsonable_pytho
 
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.errors import value_free_errors
-from conductor._internal.fields import SKIPPED, FieldSpec, without_none
+from conductor._internal.fields import SKIPPED, FieldSpec
 
 if TYPE_CHECKING:
     from conductor._internal.graph import PlacedNode
@@ -87,6 +88,28 @@ class Ask(BaseException):
         self.prompt = prompt
 
 
+class Question(TypedDict, total=False):
+    """One question of a waiting row: the field record ``describe()`` gives the output, with what the ``Ask`` added.
+
+    ``choices`` are ``{"id", "title"}`` records (a host's ``Choice`` subclass adds its own keys), from the ``Ask`` or
+    the output's ``Literal``; ``default`` and ``widget`` are the ``Ask``'s where it set them, else the output's.
+    """
+
+    name: Required[str]
+    title: Required[str]
+    shape: Required[Literal["one", "many", "table"]]
+    required: Required[bool]
+    type: str
+    schema: dict[str, Any]
+    columns: dict[str, Any]
+    description: str
+    widget: dict[str, Any]
+    exclusive_group: str
+    constraints: dict[str, Any]
+    choices: list[dict[str, Any]]
+    default: Any
+
+
 class Waiting(ConductorModel):
     """A row of a node waiting for a person, as a host shows it.
 
@@ -108,7 +131,7 @@ class Waiting(ConductorModel):
     node_id: str
     row: tuple[int, ...]
     prompt: str
-    questions: list[dict[str, Any]]
+    questions: list[Question]
     inputs: dict[str, Any]
 
 
@@ -176,7 +199,7 @@ def _added(spec: FieldSpec, kind: str, value: Any, so_far: Mapping[str, Any]) ->
     return offered
 
 
-def questions(placed: PlacedNode, added: Mapping[str, Mapping[str, Any]]) -> list[dict[str, Any]]:
+def questions(placed: PlacedNode, added: Mapping[str, Mapping[str, Any]]) -> list[Question]:
     """A waiting row's questions: each output's record, with what its ``Ask`` added."""
     out = []
     for name, question in placed.questions.items():
@@ -187,7 +210,7 @@ def questions(placed: PlacedNode, added: Mapping[str, Mapping[str, Any]]) -> lis
         else:
             question = dict(question)
         out.append(question)
-    return out
+    return typing.cast(list[Question], out)
 
 
 def questions_of(definition: NodeDefinition[..., Any]) -> dict[str, dict[str, Any]]:
@@ -202,9 +225,6 @@ def _question(spec: FieldSpec, node_title: str | None) -> dict[str, Any]:
         question["title"] = node_title  # a lone output's own name, "result", says nothing to a person
     if not spec.required:  # a field of a returned dataclass with a default proposes it
         question["default"] = _as_json(spec, spec.default)
-    item = without_none(spec.type)
-    if spec.shape != "table" and get_origin(item) is Literal:
-        question["choices"] = [{"id": to_jsonable_python(v), "title": str(v)} for v in get_args(item)]
     question["required"] = _required(spec, question)
     return question
 

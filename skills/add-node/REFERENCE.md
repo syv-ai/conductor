@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Annotated, Any
 
 from conductor import SKIPPED, Ask, Choice, Deprecation, ExternalFailure, FromRun, Param, Policy, Series, Upgrade, node
-from conductor.widgets import Switch, Textarea, TextWidget
+from conductor.widgets import Switch, Textarea, TextInput
 
 
 @dataclass(frozen=True)
@@ -51,11 +51,11 @@ def review(proposal: str) -> Review:
     raise Ask(f"Review {proposal}", choices={"owner": [Choice("ida", "Ida B."), Choice("bo", "Bo K.")]}, widgets={"note": Textarea()})
 
 
-def fetch_v1(url: Annotated[str, Param(title="URL", widget=TextWidget())]) -> Annotated[str, Param(title="Body")]:
+def fetch_v1(url: Annotated[str, Param(title="URL", widget=TextInput())]) -> Annotated[str, Param(title="Body")]:
     return f"<html>{url}</html>"
 
 @node("fetch", title="Fetch", description="Fetches a page.", category="http", policy=Policy(retries=3, retry_delay=0.5, attempt_timeout=10.0, concurrency=4, retry_on=(TimeoutError,)), replaces=node("fetch", deprecation=Deprecation(header="Use version 2"))(fetch_v1), upgrade=Upgrade(renamed_inputs={"url": "address"}))
-def fetch(address: Annotated[str, Param(title="Address", widget=TextWidget())]) -> Annotated[str, Param(title="Body")]:
+def fetch(address: Annotated[str, Param(title="Address", widget=TextInput())]) -> Annotated[str, Param(title="Body")]:
     if not address:
         raise ExternalFailure("no address")          # retried, like any retry_on class
     return f"<html>{address}</html>"
@@ -67,7 +67,7 @@ def columns_outputs(names: str) -> dict[str, Any]:
     return {name: str for name in names.split(",")}
 
 @node("columns", title="Columns", description="One output per column name typed in.", category="table", compute_outputs=columns_outputs)
-def columns(names: Annotated[str, Param(title="Column names", widget=TextWidget())]) -> Mapping[str, Any]:
+def columns(names: Annotated[str, Param(title="Column names", widget=TextInput())]) -> Mapping[str, Any]:
     return {name: name.upper() for name in names.split(",")}
 
 

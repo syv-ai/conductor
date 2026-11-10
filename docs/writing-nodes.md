@@ -12,15 +12,15 @@ Keep your nodes in a registry. Its `category`, `tags` and `extra` are defaults f
 from typing import Annotated
 
 from conductor import NodeRegistry, Param, make_graph
-from conductor.widgets import NumberWidget, TextWidget
+from conductor.widgets import NumberInput, TextInput
 
 text_nodes = NodeRegistry(category="text", tags=["acme"])
 
 
 @text_nodes.node("repeat", extra={"docs_url": "https://example.com/repeat"})
 def repeat(
-    text: Annotated[str, Param(title="Text", widget=TextWidget())],
-    times: Annotated[int, Param(title="Times", ge=1, le=10, widget=NumberWidget(integer_only=True))] = 2,
+    text: Annotated[str, Param(title="Text", widget=TextInput())],
+    times: Annotated[int, Param(title="Times", ge=1, le=10, widget=NumberInput(integer_only=True))] = 2,
 ) -> str:
     """Repeats a text."""
     return text * times
@@ -65,15 +65,15 @@ No type has a default widget. A `str` may be one line, a text area or a dropdown
 
 | Widget | For | Options |
 |--------|-----|---------|
-| `TextWidget` | One line of text | |
+| `TextInput` | One line of text | |
 | `Textarea` | Several lines | `rows` |
-| `Dropdown` | One of a list of `Choice`s | `choices` |
-| `NumberWidget` | A number typed in | `step`, `integer_only` |
-| `Range` | A number on a slider, between the `Param`'s `ge` and `le` | `step` |
+| `Dropdown` | One of the field's choices: a `Literal`'s values (write `Dropdown()`), or a list of `Choice`s | `choices` |
+| `NumberInput` | A number typed in | `step`, `integer_only` |
+| `Slider` | A number on a slider, between the `Param`'s `ge` and `le` | `step` |
 | `Switch` | On or off | |
-| `DatePicker` | A date | `seed` |
+| `DatePicker` | A date | `initial` |
 | `FileUpload` | Uploaded files | `accept`, `max_size_mb`, `multiple` |
-| `ListWidget` | A list typed by hand | |
+| `ListInput` | A list typed by hand | |
 
 A widget is a pydantic model, and conductor never reads it: it passes it on to the editor. So a control of your own needs no conductor release. Subclass `Widget`, next to the component in your frontend that draws it:
 
@@ -181,7 +181,7 @@ def assign(ticket: str) -> str:
 
 
 run = registry.load(make_graph(assign)).run(ticket="T-1")
-print(run.waiting[0].questions[0]["choices"])  # [{'id': 'ida', 'title': 'ida'}, {'id': 'bo', 'title': 'bo'}]
+print(run.waiting[0].questions[0].get("choices"))  # [{'id': 'ida', 'title': 'ida'}, {'id': 'bo', 'title': 'bo'}]
 ```
 
 For a node with several outputs, give them by output name with `choices`, `defaults` and `widgets`. A `Choice(id, title)` gives a choice a title of its own:
