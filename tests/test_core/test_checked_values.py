@@ -215,6 +215,26 @@ def test_a_column_of_yes_or_no_is_never_an_int_column_returned_brought_or_given(
     assert [p.type for p in given.value.errors()] == ["invalid_input"]
 
 
+class Graded(TypedDict):
+    level: Literal[1, 2]
+    score: int | str
+
+
+@pytest.mark.parametrize("column", ["level", "score"])
+def test_a_column_refuses_a_yes_or_no_wherever_a_field_of_its_type_does(column):
+    """A column of a ``Literal`` of numbers or of a union holding a number and no ``bool`` refuses ``True``, as a field
+    of that type does: Python counts ``True`` as 1, and both the field and the column read one rule."""
+
+    @node("count_rows")
+    def count_rows(rows: Table[Graded]) -> int:
+        return rows.height
+
+    given = pl.DataFrame({"level": [1], "score": [3]}).with_columns(pl.lit(True).alias(column))
+    with pytest.raises(InvalidCallError) as refused:
+        registry_of(count_rows).load(GraphRecord(nodes=[NodeRecord(id="c", node="count_rows")])).run(rows=given)
+    assert [(p.type, p.ctx.get("column")) for p in refused.value.errors()] == [("invalid_input", column)]
+
+
 @pytest.mark.parametrize(("returned", "return_type"), [("no", bool), ("12", int), ("2026-01-02", datetime.date), (12.0, int)],
                          ids=["a-word-for-a-bool", "text-for-an-int", "text-for-a-date", "a-float-for-an-int"])
 def test_an_output_is_read_strictly_never_from_text_that_spells_it(returned, return_type):

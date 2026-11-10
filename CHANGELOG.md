@@ -25,7 +25,7 @@ What changes in how you work, before the name-by-name tables:
   winning, and a `Param` on a `Series` item is the field's; a table's column
   typed `Annotated[...]` is refused, since its limits would go unread), `-> X` for one output named `result`, a frozen dataclass for several. A
   `bool` never lands on a number, a `Literal` of numbers or a union holding a number and no
-  `bool` (`int | float`) included. `async def` and
+  `bool` (`int | float`) included, as a field's value or in a table's column. `async def` and
   auto-discovery are gone. A node declared wrong raises `NodeDeclarationError` at import, with a
   `code`; [`docs/problems.md`](docs/problems.md) lists them.
 - **Loops are rows.** A list or a column on an input typed for one value runs the node once per

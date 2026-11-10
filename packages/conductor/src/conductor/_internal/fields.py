@@ -369,11 +369,8 @@ class FieldSpec:
 
     @functools.cached_property
     def takes_a_number(self) -> bool:
-        """Whether a ``bool`` must not land here: an option of the type is a number's (``int``, ``float``, a class of
-        theirs, or a ``Literal`` of numbers), and no option takes a ``bool`` as it is (``bool``, ``Any``, ``object``, a
-        ``Literal`` holding one)."""
-        options = [option for option in _options(self.type) if option is not type(None)]
-        return any(map(_a_number_type, options)) and not any(map(_takes_a_bool, options))
+        """Whether a ``bool`` must not land here (``refuses_a_bool``)."""
+        return refuses_a_bool(self.type)
 
     @functools.cached_property
     def plain_classes(self) -> tuple[type, ...]:
@@ -788,12 +785,25 @@ def lands_as_it_is(target: type, source: type) -> bool:
     return issubclass(source, target) and not (issubclass(source, bool) and is_a_number(target))
 
 
+def refuses_a_bool(hint: Any) -> bool:
+    """Say whether a ``bool`` is refused on a type, the one rule for a field and a table's column.
+
+    Python counts ``True`` as 1, and pydantic's ``int``, ``float`` and ``Literal`` take it so; this rule refuses it.
+
+    Args:
+        hint: A field's type or a column's.
+
+    Returns:
+        True when an option of ``hint`` is a number's (``is_a_number``, or a ``Literal`` of numbers) and no option
+        takes a ``bool`` as it is (``bool``, ``Any``, ``object``, a ``Literal`` holding one).
+    """
+    options = [option for option in _options(hint) if option is not type(None)]
+    return any(map(_a_number_type, options)) and not any(map(_takes_a_bool, options))
+
+
 def _no_bool_on_a_number(hint: Any) -> Any:
-    """A column's ``hint``, refusing a yes or no where it takes a number and no yes or no, as pydantic's lax ``int`` and ``float`` don't."""
-    options = _options(without_none(hint))
-    if any(is_a_number(o) for o in options) and bool not in options:
-        return Annotated[hint, BeforeValidator(_not_a_bool)]
-    return hint
+    """A column's ``hint``, refusing a yes or no where ``refuses_a_bool`` says so."""
+    return Annotated[hint, BeforeValidator(_not_a_bool)] if refuses_a_bool(hint) else hint
 
 
 def _options(hint: Any) -> list[Any]:
@@ -900,10 +910,10 @@ def read_strictly(adapter: TypeAdapter[Any], value: Any) -> Any:
 
 
 def _a_number_type(option: Any) -> bool:
-    """Whether ``option`` is ``int``, ``float``, a class of theirs other than ``bool``, or a ``Literal`` of such numbers."""
+    """Whether ``option`` is a number's class (``is_a_number``) or a ``Literal`` of numbers."""
     if get_origin(option) is Literal:
-        return all(isinstance(value, (int, float)) and not isinstance(value, bool) for value in get_args(option))
-    return isinstance(option, type) and issubclass(option, (int, float)) and not issubclass(option, bool)
+        return all(is_a_number(type(value)) for value in get_args(option))
+    return is_a_number(option)
 
 
 def _takes_a_bool(option: Any) -> bool:
