@@ -283,3 +283,144 @@ def test_a_cancel_sent_while_a_dead_worker_held_the_run_is_kept_when_another_tak
             assert (await _until_ended(client, "taken", "anna"))["status"] == "complete" and calls == ["a", "b"]
 
     asyncio.run(scenario())
+
+
+def _asking(rows: bool = False) -> tuple[NodeRegistry, GraphRecord, threading.Event, dict[str, Any], str]:
+    """A graph whose leg waits on ``gate`` beside a question, its inputs, and the waiting id the question gets; with
+    ``rows``, beside a table of three rows too, for a ceiling of 1 to stop."""
+    registry, gate = NodeRegistry(), threading.Event()
+
+    @registry.node("busy")
+    def busy(text: str) -> str:
+        gate.wait(5)
+        return text
+
+    @registry.node("approve")
+    def approve(text: str) -> bool:
+        raise Ask("Go on?")
+
+    @registry.node("after")
+    def after(ok: bool) -> bool:
+        return ok
+
+    @registry.node("items")
+    def items(n: int) -> Series[int]:
+        return list(range(n))
+
+    nodes: list[Any] = [busy, approve, after, items] if rows else [busy, approve, after]
+    graph = make_graph(*nodes, edges=[("approve.result", "after.ok")])
+    inputs: dict[str, Any] = {"busy.text": "x", "approve.text": "y", **({"items.n": 3} if rows else {})}
+    gate.set()
+    (waiting,) = registry.load(graph).run(inputs).waiting
+    gate.clear()
+    return registry, graph, gate, inputs, waiting.id
+
+
+async def _until_status(store: MemoryStore, run_id: str, *statuses: str) -> StoredRun:
+    for _ in range(500):
+        if store.rows[run_id].status in statuses:
+            return store.rows[run_id]
+        await asyncio.sleep(0.01)
+    raise AssertionError(f"the run is {store.rows[run_id].status}")
+
+
+def test_an_answer_queued_during_a_leg_starts_the_next_leg_however_long_its_end_takes_to_write() -> None:
+    registry, graph, gate, inputs, waiting_id = _asking()
+
+    class SlowEnd(MemoryStore):
+        """Writes the end of a leg, the write that clears the queued answers, after three of the lease's renewals."""
+
+        async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
+            if changes.get("pending") == "{}":
+                await asyncio.sleep(0.3)
+            return await super().update(run_id, rev, changes)
+
+    store = SlowEnd()
+    app = FastAPI()
+    app.include_router(run_router(store=store, registry=registry, caller=_caller, lease=0.3))
+
+    async def scenario() -> None:
+        async with app.router.lifespan_context(app), httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as client:
+            run_id = (await client.post("/runs", json={"graph": graph.model_dump(mode="json"), "inputs": inputs})).json()["id"]
+            assert (await client.post(f"/runs/{run_id}/answers", json={waiting_id: True})).json() == {"answers": "queued"}
+            gate.set()
+            ended = await _until_status(store, run_id, "complete", "waiting")
+            assert (ended.status, ended.pending, json.loads(ended.outputs or "null")) == ("complete", "{}", {"busy.result": "x", "after.result": True})
+
+    asyncio.run(scenario())
+
+
+class _FailingEnd(MemoryStore):
+    """Fails to add a leg's first ``run_end``, so the leg raises there."""
+
+    failed = False
+
+    async def add_event(self, run_id: str, owner: str, body: str) -> int | None:
+        if not self.failed and '"run_end"' in body:
+            self.failed = True
+            raise ConnectionError("the store went away")
+        return await super().add_event(run_id, owner, body)
+
+
+@pytest.mark.parametrize(("ended", "store", "settings"), [
+    ("stopped", MemoryStore, {"max_rows": 1}),
+    ("timed_out", MemoryStore, {"leg_timeout": 0.2}),
+    ("failed", _FailingEnd, {}),
+])
+def test_an_answer_queued_during_a_leg_that_ends_needing_a_resume_is_refused_and_starts_nothing(
+    ended: str, store: type[MemoryStore], settings: dict[str, Any],
+) -> None:
+    registry, graph, gate, inputs, waiting_id = _asking(rows=True)
+    runs = store()
+    app = FastAPI()
+    app.include_router(run_router(store=runs, registry=registry, caller=_caller, **settings))
+
+    async def scenario() -> None:
+        async with app.router.lifespan_context(app), httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as client:
+            run_id = (await client.post("/runs", json={"graph": graph.model_dump(mode="json"), "inputs": inputs})).json()["id"]
+            assert (await client.post(f"/runs/{run_id}/answers", json={waiting_id: True})).json() == {"answers": "queued"}
+            if ended == "timed_out":
+                await asyncio.sleep(0.3)  # past the leg's timeout; the call it waits for then finishes
+            gate.set()
+            await _until_status(runs, run_id, ended)
+            await asyncio.sleep(0.1)  # a leg started on the answer would be running by now
+            row = (await client.get(f"/runs/{run_id}")).json()
+            assert (row["status"], runs.rows[run_id].pending) == (ended, "{}")
+            assert [(problem["type"], problem["ctx"]) for problem in row["refused"][waiting_id]] == [("run_not_waiting", {"status": ended})]
+            direct = await client.post(f"/runs/{run_id}/answers", json={waiting_id: True})
+            assert (direct.status_code, direct.json()["detail"]) == (409, row["refused"][waiting_id][0]["msg"])
+
+    asyncio.run(scenario())
+
+
+def test_a_cancel_from_another_worker_that_lands_as_a_worker_shuts_down_keeps_the_run_cancelled() -> None:
+    registry, graph, gate, inputs, _ = _asking()
+
+    class CancelAtHandBack(MemoryStore):
+        """Takes a cancel, as another worker's ``POST /cancel`` writes it, just before the write handing the run back."""
+
+        cancelled = False
+
+        async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
+            if not self.cancelled and changes.get("status") == "running" and "waiting" in changes:
+                self.cancelled = True
+                assert await super().update(run_id, self.rows[run_id].rev, {"cancel": True})
+            return await super().update(run_id, rev, changes)
+
+    store = CancelAtHandBack()
+    app = FastAPI()
+    app.include_router(run_router(store=store, registry=registry, caller=_caller))
+
+    async def scenario() -> None:
+        lifespan = app.router.lifespan_context(app)
+        await lifespan.__aenter__()
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as client:
+            run_id = (await client.post("/runs", json={"graph": graph.model_dump(mode="json"), "inputs": inputs})).json()["id"]
+            shutting_down = asyncio.create_task(lifespan.__aexit__(None, None, None))
+            await asyncio.sleep(0.05)
+            gate.set()
+            await shutting_down
+        row = store.rows[run_id]
+        assert store.cancelled and (row.status, row.owner) == ("cancelled", None)
+
+    asyncio.run(scenario())

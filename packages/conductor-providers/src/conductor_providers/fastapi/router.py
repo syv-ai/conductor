@@ -87,12 +87,11 @@ class Cancelled(BaseModel):
 
 @dataclass
 class _Leg:
-    """A leg this worker runs: what stops it, the ``rev`` it last wrote, and why it was stopped."""
+    """A leg this worker runs: what stops it, and the ``rev`` its checkpoints and renewals last wrote."""
 
     cancel: asyncio.Event = field(default_factory=asyncio.Event)
     rev: int = 0
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
-    asked: bool = False  # someone cancelled the run, as opposed to this worker shutting down
 
 
 def run_router(
@@ -163,7 +162,7 @@ def run_router(
     def launch(run_id: str, rev: int, ceiling: int | None = None, cancelled: bool = False) -> None:
         """Run the next leg of a run this worker has just claimed at ``rev``, in the background; ``cancelled`` when a
         cancel was asked of it, which the leg then hears before its first unit."""
-        leg = legs[run_id] = _Leg(rev=rev, asked=cancelled)
+        leg = legs[run_id] = _Leg(rev=rev)
         if cancelled:
             leg.cancel.set()
         task = asyncio.get_running_loop().create_task(drive(run_id, leg, ceiling))
@@ -171,8 +170,9 @@ def run_router(
         task.add_done_callback(tasks.discard)
 
     async def write(run_id: str, leg: _Leg, changes: RunChanges) -> bool:
-        """Write while this worker holds the run. Another writer (an answer queued, a cancel) moves ``rev`` on: read
-        again and go on. A run another worker took, or that stopped running, stops the leg and writes nothing."""
+        """Write a checkpoint or a renewal while this worker holds the run. Another writer (an answer queued, a
+        cancel) moves ``rev`` on: read again and go on. A run another worker took, or that stopped running, stops the
+        leg and writes nothing."""
         async with leg.lock:
             while True:
                 if await store.update(run_id, leg.rev, changes):
@@ -183,11 +183,11 @@ def run_router(
                     leg.cancel.set()
                     return False
                 if row.cancel:
-                    leg.asked = True
                     leg.cancel.set()
                 leg.rev = row.rev
 
     async def drive(run_id: str, leg: _Leg, ceiling: int | None) -> None:
+        """Run the leg, and write its end once its lease is no longer renewed; a leg that raised ends ``failed``."""
         keep_lease = asyncio.create_task(hold(run_id, leg))
         try:
             row = await store.get(run_id)
@@ -205,24 +205,47 @@ def run_router(
                 if await store.add_event(run_id, worker, event.model_dump_json()) is None:
                     leg.cancel.set()  # another worker holds the run
                 if isinstance(event, RunEnd):
-                    await finish(run_id, leg, event.run)
+                    await _stopped(keep_lease)
+                    await finish(run_id, event.run)
         except Exception:
             log.exception("the leg of run %s failed", run_id)
             await store.add_event(run_id, worker, '{"type":"run_end","status":"failed","cause":null}')
-            await write(run_id, leg, {"status": "failed", "owner": None, "cause": None})
+            await _stopped(keep_lease)
+            await finish(run_id, None)
         finally:
             keep_lease.cancel()
-            if legs.get(run_id) is leg:  # an answer queued during this leg may have launched the next one already
+            if legs.get(run_id) is leg:  # the answers queued during this leg may have launched the next one already
                 del legs[run_id]
 
-    async def finish(run_id: str, leg: _Leg, run: Run) -> None:
-        """Write how the leg ended. A leg this worker stopped to shut down is handed back for any worker to go on with."""
-        changes: RunChanges = {"status": run.status, "owner": None, "lease_until": 0.0, "cancel": False}
-        if stopping and run.status == "cancelled" and not leg.asked:
-            changes["status"] = "running"
-        changes.update(await asyncio.to_thread(_ended, run))
-        if await write(run_id, leg, changes):
-            await apply_pending(run_id)
+    async def finish(run_id: str, run: Run | None) -> None:
+        """Write how a leg ended with ``run`` (``None`` when it raised), decided from the row as read for each try of
+        the write, so a cancel or an answer that lands meanwhile is never written over.
+
+        A leg this worker stopped to shut down, with no cancel asked of the run, is handed back for any worker to go on
+        with. Otherwise the answers queued during the leg are taken when it ended ``waiting``, and the next leg starts
+        on them; when it ended needing a resume, each is refused as ``run_not_waiting``. A run another worker took is
+        left as it is."""
+        status: RunStatus = run.status if run is not None else "failed"
+        written: RunChanges = await asyncio.to_thread(_ended, run) if run is not None else {"cause": None}
+        handed_back: RunChanges = {"status": "running", "owner": None, "lease_until": 0.0}
+        while True:
+            row = await store.get(run_id)
+            if row is None or row.owner != worker or row.status != "running":
+                return
+            saved = None
+            if stopping and status == "cancelled" and not row.cancel:
+                changes: RunChanges = {**written, **handed_back}
+            else:
+                changes = {**written, "status": status, "owner": None, "lease_until": 0.0, "cancel": False}
+                if row.pending != "{}":
+                    saved, refused = await asyncio.to_thread(_answered, run, json.loads(row.pending), json.loads(row.refused))
+                    changes.update({"pending": "{}", "refused": to_json(refused).decode()})
+                if saved is not None:  # a worker shutting down hands the next leg back rather than start it
+                    changes.update({"run": saved, **(handed_back if stopping else held()), "cause": None})
+            if await store.update(run_id, row.rev, changes):
+                if saved is not None and not stopping:
+                    launch(run_id, row.rev + 1)
+                return
 
     async def hold(run_id: str, leg: _Leg) -> None:
         """Renew the lease until the leg ends; a renewal that finds the run taken stops the leg."""
@@ -238,32 +261,6 @@ def run_router(
                 if row.id not in legs and await claim(row):
                     launch(row.id, row.rev + 1, cancelled=row.cancel)
             await asyncio.sleep(lease / 3)
-
-    async def apply_pending(run_id: str) -> None:
-        """Answers that came while a leg ran, each on its own once the leg has ended: a wrong one, or one whose row
-        doesn't wait, keeps its problems for the client in ``refused``, and the rest start the next leg."""
-        row = await store.get(run_id)
-        pending: dict[str, Any] = json.loads(row.pending) if row is not None else {}
-        if row is None or row.status == "running" or not pending:
-            return
-        stored_row = row
-
-        def answered() -> tuple[str | None, dict[str, Any]]:
-            run, taken, refused = load(stored_row), False, json.loads(stored_row.refused)
-            for unit_id, value in pending.items():
-                try:
-                    run, taken = run.answer(unit_id, value), True
-                except InvalidCallError as error:
-                    refused[unit_id] = [problem.model_dump(mode="json") for problem in error.errors()]
-            return (run.to_json() if taken else None), refused
-
-        saved, refused = await asyncio.to_thread(answered)
-        changes: RunChanges = {"pending": "{}", "refused": to_json(refused).decode()}
-        if saved is not None:
-            changes.update({**held(), "run": saved})
-        if await store.update(run_id, row.rev, changes) and saved is not None:
-            launch(run_id, row.rev + 1)
-        # a failed update means another worker changed the run first: the answers stay queued for the end of its leg
 
     async def start(graph: GraphRecord, inputs: Mapping[str, Any], who: Any) -> Started:
         try:
@@ -362,14 +359,13 @@ def run_router(
                 raise HTTPException(409, "the row is already answered")
             queued.update(answers)
             if await store.update(row.id, row.rev, {"pending": to_json(queued).decode()}):
-                await apply_pending(row.id)  # the leg may have ended meanwhile
-                return Answered(answers="queued")
+                return Answered(answers="queued")  # the leg's end, written after this, reads them
             again = await store.get(row.id)
             if again is None:
                 raise HTTPException(404, "no such run")
             row = again
         if row.status != "waiting":
-            raise HTTPException(409, f"the run is {row.status}; resume it first")
+            raise HTTPException(409, _not_waiting(row.status).msg)
         try:  # every wrong answer is refused at once
             answered = await asyncio.to_thread(lambda: load(row).answer(answers).to_json())
         except InvalidCallError as error:
@@ -406,7 +402,6 @@ def run_router(
         while row.status == "running":
             if await store.update(row.id, row.rev, {"cancel": True}):
                 if row.id in legs:  # on this worker at once; on another at its next renewal
-                    legs[row.id].asked = True
                     legs[row.id].cancel.set()
                 return Cancelled(cancelled=True)
             again = await store.get(row.id)
@@ -428,6 +423,34 @@ def _ended(run: Run) -> RunChanges:
     if run.status == "complete":
         changes["outputs"] = to_json(run.outputs, fallback=_records, inf_nan_mode="strings").decode()
     return changes
+
+
+async def _stopped(task: asyncio.Task[None]) -> None:
+    """Cancel ``task`` and wait until it has stopped."""
+    task.cancel()
+    await asyncio.wait([task])
+
+
+def _answered(run: Run | None, pending: dict[str, Any], refused: dict[str, Any]) -> tuple[str | None, dict[str, Any]]:
+    """The answers queued during a leg that ended with ``run`` (``None`` when it raised), each on its own: the run they
+    give as JSON when any was taken, else ``None``, and ``refused`` with the problems of each one that wasn't. A run
+    that ended needing a resume takes none (``run_not_waiting``); otherwise a wrong answer, or one whose row waits for
+    nothing (``not_waiting``, as on a complete run), keeps its own problems."""
+    if run is None or run.status in _RESUMABLE:
+        problem = _not_waiting(run.status if run is not None else "failed").model_dump(mode="json")
+        return None, {**refused, **{unit_id: [problem] for unit_id in pending}}
+    taken = False
+    for unit_id, value in pending.items():
+        try:
+            run, taken = run.answer(unit_id, value), True
+        except InvalidCallError as error:
+            refused[unit_id] = [problem.model_dump(mode="json") for problem in error.errors()]
+    return (run.to_json() if taken else None), refused
+
+
+def _not_waiting(status: RunStatus) -> Problem:
+    """Why a run that isn't ``waiting`` takes no answers: a leg starts only on a run that waits for them."""
+    return Problem(type="run_not_waiting", msg=f"the run is {status}; resume it first", ctx={"status": status})
 
 
 def _records(value: Any) -> Any:
