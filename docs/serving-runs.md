@@ -140,7 +140,7 @@ That gives these routes:
 | `POST /load` | A graph's problems and plan as an editor draws them: `graph.describe()`. |
 | `POST /runs` | Start a run of `{"graph": ..., "inputs": {...}}`; 202 with its `id`, 422 listing every problem. |
 | `POST /graphs/{name}/runs` | Start a graph you offer, on its inputs alone. Only with `published=`. |
-| `GET /runs/{id}` | Its `status`, `waiting` rows, `outputs` once complete (a table as a list of records, wherever it sits), `refused` answers, and the `cause` of a run that failed, stopped, was cancelled or timed out (a `row_ceiling` cause says the `rows` and `max_rows`, for choosing a resume's ceiling). |
+| `GET /runs/{id}` | Its `status`, `waiting` rows (as of the last leg's end, so while a leg runs they still list the rows just answered; a client hides the ones it answered), `outputs` once complete (a table as a list of records, wherever it sits), `refused` answers, and the `cause` of a run that failed, stopped, was cancelled or timed out (a `row_ceiling` cause says the `rows` and `max_rows`, for choosing a resume's ceiling). |
 | `GET /runs/{id}/events` | Its events as server-sent events, from any worker. |
 | `POST /runs/{id}/answers` | `{waiting_id: value}`; 202 `started` or `queued`, 409, or 422 listing every fault. |
 | `POST /runs/{id}/resume` | Go on with a run that `timed_out`, `stopped`, was `cancelled` or `failed`. |

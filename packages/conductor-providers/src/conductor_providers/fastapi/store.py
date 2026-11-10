@@ -28,7 +28,7 @@ class StoredRun:
     status: RunStatus
     #: Moved one on by every ``update``.
     rev: int = 0
-    #: The rows waiting for a person, as JSON, so reading a run doesn't load it.
+    #: The rows waiting for a person as of the last leg's end, as JSON, so reading a run doesn't load it.
     waiting: str = "[]"
     #: The outputs as JSON once the run is complete, a table as its records.
     outputs: str | None = None
