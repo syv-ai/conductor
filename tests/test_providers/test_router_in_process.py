@@ -135,6 +135,10 @@ def test_a_run_stopped_at_its_ceiling_says_why_and_is_resumed_with_no_body_or_a_
             assert stopped["status"] == "stopped"
             assert stopped["cause"]["type"] == last_end(run_id)["cause"]["type"] == "row_ceiling"
             assert stopped["cause"]["ctx"]["max_rows"] == 1 and "rows" in stopped["cause"]["ctx"]
+            below_one = await client.post(f"/runs/{run_id}/resume", json={"max_rows": 0})
+            assert below_one.status_code == 422
+            assert [(e["type"], e["loc"]) for e in below_one.json()["detail"]] == [("greater_than", ["body", "max_rows"])]
+            assert (await client.get(f"/runs/{run_id}")).json()["status"] == "stopped"
             assert (await client.post(f"/runs/{run_id}/resume")).status_code == 202
             assert (await _until_ended(client, run_id, "anna"))["status"] == "stopped"
             assert (await client.post(f"/runs/{run_id}/resume", json={"max_rows": 2})).status_code == 202

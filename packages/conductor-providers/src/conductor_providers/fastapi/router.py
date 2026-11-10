@@ -34,7 +34,7 @@ from conductor import (
 from conductor.events import RunCheckpoint, RunEnd
 from fastapi import APIRouter, Body, Depends, FastAPI, Header, HTTPException
 from fastapi.sse import EventSourceResponse, ServerSentEvent
-from pydantic import BaseModel, TypeAdapter
+from pydantic import BaseModel, PositiveInt, TypeAdapter
 from pydantic_core import to_json
 
 from conductor_providers.fastapi.store import RunChanges, RunStore, StoredRun
@@ -376,7 +376,7 @@ def run_router(
         return Answered(answers="started")
 
     @router.post("/runs/{run_id}/resume", status_code=202)
-    async def resume(row: Stored, max_rows: Annotated[int | None, Body(embed=True)] = None) -> Started:
+    async def resume(row: Stored, max_rows: Annotated[PositiveInt | None, Body(embed=True)] = None) -> Started:
         """Go on with a run that timed out, stopped at its ceiling, was cancelled or failed; nothing finished is called
         again. ``{"max_rows": ...}`` raises the ceiling of a run that stopped at it; a resume needs no body."""
         if row.status not in _RESUMABLE:
