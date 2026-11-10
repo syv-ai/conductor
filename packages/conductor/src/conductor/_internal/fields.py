@@ -169,6 +169,11 @@ class Param:
         object.__setattr__(self, "choices", None if choices is None else tuple(choice_record(choice) for choice in choices))
         object.__setattr__(self, "constraints", constraints)
 
+    @property
+    def holds_a_value(self) -> bool:
+        """Whether a value of the field's class must still be read: a limit or a choice may refuse it."""
+        return bool(self.constraints) or self.choices is not None
+
     def __get_pydantic_core_schema__(self, source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
         """``source`` checked and held to these limits and choices, so ``Annotated[int, Param(ge=0)]`` is checked alike in any pydantic model.
 
@@ -321,7 +326,7 @@ class FieldSpec:
         Read strictly, pydantic refuses a ``bool`` on an ``int`` or ``float`` itself, but not on a ``Literal`` of
         numbers; ``_lax_one`` adds the refusal for a value read laxly.
         """
-        one: Any = Annotated[_carried(self.type), self.param] if self.param.constraints or self.param.choices is not None else _carried(self.type)
+        one: Any = Annotated[_carried(self.type), self.param] if self.param.holds_a_value else _carried(self.type)
         if self.takes_a_number and self._literal_option:  # True == 1, strict or not
             one = Annotated[one, BeforeValidator(_not_a_bool)]
         return one
@@ -386,7 +391,7 @@ class FieldSpec:
         limits or choices: such a value is always read by the type.
         """
         options = _options(self.type)
-        if self.param.constraints or self.param.choices is not None:
+        if self.param.holds_a_value:
             return ()
         if not all(isinstance(option, type) and option is not Any and not typing.is_typeddict(option) for option in options):
             return ()

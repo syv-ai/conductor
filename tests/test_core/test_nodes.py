@@ -954,6 +954,23 @@ def test_a_params_choices_limit_a_hosts_own_model_as_they_limit_a_nodes_field():
         Settings(colour="green")
 
 
+def test_a_value_an_edge_brings_is_held_to_the_inputs_choices_as_to_its_limits():
+    registry = NodeRegistry()
+
+    @registry.node("give")
+    def give(text: str) -> str:
+        return text
+
+    @registry.node("pick")
+    def pick(colour: Annotated[str, Param(choices=["red", "blue"])]) -> str:
+        return colour
+
+    graph = registry.load(make_graph(give, pick))
+    assert graph.run(text="red").outputs == {"pick.result": "red"}
+    run = graph.run(text="green")
+    assert (run.status, run.cause.type, run.cause.loc) == ("failed", "invalid_edge_value", ("pick",))
+
+
 def test_a_params_choices_hold_on_a_field_of_a_dataclass_a_node_takes_as_its_limits_do():
     @dataclass(frozen=True)
     class Order:

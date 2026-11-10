@@ -1385,8 +1385,8 @@ def _address(source: Source) -> str:
 
 
 def _settled(spec: FieldSpec, source: Source) -> bool:
-    """Whether every value ``source`` brings is already one ``spec`` takes as it is, with no limits to hold it to."""
-    if spec.param.constraints:
+    """Whether every value ``source`` brings is already one ``spec`` takes as it is, with no limit or choice to hold it to."""
+    if spec.param.holds_a_value:
         return False
     if spec.shape == "table":
         if spec.columns is None:

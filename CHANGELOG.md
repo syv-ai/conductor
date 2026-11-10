@@ -40,7 +40,8 @@ What changes in how you work, before the name-by-name tables:
   calls before a run, refusing an input given by name and address as `with_inputs` does. A blank skips the node for that row unless its input says `| None`. Each item
   of a list given there is held to the input's limits and choices, as one value is. A choice is
   read as its answer would be: strictly from its JSON form, held to the field's limits, so an enum's
-  value or a date's ISO text is a choice.
+  value or a date's ISO text is a choice. A value an edge brings is held to the input's limits and choices
+  alike (`invalid_edge_value`).
 - **Loading never raises for a fault in the graph.** `registry.load(record)` returns a `Graph`;
   read `graph.problems`, each a `Problem(type, loc, msg, ctx)`. Only a record of the wrong shape raises,
   `InvalidCallError` with the code `invalid_record`. A value typed in or given that its field refuses
