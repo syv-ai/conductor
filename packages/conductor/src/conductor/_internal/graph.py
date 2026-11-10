@@ -1164,6 +1164,8 @@ class Graph:
         field = problem.loc[1] if len(problem.loc) > 1 and isinstance(problem.loc[1], str) else None
         outer = self._outward(f"{inner}.{field}") if field else self._outward(inner)
         loc: tuple[str | int, ...] = tuple(outer.split(".", 1)) if "." in outer else (outer, *(problem.loc[1:] if field is None else ()))
+        if problem.type not in PROBLEM_CATALOGUE:  # a node's own code: its message and ctx are its author's, and name no node
+            return problem.model_copy(update={"loc": loc})
         ctx = dict(problem.ctx)
         for key in ("node_id", "source", "target"):
             if isinstance(ctx.get(key), str):
@@ -1174,8 +1176,6 @@ class Graph:
             ctx["tables"] = [table if table is None else self._outward(table, table=True) for table in ctx["tables"]]
         if problem.type == "invalid_output" and isinstance(ctx.get("name"), str) and inner in self._nodes:  # the output as the embedding offers it
             ctx["name"] = self._shown_outputs(inner).get(ctx["name"], ctx["name"])
-        if problem.type not in PROBLEM_CATALOGUE:  # a node's own code: its message is its author's, and names no node
-            return problem.model_copy(update={"loc": loc, "ctx": ctx})
         return make_problem(problem.type, *loc, **ctx)
 
     def _unrelated(self, placed: PlacedNode, a: Level, b: Level) -> None:

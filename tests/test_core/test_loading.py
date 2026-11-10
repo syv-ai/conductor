@@ -18,6 +18,7 @@ from conductor import (
     Deprecation,
     GraphRecord,
     InvalidCallError,
+    NodeError,
     NodeRecord,
     Param,
     Problem,
@@ -643,6 +644,18 @@ def test_a_wrong_address_on_an_embedding_is_unknown_output_or_unknown_input_on_i
     assert found({"nodes": nodes, "edges": [["e.nope", "u.text"]]}) == [("unknown_output", ("u", "text"))]
     assert found({"nodes": nodes, "edges": [["e.upper.result", "u.text"]]}) == [("unknown_output", ("u", "text"))]
     assert found({"nodes": nodes[::-1], "edges": [["u.result", "e.tail"]]}) == [("unknown_input", ("e", "tail"))]
+
+
+@pytest.mark.parametrize("ctx", [{"tables": [1, 2]}, {"source": "e/report.pdf", "node_id": "anything"}])
+def test_an_inner_nodes_own_error_is_said_of_its_embedding_with_its_ctx_as_its_author_wrote_it(ctx):
+    @node("unreadable")
+    def unreadable(text: str) -> str:
+        raise NodeError("The document could not be read.", code="unreadable", ctx=ctx)
+
+    embedding = node("e")(make_graph(unreadable))
+    run = registry_of(unreadable, embedding).load(make_graph(embedding)).run(text="hi")
+
+    assert (run.cause.type, run.cause.loc, run.cause.ctx) == ("unreadable", ("e",), ctx)
 
 
 def test_an_outer_edge_never_reads_inside_an_embedding_by_an_inner_id():
