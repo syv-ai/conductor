@@ -16,7 +16,7 @@ import typing
 import uuid
 from collections.abc import AsyncIterable, AsyncIterator, Callable, Mapping
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Annotated, Any, TypeVar
 
 import polars as pl
@@ -152,10 +152,13 @@ def run_router(
     async def claim(row: StoredRun, changes: RunChanges | None = None) -> bool:
         """Take ``row`` for this worker if nobody holds it and it is still at the ``rev`` read, writing ``changes`` too.
         Of two workers, one wins. A cancel asked of the run stays asked: only a resume clears it."""
-        now = time.time()
-        if row.owner is not None and row.lease_until >= now:
+        if row.owner is not None and row.lease_until >= time.time():
             return False
-        return await store.update(row.id, row.rev, {"status": "running", "owner": worker, "lease_until": now + lease, **(changes or {})})
+        return await store.update(row.id, row.rev, {**held(), **(changes or {})})
+
+    def held() -> RunChanges:
+        """What a row says while this worker holds it: running, with no cause yet."""
+        return {"status": "running", "owner": worker, "lease_until": time.time() + lease, "cause": None}
 
     def launch(run_id: str, rev: int, ceiling: int | None = None, cancelled: bool = False) -> None:
         """Run the next leg of a run this worker has just claimed at ``rev``, in the background; ``cancelled`` when a
@@ -257,7 +260,7 @@ def run_router(
         saved, refused = await asyncio.to_thread(answered)
         changes: RunChanges = {"pending": "{}", "refused": to_json(refused).decode()}
         if saved is not None:
-            changes.update({"status": "running", "owner": worker, "lease_until": time.time() + lease, "run": saved})
+            changes.update({**held(), "run": saved})
         if await store.update(run_id, row.rev, changes) and saved is not None:
             launch(run_id, row.rev + 1)
         # a failed update means another worker changed the run first: the answers stay queued for the end of its leg
@@ -267,11 +270,12 @@ def run_router(
             saved = await asyncio.to_thread(lambda: nodes_for(who).load(graph).with_inputs(inputs, max_rows=max_rows).to_json())
         except InvalidCallError as error:
             raise _unprocessable(error) from None
+        return await begin(graph.model_dump_json(), who, saved)
+
+    async def begin(graph: str, who: Any, saved: str) -> Started:
+        """Store a run of ``who``'s, held by this worker, and run its first leg."""
         run_id = uuid.uuid4().hex
-        await store.create(StoredRun(
-            id=run_id, graph=graph.model_dump_json(), caller=callers.dump_json(who).decode(), run=saved,
-            status="running", owner=worker, lease_until=time.time() + lease,
-        ))
+        await store.create(replace(StoredRun(id=run_id, graph=graph, caller=callers.dump_json(who).decode(), run=saved, status="running"), **held()))
         launch(run_id, 0)
         return Started(id=run_id)
 
@@ -327,7 +331,7 @@ def run_router(
         return RunView(
             id=row.id, status=row.status, waiting=json.loads(row.waiting),
             outputs=json.loads(row.outputs) if row.outputs is not None else None, refused=json.loads(row.refused),
-            cause=json.loads(row.cause) if row.cause is not None and row.status != "running" else None,
+            cause=json.loads(row.cause) if row.cause is not None else None,
         )
 
     @router.get("/runs/{run_id}/events", response_class=EventSourceResponse)
@@ -394,13 +398,7 @@ def run_router(
             saved = await asyncio.to_thread(lambda: load(row, who).with_inputs(inputs).to_json())
         except InvalidCallError as error:
             raise _unprocessable(error) from None
-        run_id = uuid.uuid4().hex
-        await store.create(StoredRun(
-            id=run_id, graph=row.graph, caller=callers.dump_json(who).decode(), run=saved,
-            status="running", owner=worker, lease_until=time.time() + lease,
-        ))
-        launch(run_id, 0)
-        return Started(id=run_id)
+        return await begin(row.graph, who, saved)
 
     @router.post("/runs/{run_id}/cancel")
     async def cancel(row: Stored) -> Cancelled:
