@@ -756,7 +756,7 @@ class Run:
             if not self.graph._input_fields[address].spec.plain:
                 _find_non_finite(written_input, [], non_finite.setdefault(address, []))
         cause = self.cause.model_dump(mode="json") if self.cause else None
-        code = {n: self._ran_as.get(n) or self.graph._nodes[n].reuse_digest for n in {*(n for n, us in self._units.items() if us), *earlier}}
+        code = {n: self._ran_as.get(n) or self.graph._nodes[n].reuse_digest for n, us in self._units.items() if us or n in earlier}
         written = {
             "graph": self.graph.fingerprint, "status": self.status, "cause": cause, "max_rows": self.max_rows, "inputs": inputs,
             **({"non_finite_inputs": {a: paths for a, paths in non_finite.items() if paths}} if any(non_finite.values()) else {}), "units": units, "earlier": earlier,

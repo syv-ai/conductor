@@ -795,3 +795,36 @@ def test_a_waiting_row_has_one_id_in_every_process_though_its_node_tests_a_set(s
         for seed in seeds
     }
     assert len(ids) == 1
+
+
+_WRITTEN_IN_ANOTHER_PROCESS = """
+from conductor import NodeRegistry, make_graph, node
+
+@node("a")
+def a(text: str) -> str:
+    return text
+
+@node("b")
+def b(text: str) -> str:
+    return text + "!"
+
+@node("c")
+def c(text: str) -> str:
+    return text + "?"
+
+@node("d")
+def d(text: str) -> str:
+    return text + "."
+
+registry = NodeRegistry()
+registry.add(a, b, c, d)
+print(registry.load(make_graph(a, b, c, d)).run(text="x").to_json())
+"""
+
+
+def test_a_run_is_written_to_the_same_bytes_in_every_process():
+    saved = {
+        subprocess.run([sys.executable, "-c", _WRITTEN_IN_ANOTHER_PROCESS], env={**os.environ, "PYTHONHASHSEED": seed}, capture_output=True, text=True, check=True).stdout
+        for seed in ("1", "2", "3", "4")
+    }
+    assert len(saved) == 1
