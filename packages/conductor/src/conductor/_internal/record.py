@@ -145,14 +145,9 @@ def as_record(record: GraphRecord | str | bytes | Mapping[str, Any]) -> GraphRec
         return GraphRecord.model_validate(record)
     except ValidationError as invalid:
         raise InvalidCallError([
-            make_problem("invalid_record", "record", *error["loc"], at=".".join(map(str, error["loc"])) or "the record", reason=_said_of_shape(error), error=error["type"])
-            for error in invalid.errors(include_url=False, include_input=False)
+            make_problem("invalid_record", "record", *error["loc"], at=".".join(map(str, error["loc"])) or "the record", reason=str(error["msg"]).removeprefix("Value error, "), error=error["type"])
+            for error in invalid.errors(include_url=False, include_input=False)  # a validator's own sentence, without pydantic's prefix
         ]) from None
-
-
-def _said_of_shape(error: Any) -> str:
-    """pydantic's sentence for a fault of shape; a validator's own sentence keeps only what it says after ``Value error,``."""
-    return str(error["msg"]).removeprefix("Value error, ")
 
 
 def typed_in(node_id: str, values: Mapping[str, Any]) -> tuple[dict[str, JsonValue], list[Problem]]:
