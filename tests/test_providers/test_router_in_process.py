@@ -145,6 +145,36 @@ def test_a_run_stopped_at_its_ceiling_says_why_and_is_resumed_with_no_body_or_a_
     asyncio.run(scenario())
 
 
+
+def test_a_ceiling_raised_by_a_resume_holds_for_the_legs_after_it() -> None:
+    registry = NodeRegistry()
+
+    @registry.node("split")
+    def split(n: int) -> Series[int]:
+        return list(range(n))
+
+    @registry.node("ask")
+    def ask(x: int) -> int:
+        raise Ask("ok?")
+
+    graph = make_graph(split, ask, edges=[("split.result", "ask.x")], values={"split.n": 5}).model_dump(mode="json")
+    app = FastAPI()
+    app.include_router(run_router(store=MemoryStore(), registry=registry, caller=_caller, max_rows=3))
+
+    async def scenario() -> None:
+        async with app.router.lifespan_context(app), httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as client:
+            run_id = (await client.post("/runs", json={"graph": graph})).json()["id"]
+            assert (await _until_ended(client, run_id, "anna"))["status"] == "stopped"
+            assert (await client.post(f"/runs/{run_id}/resume", json={"max_rows": 10})).status_code == 202
+            waiting = (await _until_ended(client, run_id, "anna"))["waiting"]
+            assert len(waiting) == 5
+            assert (await client.post(f"/runs/{run_id}/answers", json={waiting[0]["id"]: 7})).status_code == 202
+            after = await _until_ended(client, run_id, "anna")
+            assert (after["status"], len(after["waiting"])) == ("waiting", 4)
+
+    asyncio.run(scenario())
+
+
 class Part(TypedDict):
     text: str
 

@@ -124,7 +124,8 @@ def run_router(
     - ``published`` is a FastAPI dependency taking the path's ``name`` and giving a ``GraphRecord``, raising
       ``HTTPException(404)`` for one it doesn't offer; with it, ``POST /graphs/{name}/runs`` starts that graph on
       inputs alone.
-    - ``max_rows`` is every run's ceiling on the rows of one table; ``lease`` the seconds a worker holds a run between
+    - ``max_rows`` is the ceiling on the rows of one table a run starts with; a resume may raise it for that run,
+      and the raised ceiling holds for its later legs. ``lease`` the seconds a worker holds a run between
       renewals; ``checkpoint_every`` the seconds between saves of a running leg; ``leg_timeout`` the seconds one leg
       may run; ``poll`` the seconds between a follower's reads of new events.
     """
@@ -192,7 +193,7 @@ def run_router(
             run = await asyncio.to_thread(load, row)
             values = from_run(started_by(row)) if from_run is not None else None
             stream = run.stream(
-                from_run=values, max_rows=ceiling if ceiling is not None else max_rows, timeout=leg_timeout,
+                from_run=values, max_rows=ceiling, timeout=leg_timeout,
                 cancel=leg.cancel, checkpoint_every=checkpoint_every,
             )
             async for event in stream:
