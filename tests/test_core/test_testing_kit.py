@@ -233,3 +233,18 @@ def test_a_value_unequal_to_its_own_copy_is_never_called_changed():
 
     examples = {"reads": [{"values": [1.0, float("nan")], "thing": Opaque()}]}
     assert found(registry_of(reads), examples=examples) == []
+
+
+def test_a_body_returning_what_its_type_refuses_is_run_failed():
+    @node("counts")
+    def counts(text: str) -> int:
+        return "many"  # type: ignore[return-value]
+
+    @node("tally")
+    def tally(labels: Series[str]) -> dict[str, int]:
+        return {label: "one" for label in labels}  # type: ignore[misc]
+
+    problems = check_registry(registry_of(counts, tally), examples={"counts": [{"text": "a"}], "tally": [{"labels": ["a"]}]})
+    assert [(p.type, p.loc, p.ctx["cause"]) for p in problems] == [
+        ("run_failed", ("counts", 1), ["invalid_output"]), ("run_failed", ("tally", 1), ["invalid_output"]),
+    ]
