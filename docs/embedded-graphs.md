@@ -86,8 +86,8 @@ Everything else names the embedding, never its inner nodes:
 A stored graph with problems of its own is one problem, `embedded_graph_broken`, and its `ctx.problems` lists them
 (see [problem codes](problems.md#embedded_graph_broken)).
 
-`node.describe()` of a stored graph lists no fields. Its fields depend on the registry its inner nodes come from, so
-they show in `graph.describe()` once a graph that uses it loads.
+A stored graph's palette entry lists the fields it offers in `registry.describe()`, which holds the nodes its
+graph uses. The definition's own `describe()` lists none, because its fields depend on that registry.
 
 ## Graphs saved per request
 

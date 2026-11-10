@@ -121,7 +121,7 @@ import polars as pl
 from conductor import Table
 
 
-class Named(TypedDict):
+class NameRow(TypedDict):
     name: str
 
 
@@ -131,7 +131,7 @@ class Invoice(TypedDict):
 
 
 @registry.node("names")
-def names(text: str) -> Table[Named]:
+def names(text: str) -> Table[NameRow]:
     return pl.DataFrame({"name": text.split()})
 
 
@@ -958,7 +958,7 @@ except NodeDeclarationError as error:
 
 > {spec.name}: {sorted(limits)} can't apply to {getattr(base, '__name__', base)}; ge, gt, le, lt and multiple_of fit numbers and dates, min_length, max_length and pattern texts
 
-> Param has no argument {unknown[0]}; it takes title, description, widget, exclusive_group, setting and the limits {sorted(_NUMERIC | _SIZED)}
+> Param has no argument {unknown[0]}; it takes title, description, widget, exclusive_group, setting, choices and the limits {sorted(_NUMERIC | _SIZED)}
 
 > {spec.name}: the limits {spec.param.constraints} don't fit {getattr(base, '__name__', base)}: {error}
 
@@ -973,25 +973,24 @@ except NodeDeclarationError as error:
 
 **Fix.** Use limits that fit the type: `ge`, `gt`, `le`, `lt` and `multiple_of` for numbers and dates, `min_length`, `max_length` and `pattern` for text. A table takes none.
 
-### `choices_declared_twice`
+### `choices_invalid`
 
-> {spec.name}: the choices are the Literal's values, so the widget declares none; write Dropdown()
+> {spec.name}: {fault}
 
 ```python
 from typing import Literal
 
 from conductor import Choice
-from conductor.widgets import Dropdown
 
 try:
     @node("size")
-    def size(pick: Annotated[Literal["s", "m"], Param(widget=Dropdown(choices=(Choice("s", "Small"),)))]) -> str:
+    def size(pick: Annotated[Literal["s", "m"], Param(choices=[Choice("s", "Small")])]) -> str:
         return pick
 except NodeDeclarationError as error:
-    print(error.code)  # choices_declared_twice
+    print(error.code)  # choices_invalid
 ```
 
-**Fix.** Write `Dropdown()`: a `Literal` input's choices are its values. To give them titles, use `Choice`s on a `str` input instead.
+**Fix.** Give each choice once, each a value of the field's type. On a `Literal`, the choices title its values, one each: `[Choice("s", "Small"), Choice("m", "Medium")]`.
 
 ### `compute_added_inputs_without_var_keyword`
 
@@ -1162,6 +1161,23 @@ except NodeDeclarationError as error:
 ```
 
 **Fix.** Pick an id without `.`, `/`, `@` or `~`, and never an empty one. The same rule holds for an id in a record.
+
+### `named_twice`
+
+> {name}: a type has one name, and this one is Named {[n.id for n in names]}
+
+```python
+from conductor import Named
+
+try:
+    @node("agree")
+    def agree(answer: Annotated[bool, Named("yes-no"), Named("ja-nej")]) -> bool:
+        return answer
+except NodeDeclarationError as error:
+    print(error.code)  # named_twice
+```
+
+**Fix.** Keep one `Named`. Give the alias a name, `YesNo = Annotated[bool, Named("yes-no")]`, and use it everywhere.
 
 ### `nested_series`
 
