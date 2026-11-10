@@ -366,6 +366,20 @@ def test_a_value_its_type_refuses_never_reaches_a_hook_and_is_said_once():
     assert [(p.type, p.loc) for p in problems] == [("invalid_value", ("r", "mode"))]
 
 
+@pytest.mark.parametrize("kind", ["values", "defaults"])
+def test_a_list_typed_into_an_input_a_hook_reads_is_refused_saying_why(kind: str) -> None:
+    def named(names: str) -> dict[str, Any]:
+        return {name: bool for name in names.split(",")}
+
+    @node("checks", compute_outputs=named)
+    def checks(names: str) -> dict[str, Any]:
+        return {}
+
+    (problem,) = registry_of(checks).load({"nodes": [{"id": "c", "node": "checks", kind: {"names": ["a,b", "c"]}}]}).problems
+    assert (problem.type, problem.loc) == ("invalid_value", ("c", "names"))
+    assert problem.ctx["reason"] == "a hook works out this node's fields from one value; a list can't be typed in here"
+
+
 def test_a_subtype_lands_where_its_parent_is_asked_for_and_not_the_other_way():
     assert _problems({"nodes": [{"id": "n", "node": "name"}, {"id": "u", "node": "upper"}], "edges": [["n.result", "u.text"]]}) == []
     assert _problems({"nodes": [{"id": "u", "node": "upper"}, {"id": "n", "node": "nonempty"}], "edges": [["u.result", "n.text"]]}) == [
