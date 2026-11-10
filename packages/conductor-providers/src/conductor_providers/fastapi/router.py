@@ -32,7 +32,7 @@ from conductor import (
     Waiting,
 )
 from conductor.events import RunCheckpoint, RunEnd
-from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException
+from fastapi import APIRouter, Body, Depends, FastAPI, Header, HTTPException
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 from pydantic import BaseModel, TypeAdapter
 from pydantic_core import to_json
@@ -52,12 +52,6 @@ class StartRun(BaseModel):
 
     graph: GraphRecord
     inputs: dict[str, Any] = {}
-
-
-class Resume(BaseModel):
-    """What ``POST /runs/{id}/resume`` takes: a higher ceiling for a run that stopped at its ``max_rows``."""
-
-    max_rows: int | None = None
 
 
 class RunView(BaseModel):
@@ -375,13 +369,14 @@ def run_router(
         return Answered(answers="started")
 
     @router.post("/runs/{run_id}/resume", status_code=202)
-    async def resume(row: Stored, body: Resume) -> Started:
-        """Go on with a run that timed out, stopped at its ceiling, was cancelled or failed; nothing finished is called again."""
+    async def resume(row: Stored, max_rows: Annotated[int | None, Body(embed=True)] = None) -> Started:
+        """Go on with a run that timed out, stopped at its ceiling, was cancelled or failed; nothing finished is called
+        again. ``{"max_rows": ...}`` raises the ceiling of a run that stopped at it; a resume needs no body."""
         if row.status not in _RESUMABLE:
             raise HTTPException(409, f"the run is {row.status}")
         if not await claim(row):
             raise HTTPException(409, "the run changed since it was read")
-        launch(row.id, row.rev + 1, body.max_rows)
+        launch(row.id, row.rev + 1, max_rows)
         return Started(id=row.id)
 
     @router.post("/runs/{run_id}/again", status_code=202)
