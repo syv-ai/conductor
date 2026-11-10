@@ -236,13 +236,14 @@ class Leg:
         finally:
             if self.pool is not None:
                 self.pool.shutdown(wait=False, cancel_futures=True)
-        if run.status == "running":  # a node already said complete has no row waiting
-            waits = any(u.state == "waiting" for n, us in run._units.items() if n not in self.complete for u in us.values())
-            run.status = "waiting" if waits else "complete"
+        # one look at every unit: a node already said complete has no row waiting
+        waiting = {n for n, us in run._units.items() if n not in self.complete and "waiting" in {u.state for u in us.values()}}
+        if run.status == "running":
+            run.status = "waiting" if waiting else "complete"
         if run.status == "complete":  # every row of every node is finished, and nothing carried will be taken
             run._complete, run._earlier = frozenset(self.position), {}
         else:
-            run._complete = frozenset(self.complete | {p.id for p in self.nodes if p.id not in self.complete and self._finished(p)})
+            run._complete = frozenset(self.complete | {p.id for p in self.nodes if p.id not in self.complete and p.id not in waiting and self._finished(p, False)})
             for node_id in run._complete if run._earlier else ():  # what a finished node was carried and didn't take, no row of this run will
                 run._earlier.pop(node_id, None)
         if self.emit:
@@ -596,14 +597,15 @@ class Leg:
             else:
                 self.emit(NodeComplete(node_id=node_id, rows=len(keys), not_called=sum(units[k].state == "blank" for k in keys), reused_units=self.reused[node_id]))
 
-    def _finished(self, placed: PlacedNode) -> bool:
-        """Whether every row of ``placed`` is known and none of them is still to run or waiting."""
+    def _finished(self, placed: PlacedNode, may_wait: bool = True) -> bool:
+        """Whether every row of ``placed`` is known and none of them is still to run or waiting; ``may_wait`` False when
+        the caller already knows none waits."""
         units = self.run._units[placed.id]
         if not placed.level:
             for unit in units.values():
                 return unit.state != "waiting"
             return False
-        if "waiting" in {u.state for u in units.values()}:
+        if may_wait and "waiting" in {u.state for u in units.values()}:
             return False
         counted, known = self.run._rows(placed.level, (), counted=True)
         return known and len(units) == (counted[0][0] if counted else 0)
