@@ -50,14 +50,14 @@ results["join"]["result"]          # "A+B+C": Series[str] received the whole ser
 
 `@node("id", title=, description=, category=, tags=, extra=, docs=, policy=, deprecation=, compute_added_inputs=, compute_outputs=, replaces=, upgrade=)` wraps a plain function and returns a frozen, callable `NodeDefinition`; it registers nothing. `@registry.node(...)` takes the same arguments and adds the node to that registry. Only the id is required: the title defaults to the function's name, the description to its docstring. `extra` is the host's own JSON about the node, kept and described, never read by conductor.
 
-- Input: `text: str`, or `Annotated[str, Param(title=, description=, widget=, connectable=)]` beside it. Without a widget an editor shows no control for it: an edge fills it, or a value set in code. A default makes it optional, and goes through the input's type where it is written: one the type can't read raises at import (`default_invalid`), and the default is kept as the type read it. A type no edge can carry (`list[X]`, a `Literal`) closes the input by itself; `connectable=False` closes one that could.
+- Input: `text: str`, or `Annotated[str, Param(title=, description=, widget=, connectable=)]` beside it. Without a widget an editor shows no control for it: an edge fills it, or a value set in code. A default makes it optional, and goes through the input's type where it is written: one the type can't read is a `NodeDeclarationError` (`default_invalid`), and the default is kept as the type read it. A type no edge can carry (`list[X]`, a `Literal`) closes the input by itself; `connectable=False` closes one that could.
 - Output: `-> str` is one output named `result`, `Result(name=, title=, description=, exclusive_group=)` beside it says more; a frozen dataclass is one output per field; `-> Mapping[str, Any]` returns the computed outputs by name and needs `compute_outputs`; `-> None` declares no outputs.
 - `Any` is a value routed unread; an `Any` output needs `compute_outputs` to type it.
 - A value can be blank. If an input's type doesn't say `| None` (`email: str | None`), the node isn't called for that row: its outputs are blank there, an `exclusive_group` output is skipped, and an output that makes rows has none. `Series[X]` leaves blanks out, row by row across the series inputs on one index; `Series[X | None]` keeps them. Inputs of many values reading one index stay on the same rows: a row one of them has skipped is blank there, so a zip never pairs two rows, and `Series[X]` then drops that row from all of them. Two `Series[X]` inputs reading opposite branches on one index would lose every row: that is the fatal `series_inputs_never_share_a_row`. Write `Series[X | None]`, or wire both branches into one input. `Any`, `Series[Any]` and `AsItArrives` take blanks. `| None` on a return lets the node return `None`, and a question may be left blank. A default is for an input nothing is wired to, never for a blank. `node_complete.rows_not_called` and `state.nodes[node_id].rows_not_called` count, per input, the rows skipped this way.
 - `**x: T` makes every edge an input declared `T` when no `compute_added_inputs` owns the parameter: `Any` or a type runs the node per row, `Series[Any]` reduces each edge, `AsItArrives` hands each as it arrives (a column as a column) and never runs per row.
 - The function returns `SKIPPED` on a branch not taken and `AskPerson` when a person must answer (`-> ... | AskPerson`).
 - What the run supplies arrives through `FromRun[T]` parameters.
-- `@node` checks the function: a bare widget in `Annotated`, an extra conductor does not read, `async def`, an `Any` or `Mapping` return with no hook, and a field name gone from the next version with no `Upgrade` raise a `TypeError` with a `code`, at import.
+- `@node` checks the function: a bare widget in `Annotated`, an extra conductor does not read, `async def`, an `Any` or `Mapping` return with no hook, and a field name gone from the next version with no `Upgrade` raise `NodeDeclarationError`.
 
 ### Versions and Policies
 
@@ -205,10 +205,10 @@ Retries live on the version's `Policy`, per unit.
 
 ### Errors
 
-The classes a host catches are exported from `conductor`. What is wrong is always one record, `Problem(type, loc, msg, ctx)`: on `compiled.problems`, on `node_failed` and `state.cause`, and in `InvalidCallError.errors()`. Its `type` is a stable code (see "Problem and error codes"); a node failure's `loc` is `(node_id, *row)`, a compile problem's `(node_id, field)`.
+The classes are exported from `conductor`. What is wrong is always one record, `Problem(type, loc, msg, ctx)`: on `compiled.problems`, on `node_failed` and `state.cause`, and in `InvalidCallError.errors()`. Its `type` is a stable code (see "Problem and error codes"); a node failure's `loc` is `(node_id, *row)`, a compile problem's `(node_id, field)`.
 
 ```
-a TypeError, with code  a node, registry or type declared wrong, at import
+NodeDeclarationError    a node, registry or type declared wrong, at import; a TypeError, with code
 ComputeHookError        a hook cannot answer; field= says where
 InvalidCallError        a verb was given what it cannot act on, every fault listed
 NodeError               code, ctx, node_id
@@ -259,7 +259,7 @@ Three public modules: `conductor`, `conductor.widgets` and `conductor.events`. E
 - Types: `DType`, `AsItArrives`, `Series`, `Table`, `Ref`, `to_jsonable(value)`, `ROW_ID_COLUMN` (the name of a table's hidden row-id column)
 - Registry: `NodeRegistry(*, category="", tags=(), extra=None, types=())` (`@registry.node`, `add(*definitions)`, `replace(definition)`, `remove(node_id)`, `add_subregistry(registry)`, `filter(predicate)`, `in`, `[]`, `len`, iteration over the definitions, `types`, `accepted_as`, `describe`), `RegistryDescription`, `TypeDescription`. A node entering a registry takes its defaults: tags add up, outermost first; the node's own `category` and `extra` keys win. A second node under one id raises; a subregistry is copied in when added.
 - Graph: `Graph`, `GraphNode`, `FieldContent`, `From`, `Static`, `dependencies_of`, `CompiledGraph`, `GraphDescription`, `Problem`, `ReceiveMode`, `Condition`, `BranchTaken`, `ALWAYS`, `NEVER`
-- Errors: `ComputeHookError`, `InvalidCallError`, `Problem`, `NodeError`, `ExternalFailure`, `PROBLEM_CODES`
+- Errors: `NodeDeclarationError`, `ComputeHookError`, `InvalidCallError`, `Problem`, `NodeError`, `ExternalFailure`, `PROBLEM_CODES`
 - A run's state: `RunStatus`, `WaitingUnit`, `RunState` (`status`, `cause`, `waiting`, `nodes`, by node id what each did: `fingerprint`, `finished_units`, `tables_received`, `outputs`, `waiting`, `rows_not_called`, `reused_units`, `earlier_units`; `without_nodes(...)`); dumped as JSON it is one document holding each table once, under its `tables` key by digest, and a load holds one frame per digest
 
 ### Running

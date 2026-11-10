@@ -17,13 +17,14 @@ from conductor import (
     DType,
     Graph,
     GraphNode,
+    NodeDeclarationError,
+    NodeDefinition,
     NodeRegistry,
     Param,
     Result,
     Upgrade,
     node,
 )
-from conductor._internal.errors import NodeDeclarationError
 from conductor.widgets import Textarea
 
 
@@ -50,6 +51,12 @@ def echo(
 @node("upper", title="Uppercase", description="Uppercases text", category="test")
 def upper_node(text: Annotated[Txt, Param(title="Input", widget=Textarea())]) -> Out:
     return Txt(text.upper())
+
+
+def _registry_with(*definitions: Any) -> NodeRegistry:
+    registry = NodeRegistry()
+    registry.add(*definitions)
+    return registry
 
 
 def _node(node_id: str, **declared: Any) -> Any:
@@ -108,6 +115,46 @@ def test_a_plain_node_registers_nothing():
 
 
 # --- add, replace, remove ---------------------------------------------------
+
+
+def test_a_newer_version_declared_on_the_registry_takes_the_place_of_the_one_it_replaces():
+    registry = NodeRegistry(category="text")
+
+    @registry.node("upper")
+    def upper(text: str) -> str:
+        return text.upper()
+
+    @registry.node("upper", replaces=upper, upgrade=Upgrade())
+    def upper_v2(text: str, suffix: str = "") -> str:
+        return text.upper() + suffix
+
+    assert registry["upper"] is upper_v2
+    assert sorted(upper_v2.versions) == [1, 2] and upper_v2.category == "text"
+    assert len(registry) == 1
+
+
+def test_replaces_naming_a_node_the_registry_does_not_hold_is_still_a_duplicate():
+    registry = NodeRegistry()
+    held = _node("upper")
+    registry.add(held)
+
+    with pytest.raises(NodeDeclarationError, match="two nodes have the id 'upper'"):
+
+        @registry.node("upper", replaces=_node("upper"), upgrade=Upgrade())
+        def other(x: str = "") -> str:
+            return x
+
+    assert registry["upper"] is held
+
+
+def test_two_nodes_built_from_graphs_under_one_id_are_told_apart_by_title():
+    inner = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="a", type="upper", version=1)]), _registry_with(upper_node))
+    registry = NodeRegistry()
+    registry.add(NodeDefinition.from_compiled_graphs("g", title="First", versions=inner))
+
+    with pytest.raises(NodeDeclarationError, match="titled 'First'.*titled 'Second'"):
+        registry.add(NodeDefinition.from_compiled_graphs("g", title="Second", versions=inner))
+
 
 
 def test_a_second_node_under_one_id_is_refused_naming_where_both_were_written():
@@ -313,6 +360,15 @@ def test_extra_is_json_kept_and_described_but_never_read():
 
     assert dict(tagged.extra) == {"icon": "star", "order": [1, 2], "beta": None}
     assert tagged.describe().model_dump(mode="json")["extra"] == {"icon": "star", "order": [1, 2], "beta": None}
+
+
+@pytest.mark.parametrize("extra", [{"x": float("nan")}, {"x": [float("inf")]}, "ab", [("a", 1)], {1: "a"}, {"x": (1, 2)}])
+def test_extra_that_is_not_strict_json_is_a_declaration_error(extra):
+    with pytest.raises(NodeDeclarationError, match="extra must be JSON") as raised:
+        _node("bad", extra=extra)
+    assert raised.value.code == "extra_not_json"
+    with pytest.raises(NodeDeclarationError, match="extra must be JSON"):
+        NodeRegistry(extra=extra)
 
 
 def test_extra_that_is_not_json_is_refused_where_it_is_written():

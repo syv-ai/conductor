@@ -142,14 +142,20 @@ class NodeRegistry:
     def node(self, *args: Any, **kwargs: Any) -> Any:
         """Declare a node as ``@node`` does, with the same arguments, and add it here.
 
-        The function's name is bound to the definition this registry holds,
+        A newer version whose ``replaces=`` is the node held under its id
+        takes that node's place; any other id already here raises. The
+        function's name is bound to the definition this registry holds,
         with the registry's defaults applied.
         """
         declare = node(*args, **kwargs)
+        replaces = kwargs.get("replaces")
 
         def decorate(function: Callable[..., Any]) -> NodeDefinition[..., Any]:
             definition = declare(function)
-            self.add(definition)
+            if replaces is not None and _same_versions(self._nodes.get(definition.id), replaces):
+                self.replace(definition)
+            else:
+                self.add(definition)
             return self._nodes[definition.id]
 
         return decorate
@@ -265,11 +271,18 @@ def _raise_unless_definition(definition: Any) -> None:
         raise NodeDeclarationError(f"{definition!r} is not a node; declare one with @node", code="not_a_node_definition")
 
 
+def _same_versions(held: NodeDefinition[..., Any] | None, replaced: NodeDefinition[..., Any]) -> bool:
+    """Whether ``held`` is ``replaced``, possibly with a registry's defaults applied: the same version records."""
+    return held is not None and held.versions.keys() == replaced.versions.keys() and all(
+        held.versions[number] is version for number, version in replaced.versions.items()
+    )
+
+
 def _where_declared(definition: NodeDefinition[..., Any]) -> str:
-    """Where a node's newest version was written: its function's module and name, or that it is a graph."""
+    """Where a node's newest version was written: its function's module and name, or the graph it is built from."""
     body = definition.versions[definition.current_version].body
     if not callable(body):
-        return "a graph"
+        return f"a node built from graphs titled {definition.title!r} (versions {', '.join(map(str, sorted(definition.versions)))})"
     return f"{getattr(body, '__module__', '?')}.{getattr(body, '__qualname__', '?')}"
 
 

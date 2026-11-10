@@ -14,7 +14,7 @@ its stored graphs itself. What a 1.x user changes:
 - **Imports.** Import from `conductor`, `conductor.widgets` and `conductor.events`; everything else is
   `conductor._internal`. Conductor depends on `polars>=2.0` and `pydantic>=2.11`. The records a
   public call returns but nobody names (`CompiledNode`, `RunPlan`, `WorkOfNode`, `Question` and the
-  like) and `NodeDeclarationError`, a `TypeError` raised at import, are not exported.
+  like) are not exported.
 - **A node.** `BaseNode` is a plain function under `@registry.node("id")`, or under `@node("id")`,
   which takes the same arguments and registers nothing. Either returns a frozen, callable
   `NodeDefinition`; `version=` and `name=` are gone. `async def` isn't allowed: the function runs in a

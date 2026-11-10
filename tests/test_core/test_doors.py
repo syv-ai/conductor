@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 DOORS: dict[str, list[str]] = {
     "conductor": [
-        "ALWAYS", "ArrivingType", "AsItArrives", "AskPerson", "BranchTaken", "CompiledGraph", "ComputeHookError", "Condition", "DType", "Deprecation", "ExternalFailure", "FieldContent", "From", "FromRun", "Graph", "GraphDescription", "GraphNode", "Input", "Interface", "InvalidCallError", "NEVER", "NodeDefinition", "NodeDescription", "NodeError", "NodeRegistry", "OPEN", "Output", "PROBLEM_CODES", "Param", "Policy", "Problem", "ROW_ID_COLUMN", "ReceiveMode", "Ref", "RegistryDescription", "Result", "RunState", "RunStatus", "SKIPPED", "Series", "Static", "Table", "TypeDescription", "Upgrade", "WaitingUnit", "dependencies_of", "node", "table_with_columns", "to_jsonable", "upgrade_node",
+        "ALWAYS", "ArrivingType", "AsItArrives", "AskPerson", "BranchTaken", "CompiledGraph", "ComputeHookError", "Condition", "DType", "Deprecation", "ExternalFailure", "FieldContent", "From", "FromRun", "Graph", "GraphDescription", "GraphNode", "Input", "Interface", "InvalidCallError", "NEVER", "NodeDeclarationError", "NodeDefinition", "NodeDescription", "NodeError", "NodeRegistry", "OPEN", "Output", "PROBLEM_CODES", "Param", "Policy", "Problem", "ROW_ID_COLUMN", "ReceiveMode", "Ref", "RegistryDescription", "Result", "RunState", "RunStatus", "SKIPPED", "Series", "Static", "Table", "TypeDescription", "Upgrade", "WaitingUnit", "dependencies_of", "node", "table_with_columns", "to_jsonable", "upgrade_node",
     ],
     "conductor.widgets": [
         "Choice", "DatePicker", "Dropdown", "FileUpload", "ListWidget", "NumberWidget", "Range", "Switch",

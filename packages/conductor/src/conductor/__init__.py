@@ -15,6 +15,7 @@ from conductor._internal.errors import (
     ComputeHookError,
     ExternalFailure,
     InvalidCallError,
+    NodeDeclarationError,
     NodeError,
     Problem,
 )
@@ -75,6 +76,7 @@ __all__ = [
     "Input",
     "Interface",
     "InvalidCallError",
+    "NodeDeclarationError",
     "NodeDefinition",
     "NodeDescription",
     "NodeError",

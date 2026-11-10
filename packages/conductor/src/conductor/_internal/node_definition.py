@@ -44,6 +44,7 @@ A host hands over a saved graph as a node with
 from __future__ import annotations
 
 import inspect
+import math
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from types import MappingProxyType
@@ -488,13 +489,30 @@ _EXTRA = TypeAdapter(dict[str, JsonValue])
 
 
 def checked_extra(extra: Mapping[str, JsonValue] | None) -> dict[str, JsonValue]:
-    """``extra`` as a plain dict, once it is JSON; anything else raises."""
+    """``extra`` as a plain dict, once it is JSON: a mapping of str to JSON values, every number finite. Anything else raises."""
     if extra is None:
         return {}
+    wrong_shape = NodeDeclarationError(f"extra must be JSON, a mapping of str to JSON values with finite numbers; got {extra!r}", code="extra_not_json")
+    if not isinstance(extra, Mapping):
+        raise wrong_shape
     try:
-        return _EXTRA.validate_python(dict(extra), strict=True)
-    except (ValidationError, TypeError) as wrong:
-        raise NodeDeclarationError(f"extra must be JSON, a dict of str to JSON values; got {extra!r}", code="extra_not_json") from wrong
+        checked = _EXTRA.validate_python(dict(extra), strict=True)
+    except (ValidationError, TypeError, ValueError) as wrong:
+        raise wrong_shape from wrong
+    if not _all_finite(checked):
+        raise wrong_shape
+    return checked
+
+
+def _all_finite(value: JsonValue) -> bool:
+    """Whether no float anywhere in ``value`` is NaN or an infinity, which JSON cannot write."""
+    if isinstance(value, float):
+        return math.isfinite(value)
+    if isinstance(value, dict):
+        return all(_all_finite(item) for item in value.values())
+    if isinstance(value, list):
+        return all(_all_finite(item) for item in value)
+    return True
 
 
 class VersionDescription(ConductorModel):
