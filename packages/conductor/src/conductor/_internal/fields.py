@@ -22,7 +22,7 @@ import datetime
 import functools
 import types
 import typing
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import (
     TYPE_CHECKING,
@@ -282,6 +282,11 @@ class FieldSpec:
     def plain(self) -> bool:
         """Whether its values are of plain classes (``SCALARS``): JSON with no keys to order, read back by the type as they were."""
         return bool(self.plain_classes) and set(self.plain_classes) <= SCALARS
+
+    @functools.cached_property
+    def per_item(self) -> bool:
+        """Whether a list given here is many values, a row per item: the field takes one value, of a type that takes no list as one."""
+        return self.shape == "one" and not _takes_a_list(self.type)
 
     @functools.cached_property
     def takes_a_number(self) -> bool:
@@ -547,6 +552,52 @@ def _columns_of(row: Any) -> dict[str, Any] | None:
     if row is Any or row is None:
         return None
     return typing.get_type_hints(row)
+
+
+def given_as_items(spec: FieldSpec, value: Any) -> bool:
+    """Whether ``value``, given or typed into ``spec``, is many values, each run as its own row: a list on a ``per_item`` field.
+
+    A set counts as one too, so it is refused for having no order rather than read as one value.
+    """
+    return spec.per_item and isinstance(value, (list, tuple, set, frozenset))
+
+
+def _takes_a_list(hint: Any) -> bool:
+    """Whether a list is one value of ``hint``: a list's, a tuple's, a set's or a sequence's, ``Any``'s, a union
+    holding one, or any type whose JSON form may be an array (a pydantic ``RootModel`` of a tuple)."""
+    hint = _unnamed(hint)
+    if hint is Any or hint is object or isinstance(hint, TypeVar):
+        return True
+    if hasattr(hint, "__value__"):  # a type alias, such as pydantic's JsonValue
+        return _takes_a_list(hint.__value__)
+    origin = get_origin(hint)
+    if origin in (Union, types.UnionType):
+        return any(_takes_a_list(a) for a in get_args(hint))
+    if origin is Annotated:
+        return _takes_a_list(get_args(hint)[0])
+    kind = origin or hint
+    if isinstance(kind, type) and issubclass(kind, (str, bytes, bytearray, Mapping, *_BUILTINS)):
+        return False
+    if isinstance(kind, type) and (issubclass(kind, (list, tuple, set, frozenset)) or (kind.__module__ == "collections.abc" and issubclass(kind, Iterable))):
+        return True
+    try:
+        schema = TypeAdapter(_carried(hint)).json_schema()
+    except Exception:  # noqa: BLE001  a type with no JSON form is never written as a list
+        return False
+    return _schema_takes_an_array(schema, schema.get("$defs", {}))
+
+
+def _schema_takes_an_array(schema: Mapping[str, Any], defs: Mapping[str, Any]) -> bool:
+    """Whether a JSON schema allows an array: its type, a branch of it, or no constraint on the type at all."""
+    if "$ref" in schema:
+        return _schema_takes_an_array(defs.get(schema["$ref"].rpartition("/")[2], {}), defs)
+    branches = [*schema.get("anyOf", ()), *schema.get("oneOf", ()), *schema.get("allOf", ())[:1]]
+    if branches:
+        return any(_schema_takes_an_array(branch, defs) for branch in branches)
+    kind = schema.get("type")
+    if kind is None:
+        return not ({"enum", "const"} & schema.keys())
+    return kind == "array" or (isinstance(kind, list) and "array" in kind)
 
 
 def _is_optional(hint: Any) -> bool:

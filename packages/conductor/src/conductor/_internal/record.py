@@ -13,11 +13,9 @@ A graph record is its nodes and its edges, and a ``display`` of the host's own::
 A node names the definition it uses (``node``) and the version (``version``,
 1 when left out). ``values`` are typed into its inputs and fixed there: no
 caller may change them. ``defaults`` fill an input that stays open, so a
-caller may still give it another value. ``many`` names the inputs that take
-a list, a row per item: an open input of a first node takes it from the
-caller, and an input with a value is a list typed in, whose items are a table
-under each row the node runs on, so the node runs once per item on each. ``display`` is the host's own:
-conductor stores it and never reads it. An empty field is left out when the
+caller may still give it another value. A list given to an input that takes
+one value, by the caller or typed in, is many values: the node runs once per
+item. ``display`` is the host's own: conductor stores it and never reads it. An empty field is left out when the
 record is saved, so a bare node is ``{"id": "up", "node": "upper"}``.
 
 Edges are a list of ``[from, to]`` addresses, ``node.field`` or
@@ -37,7 +35,6 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Mapping, Sequence
-from collections.abc import Set as AbstractSet
 from typing import TYPE_CHECKING, Annotated, Any
 
 from pydantic import (
@@ -51,7 +48,13 @@ from pydantic import (
 
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.errors import InvalidCallError, Problem, make_problem, value_free_errors
-from conductor._internal.fields import Refused, carried_list, read_table, refuse_a_bool_for_a_number
+from conductor._internal.fields import (
+    Refused,
+    carried_list,
+    given_as_items,
+    read_table,
+    refuse_a_bool_for_a_number,
+)
 
 if TYPE_CHECKING:
     from conductor._internal.node_definition import NodeDefinition
@@ -87,17 +90,13 @@ class NodeRecord(ConductorModel):
     values: Mapping[str, Any] = Field(default_factory=dict)
     #: Typed into these inputs, which stay open for a caller to change.
     defaults: Mapping[str, Any] = Field(default_factory=dict)
-    #: The inputs that take a list, a row per item: from the caller on an open input, or typed in as the value.
-    many: Annotated[AbstractSet[str], AfterValidator(frozenset)] = frozenset()
     #: The host's own: position, size, titles a person edited. Stored and never read here.
     display: Mapping[str, Any] = Field(default_factory=dict)
 
     @model_serializer(mode="wrap")
     def _without_empty_fields(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
-        """The record as saved: an empty field and the version 1 are left out, ``many`` sorted."""
+        """The record as saved: an empty field and the version 1 are left out."""
         written: dict[str, Any] = handler(self)
-        if "many" in written:
-            written["many"] = sorted(written["many"])
         return {key: value for key, value in written.items() if value not in ({}, [], ()) and not (key == "version" and value == 1)}
 
 
@@ -167,21 +166,19 @@ def make_graph(
     edges: Sequence[tuple[str, str]] | None = None,
     values: Mapping[str, Any] | None = None,
     defaults: Mapping[str, Any] | None = None,
-    many: AbstractSet[str] | None = None,
 ) -> GraphRecord:
     """A graph record written from Python, each node at its version::
 
         make_graph(read_file, upper)                                  # a chain
         make_graph(read_file, upper, edges=[("read_file.result", "upper.text")])
         make_graph(read_file, upper, values={"read_file.path": "in.txt"})
-        make_graph(lookup, send, many={"lookup.contact"})             # a row per contact the caller gives
 
     A node's id in the graph is its definition's id; a definition used more
     than once is ``upper-1``, ``upper-2``, and so on, skipping an id another
-    node already has. ``values``, ``defaults`` and ``many`` are keyed by
-    ``"node.input"`` addresses of those ids, as the record's fields of those
-    names are: a value is fixed, a default stays open to the caller, and an
-    input in ``many`` takes a list, a row per item.
+    node already has. ``values`` and ``defaults`` are keyed by ``"node.input"``
+    addresses of those ids, as the record's fields of those names are: a value
+    is fixed, and a default stays open to the caller. A list typed into an input
+    that takes one value is many values, a row per item.
 
     With no ``edges`` the nodes form a chain: each takes its one required
     input that nothing typed in fills from the one output of the node before
@@ -201,8 +198,8 @@ def make_graph(
     ids = _ids_of(nodes)
     known = dict(zip(ids, nodes, strict=True))
     problems: list[Problem] = []
-    typed: dict[str, dict[str, Any]] = {"values": {}, "defaults": {}, "many": {}}
-    for kind, given in (("values", values or {}), ("defaults", defaults or {}), ("many", dict.fromkeys(many or ()))):
+    typed: dict[str, dict[str, Any]] = {"values": {}, "defaults": {}}
+    for kind, given in (("values", values or {}), ("defaults", defaults or {})):
         for address, value in given.items():
             node_id, _, name = address.partition(".")
             definition = known.get(node_id)
@@ -214,15 +211,9 @@ def make_graph(
                 typed[kind].setdefault(node_id, {})[name] = value
     for node_id, by_name in typed["values"].items():
         problems += [make_problem("value_and_default", node_id, name) for name in by_name if name in typed["defaults"].get(node_id, {})]
-    for node_id, names in typed["many"].items():
-        definition = known[node_id]
-        problems += [make_problem("many_on_series", node_id, name) for name in names if name in definition.inputs and definition.inputs[name].shape != "one"]
-    for node_id, by_name in typed["values"].items():
-        for name, value in by_name.items():
-            problems += _value_problems(known[node_id], node_id, name, value, many=name in typed["many"].get(node_id, {}))
-    for node_id, by_name in typed["defaults"].items():
-        for name, value in by_name.items():
-            problems += _value_problems(known[node_id], node_id, name, value, many=name in typed["many"].get(node_id, {}))
+    for kind in ("values", "defaults"):
+        for node_id, by_name in typed[kind].items():
+            problems += [problem for name, value in by_name.items() for problem in _value_problems(known[node_id], node_id, name, value)]
     if edges is None:
         edges = []
         for index in range(1, len(nodes)):
@@ -240,7 +231,7 @@ def make_graph(
         nodes=[
             NodeRecord(
                 id=node_id, node=definition.id, version=definition.version, values=typed["values"].get(node_id, {}),
-                defaults=typed["defaults"].get(node_id, {}), many=frozenset(typed["many"].get(node_id, {})),
+                defaults=typed["defaults"].get(node_id, {}),
             )
             for node_id, definition in known.items()
         ],
@@ -269,7 +260,7 @@ def _fields_known(definition: NodeDefinition[..., Any]) -> bool:
     return definition.graph is None and definition.compute_added_inputs is None and definition.compute_outputs is None
 
 
-def _value_problems(definition: NodeDefinition[..., Any], node_id: str, name: str, value: Any, *, many: bool) -> list[Problem]:
+def _value_problems(definition: NodeDefinition[..., Any], node_id: str, name: str, value: Any) -> list[Problem]:
     """What is wrong with ``value`` typed into the input ``name``, as loading would say it; nothing for a field not known yet."""
     spec = definition.inputs.get(name)
     if spec is None:
@@ -278,7 +269,7 @@ def _value_problems(definition: NodeDefinition[..., Any], node_id: str, name: st
         refuse_a_bool_for_a_number(spec, value)
         if spec.shape == "table":
             read_table(spec, value, strict=False, given=True)
-        elif many and spec.shape == "one":
+        elif given_as_items(spec, value):
             carried_list(spec.type).validate_python(value)
         elif not (value is None and spec.shape == "many" and spec.default is None):
             spec.adapter.validate_python(value)

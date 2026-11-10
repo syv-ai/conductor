@@ -222,7 +222,7 @@ def test_the_outputs_of_a_failed_run_are_refused_and_its_results_say_what_it_did
             raise ValueError("no")
         return n
 
-    run = registry.load({"nodes": [{"id": "e", "node": "each", "many": ["n"]}]}).run(n=[0, 1, 2])
+    run = registry.load({"nodes": [{"id": "e", "node": "each"}]}).run(n=[0, 1, 2])
 
     assert run.status == "failed" and run.cause is not None and run.cause.loc == ("e", 1)
     with pytest.raises(InvalidCallError) as raised:

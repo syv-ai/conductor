@@ -619,7 +619,7 @@ def test_a_failed_run_has_no_outputs_but_its_results_say_what_it_did():
             raise ValueError("no")
         return n
 
-    run = registry_of(each).load({"nodes": [{"id": "e", "node": "each", "many": ["n"]}]}).run(n=[0, 1, 2])
+    run = registry_of(each).load({"nodes": [{"id": "e", "node": "each"}]}).run(n=[0, 1, 2])
 
     assert run.status == "failed" and run.results["e"]["result"][0] == 0
     try:

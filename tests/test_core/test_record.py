@@ -78,22 +78,22 @@ def _problems(record: GraphRecord) -> list[tuple[str, tuple]]:
 
 
 def test_a_node_is_its_id_its_node_and_what_is_typed_in():
-    assert list(NodeRecord.model_fields) == ["id", "node", "version", "values", "defaults", "many", "display"]
+    assert list(NodeRecord.model_fields) == ["id", "node", "version", "values", "defaults", "display"]
     assert list(GraphRecord.model_fields) == ["nodes", "edges", "display"]
 
 
 def test_a_bare_node_saves_as_its_id_and_node():
     """Empty fields and the version 1 are left out when saved."""
     assert NodeRecord(id="a", node="upper").model_dump() == {"id": "a", "node": "upper"}
-    assert NodeRecord(id="a", node="upper", version=2, values={"text": "hi"}, many={"y", "x"}).model_dump() == {
-        "id": "a", "node": "upper", "version": 2, "values": {"text": "hi"}, "many": ["x", "y"],
+    assert NodeRecord(id="a", node="upper", version=2, values={"text": "hi"}).model_dump() == {
+        "id": "a", "node": "upper", "version": 2, "values": {"text": "hi"},
     }
 
 
 def test_the_record_reads_back_what_it_saved():
     graph = GraphRecord(nodes=[
         NodeRecord(id="a", node="t", values={"x": {"refs": ["q.r"]}}, display={"x": 10}),
-        NodeRecord(id="b", node="t", version=2, defaults={"y": 1}, many={"z"}),
+        NodeRecord(id="b", node="t", version=2, defaults={"y": 1}),
     ], edges=[("a.result", "b.y")])
 
     assert GraphRecord.model_validate_json(graph.model_dump_json()) == graph
@@ -210,19 +210,12 @@ def test_two_open_inputs_of_one_name_are_called_by_address():
     assert graph.run({"a.text": "x", "b.text": "y"}).outputs == {"a.result": "X", "b.result": "Y"}
 
 
-def test_many_marks_an_open_input_that_takes_a_list_a_row_per_item():
-    graph = REGISTRY.load(GraphRecord(nodes=[NodeRecord(id="u", node="upper", many={"text"}), NodeRecord(id="j", node="join")], edges=[("u.result", "j.texts")]))
+def test_a_list_given_to_an_open_input_of_one_value_is_a_row_per_item_and_one_value_is_one():
+    graph = REGISTRY.load(GraphRecord(nodes=[NodeRecord(id="u", node="upper"), NodeRecord(id="j", node="join")], edges=[("u.result", "j.texts")]))
 
-    assert graph.inputs["text"].many
+    assert graph.inputs["text"].per_item
     assert graph.run(text=["a", "b"]).outputs == {"j.result": "A+B"}
-
-
-def test_many_on_an_input_an_edge_feeds_or_on_a_series_is_a_problem():
-    on_edge = GraphRecord(nodes=[NodeRecord(id="a", node="text"), NodeRecord(id="u", node="upper", many={"text"})], edges=[("a.result", "u.text")])
-    on_series = GraphRecord(nodes=[NodeRecord(id="j", node="join", many={"texts"})])
-
-    assert _problems(on_edge) == [("many_on_edge", ("u", "text"))]
-    assert _problems(on_series) == [("many_on_series", ("j", "texts"))]
+    assert graph.run(text="a").outputs == {"j.result": "A"}
 
 
 # -- a graph written from Python: make_graph -----------------------------------------------
@@ -304,22 +297,23 @@ def test_make_graph_checks_every_address_and_value_at_the_call_and_lists_every_f
         make_graph(
             _hello, _shout,
             edges=[("hello.reslt", "shout.text"), ("nobody.result", "shout.text"), ("hello.result", "shout.txt")],
-            values={"hello.nmae": "x"}, defaults={"hello.name": 3}, many={"shout.texts"},
+            values={"hello.nmae": "x"}, defaults={"hello.name": 3},
         )
     assert sorted((p.type, p.loc) for p in refused.value.errors()) == [
         ("edge_names_missing_node", ("shout", "text")),
         ("invalid_value", ("hello", "name")),
         ("unknown_input", ("hello", "nmae")),
-        ("unknown_input", ("shout", "texts")),
         ("unknown_input", ("shout", "txt")),
         ("unknown_output", ("shout", "text")),
     ]
 
 
-def test_make_graph_writes_defaults_and_many():
-    record = make_graph(_hello, defaults={"hello.name": ["you"]}, many={"hello.name"})
-    assert (record.nodes[0].defaults, record.nodes[0].many) == ({"name": ["you"]}, frozenset({"name"}))
+def test_make_graph_writes_defaults_a_list_of_items_among_them():
+    record = make_graph(_hello, defaults={"hello.name": ["you"]})
+    assert record.nodes[0].defaults == {"name": ["you"]}
+    assert PLAIN.load(record).run().outputs == {"hello.result": ["hello you"]}
     assert PLAIN.load(record).run(name=["ida", "bo"]).outputs == {"hello.result": ["hello ida", "hello bo"]}
+    assert PLAIN.load(record).run(name="ida").outputs == {"hello.result": "hello ida"}
 
 
 def test_make_graph_writes_each_node_at_its_version():
@@ -343,27 +337,25 @@ def test_a_loaded_graph_keeps_its_own_definitions_whatever_the_registry_does_lat
     assert [p.type for p in registry.load(graph.record).problems] == ["unknown_node"]
 
 
-def test_a_value_given_for_one_or_many_is_checked_against_many_never_decides_it():
-    one = REGISTRY.load(GraphRecord(nodes=[NodeRecord(id="u", node="upper")]))
-    many = REGISTRY.load(GraphRecord(nodes=[NodeRecord(id="u", node="upper", many={"text"})]))
+def test_the_value_given_decides_one_or_many_and_each_item_is_checked_against_the_input():
+    graph = REGISTRY.load(GraphRecord(nodes=[NodeRecord(id="u", node="upper")]))
 
+    assert graph.run(text="a").outputs == {"u.result": "A"}
+    assert graph.run(text=["a"]).outputs == {"u.result": ["A"]}
     with pytest.raises(InvalidCallError) as refused:
-        one.run(text=["a", "b"])
+        graph.run(text=["a", 3])
     assert [p.type for p in refused.value.errors()] == ["invalid_input"]
-    with pytest.raises(InvalidCallError):
-        many.run(text="a")
-    assert many.run(text=["a"]).outputs == {"u.result": ["A"]}
 
 
-def test_many_marks_an_open_input_of_a_first_node_or_a_typed_in_list_and_either_is_a_list():
-    later = GraphRecord(nodes=[NodeRecord(id="a", node="text"), NodeRecord(id="b", node="both", many={"no"})], edges=[("a.result", "b.yes")])
-    typed_one = GraphRecord(nodes=[NodeRecord(id="u", node="upper", many={"text"}, values={"text": "x"})])
-    listed = REGISTRY.load(GraphRecord(nodes=[NodeRecord(id="u", node="upper", many={"text"}, defaults={"text": ["a", "b"]})]))
+def test_a_list_typed_in_or_left_as_a_default_is_a_row_per_item_and_a_caller_may_give_one_value_instead():
+    typed = REGISTRY.load(GraphRecord(nodes=[NodeRecord(id="u", node="upper", values={"text": ["x", "y"]})]))
+    listed = REGISTRY.load(GraphRecord(nodes=[NodeRecord(id="u", node="upper", defaults={"text": ["a", "b"]})]))
 
-    assert ("many_not_open", ("b", "no")) in _problems(later)
-    assert _problems(typed_one) == [("invalid_value", ("u", "text"))]
-    assert _problems(GraphRecord(nodes=[NodeRecord(id="u", node="upper", many={"text"}, defaults={"text": "a"})])) == [("invalid_value", ("u", "text"))]
+    assert typed.run().outputs == {"u.result": ["X", "Y"]}
+    assert _problems(GraphRecord(nodes=[NodeRecord(id="u", node="upper", values={"text": ["x", 3]})])) == [("invalid_value", ("u", "text"))]
+    assert listed.plan["u"].mode == "per_row" and listed.inputs["text"].default == ["a", "b"]
     assert listed.run().outputs == {"u.result": ["A", "B"]}
+    assert listed.run(text="c").outputs == {"u.result": "C"}
 
 
 def test_a_default_on_a_later_node_is_a_problem_since_no_caller_reaches_it():
@@ -643,13 +635,13 @@ def test_a_graphs_display_is_the_hosts_own_kept_and_outside_the_fingerprint():
     assert PLAIN.load(plain).fingerprint == PLAIN.load(shown).fingerprint
 
 
-def test_make_graph_refuses_a_value_beside_a_default_many_on_a_series_and_what_is_not_a_node():
+def test_make_graph_refuses_a_value_beside_a_default_and_what_is_not_a_node():
     @node("count")
     def count(items: Series[str]) -> int:
         return len(items)
 
     with pytest.raises(InvalidCallError) as refused:
-        make_graph(_hello, count, edges=[], values={"hello.name": "a"}, defaults={"hello.name": "b"}, many={"count.items"})
-    assert sorted(p.type for p in refused.value.errors()) == ["many_on_series", "value_and_default"]
+        make_graph(_hello, count, edges=[], values={"hello.name": "a"}, defaults={"hello.name": "b"})
+    assert sorted(p.type for p in refused.value.errors()) == ["value_and_default"]
     with pytest.raises(TypeError, match="node definitions"):
         make_graph(_hello, "shout")  # type: ignore[arg-type]

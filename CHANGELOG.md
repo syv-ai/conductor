@@ -23,8 +23,11 @@ What changes in how you work, before the name-by-name tables:
   auto-discovery are gone. A node declared wrong raises `NodeDeclarationError` at import, with a
   `code`; [`docs/problems.md`](docs/problems.md) lists them.
 - **Loops are rows.** A list or a column on an input typed for one value runs the node once per
-  row; `Series[X]` takes many values and `Table[R]` a whole `polars.DataFrame`. A blank skips the
-  node for that row unless its input says `| None`.
+  row, and the node never sees the difference: the value a caller gives decides, with no mark on
+  the graph (`graph.inputs[name].per_item` says where a list is rows). `Series[X]` takes many values
+  and `Table[R]` a whole `polars.DataFrame`. Two lists meeting at one node are refused
+  (`lists_not_collected`) until a node collects one. `graph.calls_for(file=11)` says each node's
+  calls before a run. A blank skips the node for that row unless its input says `| None`.
 - **Loading never raises for a fault in the graph.** `registry.load(record)` returns a `Graph`;
   read `graph.problems`, each a `Problem(type, loc, msg, ctx)`. Only a record of the wrong shape raises,
   `InvalidCallError` with the code `invalid_record`.
@@ -238,7 +241,7 @@ Every public name of 1.12.2, by the module it was imported from. A name not list
 
 ### Converting a stored 1.x graph
 
-A 1.x `Flow` becomes a `GraphRecord`, `{"nodes": [...], "edges": [[from, to], ...]}`. Each `GraphNode` becomes a `NodeRecord`, `{id, node, version, values, defaults, many, display}`, empty fields left out. Each `GraphEdge` becomes a pair of addresses, `["source.source_handle", "target.target_handle"]`. Load the result and read `graph.problems` to see what didn't carry over. A 1.x for-each over a list is gone: put the input that took the list in the node's `many`, and a node after it that collected the items takes them through a `Series` input.
+A 1.x `Flow` becomes a `GraphRecord`, `{"nodes": [...], "edges": [[from, to], ...]}`. Each `GraphNode` becomes a `NodeRecord`, `{id, node, version, values, defaults, display}`, empty fields left out. Each `GraphEdge` becomes a pair of addresses, `["source.source_handle", "target.target_handle"]`. Load the result and read `graph.problems` to see what didn't carry over. A 1.x for-each over a list is gone: give the list to the input that took one item, and the node runs once per item; a node after it that collected the items takes them through a `Series` input.
 
 | 1.x field | 2.0 |
 |---|---|

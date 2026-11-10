@@ -667,7 +667,7 @@ def test_an_authored_id_with_a_slash_beside_an_embedding_is_refused_alone_and_st
     assert sorted((p.type, p.loc) for p in broken) == [("invalid_node_id", ("e/upper",)), ("unknown_node", ("e",))]
 
 
-def test_a_set_given_for_a_many_input_is_refused_as_it_has_no_order():
+def test_a_set_given_for_an_input_of_one_value_is_refused_as_it_has_no_order():
     from conductor import NodeRegistry, make_graph, node
 
     @node("send")
@@ -676,7 +676,7 @@ def test_a_set_given_for_a_many_input_is_refused_as_it_has_no_order():
 
     registry = NodeRegistry()
     registry.add(send)
-    graph = registry.load(make_graph(send, many={"send.contact"}))
+    graph = registry.load(make_graph(send))
     with pytest.raises(InvalidCallError) as refused:
         graph.run(contact={"b", "a"})
     assert "a set has no order" in refused.value.errors()[0].msg

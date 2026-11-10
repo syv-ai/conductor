@@ -495,15 +495,17 @@ class Run:
         """How many rows each table has so far; a typed list's are its items times the rows they go under."""
         made: dict[str, int] = {}
         for table, (node_id, output) in self.graph._makers.items():
-            if node_id is None:
-                if output not in self.graph._typed_lists:
-                    made[table] = len(self._given(output) or [])
-            else:
+            if node_id is not None:
                 made[table] = sum(_length(u.out[output]) for u in self._units[node_id].values() if u.state == "done" and u.out)
-        for _ in self.graph._typed_lists:  # a typed list under another's rows counts once those are counted
-            for parent, typed in self.graph._typed_under.items():
-                for address in typed:
-                    made[address] = len(self.graph._typed_lists[address]) * (made.get(parent, 0) if parent else 1)
+
+        def under(parent: str, rows: int) -> None:
+            for address in self.graph._lists_under.get(parent, ()):
+                made[address] = rows * len(self._given(address) or [])
+                under(address, made[address])
+
+        under("", 1)
+        for table in [t for t, (node_id, _) in self.graph._makers.items() if node_id is not None]:
+            under(table, made[table])
         return made
 
     def _rows(self, level: Level, row: Key, *, counted: bool = False) -> tuple[list[Key], bool]:
@@ -791,6 +793,10 @@ def run_from_json(graph: Graph, saved: str | bytes | Mapping[str, Any]) -> Run:
         data = pydantic_core.from_json(saved) if isinstance(saved, (str, bytes)) else saved
         if data["graph"] != graph.fingerprint:
             raise InvalidCallError([make_problem("state_of_another_graph", "state", saved=data["graph"], graph=graph.fingerprint)])
+        fields = graph._input_fields
+        graph = graph._compiled_for(frozenset(a for a, v in data["inputs"].items() if a in fields and fields[a].spec.per_item and isinstance(v, list)))
+        if graph.problems:
+            raise InvalidCallError(graph.problems)
         inputs = {address: _load_input(graph, address, v) for address, v in data["inputs"].items()}
         for address, paths in data.get("non_finite_inputs", {}).items():
             for path in paths:
@@ -1099,18 +1105,18 @@ _ANY_COLUMN = carried_list(Any)
 def _dump_input(graph: Graph, address: str, value: Any) -> Any:
     """A caller's input as JSON: a table as a saved table output is, anything else by its field."""
     field = graph._input_fields[address]
-    if field.spec.shape == "table" and not field.many:
+    if field.spec.shape == "table":
         return None if value is None else _dump_frame(field.spec, Frame(value.height, value.to_dict(as_series=False)), address)
-    if field.many:
+    if field.listed:
         return field.spec.column_adapter.dump_python(value, mode="json")
     return field.spec.column_adapter.dump_python([value], mode="json")[0]  # written as a list is, a float that isn't finite kept
 
 
 def _load_input(graph: Graph, address: str, saved: Any) -> Any:
     field = graph._input_fields[address]
-    if field.spec.shape == "table" and not field.many:
+    if field.spec.shape == "table":
         return None if saved is None else _load_frame(field.spec, saved, address).frame()
-    adapter = carried_list(field.spec.type) if field.many else field.spec.adapter
+    adapter = carried_list(field.spec.type) if field.listed else field.spec.adapter
     return adapter.validate_python(saved)
 
 

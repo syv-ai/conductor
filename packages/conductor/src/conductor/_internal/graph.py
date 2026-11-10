@@ -23,6 +23,16 @@ A node runs once per row of its level:
   different tables meet only through a join the author draws. Several edges
   into one ``one`` input must be alternatives: on opposite branches of one
   decision, so a row holds at most one of them.
+
+A list given to an input that takes one value (``FieldSpec.per_item``), by
+the caller or typed in, is a table of its items, and the node runs once per
+item. A caller's list is a table of its own, so two of them meeting at one
+node are rows of different tables (``lists_not_collected``) until a node
+collects one; a ``Series`` input collects a caller's list whole, wherever its
+node runs. A typed-in list is a table under each row its node runs on, a row
+a node made, never another list's.
+Which inputs a caller gives lists decides the rows, so a graph compiles once
+for each such set, on first use.
 """
 
 from __future__ import annotations
@@ -58,6 +68,7 @@ from conductor._internal.fields import (
     accepts,
     already,
     carried_list,
+    given_as_items,
     read_field,
     read_table,
     refuse_a_bool_for_a_number,
@@ -208,27 +219,30 @@ class GraphDescription(ConductorModel):
 class GraphInput(FieldDescription):
     """An open input of a first node, a value of ``graph.inputs``: what a caller fills, at ``address`` (``node.input``).
 
-    It is its node's field record, with the ``address`` and ``node_id`` a caller fills and whether it takes ``many``
-    values, a row per item; ``name`` is the input's own. For an embedded graph's input, ``node_id`` is the node that
+    It is its node's field record, with the ``address`` and ``node_id`` a caller fills; ``name`` is the input's own.
+    ``per_item`` says a list given here is many values, run a row per item, as the input takes one value of a type
+    that takes no list; anything else given is one value. For an embedded graph's input, ``node_id`` is the node that
     embeds it and ``name`` the name it offers. ``default`` is what it holds when the caller gives nothing (the
     record's default, else the node's), as JSON, and ``None`` when it is ``required``.
     """
 
     address: str
     node_id: str
-    many: bool
+    per_item: bool
 
 
 @dataclass(frozen=True, slots=True)
 class InputField:
     """What a run keeps of a graph input: where it keeps the caller's value (the placed node's address), its name in
-    ``graph.inputs``, its field, its Python default, and whether it takes ``many`` values."""
+    ``graph.inputs`` and its address there, its field, its Python default, and whether this compile takes a list of
+    items at it."""
 
     key: str
     name: str
+    address: str
     spec: FieldSpec
     default: Any
-    many: bool
+    listed: bool
 
 
 class Graph:
@@ -245,8 +259,15 @@ class Graph:
 
     def _load(
         self, record: GraphRecord, definitions: Mapping[str, NodeDefinition[..., Any]], embedded_in: tuple[str, ...], alone: dict[Any, list[Problem]],
+        listed: frozenset[str], compiles: dict[frozenset[str], Graph],
     ) -> None:
         self.record = record
+        self._embedded_in = embedded_in
+        #: The open inputs, by the placed node's address, a caller gives a list of items at in a run of this compile.
+        self._listed = listed
+        #: The record's other compiles, by the inputs given lists, shared by them all; never this one, so a graph
+        #: given no lists holds no cycle and is freed as soon as it is let go.
+        self._compiles = compiles
         #: What each embedded graph loaded alone found, by its definition and the graphs it sits in, shared by every graph
         #: this load makes, so each is loaded alone once however deep it nests.
         self._alone = alone
@@ -271,10 +292,10 @@ class Graph:
         self.inputs: dict[str, GraphInput] = {}
         #: Each table, by name, and the node and output that make it (``None`` for a graph input).
         self._makers: dict[str, tuple[str | None, str]] = {}
-        #: Each list typed into an input marked ``many``, by its address, which names the table of its items.
+        #: Each list typed into an input, by its address, which names the table of its items.
         self._typed_lists: dict[str, list[Any]] = {}
-        #: The typed lists whose items go under each row of a table, by that table (``""`` for the graph's own row).
-        self._typed_under: dict[str, list[str]] = {}
+        #: The given lists whose items go under each row of a table: a caller's under the graph's own row, by that table (``""`` for the graph's own row).
+        self._lists_under: dict[str, list[str]] = {}
         self._graph_inputs: list[tuple[GraphInput, str, FieldSpec, Any]] = []
         #: Each graph input as the run keeps it, by the address of the placed node's input.
         self._input_fields: dict[str, InputField] = {}
@@ -403,7 +424,7 @@ class Graph:
 
     @functools.cached_property
     def fingerprint(self) -> str:
-        """A short hash of what a run of this graph rests on: each node's id, node, version, values, defaults and ``many``,
+        """A short hash of what a run of this graph rests on: each node's id, node, version, values, defaults
         and the edges, of this record and of every graph embedded in it, however deep.
 
         Keys are sorted first, so a record a JSON store gives back in another key order has the same fingerprint.
@@ -412,7 +433,7 @@ class Graph:
         """
         from conductor._internal.run import canonical_json
 
-        include: Any = {"nodes": {"__all__": {"id", "node", "version", "values", "defaults", "many"}}, "edges": True}
+        include: Any = {"nodes": {"__all__": {"id", "node", "version", "values", "defaults"}}, "edges": True}
         records = [self.record, *(self._embedded[node_id] for node_id in sorted(self._embedded))]
         written = canonical_json([sorted(self._embedded), *(record.model_dump(mode="json", include=include) for record in records)])
         return hashlib.blake2b(written, digest_size=8).hexdigest()
@@ -432,16 +453,55 @@ class Graph:
         does: a node with the same id, version, code, fields and rows is not
         called on a row that receives what it received there, so after an
         edit only the nodes it changes, and what they feed, run again.
+
+        A list given to an input with ``per_item`` is many values, a row per
+        item, and the run's ``graph`` is this graph compiled for the lists
+        given, so its ``plan`` says where each node ran.
         """
         from conductor._internal.run import checked_max_rows, start_run
 
         if self.problems:
             raise InvalidCallError(self.problems)
         checked_max_rows(max_rows)
-        run = start_run(self, self._checked_inputs({**(inputs or {}), **by_name}), max_rows)
+        given = {**(inputs or {}), **by_name}
+        graph = self._compiled_for(self._listed_in(given))
+        if graph.problems:
+            raise InvalidCallError(graph.problems)
+        run = start_run(graph, graph._checked_inputs(given), max_rows)
         if earlier is not None:
-            run._earlier = earlier._carried(into=self)
+            run._earlier = earlier._carried(into=graph)
         return run
+
+    def calls_for(self, lengths: Mapping[str, int] | None = None, /, **by_name: int) -> dict[str, int | None]:
+        """How many times each node is called in a run given lists of these lengths, before any run: ``graph.calls_for(file=11)``.
+
+        Lengths are given by input name or address, as ``with_inputs`` takes
+        values; an input not named gets one value, or its default. Each count
+        is a most: a branch not taken calls nothing. A node that runs on rows
+        another node makes counts ``None``, as how many is known only once that
+        node has run. An embedded graph counts the calls of every node in it.
+        """
+        given = {**(lengths or {}), **by_name}
+        bad = [name for name, n in given.items() if isinstance(n, bool) or not isinstance(n, int) or n < 0]
+        if bad:
+            raise InvalidCallError([make_problem("invalid_input", "inputs", name, name=name, reason="a length is a whole number of 0 or more") for name in bad])
+        by_key, unknown = self._given_by_key(given)
+        if unknown:
+            raise InvalidCallError([make_problem("not_offered", "inputs", name, name=name, inputs=list(self.inputs)) for name in unknown])
+        graph = self._compiled_for(self._listed_in({name: [None] * n for name, n in given.items()}))
+        if graph.problems:
+            raise InvalidCallError(graph.problems)
+        sizes = graph._list_lengths({key: n for key, n in by_key.items() if graph._input_fields[key].listed})
+        counts: dict[str, int | None] = {}
+        for placed in graph._nodes.values():
+            calls: int | None = 1
+            for table in placed.level:  # a table a node makes has no size before the run
+                size = sizes.get(table)
+                calls = None if calls is None or size is None else calls * size
+            drawn = graph._outward(placed.id)
+            so_far = counts.get(drawn, 0)
+            counts[drawn] = None if so_far is None or calls is None else so_far + calls
+        return counts
 
     def run(
         self, inputs: Mapping[str, Any] | None = None, /, *, max_rows: int | None = None, from_run: Mapping[type, Any] | None = None,
@@ -451,7 +511,7 @@ class Graph:
         return self.with_inputs(inputs, max_rows=max_rows, **by_name).resume(from_run=from_run, timeout=timeout)
 
     def load_run(self, saved: str | bytes | Mapping[str, Any]) -> Run:
-        """A run of this graph from what ``run.to_json()`` wrote; a graph with problems refuses it with them."""
+        """A run of this graph from what ``run.to_json()`` wrote, compiled for the lists it was given; a graph with problems refuses it with them."""
         from conductor._internal.run import run_from_json
 
         return run_from_json(self, saved)
@@ -478,8 +538,38 @@ class Graph:
             found = self._above[node_id] = frozenset(seen)
         return found
 
+    def _compiled_for(self, listed: frozenset[str]) -> Graph:
+        """This record compiled for a run given lists of items at ``listed``, by the placed node's address, and one value elsewhere."""
+        if listed == self._listed:
+            return self
+        graph = self._compiles.get(listed)
+        if graph is None:
+            graph = self._compiles[listed] = load_graph(self.record, self._definitions, self._embedded_in, self._alone, listed=listed, compiles=self._compiles)
+        return graph
+
+    def _given_by_key(self, given: Mapping[str, Any]) -> tuple[dict[str, Any], list[str]]:
+        """What ``given`` names by name or address, by the placed node's address; and the names it gives that the graph doesn't offer."""
+        fields = {**{f.address: f for f in self._input_fields.values()}, **{f.name: f for f in self._input_fields.values()}}
+        return {fields[name].key: value for name, value in given.items() if name in fields}, [name for name in given if name not in fields]
+
+    def _listed_in(self, given: Mapping[str, Any]) -> frozenset[str]:
+        """The open inputs a run of ``given`` takes a list of items at: each given a list, or given nothing and its default a list."""
+        by_key = self._given_by_key(given)[0]
+        return frozenset(
+            key for key, f in self._input_fields.items()
+            if given_as_items(f.spec, by_key[key] if key in by_key else f.default)
+        )
+
+    def _list_lengths(self, caller: Mapping[str, int]) -> dict[str, int]:
+        """How many items each given list has, by its address: the caller's (``caller``), each typed in, and each default list not given."""
+        lengths = {address: len(items) for address, items in self._typed_lists.items()}
+        for key, f in self._input_fields.items():
+            if f.listed:
+                lengths[key] = caller[key] if key in caller else len(f.default)
+        return lengths
+
     def _checked_inputs(self, given: Mapping[str, Any]) -> dict[str, Any]:
-        """The caller's inputs by address, each checked against its field and ``many``; every fault at once."""
+        """The caller's inputs by address, each checked against its field, a list of items where this compile takes one; every fault at once."""
         problems, values = [], {}
         named = {graph_input.address: name for name, graph_input in self.inputs.items()}
         twice = [key for key in given if key in named and named[key] != key and named[key] in given]
@@ -495,13 +585,15 @@ class Graph:
                     problems.append(make_problem("missing_input", "inputs", name, name=name))
                 values[key] = offered.default
                 continue
+            value = given[name]
+            if spec.shape == "many" and value is not None and not isinstance(value, (list, tuple, set, frozenset, range, pl.Series)):
+                value = [value]  # one value where many are taken is a list of one
             try:
-                refuse_a_bool_for_a_number(spec, given[name])
-                if spec.shape == "table" and not offered.many:
-                    values[key] = read_table(spec, given[name], strict=False, given=True)
+                refuse_a_bool_for_a_number(spec, value)
+                if spec.shape == "table":
+                    values[key] = read_table(spec, value, strict=False, given=True)
                 else:
-                    adapter = carried_list(spec.type) if offered.many else spec.adapter
-                    values[key] = adapter.validate_python(given[name])
+                    values[key] = (carried_list(spec.type) if offered.listed else spec.adapter).validate_python(value)
             except ValidationError as error:
                 problems.append(make_problem("invalid_input", "inputs", name, name=name, reason=value_free_errors(error)[0]["msg"]))
             except Refused as refused:
@@ -543,7 +635,7 @@ class Graph:
                 continue
             loaded_alone = (definition.id, definition.version, (*stack, definition.id))
             if loaded_alone not in self._alone:
-                self._alone[loaded_alone] = load_graph(definition.graph, self._definitions, loaded_alone[2], self._alone).problems
+                self._alone[loaded_alone] = load_graph(definition.graph, self._definitions, loaded_alone[2], self._alone, listed=frozenset()).problems
             if self._alone[loaded_alone]:
                 inner_problems = [p.model_dump(mode="json") for p in self._alone[loaded_alone]]
                 self.problems.append(make_problem("embedded_graph_broken", node_record.id, graph=definition.id, count=len(inner_problems), problems=inner_problems))
@@ -571,19 +663,13 @@ class Graph:
                         self.problems.append(make_problem("unknown_input", node_record.id, name, inputs=list(ins)))
                         continue
                     typed.setdefault(ins[name][0], {}).setdefault(key, {})[ins[name][1]] = value
-            many: dict[str, set[str]] = {}
-            for name in node_record.many:  # an embedded graph's input takes a list as its inner node's would
-                if name not in ins:
-                    self.problems.append(make_problem("unknown_input", node_record.id, name, inputs=list(ins)))
-                    continue
-                many.setdefault(ins[name][0], set()).add(ins[name][1])
             # What the outside gives an input it offers (a value, a default, an edge) takes the place of the inner default.
             drawn_id = node_record.id[len(prefix):]
             for _, target in record.edges:
                 to_node, _, name = target.partition(".")
                 if to_node == drawn_id and name in ins:
                     typed.setdefault(ins[name][0], {}).setdefault("fed", {})[ins[name][1]] = None
-            inner = [(_given_from_outside(r, typed.get(r.id, {}), many.get(r.id)) if r.id in typed or r.id in many else r, d) for r, d in inner]
+            inner = [(_given_from_outside(r, typed[r.id]) if r.id in typed else r, d) for r, d in inner]
             out.extend(inner)
             edges.extend(inner_edges)
         followed = []
@@ -652,7 +738,7 @@ class Graph:
         for p, key, spec, default in offered:
             name = p.name if bare.count(p.name) == 1 else p.address
             self.inputs[name] = p
-            self._input_fields[key] = InputField(key, name, spec, default, p.many)
+            self._input_fields[key] = InputField(key, name, p.address, spec, default, key in self._listed)
         self._spliced = frozenset(n for n in self._nodes if "/" in n)
         #: The nodes with a ``FromRun`` parameter, as ``from_run_values`` reads them.
         self._needs_from_run = [(p.id, p.definition) for p in self._nodes.values() if p.definition.from_run]
@@ -698,7 +784,7 @@ class Graph:
         placed = PlacedNode(record.id, definition, record)
         broken = False
         inputs = list(definition.inputs)
-        for name in sorted({*record.values, *record.defaults, *record.many, *edges} - definition.inputs.keys()):
+        for name in sorted({*record.values, *record.defaults, *edges} - definition.inputs.keys()):
             self.problems.append(make_problem("unknown_input", placed.id, name, inputs=inputs))
         first_node = not any(name in definition.inputs for name in edges)
         for name, spec in definition.inputs.items():
@@ -707,32 +793,28 @@ class Graph:
             plan = placed.inputs[name] = InputPlan(spec)
             if name in record.values and name in record.defaults:
                 self.problems.append(make_problem("value_and_default", placed.id, name))
-            if name in record.many and name not in edges and name not in record.values and not first:
-                self.problems.append(make_problem("many_not_open", placed.id, name))
             if name in edges:
                 if spec.param.setting:
                     self.problems.append(make_problem("setting_on_edge", placed.id, name))
                 if name in record.values or name in record.defaults:
                     self.problems.append(make_problem("value_and_edge", placed.id, name))
-                if name in record.many:
-                    self.problems.append(make_problem("many_on_edge", placed.id, name))
                 for address in sorted(edges[name], key=self._gather_order):
                     source = self._source(address, placed.id, name)
                     if source is None:
                         broken = True
                     elif self._fits(spec, source, address, placed.id, name):
                         plan.sources.append(source)
-            elif name in record.values and name in record.many:
+            elif name in record.values and given_as_items(spec, record.values[name]):
                 self._typed_list(placed, name, plan, record.values[name])
             elif name in record.values:
                 plan.value = self._typed(placed.id, name, spec, record.values[name])
             elif first and not spec.param.setting:
-                many = name in record.many and spec.shape == "one"
                 if name in record.defaults:
-                    plan.value = self._typed(placed.id, name, spec, record.defaults[name], many)
+                    default = record.defaults[name]
+                    plan.value = self._typed(placed.id, name, spec, default, items=given_as_items(spec, default))
                 else:
-                    plan.value = [] if many and not spec.required else spec.default
-                self._open(placed, name, plan, record)
+                    plan.value = spec.default
+                self._open(placed, name, plan)
             elif name in record.defaults:
                 if not spec.param.setting:  # a setting's default is the author's, as a value is
                     self.problems.append(make_problem("default_on_later_node", placed.id, name))
@@ -842,13 +924,13 @@ class Graph:
                     return True
         return False
 
-    def _typed(self, node_id: str, name: str, spec: FieldSpec, value: Any, many: bool = False) -> Any:
-        """``value`` as ``spec`` reads it (a list of them when ``many``), or ``REQUIRED`` with the problem noted."""
+    def _typed(self, node_id: str, name: str, spec: FieldSpec, value: Any, *, items: bool = False) -> Any:
+        """``value`` as ``spec`` reads it (a list of them with ``items``), or ``REQUIRED`` with the problem noted."""
         if value is None and spec.shape == "many" and spec.default is None:
             return None  # a Series that may be None
         try:
             refuse_a_bool_for_a_number(spec, value)
-            if many:
+            if items:
                 return carried_list(spec.type).validate_python(value)
             if spec.shape == "table":
                 return read_table(spec, value, strict=False, given=True)
@@ -863,12 +945,8 @@ class Graph:
             return REQUIRED
 
     def _typed_list(self, placed: PlacedNode, name: str, plan: InputPlan, value: Any) -> None:
-        """A list typed into an input marked ``many``: a table of its items under each row the node runs on, which the node runs over."""
-        if plan.spec.shape != "one":
-            self.problems.append(make_problem("many_on_series", placed.id, name))
-            plan.value = self._typed(placed.id, name, plan.spec, value)
-            return
-        items = self._typed(placed.id, name, plan.spec, value, many=True)
+        """A list typed into an input that takes one value: a table of its items under each row the node runs on, which the node runs over."""
+        items = self._typed(placed.id, name, plan.spec, value, items=True)
         if items is REQUIRED:
             return
         address = f"{placed.id}.{name}"
@@ -876,22 +954,24 @@ class Graph:
         self._makers[address] = (None, address)
         plan.sources.append(Source(None, address, None, (), True, plan.spec.type, name=name))
 
-    def _open(self, placed: PlacedNode, name: str, plan: InputPlan, record: NodeRecord) -> None:
-        """An open input of a first node is the graph's: the caller fills it, by its address ``node.input``."""
+    def _open(self, placed: PlacedNode, name: str, plan: InputPlan) -> None:
+        """An open input of a first node is the graph's: the caller fills it, by its address ``node.input``.
+
+        Given a list of items in this compile, its rows are the list's own table.
+        """
         address = f"{placed.id}.{name}"
-        many = name in record.many
-        if many and plan.spec.shape != "one":
-            self.problems.append(make_problem("many_on_series", placed.id, name))
-            many = False
-        level: Level = (address,) if many else ()
-        if many:
+        listed = address in self._listed
+        level: Level = (address,) if listed else ()
+        if listed:
             self._makers[address] = (None, address)
+            self._lists_under.setdefault("", []).append(address)
         table = plan.spec.shape == "table"  # a caller's table, read to the input's columns at the call
-        plan.sources.append(Source(None, address, None, level, many, plan.spec.type, whole_table=table, name=name, columns=plan.spec.columns if table else None))
+        plan.sources.append(Source(None, address, None, level, listed, plan.spec.type, whole_table=table, name=name, columns=plan.spec.columns if table else None))
         required = plan.value is REQUIRED
+        items = not required and given_as_items(plan.spec, plan.value)
         graph_input = plan.spec.describe(
-            GraphInput, address=address, node_id=placed.id, many=many, required=required,
-            default=None if required else carried_list(plan.spec.type).dump_python(plan.value, mode="json") if many else _jsonable(plan.spec, plan.value),
+            GraphInput, address=address, node_id=placed.id, per_item=plan.spec.per_item, required=required,
+            default=None if required else carried_list(plan.spec.type).dump_python(plan.value, mode="json") if items else _jsonable(plan.spec, plan.value),
         )
         self._graph_inputs.append((graph_input, address, plan.spec, plan.value))
 
@@ -940,9 +1020,6 @@ class Graph:
         gathers under their common parent.
         """
         typed = [(n, p) for n, p in placed.inputs.items() if p.sources and p.sources[0].output in self._typed_lists]
-        if len(typed) > 1:
-            self.problems.append(make_problem("two_typed_in_lists", placed.id, inputs=[name for name, _ in typed]))
-            return False
         ones = [s.level for p in placed.inputs.values() if p.spec.shape == "one" for s in p.sources if s.output not in self._typed_lists]
         # With no one-value input, a node runs one level above what its Series and Table inputs gather: each input
         # gathers at its deepest source (parents copied down), and the node sits above the shallowest input, so no
@@ -959,19 +1036,32 @@ class Graph:
             if not (_under(placed.level, level) or _under(level, placed.level)):
                 self._unrelated(placed, placed.level, level)
                 return False
-        for _, plan in typed:  # the typed list's items are a table under each row the node would run on, and it runs over them
-            self._typed_under.setdefault(placed.level[-1] if placed.level else "", []).append(plan.sources[0].output)
-            placed.level = (*placed.level, plan.sources[0].output)
+        for _, plan in typed:
+            if not self._typed_list_placed(placed, plan.sources[0].output):
+                return False
             plan.sources = [dataclasses.replace(plan.sources[0], level=placed.level)]
         for plan in placed.inputs.values():
             if plan.spec.shape != "one":
                 plan.sources = [dataclasses.replace(s, anchor=shared_depth(placed.level, s.level)) for s in plan.sources]
                 for s in plan.sources:
-                    if not _gathers_from(placed.level, s.level):
+                    # a caller's or typed list is collected whole wherever the node runs; a node's table only where it relates
+                    if not _gathers_from(placed.level, s.level) and self._makers[s.level[0]][0] is not None:
                         self._unrelated(placed, placed.level, s.level)
                         return False
             if plan.spec.shape == "table" and plan.sources and not self._table_fits(placed, plan):
                 return False
+        return True
+
+    def _typed_list_placed(self, placed: PlacedNode, address: str) -> bool:
+        """Put the items of a list typed into ``placed`` on rows: a table under each row the node would run on, which it
+        runs over. Under the rows of another given list, typed in or the caller's, the two would meet uncollected,
+        which is a problem: rows a node makes take a typed list under each of them, and a list never does."""
+        given = [t for t in placed.level if self._makers[t][0] is None]
+        if given:
+            self._unrelated(placed, (given[-1],), (address,))
+            return False
+        self._lists_under.setdefault(placed.level[-1] if placed.level else "", []).append(address)
+        placed.level = (*placed.level, address)
         return True
 
     def _table_fits(self, placed: PlacedNode, plan: InputPlan) -> bool:
@@ -1102,16 +1192,27 @@ class Graph:
         return make_problem(problem.type, *loc, **ctx)
 
     def _unrelated(self, placed: PlacedNode, a: Level, b: Level) -> None:
-        self.problems.append(make_problem("rows_not_related", placed.id, tables=[_table(a), _table(b)]))
+        """Rows of two tables meet at ``placed``: ``lists_not_collected`` where one is a given list, which a node
+        collects, else ``rows_not_related``, which a join brings together."""
+        tables = [_table(a), _table(b)]
+        given = any(t is not None and self._makers.get(t, ("",))[0] is None for t in tables)
+        self.problems.append(make_problem("lists_not_collected" if given else "rows_not_related", placed.id, tables=tables))
 
 
 def load_graph(
     record: GraphRecord, definitions: Mapping[str, NodeDefinition[..., Any]], embedded_in: tuple[str, ...] = (), alone: dict[Any, list[Problem]] | None = None,
+    *, listed: frozenset[str] | None = None, compiles: dict[frozenset[str], Graph] | None = None,
 ) -> Graph:
     """``record`` loaded against ``definitions``, the one way a ``Graph`` is made; ``embedded_in`` names the graphs it is
-    loaded inside, and ``alone`` what the embedded graphs of this load found loaded alone."""
+    loaded inside, and ``alone`` what the embedded graphs of this load found loaded alone.
+
+    ``listed`` names the open inputs given lists of items, and ``compiles`` holds the record's other compiles. With
+    no ``listed``, the graph is compiled as a run given nothing runs: with the lists its defaults hold.
+    """
     graph = Graph.__new__(Graph)
-    graph._load(record, definitions, embedded_in, {} if alone is None else alone)
+    graph._load(record, definitions, embedded_in, {} if alone is None else alone, listed or frozenset(), {} if compiles is None else compiles)
+    if listed is None:
+        return graph._compiled_for(graph._listed_in({}))
     return graph
 
 
@@ -1145,19 +1246,14 @@ def _interface(
     )
 
 
-def _given_from_outside(record: NodeRecord, typed: Mapping[str, Mapping[str, Any]], many: set[str] | None) -> NodeRecord:
-    """An embedded graph's node with what the record embedding it gives its offered inputs: values and defaults typed in,
-    each replacing the inner default of its input, as an edge from outside does; ``many`` added to its own.
-
-    An inner ``many`` says how a caller fills an open input, so it lapses on an input an outer edge feeds.
-    """
+def _given_from_outside(record: NodeRecord, typed: Mapping[str, Mapping[str, Any]]) -> NodeRecord:
+    """An embedded graph's node with what the record embedding it gives its offered inputs: values and defaults typed
+    in, each replacing the inner default of its input, as an edge from outside does."""
     outside = {name for given in typed.values() for name in given}
     defaults = {name: value for name, value in record.defaults.items() if name not in outside}
-    kept = record.many - typed.get("fed", {}).keys()
     return record.model_copy(update={
         "values": {**record.values, **typed.get("values", {})},
         "defaults": {**defaults, **typed.get("defaults", {})},
-        **({"many": kept | (many or set())} if many or kept != record.many else {}),
     })
 
 

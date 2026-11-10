@@ -1283,11 +1283,11 @@ def answer(doc: str, question: str) -> bool:
 
 
 TYPED = registry_of(split, upper, join, ask_each, answer, decide, pair)
-QUESTIONS = {"id": "q", "node": "ask-each", "values": {"question": ["a", "b", "c"]}, "many": ["question"]}
+QUESTIONS = {"id": "q", "node": "ask-each", "values": {"question": ["a", "b", "c"]}}
 
 
 def test_a_list_typed_into_a_node_that_runs_once_is_a_table_of_its_own_and_the_node_runs_per_item():
-    run = ran({"id": "u", "node": "upper", "values": {"text": ["x", "y"]}, "many": ["text"]}, {"id": "j", "node": "join"},
+    run = ran({"id": "u", "node": "upper", "values": {"text": ["x", "y"]}}, {"id": "j", "node": "join"},
               edges=(("u.result", "j.texts"),), registry=TYPED)
 
     assert {k: v.msg for k, v in run.graph.plan.items()} == {"u": "per row of u.text", "j": "once"}
@@ -1297,7 +1297,7 @@ def test_a_list_typed_into_a_node_that_runs_once_is_a_table_of_its_own_and_the_n
 
 def test_flow_8a_questions_typed_into_a_node_per_document_are_a_table_under_each_document_and_answers_sit_beside_them():
     """«Spørg» runs per document: three questions typed in, two documents, six questions, each answered on its own row."""
-    loaded = graph({"id": "d", "node": "split"}, {"id": "q", "node": "answer", "values": {"question": ["a", "b", "c"]}, "many": ["question"]},
+    loaded = graph({"id": "d", "node": "split"}, {"id": "q", "node": "answer", "values": {"question": ["a", "b", "c"]}},
                    edges=(("d.result", "q.doc"),), registry=TYPED)
     run = loaded.run(text="x,y")
 
@@ -1319,18 +1319,18 @@ def test_a_series_reads_a_typed_in_list_column_under_each_document_and_a_per_row
 
 
 def test_an_empty_typed_in_list_is_a_table_of_no_rows_and_a_gather_of_it_is_empty():
-    run = ran({"id": "u", "node": "upper", "values": {"text": []}, "many": ["text"]}, {"id": "j", "node": "join"},
+    run = ran({"id": "u", "node": "upper", "values": {"text": []}}, {"id": "j", "node": "join"},
               edges=(("u.result", "j.texts"),), registry=TYPED)
 
     assert run.results == {"u": {"result": []}, "j": {"result": ""}}
 
 
-def test_two_lists_typed_into_one_node_are_refused_whether_it_runs_once_or_per_row():
-    both = {"id": "p", "node": "pair", "values": {"a": ["1"], "b": ["2"]}, "many": ["a", "b"]}
-    per_row = {"id": "q", "node": "ask-each", "values": {"question": ["a"], "doc": ["d"]}, "many": ["question", "doc"]}
+def test_two_lists_typed_into_one_node_are_lists_that_meet_whether_it_runs_once_or_per_row():
+    both = {"id": "p", "node": "pair", "values": {"a": ["1"], "b": ["2"]}}
+    per_row = {"id": "q", "node": "ask-each", "values": {"question": ["a"], "doc": ["d"]}}
 
-    assert problems(both, registry=TYPED) == ["two_typed_in_lists"]
-    assert problems(per_row, registry=TYPED) == ["two_typed_in_lists"]
+    assert problems(both, registry=TYPED) == ["lists_not_collected"]
+    assert problems(per_row, registry=TYPED) == ["lists_not_collected"]
     inner = embedded("two-lists", both)
     assert problems({"id": "e", "node": "two-lists"}, registry=registry_of(pair, inner)) == ["embedded_graph_broken"]
 
@@ -1345,7 +1345,7 @@ def test_no_documents_ask_no_questions_and_a_document_skipped_above_asks_none_of
 
 
 def test_a_list_typed_in_inside_an_embedded_graph_per_outer_row_is_a_child_table_under_each_outer_row_through_json():
-    inner = embedded("asker", {"id": "q", "node": "ask-each", "values": {"question": ["a", "b"]}, "many": ["question"]}, {"id": "j", "node": "join"},
+    inner = embedded("asker", {"id": "q", "node": "ask-each", "values": {"question": ["a", "b"]}}, {"id": "j", "node": "join"},
                      edges=(("q.result", "j.texts"),))
     run = ran({"id": "d", "node": "split"}, {"id": "e", "node": "asker"}, edges=(("d.result", "e.doc"),),
               registry=registry_of(split, join, ask_each, inner), text="x,y")
@@ -1355,7 +1355,7 @@ def test_a_list_typed_in_inside_an_embedded_graph_per_outer_row_is_a_child_table
 
 
 def test_a_skip_above_an_embedded_typed_list_leaves_it_no_rows_and_its_nodes_complete_through_json():
-    inner = embedded("asker", {"id": "q", "node": "ask-each", "values": {"question": ["a", "b"]}, "many": ["question"]}, {"id": "j", "node": "join"},
+    inner = embedded("asker", {"id": "q", "node": "ask-each", "values": {"question": ["a", "b"]}}, {"id": "j", "node": "join"},
                      edges=(("q.result", "j.texts"),))
     run = ran({"id": "d", "node": "decide"}, {"id": "e", "node": "asker"}, edges=(("d.yes", "e.doc"),),
               registry=registry_of(decide, join, ask_each, inner), text="no")
@@ -1378,7 +1378,7 @@ def test_a_typed_in_value_is_received_once_and_a_typed_in_list_once_per_item():
         calls.append(f"{tag}:{text}")
         return text
 
-    ran({"id": "n", "node": "note", "values": {"text": ["a", "b"], "tag": "t"}, "many": ["text"]}, registry=registry_of(note))
+    ran({"id": "n", "node": "note", "values": {"text": ["a", "b"], "tag": "t"}}, registry=registry_of(note))
     assert calls == ["t:a", "t:b"]
 
 
@@ -1467,12 +1467,12 @@ def test_a_nested_embedding_names_its_fields_as_each_record_says_them_never_by_a
     assert loaded.run({"x/text": "a", "y/text": "b", "text": "c"}).results["o"] == {"x/result": "A", "y/result": "B", "result": "C"}
 
 
-def test_many_on_an_embedded_node_takes_a_list_as_its_inner_input_would():
+def test_an_embedded_graph_takes_a_list_as_its_inner_input_would_and_one_value_as_one():
     inner = embedded("shouter", {"id": "u", "node": "upper"})
-    loaded = graph({"id": "e", "node": "shouter", "many": ["text"]}, registry=registry_of(upper, inner))
+    loaded = graph({"id": "e", "node": "shouter"}, registry=registry_of(upper, inner))
 
-    assert loaded.inputs["text"].many and loaded.run(text=["a", "b"]).results["e"] == {"result": ["A", "B"]}
-    assert problems({"id": "e", "node": "shouter", "many": ["nope"]}, registry=registry_of(upper, inner)) == ["unknown_input"]
+    assert loaded.inputs["text"].per_item and loaded.run(text=["a", "b"]).results["e"] == {"result": ["A", "B"]}
+    assert loaded.run(text="a").results["e"] == {"result": "A"}
 
 
 # -- tables typed in or given ------------------------------------------------------------------
@@ -1599,7 +1599,7 @@ def test_the_row_ceiling_counts_a_typed_list_s_rows_under_every_row_it_goes_unde
         calls.append(question)
         return question
 
-    loaded = graph({"id": "d", "node": "split"}, {"id": "q", "node": "ask-each-counted", "values": {"question": ["a", "b", "c"]}, "many": ["question"]},
+    loaded = graph({"id": "d", "node": "split"}, {"id": "q", "node": "ask-each-counted", "values": {"question": ["a", "b", "c"]}},
                    edges=(("d.result", "q.doc"),), registry=registry_of(split, ask_each_counted))
 
     stopped = loaded.run(text="x,y,z", max_rows=4)
@@ -1716,17 +1716,17 @@ def test_an_embedding_with_outputs_on_two_grains_runs_where_its_outermost_output
     assert graph.run().results["inner"]["count/result"] == [2, 2]
 
 
-def test_an_embedded_graphs_many_lapses_on_an_input_the_outer_graph_wires():
-    """``many`` says how a caller fills an open input; fed by an outer edge per row, the input takes one value per row."""
+def test_an_embedded_graph_fed_per_outer_row_runs_per_row_and_alone_takes_a_list_from_its_caller():
+    """A list from the caller is rows; fed by an outer edge per row, the inner input takes one value per row."""
 
     @node("read")
     def read(file: str) -> str:
         return file.upper()
 
-    inner = node("each")(GraphRecord(nodes=[NodeRecord(id="r", node="read", many={"file"})]))
+    inner = node("each")(GraphRecord(nodes=[NodeRecord(id="r", node="read")]))
     registry = registry_of(split, read, inner)
     wired = ran({"id": "s", "node": "split"}, {"id": "e", "node": "each"}, edges=(("s.result", "e.file"),), registry=registry, text="x,y")
     assert wired.results["e"]["result"] == ["X", "Y"]
 
     alone = graph({"id": "e", "node": "each"}, registry=registry)
-    assert alone.inputs["file"].many and alone.run(file=["a", "b"]).results["e"]["result"] == ["A", "B"]
+    assert alone.inputs["file"].per_item and alone.run(file=["a", "b"]).results["e"]["result"] == ["A", "B"]

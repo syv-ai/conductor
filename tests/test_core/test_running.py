@@ -901,7 +901,7 @@ def _counting_llm(calls: list[int], seconds: float) -> Any:
 def test_a_stream_offers_checkpoints_and_resuming_the_last_one_repeats_only_the_calls_in_flight():
     calls: list[int] = []
     llm = _counting_llm(calls, 0.005)
-    graph = registry_of(llm).load(GraphRecord(nodes=[NodeRecord(id="llm", node="llm", many={"n"})]))
+    graph = registry_of(llm).load(GraphRecord(nodes=[NodeRecord(id="llm", node="llm")]))
 
     async def until_killed() -> tuple[str, int]:
         saved, start = None, time.monotonic()
@@ -927,7 +927,7 @@ def test_a_stream_offers_checkpoints_and_resuming_the_last_one_repeats_only_the_
 def test_a_stopped_leg_with_calls_on_threads_offers_a_checkpoint_before_it_drains():
     calls: list[int] = []
     llm = _counting_llm(calls, 0.3)
-    graph = registry_of(llm).load(GraphRecord(nodes=[NodeRecord(id="llm", node="llm", many={"n"})]))
+    graph = registry_of(llm).load(GraphRecord(nodes=[NodeRecord(id="llm", node="llm")]))
 
     async def cancelled() -> list[Any]:
         cancel, seen = asyncio.Event(), []
@@ -957,7 +957,7 @@ def test_each_checkpoint_of_a_leg_that_reuses_earlier_work_resumes_without_a_cal
     """A checkpoint keeps the earlier work not yet taken as it stood, written after the stream ended or at once."""
     calls: list[int] = []
     llm = _counting_llm(calls, 0.0005)
-    graph = registry_of(llm).load(GraphRecord(nodes=[NodeRecord(id="llm", node="llm", many={"n"})]))
+    graph = registry_of(llm).load(GraphRecord(nodes=[NodeRecord(id="llm", node="llm")]))
     first = graph.run(n=list(range(300)))
     calls.clear()
 
@@ -979,7 +979,7 @@ def test_a_failed_leg_with_calls_on_threads_offers_a_checkpoint_saying_it_failed
         time.sleep(0.3)
         return n
 
-    graph = registry_of(flaky).load(GraphRecord(nodes=[NodeRecord(id="f", node="flaky", many={"n"})]))
+    graph = registry_of(flaky).load(GraphRecord(nodes=[NodeRecord(id="f", node="flaky")]))
 
     async def leg() -> list[Any]:
         return [e async for e in graph.with_inputs(n=[1, 2, 0, 3, 4, 5]).stream(checkpoint_every=60)]

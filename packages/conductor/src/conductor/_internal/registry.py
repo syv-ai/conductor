@@ -263,7 +263,7 @@ class NodeRegistry:
 
         Runs each newer version's ``Upgrade`` in order and sets the version.
         Each step first moves what the record holds on the inputs it renames
-        (values, defaults, ``many`` and the edges into them), then rewrites
+        (values, defaults and the edges into them), then rewrites
         what is typed into the node, values and defaults as one map: a key
         that was a default stays one, and every other key the rewrite returns
         is a value, fixed as the author's. Every edge out of a renamed output,
@@ -294,10 +294,9 @@ class NodeRegistry:
         while step is not None and step.version > placed.version:
             steps.append(step)
             step = step.replaces
-        values, defaults, many, edges = dict(placed.values), dict(placed.defaults), set(placed.many), list(graph.edges)
+        values, defaults, edges = dict(placed.values), dict(placed.defaults), list(graph.edges)
         for upgrade in (s.upgrade for s in reversed(steps) if s.upgrade is not None):
             values, defaults = _with_keys_renamed(values, upgrade.renamed_inputs), _with_keys_renamed(defaults, upgrade.renamed_inputs)
-            many = {upgrade.renamed_inputs.get(name, name) for name in many}
             if upgrade.rewrite is not None:
                 rewritten = upgrade.rewrite({**defaults, **values})
                 defaults = {name: value for name, value in rewritten.items() if name in defaults and name not in values}
@@ -306,7 +305,7 @@ class NodeRegistry:
                 (_renamed_on(source, node_id, upgrade.renamed_outputs), _renamed_on(target_, node_id, upgrade.renamed_inputs))
                 for source, target_ in edges
             ]
-        moved = placed.model_copy(update={"version": target, "values": values, "defaults": defaults, "many": frozenset(many)})
+        moved = placed.model_copy(update={"version": target, "values": values, "defaults": defaults})
         return graph.model_copy(update={"nodes": tuple(moved if n is placed else n for n in graph.nodes), "edges": tuple(sorted(edges))})
 
 

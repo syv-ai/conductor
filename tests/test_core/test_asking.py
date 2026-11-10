@@ -593,7 +593,7 @@ def test_a_waiting_row_keeps_the_table_and_series_it_received_through_a_save():
 
 def test_rows_a_caller_types_in_as_a_list_pause_save_answer_and_finish():
     gate, _ = _counted()
-    graph = registry_of(gate).load({"nodes": [{"id": "q", "node": "gate", "many": ["text"]}]})
+    graph = registry_of(gate).load({"nodes": [{"id": "q", "node": "gate"}]})
     run = graph.load_run(graph.run(text=["a", "b"]).to_json())
     assert [place(w) for w in run.waiting] == ["q@1"]
     assert graph.load_run(run.answer("q@1", "B").to_json()).resume().outputs == {"q.result": ["a", "B"]}

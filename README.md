@@ -36,11 +36,11 @@ def join(texts: Series[str]) -> str:
     return "+".join(texts)
 
 
-graph = registry.load(make_graph(upper, join, many={"upper.text"}))
+graph = registry.load(make_graph(upper, join))
 print(graph.run(text=["a", "b"]).outputs)  # {'join.result': 'A+B'}
 ```
 
-`upper` takes one text, and `many` lets the caller give it a list, so it runs once per item. `join` takes a `Series[str]`, a plain list of every value, so it runs once. That is all iteration is. `make_graph` writes the graph from Python; an editor writes the same thing as JSON, as the rest of this page shows.
+`upper` takes one text, so given a list it runs once per item. `join` takes a `Series[str]`, a plain list of every value, so it runs once. That is all iteration is. `make_graph` writes the graph from Python; an editor writes the same thing as JSON, as the rest of this page shows.
 
 ## Write nodes
 

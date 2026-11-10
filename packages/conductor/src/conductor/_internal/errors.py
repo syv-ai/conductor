@@ -72,9 +72,6 @@ PROBLEM_CATALOGUE: Mapping[str, str] = {
     "hook_needs_value": "'{field}' must be typed in: the node works out its fields from it when the graph loads.",
     "invalid_node_id": "'{node_id}' cannot be a node id: '.', '/', '@' and '~' each mean something in an address or a waiting id; rename it without them.",
     "invalid_value": "The value typed into '{field}' is not valid: {reason}. Type a value of the field's type.",
-    "many_on_edge": "'{field}' is fed by an edge; only an open input takes one or many values from the caller, so take '{field}' out of many.",
-    "many_not_open": "'{field}' is not an open input of the graph, so it takes no list from the caller; take '{field}' out of many.",
-    "many_on_series": "'{field}' already takes many values; take '{field}' out of many.",
     "parameter_name_invalid": "'{field}' cannot be a field name: '.', '/' and '@' each mean something in an address, and a name can't be empty; rename the field.",
     "repeated_edge": "The edge from '{source}' into '{field}' is drawn twice; remove one.",
     "rows_not_related": "{tables} are rows of different tables; join them on a key in a node, and wire the join.",
@@ -90,7 +87,10 @@ PROBLEM_CATALOGUE: Mapping[str, str] = {
         "{inputs} read branches that never both have a value on a row, so no row would reach the node. "
         "Write Series[X | None] on them to keep every row, or take the branches through one input."
     ),
-    "two_typed_in_lists": "Only one list can be typed into a node, and {inputs} are all lists; type one in and feed the others through edges.",
+    "lists_not_collected": (
+        "{tables} are lists, each a row per item, and they meet at '{node_id}', which can't tell which item goes with which; "
+        "collect one of them first, with a node that takes it as a Series, so it arrives as one value."
+    ),
     "type_mismatch": "'{source}' gives {got}, but '{node_id}.{field}' takes {expected}; connect an output that gives {expected}, or convert it in a node between.",
     "columns_missing": "'{node_id}.{field}' takes the columns {missing}, which nothing wired into it from {sources} gives; wire them in, or take a Table of any columns.",
     "setting_on_edge": "'{field}' is a setting, which the graph's author types in; remove the edge into it and type a value.",

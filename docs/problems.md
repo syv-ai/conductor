@@ -274,41 +274,19 @@ print(problems({"nodes": [{"id": "c", "node": "count", "values": {"n": "many"}}]
 
 **Fix.** Type in a value of the field's type. `reason` says what the type refused, without quoting the value.
 
-### `many_not_open`
+### `lists_not_collected`
 
-> '{field}' is not an open input of the graph, so it takes no list from the caller; take '{field}' out of many.
-
-```python
-print(problems({
-    "nodes": [{"id": "a", "node": "upper"}, {"id": "g", "node": "greet", "many": ["greeting"]}],
-    "edges": [["a.result", "g.name"]],
-}))  # ['many_not_open', 'unbound_on_later_node']
-```
-
-**Fix.** Take the input out of `many`, or make the node a first node. Only a caller gives a list, and a caller fills only a first node's open inputs.
-
-### `many_on_edge`
-
-> '{field}' is fed by an edge; only an open input takes one or many values from the caller, so take '{field}' out of many.
+> {tables} are lists, each a row per item, and they meet at '{node_id}', which can't tell which item goes with which; collect one of them first, with a node that takes it as a Series, so it arrives as one value.
 
 ```python
-print(problems({
-    "nodes": [{"id": "a", "node": "upper"}, {"id": "b", "node": "upper", "many": ["text"]}],
-    "edges": [["a.result", "b.text"]],
-}))  # ['many_on_edge']
+print(problems({"nodes": [{"id": "g", "node": "greet", "values": {"name": ["Ida", "Bo"], "greeting": ["hi", "hello"]}}]}))  # ['lists_not_collected']
+greeting = registry.load({"nodes": [{"id": "g", "node": "greet"}]})
+print(refused(lambda: greeting.run(name=["Ida", "Bo"], greeting=["hi", "hello"])))  # ['lists_not_collected']
 ```
 
-**Fix.** Take the input out of `many`. What an edge brings decides how many values it is.
+Each list is a row per item, so two of them reaching one node, typed in or given by a caller, are rows of two different tables. Given by a caller, the call is refused; typed in, the graph has the problem.
 
-### `many_on_series`
-
-> '{field}' already takes many values; take '{field}' out of many.
-
-```python
-print(problems({"nodes": [{"id": "j", "node": "join", "many": ["texts"]}]}))  # ['many_on_series']
-```
-
-**Fix.** Take the input out of `many`: a `Series` input already takes a list.
+**Fix.** Collect one list first: wire it through a node whose input is a `Series`, which takes every item as one value, or give it to an input whose type takes a list. Then the other list's rows each get the whole of it.
 
 ### `parameter_name_invalid`
 
@@ -413,19 +391,6 @@ print(problems({
 ```
 
 **Fix.** Feed it from opposite branches of one decision (outputs of one `exclusive_group`), or take the values through a `Series` input.
-
-### `two_typed_in_lists`
-
-> Only one list can be typed into a node, and {inputs} are all lists; type one in and feed the others through edges.
-
-```python
-print(problems({"nodes": [{
-    "id": "g", "node": "greet",
-    "values": {"name": ["Ida", "Bo"], "greeting": ["hi", "hello"]}, "many": ["name", "greeting"],
-}]}))  # ['two_typed_in_lists']
-```
-
-**Fix.** Type one list in. Feed the other through an edge, or split the node in two.
 
 ### `type_mismatch`
 

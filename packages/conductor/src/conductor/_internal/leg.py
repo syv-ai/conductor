@@ -525,10 +525,10 @@ class Leg:
             self._wait()
 
     def _made(self, table: str, rows: int) -> None:
-        """Count ``rows`` more of ``table``, and the rows each list typed in under them makes."""
+        """Count ``rows`` more of ``table``, and the rows each given list under them makes."""
         self.made[table] = self.made.get(table, 0) + rows
-        for address in self.run.graph._typed_under.get(table, ()):
-            self._made(address, rows * len(self.run.graph._typed_lists[address]))
+        for address in self.run.graph._lists_under.get(table, ()):
+            self._made(address, rows * len(self.run._given(address)))
 
     def _over_ceiling(self) -> bool:
         limit = self.run.max_rows

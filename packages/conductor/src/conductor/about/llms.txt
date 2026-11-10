@@ -6,7 +6,7 @@ A node is a function whose typed signature is its interface. A graph is data: it
 
 ## Quick Start
 
-One node takes a single value, the other many; that is all iteration is.
+One node takes a single value, the other many; that is all iteration is. A list given to an input of one value runs it once per item.
 
 ```python
 registry = NodeRegistry()
@@ -26,18 +26,18 @@ def join(texts: Series[str]) -> str:
 assert upper("a") == "A"  # a node is called like its function
 
 graph = registry.load({            # a graph is data: JSON text, a mapping, or a GraphRecord
-    "nodes": [{"id": "upper", "node": "upper", "many": ["text"]}, {"id": "join", "node": "join"}],
+    "nodes": [{"id": "upper", "node": "upper"}, {"id": "join", "node": "join"}],
     "edges": [["upper.result", "join.texts"]],
-})                                 # many: the caller gives upper.text a list, a row per item
+})
 assert graph.is_runnable, graph.problems
 
-run = graph.run(text=["a", "b", "c"])  # by name; by address, graph.run({"upper.text": ...})
+run = graph.run(text=["a", "b", "c"])  # a list: a row per item; by address, graph.run({"upper.text": ...})
 run.outputs                        # {"join.result": "A+B+C"}: what the graph returns, by address
 run.results["upper"]["result"]     # ["A", "B", "C"]: ran once per value
 run.results["join"]["result"]      # "A+B+C": Series[str] received every value once
 ```
 
-`make_graph(*nodes, edges=None, values=None, defaults=None, many=None)` writes a `GraphRecord`, each node at its version and under its own id (`upper-1`, `upper-2` when one is used twice). With no `edges` the nodes form a chain: each takes its one required input nothing typed in fills from the one output before it (`not_a_chain` otherwise). With `edges=[("upper.result", "join.texts")]` those are every edge; nothing is matched by name. `values={"upper.text": "x"}` types values in, fixed; `defaults=` the same, open to the caller; `many={"send.contact"}` makes an input take a list, a row per item. Every address, value and the chain are checked at the call against the definitions, and every fault is one `InvalidCallError` (a node a hook shapes, or a stored graph, is checked when the graph loads).
+`make_graph(*nodes, edges=None, values=None, defaults=None)` writes a `GraphRecord`, each node at its version and under its own id (`upper-1`, `upper-2` when one is used twice). With no `edges` the nodes form a chain: each takes its one required input nothing typed in fills from the one output before it (`not_a_chain` otherwise). With `edges=[("upper.result", "join.texts")]` those are every edge; nothing is matched by name. `values={"upper.text": "x"}` types values in, fixed; `defaults=` the same, open to the caller; Every address, value and the chain are checked at the call against the definitions, and every fault is one `InvalidCallError` (a node a hook shapes, or a stored graph, is checked when the graph loads).
 
 ## Core Concepts
 
@@ -103,13 +103,14 @@ Any type pydantic can check and write as JSON travels on edges: `str`, `int`, `f
 
 ### The graph record
 
-`GraphRecord(nodes=[...], edges=[(from, to), ...])`, stored as `{"nodes": [...], "edges": [["a.result", "b.text"], ...]}`; `NodeRecord(id=, node=, version=1, values=, defaults=, many=, display=)`, empty fields left out when saved. `node` is the id of the node it uses. A node id is not empty and may not contain `.`, `/`, `@` or `~` (`invalid_node_id`).
+`GraphRecord(nodes=[...], edges=[(from, to), ...])`, stored as `{"nodes": [...], "edges": [["a.result", "b.text"], ...]}`; `NodeRecord(id=, node=, version=1, values=, defaults=, display=)`, empty fields left out when saved. `node` is the id of the node it uses. A node id is not empty and may not contain `.`, `/`, `@` or `~` (`invalid_node_id`).
 
-- From outside, a stored graph used as a node is one node: a caller fills `emb.text`, an author wires `emb.result`, and problems, results, `plan`, `describe()`, `exclusive_groups`, events, waiting rows and a run's `cause` name `emb`, never its inner nodes: it starts once, completes once with the outputs it offers, and says no progress of its own. Where two inner fields share a name, it offers `x/text` with `x` the inner node's id as its own record says it (for a graph embedded in it, that node and the name it offers), so an address of it is `emb.x/text`. Its inputs stay open to the caller when edges from outside feed only some of them, and `many` on it marks one as its inner input would.
+- From outside, a stored graph used as a node is one node: a caller fills `emb.text`, an author wires `emb.result`, and problems, results, `plan`, `describe()`, `exclusive_groups`, events, waiting rows and a run's `cause` name `emb`, never its inner nodes: it starts once, completes once with the outputs it offers, and says no progress of its own. Where two inner fields share a name, it offers `x/text` with `x` the inner node's id as its own record says it (for a graph embedded in it, that node and the name it offers), so an address of it is `emb.x/text`. Its inputs stay open to the caller when edges from outside feed only some of them, and each takes a list as its inner input would.
 - Edges are a list, kept sorted, so two records differing only in edge order are equal; an edge listed twice stays twice, and loading reports it. Several into one input on rows of one table gather in that table's row order; on different tables, in the order their source nodes appear in `nodes`, then the order a node declares its outputs. An edge is `node.field`, or `node.output.column` for one column of a table. An edge drawn twice is `repeated_edge`; one naming a node the graph doesn't have, at either end, is `edge_names_missing_node`.
 - `values`: typed in and fixed; the graph doesn't offer that input to a caller.
 - `defaults`: typed in, and the input stays open for a caller to fill. Only an open input of a first node has a caller, so a default elsewhere is `default_on_later_node`: write a value. An input takes an edge, a value or a default, never two (`value_and_edge`, `value_and_default`).
-- `many`: the inputs that take a list, a row per item. On an open input of a first node the caller gives the list, and a default beside it is a list. Beside a value, on any node, the value is a list typed in: its items are a table under each row the node runs on, and the node runs once per item on each (questions typed into a node that runs per document: once per question per document). Two lists typed into one node are `two_typed_in_lists`. On an input an edge feeds it is `many_on_edge`, on a later node's open input `many_not_open`, on a `Series` input `many_on_series`.
+- One value or many: the value decides, never a mark. A list (a JSON array, a Python list or tuple) given to an input that takes one value of a type taking no list (`GraphInput.per_item`) is many values: the node runs once per item, and never sees the difference. A list of one is one row, an empty list none. An input whose own type takes a list (`list[str]`, `Series[...]`, `Table[...]`, `Any`) takes the list as one value; one value given to a `Series` input is a list of one. The same holds for a list typed in as a value or a default: its items are a table under each row the node runs on, and the node runs once per item on each (questions typed into a node that runs per document: once per question per document).
+- Two lists never meet uncollected: ten files are ten rows, and which item goes with which is the author's to draw. Two lists a caller gives that reach one node are refused at the call, and two typed into one node (or one typed in under the rows of a list) are a problem of the graph: `lists_not_collected`, in both cases. A `Series` input collects a list whole, wherever its node runs, so a node per contract with a `Series` of appendices gets every appendix on each contract's row; a node that takes the list as one value does too.
 - Nothing set: the declared default.
 - `display`: the host's own, stored and never read. `GraphRecord(display=)` is the same for the whole graph (a viewport, flags), outside the fingerprint.
 - An embedding's inputs are filled from outside as any node's are: a value, a default or an edge given from outside takes the place of a default the embedded graph's own record types in.
@@ -122,10 +123,10 @@ Any type pydantic can check and write as JSON travels on edges: `str`, `int`, `f
 - The graph keeps its own copy of the definitions it resolved, so a later change to the registry doesn't reach it.
 - A graph that embeds definitions loaded for one request loads through a registry of its own: a new `NodeRegistry`, `add_subregistry(shared)`, then `add(*definitions)`. `docs/embedded-graphs.md` teaches it.
 
-- `graph.inputs`: the open inputs of its first nodes (those no edge feeds), by bare name or by address where two share a name. Each is a `GraphInput`: its node's field record (a `FieldDescription`, `name` the input's own) with `address`, `node_id` and `many`; `default` is the record's default, else the node's, as JSON, `None` when `required`. An open first-node input is not a problem; a required input on a later node nothing feeds is `unbound_on_later_node`.
-- `graph.outputs`: the outputs of the nodes nothing reads, by address. `graph.plan`: where each node runs, a `RunsOn` whose `mode` is `once` or `per_row` with its `table`, and whose `msg` says it in English. `graph.exclusive_groups`: each node's exclusive groups and their outputs.
+- `graph.inputs`: the open inputs of its first nodes (those no edge feeds), by bare name or by address where two share a name. Each is a `GraphInput`: its node's field record (a `FieldDescription`, `name` the input's own) with `address`, `node_id` and `per_item` (a list given here is a row per item); `default` is the record's default, else the node's, as JSON, `None` when `required`. An open first-node input is not a problem; a required input on a later node nothing feeds is `unbound_on_later_node`.
+- `graph.outputs`: the outputs of the nodes nothing reads, by address. `graph.plan`: where each node runs, a `RunsOn` whose `mode` is `once` or `per_row` with its `table`, and whose `msg` says it in English. It is the plan of a run given nothing; a run given lists runs on a compile of its own, `run.graph`, whose `plan` says where its nodes ran. `graph.calls_for(file=11)` says before any run how many times each node is called given lists of those lengths (`None` where a node runs on rows another node makes), for an editor's sentence ("with 11 files: 11 calls"). `graph.exclusive_groups`: each node's exclusive groups and their outputs.
 - `graph.describe()`: the graph as an editor draws it, a `GraphDescription`: each node's fields as its hooks made them and where it runs, the inputs, the outputs, the problems. Each input of a node says how it is fed on each row the node runs on, its `feed` (a `Feed`: `mode`, `tables`, `under` and `msg`): a `single` value, `per_row` of a table, `copied_down` from a table (a value from rows above) or the `whole_column` of a table (a gather), `under` each row of a table a sibling shares with the node.
-- Other codes: `unknown_node`, `unknown_version`, `unknown_input` (a value, default, `many` or edge naming an input the node lacks), `unknown_output` (an output, or a column of a table output, the node doesn't give), `type_mismatch`, `invalid_value` (a typed-in value its type refuses), `duplicate_node_id`, `cycle`, `embeds_itself`, `embedded_graph_broken` (a stored graph used as a node has problems of its own, in `ctx`), `rows_not_related`, `hook_needs_value` (a value a hook reads is not typed in), `parameter_name_invalid` (a hook gave a field a name no address can say).
+- Other codes: `unknown_node`, `unknown_version`, `unknown_input` (a value, default or edge naming an input the node lacks), `unknown_output` (an output, or a column of a table output, the node doesn't give), `type_mismatch`, `invalid_value` (a typed-in value its type refuses), `duplicate_node_id`, `cycle`, `embeds_itself`, `embedded_graph_broken` (a stored graph used as a node has problems of its own, in `ctx`), `rows_not_related`, `hook_needs_value` (a value a hook reads is not typed in), `parameter_name_invalid` (a hook gave a field a name no address can say).
 
 ### What a node returns
 
@@ -174,7 +175,7 @@ again = approving.load_run(finished.to_json())           # a run is JSON
   - Each answer is read strictly from its JSON form: `true`, not `"yes"` or `1`; `3`, not `"3"`; a date as its ISO text. It is checked against its question before anything runs.
   - Every fault is refused at once, and nothing is answered: `invalid_answer` (`ctx.waiting_id`, `ctx.reason`, and `ctx.question` when it is about one), `not_waiting` for a unit not waiting, and `answer_stale` (`ctx.current`, the id waiting there now) for an id whose row has held another question since, as after `run.again` moved the rows.
   - An id without its `~` part names the place alone and answers whatever waits there. A node that asked is not called again for that row.
-- `run.to_json()` is the whole run. It names the graph it is of by `graph.fingerprint`: the record's nodes, versions, values, defaults, `many` and edges, not `display`.
+- `run.to_json()` is the whole run. It names the graph it is of by `graph.fingerprint`: the record's nodes, versions, values, defaults and edges, not `display`.
 - `graph.load_run(saved)` refuses a save of another graph as `state_of_another_graph`: an edited graph starts a new run, and `edited.with_inputs(..., earlier=old_run)` lends it the old run's work for the nodes the edit left as they were. Then it reads the save back and checks it against the graph. A row its makers never made, a row listed twice, a missing output, or a table whose column length isn't its row count is `state_unreadable`, with `ctx.at` the `node.output` (or `node.output.column`) where.
 - A value with no JSON form is `state_unwritable` at `to_json`, naming where too.
 - A parameter typed `FromRun[T]` receives the value of `T` from `run.resume(from_run={T: value})` or `graph.run(from_run=...)`. A value of a subclass of `T` fills it too, keyed by its own class: a test double, a host's own session. A missing one is `from_run_missing` (naming what was given), several that fit `from_run_ambiguous`, at the call.
@@ -189,7 +190,7 @@ def send(contact: str) -> str:
     return f"sent to {contact}"
 
 
-sending = registry.load(make_graph(send, many={"send.contact"}))
+sending = registry.load(make_graph(send))
 contacts = ["ida@a.dk", "bo@b.dk"]
 first = sending.run(contact=contacts)                     # two mails
 second = first.again(contact=[*contacts, "eva@c.dk"])     # one row added: one mail
@@ -270,9 +271,9 @@ Four public modules: `conductor`, `conductor.widgets`, `conductor.events` and `c
 ### Running
 
 - `graph.run(inputs=None, /, *, max_rows=None, from_run=None, timeout=None, **by_name)`: one leg from the start; its `Run`. A pause or failure is a `status`.
-- `graph.with_inputs(inputs=None, /, *, max_rows=None, **by_name)`: a `Run` with the inputs checked and not started; a name it doesn't offer (`not_offered`), a required one left out (`missing_input`), one given by both its name and its address (`input_given_twice`), a value its type can't read (`invalid_input`) or a `max_rows` below 1 (`invalid_max_rows`) raises `InvalidCallError`, every fault at once.
+- `graph.with_inputs(inputs=None, /, *, max_rows=None, **by_name)`: a `Run` with the inputs checked and not started; a name it doesn't offer (`not_offered`), a required one left out (`missing_input`), one given by both its name and its address (`input_given_twice`), a value its type can't read (`invalid_input`), two lists that meet (`lists_not_collected`) or a `max_rows` below 1 (`invalid_max_rows`) raises `InvalidCallError`, every fault at once.
 - `run.resume(*, max_rows=None, from_run=None, timeout=None)`: the next leg. `run.stream(...)`, the same arguments and `cancel=`: the leg's events.
-- `run.answer(unit, value)` or `run.answer({unit_id: value})`, `run.with_inputs(inputs=None, /, *, max_rows=None, **by_name)` (a run carrying this one's work, to resume or stream), `run.forget(*node_ids)` (a run of the same inputs that calls these nodes again, carrying the rest, to resume or stream), `run.again(...)` (the same, resumed; takes `from_run=` and `timeout=` too), `run.to_json()`, `graph.load_run(saved)`.
+- `run.answer(unit, value)` or `run.answer({unit_id: value})`, `run.with_inputs(inputs=None, /, *, max_rows=None, **by_name)` (a run carrying this one's work, to resume or stream), `run.forget(*node_ids)` (a run of the same inputs that calls these nodes again, carrying the rest, to resume or stream), `run.again(...)` (the same, resumed; takes `from_run=` and `timeout=` too), `run.to_json()`, `graph.load_run(saved)`, `graph.calls_for(lengths=None, /, **by_name)` (each node's calls given lists of these lengths, before any run).
 - `run.results`: every node's outputs so far, by node id: one value for a node that ran once, a list in row order for one that ran per row, `None` where a row has none. `run.outputs`: narrowed to `graph.outputs`, by address, on a `complete` run only (`run_not_complete` otherwise). `run.waiting`, `run.not_called`, `run.status`, `run.cause`.
 
 ### Problem and error codes

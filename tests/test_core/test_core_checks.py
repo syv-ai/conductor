@@ -193,15 +193,11 @@ def test_branches_and_blanks():
     assert run.not_called == [{"node_id": "mail", "row": (1,), "input": "email"}]
 
 
-def test_many_on_open_input():
-    graph = registry.load({"nodes": [{"id": "up", "node": "upper", "many": ["text"]}, {"id": "j", "node": "join"}], "edges": [["up.result", "j.texts"]]})
+def test_a_list_on_an_open_input_is_rows_and_one_value_gathers_as_a_list_of_one():
+    graph = registry.load({"nodes": [{"id": "up", "node": "upper"}, {"id": "j", "node": "join"}], "edges": [["up.result", "j.texts"]]})
     assert graph.run(text=["a", "b"]).outputs == {"j.result": "A+B"}
     assert graph.run(text=["a"]).outputs == {"j.result": "A"}
-    try:
-        graph.run(text="a")
-        raise AssertionError
-    except InvalidCallError:
-        pass
+    assert graph.run(text="a").outputs == {"j.result": "A"}
 
 
 def test_max_rows():
