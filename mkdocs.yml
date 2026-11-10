@@ -5,6 +5,7 @@ nav:
   - Writing nodes for others: writing-nodes.md
   - How it works: OVERVIEW.md
   - Serving runs over HTTP: serving-runs.md
+  - Problem codes: problems.md
 markdown_extensions:
   # docs/index.md is README.md, included whole, so the first page has one source.
   - pymdownx.snippets:

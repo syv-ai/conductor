@@ -264,7 +264,7 @@ Four public modules: `conductor`, `conductor.widgets`, `conductor.events` and `c
 
 ### Problem and error codes
 
-A `Problem`'s `type` comes from one table, each code with its English, and a host translates by it, filling its sentence from `ctx`. `PROBLEM_CODES` is every code conductor itself writes, for a test that pins your translations to it. A code that isn't in it is a node's own, from a `NodeError`.
+A `Problem`'s `type` is a stable code, and a host translates by it, filling its sentence from `ctx`. `PROBLEM_CODES` is every code conductor itself writes, for a test that pins your translations to it. A code that isn't in it is a node's own, from a `NodeError`. `docs/problems.md` (https://github.com/syv-ai/conductor/blob/main/docs/problems.md) has every code, the declaration codes and `check_registry`'s among them, each with its message, an example and the fix.
 
 ### conductor.widgets
 
