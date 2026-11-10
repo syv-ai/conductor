@@ -31,7 +31,8 @@ What changes in how you work, before the name-by-name tables:
   builds the schema: a limit pydantic doesn't hold on the type (`ge` on a `bool` or an `IntEnum`), or
   a choice that isn't a value of it, is `bound_invalid` or `choices_invalid`, so a host's `BaseModel`
   holding one fails as its class is made. Limits are pydantic's own: bounds on numbers, a `Decimal`,
-  dates, times and durations, lengths on texts, bytes and collections.
+  dates, times and durations, lengths on texts, bytes and collections. `Param` is a frozen dataclass whose limits
+  are its fields, so an argument it doesn't have is Python's own `TypeError`.
 - **Loops are rows.** A list or a column on an input typed for one value runs the node once per
   row, and the node never sees the difference: the value a caller gives decides, with no mark on
   the graph (`graph.inputs[name].per_item` says where a list is rows). `Series[X]` takes many values

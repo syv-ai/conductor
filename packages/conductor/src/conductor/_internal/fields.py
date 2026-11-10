@@ -33,10 +33,8 @@ from typing import (
     Any,
     ClassVar,
     Literal,
-    TypedDict,
     TypeVar,
     Union,
-    Unpack,
     get_args,
     get_origin,
     overload,
@@ -106,68 +104,59 @@ class _Skipped:
 SKIPPED: Any = _Skipped()
 
 
-#: The limits ``Param`` takes, by the words pydantic's ``Field`` uses, and the
-#: types each kind applies to.
-_NUMERIC = frozenset({"ge", "gt", "le", "lt", "multiple_of"})
-_SIZED = frozenset({"min_length", "max_length", "pattern"})
+#: The limits ``Param`` takes, by the words pydantic's ``Field`` uses.
+_LIMITS = ("ge", "gt", "le", "lt", "multiple_of", "min_length", "max_length", "pattern")
+
+#: What a bound may be: a number's, a date's, a time's or a duration's.
+_Bound = float | decimal.Decimal | datetime.date | datetime.time | datetime.timedelta
 
 
-class Limits(TypedDict, total=False):
-    """The limits ``Param`` takes, by pydantic's words: a number's, a date's, a time's or a duration's bounds, a text's or a collection's length, a text's pattern."""
-
-    ge: float | decimal.Decimal | datetime.date | datetime.time | datetime.timedelta
-    gt: float | decimal.Decimal | datetime.date | datetime.time | datetime.timedelta
-    le: float | decimal.Decimal | datetime.date | datetime.time | datetime.timedelta
-    lt: float | decimal.Decimal | datetime.date | datetime.time | datetime.timedelta
-    multiple_of: float
-    min_length: int
-    max_length: int
-    pattern: str
-
-
-@dataclass(frozen=True, init=False)
+@dataclass(frozen=True, kw_only=True)
 class Param:
     """What a person reads about a field, and the limits a value must keep, inside ``Annotated``::
 
         times: Annotated[int, Param(title="Times", ge=0)] = 1
 
-    ``title`` falls back to the name in everyday words. ``widget`` is the
-    ``conductor.widgets`` control a person edits the field with (a host's own
-    is a subclass of ``Widget``), carried to the host and never read here; on
-    an output it is the control a person answers it with. Outputs of one node that share an ``exclusive_group`` are
-    alternatives: on each row the node gives a value on one of them and
-    ``SKIPPED`` on the rest. ``choices`` are the values the field takes, each a value or a ``Choice``
-    to give it a title: on a ``Literal`` field they title its values, one
-    each; on any other they limit what it takes. A field's record carries them
-    (a ``Literal``'s own values when none are given), and a ``Dropdown`` draws
-    them. The limits are pydantic's: ``ge``, ``gt``, ``le``, ``lt``,
-    ``multiple_of``, ``min_length``, ``max_length``, ``pattern``.
+    A field's record carries all of it but the limits, which hold wherever pydantic reads the type.
+
+    Attributes:
+        title: What a person reads for the field; its name in everyday words when not given.
+        description: A longer text about the field, for its help.
+        widget: The ``conductor.widgets`` control a person edits the field with (on an output, answers it with); a
+            host's own is a subclass of ``Widget``. Carried to the host and never read here.
+        exclusive_group: Outputs of one node that share it are alternatives: on each row the node gives a value on
+            one of them and ``SKIPPED`` on the rest.
+        choices: The values the field takes, each a value or a ``Choice`` to give it a title. On a ``Literal`` field
+            they title its values, one each; on any other they limit what it takes. A ``Dropdown`` draws them.
+        ge: The least value taken. ``gt``, ``le`` and ``lt`` are the other bounds, and ``multiple_of`` a step; each
+            fits a number, a date, a time or a duration.
+        min_length: The fewest letters, items or keys taken; ``max_length`` the most. Each fits a text, bytes or a
+            collection.
+        pattern: The regular expression a text matches.
     """
 
     title: str | None = None
     description: str | None = None
     widget: Widget | None = None
     exclusive_group: str | None = None
-    #: Each choice as ``{"id", "title", ...}``, the id as given.
-    choices: tuple[dict[str, Any], ...] | None = None
-    constraints: dict[str, Any] = field(default_factory=dict)
+    choices: Sequence[Any] | None = None
+    ge: _Bound | None = None
+    gt: _Bound | None = None
+    le: _Bound | None = None
+    lt: _Bound | None = None
+    multiple_of: float | None = None
+    min_length: int | None = None
+    max_length: int | None = None
+    pattern: str | None = None
 
-    def __init__(
-        self, *, title: str | None = None, description: str | None = None, widget: Widget | None = None,
-        exclusive_group: str | None = None, choices: Sequence[Any] | None = None, **constraints: Unpack[Limits],
-    ) -> None:
-        unknown = sorted(constraints.keys() - _NUMERIC - _SIZED)  # a caller a type checker didn't see
-        if unknown:
-            raise NodeDeclarationError(
-                f"Param has no argument {unknown[0]!r}; it takes title, description, widget, exclusive_group, choices and the limits {sorted(_NUMERIC | _SIZED)}",
-                code="bound_invalid",
-            )
-        object.__setattr__(self, "title", title)
-        object.__setattr__(self, "description", description)
-        object.__setattr__(self, "widget", widget)
-        object.__setattr__(self, "exclusive_group", exclusive_group)
-        object.__setattr__(self, "choices", None if choices is None else tuple(choice_record(choice) for choice in choices))
-        object.__setattr__(self, "constraints", constraints)
+    def __post_init__(self) -> None:
+        if self.choices is not None:
+            object.__setattr__(self, "choices", tuple(self.choices))
+
+    @functools.cached_property
+    def constraints(self) -> dict[str, Any]:
+        """The limits set, by pydantic's words, as ``pydantic.Field`` takes them."""
+        return {key: value for key in _LIMITS if (value := getattr(self, key)) is not None}
 
     @property
     def holds_a_value(self) -> bool:
@@ -192,7 +181,7 @@ class Param:
         reader = TypeAdapter(Annotated[source, PydanticField(**self.constraints)] if self.constraints else source)
         fault, ids = "", []
         try:
-            ids = [read_strictly(reader, choice["id"]) for choice in self.choices]
+            ids = [read_strictly(reader, choice_record(choice)["id"]) for choice in self.choices]
         except Refused as refused:
             fault = f"a choice is not a value of the field's type: {refused.reason}"
         offered = literal_values(source)
@@ -437,7 +426,7 @@ class FieldSpec:
             out["default"] = to_jsonable_python(self.default, fallback=lambda _: None)
         offered = literal_values(self.type) if self.shape != "table" else None
         if self.param.choices is not None:
-            out["choices"] = [{**choice, "id": to_jsonable_python(choice["id"])} for choice in self.param.choices]
+            out["choices"] = [{**(record := choice_record(choice)), "id": to_jsonable_python(record["id"])} for choice in self.param.choices]
         elif offered is not None:
             out["choices"] = [{"id": to_jsonable_python(value), "title": str(value)} for value in offered]
         for key in ("description", "widget", "exclusive_group"):
@@ -538,16 +527,13 @@ def read_field(name: str, hint: Any, default: Any = REQUIRED, where: str = "") -
 
 def _stacked(params: list[Param]) -> Param:
     """The ``Param``s of one ``Annotated`` as one, as pydantic merges stacked ``Field``s: each argument the last one
-    given, each limit the last one set, so ``Annotated[Line, Param(min_length=1)]`` keeps ``Line``'s widget too."""
+    given, so ``Annotated[Line, Param(min_length=1)]`` keeps ``Line``'s widget too."""
     if len(params) < 2:
         return params[0] if params else Param()
-    merged = Param()
+    merged: dict[str, Any] = {}
     for param in params:
-        for key in ("title", "description", "widget", "exclusive_group", "choices"):
-            if getattr(param, key) is not None:
-                object.__setattr__(merged, key, getattr(param, key))
-        object.__setattr__(merged, "constraints", {**merged.constraints, **param.constraints})
-    return merged
+        merged.update({f.name: value for f in dataclasses.fields(param) if (value := getattr(param, f.name)) is not None})
+    return Param(**merged)
 
 
 def _without_params(hint: Any) -> tuple[Any, list[Param]]:

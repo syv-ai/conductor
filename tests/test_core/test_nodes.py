@@ -144,10 +144,9 @@ def test_a_series_default_is_held_to_the_limits_of_each_item():
     assert raised.value.code == "default_invalid"
 
 
-def test_an_unknown_param_argument_is_called_unknown():
-    with pytest.raises(NodeDeclarationError, match="'titel'") as raised:
-        Param(titel="Times")
-    assert raised.value.code == "bound_invalid"
+def test_an_unknown_param_argument_is_pythons_own_type_error():
+    with pytest.raises(TypeError, match="'titel'"):
+        Param(titel="Times")  # type: ignore[call-arg]
 
 
 def test_a_bound_written_wrong_is_refused_where_it_is_written():

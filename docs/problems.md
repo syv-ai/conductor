@@ -958,8 +958,6 @@ except NodeDeclarationError as error:
 
 > {unheld} can't apply to {getattr(_bare(source), '__name__', source)}, as pydantic holds no such limit on it; take them off, or check the value in the node
 
-> Param has no argument {unknown[0]}; it takes title, description, widget, exclusive_group, choices and the limits {sorted(_NUMERIC | _SIZED)}
-
 > {spec.name}: the limits {spec.param.constraints} don't fit {getattr(base, '__name__', base)}: {error}
 
 ```python
