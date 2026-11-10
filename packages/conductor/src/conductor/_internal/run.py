@@ -660,13 +660,14 @@ def _load_units(placed: PlacedNode, dumped: Mapping[str, Any]) -> list[tuple[Key
     keys = dumped.get("keys") or [[] for _ in states]
     if len(keys) != len(states):
         raise _Unreadable(placed.id, f"it holds {len(keys)} rows for {len(states)} units")
+    asked = {int(i): question for i, question in questions.items()}  # a few units carry one; most don't
     loaded, n = [], 0
     for i, (key, state) in enumerate(zip(keys, states, strict=True)):
         out = None
         if state == "done":
             out = {name: values[n] for name, values in columns.items()}
             n += 1
-        loaded.append((tuple(key), Unit(state, out, questions.get(str(i)))))
+        loaded.append((tuple(key), Unit(state, out, asked.get(i))))
     return loaded
 
 
