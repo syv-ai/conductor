@@ -19,7 +19,7 @@ registry = NodeRegistry(category="text")   # its nodes' category, unless one set
 @registry.node("greet")                 # the id; a graph pins it with a version
 def greet(
     name: Annotated[str, Param(title="Name", widget=TextInput())],
-    times: Annotated[int, Param(title="Times", widget=NumberInput(integer_only=True))] = 1,
+    times: Annotated[int, Param(title="Times", widget=NumberInput())] = 1,
 ) -> str:
     """Produces a greeting."""
     return " ".join(f"hello {name}" for _ in range(times))

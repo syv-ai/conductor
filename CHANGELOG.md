@@ -126,12 +126,12 @@ Every public name of 1.12.2, by the module it was imported from. A name not list
 | `conductor.widgets.DependentDropdown` | gone: a host subclasses `Widget` |
 | `conductor.widgets.Dropdown` | `Dropdown`, which takes no choices: they live on the field, `Param(choices=[Choice(id, title)])` or a `Literal` |
 | `conductor.widgets.EntityDropdown` | gone: a host subclasses `Widget` |
-| `conductor.widgets.FileUpload` | `FileUpload` |
+| `conductor.widgets.FileUpload` | `FileUpload`, without `multiple`: a `Series` field takes several files |
 | `conductor.widgets.HumanReview` | `raise Ask(...)` in the node; its return type says what is asked |
 | `conductor.widgets.IfElseBuilder` | gone with the if-else node: outputs of one `Param(exclusive_group=)` are the branches |
 | `conductor.widgets.List` | `ListInput` |
 | `conductor.widgets.Multiselect` | an input typed `Series[Literal[...]]`, or `Dropdown` on a `Series` |
-| `conductor.widgets.Number` | `NumberInput` |
+| `conductor.widgets.Number` | `NumberInput`, without `integer_only`: an `int` field takes whole numbers |
 | `conductor.widgets.Output` | gone: an output has no widget |
 | `conductor.widgets.Range` | `Slider`; its limits go on `Param(ge=, le=)` |
 | `conductor.widgets.SchemaBuilder` | gone: a host subclasses `Widget` |

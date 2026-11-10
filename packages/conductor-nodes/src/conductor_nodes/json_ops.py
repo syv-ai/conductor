@@ -28,7 +28,7 @@ def parse(text: JsonText) -> Annotated[JsonValue, Param(title="Parsed")]:
 @registry.node("json-stringify", title="JSON stringify")
 def stringify(
     value: JsonValue,
-    indent: Annotated[int, Param(ge=0, le=8, widget=NumberInput(integer_only=True))] = 0,
+    indent: Annotated[int, Param(ge=0, le=8, widget=NumberInput())] = 0,
     sort_keys: Flag = False,
 ) -> Annotated[str, Param(title="JSON")]:
     """Writes a value as JSON text."""

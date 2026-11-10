@@ -52,7 +52,7 @@ def modulo(a: Number, b: Number) -> Annotated[float, Param(title="Remainder")]:
 @registry.node("math-round", title="Round")
 def round_to(
     value: Number,
-    decimals: Annotated[int, Param(ge=0, le=10, widget=NumberInput(integer_only=True))] = 0,
+    decimals: Annotated[int, Param(ge=0, le=10, widget=NumberInput())] = 0,
 ) -> Annotated[float, Param(title="Rounded")]:
     """Rounds to the given number of decimals, a half away from zero: 2.5 to 3, -2.5 to -3, 0.125 to 0.13 at 2.
 

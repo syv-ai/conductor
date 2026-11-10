@@ -289,11 +289,11 @@ Frozen models with a `type`, and a host subclasses `Widget` for a control of its
 | `TextInput` | one line of text | none |
 | `Textarea` | several lines | `rows` |
 | `Dropdown` | one of the field's choices, from `Param(choices=)` or a `Literal`'s values | none |
-| `NumberInput` | a number typed in | `step`, `integer_only` |
+| `NumberInput` | a number typed in | `step` |
 | `Slider` | a number between the `Param`'s `ge` and `le` | `step` |
 | `Switch` | on or off | none |
 | `DatePicker` | a date | `initial` |
-| `FileUpload` | uploaded files | `accept`, `max_size_mb`, `multiple` |
+| `FileUpload` | uploaded files | `accept`, `max_size_mb` |
 | `ListInput` | a list typed by hand | none |
 
 ### conductor.testing

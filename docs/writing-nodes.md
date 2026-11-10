@@ -22,7 +22,7 @@ text_nodes = NodeRegistry(category="text", tags=["acme"])
 @text_nodes.node("repeat", extra={"docs_url": "https://example.com/repeat"})
 def repeat(
     text: Annotated[str, Param(title="Text", widget=TextInput())],
-    times: Annotated[int, Param(title="Times", ge=1, le=10, widget=NumberInput(integer_only=True))] = 2,
+    times: Annotated[int, Param(title="Times", ge=1, le=10, widget=NumberInput())] = 2,
 ) -> str:
     """Repeats a text."""
     return text * times

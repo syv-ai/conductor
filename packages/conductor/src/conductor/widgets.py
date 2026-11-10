@@ -68,20 +68,18 @@ class Slider(Widget):
 
 
 class FileUpload(Widget):
-    """Files a person uploads. ``multiple`` makes a series of them."""
+    """Files a person uploads: one, or a series of them when the field is a ``Series``."""
 
     type: Literal["file-upload"] = "file-upload"
     accept: tuple[str, ...] | None = None
     max_size_mb: float | None = None
-    multiple: bool = False
 
 
 class NumberInput(Widget):
-    """A number typed in, optionally whole."""
+    """A number typed in: a whole one when the field is an ``int``."""
 
     type: Literal["number-input"] = "number-input"
     step: float | None = None
-    integer_only: bool = False
 
 
 class Switch(Widget):
