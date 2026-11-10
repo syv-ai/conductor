@@ -1549,3 +1549,42 @@ def test_a_node_filling_two_outputs_of_one_exclusive_group_fails_as_invalid_outp
     run = graph({"id": "b", "node": "both"}, registry=registry_of(both)).run(text="a")
 
     assert (run.status, run.cause.type, run.cause.loc, run.cause.ctx["name"]) == ("failed", "invalid_output", ("b",), "no")
+
+
+def test_the_row_ceiling_counts_a_typed_list_s_rows_under_every_row_it_goes_under_before_any_call():
+    calls: list[str] = []
+
+    @node("ask-each-counted")
+    def ask_each_counted(doc: str, question: str) -> str:
+        calls.append(question)
+        return question
+
+    loaded = graph({"id": "d", "node": "split"}, {"id": "q", "node": "ask-each-counted", "values": {"question": ["a", "b", "c"]}, "many": ["question"]},
+                   edges=(("d.result", "q.doc"),), registry=registry_of(split, ask_each_counted))
+
+    stopped = loaded.run(text="x,y,z", max_rows=4)
+
+    assert (stopped.status, stopped.cause.ctx["table"], stopped.cause.ctx["rows"]) == ("stopped", "q.question", 9) and calls == []
+    assert stopped.resume(max_rows=9).status == "complete" and len(calls) == 9
+
+
+def test_a_sibling_gather_says_it_gathers_under_the_row_the_two_share():
+    @dataclass(frozen=True)
+    class Parts:
+        invoices: Series[str]
+        keywords: Series[str]
+
+    @node("parts")
+    def parts(text: str) -> Parts:
+        return Parts([text], [text])
+
+    @node("beside")
+    def beside(invoice: str, keywords: Series[str]) -> str:
+        return invoice
+
+    loaded = graph({"id": "s", "node": "split"}, {"id": "p", "node": "parts"}, {"id": "b", "node": "beside"},
+                   edges=(("s.result", "p.text"), ("p.invoices", "b.invoice"), ("p.keywords", "b.keywords")), registry=registry_of(split, parts, beside))
+
+    assert {i["name"]: i["receives"] for i in loaded.describe()["nodes"]["b"]["inputs"]} == {
+        "invoice": "per row of p.invoices", "keywords": "whole column of p.keywords under each row of s.result",
+    }

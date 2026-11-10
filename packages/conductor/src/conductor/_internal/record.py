@@ -23,8 +23,9 @@ record is saved, so a bare node is ``{"id": "up", "node": "upper"}``.
 Edges are a set of ``[from, to]`` addresses, ``node.field`` or
 ``node.output.column`` for one column of a table, kept sorted, so two records
 that differ only in the order of their edges are equal and save alike.
-Several edges into one input gather in the order their source nodes appear
-in ``nodes``, then in the order the source node declares its outputs.
+Several edges into one input on rows of one table gather in that table's row
+order; on different tables, in the order their source nodes appear in
+``nodes``, then in the order the source node declares its outputs.
 
 ``registry.load`` reads a record into a ``Graph``; what the record says that
 can't be meant (a repeated edge, an edge naming a node the graph doesn't

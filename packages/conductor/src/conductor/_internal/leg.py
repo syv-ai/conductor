@@ -391,7 +391,7 @@ class Leg:
         self.recorded_since_walk += 1
         if unit.state == "done" and placed.makes:
             for output, level in placed.makes.items():
-                self.made[level[-1]] = self.made.get(level[-1], 0) + _length(unit.out[output])  # type: ignore[index]
+                self._made(level[-1], _length(unit.out[output]))  # type: ignore[index]
             if self._over_ceiling():
                 return
         if self.emit:
@@ -453,6 +453,12 @@ class Leg:
                     heapq.heappush(self.ready, (self.position[node_id], row))
         if self.gathers and not self.ready:
             self._wait()
+
+    def _made(self, table: str, rows: int) -> None:
+        """Count ``rows`` more of ``table``, and the rows each list typed in under them makes."""
+        self.made[table] = self.made.get(table, 0) + rows
+        for address in self.run.graph._typed_under.get(table, ()):
+            self._made(address, rows * len(self.run.graph._typed_lists[address]))
 
     def _over_ceiling(self) -> bool:
         limit = self.run.max_rows

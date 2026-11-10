@@ -199,6 +199,8 @@ class Graph:
         self._makers: dict[str, tuple[str | None, str]] = {}
         #: Each list typed into an input marked ``many``, by its address, which names the table of its items.
         self._typed_lists: dict[str, list[Any]] = {}
+        #: The typed lists whose items go under each row of a table, by that table (``""`` for the graph's own row).
+        self._typed_under: dict[str, list[str]] = {}
         self._graph_inputs: list[GraphInput] = []
         self._position = {r.id: n for n, (r, _) in enumerate(placed_records)}
         self._readers: dict[str, list[PlacedNode]] = {r.id: [] for r, _ in placed_records}
@@ -294,12 +296,16 @@ class Graph:
         }
 
     def _receives(self, placed: PlacedNode, name: str) -> str:
-        """How one input receives on each row its node runs on: ``one``, ``copied down from <table>``, ``per row of <table>`` or ``whole column of <table>``."""
+        """How one input receives on each row its node runs on: ``one``, ``copied down from <table>``, ``per row of <table>`` or ``whole column of <table>``,
+        with ``under each row of <table>`` for a sibling table gathered under the row the two share."""
         plan = placed.inputs[name]
         if not plan.sources:
             return "one"
         tables = list(dict.fromkeys(self.outward(s.level[-1], table=True) if s.level else _table(s.level) for s in plan.sources))
         if plan.spec.shape != "one":
+            beside = [s for s in plan.sources if s.anchor < len(placed.level) and s.anchor < len(s.level)]
+            if beside:  # a sibling table, gathered under the row the two share
+                return f"whole column of {', '.join(tables)} under each row of {self.outward(placed.level[beside[0].anchor - 1], table=True) if beside[0].anchor else 'the graph'}"
             return f"whole column of {', '.join(tables)}"
         level = plan.sources[0].level
         if len(level) == len(placed.level):
@@ -811,6 +817,7 @@ class Graph:
                 self._unrelated(placed, placed.level, level)
                 return False
         for _, plan in typed:  # the typed list's items are a table under each row the node would run on, and it runs over them
+            self._typed_under.setdefault(placed.level[-1] if placed.level else "", []).append(plan.sources[0].output)
             placed.level = (*placed.level, plan.sources[0].output)
             plan.sources = [dataclasses.replace(plan.sources[0], level=placed.level)]
         for plan in placed.inputs.values():

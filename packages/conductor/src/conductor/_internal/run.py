@@ -250,8 +250,8 @@ class Run:
         a row that receives what an earlier unit of its node received takes
         that unit's outcome, an answer or a question still waiting included, and
         the node is not called for it. Identical rows take the earlier ones in
-        row order, the first identical row the first earlier one, so no answer
-        moves to another person's row. Inputs are given as
+        row order, the first identical row the first earlier one; with one
+        identical row taken out, which earlier answer stays goes by that order. Inputs are given as
         ``graph.with_inputs`` takes them, and checked the same way.
         """
         given = {name: self.inputs[graph_input.key] for name, graph_input in self.graph.inputs.items() if graph_input.key in self.inputs}
@@ -450,12 +450,18 @@ class Run:
         )
 
     def _rows_made(self) -> dict[str, int]:
+        """How many rows each table has so far; a typed list's are its items times the rows they go under."""
         made: dict[str, int] = {}
         for table, (node_id, output) in self.graph._makers.items():
             if node_id is None:
-                made[table] = len(self._given(output) or [])
+                if output not in self.graph._typed_lists:
+                    made[table] = len(self._given(output) or [])
             else:
                 made[table] = sum(_length(u.out[output]) for u in self._units[node_id].values() if u.state == "done" and u.out)
+        for _ in self.graph._typed_lists:  # a typed list under another's rows counts once those are counted
+            for parent, typed in self.graph._typed_under.items():
+                for address in typed:
+                    made[address] = len(self.graph._typed_lists[address]) * (made.get(parent, 0) if parent else 1)
         return made
 
     def _rows(self, level: Level, row: Key) -> tuple[list[Key], bool]:

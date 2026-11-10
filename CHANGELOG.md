@@ -72,8 +72,8 @@ its stored graphs itself. What a 1.x user changes:
   "b.text"], ...]}`. A `NodeRecord` is `id`, `node` (the node it uses; was `type`), `version` (1 when
   left out), `values` (typed in, fixed), `defaults` (typed in, open to a caller), `many` and
   `display` (the host's own); empty fields are left out when saved. Edges are a set: several into one
-  input gather in the order their nodes appear in `nodes`, then the order a node declares its
-  outputs. An edge drawn twice, an edge naming a node the graph doesn't have and an input set two
+  input on rows of one table gather in its row order, else in the order their nodes appear in
+  `nodes`, then the order a node declares its outputs. An edge drawn twice, an edge naming a node the graph doesn't have and an input set two
   ways are each a problem. `make_graph(upper, exclaim, values={"exclaim.times": 2})` writes a record
   from Python: a chain with no `edges`, or exactly the `edges` given. YAML is gone with `pyyaml`.
   CEL guards on edges, shared references, compensation and `on_error` are gone.
