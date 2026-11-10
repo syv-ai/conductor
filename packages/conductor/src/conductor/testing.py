@@ -37,7 +37,7 @@ Every problem is a ``Problem``. Its ``loc`` is ``(node_id, version)``, except fo
 
 ``expected_failures`` maps ``"id:code"`` to why it is accepted; it lives in
 the test, not on the node, and a waiver for a check that passes is itself a problem.
-These codes are the kit's own, not in ``PROBLEM_CODES``: a developer reads
+These codes are ``check_registry``'s, not in ``PROBLEM_CODES``: a developer reads
 them in a test run, a host never meets them.
 """
 
@@ -58,7 +58,7 @@ from pydantic import ValidationError
 from conductor._internal.ask import Ask
 from conductor._internal.errors import InvalidCallError, Problem
 from conductor._internal.fields import FieldSpec, without_none
-from conductor._internal.graph import LOADING, Graph
+from conductor._internal.graph import load_graph
 from conductor._internal.node_definition import NodeDefinition
 from conductor._internal.record import GraphRecord, NodeRecord
 from conductor._internal.registry import NodeRegistry
@@ -176,7 +176,7 @@ def _run_problems(version: NodeDefinition[..., Any], registry: NodeRegistry, exa
     else:
         watched, changed = _watched(version)
         definitions = {version.id: watched}
-    graph = Graph(_placed(version, values), definitions, _door=LOADING)
+    graph = load_graph(_placed(version, values), definitions)
     if graph.problems:
         code = "hook_failed" if all(p.type in _HOOK_CODES for p in graph.problems) else "run_failed"
         return [_problem(code, version.id, version.version, "the example doesn't load: " + "; ".join(p.msg for p in graph.problems), **_causes(graph.problems))], False

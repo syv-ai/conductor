@@ -183,8 +183,28 @@ def test_a_node_record_without_the_node_it_uses_is_refused():
 
 
 def test_a_stored_graph_with_a_misspelled_key_is_refused_naming_it():
-    with pytest.raises(ValidationError, match="valuse"):
+    with pytest.raises(InvalidCallError) as refused:
         REGISTRY.load({"nodes": [{"id": "u", "node": "upper", "valuse": {"text": "x"}}]})
+    assert [(p.type, p.loc, p.ctx["error"]) for p in refused.value.errors()] == [("invalid_record", ("record", "nodes", 0, "valuse"), "extra_forbidden")]
+
+
+@pytest.mark.parametrize(("record", "loc", "error"), [
+    ('{"nodes": [', ("record",), "json_invalid"),
+    ({"nodes": [{"id": "u", "type": "upper"}]}, ("record", "nodes", 0, "node"), "missing"),
+    ({"nodes": [], "edges": [{"from": "a.result", "to": "b.text"}]}, ("record", "edges", 0), "tuple_type"),
+    ({"nodes": [], "edges": [["a", "b.text"]]}, ("record", "edges", 0, 0), "value_error"),
+])
+def test_what_is_not_a_record_is_refused_as_invalid_record_never_a_validation_error(record, loc, error):
+    with pytest.raises(InvalidCallError) as refused:
+        REGISTRY.load(record)
+    problems = refused.value.errors()
+    assert all(p.type == "invalid_record" for p in problems) and (problems[0].loc, problems[0].ctx["error"]) == (loc, error)
+    assert not isinstance(refused.value, ValidationError) and problems[0].msg.startswith("The record is not a graph record at")
+
+
+def test_a_half_finished_drawing_with_a_records_shape_loads_with_its_problems():
+    graph = REGISTRY.load({"nodes": [{"id": "u", "node": "upper"}, {"id": "x", "node": "nothing"}], "edges": [["u.result", "y.text"]]})
+    assert {p.type for p in graph.problems} == {"unknown_node", "edge_names_missing_node"}
 
 
 def test_a_records_nodes_are_a_tuple():
@@ -326,7 +346,7 @@ def test_an_unknown_node_is_one_problem_naming_the_nodes_there_are_and_adds_no_i
     graph = registry_of(upper, tail).load({"nodes": [{"id": "x", "node": "uper"}, {"id": "t", "node": "tail"}]})
     [problem] = graph.problems
     assert (problem.type, problem.loc) == ("unknown_node", ("x",))
-    assert problem.ctx == {"node": "uper", "choices": "tail, upper"}
+    assert problem.ctx == {"node": "uper", "choices": ["tail", "upper"]}
     assert list(graph.inputs) == ["text"] and graph.outputs == ["t.result"]
 
 
@@ -403,7 +423,7 @@ def test_a_bare_name_two_inputs_share_is_refused_naming_the_addresses():
     with pytest.raises(InvalidCallError) as refused:
         graph.with_inputs(text="x")
     not_offered = [p for p in refused.value.errors() if p.type == "not_offered"]
-    assert [p.ctx for p in not_offered] == [{"name": "text", "inputs": "a.text, b.text"}]
+    assert [p.ctx for p in not_offered] == [{"name": "text", "inputs": ["a.text", "b.text"]}]
 
 
 def test_with_inputs_refuses_every_fault_at_once_listing_what_it_offers():
@@ -413,7 +433,7 @@ def test_with_inputs_refuses_every_fault_at_once_listing_what_it_offers():
         graph.with_inputs(mode=5, text="a fixed input is not offered", typo="x")
     found = sorted((p.type, p.loc) for p in refused.value.errors())
     assert found == [("invalid_input", ("inputs", "mode")), ("not_offered", ("inputs", "text")), ("not_offered", ("inputs", "typo"))]
-    assert {p.ctx["inputs"] for p in refused.value.errors() if p.type == "not_offered"} == {"mode"}
+    assert [p.ctx["inputs"] for p in refused.value.errors() if p.type == "not_offered"] == [["mode"], ["mode"]]
 
 
 # -- embedded graphs -------------------------------------------------------------------------------
@@ -440,7 +460,7 @@ def test_a_value_typed_on_an_embedding_reaches_the_inner_input_it_offers():
 
 def test_an_unfed_embedding_keeps_its_inner_defaults_and_runs_once():
     graph = REGISTRY.load({"nodes": [{"id": "d", "node": "defaulted"}]})
-    assert graph.plan == {"d": "once"}
+    assert {k: v.msg for k, v in graph.plan.items()} == {"d": "once"}
     assert graph.run().outputs == {"d.result": "inside"}
 
 
@@ -466,7 +486,7 @@ def test_a_value_on_an_input_the_embedding_does_not_offer_is_an_unknown_input():
     fed_inside = REGISTRY.load({"nodes": [{"id": "e", "node": "enrich", "values": {"text": "a", "result": "b"}}]}).problems
     assert [(p.type, p.loc) for p in fed_inside] == [("unknown_input", ("e", "result"))]
     by_inner_address = REGISTRY.load({"nodes": [{"id": "e", "node": "enrich", "values": {"upper.text": "a"}}]}).problems
-    assert [(p.type, p.loc, p.ctx["inputs"]) for p in by_inner_address] == [("unknown_input", ("e", "upper.text"), "text")]
+    assert [(p.type, p.loc, p.ctx["inputs"]) for p in by_inner_address] == [("unknown_input", ("e", "upper.text"), ["text"])]
 
 
 def test_a_table_made_inside_an_embedding_offers_its_columns():

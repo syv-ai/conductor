@@ -80,14 +80,14 @@ drawing = """{
 graph = registry.load(drawing)
 print(list(graph.inputs))  # ['csv']
 print(graph.outputs)       # ['summary.result']
-print(graph.plan)          # {'read': 'once', 'approve': 'per row of read.result', 'summary': 'once'}
+print({node_id: runs.msg for node_id, runs in graph.plan.items()})  # {'read': 'once', 'approve': 'per row of read.result', 'summary': 'once'}
 ```
 
 Nobody declares what the graph takes or returns. Its inputs are the open inputs of its first nodes, and its outputs are the ones no node reads. `approve` takes one value and is fed a column, so it runs once per row.
 
 ## Show problems
 
-A half-finished drawing still loads. Everything wrong is a problem with a place, so an editor can mark it on the node:
+A half-finished drawing still loads. Everything wrong is a problem with a place, so an editor can mark it on the node. Only JSON that isn't a graph record at all, such as a misspelled key, raises `InvalidCallError`:
 
 ```python
 unfinished = registry.load("""{

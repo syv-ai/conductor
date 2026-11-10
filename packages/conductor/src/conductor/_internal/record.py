@@ -43,11 +43,13 @@ from pydantic import (
     AfterValidator,
     Field,
     SerializerFunctionWrapHandler,
+    ValidationError,
     field_validator,
     model_serializer,
 )
 
 from conductor._internal.conductor_model import ConductorModel
+from conductor._internal.errors import InvalidCallError, make_problem
 
 if TYPE_CHECKING:
     from conductor._internal.node_definition import NodeDefinition
@@ -120,12 +122,30 @@ class GraphRecord(ConductorModel):
 
 
 def as_record(record: GraphRecord | str | bytes | Mapping[str, Any]) -> GraphRecord:
-    """A record given as itself, as JSON text, or as a mapping read from JSON."""
+    """A record given as itself, as JSON text, or as a mapping read from JSON.
+
+    What doesn't have a record's shape (text that isn't JSON, a key a record
+    doesn't have, a field of the wrong type, an address that isn't one) is an
+    ``InvalidCallError`` of ``invalid_record`` problems, one per fault, each at
+    ``("record", *where)``. What has the shape and can't be meant is the
+    loaded graph's problem, never an exception.
+    """
     if isinstance(record, GraphRecord):
         return record
-    if isinstance(record, (str, bytes)):
-        return GraphRecord.model_validate_json(record)
-    return GraphRecord.model_validate(record)
+    try:
+        if isinstance(record, (str, bytes)):
+            return GraphRecord.model_validate_json(record)
+        return GraphRecord.model_validate(record)
+    except ValidationError as invalid:
+        raise InvalidCallError([
+            make_problem("invalid_record", "record", *error["loc"], at=".".join(map(str, error["loc"])) or "the record", reason=_said_of_shape(error), error=error["type"])
+            for error in invalid.errors(include_url=False, include_input=False)
+        ]) from None
+
+
+def _said_of_shape(error: Any) -> str:
+    """pydantic's sentence for a fault of shape; a validator's own sentence keeps only what it says after ``Value error,``."""
+    return str(error["msg"]).removeprefix("Value error, ")
 
 
 def make_graph(

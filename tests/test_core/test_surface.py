@@ -149,7 +149,7 @@ def test_a_problem_dumps_to_json_and_reads_back():
 
     dumped = json.loads(told.model_dump_json())
 
-    assert dumped == {"type": "unknown_input", "loc": ["s", "facter"], "msg": told.msg, "ctx": {"inputs": "value, factor"}}
+    assert dumped == {"type": "unknown_input", "loc": ["s", "facter"], "msg": told.msg, "ctx": {"inputs": ["value", "factor"]}}
     assert Problem.model_validate(dumped) == told
 
 
@@ -184,7 +184,7 @@ def test_an_edge_to_a_missing_output_says_what_the_node_has():
     })
 
     (found,) = graph.problems
-    assert found.type == "unknown_output" and found.ctx["outputs"] == "a.result" and "it gives a.result" in found.msg
+    assert found.type == "unknown_output" and found.ctx["outputs"] == ["a.result"] and "it gives a.result" in found.msg
 
 
 def test_an_unknown_input_names_the_inputs_the_node_has():
@@ -527,3 +527,10 @@ def test_a_host_word_is_found_in_any_spelling(line):
 )
 def test_english_and_other_libraries_words_are_not_a_host_word(line):
     assert _host_words_in(line) == []
+
+
+def test_a_problems_ctx_holds_lists_as_lists_and_its_message_writes_them():
+    from conductor import NodeRegistry
+
+    empty = NodeRegistry().load({"nodes": [{"id": "x", "node": "read"}]}).problems[0]
+    assert (empty.ctx["choices"], empty.msg) == ([], "There is no node 'read'; the nodes are none.")

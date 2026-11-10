@@ -488,7 +488,7 @@ def test_two_series_on_opposite_branches_refused():
     assert [p.type for p in graph.problems] == ["series_inputs_never_share_a_row"], graph.problems
     record["nodes"][3]["node"] = "pair-optional"
     graph = reg6.load(record)
-    assert not graph.problems and graph.decisions == {"d": {"answer": ["yes", "no"]}}
+    assert not graph.problems and graph.exclusive_groups == {"d": {"answer": ["yes", "no"]}}
     assert graph.run(text="yes,no").outputs == {"p.result": "['YES', None]|[None, 'no']"}
     try:
         @node("bad")

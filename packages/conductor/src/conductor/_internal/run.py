@@ -293,7 +293,7 @@ class Run:
         second the second. Inputs are given as ``graph.with_inputs`` takes
         them, and checked the same way.
         """
-        given = {name: self.inputs[graph_input.key] for name, graph_input in self.graph.inputs.items() if graph_input.key in self.inputs}
+        given = {name: self.inputs[graph_input._key] for name, graph_input in self.graph.inputs.items() if graph_input._key in self.inputs}
         fresh = self.graph.with_inputs({**given, **(inputs or {}), **by_name}, max_rows=max_rows if max_rows is not None else self.max_rows)
         fresh._earlier = self._carried()
         return fresh
@@ -308,7 +308,7 @@ class Run:
         """
         unknown = [n for n in node_ids if not self.graph._placed_as(n)]
         if unknown:
-            raise InvalidCallError([make_problem("node_not_in_graph", n, node_id=n, nodes=", ".join(self.graph._readable) or "none") for n in unknown])
+            raise InvalidCallError([make_problem("node_not_in_graph", n, node_id=n, nodes=list(self.graph._readable)) for n in unknown])
         fresh = self.with_inputs()
         for n in node_ids:
             for placed_id in self.graph._placed_as(n):
@@ -1077,24 +1077,24 @@ _ANY_COLUMN = carried_list(Any)
 
 
 def _graph_input(graph: Graph, address: str) -> Any:
-    return next(p for p in graph.inputs.values() if p.key == address)
+    return next(p for p in graph.inputs.values() if p._key == address)
 
 
 def _dump_input(graph: Graph, address: str, value: Any) -> Any:
     """A caller's input as JSON: a table as a saved table output is, anything else by its field."""
     graph_input = _graph_input(graph, address)
-    if graph_input.spec.shape == "table" and not graph_input.many:
-        return None if value is None else _dump_frame(graph_input.spec, Frame(value.height, value.to_dict(as_series=False)), address)
+    if graph_input._spec.shape == "table" and not graph_input.many:
+        return None if value is None else _dump_frame(graph_input._spec, Frame(value.height, value.to_dict(as_series=False)), address)
     if graph_input.many:
-        return carried_list(graph_input.spec.type).dump_python(value, mode="json")
-    return carried_list(graph_input.spec.type).dump_python([value], mode="json")[0]  # written as a list is, a float that isn't finite kept
+        return carried_list(graph_input._spec.type).dump_python(value, mode="json")
+    return carried_list(graph_input._spec.type).dump_python([value], mode="json")[0]  # written as a list is, a float that isn't finite kept
 
 
 def _load_input(graph: Graph, address: str, saved: Any) -> Any:
     graph_input = _graph_input(graph, address)
-    if graph_input.spec.shape == "table" and not graph_input.many:
-        return None if saved is None else _load_frame(graph_input.spec, saved, address).frame()
-    adapter = carried_list(graph_input.spec.type) if graph_input.many else graph_input.spec.adapter
+    if graph_input._spec.shape == "table" and not graph_input.many:
+        return None if saved is None else _load_frame(graph_input._spec, saved, address).frame()
+    adapter = carried_list(graph_input._spec.type) if graph_input.many else graph_input._spec.adapter
     return adapter.validate_python(saved)
 
 

@@ -24,7 +24,7 @@ from conductor._internal.errors import (
     Problem,
 )
 from conductor._internal.fields import SKIPPED, FromRun, Param, Series
-from conductor._internal.graph import Graph
+from conductor._internal.graph import Graph, GraphInput, Receives, RunsOn
 from conductor._internal.node_definition import Deprecation, NodeDefinition, Policy, Upgrade, node
 from conductor._internal.record import GraphRecord, NodeRecord, make_graph
 from conductor._internal.registry import NodeRegistry
@@ -45,6 +45,7 @@ __all__ = [
     "ExternalFailure",
     "FromRun",
     "Graph",
+    "GraphInput",
     "GraphRecord",
     "InvalidCallError",
     "NodeDeclarationError",
@@ -55,7 +56,9 @@ __all__ = [
     "Param",
     "Policy",
     "Problem",
+    "Receives",
     "Run",
+    "RunsOn",
     "Series",
     "Table",
     "Upgrade",

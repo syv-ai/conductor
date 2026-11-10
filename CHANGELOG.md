@@ -50,7 +50,7 @@ has every rule. What a 1.x user changes:
   shared references, compensation and `on_error` are gone, and so is `extension_resolver`: a stored
   graph is a node, `node("id")(record)`.
 - **Loading.** `compile(...)` is `registry.load(record)`, which never raises for a fault in the
-  graph: read `graph.problems`. An open input of a first node is an input of the graph.
+  graph: read `graph.problems`. A record of the wrong shape raises `InvalidCallError` (`invalid_record`). An open input of a first node is an input of the graph.
 - **Running.** `execute`, `execute_sync` and `collect` are `graph.run(**inputs)`, which returns a
   `Run`. A pause, a failure or a timeout is `run.status`. A run is JSON: `run.to_json()` and
   `graph.load_run(saved)`. `run.again(**changed)` reruns only the rows whose inputs changed, and

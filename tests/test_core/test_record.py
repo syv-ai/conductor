@@ -449,7 +449,7 @@ def test_inner_fields_sharing_a_name_are_offered_by_the_inner_node_as_its_record
 def test_a_graph_embedded_per_outer_row_folds_its_inner_reductions_per_outer_row():
     graph = EMBEDDED.load({"nodes": [{"id": "s", "node": "split"}, {"id": "g", "node": "gather"}], "edges": [["s.result", "g.text"]]})
 
-    assert graph.plan == {"s": "once", "g": "per row of s.result"}
+    assert {k: v.msg for k, v in graph.plan.items()} == {"s": "once", "g": "per row of s.result"}
     assert graph.run(text="a,b,c").outputs == {"g.result": ["A", "B", "C"]}
 
 
@@ -524,7 +524,7 @@ def test_a_table_input_gets_its_declared_columns_and_a_source_lacking_one_is_ref
     short = registry.load({"nodes": [{"id": "n", "node": "names"}, {"id": "e", "node": "emails"}], "edges": [["n.result", "e.table"]]})
 
     assert narrowed.run().outputs == {"n.result": "name"}
-    assert [(p.type, p.loc) for p in short.problems] == [("type_mismatch", ("e", "table"))]
+    assert [(p.type, p.loc) for p in short.problems] == [("columns_missing", ("e", "table"))]
 
 
 def test_a_node_gathering_two_series_of_different_depths_runs_above_the_shallower():
@@ -541,7 +541,7 @@ def test_a_node_gathering_two_series_of_different_depths_runs_above_the_shallowe
         "edges": [["p.result", "s.text"], ["p.result", "x.a"], ["s.result", "x.b"]],
     })
 
-    assert graph.plan["x"] == "once" and graph.run(text="a,b|c").outputs == {"x.result": "2/3"}
+    assert graph.plan["x"].msg == "once" and graph.run(text="a,b|c").outputs == {"x.result": "2/3"}
 
 
 def test_an_authored_id_with_a_slash_beside_an_embedding_is_its_own_problem_and_an_edge_into_an_embedding_says_its_outer_address():

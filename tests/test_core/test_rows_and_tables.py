@@ -351,7 +351,7 @@ def test_each_series_output_makes_rows_on_an_index_of_its_own_and_of_its_own_len
 
     run = ran({"id": "u", "node": "uneven"}, {"id": "ua", "node": "upper"}, {"id": "ub", "node": "upper"},
               edges=(("u.a", "ua.text"), ("u.b", "ub.text")), registry=registry_of(uneven, upper), text="t")
-    assert run.graph.plan == {"u": "once", "ua": "per row of u.a", "ub": "per row of u.b"}
+    assert {k: v.msg for k, v in run.graph.plan.items()} == {"u": "once", "ua": "per row of u.a", "ub": "per row of u.b"}
     assert (run.results["u"]["a"], run.results["u"]["b"]) == (["x"], ["y", "z"])
     assert (run.results["ua"]["result"], run.results["ub"]["result"]) == (["X"], ["Y", "Z"])
 
@@ -377,20 +377,20 @@ def test_a_node_receives_a_plain_list_and_may_return_any_sequence():
 def test_a_scalar_beside_a_series_is_copied_down_every_row():
     run = ran({"id": "docs", "node": "split"}, {"id": "prefix", "node": "upper"}, {"id": "p", "node": "pair"},
               edges=(("prefix.result", "p.a"), ("docs.result", "p.b")), **{"docs.text": "a,b", "prefix.text": "p"})
-    assert run.graph.plan["p"] == "per row of docs.result"
+    assert run.graph.plan["p"].msg == "per row of docs.result"
     assert run.results["p"]["result"] == ["P:a", "P:b"]
 
 
 def test_a_parent_value_is_copied_down_onto_its_child_rows():
     run = ran({"id": "docs", "node": "split", "values": {"sep": "|"}}, {"id": "lines", "node": "split", "values": {"sep": "/"}}, {"id": "p", "node": "pair"},
               edges=(("docs.result", "lines.text"), ("lines.result", "p.a"), ("docs.result", "p.b")), text="a/b|c")
-    assert run.graph.plan["p"] == "per row of lines.result"
+    assert run.graph.plan["p"].msg == "per row of lines.result"
     assert run.results["p"]["result"] == ["a:a/b", "b:a/b", "c:c"]
 
 
 def test_one_once_value_into_a_series_input_is_a_list_of_one():
     run = ran({"id": "a", "node": "upper"}, {"id": "j", "node": "join"}, edges=(("a.result", "j.texts"),), text="a")
-    assert run.graph.plan["j"] == "once" and run.results["j"]["result"] == "A"
+    assert run.graph.plan["j"].msg == "once" and run.results["j"]["result"] == "A"
 
 
 def test_a_series_input_with_a_typed_in_list_or_its_default_gets_it_whole_once():
@@ -400,7 +400,7 @@ def test_a_series_input_with_a_typed_in_list_or_its_default_gets_it_whole_once()
 
     reg = registry_of(join, join_or_nothing)
     run = ran({"id": "typed", "node": "join", "values": {"texts": ["a", "b"]}}, {"id": "absent", "node": "join-or-nothing"}, registry=reg)
-    assert run.graph.plan == {"typed": "once", "absent": "once"}
+    assert {k: v.msg for k, v in run.graph.plan.items()} == {"typed": "once", "absent": "once"}
     assert run.results == {"typed": {"result": "a+b"}, "absent": {"result": "nothing"}}
 
 
@@ -421,14 +421,14 @@ def test_a_one_value_input_on_a_node_and_a_deep_column_run_the_node_per_row_of_t
 
     run = ran(*THREE_LEVELS, {"id": "d", "node": "deep"}, edges=(*THREE_EDGES, ("docs.result", "d.doc"), ("lines.result", "d.lines")),
               registry=registry_of(split, deep), text="a,b;c|d")
-    assert run.graph.plan["d"] == "per row of docs.result"
+    assert run.graph.plan["d"].msg == "per row of docs.result"
     assert run.results["d"]["result"] == ["a,b;c:3", "d:1"]
 
 
 def test_a_value_on_a_document_with_a_series_of_lines_gets_every_line_of_the_document_flat():
     run = ran(*THREE_LEVELS, {"id": "n", "node": "labelled"}, edges=(*THREE_EDGES, ("docs.result", "n.label"), ("lines.result", "n.texts")),
               registry=DEEP, text="a,b;c|d")
-    assert run.graph.plan["n"] == "per row of docs.result"
+    assert run.graph.plan["n"].msg == "per row of docs.result"
     assert run.results["n"]["result"] == ["a,b;c=a,b,c", "d=d"]
 
 
@@ -516,7 +516,7 @@ def test_a_reduction_of_a_sibling_table_lands_beside_each_row_of_the_other_throu
 
     assert run.results["b"]["result"] == ["i1[k1/k2]", "i2[k1/k2]", "i3[k3]"]
     assert through_json(run).results == run.results
-    assert graph(*nodes, edges=edges, registry=reg).plan["b"] == "per row of p.invoices"
+    assert graph(*nodes, edges=edges, registry=reg).plan["b"].msg == "per row of p.invoices"
 
 
 # -- empty and skipped rows --------------------------------------------------------------------
@@ -581,7 +581,7 @@ def test_a_skip_on_a_document_reaches_a_reader_on_its_lines_and_the_other_docume
     run = ran({"id": "d", "node": "split", "values": {"sep": "|"}}, {"id": "g", "node": "decide"}, {"id": "l", "node": "split"},
               {"id": "t", "node": "pair"}, {"id": "u", "node": "upper"},
               edges=(("d.result", "g.text"), ("d.result", "l.text"), ("l.result", "t.a"), ("g.yes", "t.b"), ("t.result", "u.text")), text="a,b|c,no")
-    assert run.graph.plan["u"] == "per row of l.result"
+    assert run.graph.plan["u"].msg == "per row of l.result"
     assert run.results["u"]["result"] == ["A:A,B", "B:A,B", None, None]
 
 
@@ -665,7 +665,7 @@ def test_a_per_row_node_on_a_column_whose_input_says_none_is_called_with_the_bla
 def test_invoices_per_document_get_their_check_and_a_skipped_check_is_a_gap_on_its_own_row():
     run = ran(DOCS, READ, {"id": "check", "node": "check"}, {"id": "total", "node": "total"},
               edges=(READ_EDGE, ("read.result.vendor", "check.vendor"), ("read.result.amount", "total.amounts")), text="acme:10,unknown:5|beta:7")
-    assert run.graph.plan == {"docs": "once", "read": "per row of docs.result", "check": "per row of read.result", "total": "per row of docs.result"}
+    assert {k: v.msg for k, v in run.graph.plan.items()} == {"docs": "once", "read": "per row of docs.result", "check": "per row of read.result", "total": "per row of docs.result"}
     assert run.results["check"]["result"] == ["acme ok", None, "beta ok"]
     assert run.results["total"]["result"] == [15.0, 7.0]
 
@@ -678,7 +678,7 @@ def test_a_document_with_no_invoices_totals_nothing():
 def test_a_parent_value_is_copied_down_onto_each_row_of_the_table_under_it():
     run = ran(DOCS, READ, {"id": "x", "node": "show"}, edges=(READ_EDGE, ("read.result.vendor", "x.table"), ("docs.result", "x.table")),
               text="acme:10,beta:5|gamma:7")
-    assert run.graph.plan["x"] == "per row of docs.result"  # a column into a table input gathers the rows under the row above it
+    assert run.graph.plan["x"].msg == "per row of docs.result"  # a column into a table input gathers the rows under the row above it
     assert [s.select("vendor", "result").to_dicts() for s in sheet(run)] == [
         [{"vendor": "acme", "result": "acme:10,beta:5"}, {"vendor": "beta", "result": "acme:10,beta:5"}], [{"vendor": "gamma", "result": "gamma:7"}],
     ]
@@ -687,7 +687,7 @@ def test_a_parent_value_is_copied_down_onto_each_row_of_the_table_under_it():
 def test_a_table_input_on_a_node_running_per_document_gets_that_documents_rows():
     run = ran(DOCS, READ, {"id": "check", "node": "check"}, {"id": "x", "node": "show"},
               edges=(READ_EDGE, ("read.result.vendor", "check.vendor"), ("read.result", "x.table"), ("check.result", "x.table")), text="acme:10,beta:5|gamma:7")
-    assert run.graph.plan["x"] == "per row of docs.result"
+    assert run.graph.plan["x"].msg == "per row of docs.result"
     assert [s.to_dicts() for s in sheet(run)] == [
         [{"vendor": "acme", "amount": 10.0, "result": "acme ok"}, {"vendor": "beta", "amount": 5.0, "result": "beta ok"}],
         [{"vendor": "gamma", "amount": 7.0, "result": "gamma ok"}],
@@ -697,7 +697,7 @@ def test_a_table_input_on_a_node_running_per_document_gets_that_documents_rows()
 def test_a_parent_column_beside_a_table_made_per_row_of_it_is_copied_down_per_parent():
     run = ran(DOCS, READ, {"id": "j", "node": "upper"}, {"id": "x", "node": "show"},
               edges=(READ_EDGE, ("docs.result", "j.text"), ("j.result", "x.table"), ("read.result", "x.table")), text="acme:10,beta:5|gamma:7")
-    assert run.graph.plan["x"] == "per row of docs.result"
+    assert run.graph.plan["x"].msg == "per row of docs.result"
     assert [s.to_dicts() for s in sheet(run)] == [
         [{"result": "ACME:10,BETA:5", "vendor": "acme", "amount": 10.0}, {"result": "ACME:10,BETA:5", "vendor": "beta", "amount": 5.0}],
         [{"result": "GAMMA:7", "vendor": "gamma", "amount": 7.0}],
@@ -715,7 +715,7 @@ def test_wiring_the_parent_as_well_adds_no_row():
 def test_a_merge_three_levels_deep_copies_every_level_down_and_a_paragraph_with_no_lines_has_no_row():
     run = ran(*THREE_LEVELS, {"id": "x", "node": "show"},
               edges=(*THREE_EDGES, ("docs.result", "x.table"), ("paras.result", "x.table"), ("lines.result", "x.table")), registry=DEEP, text="a,b;;c|d")
-    assert run.graph.plan["x"] == "per row of paras.result"
+    assert run.graph.plan["x"].msg == "per row of paras.result"
     assert {tuple(s.columns) for s in sheet(run)} == {("result", "result_paras", "result_lines")}
     assert [s.rows() for s in sheet(run)] == [[("a,b;;c", "a,b", "a"), ("a,b;;c", "a,b", "b")], [], [("a,b;;c", "c", "c")], [("d", "d", "d")]]
 
@@ -746,7 +746,7 @@ def test_a_table_a_node_made_from_another_table_is_unrelated_to_a_third():
 def test_a_table_made_per_document_offers_its_columns_on_rows_under_each_document():
     loaded = graph(DOCS, READ, {"id": "check", "node": "check"}, edges=(READ_EDGE, ("read.result.vendor", "check.vendor")))
     assert loaded.problems == []
-    assert loaded.plan == {"docs": "once", "read": "per row of docs.result", "check": "per row of read.result"}
+    assert {k: v.msg for k, v in loaded.plan.items()} == {"docs": "once", "read": "per row of docs.result", "check": "per row of read.result"}
     (result,) = loaded.describe()["nodes"]["read"]["outputs"]
     assert result["shape"] == "table" and result["columns"]["amount"] == {"type": "number"}
 
@@ -798,7 +798,7 @@ def test_a_table_made_inside_per_outer_row_is_a_child_of_that_row_fed_or_not():
     fed = embedded("splitter", {"id": "lines", "node": "split", "values": {"sep": "/"}}, {"id": "join", "node": "join"}, edges=(("lines.result", "join.texts"),))
     run = ran({"id": "docs", "node": "split"}, {"id": "emb", "node": "splitter"}, edges=(("docs.result", "emb.text"),),
               registry=registry_of(split, join, fed), text="a/b,c")
-    assert run.graph.plan["emb"] == "per row of docs.result"
+    assert run.graph.plan["emb"].msg == "per row of docs.result"
     assert run.results["emb"]["result"] == ["a+b", "c"]
 
     unfed = embedded("splitter-unfed", {"id": "entered", "node": "upper"}, {"id": "lines", "node": "split", "values": {"text": "x/y", "sep": "/"}},
@@ -842,7 +842,7 @@ def test_inputs_from_a_table_and_its_child_table_run_the_inner_nodes_on_the_deep
     run = ran({"id": "docs", "node": "split", "values": {"sep": "|"}}, {"id": "lines", "node": "split"}, {"id": "emb", "node": "pair-up"},
               edges=(("docs.result", "lines.text"), ("docs.result", "emb.word"), ("lines.result", "emb.text")),
               registry=registry_of(split, upper, pair, shout, inner), text="a,b|c")
-    assert run.graph.plan["emb"] == "per row of lines.result"
+    assert run.graph.plan["emb"].msg == "per row of lines.result"
     assert run.results["emb"]["result"] == ["A,B:A", "A,B:B", "C:C"]
 
 
@@ -850,7 +850,7 @@ def test_a_list_into_an_embedded_series_input_is_one_value_and_the_graph_runs_on
     inner = embedded("joiner", {"id": "join", "node": "join"})
     run = ran({"id": "docs", "node": "split"}, {"id": "emb", "node": "joiner"}, edges=(("docs.result", "emb.texts"),),
               registry=registry_of(split, join, inner), text="a,b")
-    assert run.graph.plan["emb"] == "once" and run.results["emb"]["result"] == "a+b"
+    assert run.graph.plan["emb"].msg == "once" and run.results["emb"]["result"] == "a+b"
 
 
 def test_two_unrelated_tables_into_one_embedding_are_refused_once_with_the_authors_addresses():
@@ -907,7 +907,7 @@ def test_a_gather_inside_a_per_row_graph_reads_only_its_own_rows_from_several_so
                      edges=(("a.result", "j.texts"), ("o.result", "j.texts")))
     run = ran({"id": "s", "node": "split"}, {"id": "e", "node": "gathers"}, edges=(("s.result", "e.text"), ("s.result", "e.word")),
               registry=registry_of(split, shout, join, inner), text="a;b,c")
-    assert run.graph.plan["e"] == "per row of s.result"
+    assert run.graph.plan["e"].msg == "per row of s.result"
     assert run.results["e"]["result"] == ["a+b+A;B", "c+C"]
 
 
@@ -1036,7 +1036,7 @@ def test_skipped_inside_a_returned_list_leaves_gaps_on_those_rows_through_json()
 def test_two_series_at_different_depths_are_both_read_per_row_of_the_shallowest_level_above_them():
     run = ran(*THREE_LEVELS, {"id": "n", "node": "two-columns"}, edges=(*THREE_EDGES, ("paras.result", "n.a"), ("lines.result", "n.b")),
               registry=DEEP, text="a,b;c|d")
-    assert run.graph.plan["n"] == "per row of docs.result"
+    assert run.graph.plan["n"].msg == "per row of docs.result"
     assert run.results["n"]["result"] == ["a,b,c+a,b,c", "d+d"]
 
 
@@ -1084,7 +1084,7 @@ def test_a_declared_table_input_missing_a_column_is_refused_when_checked():
 
 def test_a_typed_in_list_of_records_is_one_table_not_many():
     run = ran({"id": "x", "node": "show", "values": {"table": [{"a": "1"}, {"a": "2"}]}}, registry=TABLES)
-    assert run.graph.plan["x"] == "once"
+    assert run.graph.plan["x"].msg == "once"
     assert isinstance(sheet(run), pl.DataFrame) and sheet(run).to_dicts() == [{"a": "1"}, {"a": "2"}]
 
 
@@ -1095,7 +1095,7 @@ def test_an_inner_reduction_over_the_entering_rows_runs_once_per_outer_row():
     inner = embedded("inner", {"id": "holder", "node": "upper"}, {"id": "gather", "node": "join"}, edges=(("holder.result", "gather.texts"),))
     run = ran({"id": "docs", "node": "split"}, {"id": "emb", "node": "inner"}, {"id": "after", "node": "join"},
               edges=(("docs.result", "emb.text"), ("emb.result", "after.texts")), registry=registry_of(split, upper, join, inner), text="a,b,c")
-    assert run.graph.plan["emb"] == "per row of docs.result"
+    assert run.graph.plan["emb"].msg == "per row of docs.result"
     assert run.results["emb"]["result"] == ["A", "B", "C"]  # a gather of one per row, never all three once
     assert run.results["after"]["result"] == "A+B+C"
 
@@ -1139,7 +1139,7 @@ def test_a_skip_above_an_empty_group_hides_what_the_reduction_returned():
               {"id": "t", "node": "pair"}, {"id": "m", "node": "split"}, {"id": "x", "node": "pair"}, {"id": "j", "node": "join"},
               edges=(("d.result", "g.text"), ("d.result", "l.text"), ("l.result", "t.a"), ("g.yes", "t.b"), ("l.result", "m.text"),
                      ("t.result", "x.a"), ("m.result", "x.b"), ("x.result", "j.texts")), text="p,no")
-    assert run.graph.plan["j"] == "per row of l.result"
+    assert run.graph.plan["j"].msg == "per row of l.result"
     assert run.results["j"]["result"] == [None, None]
 
 
@@ -1153,7 +1153,7 @@ def test_two_edges_into_one_plain_input_that_can_both_hold_a_value_are_a_problem
     loaded = graph({"id": "s", "node": "split"}, {"id": "a", "node": "upper"}, {"id": "b", "node": "upper"}, {"id": "m", "node": "upper"},
                    edges=(("s.result", "a.text"), ("s.result", "b.text"), ("a.result", "m.text"), ("b.result", "m.text")))
     (problem,) = loaded.problems
-    assert (problem.type, problem.loc, problem.ctx) == ("several_edges_into_one_value", ("m", "text"), {"sources": "a.result, b.result"})
+    assert (problem.type, problem.loc, problem.ctx) == ("several_edges_into_one_value", ("m", "text"), {"sources": ["a.result", "b.result"]})
 
 
 def test_two_branches_wired_into_one_plain_input_merge_back_onto_the_rows_and_the_chain_stays_on_them():
@@ -1161,7 +1161,7 @@ def test_two_branches_wired_into_one_plain_input_merge_back_onto_the_rows_and_th
               edges=(("s.result", "d.text"), ("d.yes", "u.text"), ("d.no", "u.text"), ("u.result", "after.text")), text="ok,no,fine")
 
     assert run.results["u"]["result"] == ["OK", "NO", "FINE"]
-    assert run.graph.plan["after"] == "per row of s.result"
+    assert run.graph.plan["after"].msg == "per row of s.result"
 
 
 def test_tables_below_two_branches_merge_back_too():
@@ -1288,7 +1288,7 @@ def test_a_list_typed_into_a_node_that_runs_once_is_a_table_of_its_own_and_the_n
     run = ran({"id": "u", "node": "upper", "values": {"text": ["x", "y"]}, "many": ["text"]}, {"id": "j", "node": "join"},
               edges=(("u.result", "j.texts"),), registry=TYPED)
 
-    assert run.graph.plan == {"u": "per row of u.text", "j": "once"}
+    assert {k: v.msg for k, v in run.graph.plan.items()} == {"u": "per row of u.text", "j": "once"}
     assert run.results == {"u": {"result": ["X", "Y"]}, "j": {"result": "X+Y"}}
     assert list(run.graph.inputs) == []
 
@@ -1299,7 +1299,7 @@ def test_flow_8a_questions_typed_into_a_node_per_document_are_a_table_under_each
                    edges=(("d.result", "q.doc"),), registry=TYPED)
     run = loaded.run(text="x,y")
 
-    assert loaded.plan["q"] == "per row of q.question"
+    assert loaded.plan["q"].msg == "per row of q.question"
     assert [w.prompt for w in run.waiting] == ["x: a", "x: b", "x: c", "y: a", "y: b", "y: c"]
     assert [w.row for w in run.waiting] == [(0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2)]
     saved = loaded.load_run(run.to_json())
@@ -1440,11 +1440,11 @@ def test_events_waiting_ids_and_failures_name_an_embedding_never_its_inner_nodes
     assert (failed.cause.type, failed.cause.loc) == ("execution_failed", ("b",))
 
 
-def test_decisions_of_an_embedding_name_the_outputs_it_offers():
+def test_exclusive_groups_of_an_embedding_name_the_outputs_it_offers():
     inner = embedded("decider", {"id": "d", "node": "decide"})
     loaded = graph({"id": "e", "node": "decider"}, registry=registry_of(decide, inner))
 
-    assert loaded.decisions == {"e": {"answer": ["yes", "no"]}}
+    assert loaded.exclusive_groups == {"e": {"answer": ["yes", "no"]}}
 
 
 def test_an_embedding_fed_partly_from_outside_still_offers_its_other_inputs():
@@ -1556,8 +1556,11 @@ def test_each_input_in_describe_says_how_it_receives_on_each_row_its_node_runs_o
     nodes = loaded.describe()["nodes"]
 
     def receives(node_id: str) -> dict[str, str]:
-        return {i["name"]: i["receives"] for i in nodes[node_id]["inputs"]}
+        return {i["name"]: i["receives"]["msg"] for i in nodes[node_id]["inputs"]}
 
+    assert nodes["k"]["inputs"][0]["receives"] == {"mode": "copied_down", "tables": [None], "under": None, "msg": "copied down from the graph's own row"}
+    assert nodes["j"]["runs"] == {"mode": "once", "table": None, "msg": "once"}
+    assert loaded.plan["u"].mode == "per_row" and loaded.plan["u"].table == "s.result"
     assert receives("u") == {"text": "per row of s.result"}
     assert receives("j") == {"texts": "whole column of s.result"}
     assert receives("p") == {"a": "per row of s.result", "b": "one"}
@@ -1620,8 +1623,11 @@ def test_a_sibling_gather_says_it_gathers_under_the_row_the_two_share():
     loaded = graph({"id": "s", "node": "split"}, {"id": "p", "node": "parts"}, {"id": "b", "node": "beside"},
                    edges=(("s.result", "p.text"), ("p.invoices", "b.invoice"), ("p.keywords", "b.keywords")), registry=registry_of(split, parts, beside))
 
-    assert {i["name"]: i["receives"] for i in loaded.describe()["nodes"]["b"]["inputs"]} == {
+    assert {i["name"]: i["receives"]["msg"] for i in loaded.describe()["nodes"]["b"]["inputs"]} == {
         "invoice": "per row of p.invoices", "keywords": "whole column of p.keywords under each row of s.result",
+    }
+    assert loaded.describe()["nodes"]["b"]["inputs"][1]["receives"] == {
+        "mode": "whole_column", "tables": ["p.keywords"], "under": "s.result", "msg": "whole column of p.keywords under each row of s.result",
     }
 
 
@@ -1662,3 +1668,4 @@ def test_a_gather_over_rows_a_blank_kept_from_being_made_is_not_called_and_is_no
     assert run.results["w"]["result"] == [1, None, 1, 1]
     assert run.results["t"]["result"] == 3
     assert {(n["node_id"], n["row"], n["input"]) for n in run.not_called} >= {("c", (1,), "items"), ("w", (1,), "table")}
+

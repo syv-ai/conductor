@@ -128,7 +128,7 @@ def test_rows_tree_and_copy_down():
                         {"id": "up", "node": "upper"}, {"id": "per_doc", "node": "join"}, {"id": "all", "node": "join"}],
               "edges": [["docs.result", "lines.text"], ["lines.result", "up.text"], ["up.result", "per_doc.texts"], ["lines.result", "all.texts"]]}
     graph = registry.load(record)
-    assert graph.plan == {"docs": "once", "lines": "per row of docs.result", "up": "per row of lines.result", "per_doc": "per row of docs.result", "all": "per row of docs.result"}
+    assert {k: v.msg for k, v in graph.plan.items()} == {"docs": "once", "lines": "per row of docs.result", "up": "per row of lines.result", "per_doc": "per row of docs.result", "all": "per row of docs.result"}
     run = graph.run(text="a,b;c;")
     assert run.results["per_doc"]["result"] == ["A+B", "C", ""], run.results["per_doc"]
     assert run.results["all"]["result"] == ["a+b", "c", ""]  # a Series runs one level above its column
@@ -248,7 +248,7 @@ def test_embedded_graph_runs_per_row():
     reg = registry_of(split, upper, tail, join, enrich)
     graph = reg.load({"nodes": [{"id": "s", "node": "split"}, {"id": "e", "node": "enrich"}, {"id": "j", "node": "join"}],
                       "edges": [["s.result", "e.text"], ["e.result", "j.texts"]]})
-    assert graph.plan["e"] == "per row of s.result" and "e/upper" not in graph.plan
+    assert graph.plan["e"].msg == "per row of s.result" and "e/upper" not in graph.plan
     assert graph.run(text="a,b").outputs == {"j.result": "A.+B."}
 
 

@@ -46,7 +46,7 @@ run = loaded.run(text="red,green")
 assert run.outputs == {"joined.result": "RED + GREEN"}
 results = run.results                                  # {node_id: {output: value}}; a node run per row gives a list
 assert results["loud"]["result"] == ["RED", "GREEN"]   # ran once per word
-assert loaded.plan["joined"] == "once"                 # parts is Series[str]: one call
+assert loaded.plan["joined"].mode == "once"            # parts is Series[str]: one call
 ```
 
 The same record as JSON is `{"nodes": [{"id": "words", "node": "text-split"}, ...], "edges": [["words.result", "loud.text"], ...]}`, what an editor writes and a host stores. From Python, `make_graph(split, uppercase, join, values={"text-join.separator": " + "})` writes it too: with no `edges` the nodes form a chain, each taking its one required open input from the one output before it; with `edges=[...]` those are every edge, and nothing is matched by name. A node's id there is its own id, `-1`, `-2` when used twice.

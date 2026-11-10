@@ -77,9 +77,9 @@ PROBLEM_CATALOGUE: Mapping[str, str] = {
     "many_on_series": "'{field}' already takes many values.",
     "parameter_name_invalid": "'{field}' cannot be a field name: '.', '/' and '@' each mean something in an address, and a name can't be empty.",
     "repeated_edge": "The edge from '{source}' into '{field}' is drawn twice.",
-    "rows_not_related": "{a} and {b} are rows of different tables; join them on a key in a node, and wire the join.",
+    "rows_not_related": "{tables} are rows of different tables; join them on a key in a node, and wire the join.",
     "alternatives_on_different_rows": (
-        "'{field}' takes alternatives from rows of different tables, {a} and {b}, so a row of one has no place for the other's value. "
+        "'{field}' takes alternatives from rows of different tables, {tables}, so a row of one has no place for the other's value. "
         "Bring them onto rows of one table first."
     ),
     "several_edges_into_one_value": (
@@ -87,11 +87,12 @@ PROBLEM_CATALOGUE: Mapping[str, str] = {
         "Feed it from opposite branches of one decision, or take them through a Series or Table input."
     ),
     "series_inputs_never_share_a_row": (
-        "'{a}' and '{b}' read branches that never both have a value on a row, so no row would reach the node. "
+        "{inputs} read branches that never both have a value on a row, so no row would reach the node. "
         "Write Series[X | None] on them to keep every row, or take the branches through one input."
     ),
-    "two_typed_in_lists": "Only one list can be typed into a node; '{a}' and '{b}' are both lists.",
+    "two_typed_in_lists": "Only one list can be typed into a node; {inputs} are all lists.",
     "type_mismatch": "'{source}' gives {got}, but '{node_id}.{field}' takes {expected}.",
+    "columns_missing": "'{node_id}.{field}' takes the columns {missing}, which nothing wired into it from {sources} gives.",
     "unbound_on_later_node": "Nothing feeds '{field}', and only a first node takes inputs from the caller.",
     "unknown_input": "'{node_id}' has no input '{field}'; it has {inputs}.",
     "unknown_node": "There is no node '{node}'; the nodes are {choices}.",
@@ -100,6 +101,7 @@ PROBLEM_CATALOGUE: Mapping[str, str] = {
     "value_and_default": "Field '{field}' has both a value and a default; keep one.",
     "value_and_edge": "Field '{field}' has an edge and a typed-in value; keep one.",
     # -- what a call is refused for ----------------------------------------------
+    "invalid_record": "The record is not a graph record at '{at}': {reason}",
     "answer_stale": "The question {waiting_id!r} was answered for has changed on its row; it is now {current!r}.",
     "cannot_move_to_version": "'{node}' cannot move from version {version} to {target}; it has {versions}.",
     "from_run_missing": "'{node_id}' needs a {needs} for '{parameter}', and the call did not give one in from_run.",
@@ -165,8 +167,9 @@ class Problem(ConductorModel):
                               row under the third row of what ``b`` runs on
     a run stopped as a whole  ``()``
     a refused call            ``("inputs", name)``, ``(node_id, *row)`` for an
-                              answer, ``("state",)``; a graph that can't run is
-                              refused with its own problems
+                              answer, ``("state",)``, ``("record", *where)``
+                              for a record that isn't one; a graph that can't
+                              run is refused with its own problems
     ========================  ==================================================
 
     A graph problem's field need not exist: several are about a value for a
@@ -182,16 +185,27 @@ class Problem(ConductorModel):
 
 
 def make_problem(code: str, /, *loc: str | int | None, **ctx: Any) -> Problem:
-    """The problem ``code`` at ``loc``, its message made from ``ctx``, which the record keeps.
+    """The problem ``code`` at ``loc``, its message made from ``ctx``, which the record keeps as JSON values.
 
-    A ``None`` place is left out, so a site with an optional field passes it
-    as it is. A code not in ``PROBLEM_CATALOGUE``, or a slot its row names that
-    ``ctx`` does not fill, is a programming error and raises; only ``reason`` may be
-    left out, the sentence a type's own constructor raised, which not every one gives.
+    A list in ``ctx`` stays a list, and the message writes it joined by
+    commas (``none`` when empty); in a list of tables, ``None`` is the graph's
+    own row. A ``None`` place is left out, so a site with an optional field
+    passes it as it is. A code not in ``PROBLEM_CATALOGUE``, or a slot its row
+    names that ``ctx`` does not fill, is a programming error and raises; only
+    ``reason`` may be left out, the sentence a type's own constructor raised,
+    which not every one gives.
     """
     location = tuple(place for place in loc if place is not None)
-    slots = {"reason": "", "node_id": location[0] if location else None, "field": location[1] if len(location) > 1 else None, **ctx}
+    said = {key: _said(value) for key, value in ctx.items()}
+    slots = {"reason": "", "node_id": location[0] if location else None, "field": location[1] if len(location) > 1 else None, **said}
     return Problem(type=code, loc=location, msg=PROBLEM_CATALOGUE[code].format_map(slots).rstrip(), ctx=ctx)
+
+
+def _said(value: Any) -> Any:
+    """A ``ctx`` value as its message writes it: a list joined by commas, ``None`` in it the graph's own row."""
+    if not isinstance(value, (list, tuple)):
+        return value
+    return ", ".join("the graph's own row" if item is None else str(item) for item in value) or "none"
 
 
 class ConductorError(Exception):
@@ -231,8 +245,10 @@ class InvalidCallError(ConductorError, ValueError):
     """A call on a graph or a run was given what it cannot act on; nothing happened.
 
     Raised by ``graph.run``, ``graph.with_inputs``, ``run.resume``,
-    ``run.stream``, ``run.answer``, ``graph.load_run`` and
-    ``registry.upgrade`` from the call that caused it, before anything runs,
+    ``run.stream``, ``run.answer``, ``run.again``, ``run.forget``,
+    ``run.outputs``, ``graph.load_run``, ``registry.load`` (for a record
+    that isn't one), ``registry.upgrade`` and ``make_graph`` from the call
+    that caused it, before anything runs,
     listing every problem at once. The run the caller holds is untouched. A
     ``ValueError`` too, as pydantic's error is.
     """

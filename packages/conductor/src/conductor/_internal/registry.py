@@ -244,9 +244,9 @@ class NodeRegistry:
         ``graph.problems``. The graph keeps its own copy of the definitions
         as they are when it loads.
         """
-        from conductor._internal.graph import LOADING, Graph
+        from conductor._internal.graph import load_graph
 
-        return Graph(as_record(record), self._nodes, _door=LOADING)
+        return load_graph(as_record(record), self._nodes)
 
     def upgrade(self, record: GraphRecord | str | bytes | Mapping[str, Any], node_id: str, *, to: int | None = None) -> GraphRecord:
         """``record`` with the node ``node_id`` moved from the version it was saved at to ``to``, the newest by default.
@@ -267,9 +267,9 @@ class NodeRegistry:
         graph = as_record(record)
         placed = next((n for n in graph.nodes if n.id == node_id), None)
         if placed is None:
-            raise InvalidCallError([make_problem("node_not_in_graph", node_id, node_id=node_id, nodes=", ".join(n.id for n in graph.nodes))])
+            raise InvalidCallError([make_problem("node_not_in_graph", node_id, node_id=node_id, nodes=[n.id for n in graph.nodes])])
         if placed.node not in self._nodes:
-            raise InvalidCallError([make_problem("unknown_node", node_id, node=placed.node, choices=", ".join(sorted(self._nodes)) or "none")])
+            raise InvalidCallError([make_problem("unknown_node", node_id, node=placed.node, choices=sorted(self._nodes))])
         newest = self._nodes[placed.node]
         target = newest.version if to is None else to
         if target == placed.version:
@@ -277,7 +277,7 @@ class NodeRegistry:
         if target < placed.version or target not in newest.versions or placed.version not in newest.versions:
             raise InvalidCallError([make_problem(
                 "cannot_move_to_version", node_id,
-                node=placed.node, version=placed.version, target=target, versions=", ".join(str(number) for number in sorted(newest.versions)),
+                node=placed.node, version=placed.version, target=target, versions=sorted(newest.versions),
             )])
         steps = []
         step: NodeDefinition[..., Any] | None = newest.version_of(target)
