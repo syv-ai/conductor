@@ -251,16 +251,16 @@ class Graph:
 
     def _load(
         self, record: GraphRecord, definitions: Mapping[str, NodeDefinition[..., Any]], embedded_in: tuple[str, ...], alone: dict[Any, list[Problem]],
-        listed: frozenset[str] | None, compiles: dict[frozenset[str], Graph],
+        listed: frozenset[str] | None,
     ) -> None:
         self.record = record
         self._embedded_in = embedded_in
         #: The open inputs, by the placed node's address, a caller gives a list of items at in a run of this compile;
         #: ``None`` while compiling for a run given nothing, where each input's default decides.
         self._listed: frozenset[str] | None = listed
-        #: The record's other compiles, by the inputs given lists, shared by them all; never the one ``load_graph``
-        #: returns, so a loaded graph holds no cycle and is freed as soon as it is let go, whatever its defaults hold.
-        self._compiles = compiles
+        #: The compiles this graph made for other lists, by the inputs given lists. Each holds its own, never this
+        #: one, so no compile holds a cycle.
+        self._compiles: dict[frozenset[str], Graph] = {}
         #: What each embedded graph loaded alone found, by its definition and the graphs it sits in, shared by every graph
         #: this load makes, so each is loaded alone once however deep it nests.
         self._alone = alone
@@ -538,7 +538,7 @@ class Graph:
             return self
         graph = self._compiles.get(listed)
         if graph is None:
-            graph = self._compiles[listed] = load_graph(self.record, self._definitions, self._embedded_in, self._alone, listed=listed, compiles=self._compiles)
+            graph = self._compiles[listed] = load_graph(self.record, self._definitions, self._embedded_in, self._alone, listed=listed)
         return graph
 
     def _given_by_key(self, given: Mapping[str, Any]) -> tuple[dict[str, Any], list[str]]:
@@ -1188,16 +1188,15 @@ class Graph:
 
 def load_graph(
     record: GraphRecord, definitions: Mapping[str, NodeDefinition[..., Any]], embedded_in: tuple[str, ...] = (), alone: dict[Any, list[Problem]] | None = None,
-    *, listed: frozenset[str] | None = None, compiles: dict[frozenset[str], Graph] | None = None,
+    *, listed: frozenset[str] | None = None,
 ) -> Graph:
     """``record`` loaded against ``definitions``, the one way a ``Graph`` is made; ``embedded_in`` names the graphs it is
     loaded inside, and ``alone`` what the embedded graphs of this load found loaded alone.
 
-    ``listed`` names the open inputs given lists of items, and ``compiles`` holds the record's other compiles. With
-    no ``listed``, the graph is compiled as a run given nothing runs: with the lists its defaults hold, in one pass.
+    ``listed`` names the open inputs given lists of items. With no ``listed``, the graph is compiled as a run given nothing runs: with the lists its defaults hold, in one pass.
     """
     graph = Graph.__new__(Graph)
-    graph._load(record, definitions, embedded_in, {} if alone is None else alone, listed, {} if compiles is None else compiles)
+    graph._load(record, definitions, embedded_in, {} if alone is None else alone, listed)
     return graph
 
 

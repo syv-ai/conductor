@@ -924,3 +924,34 @@ def test_a_loaded_graph_is_compiled_once_and_freed_without_the_cycle_collector(d
         assert held() is None
     finally:
         gc.enable()
+
+
+@pytest.mark.parametrize("ran", ["one value", "a list", "again with a list"])
+def test_a_run_and_the_compile_it_ran_on_are_freed_without_the_cycle_collector(ran: str) -> None:
+    import gc
+    import weakref
+
+    @node("upper")
+    def upper(text: str) -> str:
+        return text.upper()
+
+    @node("join")
+    def join(texts: Series[str]) -> str:
+        return "+".join(texts)
+
+    registry = registry_of(upper, join)
+    gc.collect()
+    gc.disable()
+    try:
+        graph = registry.load(make_graph(upper, join))
+        if ran == "one value":
+            run = graph.run(text="a")
+        elif ran == "a list":
+            run = graph.run(text=["a", "b"])
+        else:
+            run = graph.run(text=["a", "b"]).again(text=["c"])
+        held = [weakref.ref(graph), weakref.ref(run.graph)]
+        del graph, run
+        assert [ref() for ref in held] == [None, None]
+    finally:
+        gc.enable()

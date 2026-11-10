@@ -507,14 +507,12 @@ class Run:
             if node_id is not None:
                 made[table] = sum(_length(u.out[output]) for u in self._units[node_id].values() if u.state == "done" and u.out)
 
-        def under(parent: str, rows: int) -> None:
+        stack = [("", 1), *((t, made[t]) for t, (node_id, _) in self.graph._makers.items() if node_id is not None)]
+        while stack:
+            parent, rows = stack.pop()
             for address in self.graph._lists_under.get(parent, ()):
                 made[address] = rows * len(self._given(address) or [])
-                under(address, made[address])
-
-        under("", 1)
-        for table in [t for t, (node_id, _) in self.graph._makers.items() if node_id is not None]:
-            under(table, made[table])
+                stack.append((address, made[address]))
         return made
 
     def _rows(self, level: Level, row: Key, *, counted: bool = False) -> tuple[list[Key], bool]:
