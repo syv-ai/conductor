@@ -684,6 +684,16 @@ def test_make_graph_refuses_a_value_beside_a_default_and_what_is_not_a_node():
     assert sorted(p.type for p in refused.value.errors()) == ["value_and_default"]
 
 
+def test_make_graph_refuses_a_default_on_a_node_no_caller_reaches():
+    @node("pad", title="Pad", description="Pads a text to a width.")
+    def pad(text: str, width: int = 4) -> str:
+        return text.rjust(width)
+
+    with pytest.raises(InvalidCallError) as refused:
+        make_graph(_hello, pad, defaults={"pad.width": 8})
+    assert [(p.type, p.loc) for p in refused.value.errors()] == [("default_on_later_node", ("pad", "width"))]
+
+
 def test_a_value_typed_in_from_python_is_its_json_so_the_record_equals_its_own_reload():
     import datetime
     import enum

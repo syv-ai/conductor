@@ -207,7 +207,7 @@ def make_graph(
     The record is loaded against the definitions here, each node against the
     one it was given (two of one id must be versions of one node, else
     ``NodeDeclarationError`` ``duplicate_node_id``), and every fault of what
-    the call said (an address, a value, a type, an edge into a value, a chain
+    the call said (an address, a value, a default no caller reaches, a type, an edge into a value, a chain
     it can't draw) raises one ``InvalidCallError`` listing each. A graph still
     half drawn (an input left open, a cycle) is written: ``graph.problems``
     says that when it loads.
@@ -275,10 +275,10 @@ def _one_per_id(nodes: Sequence[NodeDefinition]) -> dict[str, NodeDefinition]:
 
 
 #: What loading finds that ``make_graph`` raises: a fault of what the call said (an address, a value, a type, an edge
-#: where a value is), never a half-drawn graph's.
+#: where a value is, a default where no caller reaches it), never a half-drawn graph's.
 SAID_AT_THE_CALL = frozenset({
     "unknown_input", "unknown_output", "edge_names_missing_node", "invalid_value", "value_and_default", "value_and_edge",
-    "type_mismatch", "columns_missing", "repeated_edge",
+    "type_mismatch", "columns_missing", "repeated_edge", "default_on_later_node",
 })
 
 
