@@ -51,6 +51,7 @@ from __future__ import annotations
 
 import dataclasses
 import inspect
+import math
 import typing
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -68,6 +69,7 @@ from conductor._internal.fields import (
     Param,
     _FromRunMarker,
     humanised,
+    is_a_number,
     read_field,
 )
 from conductor._internal.record import GraphRecord, as_record
@@ -104,8 +106,16 @@ class Policy:
     threaded: bool = field(default=False, init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
-        if self.concurrency < 1 or self.retries < 0 or self.retry_delay < 0 or (self.attempt_timeout is not None and self.attempt_timeout <= 0):
-            raise NodeDeclarationError(f"{self}: concurrency is at least 1, retries and retry_delay at least 0, attempt_timeout above 0", code="policy_invalid")
+        def seconds(value: Any) -> bool:
+            return is_a_number(type(value)) and math.isfinite(value)
+
+        whole = is_a_number(type(self.concurrency), int) and is_a_number(type(self.retries), int) and self.concurrency >= 1 and self.retries >= 0
+        timed = seconds(self.retry_delay) and self.retry_delay >= 0 and (self.attempt_timeout is None or (seconds(self.attempt_timeout) and self.attempt_timeout > 0))
+        if not (whole and timed):
+            raise NodeDeclarationError(
+                f"{self}: concurrency is a whole number of at least 1, retries one of at least 0, retry_delay a finite number of seconds of at least 0, attempt_timeout one above 0",
+                code="policy_invalid",
+            )
         object.__setattr__(self, "threaded", self.concurrency > 1 or self.attempt_timeout is not None)
 
     def __repr__(self) -> str:
