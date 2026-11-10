@@ -59,7 +59,7 @@ An input takes an edge, a value or a default, never two: `values` are fixed, `de
 |---|---|
 | Two open inputs with one name | `graph.run({"words.text": value})`, by address |
 | Events as they happen | `async for event in graph.with_inputs(...).stream(): ...` |
-| To answer a node that asked | `run = run.answer(run.waiting[0], answer)`, then `run.resume()` |
+| To answer a node that asked | `run = run.answer(run.waiting[0], answer)`, or `run.answer({unit.id: answer, ...})` for several, then `run.resume()` |
 | A service or the caller inside a node | `graph.run(from_run={Caller: caller})` |
 | A bound on the leg | `run.resume(timeout=60)`, `run.stream(cancel=asyncio.Event())`, `graph.run(max_rows=1000)` |
 | To save | `record.model_dump_json()`; a run: `run.to_json()`, `graph.load_run(saved)` |

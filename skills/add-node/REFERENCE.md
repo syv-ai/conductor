@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Annotated, Any
 
-from conductor import SKIPPED, Ask, Deprecation, ExternalFailure, FromRun, Param, Policy, Series, Upgrade, node
+from conductor import SKIPPED, Ask, Choice, Deprecation, ExternalFailure, FromRun, Param, Policy, Series, Upgrade, node
 from conductor.widgets import Switch, Textarea, TextWidget
 
 
@@ -36,6 +36,19 @@ class Caller:
 def approve(proposal: Annotated[str, Param(title="Proposal", widget=Textarea())], who: FromRun[Caller]) -> Annotated[str, Param(title="Decision")]:
     # what is asked is what the node returns; a default proposes an answer
     raise Ask(f"{who.name}, approve?", default=proposal, widget=Textarea())
+
+
+@dataclass(frozen=True)
+class Review:                         # a form: one question per field; a field's default is proposed
+    approved: bool
+    owner: str
+    note: str | None = None
+
+
+@node("review", title="Review", category="review")
+def review(proposal: str) -> Review:
+    # several outputs: what the run knows goes by output name
+    raise Ask(f"Review {proposal}", choices={"owner": [Choice("ida", "Ida B."), Choice("bo", "Bo K.")]}, widgets={"note": Textarea()})
 
 
 def fetch_v1(url: Annotated[str, Param(title="URL", widget=TextWidget())]) -> Annotated[str, Param(title="Body")]: ...

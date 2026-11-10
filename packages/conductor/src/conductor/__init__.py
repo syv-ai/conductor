@@ -1,7 +1,7 @@
 """Conductor: typed Python functions as nodes, graphs of them as data, runs as JSON.
 
 A node author writes ``@node`` functions with ``Param``, ``Series``, ``Table``,
-``SKIPPED`` and ``Ask``. A host collects them in a ``NodeRegistry``, loads a
+``SKIPPED``, ``Ask`` and ``Choice``. A host collects them in a ``NodeRegistry``, loads a
 ``GraphRecord`` into a ``Graph``, and runs it: a ``Run`` pauses for a person,
 takes answers, resumes and goes again, and is JSON throughout.
 
@@ -13,6 +13,7 @@ Everything in ``conductor._internal`` is the library's own and may move.
 
 from typing import TYPE_CHECKING
 
+from conductor._internal.ask import Ask, Choice, Waiting
 from conductor._internal.errors import (
     PROBLEM_CODES,
     ExternalFailure,
@@ -21,12 +22,12 @@ from conductor._internal.errors import (
     NodeError,
     Problem,
 )
-from conductor._internal.fields import SKIPPED, Ask, FromRun, Param, Series
+from conductor._internal.fields import SKIPPED, FromRun, Param, Series
 from conductor._internal.graph import Graph
 from conductor._internal.node_definition import Deprecation, NodeDefinition, Policy, Upgrade, node
 from conductor._internal.record import GraphRecord, NodeRecord, make_graph
 from conductor._internal.registry import NodeRegistry
-from conductor._internal.run import Run, Waiting
+from conductor._internal.run import Run
 
 if TYPE_CHECKING:
     # A node takes and returns frames; a type checker reads ``Table[R]`` as one.
@@ -38,6 +39,7 @@ __all__ = [
     "PROBLEM_CODES",
     "SKIPPED",
     "Ask",
+    "Choice",
     "Deprecation",
     "ExternalFailure",
     "FromRun",

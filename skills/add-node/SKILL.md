@@ -44,7 +44,7 @@ assert registry["greet"] is greet
 | A whole table in or out | `Table[Contact]` (a `TypedDict` names the columns) or bare `Table`; it is a `polars.DataFrame` |
 | A branch | return `SKIPPED` on the output not taken; share an `exclusive_group` |
 | A blank (an empty cell) | `email: str \| None`; otherwise the node is not called for that row and its outputs are blank there |
-| A person's answer | `raise Ask(prompt, choices=..., default=..., widget=...)`; the return type says what the answer is |
+| A person's answer | `raise Ask(prompt, choices=..., default=..., widget=...)`; the return type says what the answer is and how to ask: `bool` yes or no, a `Literal` one of its values, a frozen dataclass a form, `Table[R]` records, `Series[X]` several. On several outputs `choices=`, `defaults=` and `widgets=` go by output name; `Choice(id, title)` titles a choice |
 | A client, a clock, the caller | `FromRun[T]`, supplied by `run.resume(from_run={T: value})` |
 | Retries, a timeout, a concurrency bound | `@node("x", policy=Policy(retries=3, attempt_timeout=10, concurrency=4))` |
 | A second version | `replaces=node("x")(run_v1), upgrade=Upgrade(renamed_inputs={...})` on `@node` |
@@ -59,3 +59,4 @@ assert registry["greet"] is greet
 | A retry loop inside the node | `Policy(retries=...)`; raise `ExternalFailure` or set `retry_on` |
 | "flow" in a docstring or message | conductor's word is graph |
 | Catching `Exception` around an `Ask` | `Ask` is a `BaseException`, so `except Exception` lets it through; don't catch `BaseException` |
+| `Ask(default=...)` on a node of several outputs | `defaults={"field": value}`; an `Ask` that doesn't fit the outputs fails the node as `invalid_ask` |

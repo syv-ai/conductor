@@ -67,23 +67,6 @@ class _Skipped:
 SKIPPED: Any = _Skipped()
 
 
-class Ask(BaseException):
-    """Raised by a node to stop on its row and ask a person; the node's return type says what they answer.
-
-    ``prompt`` is what the person reads. ``choices`` limits the answer to
-    these values (a list, or a mapping of value to title), ``default``
-    proposes one, and ``widget`` asks for a control of the host's. Nothing
-    runs for the row until an answer arrives; the answer is the node's
-    outputs, and the node is not called again for that row.
-
-    A ``BaseException``, so an ``except Exception`` in the node lets it through.
-    """
-
-    def __init__(self, prompt: str, *, choices: Any = None, default: Any = None, widget: Any = None) -> None:
-        super().__init__(prompt)
-        self.prompt, self.choices, self.default, self.widget = prompt, choices, default, widget
-
-
 #: The limits ``Param`` takes, by the words pydantic's ``Field`` uses, and the
 #: types each kind applies to.
 _NUMERIC = frozenset({"ge", "gt", "le", "lt", "multiple_of"})
@@ -97,8 +80,9 @@ class Param:
         times: Annotated[int, Param(title="Times", ge=0)] = 1
 
     ``title`` falls back to the name in everyday words. ``widget`` is the
-    control a person edits the input with, carried to the host and never read
-    here. Outputs of one node that share an ``exclusive_group`` are
+    control a person edits the field with, anything with a JSON form (a
+    ``conductor.widgets`` control, say), carried to the host and never read
+    here; on an output it is the control a person answers it with. Outputs of one node that share an ``exclusive_group`` are
     alternatives: on each row the node gives a value on one of them and
     ``SKIPPED`` on the rest. The limits are pydantic's: ``ge``, ``gt``,
     ``le``, ``lt``, ``multiple_of``, ``min_length``, ``max_length``, ``pattern``.
@@ -119,6 +103,11 @@ class Param:
                 f"Param has no argument {unknown[0]!r}; it takes title, description, widget, exclusive_group and the limits {sorted(_NUMERIC | _SIZED)}",
                 code="bound_invalid",
             )
+        if widget is not None:
+            try:
+                to_jsonable_python(widget)
+            except Exception:  # noqa: BLE001  a value with no JSON form, such as a class passed bare
+                raise NodeDeclarationError(f"Param's widget {widget!r} has no JSON form; give an instance, such as Textarea()", code="widget_not_json") from None
         object.__setattr__(self, "title", title)
         object.__setattr__(self, "description", description)
         object.__setattr__(self, "widget", widget)
@@ -209,6 +198,11 @@ class FieldSpec:
         carried = _carried(self.type)
         one: Any = Annotated[carried, PydanticField(**self.param.constraints)] if self.param.constraints else carried
         return TypeAdapter(_list_of(one) if self.shape == "many" else one)
+
+    @functools.cached_property
+    def item_adapter(self) -> TypeAdapter[Any]:
+        """Checks one item of a ``Series``, or the one value of any other field, held to its limits."""
+        return dataclasses.replace(self, shape="one").adapter if self.shape == "many" else self.adapter
 
     @functools.cached_property
     def column_adapter(self) -> TypeAdapter[Any]:

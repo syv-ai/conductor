@@ -10,6 +10,7 @@ from typing import Annotated, Any, Literal, TypedDict
 import polars as pl
 import pytest
 from conductor import (
+    Choice,
     Deprecation,
     GraphRecord,
     NodeDeclarationError,
@@ -23,7 +24,7 @@ from conductor import (
     make_graph,
     node,
 )
-from conductor.widgets import Choice, Dropdown, ListWidget, Textarea, TextWidget, Widget
+from conductor.widgets import Dropdown, ListWidget, Textarea, TextWidget, Widget
 from pydantic import BaseModel, ValidationError
 
 

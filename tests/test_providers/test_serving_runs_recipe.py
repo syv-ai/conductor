@@ -220,7 +220,7 @@ def test_the_published_schema_says_what_each_route_answers():
     run_end = spec["components"]["schemas"]["RunEnd"]
     assert set(run_end["properties"]) == {"type", "status"}
     waiting = spec["components"]["schemas"]["Waiting"]
-    assert {"id", "node_id", "row", "prompt", "answer_schema", "inputs"} <= set(waiting["required"])
+    assert {"id", "node_id", "row", "prompt", "questions", "inputs"} <= set(waiting["required"])
 
 
 def test_a_stream_says_not_to_cache_it():

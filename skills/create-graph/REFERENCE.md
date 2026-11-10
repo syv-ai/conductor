@@ -45,7 +45,7 @@ second = answered.resume()
 assert [unit.row for unit in second.waiting] == [(0,)]
 ```
 
-- An asking node waits with its readers; the rest runs on. Each entry of `run.waiting` carries `id`, `node_id`, `row`, `prompt`, `choices`, `default`, `widget`, `answer_schema` and `inputs`.
-- `run.answer(unit, value)` takes the unit or its id, and a value of what the node returns. A unit not answered goes on waiting and is not called again.
+- An asking node waits with its readers; the rest runs on. Each entry of `run.waiting` carries `id`, `node_id`, `row`, `prompt`, `inputs` and `questions`: one per output, the field record `describe()` writes, with the `choices`, `default` and `widget` the node asked with.
+- `run.answer(unit, value)` takes the unit or its id, and a value of what the node returns (a mapping by output name for several outputs); `run.answer({unit_id: value, ...})` answers several at once. A unit not answered goes on waiting and is not called again.
 - A wrong answer raises `InvalidCallError`; a missing `FromRun` value raises `InvalidCallError` too. `run.again(**changed)` reuses the rows whose inputs match, and runs the rest.
 - An event writes itself as JSON (`event.model_dump(mode="json")`), its outputs already JSON. Leaving `async for event in run.stream():` ends the leg before its next unit.

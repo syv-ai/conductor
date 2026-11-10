@@ -26,7 +26,7 @@ No type has a default widget, since the same `str` may be a textarea, a single l
 |--------|-----|---------|
 | `TextWidget` | One line of text | |
 | `Textarea` | Several lines | `rows` |
-| `Dropdown` | One of a list of `Choice`s | `choices` |
+| `Dropdown` | One of a list of `Choice`s (from `conductor`) | `choices` |
 | `NumberWidget` | A number typed in | `step`, `integer_only` |
 | `Range` | A number on a slider | `step` |
 | `Switch` | On or off | |
@@ -37,6 +37,10 @@ No type has a default widget, since the same `str` may be a textarea, a single l
 The limits a value must keep to are the `Param`'s, in pydantic's words, and they are enforced when a graph is loaded for a typed-in value, and on every value a caller gives: `Param(ge=0, le=2, widget=Range())`, `Param(max_length=31, widget=TextWidget())`.
 
 The vocabulary inside a control, such as a dropdown's `choices`, is the host's, declared as data on the widget.
+
+## On a question
+
+A person asked by a node's `Ask` answers its outputs, and each question carries the widget of the output's `Param` unless the `Ask` gives one: `raise Ask("Why?", widget=Textarea(rows=6))`, or `widgets={"note": Textarea()}` on a node of several outputs. A widget is anything with a JSON form; a class passed bare (`widget=Textarea`) is refused, at `@node` on a `Param` (`widget_not_json`) and as `invalid_ask` on an `Ask`.
 
 ## The schema
 

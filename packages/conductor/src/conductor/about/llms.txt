@@ -133,7 +133,7 @@ A unit is a node on a row; it starts once what it reads exists, so row 1 can fin
 
 ### Legs and Asking
 
-One call of `run.resume()` is one leg. A run is its `Run`: every leg returns one, and `status` says how it ended (`complete`, `waiting`, `failed`, `stopped`, `cancelled`, `timed_out`), with `cause`, a `Problem`, for the last four. A node raises `Ask(prompt, choices=, default=, widget=)`: what is asked is what the node returns, so its return type says the answer's shape. That row of it and what reads it wait, the rest of the graph runs on, and the leg ends `waiting`:
+One call of `run.resume()` is one leg. A run is its `Run`: every leg returns one, and `status` says how it ended (`complete`, `waiting`, `failed`, `stopped`, `cancelled`, `timed_out`), with `cause`, a `Problem`, for the last four. A node raises `Ask(prompt, choices=, default=, widget=)`: what is asked is what the node returns, so its return type says the answer's shape and how to ask. That row of it and what reads it wait, the rest of the graph runs on, and the leg ends `waiting`:
 
 ```python
 @registry.node("approve")
@@ -148,8 +148,10 @@ finished = answered.resume()
 again = approving.load_run(finished.to_json())           # a run is JSON
 ```
 
-- Each entry of `run.waiting` is a `Waiting`: `id` (`approve@1`: the node's id, then `@` and each number of its row; `approve` alone for a node that ran once), `node_id`, `row`, `prompt`, `choices`, `default`, `widget`, `answer_schema` (the JSON schema of the answer, from the return type), and `inputs`, what the call received, as JSON.
-- `run.answer(unit, value)` checks the value against the return type and `choices` and returns a new run; a wrong one is `invalid_answer`, a unit not waiting `not_waiting`. A node that asked is not called again for that row.
+- The return type says how to ask: `bool` a yes or no, `Literal["low", "high"]` one of its values, `str`, `int`, `float`, `date` a value, a frozen dataclass a form of one question per field (a field's default is proposed), `Table[R]` a table answered as records, `Series[X]` several, so `Series[Literal[...]]` or `Series[str]` with `choices` is a pick of several. A hook's output types ask the same way.
+- `Ask` adds what only the run knows. On a node of one output: `choices=[...]` (each a value, or `Choice(id, title)` to give it a title), `default=`, `widget=` (a widget, as on `Param`). On several: `choices={output: [...]}`, `defaults={output: value}`, `widgets={output: widget}`. An `Ask` that doesn't fit the outputs (a default or choice its type refuses, `SKIPPED` as a default, a widget with no JSON form, a name that isn't an output, choices on a table, the one-output form on several) fails the node: `invalid_ask`, with `ctx.reason`.
+- Each entry of `run.waiting` is a `Waiting`: `id` (`approve@1`: the node's id, then `@` and each number of its row; `approve` alone for a node that ran once), `node_id`, `row`, `prompt`, `inputs` (what the call received, as JSON) and `questions`, one per output: the field record `describe()` writes (`name`, `title`, `shape`, `type`, `schema`, `required`, ...; a lone output takes the node's title), with `choices` (`[{"id", "title"}]`, from the `Ask` or a `Literal`), `default` and `widget`.
+- `run.answer(unit, value)` answers one row; `run.answer({unit_id: value, ...})` several in one call. A node of one output is answered with its value, one of several with a mapping by output name, where a question with a default or a blank-taking type may be left out, and of an `exclusive_group` exactly one is answered (the others are branches not taken). Each answer is checked against its question before anything runs and returns a new run; every fault is refused at once and nothing is answered: `invalid_answer` (`ctx.waiting_id`, `ctx.reason`, `ctx.question` when it is about one), `not_waiting` for a unit not waiting. A node that asked is not called again for that row.
 - `run.to_json()` is the whole run; `graph.load_run(saved)` reads it back and checks it against the graph: a row its makers never made, a row listed twice, a missing output or a table whose column length isn't its row count is `state_unreadable`, with `ctx.at` the `node.output` (or `node.output.column`) where. A value with no JSON form is `state_unwritable` at `to_json`, naming where too.
 - A parameter typed `FromRun[T]` receives the value of `T` from `run.resume(from_run={T: value})` or `graph.run(from_run=...)`. A missing one is `from_run_missing`, at the call.
 
@@ -231,7 +233,7 @@ Three public modules: `conductor`, `conductor.widgets` and `conductor.events`. E
 ### conductor
 
 - Nodes: `node`, `NodeDefinition`, `Upgrade`, `Policy`, `Deprecation`, `Param`, `FromRun`, `Series`, `Table`
-- In a node: `SKIPPED`, `Ask`, `NodeError`, `ExternalFailure`
+- In a node: `SKIPPED`, `Ask`, `Choice`, `NodeError`, `ExternalFailure`
 - Registry: `NodeRegistry(*, category="", tags=(), extra=None, types=())` (`@registry.node`, `add(*definitions)`, `replace(definition)`, `remove(node_id)`, `add_subregistry(registry)`, `filter(predicate)`, `load(record)`, `upgrade(record, node_id, to=None)`, `in`, `[]`, `len`, iteration over the definitions, `types`, `accepted_as`, `describe`). A node entering a registry takes its defaults: tags add up, outermost first; the node's own `category` and `extra` keys win. A second node under one id raises; a subregistry is copied in when added.
 - Graph: `GraphRecord`, `NodeRecord`, `make_graph`, `Graph`
 - A run: `Run`, `Waiting`
@@ -242,7 +244,7 @@ Three public modules: `conductor`, `conductor.widgets` and `conductor.events`. E
 - `graph.run(inputs=None, /, *, max_rows=None, from_run=None, timeout=None, **by_name)`: one leg from the start; its `Run`. A pause or failure is a `status`.
 - `graph.with_inputs(inputs=None, /, *, max_rows=None, **by_name)`: a `Run` with the inputs checked and not started; a name it doesn't offer (`not_offered`), a required one left out (`missing_input`), one given by both its name and its address (`input_given_twice`), a value its type can't read (`invalid_input`) or a `max_rows` below 1 (`invalid_max_rows`) raises `InvalidCallError`, every fault at once.
 - `run.resume(*, max_rows=None, from_run=None, timeout=None)`: the next leg. `run.stream(...)`, the same arguments and `cancel=`: the leg's events.
-- `run.answer(unit, value)`, `run.with_inputs(inputs=None, /, *, max_rows=None, **by_name)` (a run carrying this one's work, to resume or stream), `run.again(...)` (the same, resumed; takes `from_run=` and `timeout=` too), `run.to_json()`, `graph.load_run(saved)`.
+- `run.answer(unit, value)` or `run.answer({unit_id: value})`, `run.with_inputs(inputs=None, /, *, max_rows=None, **by_name)` (a run carrying this one's work, to resume or stream), `run.again(...)` (the same, resumed; takes `from_run=` and `timeout=` too), `run.to_json()`, `graph.load_run(saved)`.
 - `run.results`: every node's outputs so far, by node id: one value for a node that ran once, a list in row order for one that ran per row, `None` where a row has none. `run.outputs`: narrowed to `graph.outputs`, by address, on a `complete` run only (`run_not_complete` otherwise). `run.waiting`, `run.not_called`, `run.status`, `run.cause`.
 
 ### Problem and error codes
@@ -251,13 +253,13 @@ A `Problem`'s `type` comes from one table, each code with its English, and a hos
 
 ### conductor.widgets
 
-Frozen models with a `type`, and a host subclasses `Widget` for a control of its own; loading and the engine never read one. `title`, `description` and the limits of a value (`ge`, `gt`, `le`, `lt`, `multiple_of`, `min_length`, `max_length`, `pattern`) belong to the `Param`, and a value outside its limits is refused. An untitled field reads as its name in everyday words. No type has a default widget.
+Frozen models with a `type`, and a host subclasses `Widget` for a control of its own; loading and the engine never read one. `title`, `description` and the limits of a value (`ge`, `gt`, `le`, `lt`, `multiple_of`, `min_length`, `max_length`, `pattern`) belong to the `Param`, and a value outside its limits is refused. An untitled field reads as its name in everyday words. No type has a default widget. A widget on a `Param` or an `Ask` is anything with a JSON form; one with none (a class passed bare) is `widget_not_json` at `@node`.
 
 | Widget | Options |
 |---|---|
 | `TextWidget` | none |
 | `Textarea` | `rows` |
-| `Dropdown` | `choices` (`Choice(id, title)`) |
+| `Dropdown` | `choices` (`Choice(id, title)`, from `conductor`) |
 | `NumberWidget` | `step`, `integer_only` |
 | `Range` | `step` |
 | `Switch` | none |

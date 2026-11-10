@@ -108,6 +108,7 @@ PROBLEM_CATALOGUE: Mapping[str, str] = {
     "execution_failed": "The node failed.",
     "external_failed": "An outside service did not answer.",
     "failed": "The node reported a failure.",
+    "invalid_ask": "The node asked a question its outputs can't be answered with: {reason}",
     "row_ceiling": "{table} has {rows} rows, more than the {max_rows} this run may make.",
     "run_cancelled": "The run was cancelled.",
     "run_timed_out": "The run took too long and was stopped.",

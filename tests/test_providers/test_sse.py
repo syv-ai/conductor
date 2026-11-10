@@ -49,7 +49,8 @@ def test_a_waiting_units_question_and_a_failures_cause_are_records():
     failed = _payload(NodeFailed(node_id="n", cause=Problem(type="boom", msg="Boom.", loc=("n", 2))))
 
     unit = _payload(waiting)["unit"]
-    assert (unit["id"], unit["prompt"], unit["default"], unit["widget"]["type"], unit["answer_schema"]["type"]) == ("ask", "Hvad?", "forslag", "textarea", "string")
+    (question,) = unit["questions"]
+    assert (unit["id"], unit["prompt"], question["title"], question["default"], question["widget"]["type"], question["schema"]["type"]) == ("ask", "Hvad?", "Svar", "forslag", "textarea", "string")
     assert unit["inputs"] == {"text": "x"}
     assert failed["cause"] == {"type": "boom", "msg": "Boom.", "loc": ["n", 2], "ctx": {}}
 

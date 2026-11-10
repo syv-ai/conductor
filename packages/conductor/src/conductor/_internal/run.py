@@ -19,13 +19,13 @@ import threading
 import time
 from collections.abc import AsyncIterator, Callable, Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, overload
 
 import polars as pl
 import pydantic_core
 from pydantic import TypeAdapter, ValidationError
 
-from conductor._internal.conductor_model import ConductorModel
+from conductor._internal.ask import Waiting, answer_outputs, questions
 from conductor._internal.errors import InvalidCallError, Problem, make_problem, value_free_errors
 from conductor._internal.fields import SKIPPED, FieldSpec, carried_list
 
@@ -50,6 +50,9 @@ PENDING: Any = _Pending()
 
 #: What the graph passes when it makes a run, so a run has one way in.
 STARTING = object()
+
+#: ``run.answer``'s second argument when it is given a mapping of answers instead.
+_ONE_ANSWER: Any = object()
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,27 +81,6 @@ class Unit:
     out: dict[str, Any] | None = None
     #: For a waiting unit, what the person is asked; for a blank one, ``{"input": name}``.
     question: dict[str, Any] | None = None
-
-
-class Waiting(ConductorModel):
-    """A row of a node waiting for a person.
-
-    ``id`` is what ``run.answer`` takes: the node's id, then ``@`` and each
-    place of the row, ``"approve@1"``. ``prompt``, ``choices``, ``default`` and
-    ``widget`` are what the node's ``Ask`` said; ``answer_schema`` is the JSON
-    schema of the answer, from the node's return type; ``inputs`` is what the
-    node received, as JSON.
-    """
-
-    id: str
-    node_id: str
-    row: tuple[int, ...]
-    prompt: str
-    choices: Any = None
-    default: Any = None
-    widget: Any = None
-    answer_schema: dict[str, Any]
-    inputs: dict[str, Any]
 
 
 class Run:
@@ -197,21 +179,46 @@ class Run:
         Leg(run, emit, stop, dict(from_run or {})).go()
         return run
 
-    def answer(self, unit: Waiting | str, value: Any) -> Run:
-        """Give a waiting row its answer, checked against what the node returns. Nothing runs until ``resume``."""
-        unit_id = unit.id if isinstance(unit, Waiting) else unit
-        node_id, key = _parse_unit(unit_id)
-        found = self._units.get(node_id, {}).get(key) if node_id in self.graph._nodes else None
-        if found is None or found.state != "waiting":
-            raise InvalidCallError([make_problem("not_waiting", node_id, *key, waiting_id=unit_id)])
-        try:
-            out = _answer_outputs(self.graph._nodes[node_id], value, found.question or {})
-        except ValidationError as error:
-            raise InvalidCallError([make_problem("invalid_answer", node_id, *key, reason=value_free_errors(error)[0]["msg"])]) from None
-        except (ValueError, TypeError) as error:
-            raise InvalidCallError([make_problem("invalid_answer", node_id, *key, reason=str(error))]) from None
-        run = self._copy()
-        run._units[node_id] = {**self._units[node_id], key: Unit("done", out)}
+    @overload
+    def answer(self, unit: Waiting | str, value: Any, /) -> Run: ...
+
+    @overload
+    def answer(self, answers: Mapping[str, Any], /) -> Run: ...
+
+    def answer(self, unit: Waiting | str | Mapping[str, Any], value: Any = _ONE_ANSWER, /) -> Run:
+        """Give waiting rows their answers, checked against their questions; nothing runs until ``resume``.
+
+        ``run.answer(unit, value)`` answers one row, ``run.answer({unit_id: value, ...})``
+        several. A node with one output is answered with its value, one with
+        several with a mapping by output name, where a question with a default,
+        a blank-taking type or an ``exclusive_group`` may be left out. Every
+        fault is refused at once and the run is left as it was.
+        """
+        if value is not _ONE_ANSWER:
+            given: Mapping[str, Any] = {unit.id if isinstance(unit, Waiting) else str(unit): value}
+        elif isinstance(unit, Mapping):
+            given = unit
+        else:
+            raise TypeError("run.answer takes a unit and its answer, or a mapping of unit ids to answers")
+        problems: list[Problem] = []
+        answered: dict[str, dict[Key, Unit]] = {}
+        for unit_id, one in given.items():
+            node_id, key = _parse_unit(unit_id)
+            found = self._units.get(node_id, {}).get(key) if node_id in self.graph._nodes else None
+            if found is None or found.state != "waiting":
+                problems.append(make_problem("not_waiting", node_id, *key, waiting_id=unit_id))
+                continue
+            placed = self.graph._nodes[node_id]
+            read, faults = answer_outputs(placed, one, (found.question or {}).get("asked", {}))
+            if faults:
+                problems.extend(make_problem("invalid_answer", node_id, *key, waiting_id=unit_id, reason=reason, **({"question": q} if q else {})) for q, reason in faults)
+            else:
+                answered.setdefault(node_id, {})[key] = Unit("done", kept_outputs(placed.definition.outputs, read))
+        if problems:
+            raise InvalidCallError(problems)
+        run = self._copy(share_units=True)
+        for node_id, units in answered.items():
+            run._units[node_id] = {**self._units[node_id], **units}
         return run
 
     def with_inputs(self, inputs: Mapping[str, Any] | None = None, /, *, max_rows: int | None = None, **by_name: Any) -> Run:
@@ -259,7 +266,11 @@ class Run:
         return sorted(units.items()) if node_id in self._unordered else units.items()
 
     def _waiting(self, node_id: str, key: Key, unit: Unit) -> Waiting:
-        return Waiting(id=_unit_id(node_id, key), node_id=node_id, row=key, answer_schema=_answer_schema(self.graph._nodes[node_id]), **(unit.question or {}))
+        question = unit.question or {}
+        return Waiting(
+            id=_unit_id(node_id, key), node_id=node_id, row=key, prompt=question["prompt"],
+            questions=questions(self.graph._nodes[node_id], question.get("asked", {})), inputs=question["inputs"],
+        )
 
     @property
     def not_called(self) -> list[dict[str, Any]]:
@@ -310,7 +321,8 @@ class Run:
         try:
             if placed.definition.from_run:
                 kwargs = {**kwargs, **{name: from_run[needed] for name, needed in placed.definition.from_run.items()}}
-            return _outputs(placed, placed.definition.function(**kwargs)), None  # type: ignore[misc]
+            spread = placed.definition.spread(placed.definition.function(**kwargs))  # type: ignore[misc]
+            return SKIPPED if spread is SKIPPED else kept_outputs(placed.definition.outputs, spread), None
         except BaseException as error:  # noqa: BLE001  a node's own failure, or its Ask, is the run's to record
             if isinstance(error, (KeyboardInterrupt, SystemExit)):
                 raise
@@ -507,9 +519,10 @@ class Run:
         cause = self.cause.model_dump(mode="json") if self.cause else None
         return pydantic_core.to_json({"status": self.status, "cause": cause, "max_rows": self.max_rows, "inputs": inputs, "units": units, "earlier": earlier}, inf_nan_mode="strings").decode()
 
-    def _copy(self, **changes: Any) -> Run:
+    def _copy(self, *, share_units: bool = False, **changes: Any) -> Run:
+        """A copy to change: its own units to record into, or with ``share_units`` this run's, for a caller that replaces whole nodes."""
         copy = Run(self.graph, self.inputs, max_rows=changes.get("max_rows", self.max_rows), _door=STARTING)
-        copy._units = {n: dict(us) for n, us in self._units.items()}
+        copy._units = dict(self._units) if share_units else {n: dict(us) for n, us in self._units.items()}
         copy.status, copy.cause, copy._earlier, copy._unordered = self.status, self.cause, self._earlier, set(self._unordered)
         return copy
 
@@ -557,11 +570,9 @@ def checked_max_rows(max_rows: int | None) -> None:
 # -- values -------------------------------------------------------------------------------------
 
 
-def _outputs(placed: PlacedNode, returned: Any) -> Any:
-    spread = placed.definition.spread(returned)
-    if spread is SKIPPED:
-        return SKIPPED
-    for name, spec in placed.definition.outputs.items():
+def kept_outputs(outputs: Mapping[str, FieldSpec], spread: dict[str, Any]) -> dict[str, Any]:
+    """A node's outputs by name as a run keeps them: a table as columns, a ``Series`` as a list."""
+    for name, spec in outputs.items():
         value = spread[name]
         if value is SKIPPED:
             continue
@@ -579,41 +590,6 @@ def _outputs(placed: PlacedNode, returned: Any) -> Any:
 
 def _length(value: Any) -> int:
     return 0 if value is SKIPPED or value is None else value.rows if isinstance(value, Frame) else len(value)
-
-
-def _answer_outputs(placed: PlacedNode, value: Any, question: dict[str, Any]) -> dict[str, Any]:
-    definition = placed.definition
-    if question.get("choices") is not None:
-        several = len(definition.outputs) == 1 and next(iter(definition.outputs.values())).shape == "many"
-        if several and not isinstance(value, list):
-            raise ValueError("pick a list of the choices")
-        for picked in value if several else [value]:
-            if picked not in _choice_ids(question["choices"]):
-                raise ValueError("the answer is not one of the choices")
-    if "result" in definition.outputs and len(definition.outputs) == 1:
-        spec = definition.outputs["result"]
-        if spec.shape == "table":
-            return _outputs(placed, pl.DataFrame(TypeAdapter(list[dict[str, Any]]).validate_python(value)))
-        return _outputs(placed, spec.adapter.validate_python(value))
-    return _outputs(placed, TypeAdapter(definition.returns).validate_python(value))
-
-
-def _choice_ids(choices: Any) -> list[Any]:
-    if isinstance(choices, Mapping):
-        return list(choices.keys())
-    return [getattr(choice, "id", choice) for choice in choices]
-
-
-def _answer_schema(placed: PlacedNode) -> dict[str, Any]:
-    definition = placed.definition
-    if len(definition.outputs) == 1 and "result" in definition.outputs:
-        spec = definition.outputs["result"]
-        if spec.shape == "table":
-            return {"type": "array", "items": {"type": "object", "properties": spec.describe()["columns"]}}
-        schema: dict[str, Any] = spec.adapter.json_schema()
-        return schema
-    whole: dict[str, Any] = TypeAdapter(definition.returns).json_schema()
-    return whole
 
 
 def _dump_units(placed: PlacedNode, units: Mapping[Key, Unit], keyed: bool = True) -> dict[str, Any]:

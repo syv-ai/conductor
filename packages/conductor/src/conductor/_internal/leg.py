@@ -34,9 +34,10 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal
 from pydantic import ConfigDict, Field
 from pydantic.json_schema import SkipJsonSchema
 
+from conductor._internal.ask import Ask, Waiting, WrongAsk, asked
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.errors import ExternalFailure, NodeError, Problem, make_problem
-from conductor._internal.fields import SKIPPED, Ask
+from conductor._internal.fields import SKIPPED
 from conductor._internal.run import (
     PENDING,
     Key,
@@ -44,7 +45,6 @@ from conductor._internal.run import (
     RunStatus,
     SkippedAt,
     Unit,
-    Waiting,
     _length,
     jsonable,
 )
@@ -343,7 +343,11 @@ class Leg:
         if error is None:
             return Unit("skipped") if out is SKIPPED else Unit("done", out)
         if isinstance(error, Ask):
-            return Unit("waiting", None, {"prompt": error.prompt, "choices": error.choices, "default": error.default, "widget": error.widget, "inputs": jsonable(kwargs)})
+            try:
+                added = asked(error, placed.definition)
+            except WrongAsk as wrong:
+                return make_problem("invalid_ask", placed.id, *key, reason=str(wrong))
+            return Unit("waiting", None, {"prompt": error.prompt, "inputs": jsonable(kwargs), **({"asked": added} if added else {})})
         return self._failure(placed, key, error)
 
     def _failure(self, placed: PlacedNode, key: Key, error: BaseException) -> Problem:

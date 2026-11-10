@@ -259,7 +259,7 @@ def test_ask_forms_and_several():
 
     @node("review")
     def review(name: str) -> Review:
-        raise Ask(f"Review {name}", default={"approved": True, "note": ""})
+        raise Ask(f"Review {name}", defaults={"approved": True, "note": ""})
 
     @node("tags")
     def tags(name: str) -> Series[str]:
@@ -274,8 +274,9 @@ def test_ask_forms_and_several():
                       "edges": [["s.result", "r.name"], ["s.result", "t.name"], ["s.result", "p.name"], ["t.result", "j.texts"]]})
     run = graph.run(text="Ida,Bo")
     by = {w.id: w for w in run.waiting}
-    assert by["r@0"].answer_schema["properties"]["approved"] == {"title": "Approved", "type": "boolean"}
-    assert by["p@1"].answer_schema == {"type": "boolean"} and by["t@0"].answer_schema["type"] == "array"
+    approved, note = by["r@0"].questions
+    assert (approved["name"], approved["schema"], approved["default"], note["default"]) == ("approved", {"type": "boolean"}, True, "")
+    assert by["p@1"].questions[0]["schema"] == {"type": "boolean"} and by["t@0"].questions[0]["shape"] == "many"
     run = graph.load_run(run.to_json())
     run = run.answer("r@0", {"approved": False, "note": "late"}).answer("r@1", {"approved": True, "note": ""})
     run = run.answer("t@0", ["red", "blue"]).answer("t@1", []).answer("p@0", True).answer("p@1", False).resume()

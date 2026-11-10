@@ -24,6 +24,7 @@ A node runs once per row of its level:
 from __future__ import annotations
 
 import dataclasses
+import functools
 import heapq
 import inspect
 import typing
@@ -34,6 +35,7 @@ from typing import TYPE_CHECKING, Any
 import polars as pl
 from pydantic import ValidationError
 
+from conductor._internal.ask import questions_of
 from conductor._internal.errors import InvalidCallError, Problem, make_problem, value_free_errors
 from conductor._internal.fields import (
     REQUIRED,
@@ -96,6 +98,11 @@ class PlacedNode:
     inputs: dict[str, InputPlan] = field(default_factory=dict)
     #: Each output of many values, and the level its rows are.
     makes: dict[str, Level] = field(default_factory=dict)
+
+    @functools.cached_property
+    def questions(self) -> dict[str, dict[str, Any]]:
+        """What a person is asked for each output when the node raises ``Ask``, before the ``Ask`` adds to it."""
+        return questions_of(self.definition)
 
 
 @dataclass(frozen=True)

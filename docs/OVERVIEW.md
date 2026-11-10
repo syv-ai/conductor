@@ -30,7 +30,7 @@ A blank reaches a node only if its input says `| None`. Otherwise the node isn't
 
 A node returns `SKIPPED` on a branch it did not take. A skip at a row leaves the column downstream with a gap; a skip above a node's rows skips everything under it.
 
-A node raises `Ask` when a person must answer. The rest of the graph runs on and the run ends `waiting`. `run.answer(unit, value)` writes an answer in, checked against the node's return type, and `run.resume()` goes on from there, calling no finished unit twice.
+A node raises `Ask` when a person must answer. Its return type is the answer and says how to ask (a yes or no for `bool`, one of a `Literal`'s values, a form for a frozen dataclass, records for `Table[R]`, several for `Series[X]`); `Ask(prompt, choices=, default=, widget=)` adds what only the run knows. The rest of the graph runs on and the run ends `waiting`. A waiting row's `questions` are its outputs' field records, as `describe()` writes them, with the choices, default and widget: a host draws them as it draws inputs. `run.answer(unit, value)`, or `run.answer({unit_id: value, ...})`, writes answers in, each checked against its question before anything runs, and `run.resume()` goes on from there, calling no finished unit twice.
 
 ## Retries and timeouts
 

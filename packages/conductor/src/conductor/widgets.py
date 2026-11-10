@@ -6,7 +6,7 @@ keyword-only record with a ``type``, and neither loading nor the engine
 reads it: conductor carries it from the signature to whatever draws the
 editor. An author writes one on the ``Param`` inside ``Annotated``::
 
-    language: Annotated[Text, Param(widget=Dropdown(choices=(Choice(id="en", title="English"),)))]
+    language: Annotated[Text, Param(widget=Dropdown(choices=(Choice("en", "English"),)))]
 
 Conductor ships the common controls. A host adds its own by subclassing
 ``Widget`` beside the component that renders it::
@@ -33,6 +33,7 @@ from __future__ import annotations
 
 from typing import Literal
 
+from conductor._internal.ask import Choice
 from conductor._internal.conductor_model import ConductorModel
 
 
@@ -40,13 +41,6 @@ class Widget(ConductorModel):
     """The base of every control: a ``type`` and what that control needs. A host subclasses it for a control of its own."""
 
     type: str
-
-
-class Choice(ConductorModel):
-    """One option a person may pick: the ``id`` the value stores and the ``title`` shown."""
-
-    id: str
-    title: str
 
 
 class TextWidget(Widget):
@@ -117,7 +111,6 @@ class ListWidget(Widget):
 
 
 __all__ = [
-    "Choice",
     "DatePicker",
     "Dropdown",
     "FileUpload",

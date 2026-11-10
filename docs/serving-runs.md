@@ -144,14 +144,7 @@ async def answer(run_id: str, answers: dict[str, Any], caller: CallerDep) -> dic
     row = await saved_run(run_id)
     if row.status != "waiting":
         raise HTTPException(409, "the run is not waiting")
-    run, problems = registry.load(row.graph).load_run(row.run), []
-    for unit_id, value in answers.items():
-        try:
-            run = run.answer(unit_id, value)
-        except InvalidCallError as wrong:
-            problems.extend(wrong.errors())
-    if problems:
-        raise InvalidCallError(problems)
+    run = registry.load(row.graph).load_run(row.run).answer(answers)  # every wrong answer is refused at once
     launch(run_id, row.graph, run, {Caller: caller})
     return {"id": run_id}
 
@@ -193,4 +186,4 @@ async def run_published(name: str, inputs: dict[str, Any], caller: CallerDep) ->
 
 **Writing the row.** `run_leg` runs on the event loop, so a slow synchronous write stalls every other run. Use an async driver, or `asyncio.to_thread` for a large run.
 
-**The answer's shape.** `POST /runs/{id}/answers` takes `{unit.id: value}`, each value what the node returns. A wrong answer is a 422 listing every fault, and a unit left out goes on waiting.
+**The answer's shape.** `POST /runs/{id}/answers` takes `{unit.id: value}`, each value what the node returns: its value for one output, a mapping by name for several. A client draws each unit's `questions` and checks against their `schema` and `choices` before it sends; the server checks again. A wrong answer is a 422 listing every fault, each naming the unit in `ctx.waiting_id` and, for a form, the question in `ctx.question`. A unit left out goes on waiting.

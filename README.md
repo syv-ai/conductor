@@ -154,7 +154,7 @@ def route(text: str) -> Routed:
     return Routed(text, SKIPPED) if len(text) > 3 else Routed(SKIPPED, text)
 ```
 
-**A person in the loop.** A node raises `Ask`, and its return type says what the answer is. The rest of the graph runs on and the run ends `waiting`, each waiting row in `run.waiting`, with the JSON schema of its answer.
+**A person in the loop.** A node raises `Ask`, and its return type says what the answer is and how to ask: `bool` a yes or no, a `Literal` one of its values, `str`, `int`, `float` or `date` a value, a frozen dataclass a form, `Table[R]` records, `Series[X]` several. `Ask` adds what only the run knows: `choices=` (a value, or `Choice(id, title)`), `default=` and `widget=`, or `choices=`, `defaults=` and `widgets=` by output name for several outputs. The rest of the graph runs on and the run ends `waiting`. Each row in `run.waiting` has its `questions`, one per output, with the field's JSON schema, its choices, default and widget: what a host draws a form from.
 
 ```python
 from conductor import Ask, NodeRegistry, make_graph
@@ -169,7 +169,7 @@ def approve(invoice: str) -> bool:
 
 graph = registry.load(make_graph(approve, values={"approve.invoice": "INV-1"}))
 paused = graph.run()                                     # paused.status == "waiting"
-answered = paused.answer(paused.waiting[0], True)        # checked; no node runs
+answered = paused.answer(paused.waiting[0], True)        # checked; no node runs. Several: paused.answer({unit.id: value, ...})
 finished = answered.resume()
 saved = finished.to_json()                               # graph.load_run(saved) reads it back
 ```

@@ -93,8 +93,17 @@ its stored graphs itself. What a 1.x user changes:
   writes itself with `event.model_dump_json()`. `run_end` keeps its `run` for the host and writes
   only its `status`. `node_progress` arrives at most four times a second per node.
 - **A person in the loop.** `HumanInputRequired` and `SignalRequired` are `raise Ask(prompt,
-  choices=, default=, widget=)`; the node's return type says what the answer is. In place of
-  `resume`, `run.answer(unit, value)` returns a run to resume.
+  choices=, default=, widget=)`, and the node's return type says what the answer is and how to ask:
+  `bool` a yes or no, a `Literal` one of its values, `str`, `int`, `float` or `date` a value, a
+  frozen dataclass a form (a field's default is proposed), `Table[R]` records, and `Series[X]`
+  several, so `Series[Literal[...]]` is a pick of several. A node of several outputs asks with
+  `defaults=`, `widgets=` and `choices=` by output name; `Choice(id, title)` titles a choice (it is
+  imported from `conductor`). Each `Waiting` has `questions`, one per output, in the shape
+  `describe()` gives a field, with `choices`, `default` and `widget`. An `Ask` its outputs can't be
+  answered with fails the node as `invalid_ask`. In place of `resume`, `run.answer(unit, value)`, or
+  `run.answer({unit_id: value, ...})` for several, returns a run to resume; every wrong answer is an
+  `invalid_answer` at once, naming the `question`, and nothing is answered. A `Param` widget with no
+  JSON form raises `widget_not_json`.
 - **Running again.** `run.again(**changed)` (`run.with_inputs(**changed)` to resume or stream it yourself) runs with changed inputs, the rest as before: a row that
   receives what it received before is not called again, so one row added to a CSV of 5,000 sends one
   mail. `Policy(reuse_when_inputs_match=False)` opts a node out.

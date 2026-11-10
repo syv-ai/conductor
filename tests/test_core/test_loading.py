@@ -14,6 +14,7 @@ from typing import Annotated, Any, TypedDict
 import polars as pl
 import pytest
 from conductor import (
+    Choice,
     Deprecation,
     GraphRecord,
     InvalidCallError,
@@ -25,7 +26,7 @@ from conductor import (
     make_graph,
     node,
 )
-from conductor.widgets import Choice, Dropdown, Textarea
+from conductor.widgets import Dropdown, Textarea
 from pydantic import ValidationError
 from pydantic_core import core_schema
 
