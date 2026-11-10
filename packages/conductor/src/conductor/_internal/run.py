@@ -595,8 +595,12 @@ class Run:
         return value[key[-1]]
 
     def _inputs(self, placed: PlacedNode, row: Key) -> Any:
-        """The keyword arguments for ``placed`` on ``row``; PENDING; or the ``Unit`` it comes to uncalled, skipped or blank."""
+        """The keyword arguments for ``placed`` on ``row``; PENDING; or the ``Unit`` it comes to uncalled, skipped or blank.
+
+        Every input is read before a blank is the answer: the call is skipped when any input is, and blank only when none is.
+        """
         kwargs: dict[str, Any] = {}
+        uncalled: Unit | None = None
         gathered: dict[str, list[tuple[Level, Key, Any]]] = {}
         for name, plan in placed.inputs.items():
             spec = plan.spec
@@ -615,7 +619,7 @@ class Run:
                 if value is SKIPPED:
                     return Unit("skipped", skipped_from=min(origins))
                 if value is None and not spec.optional:
-                    return Unit("blank", blank_input=name)
+                    uncalled = uncalled or Unit("blank", blank_input=name)
                 kwargs[name] = value
             elif spec.shape == "many":
                 if len(plan.sources) == 1 and plan.sources[0].node_id is None and self.inputs[plan.sources[0].output] is None:
@@ -674,8 +678,9 @@ class Run:
                 if blank_above and skipped_above + blank_above == len(plan.sources):
                     if spec.optional:  # a Series that may be None receives the blank in place of the list, as a Table does
                         kwargs[name] = None
-                        continue
-                    return Unit("blank", blank_input=name)  # the rows were never made, as their maker had a blank input: not the same as no rows
+                    else:  # the rows were never made, as their maker had a blank input: not the same as no rows
+                        uncalled = uncalled or Unit("blank", blank_input=name)
+                    continue
                 if items and len(skips) == len(items) and all(above for above, _ in skips):
                     return Unit("skipped", skipped_from=min(origin for _, origin in skips))  # every row under this one was skipped by a decision at or above it
                 gathered[name] = items
@@ -686,8 +691,10 @@ class Run:
                 if table is PENDING or isinstance(table, Unit):
                     return table
                 if table is None and not spec.optional:
-                    return Unit("blank", blank_input=name)
+                    uncalled = uncalled or Unit("blank", blank_input=name)
                 kwargs[name] = table
+        if uncalled is not None:
+            return uncalled
         if gathered:
             # A row a Series input can't take leaves every Series input on that table.
             blank = {name: {(lvl, k) for lvl, k, v in items if v is None} for name, items in gathered.items() if not takes_a_blank(placed.inputs[name].spec.type)}

@@ -116,7 +116,7 @@ except InvalidCallError as e:
 
 - **A blank skips that node on that row.** If an input's type lacks `| None`, the node isn't called there, its outputs are blank, and `run.not_called` records the node, row and input. Pydantic refuses `None` for a `str`, and failing the whole run after other rows' side effects went out is worse.
 - **`Series[X]` drops blanks, `Series[X | None]` keeps them, and `Series[X] | None` is a list that may itself be blank.** Each spelling says one thing. `Table[R] | None` reads the same way: a table never made reaches the input as `None`.
-- **`SKIPPED` is a branch not taken**, not a blank. It leaves a gap in the column, and above a node's rows it skips the node.
+- **`SKIPPED` is a branch not taken**, not a blank. It leaves a gap in the column, and above a node's rows it skips the node. A skip wins over a blank: a node with one input skipped and another blank is skipped, whichever comes first in its signature.
 - **A value from a row above is copied down.** Letting it add rows of its own was rejected: wiring in a document's name added a row, and a document showed blank after a per-document filter.
 
 ```python

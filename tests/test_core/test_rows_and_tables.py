@@ -285,6 +285,21 @@ def test_a_node_all_blank_completes_it_is_never_skipped():
     assert said[-1].status == "complete" and said[-1].run.not_called == [{"node_id": "s", "row": (), "input": "email"}]
 
 
+@pytest.mark.parametrize("blank_into", ["a", "b"])
+def test_a_node_with_a_skipped_input_is_skipped_whichever_of_its_inputs_is_blank(blank_into):
+    """Whether a node is skipped or uncalled for a blank doesn't hang on the order of its parameters: a skip wins."""
+    @node("nothing")
+    def nothing(text: str) -> str | None:
+        return None
+
+    branch_into = "b" if blank_into == "a" else "a"
+    run = ran({"id": "d", "node": "decide"}, {"id": "n", "node": "nothing"}, {"id": "p", "node": "pair"}, {"id": "u", "node": "upper"},
+              edges=(("d.no", f"p.{branch_into}"), ("n.result", f"p.{blank_into}"), ("p.result", "u.text"), ("d.yes", "u.text")),
+              registry=registry_of(decide, nothing, pair, upper), **{"d.text": "ok", "n.text": "z"})
+    assert run.results["u"]["result"] == "OK"
+    assert run.not_called == []
+
+
 def test_choice_outputs_are_skipped_when_not_called():
     @node("branched")
     def branched(email: str) -> YesNo:
