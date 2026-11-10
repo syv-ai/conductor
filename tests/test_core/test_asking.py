@@ -200,6 +200,29 @@ def test_a_form_left_short_takes_its_defaults_and_blanks_and_refuses_what_has_ne
     assert _refused(lambda: run.answer("q@0", True))[0].msg == "That is not a valid answer: answer each question by name: a mapping of approved, amount, note, due"
 
 
+@dataclass(frozen=True)
+class Routed:
+    note: str
+    escalate: str = SKIPPED
+
+
+@node("route")
+def route(text: str) -> Routed:
+    raise Ask(f"Route {text}")
+
+
+def test_a_form_field_whose_default_is_skipped_proposes_nothing_and_left_out_is_a_branch_not_taken():
+    _, run = _asking(route)
+    note, escalate = run.waiting[0].questions
+    assert (note.required, escalate.required, escalate.default) == (True, False, None)
+    run.to_json()
+
+    answered = run.answer({"q@0": {"note": "fine"}, "q@1": {"note": "late", "escalate": "boss"}}).resume()
+
+    assert answered.results["q"] == {"note": ["fine", "late"], "escalate": [None, "boss"]}
+    assert answered.results["q"] == run.graph.load_run(answered.to_json()).results["q"]
+
+
 class Line(TypedDict):
     sku: str
     qty: int

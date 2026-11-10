@@ -192,15 +192,15 @@ def _question(spec: FieldSpec, node_title: str | None) -> FieldDescription:
     changed: dict[str, Any] = {}
     if node_title is not None and spec.param.title is None:
         changed["title"] = node_title  # a lone output's own name, "result", says nothing to a person
-    if not spec.required:  # a field of a returned dataclass with a default proposes it
+    if not spec.required and spec.default is not SKIPPED:  # a field of a returned dataclass with a default proposes it
         changed["default"] = _as_json(spec, spec.default)
     question = spec.describe(**changed)
     return question.model_copy(update={"required": _required(spec, {}, limited=question.choices is not None)})
 
 
 def _required(spec: FieldSpec, added: Mapping[str, Any], *, limited: bool) -> bool:
-    """Whether an answer must give the question: not when it has a default (its field's, or one its ``Ask`` ``added``) or
-    is one of an exclusive group, nor when its type takes a blank and no choices limit what it takes."""
+    """Whether an answer must give the question: not when it has a default (its field's, ``SKIPPED`` too, or one its
+    ``Ask`` ``added``) or is one of an exclusive group, nor when its type takes a blank and no choices limit what it takes."""
     defaulted = "default" in added or not spec.required
     blank = spec.shape == "one" and spec.optional and not limited
     return not defaulted and spec.param.exclusive_group is None and not blank
@@ -230,6 +230,8 @@ def answer_outputs(placed: PlacedNode, value: Any, added: Mapping[str, Mapping[s
                 read[name] = _checked_answer(spec, value[name], offered)
             elif group is not None:
                 read[name] = SKIPPED
+            elif spec.default is SKIPPED and "default" not in extra:
+                read[name] = SKIPPED  # left out, a field whose default is SKIPPED is a branch not taken
             elif not _required(spec, extra, limited=offered is not None):
                 read[name] = read_answer(spec, extra.get("default", question.default))  # a default, or a blank where the type takes one
             else:
