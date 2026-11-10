@@ -57,7 +57,7 @@ from pydantic import ValidationError
 
 from conductor._internal.ask import Ask
 from conductor._internal.errors import InvalidCallError, Problem
-from conductor._internal.fields import FieldSpec, without_none
+from conductor._internal.fields import FieldSpec, Param, without_none
 from conductor._internal.graph import load_graph
 from conductor._internal.node_definition import (
     FunctionDefinition,
@@ -273,32 +273,35 @@ def _made_up(spec: FieldSpec) -> Any:
     """A value of the field within its limits, checked by the field; ``_CANNOT`` when there is no way to make one."""
     if spec.shape == "table":
         return _CANNOT
-    item = _one(without_none(spec.type), spec.param.constraints)
-    if item is _CANNOT:
-        return _CANNOT
-    try:
-        return spec.adapter.validate_python([item, item] if spec.shape == "many" else item)
-    except ValidationError:  # a pattern, say, that a made-up value doesn't match
-        return _CANNOT
-
-
-def _one(hint: Any, limits: Mapping[str, Any]) -> Any:
-    if typing.get_origin(hint) is Literal:
-        return typing.get_args(hint)[0]
-    if not isinstance(hint, type):
-        return _CANNOT
-    if issubclass(hint, bool):
-        return True
-    if issubclass(hint, (int, float)):
-        low = limits.get("ge", limits["gt"] + 1 if "gt" in limits else None)
-        return low if low is not None else min(1, limits.get("le", 1), limits.get("lt", 2) - 1)
-    if issubclass(hint, str):
-        return "x" * max(1, limits.get("min_length", 1))
-    if issubclass(hint, datetime.datetime):
-        return datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC)
-    if issubclass(hint, datetime.date):
-        return datetime.date(2026, 1, 1)
+    for item in _candidates(without_none(spec.type), spec.param):
+        try:
+            return spec.adapter.validate_python([item, item] if spec.shape == "many" else item)
+        except ValidationError:  # outside a limit, or a pattern it doesn't match: the field says which it takes
+            continue
     return _CANNOT
+
+
+def _candidates(hint: Any, param: Param) -> list[Any]:
+    """Values a field of ``hint`` may take, tried in order; the field's own adapter keeps the first it takes."""
+    if typing.get_origin(hint) is Literal:
+        return [typing.get_args(hint)[0]]
+    if not isinstance(hint, type):
+        return []
+    if issubclass(hint, bool):
+        return [True]
+    if issubclass(hint, (int, float)):
+        low: Any = param.ge if param.ge is not None else param.gt  # a number's limits are numbers: the Param hook refused any other
+        high: Any = param.le if param.le is not None else param.lt
+        middle = [(low + high) // 2 if issubclass(hint, int) else (low + high) / 2] if low is not None and high is not None else []
+        near = [*(() if low is None else (low, low + 1)), *(() if high is None else (high, high - 1))]
+        return [*middle, *near, 1, 0, -1]
+    if issubclass(hint, str):
+        return ["x" * max(1, param.min_length or 1)]
+    if issubclass(hint, datetime.datetime):
+        return [datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC)]
+    if issubclass(hint, datetime.date):
+        return [datetime.date(2026, 1, 1)]
+    return []
 
 
 def _may_ask(function: Callable[..., Any]) -> bool:

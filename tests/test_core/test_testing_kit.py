@@ -139,6 +139,17 @@ def test_a_hook_reading_an_input_no_value_can_be_made_up_for_needs_an_example():
     assert found(registry_of(coded), examples={"coded": [{"code": "1234"}]}) == []
 
 
+def test_a_hook_reading_a_number_between_two_limits_is_checked_on_a_value_between_them():
+    def _cut(threshold: float) -> dict[str, Any]:
+        return {"x": bool}
+
+    @node("cut", title="Cut", description="Tells whether a value passes a threshold.", compute_outputs=_cut)
+    def cut(threshold: Annotated[float, Param(gt=0, lt=1)]) -> dict[str, Any]:
+        return {"x": True}
+
+    assert found(registry_of(cut)) == []
+
+
 # -- upgrades --------------------------------------------------------------------------------------
 
 
