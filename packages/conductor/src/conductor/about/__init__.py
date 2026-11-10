@@ -1,18 +1,14 @@
-"""Runnable library context — meant to be consumed by AI agents or humans.
+"""Conductor's reference, shipped in the package: every rule on one page, ``conductor/about/llms.txt``.
 
-Usage (CLI):
+From a shell::
 
-    python -m conductor.about                  # full reference
-    python -m conductor.about sections         # list section slugs
-    python -m conductor.about scheduling       # a single section (prefix match ok)
+    python -m conductor.about                  # the whole reference
+    python -m conductor.about sections         # the section slugs
+    python -m conductor.about rows             # one section, by slug or a part of one
 
-Usage (programmatic):
+From Python::
 
     from conductor.about import get_content, list_sections, get_section
-
-The text served is ``conductor/about/llms.txt`` — the canonical reference
-text shipped inside the package. Downstream projects get it for free via
-pip/uv install without needing repo access.
 """
 
 from __future__ import annotations
@@ -42,11 +38,11 @@ def _slug(heading: str) -> str:
 
 
 def _parse_sections(text: str) -> dict[str, str]:
-    """Parse H2 and H3 headings into sections.
+    """Each ``##`` and ``###`` section by its slug.
 
-    A section runs from its heading up to the next heading of the **same or
-    higher level** (fewer ``#``), so "Retry" (H3 inside Core Concepts) ends
-    at the next H3 or when Core Concepts ends — not when a later H2 starts.
+    A section runs from its heading to the next heading of the same level or
+    a higher one (fewer ``#``), so "Retries and Timeouts", a ``###`` inside
+    "Core Concepts", ends at the next ``###`` or where "Core Concepts" ends.
     """
     matches = list(_HEADING.finditer(text))
     out: dict[str, str] = {}
@@ -63,17 +59,17 @@ def _parse_sections(text: str) -> dict[str, str]:
 
 
 def get_content() -> str:
-    """Return the full reference text."""
+    """The whole reference."""
     return _load_text()
 
 
 def list_sections() -> list[str]:
-    """Return the slugs of every top-level (``##``) section, in document order."""
+    """The slug of every ``##`` and ``###`` section, in the order the reference has them."""
     return list(_parse_sections(_load_text()).keys())
 
 
 def get_section(name: str) -> str | None:
-    """Return one section by slug. Accepts a prefix/substring match."""
+    """One section by its slug, or the first whose slug contains ``name``; ``None`` when none does."""
     sections = _parse_sections(_load_text())
     if name in sections:
         return sections[name]

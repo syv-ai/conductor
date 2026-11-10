@@ -1,12 +1,10 @@
 """Asking a person: ``raise Ask(...)`` in a node, the questions a host shows, and the answer read back.
 
 The node's return type is what the person answers, and it says how to ask:
-``-> bool`` is a yes or no, ``-> Literal["low", "high"]`` one of those,
-``-> str`` a text, ``-> int``, ``float`` or ``date`` a number or a date, a
-frozen dataclass a form of one question per field, ``-> Table[R]`` a table
-of ``R``'s columns, and ``-> Series[X]`` several of ``X``, so
-``Series[Literal[...]]`` is a pick of several. ``Ask`` adds only what the run
-knows: the prompt, the choices on offer, a proposed answer and a control.
+``-> bool`` is a yes or no, and a frozen dataclass is a form of one question
+per field. ``Ask`` adds only what the run knows: the prompt, the choices on
+offer, a proposed answer and a control. Every return type's question is in
+the reference, ``python -m conductor.about legs-and-asking``.
 
 A waiting row is a ``Waiting``, and each of its ``questions`` is the field
 record ``describe()`` gives an output, plus what the ``Ask`` said: so a host

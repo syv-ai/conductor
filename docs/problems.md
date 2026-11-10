@@ -1403,9 +1403,9 @@ def sort_in_place(texts: list[str]) -> list[str]:
     return texts
 
 
-kit = NodeRegistry()
-kit.add(sort_in_place)
-print([p.type for p in check_registry(kit, examples={"sort_in_place": [{"texts": ["b", "a"]}]})])  # ['changed_its_inputs']
+checked = NodeRegistry()
+checked.add(sort_in_place)
+print([p.type for p in check_registry(checked, examples={"sort_in_place": [{"texts": ["b", "a"]}]})])  # ['changed_its_inputs']
 ```
 
 **Fix.** Copy the value before changing it, `sorted(texts)`. The rows of a run can share one value.
@@ -1413,9 +1413,9 @@ print([p.type for p in check_registry(kit, examples={"sort_in_place": [{"texts":
 ### `example_for_no_node`
 
 ```python
-kit = NodeRegistry()
-kit.add(upper)
-print([p.type for p in check_registry(kit, examples={"uper": [{"text": "a"}]})])  # ['example_for_no_node']
+checked = NodeRegistry()
+checked.add(upper)
+print([p.type for p in check_registry(checked, examples={"uper": [{"text": "a"}]})])  # ['example_for_no_node']
 ```
 
 **Fix.** Check the id in `examples`, or remove the example.
@@ -1432,9 +1432,9 @@ def unnamed(names: str) -> dict[str, str]:
     return {}
 
 
-kit = NodeRegistry()
-kit.add(unnamed)
-print([p.type for p in check_registry(kit)])  # ['hook_failed']
+checked = NodeRegistry()
+checked.add(unnamed)
+print([p.type for p in check_registry(checked)])  # ['hook_failed']
 ```
 
 **Fix.** Make the hook work on the node's defaults and made-up values, or give an example it works on.
@@ -1451,9 +1451,9 @@ def coded(code: Annotated[str, Param(pattern=r"^\d{4}$")]) -> dict[str, str]:
     return {}
 
 
-kit = NodeRegistry()
-kit.add(coded)
-print([p.type for p in check_registry(kit)])  # ['needs_example']
+checked = NodeRegistry()
+checked.add(coded)
+print([p.type for p in check_registry(checked)])  # ['needs_example']
 ```
 
 **Fix.** Give the node an example, `examples={"coded": [{"code": "1234"}]}`.
@@ -1461,9 +1461,9 @@ print([p.type for p in check_registry(kit)])  # ['needs_example']
 ### `pause_untested`
 
 ```python
-kit = NodeRegistry()
-kit.add(approve)
-print([p.type for p in check_registry(kit)])  # ['pause_untested']
+checked = NodeRegistry()
+checked.add(approve)
+print([p.type for p in check_registry(checked)])  # ['pause_untested']
 ```
 
 **Fix.** Give an example that makes the node ask, `examples={"approve": [{"amount": 5000}]}`.
@@ -1471,9 +1471,9 @@ print([p.type for p in check_registry(kit)])  # ['pause_untested']
 ### `run_failed`
 
 ```python
-kit = NodeRegistry()
-kit.add(divide)
-print([p.type for p in check_registry(kit, examples={"divide": [{"n": 0}]})])  # ['run_failed']
+checked = NodeRegistry()
+checked.add(divide)
+print([p.type for p in check_registry(checked, examples={"divide": [{"n": 0}]})])  # ['run_failed']
 ```
 
 **Fix.** Fix the node or the example. `ctx.cause` has the run's own problem.
@@ -1490,9 +1490,9 @@ def hello_v2(first: str) -> str:
     return first
 
 
-kit = NodeRegistry()
-kit.add(hello_v2)
-print([p.type for p in check_registry(kit)])  # ['upgrade_broken']
+checked = NodeRegistry()
+checked.add(hello_v2)
+print([p.type for p in check_registry(checked)])  # ['upgrade_broken']
 ```
 
 **Fix.** Fix the `Upgrade`, so a node saved at the older version loads cleanly at the newer one.
@@ -1500,9 +1500,9 @@ print([p.type for p in check_registry(kit)])  # ['upgrade_broken']
 ### `waiver_not_needed`
 
 ```python
-kit = NodeRegistry()
-kit.add(upper)
-print([p.type for p in check_registry(kit, expected_failures={"upper:run_failed": "flaky"})])  # ['waiver_not_needed']
+checked = NodeRegistry()
+checked.add(upper)
+print([p.type for p in check_registry(checked, expected_failures={"upper:run_failed": "flaky"})])  # ['waiver_not_needed']
 ```
 
 **Fix.** Remove the waiver: the check it accepted passes.

@@ -20,9 +20,10 @@ under each row the node runs on, so the node runs once per item on each. ``displ
 conductor stores it and never reads it. An empty field is left out when the
 record is saved, so a bare node is ``{"id": "up", "node": "upper"}``.
 
-Edges are a set of ``[from, to]`` addresses, ``node.field`` or
+Edges are a list of ``[from, to]`` addresses, ``node.field`` or
 ``node.output.column`` for one column of a table, kept sorted, so two records
-that differ only in the order of their edges are equal and save alike.
+that differ only in the order of their edges are equal and save alike. An
+edge listed twice stays twice, and loading reports it (``repeated_edge``).
 Several edges into one input on rows of one table gather in that table's row
 order; on different tables, in the order their source nodes appear in
 ``nodes``, then in the order the source node declares its outputs.

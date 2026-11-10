@@ -1,7 +1,7 @@
 [project]
 name = "syv-conductor"
 version = "2.0.0"
-description = "Reusable DAG execution engine — a typed node contract, graph compilation, and a streaming engine that runs a node once per row, with retries, and runs that pause for a person."
+description = "Run graphs of typed Python functions: a graph is JSON that loads with its problems listed, runs a node once per row, and pauses for a person in a run that saves as JSON."
 requires-python = ">=3.12"
 authors = [{ name = "Syvai", email = "billy@syv.ai" }]
 license = "Apache-2.0"
