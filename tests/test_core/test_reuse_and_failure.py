@@ -1379,6 +1379,23 @@ def test_a_node_errors_own_code_inside_an_embedded_graph_fails_the_embedding_wit
     assert (run.cause.type, run.cause.loc, run.cause.msg, run.cause.ctx) == ("document_unreadable", ("r",), "Dokumentet kan ikke læses.", {"pages": 0})
 
 
+def test_an_inner_nodes_wrong_output_names_the_output_as_the_embedding_offers_it():
+    @node("a")
+    def a(x: str) -> int:
+        return "not an int"  # type: ignore[return-value]
+
+    @node("b")
+    def b(y: str) -> int:
+        return 1
+
+    box = node("emb")(make_graph(a, b, edges=[]))
+    graph = registry_of(a, b, box).load(make_graph(box))
+    run = graph.run(x="q", y="w")
+
+    assert graph.outputs == ["emb.a/result", "emb.b/result"]
+    assert (run.status, run.cause.type, run.cause.loc, run.cause.ctx["name"]) == ("failed", "invalid_output", ("emb",), "a/result")
+
+
 def test_a_saved_run_stays_the_same_size_over_one_row_edits_at_ten_thousand_rows():
     """What a finished node was carried and didn't take is dropped, so ``again`` doesn't keep every generation."""
 

@@ -1168,6 +1168,8 @@ class Graph:
             ctx["sources"] = [self._outward(source) for source in ctx["sources"]]
         if isinstance(ctx.get("tables"), list):
             ctx["tables"] = [table if table is None else self._outward(table, table=True) for table in ctx["tables"]]
+        if problem.type == "invalid_output" and isinstance(ctx.get("name"), str) and inner in self._nodes:  # the output as the embedding offers it
+            ctx["name"] = self._shown_outputs(inner).get(ctx["name"], ctx["name"])
         if problem.type not in PROBLEM_CATALOGUE:  # a node's own code: its message is its author's, and names no node
             return problem.model_copy(update={"loc": loc, "ctx": ctx})
         return make_problem(problem.type, *loc, **ctx)
