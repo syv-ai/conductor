@@ -97,8 +97,10 @@ class NodeRegistry:
                 raise NodeDeclarationError(f"{named!r} is not a type; pass the class itself", code="not_a_type")
         #: The definitions, by id, in the order they arrived.
         self._nodes: dict[str, NodeDefinition[..., Any]] = {}
+        #: The types the nodes declare, by id, in the order the nodes arrived.
+        self._declared: dict[str, type] = {}
         #: Every type, by id: the ones the nodes declare, then the named ones.
-        self._types: dict[str, type] = _types_by_id(self._named_types, ())
+        self._types: dict[str, type] = _by_id(self._named_types, {})
         #: Each stored graph's description, by id, as these nodes make it; emptied whenever what is held changes.
         self._graph_descriptions: dict[str, NodeDescription] = {}
 
@@ -151,7 +153,7 @@ class NodeRegistry:
 
     def add(self, *definitions: NodeDefinition[..., Any]) -> None:
         """Add these nodes, each under its id; an id already here raises, naming where both were declared."""
-        self._hold(self._nodes_with(definitions), self._named_types)
+        self._hold(self._nodes_with(definitions), self._named_types, added=definitions)
 
     def replace(self, definition: NodeDefinition[..., Any]) -> None:
         """Put ``definition`` in place of the node registered under its id; an id not here is a ``KeyError``."""
@@ -174,7 +176,7 @@ class NodeRegistry:
         does not reach this one.
         """
         named = (*self._named_types, *(dtype for dtype in subregistry._named_types if dtype not in self._named_types))
-        self._hold(self._nodes_with(tuple(subregistry)), named)
+        self._hold(self._nodes_with(tuple(subregistry)), named, added=tuple(subregistry))
 
     def filter(self, predicate: Callable[[NodeDefinition[..., Any]], bool]) -> NodeRegistry:
         """A new registry with this one's defaults and named types, holding the nodes ``predicate`` keeps."""
@@ -206,10 +208,14 @@ class NodeRegistry:
             return definition
         return dataclasses.replace(definition, tags=tags, category=category, extra=MappingProxyType(extra))
 
-    def _hold(self, nodes: dict[str, NodeDefinition[..., Any]], named_types: tuple[type, ...]) -> None:
-        """Hold exactly ``nodes`` and ``named_types``, once their types give one class per id."""
-        self._types = _types_by_id(named_types, nodes.values())
-        self._nodes, self._named_types = nodes, named_types
+    def _hold(
+        self, nodes: dict[str, NodeDefinition[..., Any]], named_types: tuple[type, ...], *, added: Iterable[NodeDefinition[..., Any]] | None = None,
+    ) -> None:
+        """Hold exactly ``nodes`` and ``named_types``, once their types give one class per id. ``added`` are the nodes
+        new beside the ones held, so only their types are read; without it every node's are."""
+        declared = _by_id(_types_declared_by_all(nodes.values() if added is None else added), self._declared if added is not None else {})
+        self._types = _by_id(named_types, declared)
+        self._nodes, self._named_types, self._declared = nodes, named_types, declared
         self._graph_descriptions = {}
 
     def _not_here(self, node_id: object) -> KeyError:
@@ -349,10 +355,15 @@ def _renamed_on(address: str, node_id: str, renames: Mapping[str, str]) -> str:
     return f"{owner}.{renames[field]}{dot}{column}" if owner == node_id and field in renames else address
 
 
-def _types_by_id(named: Iterable[type], definitions: Iterable[NodeDefinition[..., Any]]) -> dict[str, type]:
-    """The types ``definitions`` declare, then the named ones, by id; raises when one id names two classes."""
-    by_id: dict[str, type] = {}
-    for held in (*(held for definition in definitions for held in _types_declared_by(definition)), *named):
+def _types_declared_by_all(definitions: Iterable[NodeDefinition[..., Any]]) -> list[type]:
+    """The types ``definitions`` declare, node by node."""
+    return [held for definition in definitions for held in _types_declared_by(definition)]
+
+
+def _by_id(types: Iterable[type], start: Mapping[str, type]) -> dict[str, type]:
+    """``start``, then ``types``, by id; raises when one id names two classes."""
+    by_id = dict(start)
+    for held in types:
         existing = by_id.setdefault(type_id(held), held)
         if existing is not held:
             raise NodeDeclarationError(
