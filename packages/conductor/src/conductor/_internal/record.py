@@ -49,7 +49,7 @@ from pydantic import (
 from pydantic_core import PydanticSerializationError, from_json, to_json
 
 from conductor._internal.conductor_model import ConductorModel
-from conductor._internal.errors import InvalidCallError, Problem, make_problem
+from conductor._internal.errors import InvalidCallError, NodeDeclarationError, Problem, make_problem
 
 if TYPE_CHECKING:
     from conductor._internal.node_definition import NodeDefinition
@@ -194,10 +194,13 @@ def make_graph(
     it. With ``edges``, those are every edge of the graph. Nothing is matched
     by name.
 
-    The record is loaded against the definitions here, and every fault of what
-    the call said (an address, a value, a type, an edge into a value) raises one ``InvalidCallError`` listing each; so does a chain it
-    can't draw. A graph still half drawn (an input left open, a cycle) is
-    written: ``graph.problems`` says that when it loads.
+    The record is loaded against the definitions here, each node against the
+    one it was given (two of one id must be versions of one node, else
+    ``NodeDeclarationError`` ``duplicate_node_id``), and every fault of what
+    the call said (an address, a value, a type, an edge into a value, a chain
+    it can't draw) raises one ``InvalidCallError`` listing each. A graph still
+    half drawn (an input left open, a cycle) is written: ``graph.problems``
+    says that when it loads.
     """
     from conductor._internal.graph import load_graph  # which imports this module
     from conductor._internal.node_definition import NodeDefinition  # which imports this module
@@ -207,6 +210,7 @@ def make_graph(
             raise TypeError(f"make_graph takes node definitions, made with @node; got {argument!r}")
     ids = _ids_of(nodes)
     known = dict(zip(ids, nodes, strict=True))
+    definitions = _one_per_id(nodes)
     problems: list[Problem] = []
     typed: dict[str, dict[str, dict[str, JsonValue]]] = {"values": {}, "defaults": {}}
     for kind, given in (("values", values or {}), ("defaults", defaults or {})):
@@ -230,13 +234,13 @@ def make_graph(
             else:
                 edges.append(edge)
     else:
+        drawn = []
         for source, target in edges:
             try:
-                _checked_address(source), _checked_address(target)
+                drawn.append((_checked_address(source), _checked_address(target)))
             except ValueError as wrong:
                 problems.append(make_problem("invalid_record", "record", "edges", at=f"{source} -> {target}", reason=str(wrong), error="value_error"))
-    if problems:
-        raise InvalidCallError(problems)
+        edges = drawn
     record = GraphRecord(
         nodes=[
             NodeRecord(
@@ -247,10 +251,27 @@ def make_graph(
         ],
         edges=list(edges),
     )
-    found = [p for p in load_graph(record, {d.id: d for d in nodes}).problems if p.type in SAID_AT_THE_CALL]
-    if found:
-        raise InvalidCallError(found)
+    problems += [p for p in load_graph(record, definitions).problems if p.type in SAID_AT_THE_CALL]
+    if problems:
+        raise InvalidCallError(problems)
     return record
+
+
+def _one_per_id(nodes: Sequence[NodeDefinition[..., Any]]) -> dict[str, NodeDefinition[..., Any]]:
+    """The definitions to load the record against: the newest given of each id, which holds the older ones given as its
+    versions. Two definitions of one id that aren't versions of one node raise, as a registry does."""
+    newest: dict[str, NodeDefinition[..., Any]] = {}
+    for definition in nodes:
+        held = newest.setdefault(definition.id, definition)
+        newer, older = (definition, held) if definition.version > held.version else (held, definition)
+        if older.version not in newer.versions or newer.version_of(older.version) is not older:
+            raise NodeDeclarationError(
+                f"make_graph was given two nodes with the id {definition.id!r} that aren't versions of one node; "
+                "ids are unique, so give each its own id",
+                code="duplicate_node_id",
+            )
+        newest[definition.id] = newer
+    return newest
 
 
 #: What loading finds that ``make_graph`` raises: a fault of what the call said (an address, a value, a type, an edge

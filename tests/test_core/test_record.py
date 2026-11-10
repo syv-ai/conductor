@@ -13,6 +13,7 @@ from conductor import (
     SKIPPED,
     GraphRecord,
     InvalidCallError,
+    NodeDeclarationError,
     NodeRecord,
     Param,
     Series,
@@ -742,3 +743,31 @@ def test_a_float_that_isnt_finite_typed_in_is_written_as_its_text_so_a_record_eq
         NodeRecord(id="x", node="half", display={"z": float("inf")})
     with pytest.raises(ValidationError):
         NodeRecord(id="x", node="half", values={"x": float("nan")})
+
+
+def test_make_graph_lists_the_faults_it_finds_itself_beside_the_ones_loading_finds():
+    with pytest.raises(InvalidCallError) as refused:
+        make_graph(_count, _hello, edges=[("count.result", "hello.name"), ("count", "hello.name")], values={"nobody.x": 1})
+    assert sorted(p.type for p in refused.value.errors()) == ["invalid_record", "node_not_in_graph", "type_mismatch"]
+
+
+def test_make_graph_checks_each_node_against_the_definition_it_was_given():
+    @node("v")
+    def v1(text: str) -> str:
+        return text
+
+    @node("v", replaces=v1)
+    def v2(text: str) -> str:
+        return text
+
+    with pytest.raises(InvalidCallError) as refused:
+        make_graph(v2, v1, edges=[], values={"v-1.nope": 1})
+    assert [(p.type, p.loc) for p in refused.value.errors()] == [("unknown_input", ("v-1", "nope"))]
+
+    @node("v")
+    def other(n: int) -> int:
+        return n
+
+    with pytest.raises(NodeDeclarationError) as raised:
+        make_graph(v1, other, edges=[])
+    assert raised.value.code == "duplicate_node_id"

@@ -39,8 +39,10 @@ What changes in how you work, before the name-by-name tables:
   read `graph.problems`, each a `Problem(type, loc, msg, ctx)`. Only a record of the wrong shape raises,
   `InvalidCallError` with the code `invalid_record`. A value typed in or given that its field refuses
   (`invalid_value`, `invalid_input`) carries pydantic's value-free `errors` in `ctx`. `make_graph(*nodes, edges=, values=, defaults=)`
-  writes a record from Python and raises at the call for a fault of what it was told: an address, a
-  value, or an edge whose types don't meet (`type_mismatch`). A record's `values`, `defaults` and
+  writes a record from Python, loading each node against the definition it was given, and raises one
+  error at the call listing every fault of what it was told: an address, a
+  value, or an edge whose types don't meet (`type_mismatch`); two nodes of one id that aren't
+  versions of one node are `duplicate_node_id`. A record's `values`, `defaults` and
   `display` are JSON values; `make_graph` writes each value typed in as its JSON, a float that isn't
   finite as `"NaN"` or `"Infinity"`, so a record equals its JSON, and an `upgrade` rewrite is written
   the same way (`invalid_value` where it has no JSON form). A stored graph used as a node offers
