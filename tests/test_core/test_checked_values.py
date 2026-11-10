@@ -26,6 +26,7 @@ from conductor import (
     Policy,
     Series,
     Table,
+    make_graph,
     node,
 )
 from pydantic import BaseModel, Discriminator, Field, field_validator
@@ -319,6 +320,17 @@ def test_a_table_input_given_a_table_without_a_column_it_declares_fails_naming_t
     run = _feeding(pl.DataFrame({"name": ["Ida"]}), Table, needs_email)
 
     assert (run.cause.type, run.cause.loc, run.cause.ctx["name"], run.cause.ctx["column"]) == ("invalid_edge_value", ("b",), "contacts", "email")
+
+
+def test_a_callers_records_are_read_cell_by_cell_as_they_came_not_as_polars_made_them():
+    @node("count_contacts", title="Count contacts", description="Counts the rows of a contacts table.")
+    def count_contacts(contacts: Table[Contacts]) -> int:
+        return contacts.height
+
+    graph = registry_of(count_contacts).load(make_graph(count_contacts))
+    with pytest.raises(InvalidCallError) as refused:
+        graph.run(contacts=[{"name": "Ida", "email": "i@x"}, {"name": 5, "email": "b@x"}])  # polars would make the 5 a text
+    assert refused.value.errors()[0].ctx["column"] == "name"
 
 
 def test_a_column_of_a_known_type_its_input_wont_take_is_a_type_mismatch_when_the_graph_loads():

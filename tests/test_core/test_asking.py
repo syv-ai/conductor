@@ -311,11 +311,22 @@ def test_an_empty_list_answers_a_table_with_no_rows_and_a_wrong_record_is_refuse
     run = graph.run()
     done = run.answer("q", []).resume()
     assert done.status == "complete" and done.results["q"]["result"].columns == ["sku", "qty"] and done.results["e"]["result"] == []
-    assert [f.msg for f in _refused(lambda: run.answer("q", [{"sku": "B", "qty": 2, "colour": "red"}]))] == [
-        "That is not a valid answer: the table has no column 'colour'; it has sku, qty",
+    assert [f.msg for f in _refused(lambda: run.answer("q", [{"sku": "B"}]))] == [
+        "That is not a valid answer: the column 'qty' its row type declares is missing",
     ]
     assert _refused(lambda: run.answer("q", [{"sku": "B", "qty": "two"}]))[0].msg.startswith("That is not a valid answer: column 'qty':")
-    assert _refused(lambda: run.answer("q", "B,2"))[0].msg == "That is not a valid answer: a table is a list of records, one object per row"
+    assert _refused(lambda: run.answer("q", [{"sku": "B", "qty": "2"}]))[0].msg.startswith("That is not a valid answer: column 'qty':")  # read as a one-value answer is: strictly
+    assert _refused(lambda: run.answer("q", "B,2"))[0].msg == "That is not a valid answer: a table is a frame or a list of records, one object per row"
+
+
+def test_a_table_answer_is_read_as_a_callers_records_are_with_its_cells_read_strictly():
+    graph = _lines_graph()
+    run = graph.run()
+    extra = run.answer("q", [{"sku": "B", "qty": 2, "colour": "red"}]).resume()
+    assert extra.results["q"]["result"].columns == ["sku", "qty"] and extra.outputs == {"e.result": ["BB"]}
+    assert _refused(lambda: run.answer("q", [{"sku": "B", "qty": True}, {"sku": "C", "qty": 1}]))[0].msg == (
+        "That is not a valid answer: column 'qty': a yes or no is not a number; give a number"
+    )
 
 
 def test_a_hooks_outputs_are_asked_by_their_types():

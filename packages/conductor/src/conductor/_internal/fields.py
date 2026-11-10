@@ -25,7 +25,7 @@ import functools
 import types
 import typing
 import uuid
-from collections.abc import Iterable, Mapping
+from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import (
@@ -1074,40 +1074,60 @@ def read_table(spec: FieldSpec, value: Any, *, strict: bool, given: bool = False
     """``value`` as a table of ``spec``: every column its row type names, each read by the column's type unless its
     dtype already holds that type; a missing one is refused naming it.
 
-    A table ``given`` (typed in, or a caller's) may also be a list of records and keeps only the named columns, as
-    an edge into the input would; a table a node returns or an edge brings keeps its other columns too.
+    A table ``given`` (typed in, a caller's, or a person's answer) may also be a list of records, whose cells are read
+    as they came, and keeps only the named columns, as an edge into the input would; a table a node returns or an
+    edge brings keeps its other columns too. A table both ``given`` and ``strict`` is an answer: each cell is read from
+    its JSON form, strictly, as a one-value answer is (``read_strictly``).
     """
+    records: dict[str, list[Any]] = {}  # a given list of records, by column, before polars makes a dtype of it
+    held: Collection[str]
     if given and not isinstance(value, pl.DataFrame):
         try:
-            records = RECORDS.validate_python(value)
+            rows = RECORDS.validate_python(value)
         except ValidationError:
             raise FieldValueError("a table is a frame or a list of records, one object per row") from None
-        names = list(spec.columns) if spec.columns is not None else list(dict.fromkeys(k for r in records for k in r))
-        present = {k for r in records for k in r}
-        try:
-            value = pl.DataFrame({c: [r.get(c) for r in records] for c in names if c in present or not records}, strict=False)
-        except Exception:  # noqa: BLE001  polars' own account may quote a cell
-            raise FieldValueError("the records don't make a table") from None
-    if not isinstance(value, pl.DataFrame):
+        names = list(spec.columns) if spec.columns is not None else list(dict.fromkeys(k for r in rows for k in r))
+        present = {k for r in rows for k in r}
+        records = {c: [r.get(c) for r in rows] for c in names if c in present or not rows}
+        if spec.columns is None:
+            return _frame_of(records)
+        height, held = len(rows), records.keys()
+    elif not isinstance(value, pl.DataFrame):
         raise FieldValueError(f"a table is a polars DataFrame, not a {type(value).__name__}")
-    if spec.columns is None:
+    elif spec.columns is None:
         return value
-    missing = [c for c in spec.columns if c not in value.columns and (value.height or not given)]
+    else:
+        height, held = value.height, value.columns
+    missing = [c for c in spec.columns if c not in held and (height or not given)]
     if missing:
         raise FieldValueError(f"the column '{missing[0]}' its row type declares is missing", column=missing[0])
     read: dict[str, list[object]] = {}
     for column, hint in spec.columns.items():
-        if column not in value.columns:
-            read[column] = [None] * value.height
-        elif not already(hint, _PYTHON_OF.get(value.schema[column].base_type(), object)):
+        if column not in held:
+            read[column] = [None] * height
+        elif column in records or not already(hint, _PYTHON_OF.get(value.schema[column].base_type(), object)):
+            cells, adapter = records[column] if column in records else value[column].to_list(), spec.column_adapters[column]
             try:
-                read[column] = spec.column_adapters[column].validate_python(value[column].to_list(), strict=strict)
+                if given and strict:
+                    read[column] = adapter.validate_json(to_json(cells, inf_nan_mode="constants"), strict=True)
+                else:
+                    read[column] = adapter.validate_python(cells, strict=strict)
+            except PydanticSerializationError:
+                raise FieldValueError(f"column '{column}': the value has no JSON form", column=column) from None
             except ValidationError as error:
                 refused = _refused(error, _list_of(hint))
                 raise FieldValueError(f"column '{column}': {refused.reason}", column=column, **refused.ctx) from None
     if given:
-        return pl.DataFrame({c: read[c] if c in read else value[c] for c in spec.columns}, strict=False)
+        return _frame_of({c: read[c] if c in read else value[c] for c in spec.columns})
     return value.with_columns(pl.Series(c, cells, strict=False) for c, cells in read.items()) if read else value
+
+
+def _frame_of(columns: Mapping[str, Any]) -> pl.DataFrame:
+    """A frame of ``columns``; ``FieldValueError`` when polars can't make one of them."""
+    try:
+        return pl.DataFrame(columns, strict=False)
+    except Exception:  # noqa: BLE001  polars' own account may quote a cell
+        raise FieldValueError("the records don't make a table") from None
 
 
 def _refused(error: ValidationError, hint: Any) -> FieldValueError:

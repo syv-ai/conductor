@@ -21,18 +21,17 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, TypedDict
 
-import polars as pl
-from pydantic import JsonValue, ValidationError
+from pydantic import JsonValue
 
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.fields import (
-    RECORDS,
     REQUIRED,
     SKIPPED,
     FieldDescription,
     FieldSpec,
     FieldValueError,
     read_strictly,
+    read_table,
     shown_choices,
 )
 
@@ -379,37 +378,7 @@ def read_answer(spec: FieldSpec, value: Any) -> Any:
         FieldValueError: The value is not one the output takes.
     """
     if spec.shape == "table":
-        return _read_table(spec, value)
+        return None if value is None and spec.optional else read_table(spec, value, strict=True, given=True)  # a person's answer: its cells read strictly
     return read_strictly(spec.adapter, value)
-
-
-def _read_table(spec: FieldSpec, value: Any) -> pl.DataFrame:
-    """Reads a table answer, a ``polars.DataFrame`` or a list of records; a table with a row type has exactly its columns.
-
-    Raises:
-        FieldValueError: The value is not a table, or has a column the row type doesn't, or a cell its column refuses.
-    """
-    if isinstance(value, pl.DataFrame):
-        records = value.to_dicts()
-    else:
-        try:
-            records = RECORDS.validate_python(value)
-        except ValidationError:
-            raise FieldValueError("a table is a list of records, one object per row") from None
-    if spec.columns is None:
-        try:
-            return pl.DataFrame(records)
-        except Exception:  # noqa: BLE001  polars' own account may quote a cell
-            raise FieldValueError("the records don't make a table") from None
-    unknown = sorted({key for record in records for key in record} - spec.columns.keys())
-    if unknown:
-        raise FieldValueError(f"the table has no column '{unknown[0]}'; it has {', '.join(spec.columns)}")
-    columns = {}
-    for column, adapter in spec.column_adapters.items():
-        try:
-            columns[column] = read_strictly(adapter, [record.get(column) for record in records])
-        except FieldValueError as refused:
-            raise FieldValueError(f"column '{column}': {refused.reason}") from None
-    return pl.DataFrame(columns, strict=False)
 
 
