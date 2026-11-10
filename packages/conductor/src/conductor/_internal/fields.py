@@ -302,13 +302,6 @@ class FieldSpec:
         return self.param.title or humanised(self.name)
 
     @functools.cached_property
-    def _limited(self) -> Any:
-        """The type pydantic reads, held to the field's limits: what a value and each of its choices must be."""
-        if self.param.constraints:  # a field's title and description are its record's own, not repeated in its schema
-            return Annotated[_carried(self.type), PydanticField(**self.param.constraints)]
-        return _carried(self.type)
-
-    @functools.cached_property
     def _one(self) -> Any:
         """The type one value is checked by: the type pydantic reads, its limits, its choices, and no ``bool`` on a number.
 
@@ -397,8 +390,12 @@ class FieldSpec:
 
     @functools.cached_property
     def column_adapters(self) -> dict[str, TypeAdapter[Any]]:
-        """For a table, a check and writer of each column its row type names."""
-        return {column: TypeAdapter(_column_of(_carried(Union[_no_bool_on_a_number(hint), None])), config=_FLOATS_AS_TEXT) for column, hint in (self.columns or {}).items()}  # noqa: UP007  a cell may be blank
+        """For a table, a check and writer of each column its row type names, refusing a yes or no where ``refuses_a_bool`` says so."""
+        adapters = {}
+        for column, hint in (self.columns or {}).items():
+            checked = Annotated[hint, BeforeValidator(_not_a_bool)] if refuses_a_bool(hint) else hint
+            adapters[column] = TypeAdapter(_column_of(_carried(Union[checked, None])), config=_FLOATS_AS_TEXT)  # noqa: UP007  a cell may be blank
+        return adapters
 
     @overload
     def describe(self, record: None = None, /, **changed: Any) -> FieldDescription: ...
@@ -408,18 +405,8 @@ class FieldSpec:
 
     def describe(self, record: builtins.type[FieldDescription] | None = None, /, **changed: Any) -> FieldDescription:
         """The field as an editor reads it: its shape, its type's ``id`` and JSON schema, and what a person reads about
-        it; as a ``record`` that adds to it (a graph's input, an input placed in a graph), with what ``changed`` says."""
-        return (record or FieldDescription).model_validate({**self.as_json(), **changed})
-
-    @functools.cached_property
-    def _schemas(self) -> dict[str, Any]:
-        """The JSON schema of one value, or of each column of a table, made once: pydantic builds one in tens of microseconds."""
-        if self.shape == "table":
-            return {"columns": {c: _schema(t) for c, t in (self.columns or {}).items()}}
-        return {"schema": _schema(self._limited)}
-
-    def as_json(self) -> dict[str, Any]:
-        """``describe()`` as JSON, with only the keys the field has: what a question is made from."""
+        it; as a ``record`` that adds to it (a graph's input, an input placed in a graph), with what ``changed`` says.
+        Only the keys the field has are set."""
         out: dict[str, Any] = {"name": self.name, "title": self.title, "shape": self.shape, "required": self.required}
         if self.shape != "table":
             out["type"] = type_id(without_none(self.type))
@@ -428,13 +415,23 @@ class FieldSpec:
             out["default"] = to_jsonable_python(self.default, fallback=lambda _: None)
         offered = literal_values(self.type) if self.shape != "table" else None
         if self.param.choices is not None:
-            out["choices"] = [{**(record := choice_record(choice)), "id": to_jsonable_python(record["id"])} for choice in self.param.choices]
+            out["choices"] = [{**(said := choice_record(choice)), "id": to_jsonable_python(said["id"])} for choice in self.param.choices]
         elif offered is not None:
             out["choices"] = [{"id": to_jsonable_python(value), "title": str(value)} for value in offered]
         for key in ("description", "widget", "exclusive_group"):
             if getattr(self.param, key) is not None:
                 out[key] = to_jsonable_python(getattr(self.param, key), fallback=str)
-        return out
+        return (record or FieldDescription).model_validate({**out, **changed})
+
+    @functools.cached_property
+    def _schemas(self) -> dict[str, Any]:
+        """The JSON schema of one value, or of each column of a table, made once: pydantic builds one in tens of microseconds."""
+        if self.shape == "table":
+            return {"columns": {c: _schema(t) for c, t in (self.columns or {}).items()}}
+        limited = _carried(self.type)
+        if self.param.constraints:  # a field's title and description are its record's own, not repeated in its schema
+            limited = Annotated[limited, PydanticField(**self.param.constraints)]
+        return {"schema": _schema(limited)}
 
 
 class FieldDescription(ConductorModel):
@@ -807,11 +804,6 @@ def refuses_a_bool(hint: Any) -> bool:
     return any(map(_a_number_type, options)) and not any(map(_takes_a_bool, options))
 
 
-def _no_bool_on_a_number(hint: Any) -> Any:
-    """A column's ``hint``, refusing a yes or no where ``refuses_a_bool`` says so."""
-    return Annotated[hint, BeforeValidator(_not_a_bool)] if refuses_a_bool(hint) else hint
-
-
 def _options(hint: Any) -> list[Any]:
     """The types a hint allows."""
     return list(get_args(hint)) if get_origin(hint) in (Union, types.UnionType) else [hint]
@@ -827,23 +819,18 @@ def _one_accepts(target: Any, source: Any) -> bool:
         if get_origin(target) is Literal:  # a narrower Literal lands on one holding every value it may be
             return {(type(v), v) for v in get_args(source)} <= {(type(v), v) for v in get_args(target)}
         return all(_one_accepts(target, type(v)) for v in get_args(source))
-    if typing.is_typeddict(target):
-        return _typeddict_accepts(target, source)
+    if typing.is_typeddict(target):  # read by its keys, as a type checker reads one: nothing else lands on it
+        if not typing.is_typeddict(source):
+            return False
+        wanted, held = typing.get_type_hints(target), typing.get_type_hints(source)
+        # it holds every key the target does, each a type that fits, required wherever the target requires it
+        return target.__required_keys__ <= source.__required_keys__ and all(key in held and accepts(hint, held[key]) for key, hint in wanted.items())
     if isinstance(target, type) and isinstance(source, type):
         own = getattr(target, "accepts", None)  # a host's type may widen what lands on it
         if issubclass(source, bool) and is_a_number(target):
             return False  # a yes or no is never a number, a host's own included
         return lands_as_it_is(target, source) or (target is float and issubclass(source, int)) or (callable(own) and bool(own(source)))
     return False
-
-
-def _typeddict_accepts(target: Any, source: Any) -> bool:
-    """A TypedDict lands on another whose keys it holds, each with a type that fits, and required wherever the target
-    requires it: read by its keys, as a type checker reads one. Nothing else lands on a TypedDict."""
-    if not typing.is_typeddict(source):
-        return False
-    wanted, given = typing.get_type_hints(target), typing.get_type_hints(source)
-    return target.__required_keys__ <= source.__required_keys__ and all(key in given and accepts(hint, given[key]) for key, hint in wanted.items())
 
 
 def type_id(hint: Any) -> str:
