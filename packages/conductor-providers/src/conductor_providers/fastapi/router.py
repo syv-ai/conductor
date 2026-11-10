@@ -459,7 +459,7 @@ def _ended(run: Run) -> RunChanges:
     """What a leg's end writes of ``run`` beside the run itself: its waiting rows, its outputs once complete (a table as
     records, wherever it sits, a float that isn't finite as text, as every JSON conductor writes), and its cause."""
     changes: RunChanges = {
-        "waiting": to_json([unit.model_dump(mode="json") for unit in run.waiting]).decode(),
+        "waiting": to_json(run.waiting).decode(),
         "cause": run.cause.model_dump_json() if run.cause is not None else None,
     }
     if run.status == "complete":
