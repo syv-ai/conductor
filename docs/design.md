@@ -5,7 +5,7 @@ This page is a reviewer's guide to 2.0's design. It goes topic by topic: what ea
 ## What conductor is
 
 - **A general library for running graphs of typed Python functions.** Someone writes the functions, someone else draws the graph in an editor, and the graph reaches the host as JSON. The core has no web framework, database or login. Its source uses no host's words, and `tests/test_core/test_surface.py` checks that. Fitting it to one platform would narrow the library and give the code nothing.
-- **Two surfaces, two bars.** The node author's surface (`@node`, `Param`, `Series`, `Table`, `SKIPPED`, `Ask`, the errors) is general and stable, because other packages are written against it. The host's surface (load, run, answer, save, events) holds only what a real host calls. Four modules are public: `conductor`, `conductor.widgets`, `conductor.events` and `conductor.testing`. Anything in `conductor._internal` may move.
+- **Two surfaces, two bars.** The node author's surface (`@node`, `Param`, `Series`, `Table`, `SKIPPED`, `Ask`, the errors) is general and stable, because other packages are written against it. The host's surface (load, run, answer, save, events) holds only what a real host calls. Five modules are public: `conductor`, `conductor.widgets`, `conductor.events`, `conductor.testing` and `conductor.about`, the reference. Anything in `conductor._internal` may move.
 
 ## The front door and the registry
 

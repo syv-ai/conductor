@@ -24,9 +24,9 @@ declare on their inputs and outputs, plus the ``types`` a host names, each
 under its ``id`` (its own ``id`` attribute, else its class name). Nothing
 about a type is process-wide, so two registries in one process may each
 hold a ``text`` of their own; one id claimed by two classes in one registry
-raises where the second arrives, naming both. ``accepted_as`` (every type
-here that admits a given one) is answered here, and ``describe()`` is what
-an editor reads: every node and every type, once, as a ``RegistryDescription``.
+raises where the second arrives, naming both. ``describe()`` is what an
+editor reads: every node and every type, once, as a ``RegistryDescription``,
+each type with the ids of every type here that admits it (``accepted_as``).
 
 ``registry.load(record)`` reads a stored graph into a ``Graph`` that keeps
 its own copy of the definitions it resolved, so a later change to the
@@ -222,7 +222,7 @@ class NodeRegistry:
         """Every type by its id: the ones the nodes declare, then the ones a host named. Read-only."""
         return MappingProxyType(self._types)
 
-    def accepted_as(self, value_type: type) -> tuple[str, ...]:
+    def _accepted_as(self, value_type: type) -> tuple[str, ...]:
         """The ids of every type here a value of ``value_type`` may land on, its own included.
 
         Worked out from subclassing and each type's ``accepts``, so no table of
@@ -234,7 +234,7 @@ class NodeRegistry:
         """This registry as an editor reads it: every node, and every type with where a value of it may land."""
         return RegistryDescription(
             nodes=[self._described(definition) for definition in self._nodes.values()],
-            types=[TypeDescription(id=type_id_, title=type_title(held), accepted_as=list(self.accepted_as(held))) for type_id_, held in self._types.items()],
+            types=[TypeDescription(id=type_id_, title=type_title(held), accepted_as=list(self._accepted_as(held))) for type_id_, held in self._types.items()],
         )
 
     def _described(self, definition: NodeDefinition[..., Any]) -> NodeDescription:

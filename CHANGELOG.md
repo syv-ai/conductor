@@ -14,8 +14,9 @@ rule.
 
 What changes in how you work, before the name-by-name tables:
 
-- **Four modules.** Import from `conductor`, `conductor.widgets`, `conductor.events` and
-  `conductor.testing`. Everything else is `conductor._internal`.
+- **Five modules.** Import from `conductor`, `conductor.widgets`, `conductor.events`,
+  `conductor.testing` and `conductor.about`, the reference. Everything else is `conductor._internal`.
+  A type's `accepted_as` is read from `registry.describe().types`.
 - **A node is a typed function.** `@node("id")` (registers nothing) or `@registry.node("id")`
   returns a frozen, callable `NodeDefinition`. The signature is the interface:
   `Annotated[str, Param(title=, widget=, ge=, ...)]` for what a person sees and the limits a value

@@ -6,9 +6,10 @@ A node author writes ``@node`` functions with ``Param``, ``Series``, ``Table``,
 takes answers, resumes and goes again, and is JSON throughout.
 
 This module, ``conductor.widgets`` (the input controls), ``conductor.events``
-(what a run says as it goes) and ``conductor.testing`` (one test for a whole
-registry) are everything a caller outside the library imports; each lists its
-names in ``__all__``.
+(what a run says as it goes), ``conductor.testing`` (one test for a whole
+registry) and ``conductor.about`` (this reference, ``python -m conductor.about``)
+are everything a caller outside the library imports; each lists its names in
+``__all__``.
 Everything in ``conductor._internal`` is the library's own and may move.
 """
 

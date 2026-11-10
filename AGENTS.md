@@ -36,11 +36,11 @@ CI runs ruff and pytest on every PR. Tests marked `slow` time the wall clock and
 - **The widget set is open.** Conductor ships the common controls; a host subclasses `Widget` for its own. Loading and the engine never read a widget. What a value must satisfy goes on `Param` (`ge`, `le`, `max_length`, ...), where it is enforced.
 - **Two definitions under one id raise** when the second is added to a registry; so does one type id from two classes.
 - **Fail loud.** No defensive `None` checks or silent defaults where the state means a bug.
-- **Imports.** Code outside the core library imports only from the four public modules: `conductor`, `conductor.widgets`, `conductor.events` and `conductor.testing`. Inside the core, import a name from the module that defines it. Only those four and `conductor.about` declare `__all__`.
+- **Imports.** Code outside the core library imports only from the five public modules: `conductor`, `conductor.widgets`, `conductor.events`, `conductor.testing` and `conductor.about`. Inside the core, import a name from the module that defines it. Only those five declare `__all__`.
 - **Identifiers are English.**
 - **Notebook outputs are stripped on commit.** Run the cells to see values.
 - **Keep the docs true.** A change to public API updates `README.md`, `docs/`, `llms.txt` and the skills in the same change, and adds a `CHANGELOG.md` line under `[Unreleased]`. Keep every Python block in the docs runnable. Docs describe what the code does; where a commit message and the code disagree, trust the code.
 
 ## Public API
 
-The public API is what the four public modules list in `__all__`. Everything in `conductor._internal`, including anything with a leading underscore, is internal. A breaking change to the public API needs a major version.
+The public API is what the five public modules list in `__all__`. Everything in `conductor._internal`, including anything with a leading underscore, is internal. A breaking change to the public API needs a major version.

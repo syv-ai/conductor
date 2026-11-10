@@ -96,7 +96,7 @@ Each is a plain function, given per version (`compute_added_inputs=` and `comput
 
 Any type pydantic can check and write as JSON travels on edges: `str`, `int`, `float`, `bool`, `date`, `datetime`, a pydantic model, a dataclass or `TypedDict` of your own; a plain class is refused (`type_not_carried`). A subtype lands where its parent is asked for, an `int` lands on a `float`, a `Literal` on a `Literal` holding all its values. A type alias (`type X = ...`, pydantic's JsonValue) is read by its JSON form: what may be written as one of its JSON types lands on it (text, a number or a yes or no on a JsonValue), and it takes a blank as a value when its JSON form may be `null`. A class of your own may declare `id` (the name an editor knows it by, its class name otherwise) and `display_title` as class attributes (`id = "money"`, or annotated `ClassVar[str]`; a field named `id` is each value's own and names nothing), and may declare a classmethod `accepts(source)` that lets values of another type land on it. A subclass of a builtin (`class Text(str)`) is checked as the builtin, then made one. A yes or no never lands on an `int` or `float` input, nor on a host's subclass of one whatever its `accepts` says, by edge (`type_mismatch`), typed-in value (`invalid_value`) or caller (`invalid_input`).
 
-- `registry.types`: every type its nodes declare plus `NodeRegistry(types=[...])`, by id; one id claimed by two classes raises (`duplicate_type_id`). `registry.accepted_as(T)`: the ids a value of `T` may land on.
+- `registry.types`: every type its nodes declare plus `NodeRegistry(types=[...])`, by id; one id claimed by two classes raises (`duplicate_type_id`). `registry.describe().types[...].accepted_as`: the ids a value of that type may land on.
 - `Series[X]`: many values of one type. A plain list to the node and to a type checker; a `polars.Series` returned for one is read as its values, though a checker wants `series.to_list()`. `list[X]` stays one value that is a list.
 - `Table[R]`, whose columns a `TypedDict` names by bare type (a column typed `Annotated[...]` is `annotated_extra_unknown`, as its limits would go unread), or bare `Table`: a whole table, a `polars.DataFrame` at run time. To a type checker it is a frame that names `R`: frame methods need no narrowing and a plain `polars.DataFrame` may be returned. A checker shows `R` (`reveal_type`, `assert_type`), but it accepts a table of one row type where another is expected, because the type includes a plain `polars.DataFrame`.
 
@@ -262,7 +262,7 @@ Four public modules: `conductor`, `conductor.widgets`, `conductor.events` and `c
 
 - Nodes: `node`, `NodeDefinition`, `Upgrade`, `Policy`, `Deprecation`, `Param`, `FromRun`, `Series`, `Table`
 - In a node: `SKIPPED`, `Ask`, `Choice`, `NodeError`, `ExternalFailure`
-- Registry: `NodeRegistry(*, category="", tags=(), extra=None, types=())` (`@registry.node`, `add(*definitions)`, `replace(definition)`, `remove(node_id)`, `add_subregistry(registry)`, `filter(predicate)`, `load(record)`, `upgrade(record, node_id, to=None)`, `in`, `[]`, `len`, iteration over the definitions, `types`, `accepted_as`, `describe`). A node entering a registry takes its defaults: tags add up, outermost first; the node's own `category` and `extra` keys win. A second node under one id raises; a subregistry is copied in when added.
+- Registry: `NodeRegistry(*, category="", tags=(), extra=None, types=())` (`@registry.node`, `add(*definitions)`, `replace(definition)`, `remove(node_id)`, `add_subregistry(registry)`, `filter(predicate)`, `load(record)`, `upgrade(record, node_id, to=None)`, `in`, `[]`, `len`, iteration over the definitions, `types`, `describe`). A node entering a registry takes its defaults: tags add up, outermost first; the node's own `category` and `extra` keys win. A second node under one id raises; a subregistry is copied in when added.
 - Graph: `GraphRecord`, `NodeRecord`, `make_graph`, `Graph`
 - A run: `Run`, `Waiting`
 - Errors: `NodeDeclarationError`, `InvalidCallError`, `Problem`, `PROBLEM_CODES`
@@ -316,7 +316,7 @@ The core has no HTTP in it. `syv-conductor-providers` has `conductor_providers.f
 
 ```
 packages/
-└── conductor/src/conductor/            __init__, widgets, events, testing: the four public modules
+└── conductor/src/conductor/            __init__, widgets, events, testing, about: the five public modules
     ├── about/                          this document
     └── _internal/                      everything else; import nothing from here
 ```

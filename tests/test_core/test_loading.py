@@ -901,7 +901,8 @@ def test_a_yes_or_no_never_lands_on_a_hosts_number_type_whose_own_rule_lets_an_i
     def ask_number() -> Number:
         raise Ask("How many?")
 
-    assert "number" not in registry.accepted_as(bool) and "number" in registry.accepted_as(int)
+    accepted_as = {t.id: t.accepted_as for t in registry.describe().types}
+    assert "number" not in accepted_as["bool"] and "number" in accepted_as["number"]
     mistyped = {"nodes": [{"id": "yes", "node": "yes"}, {"id": "half", "node": "half"}], "edges": [["yes.result", "half.value"]]}
     assert [p.type for p in registry.load(mistyped).problems] == ["type_mismatch"]
     (problem,) = registry.load({"nodes": [{"id": "h", "node": "half", "values": {"value": True}}]}).problems
