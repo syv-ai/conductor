@@ -956,7 +956,7 @@ except NodeDeclarationError as error:
 
 > {spec.name}: a table takes no limits; take them off
 
-> {spec.name}: {sorted(limits)} can't apply to {getattr(base, '__name__', base)}; ge, gt, le, lt and multiple_of fit numbers and dates, min_length, max_length and pattern texts
+> {unheld} can't apply to {getattr(_bare(source), '__name__', source)}, as pydantic holds no such limit on it; take them off, or check the value in the node
 
 > Param has no argument {unknown[0]}; it takes title, description, widget, exclusive_group, choices and the limits {sorted(_NUMERIC | _SIZED)}
 
@@ -971,11 +971,13 @@ except NodeDeclarationError as error:
     print(error.code)  # bound_invalid
 ```
 
-**Fix.** Use limits that fit the type: `ge`, `gt`, `le`, `lt` and `multiple_of` for numbers and dates, `min_length`, `max_length` and `pattern` for text. A table takes none.
+**Fix.** Use limits pydantic holds on the type: `ge`, `gt`, `le`, `lt` and `multiple_of` on numbers (a `Decimal` too), dates, times and durations; `min_length` and `max_length` on texts, bytes, lists, tuples, sets and dicts; `pattern` on texts. A table takes none. The same holds for a `Param` on a field of a model a node takes.
 
 ### `choices_invalid`
 
-> {spec.name}: {fault}; give each choice once, as a value of the field's type
+> {spec.name}: a table takes no choices; take them off
+
+> {fault}; give each choice once, as a value of the field's type
 
 ```python
 from typing import Literal

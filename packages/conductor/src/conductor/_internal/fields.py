@@ -20,6 +20,7 @@ import builtins
 import copy
 import dataclasses
 import datetime
+import decimal
 import functools
 import inspect
 import types
@@ -112,12 +113,12 @@ _SIZED = frozenset({"min_length", "max_length", "pattern"})
 
 
 class Limits(TypedDict, total=False):
-    """The limits ``Param`` takes, by pydantic's words: a number's or a date's bounds, a text's length and pattern."""
+    """The limits ``Param`` takes, by pydantic's words: a number's, a date's, a time's or a duration's bounds, a text's or a collection's length, a text's pattern."""
 
-    ge: float | datetime.date
-    gt: float | datetime.date
-    le: float | datetime.date
-    lt: float | datetime.date
+    ge: float | decimal.Decimal | datetime.date | datetime.time | datetime.timedelta
+    gt: float | decimal.Decimal | datetime.date | datetime.time | datetime.timedelta
+    le: float | decimal.Decimal | datetime.date | datetime.time | datetime.timedelta
+    lt: float | decimal.Decimal | datetime.date | datetime.time | datetime.timedelta
     multiple_of: float
     min_length: int
     max_length: int
@@ -171,18 +172,35 @@ class Param:
     def __get_pydantic_core_schema__(self, source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
         """``source`` checked and held to these limits and choices, so ``Annotated[int, Param(ge=0)]`` is checked alike in any pydantic model.
 
-        Each choice's id is read as an answer is (``read_strictly``) by the limited type, once, when a value is first checked.
+        A limit pydantic doesn't hold on ``source``, or a choice that isn't a value of it, is refused here, as the
+        schema is made: each choice's id is read as an answer is (``read_strictly``) by the limited type.
         """
+        unheld = _unheld(source, tuple(self.constraints.items()))
+        if unheld:
+            raise NodeDeclarationError(
+                f"{unheld} can't apply to {getattr(_bare(source), '__name__', source)}, as pydantic holds no such limit on it; take them off, or check the value in the node",
+                code="bound_invalid",
+            )
         limited = handler(Annotated[source, PydanticField(**self.constraints)] if self.constraints else source)
-        if self.choices is None or literal_values(source) is not None:  # a Literal's choices title its values
+        if self.choices is None:
             return limited
         reader = TypeAdapter(Annotated[source, PydanticField(**self.constraints)] if self.constraints else source)
-        offered = [choice["id"] for choice in self.choices]
-        ids: list[Any] = []
+        fault, ids = "", []
+        try:
+            ids = [read_strictly(reader, choice["id"]) for choice in self.choices]
+        except Refused as refused:
+            fault = f"a choice is not a value of the field's type: {refused.reason}"
+        offered = literal_values(source)
+        if not fault and (len({repr(i) for i in ids}) != len(ids) or not ids):
+            fault = "the choices hold an id twice, or none"
+        elif not fault and offered is not None and {repr(i) for i in ids} != {repr(v) for v in offered}:
+            fault = f"on a Literal the choices title its values, one each: {list(offered)}"
+        if fault:
+            raise NodeDeclarationError(f"{fault}; give each choice once, as a value of the field's type", code="choices_invalid")
+        if offered is not None:  # a Literal's choices title its values
+            return limited
 
         def one_of_the_choices(value: Any) -> Any:
-            if not ids:
-                ids.extend(read_strictly(reader, choice) for choice in offered)
             if value is not None and value not in ids:
                 raise PydanticCustomError("not_a_choice", "the value is not one of the choices")
             return value
@@ -339,12 +357,6 @@ class FieldSpec:
     def list_adapter(self) -> TypeAdapter[Any]:
         """Checks a list given for a field that takes one value, each run as its own row, and writes it as JSON."""
         return TypeAdapter(_list_of(self._lax_one), config=_FLOATS_AS_TEXT)
-
-    @functools.cached_property
-    def choice_ids(self) -> tuple[Any, ...]:
-        """The ids of ``Param(choices=)``, each read as an answer is (``read_strictly``) by the field's type and held to its limits."""
-        one = TypeAdapter(self._limited)
-        return tuple(read_strictly(one, choice["id"]) for choice in self.param.choices or ())
 
     @functools.cached_property
     def plain(self) -> bool:
@@ -545,26 +557,6 @@ def _without_params(hint: Any) -> tuple[Any, list[Param]]:
     return hint, []
 
 
-def _check_choices(spec: FieldSpec, where: str) -> None:
-    """``Param(choices=)`` fits its field: each id a value of the type, none twice, and on a ``Literal`` its values, each once."""
-    fault = ""
-    if spec.shape == "table":
-        fault = "a table takes no choices"
-    else:
-        try:
-            ids = spec.choice_ids
-        except Refused as refused:
-            fault = f"a choice is not a value of the field's type: {refused.reason}"
-        else:
-            offered = literal_values(spec.type)
-            if len({repr(i) for i in ids}) != len(ids) or not ids:
-                fault = "the choices hold an id twice, or none"
-            elif offered is not None and {repr(i) for i in ids} != {repr(v) for v in offered}:
-                fault = f"on a Literal the choices title its values, one each: {list(offered)}"
-    if fault:
-        raise NodeDeclarationError(f"{where}{spec.name}: {fault}; give each choice once, as a value of the field's type", code="choices_invalid")
-
-
 def _holds_from_run(hint: Any) -> bool:
     """Whether a ``FromRun`` mark sits anywhere in ``hint``."""
     if get_origin(hint) is Annotated and any(isinstance(m, _FromRunMarker) for m in get_args(hint)[1:]):
@@ -583,14 +575,16 @@ def _checked(spec: FieldSpec, where: str) -> FieldSpec:
     limits = set(spec.param.constraints)
     if spec.shape == "table" and limits:
         raise NodeDeclarationError(f"{where}{spec.name}: a table takes no limits; take them off", code="bound_invalid")
-    numeric = base in (int, float, datetime.date, datetime.datetime) or (isinstance(base, type) and issubclass(base, (int, float)))
-    sized = base in (str, bytes) or (isinstance(base, type) and issubclass(base, (str, bytes)))
-    if (limits & _NUMERIC and not numeric) or (limits & _SIZED and not sized):
-        raise NodeDeclarationError(f"{where}{spec.name}: {sorted(limits)} can't apply to {getattr(base, '__name__', base)}; ge, gt, le, lt and multiple_of fit numbers and dates, min_length, max_length and pattern texts", code="bound_invalid")
+    if spec.shape == "table" and spec.param.choices is not None:
+        raise NodeDeclarationError(f"{where}{spec.name}: a table takes no choices; take them off", code="choices_invalid")
     if spec.shape == "table":
         return spec
     try:
         spec.adapter  # noqa: B018
+    except NodeDeclarationError as error:  # a Param that doesn't fit its type, the field's own or one in a model it holds
+        error.message = f"{where}{spec.name}: {error.message}"
+        error.args = (error.message,)
+        raise
     except Exception as error:  # noqa: BLE001  pydantic can't build a schema for this type
         if limits:
             raise NodeDeclarationError(f"{where}{spec.name}: the limits {spec.param.constraints!r} don't fit {getattr(base, '__name__', base)}: {error}", code="bound_invalid") from None
@@ -599,8 +593,6 @@ def _checked(spec: FieldSpec, where: str) -> FieldSpec:
             "use a type pydantic knows, such as a pydantic model or a dataclass",
             code="type_not_carried",
         ) from None
-    if spec.param.choices is not None:
-        _check_choices(spec, where)
     if spec.default is None and spec.shape != "table" and not spec.optional:
         raise NodeDeclarationError(f"{where}{spec.name}: the default None is a blank; write its type with | None", code="default_invalid")
     if not spec.required and spec.default is not None and spec.default is not SKIPPED:
@@ -613,6 +605,33 @@ def _checked(spec: FieldSpec, where: str) -> FieldSpec:
 
 
 _BUILTINS = (bool, int, float, str, bytes, datetime.datetime, datetime.date)
+
+
+def _bare(hint: Any) -> Any:
+    """The type pydantic applies a limit to: ``| None`` and a carried subclass's ``Annotated`` off, the subclass as its builtin."""
+    bare = without_none(hint)
+    bare = get_args(bare)[0] if get_origin(bare) is Annotated else bare
+    return next((b for b in _BUILTINS if issubclass(bare, b)), bare) if isinstance(bare, type) else bare
+
+
+def _unheld(hint: Any, constraints: tuple[tuple[str, Any], ...]) -> list[str]:
+    """The limits pydantic's schema for ``hint`` doesn't carry, so it would only try them on a value, and fail."""
+    if not constraints:
+        return []
+    try:
+        return _unheld_on(hint, constraints)
+    except TypeError:  # a hint holding a Param (``list[Annotated[int, Param(ge=0)]]``) can't key a cache
+        return _unheld_on.__wrapped__(hint, constraints)
+
+
+@functools.cache
+def _unheld_on(hint: Any, constraints: tuple[tuple[str, Any], ...]) -> list[str]:
+    limited: Any = Annotated[_bare(hint), PydanticField(**dict(constraints))]
+    try:
+        held = TypeAdapter(limited).core_schema
+    except Exception:  # noqa: BLE001  a limit of the wrong kind (ge="a"): building the field itself says so
+        return []
+    return sorted(key for key, _ in constraints if key not in held)
 
 
 def _carried(hint: Any) -> Any:

@@ -1253,3 +1253,50 @@ def test_a_stored_graph_takes_no_policy_or_hook_since_its_own_nodes_run_by_their
     with pytest.raises(NodeDeclarationError) as raised:
         node("wrapped", **given)(record)
     assert raised.value.code == "not_for_a_graph"
+
+
+def test_a_limit_pydantic_holds_on_a_type_is_taken_and_one_it_cant_is_refused_in_a_model_a_node_takes_too():
+    import dataclasses
+    import datetime
+    import decimal
+
+    def held(
+        price: Annotated[decimal.Decimal, Param(ge=0)],
+        wait: Annotated[datetime.timedelta, Param(ge=datetime.timedelta(0))],
+        tags: Annotated[list[str], Param(min_length=1)],
+    ) -> int:
+        return 0
+
+    spec = declared(held).inputs
+    with pytest.raises(Exception, match="greater than or equal"):
+        spec["price"].lax_adapter.validate_python(decimal.Decimal("-1"))
+    with pytest.raises(Exception, match="at least 1"):
+        spec["tags"].lax_adapter.validate_python([])
+
+    @dataclasses.dataclass(frozen=True)
+    class Order:
+        code: Annotated[str, Param(ge=0)]
+
+    def takes(order: Order) -> int:
+        return 0
+
+    with pytest.raises(NodeDeclarationError) as raised:
+        declared(takes)
+    assert raised.value.code == "bound_invalid"
+
+
+def test_a_param_whose_choices_are_not_values_of_its_type_is_refused_at_node_in_a_model_a_node_takes_and_on_a_table():
+    @dataclasses.dataclass(frozen=True)
+    class Order:
+        n: Annotated[int, Param(choices=["one", "two"])]
+
+    def takes(order: Order) -> int:
+        return 0
+
+    def on_table(x: Annotated[Table, Param(choices=["a"])]) -> int:
+        return 0
+
+    for wrong in (takes, on_table):
+        with pytest.raises(NodeDeclarationError) as raised:
+            declared(wrong)
+        assert raised.value.code == "choices_invalid"
