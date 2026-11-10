@@ -78,7 +78,7 @@ Every public name of 1.12.2, by the module it was imported from. A name not list
 | `conductor.widgets.ConnectionList` | gone: a `Series[X]` input takes every edge into it |
 | `conductor.widgets.DatePicker` | `DatePicker` |
 | `conductor.widgets.DependentDropdown` | gone: a host subclasses `Widget` |
-| `conductor.widgets.Dropdown` | `Dropdown`, its choices `Choice(id, title)`; a `Literal` input's choices fill it |
+| `conductor.widgets.Dropdown` | `Dropdown`, which takes no choices: they live on the field, `Param(choices=[Choice(id, title)])` or a `Literal` |
 | `conductor.widgets.EntityDropdown` | gone: a host subclasses `Widget` |
 | `conductor.widgets.FileUpload` | `FileUpload` |
 | `conductor.widgets.HumanReview` | `raise Ask(...)` in the node; its return type says what is asked |
