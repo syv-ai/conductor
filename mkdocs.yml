@@ -1,7 +1,12 @@
 site_name: Conductor Documentation
 site_description: Documentation for Conductor, an engine that runs graphs of typed nodes.
 nav:
-  - Home: index.md
-  - Overview: OVERVIEW.md
-  - Widgets: widgets.md
+  - First steps: index.md
+  - Writing nodes for others: writing-nodes.md
+  - How it works: OVERVIEW.md
   - Serving runs over HTTP: serving-runs.md
+markdown_extensions:
+  # docs/index.md is README.md, included whole, so the first page has one source.
+  - pymdownx.snippets:
+      base_path: ["."]
+      check_paths: true

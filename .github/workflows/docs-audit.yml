@@ -64,7 +64,7 @@ jobs:
               AGENTS.md
               README.md
               packages/conductor/src/conductor/about/llms.txt
-              docs/index.md, docs/OVERVIEW.md, docs/widgets.md
+              docs/OVERVIEW.md, docs/writing-nodes.md, docs/serving-runs.md
               skills/add-node/SKILL.md, skills/create-graph/SKILL.md
 
           Look for drift:

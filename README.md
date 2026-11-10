@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="logo-white-background.png" alt="Conductor logo" width="140">
+  <img src="https://raw.githubusercontent.com/syv-ai/conductor/main/docs/assets/logo-white-background.png" alt="Conductor logo" width="140">
 </p>
 
 <h1 align="center">Conductor</h1>
@@ -8,202 +8,163 @@
   Run graphs of typed Python functions.
 </p>
 
-```python
-from conductor import NodeRegistry, make_graph
+You write the functions. Someone else draws the graph in an editor, and it reaches you as JSON. Conductor loads it, tells you what's wrong with it, and runs it: once per row wherever a table arrives, pausing where a node asks a person. A run is JSON too, so it can wait days for an answer.
 
-registry = NodeRegistry()
-
-
-@registry.node("upper")
-def upper(text: str) -> str:
-    return text.upper()
-
-
-@registry.node("exclaim")
-def exclaim(text: str, times: int = 1) -> str:
-    return text + "!" * times
-
-
-graph = registry.load(make_graph(upper, exclaim, values={"exclaim.times": 2}))
-run = graph.run(text="hello")
-print(run.outputs)  # {'exclaim.result': 'HELLO!!'}
-```
-
-A node is a function, and its type hints are its interface. The same hints drive validation, the run and the palette a visual editor shows. A registry is what a host offers: `@registry.node` declares a node and adds it. A graph is data, a `GraphRecord`: its nodes, each naming the node it uses and what is typed into it, and its edges, `{"nodes": [{"id": "upper", "node": "upper"}, ...], "edges": [["upper.result", "exclaim.text"]]}`. That is what an editor writes and a host stores. `registry.load(record)` reads one, as a record, JSON text or a mapping, into a `Graph`. `make_graph(...)` writes one from Python: with no `edges` the nodes form a chain, each taking its one required open input from the one output before it; with `edges=[("upper.result", "exclaim.text")]` those are every edge. A node's id in the graph is its own id, `upper-1`, `upper-2` when it is used twice. `values` are typed in and fixed.
-
-The core has no web framework, database or auth in it. It depends on pydantic and polars.
-
-## Install
-
-Python 3.12+:
+The core depends on pydantic and polars. It has no web framework, database or login in it: those are yours.
 
 ```bash
-uv add syv-conductor                # import conductor
+uv add syv-conductor
 ```
 
-To work on the repository:
+## Write nodes
 
-```bash
-git clone https://github.com/syv-ai/conductor && cd conductor
-uv sync
-uv run pytest tests/ -q
-```
-
-## Inputs and outputs
-
-A graph takes the open inputs of its first nodes, those with no edge into any of their inputs, and returns the outputs nothing reads. `graph.inputs` lists them by name (by address, `node.input`, where two share a name) and `graph.outputs` by address. `graph.run(**inputs)` runs; `graph.with_inputs(**inputs)` checks the inputs and returns a run not yet started, for a host that checks a request now and runs it later. A required input left out raises `InvalidCallError` at the call:
-
-```python
-ready = graph.with_inputs(text="good night")
-print(ready.resume().outputs)  # {'exclaim.result': 'GOOD NIGHT!!'}
-```
-
-A value the author types in is fixed, and the graph doesn't offer that input. A node's `defaults` fill an input that stays open, so a caller may still change it: `NodeRecord(id="exclaim", node="exclaim", defaults={"times": 3})`. Only an open input of a first node takes a default; on a later node it is the problem `default_on_later_node`, and a value says it. An open input named in the node's `many` takes a list from the caller, a row per item: `NodeRecord(id="upper", node="upper", many={"text"})`. Beside a value, `many` makes the value a list typed in, and the node runs once per item under each row it runs on.
-
-## Tables
-
-A node typed for one value, wired to a column, runs once per row, and its result is a column on the same rows:
+A node is a function, and its type hints are its interface:
 
 ```python
 import io
 from typing import TypedDict
 
 import polars as pl
-from conductor import NodeRegistry, Series, Table, make_graph
+from conductor import Ask, NodeRegistry, Series, Table
 
 registry = NodeRegistry()
 
 
-class Contact(TypedDict):
+class Invoice(TypedDict):
     name: str
-    email: str
+    amount: int
 
 
-@registry.node("read-csv")
-def read_csv(text: str) -> Table[Contact]:
-    return pl.read_csv(io.StringIO(text))
-
-
-@registry.node("domain")
-def domain(email: str) -> str:
-    return email.split("@")[1]
-
-
-@registry.node("count")
-def count(values: Series[str]) -> int:
-    return len(values)
-
-
-csv = "name,email\nIda,ida@a.dk\nBo,bo@b.dk\n"
-graph = registry.load(make_graph(
-    read_csv, domain, count,
-    edges=[("read-csv.result.email", "domain.email"), ("domain.result", "count.values")],
-    values={"read-csv.text": csv},
-))
-run = graph.run()
-print(run.results["domain"]["result"])    # ['a.dk', 'b.dk']
-print(run.results["count"]["result"])     # 2
-print(graph.plan)                         # where each node runs
-```
-
-## Watching a run
-
-```python
-async for event in graph.with_inputs().stream():
-    if event.type == "node_complete":
-        print(event.node_id, event.outputs)
-    elif event.type == "run_end":
-        finished = event.run  # the run to save
-```
-
-A leg yields `run_start`, `node_start`, `node_progress`, `node_complete`, `node_skipped`, `node_retry`, `node_failed` and `unit_waiting`, and ends with `run_end`, whose `run` stays out of what the event writes. The leg runs on a thread of its own, so a slow node never holds the event loop; leaving the loop, or setting `stream(cancel=event)`, ends it before its next unit, keeping the calls already made. `event.model_dump(mode="json")` is the event as JSON. `node_progress` arrives at most four times a second per node.
-
-## Concepts
-
-**Nodes.** `@node("id")` wraps a plain function and returns a frozen, callable `NodeDefinition`. It registers nothing, so `upper("a")` is the unit test; `@registry.node("id")` takes the same arguments and adds the node to a registry too. The title defaults to the function's name and the description to its docstring. A parameter is `text: str`, or `Annotated[str, Param(title=..., widget=...)]` when a person needs to read more; `Param` also takes pydantic's limits (`ge`, `le`, `max_length`, ...). A default makes it optional. `-> str` is one output named `result` (so is `-> dict[str, int]`: any type is one value), a frozen dataclass is one output per field, and `-> None` declares none. `@node` checks the function, so a mistake fails at import with a `NodeDeclarationError`.
-
-**Types.** Any type pydantic can check and write as JSON travels on edges: `str`, `int`, `float`, `bool`, `date`, a pydantic model, a class of your own. `Series[X]` says a field holds many values of `X`: a plain list to the node and to a type checker. A `list[X]` stays one value. `Table[Contact]` is a whole table whose columns a `TypedDict` names, a `polars.DataFrame` at run time and to a type checker a frame that keeps `Contact`. A subtype lands wherever its parent does, and a class of your own may declare `id` (the name an editor knows it by), `display_title`, and a classmethod `accepts(source)` that lets values of another type land on it.
-
-**Registries.** A `NodeRegistry` is the nodes a host offers, by id: `"upper" in registry`, `registry["upper"]`, and looping yields the definitions. `registry.add(upper, shout)` adds plain `@node`s, and a second node under one id raises; `replace` and `remove` change one. `registry.add_subregistry(text_nodes)` copies another registry's nodes in, so each module can keep a registry of its own and the host adds them at the top. `NodeRegistry(category="text", tags=["builtin"], extra={...})` sets defaults for every node that enters: tags add up, outermost first, and the node's own `category` and `extra` keys win. `extra` is the host's own JSON about a node, kept and described, never read by conductor. `registry.filter(lambda definition: ...)` is a new registry of the nodes kept, say the ones one customer may place. `registry.describe()` is the palette an editor reads, as JSON.
-
-**Graph records.** A `GraphRecord` is its `nodes` and its `edges`. A `NodeRecord` is `id`, `node` (the node it uses), `version` (1 when left out), `values` (typed in, fixed), `defaults` (typed in, open to a caller), `many` (inputs that take a list: from the caller, or typed in) and `display` (the host's own, never read); empty fields are left out when saved. Edges are `[from, to]` addresses and a set, kept sorted, so their order never tells two records apart: several edges on rows of one table gather in that table's row order; on different tables, in the order their nodes appear in `nodes`, then the order a node declares its outputs. An input takes an edge, a value or a default, never two; an edge drawn twice or naming a node the graph doesn't have is a problem too. A `GraphRecord` saves as JSON with pydantic's own `model_dump_json`.
-
-**Loading.** `registry.load(record)` never raises for a fault in the graph. Everything wrong is a `Problem` with a stable `type` and a place (`loc`), in `graph.problems`, and `graph.is_runnable` says whether a run may start. An open input of a first node is not a problem: it is an input of the graph. A required input on a later node that nothing feeds is `unbound_on_later_node`. `graph.describe()` is the graph as an editor draws it, as JSON. A loaded graph keeps its own copy of the definitions it used, so a later change to the registry doesn't reach it.
-
-**Rows.** A list or table arriving on an input declared for one value runs the node once per row of it, and each result stays on its row. A `Series[X]` input gathers every value under the node's row, or under the row it shares with a sibling table. Single-value sources must lie on one path of the row tree: a value from rows above is copied down, and rows of two different tables meet only through a join on a key the author draws in a node (`rows_not_related`). Several edges into one single-value input must be alternatives on opposite branches of one decision (`exclusive_group`), else `several_edges_into_one_value`. A stored graph used as a node is one node from outside, and it runs on each row its node runs on. `max_rows=` on a run is a ceiling on any one table's rows, checked before any node is called on them: over it, the run stops with a `row_ceiling` problem, and `run.resume(max_rows=...)` carries on with a higher one.
-
-**Blanks.** A value can be blank (`None`, a cell with nothing in it). If an input's type doesn't say `| None`, the node isn't called for that row and its outputs are blank there; `run.not_called` lists each such row with its node and input. To get the blank, write `email: str | None`. `Series[str]` leaves blanks out row by row, `Series[str | None]` keeps them. Two `Series` inputs reading opposite branches of one decision would lose every row, so that is refused when the graph is loaded (`series_inputs_never_share_a_row`).
-
-**Branching.** A node returns `SKIPPED` on the branch it did not take, and nodes fed only `SKIPPED` are skipped in turn. Outputs that are alternatives share an `exclusive_group`.
-
-```python
-from dataclasses import dataclass
-from typing import Annotated
-
-from conductor import SKIPPED, Param, node
-
-
-@dataclass(frozen=True)
-class Routed:
-    big: Annotated[str, Param(exclusive_group="size")]
-    small: Annotated[str, Param(exclusive_group="size")]
-
-
-@node("route")
-def route(text: str) -> Routed:
-    return Routed(text, SKIPPED) if len(text) > 3 else Routed(SKIPPED, text)
-```
-
-**A person in the loop.** A node raises `Ask`, and its return type says what the answer is and how to ask: `bool` a yes or no, a `Literal` one of its values, `str`, `int`, `float` or `date` a value, a frozen dataclass a form, `Table[R]` records, `Series[X]` several. `Ask` adds what only the run knows: `choices=` (a value, or `Choice(id, title)`), `default=` and `widget=`, or `choices=`, `defaults=` and `widgets=` by output name for several outputs. The rest of the graph runs on and the run ends `waiting`. Each row in `run.waiting` has its `questions`, one per output, with the field's JSON schema, its choices, default and widget: what a host draws a form from.
-
-```python
-from conductor import Ask, NodeRegistry, make_graph
-
-registry = NodeRegistry()
+@registry.node("read")
+def read(csv: str) -> Table[Invoice]:
+    return pl.read_csv(io.StringIO(csv))
 
 
 @registry.node("approve")
-def approve(invoice: str) -> bool:
-    raise Ask(f"Approve {invoice}?")
+def approve(name: str, amount: int) -> bool:
+    if amount < 1000:
+        return True
+    raise Ask(f"Approve {name}, {amount} kr.?")
 
 
-graph = registry.load(make_graph(approve, values={"approve.invoice": "INV-1"}))
-paused = graph.run()                                     # paused.status == "waiting"
-answered = paused.answer(paused.waiting[0], True)        # checked; no node runs. Several: paused.answer({unit.id: value, ...})
-finished = answered.resume()
-saved = finished.to_json()                               # graph.load_run(saved) reads it back
+@registry.node("summary")
+def summary(approved: Series[bool]) -> str:
+    return f"{sum(approved)} of {len(approved)} approved"
+
+
+print(approve("Ida", 100))  # True
 ```
 
-**Running again.** `run.again(**changed)` runs with changed inputs, the rest as before: a row that receives what it received before is not called again, even if it moved. `run.with_inputs(**changed)` is the same run not yet started, to `resume()` or `stream()`, as `graph.with_inputs` is to `graph.run`. Add one row to a CSV and one mail goes out. A node that reads the world says so with `Policy(reuse_when_inputs_match=False)`, and is called again on every row. Identical rows take earlier work k-th to k-th in row order: the first identical row takes the first earlier answer, so with one identical row taken out, which answer stays goes by that order; `run.forget("node")` calls a chosen node again, as a host does after checking access.
+A node can still be called like the function, so that is its unit test. The registry holds the nodes your graphs may use.
 
-**Versions and retries.** A newer version names the one it replaces, itself a `@node` of the same id: `@node("split", replaces=split_v1, upgrade=Upgrade(renamed_inputs={"sep": "separator"}))`. A stored graph runs the version it was saved at; `registry.upgrade(record, node_id)` moves a node forward, and `Deprecation(...)` marks a version going away. `Policy` sets `concurrency` (rows called at once, on threads), `retries`, `retry_delay`, `attempt_timeout`, `retry_on` and `reuse_when_inputs_match`. Only an `ExternalFailure`, or an exception class named in `retry_on`, is retried.
+`Table[Invoice]` is a `polars.DataFrame` with those columns, and `Series[bool]` is a plain list. `raise Ask(...)` stops and asks a person. The return type, `bool`, says what they answer: yes or no.
 
-**Failures.** Every run-time failure is a `Problem` (`type`, `loc`, `msg`, `ctx`), the same record loading reports, on the event and on `run.cause`. A `NodeError` keeps the message its node wrote; any other exception goes to `logging.getLogger("conductor")` with its traceback, and only its class name reaches `ctx`. A failed unit starts nothing more; the calls already on a thread finish and are kept, so resuming doesn't repeat them. A call that can't be acted on raises `InvalidCallError`, with every fault listed.
+## Load a graph
 
-**Values the host supplies.** A parameter marked `FromRun[T]` is filled by type from `run.resume(from_run={T: value})`, not from an edge.
+This is what an editor saves. Each node names the node it uses, and each edge goes from an output to an input. `read.result.name` is the `name` column of the table `read` returns:
 
-**Testing nodes.** `upper("a")` tests one node. `conductor.testing.check_registry(registry, examples={"upper": [{"text": "a"}]})` tests a whole registry in one line and returns what it finds as `Problem`s; a body is called only for a node given an example. Its docstring, and `python -m conductor.about testing`, list the checks.
+```python
+drawing = """{
+  "nodes": [
+    {"id": "read", "node": "read"},
+    {"id": "approve", "node": "approve"},
+    {"id": "summary", "node": "summary"}
+  ],
+  "edges": [
+    ["read.result.name", "approve.name"],
+    ["read.result.amount", "approve.amount"],
+    ["approve.result", "summary.approved"]
+  ]
+}"""
 
-**Widgets.** A widget is the control a person edits an input with: `TextWidget`, `Textarea`, `Dropdown`, `NumberWidget`, `Switch`, `FileUpload` and more, from `conductor.widgets`. Each is a pydantic model with a `type`. No type has a default widget, so an input names its own.
+graph = registry.load(drawing)
+print(list(graph.inputs))  # ['csv']
+print(graph.outputs)       # ['summary.result']
+print(graph.plan)          # {'read': 'once', 'approve': 'per row of read.result', 'summary': 'once'}
+```
 
-## Serving runs
+Nobody declares what the graph takes or returns. Its inputs are the open inputs of its first nodes, and its outputs are the ones no node reads. `approve` takes one value and is fed a column, so it runs once per row.
 
-To serve runs over HTTP, copy [`docs/serving-runs.md`](docs/serving-runs.md) onto your own FastAPI application: start, follow, read, answer and cancel.
+## Show problems
 
-## Learn more
+A half-finished drawing still loads. Everything wrong is a problem with a place, so an editor can mark it on the node:
 
-- [`docs/OVERVIEW.md`](docs/OVERVIEW.md): the architecture on one page.
-- [`docs/widgets.md`](docs/widgets.md): every control and its options.
-- [`docs/serving-runs.md`](docs/serving-runs.md): a run over HTTP, as a page to copy.
-- [`examples/`](examples/): Jupyter notebooks on nodes, graphs, tables, versions, a person in the loop and widgets.
-- [`skills/`](skills/): agent skills for adding a node and building a graph.
-- `python -m conductor.about`: the library reference that ships in the wheel.
-- [`CHANGELOG.md`](CHANGELOG.md): what changed between releases.
+```python
+unfinished = registry.load("""{
+  "nodes": [
+    {"id": "read", "node": "read"},
+    {"id": "approve", "node": "approve"},
+    {"id": "mail", "node": "send-mail"}
+  ],
+  "edges": [["read.result.name", "approve.name"]]
+}""")
 
-## Versioning
+print(unfinished.is_runnable)  # False
+for problem in unfinished.problems:
+    print(problem.loc, problem.type)
+# ('mail',) unknown_node
+# ('approve', 'amount') unbound_on_later_node
+```
 
-Conductor follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The public API is three modules, `conductor`, `conductor.widgets` and `conductor.events`, each listing its names in `__all__`. Anything else may change in any release. A breaking change to the public API ships in a major release.
+Each problem also has a `msg` for a person and a `ctx` with the details. A host that shows another language translates by `type`.
 
-## License
+## Run it
 
-Apache-2.0. See [`LICENSE`](LICENSE).
+```python
+csv = "name,amount\nIda,100\nBo,5000\n"
+run = graph.run(csv=csv)
+
+print(run.status)  # waiting
+for unit in run.waiting:
+    print(unit.row, unit.prompt)
+# (1,) Approve Bo, 5000 kr.?
+```
+
+Ida's invoice was approved by the node itself. Bo's row waits for a person, and so does `summary`, which reads it. Each waiting row has `questions`, one per output, with a JSON schema to draw a form from.
+
+## Store it
+
+A run is one JSON value. Keep it next to the graph, wherever you keep your data:
+
+```python
+saved = run.to_json()
+```
+
+## Answer, later
+
+Days later, in another process, load the same graph, read the run back and answer:
+
+```python
+run = registry.load(drawing).load_run(saved)
+run = run.answer(run.waiting[0], True).resume()
+
+print(run.status)   # complete
+print(run.outputs)  # {'summary.result': '2 of 2 approved'}
+```
+
+The answer is checked against its question before anything runs. A wrong one raises `InvalidCallError`, and the run stays as it was. `resume()` goes on from where the run stopped, and no node is called twice for a row.
+
+## Edit one row
+
+Someone adds Eva to the CSV. Run again with the new input:
+
+```python
+run = run.again(csv=csv + "Eva,7000\n")
+
+for unit in run.waiting:
+    print(unit.prompt)
+# Approve Eva, 7000 kr.?
+```
+
+A row that gets what it got before isn't called again, so Bo keeps his answer and only Eva is asked. `run.with_inputs(...)` is the same run before it starts, for when you want to `stream()` its events.
+
+## Next
+
+- [Writing nodes for others](https://github.com/syv-ai/conductor/blob/main/docs/writing-nodes.md): types, controls, branches, questions, errors, versions, and one test for a whole registry.
+- [How it works](https://github.com/syv-ai/conductor/blob/main/docs/OVERVIEW.md): rows, legs and pauses on one page.
+- [Serving runs over HTTP](https://github.com/syv-ai/conductor/blob/main/docs/serving-runs.md): FastAPI routes to copy into your own application.
+- [`examples/`](https://github.com/syv-ai/conductor/tree/main/examples): notebooks.
+- `python -m conductor.about`: the full reference, shipped in the package.
+- [`CHANGELOG.md`](https://github.com/syv-ai/conductor/blob/main/CHANGELOG.md): what changed between releases.
+
+The public API is what `conductor`, `conductor.widgets`, `conductor.events` and `conductor.testing` list in `__all__`, and it follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Licensed under Apache-2.0.

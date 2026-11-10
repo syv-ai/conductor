@@ -1,45 +1,45 @@
-# Architecture at a glance
+# How it works
 
-Conductor runs graphs of typed nodes. It ships as one package, `conductor`. Any type pydantic can check travels on edges as it is.
+Conductor is one package, `conductor`. This page is the picture you need to read a graph's behaviour off its drawing. The rules in full are in `python -m conductor.about`.
 
-## One declaration, three readers
+## One signature, three readers
 
-A node's signature is read once into a field per input and output. The engine calls the function, a check built from each field validates what is typed in and what a caller gives, and an editor reads `describe()`, the palette entry with each field's type, JSON schema, widget and title. Nothing is declared twice.
+A node's signature is read once, when `@node` decorates it, into one field per input and output. Three things read those fields. The engine calls the function. A check built from each field validates what is typed in, what a caller gives and what the node returns. An editor reads `describe()`: each field's type, JSON schema, title and widget. Nothing is declared twice.
 
-## Declare, load, run
+`@node` checks the signature too. An `async def`, a parameter without a type, or a limit that doesn't fit its type fails at import with a `NodeDeclarationError`.
 
-- **Declare.** `@node` checks a function when it is decorated: an `async def`, a parameter without a type, a limit that doesn't fit its type, or a dataclass of outputs that isn't frozen fails at import. A `NodeRegistry` is what a host offers: `@registry.node` declares and adds, `add_subregistry` copies a module's registry in, and a second node under one id raises.
-- **Load.** `registry.load(record)` resolves each node's version, puts each embedded graph's nodes in its place, checks every edge and value, asks the field hooks, and decides where each node runs. Everything wrong is a `Problem` in `graph.problems`; `graph.is_runnable` says whether a run may start, and `graph.plan` says where each node runs.
-- **Run.** `graph.run(**inputs)` returns the `Run` its leg ended on. `run.stream()` yields the events of one leg. Every result, failure and pause is on the run, and `run.to_json()` is all of it.
+## Load, then run
+
+`registry.load(record)` finds each node's definition at the version the record names, puts each embedded graph's nodes in its place, checks every edge and value, runs the field hooks, and works out where each node runs. It never raises for a fault in the graph. Everything wrong goes in `graph.problems`, and `graph.plan` says where each node runs.
+
+`graph.run(**inputs)` runs one leg. A leg goes until the run is complete, waits for a person, fails or is stopped, and it returns a `Run`. `run.stream()` runs the same leg and yields events as it goes. `run.to_json()` is all of the run, so the next leg can start in another process.
 
 ## Rows
 
-The unit of work is a node on a row. A node fed a column on an input declared for one value runs once per row, and its result is a column on the same rows. A unit starts as soon as what it reads exists, so row 1 can finish a whole chain while row 10 is still being produced:
+The engine's unit of work is a node on a row. A node typed for one value and fed a column runs once per row, and its result is a column on the same rows. A unit starts as soon as what it reads exists, so row 1 can finish a whole chain while row 10 is still being made:
 
-```
+```text
   split ──> clean (row 0, 1, 2 …) ──> summarise (row 0, 1, 2 …) ──> join (once)
 ```
 
-A node that returns many values (`Series[X]` or `Table[R]`) makes a new table under the row it ran on, named by that output (`split.result`). A row of it is its parent's key plus a number, `(0, 3)`. Tables are flat and never hold a table.
+A node that returns many values, `Series[X]` or `Table[R]`, makes a table under the row it ran on, named by that output: `split.result`. A row of it is its parent row plus a number, `(0, 3)`. So rows form a tree, and tables never hold tables.
 
-A `Series[X]` input receives all the rows under the node's row, flat. It chooses the node's row only when nothing else does; then the node runs once per row of the level right above the series. A `Table` input receives a `polars.DataFrame`, its columns read along one path of the row tree, a parent's value copied down onto its children's rows. Each column of a table output is a field an edge can read (`csv.result.email`). Rows of two different tables never meet by themselves: the author joins them on a key in a node (`rows_not_related`).
+A `Series[X]` or `Table` input gathers every row under the node's row. If nothing else decides where the node runs, it runs one level above what it gathers. A value from a row above is copied down to the rows below it. Rows of two different tables never meet by themselves: the author joins them on a key in a node, and loading says `rows_not_related` until they do.
 
 A blank reaches a node only if its input says `| None`. Otherwise the node isn't called for that row, its outputs are blank there, and `run.not_called` says which row and input.
 
-## Skips and pauses
+## Branches and pauses
 
-A node returns `SKIPPED` on a branch it did not take. A skip at a row leaves the column downstream with a gap; a skip above a node's rows skips everything under it.
+A node returns `SKIPPED` on a branch it didn't take. A skip on a row leaves a gap in the column below it, and a skip above a node's rows skips the node.
 
-A node raises `Ask` when a person must answer. Its return type is the answer and says how to ask (a yes or no for `bool`, one of a `Literal`'s values, a form for a frozen dataclass, records for `Table[R]`, several for `Series[X]`); `Ask(prompt, choices=, default=, widget=)` adds what only the run knows. The rest of the graph runs on and the run ends `waiting`. A waiting row's `questions` are its outputs' field records, as `describe()` writes them, with the choices, default and widget: a host draws them as it draws inputs. `run.answer(unit, value)`, or `run.answer({unit_id: value, ...})`, writes answers in, each checked against its question before anything runs, and `run.resume()` goes on from there, calling no finished unit twice.
+A node raises `Ask` when a person must answer. That row waits, and so does whatever reads it. The rest of the graph runs on, and the leg ends `waiting`. `run.answer(...)` writes answers in, each checked before anything runs, and `run.resume()` starts the next leg. No finished unit is called again.
 
-## Retries and timeouts
+## Running again
 
-Retries live on the node's `Policy`, and each row retries on its own. Only the outside world's failure is retried: an `ExternalFailure` the node raises, or an exception whose class `retry_on` names. The delay before attempt `n` is `retry_delay * 2 ** (n - 1)`.
+`run.again(**changed)` runs with changed inputs. A unit that receives exactly what a unit of its node received before takes that earlier result, or that earlier answer, and its node isn't called. So when one row is added to a CSV of 5,000, a node that runs per row is called for that one row. A node that reads the world rather than its inputs opts out with `Policy(reuse_when_inputs_match=False)`.
 
-`Policy.attempt_timeout` is how long the engine waits on one attempt. It never interrupts the thread: a timed-out attempt is final, and the thread finishes on its own. A node with `concurrency` 1 and no timeout is called in order on the leg's own thread; any other runs on threads, at most `concurrency` rows at once.
+## Failures
 
-Every failure is a `Problem` (`type`, `loc`, `msg`, `ctx`) on the event and on the run, the same record loading reports, so a host routes it by its type.
+Every failure is a `Problem`: `type`, `loc`, `msg` and `ctx`. Loading reports problems, a failed node puts one on its event and on `run.cause`, and a call that can't be acted on raises `InvalidCallError` with every problem listed. A host routes and translates by `type`.
 
-## The graph record
-
-A graph is a `GraphRecord`, plain data: `{"nodes": [...], "edges": [["a.result", "b.text"], ...]}`. A node names the node it uses (`node`), its version, and what is typed into it: `values` are fixed, `defaults` stay open for a caller, and `many` marks an input that takes a list, from the caller or typed in, a row per item. Edges are a set; several into one input gather in row order on one table, else in node order. An input takes an edge, a value or a default, never two, and with none of them its declared default. What the graph takes and returns is worked out from the edges. `make_graph(...)` writes a record from Python. A `GraphRecord` saves as JSON with pydantic's own `model_dump_json`.
+Only the outside world's failures are retried, under the node's `Policy`. A failed unit stops anything new from starting. The calls already running finish and are kept, so resuming doesn't make them again.

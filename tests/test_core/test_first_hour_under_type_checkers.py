@@ -1,6 +1,6 @@
-"""The README's programs and the other first-hour programs pass pyright and mypy strict, and run.
+"""The README's program and the other first-hour programs pass pyright and mypy strict, and run.
 
-The first hour includes the custom widget ``docs/widgets.md`` shows, and a ``Table[R]`` whose row type a
+The first hour includes the custom widget ``docs/writing-nodes.md`` shows, and a ``Table[R]`` whose row type a
 checker keeps.
 """
 
@@ -17,7 +17,7 @@ from typing import Any
 import pytest
 
 _README = pathlib.Path(__file__).parents[2] / "README.md"
-_WIDGETS = pathlib.Path(__file__).parents[2] / "docs" / "widgets.md"
+_WRITING_NODES = pathlib.Path(__file__).parents[2] / "docs" / "writing-nodes.md"
 
 _A_FRAME_IN_AND_OUT = """
 from typing import TypedDict
@@ -125,16 +125,12 @@ def first(sales: Table[Sale]) -> None:
 
 
 def _programs() -> dict[str, str]:
-    blocks = re.findall(r"```python\n(.*?)```", _README.read_text(), re.S)
-    first = blocks.index(next(block for block in blocks if '@registry.node("exclaim")' in block))
     return {
-        "readme_first_program.py": blocks[first] + blocks[first + 1],
-        "readme_csv.py": blocks[first + 2],
-        "readme_ask.py": next(block for block in blocks if "raise Ask(" in block),
+        "readme.py": "".join(re.findall(r"```python\n(.*?)```", _README.read_text(), re.S)),
         "a_frame_in_and_out.py": _A_FRAME_IN_AND_OUT,
         "an_embedded_graph.py": _AN_EMBEDDED_GRAPH,
         "a_table_keeps_its_row_type.py": _A_TABLE_KEEPS_ITS_ROW_TYPE,
-        "docs_custom_widget.py": next(block for block in re.findall(r"```python\n(.*?)```", _WIDGETS.read_text(), re.S) if "(Widget):" in block),
+        "docs_custom_widget.py": next(block for block in re.findall(r"```python\n(.*?)```", _WRITING_NODES.read_text(), re.S) if "(Widget):" in block),
     }
 
 
