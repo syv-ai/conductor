@@ -337,17 +337,36 @@ class Graph:
         read = {s.node_id for p in self._nodes.values() for i in p.inputs.values() for s in i.sources}
         return [(self._outward(f"{p.id}.{o}"), f"{p.id}.{o}") for p in self._nodes.values() if p.id not in read for o in p.definition.outputs]
 
+    @functools.cached_property
+    def _tables_seen(self) -> dict[str, str]:
+        """Each table made inside an embedding that an output it offers sits on, by the first such output: how a reader
+        outside names the rows it receives that output on."""
+        seen: dict[str, str] = {}
+        for e, (_, outs) in self._offers.items():
+            for name, address in outs.items():
+                placed = self._nodes.get(address.partition(".")[0])
+                if placed is not None and placed.level and placed.level[-1].startswith(e + "/"):
+                    seen.setdefault(placed.level[-1], f"{e}.{name}")
+        return seen
+
     @property
     def plan(self) -> dict[str, RunsOn]:
         """Where each node runs: ``once``, or ``per_row`` of a table; an embedded graph where the outermost of the nodes
         behind its outputs runs, the rows it is fed on, as a table of its own is no table of this graph."""
+        return dict(self._plan)
+
+    @functools.cached_property
+    def _plan(self) -> dict[str, RunsOn]:
+        """``plan``, made once per load."""
         levels: dict[str, tuple[bool, Level]] = {}
         for p in self._nodes.values():
             node_id = self._outward(p.id)
             # inside an embedding, a node behind an output it offers decides over one behind none
             behind = node_id == p.id or any(self._outward(f"{p.id}.{o}") != node_id for o in p.definition.outputs)
-            if node_id not in levels or (behind, -len(p.level)) > (levels[node_id][0], -len(levels[node_id][1])):
-                levels[node_id] = (behind, p.level)
+            # an embedding runs on the rows it is fed on: a table made inside it, not a list given at an input it offers, is its own
+            level = p.level if node_id == p.id else tuple(t for t in p.level if not t.startswith(node_id + "/") or t in self._outer)
+            if node_id not in levels or (behind, -len(level)) > (levels[node_id][0], -len(levels[node_id][1])):
+                levels[node_id] = (behind, level)
         plan: dict[str, RunsOn] = {}
         for node_id, (_, level) in levels.items():
             table = self._outward(level[-1], table=True) if level else None
@@ -359,11 +378,27 @@ class Graph:
         """Each node's exclusive groups and their outputs, for a host to say which way a run went."""
         found: dict[str, dict[str, list[str]]] = {}
         for drawn, fields in self._readable.items():  # an embedding's by the outputs it offers
+            shown = self._groups_shown[drawn]
             for name, (node_id, output) in fields.items():
                 group = self._nodes[node_id].definition.outputs[output].param.exclusive_group
                 if group:
-                    found.setdefault(drawn, {}).setdefault(group, []).append(name)
+                    found.setdefault(drawn, {}).setdefault(shown[node_id, group], []).append(name)
         return found
+
+    @functools.cached_property
+    def _groups_shown(self) -> dict[str, dict[tuple[str, str], str]]:
+        """Each exclusive group behind a drawn node's outputs, by drawn node, then by its placed node and name, as a
+        reader of the drawn node names it: by its own name, or, where two nodes inside an embedding hold a group of one
+        name, by its node's place inside (``d1/answer``), as each is a decision of its own."""
+        shown: dict[str, dict[tuple[str, str], str]] = {}
+        for drawn, fields in self._readable.items():
+            groups = {
+                (node_id, group) for node_id, output in fields.values()
+                if (group := self._nodes[node_id].definition.outputs[output].param.exclusive_group)
+            }
+            names = [group for _, group in groups]
+            shown[drawn] = {(n, g): g if names.count(g) == 1 else f"{n[len(drawn) + 1:]}/{g}" for n, g in groups}
+        return shown
 
     def describe(self) -> GraphDescription:
         """The loaded graph as an editor draws it: every node of the record, with its fields as its hooks made them and where it runs.
@@ -388,6 +423,7 @@ class Graph:
                 })
         for e, (ins, _) in self._offers.items():
             if e in plan:
+                shown = self._groups_shown[e]
                 nodes[e].update({
                     "runs": plan[e],
                     "inputs": [
@@ -395,7 +431,8 @@ class Graph:
                         for name, (n, i) in ins.items() if n in self._nodes
                     ],
                     "outputs": [
-                        self._nodes[n].definition.outputs[o].describe(name=name) for name, (n, o) in self._readable[e].items()
+                        self._nodes[n].definition.outputs[o].describe(name=name, exclusive_group=shown.get((n, self._nodes[n].definition.outputs[o].param.exclusive_group or "")))
+                        for name, (n, o) in self._readable[e].items()
                     ],
                 })
         return GraphDescription(
@@ -1206,7 +1243,9 @@ class Graph:
         top, slash, _ = name.partition("/")
         if not slash or top not in self._offers:
             return name
-        return name.rpartition("/")[2] if table else top
+        if table:
+            return self._tables_seen.get(name) or name.rpartition("/")[2]
+        return top
 
     def _seen_from_outside(self, problem: Problem) -> Problem:
         """A problem as the author of this record reads it: inside an embedded graph, on the node that embeds it."""

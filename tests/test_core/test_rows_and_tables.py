@@ -995,7 +995,19 @@ def test_a_graph_embedded_under_a_row_runs_as_the_same_nodes_drawn_flat():
     embedded_run = ran({"id": "s", "node": "split"}, {"id": "e", "node": "deep"}, edges=(("s.result", "e.text"),), registry=reg, text="a/b;c,d")
     flat_run = ran({"id": "s", "node": "split"}, *nodes, edges=(("s.result", "i.text"), *edges), registry=reg, text="a/b;c,d")
     assert embedded_run.results["e"] == flat_run.results["p"]
-    assert embedded_run.graph.plan["e"] == flat_run.graph.plan["p"]
+    assert embedded_run.graph.plan["e"].msg == "per row of s.result"  # the rows it is fed on; its own tables are inside it
+
+
+def test_rows_made_inside_an_embedding_are_named_by_the_output_it_offers_on_them():
+    inner = embedded("splitup", {"id": "split", "node": "split"}, {"id": "upper", "node": "upper"}, edges=(("split.result", "upper.text"),))
+    loaded = graph({"id": "e", "node": "splitup"}, {"id": "split", "node": "split"}, {"id": "u2", "node": "upper"},
+                   edges=(("e.result", "u2.text"),), registry=registry_of(split, upper, inner))
+
+    assert {k: v.msg for k, v in loaded.plan.items()} == {"e": "once", "split": "once", "u2": "per row of e.result"}
+    assert loaded.describe().nodes["u2"].inputs[0].feed.tables == ["e.result"]
+
+    typed = embedded("typed", {"id": "u", "node": "upper", "values": {"text": ["a", "b"]}})
+    assert graph({"id": "t", "node": "typed"}, registry=registry_of(upper, typed)).plan["t"].msg == "once"
 
 
 def test_a_table_inputs_columns_are_named_the_same_embedded_as_alone():
@@ -1834,3 +1846,12 @@ def test_an_embedded_graph_fed_per_outer_row_runs_per_row_and_alone_takes_a_list
 
     alone = graph({"id": "e", "node": "each"}, registry=registry)
     assert alone.inputs["file"].per_item and alone.run(file=["a", "b"]).results["e"]["result"] == ["A", "B"]
+
+
+def test_two_decisions_inside_one_embedding_are_two_exclusive_groups():
+    inner = embedded("two", {"id": "d1", "node": "decide"}, {"id": "d2", "node": "decide"})
+    loaded = graph({"id": "e", "node": "two"}, registry=registry_of(decide, inner))
+
+    assert loaded.exclusive_groups == {"e": {"d1/answer": ["d1/yes", "d1/no"], "d2/answer": ["d2/yes", "d2/no"]}}
+    assert [f.exclusive_group for f in loaded.describe().nodes["e"].outputs] == ["d1/answer", "d1/answer", "d2/answer", "d2/answer"]
+    assert loaded.run({"e.d1/text": "yes", "e.d2/text": "yes"}).outputs == {"e.d1/yes": "yes", "e.d1/no": None, "e.d2/yes": "yes", "e.d2/no": None}

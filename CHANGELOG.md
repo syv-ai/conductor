@@ -53,7 +53,9 @@ What changes in how you work, before the name-by-name tables:
   finite as `"NaN"` or `"Infinity"`, so a record equals its JSON, and an `upgrade` rewrite is written
   the same way (`invalid_value` where it has no JSON form). A stored graph used as a node offers
   the inputs and outputs it offers loaded alone, the fields its hooks add included, and `@node` on
-  a stored graph refuses a `policy` or a hook as `not_for_a_graph`.
+  a stored graph refuses a `policy` or a hook as `not_for_a_graph`. It runs on the rows it is fed
+  on; rows made inside it are named by the output it offers on them (`per row of e.result`), and two
+  inner decisions sharing a group name are two groups, `d1/answer` and `d2/answer`.
 - **A run is one value.** `graph.run(**inputs)` returns a `Run` whose `status` says how the leg
   ended. It pauses for a person (`raise Ask(...)`, then `run.answer(...)` and `run.resume()`), writes
   itself as JSON (`run.to_json()`, `graph.load_run(saved)`, which reads a save from its JSON text; a save that

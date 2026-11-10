@@ -85,6 +85,12 @@ Everything else names the embedding, never its inner nodes:
 - waiting rows and their questions
 - a run's `cause`
 
+Rows made inside an embedding are its own: `graph.plan` puts the embedding on the rows it is fed on, and a node outside
+that reads an output offered on those rows runs per row of that output, as `per row of e.result` for an embedding
+`e`. Where two nodes inside
+hold an exclusive group of one name, they are two decisions: `graph.exclusive_groups` and `describe()` name each by
+its node's place inside, `d1/answer` and `d2/answer`.
+
 A stored graph with problems of its own is one problem, `embedded_graph_broken`, and its `ctx.problems` lists them
 (see [problem codes](problems.md#embedded_graph_broken)).
 
