@@ -140,7 +140,7 @@ That gives these routes:
 | `POST /load` | A graph's problems and plan as an editor draws them: `graph.describe()`. |
 | `POST /runs` | Start a run of `{"graph": ..., "inputs": {...}}`; 202 with its `id`, 422 listing every problem. |
 | `POST /graphs/{name}/runs` | Start a graph you offer, on its inputs alone. Only with `published=`. |
-| `GET /runs/{id}` | Its `status`, `rev`, `waiting` rows, `outputs` once complete (a table as a list of records, wherever it sits), `refused` answers, and the `cause` of a run that failed, stopped, was cancelled or timed out (a `row_ceiling` cause says the `rows` and `max_rows`, for choosing a resume's ceiling). |
+| `GET /runs/{id}` | Its `status`, `waiting` rows, `outputs` once complete (a table as a list of records, wherever it sits), `refused` answers, and the `cause` of a run that failed, stopped, was cancelled or timed out (a `row_ceiling` cause says the `rows` and `max_rows`, for choosing a resume's ceiling). |
 | `GET /runs/{id}/events` | Its events as server-sent events, from any worker. |
 | `POST /runs/{id}/answers` | `{waiting_id: value}`; 202 `started` or `queued`, 409, or 422 listing every fault. |
 | `POST /runs/{id}/resume` | Go on with a run that `timed_out`, `stopped`, was `cancelled` or `failed`. |
@@ -191,7 +191,7 @@ def count_runs(status: str, db: FromRun[Database]) -> int:
 
 A connection or session opened on the event loop and passed in either fails or is shared between threads without a word. `sqlite3` refuses it, so the node fails as `execution_failed`, and the real error is only in the `conductor` log. A pool that is safe across threads (SQLAlchemy's engine, not its session) can go in `from_run` as it is. `from_run` is never part of a run's JSON; the router keeps the caller on the run and builds `from_run` from it again on any worker.
 
-**Two workers answering one run.** Answering reads the run, checks the answers, then claims the run at the `rev` it read. Two workers that both read `waiting` both send an `update` at that `rev`, and only one of them changes the row. The other answers 409 and calls no node. A client that sends `If-Match: <rev>` gets the same 409 when the run moved since it read it.
+**Two workers answering one run.** Answering reads the run, checks the answers, then claims the run at the `rev` it read. Two workers that both read `waiting` both send an `update` at that `rev`, and only one of them changes the row. The other answers 409 and calls no node. An answer whose row has come to hold another question since the client read it is refused as `answer_stale` by its waiting id.
 
 **Answers during a leg.** While a leg runs, answers wait on the run as `pending`, and the route says `queued`. A second answer to a row already queued is a 409. When the leg ends, each queued answer is taken on its own: a wrong one, or one whose row waits for nothing (`not_waiting`, as when the leg ended the run), stays in `refused` with its problems, for the client to show the person who gave it, and the others start the next leg. Checking an answer loads the run and writes it again; at 10,000 rows that is about 60 ms and a 3 MB write, so a client with many single clicks does better to send them together.
 

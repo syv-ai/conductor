@@ -419,9 +419,7 @@ def test_a_wrong_answer_is_a_422_listing_every_fault_and_a_run_not_waiting_is_a_
             assert wrong.status_code == 422 and len(wrong.json()["detail"]) == 2
             assert (await a.read(run_id))["status"] == "waiting"
 
-            stale = await a.client.post(f"/runs/{run_id}/answers", json={unit["id"]: True}, headers={"If-Match": str(row["rev"] + 1)})
-            assert stale.status_code == 409
-            answered = await a.client.post(f"/runs/{run_id}/answers", json={unit["id"]: False}, headers={"If-Match": str(row["rev"])})
+            answered = await a.client.post(f"/runs/{run_id}/answers", json={unit["id"]: False})
             assert answered.status_code == 202
             await a.until_status(run_id, "complete")
             assert (await a.client.post(f"/runs/{run_id}/answers", json={})).status_code == 409
@@ -482,7 +480,8 @@ def test_a_stream_says_not_to_cache_it_and_the_schema_says_what_a_run_reads_as(s
             assert (await a.client.get("/runs/nope/events")).status_code == 404
 
             schemas = (await a.client.get("/openapi.json")).json()["components"]["schemas"]
-            assert {"id", "status", "rev", "waiting", "outputs", "refused"} <= set(schemas["RunView"]["properties"])
+            assert {"id", "status", "waiting", "outputs", "refused", "cause"} <= set(schemas["RunView"]["properties"])
+            assert "rev" not in schemas["RunView"]["properties"]
             assert {"id", "node_id", "row", "prompt", "questions", "inputs"} <= set(schemas["Waiting"]["required"])
 
     _run(scenario)

@@ -55,11 +55,10 @@ class StartRun(BaseModel):
 
 
 class RunView(BaseModel):
-    """What a client reads about a run. ``rev`` goes in ``If-Match`` to answer only the run as read."""
+    """What a client reads about a run."""
 
     id: str
     status: RunStatus
-    rev: int
     waiting: list[Waiting] = []
     outputs: dict[str, Any] | None = None
     #: Answers sent while a leg ran that were refused when it ended, by waiting id.
@@ -326,7 +325,7 @@ def run_router(
     @router.get("/runs/{run_id}")
     def read(row: Stored) -> RunView:
         return RunView(
-            id=row.id, status=row.status, rev=row.rev, waiting=json.loads(row.waiting),
+            id=row.id, status=row.status, waiting=json.loads(row.waiting),
             outputs=json.loads(row.outputs) if row.outputs is not None else None, refused=json.loads(row.refused),
             cause=json.loads(row.cause) if row.cause is not None and row.status != "running" else None,
         )
@@ -349,9 +348,10 @@ def run_router(
                 await asyncio.sleep(poll)
 
     @router.post("/runs/{run_id}/answers", status_code=202)
-    async def answer(row: Stored, answers: dict[str, Any], if_match: Annotated[int | None, Header()] = None) -> Answered:
+    async def answer(row: Stored, answers: dict[str, Any]) -> Answered:
         """Answer waiting rows by their ids. While a leg runs, the answers wait for it to end, and a row answered once
-        meanwhile is refused a second answer."""
+        meanwhile is refused a second answer. An answer to a row whose question changed since it was read is refused by
+        its waiting id (``answer_stale``)."""
         while row.status == "running":
             queued = json.loads(row.pending)
             if queued.keys() & answers.keys():
@@ -370,7 +370,7 @@ def run_router(
             answered = await asyncio.to_thread(lambda: load(row).answer(answers).to_json())
         except InvalidCallError as error:
             raise _unprocessable(error) from None
-        if (if_match is not None and if_match != row.rev) or not await claim(row, {"run": answered}):
+        if not await claim(row, {"run": answered}):
             raise HTTPException(409, "the run changed since it was read")
         launch(row.id, row.rev + 1)
         return Answered(answers="started")
