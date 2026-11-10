@@ -60,9 +60,6 @@ class _Pending:
 #: What a unit's inputs are while something above it hasn't run yet.
 PENDING: Any = _Pending()
 
-#: What the graph passes when it makes a run, so a run has one way in.
-STARTING = object()
-
 #: ``run.answer``'s second argument when it is given a mapping of answers instead.
 _ONE_ANSWER: Any = object()
 
@@ -104,10 +101,11 @@ class Run:
     ``timed_out``; ``cause`` is the ``Problem`` behind any of the last four.
     """
 
-    def __init__(self, graph: Graph, inputs: dict[str, Any], *, max_rows: int | None = None, _door: object = None) -> None:
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        raise TypeError("a run is made with graph.with_inputs(...), graph.run(...) or graph.load_run(saved)")
+
+    def _start(self, graph: Graph, inputs: dict[str, Any], max_rows: int | None) -> None:
         """A run of ``graph`` on checked ``inputs``, by address, not started: what ``graph.with_inputs`` gives."""
-        if _door is not STARTING:
-            raise TypeError("a run is made with graph.with_inputs(...), graph.run(...) or graph.load_run(saved)")
         self.graph, self.inputs, self.max_rows = graph, inputs, max_rows
         self._units: dict[str, dict[Key, Unit]] = {n: {} for n in graph._nodes}
         self.status: RunStatus = "ready"
@@ -258,9 +256,15 @@ class Run:
                 problems.append(make_problem("invalid_answer", outer, *key, waiting_id=unit_id, reason="the row is answered twice in one call"))
                 continue
             placed = self.graph._nodes[node_id]
+            shown = self.graph._shown_outputs(node_id)  # an embedding's questions are asked, and answered, by the names it offers
+            if shown and isinstance(one, Mapping):
+                own = {name: inner for inner, name in shown.items()}
+                one = {own.get(name, name): value for name, value in one.items()}
             read, faults = answer_outputs(placed, one, (found.question or {}).get("asked", {}))
             if faults:
-                problems.extend(make_problem("invalid_answer", outer, *key, waiting_id=unit_id, reason=reason, **({"question": q} if q else {})) for q, reason in faults)
+                problems.extend(
+                    make_problem("invalid_answer", outer, *key, waiting_id=unit_id, reason=reason, **({"question": shown.get(q, q)} if q else {})) for q, reason in faults
+                )
             answered.setdefault(node_id, {})[key] = Unit("done", kept_outputs(placed.definition.outputs, read), found.question) if not faults else found
         if problems:
             raise InvalidCallError(problems)
@@ -362,9 +366,13 @@ class Run:
     def _waiting(self, node_id: str, key: Key, unit: Unit) -> Waiting:
         question = unit.question or {}
         outer = self.graph._outward(node_id)
+        shown = self.graph._shown_outputs(node_id)
+        asked = questions(self.graph._nodes[node_id], question.get("asked", {}))
+        for q in asked:
+            q["name"] = shown.get(q["name"], q["name"])
         return Waiting(
             id=f"{_unit_id(outer, key)}~{_question_fingerprint(self.graph._nodes[node_id], unit)}", node_id=outer, row=key, prompt=question["prompt"],
-            questions=questions(self.graph._nodes[node_id], question.get("asked", {})), inputs=question["inputs"],
+            questions=asked, inputs=question["inputs"],
         )
 
     @property
@@ -754,11 +762,18 @@ class Run:
 
     def _copy(self, *, share_units: bool = False, **changes: Any) -> Run:
         """A copy to change: its own units to record into, or with ``share_units`` this run's, for a caller that replaces whole nodes."""
-        copy = Run(self.graph, self.inputs, max_rows=changes.get("max_rows", self.max_rows), _door=STARTING)
+        copy = start_run(self.graph, self.inputs, changes.get("max_rows", self.max_rows))
         copy._units = dict(self._units) if share_units else {n: dict(us) for n, us in self._units.items()}
         copy.status, copy.cause, copy._earlier, copy._unordered = self.status, self.cause, dict(self._earlier), set(self._unordered)
         copy._ran_as, copy._complete = self._ran_as, self._complete
         return copy
+
+
+def start_run(graph: Graph, inputs: dict[str, Any], max_rows: int | None) -> Run:
+    """A run of ``graph`` on ``inputs`` already checked, by address, not started; the one way a ``Run`` is made."""
+    run = Run.__new__(Run)
+    run._start(graph, inputs, max_rows)
+    return run
 
 
 def run_from_json(graph: Graph, saved: str | bytes | Mapping[str, Any]) -> Run:
@@ -779,7 +794,7 @@ def run_from_json(graph: Graph, saved: str | bytes | Mapping[str, Any]) -> Run:
                     _put_non_finite([inputs[address]], [0, *path])
                 elif isinstance(inputs[address], str):
                     inputs[address] = float(inputs[address])
-        run = Run(graph, inputs, max_rows=data["max_rows"], _door=STARTING)
+        run = start_run(graph, inputs, data["max_rows"])
         unknown = sorted(data["units"].keys() - graph._nodes.keys())
         if unknown:
             raise _Unreadable(unknown[0], "the graph has no such node")

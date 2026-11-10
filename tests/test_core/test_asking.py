@@ -680,3 +680,22 @@ async def test_a_cancelled_run_with_questions_waiting_takes_no_answer_until_it_i
 
     resumed = cancelled.resume()
     assert resumed.status == "waiting" and resumed.answer("q@0", "B1").status == "waiting"
+
+
+def test_an_embeddings_questions_are_named_by_the_outputs_it_offers():
+    from conductor import GraphRecord, NodeRecord, NodeRegistry, make_graph, node
+
+    @node("ask")
+    def ask(text: str) -> str:
+        raise Ask(f"{text}?")
+
+    @node("ask2")
+    def ask2(text: str) -> str:
+        raise Ask(f"again {text}?")
+
+    registry = NodeRegistry()
+    registry.add(ask, ask2, node("both")(GraphRecord(nodes=[NodeRecord(id="q", node="ask"), NodeRecord(id="q2", node="ask2")])))
+    run = registry.load(make_graph(registry["both"], values={"both.q/text": "a", "both.q2/text": "b"})).run()
+    assert sorted(q["name"] for w in run.waiting for q in w.questions) == ["q/result", "q2/result"]
+    done = run.answer({w.id: "yes" for w in run.waiting}).resume()
+    assert done.outputs == {"both.q/result": "yes", "both.q2/result": "yes"}

@@ -394,12 +394,12 @@ class Graph:
         called on a row that receives what it received there, so after an
         edit only the nodes it changes, and what they feed, run again.
         """
-        from conductor._internal.run import STARTING, Run, checked_max_rows
+        from conductor._internal.run import checked_max_rows, start_run
 
         if self.problems:
             raise InvalidCallError(self.problems)
         checked_max_rows(max_rows)
-        run = Run(self, self._checked_inputs({**(inputs or {}), **by_name}), max_rows=max_rows, _door=STARTING)
+        run = start_run(self, self._checked_inputs({**(inputs or {}), **by_name}), max_rows)
         if earlier is not None:
             run._earlier = earlier._carried(into=self)
         return run
@@ -999,6 +999,15 @@ class Graph:
             return graph_input
         node_id, _, name = outer.partition(".")
         return dataclasses.replace(graph_input, address=outer, node_id=node_id, input=name)
+
+    def _shown_outputs(self, node_id: str) -> dict[str, str]:
+        """Each output of a placed node an embedding offers under another name, by its own name: the name a person is asked by."""
+        shown = {}
+        for output in self._nodes[node_id].definition.outputs:
+            outer = self._outward(f"{node_id}.{output}")
+            if outer != f"{node_id}.{output}" and outer.partition(".")[2] != output:
+                shown[output] = outer.partition(".")[2]
+        return shown
 
     def _outward(self, name: str, *, table: bool = False) -> str:
         """A node id, address or table name the engine uses, as the author of this record reads it.
