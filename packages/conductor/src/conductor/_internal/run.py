@@ -144,7 +144,7 @@ class Run:
         can end later than ``timeout``, and a call that came back is never made
         again.
         """
-        checked_max_rows(max_rows)
+        checked_leg(max_rows=max_rows, timeout=timeout)
         return self._leg(max_rows, from_run, None, _deadline(timeout))
 
     def stream(
@@ -162,9 +162,7 @@ class Run:
         its ``run`` loses only the calls in flight if the process dies. A call
         that can't start raises here, before anything is iterated.
         """
-        checked_max_rows(max_rows)
-        if checkpoint_every is not None and (isinstance(checkpoint_every, bool) or not isinstance(checkpoint_every, (int, float)) or not checkpoint_every > 0):
-            raise InvalidCallError([make_problem("invalid_checkpoint_every", "checkpoint_every", checkpoint_every=checkpoint_every)])
+        checked_leg(max_rows=max_rows, timeout=timeout, checkpoint_every=checkpoint_every)
         return self._stream(max_rows, from_run_values(self.graph._needs_from_run, from_run), timeout, cancel, checkpoint_every)
 
     async def _stream(
@@ -857,10 +855,25 @@ def run_from_json(graph: Graph, saved: str | bytes | Mapping[str, Any]) -> Run:
         raise InvalidCallError([make_problem("state_unreadable", "state", unreadable.at, at=unreadable.at, reason=unreadable.reason)]) from None
 
 
-def checked_max_rows(max_rows: int | None) -> None:
-    """A ceiling below one row is refused at the call."""
-    if max_rows is not None and (not isinstance(max_rows, int) or max_rows < 1):
-        raise InvalidCallError([make_problem("invalid_max_rows", "max_rows", max_rows=max_rows)])
+def checked_leg(*, max_rows: int | None = None, timeout: float | None = None, checkpoint_every: float | None = None) -> None:
+    """A leg's ceiling (a whole number of rows, at least 1) and its seconds (a finite number above 0) are refused at the call."""
+    problems = []
+    if max_rows is not None and not _a_ceiling(max_rows):
+        problems.append(make_problem("invalid_max_rows", "max_rows", max_rows=max_rows))
+    if timeout is not None and not _seconds(timeout):
+        problems.append(make_problem("invalid_timeout", "timeout", timeout=timeout))
+    if checkpoint_every is not None and not _seconds(checkpoint_every):
+        problems.append(make_problem("invalid_checkpoint_every", "checkpoint_every", checkpoint_every=checkpoint_every))
+    if problems:
+        raise InvalidCallError(problems)
+
+
+def _a_ceiling(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 1
+
+
+def _seconds(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and value > 0
 
 
 # -- values -------------------------------------------------------------------------------------

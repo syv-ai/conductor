@@ -458,11 +458,11 @@ class Graph:
         item, and the run's ``graph`` is this graph compiled for the lists
         given, so its ``plan`` says where each node ran.
         """
-        from conductor._internal.run import checked_max_rows, start_run
+        from conductor._internal.run import checked_leg, start_run
 
         if self.problems:
             raise InvalidCallError(self.problems)
-        checked_max_rows(max_rows)
+        checked_leg(max_rows=max_rows)
         by_key, problems = self._given_by_key({**(inputs or {}), **by_name})
         graph = self._compiled_for(self._listed_in(by_key))
         if graph.problems:

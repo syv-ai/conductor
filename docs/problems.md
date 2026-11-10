@@ -567,6 +567,16 @@ print(refused(lambda: uppering.run(text="a", max_rows=0)))  # ['invalid_max_rows
 
 **Fix.** Give `max_rows` of 1 or more, or leave it out for no ceiling.
 
+### `invalid_timeout`
+
+> timeout is a number of seconds above 0; it was {timeout}.
+
+```python
+print(refused(lambda: uppering.with_inputs(text="a").resume(timeout=-1)))  # ['invalid_timeout']
+```
+
+**Fix.** Give a number of seconds above 0, or leave it out for a leg with no deadline.
+
 ### `invalid_record`
 
 > The record is not a graph record at '{at}': {reason}. Fix the record's JSON.

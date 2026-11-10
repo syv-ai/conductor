@@ -111,6 +111,7 @@ PROBLEM_CATALOGUE: Mapping[str, str] = {
     "invalid_input": "The value given for '{name}' is not valid: {reason}. Give a value of the type the input takes.",
     "invalid_max_rows": "max_rows is at least 1; it was {max_rows}.",
     "invalid_checkpoint_every": "checkpoint_every is a number of seconds above 0; it was {checkpoint_every}.",
+    "invalid_timeout": "timeout is a number of seconds above 0; it was {timeout}.",
     "missing_input": "'{name}' is required; give it in the call.",
     "not_a_chain": (
         "'{node_id}' can't follow '{before}' in a chain: a chain takes its one required open input (it has {inputs}) "

@@ -52,7 +52,9 @@ What changes in how you work, before the name-by-name tables:
   ended. It pauses for a person (`raise Ask(...)`, then `run.answer(...)` and `run.resume()`), writes
   itself as JSON (`run.to_json()`, `graph.load_run(saved)`, which reads a save from its JSON text; a save that
   doesn't fit is `state_unreadable`, `ctx.at` its place in the save) and runs again on changed inputs,
-  calling only the rows that changed (`run.again(...)`).
+  calling only the rows that changed (`run.again(...)`). A leg's `max_rows` is a whole number of
+  at least 1 and its `timeout` and `checkpoint_every` finite seconds above 0, a `bool` neither,
+  refused at the call (`invalid_max_rows`, `invalid_timeout`, `invalid_checkpoint_every`).
 - **Only an outside failure is retried.** `ExternalFailure`, or a class in `Policy(retry_on=)`;
   a `NodeError`, a wrong output or an `Ask` never is, whatever `retry_on` names.
   A node's own exception goes to the `conductor` logger, never to an event.
