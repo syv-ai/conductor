@@ -1857,3 +1857,48 @@ def test_two_decisions_inside_one_embedding_are_two_exclusive_groups():
     assert loaded.exclusive_groups == {"e": {"d1/answer": ["d1/yes", "d1/no"], "d2/answer": ["d2/yes", "d2/no"]}}
     assert [f.exclusive_group for f in loaded.describe().nodes["e"].outputs] == ["d1/answer", "d1/answer", "d2/answer", "d2/answer"]
     assert loaded.run({"e.d1/text": "yes", "e.d2/text": "yes"}).outputs == {"e.d1/yes": "yes", "e.d1/no": None, "e.d2/yes": "yes", "e.d2/no": None}
+
+
+@node("each")
+def each(texts: Series[str]) -> Series[str]:
+    return texts
+
+
+@node("both")
+def both(a: Series[str], b: Series[str]) -> str:
+    return f"{'+'.join(a)}|{'+'.join(b)}"
+
+
+def test_an_embedded_node_reading_a_table_made_inside_and_the_rows_entering_gathers_the_same_in_either_drawing_order():
+    """``c`` gathers the lines made inside and the texts the embedding is fed; which of them the record lists first
+    changes nothing about the rows each is gathered under."""
+    drawn = {
+        "lines": {"id": "lines", "node": "split", "values": {"text": "x/y", "sep": "/"}},
+        "ent": {"id": "ent", "node": "each"},
+        "c": {"id": "c", "node": "both"},
+    }
+    found = []
+    for order in (("lines", "ent", "c"), ("c", "ent", "lines")):
+        inner = embedded("inner", *(drawn[n] for n in order), edges=(("lines.result", "c.a"), ("ent.result", "c.b")))
+        loaded = registry_of(split, each, both, inner).load(
+            {"nodes": [{"id": "docs", "node": "split"}, {"id": "emb", "node": "inner"}], "edges": [["docs.result", "emb.texts"]]},
+        )
+        assert loaded.problems == []
+        found.append(loaded.run(text="a,b").outputs)
+    assert found[0] == found[1] == {"emb.result": "x+y|a+b"}
+
+
+def test_an_embedding_fed_by_a_table_drawn_after_it_loads_as_one_drawn_before_it():
+    """The node feeding an embedding may come after it in the record: the rows the embedding enters on are known
+    either way, so a node inside pairing an entering value with a table made inside is not ``rows_not_related``."""
+    inner = embedded(
+        "letters", {"id": "entered", "node": "upper"}, {"id": "lines", "node": "split", "values": {"text": "x/y", "sep": "/"}},
+        {"id": "p", "node": "pair"}, edges=(("entered.result", "p.a"), ("lines.result", "p.b")),
+    )
+    registry = registry_of(split, upper, pair, inner)
+    found = []
+    for outer in ([{"id": "docs", "node": "split"}, {"id": "emb", "node": "letters"}], [{"id": "emb", "node": "letters"}, {"id": "docs", "node": "split"}]):
+        loaded = registry.load({"nodes": outer, "edges": [["docs.result", "emb.text"]]})
+        assert loaded.problems == []
+        found.append(loaded.run(text="a,b").outputs)
+    assert found[0] == found[1]

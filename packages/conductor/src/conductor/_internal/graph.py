@@ -80,6 +80,12 @@ if TYPE_CHECKING:
 
 #: A path of table names from the graph's own row.
 Level = tuple[str, ...]
+#: What an embedded graph offers where it is embedded: its problems, its inputs and its outputs.
+Offer = tuple[list[Problem], dict[str, tuple[str, str]], dict[str, str]]
+#: An embedded graph loaded alone: its definition's id and version, and the graphs it sits in.
+AloneKey = tuple[str, int, tuple[str, ...]]
+#: Whether an open input at an address, of a field, holding a value, takes a list of items in a compile.
+ListsRule = Callable[[str, FieldSpec, Any], bool]
 
 
 
@@ -119,7 +125,7 @@ class InputPlan:
     """How one input of a placed node gets its value: its sources, or a value typed in."""
 
     spec: FieldSpec
-    sources: list[Source] = field(default_factory=list)
+    sources: list[Source] = field(default_factory=list[Source])
     value: Any = REQUIRED
     #: For a table input, the level whose rows it gathers.
     table_level: Level = ()
@@ -137,11 +143,13 @@ class PlacedNode:
     definition: NodeDefinition[..., Any]
     record: NodeRecord
     level: Level = ()
-    inputs: dict[str, InputPlan] = field(default_factory=dict)
+    inputs: dict[str, InputPlan] = field(default_factory=dict[str, "InputPlan"])
     #: Each output of many values, and the level its rows are.
-    makes: dict[str, Level] = field(default_factory=dict)
+    makes: dict[str, Level] = field(default_factory=dict[str, Level])
     #: The inputs whose value an edge brings is read by the input's type before a call, as its sources' types don't settle it.
     checked: tuple[str, ...] = ()
+    #: The placed nodes its edges read.
+    reads: frozenset[str] = frozenset()
 
     @functools.cached_property
     def reuse_digest(self) -> str:
@@ -261,15 +269,25 @@ class Graph:
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         raise TypeError("a graph is loaded with registry.load(record)")
 
+    @classmethod
+    def _loaded(
+        cls, record: GraphRecord, definitions: Mapping[str, NodeDefinition[..., Any]], embedded_in: tuple[str, ...], alone: dict[AloneKey, Offer],
+        is_listed: ListsRule,
+    ) -> Graph:
+        graph = cls.__new__(cls)
+        graph._load(record, definitions, embedded_in, alone, is_listed)
+        return graph
+
     def _load(
-        self, record: GraphRecord, definitions: Mapping[str, NodeDefinition[..., Any]], embedded_in: tuple[str, ...], alone: dict[Any, tuple[list[Problem], dict[str, tuple[str, str]], dict[str, str]]],
-        listed: frozenset[str] | None,
+        self, record: GraphRecord, definitions: Mapping[str, NodeDefinition[..., Any]], embedded_in: tuple[str, ...], alone: dict[AloneKey, Offer],
+        is_listed: ListsRule,
     ) -> None:
         self.record = record
         self._embedded_in = embedded_in
-        #: The open inputs, by the placed node's address, a caller gives a list of items at in a run of this compile;
-        #: ``None`` while compiling for a run given nothing, where each input's default decides.
-        self._listed: frozenset[str] | None = listed
+        #: Whether an open input, by the placed node's address, takes a list of items in this compile.
+        self._is_listed = is_listed
+        #: The open inputs a caller gives a list of items at in a run of this compile, set once compiled.
+        self._listed: frozenset[str] = frozenset()
         #: The compiles this graph made for other lists, by the inputs given lists. Each holds its own, never this
         #: one, so no compile holds a cycle.
         self._compiles: dict[frozenset[str], Graph] = {}
@@ -417,36 +435,35 @@ class Graph:
         load (an unknown node, a broken edge, or one below it) is there with ``loaded`` false, its problems saying why;
         an embedded graph is one node, with the fields it offers.
         """
-        nodes: dict[str, dict[str, Any]] = {}
+        nodes: dict[str, GraphNodeDescription] = {}
         plan = self.plan
         for record in self.record.nodes:
-            nodes[record.id] = {
-                "node": record.node, "version": record.version, "loaded": record.id in self._nodes or record.id in plan,
-                "problems": [p for p in self.problems if p.loc[:1] == (record.id,)],
-            }
-        for p in self._nodes.values():
-            if p.id in nodes:
-                nodes[p.id].update({
-                    "runs": plan[p.id],
-                    "inputs": [f.describe(PlacedFieldDescription, feed=self._feed(p, n)) for n, f in p.definition.inputs.items()],
-                    "outputs": [f.describe() for f in p.definition.outputs.values()],
-                })
-        for e, (ins, _) in self._offers.items():
-            if e in plan:
-                shown = self._groups_shown[e]
-                nodes[e].update({
-                    "runs": plan[e],
-                    "inputs": [
+            own = [p for p in self.problems if p.loc[:1] == (record.id,)]
+            if record.id in self._nodes:
+                placed = self._nodes[record.id]
+                nodes[record.id] = GraphNodeDescription(
+                    node=record.node, version=record.version, loaded=True, problems=own, runs=plan[record.id],
+                    inputs=[f.describe(PlacedFieldDescription, feed=self._feed(placed, n)) for n, f in placed.definition.inputs.items()],
+                    outputs=[f.describe() for f in placed.definition.outputs.values()],
+                )
+            elif record.id in self._offers and record.id in plan:
+                ins = self._offers[record.id][0]
+                shown = self._groups_shown[record.id]
+                nodes[record.id] = GraphNodeDescription(
+                    node=record.node, version=record.version, loaded=True, problems=own, runs=plan[record.id],
+                    inputs=[
                         self._nodes[n].definition.inputs[i].describe(PlacedFieldDescription, name=name, feed=self._feed(self._nodes[n], i))
                         for name, (n, i) in ins.items() if n in self._nodes
                     ],
-                    "outputs": [
+                    outputs=[
                         self._nodes[n].definition.outputs[o].describe(name=name, exclusive_group=shown.get((n, self._nodes[n].definition.outputs[o].param.exclusive_group or "")))
-                        for name, (n, o) in self._readable[e].items()
+                        for name, (n, o) in self._readable[record.id].items()
                     ],
-                })
+                )
+            else:
+                nodes[record.id] = GraphNodeDescription(node=record.node, version=record.version, loaded=record.id in plan, problems=own)
         return GraphDescription(
-            nodes={node_id: GraphNodeDescription(**fields) for node_id, fields in nodes.items()},
+            nodes=nodes,
             inputs=dict(self.inputs),
             outputs=self.outputs,
             problems=list(self.problems),
@@ -482,9 +499,8 @@ class Graph:
         """
         from conductor._internal.run import canonical_json
 
-        include: Any = {"nodes": {"__all__": {"id", "node", "version", "values", "defaults"}}, "edges": True}
         records = [self.record, *(self._embedded[node_id] for node_id in sorted(self._embedded))]
-        written = canonical_json([sorted(self._embedded), *(record.model_dump(mode="json", include=include) for record in records)])
+        written = canonical_json([sorted(self._embedded), *(record.model_dump(mode="json", include={"nodes": {"__all__": {"id", "node", "version", "values", "defaults"}}, "edges": True}) for record in records)])
         return hashlib.blake2b(written, digest_size=8).hexdigest()
 
     # -- running ----------------------------------------------------------------
@@ -577,7 +593,7 @@ class Graph:
 
         return run_from_json(self, saved)
 
-    def _offered(self) -> tuple[list[Problem], dict[str, tuple[str, str]], dict[str, str]]:
+    def _offered(self) -> Offer:
         """What this graph offers where it is embedded: its problems, and its inputs and outputs by the name an
         embedding offers them under, beside the placed address behind each.
 
@@ -607,17 +623,15 @@ class Graph:
         return found
 
     def _above_of(self, node_id: str) -> frozenset[str]:
-        """Every node ``node_id`` waits on, however far up."""
+        """Every node ``node_id`` waits on, however far up; worked out when first asked, as most nodes never are."""
         found = self._above.get(node_id)
         if found is None:
             seen: set[str] = set()
             stack = [node_id]
             while stack:
-                for plan in self._nodes[stack.pop()].inputs.values():
-                    for s in plan.sources:
-                        if s.node_id is not None and s.node_id not in seen:
-                            seen.add(s.node_id)
-                            stack.append(s.node_id)
+                for read in self._nodes[stack.pop()].reads - seen:
+                    seen.add(read)
+                    stack.append(read)
             found = self._above[node_id] = frozenset(seen)
         return found
 
@@ -627,7 +641,7 @@ class Graph:
             return self
         graph = self._compiles.get(listed)
         if graph is None:
-            graph = self._compiles[listed] = load_graph(self.record, self._definitions, self._embedded_in, self._alone, listed=listed)
+            graph = self._compiles[listed] = Graph._loaded(self.record, self._definitions, self._embedded_in, self._alone, _listed_at(listed))
         return graph
 
     def _given_by_key(self, given: Mapping[str, Any]) -> tuple[dict[str, Any], list[Problem]]:
@@ -635,7 +649,7 @@ class Graph:
         offer, and each input given by both its name and its address, as a problem."""
         fields = {**{f.address: f for f in self._input_fields.values()}, **{f.name: f for f in self._input_fields.values()}}
         by_key: dict[str, Any] = {}
-        problems = []
+        problems: list[Problem] = []
         for name, value in given.items():
             offered = fields.get(name)
             if offered is None:
@@ -649,7 +663,7 @@ class Graph:
     def _checked_inputs(self, by_key: Mapping[str, Any], problems: list[Problem]) -> dict[str, Any]:
         """The caller's inputs by address, each checked against its field, a list of items where this compile takes one;
         every fault at once, after the ``problems`` naming them found."""
-        problems, values = list(problems), {}
+        problems, values = list(problems), dict[str, Any]()
         for key, offered in self._input_fields.items():
             name, spec = offered.name, offered.spec
             if key not in by_key:
@@ -702,7 +716,7 @@ class Graph:
                 continue
             loaded_alone = (definition.id, definition.version, (*stack, definition.id))
             if loaded_alone not in self._alone:
-                self._alone[loaded_alone] = load_graph(definition.graph, self._definitions, loaded_alone[2], self._alone, listed=frozenset())._offered()
+                self._alone[loaded_alone] = Graph._loaded(definition.graph, self._definitions, loaded_alone[2], self._alone, _listed_at(frozenset()))._offered()
             alone_problems, offered_ins, offered_outs = self._alone[loaded_alone]
             if alone_problems:
                 inner_problems = [p.model_dump(mode="json") for p in alone_problems]
@@ -788,7 +802,13 @@ class Graph:
                 for source in sources:
                     if source.partition(".")[0] in self._fed:
                         self._fed[source.partition(".")[0]].append(node_id)
-        for node_id in self._order(order, into):
+        #: For each embedded node, the entering edges its floor reads, worked out from the record's edges alone.
+        self._known = known
+        self._floor_reads: dict[str, list[tuple[str, str]]] = {
+            n: self._entering_read(n, d, into) for n, (_, d) in known.items() if d is not None and "/" in n
+        }
+        extra = {n: {a.partition(".")[0] for a, _ in reads} for n, reads in self._floor_reads.items()}
+        for node_id in self._order(order, into, extra):
             node_record, definition = known[node_id]
             if definition is not None:
                 self._compile_node(node_record, definition, into[node_id])
@@ -801,19 +821,21 @@ class Graph:
             name = p.name if bare.count(p.name) == 1 else p.address
             self.inputs[name] = p
             self._input_fields[key] = InputField(key, name, p.address, spec, default, listed)
-        if self._listed is None:
-            self._listed = frozenset(key for key, f in self._input_fields.items() if f.listed)
+        self._listed = frozenset(key for key, f in self._input_fields.items() if f.listed)
         self._spliced = frozenset(n for n in self._nodes if "/" in n)
         #: The nodes with a ``FromRun`` parameter, as ``from_run_values`` reads them.
         self._needs_from_run = [(p.id, p.definition) for p in self._nodes.values() if p.definition.from_run]
         for placed in self._nodes.values():
-            for source_id in {s.node_id for p in placed.inputs.values() for s in p.sources if s.node_id is not None}:
+            for source_id in placed.reads:
                 self._readers[source_id].append(placed)
 
-    def _order(self, order: list[str], into: dict[str, dict[str, list[str]]]) -> list[str]:
+    def _order(self, order: list[str], into: dict[str, dict[str, list[str]]], extra: dict[str, set[str]]) -> list[str]:
         """The nodes with each after what it reads, ties in drawing order; a node on a cycle is a problem."""
         position = {n: i for i, n in enumerate(order)}
         needs = {n: {s.partition(".")[0] for ss in into[n].values() for s in ss} & position.keys() for n in order}
+        for n, more in extra.items():
+            if n in needs:
+                needs[n] |= more & position.keys()
         readers: dict[str, list[str]] = {n: [] for n in order}
         for n, sources in needs.items():
             for source in sources:
@@ -821,7 +843,7 @@ class Graph:
         waiting = {n: len(sources) for n, sources in needs.items()}
         ready = [position[n] for n in order if not waiting[n]]
         heapq.heapify(ready)
-        done = []
+        done: list[str] = []
         while ready:
             n = order[heapq.heappop(ready)]
             done.append(n)
@@ -847,6 +869,7 @@ class Graph:
             definition = dataclasses.replace(definition, inputs={**definition.inputs, **added})
         placed = PlacedNode(record.id, definition, record)
         broken = False
+        read: set[str] = set()
         inputs = list(definition.inputs)
         for name in sorted({*record.values, *record.defaults, *edges} - definition.inputs.keys()):
             self.problems.append(make_problem("unknown_input", placed.id, name, inputs=inputs))
@@ -861,11 +884,18 @@ class Graph:
             if name in edges:
                 if name in record.values or name in record.defaults:
                     self.problems.append(make_problem("value_and_edge", placed.id, name))
-                for address in sorted(edges[name], key=self._gather_order):
+                found: list[tuple[str, Source]] = []
+                for address in edges[name]:
                     source = self._source(address, placed.id, name)
                     if source is None:
                         broken = True
-                    elif self._fits(spec, source, address, placed.id, name):
+                    else:
+                        found.append((address, source))
+                        read.add(address.partition(".")[0])
+                if len(found) > 1:
+                    found.sort(key=self._gather_order)
+                for address, source in found:
+                    if self._fits(spec, source, address, placed.id, name):
                         plan.sources.append(source)
             elif name in record.values and given_as_items(spec, record.values[name]):
                 self._typed_list(placed, name, plan, record.values[name])
@@ -889,7 +919,8 @@ class Graph:
                     self._fixed_open.append(f"{placed.id}.{name}")
         if broken or not self._place(placed):
             return
-        placed.checked = tuple(name for name, plan in placed.inputs.items() if any(not _settled(plan.spec, s) for s in plan.sources if s.node_id is not None))
+        placed.reads = frozenset(read)
+        placed.checked = tuple(name for name, plan in placed.inputs.items() if name in edges and any(not _settled(plan.spec, s) for s in plan.sources))
         if definition.compute_outputs is not None:
             arriving = {name: _arriving(plan) for name, plan in placed.inputs.items() if plan.sources}
             outputs = self._hook(record, definition, "compute_outputs", definition.compute_outputs, arriving)
@@ -905,13 +936,11 @@ class Graph:
             return
         self._nodes[placed.id] = placed
 
-    def _gather_order(self, address: str) -> tuple[int, int, str]:
+    def _gather_order(self, edge: tuple[str, Source]) -> tuple[int, int, str]:
         """Where an edge into an input falls among several: its node's place in the record, then the output's in its node."""
-        node_id, _, rest = address.partition(".")
-        source = self._nodes.get(node_id)
-        outputs = list(source.definition.outputs) if source is not None else []
-        output = rest.partition(".")[0]
-        return self._position.get(node_id, -1), outputs.index(output) if output in outputs else len(outputs), address
+        address, source = edge
+        node_id = address.partition(".")[0]
+        return self._position[node_id], list(self._nodes[node_id].definition.outputs).index(source.output), address
 
     def _hook(
         self, record: NodeRecord, definition: NodeDefinition[..., Any], kind: HookName, hook: Callable[..., Mapping[Any, Any]],
@@ -960,7 +989,7 @@ class Graph:
         if source.node_id is None:
             return frozenset()
         spec = self._nodes[source.node_id].definition.outputs[source.output]
-        own = {(source.node_id, spec.param.exclusive_group, source.output)} if spec.param.exclusive_group else set()
+        own: set[tuple[str, str, str]] = {(source.node_id, spec.param.exclusive_group, source.output)} if spec.param.exclusive_group else set()
         return self._branches[source.node_id] | own
 
     def _on_opposite_branches(self, placed: PlacedNode) -> bool:
@@ -984,7 +1013,7 @@ class Graph:
                         "alternatives_on_different_rows", placed.id, name, tables=[_table(levels[0]), _table(levels[1])],
                     ))
                     return True
-                taken |= frozenset.intersection(*branches)
+                taken |= branches[0].intersection(*branches[1:])
         self._branches[placed.id] = frozenset(taken)
         series = [(n, [self._branch(s) for s in p.sources]) for n, p in placed.inputs.items() if p.spec.shape == "many" and p.sources and not takes_a_blank(p.spec.type)]
         for i, (a, on_a) in enumerate(series):
@@ -1020,7 +1049,7 @@ class Graph:
         Given a list of items in this compile, its rows are the list's own table.
         """
         address = f"{placed.id}.{name}"
-        listed = address in self._listed if self._listed is not None else given_as_items(plan.spec, plan.value)
+        listed = self._is_listed(address, plan.spec, plan.value)
         level: Level = (address,) if listed else ()
         if listed:
             self._makers[address] = (None, address)
@@ -1171,28 +1200,35 @@ class Graph:
         that reads none and makes rows takes the entering edges a node below it reads, so a table made inside lies
         under the outer row its reader receives the entering value on.
         """
-        node_id = placed.id
         levels: list[Level] = []
-        above: set[str] | None = None
+        for address, target in self._floor_reads[placed.id] if "/" in placed.id else ():
+            source = self._nodes.get(address.partition(".")[0])
+            if source is None:
+                continue
+            level = source.makes.get(address.partition(".")[2].partition(".")[0], source.level)  # its node's rows, or the table its output makes
+            target_id, _, target_input = target.partition(".")
+            holder = placed.definition if target_id == placed.id else (self._nodes[target_id].definition if target_id in self._nodes else self._known[target_id][1])
+            spec = holder.inputs.get(target_input) if holder is not None else None
+            levels.append(level[:-1] if spec is not None and spec.shape != "one" and level else level)
+        return _deepest(levels)
+
+    def _entering_read(self, node_id: str, definition: NodeDefinition[..., Any], into: dict[str, dict[str, list[str]]]) -> list[tuple[str, str]]:
+        above: set[str] = set()
+        stack = [node_id]
+        while stack:
+            n = stack.pop()
+            if n not in above:
+                above.add(n)
+                stack.extend(src.partition(".")[0] for ss in into.get(n, {}).values() for src in ss)
+        picked: list[tuple[str, str]] = []
         for e in self._embedded:
             if node_id.startswith(e + "/"):
-                if above is None:
-                    sources = {s.node_id for p in placed.inputs.values() for s in p.sources if s.node_id is not None}
-                    above = {node_id, *sources, *(a for n in sources for a in self._above_of(n))}
-                entering = [(address, target) for address, target in self._entering[e] if target.partition(".")[0] in above]
-                if not entering and any(spec.shape != "one" for spec in placed.definition.outputs.values()):
+                entering = [(a, t) for a, t in self._entering[e] if t.partition(".")[0] in above]
+                if not entering and any(spec.shape != "one" for spec in definition.outputs.values()):
                     below = self._below(node_id)
-                    entering = [(address, target) for address, target in self._entering[e] if below & {target.partition(".")[0], *self._below(target.partition(".")[0])}]
-                for address, target in entering:
-                    source = self._nodes.get(address.partition(".")[0])
-                    if source is None:
-                        continue
-                    level = source.makes.get(address.partition(".")[2].partition(".")[0], source.level)  # its node's rows, or the table its output makes
-                    target_id, _, target_input = target.partition(".")
-                    holder = placed if target_id == placed.id else self._nodes.get(target_id)
-                    spec = holder.definition.inputs.get(target_input) if holder is not None else None  # its own copy, as its hooks made it
-                    levels.append(level[:-1] if spec is not None and spec.shape != "one" and level else level)
-        return _deepest(levels)
+                    entering = [(a, t) for a, t in self._entering[e] if below & {t.partition(".")[0], *self._below(t.partition(".")[0])}]
+                picked += entering
+        return picked
 
     def _below(self, node_id: str) -> set[str]:
         """Every node the record's edges feed from ``node_id``, however far down."""
@@ -1215,7 +1251,7 @@ class Graph:
 
     def _shown_outputs(self, node_id: str) -> dict[str, str]:
         """Each output of a placed node an embedding offers under another name, by its own name: the name a person is asked by."""
-        shown = {}
+        shown: dict[str, str] = {}
         for output in self._nodes[node_id].definition.outputs:
             outer = self._outward(f"{node_id}.{output}")
             if outer != f"{node_id}.{output}" and outer.partition(".")[2] != output:
@@ -1268,18 +1304,18 @@ class Graph:
         self.problems.append(make_problem("lists_not_collected" if given else "rows_not_related", placed.id, tables=tables))
 
 
-def load_graph(
-    record: GraphRecord, definitions: Mapping[str, NodeDefinition[..., Any]], embedded_in: tuple[str, ...] = (), alone: dict[Any, tuple[list[Problem], dict[str, tuple[str, str]], dict[str, str]]] | None = None,
-    *, listed: frozenset[str] | None = None,
-) -> Graph:
-    """``record`` loaded against ``definitions``, the one way a ``Graph`` is made; ``embedded_in`` names the graphs it is
-    loaded inside, and ``alone`` what the embedded graphs of this load found loaded alone.
+def load_graph(record: GraphRecord, definitions: Mapping[str, NodeDefinition[..., Any]]) -> Graph:
+    """``record`` loaded against ``definitions``, the one way a ``Graph`` is made, compiled as a run given nothing
+    runs: with the lists its defaults hold, in one pass."""
+    return Graph._loaded(record, definitions, (), {}, _listed_by_default)
 
-    ``listed`` names the open inputs given lists of items. With no ``listed``, the graph is compiled as a run given nothing runs: with the lists its defaults hold, in one pass.
-    """
-    graph = Graph.__new__(Graph)
-    graph._load(record, definitions, embedded_in, {} if alone is None else alone, listed)
-    return graph
+
+def _listed_by_default(address: str, spec: FieldSpec, value: Any) -> bool:
+    return given_as_items(spec, value)
+
+
+def _listed_at(listed: frozenset[str]) -> ListsRule:
+    return lambda address, spec, value: address in listed
 
 
 def _given_from_outside(record: NodeRecord, embedding: NodeRecord, offered: Mapping[str, str], fed: set[str]) -> NodeRecord:

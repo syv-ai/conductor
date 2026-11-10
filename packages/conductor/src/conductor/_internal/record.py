@@ -146,7 +146,7 @@ def as_record(record: GraphRecord | str | bytes | Mapping[str, Any]) -> GraphRec
         return GraphRecord.model_validate(record)
     except ValidationError as invalid:
         raise InvalidCallError([
-            make_problem("invalid_record", "record", *error["loc"], at=".".join(map(str, error["loc"])) or "the record", reason=str(error["msg"]).removeprefix("Value error, "), error=error["type"])
+            make_problem("invalid_record", "record", *error["loc"], at=".".join(map(str, error["loc"])) or "the record", reason=error["msg"].removeprefix("Value error, "), error=error["type"])
             for error in invalid.errors(include_url=False, include_input=False)  # a validator's own sentence, without pydantic's prefix
         ]) from None
 
