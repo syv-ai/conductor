@@ -101,12 +101,15 @@ class Unit:
     skipped_from: int | None = None
 
 
-@dataclass(slots=True, kw_only=True)
 class WaitingUnit(Unit):
     """A unit waiting for a person: its node raised ``Ask`` on the row, and it always holds the question."""
 
-    state: Literal["waiting"] = "waiting"
+    __slots__ = ()
+    state: Literal["waiting"]
     question: RowQuestion
+
+    def __init__(self, question: RowQuestion) -> None:  # one is made for every row that asks: positional, and no more
+        self.state, self.out, self.question, self.blank_input, self.skipped_from = "waiting", None, question, None, None
 
 
 class Run:
@@ -348,7 +351,7 @@ class Run:
                 if u.state == "done" or u.state == "waiting":
                     fingerprint = _fingerprint(placed.reuse_digest, self._inputs(placed, k), plain=placed.plain_inputs)
                     if fingerprint is not None:
-                        by.setdefault(self._asked_key(placed, k, fingerprint) if u.question else fingerprint, []).append(u)
+                        by.setdefault(self._asked_key(placed, k, fingerprint) if u.question is not None else fingerprint, []).append(u)
             for fingerprint, left in self._earlier.get(n, {}).items():
                 if left:
                     by.setdefault(fingerprint, []).extend(left)
@@ -997,7 +1000,7 @@ def _dump_units(placed: PlacedNode, units: Mapping[Key, Unit], keyed: bool = Tru
             **({"non_finite": non_finite} if non_finite else {}),
         }
     states = [u.state for u in units.values()]
-    out: dict[str, Any] = {"states": states, "questions": {str(i): u.question.as_json() for i, u in enumerate(units.values()) if u.question}, "outputs": outputs}
+    out: dict[str, Any] = {"states": states, "questions": {str(i): u.question.as_json() for i, u in enumerate(units.values()) if u.question is not None}, "outputs": outputs}
     if "blank" in states:
         out["blank_inputs"] = {str(i): u.blank_input for i, u in enumerate(units.values()) if u.blank_input is not None}
     if decided := "skipped" in states and {str(i): u.skipped_from for i, u in enumerate(units.values()) if u.skipped_from is not None}:
@@ -1121,7 +1124,7 @@ def _load_units(placed: PlacedNode, dumped: _SavedUnits) -> list[tuple[Key, Unit
         if state == "waiting":
             if question is None:
                 raise _Unreadable(placed.id, f"the waiting unit {i} holds no question")
-            loaded.append((key, WaitingUnit(question=question)))
+            loaded.append((key, WaitingUnit(question)))
         else:
             loaded.append((key, Unit(state, out, question, dumped.blank_inputs.get(i), dumped.skipped_from.get(i))))
     return loaded
@@ -1253,7 +1256,7 @@ def jsonable(kwargs: dict[str, Any]) -> Any:
     """What a unit received, as JSON; a float that isn't finite as text. ``Refused`` as ``question_unwritable`` names
     the first input with no JSON form."""
     try:
-        return json.loads(pydantic_core.to_json(kwargs, fallback=_frame_json, inf_nan_mode="strings"))
+        return pydantic_core.from_json(pydantic_core.to_json(kwargs, fallback=_frame_json, inf_nan_mode="strings"))
     except (TypeError, ValueError, pydantic_core.PydanticSerializationError) as error:
         for name, value in kwargs.items():
             try:

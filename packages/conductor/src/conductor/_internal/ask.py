@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, TypedDict
 
 import polars as pl
@@ -106,6 +107,10 @@ class QuestionOverrides(TypedDict, total=False):
     default: JsonValue
 
 
+#: The overrides of an ``Ask`` that set nothing, shared by every row such an ``Ask`` stops.
+_NOTHING_SET: Mapping[str, QuestionOverrides] = MappingProxyType({})
+
+
 @dataclass(slots=True)
 class RowQuestion:
     """What a node asked on one row, kept on the row while it waits and after it is answered, and saved with the run.
@@ -121,7 +126,7 @@ class RowQuestion:
 
     prompt: str
     inputs: dict[str, Any]
-    overrides: dict[str, QuestionOverrides] = field(default_factory=dict)
+    overrides: Mapping[str, QuestionOverrides] = field(default_factory=dict)
 
     def as_json(self) -> dict[str, Any]:
         """The record as a save writes it, leaving ``overrides`` out when the ``Ask`` set nothing."""
@@ -176,6 +181,8 @@ def row_question(ask: Ask, outputs: Mapping[str, FieldSpec], inputs: dict[str, A
     Raises:
         InvalidAskError: The ``Ask``'s choices or default don't fit the outputs.
     """
+    if ask.choices is None and ask.default is REQUIRED:
+        return RowQuestion(ask.prompt, inputs, _NOTHING_SET)
     overrides: dict[str, QuestionOverrides] = {}
     if ask.choices is not None:
         for name, choices in _by_output(ask.choices, outputs, "choices").items():

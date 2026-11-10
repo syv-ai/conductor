@@ -411,7 +411,7 @@ class Leg:
             except Refused as unwritable:  # a person can't be shown what the node received
                 return self._failure(placed, key, unwritable)
             try:
-                return WaitingUnit(question=row_question(error, placed.definition.outputs, inputs))
+                return WaitingUnit(row_question(error, placed.definition.outputs, inputs))
             except InvalidAskError as invalid:
                 return make_problem("invalid_ask", placed.id, *key, reason=str(invalid))
         return self._failure(placed, key, error)
