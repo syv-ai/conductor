@@ -54,7 +54,7 @@ import functools
 import inspect
 import math
 import typing
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Generic, Literal, ParamSpec, Protocol, TypeVar, overload
@@ -350,7 +350,7 @@ def node(
     title: str | None = None,
     description: str | None = None,
     category: str = "",
-    tags: Sequence[str] = (),
+    tags: list[str] | tuple[str, ...] = (),
     extra: Mapping[str, JsonValue] = MappingProxyType({}),
     docs: str | None = None,
     policy: Policy | None = None,

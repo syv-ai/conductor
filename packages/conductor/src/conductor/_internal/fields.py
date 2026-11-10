@@ -25,7 +25,7 @@ import functools
 import types
 import typing
 import uuid
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import (
@@ -145,7 +145,7 @@ class Param:
     description: str | None = None
     widget: Widget | None = None
     exclusive_group: str | None = None
-    choices: Sequence[Any] | None = None
+    choices: list[Any] | tuple[Any, ...] | None = None
     ge: _Bound | None = None
     gt: _Bound | None = None
     le: _Bound | None = None

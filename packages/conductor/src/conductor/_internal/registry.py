@@ -38,7 +38,7 @@ from __future__ import annotations
 
 import copy
 import dataclasses
-from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Concatenate
 
@@ -84,7 +84,7 @@ class NodeRegistry:
         self,
         *,
         category: str = "",
-        tags: Sequence[str] = (),
+        tags: list[str] | tuple[str, ...] = (),
         extra: Mapping[str, JsonValue] = MappingProxyType({}),
         types: Iterable[type[NamedType]] = (),
     ) -> None:
