@@ -44,6 +44,7 @@ from typing import (
 import polars as pl
 from pydantic import (
     AfterValidator,
+    BaseModel,
     BeforeValidator,
     ConfigDict,
     GetCoreSchemaHandler,
@@ -807,7 +808,7 @@ def read_given(spec: FieldSpec, value: Any, *, items: bool) -> Any:
             return read_table(spec, value, strict=False, given=True)
         return spec.lax_adapter.validate_python(value)
     except ValidationError as error:
-        raise _refused(error) from None
+        raise _refused(error, _list_of(spec.type) if items or spec.shape == "many" else spec.type) from None
 
 
 def read_value(spec: FieldSpec, value: Any, *, strict: bool) -> Any:
@@ -829,7 +830,7 @@ def read_value(spec: FieldSpec, value: Any, *, strict: bool) -> Any:
         if spec.shape == "many" and isinstance(value, list) and any(item is SKIPPED for item in value):
             items = iter(read_value(spec, [item for item in value if item is not SKIPPED], strict=strict))
             return [SKIPPED if item is SKIPPED else next(items) for item in value]
-        raise _refused(error) from None
+        raise _refused(error, _list_of(spec.type) if spec.shape == "many" else spec.type) from None
 
 
 def read_table(spec: FieldSpec, value: Any, *, strict: bool, given: bool = False) -> pl.DataFrame:
@@ -865,16 +866,58 @@ def read_table(spec: FieldSpec, value: Any, *, strict: bool, given: bool = False
             try:
                 read[column] = spec.column_adapters[column].validate_python(value[column].to_list(), strict=strict)
             except ValidationError as error:
-                refused = _refused(error)
+                refused = _refused(error, _list_of(hint))
                 raise Refused(f"column '{column}': {refused.reason}", column=column, **refused.ctx) from None
     if given:
         return pl.DataFrame({c: read[c] if c in read else value[c] for c in spec.columns}, strict=False)
     return value.with_columns(pl.Series(c, cells, strict=False) for c, cells in read.items()) if read else value
 
 
-def _refused(error: ValidationError) -> Refused:
+def _refused(error: ValidationError, hint: Any) -> Refused:
+    """``error`` of reading a value of ``hint``, its errors without the value: each ``loc`` only as far as ``hint`` declares."""
     errors = value_free_errors(error)
+    for said, raw in zip(errors, error.errors(include_url=False, include_input=False), strict=True):
+        said["loc"] = _declared_loc(hint, raw["loc"])
     return Refused(errors[0]["msg"], errors=errors)
+
+
+def _declared_loc(hint: Any, loc: tuple[int | str, ...]) -> tuple[int | str, ...]:
+    """The steps of pydantic's ``loc`` into a value of ``hint`` that the type itself names: an index into a list, a
+    field of a model, dataclass or ``TypedDict``. It stops at the first other step, a key of a dict or a branch of a
+    union, as a key can be the value's own."""
+    kept: list[int | str] = []
+    for step in loc:
+        hint = _unannotated(hint)
+        origin = get_origin(hint) or hint
+        if isinstance(step, int) and isinstance(origin, type) and issubclass(origin, (list, tuple, set, frozenset)):
+            args = [a for a in get_args(hint) if a is not Ellipsis]
+            hint = args[min(step, len(args) - 1)] if args else Any
+        elif isinstance(step, str) and step in (fields := _fields_of(hint)):
+            hint = fields[step]
+        else:
+            break
+        kept.append(step)
+    return tuple(kept)
+
+
+def _unannotated(hint: Any) -> Any:
+    """``hint`` without ``Annotated``, ``Named`` or ``| None``."""
+    while True:
+        bare = without_none(_unnamed(hint))
+        bare = get_args(bare)[0] if get_origin(bare) is Annotated else bare
+        if bare is hint:
+            return hint
+        hint = bare
+
+
+def _fields_of(hint: Any) -> Mapping[str, Any]:
+    """The fields a model, dataclass or ``TypedDict`` declares, by name; none for any other type."""
+    if not isinstance(hint, type) or not (issubclass(hint, BaseModel) or dataclasses.is_dataclass(hint) or typing.is_typeddict(hint)):
+        return {}
+    try:
+        return typing.get_type_hints(hint)
+    except Exception:  # noqa: BLE001  a hint that names what isn't defined: no field is named
+        return {}
 
 
 _RECORDS = TypeAdapter(list[dict[str, Any]])

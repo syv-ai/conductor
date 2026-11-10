@@ -147,14 +147,13 @@ _SAID_OF_A_VALIDATOR = "The value did not pass its type's own check."
 def value_free_errors(invalid: ValidationError) -> list[dict[str, Any]]:
     """pydantic's errors as a problem may hold them: nothing of the value.
 
-    Each keeps its ``type``, and ``loc`` as far as the field it is on, since
-    deeper a key of the value can stand there. ``msg`` is pydantic's own when
-    that speaks of the type alone, such as a limit; a sentence built from what
-    a validator raised or from the value's own tag is replaced, because it may
-    quote the value.
+    Each keeps its ``type``; its ``loc`` is empty, since a key of the value can stand in pydantic's, and a caller
+    that knows the type it read gives back the steps the type declares. ``msg`` is pydantic's own when that speaks of the type alone,
+    such as a limit; a sentence built from what a validator raised or from the value's own tag is replaced, because
+    it may quote the value.
     """
     return [
-        {"type": error["type"], "loc": error["loc"][:1], "msg": _SAID_OF_A_VALIDATOR if {"error", "tag"} & error.get("ctx", {}).keys() else error["msg"]}
+        {"type": error["type"], "loc": (), "msg": _SAID_OF_A_VALIDATOR if {"error", "tag"} & error.get("ctx", {}).keys() else error["msg"]}
         for error in invalid.errors(include_url=False, include_input=False)
     ]
 

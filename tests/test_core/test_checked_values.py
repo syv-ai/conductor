@@ -17,7 +17,17 @@ from typing import Annotated, Any, Literal, TypedDict
 
 import polars as pl
 import pytest
-from conductor import SKIPPED, GraphRecord, NodeRecord, Param, Policy, Series, Table, node
+from conductor import (
+    SKIPPED,
+    GraphRecord,
+    InvalidCallError,
+    NodeRecord,
+    Param,
+    Policy,
+    Series,
+    Table,
+    node,
+)
 from pydantic import BaseModel, Discriminator, Field, field_validator
 from pydantic_core import core_schema
 
@@ -335,6 +345,20 @@ def test_a_record_field_is_named_in_the_failure_of_an_output():
     cause = _returning({"counts": {SECRET: "many"}}, ByPerson).cause
 
     assert [tuple(error["loc"]) for error in cause.ctx["errors"]] == [("counts",)]
+
+
+def test_a_key_of_a_dict_given_is_never_in_the_errors_and_a_declared_field_or_an_index_is():
+    @node("tally")
+    def tally(scores: dict[str, int], people: list[ByPerson]) -> str:
+        return "ok"
+
+    graph = registry_of(tally).load(GraphRecord(nodes=[NodeRecord(id="t", node="tally")]))
+
+    for given, loc in (({"scores": {SECRET: "x"}, "people": []}, ()), ({"scores": {}, "people": [{"counts": {}}, {"counts": {SECRET: "x"}}]}, (1, "counts"))):
+        with pytest.raises(InvalidCallError) as refused:
+            graph.run(given)
+        (problem,) = refused.value.errors()
+        assert SECRET not in problem.model_dump_json() and [tuple(e["loc"]) for e in problem.ctx["errors"]] == [loc]
 
 
 # -- where the check runs ----------------------------------------------------------------------

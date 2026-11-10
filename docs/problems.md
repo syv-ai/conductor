@@ -272,7 +272,7 @@ print(problems({"nodes": [{"id": "a.b", "node": "upper"}]}))  # ['invalid_node_i
 print(problems({"nodes": [{"id": "c", "node": "count", "values": {"n": "many"}}]}))  # ['invalid_value']
 ```
 
-**Fix.** Type in a value of the field's type. `reason` says what the type refused, without quoting the value; `errors` is pydantic's list of what it refused (`type`, `loc`, `msg`), each without the value, so a host can key on `greater_than_equal` or `bool_is_not_a_number`.
+**Fix.** Type in a value of the field's type. `reason` says what the type refused, without quoting the value; `errors` is pydantic's list of what it refused (`type`, `loc`, `msg`; `loc` as far as the type names it, an index or a declared field, never a key of a dict), each without the value, so a host can key on `greater_than_equal` or `bool_is_not_a_number`.
 
 ### `lists_not_collected`
 
