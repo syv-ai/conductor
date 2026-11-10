@@ -1061,6 +1061,24 @@ except NodeDeclarationError as error:
 
 **Fix.** Give `extra` as JSON: a mapping of strings to JSON values, every number finite.
 
+### `from_run_misplaced`
+
+> {name}: FromRun is a whole parameter the host always gives, name: FromRun[Session]; anywhere else, a caller would fill it
+
+```python
+class Session: ...
+
+try:
+    @node("maybe")
+    def maybe(session: FromRun[Session] | None = None) -> str:
+        return ""
+except NodeDeclarationError as error:
+    print(error.code)  # from_run_misplaced
+```
+
+**Fix.** Write the parameter as `name: FromRun[Session]`, never inside `| None`, a list or a return type. The host
+gives that value on every run, so a node can trust it; anywhere else it would be an input a caller fills.
+
 ### `from_run_not_a_class`
 
 > {name}: FromRun names the class of the value the run is given, FromRun[Session]

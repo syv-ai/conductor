@@ -12,6 +12,7 @@ import pytest
 from conductor import (
     Choice,
     Deprecation,
+    FromRun,
     GraphRecord,
     InvalidCallError,
     Named,
@@ -969,6 +970,32 @@ def test_from_run_names_a_class() -> None:
             return "x"
 
     assert raised.value.code == "from_run_not_a_class"
+
+
+@dataclass
+class _Session:
+    user: str
+
+
+def _optional_session(session: FromRun[_Session] | None = None) -> str:
+    return "x"
+
+
+def _sessions(sessions: list[FromRun[_Session]]) -> str:
+    return "x"
+
+
+def _returns_a_session() -> FromRun[_Session]:
+    return _Session("x")
+
+
+@pytest.mark.parametrize("function", [_optional_session, _sessions, _returns_a_session])
+def test_from_run_is_only_a_whole_parameter_so_a_caller_never_fills_it(function: Any) -> None:
+    # Anywhere else the value would be an input a caller fills, and a node trusts what the host hands it.
+    with pytest.raises(NodeDeclarationError, match="FromRun") as raised:
+        node("who")(function)
+
+    assert raised.value.code == "from_run_misplaced"
 
 
 def test_a_bare_series_is_many_values_of_any_type() -> None:

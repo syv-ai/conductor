@@ -488,6 +488,11 @@ def read_field(name: str, hint: Any, default: Any = REQUIRED, where: str = "") -
     ``Annotated[X, Param(...)] | None`` is read as ``X | None`` with that ``Param``, and a bare ``Series`` as many
     values of any type.
     """
+    if _holds_from_run(hint):
+        raise NodeDeclarationError(
+            f"{where}{name}: FromRun is a whole parameter the host always gives, name: FromRun[Session]; anywhere else, a caller would fill it",
+            code="from_run_misplaced",
+        )
     or_none = False
     if get_origin(hint) in (Union, types.UnionType):
         members = [a for a in get_args(hint) if a is not type(None)]
@@ -496,7 +501,7 @@ def read_field(name: str, hint: Any, default: Any = REQUIRED, where: str = "") -
     param = Param()
     if get_origin(hint) is Annotated:
         base, *meta = get_args(hint)
-        unknown = [m for m in meta if not isinstance(m, (Param, Named, _ManyMarker, _TableMarker, _FromRunMarker))]
+        unknown = [m for m in meta if not isinstance(m, (Param, Named, _ManyMarker, _TableMarker))]
         if unknown:
             raise NodeDeclarationError(
                 f"{where}{name}: Annotated holds {unknown[0]!r}, which conductor doesn't read; a widget, a title or a limit goes on Param(...)",
@@ -548,6 +553,13 @@ def _check_choices(spec: FieldSpec, where: str) -> None:
                 fault = f"on a Literal the choices title its values, one each: {list(offered)}"
     if fault:
         raise NodeDeclarationError(f"{where}{spec.name}: {fault}; give each choice once, as a value of the field's type", code="choices_invalid")
+
+
+def _holds_from_run(hint: Any) -> bool:
+    """Whether a ``FromRun`` mark sits anywhere in ``hint``."""
+    if get_origin(hint) is Annotated and any(isinstance(m, _FromRunMarker) for m in get_args(hint)[1:]):
+        return True
+    return any(_holds_from_run(arg) for arg in get_args(hint))
 
 
 def marked(hint: Any, marker: type) -> bool:
