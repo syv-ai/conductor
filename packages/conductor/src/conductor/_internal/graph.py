@@ -41,10 +41,9 @@ import dataclasses
 import functools
 import hashlib
 import heapq
-import inspect
 import types
 import typing
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -73,7 +72,7 @@ from conductor._internal.fields import (
     takes_a_blank,
     type_id,
 )
-from conductor._internal.node_definition import NodeDefinition, is_node_id
+from conductor._internal.node_definition import HookName, NodeDefinition, is_node_id, read_by_hooks
 from conductor._internal.record import GraphRecord, NodeRecord
 
 if TYPE_CHECKING:
@@ -842,7 +841,7 @@ class Graph:
 
     def _compile_node(self, record: NodeRecord, definition: NodeDefinition[..., Any], edges: dict[str, list[str]]) -> None:
         if definition.compute_added_inputs is not None:
-            added = self._hook(record, definition, definition.compute_added_inputs, edges)
+            added = self._hook(record, definition, "compute_added_inputs", edges)
             if added is None:
                 return
             taken = sorted(added.keys() & (definition.inputs.keys() | definition.from_run.keys()))
@@ -856,7 +855,7 @@ class Graph:
         for name in sorted({*record.values, *record.defaults, *edges} - definition.inputs.keys()):
             self.problems.append(make_problem("unknown_input", placed.id, name, inputs=inputs))
         first_node = not any(name in definition.inputs for name in edges)
-        read_at_load = _read_by_hooks(definition)
+        read_at_load = read_by_hooks(definition)
         for name, spec in definition.inputs.items():
             # an input an embedded graph offers is open to the caller whether or not edges from outside feed the others
             first = first_node or f"{record.id}.{name}" in self._seen_as
@@ -896,7 +895,7 @@ class Graph:
             return
         placed.checked = tuple(name for name, plan in placed.inputs.items() if any(not _settled(plan.spec, s) for s in plan.sources if s.node_id is not None))
         if definition.compute_outputs is not None:
-            outputs = self._hook(record, definition, definition.compute_outputs, edges, placed)
+            outputs = self._hook(record, definition, "compute_outputs", edges, placed)
             if outputs is None:
                 return
             placed.definition = dataclasses.replace(definition, outputs=outputs)
@@ -918,15 +917,16 @@ class Graph:
         return self._position.get(node_id, -1), outputs.index(output) if output in outputs else len(outputs), address
 
     def _hook(
-        self, record: NodeRecord, definition: NodeDefinition[..., Any], hook: Any, edges: dict[str, list[str]], placed: PlacedNode | None = None,
+        self, record: NodeRecord, definition: NodeDefinition[..., Any], kind: HookName, edges: dict[str, list[str]], placed: PlacedNode | None = None,
     ) -> dict[str, FieldSpec] | None:
         """Call a hook with the node's typed values and arriving types: its answer read as fields, or a problem."""
+        hook: Callable[..., Mapping[str, Any]] = getattr(definition, kind)  # set, as the caller checked
         kwargs: dict[str, Any] = {}
-        for name, parameter in inspect.signature(hook).parameters.items():
-            if parameter.annotation in (type, "type"):
+        for name, arriving in definition.hook_parameters[kind].items():
+            if arriving:  # only compute_outputs reads one, so the node is placed
                 plan = placed.inputs.get(name) if placed is not None else None
                 kwargs[name] = _arriving(plan) if plan is not None and plan.sources else Any
-            elif name in definition.inputs:
+            else:  # @node checked it names a declared input
                 spec = definition.inputs[name]
                 raw = record.values.get(name, record.defaults.get(name, REQUIRED))
                 if raw is REQUIRED and spec.default is REQUIRED:
@@ -1300,15 +1300,6 @@ def _given_from_outside(record: NodeRecord, typed: Mapping[str, Mapping[str, Any
         "values": {**record.values, **typed.get("values", {})},
         "defaults": {**defaults, **typed.get("defaults", {})},
     })
-
-
-def _read_by_hooks(definition: NodeDefinition[..., Any]) -> frozenset[str]:
-    """The inputs a node's hooks read as values: fixed when the graph loads, so never open to a caller."""
-    hooks = (definition.compute_added_inputs, definition.compute_outputs)
-    return frozenset(
-        name for hook in hooks if hook is not None for name, parameter in inspect.signature(hook).parameters.items()
-        if parameter.annotation not in (type, "type")
-    )
 
 
 def _hint_and_default(given: Any) -> tuple[Any, Any]:

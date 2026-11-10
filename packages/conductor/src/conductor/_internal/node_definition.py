@@ -57,7 +57,7 @@ import typing
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Any, Generic, ParamSpec, Protocol, TypeVar, overload
+from typing import Any, Generic, Literal, ParamSpec, Protocol, TypeVar, overload
 
 from pydantic import JsonValue
 
@@ -77,6 +77,9 @@ from conductor._internal.record import GraphRecord, as_record
 
 _P = ParamSpec("_P")
 _R = TypeVar("_R")
+
+#: The hooks a node may have, by the keyword ``@node`` takes each as.
+HookName = Literal["compute_added_inputs", "compute_outputs"]
 
 
 @dataclass(frozen=True)
@@ -222,6 +225,10 @@ class NodeDefinition(Generic[_P, _R]):
     compute_outputs: Callable[..., Mapping[str, Any]] | None = None
     #: The ``FromRun`` parameters: the type whose value goes under each name in a call.
     from_run: Mapping[str, type] = field(default_factory=dict[str, type])
+    #: Each hook's parameters, by the hook's name (``compute_added_inputs``, ``compute_outputs``) and then the
+    #: parameter's: ``True`` where it is annotated ``type`` and receives the type arriving on the input of that name,
+    #: ``False`` where it receives the value typed into that input. Read from the hooks' signatures once, at ``@node``.
+    hook_parameters: Mapping[HookName, Mapping[str, bool]] = field(default_factory=dict[HookName, Mapping[str, bool]])
 
     def __call__(self, *args: _P.args, **kwargs: _P.kwargs) -> _R:
         """Call the function, as a test or a host would."""
@@ -387,14 +394,13 @@ def node(
             raise NodeDeclarationError(f"{where}a node with compute_added_inputs takes them as **kwargs; add **values to its signature", code="compute_added_inputs_without_var_keyword")
         if compute_added_inputs is None and takes_kwargs:
             raise NodeDeclarationError(f"{where}**kwargs takes the inputs compute_added_inputs adds; the node has no such hook, so remove **kwargs or add compute_added_inputs=", code="var_keyword_without_hook")
-        for hook, kind in ((compute_added_inputs, "compute_added_inputs"), (compute_outputs, "compute_outputs")):
-            if hook is not None:
-                _check_hook(where, hook, kind, inputs)
+        hooks: dict[HookName, Callable[..., Any] | None] = {"compute_added_inputs": compute_added_inputs, "compute_outputs": compute_outputs}
+        hook_parameters = {kind: _check_hook(where, hook, kind, inputs) for kind, hook in hooks.items() if hook is not None}
         definition: NodeDefinition[..., Any] = NodeDefinition(
             function=target, inputs=inputs, outputs=outputs, outputs_class=outputs_class, from_run=from_run,
             title=title or humanised(target.__name__),
             description=(inspect.getdoc(target) or "").split("\n\n")[0].replace("\n", " ") if description is None else description,
-            compute_added_inputs=compute_added_inputs, compute_outputs=compute_outputs, **common,
+            compute_added_inputs=compute_added_inputs, compute_outputs=compute_outputs, hook_parameters=hook_parameters, **common,
         )
         if replaces is not None:
             _raise_if_upgrade_is_missing(where, replaces, definition)
@@ -498,16 +504,32 @@ def _declared_default(declared: dataclasses.Field[Any]) -> Any:
     return REQUIRED
 
 
-def _check_hook(where: str, hook: Callable[..., Any], kind: str, inputs: Mapping[str, FieldSpec]) -> None:
-    """A hook's parameters each name an input of the node, by name."""
+def read_by_hooks(definition: NodeDefinition[..., Any]) -> frozenset[str]:
+    """The inputs a node's hooks read as values: fixed when the graph loads, so never open to a caller."""
+    return frozenset(name for parameters in definition.hook_parameters.values() for name, arriving in parameters.items() if not arriving)
+
+
+def _check_hook(where: str, hook: Callable[..., Any], kind: HookName, inputs: Mapping[str, FieldSpec]) -> dict[str, bool]:
+    """Reads a hook's parameters, each passed by name and naming an input of the node.
+
+    Returns:
+        Each parameter's name, mapped to ``True`` where it is annotated ``type`` and receives the type arriving on the
+        input of that name, and ``False`` where it receives the value typed into that input.
+
+    Raises:
+        NodeDeclarationError: A parameter is positional or variadic, reads an arriving type in
+            ``compute_added_inputs``, or reads a value and names no declared input.
+    """
+    parameters: dict[str, bool] = {}
     for name, parameter in inspect.signature(hook).parameters.items():
-        arriving = parameter.annotation in (type, "type")
+        arriving = parameters[name] = parameter.annotation in (type, "type")
         if parameter.kind is not parameter.POSITIONAL_OR_KEYWORD and parameter.kind is not parameter.KEYWORD_ONLY:
             raise NodeDeclarationError(f"{where}{kind} parameter {name!r}: a hook's parameters are passed by name; name each after an input of the node", code="hook_parameter_unknown")
         if arriving and kind == "compute_added_inputs":
             raise NodeDeclarationError(f"{where}compute_added_inputs parameter {name!r} reads an arriving type, but inputs are decided before anything arrives; read it in compute_outputs", code="arriving_on_compute_added_inputs")
         if not arriving and name not in inputs:
             raise NodeDeclarationError(f"{where}{kind} parameter {name!r} names no input of the node; it has {sorted(inputs)}", code="hook_parameter_unknown")
+    return parameters
 
 
 def _raise_if_upgrade_is_missing(where: str, older: NodeDefinition[..., Any], newer: NodeDefinition[..., Any]) -> None:

@@ -47,7 +47,6 @@ from __future__ import annotations
 import copy
 import dataclasses
 import datetime
-import inspect
 import types
 import typing
 from collections.abc import Callable, Mapping, Sequence
@@ -60,7 +59,7 @@ from conductor._internal.ask import Ask
 from conductor._internal.errors import InvalidCallError, Problem
 from conductor._internal.fields import FieldSpec, without_none
 from conductor._internal.graph import load_graph
-from conductor._internal.node_definition import NodeDefinition
+from conductor._internal.node_definition import NodeDefinition, read_by_hooks
 from conductor._internal.record import GraphRecord, NodeRecord, typed_in
 from conductor._internal.registry import NodeRegistry
 
@@ -140,10 +139,9 @@ def _causes(problems: Sequence[Problem]) -> dict[str, Any]:
 
 def _hook_problems(version: NodeDefinition[..., Any], registry: NodeRegistry) -> list[Problem]:
     """Load the node with its defaults and a made-up value for each required input its hooks read."""
-    hooks = [hook for hook in (version.compute_added_inputs, version.compute_outputs) if hook is not None]
-    if not hooks:
+    if not version.hook_parameters:
         return []
-    read = sorted({name for hook in hooks for name, p in inspect.signature(hook).parameters.items() if p.annotation not in (type, "type")})
+    read = sorted(read_by_hooks(version))
     values = {name: _made_up(version.inputs[name]) for name in read if version.inputs[name].required}
     missing = [name for name, value in values.items() if value is _CANNOT]
     if missing:
