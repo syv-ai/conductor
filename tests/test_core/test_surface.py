@@ -31,6 +31,7 @@ from conductor import (
     NodeDeclarationError,
     NodeError,
     NodeRegistry,
+    Policy,
     Problem,
     Table,
     Waiting,
@@ -107,7 +108,16 @@ def test_a_registry_prints_its_nodes_each_as_its_own_repr():
     assert repr(registry) == f"<NodeRegistry of 2 nodes:\n    {greet!r}\n    {shout!r}\n>"
 
 
+def test_a_loaded_graph_prints_a_one_line_summary():
+    registry = _registry()
+
+    assert repr(registry.load({"nodes": [{"id": "s", "node": "scale"}]})) == "<Graph of 1 node, runnable>"
+    assert repr(registry.load({"nodes": [{"id": "s", "node": "nope"}]})) == "<Graph of 1 node, 1 problem>"
+
+
 def test_a_record_prints_only_what_is_not_at_its_default():
+    assert repr(Policy()) == "Policy()"
+    assert repr(Policy(retries=2)) == "Policy(retries=2)"
     assert repr(Deprecation()) == "Deprecation()"
     assert repr(Deprecation(header="Gone")) == "Deprecation(header='Gone')"
     assert repr(Problem(type="cycle", msg="m", loc=("a",))) == "Problem(type='cycle', loc=('a',), msg='m')"
@@ -115,6 +125,7 @@ def test_a_record_prints_only_what_is_not_at_its_default():
 
 def test_a_record_prints_a_field_set_back_to_its_default_value_as_absent():
     """The repr is the data, not the history: a value equal to the default is not news."""
+    assert repr(Policy(retries=0, concurrency=1)) == "Policy()"
     assert repr(Deprecation(header=None)) == "Deprecation()"
     assert repr(Problem(type="cycle", msg="m", ctx={})) == "Problem(type='cycle', msg='m')"
 
@@ -199,6 +210,25 @@ def test_a_refused_run_lists_each_problem_with_its_place_and_code():
         graph.run()
 
     assert str(raised.value) == "1 problem(s):\n  s.facter — unknown_input: 's' has no input 'facter'; it has value, factor."
+
+
+def test_the_outputs_of_a_failed_run_are_refused_and_its_results_say_what_it_did():
+    registry = NodeRegistry()
+
+    @registry.node("each")
+    def each(n: int) -> int:
+        if n == 1:
+            raise ValueError("no")
+        return n
+
+    run = registry.load({"nodes": [{"id": "e", "node": "each", "many": ["n"]}]}).run(n=[0, 1, 2])
+
+    assert run.status == "failed" and run.cause is not None and run.cause.loc == ("e", 1)
+    with pytest.raises(InvalidCallError) as raised:
+        run.outputs
+    (refused,) = raised.value.errors()
+    assert refused.type == "run_not_complete" and refused.ctx["status"] == "failed"
+    assert run.results["e"]["result"][0] == 0
 
 
 def _codes_written_by_the_library() -> set[str]:

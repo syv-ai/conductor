@@ -490,6 +490,18 @@ def test_adding_a_node_adds_the_types_it_declares_a_series_giving_its_item():
     assert dict(registry.types) == {"text": Text, "number": Number}
 
 
+def test_an_any_input_adds_no_type():
+    @node("pass")
+    def passes(value: Any) -> Text:
+        return Text(value)
+
+    registry = NodeRegistry()
+    registry.add(passes)
+
+    assert dict(registry.types) == {"text": Text}
+    assert registry.describe()["types"] == [{"id": "text", "title": "Text", "accepted_as": ["text"]}]
+
+
 def test_two_classes_may_claim_one_id_until_one_registry_holds_both():
     first, second = _declare_text(), _declare_text()
     assert first is not second
