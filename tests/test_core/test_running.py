@@ -12,8 +12,9 @@ import json
 import math
 import threading
 import time
-from typing import Any
+from typing import Any, TypedDict
 
+import polars as pl
 import pytest
 from conductor import (
     SKIPPED,
@@ -25,6 +26,7 @@ from conductor import (
     NodeRecord,
     Policy,
     Series,
+    Table,
     make_graph,
     node,
 )
@@ -186,6 +188,23 @@ def test_progress_counts_rows_between_start_and_complete_with_the_total_once_the
     progress = [e for e in events if e.type == "node_progress" and e.node_id == "slow"]
     assert progress and all(e.total == 3 for e in progress) and progress[-1].done >= 1
     assert kinds.index(("node_start", "slow")) < kinds.index(("node_progress", "slow")) < kinds.index(("node_complete", "slow"))
+
+
+def test_a_fast_node_over_many_rows_reports_progress_a_few_times_a_second_ending_on_its_last_count():
+    @node("echo")
+    def echo(text: str) -> str:
+        return text
+
+    started = time.monotonic()
+    events = _events(_per_row(echo, 20_000).with_inputs())
+    took = time.monotonic() - started
+
+    progress = [e for e in events if e.type == "node_progress" and e.node_id == "slow"]
+    assert len(progress) <= took / 0.25 + 2
+    assert (progress[-1].done, progress[-1].total) == (20_000, 20_000)
+    complete = next(i for i, e in enumerate(events) if e.type == "node_complete" and e.node_id == "slow")
+    assert events.index(progress[-1]) < complete
+
 
 
 def test_a_node_above_rows_that_were_never_made_reports_no_progress():
@@ -729,3 +748,38 @@ def test_a_float_that_is_not_finite_inside_a_model_survives_a_saved_run_and_the_
     assert loaded.answer("c", "yes").resume().outputs == {"w.result": "-inf..inf yes"}
 
 
+class Contact(TypedDict):
+    name: str
+    email: str
+
+
+def test_a_table_missing_a_declared_column_at_run_time_fails_the_node_that_made_it():
+    @node("bare")
+    def bare(text: str) -> Table[Contact]:
+        return pl.DataFrame({"name": ["ida"]})
+
+    @node("greet")
+    def greet(email: str) -> str:
+        return email
+
+    graph = registry_of(bare, greet).load(GraphRecord(nodes=[NodeRecord(id="b", node="bare"), NodeRecord(id="g", node="greet")], edges=[("b.result.email", "g.email")]))
+
+    run = graph.run(text="x")
+
+    assert run.status == "failed" and run.cause.loc == ("b",)
+
+
+def test_a_table_with_a_blank_cell_survives_a_saved_run():
+    @node("contacts")
+    def contacts(text: str) -> Table[Contact]:
+        return pl.DataFrame({"name": ["ida", "bo"], "email": ["ida@a.dk", None]})
+
+    graph = registry_of(contacts, send).load(GraphRecord(
+        nodes=[NodeRecord(id="c", node="contacts"), NodeRecord(id="m", node="send")], edges=[("c.result.email", "m.email")],
+    ))
+    run = graph.run(text="x")
+
+    loaded = graph.load_run(run.to_json())
+
+    assert loaded.results["c"]["result"].to_dicts() == [{"name": "ida", "email": "ida@a.dk"}, {"name": "bo", "email": None}]
+    assert loaded.not_called == [{"node_id": "m", "row": (1,), "input": "email"}]
