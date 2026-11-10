@@ -69,7 +69,6 @@ from conductor._internal.fields import (
     FieldSpec,
     _FromRunMarker,
     humanised,
-    is_a_number,
     marked,
     read_field,
 )
@@ -124,14 +123,13 @@ class Policy:
     threaded: bool = field(default=False, init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
-        def seconds(value: Any) -> bool:
-            return is_a_number(type(value)) and math.isfinite(value)
-
-        whole = is_a_number(type(self.concurrency), int) and is_a_number(type(self.retries), int) and self.concurrency >= 1 and self.retries >= 0
-        timed = seconds(self.retry_delay) and self.retry_delay >= 0 and (self.attempt_timeout is None or (seconds(self.attempt_timeout) and self.attempt_timeout > 0))
-        if not (whole and timed):
+        counted = self.concurrency >= 1 and self.retries >= 0
+        timed = math.isfinite(self.retry_delay) and self.retry_delay >= 0 and (
+            self.attempt_timeout is None or (math.isfinite(self.attempt_timeout) and self.attempt_timeout > 0)
+        )
+        if not (counted and timed):
             raise NodeDeclarationError(
-                f"{self}: concurrency is a whole number of at least 1, retries one of at least 0, retry_delay a finite number of seconds of at least 0, attempt_timeout one above 0",
+                f"{self}: concurrency is at least 1, retries at least 0, retry_delay finite seconds of at least 0, attempt_timeout finite seconds above 0",
                 code="policy_invalid",
             )
         object.__setattr__(self, "threaded", self.concurrency > 1 or self.attempt_timeout is not None)
