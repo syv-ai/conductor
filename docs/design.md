@@ -42,13 +42,14 @@ print(sorted(d.id for d in free))  # ['join', 'upper']
 
 ## The stored record and `make_graph`
 
-- **A record is `{"nodes": [...], "edges": [[from, to], ...]}`**, plus a `display` of the host's own. A node is `{"id", "node", "version", "values", "defaults", "display"}`, with empty fields left out. `id` is where the node sits in this graph, and `node` is which definition it uses. One combined string would need parsing everywhere. In conductor's JSON, `node` always means the coded node and `node_id` a placed one.
+- **A record is `{"nodes": [...], "edges": [[from, to], ...]}`**, nothing more: what a host keeps about the whole graph, such as a canvas viewport, it stores beside the record. A node is `{"id", "node", "version", "values", "defaults", "display"}`, with empty fields left out. `id` is where the node sits in this graph, and `node` is which definition it uses. One combined string would need parsing everywhere. In conductor's JSON, `node` always means the coded node and `node_id` a placed one.
 - **`version` defaults to 1, and loading never upgrades.** `registry.upgrade` does, when asked.
 - **`values` are fixed; `defaults` are prefilled and stay open.** There is one map per intent, chosen over a `locked` flag beside one map. A default is allowed only where a caller can reach it: on an open input of a first node. Anywhere else it is `default_on_later_node`.
-- **Typed-in values and `display` are JSON.** A value typed in is kept as its JSON reads back: a date as its ISO text, a float that isn't finite as `"NaN"` or `"Infinity"`. So a record always equals its own JSON, and its fingerprint survives a store. A value with no JSON form, such as a polars frame, is `invalid_value` at the call. A hand-built record holding a float that isn't finite is `invalid_record`.
-- **`display` is the host's.** Conductor stores it, never reads it, and leaves it out of the fingerprint.
+- **Typed-in values and a node's `display` are JSON.** A value typed in is kept as its JSON reads back: a date as its ISO text, a float that isn't finite as `"NaN"` or `"Infinity"`. So a record always equals its own JSON, and its fingerprint survives a store. A value with no JSON form, such as a polars frame, is `invalid_value` at the call. A hand-built record holding a float that isn't finite is `invalid_record`.
+- **A node's `display` is the host's.** Conductor stores it, never reads it, and leaves it out of the fingerprint. It sits on the node so it follows the node through an upgrade, a removal and an embedding.
+- **There is no setting flag on a field.** A node can't know every graph it sits in, so whether an input is fixed is said per graph: a `value` in the record is the graph author's, an open first-node input the caller's.
 - **Edges are a sorted list of address pairs** (`node.field`, or `node.output.column`). Two records that differ only in edge order are equal. Several edges into one input gather in a fixed order that never depends on the list: on rows of one table, that table's row order; across tables, the order of `nodes`, then the order the source declares its outputs. So a host may sort the list. Edges stored per node were rejected: reconnecting reorders either shape.
-- **`make_graph(*nodes, edges=, values=, defaults=)`** follows scikit-learn's `make_pipeline`. With no `edges` the nodes form a chain: each node takes its one required open input (never a setting) from the one output of the node before it, or the call fails with `not_a_chain`. With `edges`, those are every edge. It loads what it writes and raises one `InvalidCallError` listing every fault of the call. A half-drawn graph is still written.
+- **`make_graph(*nodes, edges=, values=, defaults=)`** follows scikit-learn's `make_pipeline`. With no `edges` the nodes form a chain: each node takes its one required open input from the one output of the node before it, or the call fails with `not_a_chain`. With `edges`, those are every edge. It loads what it writes and raises one `InvalidCallError` listing every fault of the call. A half-drawn graph is still written.
 
 ```python
 record = make_graph(upper, join)
@@ -210,7 +211,7 @@ asyncio.run(follow())
 - **Every record is a frozen pydantic model:** `GraphRecord`, `Problem`, the events (one union on `type`), `Waiting`, and every `describe()` result. Each serves as a FastAPI response model as it is.
 - **`Param` is pydantic metadata.** It implements pydantic's schema hooks, so it works inside a host's own `BaseModel`, and a field's limits live in its JSON schema, not in a separate list.
 - **Strict where a program produced the value, lax where a person or caller typed it.** Answers, declared choices and node outputs are read strictly (`"12"` is never an `int`). Typed-in values, inputs and edges are read laxly. A `bool` never lands on a number.
-- **`Named(id, title=)` names a type with no class of its own**, such as `bool`, inside `Annotated`. It was chosen over `NewType` because a type checker reads such an alias as plain `bool`. `Series[T]` and `FromRun[T]` are `Annotated` aliases too, and every Python block in the docs is type-checked under mypy and pyright.
+- **A type's id is its own.** A builtin is known by its name (`bool`, `str`); a type that needs an id and a title of its own is a class (`id`, `display_title`). A host shows its own words for type ids in its editor. `Series[T]` and `FromRun[T]` are `Annotated` aliases, and every Python block in the docs is type-checked under mypy and pyright.
 
 ```python
 from typing import Annotated
