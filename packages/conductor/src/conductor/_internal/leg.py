@@ -210,7 +210,8 @@ class Leg:
         self.touched: set[str] = set()
         #: The nodes said complete, on this leg or on an earlier one; a node an answer finished between legs is said on this one.
         self.complete: set[str] = set(run._complete)
-        self.touched.update(n for n, units in run._units.items() if units and n not in self.complete)
+        if seeded := {n for n, units in run._units.items() if units and n not in self.complete}:
+            self.touched.update(seeded)
         for node_id in self.complete & run.graph._spliced:  # an embedding completes once its last node does
             units = run._units[node_id].values()
             skipped = bool(units) and all(u.state == "skipped" for u in units)
@@ -235,12 +236,15 @@ class Leg:
         finally:
             if self.pool is not None:
                 self.pool.shutdown(wait=False, cancel_futures=True)
-        run._complete = frozenset(self.complete | {p.id for p in self.nodes if p.id not in self.complete and self._finished(p)})
-        if run.status == "running":  # a finished node has no row waiting
-            waits = any(u.state == "waiting" for n, us in run._units.items() if n not in run._complete for u in us.values())
+        if run.status == "running":  # a node already said complete has no row waiting
+            waits = any(u.state == "waiting" for n, us in run._units.items() if n not in self.complete for u in us.values())
             run.status = "waiting" if waits else "complete"
-        for node_id in run._complete:  # what a finished node was carried and didn't take, no row of this run will
-            run._earlier.pop(node_id, None)
+        if run.status == "complete":  # every row of every node is finished, and nothing carried will be taken
+            run._complete, run._earlier = frozenset(self.position), {}
+        else:
+            run._complete = frozenset(self.complete | {p.id for p in self.nodes if p.id not in self.complete and self._finished(p)})
+            for node_id in run._complete if run._earlier else ():  # what a finished node was carried and didn't take, no row of this run will
+                run._earlier.pop(node_id, None)
         if self.emit:
             self.touched.update(self.position)
             self._completions()
@@ -264,7 +268,7 @@ class Leg:
                     self._completions()
                 if self.running:
                     self._wait()
-                elif self.left_pending and (self.recorded_since_walk or self._pass_untried()):
+                elif self.left_pending and (self.recorded_since_walk or (self.turns and self._pass_untried())):
                     self._walk()
                 else:
                     return
@@ -595,9 +599,14 @@ class Leg:
     def _finished(self, placed: PlacedNode) -> bool:
         """Whether every row of ``placed`` is known and none of them is still to run or waiting."""
         units = self.run._units[placed.id]
+        if not placed.level:
+            for unit in units.values():
+                return unit.state != "waiting"
+            return False
+        if "waiting" in {u.state for u in units.values()}:
+            return False
         counted, known = self.run._rows(placed.level, (), counted=True)
-        rows = (counted[0][0] if counted else 0) if placed.level else 1
-        return known and len(units) == rows and all(u.state != "waiting" for u in units.values())
+        return known and len(units) == (counted[0][0] if counted else 0)
 
     def _inner_complete(self, node_id: str, skipped: bool, rows: int, not_called: set[Key]) -> None:
         """A node of an embedding is complete: once all of them are, the embedding is, as one node: its rows the most any of

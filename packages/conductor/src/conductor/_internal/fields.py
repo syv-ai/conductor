@@ -279,6 +279,17 @@ class FieldSpec:
         return value
 
     @functools.cached_property
+    def plain(self) -> bool:
+        """Whether its values are of plain classes (``SCALARS``): JSON with no keys to order, read back by the type as they were."""
+        return bool(self.plain_classes) and set(self.plain_classes) <= SCALARS
+
+    @functools.cached_property
+    def takes_a_number(self) -> bool:
+        """Whether the type is a number's (``int``, ``float`` or a class of theirs), which a ``bool`` must not land on."""
+        base = _unnamed(without_none(self.type))
+        return base is not bool and isinstance(base, type) and issubclass(base, (int, float))
+
+    @functools.cached_property
     def plain_classes(self) -> tuple[type, ...]:
         """The classes a value of exactly which needs no reading: the type's own, ``None`` for a blank-taking one; none under limits or ``Any``."""
         options = _options(self.type)
@@ -295,13 +306,13 @@ class FieldSpec:
     def column_adapter(self) -> TypeAdapter[Any]:
         """Checks and writes one output's values over many units, blanks included."""
         carried = _carried(self.type)
-        one: Any = _list_of(carried | None) if self.shape == "many" else carried  # a skipped item is written as null
-        return TypeAdapter(_list_of(one | None), config=_FLOATS_AS_TEXT)
+        one: Any = _column_of(carried | None) if self.shape == "many" else carried  # a skipped item is written as null
+        return TypeAdapter(_column_of(one | None), config=_FLOATS_AS_TEXT)
 
     @functools.cached_property
     def column_adapters(self) -> dict[str, TypeAdapter[Any]]:
         """For a table, a check and writer of each column its row type names."""
-        return {column: carried_list(Union[hint, None]) for column, hint in (self.columns or {}).items()}  # noqa: UP007  a cell may be blank
+        return {column: TypeAdapter(_column_of(_carried(Union[hint, None])), config=_FLOATS_AS_TEXT) for column, hint in (self.columns or {}).items()}  # noqa: UP007  a cell may be blank
 
     @overload
     def describe(self, record: None = None, /, **changed: Any) -> FieldDescription: ...
@@ -518,6 +529,11 @@ def _list_of(item: Any) -> Any:
     return Annotated[types.GenericAlias(list, (item,)), BeforeValidator(_not_a_set)]
 
 
+def _column_of(item: Any) -> Any:
+    """``list[item]`` for values conductor wrote itself, a saved column or a table's column, which are never a set."""
+    return types.GenericAlias(list, (item,))
+
+
 def _not_a_set(value: Any) -> Any:
     if isinstance(value, (set, frozenset)):
         raise PydanticCustomError("set_has_no_order", "a set has no order, so its rows would come in another order in another process; give a list")
@@ -617,8 +633,7 @@ def already(target: Any, source: Any) -> bool:
 
 def refuse_a_bool_for_a_number(spec: FieldSpec, value: Any) -> None:
     """``Refused`` for ``True`` or ``False`` typed in or given where a number is asked for, as an edge from a ``bool`` is."""
-    base = _unnamed(without_none(spec.type))
-    if base is bool or not (isinstance(base, type) and issubclass(base, (int, float))):
+    if not spec.takes_a_number:
         return
     values = value if isinstance(value, list) else [value]
     if any(isinstance(item, bool) for item in values):

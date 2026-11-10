@@ -38,7 +38,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 
 import polars as pl
-from pydantic import PrivateAttr, ValidationError
+from pydantic import ValidationError
 
 from conductor._internal.ask import questions_of
 from conductor._internal.conductor_model import ConductorModel
@@ -52,7 +52,6 @@ from conductor._internal.errors import (
 )
 from conductor._internal.fields import (
     REQUIRED,
-    SCALARS,
     FieldDescription,
     FieldSpec,
     Refused,
@@ -142,7 +141,7 @@ class PlacedNode:
     def plain_inputs(self) -> bool:
         """Whether no input can hold a mapping (each is a table, or of plain classes), so what a unit received needs no key sorting to hash."""
         return all(
-            spec.shape == "table" or (bool(spec.plain_classes) and set(spec.plain_classes) <= SCALARS) for spec in self.definition.inputs.values()
+            spec.shape == "table" or spec.plain for spec in self.definition.inputs.values()
         )
 
     @functools.cached_property
@@ -218,10 +217,18 @@ class GraphInput(FieldDescription):
     address: str
     node_id: str
     many: bool
-    #: The field, the Python default, and where the run keeps the caller's value: the address of the placed node.
-    _spec: FieldSpec = PrivateAttr()
-    _default: Any = PrivateAttr()
-    _key: str = PrivateAttr()
+
+
+@dataclass(frozen=True, slots=True)
+class InputField:
+    """What a run keeps of a graph input: where it keeps the caller's value (the placed node's address), its name in
+    ``graph.inputs``, its field, its Python default, and whether it takes ``many`` values."""
+
+    key: str
+    name: str
+    spec: FieldSpec
+    default: Any
+    many: bool
 
 
 class Graph:
@@ -268,7 +275,9 @@ class Graph:
         self._typed_lists: dict[str, list[Any]] = {}
         #: The typed lists whose items go under each row of a table, by that table (``""`` for the graph's own row).
         self._typed_under: dict[str, list[str]] = {}
-        self._graph_inputs: list[GraphInput] = []
+        self._graph_inputs: list[tuple[GraphInput, str, FieldSpec, Any]] = []
+        #: Each graph input as the run keeps it, by the address of the placed node's input.
+        self._input_fields: dict[str, InputField] = {}
         self._position = {r.id: n for n, (r, _) in enumerate(placed_records)}
         self._readers: dict[str, list[PlacedNode]] = {r.id: [] for r, _ in placed_records}
         self._above: dict[str, frozenset[str]] = {}
@@ -479,19 +488,20 @@ class Graph:
         given = {named.get(key, key): value for key, value in given.items()}
         for name in given.keys() - self.inputs.keys():
             problems.append(make_problem("not_offered", "inputs", name, name=name, inputs=list(self.inputs)))
-        for name, graph_input in self.inputs.items():
+        for key, offered in self._input_fields.items():
+            name, spec = offered.name, offered.spec
             if name not in given:
-                if graph_input.required:
+                if offered.default is REQUIRED:
                     problems.append(make_problem("missing_input", "inputs", name, name=name))
-                values[graph_input._key] = graph_input._default
+                values[key] = offered.default
                 continue
             try:
-                refuse_a_bool_for_a_number(graph_input._spec, given[name])
-                if graph_input._spec.shape == "table" and not graph_input.many:
-                    values[graph_input._key] = read_table(graph_input._spec, given[name], strict=False, given=True)
+                refuse_a_bool_for_a_number(spec, given[name])
+                if spec.shape == "table" and not offered.many:
+                    values[key] = read_table(spec, given[name], strict=False, given=True)
                 else:
-                    adapter = carried_list(graph_input._spec.type) if graph_input.many else graph_input._spec.adapter
-                    values[graph_input._key] = adapter.validate_python(given[name])
+                    adapter = carried_list(spec.type) if offered.many else spec.adapter
+                    values[key] = adapter.validate_python(given[name])
             except ValidationError as error:
                 problems.append(make_problem("invalid_input", "inputs", name, name=name, reason=value_free_errors(error)[0]["msg"]))
             except Refused as refused:
@@ -633,10 +643,16 @@ class Graph:
             node_record, definition = known[node_id]
             if definition is not None:
                 self._compile_node(node_record, definition, into[node_id])
-        offered = [self._outside(p) for p in self._graph_inputs]
-        bare = [p.name for p in offered]
-        self.inputs = {(p.name if bare.count(p.name) == 1 else p.address): p for p in offered}
+        offered = [(self._outside(p, key), key, spec, default) for p, key, spec, default in self._graph_inputs]
+        bare = [p.name for p, _, _, _ in offered]
+        self.inputs = {}
+        for p, key, spec, default in offered:
+            name = p.name if bare.count(p.name) == 1 else p.address
+            self.inputs[name] = p
+            self._input_fields[key] = InputField(key, name, spec, default, p.many)
         self._spliced = frozenset(n for n in self._nodes if "/" in n)
+        #: The nodes with a ``FromRun`` parameter, as ``from_run_values`` reads them.
+        self._needs_from_run = [(p.id, p.definition) for p in self._nodes.values() if p.definition.from_run]
         for placed in self._nodes.values():
             for source_id in {s.node_id for p in placed.inputs.values() for s in p.sources if s.node_id is not None}:
                 self._readers[source_id].append(placed)
@@ -874,8 +890,7 @@ class Graph:
             GraphInput, address=address, node_id=placed.id, many=many, required=required,
             default=None if required else carried_list(plan.spec.type).dump_python(plan.value, mode="json") if many else _jsonable(plan.spec, plan.value),
         )
-        graph_input._spec, graph_input._default, graph_input._key = plan.spec, plan.value, address
-        self._graph_inputs.append(graph_input)
+        self._graph_inputs.append((graph_input, address, plan.spec, plan.value))
 
     def _source(self, address: str, node_id: str, name: str) -> Source | None:
         source_id, _, rest = address.partition(".")
@@ -1032,10 +1047,10 @@ class Graph:
         output = address.partition(".")[2].partition(".")[0]
         return source.makes.get(output, source.level)
 
-    def _outside(self, graph_input: GraphInput) -> GraphInput:
+    def _outside(self, graph_input: GraphInput, key: str) -> GraphInput:
         """An input as a caller of this graph sees it: an embedded graph's by the node that embeds it."""
-        outer = self._outward(graph_input._key)
-        if outer == graph_input._key:
+        outer = self._outward(key)
+        if outer == key:
             return graph_input
         node_id, _, name = outer.partition(".")
         return graph_input.model_copy(update={"address": outer, "node_id": node_id, "name": name})

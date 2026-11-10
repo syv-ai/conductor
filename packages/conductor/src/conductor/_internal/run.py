@@ -29,7 +29,6 @@ from pydantic import TypeAdapter, ValidationError
 from conductor._internal.ask import Waiting, answer_outputs, questions
 from conductor._internal.errors import InvalidCallError, Problem, make_problem, value_free_errors
 from conductor._internal.fields import (
-    SCALARS,
     SKIPPED,
     FieldSpec,
     Refused,
@@ -101,27 +100,27 @@ class Run:
     ``timed_out``; ``cause`` is the ``Problem`` behind any of the last four.
     """
 
+    graph: Graph
+    inputs: dict[str, Any]
+    max_rows: int | None
+    _units: dict[str, dict[Key, Unit]]
+    status: RunStatus
+    cause: Problem | None
+    #: node -> fingerprint of what a unit received -> the earlier units that received it, in row order, not yet taken.
+    _earlier: dict[str, dict[str, list[Unit]]]
+    #: The nodes whose ``_earlier`` entry is this run's own to take from, not shared with the run it was copied from.
+    _earlier_own: set[str]
+    #: Whether a node's earlier units include answers or questions, which are kept by the rows above them too.
+    _asking: dict[str, bool]
+    #: For a node whose units a saved run made with other code or another signature, what that code was; they are never carried.
+    _ran_as: dict[str, str]
+    #: The nodes whose units were recorded out of row order (threads finish when they finish), sorted when read.
+    _unordered: set[str]
+    #: The nodes every row of which was finished when the last leg ended, so a later leg doesn't say them complete again.
+    _complete: frozenset[str]
+
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         raise TypeError("a run is made with graph.with_inputs(...), graph.run(...) or graph.load_run(saved)")
-
-    def _start(self, graph: Graph, inputs: dict[str, Any], max_rows: int | None) -> None:
-        """A run of ``graph`` on checked ``inputs``, by address, not started: what ``graph.with_inputs`` gives."""
-        self.graph, self.inputs, self.max_rows = graph, inputs, max_rows
-        self._units: dict[str, dict[Key, Unit]] = {n: {} for n in graph._nodes}
-        self.status: RunStatus = "ready"
-        self.cause: Problem | None = None
-        #: node -> fingerprint of what a unit received -> the earlier units that received it, in row order, not yet taken.
-        self._earlier: dict[str, dict[str, list[Unit]]] = {}
-        #: The nodes whose ``_earlier`` entry is this run's own to take from, not shared with the run it was copied from.
-        self._earlier_own: set[str] = set()
-        #: Whether a node's earlier units include answers or questions, which are kept by the rows above them too.
-        self._asking: dict[str, bool] = {}
-        #: For a node whose units a saved run made with other code or another signature, what that code was; they are never carried.
-        self._ran_as: dict[str, str] = {}
-        #: The nodes whose units were recorded out of row order (threads finish when they finish), sorted when read.
-        self._unordered: set[str] = set()
-        #: The nodes every row of which was finished when the last leg ended, so a later leg doesn't say them complete again.
-        self._complete: frozenset[str] = frozenset()
 
     def __repr__(self) -> str:
         return f"<Run {self.status}: {sum(len(u) for u in self._units.values())} units>"
@@ -159,7 +158,7 @@ class Run:
         checked_max_rows(max_rows)
         if checkpoint_every is not None and (isinstance(checkpoint_every, bool) or not isinstance(checkpoint_every, (int, float)) or not checkpoint_every > 0):
             raise InvalidCallError([make_problem("invalid_checkpoint_every", "checkpoint_every", checkpoint_every=checkpoint_every)])
-        return self._stream(max_rows, self._from_run(from_run), timeout, cancel, checkpoint_every)
+        return self._stream(max_rows, from_run_values(self.graph._needs_from_run, from_run), timeout, cancel, checkpoint_every)
 
     async def _stream(
         self, max_rows: int | None, from_run: Mapping[type, Any] | None, timeout: float | None, cancel: asyncio.Event | None, checkpoint_every: float | None,
@@ -193,14 +192,10 @@ class Run:
         finally:
             cancelled.set()
 
-    def _from_run(self, from_run: Mapping[type, Any] | None) -> dict[type, Any]:
-        """The value each ``FromRun`` parameter of the graph takes; ``InvalidCallError`` when one can't be filled."""
-        return from_run_values(((p.id, p.definition) for p in self.graph._nodes.values()), from_run)
-
     def _leg(self, max_rows: int | None, from_run: Mapping[type, Any] | None, emit: Any, stop: Any, checkpoint_every: float | None = None) -> Run:
         from conductor._internal.leg import Leg
 
-        values = self._from_run(from_run)
+        values = from_run_values(self.graph._needs_from_run, from_run)
         run = self._copy(max_rows=max_rows if max_rows is not None else self.max_rows)
         Leg(run, emit, stop, values, checkpoint_every).go()
         return run
@@ -293,7 +288,7 @@ class Run:
         second the second. Inputs are given as ``graph.with_inputs`` takes
         them, and checked the same way.
         """
-        given = {name: self.inputs[graph_input._key] for name, graph_input in self.graph.inputs.items() if graph_input._key in self.inputs}
+        given = {field.name: self.inputs[key] for key, field in self.graph._input_fields.items() if key in self.inputs}
         fresh = self.graph.with_inputs({**given, **(inputs or {}), **by_name}, max_rows=max_rows if max_rows is not None else self.max_rows)
         fresh._earlier = self._carried()
         return fresh
@@ -516,10 +511,11 @@ class Run:
 
         With ``counted``, the last table's rows are only counted: ``[(n,)]`` stands for ``n`` rows, unbuilt.
         """
-        if len(row) >= len(level):
-            return [row[: len(level)]], True
+        start, deepest = len(row), len(level)
+        if start >= deepest:
+            return [row[:deepest]], True
         keys, complete = [row], True
-        for depth, table in enumerate(level[len(row):], len(row)):
+        for depth, table in enumerate(level[start:], start):
             node_id, output = self.graph._makers[table]
             below: list[Key] = []
             for parent in keys:
@@ -534,7 +530,7 @@ class Run:
                 if count is None:
                     complete = False
                     continue
-                if counted and depth == len(level) - 1:
+                if counted and depth == deepest - 1:
                     below = [(below[0][0] + count,)] if below else [(count,)]
                 else:
                     below.extend((*parent, i) for i in range(count))
@@ -748,13 +744,14 @@ class Run:
         inputs = {address: _dump_input(self.graph, address, v) for address, v in self.inputs.items()}
         non_finite: dict[str, list[list[Any]]] = {}
         for address, written_input in inputs.items():
-            _find_non_finite(written_input, [], non_finite.setdefault(address, []))
+            if not self.graph._input_fields[address].spec.plain:
+                _find_non_finite(written_input, [], non_finite.setdefault(address, []))
         cause = self.cause.model_dump(mode="json") if self.cause else None
         code = {n: self._ran_as.get(n) or self.graph._nodes[n].reuse_digest for n in {*(n for n, us in self._units.items() if us), *earlier}}
         written = {
             "graph": self.graph.fingerprint, "status": self.status, "cause": cause, "max_rows": self.max_rows, "inputs": inputs,
             **({"non_finite_inputs": {a: paths for a, paths in non_finite.items() if paths}} if any(non_finite.values()) else {}), "units": units, "earlier": earlier,
-            "code": code, "complete": sorted(self._complete),
+            "code": code, "complete": [n for n in self._units if n in self._complete],
         }
         return pydantic_core.to_json(written, inf_nan_mode="strings").decode()
 
@@ -770,7 +767,16 @@ class Run:
 def start_run(graph: Graph, inputs: dict[str, Any], max_rows: int | None) -> Run:
     """A run of ``graph`` on ``inputs`` already checked, by address, not started; the one way a ``Run`` is made."""
     run = Run.__new__(Run)
-    run._start(graph, inputs, max_rows)
+    run.graph, run.inputs, run.max_rows = graph, inputs, max_rows
+    run._units = {n: {} for n in graph._nodes}
+    run.status = "ready"
+    run.cause = None
+    run._earlier = {}
+    run._earlier_own = set()
+    run._asking = {}
+    run._ran_as = {}
+    run._unordered = set()
+    run._complete = frozenset()
     return run
 
 
@@ -813,7 +819,7 @@ def run_from_json(graph: Graph, saved: str | bytes | Mapping[str, Any]) -> Run:
                 by.setdefault(fp, []).append(unit)
             run._earlier[n] = by
         run.status = data["status"]
-        run._complete = frozenset(n for n in data["complete"] if n in graph._nodes)
+        run._complete = frozenset({n for n in data["complete"] if n in graph._nodes})
         run.cause = Problem.model_validate(data["cause"]) if data["cause"] else None
         for n, units in run._units.items():  # every row is one the saved makers made
             placed = graph._nodes[n]
@@ -935,7 +941,7 @@ def _dump_units(placed: PlacedNode, units: Mapping[Key, Unit], keyed: bool = Tru
             plain = [None if v is SKIPPED else [None if i is SKIPPED else i for i in v] if spec.shape == "many" else v for v in values]
             dumped = _written_as_json(spec.column_adapter, plain, at)
         non_finite: list[list[Any]] = []
-        if spec.shape != "table" and not (spec.plain_classes and set(spec.plain_classes) <= SCALARS):
+        if spec.shape != "table" and not spec.plain:
             _find_non_finite(dumped, [], non_finite)
         items = {str(n): [i for i, item in enumerate(v) if item is SKIPPED] for n, v in enumerate(values) if spec.shape == "many" and v is not SKIPPED}
         outputs[name] = {
@@ -1054,13 +1060,13 @@ def _column_adapter(spec: FieldSpec, column: str, written_as: str | None = None)
 
 def _dump_frame(spec: FieldSpec, frame: Frame, at: str) -> dict[str, Any]:
     """A table as JSON: its row count, its columns in order as ``[name, values]`` pairs, and the value type of each column its row type doesn't name, so it reads back as written."""
-    columns, types = [], {}
+    written, types = {}, {}
     for c, values in frame.columns.items():
         written_as = None if c in spec.column_adapters else _value_type(values)
         if written_as is not None:
             types[c] = written_as
-        columns.append([c, _written_as_json(_column_adapter(spec, c, written_as), values, f"{at}.{c}")])
-    return {"rows": frame.rows, "columns": columns, **({"types": types} if types else {})}
+        written[c] = _written_as_json(_column_adapter(spec, c, written_as), values, f"{at}.{c}")
+    return {"rows": frame.rows, "columns": [[c, v] for c, v in written.items()], **({"types": types} if types else {})}
 
 
 def _written_as_json(adapter: TypeAdapter[Any], values: list[Any], at: str) -> Any:
@@ -1090,25 +1096,21 @@ _COLUMN_OF = {name: carried_list(kind | None) for name, kind in _PLAIN}
 _ANY_COLUMN = carried_list(Any)
 
 
-def _graph_input(graph: Graph, address: str) -> Any:
-    return next(p for p in graph.inputs.values() if p._key == address)
-
-
 def _dump_input(graph: Graph, address: str, value: Any) -> Any:
     """A caller's input as JSON: a table as a saved table output is, anything else by its field."""
-    graph_input = _graph_input(graph, address)
-    if graph_input._spec.shape == "table" and not graph_input.many:
-        return None if value is None else _dump_frame(graph_input._spec, Frame(value.height, value.to_dict(as_series=False)), address)
-    if graph_input.many:
-        return carried_list(graph_input._spec.type).dump_python(value, mode="json")
-    return carried_list(graph_input._spec.type).dump_python([value], mode="json")[0]  # written as a list is, a float that isn't finite kept
+    field = graph._input_fields[address]
+    if field.spec.shape == "table" and not field.many:
+        return None if value is None else _dump_frame(field.spec, Frame(value.height, value.to_dict(as_series=False)), address)
+    if field.many:
+        return field.spec.column_adapter.dump_python(value, mode="json")
+    return field.spec.column_adapter.dump_python([value], mode="json")[0]  # written as a list is, a float that isn't finite kept
 
 
 def _load_input(graph: Graph, address: str, saved: Any) -> Any:
-    graph_input = _graph_input(graph, address)
-    if graph_input._spec.shape == "table" and not graph_input.many:
-        return None if saved is None else _load_frame(graph_input._spec, saved, address).frame()
-    adapter = carried_list(graph_input._spec.type) if graph_input.many else graph_input._spec.adapter
+    field = graph._input_fields[address]
+    if field.spec.shape == "table" and not field.many:
+        return None if saved is None else _load_frame(field.spec, saved, address).frame()
+    adapter = carried_list(field.spec.type) if field.many else field.spec.adapter
     return adapter.validate_python(saved)
 
 
