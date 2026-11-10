@@ -24,7 +24,7 @@ from conductor._internal.errors import (
     Problem,
 )
 from conductor._internal.fields import SKIPPED, FieldDescription, FromRun, Named, Param, Series
-from conductor._internal.graph import Graph, GraphDescription, GraphInput, Receives, RunsOn
+from conductor._internal.graph import Feed, Graph, GraphDescription, GraphInput, RunsOn
 from conductor._internal.node_definition import (
     Deprecation,
     NodeDefinition,
@@ -50,6 +50,7 @@ __all__ = [
     "Choice",
     "Deprecation",
     "ExternalFailure",
+    "Feed",
     "FieldDescription",
     "FromRun",
     "Graph",
@@ -67,7 +68,6 @@ __all__ = [
     "Param",
     "Policy",
     "Problem",
-    "Receives",
     "RegistryDescription",
     "Run",
     "RunStatus",

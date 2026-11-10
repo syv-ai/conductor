@@ -646,3 +646,12 @@ def test_a_type_with_no_class_of_its_own_is_named_with_named():
     assert "yes-no" in registry.accepted_as(bool)
     graph = registry.load(make_graph(approved, note, maybe, edges=[("approved.result", "note.ok"), ("approved.result", "maybe.ok")]))
     assert graph.problems == [] and graph.run(text="x").outputs == {"note.result": "yes", "maybe.result": True}
+
+
+def test_a_stored_graph_made_a_node_is_read_as_load_reads_a_record():
+    from conductor import InvalidCallError, node
+
+    with pytest.raises(InvalidCallError) as refused:
+        node("e")({"nodes": [{"id": "a", "node": "x", "vaules": {}}]})
+    assert [(p.type, p.loc) for p in refused.value.errors()] == [("invalid_record", ("record", "nodes", 0, "vaules"))]
+    assert node("e")('{"nodes": [{"id": "a", "node": "x"}]}').graph == GraphRecord(nodes=[NodeRecord(id="a", node="x")])

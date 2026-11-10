@@ -20,8 +20,8 @@ ROOT = Path(__file__).resolve().parents[2]
 
 DOORS: dict[str, list[str]] = {
     "conductor": [
-        "Ask", "Choice", "Deprecation", "ExternalFailure", "FieldDescription", "FromRun", "Graph", "GraphDescription", "GraphInput", "GraphRecord", "InvalidCallError", "Named", "NodeDeclarationError",
-        "NodeDefinition", "NodeDescription", "NodeError", "NodeRecord", "NodeRegistry", "PROBLEM_CODES", "Param", "Policy", "Problem", "Receives", "RegistryDescription", "Run", "RunStatus", "RunsOn",
+        "Ask", "Choice", "Deprecation", "ExternalFailure", "Feed", "FieldDescription", "FromRun", "Graph", "GraphDescription", "GraphInput", "GraphRecord", "InvalidCallError", "Named", "NodeDeclarationError",
+        "NodeDefinition", "NodeDescription", "NodeError", "NodeRecord", "NodeRegistry", "PROBLEM_CODES", "Param", "Policy", "Problem", "RegistryDescription", "Run", "RunStatus", "RunsOn",
         "SKIPPED", "Series", "Table", "Upgrade", "Waiting", "make_graph", "node",
     ],
     "conductor.widgets": [

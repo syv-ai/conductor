@@ -71,7 +71,7 @@ from conductor._internal.fields import (
     humanised,
     read_field,
 )
-from conductor._internal.record import GraphRecord
+from conductor._internal.record import GraphRecord, as_record
 
 _P = ParamSpec("_P")
 _R = TypeVar("_R")
@@ -283,7 +283,7 @@ class NodeDecorator(Protocol):
     """What ``@node(...)`` returns: it makes a node of a function, or of a stored graph."""
 
     @overload
-    def __call__(self, target: GraphRecord, /) -> NodeDefinition[..., Any]: ...
+    def __call__(self, target: GraphRecord | str | bytes | Mapping[str, Any], /) -> NodeDefinition[..., Any]: ...
 
     @overload
     def __call__(self, target: Callable[_P, _R], /) -> NodeDefinition[_P, _R]: ...
@@ -332,7 +332,8 @@ def node(
     - ``compute_added_inputs`` and ``compute_outputs`` are hooks run when a
       graph is loaded, which shape the node from what is typed into it.
 
-    A stored graph is a node too: ``node("enrich")(record)``.
+    A stored graph is a node too: ``node("enrich")(record)``, the record given as ``registry.load`` takes one (a
+    ``GraphRecord``, JSON text or a mapping), one of the wrong shape an ``InvalidCallError`` of ``invalid_record``.
     """
     if not is_node_id(id):
         raise NodeDeclarationError(
@@ -355,7 +356,7 @@ def node(
             "deprecation": deprecation, "replaces": replaces, "upgrade": upgrade, "policy": policy or Policy(),
         }
         if not callable(target):
-            record = target if isinstance(target, GraphRecord) else GraphRecord.model_validate(target)
+            record = as_record(target)  # a record, JSON text or a mapping, read as registry.load reads one
             return NodeDefinition(function=None, inputs={}, outputs={}, graph=record, title=title or humanised(id), description=description or "", **common)
         where = f"@node({id!r}) on {getattr(target, '__name__', target)}: "
         if inspect.iscoroutinefunction(target) or inspect.isasyncgenfunction(target):
@@ -411,7 +412,7 @@ def from_run_values(definitions: Iterable[tuple[str, NodeDefinition[..., Any]]],
             if needed in given:
                 found[needed] = given[needed]
                 continue
-            fits = [value for key, value in given.items() if isinstance(value, needed) or (isinstance(key, type) and issubclass(key, needed))]
+            fits = [value for key, value in given.items() if _fits(needed, key, value)]
             if len(fits) == 1:
                 found[needed] = fits[0]
                 continue
@@ -420,6 +421,15 @@ def from_run_values(definitions: Iterable[tuple[str, NodeDefinition[..., Any]]],
     if problems:
         raise InvalidCallError(problems)
     return found
+
+
+def _fits(needed: type, key: Any, value: Any) -> bool:
+    """Whether ``value``, given under ``key``, is a ``needed``; a class no ``isinstance`` can ask about (a protocol not
+    runtime-checkable) is filled only under its own key."""
+    try:
+        return isinstance(value, needed) or (isinstance(key, type) and issubclass(key, needed))
+    except TypeError:
+        return False
 
 
 #: The ``Param`` a ``FromRun`` parameter is read with, so it is told apart from an input.

@@ -242,7 +242,7 @@ class NodeRegistry:
         if definition.graph is None:
             return described
         placed = self.load(GraphRecord(nodes=[NodeRecord(id="node", node=definition.id, version=definition.version)])).describe().nodes["node"]
-        inputs = [FieldDescription.model_validate(field.model_dump(exclude={"receives"})) for field in placed.inputs]
+        inputs = [FieldDescription.model_validate(field.model_dump(exclude={"feed"})) for field in placed.inputs]
         return described.model_copy(update={"inputs": inputs, "outputs": placed.outputs})
 
     # -- graphs ------------------------------------------------------------------

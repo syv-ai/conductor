@@ -198,7 +198,7 @@ def test_a_value_closes_its_input_and_a_default_leaves_it_open_prefilled():
     graph = REGISTRY.load(GraphRecord(nodes=[NodeRecord(id="b", node="both", values={"yes": "y"}, defaults={"no": "n"})]))
 
     assert list(graph.inputs) == ["no"] and not graph.inputs["no"].required and graph.inputs["no"].default == "n"
-    assert graph.inputs["no"].describe().default == "n"
+    assert graph.inputs["no"].default == "n"
     assert graph.run().outputs == {"b.result": "yn"}
     assert graph.run(no="!").outputs == {"b.result": "y!"}
 

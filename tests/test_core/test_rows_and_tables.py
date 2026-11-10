@@ -1557,17 +1557,17 @@ def test_each_input_in_describe_says_how_it_receives_on_each_row_its_node_runs_o
                    edges=(("s.result", "u.text"), ("u.result", "j.texts"), ("u.result", "p.a"), ("j.result", "k.a"), ("u.result", "k.b")))
     nodes = loaded.describe().nodes
 
-    def receives(node_id: str) -> dict[str, str]:
-        return {i.name: i.receives.msg for i in nodes[node_id].inputs}
+    def fed(node_id: str) -> dict[str, str]:
+        return {i.name: i.feed.msg for i in nodes[node_id].inputs}
 
-    assert nodes["k"].inputs[0].receives.model_dump() == {"mode": "copied_down", "tables": [None], "under": None, "msg": "copied down from the graph's own row"}
+    assert nodes["k"].inputs[0].feed.model_dump() == {"mode": "copied_down", "tables": [None], "under": None, "msg": "copied down from the graph's own row"}
     assert nodes["j"].runs == RunsOn(mode="once", msg="once")
     assert loaded.plan["u"].mode == "per_row" and loaded.plan["u"].table == "s.result"
-    assert receives("u") == {"text": "per row of s.result"}
-    assert receives("j") == {"texts": "whole column of s.result"}
-    assert receives("p") == {"a": "per row of s.result", "b": "one"}
-    assert receives("k") == {"a": "copied down from the graph's own row", "b": "per row of s.result"}
-    assert receives("s") == {"text": "one", "sep": "one"}
+    assert fed("u") == {"text": "per row of s.result"}
+    assert fed("j") == {"texts": "whole column of s.result"}
+    assert fed("p") == {"a": "per row of s.result", "b": "one value"}
+    assert fed("k") == {"a": "copied down from the graph's own row", "b": "per row of s.result"}
+    assert fed("s") == {"text": "one value", "sep": "one value"}
 
 
 def test_alternatives_on_rows_of_different_tables_into_one_value_are_a_problem_never_a_value_lost():
@@ -1625,10 +1625,10 @@ def test_a_sibling_gather_says_it_gathers_under_the_row_the_two_share():
     loaded = graph({"id": "s", "node": "split"}, {"id": "p", "node": "parts"}, {"id": "b", "node": "beside"},
                    edges=(("s.result", "p.text"), ("p.invoices", "b.invoice"), ("p.keywords", "b.keywords")), registry=registry_of(split, parts, beside))
 
-    assert {i.name: i.receives.msg for i in loaded.describe().nodes["b"].inputs} == {
+    assert {i.name: i.feed.msg for i in loaded.describe().nodes["b"].inputs} == {
         "invoice": "per row of p.invoices", "keywords": "whole column of p.keywords under each row of s.result",
     }
-    assert loaded.describe().nodes["b"].inputs[1].receives.model_dump() == {
+    assert loaded.describe().nodes["b"].inputs[1].feed.model_dump() == {
         "mode": "whole_column", "tables": ["p.keywords"], "under": "s.result", "msg": "whole column of p.keywords under each row of s.result",
     }
 
@@ -1681,3 +1681,36 @@ def test_a_polars_series_returned_for_a_series_output_is_its_values():
         return pl.Series([len(word) for word in text.split()])
 
     assert registry_of(lengths).load(make_graph(lengths)).run(text="a bb ccc").outputs == {"lengths.result": [1, 2, 3]}
+
+
+def test_an_embedding_with_outputs_on_two_grains_runs_where_its_outermost_output_is_made():
+    @node("names")
+    def names(text: str) -> Series[str]:
+        return text.split()
+
+    @node("case")
+    def case(value: str) -> str:
+        return value
+
+    @node("greet")
+    def greet(name: str, case: str) -> str:
+        return f"{name} {case}"
+
+    @node("shout")
+    def shout(text: str) -> str:
+        return text.upper()
+
+    @node("count")
+    def count(texts: Series[str]) -> int:
+        return len(texts)
+
+    inner = make_graph(
+        names, case, greet, count, shout,
+        edges=[("names.result", "greet.name"), ("case.result", "greet.case"), ("greet.result", "count.texts"), ("greet.result", "shout.text")],
+        values={"names.text": "Ida Bo"},
+    )
+    registry = registry_of(split, names, case, greet, count, shout)
+    registry.add(node("inner")(inner))
+    graph = registry.load(make_graph(split, registry["inner"], edges=[("split.result", "inner.value")], values={"split.text": "A-1,B-2"}))
+    assert graph.plan["inner"].table == "split.result"
+    assert graph.run().results["inner"]["count/result"] == [2, 2]

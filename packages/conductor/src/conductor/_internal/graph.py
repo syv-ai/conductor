@@ -38,7 +38,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 
 import polars as pl
-from pydantic import ValidationError
+from pydantic import PrivateAttr, ValidationError
 
 from conductor._internal.ask import questions_of
 from conductor._internal.conductor_model import ConductorModel
@@ -163,33 +163,24 @@ class RunsOn(ConductorModel):
     msg: str
 
 
-class Receives(ConductorModel):
-    """How an input receives on each row its node runs on; ``msg`` says it in English.
+class Feed(ConductorModel):
+    """How an input is fed on each row its node runs on; ``msg`` says it in English.
 
-    ``one`` value; ``per_row`` of its ``tables``, a value per row; ``copied_down`` from a table above the node's rows;
-    or the ``whole_column`` of its ``tables`` under each of the node's rows, ``under`` each row of the table a
+    A ``single`` value; ``per_row`` of its ``tables``, a value per row; ``copied_down`` from a table above the node's
+    rows; or the ``whole_column`` of its ``tables`` under each of the node's rows, ``under`` each row of the table a
     sibling table shares with the node. In ``tables``, ``None`` is the graph's own row.
     """
 
-    mode: Literal["one", "per_row", "copied_down", "whole_column"]
+    mode: Literal["single", "per_row", "copied_down", "whole_column"]
     tables: list[str | None] = []
     under: str | None = None
     msg: str
 
 
 class PlacedFieldDescription(FieldDescription):
-    """An input of a node in a loaded graph: its field, and how it ``receives`` on each row its node runs on."""
+    """An input of a node in a loaded graph: its field, and how it is fed (``feed``) on each row its node runs on."""
 
-    receives: Receives
-
-
-class GraphInputDescription(FieldDescription):
-    """An input of the graph as a form shows it: its node's field, the ``address`` and ``node_id`` a caller fills, and
-    whether it takes ``many`` values, a row per item."""
-
-    address: str
-    node_id: str
-    many: bool
+    feed: Feed
 
 
 class GraphNodeDescription(ConductorModel):
@@ -209,42 +200,27 @@ class GraphDescription(ConductorModel):
     """A loaded graph as an editor draws it: each node of the record by id, the graph's inputs and outputs, and every problem."""
 
     nodes: dict[str, GraphNodeDescription]
-    inputs: dict[str, GraphInputDescription]
+    inputs: dict[str, GraphInput]
     outputs: list[str]
     problems: list[Problem]
 
 
-def _placed_field(field: dict[str, Any], receives: Receives) -> PlacedFieldDescription:
-    return PlacedFieldDescription.model_validate({**field, "receives": receives})
-
-
-@dataclass(frozen=True)
-class GraphInput:
+class GraphInput(FieldDescription):
     """An open input of a first node, a value of ``graph.inputs``: what a caller fills, at ``address`` (``node.input``).
 
-    For an embedded graph's input, ``node_id`` is the node that embeds it and ``input`` the name it offers.
-    ``describe()`` is the field as a form shows it.
+    It is its node's field record, with the ``address`` and ``node_id`` a caller fills and whether it takes ``many``
+    values, a row per item; ``name`` is the input's own. For an embedded graph's input, ``node_id`` is the node that
+    embeds it and ``name`` the name it offers. ``default`` is what it holds when the caller gives nothing (the
+    record's default, else the node's), as JSON, and ``None`` when it is ``required``.
     """
 
     address: str
     node_id: str
-    input: str
-    #: The caller gives a list, a row per item.
     many: bool
-    required: bool
-    #: What it holds when the caller gives nothing: the record's default, else the node's.
-    default: Any
-    _spec: FieldSpec = field(repr=False, compare=False, kw_only=True)
-    #: Where the run keeps the caller's value: the address of the placed node that takes it.
-    _key: str = field(repr=False, compare=False, kw_only=True)
-
-    def describe(self) -> GraphInputDescription:
-        """The input as a form shows it."""
-        described = {**self._spec.as_json(), "address": self.address, "node_id": self.node_id, "many": self.many, "name": self.input, "required": self.required}
-        described.pop("default", None)
-        if not self.required:
-            described["default"] = _jsonable(self._spec, self.default)
-        return GraphInputDescription.model_validate(described)
+    #: The field, the Python default, and where the run keeps the caller's value: the address of the placed node.
+    _spec: FieldSpec = PrivateAttr()
+    _default: Any = PrivateAttr()
+    _key: str = PrivateAttr()
 
 
 class Graph:
@@ -330,13 +306,18 @@ class Graph:
 
     @property
     def plan(self) -> dict[str, RunsOn]:
-        """Where each node runs: ``once``, or ``per_row`` of a table; an embedded graph where the nodes behind its outputs run."""
-        plan: dict[str, RunsOn] = {}
+        """Where each node runs: ``once``, or ``per_row`` of a table; an embedded graph where the outermost of the nodes
+        behind its outputs runs, the rows it is fed on, as a table of its own is no table of this graph."""
+        levels: dict[str, tuple[bool, Level]] = {}
         for p in self._nodes.values():
             node_id = self._outward(p.id)
-            if node_id in plan and node_id != p.id and not any(self._outward(f"{p.id}.{o}") != node_id for o in p.definition.outputs):
-                continue
-            table = self._outward(p.level[-1], table=True) if p.level else None
+            # inside an embedding, a node behind an output it offers decides over one behind none
+            behind = node_id == p.id or any(self._outward(f"{p.id}.{o}") != node_id for o in p.definition.outputs)
+            if node_id not in levels or (behind, -len(p.level)) > (levels[node_id][0], -len(levels[node_id][1])):
+                levels[node_id] = (behind, p.level)
+        plan: dict[str, RunsOn] = {}
+        for node_id, (_, level) in levels.items():
+            table = self._outward(level[-1], table=True) if level else None
             plan[node_id] = RunsOn(mode="per_row", table=table, msg=f"per row of {table}") if table else RunsOn(mode="once", msg="once")
         return plan
 
@@ -369,7 +350,7 @@ class Graph:
             if p.id in nodes:
                 nodes[p.id].update({
                     "runs": plan[p.id],
-                    "inputs": [_placed_field(f.as_json(), self._receives(p, n)) for n, f in p.definition.inputs.items()],
+                    "inputs": [f.describe(PlacedFieldDescription, feed=self._feed(p, n)) for n, f in p.definition.inputs.items()],
                     "outputs": [f.describe() for f in p.definition.outputs.values()],
                 })
         for e, (ins, _) in self._offers.items():
@@ -377,38 +358,38 @@ class Graph:
                 nodes[e].update({
                     "runs": plan[e],
                     "inputs": [
-                        _placed_field({**self._nodes[n].definition.inputs[i].as_json(), "name": name}, self._receives(self._nodes[n], i))
+                        self._nodes[n].definition.inputs[i].describe(PlacedFieldDescription, name=name, feed=self._feed(self._nodes[n], i))
                         for name, (n, i) in ins.items() if n in self._nodes
                     ],
                     "outputs": [
-                        FieldDescription.model_validate({**self._nodes[n].definition.outputs[o].as_json(), "name": name}) for name, (n, o) in self._readable[e].items()
+                        self._nodes[n].definition.outputs[o].describe(name=name) for name, (n, o) in self._readable[e].items()
                     ],
                 })
         return GraphDescription(
             nodes={node_id: GraphNodeDescription(**fields) for node_id, fields in nodes.items()},
-            inputs={name: i.describe() for name, i in self.inputs.items()},
+            inputs=dict(self.inputs),
             outputs=self.outputs,
             problems=list(self.problems),
         )
 
-    def _receives(self, placed: PlacedNode, name: str) -> Receives:
-        """How one input receives on each row its node runs on: ``one`` value, ``copied_down`` from a table above,
+    def _feed(self, placed: PlacedNode, name: str) -> Feed:
+        """How one input is fed on each row its node runs on: a ``single`` value, ``copied_down`` from a table above,
         ``per_row`` of a table, or the ``whole_column`` of its tables, ``under`` a row of the table both share for a sibling table."""
         plan = placed.inputs[name]
         if not plan.sources:
-            return Receives(mode="one", msg="one")
+            return Feed(mode="single", msg="one value")
         tables = list(dict.fromkeys(self._outward(s.level[-1], table=True) if s.level else None for s in plan.sources))
         named = ", ".join("the graph's own row" if t is None else t for t in tables)
         if plan.spec.shape != "one":
             beside = [s for s in plan.sources if 0 < s.anchor < len(placed.level) and s.anchor < len(s.level)]
             if beside:  # a sibling table, gathered under the row the two share
                 under = self._outward(placed.level[beside[0].anchor - 1], table=True)
-                return Receives(mode="whole_column", tables=tables, under=under, msg=f"whole column of {named} under each row of {under}")
-            return Receives(mode="whole_column", tables=tables, msg=f"whole column of {named}")
+                return Feed(mode="whole_column", tables=tables, under=under, msg=f"whole column of {named} under each row of {under}")
+            return Feed(mode="whole_column", tables=tables, msg=f"whole column of {named}")
         level = plan.sources[0].level
         if len(level) == len(placed.level):
-            return Receives(mode="per_row", tables=tables, msg=f"per row of {named}") if level else Receives(mode="one", msg="one")
-        return Receives(mode="copied_down", tables=tables, msg=f"copied down from {named}")
+            return Feed(mode="per_row", tables=tables, msg=f"per row of {named}") if level else Feed(mode="single", msg="one value")
+        return Feed(mode="copied_down", tables=tables, msg=f"copied down from {named}")
 
     @functools.cached_property
     def fingerprint(self) -> str:
@@ -501,7 +482,7 @@ class Graph:
             if name not in given:
                 if graph_input.required:
                     problems.append(make_problem("missing_input", "inputs", name, name=name))
-                values[graph_input._key] = graph_input.default
+                values[graph_input._key] = graph_input._default
                 continue
             try:
                 if graph_input._spec.shape == "table" and not graph_input.many:
@@ -651,8 +632,8 @@ class Graph:
             if definition is not None:
                 self._compile_node(node_record, definition, into[node_id])
         offered = [self._outside(p) for p in self._graph_inputs]
-        bare = [p.input for p in offered]
-        self.inputs = {(p.input if bare.count(p.input) == 1 else p.address): p for p in offered}
+        bare = [p.name for p in offered]
+        self.inputs = {(p.name if bare.count(p.name) == 1 else p.address): p for p in offered}
         self._spliced = frozenset(n for n in self._nodes if "/" in n)
         for placed in self._nodes.values():
             for source_id in {s.node_id for p in placed.inputs.values() for s in p.sources if s.node_id is not None}:
@@ -708,6 +689,8 @@ class Graph:
             if name in record.many and name not in edges and name not in record.values and not first:
                 self.problems.append(make_problem("many_not_open", placed.id, name))
             if name in edges:
+                if spec.param.setting:
+                    self.problems.append(make_problem("setting_on_edge", placed.id, name))
                 if name in record.values or name in record.defaults:
                     self.problems.append(make_problem("value_and_edge", placed.id, name))
                 if name in record.many:
@@ -883,7 +866,13 @@ class Graph:
             self._makers[address] = (None, address)
         table = plan.spec.shape == "table"  # a caller's table, read to the input's columns at the call
         plan.sources.append(Source(None, address, None, level, many, plan.spec.type, whole_table=table, name=name, columns=plan.spec.columns if table else None))
-        self._graph_inputs.append(GraphInput(address, placed.id, name, many, plan.value is REQUIRED, plan.value, _spec=plan.spec, _key=address))
+        required = plan.value is REQUIRED
+        graph_input = plan.spec.describe(
+            GraphInput, address=address, node_id=placed.id, many=many, required=required,
+            default=None if required else carried_list(plan.spec.type).dump_python(plan.value, mode="json") if many else _jsonable(plan.spec, plan.value),
+        )
+        graph_input._spec, graph_input._default, graph_input._key = plan.spec, plan.value, address
+        self._graph_inputs.append(graph_input)
 
     def _source(self, address: str, node_id: str, name: str) -> Source | None:
         source_id, _, rest = address.partition(".")
@@ -1046,7 +1035,7 @@ class Graph:
         if outer == graph_input._key:
             return graph_input
         node_id, _, name = outer.partition(".")
-        return dataclasses.replace(graph_input, address=outer, node_id=node_id, input=name)
+        return graph_input.model_copy(update={"address": outer, "node_id": node_id, "name": name})
 
     def _shown_outputs(self, node_id: str) -> dict[str, str]:
         """Each output of a placed node an embedding offers under another name, by its own name: the name a person is asked by."""

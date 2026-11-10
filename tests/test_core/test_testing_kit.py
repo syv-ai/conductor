@@ -264,3 +264,19 @@ def test_a_body_returning_what_its_type_refuses_is_run_failed():
     assert [(p.type, p.loc, p.ctx["cause"]) for p in problems] == [
         ("run_failed", ("counts", 1), ["invalid_output"]), ("run_failed", ("tally", 1), ["invalid_output"]),
     ]
+
+
+def test_a_protocol_from_run_given_under_another_key_is_from_run_missing():
+    from typing import Protocol
+
+    class Authority(Protocol):
+        def may_read(self, document: str) -> bool: ...
+
+    @node("read")
+    def read(x: int, authority: FromRun[Authority]) -> int:
+        return x
+
+    graph = registry_of(read).load(make_graph(read, values={"read.x": 1}))
+    with pytest.raises(InvalidCallError) as refused:
+        graph.run(from_run={str: "a session"})
+    assert [p.type for p in refused.value.errors()] == ["from_run_missing"]

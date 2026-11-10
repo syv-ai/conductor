@@ -1031,3 +1031,5 @@ def test_a_setting_is_never_an_input_of_the_graph_and_the_author_sets_it():
     assert [(p.type, p.loc) for p in registry.load(make_graph(needs_model)).problems] == [("setting_not_set", ("needs-model", "model"))]
     defaulted = registry.load(make_graph(needs_model, defaults={"needs-model.model": "m"}))
     assert defaulted.problems == [] and list(defaulted.inputs) == ["prompt"]
+    fed = registry.load(make_graph(ask_model, needs_model, edges=[("ask-model.result", "needs-model.model"), ("ask-model.result", "needs-model.prompt")]))
+    assert [(p.type, p.loc) for p in fed.problems] == [("setting_on_edge", ("needs-model", "model"))]

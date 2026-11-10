@@ -289,7 +289,7 @@ def test_a_single_value_typed_into_a_series_input_is_refused_not_wrapped_into_a_
 
 
 def test_a_graph_input_carries_its_title_type_and_widget_for_a_form():
-    described = REGISTRY.load({"nodes": [{"id": "s", "node": "styled"}]}).inputs["mode"].describe()
+    described = REGISTRY.load({"nodes": [{"id": "s", "node": "styled"}]}).inputs["mode"]
     assert described.title == "Mode" and described.type == "str" and described.required is False
     assert described.widget["choices"] == [{"id": "a", "title": "A"}, {"id": "b", "title": "B"}]
 
@@ -442,7 +442,7 @@ def test_with_inputs_refuses_every_fault_at_once_listing_what_it_offers():
 def test_an_embedding_offers_its_inner_open_input_and_output_as_one_node():
     assert enrich.title == "Enrich"
     graph = REGISTRY.load({"nodes": [{"id": "e", "node": "enrich"}]})
-    assert graph.problems == [] and list(graph.inputs) == ["text"] and graph.inputs["text"].describe().title == "Text"
+    assert graph.problems == [] and list(graph.inputs) == ["text"] and graph.inputs["text"].title == "Text"
     run = graph.run(text="hi")
     assert run.outputs == {"e.result": "HI."} and run.results["e"] == {"result": "HI."}
 
@@ -774,3 +774,20 @@ def test_a_yes_or_no_never_lands_on_a_number_and_a_union_is_said_by_its_members_
     for source, got in (("flag", "bool"), ("maybe", "Text | None")):
         (problem,) = registry.load({"nodes": [{"id": "s", "node": source}, {"id": "d", "node": "double"}], "edges": [["s.result", "d.x"]]}).problems
         assert (problem.type, problem.ctx["got"]) == ("type_mismatch", got)
+
+
+def test_a_graph_input_is_its_fields_record_and_writes_as_json():
+    import json
+
+    from conductor import GraphInput, NodeRegistry, make_graph, node
+
+    @node("u")
+    def u(t: str, n: int = 1) -> str:
+        return t
+
+    registry = NodeRegistry()
+    registry.add(u)
+    graph = registry.load(make_graph(u))
+    assert isinstance(graph.inputs["t"], GraphInput) and graph.describe().inputs == graph.inputs
+    assert json.loads(json.dumps({name: i.default for name, i in graph.inputs.items()})) == {"t": None, "n": 1}
+    assert (graph.inputs["t"].name, graph.inputs["t"].address, graph.inputs["t"].required) == ("t", "u.t", True)

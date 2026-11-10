@@ -700,3 +700,27 @@ def test_an_embeddings_questions_are_named_by_the_outputs_it_offers():
     assert sorted(q.name for w in run.waiting for q in w.questions) == ["q/result", "q2/result"]
     done = run.answer({w.id: "yes" for w in run.waiting}).resume()
     assert done.outputs == {"both.q/result": "yes", "both.q2/result": "yes"}
+
+
+def test_a_form_inside_an_embedding_is_answered_by_the_names_the_embedding_offers():
+    from dataclasses import dataclass
+
+    from conductor import GraphRecord, NodeRecord, NodeRegistry, node
+
+    @dataclass(frozen=True)
+    class Two:
+        a: str
+        b: int = 0
+
+    @node("form")
+    def form(t: str) -> Two:
+        raise Ask("two?")
+
+    registry = NodeRegistry()
+    registry.add(form, node("both")(GraphRecord(nodes=[NodeRecord(id="z1", node="form"), NodeRecord(id="z2", node="form")])))
+    run = registry.load(GraphRecord(nodes=[NodeRecord(id="e", node="both")])).run({"z1/t": "1", "z2/t": "2"})
+    answers = {w.id: {q.name: "A" if q.name.endswith("a") else 5 for q in w.questions} for w in run.waiting}
+    assert sorted(name for given in answers.values() for name in given) == ["z1/a", "z1/b", "z2/a", "z2/b"]
+    assert run.answer(answers).resume().results == {"e": {"z1/a": "A", "z1/b": 5, "z2/a": "A", "z2/b": 5}}
+    (wrong,) = _refused(lambda: run.answer({run.waiting[0].id: {"z1/a": 3}}))
+    assert wrong.ctx["question"] == "z1/a"

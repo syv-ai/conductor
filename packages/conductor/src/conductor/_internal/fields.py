@@ -16,6 +16,7 @@ checked and written as JSON.
 
 from __future__ import annotations
 
+import builtins
 import dataclasses
 import datetime
 import functools
@@ -34,6 +35,7 @@ from typing import (
     Unpack,
     get_args,
     get_origin,
+    overload,
 )
 
 import polars as pl
@@ -190,6 +192,7 @@ class _FromRunMarker:
 
 
 _T = TypeVar("_T")
+_Record = TypeVar("_Record", bound="FieldDescription")
 
 #: ``FromRun[X]``: a value the host hands the run by its type (a session, who is running), never an input. It takes
 #: no edge, is not stored in the record, and is no part of what makes a row's result reusable. The run is given one
@@ -272,12 +275,19 @@ class FieldSpec:
         """For a table, a check and writer of each column its row type names."""
         return {column: carried_list(Union[hint, None]) for column, hint in (self.columns or {}).items()}  # noqa: UP007  a cell may be blank
 
-    def describe(self) -> FieldDescription:
-        """The field as an editor reads it: its shape, its type's ``id`` and JSON schema, and what a person reads about it."""
-        return FieldDescription.model_validate(self.as_json())
+    @overload
+    def describe(self, record: None = None, /, **changed: Any) -> FieldDescription: ...
+
+    @overload
+    def describe(self, record: builtins.type[_Record], /, **changed: Any) -> _Record: ...  # the field named type hides the builtin
+
+    def describe(self, record: builtins.type[FieldDescription] | None = None, /, **changed: Any) -> FieldDescription:
+        """The field as an editor reads it: its shape, its type's ``id`` and JSON schema, and what a person reads about
+        it; as a ``record`` that adds to it (a graph's input, an input placed in a graph), with what ``changed`` says."""
+        return (record or FieldDescription).model_validate({**self.as_json(), **changed})
 
     def as_json(self) -> dict[str, Any]:
-        """``describe()`` as JSON, with only the keys the field has."""
+        """``describe()`` as JSON, with only the keys the field has: what a question is made from."""
         out: dict[str, Any] = {"name": self.name, "title": self.title, "shape": self.shape, "required": self.required}
         if self.shape != "table":
             out["type"] = type_id(without_none(self.type))
