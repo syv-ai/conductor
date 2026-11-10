@@ -1,7 +1,7 @@
 [project]
 name = "conductor-workspace"
 version = "0.1.0"
-description = "Reusable engine that compiles and runs graphs of typed nodes"
+description = "Run graphs of typed Python functions"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = []

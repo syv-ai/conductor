@@ -310,7 +310,7 @@ Every event record: `Event` (the union on `type`), `RunStart`, `NodeStart`, `Nod
 
 ## Serving Runs
 
-There is no HTTP adapter. `docs/serving-runs.md` is a page of FastAPI routes to copy into your own application: `GET /nodes`, `POST /load`, and a run you start, follow, read, answer and cancel by id. A leg is an asyncio task on the process that started it, so following and cancelling work only there.
+There is no HTTP adapter. `docs/serving-runs.md` is one file of FastAPI routes on `sqlite3` to copy into your own application: `GET /nodes`, `POST /load`, and a run you start, follow, read, answer, resume and cancel by id, from any worker. It shows what a serving host owns. A node is given a way to connect, never a connection, because it runs on another thread. An answer claims the run with a compare-and-set on a revision. A lease, renewed while a leg runs, lets another worker resume a dead worker's run from its last `run_checkpoint`. A deploy cancels its legs and hands them back. Answers sent while a leg runs wait in a table.
 
 ## Project Structure
 
