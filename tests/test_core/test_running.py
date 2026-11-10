@@ -92,14 +92,13 @@ def send(email: str) -> str:
     return f"sent {email}"
 
 
-def test_node_complete_names_the_rows_a_blank_kept_the_node_from_and_a_saved_run_keeps_them():
+def test_node_complete_counts_the_rows_a_blank_kept_the_node_from_and_a_saved_run_names_them():
     graph = registry_of(addresses, send).load(make_graph(addresses, send))
 
     events = _events(graph.with_inputs(text="ida@a.dk,,al@a.dk"))
 
     (mail,) = [e for e in events if e.type == "node_complete" and e.node_id == "send"]
-    assert mail.not_called == [{"row": [1], "input": "email"}]
-    assert mail.outputs == {"result": ["sent ida@a.dk", None, "sent al@a.dk"]}
+    assert (mail.rows, mail.not_called, mail.reused_units) == (3, 1, 0)
     loaded = graph.load_run(events[-1].run.to_json())
     assert loaded.not_called == [{"node_id": "send", "row": (1,), "input": "email"}]
     assert loaded.results["send"]["result"] == ["sent ida@a.dk", None, "sent al@a.dk"]

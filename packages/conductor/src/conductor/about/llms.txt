@@ -208,13 +208,13 @@ A failed unit ends the leg `failed`, its problem on `run.cause`: nothing more st
 
 ### Events
 
-`async for event in run.stream():` yields frozen models from `conductor.events`, the union `Event` on `type`; the call is checked before anything is yielded. `run_start` is always first and `run_end` always last. The leg runs on a thread of its own, so a slow node never holds the event loop. `run_end` writes only `status`: `event.run` is for the host to save, as each value already went out on its own event. An event writes itself as JSON: `event.model_dump(mode="json")`.
+`async for event in run.stream():` yields frozen models from `conductor.events`, the union `Event` on `type`; the call is checked before anything is yielded. `run_start` is always first and `run_end` always last. The leg runs on a thread of its own, so a slow node never holds the event loop. `run_end` writes only `status`: `event.run` is for the host to save, and holds every value; no event carries a node's values. An event writes itself as JSON: `event.model_dump(mode="json")`.
 
 | Event | Carries |
 |---|---|
 | `node_start`, `node_skipped` | `node_id` |
 | `node_progress` | `node_id`, `done`, `total` (`None` until every row exists); at most four a second per node |
-| `node_complete` | `node_id`, `outputs` (as JSON, a list in row order for a node that ran per row), `not_called`, `reused_units` |
+| `node_complete` | `node_id`, `rows`, `not_called` (how many rows a blank kept it from), `reused_units`; the values are in the run (`run.results`) |
 | `node_retry` | `node_id`, `row`, `attempt`, `retries`, `delay`, `cause` |
 | `node_failed` | `node_id`, `cause` (a `Problem`) |
 | `unit_waiting` | `unit` (a `Waiting`) |

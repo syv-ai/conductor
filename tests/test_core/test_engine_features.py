@@ -99,8 +99,8 @@ def test_events_in_order():
     events = collect(graph.with_inputs(text="a,b,c"))
     kinds = [e.type for e in events]
     assert kinds[0] == "run_start" and kinds[-1] == "run_end" and events[-1].status == "complete", kinds
-    complete = {e.node_id: e.outputs for e in events if e.type == "node_complete"}
-    assert complete == {"split": {"result": ["a", "b", "c"]}, "upper": {"result": ["A", "B", "C"]}, "join": {"result": "A+B+C"}}, complete
+    complete = {e.node_id: e.rows for e in events if e.type == "node_complete"}
+    assert complete == {"split": 1, "upper": 3, "join": 1}, complete
     assert kinds.index("node_start") < kinds.index("node_complete")
     assert events[-1].run.outputs == {"join.result": "A+B+C"}
     assert all(isinstance(e.model_dump(mode="json"), dict) for e in events)

@@ -92,16 +92,17 @@ class NodeProgress(_EventBase):
 
 
 class NodeComplete(_EventBase):
-    """Every row of a node is done. ``outputs`` is as JSON: one value, or a list in row order.
+    """Every row of a node is done: how many rows it has, how many of them a blank input kept it from (``not_called``),
+    and how many ``run.again`` took from the earlier run (``reused_units``).
 
-    ``not_called`` is each row a blank input kept the node from, with that
-    input; ``reused_units`` how many rows ``run.again`` took from the earlier run.
+    Its values stay in the run, as ``run.results`` and ``run.not_called`` read them, so an event is small whatever
+    the size of the table.
     """
 
     type: Literal["node_complete"] = "node_complete"
     node_id: str
-    outputs: dict[str, Any]
-    not_called: list[dict[str, Any]] = Field(default_factory=list)
+    rows: int
+    not_called: int = 0
     reused_units: int = 0
 
 
@@ -140,7 +141,7 @@ class UnitWaiting(_EventBase):
 
 
 class RunEnd(_EventBase):
-    """The leg ended, with ``status``. ``run`` is the run as the leg left it; it stays out of what the event writes, as every value already went out on its own event."""
+    """The leg ended, with ``status``. ``run`` is the run as the leg left it, every value in it; it stays out of what the event writes, for the host to store."""
 
     type: Literal["run_end"] = "run_end"
     status: RunStatus
@@ -187,14 +188,15 @@ class Leg:
         # what only a listener needs
         self.started = {run.graph._outward(n) for n, units in run._units.items() if units}
         #: For an embedding, what each of its nodes came to once complete: all skipped, the rows not called, the rows reused.
-        self.inside: dict[str, dict[str, tuple[bool, list[dict[str, Any]], int]]] = {}
+        self.inside: dict[str, dict[str, tuple[bool, int, int, int]]] = {}
         self.touched: set[str] = set()
         #: The nodes said complete, on this leg or on an earlier one; a node an answer finished between legs is said on this one.
         self.complete: set[str] = {n for n in run._complete if self._finished(run.graph._nodes[n])}
         self.touched.update(n for n, units in run._units.items() if units and n not in self.complete)
         for node_id in self.complete & run.graph._spliced:  # an embedding completes once its last node does
             units = run._units[node_id].values()
-            self.inside.setdefault(run.graph._outward(node_id), {})[node_id] = (bool(units) and all(u.state == "skipped" for u in units), [], 0)
+            skipped = bool(units) and all(u.state == "skipped" for u in units)
+            self.inside.setdefault(run.graph._outward(node_id), {})[node_id] = (skipped, len(units), sum(u.state == "blank" for u in units), 0)
         self.reused = {p.id: 0 for p in self.nodes}
         self.progress_at: dict[str, float] = {}
         self.progress_said: dict[str, int] = {}
@@ -549,13 +551,13 @@ class Leg:
             if placed.level and node_id in self.progress_said:
                 self._progress(placed, last=True)
             skipped = bool(keys) and all(units[k].state == "skipped" for k in keys)
-            not_called = [{"row": list(k), "input": units[k].question["input"]} for k in keys if units[k].state == "blank" and units[k].question]  # type: ignore[index]
+            not_called = sum(units[k].state == "blank" for k in keys)
             if node_id in self.run.graph._spliced:
-                self._inner_complete(node_id, skipped, not_called)
+                self._inner_complete(node_id, skipped, len(keys), not_called)
             elif skipped:
                 self.emit(NodeSkipped(node_id=node_id))
             else:
-                self.emit(NodeComplete(node_id=node_id, outputs=self.run._outputs_json(placed), not_called=not_called, reused_units=self.reused[node_id]))
+                self.emit(NodeComplete(node_id=node_id, rows=len(keys), not_called=not_called, reused_units=self.reused[node_id]))
 
     def _finished(self, placed: PlacedNode) -> bool:
         """Whether every row of ``placed`` is known and none of them is still to run or waiting."""
@@ -563,17 +565,17 @@ class Leg:
         keys, known = self.run._rows(placed.level, ())
         return known and all(units.get(k) is not None and units[k].state != "waiting" for k in keys)
 
-    def _inner_complete(self, node_id: str, skipped: bool, not_called: list[dict[str, Any]]) -> None:
-        """A node of an embedding is complete: once all of them are, the embedding is, as one node with the outputs it offers."""
+    def _inner_complete(self, node_id: str, skipped: bool, rows: int, not_called: int) -> None:
+        """A node of an embedding is complete: once all of them are, the embedding is, as one node, its rows the most any of them has."""
         assert self.emit is not None
         graph = self.run.graph
         outer = graph._outward(node_id)
         inside = self.inside.setdefault(outer, {})
-        inside[node_id] = (skipped, [{**n, "input": graph._outward(f"{node_id}.{n['input']}").partition(".")[2] or n["input"]} for n in not_called], self.reused[node_id])
+        inside[node_id] = (skipped, rows, not_called, self.reused[node_id])
         if len(inside) < len(graph._placed_as(outer)):
             return
-        if all(s for s, _, _ in inside.values()):
+        if all(s for s, _, _, _ in inside.values()):
             self.emit(NodeSkipped(node_id=outer))
             return
-        outputs = {name: self.run._outputs_json(graph._nodes[n])[o] for name, (n, o) in graph._readable[outer].items()}
-        self.emit(NodeComplete(node_id=outer, outputs=outputs, not_called=[n for _, ns, _ in inside.values() for n in ns], reused_units=sum(r for _, _, r in inside.values())))
+        counts = list(inside.values())
+        self.emit(NodeComplete(node_id=outer, rows=max(r for _, r, _, _ in counts), not_called=sum(n for _, _, n, _ in counts), reused_units=sum(u for _, _, _, u in counts)))

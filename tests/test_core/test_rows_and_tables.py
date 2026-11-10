@@ -228,8 +228,8 @@ def test_a_node_all_blank_completes_it_is_never_skipped():
     said = asyncio.run(events())
     assert not [e for e in said if e.type == "node_skipped"]
     (complete,) = [e for e in said if e.type == "node_complete" and e.node_id == "s"]
-    assert complete.not_called == [{"row": [], "input": "email"}]
-    assert said[-1].status == "complete"
+    assert (complete.rows, complete.not_called) == (1, 1)
+    assert said[-1].status == "complete" and said[-1].run.not_called == [{"node_id": "s", "row": (), "input": "email"}]
 
 
 def test_choice_outputs_are_skipped_when_not_called():
@@ -1432,7 +1432,8 @@ def test_events_waiting_ids_and_failures_name_an_embedding_never_its_inner_nodes
     done = run.answer({w.id: True for w in run.waiting}).with_inputs()
     finished = _streamed(done)
     (complete,) = [e for e in finished if e.type == "node_complete" and e.node_id == "e"]
-    assert complete.outputs == {"result": [True, True]} and "/" not in json.dumps([e.model_dump(mode="json") for e in finished])
+    assert complete.rows == 2 and finished[-1].run.results["e"] == {"result": [True, True]}
+    assert "/" not in json.dumps([e.model_dump(mode="json") for e in finished])
 
     broken = embedded("breaker", {"id": "f", "node": "fails"})
     failed = graph({"id": "b", "node": "breaker"}, registry=registry_of(fails, broken)).run(text="x")

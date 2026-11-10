@@ -7,8 +7,7 @@ import json
 from dataclasses import dataclass
 from typing import Annotated, Any
 
-import pytest
-from conductor import SKIPPED, Ask, GraphRecord, NodeRecord, Param, Problem, node
+from conductor import SKIPPED, Ask, GraphRecord, NodeRecord, Param, Problem, Waiting, node
 from conductor.events import NodeComplete, NodeFailed, RunEnd, UnitWaiting
 from conductor.widgets import Textarea
 
@@ -55,10 +54,10 @@ def test_a_waiting_units_question_and_a_failures_cause_are_records():
     assert failed["cause"] == {"type": "boom", "msg": "Boom.", "loc": ["n", 2], "ctx": {}}
 
 
-def test_a_float_that_isnt_finite_is_text_and_a_value_with_no_form_raises():
-    assert _payload(NodeComplete(node_id="n", outputs={"n": float("nan")}))["outputs"] == {"n": "NaN"}
-    with pytest.raises(Exception, match="object"):
-        NodeComplete(node_id="n", outputs={"x": object()}).model_dump_json()
+def test_a_completion_is_counts_and_a_float_that_isnt_finite_in_a_question_is_text():
+    assert _payload(NodeComplete(node_id="n", rows=3, not_called=1)) == {"type": "node_complete", "node_id": "n", "rows": 3, "not_called": 1, "reused_units": 0}
+    waiting = UnitWaiting(unit=Waiting(id="n", node_id="n", row=(), prompt="?", questions=[], inputs={"x": float("nan")}))
+    assert _payload(waiting)["unit"]["inputs"] == {"x": "NaN"}
 
 
 @dataclass(frozen=True)
@@ -77,4 +76,4 @@ def test_a_branch_nodes_completion_streams_with_the_branch_not_taken_blank():
 
     (completed,) = [_payload(event) for event in events if event.type == "node_complete"]
 
-    assert completed["outputs"] == {"not_empty": "x", "empty": None}
+    assert completed["rows"] == 1 and events[-1].run.results["d"] == {"not_empty": "x", "empty": None}

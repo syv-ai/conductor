@@ -285,7 +285,7 @@ SHAPES = {
     "run_start": ["type", "waiting"],
     "node_start": ["node_id", "type"],
     "node_progress": ["done", "node_id", "total", "type"],
-    "node_complete": ["node_id", "not_called", "outputs", "reused_units", "type"],
+    "node_complete": ["node_id", "not_called", "reused_units", "rows", "type"],
     "node_skipped": ["node_id", "type"],
     "node_failed": ["cause", "node_id", "type"],
     "node_retry": ["attempt", "cause", "delay", "node_id", "retries", "row", "type"],
@@ -362,11 +362,10 @@ def _every_event() -> list[Any]:
     return [*streamed, *built]
 
 
-def test_a_run_writes_frames_and_floats_that_are_not_finite_as_strict_json():
+def test_a_node_complete_of_a_frame_holding_floats_that_are_not_finite_is_a_small_summary_in_strict_json():
     by_node = {event.node_id: event for event in _streamed_events() if isinstance(event, NodeComplete)}
 
-    assert _strict(by_node["f"].model_dump_json())["outputs"] == {"result": {"a": ["NaN", 1.0], "b": ["x", None]}}
-    assert _strict(by_node["s"].model_dump_json())["outputs"] == {"result": "Infinity"}
+    assert _strict(by_node["f"].model_dump_json()) == {"type": "node_complete", "node_id": "f", "rows": 1, "not_called": 0, "reused_units": 0}
 
 
 @pytest.mark.parametrize("event", _every_event(), ids=lambda event: event.type)

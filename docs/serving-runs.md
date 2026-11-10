@@ -172,7 +172,7 @@ async def run_published(name: str, inputs: dict[str, Any], caller: CallerDep) ->
     return {"id": run_id}
 ```
 
-**What a browser sees.** `run_end` writes only `type` and `status`: every value went out on its own `node_complete`, and the run stays on your row. A host that does want the run on the wire writes `event.run.to_json()`. For frames of your own (fewer fields, translated messages), turn each event into your frame where `run_leg` appends it, and the replay holds your frames.
+**What a browser sees.** `run_end` writes only `type` and `status`, and `node_complete` only counts (`rows`, `not_called`, `reused_units`): the values stay in the run on your row, so a frame is small however large the table, and a browser asks for the values it shows. A host that does want the run on the wire writes `event.run.to_json()`. For frames of your own (fewer fields, translated messages), turn each event into your frame where `run_leg` appends it, and the replay holds your frames.
 
 **What a node receives.** A `FromRun[Caller]` parameter gets the `Caller` from `from_run`. A resource that has to live as long as the leg, such as a database session, opens in a `with` around the `async for` in `run_leg`.
 

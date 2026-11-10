@@ -465,12 +465,6 @@ class Run:
         except Refused as wrong:
             return None, wrong
 
-    def _outputs_json(self, placed: PlacedNode) -> dict[str, Any]:
-        """A node's outputs as JSON, by its own types: one value, or a list in row order; a float that isn't finite as text."""
-        dumped = {name: _dump(spec, self._collect(placed, name), bool(placed.level)) for name, spec in placed.definition.outputs.items()}
-        written: dict[str, Any] = json.loads(pydantic_core.to_json(dumped, inf_nan_mode="strings"))
-        return written
-
     def _stop(self, table: str, count: int) -> None:
         """Stop at the row ceiling, unless the leg already ended for a failure, a cancel or its timeout, which stays the cause."""
         if self.cause is not None:
@@ -1128,15 +1122,6 @@ def _parse_unit(unit_id: str) -> tuple[str, Key | None, str | None]:
         return node_id, tuple(int(i) for i in rest), fingerprint or None
     except ValueError:
         return node_id, None, fingerprint or None
-
-
-def _dump(spec: FieldSpec, value: Any, many_rows: bool) -> Any:
-    values = value if many_rows else [value]
-    if spec.shape == "table":
-        dumped = [None if v is None else v.to_dict(as_series=False) for v in values]
-    else:
-        dumped = spec.column_adapter.dump_python(values, mode="json")
-    return dumped if many_rows else dumped[0]
 
 
 def _deadline(timeout: float | None) -> Callable[[], Problem | None] | None:
