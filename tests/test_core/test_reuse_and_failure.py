@@ -12,7 +12,7 @@ import json
 import logging
 import random
 import time
-from typing import Any, TypedDict
+from typing import Any, Literal, TypedDict
 
 import polars as pl
 import pytest
@@ -1217,6 +1217,29 @@ def test_a_node_redeclared_under_its_id_and_version_with_other_code_is_new_work_
     again = registry_of(echo_changed).load(record).load_run(saved).again(text=["Ab"])
 
     assert again.results["e"]["result"] == ["ab"]
+
+
+@pytest.mark.parametrize(("before", "after", "given"), [
+    (list[int], list[str], []),
+    (Literal["a", "b"], Literal["a"], "a"),
+], ids=["list-item", "literal-values"])
+def test_a_node_redeclared_under_its_id_and_version_with_the_same_code_and_another_type_is_new_work_after_a_save(before: Any, after: Any, given: Any):
+    calls: list[Any] = []
+
+    def made(value: Any) -> str:
+        calls.append(value)
+        return "made"
+
+    def declared(input_type: Any) -> Any:
+        made.__annotations__["value"] = input_type
+        return node("made")(made)
+
+    record = GraphRecord(nodes=[NodeRecord(id="m", node="made")])
+    saved = registry_of(declared(before)).load(record).run(value=given).to_json()
+
+    registry_of(declared(after)).load(record).load_run(saved).again(value=given)
+
+    assert calls == [given, given]
 
 
 def test_a_node_redeclared_to_take_a_blank_is_called_on_the_blank_row_it_skipped_before():

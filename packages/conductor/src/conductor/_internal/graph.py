@@ -42,6 +42,7 @@ import functools
 import hashlib
 import heapq
 import inspect
+import types
 import typing
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -141,7 +142,7 @@ class PlacedNode:
         constants, not from what it calls.
         """
         definition = self.definition
-        fields = [(name, spec.shape, spec.optional, type_id(spec.type)) for name, spec in (*definition.inputs.items(), *definition.outputs.items())]
+        fields = [(name, spec.shape, spec.optional, _type_text(spec.type)) for name, spec in (*definition.inputs.items(), *definition.outputs.items())]
         code = getattr(definition.function, "__code__", None)
         written = repr((definition.id, definition.version, _code_text(code) if code is not None else "", fields, self.level))
         return hashlib.blake2b(written.encode(), digest_size=8).hexdigest()
@@ -1298,6 +1299,25 @@ def _arriving(plan: InputPlan) -> Any:
     if plan.spec.shape == "table" and not any(s.whole_table for s in plan.sources):
         return Table.__class_getitem__(typing.TypedDict("Arriving", {s.name: s.type for s in plan.sources}))  # type: ignore[operator]
     return source.type
+
+
+def _type_text(hint: Any) -> str:
+    """A type as text that is the same in every process and tells apart every two types a value is read by differently:
+    a class by its module and name, a generic by its arguments (``list[int]``, ``list[str]``), a ``Literal`` by its
+    values, a type alias by its name; the metadata of an ``Annotated`` left out."""
+    if typing.get_origin(hint) is typing.Annotated:
+        return _type_text(typing.get_args(hint)[0])
+    if typing.get_origin(hint) is Literal:
+        return f"Literal{[_constant_text(value) for value in typing.get_args(hint)]}"
+    if isinstance(hint, typing.TypeAliasType):
+        return f"{hint.__module__}.{hint.__name__}"
+    origin, args = typing.get_origin(hint), typing.get_args(hint)
+    if args:
+        name = "Union" if origin in (typing.Union, types.UnionType) else _type_text(origin)
+        return f"{name}[{', '.join(map(_type_text, args))}]"
+    if isinstance(hint, type):
+        return f"{hint.__module__}.{hint.__qualname__}"
+    return repr(hint)
 
 
 def _code_text(code: Any) -> str:
