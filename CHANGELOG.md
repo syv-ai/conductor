@@ -19,8 +19,8 @@ What changes in how you work, before the name-by-name tables:
 - **A node is a typed function.** `@node("id")` (registers nothing) or `@registry.node("id")`
   returns a frozen, callable `NodeDefinition`. The signature is the interface:
   `Annotated[str, Param(title=, widget=, ge=, ...)]` for what a person sees and the limits a value
-  keeps (pydantic metadata, so it holds inside your own `BaseModel` too, and a field's `schema`
-  carries the limits; `Param`s stacked in one `Annotated`, an alias wrapped again, merge, the later
+  keeps (pydantic metadata, so its limits and choices hold inside your own `BaseModel` or dataclass
+  too, and a field's `schema` carries the limits but not its title or description; `Param`s stacked in one `Annotated`, an alias wrapped again, merge, the later
   winning, and a `Param` on a `Series` item is the field's; a table's column
   typed `Annotated[...]` is refused, since its limits would go unread), `-> X` for one output named `result`, a frozen dataclass for several. A
   `bool` never lands on a number, a `Literal` of numbers included. `async def` and

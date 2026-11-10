@@ -945,6 +945,35 @@ def test_a_tables_column_annotated_is_refused_as_its_limits_would_go_unread():
     assert raised.value.code == "annotated_extra_unknown"
 
 
+def test_a_params_choices_limit_a_hosts_own_model_as_they_limit_a_nodes_field():
+    class Settings(BaseModel):
+        colour: Annotated[str, Param(choices=["red", Choice("blue", "Blue")])] = "red"
+
+    assert Settings(colour="blue").colour == "blue"
+    with pytest.raises(ValidationError, match="not_a_choice"):
+        Settings(colour="green")
+
+
+def test_a_params_choices_hold_on_a_field_of_a_dataclass_a_node_takes_as_its_limits_do():
+    @dataclass(frozen=True)
+    class Order:
+        colour: Annotated[str, Param(choices=["red", "blue"])]
+        n: Annotated[int, Param(ge=0)]
+
+    registry = NodeRegistry()
+
+    @registry.node("take")
+    def take(order: Order) -> str:
+        return order.colour
+
+    graph = registry.load(make_graph(take))
+    assert graph.run(order={"colour": "red", "n": 1}).outputs == {"take.result": "red"}
+    for wrong in ({"colour": "green", "n": 1}, {"colour": "red", "n": -1}):
+        with pytest.raises(InvalidCallError) as raised:
+            graph.run(order=wrong)
+        assert [problem.type for problem in raised.value.errors()] == ["invalid_input"]
+
+
 def test_a_series_of_series_does_not_exist():
     def f(x: Series[Series[int]]) -> int:
         return 1

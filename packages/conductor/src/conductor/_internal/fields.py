@@ -43,7 +43,6 @@ from typing import (
 
 import polars as pl
 from pydantic import (
-    AfterValidator,
     BaseModel,
     BeforeValidator,
     ConfigDict,
@@ -61,6 +60,7 @@ from pydantic_core import (
     CoreSchema,
     PydanticCustomError,
     PydanticSerializationError,
+    core_schema,
     to_json,
     to_jsonable_python,
 )
@@ -175,8 +175,25 @@ class Param:
         object.__setattr__(self, "constraints", constraints)
 
     def __get_pydantic_core_schema__(self, source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
-        """``source`` checked and held to these limits, so ``Annotated[int, Param(ge=0)]`` is checked alike in any pydantic model."""
-        return handler(Annotated[source, PydanticField(**self.constraints)] if self.constraints else source)
+        """``source`` checked and held to these limits and choices, so ``Annotated[int, Param(ge=0)]`` is checked alike in any pydantic model.
+
+        Each choice's id is read as an answer is (``read_strictly``) by the limited type, once, when a value is first checked.
+        """
+        limited = handler(Annotated[source, PydanticField(**self.constraints)] if self.constraints else source)
+        if self.choices is None or literal_values(source) is not None:  # a Literal's choices title its values
+            return limited
+        reader = TypeAdapter(Annotated[source, PydanticField(**self.constraints)] if self.constraints else source)
+        offered = [choice["id"] for choice in self.choices]
+        ids: list[Any] = []
+
+        def one_of_the_choices(value: Any) -> Any:
+            if not ids:
+                ids.extend(read_strictly(reader, choice) for choice in offered)
+            if value is not None and value not in ids:
+                raise PydanticCustomError("not_a_choice", "the value is not one of the choices")
+            return value
+
+        return core_schema.no_info_after_validator_function(one_of_the_choices, limited)
 
     def __get_pydantic_json_schema__(self, schema: CoreSchema, handler: GetJsonSchemaHandler) -> JsonSchemaValue:
         """The JSON schema of the checked type, with this ``title`` and ``description`` where a model's field would carry them."""
@@ -282,7 +299,7 @@ class FieldSpec:
     def _limited(self) -> Any:
         """The type pydantic reads, held to the field's limits: what a value and each of its choices must be."""
         if self.param.constraints:  # a field's title and description are its record's own, not repeated in its schema
-            return Annotated[_carried(self.type), self.param]
+            return Annotated[_carried(self.type), PydanticField(**self.param.constraints)]
         return _carried(self.type)
 
     @functools.cached_property
@@ -292,10 +309,8 @@ class FieldSpec:
         Read strictly, pydantic refuses a ``bool`` on an ``int`` or ``float`` itself, but not on a ``Literal`` of
         numbers; ``_lax_one`` adds the refusal for a value read laxly.
         """
-        one: Any = self._limited
+        one: Any = Annotated[_carried(self.type), self.param] if self.param.constraints or self.param.choices is not None else _carried(self.type)
         literal = literal_values(self.type) is not None
-        if self.param.choices is not None and not literal:
-            one = Annotated[one, AfterValidator(self._one_of_the_choices)]
         if self.takes_a_number and literal:  # True == 1, strict or not
             one = Annotated[one, BeforeValidator(_not_a_bool)]
         return one
@@ -333,11 +348,6 @@ class FieldSpec:
         """The ids of ``Param(choices=)``, each read as an answer is (``read_strictly``) by the field's type and held to its limits."""
         one = TypeAdapter(self._limited)
         return tuple(read_strictly(one, choice["id"]) for choice in self.param.choices or ())
-
-    def _one_of_the_choices(self, value: Any) -> Any:
-        if value is not None and value not in self.choice_ids:
-            raise PydanticCustomError("not_a_choice", "the value is not one of the choices")
-        return value
 
     @functools.cached_property
     def plain(self) -> bool:
@@ -399,7 +409,7 @@ class FieldSpec:
         """The JSON schema of one value, or of each column of a table, made once: pydantic builds one in tens of microseconds."""
         if self.shape == "table":
             return {"columns": {c: _schema(t) for c, t in (self.columns or {}).items()}}
-        return {"schema": _schema(self._one)}
+        return {"schema": _schema(self._limited)}
 
     def as_json(self) -> dict[str, Any]:
         """``describe()`` as JSON, with only the keys the field has: what a question is made from."""
