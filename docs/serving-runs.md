@@ -68,7 +68,7 @@ CREATE TABLE IF NOT EXISTS runs (
     id TEXT PRIMARY KEY, graph TEXT, caller TEXT, status TEXT, waiting TEXT, outputs TEXT, run TEXT,
     rev INTEGER, owner TEXT, lease_until REAL, cancel INTEGER DEFAULT 0);
 CREATE TABLE IF NOT EXISTS events (run_id TEXT, seq INTEGER, body TEXT, PRIMARY KEY (run_id, seq));
-CREATE TABLE IF NOT EXISTS pending_answers (run_id TEXT, unit_id TEXT, value TEXT, PRIMARY KEY (run_id, unit_id));
+CREATE TABLE IF NOT EXISTS pending_answers (run_id TEXT, unit_id TEXT, value TEXT, problems TEXT, PRIMARY KEY (run_id, unit_id));
 """
 
 
@@ -192,20 +192,28 @@ async def sweep() -> None:
 
 
 async def apply_pending(run_id: str) -> None:
-    """Answers that came while a leg ran: those still waiting are answered and the next leg starts; the rest are dropped."""
+    """Answers that came while a leg ran, each on its own: a wrong one keeps its problems on its row and costs nobody
+    else theirs, one whose row no longer waits is dropped, and the rest start the next leg."""
     (row,) = await sql("SELECT * FROM runs WHERE id = ?", run_id)
-    pending = {r["unit_id"]: json.loads(r["value"]) for r in await sql("SELECT * FROM pending_answers WHERE run_id = ?", run_id)}
+    pending = {r["unit_id"]: json.loads(r["value"]) for r in await sql("SELECT * FROM pending_answers WHERE run_id = ? AND problems IS NULL", run_id)}
     if row["status"] != "waiting" or not pending:
         return
-    await sql("DELETE FROM pending_answers WHERE run_id = ?", run_id)
     run = registry.load(row["graph"]).load_run(row["run"])
-    still = {unit_id: value for unit_id, value in pending.items() if unit_id in {unit.id for unit in run.waiting}}
-    try:
-        answered = run.answer(still) if still else None
-    except InvalidCallError:
-        log.warning("dropped answers to run %s that no longer fit", run_id)
-        return
-    if answered is not None and await claim(run_id, status="waiting", rev=row["rev"], run=answered.to_json()):
+    waiting, taken, refused = {unit.id for unit in run.waiting}, False, {}
+    for unit_id, value in pending.items():
+        if unit_id in waiting:
+            try:
+                run, taken = run.answer(unit_id, value), True
+            except InvalidCallError as error:
+                refused[unit_id] = to_json([problem.model_dump(mode="json") for problem in error.errors()]).decode()
+    if taken and not await claim(run_id, status="waiting", rev=row["rev"], run=run.to_json()):
+        return  # another worker changed the run first: the answers stay queued for the end of its leg
+    for unit_id in pending:
+        if unit_id in refused:  # for the client to show the person who gave it
+            await sql("UPDATE pending_answers SET problems = ? WHERE run_id = ? AND unit_id = ?", refused[unit_id], run_id, unit_id)
+        else:
+            await sql("DELETE FROM pending_answers WHERE run_id = ? AND unit_id = ?", run_id, unit_id)
+    if taken:
         launch(run_id)
 
 
@@ -294,7 +302,7 @@ async def follow(row: RowDep, last_event_id: Annotated[int | None, Header()] = N
 async def answer(row: RowDep, answers: dict[str, Any], if_match: Annotated[int | None, Header()] = None) -> dict[str, str]:
     if row["status"] == "running":
         for unit_id, value in answers.items():
-            await sql("INSERT OR REPLACE INTO pending_answers VALUES (?, ?, ?)", row["id"], unit_id, json.dumps(value))
+            await sql("INSERT OR REPLACE INTO pending_answers VALUES (?, ?, ?, NULL)", row["id"], unit_id, json.dumps(value))
         await apply_pending(row["id"])  # the leg may have ended meanwhile
         return {"answers": "queued"}
     if row["status"] != "waiting":
@@ -358,7 +366,7 @@ A connection or session opened on the event loop and passed in either fails or i
 
 **Two workers answering one run.** Answering reads the row, checks the answers, then claims the run at the `rev` it read. Two workers that both read `waiting` both send an `UPDATE … WHERE rev = ?`, and only one of them changes the row. The other answers 409 and calls no node. A client that sends `If-Match: <rev>` gets the same 409 when the run moved since it read it.
 
-**Answers during a leg.** While a leg runs, answers wait in `pending_answers`. When the leg ends, `apply_pending` answers those still in `run.waiting`, drops the rest, and starts the next leg. Checking an answer loads the run and writes it again. At 10,000 rows that is about 60 ms and a 3 MB write, so a client with many single clicks does better to send them together.
+**Answers during a leg.** While a leg runs, answers wait in `pending_answers`. When the leg ends, `apply_pending` answers each one still in `run.waiting` on its own, so a wrong answer stays on its row with its `problems` for the client to show and the others go on; it drops the ones whose row no longer waits, and starts the next leg. If another worker took the run first, every answer stays queued for the end of that worker's leg. Checking an answer loads the run and writes it again. At 10,000 rows that is about 60 ms and a 3 MB write, so a client with many single clicks does better to send them together.
 
 **A kill.** A leg writes a checkpoint of its run every `CHECKPOINT_EVERY` seconds, and its lease runs out `LEASE` seconds after its worker stops renewing it. Then any worker's `sweep` claims the run and resumes it from the checkpoint. Only the calls the checkpoint has no record of are made again: those in flight, and those finished since. Every write a leg makes is fenced by `owner = ?`, so a worker that lost its lease and runs on writes nothing, and its leg stops at the next renewal.
 

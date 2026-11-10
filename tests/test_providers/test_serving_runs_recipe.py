@@ -294,6 +294,30 @@ def test_answers_sent_while_a_leg_runs_are_applied_when_it_ends(tmp_path: Path) 
     _run(scenario)
 
 
+def test_a_wrong_answer_sent_while_a_leg_runs_keeps_its_problems_and_costs_nobody_else_theirs(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        async with _workers(tmp_path) as (a, b):
+            graph = _chain("rows", "approve_each", "after", edges=(("rows.result", "approve_each.i"), ("approve_each.result", "after.approved")), values={"rows": {"n": 3}})
+            run_id = await a.start(graph)
+            first, second, third = (await a.until_status(run_id, "waiting"))["waiting"]
+            assert (await a.client.post(f"/runs/{run_id}/answers", json={first["id"]: True})).json() == {"answers": "started"}
+            while "after" not in _calls:
+                await asyncio.sleep(0.01)
+            queued = await b.client.post(f"/runs/{run_id}/answers", json={second["id"]: False, third["id"]: "not a yes or no"})
+            assert queued.json() == {"answers": "queued"}
+            _gate.set()
+            for _ in range(500):  # the first leg ends, the queued answers are applied, and the next leg ends
+                row = await b.read(run_id)
+                if row["status"] == "waiting" and len(row["waiting"]) == 1:
+                    break
+                await asyncio.sleep(0.01)
+            assert [unit["id"] for unit in row["waiting"]] == [third["id"]]
+            ((unit_id, problems),) = b.module.execute("SELECT unit_id, problems FROM pending_answers WHERE run_id = ?", run_id)
+            assert unit_id == third["id"] and [p["type"] for p in json.loads(problems)] == ["invalid_answer"]
+
+    _run(scenario)
+
+
 def test_a_leg_that_cannot_start_leaves_the_run_failed_not_running(tmp_path: Path) -> None:
     async def scenario() -> None:
         async with _workers(tmp_path, count=1) as (a,):
