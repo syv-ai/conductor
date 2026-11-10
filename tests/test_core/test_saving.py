@@ -4,7 +4,8 @@ A saved run is strict JSON: each node's outputs are a column per output,
 written by the output's own type, so a value reads back as itself, a float
 that isn't finite included. A save that doesn't fit the graph, damaged or
 written for another one, is refused at ``load_run`` as ``state_unreadable``,
-quoting no stored value.
+and a value with no JSON form at ``to_json`` as ``state_unwritable``; each
+names where, and quotes no stored value.
 """
 
 import datetime as dt
@@ -254,6 +255,20 @@ def test_every_column_type_comes_back_exactly_and_a_reader_receives_the_same():
     assert received[0].to_dict(as_series=False) == _EVERYTHING
 
 
+def test_a_table_with_no_row_type_keeps_its_list_struct_and_time_columns():
+    columns = {"tags": [["a"], ["b", "c"]], "point": [{"x": 1}, {"x": 2}], "clock": [dt.time(1, 2), dt.time(3, 4)]}
+
+    @node("bare")
+    def bare(text: str) -> pl.DataFrame:
+        return pl.DataFrame(columns)
+
+    run = registry_of(bare).load(make_graph(bare)).run(text="x")
+
+    loaded = _round_trip(run).results["bare"]["result"]
+
+    assert loaded.to_dict(as_series=False) == columns and loaded.schema == run.results["bare"]["result"].schema
+
+
 def test_tables_of_two_nodes_read_back_each_as_itself():
     class Name(TypedDict):
         name: str
@@ -302,18 +317,21 @@ class _Opaque:
         return core_schema.is_instance_schema(cls)
 
 
-def test_saving_a_run_that_holds_a_value_with_no_json_form_raises():
+def test_saving_a_run_that_holds_a_value_with_no_json_form_raises_naming_the_output():
     @node("opaque")
     def opaque(text: str) -> _Opaque:
         return _Opaque()
 
     run = registry_of(opaque).load(GraphRecord(nodes=[NodeRecord(id="o", node="opaque")])).run(text="x")
 
-    with pytest.raises(Exception):  # noqa: B017
+    with pytest.raises(InvalidCallError) as refused:
         run.to_json()
 
+    (problem,) = refused.value.errors()
+    assert (problem.type, problem.ctx["at"]) == ("state_unwritable", "o.result")
 
-def test_a_column_json_cannot_keep_makes_the_save_raise():
+
+def test_a_column_json_cannot_keep_makes_the_save_raise_naming_the_output_and_column():
     class Blob(TypedDict):
         data: bytes
 
@@ -323,8 +341,12 @@ def test_a_column_json_cannot_keep_makes_the_save_raise():
 
     run = registry_of(blob).load(GraphRecord(nodes=[NodeRecord(id="b", node="blob")])).run(text="x")
 
-    with pytest.raises(Exception):  # noqa: B017
+    with pytest.raises(InvalidCallError) as refused:
         run.to_json()
+
+    (problem,) = refused.value.errors()
+    assert problem.type == "state_unwritable" and problem.ctx["at"].startswith("b.result") and "data" in problem.ctx["at"]
+    assert "\\xff" not in json.dumps(problem.model_dump(mode="json"))
 
 
 # -- a save that doesn't fit is refused ------------------------------------------------------
@@ -341,12 +363,13 @@ def _saved_mails() -> tuple[Any, dict[str, Any]]:
     return graph, json.loads(graph.run(text="secret-a,secret-b,secret-c").to_json())
 
 
-def test_a_saved_value_its_type_does_not_read_is_refused_quoting_nothing():
+def test_a_saved_value_its_type_does_not_read_is_refused_naming_where_and_quoting_nothing():
     graph, saved = _saved_mails()
     saved["units"]["echo"]["outputs"]["result"]["values"][1] = {"secret": "value"}
 
     problem = _refused(graph, saved)
 
+    assert "echo.result" in json.dumps(problem.model_dump(mode="json"))
     assert "secret" not in json.dumps(problem.model_dump(mode="json"))
 
 
@@ -357,8 +380,58 @@ def test_a_blank_saved_on_an_output_reads_back_as_none():
     assert graph.load_run(json.dumps(saved)).results["echo"]["result"] == ["secret-a", None, "secret-c"]
 
 
-def test_a_save_naming_an_output_the_node_lacks_is_refused():
+@pytest.mark.parametrize(
+    "damage",
+    ["a row never made", "a negative row", "a row listed twice", "a row on a node that runs once", "a missing value", "a missing output", "an output the node lacks"],
+)
+def test_a_damaged_save_is_refused(damage):
     graph, saved = _saved_mails()
-    saved["units"]["echo"]["outputs"]["other"] = {"values": ["x", "y", "z"], "skipped": []}
+    echo, splitting = saved["units"]["echo"], saved["units"]["split"]
+    if damage == "a row never made":
+        echo["keys"][2] = [7]
+    elif damage == "a negative row":
+        echo["keys"][2] = [-1]
+    elif damage == "a row listed twice":
+        echo["keys"][2] = [1]
+    elif damage == "a row on a node that runs once":
+        splitting["keys"][0] = [0]
+    elif damage == "a missing value":
+        echo["outputs"]["result"]["values"].pop()
+    elif damage == "a missing output":
+        del echo["outputs"]["result"]
+    else:
+        echo["outputs"]["other"] = {"values": ["x", "y", "z"], "skipped": []}
+
+    _refused(graph, saved)
+
+
+def _saved_table() -> tuple[Any, dict[str, Any]]:
+    class Name(TypedDict):
+        name: str
+
+    @node("names")
+    def names(text: str) -> Table[Name]:
+        return pl.DataFrame({"name": text.split(",")})
+
+    @node("greet")
+    def greet(name: str) -> str:
+        return f"hej {name}"
+
+    graph = registry_of(names, greet).load(GraphRecord(
+        nodes=[NodeRecord(id="n", node="names"), NodeRecord(id="g", node="greet")], edges=[("n.result.name", "g.name")],
+    ))
+    return graph, json.loads(graph.run(text="ida,bo").to_json())
+
+
+def test_a_null_where_a_table_that_makes_rows_was_is_refused():
+    graph, saved = _saved_table()
+    saved["units"]["n"]["outputs"]["result"]["values"][0] = None
+
+    _refused(graph, saved)
+
+
+def test_a_malformed_table_is_refused():
+    graph, saved = _saved_table()
+    saved["units"]["n"]["outputs"]["result"]["values"][0] = {"rows": 2, "columns": {"name": ["ida"]}}
 
     _refused(graph, saved)
