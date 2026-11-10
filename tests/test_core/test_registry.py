@@ -358,7 +358,7 @@ def test_extra_is_json_kept_and_described_but_never_read():
     assert tagged.describe().extra == {"icon": "star", "order": [1, 2], "beta": None}
 
 
-@pytest.mark.parametrize("extra", [{"x": float("nan")}, {"x": [float("inf")]}, "ab", [("a", 1)], {1: "a"}, {"x": (1, 2)}])
+@pytest.mark.parametrize("extra", [{"x": float("nan")}, {"x": [float("inf")]}, {"a": [1, {"b": float("nan")}]}, "ab", [("a", 1)], {1: "a"}, {"x": (1, 2)}])
 def test_extra_that_is_not_strict_json_is_a_declaration_error(extra):
     with pytest.raises(NodeDeclarationError, match="extra must be JSON") as raised:
         _node("bad", extra=extra)

@@ -51,14 +51,13 @@ from __future__ import annotations
 
 import dataclasses
 import inspect
-import math
 import typing
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Generic, ParamSpec, Protocol, TypeVar, overload
 
-from pydantic import JsonValue, TypeAdapter, ValidationError
+from pydantic import ConfigDict, JsonValue, TypeAdapter, ValidationError
 
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.errors import InvalidCallError, NodeDeclarationError, make_problem
@@ -521,7 +520,7 @@ def _raise_if_upgrade_is_missing(where: str, older: NodeDefinition[..., Any], ne
         raise NodeDeclarationError(f"{where}the version it replaces has {sorted(unexplained)}, gone from this one; its Upgrade says where they went", code="upgrade_missing")
 
 
-_EXTRA = TypeAdapter(dict[str, JsonValue])
+_EXTRA = TypeAdapter(dict[str, JsonValue], config=ConfigDict(allow_inf_nan=False))
 
 
 def checked_extra(extra: Mapping[str, JsonValue] | None) -> dict[str, JsonValue]:
@@ -535,17 +534,4 @@ def checked_extra(extra: Mapping[str, JsonValue] | None) -> dict[str, JsonValue]
         checked = _EXTRA.validate_python(dict(extra), strict=True)
     except (ValidationError, TypeError, ValueError) as wrong:
         raise wrong_shape from wrong
-    if not _all_finite(checked):
-        raise wrong_shape
     return checked
-
-
-def _all_finite(value: JsonValue) -> bool:
-    """Whether no float anywhere in ``value`` is NaN or an infinity, which JSON cannot write."""
-    if isinstance(value, float):
-        return math.isfinite(value)
-    if isinstance(value, dict):
-        return all(_all_finite(item) for item in value.values())
-    if isinstance(value, list):
-        return all(_all_finite(item) for item in value)
-    return True
