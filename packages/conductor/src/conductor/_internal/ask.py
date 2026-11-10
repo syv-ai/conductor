@@ -90,7 +90,9 @@ class Waiting(ConductorModel):
     """A row of a node waiting for a person, as a host shows it.
 
     ``id`` is what ``run.answer`` takes: the node's id, then ``@`` and each
-    place of the row, ``"approve@1"``. ``prompt`` is what the node's ``Ask``
+    place of the row, then ``~`` and a fingerprint of the question asked there,
+    ``"approve@1~3fa2c0d1"``; an answer for an id whose row has since come to
+    hold another question is refused as ``answer_stale``. ``prompt`` is what the node's ``Ask``
     said; ``inputs`` is what the node received, as JSON. ``questions`` has one
     entry per output, the field record ``describe()`` gives it (``name``,
     ``title``, ``shape``, ``type``, ``schema``, ``required``, and

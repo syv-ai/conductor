@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import dataclasses
 import functools
+import hashlib
 import heapq
 import inspect
 import typing
@@ -113,6 +114,20 @@ class PlacedNode:
     checked: tuple[str, ...] = ()
 
     @functools.cached_property
+    def reuse_digest(self) -> str:
+        """What a unit's result rests on besides what it received: the node's version, its code, its fields and its rows.
+
+        So a node redeclared under the same id and version, with other code or a signature that takes a blank or
+        runs on other rows, is new work on ``run.again``. Code is read from the function's own bytecode and
+        constants, not from what it calls.
+        """
+        definition = self.definition
+        fields = [(name, spec.shape, spec.optional, type_id(spec.type)) for name, spec in (*definition.inputs.items(), *definition.outputs.items())]
+        code = getattr(definition.function, "__code__", None)
+        written = repr((definition.id, definition.version, _code_text(code) if code is not None else "", fields, self.level))
+        return hashlib.blake2b(written.encode(), digest_size=8).hexdigest()
+
+    @functools.cached_property
     def questions(self) -> dict[str, dict[str, Any]]:
         """What a person is asked for each output when the node raises ``Ask``, before the ``Ask`` adds to it."""
         return questions_of(self.definition)
@@ -180,6 +195,7 @@ class Graph:
         self._position = {r.id: n for n, (r, _) in enumerate(placed_records)}
         self._readers: dict[str, list[PlacedNode]] = {r.id: [] for r, _ in placed_records}
         self._above: dict[str, frozenset[str]] = {}
+        self._placed: dict[str, list[str]] = {}
         #: Each node's branches: the ways decisions must go for it to hold a value, ``(node, group, output)``.
         self._branches: dict[str, frozenset[tuple[str, str, str]]] = {}
         self._compile(placed_records, edges)
@@ -292,6 +308,13 @@ class Graph:
         from conductor._internal.run import run_from_json
 
         return run_from_json(self, saved)
+
+    def _placed_as(self, node_id: str) -> list[str]:
+        """The placed nodes an id of this record names: the node itself, or every node an embedding put in its place."""
+        found = self._placed.get(node_id)
+        if found is None:
+            found = self._placed[node_id] = [p for p in self._nodes if p == node_id or (p.startswith(node_id + "/") and node_id in self._offers)]
+        return found
 
     def _above_of(self, node_id: str) -> frozenset[str]:
         """Every node ``node_id`` waits on, however far up."""
@@ -843,6 +866,12 @@ def _arriving(source: Source) -> Any:
 
         return Table.__class_getitem__(typing.TypedDict("Arriving", dict(source.columns)))  # type: ignore[operator]
     return source.type
+
+
+def _code_text(code: Any) -> str:
+    """A function's bytecode and constants as text that is the same in every process: a nested function by its own code."""
+    consts = [_code_text(c) if hasattr(c, "co_code") else repr(c) for c in code.co_consts]
+    return f"{code.co_code.hex()}:{consts}:{code.co_names}"
 
 
 def _opposed(a: frozenset[tuple[str, str, str]], b: frozenset[tuple[str, str, str]]) -> bool:

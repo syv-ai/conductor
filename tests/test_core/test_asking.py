@@ -6,6 +6,7 @@ them and the node's types, refuses every fault at once, and runs nothing.
 """
 
 import datetime
+import re
 import time
 from dataclasses import dataclass
 from typing import Annotated, Any, Literal, TypedDict
@@ -26,7 +27,7 @@ from conductor import (
 )
 from conductor.widgets import Textarea
 
-from tests.test_core.nodes import registry_of
+from tests.test_core.nodes import place, registry_of
 
 
 @node("split")
@@ -76,9 +77,9 @@ def test_a_bool_is_a_yes_or_no_and_a_word_for_it_is_refused():
     graph, run = _once(confirm, name="F-1")
     (waiting,) = run.waiting
     (question,) = waiting.questions
-    assert (waiting.id, waiting.prompt, question["schema"], question["required"]) == ("q", "Approve F-1?", {"type": "boolean"}, True)
+    assert (place(waiting), waiting.prompt, question["schema"], question["required"]) == ("q", "Approve F-1?", {"type": "boolean"}, True)
     (fault,) = _refused(lambda: run.answer(waiting, "maybe"))
-    assert (fault.type, fault.loc, fault.ctx["waiting_id"]) == ("invalid_answer", ("q",), "q")
+    assert (fault.type, fault.loc, fault.ctx["waiting_id"]) == ("invalid_answer", ("q",), waiting.id)
     assert run.answer(waiting, True).resume().outputs == {"q.result": True}
 
 
@@ -458,8 +459,8 @@ def test_answer_runs_nothing_and_leaves_the_run_it_was_given_as_it_was():
     _, run = _asking(gate, text="a,b1,b2")
     before, calls = run.to_json(), list(called)
     answered = run.answer("q@1", "B1")
-    assert called == calls and run.to_json() == before and [w.id for w in run.waiting] == ["q@1", "q@2"]
-    assert [w.id for w in answered.waiting] == ["q@2"]
+    assert called == calls and run.to_json() == before and [place(w) for w in run.waiting] == ["q@1", "q@2"]
+    assert [place(w) for w in answered.waiting] == ["q@2"]
 
 
 def test_every_fault_of_one_answer_call_is_refused_at_once_and_nothing_is_answered():
@@ -469,7 +470,7 @@ def test_every_fault_of_one_answer_call_is_refused_at_once_and_nothing_is_answer
     assert [(f.type, f.loc, f.ctx["waiting_id"]) for f in faults] == [
         ("invalid_answer", ("q", 1), "q@1"), ("not_waiting", ("q", 0), "q@0"), ("not_waiting", ("nope", 3), "nope@3"),
     ]
-    assert [w.id for w in run.waiting] == ["q@1", "q@2"]
+    assert [place(w) for w in run.waiting] == ["q@1", "q@2"]
 
 
 def test_one_answer_is_a_unit_and_its_value_and_several_a_mapping():
@@ -505,7 +506,7 @@ def test_after_an_answer_the_next_leg_calls_only_what_waited_on_it_and_a_row_lef
     run = graph.run()
     called.clear()
     leg = graph.load_run(run.answer("q@1", "yes").to_json()).resume()
-    assert called == [] and leg.status == "waiting" and [w.id for w in leg.waiting] == ["q@2"]
+    assert called == [] and leg.status == "waiting" and [place(w) for w in leg.waiting] == ["q@2"]
     assert leg.results["u"]["result"] == ["A", "YES", None]
     assert leg.waiting[0] == run.waiting[1]  # the question is as it was asked
 
@@ -538,7 +539,7 @@ def test_a_row_skipped_above_never_asks_and_the_others_complete_when_answered():
         "edges": [["s.result", "o.text"], ["o.result", "q.text"]],
     })
     run = graph.run()
-    assert called == ["b1", "b2"] and [w.id for w in run.waiting] == ["q@1", "q@2"]
+    assert called == ["b1", "b2"] and [place(w) for w in run.waiting] == ["q@1", "q@2"]
     assert run.answer({"q@1": "1", "q@2": "2"}).resume().results["q"]["result"] == [None, "1", "2"]
 
 
@@ -557,8 +558,8 @@ def test_waiting_rows_are_in_node_then_row_order_whatever_order_they_asked_in():
         "edges": [["s.result", "a.text"], ["s.result", "b.text"]],
     })
     run = graph.run()
-    assert [w.id for w in run.waiting] == ["a@0", "a@1", "a@2", "b@0", "b@1", "b@2"]
-    assert [w.id for w in graph.load_run(run.to_json()).waiting] == [w.id for w in run.waiting]
+    assert [place(w) for w in run.waiting] == ["a@0", "a@1", "a@2", "b@0", "b@1", "b@2"]
+    assert [place(w) for w in graph.load_run(run.to_json()).waiting] == [place(w) for w in run.waiting]
 
 
 def test_a_waiting_row_keeps_the_table_and_series_it_received_through_a_save():
@@ -584,7 +585,7 @@ def test_rows_a_caller_types_in_as_a_list_pause_save_answer_and_finish():
     gate, _ = _counted()
     graph = registry_of(gate).load({"nodes": [{"id": "q", "node": "gate", "many": ["text"]}]})
     run = graph.load_run(graph.run(text=["a", "b"]).to_json())
-    assert [w.id for w in run.waiting] == ["q@1"]
+    assert [place(w) for w in run.waiting] == ["q@1"]
     assert graph.load_run(run.answer("q@1", "B").to_json()).resume().outputs == {"q.result": ["a", "B"]}
 
 
@@ -593,7 +594,7 @@ def test_an_answer_names_a_row_by_its_place_so_one_for_a_row_that_no_longer_wait
     graph = registry_of(split, gate).load({"nodes": [{"id": "s", "node": "split"}, {"id": "q", "node": "gate"}], "edges": [["s.result", "q.text"]]})
     run = graph.run(text="b1,a")
     moved = run.again(text="a,b1")  # the same question, now on row 1
-    assert [w.id for w in run.waiting] == ["q@0"] and [w.id for w in moved.waiting] == ["q@1"]
+    assert [place(w) for w in run.waiting] == ["q@0"] and [place(w) for w in moved.waiting] == ["q@1"]
     assert [f.type for f in _refused(lambda: moved.answer("q@0", "B1"))] == ["not_waiting"]
 
 
@@ -612,8 +613,10 @@ def test_a_question_record_is_json_a_host_draws_from_with_no_graph_loaded():
         raise Ask(f"Who takes {ticket}?", choices=[Choice("ida", "Ida B.")], default="ida", widget=Textarea())
 
     _, run = _once(assign, ticket="T-1")
-    assert run.waiting[0].model_dump(mode="json") == {
-        "id": "q", "node_id": "q", "row": [], "prompt": "Who takes T-1?", "inputs": {"ticket": "T-1"},
+    written = run.waiting[0].model_dump(mode="json")
+    assert re.fullmatch(r"q~[0-9a-f]{8}", written.pop("id"))  # the place, and a fingerprint of the question asked there
+    assert written == {
+        "node_id": "q", "row": [], "prompt": "Who takes T-1?", "inputs": {"ticket": "T-1"},
         "questions": [{
             "name": "result", "title": "Assignee", "shape": "one", "required": False, "type": "str", "schema": {"type": "string"},
             "choices": [{"id": "ida", "title": "Ida B."}], "default": "ida", "widget": {"type": "textarea", "rows": 4},

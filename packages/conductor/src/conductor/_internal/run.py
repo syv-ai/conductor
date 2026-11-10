@@ -81,7 +81,8 @@ class Unit:
 
     state: Literal["done", "skipped", "blank", "waiting"]
     out: dict[str, Any] | None = None
-    #: For a waiting unit, what the person is asked; for a blank one, ``{"input": name}``.
+    #: For a waiting unit, what the person is asked, and for a done one, what they were asked when a person answered it;
+    #: for a blank one, ``{"input": name}``; for a skipped one, ``{"from": depth}``.
     question: dict[str, Any] | None = None
 
 
@@ -101,8 +102,14 @@ class Run:
         self._units: dict[str, dict[Key, Unit]] = {n: {} for n in graph._nodes}
         self.status: RunStatus = "ready"
         self.cause: Problem | None = None
-        #: node -> fingerprint of what a unit received -> its outputs, from the run this one went on from.
-        self._earlier: dict[str, dict[str, dict[str, Any]]] = {}
+        #: node -> fingerprint of what a unit received -> the earlier units that received it, in row order, not yet taken.
+        self._earlier: dict[str, dict[str, list[Unit]]] = {}
+        #: The nodes whose ``_earlier`` entry is this run's own to take from, not shared with the run it was copied from.
+        self._earlier_own: set[str] = set()
+        #: Whether a node's earlier units include answers or questions, which are kept by the rows above them too.
+        self._asking: dict[str, bool] = {}
+        #: For a node whose units a saved run made with other code or another signature, what that code was; they are never carried.
+        self._ran_as: dict[str, str] = {}
         #: The nodes whose units were recorded out of row order (threads finish when they finish), sorted when read.
         self._unordered: set[str] = set()
 
@@ -205,17 +212,23 @@ class Run:
         problems: list[Problem] = []
         answered: dict[str, dict[Key, Unit]] = {}
         for unit_id, one in given.items():
-            node_id, key = _parse_unit(unit_id)
-            found = self._units.get(node_id, {}).get(key) if node_id in self.graph._nodes else None
-            if found is None or found.state != "waiting":
-                problems.append(make_problem("not_waiting", node_id, *key, waiting_id=unit_id))
+            outer, key, fingerprint = _parse_unit(unit_id)
+            here = [(n, u) for n in self.graph._placed_as(outer) if (u := self._units[n].get(key)) is not None and u.state == "waiting"]
+            matching = [(n, u) for n, u in here if fingerprint is None or _question_fingerprint(self.graph._nodes[n], u) == fingerprint]
+            if len(matching) != 1:
+                if len(here) == 1 and fingerprint is not None:
+                    current = self._waiting(here[0][0], key, here[0][1]).id
+                    problems.append(make_problem("answer_stale", outer, *key, waiting_id=unit_id, current=current))
+                else:
+                    problems.append(make_problem("not_waiting", outer, *key, waiting_id=unit_id))
                 continue
+            ((node_id, found),) = matching
             placed = self.graph._nodes[node_id]
             read, faults = answer_outputs(placed, one, (found.question or {}).get("asked", {}))
             if faults:
-                problems.extend(make_problem("invalid_answer", node_id, *key, waiting_id=unit_id, reason=reason, **({"question": q} if q else {})) for q, reason in faults)
+                problems.extend(make_problem("invalid_answer", outer, *key, waiting_id=unit_id, reason=reason, **({"question": q} if q else {})) for q, reason in faults)
             else:
-                answered.setdefault(node_id, {})[key] = Unit("done", kept_outputs(placed.definition.outputs, read))
+                answered.setdefault(node_id, {})[key] = Unit("done", kept_outputs(placed.definition.outputs, read), found.question)
         if problems:
             raise InvalidCallError(problems)
         run = self._copy(share_units=True)
@@ -226,24 +239,55 @@ class Run:
     def with_inputs(self, inputs: Mapping[str, Any] | None = None, /, *, max_rows: int | None = None, **by_name: Any) -> Run:
         """A run of these changed inputs, the rest as before, ready to ``resume`` or ``stream``.
 
-        It carries this run's work: a row that receives what an earlier unit of
-        its node received takes that unit's outputs, answers included, and the
-        node is not called for it. Inputs are given as ``graph.with_inputs``
-        takes them, and checked the same way.
+        It carries this run's work, and what this run carried and didn't use:
+        a row that receives what an earlier unit of its node received takes
+        that unit's outcome, an answer or a question still waiting included, and
+        the node is not called for it. Identical rows take the earlier ones in
+        row order, the first identical row the first earlier one, so no answer
+        moves to another person's row. Inputs are given as
+        ``graph.with_inputs`` takes them, and checked the same way.
         """
         given = {name: self.inputs[graph_input.key] for name, graph_input in self.graph.inputs.items() if graph_input.key in self.inputs}
         fresh = self.graph.with_inputs({**given, **(inputs or {}), **by_name}, max_rows=max_rows if max_rows is not None else self.max_rows)
-        earlier: dict[str, dict[str, dict[str, Any]]] = {}
+        fresh._earlier = self._carried()
+        return fresh
+
+    def forget(self, *node_ids: str) -> Run:
+        """A run of the same inputs that has forgotten these nodes' work, ready to ``resume`` or ``stream``.
+
+        Every other unit is carried as ``with_inputs`` carries it, so only the
+        forgotten nodes are called again, and a node below them that then
+        receives what it received before is not. A host forgets a node whose
+        access it must check again. An embedded graph's id forgets its nodes.
+        """
+        unknown = [n for n in node_ids if not self.graph._placed_as(n)]
+        if unknown:
+            raise InvalidCallError([make_problem("node_not_in_graph", n, node_id=n, nodes=", ".join(self.graph._readable) or "none") for n in unknown])
+        fresh = self.with_inputs()
+        for n in node_ids:
+            for placed_id in self.graph._placed_as(n):
+                fresh._earlier.pop(placed_id, None)
+        return fresh
+
+    def _carried(self) -> dict[str, dict[str, list[Unit]]]:
+        """What a run going on from this one may take: each node's finished and waiting units by what they received, then what this run carried and didn't take."""
+        earlier: dict[str, dict[str, list[Unit]]] = {}
         for n, units in self._units.items():
             placed = self.graph._nodes[n]
-            if placed.definition.policy.reuse_when_inputs_match:
-                by = earlier[n] = {}
-                for k, u in units.items():
-                    fingerprint = _fingerprint(placed.definition.version, self._inputs(placed, k)) if u.state == "done" and u.out is not None else None
+            if not placed.definition.policy.reuse_when_inputs_match or n in self._ran_as:
+                continue
+            by: dict[str, list[Unit]] = {}
+            for k, u in self._in_order(n):
+                if u.state == "done" or u.state == "waiting":
+                    fingerprint = _fingerprint(placed.reuse_digest, self._inputs(placed, k))
                     if fingerprint is not None:
-                        by[fingerprint] = u.out  # type: ignore[assignment]
-        fresh._earlier = earlier
-        return fresh
+                        by.setdefault(self._asked_key(placed, k, fingerprint) if u.question else fingerprint, []).append(u)
+            for fingerprint, left in self._earlier.get(n, {}).items():
+                if left:
+                    by.setdefault(fingerprint, []).extend(left)
+            if by:
+                earlier[n] = by
+        return earlier
 
     def again(
         self, inputs: Mapping[str, Any] | None = None, /, *, max_rows: int | None = None, from_run: Mapping[type, Any] | None = None,
@@ -269,8 +313,9 @@ class Run:
 
     def _waiting(self, node_id: str, key: Key, unit: Unit) -> Waiting:
         question = unit.question or {}
+        outer = self.graph.outward(node_id)
         return Waiting(
-            id=_unit_id(node_id, key), node_id=node_id, row=key, prompt=question["prompt"],
+            id=f"{_unit_id(outer, key)}~{_question_fingerprint(self.graph._nodes[node_id], unit)}", node_id=outer, row=key, prompt=question["prompt"],
             questions=questions(self.graph._nodes[node_id], question.get("asked", {})), inputs=question["inputs"],
         )
 
@@ -312,12 +357,50 @@ class Run:
 
     # -- what a leg reads -------------------------------------------------------
 
-    def _reused(self, placed: PlacedNode, kwargs: dict[str, Any]) -> dict[str, Any] | None:
+    def _reused(self, placed: PlacedNode, key: Key, kwargs: dict[str, Any]) -> Unit | None:
+        """The next earlier unit of ``placed`` that received ``kwargs``, taken so an identical row after it takes the one after.
+
+        A person's answer, or a question still waiting, is taken only by a row under the same rows above it, so two
+        documents' identical lines keep each document's answers when the documents move.
+        """
         earlier = self._earlier.get(placed.id)
         if not earlier:
             return None
-        fingerprint = _fingerprint(placed.definition.version, kwargs)
-        return earlier.get(fingerprint) if fingerprint is not None else None
+        fingerprint = _fingerprint(placed.reuse_digest, kwargs)
+        if fingerprint is None:
+            return None
+        asks = self._asking.get(placed.id)
+        if asks is None:
+            asks = self._asking[placed.id] = any(k.startswith("asked:") for k in earlier)
+        if asks and earlier.get(asked := self._asked_key(placed, key, fingerprint)):
+            fingerprint = asked
+        if not earlier.get(fingerprint):
+            return None
+        if placed.id not in self._earlier_own:  # the lists are the earlier run's too until this run takes from them
+            earlier = self._earlier[placed.id] = {fp: list(units) for fp, units in earlier.items()}
+            self._earlier_own.add(placed.id)
+        return earlier[fingerprint].pop(0)
+
+    def _asked_key(self, placed: PlacedNode, key: Key, fingerprint: str) -> str:
+        """Where an answered or waiting unit is kept for reuse: what it received, and the value of each row above its own."""
+        above = [self._row_value(placed.level[i], key[: i + 1]) for i in range(len(placed.level) - 1)]
+        lineage = _fingerprint("", {"rows": above}) if above else ""
+        return f"asked:{fingerprint}:{lineage}"
+
+    def _given(self, address: str) -> Any:
+        """The list a caller gave at ``address``, whose items are the rows of the table it makes."""
+        return self.inputs[address]
+
+    def _row_value(self, table: str, key: Key) -> Any:
+        """What one row of a table holds: an item of a list, or a table's row as a mapping."""
+        node_id, output = self.graph._makers[table]
+        if node_id is None:
+            return self._given(output)[key[-1]]
+        unit = self._units[node_id].get(key[:-1])
+        made = unit.out.get(output) if unit is not None and unit.out else None
+        if isinstance(made, Frame):
+            return {c: v[key[-1]] for c, v in made.columns.items()}
+        return made[key[-1]] if isinstance(made, list) else None
 
     def _call(self, placed: PlacedNode, kwargs: dict[str, Any], from_run: Mapping[type, Any]) -> tuple[Any, BaseException | None]:
         """Call ``placed`` on what a unit received: its outputs as a run keeps them, or what went wrong.
@@ -544,19 +627,24 @@ class Run:
 
     def _written(self) -> str:
         units = {n: _dump_units(self.graph._nodes[n], dict(self._in_order(n)) if n in self._unordered else us) for n, us in self._units.items()}
-        earlier = {
-            n: {"fingerprints": list(by), **_dump_units(self.graph._nodes[n], {(i,): Unit("done", out) for i, out in enumerate(by.values())}, keyed=False)}
-            for n, by in self._earlier.items()
-        }
+        earlier = {}
+        for n, by in self._earlier.items():
+            listed = [(fp, unit) for fp, units in by.items() for unit in units]
+            if listed:
+                numbered: dict[Key, Unit] = {(i,): unit for i, (_, unit) in enumerate(listed)}
+                earlier[n] = {"fingerprints": [fp for fp, _ in listed], **_dump_units(self.graph._nodes[n], numbered, keyed=False)}
         inputs = {address: _input_adapter(self.graph, address).dump_python(v, mode="json") for address, v in self.inputs.items()}
         cause = self.cause.model_dump(mode="json") if self.cause else None
-        return pydantic_core.to_json({"status": self.status, "cause": cause, "max_rows": self.max_rows, "inputs": inputs, "units": units, "earlier": earlier}, inf_nan_mode="strings").decode()
+        code = {n: self._ran_as.get(n, p.reuse_digest) for n, p in self.graph._nodes.items()}
+        written = {"status": self.status, "cause": cause, "max_rows": self.max_rows, "inputs": inputs, "units": units, "earlier": earlier, "code": code}
+        return pydantic_core.to_json(written, inf_nan_mode="strings").decode()
 
     def _copy(self, *, share_units: bool = False, **changes: Any) -> Run:
         """A copy to change: its own units to record into, or with ``share_units`` this run's, for a caller that replaces whole nodes."""
         copy = Run(self.graph, self.inputs, max_rows=changes.get("max_rows", self.max_rows), _door=STARTING)
         copy._units = dict(self._units) if share_units else {n: dict(us) for n, us in self._units.items()}
-        copy.status, copy.cause, copy._earlier, copy._unordered = self.status, self.cause, self._earlier, set(self._unordered)
+        copy.status, copy.cause, copy._earlier, copy._unordered = self.status, self.cause, dict(self._earlier), set(self._unordered)
+        copy._ran_as = self._ran_as
         return copy
 
 
@@ -574,10 +662,17 @@ def run_from_json(graph: Graph, saved: str | bytes | Mapping[str, Any]) -> Run:
             run._units[n] = dict(loaded)
             if len(run._units[n]) != len(loaded):
                 raise _Unreadable(n, "a row is listed twice")
-        run._earlier = {
-            n: {fp: u.out for fp, (_, u) in zip(dumped["fingerprints"], _load_units(graph._nodes[n], dumped), strict=True) if u.out is not None}
-            for n, dumped in data["earlier"].items()
-        }
+        unknown = sorted(data["earlier"].keys() - graph._nodes.keys())
+        if unknown:
+            raise _Unreadable(unknown[0], "the graph has no such node")
+        run._ran_as = {n: digest for n, digest in data["code"].items() if n in graph._nodes and digest != graph._nodes[n].reuse_digest}
+        for n, dumped in data["earlier"].items():
+            if n in run._ran_as:
+                continue  # made with other code: never reused
+            by: dict[str, list[Unit]] = {}
+            for fp, (_, unit) in zip(dumped["fingerprints"], _load_units(graph._nodes[n], dumped), strict=True):
+                by.setdefault(fp, []).append(unit)
+            run._earlier[n] = by
         run.status = data["status"]
         run.cause = Problem.model_validate(data["cause"]) if data["cause"] else None
         for n, units in run._units.items():  # every row is one the saved makers made
@@ -902,10 +997,10 @@ def _hand_over(loop: asyncio.AbstractEventLoop, events: asyncio.Queue[Any], even
         pass
 
 
-def _fingerprint(version: int, kwargs: dict[str, Any]) -> str | None:
-    """What a unit received, as a short hash; ``None`` for a value with no JSON form, which is never reused."""
+def _fingerprint(digest: str, kwargs: dict[str, Any]) -> str | None:
+    """What a unit of a node (its ``reuse_digest``) received, as a short hash; ``None`` for a value with no JSON form, which is never reused."""
     try:
-        written = pydantic_core.to_json([version, kwargs], fallback=_frame_json)
+        written = pydantic_core.to_json([digest, kwargs], fallback=_frame_json)
     except (TypeError, ValueError, pydantic_core.PydanticSerializationError):
         return None
     return hashlib.blake2b(written, digest_size=12).hexdigest()
@@ -915,12 +1010,20 @@ def _unit_id(node_id: str, key: Key) -> str:
     return node_id + "".join(f"@{i}" for i in key)
 
 
-def _parse_unit(unit_id: str) -> tuple[str, Key]:
-    node_id, *rest = unit_id.split("@")
+def _question_fingerprint(placed: PlacedNode, unit: Unit) -> str:
+    """Eight hex digits of which node asks, as which code, and what it received, so a waiting id stops matching when its row holds another question."""
+    written = pydantic_core.to_json([placed.id, placed.reuse_digest, (unit.question or {}).get("inputs")])
+    return hashlib.blake2b(written, digest_size=4).hexdigest()
+
+
+def _parse_unit(unit_id: str) -> tuple[str, Key, str | None]:
+    """A waiting id's node, row and question fingerprint, ``None`` when the id names only the place (``node@row``)."""
+    place, _, fingerprint = unit_id.partition("~")
+    node_id, *rest = place.split("@")
     try:
-        return node_id, tuple(int(i) for i in rest)
+        return node_id, tuple(int(i) for i in rest), fingerprint or None
     except ValueError:
-        return node_id, ()
+        return node_id, (), fingerprint or None
 
 
 def _dump(spec: FieldSpec, value: Any, many_rows: bool) -> Any:

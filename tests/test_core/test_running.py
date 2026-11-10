@@ -32,7 +32,7 @@ from conductor import (
 )
 from pydantic import BaseModel
 
-from tests.test_core.nodes import registry_of
+from tests.test_core.nodes import place, registry_of
 
 #: The longest any test here waits for a leg, a thread or an event.
 BOUND = 10.0
@@ -502,7 +502,7 @@ def test_an_ask_or_a_second_failure_while_a_failed_leg_drains_is_kept_or_logged(
     run = events[-1].run
     assert run.status == "failed" and run.cause.loc == ("slow", 0)
     assert [e.type for e in events].count("node_failed") == 1
-    assert [w.id for w in run.waiting] == ["slow@1"]
+    assert [place(w) for w in run.waiting] == ["slow@1"]
     assert run.results["slow"]["result"] == [None, None, None, "3"]
 
 

@@ -31,7 +31,7 @@ from conductor import (
 )
 from pydantic import BaseModel
 
-from tests.test_core.nodes import registry_of
+from tests.test_core.nodes import place, registry_of
 
 
 def _alone(definition: Any, **values: Any) -> Any:
@@ -436,7 +436,7 @@ def test_an_answer_stays_with_its_row_when_a_row_is_inserted_above_and_an_edited
     moved = run.again(name=["eva", "ida", "bo"])
     edited = run.again(name=["ida", "bob"])
 
-    assert [w.id for w in moved.waiting] == ["a@0"] and moved.results["a"]["result"] == [None, True, False]
+    assert [place(w) for w in moved.waiting] == ["a@0"] and moved.results["a"]["result"] == [None, True, False]
     assert [w.inputs["name"] for w in edited.waiting] == ["bob"] and edited.results["a"]["result"] == [True, None]
 
 
@@ -716,7 +716,7 @@ def test_each_row_still_waiting_after_again_is_announced_on_the_stream():
 
     events = _events(run.with_inputs(name=["eva", "ida", "bo"]))
 
-    assert [e.unit.id for e in events if e.type == "unit_waiting"] == ["a@0", "a@1", "a@2"]
+    assert [place(e.unit) for e in events if e.type == "unit_waiting"] == ["a@0", "a@1", "a@2"]
     assert events[-1].status == "waiting"
 
 
@@ -776,7 +776,7 @@ def test_after_an_answered_question_again_with_one_row_added_sends_one_mail():
     sent.clear()
 
     again = run.again(name=["ida", "bo", "al"])
-    assert [w.id for w in again.waiting] == ["a@2"]
+    assert [place(w) for w in again.waiting] == ["a@2"]
     done = again.answer("a@2", "al@a.dk").resume()
 
     assert sent == ["al@a.dk"] and done.results["m"]["result"] == ["sent ida@a.dk", "sent bo@a.dk", "sent al@a.dk"]
@@ -907,7 +907,7 @@ def test_waiting_rows_and_a_saved_run_keep_node_then_row_order_whatever_threads_
     graph = registry_of(split, slow_ask).load(make_graph(split, slow_ask))
     for _ in range(3):
         run = graph.run(text=",".join("abcdefgh"))
-        assert [w.id for w in run.waiting] == [f"slow-ask@{i}" for i in range(8)]
+        assert [place(w) for w in run.waiting] == [f"slow-ask@{i}" for i in range(8)]
         assert json.loads(run.to_json())["units"]["slow-ask"]["keys"] == [[i] for i in range(8)]
 
 
@@ -934,3 +934,330 @@ def test_a_saved_run_that_does_not_fit_is_refused_naming_where_and_never_with_a_
             graph.load_run(copy)
         (problem,) = refused.value.errors()
         assert (problem.type, problem.ctx["at"]) == ("state_unreadable", at), problem
+
+
+# -- identical rows, generations, waiting rows and forgetting ----------------------------------
+
+
+def _answered(names: list[str], answers: list[bool]) -> Any:
+    @node("approve")
+    def approve(name: str) -> bool:
+        raise Ask(f"Mail {name}?")
+
+    graph = registry_of(approve).load(GraphRecord(nodes=[NodeRecord(id="a", node="approve", many={"name"})]))
+    run = graph.run(name=names)
+    return run.answer({w.id: answer for w, answer in zip(run.waiting, answers, strict=True)}).resume()
+
+
+def test_identical_rows_keep_their_own_answers_kth_to_kth_when_a_row_is_inserted_above():
+    """Bo yes, Bo no, Al yes; with Eva above, the first Bo is still yes and the second still no."""
+    run = _answered(["bo", "bo", "al"], [True, False, True])
+
+    moved = run.again(name=["eva", "bo", "bo", "al"])
+
+    assert [place(w) for w in moved.waiting] == ["a@0"] and moved.results["a"]["result"] == [None, True, False, True]
+    assert run.again(name=["bo", "bo", "al"]).results["a"]["result"] == [True, False, True]
+
+
+def test_identical_answered_rows_keep_their_answers_in_order_when_they_all_move_and_through_json():
+    run = _answered(["bo", "al", "bo"], [True, True, False])
+
+    moved = run.graph.load_run(run.to_json()).again(name=["al", "bo", "bo"])
+
+    assert moved.results["a"]["result"] == [True, True, False] and moved.waiting == []
+
+
+def test_a_third_identical_row_is_asked_and_two_earlier_answers_cover_only_two_rows():
+    run = _answered(["bo", "bo"], [True, False])
+
+    more = run.again(name=["bo", "bo", "bo"])
+
+    assert [place(w) for w in more.waiting] == ["a@2"] and more.results["a"]["result"] == [True, False, None]
+
+
+def test_identical_lines_answered_differently_under_documents_keep_their_documents_when_the_documents_swap():
+    @node("lines")
+    def lines(doc: str) -> Series[str]:
+        return ["x", "x"]
+
+    @node("approve")
+    def approve(line: str) -> bool:
+        raise Ask(f"{line}?")
+
+    graph = registry_of(lines, approve).load(GraphRecord(
+        nodes=[NodeRecord(id="l", node="lines", many={"doc"}), NodeRecord(id="a", node="approve")], edges=[("l.result", "a.line")],
+    ))
+    run = graph.run(doc=["d1", "d2"])
+    answers = dict(zip([w.id for w in run.waiting], [True, False, False, True], strict=True))
+    done = run.answer(answers).resume()
+
+    swapped = done.again(doc=["d2", "d1"])
+
+    assert done.results["a"]["result"] == [True, False, False, True]
+    assert swapped.results["a"]["result"] == [False, True, True, False] and swapped.waiting == []  # d2's lines, then d1's
+
+
+def test_identical_rows_never_share_a_result_a_third_gets_a_call_of_its_own():
+    calls: list[str] = []
+
+    @node("echo")
+    def echo(text: str) -> str:
+        calls.append(text)
+        return text.upper()
+
+    graph = registry_of(echo).load(GraphRecord(nodes=[NodeRecord(id="e", node="echo", many={"text"})]))
+    run = graph.run(text=["a", "a"])
+    calls.clear()
+
+    assert run.again(text=["a", "a", "a"]).results["e"]["result"] == ["A", "A", "A"] and calls == ["a"]
+
+
+def test_again_remembers_every_generation_an_answer_survives_an_edit_and_its_revert_and_mails_once():
+    """A answered; B changes Bo and waits; C reverts to A's input: Bo keeps A's answer and is not mailed twice."""
+    sent: list[str] = []
+
+    @node("approve")
+    def approve(name: str) -> str:
+        raise Ask(f"Mail {name}?")
+
+    @node("mail")
+    def mail(to: str) -> str:
+        sent.append(to)
+        return f"sent {to}"
+
+    graph = registry_of(approve, mail).load(GraphRecord(
+        nodes=[NodeRecord(id="a", node="approve", many={"name"}), NodeRecord(id="m", node="mail")], edges=[("a.result", "m.to")],
+    ))
+    first = graph.run(name=["ida", "bo"])
+    a = first.answer({w.id: f"{w.inputs['name']}@a.dk" for w in first.waiting}).resume()
+    b = a.again(name=["ida", "bob"])
+    assert [w.inputs["name"] for w in b.waiting] == ["bob"]
+    sent.clear()
+
+    c = graph.load_run(b.to_json()).again(name=["ida", "bo"])
+
+    assert c.status == "complete" and c.results["m"]["result"] == ["sent ida@a.dk", "sent bo@a.dk"] and sent == []
+
+
+def test_a_second_edit_after_a_failed_leg_still_reuses_what_the_failed_leg_had_not_reached():
+    calls: list[str] = []
+
+    @node("echo")
+    def echo(text: str) -> str:
+        calls.append(text)
+        if text == "boom":
+            raise ValueError("no")
+        return text.upper()
+
+    graph = registry_of(echo).load(GraphRecord(nodes=[NodeRecord(id="e", node="echo", many={"text"})]))
+    first = graph.run(text=["a", "b", "c"])
+    failed = first.again(text=["boom", "b", "c"])
+    assert failed.status == "failed"
+    calls.clear()
+
+    fixed = failed.again(text=["a", "b", "c"])
+
+    assert fixed.status == "complete" and calls == [] and fixed.results["e"]["result"] == ["A", "B", "C"]
+
+
+def test_earlier_work_of_two_edits_can_sit_at_the_same_row_and_neither_hides_the_other():
+    calls: list[str] = []
+
+    @node("echo")
+    def echo(text: str) -> str:
+        calls.append(text)
+        return text.upper()
+
+    graph = registry_of(echo).load(GraphRecord(nodes=[NodeRecord(id="e", node="echo", many={"text"})]))
+    second = graph.run(text=["a"]).again(text=["b"])
+    calls.clear()
+
+    assert second.again(text=["a", "b"]).results["e"]["result"] == ["A", "B"] and calls == []
+
+
+def test_a_waiting_row_goes_on_waiting_at_its_new_row_with_no_new_question():
+    asked: list[str] = []
+
+    @node("approve")
+    def approve(name: str) -> bool:
+        asked.append(name)
+        raise Ask(f"Mail {name}?")
+
+    graph = registry_of(approve).load(GraphRecord(nodes=[NodeRecord(id="a", node="approve", many={"name"})]))
+    run = graph.run(name=["ida", "bo"])
+    asked.clear()
+
+    moved = run.again(name=["eva", "ida", "bo"])
+
+    assert asked == ["eva"] and [(place(w), w.inputs["name"]) for w in moved.waiting] == [("a@0", "eva"), ("a@1", "ida"), ("a@2", "bo")]
+
+
+def test_a_waiting_row_carried_through_a_cancelled_again_waits_at_its_new_row():
+    asked: list[str] = []
+
+    @node("approve", policy=Policy(concurrency=2))
+    def approve(name: str) -> bool:
+        asked.append(name)
+        raise Ask(f"Mail {name}?")
+
+    graph = registry_of(approve).load(GraphRecord(nodes=[NodeRecord(id="a", node="approve", many={"name"})]))
+    run = graph.run(name=["ida", "bo"])
+    cancel = asyncio.Event()
+    cancel.set()
+    stopped = _events(run.with_inputs(name=["eva", "ida", "bo"]), cancel=cancel)[-1].run
+    asked.clear()
+
+    resumed = graph.load_run(stopped.to_json()).resume()
+
+    assert asked == ["eva"] and [w.inputs["name"] for w in resumed.waiting] == ["eva", "ida", "bo"]
+
+
+def test_an_answer_for_a_place_that_now_holds_another_question_is_answer_stale_naming_the_current_one():
+    @node("approve")
+    def approve(name: str) -> bool:
+        raise Ask(f"Mail {name}?")
+
+    graph = registry_of(approve).load(GraphRecord(nodes=[NodeRecord(id="a", node="approve", many={"name"})]))
+    first = graph.run(name=["ida", "bo"])
+    (_, bo) = first.waiting
+    moved = first.again(name=["ida", "al", "bo"])
+
+    with pytest.raises(InvalidCallError) as refused:
+        moved.answer(bo.id, True)  # bo's id names a@1, where al waits now
+    (problem,) = refused.value.errors()
+    current = moved.waiting[1].id
+    assert (problem.type, problem.loc, problem.ctx) == ("answer_stale", ("a", 1), {"waiting_id": bo.id, "current": current})
+    assert moved.answer("a@1", True).results["a"]["result"] == [None, True, None]  # a place alone answers what waits there
+
+
+def test_a_changed_node_asks_again_with_its_new_prompt_and_its_old_unit_is_gone():
+    @node("approve")
+    def approve(name: str) -> bool:
+        raise Ask(f"Mail {name}?")
+
+    @node("approve", replaces=approve)
+    def approve_v2(name: str) -> bool:
+        raise Ask(f"Send to {name}?")
+
+    record = GraphRecord(nodes=[NodeRecord(id="a", node="approve", version=1, many={"name"})])
+    old = registry_of(approve_v2).load(record).run(name=["ida"])
+    (waiting,) = old.waiting
+    newer = registry_of(approve_v2).upgrade(record, "a")
+    graph = registry_of(approve_v2).load(newer)
+    run = graph.run(name=["ida"])
+
+    assert [w.prompt for w in run.waiting] == ["Send to ida?"] and run.waiting[0].id != waiting.id
+
+
+def test_a_node_redeclared_under_its_id_and_version_with_other_code_is_new_work_after_a_save():
+    @node("echo")
+    def echo(text: str) -> str:
+        return text.upper()
+
+    @node("echo")
+    def echo_changed(text: str) -> str:
+        return text.lower()
+
+    record = GraphRecord(nodes=[NodeRecord(id="e", node="echo", many={"text"})])
+    saved = registry_of(echo).load(record).run(text=["Ab"]).to_json()
+
+    again = registry_of(echo_changed).load(record).load_run(saved).again(text=["Ab"])
+
+    assert again.results["e"]["result"] == ["ab"]
+
+
+def test_a_node_redeclared_to_take_a_blank_is_called_on_the_blank_row_it_skipped_before():
+    class Row(TypedDict):
+        name: str
+        email: str | None
+
+    @node("rows")
+    def rows(text: str) -> Table[Row]:
+        return pl.DataFrame({"name": ["ida", "bo"], "email": ["i@a.dk", None]}, schema={"name": pl.String, "email": pl.String})
+
+    @node("send")
+    def send(email: str) -> str:
+        return f"to {email}"
+
+    @node("send")
+    def send_blank(email: str | None) -> str:
+        return f"to {email}"
+
+    record = GraphRecord(nodes=[NodeRecord(id="r", node="rows"), NodeRecord(id="s", node="send")], edges=[("r.result.email", "s.email")])
+    saved = registry_of(rows, send).load(record).run(text="x").to_json()
+
+    again = registry_of(rows, send_blank).load(record).load_run(saved).again()
+
+    assert again.results["s"]["result"] == ["to i@a.dk", "to None"]
+
+
+def _counted() -> tuple[Any, list[str]]:
+    calls: list[str] = []
+
+    @node("fetch")
+    def fetch(text: str) -> str:
+        calls.append(f"fetch {text}")
+        return text.upper()
+
+    @node("show")
+    def show(text: str) -> str:
+        calls.append(f"show {text}")
+        return f"<{text}>"
+
+    graph = registry_of(fetch, show).load(GraphRecord(
+        nodes=[NodeRecord(id="f", node="fetch", many={"text"}), NodeRecord(id="s", node="show")], edges=[("f.result", "s.text")],
+    ))
+    return graph, calls
+
+
+def test_forget_runs_a_node_again_though_nothing_changed_and_a_reader_that_receives_the_same_is_reused():
+    graph, calls = _counted()
+    run = graph.run(text=["a", "b"])
+    calls.clear()
+
+    again = run.forget("f").resume()
+
+    assert calls == ["fetch a", "fetch b"] and again.results == run.results
+    assert run.forget().resume().results == run.results and calls == ["fetch a", "fetch b"]
+
+
+def test_forget_is_not_started_survives_json_and_refuses_a_node_the_graph_lacks():
+    graph, calls = _counted()
+    run = graph.run(text=["a"])
+    forgotten = run.forget("f")
+    calls.clear()
+
+    assert forgotten.status == "ready" and forgotten.results["f"] == {"result": [None]}
+    assert graph.load_run(forgotten.to_json()).resume().status == "complete" and calls == ["fetch a"]
+    with pytest.raises(InvalidCallError) as refused:
+        run.forget("nope")
+    assert [(p.type, p.loc) for p in refused.value.errors()] == [("node_not_in_graph", ("nope",))]
+
+
+def test_forgetting_an_embedded_graph_forgets_its_inner_nodes():
+    calls: list[str] = []
+
+    @node("fetch")
+    def fetch(text: str) -> str:
+        calls.append(text)
+        return text.upper()
+
+    inner = node("inner")(GraphRecord(nodes=[NodeRecord(id="f", node="fetch")]))
+    graph = registry_of(fetch, inner).load(GraphRecord(nodes=[NodeRecord(id="e", node="inner")]))
+    run = graph.run(text="a")
+    calls.clear()
+
+    assert run.forget("e").resume().results["e"] == {"result": "A"} and calls == ["a"]
+
+
+def test_a_table_nothing_holds_after_forget_is_not_written():
+    @node("split")
+    def split(text: str) -> Series[str]:
+        return text.split(",")
+
+    graph = registry_of(split).load(GraphRecord(nodes=[NodeRecord(id="s", node="split")]))
+    run = graph.run(text="a,b")
+
+    written = json.loads(run.forget("s").to_json())
+
+    assert written["units"]["s"]["states"] == [] and "s" not in written["earlier"]

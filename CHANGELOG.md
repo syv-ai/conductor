@@ -114,7 +114,10 @@ its stored graphs itself. What a 1.x user changes:
   JSON form raises `widget_not_json`.
 - **Running again.** `run.again(**changed)` (`run.with_inputs(**changed)` to resume or stream it yourself) runs with changed inputs, the rest as before: a row that
   receives what it received before is not called again, so one row added to a CSV of 5,000 sends one
-  mail. `Policy(reuse_when_inputs_match=False)` opts a node out.
+  mail. Identical rows take the earlier ones k-th to k-th, an answer only under the same rows above
+  it, a row still waiting goes on waiting, and work from every earlier run is carried. A node with
+  other code or another signature is new work. `run.forget(*node_ids)` calls chosen nodes again.
+  `Policy(reuse_when_inputs_match=False)` opts a node out.
 - **Standard nodes and providers.** `syv-conductor-nodes` (`conductor_nodes`, with
   `get_default_registry`) and `syv-conductor-providers` (`conductor_providers`, with the Mermaid
   drawing) are no longer published: the docs declare the few nodes they need where they use them.

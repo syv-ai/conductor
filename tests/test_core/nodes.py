@@ -103,3 +103,8 @@ def route(text: str) -> Length:
 registry = NodeRegistry()
 registry.add_subregistry(invoices)
 registry.add_subregistry(text)
+
+
+def place(waiting):
+    """A waiting row's place, ``node@row``: its id without the fingerprint of its question."""
+    return waiting.id.partition("~")[0]

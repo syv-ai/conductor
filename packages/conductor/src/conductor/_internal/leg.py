@@ -256,9 +256,9 @@ class Leg:
             self._record(placed, key, Unit("skipped", question={"from": kwargs.depth}), walking)
         elif isinstance(kwargs, str):
             self._record(placed, key, Unit("blank", question={"input": kwargs}), walking)
-        elif run._earlier and placed.definition.policy.reuse_when_inputs_match and (out := run._reused(placed, kwargs)) is not None:
+        elif run._earlier and placed.definition.policy.reuse_when_inputs_match and (earlier := run._reused(placed, key, kwargs)) is not None:
             self.reused[placed.id] += 1
-            self._record(placed, key, Unit("done", out), walking)
+            self._record(placed, key, earlier, walking)
         else:
             if self.emit:
                 self._announce(placed)

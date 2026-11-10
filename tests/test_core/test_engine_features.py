@@ -22,7 +22,7 @@ from conductor import (
 from pydantic import GetCoreSchemaHandler
 from pydantic_core import core_schema
 
-from tests.test_core.nodes import registry_of
+from tests.test_core.nodes import place, registry_of
 
 
 def collect(run, **kw):
@@ -150,7 +150,7 @@ def test_waiting_and_skipped_events():
     kinds = [e.type for e in events]
     assert "unit_waiting" in kinds and "node_skipped" in kinds and events[-1].status == "waiting", kinds
     waiting = [e.unit for e in events if e.type == "unit_waiting"]
-    assert [w.id for w in waiting] == ["gate@1"]
+    assert [place(w) for w in waiting] == ["gate@1"]
     assert not any(e.type == "node_complete" and e.node_id == "gate" for e in events)
 
 

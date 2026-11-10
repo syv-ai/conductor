@@ -95,6 +95,7 @@ PROBLEM_CATALOGUE: Mapping[str, str] = {
     "value_and_default": "Field '{field}' has both a value and a default; keep one.",
     "value_and_edge": "Field '{field}' has an edge and a typed-in value; keep one.",
     # -- what a call is refused for ----------------------------------------------
+    "answer_stale": "The question {waiting_id!r} was answered for has changed on its row; it is now {current!r}.",
     "cannot_move_to_version": "'{node}' cannot move from version {version} to {target}; it has {versions}.",
     "from_run_missing": "'{node_id}' needs a {needs} for '{parameter}', and the call did not give one in from_run.",
     "invalid_answer": "That is not a valid answer: {reason}",

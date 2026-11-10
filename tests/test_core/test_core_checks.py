@@ -28,6 +28,7 @@ from tests.test_core.nodes import (
     join,
     lower,
     mail,
+    place,
     read_csv,
     registry,
     registry_of,
@@ -273,7 +274,7 @@ def test_ask_forms_and_several():
     graph = reg.load({"nodes": [{"id": "s", "node": "split"}, {"id": "r", "node": "review"}, {"id": "t", "node": "tags"}, {"id": "p", "node": "pick"}, {"id": "j", "node": "join"}],
                       "edges": [["s.result", "r.name"], ["s.result", "t.name"], ["s.result", "p.name"], ["t.result", "j.texts"]]})
     run = graph.run(text="Ida,Bo")
-    by = {w.id: w for w in run.waiting}
+    by = {place(w): w for w in run.waiting}
     approved, note = by["r@0"].questions
     assert (approved["name"], approved["schema"], approved["default"], note["default"]) == ("approved", {"type": "boolean"}, True, "")
     assert by["p@1"].questions[0]["schema"] == {"type": "boolean"} and by["t@0"].questions[0]["shape"] == "many"
@@ -295,7 +296,7 @@ def test_pause_on_a_nested_row():
     graph = reg.load({"nodes": [{"id": "docs", "node": "split", "values": {"sep": ";"}}, {"id": "lines", "node": "split"}, {"id": "c", "node": "check"},
                                 {"id": "j", "node": "join"}], "edges": [["docs.result", "lines.text"], ["lines.result", "c.text"], ["c.result", "j.texts"]]})
     run = graph.run(text="a,b;c")
-    assert [w.id for w in run.waiting] == ["c@0@1"] and run.results["j"]["result"] == [None, "c"]
+    assert [place(w) for w in run.waiting] == ["c@0@1"] and run.results["j"]["result"] == [None, "c"]
     run = graph.load_run(run.to_json()).answer("c@0@1", "B").resume()
     assert run.results["j"]["result"] == ["a+B", "c"]
 
@@ -333,6 +334,6 @@ def test_again_paused_saved_and_resumed_keeps_earlier_rows():
     run, _ = calls(lambda: graph.run(text=CSV))
     run, _ = calls(run.answer("g@1", "bo@b.dk").resume)
     paused, called = calls(lambda: run.again(text=CSV.replace("Bo,", "Bob,")))
-    assert [w.id for w in paused.waiting] == ["g@1"] and called == []
+    assert [place(w) for w in paused.waiting] == ["g@1"] and called == []
     resumed, called = calls(lambda: graph.load_run(paused.to_json()).answer("g@1", "bo@b.dk").resume())
     assert resumed.status == "complete" and called == [], called  # the mail to Bo's address went out once
