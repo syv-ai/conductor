@@ -1416,23 +1416,6 @@ except NodeDeclarationError as error:
 
 **Fix.** Leave `version=` out (one past the version replaced), or give a number above it.
 
-### `widget_not_json`
-
-> Param's widget {widget} has no JSON form; give an instance, such as Textarea()
-
-```python
-from conductor.widgets import Textarea
-
-try:
-    @node("note")
-    def note(text: Annotated[str, Param(widget=Textarea)]) -> str:  # type: ignore[arg-type]
-        return text
-except NodeDeclarationError as error:
-    print(error.code)  # widget_not_json
-```
-
-**Fix.** Give an instance, `Textarea()`, not the class.
-
 ## `check_registry`
 
 Returned by `conductor.testing.check_registry`, in a test run. A host never meets these, and they aren't in `PROBLEM_CODES`.

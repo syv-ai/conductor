@@ -478,12 +478,6 @@ def test_a_table_takes_no_choices():
     assert _once(wrong)[1].cause.ctx["reason"] == "'result' is a table, which takes no choices"
 
 
-def test_a_widget_with_no_json_form_is_refused_on_param_too():
-    with pytest.raises(NodeDeclarationError) as raised:
-        Param(widget=Textarea)
-    assert raised.value.code == "widget_not_json"
-
-
 # -- answering ----------------------------------------------------------------------------------
 
 

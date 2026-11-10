@@ -84,7 +84,7 @@ print(EntityDropdown(entity_kind="customer").model_dump(mode="json"))
 # {'type': 'entity-dropdown', 'entity_kind': 'customer'}
 ```
 
-Pass an instance, `widget=Textarea()`. A class passed bare, `widget=Textarea`, is refused when the node is declared.
+Pass an instance, `widget=Textarea()`: a type checker refuses the class passed bare, `widget=Textarea`.
 
 ## Types
 

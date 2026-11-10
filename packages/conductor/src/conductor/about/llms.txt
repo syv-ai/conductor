@@ -282,7 +282,7 @@ A `Problem`'s `type` is a stable code, and a host translates by it, filling its 
 
 ### conductor.widgets
 
-Frozen models with a `type`, and a host subclasses `Widget` for a control of its own; loading and the engine never read one. `title`, `description` and the limits of a value (`ge`, `gt`, `le`, `lt`, `multiple_of`, `min_length`, `max_length`, `pattern`) belong to the `Param`, and a value outside its limits is refused. An untitled field reads as its name in everyday words. No type has a default widget. A widget on a `Param` or an `Ask` is anything with a JSON form; one with none (a class passed bare) is `widget_not_json` at `@node`.
+Frozen models with a `type`, and a host subclasses `Widget` for a control of its own; loading and the engine never read one. `title`, `description` and the limits of a value (`ge`, `gt`, `le`, `lt`, `multiple_of`, `min_length`, `max_length`, `pattern`) belong to the `Param`, and a value outside its limits is refused. An untitled field reads as its name in everyday words. No type has a default widget. A `Param`'s widget is a `Widget`; a type checker refuses a class passed bare. An `Ask`'s widget is anything with a JSON form; one with none is `invalid_ask`.
 
 | Widget | For | Options |
 |---|---|---|

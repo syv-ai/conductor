@@ -48,7 +48,6 @@ from pydantic import (
     ConfigDict,
     GetCoreSchemaHandler,
     GetJsonSchemaHandler,
-    JsonValue,
     TypeAdapter,
     ValidateAs,
     ValidationError,
@@ -132,9 +131,9 @@ class Param:
         times: Annotated[int, Param(title="Times", ge=0)] = 1
 
     ``title`` falls back to the name in everyday words. ``widget`` is the
-    control a person edits the field with, anything with a JSON form (a
-    ``conductor.widgets`` control, say), carried to the host and never read
-    here; on an output it is the control a person answers it with. Outputs of one node that share an ``exclusive_group`` are
+    ``conductor.widgets`` control a person edits the field with (a host's own
+    is a subclass of ``Widget``), carried to the host and never read here; on
+    an output it is the control a person answers it with. Outputs of one node that share an ``exclusive_group`` are
     alternatives: on each row the node gives a value on one of them and
     ``SKIPPED`` on the rest. ``choices`` are the values the field takes, each a value or a ``Choice``
     to give it a title: on a ``Literal`` field they title its values, one
@@ -146,14 +145,14 @@ class Param:
 
     title: str | None = None
     description: str | None = None
-    widget: Widget | Mapping[str, JsonValue] | None = None
+    widget: Widget | None = None
     exclusive_group: str | None = None
     #: Each choice as ``{"id", "title", ...}``, the id as given.
     choices: tuple[dict[str, Any], ...] | None = None
     constraints: dict[str, Any] = field(default_factory=dict)
 
     def __init__(
-        self, *, title: str | None = None, description: str | None = None, widget: Widget | Mapping[str, JsonValue] | None = None,
+        self, *, title: str | None = None, description: str | None = None, widget: Widget | None = None,
         exclusive_group: str | None = None, choices: Sequence[Any] | None = None, **constraints: Unpack[Limits],
     ) -> None:
         unknown = sorted(constraints.keys() - _NUMERIC - _SIZED)  # a caller a type checker didn't see
@@ -162,11 +161,6 @@ class Param:
                 f"Param has no argument {unknown[0]!r}; it takes title, description, widget, exclusive_group, choices and the limits {sorted(_NUMERIC | _SIZED)}",
                 code="bound_invalid",
             )
-        if widget is not None:
-            try:
-                to_jsonable_python(widget)
-            except Exception:  # noqa: BLE001  a value with no JSON form, such as a class passed bare
-                raise NodeDeclarationError(f"Param's widget {widget!r} has no JSON form; give an instance, such as Textarea()", code="widget_not_json") from None
         object.__setattr__(self, "title", title)
         object.__setattr__(self, "description", description)
         object.__setattr__(self, "widget", widget)
