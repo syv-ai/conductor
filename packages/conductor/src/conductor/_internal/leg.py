@@ -76,7 +76,7 @@ class RunStart(_EventBase):
 
 
 class NodeStart(_EventBase):
-    """A node's first unit started; never again for that node, on this or a later leg."""
+    """A node's first unit started, called or taken from earlier work; never again for that node, on this or a later leg."""
 
     type: Literal["node_start"] = "node_start"
     node_id: str
@@ -184,7 +184,7 @@ class Leg:
         self.recorded_since_walk = 1
         self.left_pending = True
         # what only a listener needs
-        self.started = {run.graph.outward(n) for n, units in run._units.items() if units}
+        self.started = {run.graph._outward(n) for n, units in run._units.items() if units}
         #: For an embedding, what each of its nodes came to once complete: all skipped, the rows not called, the rows reused.
         self.inside: dict[str, dict[str, tuple[bool, list[dict[str, Any]], int]]] = {}
         self.touched: set[str] = set()
@@ -396,8 +396,9 @@ class Leg:
                 return
         if self.emit:
             self.touched.add(placed.id)
+            if unit.state != "skipped":
+                self._announce(placed)  # a unit taken from earlier work, or a blank row, starts its node as a call does
             if unit.state == "waiting":
-                self._announce(placed)
                 self.emit(UnitWaiting(unit=run._waiting(placed.id, key, unit)))
             if placed.level:
                 self._progress(placed)
@@ -479,13 +480,13 @@ class Leg:
             node_id = getattr(event, "node_id", None)
             if node_id in graph._spliced:
                 cause = getattr(event, "cause", None)
-                event = event.model_copy(update={"node_id": graph.outward(node_id), **({"cause": graph._seen_from_outside(cause)} if cause is not None else {})})
+                event = event.model_copy(update={"node_id": graph._outward(node_id), **({"cause": graph._seen_from_outside(cause)} if cause is not None else {})})
             emit(event)
 
         return say
 
     def _announce(self, placed: PlacedNode) -> None:
-        outer = self.run.graph.outward(placed.id)
+        outer = self.run.graph._outward(placed.id)
         if outer not in self.started:
             self.started.add(outer)
             if self.emit:
@@ -532,9 +533,9 @@ class Leg:
         """A node of an embedding is complete: once all of them are, the embedding is, as one node with the outputs it offers."""
         assert self.emit is not None
         graph = self.run.graph
-        outer = graph.outward(node_id)
+        outer = graph._outward(node_id)
         inside = self.inside.setdefault(outer, {})
-        inside[node_id] = (skipped, [{**n, "input": graph.outward(f"{node_id}.{n['input']}").partition(".")[2] or n["input"]} for n in not_called], self.reused[node_id])
+        inside[node_id] = (skipped, [{**n, "input": graph._outward(f"{node_id}.{n['input']}").partition(".")[2] or n["input"]} for n in not_called], self.reused[node_id])
         if len(inside) < len(graph._placed_as(outer)):
             return
         if all(s for s, _, _ in inside.values()):

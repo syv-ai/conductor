@@ -395,7 +395,12 @@ def _one_accepts(target: Any, source: Any) -> bool:
 
 
 def type_id(hint: Any) -> str:
-    """The name an editor and a stored graph know a type by: its ``id`` if it declares one, else its name."""
+    """The name an editor and a stored graph know a type by: its ``id`` if it declares one, else its name.
+
+    A ``Literal`` is known by the type of its values (``Literal["low", "high"]`` is ``str``), its values in the schema.
+    """
+    if get_origin(hint) is Literal:
+        return " | ".join(dict.fromkeys(type_id(type(value)) for value in get_args(hint)))
     own = getattr(hint, "id", None)
     return own if isinstance(own, str) else getattr(hint, "__name__", None) or str(hint)
 

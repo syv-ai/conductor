@@ -23,6 +23,7 @@ from conductor import (
     Policy,
     Series,
     Table,
+    make_graph,
     node,
 )
 from conductor.widgets import Textarea
@@ -631,3 +632,14 @@ def test_a_question_record_is_json_a_host_draws_from_with_no_graph_loaded():
             "choices": [{"id": "ida", "title": "Ida B."}], "default": "ida", "widget": {"type": "textarea", "rows": 4},
         }],
     }
+
+
+def test_a_literal_says_the_type_of_its_values_on_an_input_and_on_a_question():
+    @node("priority")
+    def priority(level: Literal["a", "b"], ticket: str) -> Literal["low", "high"]:
+        raise Ask(f"How urgent is {ticket}?")
+
+    assert [field["type"] for field in priority.describe()["inputs"]] == ["str", "str"]
+    run = registry_of(priority).load(make_graph(priority, values={"priority.level": "a"})).run(ticket="T-1")
+    (question,) = run.waiting[0].questions
+    assert question["type"] == "str" and question["schema"] == {"enum": ["low", "high"], "type": "string"}

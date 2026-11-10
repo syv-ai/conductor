@@ -320,7 +320,7 @@ class Run:
 
     def _waiting(self, node_id: str, key: Key, unit: Unit) -> Waiting:
         question = unit.question or {}
-        outer = self.graph.outward(node_id)
+        outer = self.graph._outward(node_id)
         return Waiting(
             id=f"{_unit_id(outer, key)}~{_question_fingerprint(self.graph._nodes[node_id], unit)}", node_id=outer, row=key, prompt=question["prompt"],
             questions=questions(self.graph._nodes[node_id], question.get("asked", {})), inputs=question["inputs"],
@@ -330,7 +330,7 @@ class Run:
     def not_called(self) -> list[dict[str, Any]]:
         """Rows a node wasn't called on because a plain input was blank: which node, row and input."""
         return [
-            {"node_id": self.graph.outward(n), "row": k, "input": self.graph.outward(f"{n}.{u.question['input']}").partition(".")[2] or u.question["input"]}
+            {"node_id": self.graph._outward(n), "row": k, "input": self.graph._outward(f"{n}.{u.question['input']}").partition(".")[2] or u.question["input"]}
             for n, units in self._units.items() for k, u in units.items() if u.state == "blank" and u.question
         ]
 
@@ -446,7 +446,7 @@ class Run:
         self.status = "stopped"
         maker = self.graph._makers[table][0]
         self.cause = make_problem(
-            "row_ceiling", self.graph.outward(maker) if maker else "inputs", table=self.graph.outward(table, table=True), rows=count, max_rows=self.max_rows,
+            "row_ceiling", self.graph._outward(maker) if maker else "inputs", table=self.graph._outward(table, table=True), rows=count, max_rows=self.max_rows,
         )
 
     def _rows_made(self) -> dict[str, int]:

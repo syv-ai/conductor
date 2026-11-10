@@ -800,3 +800,26 @@ def test_a_table_with_a_blank_cell_survives_a_saved_run():
 
     assert loaded.results["c"]["result"].to_dicts() == [{"name": "ida", "email": "ida@a.dk"}, {"name": "bo", "email": None}]
     assert loaded.not_called == [{"node_id": "m", "row": (1,), "input": "email"}]
+
+
+def test_a_node_starts_before_any_other_event_about_it_when_its_rows_are_taken_from_earlier_work():
+    """A leg going on from an answered run takes the earlier rows before calling the new one; ``node_start`` comes first."""
+
+    @node("read")
+    def read(text: str) -> Series[str]:
+        return text.split(",")
+
+    @node("approve")
+    def approve(name: str) -> bool:
+        if name == "ida":
+            return True
+        raise Ask(f"Approve {name}?")
+
+    graph = registry_of(read, approve).load(make_graph(read, approve))
+    paused = graph.run(text="ida,bo")
+    answered = paused.answer(paused.waiting[0], True).resume()
+
+    events = _events(answered.with_inputs(text="ida,bo,eva"))
+    about_approve = [e.type for e in events if getattr(e, "node_id", None) == "approve"]
+    assert about_approve[0] == "node_start", about_approve
+    assert about_approve.count("node_start") == 1

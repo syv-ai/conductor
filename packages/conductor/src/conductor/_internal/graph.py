@@ -236,17 +236,17 @@ class Graph:
     def outputs(self) -> list[str]:
         """The outputs of the nodes nothing reads, as addresses."""
         read = {s.node_id for p in self._nodes.values() for i in p.inputs.values() for s in i.sources}
-        return [self.outward(f"{p.id}.{o}") for p in self._nodes.values() if p.id not in read for o in p.definition.outputs]
+        return [self._outward(f"{p.id}.{o}") for p in self._nodes.values() if p.id not in read for o in p.definition.outputs]
 
     @property
     def plan(self) -> dict[str, str]:
         """Where each node runs: ``once``, or ``per row of <table>``; an embedded graph where the nodes behind its outputs run."""
         plan: dict[str, str] = {}
         for p in self._nodes.values():
-            node_id = self.outward(p.id)
-            if node_id in plan and node_id != p.id and not any(self.outward(f"{p.id}.{o}") != node_id for o in p.definition.outputs):
+            node_id = self._outward(p.id)
+            if node_id in plan and node_id != p.id and not any(self._outward(f"{p.id}.{o}") != node_id for o in p.definition.outputs):
                 continue
-            table = self.outward(p.level[-1], table=True) if p.level else ""
+            table = self._outward(p.level[-1], table=True) if p.level else ""
             plan[node_id] = f"per row of {table}" if p.level else "once"
         return plan
 
@@ -301,11 +301,11 @@ class Graph:
         plan = placed.inputs[name]
         if not plan.sources:
             return "one"
-        tables = list(dict.fromkeys(self.outward(s.level[-1], table=True) if s.level else _table(s.level) for s in plan.sources))
+        tables = list(dict.fromkeys(self._outward(s.level[-1], table=True) if s.level else _table(s.level) for s in plan.sources))
         if plan.spec.shape != "one":
             beside = [s for s in plan.sources if s.anchor < len(placed.level) and s.anchor < len(s.level)]
             if beside:  # a sibling table, gathered under the row the two share
-                return f"whole column of {', '.join(tables)} under each row of {self.outward(placed.level[beside[0].anchor - 1], table=True) if beside[0].anchor else 'the graph'}"
+                return f"whole column of {', '.join(tables)} under each row of {self._outward(placed.level[beside[0].anchor - 1], table=True) if beside[0].anchor else 'the graph'}"
             return f"whole column of {', '.join(tables)}"
         level = plan.sources[0].level
         if len(level) == len(placed.level):
@@ -899,17 +899,18 @@ class Graph:
 
     def _outside(self, graph_input: GraphInput) -> GraphInput:
         """An input as a caller of this graph sees it: an embedded graph's by the node that embeds it."""
-        outer = self.outward(graph_input.key)
+        outer = self._outward(graph_input.key)
         if outer == graph_input.key:
             return graph_input
         node_id, _, name = outer.partition(".")
         return dataclasses.replace(graph_input, address=outer, node_id=node_id, input=name)
 
-    def outward(self, name: str, *, table: bool = False) -> str:
-        """An inner node id or address as the author of this record reads it.
+    def _outward(self, name: str, *, table: bool = False) -> str:
+        """A node id, address or table name the engine uses, as the author of this record reads it.
 
-        An address an embedded graph offers is the embedding's (``e/upper.text`` -> ``e.text``); any other name inside
-        one is the embedding itself, or with ``table`` the inner table's own name. Every other name is as it is.
+        A name that lies inside an embedded graph is said of the node that embeds it: an address the embedded
+        graph offers by the embedding's address, any other name by the embedding's id, or with ``table`` by the
+        table's own name. Every other name is as it is.
         """
         if name in self._outer:
             return self._outer[name]
@@ -924,12 +925,12 @@ class Graph:
             return problem
         inner = problem.loc[0]
         field = problem.loc[1] if len(problem.loc) > 1 and isinstance(problem.loc[1], str) else None
-        outer = self.outward(f"{inner}.{field}") if field else self.outward(inner)
+        outer = self._outward(f"{inner}.{field}") if field else self._outward(inner)
         loc: tuple[str | int, ...] = tuple(outer.split(".", 1)) if "." in outer else (outer, *(problem.loc[1:] if field is None else ()))
         ctx = dict(problem.ctx)
         for key in ("node_id", "source", "target"):
             if isinstance(ctx.get(key), str):
-                ctx[key] = self.outward(ctx[key])
+                ctx[key] = self._outward(ctx[key])
         return make_problem(problem.type, *loc, **ctx)
 
     def _unrelated(self, placed: PlacedNode, a: Level, b: Level) -> None:
