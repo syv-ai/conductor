@@ -371,3 +371,15 @@ def test_a_slow_output_check_runs_on_its_nodes_thread_and_holds_up_no_other_unit
 def test_a_value_already_of_its_type_is_kept_as_returned():
     """The fast path: an exact ``float`` that isn't finite stays the float it was."""
     assert math.isinf(_returning(math.inf, float).results["g"]["result"])
+
+
+@pytest.mark.parametrize("return_type", [Any, int | Any])
+@pytest.mark.parametrize("returned", [1.5, "s", {"k": [1]}, None, 3])
+def test_a_node_typed_any_returns_anything_and_a_node_taking_any_receives_it(return_type: Any, returned: Any) -> None:
+    @node("take_any")
+    def take_any(value: Any) -> Any:
+        return value
+
+    run = _feeding(returned, return_type, take_any)
+    assert run.status == "complete"
+    assert run.results["b"]["result"] == returned

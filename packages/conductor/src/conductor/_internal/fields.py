@@ -201,10 +201,11 @@ class FieldSpec:
 
     @functools.cached_property
     def plain_classes(self) -> tuple[type, ...]:
-        """The classes a value of exactly which needs no reading: the type's own, ``None`` for a blank-taking one; none under limits."""
-        if self.param.constraints:
+        """The classes a value of exactly which needs no reading: the type's own, ``None`` for a blank-taking one; none under limits or ``Any``."""
+        options = _options(self.type)
+        if self.param.constraints or any(option is Any for option in options):
             return ()
-        return tuple(option for option in _options(self.type) if isinstance(option, type) and not typing.is_typeddict(option))
+        return tuple(option for option in options if isinstance(option, type) and not typing.is_typeddict(option))
 
     @functools.cached_property
     def item_adapter(self) -> TypeAdapter[Any]:

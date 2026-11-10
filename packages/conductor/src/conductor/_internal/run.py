@@ -15,6 +15,7 @@ import asyncio
 import datetime
 import hashlib
 import json
+import math
 import threading
 import time
 from collections.abc import AsyncIterator, Callable, Mapping
@@ -834,8 +835,14 @@ def _dump_units(placed: PlacedNode, units: Mapping[Key, Unit], keyed: bool = Tru
         else:
             plain = [None if v is SKIPPED else [None if i is SKIPPED else i for i in v] if spec.shape == "many" else v for v in values]
             dumped = _written_as_json(spec.column_adapter, plain, at)
+        non_finite: list[list[Any]] = []
+        if spec.shape != "table" and not (spec.plain_classes and set(spec.plain_classes) <= _READ_BACK_BY_TYPE):
+            _find_non_finite(dumped, [], non_finite)
         items = {str(n): [i for i, item in enumerate(v) if item is SKIPPED] for n, v in enumerate(values) if spec.shape == "many" and v is not SKIPPED}
-        outputs[name] = {"values": dumped, "skipped": skipped, **({"skipped_items": {k: v for k, v in items.items() if v}} if any(items.values()) else {})}
+        outputs[name] = {
+            "values": dumped, "skipped": skipped, **({"skipped_items": {k: v for k, v in items.items() if v}} if any(items.values()) else {}),
+            **({"non_finite": non_finite} if non_finite else {}),
+        }
     out: dict[str, Any] = {"states": [u.state for u in units.values()], "questions": {str(i): u.question for i, u in enumerate(units.values()) if u.question}, "outputs": outputs}
     if keyed:
         out["keys"] = [list(k) for k in units]
@@ -874,6 +881,8 @@ def _load_units(placed: PlacedNode, dumped: Mapping[str, Any]) -> list[tuple[Key
             raise _Unreadable(at, value_free_errors(error)[0]["msg"]) from None
         if len(values) != done:
             raise _Unreadable(at, f"it holds {len(values)} values for {done} finished units")
+        for path in column.get("non_finite", ()):
+            _put_non_finite(values, path)
         skipped = set(column["skipped"])
         for i in skipped:
             values[i] = SKIPPED
@@ -900,10 +909,37 @@ def _load_units(placed: PlacedNode, dumped: Mapping[str, Any]) -> list[tuple[Key
     return loaded
 
 
+#: The classes whose values read back from their JSON as they were, a float that isn't finite included.
+_READ_BACK_BY_TYPE = {str, int, float, bool, type(None), datetime.date, datetime.datetime, datetime.time, datetime.timedelta}
+
+
+def _find_non_finite(value: Any, path: list[Any], found: list[list[Any]]) -> None:
+    """The place of every float that isn't finite in a dumped value its type doesn't read back as a float, such as a ``dict``'s."""
+    if type(value) is float:
+        if not math.isfinite(value):
+            found.append(path)
+    elif type(value) is dict:
+        for k, v in value.items():
+            _find_non_finite(v, [*path, k], found)
+    elif type(value) is list:
+        for i, v in enumerate(value):
+            _find_non_finite(v, [*path, i], found)
+
+
+def _put_non_finite(values: list[Any], path: list[Any]) -> None:
+    """Read back a float that isn't finite where a save marked it, the text ``NaN``, ``Infinity`` or ``-Infinity`` it was written as."""
+    holder: Any = values
+    for step in path[:-1]:
+        holder = holder[step] if isinstance(holder, (dict, list)) else getattr(holder, step)
+    last = path[-1]
+    if isinstance(holder, (dict, list)) and isinstance(holder[last], str):
+        holder[last] = float(holder[last])
+
+
 def _load_frame(spec: FieldSpec, saved: Mapping[str, Any], at: str) -> Frame:
     """A saved table, each column read by its type; a column whose length isn't the row count is refused."""
     rows, columns = saved["rows"], {}
-    for c, values in saved["columns"].items():
+    for c, values in saved["columns"]:
         if len(values) != rows:
             raise _Unreadable(f"{at}.{c}", f"it holds {len(values)} cells for {rows} rows")
         try:
@@ -919,13 +955,13 @@ def _column_adapter(spec: FieldSpec, column: str, written_as: str | None = None)
 
 
 def _dump_frame(spec: FieldSpec, frame: Frame, at: str) -> dict[str, Any]:
-    """A table as JSON: its row count, its columns, and the value type of each column its row type doesn't name, so it reads back as written."""
-    columns, types = {}, {}
+    """A table as JSON: its row count, its columns in order as ``[name, values]`` pairs, and the value type of each column its row type doesn't name, so it reads back as written."""
+    columns, types = [], {}
     for c, values in frame.columns.items():
         written_as = None if c in spec.column_adapters else _value_type(values)
         if written_as is not None:
             types[c] = written_as
-        columns[c] = _written_as_json(_column_adapter(spec, c, written_as), values, f"{at}.{c}")
+        columns.append([c, _written_as_json(_column_adapter(spec, c, written_as), values, f"{at}.{c}")])
     return {"rows": frame.rows, "columns": columns, **({"types": types} if types else {})}
 
 
@@ -999,10 +1035,23 @@ def _hand_over(loop: asyncio.AbstractEventLoop, events: asyncio.Queue[Any], even
 def _fingerprint(digest: str, kwargs: dict[str, Any]) -> str | None:
     """What a unit of a node (its ``reuse_digest``) received, as a short hash; ``None`` for a value with no JSON form, which is never reused."""
     try:
-        written = pydantic_core.to_json([digest, kwargs], fallback=_frame_json)
+        written = canonical_json([digest, kwargs], fallback=_frame_columns)
     except (TypeError, ValueError, pydantic_core.PydanticSerializationError):
         return None
     return hashlib.blake2b(written, digest_size=12).hexdigest()
+
+
+def canonical_json(value: Any, fallback: Callable[[Any], Any] | None = None) -> bytes:
+    """``value`` as JSON with every object's keys sorted, so a value a JSON store gave back in another key order is written alike."""
+    plain = pydantic_core.to_jsonable_python(value, fallback=fallback)
+    return json.dumps(plain, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+
+
+def _frame_columns(value: Any) -> Any:
+    """A table as its columns in order, for a fingerprint, where an object's keys are sorted."""
+    if isinstance(value, pl.DataFrame):
+        return [[c, s] for c, s in value.to_dict(as_series=False).items()]
+    raise TypeError(type(value).__name__)
 
 
 def _unit_id(node_id: str, key: Key) -> str:
@@ -1011,7 +1060,7 @@ def _unit_id(node_id: str, key: Key) -> str:
 
 def _question_fingerprint(placed: PlacedNode, unit: Unit) -> str:
     """Eight hex digits of which node asks, as which code, and what it received, so a waiting id stops matching when its row holds another question."""
-    written = pydantic_core.to_json([placed.id, placed.reuse_digest, (unit.question or {}).get("inputs")])
+    written = canonical_json([placed.id, placed.reuse_digest, (unit.question or {}).get("inputs")])
     return hashlib.blake2b(written, digest_size=4).hexdigest()
 
 

@@ -317,13 +317,16 @@ class Graph:
         """A short hash of what a run of this graph rests on: each node's id, node, version, values, defaults and ``many``,
         and the edges, of this record and of every graph embedded in it, however deep.
 
+        Keys are sorted first, so a record a JSON store gives back in another key order has the same fingerprint.
         ``display`` is left out, as conductor never reads it. A saved run names it, and loading a save into a graph
         whose fingerprint differs is refused.
         """
+        from conductor._internal.run import canonical_json
+
         include: Any = {"nodes": {"__all__": {"id", "node", "version", "values", "defaults", "many"}}, "edges": True}
-        written = [self.record.model_dump_json(include=include)]
-        written.extend(f"{node_id}:{self._embedded[node_id].model_dump_json(include=include)}" for node_id in sorted(self._embedded))
-        return hashlib.blake2b("\n".join(written).encode(), digest_size=8).hexdigest()
+        records = [self.record, *(self._embedded[node_id] for node_id in sorted(self._embedded))]
+        written = canonical_json([sorted(self._embedded), *(record.model_dump(mode="json", include=include) for record in records)])
+        return hashlib.blake2b(written, digest_size=8).hexdigest()
 
     # -- running ----------------------------------------------------------------
 

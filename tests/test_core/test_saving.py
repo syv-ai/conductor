@@ -177,7 +177,9 @@ def test_a_saved_run_is_strict_json_when_a_number_is_not_finite():
     assert _strict(saved)["status"] == "complete"
 
 
-def test_a_float_that_is_not_finite_under_any_is_written_and_read_back_as_its_text():
+def test_a_float_that_is_not_finite_where_its_type_does_not_say_float_reads_back_as_the_float():
+    """A ``dict``, ``Any`` or a model's ``Any`` field holding ``nan`` gives the same value after a save as on a straight run."""
+
     class Loose(BaseModel):
         data: Any
 
@@ -185,10 +187,26 @@ def test_a_float_that_is_not_finite_under_any_is_written_and_read_back_as_its_te
     def loose(text: str) -> Loose:
         return Loose(data={"a": math.nan, "b": [math.inf, -math.inf]})
 
-    run = registry_of(loose).load(make_graph(loose)).run(text="x")
-    _strict(run.to_json())
+    @node("mapping")
+    def mapping(text: str) -> dict:
+        return {"v": math.nan, "w": [{"x": math.inf}], "s": "NaN"}
 
-    assert _round_trip(run).results["loose"]["result"].data == {"a": "NaN", "b": ["Infinity", "-Infinity"]}
+    @node("anything")
+    def anything(text: str) -> Series[Any]:
+        return [math.nan, "Infinity", {"z": -math.inf}]
+
+    record = GraphRecord(nodes=[NodeRecord(id=n, node=n) for n in ("loose", "mapping", "anything")])
+    graph = registry_of(loose, mapping, anything).load(record)
+    run = graph.run({"loose.text": "x", "mapping.text": "x", "anything.text": "x"})
+    _strict(run.to_json())
+    results = _round_trip(run).results
+
+    data = results["loose"]["result"].data
+    assert math.isnan(data["a"]) and data["b"] == [math.inf, -math.inf]
+    made = results["mapping"]["result"]
+    assert math.isnan(made["v"]) and made["w"] == [{"x": math.inf}] and made["s"] == "NaN"  # text that was text stays text
+    first, text, inner = results["anything"]["result"]
+    assert math.isnan(first) and text == "Infinity" and inner == {"z": -math.inf}
 
 
 class Point(TypedDict):
@@ -474,3 +492,84 @@ def test_a_save_names_the_graphs_embedded_in_its_graph_too():
     with pytest.raises(InvalidCallError) as refused:
         with_inner(NodeRecord(id="x", node="quiet")).load(outer).load_run(saved)
     assert [p.type for p in refused.value.errors()] == ["state_of_another_graph"]
+
+
+def _jsonb(text: str) -> str:
+    """``text`` as Postgres ``jsonb`` gives it back: every object's keys shorter first, then bytewise."""
+
+    def order(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {k: order(value[k]) for k in sorted(value, key=lambda k: (len(k.encode()), k.encode()))}
+        return [order(v) for v in value] if isinstance(value, list) else value
+
+    return json.dumps(order(json.loads(text)))
+
+
+def _shuffled(text: str, seed: int) -> str:
+    """``text`` with every object's keys in a random order."""
+    import random
+
+    chance = random.Random(seed)
+
+    def order(value: Any) -> Any:
+        if isinstance(value, dict):
+            keys = list(value)
+            chance.shuffle(keys)
+            return {k: order(value[k]) for k in keys}
+        return [order(v) for v in value] if isinstance(value, list) else value
+
+    return json.dumps(order(json.loads(text)))
+
+
+_CALLS: list[str] = []
+
+
+@node("sheet")
+def sheet(text: str, options: dict[str, int]) -> Table:
+    _CALLS.append("sheet")
+    names = text.split(",")
+    return pl.DataFrame({"zeta": names, "alpha": [options[n] for n in names], "mid": [len(n) for n in names]})
+
+
+@node("ok_row")
+def ok_row(zeta: str, alpha: int) -> str:
+    _CALLS.append(f"ok {zeta}")
+    raise Ask(f"{zeta} for {alpha}?")
+
+
+@node("column_order")
+def column_order(sheet: Table, answers: Series[str]) -> str:
+    _CALLS.append("order")
+    return ",".join(sheet.columns) + "|" + ",".join(answers)
+
+
+@pytest.mark.parametrize("reorder", [_jsonb, lambda text: _shuffled(text, 1), lambda text: _shuffled(text, 7)], ids=["jsonb", "shuffle-1", "shuffle-7"])
+def test_a_record_and_a_save_whose_keys_a_store_reordered_still_load_answer_and_resume(reorder: Any) -> None:
+    registry = registry_of(sheet, ok_row, column_order)
+    record = {
+        "nodes": [
+            {"id": "s", "node": "sheet", "values": {"options": {"bb": 2, "a": 1, "ccc": 3}}},
+            {"id": "q", "node": "ok_row"},
+            {"id": "o", "node": "column_order"},
+        ],
+        "edges": [["s.result.zeta", "q.zeta"], ["s.result.alpha", "q.alpha"], ["s.result", "o.sheet"], ["q.result", "o.answers"]],
+    }
+    graph = registry.load(record)
+    first = graph.run(text="ccc,a,bb")
+    ids = [w.id for w in first.waiting]  # what a host stored when the run paused
+    answers = {unit_id: f"yes {i}" for i, unit_id in enumerate(ids)}
+    straight = first.answer(answers).resume()
+    assert straight.results["o"]["result"] == "zeta,alpha,mid|yes 0,yes 1,yes 2"
+
+    stored = registry.load(reorder(json.dumps(record)))  # the record as the store gave it back
+    assert stored.fingerprint == graph.fingerprint
+    loaded = stored.load_run(reorder(first.to_json()))
+    assert [w.id for w in loaded.waiting] == ids
+    resumed = loaded.answer(answers).resume()
+    assert resumed.results["o"] == straight.results["o"] and resumed.results["q"] == straight.results["q"]
+    assert resumed.results["s"]["result"].equals(straight.results["s"]["result"])
+    assert resumed.results["s"]["result"].columns == ["zeta", "alpha", "mid"]
+
+    _CALLS.clear()
+    again = stored.load_run(reorder(resumed.to_json())).again()  # the dict value read back in another order is the same value
+    assert again.results["o"] == straight.results["o"] and _CALLS == []
