@@ -463,7 +463,7 @@ def test_an_any_input_has_a_json_form_before_anything_is_wired():
         return ""
 
     assert json.loads(f.describe().model_dump_json(exclude_none=True))["inputs"][0] == {
-        "name": "x", "title": "X", "shape": "one", "required": True, "type": "Any", "schema": {}, "setting": False,
+        "name": "x", "title": "X", "shape": "one", "required": True, "type": "Any", "schema": {},
     }
 
 
@@ -1095,29 +1095,17 @@ def test_a_hook_reads_the_columns_gathered_into_a_table_input_as_a_table_of_them
     assert graph.problems == [] and seen[-1] == {"a": int, "b": str}
 
 
-def test_a_setting_is_never_an_input_of_the_graph_and_the_author_sets_it():
+def test_a_configuration_the_graphs_author_fixes_is_a_value_and_one_left_open_is_the_callers():
     @node("ask-model")
-    def ask_model(prompt: str, model: Annotated[str, Param(setting=True)] = "small", temperature: Annotated[float, Param(setting=True)] = 0.0) -> str:
+    def ask_model(prompt: str, model: str = "small") -> str:
         return f"{model}:{prompt}"
 
-    @node("needs-model")
-    def needs_model(prompt: str, model: Annotated[str, Param(setting=True)]) -> str:
-        return model
-
     registry = NodeRegistry()
-    registry.add(ask_model, needs_model)
-    graph = registry.load(make_graph(ask_model, values={"ask-model.model": "big"}))
-    assert list(graph.inputs) == ["prompt"] and graph.run(prompt="hi").outputs == {"ask-model.result": "big:hi"}
-    assert ask_model.describe().inputs[1].setting is True
-    assert [(p.type, p.loc) for p in registry.load(make_graph(needs_model)).problems] == [("setting_not_set", ("needs-model", "model"))]
-    defaulted = registry.load(make_graph(needs_model, defaults={"needs-model.model": "m"}))
-    assert defaulted.problems == [] and list(defaulted.inputs) == ["prompt"]
-    edges = [("ask-model.result", "needs-model.model"), ("ask-model.result", "needs-model.prompt")]
-    with pytest.raises(InvalidCallError) as refused:
-        make_graph(ask_model, needs_model, edges=edges)
-    assert [(p.type, p.loc) for p in refused.value.errors()] == [("setting_on_edge", ("needs-model", "model"))]
-    fed = registry.load(GraphRecord(nodes=[placed("ask-model", "ask-model"), placed("needs-model", "needs-model")], edges=edges))
-    assert [(p.type, p.loc) for p in fed.problems] == [("setting_on_edge", ("needs-model", "model"))]
+    registry.add(ask_model)
+    fixed = registry.load(make_graph(ask_model, values={"ask-model.model": "big"}))
+    assert list(fixed.inputs) == ["prompt"] and fixed.run(prompt="hi").outputs == {"ask-model.result": "big:hi"}
+    open_to_caller = registry.load(make_graph(ask_model))
+    assert list(open_to_caller.inputs) == ["prompt", "model"] and open_to_caller.run(prompt="hi").outputs == {"ask-model.result": "small:hi"}
 
 
 @pytest.mark.parametrize(

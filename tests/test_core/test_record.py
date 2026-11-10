@@ -290,25 +290,6 @@ def test_make_graph_refuses_a_chain_it_cannot_draw_at_the_call():
     assert [(p.type, p.loc, p.ctx["inputs"]) for p in refused.value.errors()] == [("not_a_chain", ("hello",), [])]
 
 
-def test_a_chain_feeds_the_one_input_a_caller_fills_never_a_setting():
-    @node("read")
-    def read(path: str) -> str:
-        return path
-
-    @node("llm")
-    def llm(prompt: str, model: Annotated[str, Param(setting=True)]) -> str:
-        return prompt
-
-    @node("only")
-    def only(model: Annotated[str, Param(setting=True)]) -> str:
-        return model
-
-    assert make_graph(read, llm).edges == (("read.result", "llm.prompt"),)
-    with pytest.raises(InvalidCallError) as refused:
-        make_graph(read, only)
-    assert [(p.type, p.ctx["inputs"]) for p in refused.value.errors()] == [("not_a_chain", [])]
-
-
 def test_make_graph_refuses_a_value_on_a_node_it_does_not_have():
     with pytest.raises(InvalidCallError) as refused:
         make_graph(_hello, values={"nobody.name": "x"})

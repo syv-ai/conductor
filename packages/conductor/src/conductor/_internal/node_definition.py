@@ -469,17 +469,8 @@ def _read_signature(where: str, function: Callable[..., Any], computed_outputs: 
             raise NodeDeclarationError(f"{where}a dataclass of outputs is frozen; write @dataclass(frozen=True)", code="outputs_not_frozen")
         own = typing.get_type_hints(returns, include_extras=True)
         outputs = {f.name: read_field(f.name, own[f.name], _declared_default(f), where=where) for f in dataclasses.fields(returns)}
-        _raise_if_setting_on(where, outputs)
         return inputs, outputs, returns
-    outputs = {"result": read_field("result", returns, where=where)}
-    _raise_if_setting_on(where, outputs)
-    return inputs, outputs, None
-
-
-def _raise_if_setting_on(where: str, outputs: Mapping[str, FieldSpec]) -> None:
-    for name, spec in outputs.items():
-        if spec.param.setting:
-            raise NodeDeclarationError(f"{where}{name}: a setting is an input the graph's author sets; an output is never one", code="setting_on_output")
+    return inputs, {"result": read_field("result", returns, where=where)}, None
 
 
 def _declared_default(declared: dataclasses.Field[Any]) -> Any:

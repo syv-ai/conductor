@@ -788,8 +788,6 @@ class Graph:
             if name in record.values and name in record.defaults:
                 self.problems.append(make_problem("value_and_default", placed.id, name))
             if name in edges:
-                if spec.param.setting:
-                    self.problems.append(make_problem("setting_on_edge", placed.id, name))
                 if name in record.values or name in record.defaults:
                     self.problems.append(make_problem("value_and_edge", placed.id, name))
                 for address in sorted(edges[name], key=self._gather_order):
@@ -802,7 +800,7 @@ class Graph:
                 self._typed_list(placed, name, plan, record.values[name])
             elif name in record.values:
                 plan.value = self._typed(placed.id, name, spec, record.values[name])
-            elif first and not spec.param.setting:
+            elif first:
                 if name in record.defaults:
                     default = record.defaults[name]
                     plan.value = self._typed(placed.id, name, spec, default, items=given_as_items(spec, default))
@@ -810,11 +808,10 @@ class Graph:
                     plan.value = spec.default
                 self._open(placed, name, plan)
             elif name in record.defaults:
-                if not spec.param.setting:  # a setting's default is the author's, as a value is
-                    self.problems.append(make_problem("default_on_later_node", placed.id, name))
+                self.problems.append(make_problem("default_on_later_node", placed.id, name))
                 plan.value = self._typed(placed.id, name, spec, record.defaults[name])
             elif spec.required:
-                self.problems.append(make_problem("setting_not_set" if spec.param.setting else "unbound_on_later_node", placed.id, name))
+                self.problems.append(make_problem("unbound_on_later_node", placed.id, name))
             else:
                 plan.value = spec.default
         if broken or not self._place(placed):
@@ -1215,7 +1212,7 @@ def _interface(
     """
     fed = {b.partition(".")[0] for _, b in edges}
     read = {a.partition(".")[0] for a, _ in edges}
-    ins = [(r.id, n) for r, d in placed_records if d is not None and r.id not in fed for n, spec in d.inputs.items() if n not in r.values and not spec.param.setting]
+    ins = [(r.id, n) for r, d in placed_records if d is not None and r.id not in fed for n, spec in d.inputs.items() if n not in r.values]
     outs = [(r.id, n) for r, d in placed_records if d is not None and r.id not in read for n in d.outputs]
 
     def named(fields: list[tuple[str, str]]) -> list[tuple[str, str, str]]:

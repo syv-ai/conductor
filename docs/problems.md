@@ -351,34 +351,6 @@ print(problems({
 
 **Fix.** Write `Series[X | None]` on both inputs to keep every row, blanks included, or take the branches through one input.
 
-### `setting_not_set`
-
-> '{field}' is a setting with no default; type a value into it.
-
-```python
-@registry.node("model")
-def model(text: str, name: Annotated[str, Param(setting=True)]) -> str:
-    return f"{name}: {text}"
-
-
-print(problems({"nodes": [{"id": "m", "node": "model"}]}))  # ['setting_not_set']
-```
-
-**Fix.** Type a value into it. A setting is the graph author's to set, so a caller never fills it.
-
-### `setting_on_edge`
-
-> '{field}' is a setting, which the graph's author types in; remove the edge into it and type a value.
-
-```python
-print(problems({
-    "nodes": [{"id": "a", "node": "upper"}, {"id": "m", "node": "model", "values": {"text": "x"}}],
-    "edges": [["a.result", "m.name"]],
-}))  # ['setting_on_edge']
-```
-
-**Fix.** Type a value into the setting and remove the edge. A setting is the graph author's to set, never fed by another node.
-
 ### `several_edges_into_one_value`
 
 > '{field}' takes one value, and more than one of the edges into it from {sources} can hold one on a row. Feed it from opposite branches of one decision, or take them through a Series or Table input.
@@ -923,7 +895,7 @@ except NodeDeclarationError as error:
 
 > {spec.name}: {sorted(limits)} can't apply to {getattr(base, '__name__', base)}; ge, gt, le, lt and multiple_of fit numbers and dates, min_length, max_length and pattern texts
 
-> Param has no argument {unknown[0]}; it takes title, description, widget, exclusive_group, setting, choices and the limits {sorted(_NUMERIC | _SIZED)}
+> Param has no argument {unknown[0]}; it takes title, description, widget, exclusive_group, choices and the limits {sorted(_NUMERIC | _SIZED)}
 
 > {spec.name}: the limits {spec.param.constraints} don't fit {getattr(base, '__name__', base)}: {error}
 
@@ -1268,21 +1240,6 @@ except NodeDeclarationError as error:
 ```
 
 **Fix.** Return one table: it already holds many rows.
-
-### `setting_on_output`
-
-> {name}: a setting is an input the graph's author sets; an output is never one
-
-```python
-try:
-    @node("chosen")
-    def chosen(text: str) -> Annotated[str, Param(setting=True)]:
-        return text
-except NodeDeclarationError as error:
-    print(error.code)  # setting_on_output
-```
-
-**Fix.** Take `setting=True` off the output. Only an input is a setting.
 
 ### `type_not_carried`
 

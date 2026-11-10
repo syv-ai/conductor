@@ -136,10 +136,7 @@ class Param:
     ``conductor.widgets`` control, say), carried to the host and never read
     here; on an output it is the control a person answers it with. Outputs of one node that share an ``exclusive_group`` are
     alternatives: on each row the node gives a value on one of them and
-    ``SKIPPED`` on the rest. An input that is a ``setting`` (a model, a
-    temperature) is the graph author's to set, by a value in the record or its
-    own default; it is never one of the graph's inputs, so no caller gives it.
-    ``choices`` are the values the field takes, each a value or a ``Choice``
+    ``SKIPPED`` on the rest. ``choices`` are the values the field takes, each a value or a ``Choice``
     to give it a title: on a ``Literal`` field they title its values, one
     each; on any other they limit what it takes. A field's record carries them
     (a ``Literal``'s own values when none are given), and a ``Dropdown`` draws
@@ -151,19 +148,18 @@ class Param:
     description: str | None = None
     widget: Widget | Mapping[str, JsonValue] | None = None
     exclusive_group: str | None = None
-    setting: bool = False
     #: Each choice as ``{"id", "title", ...}``, the id as given.
     choices: tuple[dict[str, Any], ...] | None = None
     constraints: dict[str, Any] = field(default_factory=dict)
 
     def __init__(
         self, *, title: str | None = None, description: str | None = None, widget: Widget | Mapping[str, JsonValue] | None = None,
-        exclusive_group: str | None = None, setting: bool = False, choices: Sequence[Any] | None = None, **constraints: Unpack[Limits],
+        exclusive_group: str | None = None, choices: Sequence[Any] | None = None, **constraints: Unpack[Limits],
     ) -> None:
         unknown = sorted(constraints.keys() - _NUMERIC - _SIZED)  # a caller a type checker didn't see
         if unknown:
             raise NodeDeclarationError(
-                f"Param has no argument {unknown[0]!r}; it takes title, description, widget, exclusive_group, setting, choices and the limits {sorted(_NUMERIC | _SIZED)}",
+                f"Param has no argument {unknown[0]!r}; it takes title, description, widget, exclusive_group, choices and the limits {sorted(_NUMERIC | _SIZED)}",
                 code="bound_invalid",
             )
         if widget is not None:
@@ -175,7 +171,6 @@ class Param:
         object.__setattr__(self, "description", description)
         object.__setattr__(self, "widget", widget)
         object.__setattr__(self, "exclusive_group", exclusive_group)
-        object.__setattr__(self, "setting", setting)
         object.__setattr__(self, "choices", None if choices is None else tuple(choice_record(choice) for choice in choices))
         object.__setattr__(self, "constraints", constraints)
 
@@ -416,8 +411,6 @@ class FieldSpec:
         for key in ("description", "widget", "exclusive_group"):
             if getattr(self.param, key) is not None:
                 out[key] = to_jsonable_python(getattr(self.param, key), fallback=str)
-        if self.param.setting:
-            out["setting"] = True
         return out
 
 
@@ -446,7 +439,6 @@ class FieldDescription(ConductorModel):
     description: str | None = None
     widget: dict[str, Any] | None = None
     exclusive_group: str | None = None
-    setting: bool = False
 
 
 def literal_values(hint: Any) -> tuple[Any, ...] | None:

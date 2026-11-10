@@ -196,8 +196,7 @@ def make_graph(
     by name.
 
     The record is loaded against the definitions here, and every fault of what
-    the call said (an address, a value, a type, an edge into a value or a
-    setting) raises one ``InvalidCallError`` listing each; so does a chain it
+    the call said (an address, a value, a type, an edge into a value) raises one ``InvalidCallError`` listing each; so does a chain it
     can't draw. A graph still half drawn (an input left open, a cycle) is
     written: ``graph.problems`` says that when it loads.
     """
@@ -256,10 +255,10 @@ def make_graph(
 
 
 #: What loading finds that ``make_graph`` raises: a fault of what the call said (an address, a value, a type, an edge
-#: where a value or a setting is), never a half-drawn graph's.
+#: where a value is), never a half-drawn graph's.
 SAID_AT_THE_CALL = frozenset({
     "unknown_input", "unknown_output", "edge_names_missing_node", "invalid_value", "value_and_default", "value_and_edge",
-    "setting_on_edge", "type_mismatch", "columns_missing", "repeated_edge",
+    "type_mismatch", "columns_missing", "repeated_edge",
 })
 
 
@@ -284,7 +283,7 @@ def _chain_edge(
 ) -> tuple[str, str] | Problem:
     """The one edge from ``before`` into ``after`` in a chain, or the problem ``not_a_chain`` when there isn't exactly one."""
     outputs = list(before.outputs)
-    open_inputs = [name for name, spec in after.inputs.items() if spec.required and not spec.param.setting and name not in typed_in]
+    open_inputs = [name for name, spec in after.inputs.items() if spec.required and name not in typed_in]
     if len(outputs) != 1 or len(open_inputs) != 1:
         return make_problem("not_a_chain", after_id, before=before_id, inputs=open_inputs, outputs=outputs)
     return f"{before_id}.{outputs[0]}", f"{after_id}.{open_inputs[0]}"

@@ -93,8 +93,6 @@ PROBLEM_CATALOGUE: Mapping[str, str] = {
     ),
     "type_mismatch": "'{source}' gives {got}, but '{node_id}.{field}' takes {expected}; connect an output that gives {expected}, or convert it in a node between.",
     "columns_missing": "'{node_id}.{field}' takes the columns {missing}, which nothing wired into it from {sources} gives; wire them in, or take a Table of any columns.",
-    "setting_on_edge": "'{field}' is a setting, which the graph's author types in; remove the edge into it and type a value.",
-    "setting_not_set": "'{field}' is a setting with no default; type a value into it.",
     "unbound_on_later_node": "Nothing feeds '{field}', and only a first node takes inputs from the caller; draw an edge into it or type a value in.",
     "unknown_input": "'{node_id}' has no input '{field}'; it has {inputs}.",
     "unknown_node": "There is no node '{node}'; the nodes are {choices}.",
