@@ -641,3 +641,15 @@ def test_a_graphs_display_is_the_hosts_own_kept_and_outside_the_fingerprint():
     shown = GraphRecord(nodes=[NodeRecord(id="h", node="hello")], display={"viewport": [0, 0, 1]})
     assert "display" not in plain.model_dump(mode="json") and GraphRecord.model_validate_json(shown.model_dump_json()) == shown
     assert PLAIN.load(plain).fingerprint == PLAIN.load(shown).fingerprint
+
+
+def test_make_graph_refuses_a_value_beside_a_default_many_on_a_series_and_what_is_not_a_node():
+    @node("count")
+    def count(items: Series[str]) -> int:
+        return len(items)
+
+    with pytest.raises(InvalidCallError) as refused:
+        make_graph(_hello, count, edges=[], values={"hello.name": "a"}, defaults={"hello.name": "b"}, many={"count.items"})
+    assert sorted(p.type for p in refused.value.errors()) == ["many_on_series", "value_and_default"]
+    with pytest.raises(TypeError, match="node definitions"):
+        make_graph(_hello, "shout")  # type: ignore[arg-type]

@@ -20,7 +20,8 @@ from pydantic import BaseModel, ConfigDict
 class ConductorModel(BaseModel):
     """A frozen record that writes itself as JSON and reads back what a host saves."""
 
-    model_config = ConfigDict(frozen=True, extra="forbid")
+    #: A float that isn't finite is written as ``"NaN"``, ``"Infinity"`` or ``"-Infinity"``, as a run writes one.
+    model_config = ConfigDict(frozen=True, extra="forbid", ser_json_inf_nan="strings")
 
     @classmethod
     def _built_from_checked_fields(cls, **fields: Any) -> Self:

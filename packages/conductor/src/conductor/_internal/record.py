@@ -50,7 +50,7 @@ from pydantic import (
 
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.errors import InvalidCallError, Problem, make_problem, value_free_errors
-from conductor._internal.fields import Refused, carried_list, read_table
+from conductor._internal.fields import Refused, carried_list, read_table, refuse_a_bool_for_a_number
 
 if TYPE_CHECKING:
     from conductor._internal.node_definition import NodeDefinition
@@ -192,6 +192,11 @@ def make_graph(
     each fault. A node whose fields a hook works out, or that is a stored
     graph, is checked when the graph loads.
     """
+    from conductor._internal.node_definition import NodeDefinition  # which imports this module
+
+    for argument in nodes:
+        if not isinstance(argument, NodeDefinition):
+            raise TypeError(f"make_graph takes node definitions, made with @node; got {argument!r}")
     ids = _ids_of(nodes)
     known = dict(zip(ids, nodes, strict=True))
     problems: list[Problem] = []
@@ -206,6 +211,11 @@ def make_graph(
                 problems.append(make_problem("unknown_input", node_id, name, inputs=list(definition.inputs)))
             else:
                 typed[kind].setdefault(node_id, {})[name] = value
+    for node_id, by_name in typed["values"].items():
+        problems += [make_problem("value_and_default", node_id, name) for name in by_name if name in typed["defaults"].get(node_id, {})]
+    for node_id, names in typed["many"].items():
+        definition = known[node_id]
+        problems += [make_problem("many_on_series", node_id, name) for name in names if name in definition.inputs and definition.inputs[name].shape != "one"]
     for node_id, by_name in typed["values"].items():
         for name, value in by_name.items():
             problems += _value_problems(known[node_id], node_id, name, value, many=name in typed["many"].get(node_id, {}))
@@ -264,6 +274,7 @@ def _value_problems(definition: NodeDefinition[..., Any], node_id: str, name: st
     if spec is None:
         return []
     try:
+        refuse_a_bool_for_a_number(spec, value)
         if spec.shape == "table":
             read_table(spec, value, strict=False, given=True)
         elif many and spec.shape == "one":

@@ -46,6 +46,7 @@ run.results["join"]["result"]      # "A+B+C": Series[str] received every value o
 `@node("id", version=, title=, description=, category=, tags=, extra=, docs=, policy=, deprecation=, compute_added_inputs=, compute_outputs=, replaces=, upgrade=)` wraps a plain function and returns a frozen, callable `NodeDefinition`; it registers nothing. `@registry.node(...)` takes the same arguments and adds the node to that registry. Only the id is required: the title defaults to the function's name in everyday words, the description to its docstring's first paragraph. `extra` is the host's own JSON about the node, kept and described, never read by conductor.
 
 - Input: `text: str`, or `Annotated[str, Param(title=, description=, widget=, ge=, le=, max_length=, ...)]`. Without a widget an editor shows no control for it: an edge fills it, or a value set in code. A default makes it optional, and is checked against the type where it is written (`default_invalid`). A limit that can't apply to its type (`ge` on a `str`) is refused where it is written (`bound_invalid`).
+- Choices: `Param(choices=[...])`, each a value or a `Choice(id, title)` (from `conductor`), is the one home of a field's choices, carried in its record as `choices`: on a `Literal` field they title its values, one each; on any other they limit what it takes (`not_a_choice`). With none, a `Literal` field's choices are its values. An `Ask` gives a question choices the run knows; else a question has its output's. Errors: `choices_invalid`.
 - A setting: `Param(setting=True)` on an input (a model, a temperature) makes it the graph author's to set, with a value in the record or its own default; it is never one of the graph's inputs, and one with neither is `setting_not_set`.
 - Output: `-> str` is one output named `result`, `Annotated[str, Param(title=)]` says more; a frozen dataclass is one output per field, and `Param(exclusive_group=)` on its fields marks alternatives (at most one holds a value on a row, else `invalid_output`); any other type is one value, a `dict[str, int]` included; with `compute_outputs` the function returns the outputs the hook gives as a mapping by name; `-> None` declares no outputs.
 - A value can be blank. If an input's type doesn't say `| None` (`email: str | None`), the node isn't called for that row, its outputs are blank there, and `run.not_called` records the node, row and input. `Series[X]` leaves blanks out, row by row across the series inputs on one table; `Series[X | None]` keeps them. Two `Series[X]` inputs reading opposite branches of one decision would lose every row: that is `series_inputs_never_share_a_row`.
@@ -238,7 +239,7 @@ assert GraphRecord.model_validate_json(text) == record
 
 ### The Palette
 
-`NodeDefinition.describe()` is a `NodeDescription`, a pydantic record (`id`, `version`, `versions`, `title`, `description`, `category`, `tags`, `extra`, `docs`, `deprecation`, `is_graph`, `policy`, `inputs`, `outputs`), each field a `FieldDescription` (`name`, `title`, `shape`, `required`, `type`, `json_schema` written as `schema`, `columns`, `default`, `choices`, `description`, `widget`, `exclusive_group`, `setting`, `constraints`; a key it doesn't have is `None`). `registry.describe()` is a `RegistryDescription`: `nodes` and `types` (each `id`, `title`, `accepted_as`). `graph.describe()` is a `GraphDescription`. Each is a host's response model as it is; `model_dump(mode="json")` writes it.
+`NodeDefinition.describe()` is a `NodeDescription`, a pydantic record (`id`, `version`, `versions`, `title`, `description`, `category`, `tags`, `extra`, `docs`, `deprecation`, `is_graph`, `policy`, `inputs`, `outputs`), each field a `FieldDescription` (`name`, `title`, `shape`, `required`, `type`, `json_schema` written as `schema`, `columns`, `default`, `choices`, `description`, `widget`, `exclusive_group`, `setting`, `constraints`; a key it doesn't have is `None`). `registry.describe()` is a `RegistryDescription`: `nodes` and `types` (each `id`, `title`, `accepted_as`). A stored graph's palette entry lists the fields it offers only in `registry.describe()`, which holds the nodes its graph uses; its definition's own `describe()` lists none. `graph.describe()` is a `GraphDescription`. Each is a host's response model as it is; `model_dump(mode="json")` writes it.
 
 ## API Reference
 
@@ -273,7 +274,7 @@ Frozen models with a `type`, and a host subclasses `Widget` for a control of its
 |---|---|
 | `TextInput` | none |
 | `Textarea` | `rows` |
-| `Dropdown` | `choices` (`Choice(id, title)`, from `conductor`); none on a `Literal` field, whose record carries its values as `choices` |
+| `Dropdown` | nothing: it draws the field's `choices` |
 | `NumberInput` | `step`, `integer_only` |
 | `Slider` | `step` |
 | `Switch` | none |

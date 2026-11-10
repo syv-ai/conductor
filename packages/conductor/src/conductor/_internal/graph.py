@@ -61,6 +61,7 @@ from conductor._internal.fields import (
     carried_list,
     read_field,
     read_table,
+    refuse_a_bool_for_a_number,
     type_id,
 )
 from conductor._internal.node_definition import NodeDefinition, is_node_id
@@ -485,6 +486,7 @@ class Graph:
                 values[graph_input._key] = graph_input._default
                 continue
             try:
+                refuse_a_bool_for_a_number(graph_input._spec, given[name])
                 if graph_input._spec.shape == "table" and not graph_input.many:
                     values[graph_input._key] = read_table(graph_input._spec, given[name], strict=False, given=True)
                 else:
@@ -826,6 +828,7 @@ class Graph:
         if value is None and spec.shape == "many" and spec.default is None:
             return None  # a Series that may be None
         try:
+            refuse_a_bool_for_a_number(spec, value)
             if many:
                 return carried_list(spec.type).validate_python(value)
             if spec.shape == "table":
@@ -906,7 +909,7 @@ class Graph:
             got = "Table" if source.whole_table else type_id(source.type)
             expected = type_id(spec.type)
             if spec.shape == "many":  # a gather: its items are checked, and it is said as the Series it reads
-                got, expected = f"Series[{got}]", f"Series[{expected}]"
+                got, expected = got if source.whole_table else f"Series[{got}]", f"Series[{expected}]"
             self.problems.append(make_problem("type_mismatch", node_id, name, source=address, got=got, expected=expected))
             return False
         return True

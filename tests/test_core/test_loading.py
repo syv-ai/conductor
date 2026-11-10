@@ -75,7 +75,7 @@ def people(text: str) -> Table[Person]:
 
 @node("styled")
 def styled(
-    mode: Annotated[str, Param(title="Mode", widget=Dropdown(choices=[Choice(id="a", title="A"), Choice(id="b", title="B")]))] = "a",
+    mode: Annotated[str, Param(title="Mode", choices=[Choice(id="a", title="A"), Choice(id="b", title="B")], widget=Dropdown())] = "a",
 ) -> str:
     return mode
 
@@ -291,7 +291,7 @@ def test_a_single_value_typed_into_a_series_input_is_refused_not_wrapped_into_a_
 def test_a_graph_input_carries_its_title_type_and_widget_for_a_form():
     described = REGISTRY.load({"nodes": [{"id": "s", "node": "styled"}]}).inputs["mode"]
     assert described.title == "Mode" and described.type == "str" and described.required is False
-    assert described.widget["choices"] == [{"id": "a", "title": "A"}, {"id": "b", "title": "B"}]
+    assert described.choices == [{"id": "a", "title": "A"}, {"id": "b", "title": "B"}]
 
 
 def test_graph_inputs_come_in_the_order_of_the_nodes():
@@ -791,3 +791,38 @@ def test_a_graph_input_is_its_fields_record_and_writes_as_json():
     assert isinstance(graph.inputs["t"], GraphInput) and graph.describe().inputs == graph.inputs
     assert json.loads(json.dumps({name: i.default for name, i in graph.inputs.items()})) == {"t": None, "n": 1}
     assert (graph.inputs["t"].name, graph.inputs["t"].address, graph.inputs["t"].required) == ("t", "u.t", True)
+
+
+def test_a_yes_or_no_typed_in_or_given_never_lands_on_a_number():
+    from conductor import NodeRegistry, node
+
+    @node("double")
+    def double(x: float) -> float:
+        return x * 2
+
+    registry = NodeRegistry()
+    registry.add(double)
+    (problem,) = registry.load({"nodes": [{"id": "d", "node": "double", "values": {"x": True}}]}).problems
+    assert (problem.type, problem.ctx["reason"]) == ("invalid_value", "a yes or no is not a number; give a number")
+    with pytest.raises(InvalidCallError) as refused:
+        registry.load({"nodes": [{"id": "d", "node": "double"}]}).run(x=True)
+    assert refused.value.errors()[0].type == "invalid_input"
+    assert registry.load({"nodes": [{"id": "d", "node": "double"}]}).run(x=2).outputs == {"d.result": 4.0}
+
+
+def test_a_table_into_a_series_is_said_as_the_table_it_is():
+    import polars as pl
+    from conductor import NodeRegistry, Series, Table, node
+
+    @node("sheet")
+    def sheet() -> Table:
+        return pl.DataFrame({"a": [1]})
+
+    @node("count")
+    def count(items: Series[int]) -> int:
+        return len(items)
+
+    registry = NodeRegistry()
+    registry.add(sheet, count)
+    (problem,) = registry.load({"nodes": [{"id": "s", "node": "sheet"}, {"id": "c", "node": "count"}], "edges": [["s.result", "c.items"]]}).problems
+    assert (problem.ctx["got"], problem.ctx["expected"]) == ("Table", "Series[int]")

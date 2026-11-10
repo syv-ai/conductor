@@ -244,7 +244,7 @@ class NodeDefinition(Generic[_P, _R]):
         return tuple(found)
 
     def describe(self) -> NodeDescription:
-        """The node as an editor's palette shows it."""
+        """The node as an editor's palette shows it; a stored graph's fields only through ``registry.describe()``, which holds the nodes it uses."""
         return NodeDescription(
             id=self.id, version=self.version, versions=list(self.versions), title=self.title, description=self.description,
             category=self.category, tags=list(self.tags), extra=dict(self.extra), docs=self.docs, deprecation=self.deprecation,
@@ -257,8 +257,9 @@ class NodeDefinition(Generic[_P, _R]):
 class NodeDescription(ConductorModel):
     """A node as an editor's palette shows it: what it is, its versions, its policy and its fields.
 
-    A node that is a stored graph (``is_graph``) has the fields it offers when a registry describes it, as loading
-    works them out. ``takes_added_inputs`` and ``computes_outputs`` say its fields depend on what is typed into it.
+    A node that is a stored graph (``is_graph``) offers the fields of the nodes its graph uses, which only a registry
+    holds: ``registry.describe()`` lists them, worked out as loading works them out, and the definition's own
+    ``describe()`` lists none. ``takes_added_inputs`` and ``computes_outputs`` say its fields depend on what is typed into it.
     """
 
     id: str

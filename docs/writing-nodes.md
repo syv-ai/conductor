@@ -67,7 +67,7 @@ No type has a default widget. A `str` may be one line, a text area or a dropdown
 |--------|-----|---------|
 | `TextInput` | One line of text | |
 | `Textarea` | Several lines | `rows` |
-| `Dropdown` | One of the field's choices: a `Literal`'s values (write `Dropdown()`), or a list of `Choice`s | `choices` |
+| `Dropdown` | One of the field's choices: `Param(choices=[Choice("en", "English"), ...])`, or a `Literal`'s values | nothing |
 | `NumberInput` | A number typed in | `step`, `integer_only` |
 | `Slider` | A number on a slider, between the `Param`'s `ge` and `le` | `step` |
 | `Switch` | On or off | |

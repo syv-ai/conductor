@@ -496,15 +496,15 @@ def test_a_table_declares_its_columns_and_their_types():
 
 
 def test_a_param_with_a_widget_describes_with_one_title_on_the_field():
-    language = Dropdown(choices=(Choice(id="en", title="English"), Choice(id="da", title="Dansk")))
+    languages = (Choice(id="en", title="English"), Choice(id="da", title="Dansk"))
 
     @node("f")
-    def f(lang: Annotated[str, Param(title="Language", description="Which one", widget=language)] = "en") -> str:
+    def f(lang: Annotated[str, Param(title="Language", description="Which one", choices=languages, widget=Dropdown())] = "en") -> str:
         return lang
 
     described = f.describe().inputs[0]
     assert (described.title, described.description, described.type) == ("Language", "Which one", "str")
-    assert described.widget == {"type": "dropdown", "choices": [{"id": "en", "title": "English"}, {"id": "da", "title": "Dansk"}]}
+    assert described.widget == {"type": "dropdown"} and described.choices == [{"id": "en", "title": "English"}, {"id": "da", "title": "Dansk"}]
 
 
 def test_a_param_with_a_title_alone_is_an_input_with_no_control():
@@ -526,7 +526,7 @@ def test_a_widget_is_frozen_keyword_only_and_refuses_a_key_it_does_not_have():
 
 
 def test_a_widget_dumps_its_type_and_its_own_config_only():
-    assert Dropdown(choices=(Choice(id="a", title="A"),)).model_dump(mode="json") == {"type": "dropdown", "choices": [{"id": "a", "title": "A"}]}
+    assert Dropdown().model_dump(mode="json") == {"type": "dropdown"}
     assert ListInput().model_dump(mode="json") == {"type": "list-input"}
     assert Textarea().type == "textarea"
 
@@ -958,17 +958,43 @@ def test_a_literal_inputs_choices_are_in_its_record_and_a_widget_draws_them():
 
     described = priority.describe().inputs[0]
     assert described.choices == [{"id": "low", "title": "low"}, {"id": "high", "title": "high"}]
-    assert described.widget == {"type": "dropdown", "choices": []}
+    assert described.widget == {"type": "dropdown"}
 
 
-def test_a_literal_input_whose_widget_declares_choices_too_is_refused():
-    with pytest.raises(NodeDeclarationError) as raised:
+def test_a_fields_choices_have_one_home_that_titles_a_literal_and_limits_any_other_type():
+    from conductor import Ask, InvalidCallError, NodeRegistry, make_graph
 
-        @node("priority")
-        def priority(level: Annotated[Literal["low", "high"], Param(widget=Dropdown(choices=(Choice("low", "Low"),)))]) -> str:
-            return level
+    titled = (Choice("low", "Lav"), Choice("high", "Høj"))
 
-    assert raised.value.code == "choices_declared_twice"
+    @node("priority")
+    def priority(level: Annotated[Literal["low", "high"], Param(choices=titled, widget=Dropdown())]) -> str:
+        return level
+
+    @node("size")
+    def size(name: Annotated[str, Param(choices=["S", "M"])]) -> str:
+        return name
+
+    @node("rate")
+    def rate(text: str) -> Annotated[Literal["low", "high"], Param(choices=titled)]:
+        raise Ask("How urgent?")
+
+    assert priority.describe().inputs[0].choices == [{"id": "low", "title": "Lav"}, {"id": "high", "title": "Høj"}]
+    assert size.describe().inputs[0].choices == [{"id": "S", "title": "S"}, {"id": "M", "title": "M"}]
+    registry = NodeRegistry()
+    registry.add(size, rate)
+    with pytest.raises(InvalidCallError):
+        registry.load(make_graph(size)).run(name="XL")
+    assert registry.load(make_graph(size)).run(name="M").outputs == {"size.result": "M"}
+    asked = registry.load(make_graph(rate)).run(text="x").waiting[0].questions[0]
+    assert asked.choices == [{"id": "low", "title": "Lav"}, {"id": "high", "title": "Høj"}]
+    for wrong in ((Choice("low", "Lav"),), ("low", "low", "high"), (1, 2)):
+        with pytest.raises(NodeDeclarationError) as raised:
+
+            @node("bad")
+            def bad(level: Annotated[Literal["low", "high"], Param(choices=wrong)]) -> str:
+                return level
+
+        assert raised.value.code == "choices_invalid"
 
 
 def test_an_input_a_hook_adds_may_have_a_default_and_a_hook_may_give_its_own_code():

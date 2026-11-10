@@ -32,7 +32,6 @@ from __future__ import annotations
 
 from typing import Literal
 
-from conductor._internal.ask import Choice
 from conductor._internal.conductor_model import ConductorModel
 
 
@@ -56,10 +55,9 @@ class Textarea(Widget):
 
 
 class Dropdown(Widget):
-    """Pick one of the field's choices: a ``Literal``'s values, which the field's record carries, or else these ``Choice``s."""
+    """Pick one of the field's choices, which its record carries: ``Param(choices=)``, or a ``Literal``'s values."""
 
     type: Literal["dropdown"] = "dropdown"
-    choices: tuple[Choice, ...] = ()
 
 
 class Slider(Widget):

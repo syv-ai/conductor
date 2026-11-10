@@ -22,7 +22,7 @@ import datetime
 import functools
 import types
 import typing
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import (
     TYPE_CHECKING,
@@ -125,7 +125,11 @@ class Param:
     ``SKIPPED`` on the rest. An input that is a ``setting`` (a model, a
     temperature) is the graph author's to set, by a value in the record or its
     own default; it is never one of the graph's inputs, so no caller gives it.
-    The limits are pydantic's: ``ge``, ``gt``, ``le``, ``lt``,
+    ``choices`` are the values the field takes, each a value or a ``Choice``
+    to give it a title: on a ``Literal`` field they title its values, one
+    each; on any other they limit what it takes. A field's record carries them
+    (a ``Literal``'s own values when none are given), and a ``Dropdown`` draws
+    them. The limits are pydantic's: ``ge``, ``gt``, ``le``, ``lt``,
     ``multiple_of``, ``min_length``, ``max_length``, ``pattern``.
     """
 
@@ -134,16 +138,18 @@ class Param:
     widget: Widget | Mapping[str, JsonValue] | None = None
     exclusive_group: str | None = None
     setting: bool = False
+    #: Each choice as ``{"id", "title", ...}``, the id as given.
+    choices: tuple[dict[str, Any], ...] | None = None
     constraints: dict[str, Any] = field(default_factory=dict)
 
     def __init__(
         self, *, title: str | None = None, description: str | None = None, widget: Widget | Mapping[str, JsonValue] | None = None,
-        exclusive_group: str | None = None, setting: bool = False, **constraints: Unpack[Limits],
+        exclusive_group: str | None = None, setting: bool = False, choices: Sequence[Any] | None = None, **constraints: Unpack[Limits],
     ) -> None:
         unknown = sorted(constraints.keys() - _NUMERIC - _SIZED)  # a caller a type checker didn't see
         if unknown:
             raise NodeDeclarationError(
-                f"Param has no argument {unknown[0]!r}; it takes title, description, widget, exclusive_group, setting and the limits {sorted(_NUMERIC | _SIZED)}",
+                f"Param has no argument {unknown[0]!r}; it takes title, description, widget, exclusive_group, setting, choices and the limits {sorted(_NUMERIC | _SIZED)}",
                 code="bound_invalid",
             )
         if widget is not None:
@@ -156,7 +162,16 @@ class Param:
         object.__setattr__(self, "widget", widget)
         object.__setattr__(self, "exclusive_group", exclusive_group)
         object.__setattr__(self, "setting", setting)
+        object.__setattr__(self, "choices", None if choices is None else tuple(_choice(choice) for choice in choices))
         object.__setattr__(self, "constraints", constraints)
+
+
+def _choice(given: Any) -> dict[str, Any]:
+    """One choice as a record: a ``Choice`` (or a host's subclass of it) as its fields, any other value as itself titled by its text."""
+    dump = getattr(given, "model_dump", None)
+    if callable(dump) and hasattr(given, "id") and hasattr(given, "title"):
+        return dict(dump())
+    return {"id": given, "title": str(given)}
 
 
 @dataclass(frozen=True)
@@ -248,13 +263,26 @@ class FieldSpec:
         """Checks one value of this field, held to its limits."""
         carried = _carried(self.type)
         one: Any = Annotated[carried, PydanticField(**self.param.constraints)] if self.param.constraints else carried
+        if self.param.choices is not None and literal_values(self.type) is None:
+            one = Annotated[one, AfterValidator(self._one_of_the_choices)]
         return TypeAdapter(_list_of(one) if self.shape == "many" else one)
+
+    @functools.cached_property
+    def choice_ids(self) -> tuple[Any, ...]:
+        """The ids of ``Param(choices=)``, each read by the field's type."""
+        one = TypeAdapter(_carried(self.type))
+        return tuple(one.validate_python(choice["id"]) for choice in self.param.choices or ())
+
+    def _one_of_the_choices(self, value: Any) -> Any:
+        if value is not None and value not in self.choice_ids:
+            raise PydanticCustomError("not_a_choice", "the value is not one of the choices")
+        return value
 
     @functools.cached_property
     def plain_classes(self) -> tuple[type, ...]:
         """The classes a value of exactly which needs no reading: the type's own, ``None`` for a blank-taking one; none under limits or ``Any``."""
         options = _options(self.type)
-        if self.param.constraints or any(option is Any for option in options):
+        if self.param.constraints or self.param.choices is not None or any(option is Any for option in options):
             return ()
         return tuple(option for option in options if isinstance(option, type) and not typing.is_typeddict(option))
 
@@ -297,7 +325,9 @@ class FieldSpec:
         if not self.required:
             out["default"] = to_jsonable_python(self.default, fallback=lambda _: None)
         offered = literal_values(self.type) if self.shape != "table" else None
-        if offered is not None:
+        if self.param.choices is not None:
+            out["choices"] = [{**choice, "id": to_jsonable_python(choice["id"])} for choice in self.param.choices]
+        elif offered is not None:
             out["choices"] = [{"id": to_jsonable_python(value), "title": str(value)} for value in offered]
         for key in ("description", "widget", "exclusive_group"):
             if getattr(self.param, key) is not None:
@@ -318,7 +348,9 @@ class FieldDescription(ConductorModel):
     ``Choice`` subclass adds its own keys). The rest is the ``Param``'s.
     """
 
-    model_config = ConfigDict(frozen=True, extra="forbid", validate_by_name=True, validate_by_alias=True, serialize_by_alias=True)
+    model_config = ConfigDict(
+        frozen=True, extra="forbid", validate_by_name=True, validate_by_alias=True, serialize_by_alias=True, ser_json_inf_nan="strings",
+    )
 
     name: str
     title: str
@@ -385,12 +417,34 @@ def read_field(name: str, hint: Any, default: Any = REQUIRED, where: str = "") -
         if markers and isinstance(markers[0], _TableMarker):
             return _checked(FieldSpec(name, "table", pl.DataFrame, False, default, param, _columns_of(markers[0].row)), where)
         names = [m for m in meta if isinstance(m, Named)]
+        if len(names) > 1:
+            raise NodeDeclarationError(f"{where}{name}: a type has one name, and this one is Named {[n.id for n in names]}", code="named_twice")
         hint = Annotated[base, names[0]] if names else base
     if hint is pl.DataFrame or hint is Table:
         return _checked(FieldSpec(name, "table", pl.DataFrame, False, default, param, None), where)
     if or_none:
         hint = Union[hint, None]  # noqa: UP007
     return _checked(FieldSpec(name, "one", hint, _is_optional(hint), default, param), where)
+
+
+def _check_choices(spec: FieldSpec, where: str) -> None:
+    """``Param(choices=)`` fits its field: each id a value of the type, none twice, and on a ``Literal`` its values, each once."""
+    fault = ""
+    if spec.shape == "table":
+        fault = "a table takes no choices"
+    else:
+        try:
+            ids = spec.choice_ids
+        except ValidationError as error:
+            fault = f"a choice is not a value of the field's type: {value_free_errors(error)[0]['msg']}"
+        else:
+            offered = literal_values(spec.type)
+            if len({repr(i) for i in ids}) != len(ids) or not ids:
+                fault = "the choices hold an id twice, or none"
+            elif offered is not None and {repr(i) for i in ids} != {repr(v) for v in offered}:
+                fault = f"on a Literal the choices title its values, one each: {list(offered)}"
+    if fault:
+        raise NodeDeclarationError(f"{where}{spec.name}: {fault}", code="choices_invalid")
 
 
 def _marked(hint: Any, marker: type) -> bool:
@@ -419,10 +473,8 @@ def _checked(spec: FieldSpec, where: str) -> FieldSpec:
             "use a type pydantic knows, such as a pydantic model or a dataclass",
             code="type_not_carried",
         ) from None
-    if getattr(spec.param.widget, "choices", None) and literal_values(spec.type) is not None:
-        raise NodeDeclarationError(
-            f"{where}{spec.name}: the choices are the Literal's values, so the widget declares none; write Dropdown()", code="choices_declared_twice",
-        )
+    if spec.param.choices is not None:
+        _check_choices(spec, where)
     if spec.default is None and spec.shape == "one" and not spec.optional:
         raise NodeDeclarationError(f"{where}{spec.name}: the default None is a blank; write its type with | None", code="default_invalid")
     if not spec.required and spec.default is not None and spec.default is not SKIPPED:
@@ -561,6 +613,16 @@ def already(target: Any, source: Any) -> bool:
     targets = [t for t in _options(target) if isinstance(t, type) and not typing.is_typeddict(t)]
     sources = [s for s in _options(source) if s is not type(None)]
     return all(isinstance(s, type) and not typing.is_typeddict(s) and any(issubclass(s, t) for t in targets) for s in sources)
+
+
+def refuse_a_bool_for_a_number(spec: FieldSpec, value: Any) -> None:
+    """``Refused`` for ``True`` or ``False`` typed in or given where a number is asked for, as an edge from a ``bool`` is."""
+    base = _unnamed(without_none(spec.type))
+    if base is bool or not (isinstance(base, type) and issubclass(base, (int, float))):
+        return
+    values = value if isinstance(value, list) else [value]
+    if any(isinstance(item, bool) for item in values):
+        raise Refused("a yes or no is not a number; give a number")
 
 
 def read_value(spec: FieldSpec, value: Any, *, strict: bool) -> Any:

@@ -655,3 +655,40 @@ def test_a_stored_graph_made_a_node_is_read_as_load_reads_a_record():
         node("e")({"nodes": [{"id": "a", "node": "x", "vaules": {}}]})
     assert [(p.type, p.loc) for p in refused.value.errors()] == [("invalid_record", ("record", "nodes", 0, "vaules"))]
     assert node("e")('{"nodes": [{"id": "a", "node": "x"}]}').graph == GraphRecord(nodes=[NodeRecord(id="a", node="x")])
+
+
+def test_a_type_named_twice_is_refused_and_an_infinite_default_writes_as_text():
+    import json
+    from typing import Annotated
+
+    from conductor import Named, node
+
+    with pytest.raises(NodeDeclarationError) as raised:
+
+        @node("two")
+        def two(x: Annotated[Annotated[bool, Named("a")], Named("b")]) -> str:
+            return ""
+
+    assert raised.value.code == "named_twice"
+
+    @node("far")
+    def far(limit: float = float("inf")) -> float:
+        return limit
+
+    assert json.loads(far.describe().model_dump_json())["inputs"][0]["default"] == "Infinity"
+
+
+def test_a_stored_graphs_fields_are_listed_by_the_registry_that_holds_its_nodes_not_by_its_definition():
+    from conductor import make_graph, node
+
+    @node("upper")
+    def upper(text: str) -> str:
+        return text.upper()
+
+    shout = node("shout")(make_graph(upper))
+    registry = NodeRegistry()
+    registry.add(upper, shout)
+    alone = shout.describe()
+    assert alone.is_graph and alone.inputs == [] and alone.outputs == []
+    listed = next(n for n in registry.describe().nodes if n.id == "shout")
+    assert [f.name for f in listed.inputs] == ["text"] and [f.name for f in listed.outputs] == ["result"]
