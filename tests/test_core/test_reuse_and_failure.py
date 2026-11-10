@@ -851,3 +851,60 @@ def test_a_typed_in_value_counts_as_its_type_writes_it_not_as_it_was_spelled():
     again = first.again(x=2.0)
 
     assert calls == [2.0] and again.outputs == {"h.result": 1.0}
+
+
+def test_a_table_column_its_row_type_doesnt_name_reads_back_from_json_as_written():
+    import datetime as dt
+    import math
+
+    import polars as pl
+    from conductor import Table
+
+    @node("mixed")
+    def mixed(text: str) -> Table:
+        return pl.DataFrame({"when": [dt.date(2026, 1, 1)], "at": [dt.time(1, 2)], "x": [math.nan], "n": [1]})
+
+    graph = registry_of(mixed).load(GraphRecord(nodes=[NodeRecord(id="m", node="mixed")]))
+    frame = graph.load_run(graph.run(text="a").to_json()).results["m"]["result"]
+
+    assert frame.schema == pl.Schema({"when": pl.Date, "at": pl.Time, "x": pl.Float64, "n": pl.Int64})
+    assert math.isnan(frame["x"][0])
+
+
+def test_a_graph_and_a_run_each_have_one_way_in():
+    from conductor import Graph, Run
+
+    graph = registry_of(_alone_node()).load(GraphRecord(nodes=[NodeRecord(id="n", node="n")]))
+    with pytest.raises(TypeError, match="registry.load"):
+        Graph(graph.record, {})
+    with pytest.raises(TypeError, match="graph.with_inputs"):
+        Run(graph, {})
+
+
+def _alone_node() -> Any:
+    @node("n")
+    def n(text: str = "") -> str:
+        return text
+
+    return n
+
+
+def test_waiting_rows_and_a_saved_run_keep_node_then_row_order_whatever_threads_did():
+    import random
+
+    @node("slow-ask", policy=Policy(concurrency=4))
+    def slow_ask(text: str) -> str:
+        import time
+
+        time.sleep(random.random() * 0.02)
+        raise Ask(f"{text}?")
+
+    @node("split")
+    def split(text: str) -> Series[str]:
+        return text.split(",")
+
+    graph = registry_of(split, slow_ask).load(make_graph(split, slow_ask))
+    for _ in range(3):
+        run = graph.run(text=",".join("abcdefgh"))
+        assert [w.id for w in run.waiting] == [f"slow-ask@{i}" for i in range(8)]
+        assert json.loads(run.to_json())["units"]["slow-ask"]["keys"] == [[i] for i in range(8)]

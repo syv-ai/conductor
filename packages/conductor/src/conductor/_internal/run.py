@@ -12,6 +12,7 @@ process.
 from __future__ import annotations
 
 import asyncio
+import datetime
 import hashlib
 import json
 import threading
@@ -46,6 +47,9 @@ class _Pending:
 
 #: What a unit's inputs are while something above it hasn't run yet.
 PENDING: Any = _Pending()
+
+#: What the graph passes when it makes a run, so a run has one way in.
+STARTING = object()
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,8 +109,10 @@ class Run:
     ``timed_out``; ``cause`` is the ``Problem`` behind any of the last four.
     """
 
-    def __init__(self, graph: Graph, inputs: dict[str, Any], *, max_rows: int | None = None) -> None:
+    def __init__(self, graph: Graph, inputs: dict[str, Any], *, max_rows: int | None = None, _door: object = None) -> None:
         """A run of ``graph`` on checked ``inputs``, by address, not started: what ``graph.with_inputs`` gives."""
+        if _door is not STARTING:
+            raise TypeError("a run is made with graph.with_inputs(...), graph.run(...) or graph.load_run(saved)")
         self.graph, self.inputs, self.max_rows = graph, inputs, max_rows
         self._units: dict[str, dict[Key, Unit]] = {n: {} for n in graph._nodes}
         self.status: RunStatus = "ready"
@@ -243,7 +249,7 @@ class Run:
     @property
     def waiting(self) -> list[Waiting]:
         """Every row waiting for a person, in node then row order."""
-        return [self._waiting(n, k, u) for n, units in self._units.items() for k, u in units.items() if u.state == "waiting"]
+        return [self._waiting(n, k, u) for n, units in self._units.items() for k, u in sorted(units.items()) if u.state == "waiting"]
 
     def _waiting(self, node_id: str, key: Key, unit: Unit) -> Waiting:
         return Waiting(id=_unit_id(node_id, key), node_id=node_id, row=key, answer_schema=_answer_schema(self.graph._nodes[node_id]), **(unit.question or {}))
@@ -252,7 +258,7 @@ class Run:
     def not_called(self) -> list[dict[str, Any]]:
         """Rows a node wasn't called on because a plain input was blank: which node, row and input."""
         return [
-            {"node_id": self.graph._outer_id(n), "row": k, "input": self.graph._outer.get(f"{n}.{u.question['input']}", f".{u.question['input']}").partition(".")[2]}
+            {"node_id": self.graph.outward(n), "row": k, "input": self.graph.outward(f"{n}.{u.question['input']}").partition(".")[2] or u.question["input"]}
             for n, units in self._units.items() for k, u in units.items() if u.state == "blank" and u.question
         ]
 
@@ -262,11 +268,8 @@ class Run:
 
         An embedded graph is one node here, with the outputs it offers.
         """
-        found = {n: {o: self._collect(p, o) for o in p.definition.outputs} for n, p in self.graph._nodes.items() if "/" not in n}
-        for e, (_, outs) in self.graph._offers.items():
-            found[e] = {
-                name: self._collect(self.graph._nodes[a.partition(".")[0]], a.partition(".")[2]) for name, a in outs.items() if a.partition(".")[0] in self.graph._nodes
-            }
+        nodes = self.graph._nodes
+        found = {drawn: {name: self._collect(nodes[n], o) for name, (n, o) in fields.items()} for drawn, fields in self.graph._readable.items()}
         return found
 
     @property
@@ -482,7 +485,7 @@ class Run:
 
     def to_json(self) -> str:
         """The run as JSON: its inputs, every unit, and what it went on from, a column per output of each node."""
-        units = {n: _dump_units(self.graph._nodes[n], us) for n, us in self._units.items()}
+        units = {n: _dump_units(self.graph._nodes[n], dict(sorted(us.items()))) for n, us in self._units.items()}
         earlier = {
             n: {"fingerprints": list(by), **_dump_units(self.graph._nodes[n], {(i,): Unit("done", out) for i, out in enumerate(by.values())}, keyed=False)}
             for n, by in self._earlier.items()
@@ -492,7 +495,7 @@ class Run:
         return pydantic_core.to_json({"status": self.status, "cause": cause, "max_rows": self.max_rows, "inputs": inputs, "units": units, "earlier": earlier}, inf_nan_mode="strings").decode()
 
     def _copy(self, **changes: Any) -> Run:
-        copy = Run(self.graph, self.inputs, max_rows=changes.get("max_rows", self.max_rows))
+        copy = Run(self.graph, self.inputs, max_rows=changes.get("max_rows", self.max_rows), _door=STARTING)
         copy._units = {n: dict(us) for n, us in self._units.items()}
         copy.status, copy.cause, copy._earlier = self.status, self.cause, self._earlier
         return copy
@@ -503,7 +506,7 @@ def run_from_json(graph: Graph, saved: str | bytes | Mapping[str, Any]) -> Run:
     try:
         data = pydantic_core.from_json(saved) if isinstance(saved, (str, bytes)) else saved
         inputs = {address: _input_adapter(graph, address).validate_python(v) for address, v in data["inputs"].items()}
-        run = Run(graph, inputs, max_rows=data["max_rows"])
+        run = Run(graph, inputs, max_rows=data["max_rows"], _door=STARTING)
         for n, dumped in data["units"].items():
             run._units[n] = {tuple(k): u for k, u in _load_units(graph._nodes[n], dumped)}
         run._earlier = {
@@ -594,10 +597,7 @@ def _dump_units(placed: PlacedNode, units: Mapping[Key, Unit], keyed: bool = Tru
         values = [u.out[name] for u in done]  # type: ignore[index]
         skipped = [i for i, v in enumerate(values) if v is SKIPPED]
         if spec.shape == "table":
-            dumped: Any = [
-                None if v is SKIPPED else {"rows": v.rows, "columns": {c: _column_adapter(spec, c).dump_python(col, mode="json") for c, col in v.columns.items()}}
-                for v in values
-            ]
+            dumped: Any = [None if v is SKIPPED else _dump_frame(spec, v) for v in values]
         else:
             plain = [None if v is SKIPPED else [None if i is SKIPPED else i for i in v] if spec.shape == "many" else v for v in values]
             dumped = spec.column_adapter.dump_python(plain, mode="json")
@@ -616,7 +616,7 @@ def _load_units(placed: PlacedNode, dumped: Mapping[str, Any]) -> list[tuple[Key
         spec = placed.definition.outputs[name]
         if spec.shape == "table":
             values = [
-                None if v is None else Frame(v["rows"], {c: _column_adapter(spec, c).validate_python(col) for c, col in v["columns"].items()})
+                None if v is None else Frame(v["rows"], {c: _column_adapter(spec, c, v.get("types", {}).get(c)).validate_python(col) for c, col in v["columns"].items()})
                 for v in column["values"]
             ]
         else:
@@ -638,11 +638,37 @@ def _load_units(placed: PlacedNode, dumped: Mapping[str, Any]) -> list[tuple[Key
     return loaded
 
 
-def _column_adapter(spec: FieldSpec, column: str) -> TypeAdapter[Any]:
-    """Checks and writes one column of a table output: by the column's type where the row type names it."""
-    return spec.column_adapters.get(column) or _ANY_COLUMN
+def _column_adapter(spec: FieldSpec, column: str, written_as: str | None = None) -> TypeAdapter[Any]:
+    """Checks and writes one column of a table output: by the column's type where the row type names it, else by the type its values were written as."""
+    return spec.column_adapters.get(column) or _COLUMN_OF.get(written_as or "", _ANY_COLUMN)
 
 
+def _dump_frame(spec: FieldSpec, frame: Frame) -> dict[str, Any]:
+    """A table as JSON: its row count, its columns, and the value type of each column its row type doesn't name, so it reads back as written."""
+    columns, types = {}, {}
+    for c, values in frame.columns.items():
+        written_as = None if c in spec.column_adapters else _value_type(values)
+        if written_as is not None:
+            types[c] = written_as
+        columns[c] = _column_adapter(spec, c, written_as).dump_python(values, mode="json")
+    return {"rows": frame.rows, "columns": columns, **({"types": types} if types else {})}
+
+
+def _value_type(values: list[Any]) -> str | None:
+    """The name of the plain type a column's values have, for one whose JSON doesn't say it (a date, a float that isn't finite)."""
+    first = next((v for v in values if v is not None), None)
+    for name, kind in _PLAIN:
+        if isinstance(first, kind):
+            return name
+    return None
+
+
+#: The plain types a column's values can be written as and read back from, the narrower first.
+_PLAIN: tuple[tuple[str, type], ...] = (
+    ("bool", bool), ("int", int), ("float", float), ("datetime", datetime.datetime), ("date", datetime.date),
+    ("time", datetime.time), ("timedelta", datetime.timedelta), ("str", str),
+)
+_COLUMN_OF = {name: carried_list(kind | None) for name, kind in _PLAIN}
 _ANY_COLUMN = carried_list(Any)
 
 

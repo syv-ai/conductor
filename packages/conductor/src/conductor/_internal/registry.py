@@ -244,9 +244,9 @@ class NodeRegistry:
         ``graph.problems``. The graph keeps its own copy of the definitions
         as they are when it loads.
         """
-        from conductor._internal.graph import Graph
+        from conductor._internal.graph import LOADING, Graph
 
-        return Graph(as_record(record), self._nodes)
+        return Graph(as_record(record), self._nodes, _door=LOADING)
 
     def upgrade(self, record: GraphRecord | str | bytes | Mapping[str, Any], node_id: str, *, to: int | None = None) -> GraphRecord:
         """``record`` with the node ``node_id`` moved from the version it was saved at to ``to``, the newest by default.
