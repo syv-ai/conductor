@@ -189,7 +189,12 @@ class Leg:
         #: For an embedding, what each of its nodes came to once complete: all skipped, the rows not called, the rows reused.
         self.inside: dict[str, dict[str, tuple[bool, list[dict[str, Any]], int]]] = {}
         self.touched: set[str] = set()
-        self.complete: set[str] = set()
+        #: The nodes said complete, on this leg or on an earlier one; a node an answer finished between legs is said on this one.
+        self.complete: set[str] = {n for n in run._complete if self._finished(run.graph._nodes[n])}
+        self.touched.update(n for n, units in run._units.items() if units and n not in self.complete)
+        for node_id in self.complete & run.graph._spliced:  # an embedding completes once its last node does
+            units = run._units[node_id].values()
+            self.inside.setdefault(run.graph._outward(node_id), {})[node_id] = (bool(units) and all(u.state == "skipped" for u in units), [], 0)
         self.reused = {p.id: 0 for p in self.nodes}
         self.progress_at: dict[str, float] = {}
         self.progress_said: dict[str, int] = {}
@@ -209,6 +214,7 @@ class Leg:
                 self.pool.shutdown(wait=False, cancel_futures=True)
         if run.status == "running":
             run.status = "waiting" if any(u.state == "waiting" for us in run._units.values() for u in us.values()) else "complete"
+        run._complete = frozenset(p.id for p in self.nodes if self._finished(p))
         if self.emit:
             self.touched.update(self.position)
             self._completions()
@@ -329,10 +335,14 @@ class Leg:
     def _returned(self, node_id: str, key: Key, attempt: int, out: Any, error: BaseException | None) -> None:
         placed = self.run.graph._nodes[node_id]
         self.on_threads[node_id] -= 1
-        current = self.attempts.get((node_id, key)) == attempt and (node_id, key) in self.running
+        latest = self.attempts.get((node_id, key)) == attempt
+        current = latest and (node_id, key) in self.running
         self._fill_slots(placed)
         if not current:
-            return  # timed out, or the leg stopped
+            if latest and error is None and self.run.status != "running" and key not in self.run._units[node_id]:
+                self.attempts.pop((node_id, key))
+                self._record(placed, key, self._outcome(placed, key, {}, out, None))  # past its timeout, but the leg is draining: keep it, never call it again
+            return  # timed out while the leg runs on, or the leg stopped
         self.attempts.pop((node_id, key))
         kwargs = self.running[(node_id, key)]
         if not self._retry(placed, key, kwargs, attempt, error):
@@ -532,9 +542,9 @@ class Leg:
                 continue
             self.touched.discard(node_id)
             placed, units = self.run.graph._nodes[node_id], self.run._units[node_id]
-            keys, known = self.run._rows(placed.level, ())
-            if node_id in self.complete or not known or any(units.get(k) is None or units[k].state == "waiting" for k in keys):
+            if node_id in self.complete or not self._finished(placed):
                 continue
+            keys, _ = self.run._rows(placed.level, ())
             self.complete.add(node_id)
             if placed.level and node_id in self.progress_said:
                 self._progress(placed, last=True)
@@ -546,6 +556,12 @@ class Leg:
                 self.emit(NodeSkipped(node_id=node_id))
             else:
                 self.emit(NodeComplete(node_id=node_id, outputs=self.run._outputs_json(placed), not_called=not_called, reused_units=self.reused[node_id]))
+
+    def _finished(self, placed: PlacedNode) -> bool:
+        """Whether every row of ``placed`` is known and none of them is still to run or waiting."""
+        units = self.run._units[placed.id]
+        keys, known = self.run._rows(placed.level, ())
+        return known and all(units.get(k) is not None and units[k].state != "waiting" for k in keys)
 
     def _inner_complete(self, node_id: str, skipped: bool, not_called: list[dict[str, Any]]) -> None:
         """A node of an embedding is complete: once all of them are, the embedding is, as one node with the outputs it offers."""

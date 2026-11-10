@@ -573,3 +573,28 @@ def test_a_record_and_a_save_whose_keys_a_store_reordered_still_load_answer_and_
     _CALLS.clear()
     again = stored.load_run(reorder(resumed.to_json())).again()  # the dict value read back in another order is the same value
     assert again.results["o"] == straight.results["o"] and _CALLS == []
+
+
+@pytest.mark.parametrize("gone", ["first", "middle", "ask"])
+def test_a_save_loaded_into_a_graph_that_lost_a_node_is_refused_with_the_graphs_own_problems(gone: str) -> None:
+    @node("first")
+    def first(x: int) -> int:
+        return x
+
+    @node("middle")
+    def middle(x: int) -> int:
+        return x
+
+    @node("ask")
+    def ask(x: int) -> bool:
+        raise Ask("ok?")
+
+    full = registry_of(first, middle, ask)
+    record = make_graph(first, middle, ask)
+    saved = full.load(record).run(x=1).to_json()
+    narrow = full.filter(lambda d: d.id != gone).load(record)
+
+    with pytest.raises(InvalidCallError) as refused:
+        narrow.load_run(saved)
+
+    assert refused.value.errors() == narrow.problems and (narrow.problems[0].type, narrow.problems[0].loc[0]) == ("unknown_node", gone)

@@ -353,7 +353,7 @@ class Graph:
         return self.with_inputs(inputs, max_rows=max_rows, **by_name).resume(from_run=from_run, timeout=timeout)
 
     def load_run(self, saved: str | bytes | Mapping[str, Any]) -> Run:
-        """A run of this graph from what ``run.to_json()`` wrote."""
+        """A run of this graph from what ``run.to_json()`` wrote; a graph with problems refuses it with them."""
         from conductor._internal.run import run_from_json
 
         return run_from_json(self, saved)

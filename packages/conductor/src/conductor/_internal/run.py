@@ -120,6 +120,8 @@ class Run:
         self._ran_as: dict[str, str] = {}
         #: The nodes whose units were recorded out of row order (threads finish when they finish), sorted when read.
         self._unordered: set[str] = set()
+        #: The nodes every row of which was finished when the last leg ended, so a later leg doesn't say them complete again.
+        self._complete: frozenset[str] = frozenset()
 
     def __repr__(self) -> str:
         return f"<Run {self.status}: {sum(len(u) for u in self._units.values())} units>"
@@ -130,7 +132,11 @@ class Run:
         """Go on: start every unit whose inputs exist, until the run is done, waits, fails, reaches its ceiling or its ``timeout``.
 
         ``max_rows`` raises (or sets) the ceiling a stopped run carries on
-        under. ``from_run`` gives each ``FromRun`` type its value.
+        under. ``from_run`` gives each ``FromRun`` type its value. Past its
+        ``timeout`` a leg starts nothing more but waits for the calls already
+        on threads, as far as their ``attempt_timeout``, and keeps them; so it
+        can end later than ``timeout``, and a call that came back is never made
+        again.
         """
         checked_max_rows(max_rows)
         return self._leg(max_rows, from_run, None, _deadline(timeout))
@@ -466,6 +472,9 @@ class Run:
         return written
 
     def _stop(self, table: str, count: int) -> None:
+        """Stop at the row ceiling, unless the leg already ended for a failure, a cancel or its timeout, which stays the cause."""
+        if self.cause is not None:
+            return
         self.status = "stopped"
         maker = self.graph._makers[table][0]
         self.cause = make_problem(
@@ -720,7 +729,7 @@ class Run:
         code = {n: self._ran_as.get(n) or self.graph._nodes[n].reuse_digest for n in {*(n for n, us in self._units.items() if us), *earlier}}
         written = {
             "graph": self.graph.fingerprint, "status": self.status, "cause": cause, "max_rows": self.max_rows, "inputs": inputs, "units": units, "earlier": earlier,
-            "code": code,
+            "code": code, "complete": sorted(self._complete),
         }
         return pydantic_core.to_json(written, inf_nan_mode="strings").decode()
 
@@ -729,12 +738,17 @@ class Run:
         copy = Run(self.graph, self.inputs, max_rows=changes.get("max_rows", self.max_rows), _door=STARTING)
         copy._units = dict(self._units) if share_units else {n: dict(us) for n, us in self._units.items()}
         copy.status, copy.cause, copy._earlier, copy._unordered = self.status, self.cause, dict(self._earlier), set(self._unordered)
-        copy._ran_as = self._ran_as
+        copy._ran_as, copy._complete = self._ran_as, self._complete
         return copy
 
 
 def run_from_json(graph: Graph, saved: str | bytes | Mapping[str, Any]) -> Run:
-    """A run of ``graph`` from what ``run.to_json()`` wrote; a caller reaches it through ``graph.load_run``."""
+    """A run of ``graph`` from what ``run.to_json()`` wrote; a caller reaches it through ``graph.load_run``.
+
+    A graph with problems takes no run, so they are what is refused, before anything of the save is read.
+    """
+    if graph.problems:
+        raise InvalidCallError(graph.problems)
     try:
         data = pydantic_core.from_json(saved) if isinstance(saved, (str, bytes)) else saved
         if data["graph"] != graph.fingerprint:
@@ -761,6 +775,7 @@ def run_from_json(graph: Graph, saved: str | bytes | Mapping[str, Any]) -> Run:
                 by.setdefault(fp, []).append(unit)
             run._earlier[n] = by
         run.status = data["status"]
+        run._complete = frozenset(n for n in data["complete"] if n in graph._nodes)
         run.cause = Problem.model_validate(data["cause"]) if data["cause"] else None
         for n, units in run._units.items():  # every row is one the saved makers made
             placed = graph._nodes[n]

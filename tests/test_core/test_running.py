@@ -823,3 +823,67 @@ def test_a_node_starts_before_any_other_event_about_it_when_its_rows_are_taken_f
     about_approve = [e.type for e in events if getattr(e, "node_id", None) == "approve"]
     assert about_approve[0] == "node_start", about_approve
     assert about_approve.count("node_start") == 1
+
+
+def test_a_node_finished_on_an_earlier_leg_is_not_said_complete_again_and_an_embedding_completes_once():
+    @node("ask")
+    def ask(text: str) -> str:
+        raise Ask(f"{text}?")
+
+    @node("upper")
+    def upper(text: str) -> str:
+        return text.upper()
+
+    inner = node("checked")(make_graph(upper, ask))
+    graph = registry_of(split, ask, upper, join, inner).load(GraphRecord(
+        nodes=[NodeRecord(id="s", node="split"), NodeRecord(id="e", node="checked"), NodeRecord(id="j", node="join")],
+        edges=[("s.result", "e.text"), ("e.result", "j.texts")],
+    ))
+    first = graph.with_inputs(text="a,b")
+    events = _events(first)
+    paused = events[-1].run
+    assert [e.node_id for e in events if e.type == "node_complete"] == ["s"]
+
+    answered = paused.answer({w.id: "yes" for w in paused.waiting})
+    later = _events(answered)
+
+    assert [e.node_id for e in later if e.type == "node_complete"] == ["e", "j"]
+
+
+def test_a_maker_over_the_row_ceiling_coming_back_after_a_failure_leaves_the_failure_the_cause():
+    @node("boom", policy=Policy(concurrency=2))
+    def boom(text: str) -> str:
+        raise ValueError("no")
+
+    @node("many", policy=Policy(concurrency=2))
+    def many(text: str) -> Series[str]:
+        time.sleep(0.2)
+        return ["a", "b", "c", "d"]
+
+    graph = registry_of(boom, many).load(GraphRecord(nodes=[NodeRecord(id="b", node="boom"), NodeRecord(id="m", node="many")]))
+    run = graph.run({"b.text": "x", "m.text": "y"}, max_rows=2)
+
+    assert (run.status, run.cause.type) == ("failed", "execution_failed")
+
+
+def test_a_call_past_its_timeout_that_comes_back_while_the_leg_drains_is_kept_and_never_called_again():
+    effects: list[str] = []
+
+    @node("late", policy=Policy(attempt_timeout=0.2, concurrency=2))
+    def late(text: str) -> str:
+        time.sleep(0.4)
+        effects.append(text)
+        return text
+
+    @node("long", policy=Policy(concurrency=2))
+    def long(text: str) -> str:
+        time.sleep(0.9)
+        return text
+
+    graph = registry_of(late, long).load(GraphRecord(nodes=[NodeRecord(id="l", node="late"), NodeRecord(id="o", node="long")]))
+    run = graph.run({"l.text": "mail", "o.text": "x"})
+    assert (run.status, run.cause.type) == ("failed", "timeout") and effects == ["mail"]
+
+    resumed = run.resume()
+
+    assert resumed.status == "complete" and resumed.results["l"]["result"] == "mail" and effects == ["mail"]
