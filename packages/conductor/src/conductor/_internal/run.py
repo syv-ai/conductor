@@ -641,7 +641,7 @@ class Run:
                 earlier[n] = {"fingerprints": [fp for fp, _ in listed], **_dump_units(self.graph._nodes[n], numbered, keyed=False)}
         inputs = {address: _dump_input(self.graph, address, v) for address, v in self.inputs.items()}
         cause = self.cause.model_dump(mode="json") if self.cause else None
-        code = {n: self._ran_as.get(n, p.reuse_digest) for n, p in self.graph._nodes.items()}
+        code = {n: self._ran_as.get(n) or self.graph._nodes[n].reuse_digest for n in {*(n for n, us in self._units.items() if us), *earlier}}
         written = {
             "graph": self.graph.fingerprint, "status": self.status, "cause": cause, "max_rows": self.max_rows, "inputs": inputs, "units": units, "earlier": earlier,
             "code": code,
