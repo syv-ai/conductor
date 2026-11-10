@@ -367,8 +367,7 @@ def test_a_value_its_type_refuses_never_reaches_a_hook_and_is_said_once():
     assert [(p.type, p.loc) for p in problems] == [("invalid_value", ("r", "mode"))]
 
 
-@pytest.mark.parametrize("kind", ["values", "defaults"])
-def test_a_list_typed_into_an_input_a_hook_reads_is_refused_saying_why(kind: str) -> None:
+def test_a_list_typed_into_an_input_a_hook_reads_is_refused_saying_why() -> None:
     def named(names: str) -> dict[str, Any]:
         return {name: bool for name in names.split(",")}
 
@@ -376,7 +375,7 @@ def test_a_list_typed_into_an_input_a_hook_reads_is_refused_saying_why(kind: str
     def checks(names: str) -> dict[str, Any]:
         return {}
 
-    (problem,) = registry_of(checks).load({"nodes": [{"id": "c", "node": "checks", kind: {"names": ["a,b", "c"]}}]}).problems
+    (problem,) = registry_of(checks).load({"nodes": [{"id": "c", "node": "checks", "values": {"names": ["a,b", "c"]}}]}).problems
     assert (problem.type, problem.loc) == ("invalid_value", ("c", "names"))
     assert problem.ctx["reason"] == "a hook works out this node's fields from one value; a list can't be typed in here"
 
@@ -543,6 +542,27 @@ def test_a_hook_is_not_handed_a_required_input_nobody_typed_in_and_the_node_says
     assert [(p.type, p.loc) for p in graph.problems] == [("hook_needs_value", ("f", "formula"))]
     typed = BROKEN.load({"nodes": [{"id": "f", "node": "formula", "values": {"formula": "a b"}}]})
     assert typed.problems == [] and list(typed.inputs) == ["a", "b"]
+
+
+def test_an_input_a_hook_reads_is_fixed_when_the_graph_loads_and_never_a_graph_input():
+    """The fields a hook works out hold for every run, so what it read is the record's, never the caller's."""
+
+    def outputs(mode: str) -> dict[str, Any]:
+        return {"a": int} if mode == "a" else {"b": str}
+
+    @node("by-mode", compute_outputs=outputs)
+    def by_mode(mode: str = "a") -> dict[str, Any]:
+        return {"a": 1} if mode == "a" else {"b": "x"}
+
+    registry = registry_of(by_mode)
+    graph = registry.load({"nodes": [{"id": "m", "node": "by-mode"}]})
+    assert graph.problems == [] and graph.inputs == {} and graph.run().outputs == {"m.a": 1}
+    with pytest.raises(InvalidCallError):
+        graph.run(mode="b")
+
+    [problem] = registry.load({"nodes": [{"id": "m", "node": "by-mode", "defaults": {"mode": "b"}}]}).problems
+    assert (problem.type, problem.loc) == ("default_on_later_node", ("m", "mode"))
+    assert BROKEN.load({"nodes": [{"id": "f", "node": "formula"}]}).problems[0].type == "hook_needs_value"
 
 
 def test_a_broken_graph_is_one_problem_where_it_is_embedded_with_its_own_problems_inside():

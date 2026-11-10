@@ -781,6 +781,7 @@ class Graph:
         for name in sorted({*record.values, *record.defaults, *edges} - definition.inputs.keys()):
             self.problems.append(make_problem("unknown_input", placed.id, name, inputs=inputs))
         first_node = not any(name in definition.inputs for name in edges)
+        read_at_load = _read_by_hooks(definition)
         for name, spec in definition.inputs.items():
             # an input an embedded graph offers is open to the caller whether or not edges from outside feed the others
             first = first_node or f"{record.id}.{name}" in self._seen_as
@@ -800,7 +801,7 @@ class Graph:
                 self._typed_list(placed, name, plan, record.values[name])
             elif name in record.values:
                 plan.value = self._typed(placed.id, name, spec, record.values[name])
-            elif first:
+            elif first and name not in read_at_load:
                 if name in record.defaults:
                     default = record.defaults[name]
                     plan.value = self._typed(placed.id, name, spec, default, items=given_as_items(spec, default))
@@ -810,7 +811,7 @@ class Graph:
             elif name in record.defaults:
                 self.problems.append(make_problem("default_on_later_node", placed.id, name))
                 plan.value = self._typed(placed.id, name, spec, record.defaults[name])
-            elif spec.required:
+            elif spec.required and name not in read_at_load:  # a hook reading it says so, as hook_needs_value
                 self.problems.append(make_problem("unbound_on_later_node", placed.id, name))
             else:
                 plan.value = spec.default
@@ -1241,6 +1242,15 @@ def _given_from_outside(record: NodeRecord, typed: Mapping[str, Mapping[str, Any
         "values": {**record.values, **typed.get("values", {})},
         "defaults": {**defaults, **typed.get("defaults", {})},
     })
+
+
+def _read_by_hooks(definition: NodeDefinition[..., Any]) -> frozenset[str]:
+    """The inputs a node's hooks read as values: fixed when the graph loads, so never open to a caller."""
+    hooks = (definition.compute_added_inputs, definition.compute_outputs)
+    return frozenset(
+        name for hook in hooks if hook is not None for name, parameter in inspect.signature(hook).parameters.items()
+        if parameter.annotation not in (type, "type")
+    )
 
 
 def _hint_and_default(given: Any) -> tuple[Any, Any]:

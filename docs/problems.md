@@ -193,7 +193,7 @@ print(problems({
 }))  # ['default_on_later_node']
 ```
 
-**Fix.** Write it as a value (`values`), which fixes it. Only an open input of a first node is the caller's to fill, so only there does a default mean anything.
+**Fix.** Write it as a value (`values`), which fixes it. Only an open input of a first node is the caller's to fill, so only there does a default mean anything; an input a hook reads is never open.
 
 ### `duplicate_node_id`
 
@@ -252,7 +252,7 @@ print(broken.type, [p["type"] for p in broken.ctx["problems"]])  # embedded_grap
 print(problems({"nodes": [{"id": "pick", "node": "pick"}]}))  # ['hook_needs_value']
 ```
 
-**Fix.** Type a value into the input the hook reads. The node's fields depend on it, so it is needed before the graph runs.
+**Fix.** Type a value into the input the hook reads. The node's fields depend on it, so it is fixed when the graph loads and never one of the graph's inputs.
 
 ### `invalid_node_id`
 
