@@ -1,7 +1,7 @@
 [project]
 name = "syv-conductor-nodes"
 version = "2.0.0"
-description = "Standard-library nodes for conductor — text, math, logic, JSON, regex, and a decision gate. registry(categories=[...]) filters on each node's own category."
+description = "Standard-library nodes for conductor — text, math, logic, JSON, regex, and a decision gate."
 requires-python = ">=3.12"
 authors = [{ name = "Syvai", email = "billy@syv.ai" }]
 license = "Apache-2.0"

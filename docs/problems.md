@@ -634,7 +634,7 @@ print(refused(lambda: done.forget("lower")))  # ['node_not_in_graph']
 print(refused(lambda: make_graph(upper, greet)))  # ['not_a_chain']
 ```
 
-**Fix.** Pass `edges=[("upper.result", "greet.name")]`. `make_graph` chains nodes only when each takes one required open input from the one output before it.
+**Fix.** Pass `edges=[("upper.result", "greet.name")]`. `make_graph` chains nodes only when each takes one required open input from the one output before it. A chain reads the fields each node declares; a stored graph, or a node whose fields a hook works out, takes `edges=`.
 
 ### `not_offered`
 
