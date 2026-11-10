@@ -88,6 +88,9 @@ def test_a_bare_node_saves_as_its_id_and_node():
     assert NodeRecord(id="a", node="upper", version=2, values={"text": "hi"}).model_dump() == {
         "id": "a", "node": "upper", "version": 2, "values": {"text": "hi"},
     }
+    graph = GraphRecord.model_validate({"nodes": [{"id": "a", "node": "upper", "version": 1, "defaults": {}, "display": {}}], "display": {}})
+    assert graph.model_dump(mode="json") == {"nodes": [{"id": "a", "node": "upper"}], "edges": []}
+    assert graph.model_dump(mode="json", include={"nodes", "edges"}) == {"nodes": [{"id": "a", "node": "upper"}], "edges": []}
 
 
 def test_the_record_reads_back_what_it_saved():

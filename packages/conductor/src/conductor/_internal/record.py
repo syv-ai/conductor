@@ -40,10 +40,8 @@ from typing import TYPE_CHECKING, Annotated, Any
 from pydantic import (
     AfterValidator,
     Field,
-    SerializerFunctionWrapHandler,
     ValidationError,
     field_validator,
-    model_serializer,
 )
 
 from conductor._internal.conductor_model import ConductorModel
@@ -67,6 +65,10 @@ def _checked_address(address: str) -> str:
 Address = Annotated[str, AfterValidator(_checked_address)]
 
 
+def _empty(value: Mapping[str, Any]) -> bool:
+    return not value
+
+
 class NodeRecord(ConductorModel):
     """One node of a graph record: which definition it uses, and what is typed into its inputs.
 
@@ -78,19 +80,14 @@ class NodeRecord(ConductorModel):
     id: str
     #: The id of the node definition this node uses.
     node: str
-    version: int = 1
+    #: Left out of the saved record when it is 1, as is each field below when empty.
+    version: int = Field(default=1, exclude_if=lambda version: version == 1)
     #: Typed into these inputs and fixed: no caller may change them.
-    values: Mapping[str, Any] = Field(default_factory=dict)
+    values: Mapping[str, Any] = Field(default_factory=dict, exclude_if=_empty)
     #: Typed into these inputs, which stay open for a caller to change.
-    defaults: Mapping[str, Any] = Field(default_factory=dict)
+    defaults: Mapping[str, Any] = Field(default_factory=dict, exclude_if=_empty)
     #: The host's own: position, size, titles a person edited. Stored and never read here.
-    display: Mapping[str, Any] = Field(default_factory=dict)
-
-    @model_serializer(mode="wrap")
-    def _without_empty_fields(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
-        """The record as saved: an empty field and the version 1 are left out."""
-        written: dict[str, Any] = handler(self)
-        return {key: value for key, value in written.items() if value not in ({}, [], ()) and not (key == "version" and value == 1)}
+    display: Mapping[str, Any] = Field(default_factory=dict, exclude_if=_empty)
 
 
 class GraphRecord(ConductorModel):
@@ -106,15 +103,7 @@ class GraphRecord(ConductorModel):
     #: ``(from, to)`` pairs of addresses, ``("read.text", "up.text")``; sorted once built.
     edges: Sequence[tuple[Address, Address]] = ()
     #: The host's own about the whole graph: a viewport, flags. Stored, never read here, and no part of the fingerprint.
-    display: Mapping[str, Any] = Field(default_factory=dict)
-
-    @model_serializer(mode="wrap")
-    def _without_empty_display(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
-        """The record as saved: an empty ``display`` is left out."""
-        written: dict[str, Any] = handler(self)
-        if written.get("display") == {}:
-            del written["display"]
-        return written
+    display: Mapping[str, Any] = Field(default_factory=dict, exclude_if=_empty)
 
     @field_validator("nodes")
     @classmethod
