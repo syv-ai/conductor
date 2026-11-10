@@ -343,11 +343,13 @@ class Leg:
         if error is None:
             return Unit("skipped") if out is SKIPPED else Unit("done", out)
         if isinstance(error, Ask):
-            try:
-                added = asked(error, placed.definition)
-            except WrongAsk as wrong:
-                return make_problem("invalid_ask", placed.id, *key, reason=str(wrong))
-            return Unit("waiting", None, {"prompt": error.prompt, "inputs": jsonable(kwargs), **({"asked": added} if added else {})})
+            question = {"prompt": error.prompt, "inputs": jsonable(kwargs)}
+            if error._adds:
+                try:
+                    question["asked"] = asked(error, placed.definition)
+                except WrongAsk as wrong:
+                    return make_problem("invalid_ask", placed.id, *key, reason=str(wrong))
+            return Unit("waiting", None, question)
         return self._failure(placed, key, error)
 
     def _failure(self, placed: PlacedNode, key: Key, error: BaseException) -> Problem:

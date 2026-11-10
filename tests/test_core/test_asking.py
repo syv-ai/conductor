@@ -362,6 +362,14 @@ def test_a_node_of_several_outputs_asks_by_output_name(ask, reason):
     assert _once(wrong)[1].cause.ctx["reason"] == reason
 
 
+def test_a_prompt_is_text():
+    @node("wrong")
+    def wrong() -> str:
+        raise Ask(3)  # type: ignore[arg-type]
+
+    assert _once(wrong)[1].cause.ctx["error"] == "TypeError"
+
+
 def test_a_table_takes_no_choices():
     @node("wrong")
     def wrong() -> Table[Line]:

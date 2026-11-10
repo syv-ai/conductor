@@ -85,9 +85,13 @@ class Ask(BaseException):
         defaults: Mapping[str, Any] | None = None,
         widgets: Mapping[str, Any] | None = None,
     ) -> None:
+        if not isinstance(prompt, str):
+            raise TypeError(f"Ask's prompt is the text a person reads, not {type(prompt).__name__}")
         super().__init__(prompt)
         self.prompt, self.choices, self.default, self.widget = prompt, choices, default, widget
         self.defaults, self.widgets = defaults, widgets
+        #: Whether the ``Ask`` adds anything to its questions, so a plain one costs nothing more.
+        self._adds = choices is not None or default is not _NOT_GIVEN or widget is not None or bool(defaults) or bool(widgets)
 
 
 class Waiting(ConductorModel):
@@ -120,10 +124,6 @@ class WrongAsk(Exception):
 def asked(ask: Ask, definition: NodeDefinition[..., Any]) -> dict[str, dict[str, Any]]:
     """What ``ask`` adds to each question, by output name, as JSON; ``WrongAsk`` if it doesn't fit the node's outputs."""
     outputs = definition.outputs
-    if not isinstance(ask.prompt, str):
-        raise WrongAsk("the prompt is a text")
-    if ask.choices is None and ask.default is _NOT_GIVEN and ask.widget is None and not ask.defaults and not ask.widgets:
-        return {}
     lone = next(iter(outputs)) if len(outputs) == 1 else None
     if lone is not None:
         if ask.defaults or ask.widgets or isinstance(ask.choices, Mapping):
