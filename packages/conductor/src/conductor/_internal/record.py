@@ -13,8 +13,10 @@ A graph record is its nodes and its edges, and nothing else::
 A node names the definition it uses (``node``) and the version (``version``,
 1 when left out). ``values`` are typed into its inputs and fixed there: no
 caller may change them. ``defaults`` fill an input that stays open, so a
-caller may still give it another value. ``many`` names the open inputs that
-take a list from the caller, a row per item. ``display`` is the host's own:
+caller may still give it another value. ``many`` names the inputs that take
+a list, a row per item: an open input of a first node takes it from the
+caller, and an input with a value is a list typed in, whose items are a table
+under each row the node runs on, so the node runs once per item on each. ``display`` is the host's own:
 conductor stores it and never reads it. An empty field is left out when the
 record is saved, so a bare node is ``{"id": "up", "node": "upper"}``.
 
@@ -77,7 +79,7 @@ class NodeRecord(ConductorModel):
     values: Mapping[str, Any] = Field(default_factory=dict)
     #: Typed into these inputs, which stay open for a caller to change.
     defaults: Mapping[str, Any] = Field(default_factory=dict)
-    #: The open inputs that take many values from the caller, a row per value.
+    #: The inputs that take a list, a row per item: from the caller on an open input, or typed in as the value.
     many: frozenset[str] = frozenset()
     #: The host's own: position, size, titles a person edited. Stored and never read here.
     display: Mapping[str, Any] = Field(default_factory=dict)

@@ -191,6 +191,8 @@ class Graph:
         self.inputs: dict[str, GraphInput] = {}
         #: Each table, by name, and the node and output that make it (``None`` for a graph input).
         self._makers: dict[str, tuple[str | None, str]] = {}
+        #: Each list typed into an input marked ``many``, by its address, which names the table of its items.
+        self._typed_lists: dict[str, list[Any]] = {}
         self._graph_inputs: list[GraphInput] = []
         self._position = {r.id: n for n, (r, _) in enumerate(placed_records)}
         self._readers: dict[str, list[PlacedNode]] = {r.id: [] for r, _ in placed_records}
@@ -518,7 +520,7 @@ class Graph:
             plan = placed.inputs[name] = InputPlan(spec)
             if name in record.values and name in record.defaults:
                 self.problems.append(make_problem("value_and_default", placed.id, name))
-            if name in record.many and name not in edges and (name in record.values or not first):
+            if name in record.many and name not in edges and name not in record.values and not first:
                 self.problems.append(make_problem("many_not_open", placed.id, name))
             if name in edges:
                 if name in record.values or name in record.defaults:
@@ -531,6 +533,8 @@ class Graph:
                         broken = True
                     elif self._fits(spec, source, address, placed.id, name):
                         plan.sources.append(source)
+            elif name in record.values and name in record.many:
+                self._typed_list(placed, name, plan, record.values[name])
             elif name in record.values:
                 plan.value = self._typed(placed.id, name, spec, record.values[name])
             elif first:
@@ -653,6 +657,20 @@ class Graph:
             self.problems.append(make_problem("invalid_value", node_id, name, reason=value_free_errors(error)[0]["msg"]))
             return REQUIRED
 
+    def _typed_list(self, placed: PlacedNode, name: str, plan: InputPlan, value: Any) -> None:
+        """A list typed into an input marked ``many``: a table of its items under each row the node runs on, which the node runs over."""
+        if plan.spec.shape != "one":
+            self.problems.append(make_problem("many_on_series", placed.id, name))
+            plan.value = self._typed(placed.id, name, plan.spec, value)
+            return
+        items = self._typed(placed.id, name, plan.spec, value, many=True)
+        if items is REQUIRED:
+            return
+        address = f"{placed.id}.{name}"
+        self._typed_lists[address] = items
+        self._makers[address] = (None, address)
+        plan.sources.append(Source(None, address, None, (), True, plan.spec.type, name=name))
+
     def _open(self, placed: PlacedNode, name: str, plan: InputPlan, record: NodeRecord) -> None:
         """An open input of a first node is the graph's: the caller fills it, by its address ``node.input``."""
         address = f"{placed.id}.{name}"
@@ -702,7 +720,11 @@ class Graph:
         node's, so a reduction of a sibling table (every keyword of a document, beside each of its invoices)
         gathers under their common parent.
         """
-        ones = [s.level for p in placed.inputs.values() if p.spec.shape == "one" for s in p.sources]
+        typed = [(n, p) for n, p in placed.inputs.items() if p.sources and p.sources[0].output in self._typed_lists]
+        if len(typed) > 1:
+            self.problems.append(make_problem("two_typed_in_lists", placed.id, a=typed[0][0], b=typed[1][0]))
+            return False
+        ones = [s.level for p in placed.inputs.values() if p.spec.shape == "one" for s in p.sources if s.output not in self._typed_lists]
         # With no one-value input, a node runs one level above what its Series and Table inputs gather: each input
         # gathers at its deepest source (parents copied down), and the node sits above the shallowest input, so no
         # input receives a list of one.
@@ -718,6 +740,9 @@ class Graph:
             if not (_under(placed.level, level) or _under(level, placed.level)):
                 self._unrelated(placed, placed.level, level)
                 return False
+        for _, plan in typed:  # the typed list's items are a table under each row the node would run on, and it runs over them
+            placed.level = (*placed.level, plan.sources[0].output)
+            plan.sources = [dataclasses.replace(plan.sources[0], level=placed.level)]
         for plan in placed.inputs.values():
             if plan.spec.shape != "one":
                 plan.sources = [dataclasses.replace(s, anchor=shared_depth(placed.level, s.level)) for s in plan.sources]

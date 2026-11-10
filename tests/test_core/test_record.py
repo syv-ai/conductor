@@ -328,13 +328,13 @@ def test_a_value_given_for_one_or_many_is_checked_against_many_never_decides_it(
     assert many.run(text=["a"]).outputs == {"u.result": ["A"]}
 
 
-def test_many_only_marks_an_open_input_of_a_first_node_and_its_default_is_a_list():
-    later = GraphRecord(nodes=[NodeRecord(id="a", node="text"), NodeRecord(id="b", node="both", many={"no"}, values={"no": "n"})], edges=[("a.result", "b.yes")])
-    closed = GraphRecord(nodes=[NodeRecord(id="u", node="upper", many={"text"}, values={"text": "x"})])
+def test_many_marks_an_open_input_of_a_first_node_or_a_typed_in_list_and_either_is_a_list():
+    later = GraphRecord(nodes=[NodeRecord(id="a", node="text"), NodeRecord(id="b", node="both", many={"no"})], edges=[("a.result", "b.yes")])
+    typed_one = GraphRecord(nodes=[NodeRecord(id="u", node="upper", many={"text"}, values={"text": "x"})])
     listed = REGISTRY.load(GraphRecord(nodes=[NodeRecord(id="u", node="upper", many={"text"}, defaults={"text": ["a", "b"]})]))
 
     assert ("many_not_open", ("b", "no")) in _problems(later)
-    assert _problems(closed) == [("many_not_open", ("u", "text"))]
+    assert _problems(typed_one) == [("invalid_value", ("u", "text"))]
     assert _problems(GraphRecord(nodes=[NodeRecord(id="u", node="upper", many={"text"}, defaults={"text": "a"})])) == [("invalid_value", ("u", "text"))]
     assert listed.run().outputs == {"u.result": ["A", "B"]}
 

@@ -388,8 +388,9 @@ class Run:
         return f"asked:{fingerprint}:{lineage}"
 
     def _given(self, address: str) -> Any:
-        """The list a caller gave at ``address``, whose items are the rows of the table it makes."""
-        return self.inputs[address]
+        """The list a caller gave, or an author typed in, at ``address``, whose items are the rows of the table it makes."""
+        given = self.inputs.get(address)
+        return self.graph._typed_lists[address] if given is None and address in self.graph._typed_lists else given
 
     def _row_value(self, table: str, key: Key) -> Any:
         """What one row of a table holds: an item of a list, or a table's row as a mapping."""
@@ -437,7 +438,7 @@ class Run:
         made: dict[str, int] = {}
         for table, (node_id, output) in self.graph._makers.items():
             if node_id is None:
-                made[table] = len(self.inputs.get(output, []))
+                made[table] = len(self._given(output) or [])
             else:
                 made[table] = sum(_length(u.out[output]) for u in self._units[node_id].values() if u.state == "done" and u.out)
         return made
@@ -452,7 +453,7 @@ class Run:
             below: list[Key] = []
             for parent in keys:
                 if node_id is None:
-                    count: int | None = len(self.inputs[output])
+                    count: int | None = len(self._given(output))
                 else:
                     unit = self._units[node_id].get(parent)
                     if unit is None or unit.state == "waiting":
@@ -489,7 +490,7 @@ class Run:
 
     def _cell(self, source: Source, key: Key) -> Any:
         if source.node_id is None:
-            value = self.inputs[source.output]
+            value = self._given(source.output)
             return value[key[-1]] if source.made else value
         unit = self._units[source.node_id].get(key[:-1] if source.made else key)
         if unit is None or unit.state == "waiting":

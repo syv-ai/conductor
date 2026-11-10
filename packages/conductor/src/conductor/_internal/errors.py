@@ -86,6 +86,7 @@ PROBLEM_CATALOGUE: Mapping[str, str] = {
         "'{a}' and '{b}' read branches that never both have a value on a row, so no row would reach the node. "
         "Write Series[X | None] on them to keep every row, or take the branches through one input."
     ),
+    "two_typed_in_lists": "Only one list can be typed into a node; '{a}' and '{b}' are both lists.",
     "type_mismatch": "'{source}' gives {got}, but '{node_id}.{field}' takes {expected}.",
     "unbound_on_later_node": "Nothing feeds '{field}', and only a first node takes inputs from the caller.",
     "unknown_input": "'{node_id}' has no input '{field}'; it has {inputs}.",

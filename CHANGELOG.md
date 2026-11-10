@@ -60,7 +60,9 @@ its stored graphs itself. What a 1.x user changes:
   arriving on an input declared for one value runs the node once per row, and a node isn't called for
   a blank unless its input says `| None`; `run.not_called` records the row and input. `Series[X]`
   marks a field as holding many values of `X`, a plain list to the node, every value under the
-  node's row. An open input named in its node's `many` takes a list from the caller. Rows of two
+  node's row. An open input named in its node's `many` takes a list from the caller. Beside a value, `many` makes it a list typed in: the node runs once per item under each row it
+  runs on (questions typed into a node that runs per document), and two lists typed into one node
+  are `two_typed_in_lists`. Rows of two
   different tables never meet by themselves (`rows_not_related`): join them on a key in a node.
   `max_rows=` on a run is a ceiling checked before any node is called on the rows (`row_ceiling`).
 - **Tables.** `Table[TypedDict]` is a whole table, a `polars.DataFrame`. Columns wired into one

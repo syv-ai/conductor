@@ -11,7 +11,7 @@ from typing import Annotated, Any, Optional, TypedDict
 
 import polars as pl
 import pytest
-from conductor import SKIPPED, GraphRecord, Param, Series, Table, node
+from conductor import SKIPPED, Ask, GraphRecord, Param, Series, Table, node
 
 from tests.test_core.nodes import registry_of
 
@@ -1229,3 +1229,132 @@ def test_tables_hanging_off_two_branches_into_one_table_input_are_the_branch_tha
 def test_whole_tables_that_can_both_hold_rows_into_one_table_input_are_still_rows_of_different_tables():
     assert problems({"id": "a", "node": "lines-of"}, {"id": "b", "node": "lines-of"}, {"id": "w", "node": "words"},
                     edges=(("a.result", "w.table"), ("b.result", "w.table")), registry=ALTERNATIVES) == ["rows_not_related"]
+
+
+# -- lists typed in ----------------------------------------------------------------------------
+
+
+@node("ask-each")
+def ask_each(doc: str, question: str) -> str:
+    return f"{doc}?{question}"
+
+
+@node("answer")
+def answer(doc: str, question: str) -> bool:
+    raise Ask(f"{doc}: {question}")
+
+
+TYPED = registry_of(split, upper, join, ask_each, answer, decide, pair)
+QUESTIONS = {"id": "q", "node": "ask-each", "values": {"question": ["a", "b", "c"]}, "many": ["question"]}
+
+
+def test_a_list_typed_into_a_node_that_runs_once_is_a_table_of_its_own_and_the_node_runs_per_item():
+    run = ran({"id": "u", "node": "upper", "values": {"text": ["x", "y"]}, "many": ["text"]}, {"id": "j", "node": "join"},
+              edges=(("u.result", "j.texts"),), registry=TYPED)
+
+    assert run.graph.plan == {"u": "per row of u.text", "j": "once"}
+    assert run.results == {"u": {"result": ["X", "Y"]}, "j": {"result": "X+Y"}}
+    assert list(run.graph.inputs) == []
+
+
+def test_flow_8a_questions_typed_into_a_node_per_document_are_a_table_under_each_document_and_answers_sit_beside_them():
+    """«Spørg» runs per document: three questions typed in, two documents, six questions, each answered on its own row."""
+    loaded = graph({"id": "d", "node": "split"}, {"id": "q", "node": "answer", "values": {"question": ["a", "b", "c"]}, "many": ["question"]},
+                   edges=(("d.result", "q.doc"),), registry=TYPED)
+    run = loaded.run(text="x,y")
+
+    assert loaded.plan["q"] == "per row of q.question"
+    assert [w.prompt for w in run.waiting] == ["x: a", "x: b", "x: c", "y: a", "y: b", "y: c"]
+    assert [w.row for w in run.waiting] == [(0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2)]
+    saved = loaded.load_run(run.to_json())
+    done = saved.answer({w.id: w.row == (1, 2) for w in saved.waiting}).resume()
+    assert done.results["q"]["result"] == [False, False, False, False, False, True]
+
+
+def test_a_series_reads_a_typed_in_list_column_under_each_document_and_a_per_row_node_reads_it_per_row():
+    run = ran({"id": "d", "node": "split"}, QUESTIONS, {"id": "j", "node": "join"}, {"id": "u", "node": "upper"},
+              edges=(("d.result", "q.doc"), ("q.result", "j.texts"), ("q.result", "u.text")), registry=TYPED, text="x,y")
+
+    assert run.results["j"]["result"] == ["x?a+x?b+x?c", "y?a+y?b+y?c"]
+    assert run.results["u"]["result"] == ["X?A", "X?B", "X?C", "Y?A", "Y?B", "Y?C"]
+    assert through_json(run).results == run.results
+
+
+def test_an_empty_typed_in_list_is_a_table_of_no_rows_and_a_gather_of_it_is_empty():
+    run = ran({"id": "u", "node": "upper", "values": {"text": []}, "many": ["text"]}, {"id": "j", "node": "join"},
+              edges=(("u.result", "j.texts"),), registry=TYPED)
+
+    assert run.results == {"u": {"result": []}, "j": {"result": ""}}
+
+
+def test_two_lists_typed_into_one_node_are_refused_whether_it_runs_once_or_per_row():
+    both = {"id": "p", "node": "pair", "values": {"a": ["1"], "b": ["2"]}, "many": ["a", "b"]}
+    per_row = {"id": "q", "node": "ask-each", "values": {"question": ["a"], "doc": ["d"]}, "many": ["question", "doc"]}
+
+    assert problems(both, registry=TYPED) == ["two_typed_in_lists"]
+    assert problems(per_row, registry=TYPED) == ["two_typed_in_lists"]
+    inner = embedded("two-lists", both)
+    assert problems({"id": "e", "node": "two-lists"}, registry=registry_of(pair, inner)) == ["embedded_graph_broken"]
+
+
+def test_no_documents_ask_no_questions_and_a_document_skipped_above_asks_none_of_its_own():
+    nothing = ran({"id": "d", "node": "split"}, QUESTIONS, edges=(("d.result", "q.doc"),), registry=TYPED, text="")
+    assert nothing.results["q"]["result"] == []
+
+    skipped = graph({"id": "d", "node": "split"}, {"id": "y", "node": "decide"}, {**QUESTIONS, "node": "answer"},
+                    edges=(("d.result", "y.text"), ("y.yes", "q.doc")), registry=TYPED).run(text="ok,no")
+    assert [w.prompt for w in skipped.waiting] == ["ok: a", "ok: b", "ok: c"]
+
+
+def test_a_list_typed_in_inside_an_embedded_graph_per_outer_row_is_a_child_table_under_each_outer_row_through_json():
+    inner = embedded("asker", {"id": "q", "node": "ask-each", "values": {"question": ["a", "b"]}, "many": ["question"]}, {"id": "j", "node": "join"},
+                     edges=(("q.result", "j.texts"),))
+    run = ran({"id": "d", "node": "split"}, {"id": "e", "node": "asker"}, edges=(("d.result", "e.doc"),),
+              registry=registry_of(split, join, ask_each, inner), text="x,y")
+
+    assert run.results["e"]["result"] == ["x?a+x?b", "y?a+y?b"]
+    assert through_json(run).results == run.results
+
+
+def test_a_skip_above_an_embedded_typed_list_leaves_it_no_rows_and_its_nodes_complete_through_json():
+    inner = embedded("asker", {"id": "q", "node": "ask-each", "values": {"question": ["a", "b"]}, "many": ["question"]}, {"id": "j", "node": "join"},
+                     edges=(("q.result", "j.texts"),))
+    run = ran({"id": "d", "node": "decide"}, {"id": "e", "node": "asker"}, edges=(("d.yes", "e.doc"),),
+              registry=registry_of(decide, join, ask_each, inner), text="no")
+
+    assert run.results["e"]["result"] is None and through_json(run).status == "complete"
+
+
+def test_an_empty_table_above_a_typed_list_and_two_more_levels_ends_cleanly():
+    run = ran({"id": "d", "node": "split"}, QUESTIONS, {"id": "s", "node": "split"}, {"id": "u", "node": "upper"},
+              edges=(("d.result", "q.doc"), ("q.result", "s.text"), ("s.result", "u.text")), registry=TYPED, text="")
+
+    assert run.results["u"]["result"] == []
+
+
+def test_a_typed_in_value_is_received_once_and_a_typed_in_list_once_per_item():
+    calls: list[str] = []
+
+    @node("note")
+    def note(text: str, tag: str) -> str:
+        calls.append(f"{tag}:{text}")
+        return text
+
+    ran({"id": "n", "node": "note", "values": {"text": ["a", "b"], "tag": "t"}, "many": ["text"]}, registry=registry_of(note))
+    assert calls == ["t:a", "t:b"]
+
+
+def test_two_series_outputs_of_one_node_and_two_children_of_one_parent_do_not_line_up_in_a_per_row_node():
+    @dataclass(frozen=True)
+    class Two:
+        a: Series[str]
+        b: Series[str]
+
+    @node("two")
+    def two(text: str) -> Two:
+        return Two([text], [text])
+
+    reg = registry_of(two, split, pair)
+    assert problems({"id": "t", "node": "two"}, {"id": "p", "node": "pair"}, edges=(("t.a", "p.a"), ("t.b", "p.b")), registry=reg) == ["rows_not_related"]
+    assert problems({"id": "s", "node": "split"}, {"id": "x", "node": "split"}, {"id": "y", "node": "split"}, {"id": "p", "node": "pair"},
+                    edges=(("s.result", "x.text"), ("s.result", "y.text"), ("x.result", "p.a"), ("y.result", "p.b")), registry=reg) == ["rows_not_related"]
