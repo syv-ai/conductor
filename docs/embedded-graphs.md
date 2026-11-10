@@ -74,6 +74,8 @@ print(both.run({"both.upper/text": "a", "both.exclaim/text": "b"}).outputs)
 # {'both.upper/result': 'A', 'both.exclaim/result': 'b!'}
 ```
 
+A caller gives them by name or by address alike: `{"upper/text": "a"}` and `{"both.upper/text": "a"}` fill the same input.
+
 Everything else names the embedding, never its inner nodes:
 
 - problems

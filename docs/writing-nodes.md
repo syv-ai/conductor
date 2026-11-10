@@ -157,7 +157,7 @@ A branch not taken reads as `None` in `run.results` and `run.outputs`.
 
 ## Asking a person
 
-`raise Ask(prompt)` stops the node on that row and asks a person. Your return type says what they answer: `bool` is yes or no, a `Literal` is one of its values, `str`, `int`, `float` or `date` is a value, `Table[R]` is records, `Series[X]` is several, and a frozen dataclass is a form, one question per field. A field's default is offered as the answer.
+`raise Ask(prompt)` stops the node on that row and asks a person. Your return type says what they answer: `-> bool` asks a yes or no, and a frozen dataclass asks a form, one question per field, each field's default offered. What every type asks is in the reference (`python -m conductor.about`, "Legs and Asking").
 
 `Ask` adds what only the run knows: `choices`, `default` and `widget`. On a node with one output, `choices` is a list:
 

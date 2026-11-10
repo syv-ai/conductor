@@ -76,4 +76,4 @@ assert approve.from_run == {"who": Caller}
 
 - A pydantic model a node returns is one value, not one output per field.
 - `Ask` is a `BaseException`: an `except Exception` in the node lets it through.
-- Only `ExternalFailure` and `retry_on` classes retry; attempt `n` waits `retry_delay * 2 ** (n - 1)`. A timed-out attempt is final.
+- Only `ExternalFailure` and `retry_on` classes retry, on the schedule `python -m conductor.about` gives. A timed-out attempt is final.

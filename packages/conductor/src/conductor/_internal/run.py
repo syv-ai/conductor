@@ -211,10 +211,10 @@ class Run:
 
         ``run.answer(unit, value)`` answers one row, ``run.answer({unit_id: value, ...})``
         several. A node with one output is answered with its value, one with
-        several with a mapping by output name, where a question with a default,
-        an ``exclusive_group``, or a blank-taking type without choices may be
-        left out; a question limited by choices is answered unless it has a
-        default. Every fault is refused at once and the run is left as it was:
+        several with a mapping by output name, where a question with a default
+        or a blank-taking type without choices may be left out, and of an
+        ``exclusive_group`` exactly one is answered; a question limited by
+        choices is answered unless it has a default. Every fault is refused at once and the run is left as it was:
         a row answered twice in one call, an id that names nothing waiting
         (``not_waiting``), or one whose row now holds another question
         (``answer_stale``, with ``ctx.moved_to`` when that question waits on
