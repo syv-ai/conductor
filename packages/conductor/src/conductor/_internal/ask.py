@@ -23,7 +23,7 @@ from pydantic_core import PydanticSerializationError, to_json, to_jsonable_pytho
 
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.errors import value_free_errors
-from conductor._internal.fields import SKIPPED, FieldDescription, FieldSpec
+from conductor._internal.fields import SKIPPED, FieldDescription, FieldSpec, Refused
 
 if TYPE_CHECKING:
     from conductor._internal.graph import PlacedNode
@@ -151,7 +151,7 @@ def _added(spec: FieldSpec, kind: str, value: Any, so_far: Mapping[str, Any]) ->
             raise WrongAsk(f"the default for '{spec.name}' is SKIPPED; a person answers a value")
         try:
             return _as_json(spec, _checked_answer(spec, value, so_far))
-        except _Refused as refused:
+        except Refused as refused:
             raise WrongAsk(f"the default for '{spec.name}' is not an answer it takes: {refused.reason}") from None
     if spec.shape == "table":
         raise WrongAsk(f"'{spec.name}' is a table, which takes no choices")
@@ -217,12 +217,6 @@ def _required(spec: FieldSpec, question: Mapping[str, Any]) -> bool:
     return "default" not in question and spec.param.exclusive_group is None and not blank
 
 
-class _Refused(Exception):
-    def __init__(self, reason: str) -> None:
-        super().__init__(reason)
-        self.reason = reason
-
-
 def answer_outputs(placed: PlacedNode, value: Any, added: Mapping[str, Mapping[str, Any]]) -> tuple[dict[str, Any], list[tuple[str | None, str]]]:
     """A person's answer as the node's outputs, or every fault in it as ``(question, reason)``; nothing of the value is quoted."""
     outputs = placed.definition.outputs
@@ -231,7 +225,7 @@ def answer_outputs(placed: PlacedNode, value: Any, added: Mapping[str, Mapping[s
         (name, spec), = outputs.items()
         try:
             return {name: _checked_answer(spec, value, asked_now[name])}, []
-        except _Refused as refused:
+        except Refused as refused:
             return {}, [(None, refused.reason)]
     if value is None and not outputs:
         return {}, []
@@ -248,12 +242,12 @@ def answer_outputs(placed: PlacedNode, value: Any, added: Mapping[str, Mapping[s
             elif group is not None:
                 read[name] = SKIPPED
             elif "default" in question:
-                read[name] = read_value(spec, question["default"])
+                read[name] = read_answer(spec, question["default"])
             elif not question["required"]:
                 read[name] = None
             else:
                 faults.append((name, f"'{name}' was not answered"))
-        except _Refused as refused:
+        except Refused as refused:
             faults.append((name, f"'{name}': {refused.reason}"))
         if group is not None:
             groups.setdefault(group, []).append(name)
@@ -265,20 +259,20 @@ def answer_outputs(placed: PlacedNode, value: Any, added: Mapping[str, Mapping[s
 
 def _checked_answer(spec: FieldSpec, value: Any, question: Mapping[str, Any]) -> Any:
     """One question's answer in the node's own form, held to the choices it offers; a pick of several picks each once."""
-    read = read_value(spec, value)
+    read = read_answer(spec, value)
     offered = question.get("choices")
     if offered is not None:
         picked = _as_json(spec, read)
         picks = picked if spec.shape == "many" else [picked]
         ids = [choice["id"] for choice in offered]
         if any(item not in ids for item in picks):
-            raise _Refused("the answer is not one of the choices")
+            raise Refused("the answer is not one of the choices")
         if len({repr(item) for item in picks}) != len(picks):
-            raise _Refused("a choice is picked twice")
+            raise Refused("a choice is picked twice")
     return read
 
 
-def read_value(spec: FieldSpec, value: Any) -> Any:
+def read_answer(spec: FieldSpec, value: Any) -> Any:
     """``value`` read as one value of the output ``spec``: a table from records or a frame, anything else by its type."""
     if spec.shape == "table":
         return _read_table(spec, value)
@@ -291,11 +285,11 @@ def _strictly(adapter: TypeAdapter[Any], value: Any) -> Any:
     try:
         written = to_json(value, inf_nan_mode="constants")
     except PydanticSerializationError:
-        raise _Refused("the answer has no JSON form") from None
+        raise Refused("the answer has no JSON form") from None
     try:
         return adapter.validate_json(written, strict=True)
     except ValidationError as error:
-        raise _Refused(value_free_errors(error)[0]["msg"]) from None
+        raise Refused(value_free_errors(error)[0]["msg"]) from None
 
 
 _RECORDS = TypeAdapter(list[dict[str, Any]])
@@ -309,21 +303,21 @@ def _read_table(spec: FieldSpec, value: Any) -> pl.DataFrame:
         try:
             records = _RECORDS.validate_python(value)
         except ValidationError:
-            raise _Refused("a table is a list of records, one object per row") from None
+            raise Refused("a table is a list of records, one object per row") from None
     if spec.columns is None:
         try:
             return pl.DataFrame(records)
         except Exception:  # noqa: BLE001  polars' own account may quote a cell
-            raise _Refused("the records don't make a table") from None
+            raise Refused("the records don't make a table") from None
     unknown = sorted({key for record in records for key in record} - spec.columns.keys())
     if unknown:
-        raise _Refused(f"the table has no column '{unknown[0]}'; it has {', '.join(spec.columns)}")
+        raise Refused(f"the table has no column '{unknown[0]}'; it has {', '.join(spec.columns)}")
     columns = {}
     for column, adapter in spec.column_adapters.items():
         try:
             columns[column] = _strictly(adapter, [record.get(column) for record in records])
-        except _Refused as refused:
-            raise _Refused(f"column '{column}': {refused.reason}") from None
+        except Refused as refused:
+            raise Refused(f"column '{column}': {refused.reason}") from None
     return pl.DataFrame(columns, strict=False)
 
 
