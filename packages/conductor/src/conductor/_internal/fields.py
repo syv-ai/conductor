@@ -17,6 +17,7 @@ checked and written as JSON.
 from __future__ import annotations
 
 import builtins
+import copy
 import dataclasses
 import datetime
 import functools
@@ -367,14 +368,19 @@ class FieldSpec:
         it; as a ``record`` that adds to it (a graph's input, an input placed in a graph), with what ``changed`` says."""
         return (record or FieldDescription).model_validate({**self.as_json(), **changed})
 
+    @functools.cached_property
+    def _schemas(self) -> dict[str, Any]:
+        """The JSON schema of one value, or of each column of a table, made once: pydantic builds one in tens of microseconds."""
+        if self.shape == "table":
+            return {"columns": {c: _schema(t) for c, t in (self.columns or {}).items()}}
+        return {"schema": _schema(self._one)}
+
     def as_json(self) -> dict[str, Any]:
         """``describe()`` as JSON, with only the keys the field has: what a question is made from."""
         out: dict[str, Any] = {"name": self.name, "title": self.title, "shape": self.shape, "required": self.required}
         if self.shape != "table":
             out["type"] = type_id(without_none(self.type))
-            out["schema"] = _schema(self._one)
-        else:
-            out["columns"] = {c: _schema(t) for c, t in (self.columns or {}).items()}
+        out.update(copy.deepcopy(self._schemas))  # the caller may change what it is given
         if not self.required:
             out["default"] = to_jsonable_python(self.default, fallback=lambda _: None)
         offered = literal_values(self.type) if self.shape != "table" else None
