@@ -63,7 +63,7 @@ def test_a_foreign_exception_runs_once_and_is_execution_failed_and_quotes_nothin
 
     assert len(calls) == 1 and not [e for e in events if e.type == "node_retry"]
     (failed,) = [e for e in events if e.type == "node_failed"]
-    assert (failed.cause.type, failed.cause.msg, failed.cause.loc, failed.cause.ctx) == ("execution_failed", "The node failed.", ("n",), {"error": "KeyError"})
+    assert (failed.cause.type, failed.cause.msg, failed.cause.loc, failed.cause.ctx) == ("execution_failed", "The node failed; its developer finds why in the conductor log.", ("n",), {"error": "KeyError"})
     assert "secret" not in json.dumps([e.model_dump(mode="json") for e in events])
     assert "the secret" in caplog.text  # the text goes to the log, with its traceback
     assert events[-1].run.status == "failed" and events[-1].run.cause == failed.cause

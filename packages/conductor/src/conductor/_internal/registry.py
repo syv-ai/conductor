@@ -87,7 +87,7 @@ class NodeRegistry:
         self._named_types = tuple(types)
         for named in self._named_types:
             if not isinstance(named, type):
-                raise NodeDeclarationError(f"{named!r} is not a type", code="not_a_type")
+                raise NodeDeclarationError(f"{named!r} is not a type; pass the class itself", code="not_a_type")
         #: The definitions, by id, in the order they arrived.
         self._nodes: dict[str, NodeDefinition[..., Any]] = {}
         #: Every type, by id: the ones the nodes declare, then the named ones.

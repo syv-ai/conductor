@@ -249,7 +249,7 @@ class NodeDefinition(Generic[_P, _R]):
         }
 
 
-class _Declare(Protocol):
+class NodeDecorator(Protocol):
     """What ``@node(...)`` returns: it makes a node of a function, or of a stored graph."""
 
     @overload
@@ -278,7 +278,7 @@ def node(
     compute_outputs: Callable[..., Mapping[str, Any]] | None = None,
     replaces: NodeDefinition[..., Any] | None = None,
     upgrade: Upgrade | None = None,
-) -> _Declare:
+) -> NodeDecorator:
     """Make the function below it, or a stored graph, a node with the id ``id``::
 
         @node("upper")
@@ -316,7 +316,7 @@ def node(
         raise NodeDeclarationError(f"@node({id!r}) replaces {replaces!r}; a node replaces an earlier @node of its own id", code="replaces_another_node")
     number = version if version is not None else (replaces.version + 1 if replaces is not None else 1)
     if replaces is not None and number <= replaces.version:
-        raise NodeDeclarationError(f"@node({id!r}) is version {number}, not after the version {replaces.version} it replaces", code="version_not_after")
+        raise NodeDeclarationError(f"@node({id!r}) is version {number}, not after the version {replaces.version} it replaces; leave version= out, or give one above {replaces.version}", code="version_not_after")
     checked = MappingProxyType(checked_extra(extra))
 
     def make(target: Any) -> NodeDefinition[..., Any]:
@@ -337,7 +337,7 @@ def node(
         if compute_added_inputs is not None and not takes_kwargs:
             raise NodeDeclarationError(f"{where}a node with compute_added_inputs takes them as **kwargs", code="compute_added_inputs_without_var_keyword")
         if compute_added_inputs is None and takes_kwargs:
-            raise NodeDeclarationError(f"{where}**kwargs takes the inputs compute_added_inputs adds; the node has no such hook", code="var_keyword_without_hook")
+            raise NodeDeclarationError(f"{where}**kwargs takes the inputs compute_added_inputs adds; the node has no such hook, so remove **kwargs or add compute_added_inputs=", code="var_keyword_without_hook")
         for hook, kind in ((compute_added_inputs, "compute_added_inputs"), (compute_outputs, "compute_outputs")):
             if hook is not None:
                 _check_hook(where, hook, kind, inputs)
@@ -351,7 +351,7 @@ def node(
             _raise_if_upgrade_is_missing(where, replaces, definition)
         return definition
 
-    return typing.cast(_Declare, make)
+    return typing.cast(NodeDecorator, make)
 
 
 #: What a node id never holds: each means something in an address (``node.field``, ``embedding/inner``) or a waiting id
@@ -416,7 +416,7 @@ def _read_signature(where: str, function: Callable[..., Any], computed_outputs: 
             continue
         inputs[name] = read_field(name, hint, default, where)
         if inputs[name].param.exclusive_group is not None:
-            raise NodeDeclarationError(f"{where}{name}: exclusive_group is for outputs", code="exclusive_group_on_input")
+            raise NodeDeclarationError(f"{where}{name}: exclusive_group is for outputs; put it on an output's Param", code="exclusive_group_on_input")
     if "return" not in hints:
         raise NodeDeclarationError(f"{where}a node needs a return type", code="output_without_type")
     returns = hints["return"]
@@ -426,7 +426,7 @@ def _read_signature(where: str, function: Callable[..., Any], computed_outputs: 
         return inputs, {}, None
     if isinstance(returns, type) and dataclasses.is_dataclass(returns):
         if not returns.__dataclass_params__.frozen:  # type: ignore[attr-defined]
-            raise NodeDeclarationError(f"{where}a dataclass of outputs is frozen", code="outputs_not_frozen")
+            raise NodeDeclarationError(f"{where}a dataclass of outputs is frozen; write @dataclass(frozen=True)", code="outputs_not_frozen")
         own = typing.get_type_hints(returns, include_extras=True)
         return inputs, {f.name: read_field(f.name, own[f.name], _declared_default(f), where=where) for f in dataclasses.fields(returns)}, returns
     return inputs, {"result": read_field("result", returns, where=where)}, returns
@@ -448,7 +448,7 @@ def _check_hook(where: str, hook: Callable[..., Any], kind: str, inputs: Mapping
         if parameter.kind is not parameter.POSITIONAL_OR_KEYWORD and parameter.kind is not parameter.KEYWORD_ONLY:
             raise NodeDeclarationError(f"{where}{kind} parameter {name!r}: a hook's parameters are passed by name", code="hook_parameter_unknown")
         if arriving and kind == "compute_added_inputs":
-            raise NodeDeclarationError(f"{where}compute_added_inputs parameter {name!r} reads an arriving type, but inputs are decided before anything arrives", code="arriving_on_compute_added_inputs")
+            raise NodeDeclarationError(f"{where}compute_added_inputs parameter {name!r} reads an arriving type, but inputs are decided before anything arrives; read it in compute_outputs", code="arriving_on_compute_added_inputs")
         if not arriving and name not in inputs:
             raise NodeDeclarationError(f"{where}{kind} parameter {name!r} names no input of the node; it has {sorted(inputs)}", code="hook_parameter_unknown")
 

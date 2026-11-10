@@ -62,21 +62,21 @@ from conductor._internal.conductor_model import ConductorModel
 #: translates by code covers ``PROBLEM_CODES``.
 PROBLEM_CATALOGUE: Mapping[str, str] = {
     # -- what loading finds in a graph -----------------------------------------
-    "compute_hook_failed": "The node could not work out its fields from what it was given: {reason}",
-    "cycle": "The node is part of a cycle, so the graph cannot run.",
-    "duplicate_node_id": "Two nodes have the id '{node_id}'.",
-    "edge_names_missing_node": "The edge from '{source}' to '{target}' names '{node_id}', which is not a node of the graph.",
+    "compute_hook_failed": "The node could not work out its fields from what it was given: {reason}. Check what is typed into the node.",
+    "cycle": "The node is part of a cycle, so the graph cannot run; remove one of the edges that close it.",
+    "duplicate_node_id": "Two nodes have the id '{node_id}'; rename one.",
+    "edge_names_missing_node": "The edge from '{source}' to '{target}' names '{node_id}', which is not a node of the graph; add that node or remove the edge.",
     "embedded_graph_broken": "The graph '{graph}' has {count} problem(s) to fix before it can be used here.",
-    "embeds_itself": "The node '{node}' is a graph that contains itself.",
+    "embeds_itself": "The node '{node}' is a graph that contains itself; embed a graph that does not contain this one.",
     "default_on_later_node": "'{field}' is not an open input of the graph, so a caller can't change its default; make it a value.",
     "hook_needs_value": "'{field}' must be typed in: the node works out its fields from it when the graph loads.",
     "invalid_node_id": "'{node_id}' cannot be a node id: '.', '/', '@' and '~' each mean something in an address or a waiting id; rename it without them.",
-    "invalid_value": "The value typed into '{field}' is not valid: {reason}",
-    "many_on_edge": "'{field}' is fed by an edge; only an open input takes one or many values from the caller.",
-    "many_not_open": "'{field}' is not an open input of the graph, so it takes no list from the caller.",
-    "many_on_series": "'{field}' already takes many values.",
-    "parameter_name_invalid": "'{field}' cannot be a field name: '.', '/' and '@' each mean something in an address, and a name can't be empty.",
-    "repeated_edge": "The edge from '{source}' into '{field}' is drawn twice.",
+    "invalid_value": "The value typed into '{field}' is not valid: {reason}. Type a value of the field's type.",
+    "many_on_edge": "'{field}' is fed by an edge; only an open input takes one or many values from the caller, so take '{field}' out of many.",
+    "many_not_open": "'{field}' is not an open input of the graph, so it takes no list from the caller; take '{field}' out of many.",
+    "many_on_series": "'{field}' already takes many values; take '{field}' out of many.",
+    "parameter_name_invalid": "'{field}' cannot be a field name: '.', '/' and '@' each mean something in an address, and a name can't be empty; rename the field.",
+    "repeated_edge": "The edge from '{source}' into '{field}' is drawn twice; remove one.",
     "rows_not_related": "{tables} are rows of different tables; join them on a key in a node, and wire the join.",
     "alternatives_on_different_rows": (
         "'{field}' takes alternatives from rows of different tables, {tables}, so a row of one has no place for the other's value. "
@@ -90,10 +90,10 @@ PROBLEM_CATALOGUE: Mapping[str, str] = {
         "{inputs} read branches that never both have a value on a row, so no row would reach the node. "
         "Write Series[X | None] on them to keep every row, or take the branches through one input."
     ),
-    "two_typed_in_lists": "Only one list can be typed into a node; {inputs} are all lists.",
-    "type_mismatch": "'{source}' gives {got}, but '{node_id}.{field}' takes {expected}.",
-    "columns_missing": "'{node_id}.{field}' takes the columns {missing}, which nothing wired into it from {sources} gives.",
-    "unbound_on_later_node": "Nothing feeds '{field}', and only a first node takes inputs from the caller.",
+    "two_typed_in_lists": "Only one list can be typed into a node, and {inputs} are all lists; type one in and feed the others through edges.",
+    "type_mismatch": "'{source}' gives {got}, but '{node_id}.{field}' takes {expected}; connect an output that gives {expected}, or convert it in a node between.",
+    "columns_missing": "'{node_id}.{field}' takes the columns {missing}, which nothing wired into it from {sources} gives; wire them in, or take a Table of any columns.",
+    "unbound_on_later_node": "Nothing feeds '{field}', and only a first node takes inputs from the caller; draw an edge into it or type a value in.",
     "unknown_input": "'{node_id}' has no input '{field}'; it has {inputs}.",
     "unknown_node": "There is no node '{node}'; the nodes are {choices}.",
     "unknown_output": "'{source}' is not something that node gives; it gives {outputs}.",
@@ -101,17 +101,17 @@ PROBLEM_CATALOGUE: Mapping[str, str] = {
     "value_and_default": "Field '{field}' has both a value and a default; keep one.",
     "value_and_edge": "Field '{field}' has an edge and a typed-in value; keep one.",
     # -- what a call is refused for ----------------------------------------------
-    "invalid_record": "The record is not a graph record at '{at}': {reason}",
+    "invalid_record": "The record is not a graph record at '{at}': {reason}. Fix the record's JSON.",
     "answer_stale": "The question {waiting_id!r} was answered for has changed on its row; it is now {current!r}.",
     "cannot_move_to_version": "'{node}' cannot move from version {version} to {target}; it has {versions}.",
     "from_run_missing": "'{node_id}' needs a {needs} for '{parameter}', and from_run gives none (it gives {given}); pass from_run={{{needs}: ...}}.",
     "from_run_ambiguous": "'{node_id}' needs a {needs} for '{parameter}', and from_run gives more than one ({given}); key the one to use by {needs}.",
     "invalid_answer": "That is not a valid answer: {reason}",
     "input_given_twice": "'{name}' is given twice, by its name and by its address '{address}'; give it once.",
-    "invalid_input": "The value given for '{name}' is not valid: {reason}",
+    "invalid_input": "The value given for '{name}' is not valid: {reason}. Give a value of the type the input takes.",
     "invalid_max_rows": "max_rows is at least 1; it was {max_rows}.",
     "invalid_checkpoint_every": "checkpoint_every is a number of seconds above 0; it was {checkpoint_every}.",
-    "missing_input": "'{name}' is required.",
+    "missing_input": "'{name}' is required; give it in the call.",
     "not_a_chain": (
         "'{node_id}' can't follow '{before}' in a chain: a chain takes its one required open input (it has {inputs}) "
         "from the one output of the node before it (that has {outputs}); pass edges= to make_graph."
@@ -121,18 +121,18 @@ PROBLEM_CATALOGUE: Mapping[str, str] = {
     "not_waiting": "Nothing is waiting on an answer as {waiting_id!r}.",
     "run_not_complete": "The run is {status}, so it has no outputs yet; run.results has what it did. {reason}",
     "state_of_another_graph": "The saved run is of another graph ({saved}) than this one ({graph}); an edited graph starts a new run.",
-    "state_unreadable": "The saved run does not fit this graph at '{at}': {reason}",
-    "state_unwritable": "The run can't be written as JSON at '{at}': {reason}",
+    "state_unreadable": "The saved run does not fit this graph at '{at}': {reason}. Load it into the graph it was saved from.",
+    "state_unwritable": "The run can't be written as JSON at '{at}': {reason}. Give that field a type pydantic writes as JSON.",
     # -- why a node or a run stopped -------------------------------------------
-    "execution_failed": "The node failed.",
+    "execution_failed": "The node failed; its developer finds why in the conductor log.",
     "external_failed": "An outside service did not answer.",
     "failed": "The node reported a failure.",
-    "invalid_output": "The node returned a value that is not what it declares: {reason}",
-    "invalid_ask": "The node asked a question its outputs can't be answered with: {reason}",
-    "row_ceiling": "{table} has {rows} rows, more than the {max_rows} this run may make.",
+    "invalid_output": "The node returned a value that is not what it declares: {reason}. Fix what the node returns.",
+    "invalid_ask": "The node asked a question its outputs can't be answered with: {reason}. Fix the node's Ask.",
+    "row_ceiling": "{table} has {rows} rows, more than the {max_rows} this run may make; resume it with a larger max_rows.",
     "run_cancelled": "The run was cancelled. Resume it to carry on, or start a new run.",
-    "run_timed_out": "The run took too long and was stopped.",
-    "timeout": "The node did not answer in time.",
+    "run_timed_out": "The run took too long and was stopped; run.resume() carries on.",
+    "timeout": "The node did not answer in time; its Policy(attempt_timeout=) sets how long it may take.",
 }
 
 #: The codes a host translating by code has to cover.

@@ -93,7 +93,7 @@ def check_registry(
     for key in examples:
         node_id, version = (key, None) if isinstance(key, str) else key
         if node_id not in registry or (version is not None and version not in registry[node_id].versions):
-            found.append(_problem("example_for_no_node", node_id, version, f"{key!r} names no node of the registry"))
+            found.append(_problem("example_for_no_node", node_id, version, f"{key!r} names no node of the registry; check the id, or remove the example"))
     for definition in registry:
         found += _problems_of(definition, registry, examples, from_run or {})
     return _without_waived(found, expected_failures or {})
@@ -117,7 +117,7 @@ def _problems_of(
             paused = paused or (asked and version is definition)
         version = version.replaces
     if definition.function is not None and not paused and _may_ask(definition.function):
-        found.append(_problem("pause_untested", definition.id, definition.version, "the body raises Ask, and no example made it pause"))
+        found.append(_problem("pause_untested", definition.id, definition.version, "the body raises Ask, and no example made it pause; add an example that makes it ask"))
     return found
 
 
@@ -184,7 +184,7 @@ def _run_problems(version: NodeDefinition[..., Any], registry: NodeRegistry, exa
     except InvalidCallError as refused:
         return [_problem("run_failed", version.id, version.version, "the example was refused: " + "; ".join(p.msg for p in refused.errors()), **_causes(refused.errors()))], False
     found = [
-        _problem("changed_its_inputs", version.id, version.version, f"the body changed {name!r}, a value it was given; rows of a run can share it", input=name)
+        _problem("changed_its_inputs", version.id, version.version, f"the body changed {name!r}, a value it was given; rows of a run can share it, so copy the value before changing it", input=name)
         for name in changed
     ]
     if run.status not in ("complete", "waiting"):

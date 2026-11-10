@@ -28,7 +28,7 @@ from conductor._internal.graph import Graph, GraphInput, Receives, RunsOn
 from conductor._internal.node_definition import Deprecation, NodeDefinition, Policy, Upgrade, node
 from conductor._internal.record import GraphRecord, NodeRecord, make_graph
 from conductor._internal.registry import NodeRegistry
-from conductor._internal.run import Run
+from conductor._internal.run import Run, RunStatus
 
 if TYPE_CHECKING:
     # A node takes and returns frames; a type checker reads ``Table[R]`` as one that keeps its row type ``R``.
@@ -59,6 +59,7 @@ __all__ = [
     "Question",
     "Receives",
     "Run",
+    "RunStatus",
     "RunsOn",
     "Series",
     "Table",

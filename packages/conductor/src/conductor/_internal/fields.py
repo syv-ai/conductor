@@ -37,10 +37,17 @@ from typing import (
 )
 
 import polars as pl
-from pydantic import AfterValidator, ConfigDict, JsonValue, TypeAdapter, ValidationError
+from pydantic import (
+    AfterValidator,
+    BeforeValidator,
+    ConfigDict,
+    JsonValue,
+    TypeAdapter,
+    ValidationError,
+)
 from pydantic import Field as PydanticField
 from pydantic.errors import PydanticInvalidForJsonSchema
-from pydantic_core import to_jsonable_python
+from pydantic_core import PydanticCustomError, to_jsonable_python
 
 from conductor._internal.errors import NodeDeclarationError, value_free_errors
 
@@ -330,7 +337,7 @@ def _checked(spec: FieldSpec, where: str) -> FieldSpec:
     numeric = base in (int, float, datetime.date, datetime.datetime) or (isinstance(base, type) and issubclass(base, (int, float)))
     sized = base in (str, bytes) or (isinstance(base, type) and issubclass(base, (str, bytes)))
     if (limits & _NUMERIC and not numeric) or (limits & _SIZED and not sized):
-        raise NodeDeclarationError(f"{where}{spec.name}: {sorted(limits)} can't apply to {getattr(base, '__name__', base)}", code="bound_invalid")
+        raise NodeDeclarationError(f"{where}{spec.name}: {sorted(limits)} can't apply to {getattr(base, '__name__', base)}; ge, gt, le, lt and multiple_of fit numbers and dates, min_length, max_length and pattern texts", code="bound_invalid")
     if spec.shape == "table":
         return spec
     try:
@@ -386,8 +393,14 @@ _FLOATS_AS_TEXT = ConfigDict(ser_json_inf_nan="strings")
 
 
 def _list_of(item: Any) -> Any:
-    """``list[item]`` for an ``item`` known only at run time."""
-    return types.GenericAlias(list, (item,))
+    """``list[item]`` for an ``item`` known only at run time; a set is refused, as its order differs between processes."""
+    return Annotated[types.GenericAlias(list, (item,)), BeforeValidator(_not_a_set)]
+
+
+def _not_a_set(value: Any) -> Any:
+    if isinstance(value, (set, frozenset)):
+        raise PydanticCustomError("set_has_no_order", "a set has no order, so its rows would come in another order in another process; give a list")
+    return value
 
 
 def _columns_of(row: Any) -> dict[str, Any] | None:

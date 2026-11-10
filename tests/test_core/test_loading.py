@@ -665,3 +665,64 @@ def test_an_authored_id_with_a_slash_beside_an_embedding_is_refused_alone_and_st
     assert [(p.type, p.loc) for p in beside] == [("invalid_node_id", ("e/upper",))]
     broken = REGISTRY.load({"nodes": [{"id": "e", "node": "gone"}, {"id": "e/upper", "node": "upper"}]}).problems
     assert sorted((p.type, p.loc) for p in broken) == [("invalid_node_id", ("e/upper",)), ("unknown_node", ("e",))]
+
+
+def test_a_set_given_for_a_many_input_is_refused_as_it_has_no_order():
+    from conductor import NodeRegistry, make_graph, node
+
+    @node("send")
+    def send(contact: str) -> str:
+        return contact
+
+    registry = NodeRegistry()
+    registry.add(send)
+    graph = registry.load(make_graph(send, many={"send.contact"}))
+    with pytest.raises(InvalidCallError) as refused:
+        graph.run(contact={"b", "a"})
+    assert "a set has no order" in refused.value.errors()[0].msg
+    assert graph.run(contact=["b", "a"]).outputs == {"send.result": ["b", "a"]}
+
+
+def test_graphs_embedded_forty_deep_load_at_once():
+    """Each embedded graph is loaded alone once per load, however deep it nests, so depth costs time in proportion."""
+    import time
+
+    from conductor import NodeRegistry, node
+
+    registry = NodeRegistry()
+
+    @registry.node("upper")
+    def upper(text: str) -> str:
+        return text.upper()
+
+    inner = "upper"
+    for depth in range(40):
+        registry.add(node(f"nest-{depth}")(GraphRecord(nodes=[NodeRecord(id="n", node=inner)])))
+        inner = f"nest-{depth}"
+    started = time.monotonic()
+    graph = registry.load({"nodes": [{"id": "top", "node": inner}]})
+    assert time.monotonic() - started < 2 and graph.run(text="z").outputs == {"top.result": "Z"}
+
+
+def test_describe_lists_each_nodes_problems_on_it():
+    described = REGISTRY.load({"nodes": [{"id": "u", "node": "upper"}, {"id": "x", "node": "uper"}]}).describe()
+    assert [p["type"] for p in described["nodes"]["x"]["problems"]] == ["unknown_node"] and described["nodes"]["u"]["problems"] == []
+    assert described["problems"] == described["nodes"]["x"]["problems"]
+
+
+def test_a_type_mismatch_into_a_series_says_the_series_it_reads():
+    from conductor import NodeRegistry, Series, make_graph, node
+
+    @node("words")
+    def words(text: str) -> Series[str]:
+        return text.split()
+
+    @node("count")
+    def count(flags: Series[bool]) -> int:
+        return sum(flags)
+
+    registry = NodeRegistry()
+    registry.add(words, count)
+    (problem,) = registry.load({"nodes": [{"id": "w", "node": "words"}, {"id": "c", "node": "count"}], "edges": [["w.result", "c.flags"]]}).problems
+    assert (problem.type, problem.ctx["got"], problem.ctx["expected"]) == ("type_mismatch", "Series[str]", "Series[bool]")
+    assert make_graph(words, count).nodes[1].node == "count"

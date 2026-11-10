@@ -211,8 +211,13 @@ class Graph:
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         raise TypeError("a graph is loaded with registry.load(record)")
 
-    def _load(self, record: GraphRecord, definitions: Mapping[str, NodeDefinition[..., Any]], embedded_in: tuple[str, ...]) -> None:
+    def _load(
+        self, record: GraphRecord, definitions: Mapping[str, NodeDefinition[..., Any]], embedded_in: tuple[str, ...], alone: dict[Any, list[Problem]],
+    ) -> None:
         self.record = record
+        #: What each embedded graph loaded alone found, by its definition and the graphs it sits in, shared by every graph
+        #: this load makes, so each is loaded alone once however deep it nests.
+        self._alone = alone
         self.problems: list[Problem] = []
         self._definitions = dict(definitions)
         #: Each embedding, at any depth, by its spliced id; and for the ones drawn in this record, what they offer.
@@ -301,13 +306,18 @@ class Graph:
     def describe(self) -> dict[str, Any]:
         """The loaded graph as an editor draws it: every node of the record, with its fields as its hooks made them and where it runs.
 
-        A node that didn't load (an unknown node, a broken edge, or one below it) is there with ``loaded`` false,
-        its problems saying why; an embedded graph is one node, with the fields it offers.
+        Each node lists its own ``problems``, and ``problems`` beside the nodes lists every one. A node that didn't
+        load (an unknown node, a broken edge, or one below it) is there with ``loaded`` false, its problems saying why;
+        an embedded graph is one node, with the fields it offers.
         """
         nodes: dict[str, Any] = {}
         plan = self.plan
+        problems = [p.model_dump(mode="json") for p in self.problems]
         for record in self.record.nodes:
-            nodes[record.id] = {"node": record.node, "version": record.version, "loaded": record.id in self._nodes or record.id in plan}
+            nodes[record.id] = {
+                "node": record.node, "version": record.version, "loaded": record.id in self._nodes or record.id in plan,
+                "problems": [p for p in problems if p["loc"][:1] == [record.id]],
+            }
         for p in self._nodes.values():
             if p.id in nodes:
                 nodes[p.id].update({
@@ -329,7 +339,7 @@ class Graph:
             "nodes": nodes,
             "inputs": {name: i.describe() for name, i in self.inputs.items()},
             "outputs": self.outputs,
-            "problems": [p.model_dump(mode="json") for p in self.problems],
+            "problems": problems,
         }
 
     def _receives(self, placed: PlacedNode, name: str) -> Receives:
@@ -489,9 +499,11 @@ class Graph:
                 self.problems.append(make_problem("embeds_itself", node_record.id, node=definition.id))
                 out.append((node_record, None))
                 continue
-            alone = load_graph(definition.graph, self._definitions, (*stack, definition.id))
-            if alone.problems:
-                inner_problems = [p.model_dump(mode="json") for p in alone.problems]
+            loaded_alone = (definition.id, definition.version, (*stack, definition.id))
+            if loaded_alone not in self._alone:
+                self._alone[loaded_alone] = load_graph(definition.graph, self._definitions, loaded_alone[2], self._alone).problems
+            if self._alone[loaded_alone]:
+                inner_problems = [p.model_dump(mode="json") for p in self._alone[loaded_alone]]
                 self.problems.append(make_problem("embedded_graph_broken", node_record.id, graph=definition.id, count=len(inner_problems), problems=inner_problems))
                 out.append((node_record, None))
                 continue
@@ -850,7 +862,10 @@ class Graph:
             return True
         if source.whole_table or not accepts(spec.type, source.type):
             got = "Table" if source.whole_table else type_id(source.type)
-            self.problems.append(make_problem("type_mismatch", node_id, name, source=address, got=got, expected=type_id(spec.type)))
+            expected = type_id(spec.type)
+            if spec.shape == "many":  # a gather: its items are checked, and it is said as the Series it reads
+                got, expected = f"Series[{got}]", f"Series[{expected}]"
+            self.problems.append(make_problem("type_mismatch", node_id, name, source=address, got=got, expected=expected))
             return False
         return True
 
@@ -1018,10 +1033,13 @@ class Graph:
         self.problems.append(make_problem("rows_not_related", placed.id, tables=[_table(a), _table(b)]))
 
 
-def load_graph(record: GraphRecord, definitions: Mapping[str, NodeDefinition[..., Any]], embedded_in: tuple[str, ...] = ()) -> Graph:
-    """``record`` loaded against ``definitions``, the one way a ``Graph`` is made; ``embedded_in`` names the graphs it is loaded inside."""
+def load_graph(
+    record: GraphRecord, definitions: Mapping[str, NodeDefinition[..., Any]], embedded_in: tuple[str, ...] = (), alone: dict[Any, list[Problem]] | None = None,
+) -> Graph:
+    """``record`` loaded against ``definitions``, the one way a ``Graph`` is made; ``embedded_in`` names the graphs it is
+    loaded inside, and ``alone`` what the embedded graphs of this load found loaded alone."""
     graph = Graph.__new__(Graph)
-    graph._load(record, definitions, embedded_in)
+    graph._load(record, definitions, embedded_in, {} if alone is None else alone)
     return graph
 
 
