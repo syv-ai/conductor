@@ -547,10 +547,6 @@ class Run:
             keys = below
         return keys, complete
 
-    def _skipped_above(self, source: Source, row: Key) -> bool:
-        """Whether the table ``source`` reads under ``row`` was never made because its maker took no branch there."""
-        return self._not_made(source, row) == "skipped"
-
     def _not_made(self, source: Source, row: Key) -> Literal["skipped", "blank"] | None:
         """Why the table ``source`` reads under ``row`` was never made: its maker took no branch there, or wasn't called for
         a blank input, or gave a blank in place of it."""
@@ -707,7 +703,8 @@ class Run:
     def _table(self, plan: InputPlan, row: Key) -> Any:
         """The table a ``Table`` input receives on ``row``; for alternatives, the one whose branch ran, or a skipped ``Unit`` when none did.
 
-        ``None`` when the table was never made there because its maker had a blank input.
+        ``None`` when the table was never made there because its maker had a blank input, whether it is the one maker or the
+        branch that ran.
         """
         if not plan.alternatives:
             under = row[: plan.table_anchor]
@@ -716,7 +713,10 @@ class Run:
             return self._columns(plan.sources, plan.table_level, under, plan.spec.columns)
         for source in plan.sources:
             under = row[: source.anchor]
-            if not self._skipped_above(source, under):
+            why = self._not_made(source, under)
+            if why == "blank":
+                return None
+            if why is None:
                 return self._columns([source], source.level, under, plan.spec.columns)
         return Unit("skipped", skipped_from=len(row))
 

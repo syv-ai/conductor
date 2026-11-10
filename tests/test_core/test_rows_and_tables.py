@@ -1330,6 +1330,27 @@ def test_tables_hanging_off_two_branches_into_one_table_input_are_the_branch_tha
     assert ran(*nodes, edges=edges, registry=reg, text="ok,no").results["w"]["result"] == ["OK", "NO"]
 
 
+def test_a_table_never_made_on_the_branch_that_ran_is_a_blank_as_it_is_from_one_maker():
+    @node("nothing")
+    def nothing(text: str) -> str | None:
+        return None
+
+    @node("lines-with")
+    def lines_with(text: str, extra: str) -> Table[Line]:
+        return pl.DataFrame({"text": [text]})
+
+    reg = registry_of(decide, nothing, lines_with, lines_of, words)
+    nodes = ({"id": "d", "node": "decide"}, {"id": "n", "node": "nothing"}, {"id": "y", "node": "lines-with"}, {"id": "w", "node": "words"})
+    edges = (("d.yes", "y.text"), ("n.result", "y.extra"), ("y.result", "w.table"))
+    one_maker = ran(*nodes, edges=edges, registry=reg, **{"d.text": "ok", "n.text": "z"})
+    alternatives = ran(*nodes, {"id": "o", "node": "lines-of"}, edges=(*edges, ("d.no", "o.text"), ("o.result", "w.table")), registry=reg,
+                       **{"d.text": "ok", "n.text": "z"})
+
+    for run in (one_maker, alternatives):
+        assert run.results["w"] == {"result": None}
+        assert {"node_id": "w", "row": (), "input": "table"} in run.not_called
+
+
 def test_whole_tables_that_can_both_hold_rows_into_one_table_input_are_still_rows_of_different_tables():
     assert problems({"id": "a", "node": "lines-of"}, {"id": "b", "node": "lines-of"}, {"id": "w", "node": "words"},
                     edges=(("a.result", "w.table"), ("b.result", "w.table")), registry=ALTERNATIVES) == ["rows_not_related"]
