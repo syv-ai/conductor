@@ -4,8 +4,9 @@ They run on the ``regex`` package rather than ``re``: its engine doesn't
 backtrack on the patterns that freeze ``re`` (``(a+)+$`` over a long run of
 a's), and every call has a timeout as a second guard. A call that holds the GIL
 can't be stopped from outside, so the guard is inside it. A pattern that takes
-longer than ``TIMEOUT`` fails its node as ``pattern_timeout``, and one that
-doesn't compile as ``invalid_pattern``.
+longer than ``TIMEOUT`` fails its node as ``pattern_timeout``, one that
+doesn't compile as ``invalid_pattern``, and a replacement that refers to a group
+the pattern lacks as ``invalid_replacement``.
 """
 
 from collections.abc import Callable
@@ -33,6 +34,14 @@ def _timed(operation: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         raise NodeError(f"The pattern is not valid: {error}.", code="invalid_pattern") from None
 
 
+def _replaced(compiled: regex.Pattern[str], replacement: str, text: str, timeout: float) -> str:
+    """``compiled.sub(replacement, text)``, a replacement's own fault apart from the pattern's."""
+    try:
+        return compiled.sub(replacement, text, timeout=timeout)
+    except regex.error as error:
+        raise NodeError(f"The replacement is not valid: {error}.", code="invalid_replacement") from None
+
+
 def _flags(ignore_case: bool) -> int:
     return regex.IGNORECASE if ignore_case else 0
 
@@ -51,7 +60,8 @@ def replace_all(
     ignore_case: Flag = False,
 ) -> str:
     """Replaces every match of the pattern."""
-    replaced: str = _timed(regex.sub, pattern, replacement, text, flags=_flags(ignore_case))
+    compiled = _timed(lambda timeout: regex.compile(pattern, flags=_flags(ignore_case)))
+    replaced: str = _timed(_replaced, compiled, replacement, text)
     return replaced
 
 

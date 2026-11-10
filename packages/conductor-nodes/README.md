@@ -39,6 +39,6 @@ graph = conductor_nodes.registry.load(make_graph(conductor_nodes.text.length, de
 print([field.type for field in graph.describe().nodes["decision"].outputs])  # ['int', 'int']
 ```
 
-A JSON value is pydantic's `JsonValue`. The regular-expression nodes run on the `regex` package, with a timeout on every call, so a pattern that would freeze `re` fails its node as `pattern_timeout`.
+A JSON value is pydantic's `JsonValue`. The regular-expression nodes run on the `regex` package, with a timeout on every call, so a pattern that would freeze `re` fails its node as `pattern_timeout`; one that doesn't compile fails as `invalid_pattern`, and a replacement that refers to a group the pattern lacks as `invalid_replacement`. `math-round` rounds a half away from zero, 2.5 to 3 and 0.125 to 0.13 at two decimals.
 
 The documentation, the examples and the changelog live in the repository: https://github.com/syv-ai/conductor

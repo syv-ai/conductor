@@ -52,7 +52,8 @@ What changes in how you work, before the name-by-name tables:
   A node's own exception goes to the `conductor` logger, never to an event.
 - **Two companion packages, rebuilt on this API.** `syv-conductor-nodes` holds 29 nodes that only
   compute, a registry per module (`conductor_nodes.text.registry`) and all of them in
-  `conductor_nodes.registry`. `syv-conductor-providers` holds `run_router`, a FastAPI router that
+  `conductor_nodes.registry`. `math-round` rounds a half away from zero (2.5 to 3), and
+  `regex-replace` fails a replacement that refers to a missing group as `invalid_replacement`. `syv-conductor-providers` holds `run_router`, a FastAPI router that
   starts, follows, answers, resumes and cancels runs on several workers over a `RunStore` you
   write ([`docs/serving-runs.md`](docs/serving-runs.md)). An answer sent while a leg runs waits for it to
   end, and one that then finds nothing waiting is kept in `refused`; `again` runs on the nodes of

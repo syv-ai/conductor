@@ -1,6 +1,8 @@
 """Arithmetic nodes: ``math-add``, ``math-divide``, ``math-min`` and the rest."""
 
 import builtins
+import math
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Annotated
 
 from conductor import NodeError, NodeRegistry, Param, Series
@@ -52,8 +54,13 @@ def round_to(
     value: Number,
     decimals: Annotated[int, Param(ge=0, le=10, widget=NumberInput(integer_only=True))] = 0,
 ) -> Annotated[float, Param(title="Rounded")]:
-    """Rounds to the given number of decimals."""
-    return builtins.round(value, decimals)
+    """Rounds to the given number of decimals, a half away from zero: 2.5 to 3, -2.5 to -3, 0.125 to 0.13 at 2.
+
+    The number is rounded as it is written, so 0.125 is a half though the float nearest it is a little less.
+    """
+    if not math.isfinite(value) or builtins.abs(value) >= 2**52:  # a float this large has no fraction to round
+        return value
+    return float(Decimal(str(value)).quantize(Decimal(1).scaleb(-decimals), rounding=ROUND_HALF_UP))
 
 
 @registry.node("math-min", title="Min")

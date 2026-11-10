@@ -59,7 +59,7 @@ def contains(text: LongText, needle: Line, case_sensitive: Flag = True) -> Annot
 
 
 @registry.node("text-split")
-def split(text: LongText, separator: Line = ",") -> Annotated[Series[str], Param(title="Parts")]:
+def split(text: LongText, separator: Annotated[str, Param(widget=TextInput(), min_length=1)] = ",") -> Annotated[Series[str], Param(title="Parts")]:
     """Splits the text on a separator, a row per part."""
     return text.split(separator)
 

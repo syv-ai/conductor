@@ -4,7 +4,7 @@ from typing import Any
 
 import conductor_nodes
 import pytest
-from conductor import make_graph
+from conductor import InvalidCallError, make_graph
 from conductor_nodes import decision, json_ops, regex_ops, text
 
 
@@ -25,6 +25,9 @@ def _run(node_id: str, **values: Any) -> dict[str, Any]:
     ("math-add", {"a": 2, "b": 3}, 5),
     ("math-divide", {"a": 10, "b": 4}, 2.5),
     ("math-round", {"value": 3.7}, 4),
+    ("math-round", {"value": 2.5}, 3),
+    ("math-round", {"value": -2.5}, -3),
+    ("math-round", {"value": 0.125, "decimals": 2}, 0.13),
     ("math-min", {"values": [3, 1, 2]}, 1),
     ("logic-not", {"value": True}, False),
     ("json-parse", {"text": '{"a": 1, "b": [2, 3]}'}, {"a": 1, "b": [2, 3]}),
@@ -79,6 +82,21 @@ def test_a_failure_says_what_went_wrong_in_a_code_of_its_own(node_id: str, value
     run = conductor_nodes.registry.load(record).run()
 
     assert run.status == "failed" and run.cause is not None and run.cause.type == code
+
+
+def test_a_replacement_that_names_a_group_the_pattern_lacks_is_its_own_fault_not_the_patterns() -> None:
+    record = make_graph(regex_ops.replace_all, values={"regex-replace.text": "a", "regex-replace.pattern": "a", "regex-replace.replacement": r"\9"})
+
+    cause = conductor_nodes.registry.load(record).run().cause
+    assert cause is not None and cause.type == "invalid_replacement" and "pattern" not in cause.msg
+
+
+def test_an_empty_separator_is_refused_at_the_field_before_the_node_runs() -> None:
+    graph = conductor_nodes.registry.load(make_graph(text.split))
+
+    with pytest.raises(InvalidCallError) as refused:
+        graph.run(text="a,b", separator="")
+    assert [(p.type, p.loc) for p in refused.value.errors()] == [("invalid_input", ("inputs", "separator"))]
 
 
 def test_a_pattern_that_takes_too_long_fails_its_node_instead_of_freezing_the_run(monkeypatch: pytest.MonkeyPatch) -> None:
