@@ -6,13 +6,14 @@ gathers the rows under the node's row, or under the row it shares with a
 sibling table. One-value sources must lie on one path of the row tree. A blank cell keeps a node from being called on its row unless the input
 says ``| None``; a branch not taken skips the row.
 """
+import datetime
 import json
 from dataclasses import dataclass
 from typing import Annotated, Any, Optional, TypedDict
 
 import polars as pl
 import pytest
-from conductor import SKIPPED, Ask, GraphRecord, Param, Series, Table, node
+from conductor import SKIPPED, Ask, GraphRecord, InvalidCallError, Param, Series, Table, node
 
 from tests.test_core.nodes import registry_of
 
@@ -1435,3 +1436,79 @@ def test_many_on_an_embedded_node_takes_a_list_as_its_inner_input_would():
 
     assert loaded.inputs["text"].many and loaded.run(text=["a", "b"]).results["e"] == {"result": ["A", "B"]}
     assert problems({"id": "e", "node": "shouter", "many": ["nope"]}, registry=registry_of(upper, inner)) == ["unknown_input"]
+
+
+# -- tables typed in or given ------------------------------------------------------------------
+
+
+class Dated(TypedDict):
+    name: str
+    when: datetime.date
+
+
+class Comma(float):
+    """A number written with a decimal comma, as a host's own type reads it."""
+
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> Any:
+        from pydantic_core import core_schema
+
+        return core_schema.no_info_before_validator_function(lambda v: float(v.replace(",", ".")) if isinstance(v, str) else v, core_schema.float_schema())
+
+
+class Priced(TypedDict):
+    price: Comma
+
+
+@node("describe-dated")
+def describe_dated(rows: Table[Dated]) -> str:
+    return f"{rows.columns}:{rows['when'].to_list()}"
+
+
+@node("total-price")
+def total_price(rows: Table[Priced]) -> float:
+    return float(rows["price"].sum())
+
+
+DATED = registry_of(describe_dated, total_price, show, upper)
+
+
+def test_a_table_a_caller_gives_is_read_to_its_columns_by_their_types_and_survives_a_save():
+    loaded = graph({"id": "d", "node": "describe-dated"}, registry=DATED)
+
+    run = loaded.run(rows=[{"name": "a", "when": "2024-01-02", "extra": 1}])
+
+    assert run.results["d"]["result"] == "['name', 'when']:[datetime.date(2024, 1, 2)]"
+    assert through_json(run).results == run.results
+    assert loaded.run(rows=pl.DataFrame({"name": ["b"], "when": [datetime.date(2024, 5, 6)]})).status == "complete"
+
+
+def test_a_caller_s_table_missing_a_column_is_refused_naming_it_and_an_empty_list_is_a_table_of_no_rows():
+    loaded = graph({"id": "d", "node": "describe-dated"}, registry=DATED)
+
+    with pytest.raises(InvalidCallError) as refused:
+        loaded.run(rows=[{"name": "a"}])
+    (problem,) = refused.value.errors()
+    assert (problem.type, problem.loc, problem.ctx["column"]) == ("invalid_input", ("inputs", "rows"), "when")
+    assert loaded.run(rows=[]).results["d"]["result"] == "['name', 'when']:[]"
+
+
+def test_a_typed_in_table_reads_each_cell_through_its_column_s_own_type():
+    run = ran({"id": "t", "node": "total-price", "values": {"rows": [{"price": "1,5"}, {"price": "2"}]}}, registry=DATED)
+
+    assert run.results["t"]["result"] == 3.5
+
+
+def test_a_typed_in_cell_its_type_cannot_read_is_refused_at_load_naming_the_column():
+    loaded = graph({"id": "d", "node": "describe-dated", "values": {"rows": [{"name": "a", "when": "junk"}]}}, registry=DATED)
+
+    (problem,) = loaded.problems
+    assert (problem.type, problem.loc, problem.ctx["column"]) == ("invalid_value", ("d", "rows"), "when")
+    assert ran({"id": "d", "node": "describe-dated", "values": {"rows": [{"name": "a", "when": "2024-01-02"}]}}, registry=DATED).status == "complete"
+
+
+def test_a_typed_in_frame_on_a_table_of_any_columns_arrives_with_the_columns_it_holds_and_an_edge_from_one_loads():
+    run = ran({"id": "s", "node": "show", "values": {"table": [{"email": "a@b.dk", "n": 1}]}}, {"id": "u", "node": "upper"},
+              edges=(("s.result.email", "u.text"),), registry=DATED)
+
+    assert run.results["s"]["result"].columns == ["email", "n"] and run.results["u"]["result"] == ["A@B.DK"]

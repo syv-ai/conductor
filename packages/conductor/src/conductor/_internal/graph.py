@@ -38,7 +38,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 import polars as pl
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 
 from conductor._internal.ask import questions_of
 from conductor._internal.errors import InvalidCallError, Problem, make_problem, value_free_errors
@@ -354,11 +354,16 @@ class Graph:
                     problems.append(make_problem("missing_input", "inputs", name, name=name))
                 values[graph_input.key] = graph_input.default
                 continue
-            adapter = carried_list(graph_input.spec.type) if graph_input.many else graph_input.spec.adapter
             try:
-                values[graph_input.key] = adapter.validate_python(given[name])
+                if graph_input.spec.shape == "table" and not graph_input.many:
+                    values[graph_input.key] = given_table(graph_input.spec, given[name])
+                else:
+                    adapter = carried_list(graph_input.spec.type) if graph_input.many else graph_input.spec.adapter
+                    values[graph_input.key] = adapter.validate_python(given[name])
             except ValidationError as error:
                 problems.append(make_problem("invalid_input", "inputs", name, name=name, reason=value_free_errors(error)[0]["msg"]))
+            except TableRefused as refused:
+                problems.append(make_problem("invalid_input", "inputs", name, name=name, reason=refused.reason, **refused.ctx))
         if problems:
             raise InvalidCallError(problems)
         return values
@@ -672,10 +677,13 @@ class Graph:
             if many:
                 return carried_list(spec.type).validate_python(value)
             if spec.shape == "table":
-                return value if isinstance(value, pl.DataFrame) else pl.DataFrame(value)
+                return given_table(spec, value)
             return spec.adapter.validate_python(value)
         except ValidationError as error:
             self.problems.append(make_problem("invalid_value", node_id, name, reason=value_free_errors(error)[0]["msg"]))
+            return REQUIRED
+        except TableRefused as refused:
+            self.problems.append(make_problem("invalid_value", node_id, name, reason=refused.reason, **refused.ctx))
             return REQUIRED
 
     def _typed_list(self, placed: PlacedNode, name: str, plan: InputPlan, value: Any) -> None:
@@ -702,7 +710,8 @@ class Graph:
         level: Level = (address,) if many else ()
         if many:
             self._makers[address] = (None, address)
-        plan.sources.append(Source(None, address, None, level, many, plan.spec.type, name=name))
+        table = plan.spec.shape == "table"  # a caller's table, read to the input's columns at the call
+        plan.sources.append(Source(None, address, None, level, many, plan.spec.type, whole_table=table, name=name, columns=plan.spec.columns if table else None))
         self._graph_inputs.append(GraphInput(address, placed.id, name, plan.spec, many, plan.value is REQUIRED, plan.value, key=address))
 
     def _source(self, address: str, node_id: str, name: str) -> Source | None:
@@ -929,6 +938,57 @@ def _code_text(code: Any) -> str:
     """A function's bytecode and constants as text that is the same in every process: a nested function by its own code."""
     consts = [_code_text(c) if hasattr(c, "co_code") else repr(c) for c in code.co_consts]
     return f"{code.co_code.hex()}:{consts}:{code.co_names}"
+
+
+class TableRefused(Exception):
+    """A table typed in or given that its input can't take: why, and the column it is about."""
+
+    def __init__(self, reason: str, **ctx: Any) -> None:
+        super().__init__(reason)
+        self.reason, self.ctx = reason, ctx
+
+
+_RECORDS = TypeAdapter(list[dict[str, Any]])
+
+
+def given_table(spec: FieldSpec, value: Any) -> pl.DataFrame:
+    """A table typed into a ``Table`` input or given for one: a frame or a list of records.
+
+    With a row type, each column it names is read by that column's type, so a host type reads its own text
+    (``"1,5"`` as 1.5) and a date its ISO text; a column missing is refused naming it, and other columns are left
+    out, as an edge into the input leaves them.
+    """
+    if isinstance(value, pl.DataFrame):
+        frame = value
+    else:
+        try:
+            records = _RECORDS.validate_python(value)
+        except ValidationError:
+            raise TableRefused("a table is a frame or a list of records, one object per row") from None
+        if spec.columns is not None:
+            seen = {key for record in records for key in record}
+            missing = [c for c in spec.columns if c not in seen and records]
+            if missing:
+                raise TableRefused(f"the column '{missing[0]}' is missing", column=missing[0])
+            frame = pl.DataFrame({c: [record.get(c) for record in records] for c in spec.columns}, strict=False)
+        else:
+            try:
+                return pl.DataFrame(records, strict=False)
+            except Exception:  # noqa: BLE001  polars' own account may quote a cell
+                raise TableRefused("the records don't make a table") from None
+    if spec.columns is None:
+        return frame
+    missing = [c for c in spec.columns if c not in frame.columns and frame.height]
+    if missing:
+        raise TableRefused(f"the column '{missing[0]}' is missing", column=missing[0])
+    columns = {}
+    for column, adapter in spec.column_adapters.items():
+        cells = frame[column].to_list() if column in frame.columns else [None] * frame.height
+        try:
+            columns[column] = adapter.validate_python(cells)
+        except ValidationError as error:
+            raise TableRefused(f"column '{column}': {value_free_errors(error)[0]['msg']}", column=column) from None
+    return pl.DataFrame(columns, strict=False)
 
 
 def _opposed(a: frozenset[tuple[str, str, str]], b: frozenset[tuple[str, str, str]]) -> bool:

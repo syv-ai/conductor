@@ -572,6 +572,8 @@ class Run:
                 if items and len(skips) == len(items) and all(above for above, _ in skips):
                     return SkippedAt(min(origin for _, origin in skips))  # every row under this one was skipped by a decision at or above it
                 gathered[name] = items
+            elif plan.sources[0].node_id is None:
+                kwargs[name] = self.inputs[plan.sources[0].output]  # a caller's table, read to its columns at the call
             else:
                 table = self._table(plan, row)
                 if table is PENDING or isinstance(table, SkippedAt):
@@ -637,7 +639,7 @@ class Run:
             if listed:
                 numbered: dict[Key, Unit] = {(i,): unit for i, (_, unit) in enumerate(listed)}
                 earlier[n] = {"fingerprints": [fp for fp, _ in listed], **_dump_units(self.graph._nodes[n], numbered, keyed=False)}
-        inputs = {address: _input_adapter(self.graph, address).dump_python(v, mode="json") for address, v in self.inputs.items()}
+        inputs = {address: _dump_input(self.graph, address, v) for address, v in self.inputs.items()}
         cause = self.cause.model_dump(mode="json") if self.cause else None
         code = {n: self._ran_as.get(n, p.reuse_digest) for n, p in self.graph._nodes.items()}
         written = {"status": self.status, "cause": cause, "max_rows": self.max_rows, "inputs": inputs, "units": units, "earlier": earlier, "code": code}
@@ -656,7 +658,7 @@ def run_from_json(graph: Graph, saved: str | bytes | Mapping[str, Any]) -> Run:
     """A run of ``graph`` from what ``run.to_json()`` wrote; ``graph.load_run`` is the door to it."""
     try:
         data = pydantic_core.from_json(saved) if isinstance(saved, (str, bytes)) else saved
-        inputs = {address: _input_adapter(graph, address).validate_python(v) for address, v in data["inputs"].items()}
+        inputs = {address: _load_input(graph, address, v) for address, v in data["inputs"].items()}
         run = Run(graph, inputs, max_rows=data["max_rows"], _door=STARTING)
         unknown = sorted(data["units"].keys() - graph._nodes.keys())
         if unknown:
@@ -977,9 +979,25 @@ _COLUMN_OF = {name: carried_list(kind | None) for name, kind in _PLAIN}
 _ANY_COLUMN = carried_list(Any)
 
 
-def _input_adapter(graph: Graph, address: str) -> TypeAdapter[Any]:
-    graph_input = next(p for p in graph.inputs.values() if p.key == address)
-    return carried_list(graph_input.spec.type) if graph_input.many else graph_input.spec.adapter
+def _graph_input(graph: Graph, address: str) -> Any:
+    return next(p for p in graph.inputs.values() if p.key == address)
+
+
+def _dump_input(graph: Graph, address: str, value: Any) -> Any:
+    """A caller's input as JSON: a table as a saved table output is, anything else by its field."""
+    graph_input = _graph_input(graph, address)
+    if graph_input.spec.shape == "table" and not graph_input.many:
+        return None if value is None else _dump_frame(graph_input.spec, Frame(value.height, value.to_dict(as_series=False)), address)
+    adapter = carried_list(graph_input.spec.type) if graph_input.many else graph_input.spec.adapter
+    return adapter.dump_python(value, mode="json")
+
+
+def _load_input(graph: Graph, address: str, saved: Any) -> Any:
+    graph_input = _graph_input(graph, address)
+    if graph_input.spec.shape == "table" and not graph_input.many:
+        return None if saved is None else _load_frame(graph_input.spec, saved, address).frame()
+    adapter = carried_list(graph_input.spec.type) if graph_input.many else graph_input.spec.adapter
+    return adapter.validate_python(saved)
 
 
 def _frame_json(value: Any) -> Any:
