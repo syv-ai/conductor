@@ -760,6 +760,28 @@ print(misasked.cause.type)  # invalid_ask
 
 **Fix.** Ask with choices and a default the node's return type accepts. `ctx.reason` says which part doesn't fit.
 
+### `invalid_edge_value`
+
+> The value an edge brought to '{name}' is not one it takes: {reason}. Fix the node that made it, or connect an output of the type the input takes.
+
+```python
+@registry.node("letters")
+def letters(text: str) -> int:
+    return len(text)
+
+
+@registry.node("small")
+def small(n: Annotated[int, Param(le=3)]) -> int:
+    return n
+
+
+too_big = registry.load(make_graph(letters, small)).run(text="many letters")
+assert too_big.cause is not None
+print(too_big.cause.type)  # invalid_edge_value
+```
+
+**Fix.** Make the node upstream give what the input takes, or put a node between that converts it. Loading lets through what a type alone can't settle: a limit on the input, a host type's own check, a table whose columns are known only once it is made. `ctx.name` names the input, a table's `ctx.column` its column.
+
 ### `invalid_output`
 
 > The node returned a value that is not what it declares: {reason}. Fix what the node returns.

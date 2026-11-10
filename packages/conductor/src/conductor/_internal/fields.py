@@ -857,7 +857,7 @@ def _declared(cls: type, name: str) -> str | None:
 class Refused(Exception):
     """A value its field can't take: ``reason`` says why and quotes nothing of it; ``ctx`` has pydantic's ``errors``
     without the value, the field's ``name`` and, for a table, the ``column``. ``code`` is the problem it is where it
-    was met: ``invalid_output`` for a node's return, ``invalid_input`` for what an edge brought."""
+    was met: ``invalid_output`` for a node's return, ``invalid_edge_value`` for what an edge brought."""
 
     def __init__(self, reason: str, *, code: str = "", **ctx: Any) -> None:
         super().__init__(reason)

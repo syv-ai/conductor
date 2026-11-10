@@ -937,7 +937,7 @@ def checked_outputs(definition: NodeDefinition[..., Any], returned: Any) -> Any:
         return {}
     groups: dict[str, str] = {}
     for name, spec in outputs.items():
-        spread[name] = _checked(spec, name, spread[name], "invalid_output")
+        spread[name] = _checked(spec, name, spread[name], code="invalid_output")
         group = spec.param.exclusive_group
         if group is not None and spread[name] is not SKIPPED:
             if group in groups:
@@ -947,11 +947,11 @@ def checked_outputs(definition: NodeDefinition[..., Any], returned: Any) -> Any:
 
 
 def checked_input(spec: FieldSpec, name: str, value: Any) -> Any:
-    """A value an edge brought, read by the input's type as a typed-in value is; ``Refused`` as ``invalid_input`` if it can't be."""
-    return _checked(spec, name, value, "invalid_input")
+    """A value an edge brought, read by the input's type as a typed-in value is; ``Refused`` as ``invalid_edge_value`` if it can't be."""
+    return _checked(spec, name, value, code="invalid_edge_value")
 
 
-def _checked(spec: FieldSpec, name: str, value: Any, code: str) -> Any:
+def _checked(spec: FieldSpec, name: str, value: Any, *, code: str) -> Any:
     try:
         read = read_value(spec, value, strict=code == "invalid_output")
     except Refused as refused:

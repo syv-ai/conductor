@@ -1028,7 +1028,16 @@ class Graph:
         return Source(source_id, output, None, source.makes[output], True, pl.DataFrame, whole_table=True, columns=spec.columns)
 
     def _fits(self, spec: FieldSpec, source: Source, address: str, node_id: str, name: str) -> bool:
+        """Whether ``source`` may feed the input, or a ``type_mismatch``: a table input by each column it declares whose
+        type the source knows, a table of unknown columns checked when it arrives."""
         if spec.shape == "table":
+            given = (source.columns if source.whole_table else {source.name: source.type}) or {}
+            for column, hint in (spec.columns or {}).items():
+                if column in given and not accepts(hint, given[column]):
+                    self.problems.append(make_problem(
+                        "type_mismatch", node_id, name, source=address, got=type_id(given[column]), expected=type_id(hint), column=column,
+                    ))
+                    return False
             return True
         if source.whole_table or not accepts(spec.type, source.type):
             got = "Table" if source.whole_table else type_id(source.type)

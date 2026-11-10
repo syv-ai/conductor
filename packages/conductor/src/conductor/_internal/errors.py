@@ -108,6 +108,7 @@ PROBLEM_CATALOGUE: Mapping[str, str] = {
     "from_run_ambiguous": "'{node_id}' needs a {needs} for '{parameter}', and from_run gives more than one ({given}); key the one to use by {needs}.",
     "invalid_answer": "That is not a valid answer: {reason}",
     "input_given_twice": "'{name}' is given twice, by its name and by its address '{address}'; give it once.",
+    "invalid_edge_value": "The value an edge brought to '{name}' is not one it takes: {reason}. Fix the node that made it, or connect an output of the type the input takes.",
     "invalid_input": "The value given for '{name}' is not valid: {reason}. Give a value of the type the input takes.",
     "invalid_max_rows": "max_rows is at least 1; it was {max_rows}.",
     "invalid_checkpoint_every": "checkpoint_every is a number of seconds above 0; it was {checkpoint_every}.",

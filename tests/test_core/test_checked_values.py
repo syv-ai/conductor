@@ -1,7 +1,7 @@
 """What a node returns is checked against what it declares, and so is a value an edge brings that its source's type doesn't settle.
 
 A value that isn't what the node declares fails the node that returned it as
-``invalid_output``, or the node it reached as ``invalid_input``, on that row,
+``invalid_output``, or the node it reached as ``invalid_edge_value``, on that row,
 quoting nothing of the value. A value already of its declared class is taken
 as it is; anything else is read strictly by the type, so a model may be
 returned as a dict, but ``"12"`` is never an ``int`` nor ``12.0`` an ``int`` column.
@@ -209,7 +209,7 @@ def test_a_column_of_yes_or_no_is_never_an_int_column_returned_brought_or_given(
         return int(lines["amount"].sum())
 
     brought = _feeding(yes_no, Table, total)
-    assert (brought.cause.type, brought.cause.loc, brought.cause.ctx["column"]) == ("invalid_input", ("b",), "amount")
+    assert (brought.cause.type, brought.cause.loc, brought.cause.ctx["column"]) == ("invalid_edge_value", ("b",), "amount")
     with pytest.raises(InvalidCallError) as given:
         registry_of(total).load(GraphRecord(nodes=[NodeRecord(id="t", node="total")])).run(lines=yes_no)
     assert [p.type for p in given.value.errors()] == ["invalid_input"]
@@ -252,7 +252,7 @@ def test_a_value_an_edge_brings_that_the_input_refuses_fails_the_node_it_reached
 
     run = _feeding(SECRET, str, sink)
 
-    assert (run.status, run.cause.type, run.cause.loc, run.cause.ctx["name"]) == ("failed", "invalid_input", ("b",), "identifier")
+    assert (run.status, run.cause.type, run.cause.loc, run.cause.ctx["name"]) == ("failed", "invalid_edge_value", ("b",), "identifier")
     assert SECRET not in run.cause.model_dump_json() and run.cause.ctx["reason"]
     assert run.results["a"] == {"result": SECRET}
 
@@ -270,7 +270,7 @@ def test_a_value_on_an_edge_outside_its_bounds_fails_the_node_for_that_row():
         nodes=[NodeRecord(id="a", node="numbers"), NodeRecord(id="b", node="at_least_five")], edges=[("a.result", "b.n")],
     )).run()
 
-    assert (run.cause.type, run.cause.loc) == ("invalid_input", ("b", 1))
+    assert (run.cause.type, run.cause.loc) == ("invalid_edge_value", ("b", 1))
     assert [(e["type"], e["msg"]) for e in run.cause.ctx["errors"]] == [("greater_than_equal", "Input should be greater than or equal to 5")]
 
 
@@ -294,10 +294,11 @@ def test_a_table_input_given_a_table_without_a_column_it_declares_fails_naming_t
 
     run = _feeding(pl.DataFrame({"name": ["Ida"]}), Table, needs_email)
 
-    assert (run.cause.type, run.cause.loc, run.cause.ctx["name"], run.cause.ctx["column"]) == ("invalid_input", ("b",), "contacts", "email")
+    assert (run.cause.type, run.cause.loc, run.cause.ctx["name"], run.cause.ctx["column"]) == ("invalid_edge_value", ("b",), "contacts", "email")
 
 
-def test_a_combined_table_whose_column_wont_read_as_the_input_fails_that_node():
+def test_a_column_of_a_known_type_its_input_wont_take_is_a_type_mismatch_when_the_graph_loads():
+    """A column whose type the source declares is checked as a ``Series`` of it is: text is never an ``int`` column."""
     class Amounts(TypedDict):
         result: int
 
@@ -312,11 +313,22 @@ def test_a_combined_table_whose_column_wont_read_as_the_input_fails_that_node():
     graph = registry_of(texts, total).load(GraphRecord(
         nodes=[NodeRecord(id="a", node="texts"), NodeRecord(id="b", node="total")], edges=[("a.result", "b.rows")],
     ))
-    assert graph.problems == []  # a str column may hold numbers written as text, so loading lets it through
 
-    run = graph.run()
+    [problem] = graph.problems
+    assert (problem.type, problem.loc, problem.ctx["column"], problem.ctx["got"], problem.ctx["expected"]) == ("type_mismatch", ("b", "rows"), "result", "str", "int")
 
-    assert (run.cause.type, run.cause.loc, run.cause.ctx["column"]) == ("invalid_input", ("b",), "result")
+
+def test_a_column_of_a_table_of_unknown_columns_its_input_wont_take_fails_that_node_as_what_the_edge_brought():
+    class Amounts(TypedDict):
+        result: int
+
+    @node("total")
+    def total(rows: Table[Amounts]) -> int:
+        return int(rows["result"].sum())
+
+    run = _feeding(pl.DataFrame({"result": ["1", "two"]}), Table, total)
+
+    assert (run.cause.type, run.cause.loc, run.cause.ctx["column"]) == ("invalid_edge_value", ("b",), "result")
 
 
 # -- a failure says why, and nothing of the value ------------------------------------------
