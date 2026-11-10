@@ -48,6 +48,7 @@ from pydantic import (
     GetJsonSchemaHandler,
     JsonValue,
     TypeAdapter,
+    ValidateAs,
     ValidationError,
 )
 from pydantic import Field as PydanticField
@@ -555,7 +556,7 @@ def _carried(hint: Any) -> Any:
     if isinstance(hint, type) and hint not in _BUILTINS and not hasattr(hint, "__get_pydantic_core_schema__"):
         base = next((b for b in _BUILTINS if issubclass(hint, b)), None)
         if base is not None:
-            return Annotated[base, AfterValidator(hint)]
+            return Annotated[hint, ValidateAs(base, hint)]
     return hint
 
 
