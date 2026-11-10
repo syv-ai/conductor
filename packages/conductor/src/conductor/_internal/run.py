@@ -251,7 +251,7 @@ class Run:
                 problems.append(make_problem("invalid_answer", outer, *key, waiting_id=unit_id, reason="the row is answered twice in one call"))
                 continue
             placed = self.graph._nodes[node_id]
-            shown = self.graph._shown_outputs(node_id)  # an embedding's questions are asked, and answered, by the names it offers
+            shown = self.graph._shown_outputs(node_id) if node_id in self.graph._spliced else {}  # an embedding's questions are asked, and answered, by the names it offers
             if shown and isinstance(one, Mapping):
                 own = {name: inner for inner, name in shown.items()}
                 one = {own.get(name, name): value for name, value in one.items()}
@@ -361,7 +361,7 @@ class Run:
     def _waiting(self, node_id: str, key: Key, unit: Unit) -> Waiting:
         question = unit.question or {}
         outer = self.graph._outward(node_id)
-        shown = self.graph._shown_outputs(node_id)
+        shown = self.graph._shown_outputs(node_id) if node_id in self.graph._spliced else {}
         asked = [q.model_copy(update={"name": shown[q.name]}) if q.name in shown else q for q in questions(self.graph._nodes[node_id], question.get("asked", {}))]
         return Waiting(
             id=f"{_unit_id(outer, key)}~{_question_fingerprint(self.graph._nodes[node_id], unit)}", node_id=outer, row=key, prompt=question["prompt"],
@@ -1139,19 +1139,20 @@ def _fingerprint(digest: str, kwargs: dict[str, Any], *, plain: bool = False) ->
     ``plain`` says no input holds a mapping, so no key came from a store: the inputs' own order is the node's.
     """
     try:
-        written = canonical_json([digest, kwargs], fallback=_frame_columns, sort_keys=not plain)
+        # No key of a plain node's inputs came from a store, so they need no canonical form: its inputs' order is the node's.
+        written = pydantic_core.to_json([digest, kwargs], fallback=_frame_columns) if plain else canonical_json([digest, kwargs], fallback=_frame_columns)
     except (TypeError, ValueError, pydantic_core.PydanticSerializationError):
         return None
     return hashlib.blake2b(written, digest_size=12).hexdigest()
 
 
-def canonical_json(value: Any, fallback: Callable[[Any], Any] | None = None, *, sort_keys: bool = True) -> bytes:
+def canonical_json(value: Any, fallback: Callable[[Any], Any] | None = None) -> bytes:
     """``value`` as JSON to hash, with every object's keys sorted, so a value a JSON store gave back in another key order is written alike.
 
-    Every hash of conductor's is written here. ``sort_keys=False`` is for a caller that knows no key came from a store.
+    Every hash whose keys may come back from a store is written here. A hash of values that hold no mapping (a reuse
+    fingerprint of a node whose inputs can't, a question whose inputs are plain) is their plain JSON, hashed as it
+    is: there are no keys to sort, and those hashes are made on every row.
     """
-    if not sort_keys:
-        return pydantic_core.to_json(value, fallback=fallback)
     plain = pydantic_core.to_jsonable_python(value, fallback=fallback)
     return json.dumps(plain, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
 
@@ -1171,7 +1172,8 @@ def _question_fingerprint(placed: PlacedNode, unit: Unit) -> str:
     """Eight hex digits of which node asks, as which code, and what it received, so a waiting id stops matching when its row holds another question."""
     inputs = (unit.question or {}).get("inputs") or {}
     values = [inputs[name] for name in sorted(inputs)]  # saved, so the names may come back from a store in any order
-    written = canonical_json([placed.id, placed.reuse_digest, values], sort_keys=any(isinstance(v, (dict, list)) for v in values))
+    hashed = [placed.id, placed.reuse_digest, values]
+    written = canonical_json(hashed) if {type(v) for v in values} & {dict, list} else pydantic_core.to_json(hashed)  # plain values have no keys to sort
     return hashlib.blake2b(written, digest_size=4).hexdigest()
 
 

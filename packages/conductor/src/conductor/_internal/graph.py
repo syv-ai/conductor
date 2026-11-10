@@ -518,9 +518,9 @@ class Graph:
         edges = []
         refused = {n.id for n in record.nodes if not is_node_id(n.id)}
         for a, b in record.edges:
-            if a.partition(".")[0] in refused or b.partition(".")[0] in refused:
+            if refused and (a.partition(".")[0] in refused or b.partition(".")[0] in refused):
                 continue  # its own invalid_node_id says why
-            inside = [address.partition(".")[0] for address in (a, b) if "/" in address.partition(".")[0]]
+            inside = [address.partition(".")[0] for address in (a, b) if "/" in address.partition(".")[0]] if "/" in a or "/" in b else None
             if inside:  # no node of a record has a '/', so this names a node inside an embedded graph
                 node_id, _, field = b.partition(".")
                 self.problems.append(make_problem("edge_names_missing_node", prefix + node_id, field, node_id=inside[0], source=a, target=b))
@@ -529,7 +529,7 @@ class Graph:
         renamed: dict[str, str] = {}  # "node.field" -> the inner node's "node.field"
         offered_here: dict[str, tuple[dict[str, tuple[str, str]], dict[str, str]]] = {}
         for node_record in record.nodes:
-            if not is_node_id(node_record.id):
+            if node_record.id in refused:
                 self.problems.append(make_problem("invalid_node_id", prefix + node_record.id))
                 continue  # never placed, so it can't stand in for a node an embedded graph puts there
             node_record = node_record.model_copy(update={"id": prefix + node_record.id})
@@ -607,7 +607,7 @@ class Graph:
         if newest is None:
             self.problems.append(make_problem("unknown_node", node_record.id, node=node_record.node, choices=sorted(self._definitions)))
             return None
-        if node_record.version not in newest.versions:
+        if node_record.version != newest.version and node_record.version not in newest.versions:
             self.problems.append(make_problem("unknown_version", node_record.id, node=node_record.node, version=node_record.version, newest=newest.version))
             return None
         return newest.version_of(node_record.version)
@@ -633,8 +633,9 @@ class Graph:
                 self.problems.append(make_problem("edge_names_missing_node", node_id, name, node_id=missing[0], source=source, target=target))
             if node_id in known:  # the input is drawn as fed, whether or not its source exists
                 into[node_id].setdefault(name, []).append(source)
-        self._fed: dict[str, list[str]] = {i: [] for i in known}  # each node's readers by the record's edges, before any is placed
-        for node_id, fed in into.items():
+        #: Each node's readers by the record's edges, before any is placed; only an embedded node's floor reads them, while compiling.
+        self._fed: dict[str, list[str]] = {i: [] for i in known} if self._embeddings else {}
+        for node_id, fed in into.items() if self._embeddings else ():
             for sources in fed.values():
                 for source in sources:
                     if source.partition(".")[0] in self._fed:
@@ -643,7 +644,9 @@ class Graph:
             node_record, definition = known[node_id]
             if definition is not None:
                 self._compile_node(node_record, definition, into[node_id])
+        self._fed = {}
         offered = [(self._outside(p, key), key, spec, default) for p, key, spec, default in self._graph_inputs]
+        self._graph_inputs = []
         bare = [p.name for p, _, _, _ in offered]
         self.inputs = {}
         for p, key, spec, default in offered:
