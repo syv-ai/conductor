@@ -244,8 +244,8 @@ class NodeDefinition(Generic[_P, _R]):
     upgrade: Upgrade = Upgrade()
     graph: GraphRecord | None = None
     policy: Policy = Policy()
-    compute_added_inputs: Callable[..., Mapping[str, Any]] | None = None
-    compute_outputs: Callable[..., Mapping[str, Any]] | None = None
+    compute_added_inputs: Callable[..., Mapping[Any, Any]] | None = None
+    compute_outputs: Callable[..., Mapping[Any, Any]] | None = None
     from_run: Mapping[str, type] = field(default_factory=dict[str, type])
     hook_parameters: Mapping[HookName, Mapping[str, bool]] = field(default_factory=dict[HookName, Mapping[str, bool]])
 
@@ -343,8 +343,8 @@ def node(
     docs: str | None = None,
     policy: Policy | None = None,
     deprecation: Deprecation | None = None,
-    compute_added_inputs: Callable[..., Mapping[str, Any]] | None = None,
-    compute_outputs: Callable[..., Mapping[str, Any]] | None = None,
+    compute_added_inputs: Callable[..., Mapping[Any, Any]] | None = None,
+    compute_outputs: Callable[..., Mapping[Any, Any]] | None = None,
     replaces: NodeDefinition[..., Any] | None = None,
     upgrade: Upgrade | None = None,
 ) -> NodeDecorator:

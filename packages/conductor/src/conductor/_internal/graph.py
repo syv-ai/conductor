@@ -837,7 +837,7 @@ class Graph:
 
     def _compile_node(self, record: NodeRecord, definition: NodeDefinition[..., Any], edges: dict[str, list[str]]) -> None:
         if definition.compute_added_inputs is not None:
-            added = self._hook(record, definition, "compute_added_inputs", edges)
+            added = self._hook(record, definition, "compute_added_inputs", definition.compute_added_inputs, {})
             if added is None:
                 return
             taken = sorted(added.keys() & (definition.inputs.keys() | definition.from_run.keys()))
@@ -891,7 +891,8 @@ class Graph:
             return
         placed.checked = tuple(name for name, plan in placed.inputs.items() if any(not _settled(plan.spec, s) for s in plan.sources if s.node_id is not None))
         if definition.compute_outputs is not None:
-            outputs = self._hook(record, definition, "compute_outputs", edges, placed)
+            arriving = {name: _arriving(plan) for name, plan in placed.inputs.items() if plan.sources}
+            outputs = self._hook(record, definition, "compute_outputs", definition.compute_outputs, arriving)
             if outputs is None:
                 return
             placed.definition = dataclasses.replace(definition, outputs=outputs)
@@ -913,15 +914,15 @@ class Graph:
         return self._position.get(node_id, -1), outputs.index(output) if output in outputs else len(outputs), address
 
     def _hook(
-        self, record: NodeRecord, definition: NodeDefinition[..., Any], kind: HookName, edges: dict[str, list[str]], placed: PlacedNode | None = None,
+        self, record: NodeRecord, definition: NodeDefinition[..., Any], kind: HookName, hook: Callable[..., Mapping[Any, Any]],
+        arriving: Mapping[str, Any],
     ) -> dict[str, FieldSpec] | None:
-        """Call a hook with the node's typed values and arriving types: its answer read as fields, or a problem."""
-        hook: Callable[..., Mapping[str, Any]] = getattr(definition, kind)  # set, as the caller checked
+        """Call a hook with the node's typed values and the types arriving on its inputs (``Any`` where nothing
+        arrives): its answer read as fields, or a problem."""
         kwargs: dict[str, Any] = {}
-        for name, arriving in definition.hook_parameters[kind].items():
-            if arriving:  # only compute_outputs reads one, so the node is placed
-                plan = placed.inputs.get(name) if placed is not None else None
-                kwargs[name] = _arriving(plan) if plan is not None and plan.sources else Any
+        for name, reads_arriving in definition.hook_parameters[kind].items():
+            if reads_arriving:  # only compute_outputs reads one
+                kwargs[name] = arriving.get(name, Any)
             else:  # @node checked it names a declared input
                 spec = definition.inputs[name]
                 raw = record.values.get(name, record.defaults.get(name, REQUIRED))
