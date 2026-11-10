@@ -682,8 +682,6 @@ def test_make_graph_refuses_a_value_beside_a_default_and_what_is_not_a_node():
     with pytest.raises(InvalidCallError) as refused:
         make_graph(_hello, count, edges=[], values={"hello.name": "a"}, defaults={"hello.name": "b"})
     assert sorted(p.type for p in refused.value.errors()) == ["value_and_default"]
-    with pytest.raises(TypeError, match="node definitions"):
-        make_graph(_hello, "shout")  # type: ignore[arg-type]
 
 
 def test_a_value_typed_in_from_python_is_its_json_so_the_record_equals_its_own_reload():

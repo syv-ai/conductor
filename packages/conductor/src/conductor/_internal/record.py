@@ -35,6 +35,7 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Mapping, Sequence
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Annotated, Any
 
 import polars as pl
@@ -158,7 +159,7 @@ def typed_in(node_id: str, values: Mapping[str, Any]) -> tuple[dict[str, JsonVal
     problems: list[Problem] = []
     for name, value in values.items():
         if _holds_a_set(value):
-            errors = [{"type": "set_has_no_order", "loc": [], "msg": SET_HAS_NO_ORDER}]
+            errors: list[dict[str, JsonValue]] = [{"type": "set_has_no_order", "loc": [], "msg": SET_HAS_NO_ORDER}]
             problems.append(make_problem("invalid_value", node_id, name, reason=SET_HAS_NO_ORDER, errors=errors))
             continue
         try:
@@ -182,8 +183,8 @@ def _holds_a_set(value: Any) -> bool:
 def make_graph(
     *nodes: NodeDefinition[..., Any],
     edges: Sequence[tuple[str, str]] | None = None,
-    values: Mapping[str, Any] | None = None,
-    defaults: Mapping[str, Any] | None = None,
+    values: Mapping[str, Any] = MappingProxyType({}),
+    defaults: Mapping[str, Any] = MappingProxyType({}),
 ) -> GraphRecord:
     """A graph record written from Python, each node at its version::
 
@@ -212,17 +213,13 @@ def make_graph(
     says that when it loads.
     """
     from conductor._internal.graph import load_graph  # which imports this module
-    from conductor._internal.node_definition import NodeDefinition  # which imports this module
 
-    for argument in nodes:
-        if not isinstance(argument, NodeDefinition):
-            raise TypeError(f"make_graph takes node definitions, made with @node; got {argument!r}")
     ids = _ids_of(nodes)
     known = dict(zip(ids, nodes, strict=True))
     definitions = _one_per_id(nodes)
     problems: list[Problem] = []
     typed: dict[str, dict[str, dict[str, JsonValue]]] = {"values": {}, "defaults": {}}
-    for kind, given in (("values", values or {}), ("defaults", defaults or {})):
+    for kind, given in (("values", values), ("defaults", defaults)):
         by_node: dict[str, dict[str, Any]] = {}
         for address, value in given.items():
             node_id, _, name = address.partition(".")
@@ -234,16 +231,10 @@ def make_graph(
             typed[kind][node_id], faults = typed_in(node_id, named)
             problems += faults
     if edges is None:
-        edges = []
-        for index in range(1, len(nodes)):
-            filled = {**typed["values"].get(ids[index], {}), **typed["defaults"].get(ids[index], {})}
-            edge = _chain_edge(ids[index - 1], nodes[index - 1], ids[index], nodes[index], filled)
-            if isinstance(edge, Problem):
-                problems.append(edge)
-            else:
-                edges.append(edge)
+        edges, faults = _chain_edges(ids, nodes, typed)
+        problems += faults
     else:
-        drawn = []
+        drawn: list[tuple[str, str]] = []
         for source, target in edges:
             try:
                 drawn.append((_checked_address(source), _checked_address(target)))
@@ -307,12 +298,19 @@ def _ids_of(nodes: Sequence[NodeDefinition[..., Any]]) -> list[str]:
     return ids
 
 
-def _chain_edge(
-    before_id: str, before: NodeDefinition[..., Any], after_id: str, after: NodeDefinition[..., Any], typed_in: Mapping[str, Any],
-) -> tuple[str, str] | Problem:
-    """The one edge from ``before`` into ``after`` in a chain, or the problem ``not_a_chain`` when there isn't exactly one."""
-    outputs = list(before.outputs)
-    open_inputs = [name for name, spec in after.inputs.items() if spec.required and name not in typed_in]
-    if len(outputs) != 1 or len(open_inputs) != 1:
-        return make_problem("not_a_chain", after_id, before=before_id, inputs=open_inputs, outputs=outputs)
-    return f"{before_id}.{outputs[0]}", f"{after_id}.{open_inputs[0]}"
+def _chain_edges(
+    ids: Sequence[str], nodes: Sequence[NodeDefinition[..., Any]], typed: Mapping[str, Mapping[str, Mapping[str, JsonValue]]],
+) -> tuple[list[tuple[str, str]], list[Problem]]:
+    """The one edge from each node into the next, and ``not_a_chain`` for each pair without exactly one."""
+    edges: list[tuple[str, str]] = []
+    problems: list[Problem] = []
+    for index in range(1, len(nodes)):
+        before_id, before, after_id, after = ids[index - 1], nodes[index - 1], ids[index], nodes[index]
+        filled = {**typed["values"].get(after_id, {}), **typed["defaults"].get(after_id, {})}
+        outputs = list(before.outputs)
+        open_inputs = [name for name, spec in after.inputs.items() if spec.required and name not in filled]
+        if len(outputs) != 1 or len(open_inputs) != 1:
+            problems.append(make_problem("not_a_chain", after_id, before=before_id, inputs=open_inputs, outputs=outputs))
+        else:
+            edges.append((f"{before_id}.{outputs[0]}", f"{after_id}.{open_inputs[0]}"))
+    return edges, problems

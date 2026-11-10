@@ -38,7 +38,7 @@ def registry_of(*definitions):
 
 def load(*definitions, record=None, values=None):
     """The graph of ``record``, or of ``definitions`` chained, loaded against exactly ``definitions``."""
-    return registry_of(*definitions).load(record if record is not None else make_graph(*definitions, values=values))
+    return registry_of(*definitions).load(record if record is not None else make_graph(*definitions, values=values or {}))
 
 
 def placed(node_id, kind, **record):

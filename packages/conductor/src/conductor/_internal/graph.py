@@ -673,7 +673,7 @@ class Graph:
     def _splice(self, record: GraphRecord, prefix: str, stack: tuple[str, ...]) -> tuple[list[tuple[NodeRecord, NodeDefinition[..., Any] | None]], list[tuple[str, str]]]:
         """Resolve each node; an embedded graph's nodes take its place under ``<node>/`` ids."""
         out: list[tuple[NodeRecord, NodeDefinition[..., Any] | None]] = []
-        edges = []
+        edges: list[tuple[str, str]] = []
         refused = {n.id for n in record.nodes if not is_node_id(n.id)}
         for a, b in record.edges:
             if refused and (a.partition(".")[0] in refused or b.partition(".")[0] in refused):
@@ -734,7 +734,7 @@ class Graph:
             inner = [(_given_from_outside(r, node_record, by_node[r.id], fed) if r.id in by_node else r, d) for r, d in inner]
             out.extend(inner)
             edges.extend(inner_edges)
-        followed = []
+        followed: list[tuple[str, str]] = []
         for a, b in edges:
             fa, fb = _follow(a, renamed), _follow(b, renamed)
             to_node, _, to_field = b.partition(".")
@@ -769,7 +769,7 @@ class Graph:
             for node_id in sorted({i for i in order if order.count(i) > 1}):
                 self.problems.append(make_problem("duplicate_node_id", node_id))
         into: dict[str, dict[str, list[str]]] = {i: {} for i in known}
-        seen = set()
+        seen: set[tuple[str, str]] = set()
         for source, target in edges:
             node_id, _, name = target.partition(".")
             if (source, target) in seen:

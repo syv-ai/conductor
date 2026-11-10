@@ -318,7 +318,7 @@ class NodeRegistry:
                 if target_ not in gone
             ]
         moved = placed.model_copy(update={"version": target, "values": values, "defaults": defaults})
-        return graph.model_copy(update={"nodes": tuple(moved if n is placed else n for n in graph.nodes), "edges": tuple(sorted(edges))})
+        return GraphRecord(nodes=[moved if n is placed else n for n in graph.nodes], edges=edges)
 
 
 class TypeDescription(ConductorModel):
