@@ -1362,3 +1362,15 @@ def test_again_keeps_every_waiting_question_when_an_earlier_row_waits_on_a_perso
 
     assert [w.id for w in again.waiting] == waiting and calls == []
     assert again.answer({waiting[1]: "y", waiting[2]: "z"}).results["b"]["result"] == [None, "y", "z"]
+
+
+def test_a_node_errors_own_code_inside_an_embedded_graph_fails_the_embedding_with_its_code_message_and_ctx():
+    @node("refuse")
+    def refuse(text: str) -> str:
+        raise NodeError("Dokumentet kan ikke læses.", code="document_unreadable", ctx={"pages": 0})
+
+    inner = node("reading")(make_graph(refuse))
+    run = registry_of(refuse, inner).load(GraphRecord(nodes=[NodeRecord(id="r", node="reading")])).run(text="x")
+
+    assert run.status == "failed"
+    assert (run.cause.type, run.cause.loc, run.cause.msg, run.cause.ctx) == ("document_unreadable", ("r",), "Dokumentet kan ikke læses.", {"pages": 0})

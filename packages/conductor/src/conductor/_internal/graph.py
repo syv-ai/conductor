@@ -41,7 +41,13 @@ import polars as pl
 from pydantic import ValidationError
 
 from conductor._internal.ask import questions_of
-from conductor._internal.errors import InvalidCallError, Problem, make_problem, value_free_errors
+from conductor._internal.errors import (
+    PROBLEM_CATALOGUE,
+    InvalidCallError,
+    Problem,
+    make_problem,
+    value_free_errors,
+)
 from conductor._internal.fields import (
     REQUIRED,
     FieldSpec,
@@ -531,6 +537,12 @@ class Graph:
                 self.problems.append(make_problem("edge_names_missing_node", node_id, name, node_id=missing[0], source=source, target=target))
             if node_id in known:  # the input is drawn as fed, whether or not its source exists
                 into[node_id].setdefault(name, []).append(source)
+        self._fed: dict[str, list[str]] = {i: [] for i in known}  # each node's readers by the record's edges, before any is placed
+        for node_id, fed in into.items():
+            for sources in fed.values():
+                for source in sources:
+                    if source.partition(".")[0] in self._fed:
+                        self._fed[source.partition(".")[0]].append(node_id)
         for node_id in self._order(order, into):
             node_record, definition = known[node_id]
             if definition is not None:
@@ -878,7 +890,9 @@ class Graph:
     def _floor(self, placed: PlacedNode) -> Level:
         """The rows an embedded node runs on at least: the rows its embedding enters on, by the entering edges it reads from.
 
-        A node reads an entering edge when the edge lands on it or on a node above it inside the embedding.
+        A node reads an entering edge when the edge lands on it or on a node above it inside the embedding. A node
+        that reads none and makes rows takes the entering edges a node below it reads, so a table made inside lies
+        under the outer row its reader receives the entering value on.
         """
         node_id = placed.id
         levels: list[Level] = []
@@ -888,9 +902,11 @@ class Graph:
                 if above is None:
                     sources = {s.node_id for p in placed.inputs.values() for s in p.sources if s.node_id is not None}
                     above = {node_id, *sources, *(a for n in sources for a in self._above_of(n))}
-                for address, target in self._entering[e]:
-                    if target.partition(".")[0] not in above:
-                        continue
+                entering = [(address, target) for address, target in self._entering[e] if target.partition(".")[0] in above]
+                if not entering and any(spec.shape != "one" for spec in placed.definition.outputs.values()):
+                    below = self._below(node_id)
+                    entering = [(address, target) for address, target in self._entering[e] if below & {target.partition(".")[0], *self._below(target.partition(".")[0])}]
+                for address, target in entering:
                     source = self._nodes.get(address.partition(".")[0])
                     if source is None:
                         continue
@@ -900,6 +916,17 @@ class Graph:
                     spec = holder.definition.inputs.get(target_input) if holder is not None else None  # its own copy, as its hooks made it
                     levels.append(level[:-1] if spec is not None and spec.shape != "one" and level else level)
         return _deepest(levels)
+
+    def _below(self, node_id: str) -> set[str]:
+        """Every node the record's edges feed from ``node_id``, however far down."""
+        found: set[str] = set()
+        stack = list(self._fed[node_id])
+        while stack:
+            n = stack.pop()
+            if n not in found:
+                found.add(n)
+                stack.extend(self._fed[n])
+        return found
 
     def _level_of(self, source: PlacedNode, address: str) -> Level:
         """The rows the value at ``address`` sits on: its node's, or the table one of its outputs makes."""
@@ -937,9 +964,11 @@ class Graph:
         outer = self._outward(f"{inner}.{field}") if field else self._outward(inner)
         loc: tuple[str | int, ...] = tuple(outer.split(".", 1)) if "." in outer else (outer, *(problem.loc[1:] if field is None else ()))
         ctx = dict(problem.ctx)
-        for key in ("node_id", "source", "target"):
+        for key in ("node_id", "source", "target", "a", "b"):
             if isinstance(ctx.get(key), str):
-                ctx[key] = self._outward(ctx[key])
+                ctx[key] = self._outward(ctx[key], table=key in ("a", "b"))
+        if problem.type not in PROBLEM_CATALOGUE:  # a node's own code: its message is its author's, and names no node
+            return problem.model_copy(update={"loc": loc, "ctx": ctx})
         return make_problem(problem.type, *loc, **ctx)
 
     def _unrelated(self, placed: PlacedNode, a: Level, b: Level) -> None:

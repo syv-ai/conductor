@@ -373,7 +373,7 @@ def test_a_value_already_of_its_type_is_kept_as_returned():
     assert math.isinf(_returning(math.inf, float).results["g"]["result"])
 
 
-@pytest.mark.parametrize("return_type", [Any, int | Any])
+@pytest.mark.parametrize("return_type", [Any, int | Any, Any | None])
 @pytest.mark.parametrize("returned", [1.5, "s", {"k": [1]}, None, 3])
 def test_a_node_typed_any_returns_anything_and_a_node_taking_any_receives_it(return_type: Any, returned: Any) -> None:
     @node("take_any")

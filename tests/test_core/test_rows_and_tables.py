@@ -809,6 +809,29 @@ def test_a_table_made_inside_per_outer_row_is_a_child_of_that_row_fed_or_not():
     assert run.results["emb"]["result"] == ["A:x+y", "B:x+y"]
 
 
+def test_an_inner_table_no_entering_edge_reaches_read_beside_an_entering_value_is_made_under_each_outer_row():
+    """Inside, ``p`` reads the entering value and each row of ``lines``: run alone that is one graph, so it is one per outer row too."""
+    inner = embedded("letters", {"id": "entered", "node": "upper"}, {"id": "lines", "node": "split", "values": {"text": "x/y", "sep": "/"}},
+                     {"id": "p", "node": "pair"}, edges=(("entered.result", "p.a"), ("lines.result", "p.b")))
+    run = ran({"id": "docs", "node": "split"}, {"id": "emb", "node": "letters"}, edges=(("docs.result", "emb.text"),),
+              registry=registry_of(split, upper, pair, inner), text="a,b")
+    assert run.results["emb"]["result"] == ["A:x", "A:y", "B:x", "B:y"]
+
+
+def test_rows_not_related_inside_an_embedding_names_no_inner_id():
+    """``x`` gathers the whole outer column and makes its own rows; ``p`` reads one of them beside each outer row."""
+
+    @node("each")
+    def each(texts: Series[str]) -> Series[str]:
+        return texts
+
+    inner = embedded("mixing", {"id": "entered", "node": "upper"}, {"id": "x", "node": "each"}, {"id": "p", "node": "pair"},
+                     edges=(("entered.result", "p.a"), ("x.result", "p.b")))
+    (problem,) = graph({"id": "docs", "node": "split"}, {"id": "emb", "node": "mixing"}, edges=(("docs.result", "emb.text"), ("docs.result", "emb.texts")),
+                       registry=registry_of(split, upper, pair, each, inner)).problems
+    assert problem.type == "rows_not_related" and problem.loc == ("emb",) and "/" not in problem.msg
+
+
 def test_inputs_from_a_table_and_its_child_table_run_the_inner_nodes_on_the_deeper_rows():
     @node("shout")
     def shout(word: str) -> str:
