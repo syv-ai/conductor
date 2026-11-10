@@ -1,7 +1,7 @@
 # Changelog
 
-All notable changes to `syv-conductor`; up to 1.x this also covered `syv-conductor-nodes` and
-`syv-conductor-providers`, released with it at one version. The format follows
+All notable changes to `syv-conductor`, `syv-conductor-nodes` and `syv-conductor-providers`,
+released together at one version. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); from `1.0.0` the project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
@@ -37,7 +37,11 @@ What changes in how you work, before the name-by-name tables:
   calling only the rows that changed (`run.again(...)`).
 - **Only an outside failure is retried.** `ExternalFailure`, or a class in `Policy(retry_on=)`.
   A node's own exception goes to the `conductor` logger, never to an event.
-- **No HTTP adapter or canvas package.** Copy `docs/serving-runs.md` into your application.
+- **Two companion packages, rebuilt on this API.** `syv-conductor-nodes` holds 29 nodes that only
+  compute, a registry per module (`conductor_nodes.text.registry`) and all of them in
+  `conductor_nodes.registry`. `syv-conductor-providers` holds `run_router`, a FastAPI router that
+  starts, follows, answers, resumes and cancels runs on several workers over a `RunStore` you
+  write ([`docs/serving-runs.md`](docs/serving-runs.md)). There is no canvas package.
 
 A 1.x graph doesn't load as saved. Convert each stored graph with the table under
 "Converting a stored 1.x graph", then save the `GraphRecord`.
@@ -209,11 +213,18 @@ Every public name of 1.12.2, by the module it was imported from. A name not list
 | `conductor.about.get_content` | `get_content`, unchanged |
 | `conductor.about.get_section` | `get_section`, unchanged |
 | `conductor.about.list_sections` | `list_sections`, unchanged |
-| `conductor_nodes.control_operators`: `OPERATORS`, `OPERATORS_BY_ID`, `OPERATORS_BY_LABEL`, `OPERATORS_BY_TYPE`, `OperatorEvaluationError`, `OperatorSpec`, `UNARY_OPERATORS` | gone with `syv-conductor-nodes` |
-| `conductor_nodes`: `CATEGORIES`, `decision`, `get_default_registry`, `json_ops`, `logic`, `loop`, `math`, `regex_ops`, `register_all`, `signal`, `subprocess`, `text`, `while_loop` | gone: `syv-conductor-nodes` is no longer published; a host writes its own nodes |
-| `conductor_providers.fastapi`: `CompileResult`, `CompileWarning`, `EdgeInput`, `ExecuteRequest`, `NodeInput`, `conductor_router`, `sse_frame` | gone: copy `docs/serving-runs.md` into your application; `/nodes` is `registry.describe()`, `/compile` is `registry.load(graph).describe()` |
+| `conductor_nodes.control_operators`: `OPERATORS`, `OPERATORS_BY_ID`, `OPERATORS_BY_LABEL`, `OPERATORS_BY_TYPE`, `OperatorEvaluationError`, `OperatorSpec`, `UNARY_OPERATORS` | gone: a condition is a node that returns a `bool` (`text-contains`, `regex-match`), wired into `decision.when` |
+| `conductor_nodes`: `get_default_registry`, `register_all` | `conductor_nodes.registry`, added with `registry.add_subregistry(...)` |
+| `conductor_nodes`: `CATEGORIES` | gone: each node has its `category`; `conductor_nodes.registry.filter(lambda d: d.category == "math")` |
+| `conductor_nodes`: `decision`, `json_ops`, `logic`, `math`, `regex_ops`, `text` | the same modules, each with a `registry` of its own nodes; node ids unchanged |
+| `conductor_nodes`: `loop`, `while_loop`, `signal`, `subprocess` | gone: a node typed for one value runs once per row by itself, and a pause is `raise Ask(...)` |
+| `conductor_providers.fastapi.conductor_router` | `conductor_providers.fastapi.run_router(store=, registry=, caller=)`: runs by id, kept in a `RunStore`, on several workers; `/nodes` is `registry.describe()`, `/compile` is `POST /load` (`graph.describe()`), `/execute-stream` is `POST /runs` and `GET /runs/{id}/events` |
+| `conductor_providers.fastapi`: `ExecuteRequest`, `NodeInput`, `EdgeInput` | `StartRun`, a `GraphRecord` and its inputs |
+| `conductor_providers.fastapi`: `CompileResult`, `CompileWarning` | `GraphDescription`, whose problems name each node |
+| `conductor_providers.fastapi.sse_frame` | gone: each frame is an event's own JSON |
+| `conductor_providers.fastapi` (`context_factory=`, `entity_resolver=`) | `from_run=`, built from the caller who started the run; an entity list is a route of your own |
 | `conductor_providers.react`: `graph_to_react`, `palette_from_registry`, `react_to_graph`, `topological_positions` | gone: a canvas stores the `GraphRecord` as it is, a node's position in `display` |
-| `conductor_providers`: `PROVIDERS`, `react` | gone: `syv-conductor-providers` is no longer published |
+| `conductor_providers`: `PROVIDERS`, `react` | gone |
 
 ### `@registry.node(...)` arguments
 

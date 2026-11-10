@@ -11,6 +11,8 @@ members = ["packages/*"]
 
 [tool.uv.sources]
 syv-conductor = { workspace = true }
+syv-conductor-nodes = { workspace = true }
+syv-conductor-providers = { workspace = true }
 
 [tool.ruff]
 line-length = 100
@@ -35,7 +37,12 @@ dev = [
     # fastapi + httpx run the recipe in docs/serving-runs.md under test.
     "fastapi>=0.135",
     "httpx>=0.27",
+    # two uvicorn workers run the FastAPI provider under test
+    "uvicorn>=0.30",
+    "types-regex",
     "syv-conductor",
+    "syv-conductor-nodes",
+    "syv-conductor-providers",
     "ipykernel>=7.2.0",
     "nbconvert>=7.17.1",
     "jupyter>=1.1.1",

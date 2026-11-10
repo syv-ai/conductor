@@ -5,10 +5,12 @@ A general-purpose Python library that runs graphs of typed nodes. It serves any 
 ## Layout
 
 - `packages/conductor/` (`syv-conductor`, import `conductor`): the engine. Four public modules, `__init__.py`, `widgets.py` (the controls), `events.py` and `testing.py` (`check_registry`, one test for a whole registry), plus `about/` and `_internal/`, which holds everything else: `fields.py` reads a signature's annotations into fields and says which types an edge may join, `node_definition.py` is the node contract (`@node`, `Policy`, `Upgrade`), `errors.py` the problems and exceptions, `registry.py`, `record.py` (the stored graph, `make_graph`), `graph.py` (loading: `Graph`, where each node runs), `run.py` (`Run`: what each node came to on each row, and its JSON) and `leg.py` (one leg: the scheduler, retries, events).
-- `tests/`: `test_core`, `test_providers` (the serving recipe and event JSON).
+- `packages/conductor-nodes/` (`syv-conductor-nodes`, import `conductor_nodes`): nodes that only compute, a registry per module.
+- `packages/conductor-providers/` (`syv-conductor-providers`, import `conductor_providers`): `fastapi`, the router that serves runs (`run_router`) and the `RunStore` a host writes for it.
+- `tests/`: `test_core`, `test_nodes` (the node package), `test_providers` (`docs/serving-runs.md` on two uvicorn workers, and event JSON).
 - `examples/`: Jupyter notebooks. `skills/`: agent skills for adding a node and building a graph.
 
-Pushing a `v*` tag publishes `syv-conductor` to PyPI.
+Pushing a `v*` tag publishes the three packages to PyPI, at one version. The two companions import only conductor's public modules.
 
 ## Commands
 

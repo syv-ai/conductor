@@ -1,0 +1,29 @@
+[project]
+name = "syv-conductor-providers"
+version = "2.0.0"
+description = "Conductor served over HTTP: a FastAPI router that starts, follows, answers, resumes and cancels runs on several workers."
+requires-python = ">=3.12"
+authors = [{ name = "Syvai", email = "billy@syv.ai" }]
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+readme = "README.md"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Framework :: FastAPI",
+    "Typing :: Typed",
+]
+dependencies = ["syv-conductor==2.0.0", "fastapi>=0.135", "pydantic>=2.11", "polars>=2.0"]
+
+[project.urls]
+Repository = "https://github.com/syv-ai/conductor"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/conductor_providers"]

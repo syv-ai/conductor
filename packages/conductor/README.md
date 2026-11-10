@@ -6,4 +6,4 @@ The core of Conductor: nodes that are typed Python functions, graphs of them as 
 import conductor
 ```
 
-The documentation, the examples and the changelog live in the repository: https://github.com/syv-ai/conductor
+Two companion packages are released with it at the same version: `syv-conductor-nodes`, nodes that only compute, and `syv-conductor-providers`, a FastAPI router that serves runs. The documentation, the examples and the changelog live in the repository: https://github.com/syv-ai/conductor

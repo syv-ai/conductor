@@ -20,6 +20,12 @@ dependencies = [
     "pydantic>=2.11",
 ]
 
+[project.optional-dependencies]
+# Released from one repository at one version, so pinned `==` to it.
+nodes = ["syv-conductor-nodes==2.0.0"]
+providers = ["syv-conductor-providers==2.0.0"]
+all = ["syv-conductor-nodes==2.0.0", "syv-conductor-providers==2.0.0"]
+
 [project.urls]
 Repository = "https://github.com/syv-ai/conductor"
 
