@@ -280,15 +280,20 @@ class FieldSpec:
         return self.param.title or humanised(self.name)
 
     @functools.cached_property
+    def _limited(self) -> Any:
+        """The type pydantic reads, held to the field's limits: what a value and each of its choices must be."""
+        if self.param.constraints:  # a field's title and description are its record's own, not repeated in its schema
+            return Annotated[_carried(self.type), self.param]
+        return _carried(self.type)
+
+    @functools.cached_property
     def _one(self) -> Any:
         """The type one value is checked by: the type pydantic reads, its limits, its choices, and no ``bool`` on a number.
 
         Read strictly, pydantic refuses a ``bool`` on an ``int`` or ``float`` itself, but not on a ``Literal`` of
         numbers; ``_lax_one`` adds the refusal for a value read laxly.
         """
-        one: Any = _carried(self.type)
-        if self.param.constraints:  # a field's title and description are its record's own, not repeated in its schema
-            one = Annotated[one, self.param]
+        one: Any = self._limited
         literal = literal_values(self.type) is not None
         if self.param.choices is not None and not literal:
             one = Annotated[one, AfterValidator(self._one_of_the_choices)]
@@ -311,7 +316,7 @@ class FieldSpec:
 
     @functools.cached_property
     def adapter(self) -> TypeAdapter[Any]:
-        """Checks one value of this field (a ``Series``' list of them) read strictly, held to its limits and choices, and writes it."""
+        """Checks one value of this field (a ``Series``' list of them), held to its limits and choices, and writes it; lax unless called with ``strict=True``."""
         return self._of_field(self._one)
 
     @functools.cached_property
@@ -326,9 +331,9 @@ class FieldSpec:
 
     @functools.cached_property
     def choice_ids(self) -> tuple[Any, ...]:
-        """The ids of ``Param(choices=)``, each read by the field's type."""
-        one = TypeAdapter(_carried(self.type))
-        return tuple(one.validate_python(choice["id"]) for choice in self.param.choices or ())
+        """The ids of ``Param(choices=)``, each read strictly by the field's type and held to its limits."""
+        one = TypeAdapter(self._limited)
+        return tuple(one.validate_python(choice["id"], strict=True) for choice in self.param.choices or ())
 
     def _one_of_the_choices(self, value: Any) -> Any:
         if value is not None and value not in self.choice_ids:
@@ -360,11 +365,6 @@ class FieldSpec:
         if self.param.constraints or self.param.choices is not None or any(option is Any for option in options):
             return ()
         return tuple(option for option in options if isinstance(option, type) and not typing.is_typeddict(option))
-
-    @functools.cached_property
-    def item_adapter(self) -> TypeAdapter[Any]:
-        """Checks one item of a ``Series``, or the one value of any other field, held to its limits."""
-        return dataclasses.replace(self, shape="one").adapter if self.shape == "many" else self.adapter
 
     @functools.cached_property
     def column_adapter(self) -> TypeAdapter[Any]:

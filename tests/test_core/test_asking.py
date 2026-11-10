@@ -734,3 +734,14 @@ def test_an_answer_to_a_run_with_nothing_waiting_says_how_the_run_stands():
     run = registry_of(plain).load(make_graph(plain)).run(text="a")
     (problem,) = _refused(lambda: run.answer("plain", "b"))
     assert (problem.type, problem.ctx["status"]) == ("not_waiting", "complete") and "a run that is complete" in problem.msg
+
+
+@pytest.mark.parametrize("choices", [[True, 2], ["1"]], ids=["a bool", "a number as text"])
+def test_a_choice_is_read_as_its_answer_would_be_so_one_a_number_refuses_fails_the_node(choices: list[object]) -> None:
+    @node("pick")
+    def pick() -> int:
+        raise Ask("?", choices=choices)
+
+    _, run = _once(pick)
+    assert (run.status, run.cause.type) == ("failed", "invalid_ask")
+    assert run.cause.ctx["reason"] == "a choice for 'result' is not what it returns: Input should be a valid integer"

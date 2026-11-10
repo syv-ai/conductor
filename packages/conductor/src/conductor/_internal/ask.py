@@ -157,14 +157,12 @@ def _added(spec: FieldSpec, kind: str, value: Any, so_far: Mapping[str, Any]) ->
         raise WrongAsk(f"'{spec.name}' is a table, which takes no choices")
     if isinstance(value, (str, bytes, Mapping)) or not isinstance(value, Sequence):
         raise WrongAsk(f"the choices for '{spec.name}' are a list")
-    one = spec.item_adapter
-    offered = []
-    for choice in value:
-        try:
-            kept = one.dump_python(one.validate_python(choice.id if isinstance(choice, Choice) else choice), mode="json")
-        except ValidationError as error:
-            raise WrongAsk(f"a choice for '{spec.name}' is not what it returns: {value_free_errors(error)[0]['msg']}") from None
-        offered.append({**choice.model_dump(mode="json"), "id": kept} if isinstance(choice, Choice) else {"id": kept, "title": str(kept)})
+    ids = [choice.id if isinstance(choice, Choice) else choice for choice in value]
+    try:  # a choice is what an answer picks, so it is read as an answer is: a Series' as one pick of them all
+        kept = _as_json(spec, read_answer(spec, ids)) if spec.shape == "many" else [_as_json(spec, read_answer(spec, i)) for i in ids]
+    except Refused as refused:
+        raise WrongAsk(f"a choice for '{spec.name}' is not what it returns: {refused.reason}") from None
+    offered = [{**choice.model_dump(mode="json"), "id": k} if isinstance(choice, Choice) else {"id": k, "title": str(k)} for choice, k in zip(value, kept, strict=True)]
     if not offered:
         raise WrongAsk(f"'{spec.name}' is offered no choices")
     if len({repr(choice["id"]) for choice in offered}) != len(offered):

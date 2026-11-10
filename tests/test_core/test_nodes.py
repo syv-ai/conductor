@@ -1102,3 +1102,23 @@ def test_a_setting_is_never_an_input_of_the_graph_and_the_author_sets_it():
     assert [(p.type, p.loc) for p in refused.value.errors()] == [("setting_on_edge", ("needs-model", "model"))]
     fed = registry.load(GraphRecord(nodes=[placed("ask-model", "ask-model"), placed("needs-model", "needs-model")], edges=edges))
     assert [(p.type, p.loc) for p in fed.problems] == [("setting_on_edge", ("needs-model", "model"))]
+
+
+@pytest.mark.parametrize(
+    ("choices", "limits", "reason"),
+    [
+        ([True, 2], {}, "Input should be a valid integer"),
+        (["1", 2], {}, "Input should be a valid integer"),
+        ([-1, 1], {"ge": 0}, "Input should be greater than or equal to 0"),
+    ],
+    ids=["a bool", "a number as text", "below the field's limit"],
+)
+def test_a_declared_choice_is_read_strictly_and_held_to_the_fields_limits(choices: list[object], limits: dict[str, int], reason: str) -> None:
+    with pytest.raises(NodeDeclarationError) as raised:
+
+        @node("bad")
+        def bad(n: Annotated[int, Param(choices=choices, **limits)]) -> int:  # type: ignore[arg-type]
+            return n
+
+    assert raised.value.code == "choices_invalid"
+    assert f"a choice is not a value of the field's type: {reason};" in str(raised.value)
