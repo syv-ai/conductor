@@ -206,9 +206,17 @@ def test_two_workers_answering_one_run_at_once_start_one_leg(served: Served) -> 
                 a.client.post(f"/runs/{run_id}/answers", json={unit["id"]: True}),
                 b.client.post(f"/runs/{run_id}/answers", json={unit["id"]: False}),
             )
-            assert sorted([first.status_code, second.status_code]) == [202, 409]
+            said = sorted([first.json() if first.status_code == 202 else 409, second.json() if second.status_code == 202 else 409], key=str)
+            # the later answer is refused at once, or, if it read the row once the leg had started, queued and then refused
+            assert said in ([409, {"answers": "started"}], [{"answers": "queued"}, {"answers": "started"}])
             await a.until_status(run_id, "complete")
             assert served.calls == ["after"]
+            if said[0] != 409:
+                for _ in range(500):  # the refusal is written just after the status
+                    if (row := await a.read(run_id))["refused"]:
+                        break
+                    await asyncio.sleep(0.01)
+                assert [problem["type"] for problem in row["refused"][unit["id"]]] == ["not_waiting"]
 
     _run(scenario)
 
@@ -307,6 +315,57 @@ def test_a_wrong_answer_sent_while_a_leg_runs_keeps_its_problems_and_costs_nobod
                 await asyncio.sleep(0.01)
             assert [unit["id"] for unit in row["waiting"]] == [third["id"]]
             assert [problem["type"] for problem in row["refused"][third["id"]]] == ["invalid_answer"]
+
+    _run(scenario)
+
+
+def test_an_answer_sent_while_a_leg_runs_to_a_row_that_waits_for_nothing_is_refused_when_it_ends(served: Served) -> None:
+    async def scenario() -> None:
+        async with _workers(served) as (a, b):
+            run_id = await a.start(_APPROVE, {"n": 2})
+            first, second = (await a.until_status(run_id, "waiting"))["waiting"]
+            assert (await a.client.post(f"/runs/{run_id}/answers", json={first["id"]: True})).json() == {"answers": "started"}
+            await served.until_calls(1)
+            assert (await b.client.post(f"/runs/{run_id}/answers", json={"nobody": True})).json() == {"answers": "queued"}
+            served.open_the_gate()
+            row = await b.until_status(run_id, "waiting")
+            assert [unit["id"] for unit in row["waiting"]] == [second["id"]]
+            assert [problem["type"] for problem in row["refused"]["nobody"]] == ["not_waiting"]
+
+    _run(scenario)
+
+
+def test_a_second_answer_to_a_row_answered_while_a_leg_runs_is_a_409(served: Served) -> None:
+    async def scenario() -> None:
+        async with _workers(served) as (a, b):
+            run_id = await a.start(_APPROVE, {"n": 2})
+            first, second = (await a.until_status(run_id, "waiting"))["waiting"]
+            assert (await a.client.post(f"/runs/{run_id}/answers", json={first["id"]: True})).json() == {"answers": "started"}
+            await served.until_calls(1)
+            assert (await a.client.post(f"/runs/{run_id}/answers", json={second["id"]: False})).json() == {"answers": "queued"}
+            twice = await b.client.post(f"/runs/{run_id}/answers", json={second["id"]: True})
+            assert twice.status_code == 409
+            assert twice.json() == {"detail": "the row is already answered"}
+            served.open_the_gate()
+            assert (await b.until_status(run_id, "complete"))["outputs"] == {"after.result": [True, False]}
+
+    _run(scenario)
+
+
+def test_an_answer_sent_while_a_leg_runs_that_ends_the_run_is_refused_when_it_ends(served: Served) -> None:
+    async def scenario() -> None:
+        async with _workers(served) as (a, b):
+            run_id = await a.start(_chain("gate"))
+            await served.until_calls(1)
+            assert (await b.client.post(f"/runs/{run_id}/answers", json={"nobody": True})).json() == {"answers": "queued"}
+            served.open_the_gate()
+            await a.until_status(run_id, "complete")
+            for _ in range(500):  # the refusal is written just after the status
+                row = await a.read(run_id)
+                if row["refused"]:
+                    break
+                await asyncio.sleep(0.01)
+            assert [problem["type"] for problem in row["refused"]["nobody"]] == ["not_waiting"]
 
     _run(scenario)
 

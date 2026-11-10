@@ -241,20 +241,19 @@ def run_router(
             await asyncio.sleep(lease / 3)
 
     async def apply_pending(run_id: str) -> None:
-        """Answers that came while a leg ran, each on its own: a wrong one keeps its problems for the client, one whose
-        row no longer waits is dropped, and the rest start the next leg."""
+        """Answers that came while a leg ran, each on its own once the leg has ended: a wrong one, or one whose row
+        doesn't wait, keeps its problems for the client in ``refused``, and the rest start the next leg."""
         row = await store.get(run_id)
         pending: dict[str, Any] = json.loads(row.pending) if row is not None else {}
-        if row is None or row.status != "waiting" or not pending:
+        if row is None or row.status == "running" or not pending:
             return
         run = await asyncio.to_thread(load, row)
-        waiting, taken, refused = {unit.id for unit in run.waiting}, False, json.loads(row.refused)
+        taken, refused = False, json.loads(row.refused)
         for unit_id, value in pending.items():
-            if unit_id in waiting:
-                try:
-                    run, taken = run.answer(unit_id, value), True
-                except InvalidCallError as error:
-                    refused[unit_id] = [problem.model_dump(mode="json") for problem in error.errors()]
+            try:
+                run, taken = run.answer(unit_id, value), True
+            except InvalidCallError as error:
+                refused[unit_id] = [problem.model_dump(mode="json") for problem in error.errors()]
         changes: RunChanges = {"pending": "{}", "refused": to_json(refused).decode()}
         if taken:
             changes.update({"status": "running", "owner": worker, "lease_until": time.time() + lease, "run": await asyncio.to_thread(run.to_json)})
@@ -348,9 +347,13 @@ def run_router(
 
     @router.post("/runs/{run_id}/answers", status_code=202)
     async def answer(row: Stored, answers: dict[str, Any], if_match: Annotated[int | None, Header()] = None) -> Answered:
-        """Answer waiting rows by their ids. While a leg runs, the answers wait for it to end."""
+        """Answer waiting rows by their ids. While a leg runs, the answers wait for it to end, and a row answered once
+        meanwhile is refused a second answer."""
         while row.status == "running":
-            queued = {**json.loads(row.pending), **answers}
+            queued = json.loads(row.pending)
+            if queued.keys() & answers.keys():
+                raise HTTPException(409, "the row is already answered")
+            queued.update(answers)
             if await store.update(row.id, row.rev, {"pending": to_json(queued).decode()}):
                 await apply_pending(row.id)  # the leg may have ended meanwhile
                 return Answered(answers="queued")
