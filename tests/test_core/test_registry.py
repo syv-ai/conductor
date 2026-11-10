@@ -8,7 +8,8 @@ and ``filter`` change or narrow what is offered; looping yields the
 definitions.
 """
 
-from typing import Annotated, Any
+from dataclasses import dataclass
+from typing import Annotated, Any, ClassVar
 
 import pytest
 from conductor import (
@@ -481,6 +482,35 @@ def test_a_type_without_an_id_or_title_is_known_by_its_class_name():
         pass
 
     assert [t.model_dump() for t in NodeRegistry(types=[Plain]).describe().types] == [{"id": "Plain", "title": "Plain", "accepted_as": ["Plain"]}]
+
+
+@dataclass(frozen=True)
+class Customer:
+    id: str = ""
+    name: str = ""
+
+
+@dataclass(frozen=True)
+class Order:
+    id: str = ""
+    total: int = 0
+
+
+@dataclass(frozen=True)
+class Money:
+    id: ClassVar[str] = "money"
+    amount: float = 0.0
+
+
+def test_a_field_named_id_is_the_records_own_and_never_its_types_id_unless_it_is_a_class_variable():
+    @node("bill")
+    def bill(customer: Customer, order: Order, price: Money) -> None:
+        pass
+
+    registry = NodeRegistry()
+    registry.add(bill)
+
+    assert dict(registry.types) == {"Customer": Customer, "Order": Order, "money": Money}
 
 
 def test_adding_a_node_adds_the_types_it_declares_a_series_giving_its_item():

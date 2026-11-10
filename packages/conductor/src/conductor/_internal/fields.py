@@ -21,6 +21,7 @@ import copy
 import dataclasses
 import datetime
 import functools
+import inspect
 import types
 import typing
 from collections.abc import Iterable, Mapping, Sequence
@@ -29,6 +30,7 @@ from typing import (
     TYPE_CHECKING,
     Annotated,
     Any,
+    ClassVar,
     Literal,
     TypedDict,
     TypeVar,
@@ -740,8 +742,8 @@ def type_id(hint: Any) -> str:
         return " | ".join("None" if member is type(None) else type_id(member) for member in get_args(hint))
     if _marked(hint, Named):
         return next(m for m in get_args(hint)[1:] if isinstance(m, Named)).id
-    own = getattr(hint, "id", None)
-    return own if isinstance(own, str) else getattr(hint, "__name__", None) or str(hint)
+    own = _declared(hint, "id") if isinstance(hint, type) else None
+    return own if own is not None else getattr(hint, "__name__", None) or str(hint)
 
 
 def type_title(hint: Any) -> str:
@@ -749,8 +751,22 @@ def type_title(hint: Any) -> str:
     if _marked(hint, Named):
         named = next(m for m in get_args(hint)[1:] if isinstance(m, Named))
         return named.title or named.id
-    own = getattr(hint, "display_title", None)
-    return own if isinstance(own, str) else getattr(hint, "__name__", None) or str(hint)
+    own = _declared(hint, "display_title") if isinstance(hint, type) else None
+    return own if own is not None else getattr(hint, "__name__", None) or str(hint)
+
+
+@functools.cache
+def _declared(cls: type, name: str) -> str | None:
+    """The text a class sets as ``name`` for itself (``id = "money"``, or annotated ``ClassVar``); a field of that name
+    is each value's own, its default never the class's."""
+    own = getattr(cls, name, None)
+    if not isinstance(own, str):
+        return None
+    for klass in cls.__mro__:
+        annotation = inspect.get_annotations(klass).get(name)
+        if annotation is not None:
+            return own if get_origin(annotation) is ClassVar or str(annotation).startswith(("ClassVar", "typing.ClassVar")) else None
+    return own
 
 
 # -- reading a value as its field ---------------------------------------------------------------
