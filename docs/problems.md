@@ -844,6 +844,8 @@ Raised as `NodeDeclarationError` when the module that declares the node is impor
 
 > {name}: Annotated holds {unknown[0]}, which conductor doesn't read; a widget, a title or a limit goes on Param(...)
 
+> {name}: the column '{column}' is Annotated, which a table's column doesn't read; check its values in the node
+
 ```python
 try:
     @node("titled")
@@ -853,7 +855,7 @@ except NodeDeclarationError as error:
     print(error.code)  # annotated_extra_unknown
 ```
 
-**Fix.** Put a title, a widget or a limit on `Param(...)`: `Annotated[str, Param(title="Title")]`.
+**Fix.** Put a title, a widget or a limit on `Param(...)`: `Annotated[str, Param(title="Title")]`. A table's row type names its columns by bare type; a column's limits are the node's to check.
 
 ### `arriving_on_compute_added_inputs`
 

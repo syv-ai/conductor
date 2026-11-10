@@ -501,7 +501,7 @@ def read_field(name: str, hint: Any, default: Any = REQUIRED, where: str = "") -
                 raise NodeDeclarationError(f"{where}{name}: a Series of Series; rows are never nested in a field, so return one Series", code="nested_series")
             return _checked(FieldSpec(name, "many", item, or_none, default, param), where)
         if markers and isinstance(markers[0], _TableMarker):
-            return _checked(FieldSpec(name, "table", pl.DataFrame, or_none, default, param, _columns_of(markers[0].row)), where)
+            return _checked(FieldSpec(name, "table", pl.DataFrame, or_none, default, param, _columns_of(markers[0].row, name, where)), where)
         hint = base
     if hint is pl.DataFrame or hint is Table:
         return _checked(FieldSpec(name, "table", pl.DataFrame, or_none, default, param, None), where)
@@ -646,10 +646,22 @@ def _not_a_set(value: Any) -> Any:
     return value
 
 
-def _columns_of(row: Any) -> dict[str, Any] | None:
+def _columns_of(row: Any, name: str, where: str) -> dict[str, Any] | None:
+    """A row type's columns by name; a column is read by its bare type, so one ``Annotated`` with anything is refused."""
     if row is Any or row is None:
         return None
-    return typing.get_type_hints(row)
+    columns = typing.get_type_hints(row, include_extras=True)
+    for column, hint in columns.items():
+        if _holds_annotated(hint):
+            raise NodeDeclarationError(
+                f"{where}{name}: the column '{column}' is Annotated, which a table's column doesn't read; check its values in the node",
+                code="annotated_extra_unknown",
+            )
+    return columns
+
+
+def _holds_annotated(hint: Any) -> bool:
+    return get_origin(hint) is Annotated or any(_holds_annotated(arg) for arg in get_args(hint))
 
 
 def given_as_items(spec: FieldSpec, value: Any) -> bool:

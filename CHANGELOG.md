@@ -21,7 +21,8 @@ What changes in how you work, before the name-by-name tables:
   `Annotated[str, Param(title=, widget=, ge=, ...)]` for what a person sees and the limits a value
   keeps (pydantic metadata, so it holds inside your own `BaseModel` too, and a field's `schema`
   carries the limits; `Param`s stacked in one `Annotated`, an alias wrapped again, merge, the later
-  winning, and a `Param` on a `Series` item is the field's), `-> X` for one output named `result`, a frozen dataclass for several. A
+  winning, and a `Param` on a `Series` item is the field's; a table's column
+  typed `Annotated[...]` is refused, since its limits would go unread), `-> X` for one output named `result`, a frozen dataclass for several. A
   `bool` never lands on a number, a `Literal` of numbers included. `async def` and
   auto-discovery are gone. A node declared wrong raises `NodeDeclarationError` at import, with a
   `code`; [`docs/problems.md`](docs/problems.md) lists them.

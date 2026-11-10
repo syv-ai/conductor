@@ -933,6 +933,18 @@ def test_a_param_on_a_series_item_is_the_fields_own_so_an_int_lands_and_a_bool_d
     assert graph.run(text=["ab", "c"]).outputs == {"total.result": 3}
 
 
+def test_a_tables_column_annotated_is_refused_as_its_limits_would_go_unread():
+    class Row(TypedDict):
+        n: Annotated[int, Param(ge=0)]
+
+    def f(rows: Table[Row]) -> int:
+        return 1
+
+    with pytest.raises(NodeDeclarationError, match="column 'n'") as raised:
+        declared(f)
+    assert raised.value.code == "annotated_extra_unknown"
+
+
 def test_a_series_of_series_does_not_exist():
     def f(x: Series[Series[int]]) -> int:
         return 1
