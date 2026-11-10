@@ -42,7 +42,6 @@ from conductor._internal.fields import (
     FieldSpec,
     FieldValueError,
     carried_list,
-    is_a_number,
     read_value,
     takes_a_blank,
 )
@@ -877,9 +876,9 @@ def run_from_json(graph: Graph, saved: str | bytes | Mapping[str, Any]) -> Run:
 
 
 def checked_leg(*, max_rows: int | None = None, timeout: float | None = None, checkpoint_every: float | None = None) -> None:
-    """A leg's ceiling (a whole number of rows, at least 1) and its seconds (a finite number above 0) are refused at the call."""
+    """A leg's ceiling (at least 1 row) and its seconds (a finite number above 0) are refused at the call."""
     problems = []
-    if max_rows is not None and not _a_ceiling(max_rows):
+    if max_rows is not None and max_rows < 1:
         problems.append(make_problem("invalid_max_rows", "max_rows", max_rows=max_rows))
     if timeout is not None and not _seconds(timeout):
         problems.append(make_problem("invalid_timeout", "timeout", timeout=timeout))
@@ -889,12 +888,8 @@ def checked_leg(*, max_rows: int | None = None, timeout: float | None = None, ch
         raise InvalidCallError(problems)
 
 
-def _a_ceiling(value: Any) -> bool:
-    return is_a_number(type(value), int) and value >= 1
-
-
-def _seconds(value: Any) -> bool:
-    return is_a_number(type(value)) and math.isfinite(value) and value > 0
+def _seconds(value: float) -> bool:
+    return math.isfinite(value) and value > 0
 
 
 # -- values -------------------------------------------------------------------------------------

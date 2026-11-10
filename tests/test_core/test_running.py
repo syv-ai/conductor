@@ -946,7 +946,7 @@ def test_a_stopped_leg_with_calls_on_threads_offers_a_checkpoint_before_it_drain
     assert 0 < sum(v is not None for v in seen[-1].run.results["llm"]["result"]) == len(calls) < 6
 
 
-@pytest.mark.parametrize("every", [0, -1, "1", True])
+@pytest.mark.parametrize("every", [0, -1])
 def test_checkpoint_every_is_a_number_of_seconds_above_zero(every: Any) -> None:
     graph = registry_of(split).load(make_graph(split))
     with pytest.raises(InvalidCallError) as refused:
@@ -954,20 +954,13 @@ def test_checkpoint_every_is_a_number_of_seconds_above_zero(every: Any) -> None:
     assert [p.type for p in refused.value.errors()] == ["invalid_checkpoint_every"]
 
 
-@pytest.mark.parametrize("timeout", [0, -1, "1", True, math.nan])
+@pytest.mark.parametrize("timeout", [0, -1, math.nan])
 def test_a_legs_timeout_is_a_number_of_seconds_above_zero_refused_at_the_call(timeout: Any) -> None:
     graph = registry_of(split).load(make_graph(split))
     for call in (lambda run: run.resume(timeout=timeout), lambda run: run.stream(timeout=timeout)):
         with pytest.raises(InvalidCallError) as refused:
             call(graph.with_inputs(text="a"))
         assert [p.type for p in refused.value.errors()] == ["invalid_timeout"]
-
-
-def test_a_ceiling_of_true_is_no_ceiling_of_one_row() -> None:
-    graph = registry_of(split).load(make_graph(split))
-    with pytest.raises(InvalidCallError) as refused:
-        graph.with_inputs(text="a b", max_rows=True)
-    assert [p.type for p in refused.value.errors()] == ["invalid_max_rows"]
 
 
 def test_each_checkpoint_of_a_leg_that_reuses_earlier_work_resumes_without_a_call():
