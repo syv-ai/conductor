@@ -7,10 +7,13 @@ earlier unit of that node received, so a CSV edited on one row sends one mail.
 """
 
 import asyncio
+import io
 import json
 import logging
-from typing import Any
+import random
+from typing import Any, TypedDict
 
+import polars as pl
 import pytest
 from conductor import (
     Ask,
@@ -21,6 +24,7 @@ from conductor import (
     NodeRecord,
     Policy,
     Series,
+    Table,
     make_graph,
     node,
 )
@@ -466,3 +470,384 @@ def test_a_table_output_reads_back_by_its_own_column_types_whatever_graphs_came_
         assert isinstance(value, date) == (kind == "date"), (i, value)
         del graph
         gc.collect()
+
+
+# -- what again reuses, row by row -------------------------------------------------------------
+
+
+@node("docs")
+def _docs(text: str) -> Series[str]:
+    return text.split("|") if text else []
+
+
+class _Line(TypedDict):
+    word: str
+
+
+def test_a_document_inserted_at_the_top_reads_only_the_new_document_and_its_lines_are_read_where_they_now_are():
+    read: list[str] = []
+    upper_calls: list[str] = []
+
+    @node("lines")
+    def lines(text: str) -> Table[_Line]:
+        read.append(text)
+        return pl.DataFrame({"word": text.split(",")})
+
+    @node("shout")
+    def shout(word: str) -> str:
+        upper_calls.append(word)
+        return word.upper()
+
+    graph = registry_of(_docs, lines, shout).load(GraphRecord(
+        nodes=[NodeRecord(id="d", node="docs"), NodeRecord(id="l", node="lines"), NodeRecord(id="s", node="shout")],
+        edges=[("d.result", "l.text"), ("l.result.word", "s.word")],
+    ))
+    first = graph.run(text="a,b|c")
+    read.clear()
+    upper_calls.clear()
+
+    again = first.again(text="x|a,b|c")
+
+    assert read == ["x"] and upper_calls == ["x"]
+    assert again.results["s"]["result"] == ["X", "A", "B", "C"]
+
+
+def _filtered(threshold_default: int = 2) -> tuple[Any, list[str], list[str]]:
+    """CSV text, read to a table, filtered by a ``min`` the caller gives, its names read whole; the calls of the filter and the reader."""
+    filtered: list[str] = []
+    counted: list[str] = []
+
+    class Row(TypedDict):
+        name: str
+        age: int
+
+    @node("read-rows")
+    def read_rows(text: str) -> Table[Row]:
+        return pl.read_csv(io.StringIO(text))
+
+    @node("threshold")
+    def threshold(min: int = threshold_default) -> int:
+        return min
+
+    @node("older-than")
+    def older_than(rows: pl.DataFrame, min: int) -> Table[Row]:
+        filtered.append("called")
+        return rows.filter(pl.col("age") > min)
+
+    @node("names")
+    def names(rows: pl.DataFrame) -> str:
+        counted.append("called")
+        return ",".join(rows["name"])
+
+    graph = registry_of(read_rows, threshold, older_than, names).load(GraphRecord(
+        nodes=[NodeRecord(id="r", node="read-rows"), NodeRecord(id="t", node="threshold"), NodeRecord(id="f", node="older-than"), NodeRecord(id="n", node="names")],
+        edges=[("r.result", "f.rows"), ("t.result", "f.min"), ("f.result", "n.rows")],
+    ))
+    return graph, filtered, counted
+
+
+def test_a_row_a_filter_drops_inserted_above_leaves_the_whole_table_reader_uncalled():
+    graph, filtered, counted = _filtered()
+    first = graph.run(text="name,age\nida,30\nbo,40\n")
+    filtered.clear()
+    counted.clear()
+
+    again = first.again(text="name,age\neva,1\nida,30\nbo,40\n")
+
+    assert filtered == ["called"] and counted == []
+    assert again.outputs == {"n.result": "ida,bo"}
+
+
+def test_equal_tables_made_by_different_filters_are_the_same_work_for_the_reader_below():
+    graph, filtered, counted = _filtered()
+    first = graph.run(text="name,age\nida,30\nbo,40\n", min=2)
+    counted.clear()
+
+    again = first.again(min=10)
+
+    assert filtered == ["called", "called"] and counted == []
+    assert again.outputs == {"n.result": "ida,bo"}
+
+
+def test_a_reused_table_and_a_column_called_afresh_line_up_row_by_row_after_a_document_is_inserted_above():
+    @node("lines")
+    def lines(text: str) -> Table[_Line]:
+        return pl.DataFrame({"word": text.split(",")})
+
+    @node("stamp", policy=Policy(reuse_when_inputs_match=False))
+    def stamp(word: str) -> str:
+        return f"<{word}>"
+
+    @node("show")
+    def show(rows: pl.DataFrame) -> str:
+        return ";".join(f"{w}={s}" for w, s in zip(rows["word"], rows["result"], strict=True))
+
+    graph = registry_of(_docs, lines, stamp, show).load(GraphRecord(
+        nodes=[NodeRecord(id="d", node="docs"), NodeRecord(id="l", node="lines"), NodeRecord(id="t", node="stamp"), NodeRecord(id="s", node="show")],
+        edges=[("d.result", "l.text"), ("l.result.word", "t.word"), ("l.result", "s.rows"), ("t.result", "s.rows")],
+    ))
+    first = graph.run(text="a,b|c")
+
+    again = first.again(text="x,y,z|a,b|c")
+
+    assert first.results["s"]["result"] == ["a=<a>;b=<b>", "c=<c>"]
+    assert again.results["s"]["result"] == ["x=<x>;y=<y>;z=<z>", "a=<a>;b=<b>", "c=<c>"]
+
+
+@pytest.mark.parametrize("rows", ["a,b", "a,b,c,d", "x,y,z"], ids=["fewer", "more", "same-count"])
+def test_again_with_changed_rows_above_an_embedded_graph_gives_its_inner_fixed_value_node_on_every_row(rows):
+    @node("label")
+    def label(prefix: str) -> str:
+        return prefix + ":"
+
+    @node("pair")
+    def pair(text: str, tag: str) -> str:
+        return tag + text
+
+    @node("same")
+    def same(text: str) -> str:
+        return text
+
+    inner = node("tagged")(GraphRecord(
+        nodes=[NodeRecord(id="same", node="same"), NodeRecord(id="label", node="label", values={"prefix": "p"}), NodeRecord(id="pair", node="pair")],
+        edges=[("same.result", "pair.text"), ("label.result", "pair.tag")],
+    ))
+    graph = registry_of(_docs, same, label, pair, inner).load(GraphRecord(
+        nodes=[NodeRecord(id="d", node="docs"), NodeRecord(id="t", node="tagged")], edges=[("d.result", "t.text")],
+    ))
+    first = graph.run(text="a|b|c")
+
+    again = first.again(text=rows.replace(",", "|"))
+    direct = graph.run(text=rows.replace(",", "|"))
+
+    assert again.status == "complete" and again.results == direct.results
+    assert again.results["t/pair"]["result"] == [f"p:{r}" for r in rows.split(",")]
+
+
+def test_an_input_filled_again_overrides_the_first_value_and_the_earlier_run_is_untouched():
+    graph, sent = _mails()
+    first = graph.run(to=["ida"])
+
+    prepared = first.with_inputs(to=["bo"])
+    again = prepared.resume()
+
+    assert "to" in graph.inputs
+    assert first.inputs != prepared.inputs and first.results["mail"]["result"] == ["sent ida"]
+    assert again.results["mail"]["result"] == ["sent bo"]
+
+
+def _csv_mails() -> tuple[Any, list[str]]:
+    """A CSV of names and emails, and a ``body`` (default ``hej``) sent to each email; the mails sent."""
+    sent: list[str] = []
+
+    class Person(TypedDict):
+        name: str
+        email: str
+
+    @node("read-people")
+    def read_people(text: str) -> Table[Person]:
+        return pl.read_csv(io.StringIO(text))
+
+    @node("body")
+    def body_text(body: str = "hej") -> str:
+        return body
+
+    @node("send-body")
+    def send_body(email: str, body: str) -> str:
+        sent.append(email)
+        return f"{body} {email}"
+
+    graph = registry_of(read_people, body_text, send_body).load(GraphRecord(
+        nodes=[NodeRecord(id="r", node="read-people"), NodeRecord(id="b", node="body"), NodeRecord(id="m", node="send-body")],
+        edges=[("r.result.email", "m.email"), ("b.result", "m.body")],
+    ))
+    return graph, sent
+
+
+def test_a_sorted_csv_or_an_edit_to_a_column_nothing_reads_sends_no_mail_and_a_changed_body_sends_every_one():
+    graph, sent = _csv_mails()
+    first = graph.run(text="name,email\nida,i@a.dk\nbo,b@a.dk\n")
+    sent.clear()
+
+    sorted_ = first.again(text="name,email\nbo,b@a.dk\nida,i@a.dk\n")
+    renamed = first.again(text="name,email\nIda,i@a.dk\nBo,b@a.dk\n")
+    assert sent == []
+    assert sorted_.results["m"]["result"] == ["hej b@a.dk", "hej i@a.dk"]
+    assert renamed.results["m"]["result"] == ["hej i@a.dk", "hej b@a.dk"]
+
+    new_body = first.again(body="hi")
+
+    assert sent == ["i@a.dk", "b@a.dk"] and new_body.results["m"]["result"] == ["hi i@a.dk", "hi b@a.dk"]
+
+
+def test_a_row_inserted_above_rows_split_from_rows_calls_only_the_new_rows():
+    calls: list[str] = []
+
+    @node("words")
+    def words(text: str) -> Series[str]:
+        return text.split(",")
+
+    @node("shout")
+    def shout(text: str) -> str:
+        calls.append(text)
+        return text.upper()
+
+    graph = registry_of(_docs, words, shout).load(make_graph(_docs, words, shout))
+    first = graph.run(text="a,b|c")
+    calls.clear()
+
+    again = first.again(text="x,y|a,b|c")
+
+    assert calls == ["x", "y"]
+    assert again.results["shout"]["result"] == ["X", "Y", "A", "B", "C"]
+
+
+def _approvals() -> Any:
+    @node("approve")
+    def approve(name: str) -> bool:
+        raise Ask(f"Approve {name}?")
+
+    return registry_of(approve).load(GraphRecord(nodes=[NodeRecord(id="a", node="approve", many={"name"})]))
+
+
+def test_each_row_still_waiting_after_again_is_announced_on_the_stream():
+    run = _approvals().run(name=["ida", "bo"])
+
+    events = _events(run.with_inputs(name=["eva", "ida", "bo"]))
+
+    assert [e.unit.id for e in events if e.type == "unit_waiting"] == ["a@0", "a@1", "a@2"]
+    assert events[-1].status == "waiting"
+
+
+def test_an_again_that_fails_before_it_reaches_the_old_rows_still_reuses_them_on_resume():
+    broken = {"on": True}
+    sent: list[str] = []
+
+    @node("mail-or-fail")
+    def mail_or_fail(to: str) -> str:
+        sent.append(to)
+        if to == "eva" and broken["on"]:
+            raise ValueError("smtp down")
+        return f"sent {to}"
+
+    graph = registry_of(mail_or_fail).load(GraphRecord(nodes=[NodeRecord(id="m", node="mail-or-fail", many={"to"})]))
+    first = graph.run(to=["ida", "bo"])
+    sent.clear()
+
+    failed = first.again(to=["eva", "ida", "bo"])
+    assert failed.status == "failed" and sent == ["eva"]
+    broken["on"] = False
+    resumed = graph.load_run(failed.to_json()).resume()
+
+    assert sent == ["eva", "eva"] and resumed.results["m"]["result"] == ["sent eva", "sent ida", "sent bo"]
+
+
+def test_an_again_cancelled_before_the_node_runs_then_resumed_sends_only_the_new_mail():
+    graph, sent = _mails()
+    first = graph.run(to=["ida", "bo"])
+    sent.clear()
+    cancel = asyncio.Event()
+    cancel.set()
+
+    stopped = _events(first.with_inputs(to=["ida", "bo", "al"]), cancel=cancel)[-1].run
+    assert stopped.status == "cancelled"
+    resumed = graph.load_run(stopped.to_json()).resume()
+
+    assert sent == ["al", "confirm sent al"] and resumed.results["confirm"]["result"] == ["SENT IDA", "SENT BO", "SENT AL"]
+
+
+def test_after_an_answered_question_again_with_one_row_added_sends_one_mail():
+    sent: list[str] = []
+
+    @node("approve")
+    def approve(name: str) -> str:
+        raise Ask(f"Mail {name}?")
+
+    @node("mail")
+    def mail(to: str) -> str:
+        sent.append(to)
+        return f"sent {to}"
+
+    graph = registry_of(approve, mail).load(GraphRecord(
+        nodes=[NodeRecord(id="a", node="approve", many={"name"}), NodeRecord(id="m", node="mail")], edges=[("a.result", "m.to")],
+    ))
+    run = graph.run(name=["ida", "bo"]).answer("a@0", "ida@a.dk").answer("a@1", "bo@a.dk").resume()
+    sent.clear()
+
+    again = run.again(name=["ida", "bo", "al"])
+    assert [w.id for w in again.waiting] == ["a@2"]
+    done = again.answer("a@2", "al@a.dk").resume()
+
+    assert sent == ["al@a.dk"] and done.results["m"]["result"] == ["sent ida@a.dk", "sent bo@a.dk", "sent al@a.dk"]
+
+
+def test_a_third_run_reuses_what_the_second_had_itself_reused():
+    graph, sent = _mails()
+    second = graph.run(to=["ida", "bo"]).again(to=["ida", "bo", "al"])
+    sent.clear()
+
+    third = second.again(to=["ida", "bo", "al", "eva"])
+
+    assert sent == ["eva", "confirm sent eva"] and third.results["mail"]["result"][:2] == ["sent ida", "sent bo"]
+
+
+def test_a_cancelled_leg_between_two_runs_reuses_what_one_direct_leg_does():
+    rng = random.Random(7)
+    graph, sent = _mails()
+    names = ["ida", "bo", "al", "eva", "kim"]
+    rows = ["ida", "bo"]
+    run = graph.run(to=rows)
+    cancel = asyncio.Event()
+    cancel.set()
+    for _ in range(20):
+        edited = list(rows)
+        choice = rng.randrange(3)
+        if choice == 0:
+            edited.insert(rng.randrange(len(edited) + 1), rng.choice(names))
+        elif choice == 1 and edited:
+            edited.pop(rng.randrange(len(edited)))
+        else:
+            rng.shuffle(edited)
+        sent.clear()
+        direct = run.again(to=edited)
+        direct_calls = sorted(sent)
+        sent.clear()
+        stopped = _events(run.with_inputs(to=edited), cancel=cancel)[-1].run
+        through = graph.load_run(stopped.to_json()).resume()
+        assert sorted(sent) == direct_calls and through.results == direct.results
+        run, rows = direct, edited
+
+
+def test_a_first_run_reports_no_reuse():
+    graph, _ = _mails()
+
+    events = _events(graph.with_inputs(to=["ida", "bo"]))
+
+    assert {e.node_id: e.reused_units for e in events if e.type == "node_complete"} == {"mail": 0, "confirm": 0}
+
+
+def test_a_run_with_changed_inputs_not_yet_started_shows_no_results():
+    graph, sent = _mails()
+    first = graph.run(to=["ida"])
+    sent.clear()
+
+    prepared = first.with_inputs(to=["ida", "bo"])
+
+    assert prepared.status == "ready" and sent == []
+    assert prepared.results == {"mail": {"result": [None, None]}, "confirm": {"result": [None, None]}}
+
+
+def test_a_typed_in_value_counts_as_its_type_writes_it_not_as_it_was_spelled():
+    calls: list[float] = []
+
+    @node("half")
+    def half(x: float) -> float:
+        calls.append(x)
+        return x / 2
+
+    graph = registry_of(half).load(GraphRecord(nodes=[NodeRecord(id="h", node="half")]))
+    first = graph.run(x=2)
+
+    again = first.again(x=2.0)
+
+    assert calls == [2.0] and again.outputs == {"h.result": 1.0}
