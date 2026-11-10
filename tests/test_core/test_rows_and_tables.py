@@ -1038,3 +1038,40 @@ def test_a_skipped_source_inside_a_per_row_graph_gives_its_series_an_empty_list_
     inner = embedded("skips", {"id": "b", "node": "decide"}, {"id": "j", "node": "join"}, edges=(("b.no", "j.texts"),))
     run = ran({"id": "s", "node": "split"}, {"id": "e", "node": "skips"}, edges=(("s.result", "e.text"),), registry=registry_of(split, decide, join, inner), text="p,q")
     assert run.results["e"]["result"] == ["", ""]
+
+
+def test_a_decision_over_a_whole_column_gates_what_hangs_off_the_branch_not_taken():
+    @dataclass(frozen=True)
+    class Decided:
+        full: Annotated[Series[str], Param(exclusive_group="d")]
+        empty: Annotated[Series[str], Param(exclusive_group="d")]
+
+    @node("decide-list")
+    def decide_list(texts: Series[str]) -> Decided:
+        return Decided(full=list(texts), empty=SKIPPED) if texts else Decided(full=SKIPPED, empty=[])
+
+    CALLED.clear()
+    run = ran({"id": "docs", "node": "split"}, {"id": "d", "node": "decide-list"}, {"id": "full", "node": "join"},
+              {"id": "up", "node": "upper"}, {"id": "after", "node": "join"},
+              edges=(("docs.result", "d.texts"), ("d.full", "full.texts"), ("d.empty", "up.text"), ("up.result", "after.texts")),
+              registry=registry_of(split, decide_list, join, upper), text="a,b")
+    assert run.results["full"]["result"] == "a+b"
+    assert run.results["up"]["result"] == [] and run.results["after"]["result"] is None
+    assert CALLED == ["join ['a', 'b']"]
+
+
+def test_a_skip_on_a_document_skips_the_reduction_over_its_lines_and_survives_json():
+    run = ran({"id": "d", "node": "split", "values": {"sep": "|"}}, {"id": "g", "node": "decide"}, {"id": "l", "node": "split"},
+              {"id": "p", "node": "pair"}, {"id": "j", "node": "join"},
+              edges=(("d.result", "g.text"), ("d.result", "l.text"), ("l.result", "p.a"), ("g.yes", "p.b"), ("p.result", "j.texts")), text="x|y,no")
+    assert run.results["j"]["result"] == ["x:x", None]
+    assert through_json(run).results["j"]["result"] == ["x:x", None]
+
+
+def test_a_skip_above_an_empty_group_hides_what_the_reduction_returned():
+    run = ran({"id": "d", "node": "split", "values": {"sep": "|"}}, {"id": "g", "node": "decide"}, {"id": "l", "node": "split"},
+              {"id": "t", "node": "pair"}, {"id": "m", "node": "split"}, {"id": "x", "node": "pair"}, {"id": "j", "node": "join"},
+              edges=(("d.result", "g.text"), ("d.result", "l.text"), ("l.result", "t.a"), ("g.yes", "t.b"), ("l.result", "m.text"),
+                     ("t.result", "x.a"), ("m.result", "x.b"), ("x.result", "j.texts")), text="p,no")
+    assert run.graph.plan["j"] == "per row of l.result"
+    assert run.results["j"]["result"] == [None, None]
