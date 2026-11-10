@@ -89,3 +89,10 @@ def test_a_pattern_that_takes_too_long_fails_its_node_instead_of_freezing_the_ru
 def test_a_node_is_still_its_function() -> None:
     assert text.reverse("abc") == "cba"
     assert json_ops.get_path([1, 2, 3], "-1") == 3
+
+
+def test_text_a_number_or_parsed_json_feeds_a_json_value_and_a_json_null_is_written_as_null() -> None:
+    for maker, value in ((text.uppercase, "x"), (json_ops.parse, "null")):
+        graph = conductor_nodes.registry.load(make_graph(maker, json_ops.stringify, edges=[(f"{maker.id}.result", "json-stringify.value")]))
+        assert graph.problems == []
+        assert graph.run(text=value).outputs == {"json-stringify.result": '"X"' if value == "x" else "null"}

@@ -6,8 +6,9 @@ import re
 import time as t
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal, TypeAliasType
 
+import pytest
 from conductor import (
     SKIPPED,
     Ask,
@@ -19,7 +20,7 @@ from conductor import (
     Series,
     node,
 )
-from pydantic import GetCoreSchemaHandler
+from pydantic import GetCoreSchemaHandler, JsonValue
 from pydantic_core import core_schema
 
 from tests.test_core.nodes import place, registry_of
@@ -422,6 +423,74 @@ def test_own_types_accept_and_round_trip():
     assert reg4.load({"nodes": [{"id": "d", "node": "double", "values": {"x": "1,5"}}]}).run().outputs == {"d.result": 3.0}
     wrong = reg4.load({"nodes": [{"id": "d", "node": "double"}, {"id": "c", "node": "count"}], "edges": [["d.result", "c.text"]]})
     assert [p.type for p in wrong.problems] == ["type_mismatch"]
+
+
+Amount = TypeAliasType("Amount", int | float)
+
+
+@node("as-text")
+def as_text(text: str) -> str:
+    return text
+
+
+@node("as-yes")
+def as_yes(text: str) -> bool:
+    return bool(text)
+
+
+@node("as-count")
+def as_count(text: str) -> int:
+    return len(text)
+
+
+@node("as-low")
+def as_low(text: str) -> Literal["low"]:
+    return "low"
+
+
+@node("show-json")
+def show_json(value: JsonValue) -> str:
+    return json.dumps(value)
+
+
+@node("show-number")
+def show_number(value: Amount) -> str:
+    return repr(value)
+
+
+@node("show-level")
+def show_level(value: Literal["low", "high"]) -> str:
+    return value
+
+
+@node("parse-json")
+def parse_json(text: str) -> JsonValue:
+    return json.loads(text)
+
+
+def _edge(source: Any, target: Any) -> Any:
+    return registry_of(source, target).load({
+        "nodes": [{"id": "a", "node": source.id}, {"id": "b", "node": target.id}], "edges": [["a.result", "b.value"]],
+    })
+
+
+@pytest.mark.parametrize(("source", "target", "fits"), [
+    (as_text, show_json, True), (as_yes, show_json, True), (as_low, show_json, True),
+    (as_count, show_number, True), (as_yes, show_number, False), (as_text, show_number, False),
+    (as_low, show_level, True), (as_text, show_level, False),
+])
+def test_an_edge_into_a_type_alias_or_a_literal_takes_what_its_values_may_be(source, target, fits):
+    graph = _edge(source, target)
+
+    assert [p.type for p in graph.problems] == ([] if fits else ["type_mismatch"])
+    if fits:
+        assert graph.run(text="x").status == "complete"
+
+
+def test_a_json_null_is_a_value_of_a_json_input_and_never_a_blank():
+    run = _edge(parse_json, show_json).run(text="null")
+
+    assert run.outputs == {"b.result": "null"} and run.not_called == []
 
 
 # -- 5. FromRun -----------------------------------------------------------------------------------

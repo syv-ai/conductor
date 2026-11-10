@@ -640,29 +640,54 @@ def _takes_a_list(hint: Any) -> bool:
         return False
     if isinstance(kind, type) and (issubclass(kind, (list, tuple, set, frozenset)) or (kind.__module__ == "collections.abc" and issubclass(kind, Iterable))):
         return True
+    kinds = _json_kinds(hint)
+    return kinds is None or "array" in kinds
+
+
+def _json_kinds(hint: Any) -> frozenset[str] | None:
+    """The JSON types a value of ``hint`` may be written as (``"string"``, ``"array"``, ``"null"``, ...), by its JSON
+    schema; ``None`` when the schema says nothing against any. A type with no JSON form may be none of them."""
     try:
         schema = TypeAdapter(_carried(hint)).json_schema()
-    except Exception:  # noqa: BLE001  a type with no JSON form is never written as a list
-        return False
-    return _schema_takes_an_array(schema, schema.get("$defs", {}))
+    except Exception:  # noqa: BLE001  a type with no JSON form is never written as JSON
+        return frozenset()
+    return _schema_kinds(schema, schema.get("$defs", {}))
 
 
-def _schema_takes_an_array(schema: Mapping[str, Any], defs: Mapping[str, Any]) -> bool:
-    """Whether a JSON schema allows an array: its type, a branch of it, or no constraint on the type at all."""
+def _schema_kinds(schema: Mapping[str, Any], defs: Mapping[str, Any]) -> frozenset[str] | None:
+    """The JSON types a schema allows: its type, its branches' or its values'; ``None`` for no constraint on the type."""
     if "$ref" in schema:
-        return _schema_takes_an_array(defs.get(schema["$ref"].rpartition("/")[2], {}), defs)
+        return _schema_kinds(defs.get(schema["$ref"].rpartition("/")[2], {}), defs)
     branches = [*schema.get("anyOf", ()), *schema.get("oneOf", ()), *schema.get("allOf", ())[:1]]
     if branches:
-        return any(_schema_takes_an_array(branch, defs) for branch in branches)
+        kinds = [_schema_kinds(branch, defs) for branch in branches]
+        return None if None in kinds else frozenset().union(*kinds)  # type: ignore[arg-type]
     kind = schema.get("type")
-    if kind is None:
-        return not ({"enum", "const"} & schema.keys())
-    return kind == "array" or (isinstance(kind, list) and "array" in kind)
+    if kind is not None:
+        return frozenset([kind] if isinstance(kind, str) else kind)
+    if {"enum", "const"} & schema.keys():
+        return frozenset(_JSON_KIND[type(v)] for v in schema.get("enum", [schema.get("const")]))
+    return None
+
+
+_JSON_KIND = {type(None): "null", bool: "boolean", int: "integer", float: "number", str: "string", list: "array", dict: "object"}
+
+
+#: An alias's JSON types, read once per alias: an edge or a blank asks again for each.
+_alias_kinds = functools.lru_cache(maxsize=None)(_json_kinds)
+
+
+def _is_alias(hint: Any) -> bool:
+    """Whether ``hint`` is a type alias (``type X = ...``, ``TypeAliasType``), which is read by its JSON schema."""
+    return type(hint).__name__ == "TypeAliasType"  # typing's, or typing_extensions' as pydantic's JsonValue is
 
 
 def takes_a_blank(hint: Any) -> bool:
-    """Whether a blank may arrive: ``X | None``, or ``Any``, which says nothing against one."""
-    return hint is Any or (get_origin(hint) in (Union, types.UnionType) and type(None) in get_args(hint))
+    """Whether a blank may arrive: ``X | None``, ``Any``, which says nothing against one, or a type alias whose JSON
+    form may be ``null`` (pydantic's ``JsonValue``)."""
+    if hint is Any or (get_origin(hint) in (Union, types.UnionType) and type(None) in get_args(hint)):
+        return True
+    return _is_alias(hint) and ((kinds := _alias_kinds(hint)) is None or "null" in kinds)
 
 
 def without_none(hint: Any) -> Any:
@@ -689,7 +714,12 @@ def _options(hint: Any) -> list[Any]:
 def _one_accepts(target: Any, source: Any) -> bool:
     if target is Any or target == source:
         return True
+    if _is_alias(target):  # a value lands if its JSON form is one the alias's may be: a number on a JSON value
+        kinds, given = _alias_kinds(target), _json_kinds(source)
+        return kinds is None or (bool(given) and given is not None and all(k in kinds or (k == "integer" and "number" in kinds) for k in given))
     if get_origin(source) is Literal:
+        if get_origin(target) is Literal:  # a narrower Literal lands on one holding every value it may be
+            return {(type(v), v) for v in get_args(source)} <= {(type(v), v) for v in get_args(target)}
         return all(_one_accepts(target, type(v)) for v in get_args(source))
     if isinstance(target, type) and isinstance(source, type):
         own = getattr(target, "accepts", None)  # a host's type may widen what lands on it
