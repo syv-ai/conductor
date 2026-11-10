@@ -424,3 +424,41 @@ def test_a_cancel_from_another_worker_that_lands_as_a_worker_shuts_down_keeps_th
         assert store.cancelled and (row.status, row.owner) == ("cancelled", None)
 
     asyncio.run(scenario())
+
+
+def test_a_leg_whose_event_the_store_fails_to_take_calls_no_node_once_the_run_reads_failed() -> None:
+    registry, started = NodeRegistry(), []
+
+    @registry.node("first")
+    def first(text: str) -> str:
+        return text
+
+    @registry.node("slow")
+    def slow(text: str) -> str:
+        started.append(text)
+        time.sleep(0.01)
+        return text
+
+    class Flaky(MemoryStore):
+        failed_once = False
+
+        async def add_event(self, run_id: str, owner: str, body: str) -> int | None:
+            if '"node_start"' in body and '"slow"' in body and not self.failed_once:
+                self.failed_once = True
+                raise OSError("the store is down for a moment")
+            return await super().add_event(run_id, owner, body)
+
+    store = Flaky()
+    app = FastAPI()
+    app.include_router(run_router(store=store, registry=registry))
+    graph = make_graph(first, slow).model_dump(mode="json")
+
+    async def scenario() -> None:
+        async with app.router.lifespan_context(app), httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as client:
+            run_id = (await client.post("/runs", json={"graph": graph, "inputs": {"text": [str(i) for i in range(100)]}})).json()["id"]
+            await _until_status(store, run_id, "failed")
+            at_the_end = len(started)
+            await asyncio.sleep(0.3)
+            assert len(started) == at_the_end < 100
+
+    asyncio.run(scenario())

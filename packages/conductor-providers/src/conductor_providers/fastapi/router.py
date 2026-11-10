@@ -9,6 +9,7 @@ told so.
 """
 
 import asyncio
+import contextlib
 import json
 import logging
 import time
@@ -198,15 +199,16 @@ def run_router(
                 from_run=values, max_rows=ceiling, timeout=leg_timeout,
                 cancel=leg.cancel, checkpoint_every=checkpoint_every,
             )
-            async for event in stream:
-                if isinstance(event, RunCheckpoint):
-                    await write(run_id, leg, {"run": await asyncio.to_thread(event.run.to_json)})
-                    continue
-                if await store.add_event(run_id, worker, event.model_dump_json()) is None:
-                    leg.cancel.set()  # another worker holds the run
-                if isinstance(event, RunEnd):
-                    await _stopped(keep_lease)
-                    await finish(run_id, event.run)
+            async with contextlib.aclosing(stream):  # a raise in this loop ends the leg before its next unit
+                async for event in stream:
+                    if isinstance(event, RunCheckpoint):
+                        await write(run_id, leg, {"run": await asyncio.to_thread(event.run.to_json)})
+                        continue
+                    if await store.add_event(run_id, worker, event.model_dump_json()) is None:
+                        leg.cancel.set()  # another worker holds the run
+                    if isinstance(event, RunEnd):
+                        await _stopped(keep_lease)
+                        await finish(run_id, event.run)
         except Exception:
             log.exception("the leg of run %s failed", run_id)
             await store.add_event(run_id, worker, '{"type":"run_end","status":"failed","cause":null}')

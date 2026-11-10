@@ -18,7 +18,7 @@ import json
 import math
 import threading
 import time
-from collections.abc import AsyncIterator, Callable, Mapping
+from collections.abc import AsyncGenerator, Callable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, NotRequired, TypedDict, overload
 
@@ -150,13 +150,16 @@ class Run:
     def stream(
         self, *, max_rows: int | None = None, from_run: Mapping[type, Any] | None = None, timeout: float | None = None, cancel: asyncio.Event | None = None,
         checkpoint_every: float | None = None,
-    ) -> AsyncIterator[Event]:
+    ) -> AsyncGenerator[Event]:
         """``resume``, saying what happens as it happens: ``async for event in run.stream(): ...``.
 
         The leg runs on its own thread, so a slow node never holds the event
         loop. The last event is ``RunEnd``, whose ``run`` is the run as the leg
-        left it. Setting ``cancel``, or leaving the loop early, ends the leg
-        before its next unit. With ``checkpoint_every`` (seconds), a
+        left it. Setting ``cancel`` ends the leg before its next unit, and so
+        does leaving the loop early once the stream is closed, which Python
+        does for an async generator only when it is collected: hold it with
+        ``async with contextlib.aclosing(run.stream()) as events:`` and loop
+        over ``events``. With ``checkpoint_every`` (seconds), a
         ``RunCheckpoint`` comes at most that often while units finish, and once
         when the leg is stopped with calls still on threads: a host that stores
         its ``run`` loses only the calls in flight if the process dies. A call
@@ -167,7 +170,7 @@ class Run:
 
     async def _stream(
         self, max_rows: int | None, from_run: Mapping[type, Any] | None, timeout: float | None, cancel: asyncio.Event | None, checkpoint_every: float | None,
-    ) -> AsyncIterator[Event]:
+    ) -> AsyncGenerator[Event]:
         loop, events = asyncio.get_running_loop(), asyncio.Queue["Event | None"]()
         cancelled = threading.Event()
         deadline = _deadline(timeout)
