@@ -916,7 +916,7 @@ def test_a_series_input_of_an_embedding_fed_a_whole_column_sees_it_whole():
     run = ran({"id": "docs", "node": "split"}, {"id": "emb", "node": "mixed"}, edges=(("docs.result", "emb.text"), ("docs.result", "emb.texts")),
               registry=registry_of(split, upper, join, inner), text="a,b")
     assert set(run.graph.plan) == {"docs", "emb"}
-    assert run.results["emb"] == {"u.result": ["A", "B"], "j.result": "a+b"}
+    assert run.results["emb"] == {"u/result": ["A", "B"], "j/result": "a+b"}
 
 
 def test_a_graph_embedded_under_a_row_runs_as_the_same_nodes_drawn_flat():
@@ -1460,9 +1460,9 @@ def test_a_nested_embedding_names_its_fields_as_each_record_says_them_never_by_a
     outer = embedded("outer", {"id": "f", "node": "two"}, {"id": "z", "node": "upper"})
     loaded = graph({"id": "o", "node": "outer"}, registry=registry_of(upper, two, outer))
 
-    assert list(loaded.inputs) == ["x.text", "y.text", "text"]
-    assert all("/" not in i.address for i in loaded.inputs.values())
-    assert loaded.run({"x.text": "a", "y.text": "b", "text": "c"}).results["o"] == {"x.result": "A", "y.result": "B", "result": "C"}
+    assert list(loaded.inputs) == ["x/text", "y/text", "text"]
+    assert all(i.address.startswith("o.") for i in loaded.inputs.values())
+    assert loaded.run({"x/text": "a", "y/text": "b", "text": "c"}).results["o"] == {"x/result": "A", "y/result": "B", "result": "C"}
 
 
 def test_many_on_an_embedded_node_takes_a_list_as_its_inner_input_would():

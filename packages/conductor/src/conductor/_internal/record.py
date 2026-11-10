@@ -49,21 +49,24 @@ from pydantic import (
 )
 
 from conductor._internal.conductor_model import ConductorModel
-from conductor._internal.errors import InvalidCallError, make_problem
+from conductor._internal.errors import InvalidCallError, Problem, make_problem, value_free_errors
+from conductor._internal.fields import Refused, carried_list, read_table
 
 if TYPE_CHECKING:
     from conductor._internal.node_definition import NodeDefinition
 
 
 def _checked_address(address: str) -> str:
-    """``address`` once it reads ``node.field``, or ``node.output.column``."""
-    parts = address.split(".")
-    if not 2 <= len(parts) <= 3 or not all(parts):
+    """``address`` once it reads ``node.field``, or ``node.output.column``; a column's own name may hold dots."""
+    node_id, _, rest = address.partition(".")
+    field, dot, column = rest.partition(".")
+    if not node_id or not field or (dot and not column):
         raise ValueError(f"{address!r} is not an address; write 'node.field', or 'node.output.column' for a column of a table")
     return address
 
 
-#: An address, ``"node.field"`` or ``"node.output.column"``.
+#: An address, ``"node.field"`` or ``"node.output.column"``: node ids and field names hold no dot, so everything
+#: after the second is the column's name (``"read.result.Amount in USD."``).
 Address = Annotated[str, AfterValidator(_checked_address)]
 
 
@@ -152,23 +155,80 @@ def make_graph(
     *nodes: NodeDefinition[..., Any],
     edges: Sequence[tuple[str, str]] | None = None,
     values: Mapping[str, Any] | None = None,
+    defaults: Mapping[str, Any] | None = None,
+    many: AbstractSet[str] | None = None,
 ) -> GraphRecord:
     """A graph record written from Python, each node at its version::
 
         make_graph(read_file, upper)                                  # a chain
         make_graph(read_file, upper, edges=[("read_file.result", "upper.text")])
         make_graph(read_file, upper, values={"read_file.path": "in.txt"})
+        make_graph(lookup, send, many={"lookup.contact"})             # a row per contact the caller gives
 
     A node's id in the graph is its definition's id; a definition used more
     than once is ``upper-1``, ``upper-2``, and so on, skipping an id another
-    node already has. ``values`` are keyed by those ids, ``"node.input"``,
-    and fixed in the record.
+    node already has. ``values``, ``defaults`` and ``many`` are keyed by
+    ``"node.input"`` addresses of those ids, as the record's fields of those
+    names are: a value is fixed, a default stays open to the caller, and an
+    input in ``many`` takes a list, a row per item.
 
     With no ``edges`` the nodes form a chain: each takes its one required
-    input that no value fills from the one output of the node before it, and
-    anything else raises ``TypeError`` here. With ``edges``, those are every
-    edge of the graph. Nothing is matched by name.
+    input that nothing typed in fills from the one output of the node before
+    it. With ``edges``, those are every edge of the graph. Nothing is matched
+    by name.
+
+    Every address, every value's type and the chain are checked here, against
+    the definitions; what is wrong raises one ``InvalidCallError`` listing
+    each fault. A node whose fields a hook works out, or that is a stored
+    graph, is checked when the graph loads.
     """
+    ids = _ids_of(nodes)
+    known = dict(zip(ids, nodes, strict=True))
+    problems: list[Problem] = []
+    typed: dict[str, dict[str, Any]] = {"values": {}, "defaults": {}, "many": {}}
+    for kind, given in (("values", values or {}), ("defaults", defaults or {}), ("many", dict.fromkeys(many or ()))):
+        for address, value in given.items():
+            node_id, _, name = address.partition(".")
+            definition = known.get(node_id)
+            if definition is None:
+                problems.append(make_problem("node_not_in_graph", node_id, node_id=node_id, nodes=ids))
+            elif _fields_known(definition) and name not in definition.inputs:
+                problems.append(make_problem("unknown_input", node_id, name, inputs=list(definition.inputs)))
+            else:
+                typed[kind].setdefault(node_id, {})[name] = value
+    for node_id, by_name in typed["values"].items():
+        for name, value in by_name.items():
+            problems += _value_problems(known[node_id], node_id, name, value, many=name in typed["many"].get(node_id, {}))
+    for node_id, by_name in typed["defaults"].items():
+        for name, value in by_name.items():
+            problems += _value_problems(known[node_id], node_id, name, value, many=name in typed["many"].get(node_id, {}))
+    if edges is None:
+        edges = []
+        for index in range(1, len(nodes)):
+            filled = {**typed["values"].get(ids[index], {}), **typed["defaults"].get(ids[index], {})}
+            edge = _chain_edge(ids[index - 1], nodes[index - 1], ids[index], nodes[index], filled)
+            if isinstance(edge, Problem):
+                problems.append(edge)
+            else:
+                edges.append(edge)
+    else:
+        problems += [problem for source, target in edges for problem in _edge_problems(source, target, known)]
+    if problems:
+        raise InvalidCallError(problems)
+    return GraphRecord(
+        nodes=[
+            NodeRecord(
+                id=node_id, node=definition.id, version=definition.version, values=typed["values"].get(node_id, {}),
+                defaults=typed["defaults"].get(node_id, {}), many=frozenset(typed["many"].get(node_id, {})),
+            )
+            for node_id, definition in known.items()
+        ],
+        edges=list(edges),
+    )
+
+
+def _ids_of(nodes: Sequence[NodeDefinition[..., Any]]) -> list[str]:
+    """Each node's id in the graph: its definition's, numbered ``-1``, ``-2`` for one used more than once."""
     used = Counter(definition.id for definition in nodes)
     taken = {definition.id for definition in nodes if used[definition.id] == 1}
     numbered: Counter[str] = Counter()
@@ -180,30 +240,64 @@ def make_graph(
             node_id = f"{definition.id}-{numbered[definition.id]}"
         taken.add(node_id)
         ids.append(node_id)
-    values_of: dict[str, dict[str, Any]] = {}
-    for address, value in (values or {}).items():
-        node_id, _, name = address.partition(".")
-        if node_id not in ids:
-            raise TypeError(f"make_graph: values names {node_id!r}, which is not one of the nodes {', '.join(ids)}")
-        values_of.setdefault(node_id, {})[name] = value
-    if edges is None:
-        edges = [_chain_edge(ids[index - 1], nodes[index - 1], ids[index], nodes[index], values_of.get(ids[index], {})) for index in range(1, len(nodes))]
-    return GraphRecord(
-        nodes=[
-            NodeRecord(id=node_id, node=definition.id, version=definition.version, values=values_of.get(node_id, {}))
-            for node_id, definition in zip(ids, nodes, strict=True)
-        ],
-        edges=list(edges),
-    )
+    return ids
 
 
-def _chain_edge(before_id: str, before: NodeDefinition[..., Any], after_id: str, after: NodeDefinition[..., Any], typed_in: Mapping[str, Any]) -> tuple[str, str]:
-    """The one edge from ``before`` into ``after`` in a chain; ``TypeError`` when there isn't exactly one."""
+def _fields_known(definition: NodeDefinition[..., Any]) -> bool:
+    """Whether a definition's fields are known before a graph loads: not a stored graph, and no hook works them out."""
+    return definition.graph is None and definition.compute_added_inputs is None and definition.compute_outputs is None
+
+
+def _value_problems(definition: NodeDefinition[..., Any], node_id: str, name: str, value: Any, *, many: bool) -> list[Problem]:
+    """What is wrong with ``value`` typed into the input ``name``, as loading would say it; nothing for a field not known yet."""
+    spec = definition.inputs.get(name)
+    if spec is None:
+        return []
+    try:
+        if spec.shape == "table":
+            read_table(spec, value, strict=False, given=True)
+        elif many and spec.shape == "one":
+            carried_list(spec.type).validate_python(value)
+        elif not (value is None and spec.shape == "many" and spec.default is None):
+            spec.adapter.validate_python(value)
+    except ValidationError as error:
+        return [make_problem("invalid_value", node_id, name, reason=value_free_errors(error)[0]["msg"])]
+    except Refused as refused:
+        return [make_problem("invalid_value", node_id, name, reason=refused.reason, **refused.ctx)]
+    return []
+
+
+def _edge_problems(source: str, target: str, known: Mapping[str, NodeDefinition[..., Any]]) -> list[Problem]:
+    """What is wrong with the edge ``source`` to ``target``: an address that isn't one, a node, output or input not there."""
+    try:
+        _checked_address(source), _checked_address(target)
+    except ValueError as wrong:
+        return [make_problem("invalid_record", "record", "edges", at=f"{source} -> {target}", reason=str(wrong), error="value_error")]
+    to_node, _, to_field = target.partition(".")
+    found = []
+    for node_id in dict.fromkeys((source.partition(".")[0], to_node)):
+        if node_id not in known:
+            found.append(make_problem("edge_names_missing_node", to_node, to_field, node_id=node_id, source=source, target=target))
+    source_id, _, rest = source.partition(".")
+    output, _, column = rest.partition(".")
+    giver = known.get(source_id)
+    if giver is not None and _fields_known(giver):
+        spec = giver.outputs.get(output)
+        if spec is None or (column and spec.shape != "table") or (column and spec.columns is not None and column not in spec.columns):
+            could = [f"{source_id}.{output}.{c}" for c in spec.columns] if column and spec is not None and spec.columns is not None else [f"{source_id}.{o}" for o in giver.outputs]
+            found.append(make_problem("unknown_output", to_node, to_field, source=source, outputs=could, **({"column": column} if column else {})))
+    taker = known.get(to_node)
+    if taker is not None and _fields_known(taker) and to_field not in taker.inputs:
+        found.append(make_problem("unknown_input", to_node, to_field, inputs=list(taker.inputs)))
+    return found
+
+
+def _chain_edge(
+    before_id: str, before: NodeDefinition[..., Any], after_id: str, after: NodeDefinition[..., Any], typed_in: Mapping[str, Any],
+) -> tuple[str, str] | Problem:
+    """The one edge from ``before`` into ``after`` in a chain, or the problem ``not_a_chain`` when there isn't exactly one."""
     outputs = list(before.outputs)
     open_inputs = [name for name, spec in after.inputs.items() if spec.required and name not in typed_in]
     if len(outputs) != 1 or len(open_inputs) != 1:
-        raise TypeError(
-            f"make_graph: a chain takes {after_id!r}'s one required open input (it has {', '.join(open_inputs) or 'none'}) "
-            f"from {before_id!r}'s one output (it has {', '.join(outputs) or 'none'}); pass edges="
-        )
+        return make_problem("not_a_chain", after_id, before=before_id, inputs=open_inputs, outputs=outputs)
     return f"{before_id}.{outputs[0]}", f"{after_id}.{open_inputs[0]}"

@@ -70,7 +70,7 @@ PROBLEM_CATALOGUE: Mapping[str, str] = {
     "embeds_itself": "The node '{node}' is a graph that contains itself.",
     "default_on_later_node": "'{field}' is not an open input of the graph, so a caller can't change its default; make it a value.",
     "hook_needs_value": "'{field}' must be typed in: the node works out its fields from it when the graph loads.",
-    "invalid_node_id": "'{node_id}' cannot be a node id: '/', '.' and '@' each mean something in an address.",
+    "invalid_node_id": "'{node_id}' cannot be a node id: '.', '/', '@' and '~' each mean something in an address or a waiting id; rename it without them.",
     "invalid_value": "The value typed into '{field}' is not valid: {reason}",
     "many_on_edge": "'{field}' is fed by an edge; only an open input takes one or many values from the caller.",
     "many_not_open": "'{field}' is not an open input of the graph, so it takes no list from the caller.",
@@ -111,6 +111,10 @@ PROBLEM_CATALOGUE: Mapping[str, str] = {
     "invalid_max_rows": "max_rows is at least 1; it was {max_rows}.",
     "invalid_checkpoint_every": "checkpoint_every is a number of seconds above 0; it was {checkpoint_every}.",
     "missing_input": "'{name}' is required.",
+    "not_a_chain": (
+        "'{node_id}' can't follow '{before}' in a chain: a chain takes its one required open input (it has {inputs}) "
+        "from the one output of the node before it (that has {outputs}); pass edges= to make_graph."
+    ),
     "node_not_in_graph": "'{node_id}' is not a node of this graph; it has {nodes}.",
     "not_offered": "The graph has no input '{name}'; it has {inputs}.",
     "not_waiting": "Nothing is waiting on an answer as {waiting_id!r}.",

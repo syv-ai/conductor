@@ -654,10 +654,10 @@ def test_an_embeddings_inputs_are_filled_by_its_own_address():
 
 
 def test_two_inner_inputs_sharing_a_name_are_offered_by_the_inner_records_ids():
-    assert [f["name"] for f in next(n for n in OUTSIDE.describe()["nodes"] if n["id"] == "halves")["inputs"]] == ["x.text", "y.text"]
-    graph = OUTSIDE.load({"nodes": [{"id": "s", "node": "upper"}, {"id": "c", "node": "halves"}], "edges": [["s.result", "c.x.text"]]})
+    assert [f["name"] for f in next(n for n in OUTSIDE.describe()["nodes"] if n["id"] == "halves")["inputs"]] == ["x/text", "y/text"]
+    graph = OUTSIDE.load({"nodes": [{"id": "s", "node": "upper"}, {"id": "c", "node": "halves"}], "edges": [["s.result", "c.x/text"]]})
     assert graph.problems == []
-    assert graph.run({"s.text": "a", "c.y.text": "b"}).outputs == {"c.result": "AB"}
+    assert graph.run({"s.text": "a", "c.y/text": "b"}).outputs == {"c.result": "AB"}
 
 
 def test_an_authored_id_with_a_slash_beside_an_embedding_is_refused_alone_and_stays_the_authors():

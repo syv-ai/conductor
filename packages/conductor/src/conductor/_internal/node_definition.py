@@ -304,8 +304,12 @@ def node(
 
     A stored graph is a node too: ``node("enrich")(record)``.
     """
-    if not isinstance(id, str) or not id:
-        raise NodeDeclarationError(f"@node takes the node's id first, a non-empty string: @node('upper'); got {id!r}", code="node_id_invalid")
+    if not is_node_id(id):
+        raise NodeDeclarationError(
+            f"@node takes the node's id first, a non-empty string without '.', '/', '@' or '~', which mean something in an address "
+            f"or a waiting id: @node('upper'); got {id!r}",
+            code="invalid_node_id",
+        )
     if upgrade is not None and replaces is None:
         raise NodeDeclarationError(f"@node({id!r}) has an upgrade but replaces nothing; name the version it upgrades with replaces=", code="upgrade_without_replaces")
     if replaces is not None and (not isinstance(replaces, NodeDefinition) or replaces.id != id):
@@ -348,6 +352,16 @@ def node(
         return definition
 
     return typing.cast(_Declare, make)
+
+
+#: What a node id never holds: each means something in an address (``node.field``, ``embedding/inner``) or a waiting id
+#: (``node@row~fingerprint``).
+_MARKS = frozenset("./@~")
+
+
+def is_node_id(value: object) -> bool:
+    """Whether ``value`` can be a node id, of a definition or of a node in a record: a non-empty text without ``. / @ ~``."""
+    return isinstance(value, str) and bool(value) and not _MARKS & set(value)
 
 
 #: The ``Param`` a ``FromRun`` parameter is read with, so it is told apart from an input.

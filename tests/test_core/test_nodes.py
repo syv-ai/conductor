@@ -83,11 +83,27 @@ def test_a_wrong_declaration_is_a_type_error_with_a_code_naming_the_node_and_fun
     assert "@node('x') on bad" in str(raised.value)
 
 
-def test_a_node_id_must_be_a_string_with_something_in_it():
-    for wrong in ("", 5):
+def test_a_node_id_must_be_a_string_with_something_in_it_and_no_mark_an_address_or_waiting_id_uses():
+    for wrong in ("", 5, "a.b", "a/b", "a@b", "a~b"):
         with pytest.raises(NodeDeclarationError) as raised:
-            node(wrong)
-        assert raised.value.code == "node_id_invalid"
+            node(wrong)  # type: ignore[arg-type]
+        assert raised.value.code == "invalid_node_id"
+
+    def amount() -> int:
+        return 1
+
+    assert node("Beløb i kr")(amount).id == "Beløb i kr"
+
+
+def test_a_node_id_in_a_record_with_a_tilde_is_invalid_node_id():
+    registry = NodeRegistry()
+
+    @registry.node("upper")
+    def upper(text: str) -> str:
+        return text.upper()
+
+    loaded = registry.load({"nodes": [{"id": "a~b", "node": "upper"}]})
+    assert [(p.type, p.loc) for p in loaded.problems] == [("invalid_node_id", ("a~b",))]
 
 
 def test_an_async_function_is_refused():

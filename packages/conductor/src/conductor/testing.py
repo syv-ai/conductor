@@ -122,12 +122,8 @@ def _problem(code: str, node_id: str, version: int | None, message: str, **ctx: 
 
 
 def _placed(version: NodeDefinition[..., Any], values: Mapping[str, Any]) -> GraphRecord:
-    """A graph of this one node, at its version, with ``values`` typed in; placed under its own id where a record can say it."""
-    return GraphRecord(nodes=[NodeRecord(id=_placed_id(version), node=version.id, version=version.version, values=values)])
-
-
-def _placed_id(version: NodeDefinition[..., Any]) -> str:
-    return "node" if set(version.id) & set("/.@") else version.id
+    """A graph of this one node, at its version, with ``values`` typed in, placed under its own id."""
+    return GraphRecord(nodes=[NodeRecord(id=version.id, node=version.id, version=version.version, values=values)])
 
 
 def _causes(problems: Sequence[Problem]) -> dict[str, Any]:
@@ -156,7 +152,7 @@ def _upgrade_problems(older: NodeDefinition[..., Any], registry: NodeRegistry, g
         values = {name: made for name, spec in older.inputs.items() if (made := _made_up(spec)) is not _CANNOT}
     newest = registry[older.id].version
     try:
-        upgraded = registry.upgrade(_placed(older, values), _placed_id(older))
+        upgraded = registry.upgrade(_placed(older, values), older.id)
     except Exception as raised:  # noqa: BLE001  an upgrade's rewrite is the author's code
         return [_problem("upgrade_broken", older.id, older.version, f"moving to version {newest} raised {type(raised).__name__}: {raised}", error=type(raised).__name__)]
     problems = registry.load(upgraded).problems

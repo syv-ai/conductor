@@ -108,7 +108,8 @@ def test_an_edge_is_two_addresses():
     with pytest.raises(ValidationError):
         GraphRecord(edges=[("a", "b.x")])
     with pytest.raises(ValidationError):
-        GraphRecord(edges=[("a.b.c.d", "b.x")])
+        GraphRecord(edges=[("a.b.", "b.x")])
+    assert GraphRecord(edges=[("a.result.Amount in USD.", "b.x")]).edges == (("a.result.Amount in USD.", "b.x"),)
     with pytest.raises(ValidationError):
         GraphRecord.model_validate({"nodes": [{"id": "a", "node": "t", "bindings": {}}]})
 
@@ -284,15 +285,41 @@ def test_make_graph_with_edges_takes_those_as_every_edge_and_matches_nothing_by_
 
 
 def test_make_graph_refuses_a_chain_it_cannot_draw_at_the_call():
-    with pytest.raises(TypeError, match="pass edges="):
+    with pytest.raises(InvalidCallError, match="pass edges=") as refused:
         make_graph(_email, _count)
-    with pytest.raises(TypeError, match="pass edges="):
+    assert [(p.type, p.loc) for p in refused.value.errors()] == [("not_a_chain", ("count",))]
+    with pytest.raises(InvalidCallError) as refused:
         make_graph(_count, _hello, _shout, values={"hello.name": "x"})
+    assert [(p.type, p.loc, p.ctx["inputs"]) for p in refused.value.errors()] == [("not_a_chain", ("hello",), [])]
 
 
 def test_make_graph_refuses_a_value_on_a_node_it_does_not_have():
-    with pytest.raises(TypeError, match="'nobody'"):
+    with pytest.raises(InvalidCallError) as refused:
         make_graph(_hello, values={"nobody.name": "x"})
+    assert [(p.type, p.ctx["nodes"]) for p in refused.value.errors()] == [("node_not_in_graph", ["hello"])]
+
+
+def test_make_graph_checks_every_address_and_value_at_the_call_and_lists_every_fault():
+    with pytest.raises(InvalidCallError) as refused:
+        make_graph(
+            _hello, _shout,
+            edges=[("hello.reslt", "shout.text"), ("nobody.result", "shout.text"), ("hello.result", "shout.txt")],
+            values={"hello.nmae": "x"}, defaults={"hello.name": 3}, many={"shout.texts"},
+        )
+    assert sorted((p.type, p.loc) for p in refused.value.errors()) == [
+        ("edge_names_missing_node", ("shout", "text")),
+        ("invalid_value", ("hello", "name")),
+        ("unknown_input", ("hello", "nmae")),
+        ("unknown_input", ("shout", "texts")),
+        ("unknown_input", ("shout", "txt")),
+        ("unknown_output", ("shout", "text")),
+    ]
+
+
+def test_make_graph_writes_defaults_and_many():
+    record = make_graph(_hello, defaults={"hello.name": ["you"]}, many={"hello.name"})
+    assert (record.nodes[0].defaults, record.nodes[0].many) == ({"name": ["you"]}, frozenset({"name"}))
+    assert PLAIN.load(record).run(name=["ida", "bo"]).outputs == {"hello.result": ["hello ida", "hello bo"]}
 
 
 def test_make_graph_writes_each_node_at_its_version():
@@ -440,10 +467,10 @@ def test_a_wrong_address_on_an_embedding_is_a_problem_on_it_and_never_names_an_i
 
 
 def test_inner_fields_sharing_a_name_are_offered_by_the_inner_node_as_its_record_says_it():
-    graph = EMBEDDED.load({"nodes": [{"id": "s", "node": "upper"}, {"id": "c", "node": "pair"}], "edges": [["s.result", "c.x.text"]]})
+    graph = EMBEDDED.load({"nodes": [{"id": "s", "node": "upper"}, {"id": "c", "node": "pair"}], "edges": [["s.result", "c.x/text"]]})
 
-    assert graph.problems == [] and {n: i.address for n, i in graph.inputs.items()} == {"text": "s.text", "y.text": "c.y.text"}
-    assert graph.run({"s.text": "a", "c.y.text": "b"}).outputs == {"c.result": "AB"}
+    assert graph.problems == [] and {n: i.address for n, i in graph.inputs.items()} == {"text": "s.text", "y/text": "c.y/text"}
+    assert graph.run({"s.text": "a", "c.y/text": "b"}).outputs == {"c.result": "AB"}
 
 
 def test_a_graph_embedded_per_outer_row_folds_its_inner_reductions_per_outer_row():
@@ -456,7 +483,7 @@ def test_a_graph_embedded_per_outer_row_folds_its_inner_reductions_per_outer_row
 def test_a_stored_graph_offers_its_fields_in_the_palette_of_the_registry_that_holds_its_nodes():
     described = next(n for n in EMBEDDED.describe()["nodes"] if n["id"] == "pair")
 
-    assert [f["name"] for f in described["inputs"]] == ["x.text", "y.text"] and [f["name"] for f in described["outputs"]] == ["result"]
+    assert [f["name"] for f in described["inputs"]] == ["x/text", "y/text"] and [f["name"] for f in described["outputs"]] == ["result"]
 
 
 def test_a_reduction_over_rows_a_branch_never_made_is_skipped_not_called_on_nothing():
@@ -591,3 +618,19 @@ def test_a_gather_below_a_series_output_skipped_whole_is_skipped():
     })
 
     assert graph.run(text="a,b").results["after"]["result"] is None
+
+
+def test_a_column_whose_name_has_a_dot_is_wired_by_its_address():
+    import polars as pl
+    from conductor import Table
+
+    @node("sheet")
+    def sheet() -> Table:
+        return pl.DataFrame({"Amount in USD.": [3, 4]})
+
+    @node("double")
+    def double(amount: int) -> int:
+        return amount * 2
+
+    record = make_graph(sheet, double, edges=[("sheet.result.Amount in USD.", "double.amount")])
+    assert registry_of(sheet, double).load(record).run().outputs == {"double.result": [6, 8]}

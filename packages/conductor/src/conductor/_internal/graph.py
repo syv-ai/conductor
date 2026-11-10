@@ -61,7 +61,7 @@ from conductor._internal.fields import (
     read_table,
     type_id,
 )
-from conductor._internal.node_definition import NodeDefinition
+from conductor._internal.node_definition import NodeDefinition, is_node_id
 from conductor._internal.record import GraphRecord, NodeRecord
 
 if TYPE_CHECKING:
@@ -464,7 +464,7 @@ class Graph:
         """Resolve each node; an embedded graph's nodes take its place under ``<node>/`` ids."""
         out: list[tuple[NodeRecord, NodeDefinition[..., Any] | None]] = []
         edges = []
-        refused = {n.id for n in record.nodes if any(mark in n.id for mark in "/.@")}
+        refused = {n.id for n in record.nodes if not is_node_id(n.id)}
         for a, b in record.edges:
             if a.partition(".")[0] in refused or b.partition(".")[0] in refused:
                 continue  # its own invalid_node_id says why
@@ -477,7 +477,7 @@ class Graph:
         renamed: dict[str, str] = {}  # "node.field" -> the inner node's "node.field"
         offered_here: dict[str, tuple[dict[str, tuple[str, str]], dict[str, str]]] = {}
         for node_record in record.nodes:
-            if any(mark in node_record.id for mark in "/.@"):
+            if not is_node_id(node_record.id):
                 self.problems.append(make_problem("invalid_node_id", prefix + node_record.id))
                 continue  # never placed, so it can't stand in for a node an embedded graph puts there
             node_record = node_record.model_copy(update={"id": prefix + node_record.id})
@@ -1030,8 +1030,9 @@ def _interface(
 ) -> tuple[dict[str, tuple[str, str]], dict[str, str]]:
     """An embedded graph's inputs (the open inputs of its first nodes) and outputs (what nothing reads), by name.
 
-    A name is the bare field name where it is unique, else ``node.field`` as the embedded graph's own record says
-    it: a field of a graph embedded in it by that node and the name it offers (``f.x.text``), never a spliced id.
+    A name is the bare field name where it is unique, else ``node/field`` as the embedded graph's own record says
+    it: a field of a graph embedded in it by that node and the name it offers (``f/x/text``), never a spliced id. A
+    name holds no dot, so an address of it reads ``e.x/text``, and one of a column ``e.x/result.column``.
     """
     fed = {b.partition(".")[0] for _, b in edges}
     read = {a.partition(".")[0] for a, _ in edges}
@@ -1049,15 +1050,15 @@ def _interface(
     shown_in, shown_out = named(ins), named(outs)
     bare_in, bare_out = [n for _, n, _ in shown_in], [n for _, n, _ in shown_out]
     return (
-        {(n if bare_in.count(n) == 1 else f"{b}.{n}"): tuple(a.rsplit(".", 1)) for b, n, a in shown_in},  # type: ignore[misc]
-        {(n if bare_out.count(n) == 1 else f"{b}.{n}"): a for b, n, a in shown_out},
+        {(n if bare_in.count(n) == 1 else f"{b}/{n}"): tuple(a.rsplit(".", 1)) for b, n, a in shown_in},  # type: ignore[misc]
+        {(n if bare_out.count(n) == 1 else f"{b}/{n}"): a for b, n, a in shown_out},
     )
 
 
 def _follow(address: str, renamed: Mapping[str, str]) -> str:
     """Rewrite ``node.field[.column]`` to the inner node an embedded graph spliced in for it."""
     node_id, _, rest = address.partition(".")
-    for cut in (rest, rest.rpartition(".")[0]):
+    for cut in (rest, rest.partition(".")[0]):
         if cut and f"{node_id}.{cut}" in renamed:
             return renamed[f"{node_id}.{cut}"] + rest[len(cut):]
     return address

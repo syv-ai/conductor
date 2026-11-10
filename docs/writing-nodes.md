@@ -47,12 +47,15 @@ A second node under an id the host already has raises. `extra` is your own JSON 
 `Param` also takes pydantic's limits: `ge`, `gt`, `le`, `lt`, `multiple_of`, `min_length`, `max_length` and `pattern`. They are checked on every value someone types in or a caller gives:
 
 ```python
-graph = host.load(make_graph(repeat, values={"repeat.times": 20}))
+drawn = {"nodes": [{"id": "repeat", "node": "repeat", "values": {"times": 20}}]}  # as an editor saves it
+graph = host.load(drawn)
 
 for problem in graph.problems:
     print(problem.loc, problem.type)
 # ('repeat', 'times') invalid_value
 ```
+
+`make_graph(repeat, values={"repeat.times": 20})` raises that same problem at the call, as an `InvalidCallError`: from Python, the traceback points at the line you wrote.
 
 `repeat.describe()` is the node as an editor's palette reads it, as JSON, and `registry.describe()` is the whole palette.
 
