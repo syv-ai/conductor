@@ -615,7 +615,8 @@ class Graph:
             if node_record.id in refused:
                 self.problems.append(make_problem("invalid_node_id", prefix + node_record.id))
                 continue  # never placed, so it can't stand in for a node an embedded graph puts there
-            node_record = node_record.model_copy(update={"id": prefix + node_record.id})
+            if prefix:  # an embedded graph's node, under its embedding's id
+                node_record = node_record.model_copy(update={"id": prefix + node_record.id})
             definition = self._resolve(node_record)
             if definition is None or definition.graph is None:
                 out.append((node_record, definition))
