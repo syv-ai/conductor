@@ -200,6 +200,13 @@ class FieldSpec:
         return TypeAdapter(_list_of(one) if self.shape == "many" else one)
 
     @functools.cached_property
+    def plain_classes(self) -> tuple[type, ...]:
+        """The classes a value of exactly which needs no reading: the type's own, ``None`` for a blank-taking one; none under limits."""
+        if self.param.constraints:
+            return ()
+        return tuple(option for option in _options(self.type) if isinstance(option, type) and option is not typing.Any)
+
+    @functools.cached_property
     def item_adapter(self) -> TypeAdapter[Any]:
         """Checks one item of a ``Series``, or the one value of any other field, held to its limits."""
         return dataclasses.replace(self, shape="one").adapter if self.shape == "many" else self.adapter

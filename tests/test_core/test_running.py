@@ -769,7 +769,7 @@ class Contact(TypedDict):
     email: str
 
 
-def test_a_table_missing_a_declared_column_at_run_time_fails_the_node_that_made_it():
+def test_a_table_missing_a_declared_column_at_run_time_fails_the_node_that_made_it_naming_the_column():
     @node("bare")
     def bare(text: str) -> Table[Contact]:
         return pl.DataFrame({"name": ["ida"]})
@@ -782,7 +782,8 @@ def test_a_table_missing_a_declared_column_at_run_time_fails_the_node_that_made_
 
     run = graph.run(text="x")
 
-    assert run.status == "failed" and run.cause.loc == ("b",)
+    assert run.status == "failed" and (run.cause.type, run.cause.loc) == ("invalid_output", ("b",))
+    assert (run.cause.ctx["name"], run.cause.ctx["column"]) == ("result", "email")
 
 
 def test_a_table_with_a_blank_cell_survives_a_saved_run():

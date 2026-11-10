@@ -60,7 +60,6 @@ from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.errors import NodeDeclarationError
 from conductor._internal.fields import (
     REQUIRED,
-    SKIPPED,
     FieldSpec,
     Param,
     _FromRunMarker,
@@ -244,18 +243,6 @@ class NodeDefinition(Generic[_P, _R]):
             "takes_added_inputs": self.compute_added_inputs is not None,
             "computes_outputs": self.compute_outputs is not None,
         }
-
-    def spread(self, returned: Any) -> Any:
-        """What the function returned, as ``{output: value}``; ``SKIPPED`` when the whole call was a branch not taken."""
-        if returned is SKIPPED:
-            return SKIPPED
-        if not self.outputs:
-            return {}
-        if self.compute_outputs is not None:
-            return {name: returned[name] for name in self.outputs}
-        if dataclasses.is_dataclass(self.returns):
-            return {name: getattr(returned, name) for name in self.outputs}
-        return {"result": returned}
 
 
 class _Declare(Protocol):

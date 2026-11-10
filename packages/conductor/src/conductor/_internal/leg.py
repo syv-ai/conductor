@@ -41,6 +41,7 @@ from conductor._internal.fields import SKIPPED
 from conductor._internal.run import (
     PENDING,
     Key,
+    NotDeclared,
     Run,
     RunStatus,
     SkippedAt,
@@ -356,6 +357,8 @@ class Leg:
         """The problem a node's exception is: its own words for a ``NodeError``; for any other, only its class, the text to the log."""
         if isinstance(error, NodeError):
             return error._as_problem_at(placed.id, *key)
+        if isinstance(error, NotDeclared):
+            return make_problem(error.code, placed.id, *key, **error.ctx)
         _logger.error("node %r failed on row %r", placed.id, key, exc_info=error)
         if isinstance(error, placed.definition.policy.retry_on):
             return make_problem("external_failed", placed.id, *key, error=type(error).__name__)

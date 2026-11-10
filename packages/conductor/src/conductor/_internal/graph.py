@@ -40,6 +40,7 @@ from conductor._internal.errors import InvalidCallError, Problem, make_problem, 
 from conductor._internal.fields import (
     REQUIRED,
     FieldSpec,
+    _options,
     accepts,
     carried_list,
     read_field,
@@ -98,6 +99,8 @@ class PlacedNode:
     inputs: dict[str, InputPlan] = field(default_factory=dict)
     #: Each output of many values, and the level its rows are.
     makes: dict[str, Level] = field(default_factory=dict)
+    #: The inputs whose value an edge brings is read by the input's type before a call, as its sources' types don't settle it.
+    checked: tuple[str, ...] = ()
 
     @functools.cached_property
     def questions(self) -> dict[str, dict[str, Any]]:
@@ -513,6 +516,7 @@ class Graph:
                 plan.value = spec.default
         if broken or not self._place(placed):
             return
+        placed.checked = tuple(name for name, plan in placed.inputs.items() if any(not _settled(plan.spec, s) for s in plan.sources if s.node_id is not None))
         if definition.compute_outputs is not None:
             outputs = self._hook(record, definition, definition.compute_outputs, edges, placed)
             if outputs is None:
@@ -798,6 +802,25 @@ def _arriving(source: Source) -> Any:
 
         return Table.__class_getitem__(typing.TypedDict("Arriving", dict(source.columns)))  # type: ignore[operator]
     return source.type
+
+
+def _settled(spec: FieldSpec, source: Source) -> bool:
+    """Whether every value ``source`` brings is already one ``spec`` takes as it is, with no limits to hold it to."""
+    if spec.param.constraints:
+        return False
+    if spec.shape == "table":
+        if spec.columns is None:
+            return True
+        given = source.columns if source.whole_table else {source.name: source.type}
+        return given is not None and all(c not in given or _settled_type(hint, given[c]) for c, hint in spec.columns.items())
+    return _settled_type(spec.type, source.type)
+
+
+def _settled_type(target: Any, source: Any) -> bool:
+    if target is Any or target == source:
+        return True
+    targets = [t for t in _options(target) if isinstance(t, type)]
+    return all(isinstance(s, type) and any(issubclass(s, t) for t in targets) for s in _options(source) if s is not type(None))
 
 
 def _reaches(start: str, goal: str, readers: Mapping[str, list[str]], within: set[str]) -> bool:

@@ -88,6 +88,13 @@ its stored graphs itself. What a 1.x user changes:
   `run.status`, with `run.cause`; `run.results` and `run.outputs` read it. A run is one JSON value:
   `run.to_json()` and `graph.load_run(saved)`. A failed unit stops anything new from starting; the
   calls already running finish and are kept.
+- **Checked values.** What a node returns is checked against what it declares: a value that isn't
+  its type fails that node as `invalid_output`, naming the output (and a table's `column`) and
+  quoting nothing of the value; a value of another class is read by the type, so a model may come
+  back as a dict and `12.0` lands in an `int` column as `12`. A value an edge brings that its
+  source's type doesn't settle (a limit on the input, an `int` into a `float`, a host type's own
+  check, a table's declared columns) is read by the input's type before the call, and one it refuses
+  fails the node it reached as `invalid_input`.
 - **Events.** `flow_*` events are `run_start`, `node_failed`, `unit_waiting` and `run_end`. What goes
   wrong is always a `Problem`, and a node's own exception goes to the `conductor` logger. An event
   writes itself with `event.model_dump_json()`. `run_end` keeps its `run` for the host and writes
