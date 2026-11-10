@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import decimal
 import hashlib
 import json
 import math
@@ -1198,7 +1199,7 @@ def _written_as_json(adapter: TypeAdapter[Any], values: list[Any], at: str) -> A
 
 
 def _value_type(values: list[Any]) -> str | None:
-    """The name of the plain type a column's values have, for one whose JSON doesn't say it (a date, a float that isn't finite)."""
+    """The name of the plain type a column's values have, for one whose JSON doesn't say it (a date, a decimal, a float that isn't finite)."""
     first = next((v for v in values if v is not None), None)
     for name, kind in _PLAIN:
         if isinstance(first, kind):
@@ -1209,7 +1210,7 @@ def _value_type(values: list[Any]) -> str | None:
 #: The plain types a column's values can be written as and read back from, the narrower first.
 _PLAIN: tuple[tuple[str, type], ...] = (
     ("bool", bool), ("int", int), ("float", float), ("datetime", datetime.datetime), ("date", datetime.date),
-    ("time", datetime.time), ("timedelta", datetime.timedelta), ("str", str),
+    ("time", datetime.time), ("timedelta", datetime.timedelta), ("decimal", decimal.Decimal), ("str", str),
 )
 _COLUMN_OF = {name: carried_list(kind | None) for name, kind in _PLAIN}
 _ANY_COLUMN = carried_list(Any)

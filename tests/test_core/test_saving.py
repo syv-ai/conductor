@@ -355,8 +355,11 @@ def test_every_column_type_comes_back_exactly_and_a_reader_receives_the_same():
     assert received[0].to_dict(as_series=False) == _EVERYTHING
 
 
-def test_a_table_with_no_row_type_keeps_its_list_struct_and_time_columns():
-    columns = {"tags": [["a"], ["b", "c"]], "point": [{"x": 1}, {"x": 2}], "clock": [dt.time(1, 2), dt.time(3, 4)]}
+def test_a_table_with_no_row_type_keeps_its_list_struct_time_and_decimal_columns():
+    columns = {
+        "tags": [["a"], ["b", "c"]], "point": [{"x": 1}, {"x": 2}], "clock": [dt.time(1, 2), dt.time(3, 4)],
+        "amount": [Decimal("1.10"), Decimal("2.25")],
+    }
 
     @node("bare")
     def bare(text: str) -> pl.DataFrame:
