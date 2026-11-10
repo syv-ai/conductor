@@ -48,8 +48,8 @@ ends with the status ``waiting``.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
-from typing import Any, ClassVar
+from collections.abc import Iterable, Mapping, Sequence
+from typing import Any, TypeAlias
 
 from pydantic import ConfigDict, Field, ValidationError
 
@@ -193,26 +193,29 @@ class Problem(ConductorModel):
     ctx: Mapping[str, Any] = Field(default_factory=dict)
 
 
-def make_problem(code: str, /, *loc: str | int | None, **ctx: Any) -> Problem:
+#: A value a problem's ``ctx`` holds: JSON, written by the code that made the problem.
+CtxValue: TypeAlias = "str | int | float | bool | None | Sequence[CtxValue] | Mapping[str, CtxValue]"
+
+
+def make_problem(code: str, /, *loc: str | int, **ctx: CtxValue) -> Problem:
     """The problem ``code`` at ``loc``, its message made from ``ctx``, which the record keeps as JSON values.
 
     A list in ``ctx`` stays a list, and the message writes it joined by
     commas (``none`` when empty); in a list of tables, ``None`` is the graph's
-    own row. A ``None`` place is left out, so a site with an optional field
-    passes it as it is. A code not in ``PROBLEM_CATALOGUE``, or a slot its row
+    own row. A code not in ``PROBLEM_CATALOGUE``, or a slot its row
     names that ``ctx`` does not fill, is a programming error and raises; only
     ``reason`` may be left out, the sentence a type's own constructor raised,
     which not every one gives.
     """
-    location = tuple(place for place in loc if place is not None)
     said = {key: _said(value) for key, value in ctx.items()}
-    if isinstance(said.get("reason"), str):
-        said["reason"] = said["reason"].rstrip(".")  # the row's own sentence goes on after it
-    slots = {"reason": "", "node_id": location[0] if location else None, "field": location[1] if len(location) > 1 else None, **said}
-    return Problem(type=code, loc=location, msg=PROBLEM_CATALOGUE[code].format_map(slots).rstrip(), ctx=ctx)
+    reason = said.get("reason")
+    if isinstance(reason, str):
+        said["reason"] = reason.rstrip(".")  # the row's own sentence goes on after it
+    slots = {"reason": "", "node_id": loc[0] if loc else None, "field": loc[1] if len(loc) > 1 else None, **said}
+    return Problem(type=code, loc=loc, msg=PROBLEM_CATALOGUE[code].format_map(slots).rstrip(), ctx=ctx)
 
 
-def _said(value: Any) -> Any:
+def _said(value: CtxValue) -> CtxValue:
     """A ``ctx`` value as its message writes it: a list joined by commas, ``None`` in it the graph's own row."""
     if not isinstance(value, (list, tuple)):
         return value
@@ -228,18 +231,11 @@ class ConductorError(Exception):
     and ``ctx`` the values its own sentence is filled from.
     """
 
-    #: The ``Problem`` code of one that names no ``code`` of its own.
-    _code_when_none_given: ClassVar[str]
-
     def __init__(self, message: str, *, code: str | None = None, ctx: Mapping[str, Any] | None = None) -> None:
         self.message = message
         self.code = code
         self.ctx = ctx or {}
         super().__init__(message)
-
-    def _as_problem_at(self, *loc: str | int | None) -> Problem:
-        """The ``Problem`` this is at ``loc``; a ``None`` place is left out, as in ``make_problem``."""
-        return Problem(type=self.code or self._code_when_none_given, loc=tuple(place for place in loc if place is not None), msg=self.message, ctx=self.ctx)
 
 
 class NodeDeclarationError(ConductorError, TypeError):
@@ -283,7 +279,12 @@ class NodeError(ConductorError):
     a failure the outside world caused is an ``ExternalError``.
     """
 
+    #: The ``Problem`` code of one that names no ``code`` of its own.
     _code_when_none_given = "failed"
+
+    def _as_problem_at(self, *loc: str | int) -> Problem:
+        """The ``Problem`` this is at ``loc``."""
+        return Problem(type=self.code or self._code_when_none_given, loc=loc, msg=self.message, ctx=self.ctx)
 
 
 class ExternalError(NodeError):
