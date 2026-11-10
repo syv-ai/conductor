@@ -257,7 +257,7 @@ assert GraphRecord.model_validate_json(text) == record
 
 ## API Reference
 
-Four public modules: `conductor`, `conductor.widgets`, `conductor.events` and `conductor.testing`. Each lists its names in `__all__`; import from nothing else.
+Five public modules: `conductor`, `conductor.widgets`, `conductor.events`, `conductor.testing` and `conductor.about` (this reference). Each lists its names in `__all__`; import from nothing else.
 
 ### conductor
 
