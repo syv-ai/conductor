@@ -1278,7 +1278,7 @@ except NodeDeclarationError as error:
     print(error.code)  # upgrade_missing
 ```
 
-**Fix.** Say where the gone field went: `upgrade=Upgrade(renamed_inputs={"name": "first"})`, or a `rewrite=`.
+**Fix.** Say where the gone field went: `upgrade=Upgrade(renamed_inputs={"name": "first"})`, or a `rewrite=` for an input; a gone output takes `renamed_outputs=`, since a rewrite reads only what is typed into the node.
 
 ### `upgrade_without_replaces`
 

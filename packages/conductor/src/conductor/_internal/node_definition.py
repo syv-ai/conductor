@@ -155,7 +155,8 @@ class Upgrade:
     """How a node saved at the version a newer one replaces becomes the newer one.
 
     Given on the newer version's ``@node``, beside ``replaces``; required only
-    when a field name of the replaced version is gone from the newer one.
+    when a field name of the replaced version is gone from the newer one. A
+    gone input is explained by a rename or ``rewrite``, a gone output by a rename.
     Read only by ``registry.upgrade``: loading never upgrades, so a graph
     saved at an old version runs that version.
 
@@ -495,18 +496,19 @@ def _check_hook(where: str, hook: Callable[..., Any], kind: str, inputs: Mapping
 
 
 def _raise_if_upgrade_is_missing(where: str, older: NodeDefinition[..., Any], newer: NodeDefinition[..., Any]) -> None:
-    """A field name of the replaced version that is gone from the newer one needs an upgrade to say where it went."""
+    """A field name of the replaced version that is gone from the newer one needs an upgrade to say where it went.
+
+    A gone input is explained by a rename or a ``rewrite``, which rewrites what is typed in; a gone output only by a
+    rename, since the edges out of it are what moves.
+    """
     if older.graph is not None or newer.graph is not None:
         return
     gone_inputs = set(older.inputs) - set(newer.inputs)
     gone_outputs = set(older.outputs) - set(newer.outputs)
-    upgrade = newer.upgrade
-    if upgrade is None:
-        unexplained = gone_inputs | gone_outputs
-    elif upgrade.rewrite is None:
-        unexplained = (gone_inputs - set(upgrade.renamed_inputs)) | (gone_outputs - set(upgrade.renamed_outputs))
-    else:
-        unexplained = set()
+    upgrade = newer.upgrade or Upgrade()
+    unexplained = gone_outputs - set(upgrade.renamed_outputs)
+    if upgrade.rewrite is None:
+        unexplained |= gone_inputs - set(upgrade.renamed_inputs)
     if unexplained:
         raise NodeDeclarationError(f"{where}the version it replaces has {sorted(unexplained)}, gone from this one; its Upgrade says where they went", code="upgrade_missing")
 

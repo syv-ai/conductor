@@ -300,15 +300,16 @@ def _newer_out() -> _Y:
     return _Y("b")
 
 
-def test_an_upgrade_that_leaves_an_output_gone_and_not_renamed_is_refused_where_it_is_declared():
+@pytest.mark.parametrize("upgrade", [Upgrade(renamed_inputs={}), Upgrade(rewrite=dict)], ids=["no-rename", "a-rewrite"])
+def test_an_upgrade_that_leaves_an_output_gone_and_not_renamed_is_refused_where_it_is_declared(upgrade: Upgrade) -> None:
+    """A rewrite reads what is typed into the node, never the edges out of it, so it can't say where an output went."""
     with pytest.raises(NodeDeclarationError, match="'x'") as raised:
-        node("o", replaces=node("o")(_older_out), upgrade=Upgrade(renamed_inputs={}))(_newer_out)
+        node("o", replaces=node("o")(_older_out), upgrade=upgrade)(_newer_out)
     assert raised.value.code == "upgrade_missing"
 
 
-def test_an_output_an_upgrade_renamed_or_rewrites_is_accounted_for():
+def test_an_output_an_upgrade_renamed_is_accounted_for():
     assert node("o", replaces=node("o")(_older_out), upgrade=Upgrade(renamed_outputs={"x": "y"}))(_newer_out).version == 2
-    assert node("o", replaces=node("o")(_older_out), upgrade=Upgrade(rewrite=lambda v: v))(_newer_out).version == 2
 
 
 def test_a_rewrite_is_written_as_json_and_one_with_no_json_form_is_invalid_value_at_the_node():
