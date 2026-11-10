@@ -33,10 +33,6 @@ def _load_text() -> str:
 _HEADING = re.compile(r"^(##+) (.+)$", re.MULTILINE)
 
 
-def _slug(heading: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "-", heading.lower()).strip("-")
-
-
 def _parse_sections(text: str) -> dict[str, str]:
     """Each ``##`` and ``###`` section by its slug.
 
@@ -54,7 +50,8 @@ def _parse_sections(text: str) -> dict[str, str]:
             if len(nxt.group(1)) <= level:
                 end = nxt.start()
                 break
-        out[_slug(m.group(2))] = text[start:end].rstrip() + "\n"
+        slug = re.sub(r"[^a-z0-9]+", "-", m.group(2).lower()).strip("-")
+        out[slug] = text[start:end].rstrip() + "\n"
     return out
 
 
