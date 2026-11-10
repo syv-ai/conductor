@@ -49,11 +49,11 @@ class Ask(BaseException):
     node's outputs, and the node is not called again for that row. A
     free-text question is the plain case: ``-> str`` and ``raise Ask(prompt)``::
 
-        @node("reason")
+        @node("reason", title="Reason", description="Asks why a ticket was closed.")
         def reason(ticket: str) -> str:
             raise Ask(f"Why was {ticket} closed?")
 
-        @node("assign")
+        @node("assign", title="Assign", description="Asks who takes a ticket.")
         def assign(ticket: str) -> str:
             raise Ask(f"Who takes {ticket}?", choices=[Choice("ida", "Ida B."), Choice("bo", "Bo K.")])
 

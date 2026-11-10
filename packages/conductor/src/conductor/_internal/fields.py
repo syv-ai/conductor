@@ -278,7 +278,7 @@ class Table:
 
 @functools.cache
 def humanised(name: str) -> str:
-    """A field or node name in everyday words: ``case_sensitive`` is ``Case sensitive``."""
+    """A field's name in everyday words, its label when ``Param(title=)`` gives none: ``case_sensitive`` is ``Case sensitive``."""
     return name.replace("-", " ").replace("_", " ").strip().capitalize()
 
 

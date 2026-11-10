@@ -52,7 +52,7 @@ class Equality:
     not_equal: Annotated[str, Param(title="Not equal", exclusive_group="equality")]
 
 
-@registry.node("logic-if-empty", title="If empty", description="Sends the text one way when it is empty and the other way when it has something in it.")
+@registry.node("logic-if-empty", title="If empty", description="Sends the text one way when it is empty or only spaces, and the other way when it has something in it.")
 def if_empty(text: LongText) -> Emptiness:
     """Routes the text by whether it is empty once stripped."""
     if text.strip():

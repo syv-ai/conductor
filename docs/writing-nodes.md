@@ -44,7 +44,7 @@ A second node under an id the host already has raises. `extra` is your own JSON 
 
 ## What a person sees
 
-`Annotated[..., Param(...)]` says what an editor shows for a field: a `title`, a `description` and a `widget`, the control to edit it with. Without a title, the field's name is used, in everyday words. The title of the node is its function's name, and its description is the docstring's first paragraph.
+`Annotated[..., Param(...)]` says what an editor shows for a field: a `title`, a `description` and a `widget`, the control to edit it with. Without a title, a field's label is its name made readable (`case_sensitive` is "Case sensitive"). A node declares what a person reads for it, `@node("id", title=, description=)`, and both are required; the docstring is for developers and never reaches a person.
 
 `Param` also takes pydantic's limits: `ge`, `gt`, `le`, `lt`, `multiple_of`, `min_length`, `max_length` and `pattern`. They are checked on every value someone types in or a caller gives:
 

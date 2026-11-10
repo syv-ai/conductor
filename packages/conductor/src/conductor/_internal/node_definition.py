@@ -2,17 +2,17 @@
 
 A node is a function. Its typed signature is its interface::
 
-    @node("upper")
+    @node("upper", title="Uppercase", description="Makes every letter a capital letter.")
     def upper(text: str) -> str:
-        \"\"\"Upper-cases a text.\"\"\"
         return text.upper()
 
 ``@node`` wraps the function into a value and registers nothing, so
 ``upper("a")`` is the unit test and a host decides what to offer by adding
 definitions to a ``NodeRegistry`` (whose ``@registry.node`` takes the same
-arguments and adds the node too). The title defaults to the function's name
-in everyday words and the description to its docstring's first paragraph.
-``extra`` is the host's own JSON about the node, which conductor keeps and
+arguments and adds the node too). The ``title`` and ``description`` are what
+a person reads for the node, and each node declares both; the docstring is
+the developer's and never reaches a person. A field's label is its name made
+readable, unless its ``Param(title=)`` says otherwise. ``extra`` is the host's own JSON about the node, which conductor keeps and
 never reads.
 
 One output is ``result``, of whatever type is returned, a ``dict`` included;
@@ -24,10 +24,10 @@ of the same id, and says with ``upgrade`` how a node saved at that one moves
 here. A definition is one version, and each version names the one before it in
 ``replaces``::
 
-    @node("split")
+    @node("split", title="Split", description="Splits the text into lines.")
     def split_v1(text: str, sep: str = "\\n") -> Series[str]: ...
 
-    @node("split", replaces=split_v1, upgrade=Upgrade(renamed_inputs={"sep": "separator"}))
+    @node("split", title="Split", description="Splits the text into lines.", replaces=split_v1, upgrade=Upgrade(renamed_inputs={"sep": "separator"}))
     def split(text: str, separator: str = "\\n") -> Series[str]: ...
 
 Two hooks shape a node from what it is given in one graph, each a plain
@@ -43,7 +43,7 @@ inputs, which the function takes as ``**kwargs``; ``compute_outputs`` gives
 every output, and the function returns them as a mapping. A hook that raises
 is a problem of the graph, not an exception.
 
-A stored graph is a node too: ``node("enrich")(record)``. Loading a graph that
+A stored graph is a node too: ``node("enrich", title="Enrich", description="...")(record)``. Loading a graph that
 uses it puts the stored graph's nodes in its place.
 """
 
@@ -68,7 +68,6 @@ from conductor._internal.fields import (
     FieldDescription,
     FieldSpec,
     _FromRunMarker,
-    humanised,
     marked,
     read_field,
 )
@@ -216,8 +215,8 @@ class NodeDefinition(Generic[_P, _R]):
         outputs: Each output by name: ``result`` for one value, a field each for a frozen dataclass returned.
         outputs_class: The frozen dataclass the function returns when it has one output per field; ``None`` for any
             other return type.
-        title: What a person reads for the node; its function's name in everyday words when not given.
-        description: What it does, for its help; its docstring's first paragraph when not given.
+        title: What a person reads for the node, as its author declared it.
+        description: What it does, in a sentence for a person, as its author declared it; never the docstring.
         category: Where an editor lists it; a plain string whose titles the host keeps.
         tags: The host's labels for finding it, as given.
         extra: The host's own JSON about the node: kept and described, never read here.
@@ -245,8 +244,8 @@ class NodeDefinition(Generic[_P, _R]):
     inputs: Mapping[str, FieldSpec]
     outputs: Mapping[str, FieldSpec]
     outputs_class: type | None = None
-    title: str = ""
-    description: str = ""
+    title: str = field(kw_only=True)
+    description: str = field(kw_only=True)
     category: str = ""
     tags: tuple[str, ...] = ()
     extra: Mapping[str, JsonValue] = field(default_factory=dict[str, JsonValue])
@@ -346,9 +345,9 @@ def node(
     id: str,
     /,
     *,
+    title: str,
+    description: str,
     version: int | None = None,
-    title: str | None = None,
-    description: str | None = None,
     category: str = "",
     tags: list[str] | tuple[str, ...] = (),
     extra: Mapping[str, JsonValue] = MappingProxyType({}),
@@ -362,7 +361,7 @@ def node(
 ) -> NodeDecorator:
     """Make the function below it, or a stored graph, a node with the id ``id``::
 
-        @node("upper")
+        @node("upper", title="Uppercase", description="Makes every letter a capital letter.")
         def upper(text: str) -> str:
             return text.upper()
 
@@ -370,10 +369,10 @@ def node(
     ``registry.add(upper)`` offers it. ``@registry.node`` takes the same
     arguments and adds the node too.
 
-    - ``title`` and ``description`` default to the function's name in
-      everyday words and its docstring's first paragraph; ``docs`` is longer
-      help, ``category`` and ``tags`` group it in a palette, and ``extra`` is
-      the host's own JSON, kept and never read here.
+    - ``title`` and ``description`` are what a person reads for the node in
+      a palette; the docstring is the developer's and never reaches them.
+      ``docs`` is longer help, ``category`` and ``tags`` group it in a
+      palette, and ``extra`` is the host's own JSON, kept and never read here.
     - ``policy`` says how the engine calls it (retries, a timeout, threads).
     - ``replaces`` is the version this one replaces, a ``@node`` of the same
       id, and ``upgrade`` says how a node saved at that version moves here.
@@ -383,7 +382,7 @@ def node(
     - ``compute_added_inputs`` and ``compute_outputs`` are hooks run when a
       graph is loaded, which shape the node from what is typed into it.
 
-    A stored graph is a node too: ``node("enrich")(record)``, the record given as ``registry.load`` takes one (a
+    A stored graph is a node too: ``node("enrich", title="Enrich", description="...")(record)``, the record given as ``registry.load`` takes one (a
     ``GraphRecord``, JSON text or a mapping), one of the wrong shape an ``InvalidCallError`` of ``invalid_record``.
     """
     if not is_node_id(id):
@@ -417,7 +416,7 @@ def node(
                     code="not_for_a_graph",
                 )
             record = as_record(target)  # a record, JSON text or a mapping, read as registry.load reads one
-            return NodeDefinition(function=None, inputs={}, outputs={}, graph=record, title=title or humanised(id), description=description or "", **common)
+            return NodeDefinition(function=None, inputs={}, outputs={}, graph=record, title=title, description=description, **common)
         where = f"@node({id!r}) on {target.__name__}: "
         if inspect.iscoroutinefunction(target) or inspect.isasyncgenfunction(target):
             raise NodeDeclarationError(f"{where}a node is a plain def; the engine gives a slow one threads with Policy(concurrency=)", code="async_run")
@@ -431,8 +430,7 @@ def node(
         hook_parameters = {kind: _check_hook(where, hook, kind, inputs) for kind, hook in hooks.items() if hook is not None}
         definition: NodeDefinition[..., Any] = NodeDefinition(
             function=target, inputs=inputs, outputs=outputs, outputs_class=outputs_class, from_run=from_run,
-            title=title or humanised(target.__name__),
-            description=(inspect.getdoc(target) or "").split("\n\n")[0].replace("\n", " ") if description is None else description,
+            title=title, description=description,
             compute_added_inputs=compute_added_inputs, compute_outputs=compute_outputs, hook_parameters=hook_parameters, **common,
         )
         if replaces is not None:

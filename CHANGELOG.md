@@ -22,8 +22,9 @@ What changes in how you work, before the name-by-name tables:
   `int` `Whole number`), a host's class from its `type_id` and `type_title` class attributes
   (`NamedType`); nothing falls back to the class's name. `NodeRegistry(types=)` takes only
   `NamedType`s, so a type checker refuses a class without them there.
-- **A node is a typed function.** `@node("id")` (registers nothing) or `@registry.node("id")`
-  returns a frozen, callable `NodeDefinition`. The signature is the interface:
+- **A node is a typed function.** `@node("id", title=, description=)` (registers nothing) or
+  `@registry.node(...)` returns a frozen, callable `NodeDefinition`. Its title and description are
+  required, and the docstring never reaches a person. The signature is the interface:
   `Annotated[str, Param(title=, widget=, ge=, ...)]` for what a person sees and the limits a value
   keeps (pydantic metadata, so its limits and choices hold inside your own `BaseModel` or dataclass
   too, and a field's `schema` carries the limits but not its title or description; `Param`s stacked in one `Annotated`, an alias wrapped again, merge, the later
@@ -98,7 +99,7 @@ Every public name of 1.12.2, by the module it was imported from. A name not list
 |---|---|
 | **Nodes** | |
 | `Actor` | gone: a node declares no actor; the host decides who runs what |
-| `BaseNode` | a plain function under `@node("id")` or `@registry.node("id")` |
+| `BaseNode` | a plain function under `@node("id", title=, description=)` or `@registry.node(...)` |
 | `conductor.metadata.InputMetadata` | `FieldDescription`, an entry of `definition.describe().inputs`; the hint and its `Param(...)` say it |
 | `conductor.metadata.OutputMetadata` | `FieldDescription`, an entry of `definition.describe().outputs` |
 | `conductor.registry.dynamic_inputs.ComputeInputsContext` | gone: a `compute_added_inputs` hook is a plain function whose parameters name the inputs it reads |
@@ -116,7 +117,7 @@ Every public name of 1.12.2, by the module it was imported from. A name not list
 | `conductor.types.OUTPUT_PREFIX` | gone: outputs are named by their fields |
 | `conductor.types.RESULT_KEY` | an output of `-> X` is named `result`; a frozen dataclass names several |
 | `FlowStore` | a parameter typed `FromRun[T]`, filled from `from_run={T: value}` |
-| `NodeCategory` | a plain string, `@node("id", category="text")` |
+| `NodeCategory` | a plain string, `@node("id", title=, description=, category="text")` |
 | `NodeRegistry` | `NodeRegistry(category=, tags=, extra=, types=)`, empty until nodes are added |
 | `ResultFormat` | gone: a node returns its value, typed by its return hint |
 | `RetryConfig` | `Policy(retries=, retry_delay=, attempt_timeout=, retry_on=)` on `@node(policy=)` |
@@ -162,12 +163,12 @@ Every public name of 1.12.2, by the module it was imported from. A name not list
 | `conductor.flow_format.load_flow` | `registry.load(json_text)` or `GraphRecord.model_validate_json` |
 | `conductor.flow_format.yaml_to_flow` | gone: YAML isn't read |
 | `conductor.graph.compiler.DecisionGuard` | gone with CEL guards: outputs of one `exclusive_group` are the branches |
-| `conductor.graph.compiler.ExtensionResolver` | gone: a stored graph is a node, `node("id")(record)`, added to a registry |
+| `conductor.graph.compiler.ExtensionResolver` | gone: a stored graph is a node, `node("id", title=, description=)(record)`, added to a registry |
 | `conductor.graph.dynamic_inputs.resolve_node_inputs` | `registry.load(record).describe()`, a `GraphDescription` with each node's fields as its hooks made them |
 | `DefinitionSource` | gone with `RegistryView` |
 | `expr` | gone with CEL guards on edges |
 | `Flow` | `GraphRecord`; see "Converting a stored 1.x graph" |
-| `FlowDependency` | gone: a graph embeds another as a node, `node("id")(record)` |
+| `FlowDependency` | gone: a graph embeds another as a node, `node("id", title=, description=)(record)` |
 | `FlowTrigger` | gone: the host decides when a graph runs |
 | `GraphEdge` | a pair `("a.result", "b.text")` in `GraphRecord.edges` |
 | `GraphNode` | `NodeRecord`; see "Converting a stored 1.x graph" |
@@ -216,7 +217,7 @@ Every public name of 1.12.2, by the module it was imported from. A name not list
 | `resume_sync` | `run.resume()` |
 | `resume` | `run.answer(...)`, then `run.resume()` |
 | `SUBPROCESS` | gone with the subprocess node |
-| `SubprocessNode` | a stored graph is a node, `node("id")(record)` |
+| `SubprocessNode` | a stored graph is a node, `node("id", title=, description=)(record)` |
 | `SubprocessRegistry` | gone: an embedded graph's node goes in a registry like any other |
 | `WHILE` | gone with the while node |
 | `WhileNode` | gone: a graph has no cycles |
@@ -274,10 +275,10 @@ Every public name of 1.12.2, by the module it was imported from. A name not list
 
 | 1.12.2 | 2.0 |
 |---|---|
-| `base_id` | the id, first and required: `@node("upper")` |
+| `base_id` | the id, first and required: `@node("upper", title=, description=)` |
 | `version` | `version=`, one past the version replaced, or 1 |
-| `name` | `title=`, optional: the function's name in everyday words |
-| `description` | `description=`, optional: the docstring's first paragraph |
+| `name` | `title=`, required |
+| `description` | `description=`, required; the docstring is never shown |
 | `tags` | `tags=`; a registry's tags add to them |
 | `category` | `category=`, a string |
 | `max_retries` | `Policy(retries=)` |

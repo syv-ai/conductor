@@ -103,11 +103,16 @@ A host that keeps saved graphs in its database makes their nodes when a request 
 the request's own, so the shared one stays as it was:
 
 ```python
-saved_records = {"shout": make_graph(upper, exclaim)}  # your table of saved graphs
+# your table of saved graphs: each stored with the title and description a person reads for it
+saved_graphs = {"shout": ("Shout", "Writes the text in capitals and adds an exclamation mark.", make_graph(upper, exclaim))}
 
 request_registry = NodeRegistry()
 request_registry.add_subregistry(registry)
-request_registry.add(*(node(name, title=name, description="")(record) for name, record in saved_records.items() if name not in request_registry))
+request_registry.add(*(
+    node(name, title=title, description=description)(record)
+    for name, (title, description, record) in saved_graphs.items()
+    if name not in request_registry
+))
 ```
 
 A graph that embeds one of them then loads through `request_registry`. The loaded `Graph` keeps its own copy of what

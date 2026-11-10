@@ -46,7 +46,7 @@ def _compiled(pattern: str, ignore_case: bool) -> regex.Pattern[str]:
         return regex.compile(pattern, flags=regex.IGNORECASE if ignore_case else 0)
 
 
-@registry.node("regex-match", title="Pattern matches", description="Tells whether a pattern is found anywhere in the text.")
+@registry.node("regex-match", title="Matches pattern", description="Tells whether a pattern is found anywhere in the text.")
 def match(text: LongText, pattern: Line, ignore_case: Flag = False) -> Annotated[bool, Param(title="Matched")]:
     """Whether the pattern matches anywhere in the text."""
     compiled = _compiled(pattern, ignore_case)
