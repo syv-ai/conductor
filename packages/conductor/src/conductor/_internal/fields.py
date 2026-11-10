@@ -224,7 +224,7 @@ class Named:
 
 def _unnamed(hint: Any) -> Any:
     """``hint`` without its ``Named``: the type every check reads."""
-    return get_args(hint)[0] if _marked(hint, Named) else hint
+    return get_args(hint)[0] if marked(hint, Named) else hint
 
 
 class _ManyMarker:
@@ -503,9 +503,9 @@ def read_field(name: str, hint: Any, default: Any = REQUIRED, where: str = "") -
             item = get_args(base)[0]
             if isinstance(item, TypeVar):  # a bare Series
                 item = Any
-            if item is pl.DataFrame or item is Table or _marked(item, _TableMarker):
+            if item is pl.DataFrame or item is Table or marked(item, _TableMarker):
                 raise NodeDeclarationError(f"{where}{name}: a Series of tables; a table already holds many rows, so take or return one table", code="series_of_tables")
-            if _marked(item, _ManyMarker):
+            if marked(item, _ManyMarker):
                 raise NodeDeclarationError(f"{where}{name}: a Series of Series; rows are never nested in a field, so return one Series", code="nested_series")
             return _checked(FieldSpec(name, "many", item, or_none, default, param), where)
         if markers and isinstance(markers[0], _TableMarker):
@@ -544,7 +544,8 @@ def _check_choices(spec: FieldSpec, where: str) -> None:
         raise NodeDeclarationError(f"{where}{spec.name}: {fault}; give each choice once, as a value of the field's type", code="choices_invalid")
 
 
-def _marked(hint: Any, marker: type) -> bool:
+def marked(hint: Any, marker: type) -> bool:
+    """Whether ``hint`` is ``Annotated`` with a ``marker``: a ``Named``, or the mark ``Series`` or ``Table`` leaves."""
     return get_origin(hint) is Annotated and any(isinstance(m, marker) for m in get_args(hint)[1:])
 
 
@@ -755,7 +756,7 @@ def type_id(hint: Any) -> str:
         return " | ".join(dict.fromkeys(type_id(type(value)) for value in get_args(hint)))
     if get_origin(hint) in (Union, types.UnionType):  # each member by its own name: a host's Text | None is "Text | None"
         return " | ".join("None" if member is type(None) else type_id(member) for member in get_args(hint))
-    if _marked(hint, Named):
+    if marked(hint, Named):
         return next(m for m in get_args(hint)[1:] if isinstance(m, Named)).id
     own = _declared(hint, "id") if isinstance(hint, type) else None
     return own if own is not None else getattr(hint, "__name__", None) or str(hint)
@@ -763,7 +764,7 @@ def type_id(hint: Any) -> str:
 
 def type_title(hint: Any) -> str:
     """What a person reads for a type: its ``display_title`` (or ``Named`` title) if it declares one, else its name."""
-    if _marked(hint, Named):
+    if marked(hint, Named):
         named = next(m for m in get_args(hint)[1:] if isinstance(m, Named))
         return named.title or named.id
     own = _declared(hint, "display_title") if isinstance(hint, type) else None
@@ -856,7 +857,7 @@ def read_table(spec: FieldSpec, value: Any, *, strict: bool, given: bool = False
     """
     if given and not isinstance(value, pl.DataFrame):
         try:
-            records = _RECORDS.validate_python(value)
+            records = RECORDS.validate_python(value)
         except ValidationError:
             raise Refused("a table is a frame or a list of records, one object per row") from None
         names = list(spec.columns) if spec.columns is not None else list(dict.fromkeys(k for r in records for k in r))
@@ -934,7 +935,8 @@ def _fields_of(hint: Any) -> Mapping[str, Any]:
         return {}
 
 
-_RECORDS = TypeAdapter(list[dict[str, Any]])
+#: Reads a table given as a list of records, one object per row.
+RECORDS = TypeAdapter(list[dict[str, Any]])
 
 #: The type a polars dtype's values already are, so a column of it needs no reading; ``Null`` holds only blanks.
 _PYTHON_OF: dict[Any, Any] = {

@@ -50,6 +50,7 @@ from conductor._internal.fields import (
     FieldDescription,
     Named,
     accepts,
+    marked,
     type_id,
     type_title,
     without_none,
@@ -95,7 +96,7 @@ class NodeRegistry:
         #: The types a host names, whether or not a node declares them.
         self._named_types = tuple(types)
         for named in self._named_types:
-            if not isinstance(named, type) and not _is_named(named):
+            if not isinstance(named, type) and not marked(named, Named):
                 raise NodeDeclarationError(f"{named!r} is not a type; pass the class itself", code="not_a_type")
         #: The definitions, by id, in the order they arrived.
         self._nodes: dict[str, NodeDefinition[..., Any]] = {}
@@ -376,17 +377,13 @@ def _types_declared_by(definition: NodeDefinition[..., Any]) -> list[Any]:
     while step is not None:
         for spec in (*step.inputs.values(), *step.outputs.values()):
             held = without_none(spec.type)
-            if spec.shape != "table" and (isinstance(held, type) or _is_named(held)) and held is not Any and held not in found:
+            if spec.shape != "table" and (isinstance(held, type) or marked(held, Named)) and held is not Any and held not in found:
                 found.append(held)
         step = step.replaces
     return found
 
 
-def _is_named(hint: Any) -> bool:
-    return typing.get_origin(hint) is typing.Annotated and any(isinstance(m, Named) for m in hint.__metadata__)
-
-
 def _qualified_name(held: Any) -> str:
-    if _is_named(held):
+    if marked(held, Named):
         return f"Annotated[{typing.get_args(held)[0].__name__}, Named({type_id(held)!r})]"
     return f"{held.__module__}.{held.__qualname__}"

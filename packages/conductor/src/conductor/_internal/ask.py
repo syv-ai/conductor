@@ -23,7 +23,14 @@ from pydantic_core import PydanticSerializationError, to_json, to_jsonable_pytho
 
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.errors import value_free_errors
-from conductor._internal.fields import SKIPPED, FieldDescription, FieldSpec, Refused, choice_record
+from conductor._internal.fields import (
+    RECORDS,
+    SKIPPED,
+    FieldDescription,
+    FieldSpec,
+    Refused,
+    choice_record,
+)
 
 if TYPE_CHECKING:
     from conductor._internal.graph import PlacedNode
@@ -265,16 +272,13 @@ def _strictly(adapter: TypeAdapter[Any], value: Any) -> Any:
         raise Refused(value_free_errors(error)[0]["msg"]) from None
 
 
-_RECORDS = TypeAdapter(list[dict[str, Any]])
-
-
 def _read_table(spec: FieldSpec, value: Any) -> pl.DataFrame:
     """A table answer: a ``polars.DataFrame``, or a list of records; a table with a row type has exactly its columns."""
     if isinstance(value, pl.DataFrame):
         records = value.to_dicts()
     else:
         try:
-            records = _RECORDS.validate_python(value)
+            records = RECORDS.validate_python(value)
         except ValidationError:
             raise Refused("a table is a list of records, one object per row") from None
     if spec.columns is None:
