@@ -28,7 +28,6 @@ from conductor._internal.fields import (
     Choice,
     FieldDescription,
     FromRun,
-    Named,
     Param,
     Series,
 )
@@ -66,7 +65,6 @@ __all__ = [
     "GraphInput",
     "GraphRecord",
     "InvalidCallError",
-    "Named",
     "NodeDeclarationError",
     "NodeDefinition",
     "NodeDescription",

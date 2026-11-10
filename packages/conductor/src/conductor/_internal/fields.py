@@ -214,25 +214,6 @@ def choice_record(given: Any, *, mode: Literal["python", "json"] = "python") -> 
     return {"id": given, "title": str(given)}
 
 
-@dataclass(frozen=True)
-class Named:
-    """The id and title of a type that has no class of its own to carry them, inside ``Annotated``::
-
-        YesNo = Annotated[bool, Named("yes-no", title="Ja/Nej")]
-
-    A field typed ``YesNo`` is a ``bool`` to a node, a type checker and every check, and an editor and a stored graph
-    know its type as ``yes-no``, titled ``Ja/Nej``; a host's own class says the same with ``id`` and ``display_title``.
-    """
-
-    id: str
-    title: str | None = None
-
-
-def _unnamed(hint: Any) -> Any:
-    """``hint`` without its ``Named``: the type every check reads."""
-    return get_args(hint)[0] if marked(hint, Named) else hint
-
-
 class _ManyMarker:
     pass
 
@@ -376,7 +357,7 @@ class FieldSpec:
     @functools.cached_property
     def takes_a_number(self) -> bool:
         """Whether the type is a number's (``int``, ``float``, a class of theirs, or a ``Literal`` of numbers), which a ``bool`` must not land on."""
-        base = _unnamed(without_none(self.type))
+        base = without_none(self.type)
         if get_origin(base) is Literal:
             return all(isinstance(value, (int, float)) and not isinstance(value, bool) for value in get_args(base))
         return base is not bool and isinstance(base, type) and issubclass(base, (int, float))
@@ -501,7 +482,7 @@ def read_field(name: str, hint: Any, default: Any = REQUIRED, where: str = "") -
     param = Param()
     if get_origin(hint) is Annotated:
         base, *meta = get_args(hint)
-        unknown = [m for m in meta if not isinstance(m, (Param, Named, _ManyMarker, _TableMarker))]
+        unknown = [m for m in meta if not isinstance(m, (Param, _ManyMarker, _TableMarker))]
         if unknown:
             raise NodeDeclarationError(
                 f"{where}{name}: Annotated holds {unknown[0]!r}, which conductor doesn't read; a widget, a title or a limit goes on Param(...)",
@@ -521,13 +502,7 @@ def read_field(name: str, hint: Any, default: Any = REQUIRED, where: str = "") -
             return _checked(FieldSpec(name, "many", item, or_none, default, param), where)
         if markers and isinstance(markers[0], _TableMarker):
             return _checked(FieldSpec(name, "table", pl.DataFrame, or_none, default, param, _columns_of(markers[0].row)), where)
-        names = [m for m in meta if isinstance(m, Named)]
-        if len(names) > 1:
-            raise NodeDeclarationError(
-                f"{where}{name}: a type has one name, and this one is Named {[n.id for n in names]}; keep one Named, on an alias used everywhere",
-                code="named_twice",
-            )
-        hint = Annotated[base, names[0]] if names else base
+        hint = base
     if hint is pl.DataFrame or hint is Table:
         return _checked(FieldSpec(name, "table", pl.DataFrame, or_none, default, param, None), where)
     if or_none:
@@ -563,13 +538,13 @@ def _holds_from_run(hint: Any) -> bool:
 
 
 def marked(hint: Any, marker: type) -> bool:
-    """Whether ``hint`` is ``Annotated`` with a ``marker``: a ``Named``, or the mark ``Series`` or ``Table`` leaves."""
+    """Whether ``hint`` is ``Annotated`` with a ``marker``: the mark ``Series`` or ``Table`` leaves."""
     return get_origin(hint) is Annotated and any(isinstance(m, marker) for m in get_args(hint)[1:])
 
 
 def _checked(spec: FieldSpec, where: str) -> FieldSpec:
     """``spec``, once its limits fit its type and pydantic can carry it; a default it declares is made its type."""
-    base = _unnamed(without_none(spec.type))
+    base = without_none(spec.type)
     limits = set(spec.param.constraints)
     if spec.shape == "table" and limits:
         raise NodeDeclarationError(f"{where}{spec.name}: a table takes no limits; take them off", code="bound_invalid")
@@ -663,7 +638,6 @@ def _takes_a_list(hint: Any) -> bool:
     """Whether a list is one value of ``hint``: a list's, a tuple's, a set's or a sequence's, ``Any``'s, a union
     holding one, or any type whose JSON form may be an array (a pydantic ``RootModel`` of a tuple, a type alias such as
     pydantic's ``JsonValue``)."""
-    hint = _unnamed(hint)
     if hint is Any or hint is object or isinstance(hint, TypeVar):
         return True
     origin = get_origin(hint)
@@ -743,8 +717,8 @@ def accepts(target: Any, source: Any) -> bool:
 
 
 def _options(hint: Any) -> list[Any]:
-    """The types a hint allows, each as every check reads it (a ``Named`` one as its type)."""
-    return [_unnamed(option) for option in get_args(hint)] if get_origin(hint) in (Union, types.UnionType) else [_unnamed(hint)]
+    """The types a hint allows."""
+    return list(get_args(hint)) if get_origin(hint) in (Union, types.UnionType) else [hint]
 
 
 def _one_accepts(target: Any, source: Any) -> bool:
@@ -785,17 +759,12 @@ def type_id(hint: Any) -> str:
         return " | ".join(dict.fromkeys(type_id(type(value)) for value in get_args(hint)))
     if get_origin(hint) in (Union, types.UnionType):  # each member by its own name: a host's Text | None is "Text | None"
         return " | ".join("None" if member is type(None) else type_id(member) for member in get_args(hint))
-    if marked(hint, Named):
-        return next(m for m in get_args(hint)[1:] if isinstance(m, Named)).id
     own = _declared(hint, "id") if isinstance(hint, type) else None
     return own if own is not None else getattr(hint, "__name__", None) or str(hint)
 
 
 def type_title(hint: Any) -> str:
-    """What a person reads for a type: its ``display_title`` (or ``Named`` title) if it declares one, else its name."""
-    if marked(hint, Named):
-        named = next(m for m in get_args(hint)[1:] if isinstance(m, Named))
-        return named.title or named.id
+    """What a person reads for a type: its ``display_title`` if it declares one, else its name."""
     own = _declared(hint, "display_title") if isinstance(hint, type) else None
     return own if own is not None else getattr(hint, "__name__", None) or str(hint)
 
@@ -959,9 +928,9 @@ def _declared_loc(hint: Any, loc: tuple[int | str, ...]) -> tuple[int | str, ...
 
 
 def _unannotated(hint: Any) -> Any:
-    """``hint`` without ``Annotated``, ``Named`` or ``| None``."""
+    """``hint`` without ``Annotated`` or ``| None``."""
     while True:
-        bare = without_none(_unnamed(hint))
+        bare = without_none(hint)
         bare = get_args(bare)[0] if get_origin(bare) is Annotated else bare
         if bare is hint:
             return hint

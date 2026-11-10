@@ -1145,23 +1145,6 @@ except NodeDeclarationError as error:
 
 **Fix.** Pick an id without `.`, `/`, `@` or `~`, and never an empty one. The same rule holds for an id in a record.
 
-### `named_twice`
-
-> {name}: a type has one name, and this one is Named {[n.id for n in names]}; keep one Named, on an alias used everywhere
-
-```python
-from conductor import Named
-
-try:
-    @node("agree")
-    def agree(answer: Annotated[bool, Named("yes-no"), Named("ja-nej")]) -> bool:
-        return answer
-except NodeDeclarationError as error:
-    print(error.code)  # named_twice
-```
-
-**Fix.** Keep one `Named`. Give the alias a name, `YesNo = Annotated[bool, Named("yes-no")]`, and use it everywhere.
-
 ### `nested_series`
 
 > {name}: a Series of Series; rows are never nested in a field, so return one Series

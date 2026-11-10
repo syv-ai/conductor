@@ -15,7 +15,6 @@ from conductor import (
     FromRun,
     GraphRecord,
     InvalidCallError,
-    Named,
     NodeDeclarationError,
     NodeRecord,
     NodeRegistry,
@@ -1051,16 +1050,6 @@ def test_a_fields_choices_have_one_home_that_titles_a_literal_and_limits_any_oth
 
         assert raised.value.code == "choices_invalid"
         assert str(raised.value).endswith("; give each choice once, as a value of the field's type")
-
-
-def test_a_type_named_twice_is_refused_saying_to_keep_one_name():
-    with pytest.raises(NodeDeclarationError) as raised:
-
-        @node("agree")
-        def agree(answer: Annotated[bool, Named("yes-no"), Named("ja-nej")]) -> bool:
-            return answer
-
-    assert raised.value.code == "named_twice" and str(raised.value).endswith("; keep one Named, on an alias used everywhere")
 
 
 def test_an_input_a_hook_adds_may_have_a_default_and_a_hook_may_give_its_own_code():

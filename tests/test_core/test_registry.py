@@ -8,7 +8,6 @@ and ``filter`` change or narrow what is offered; looping yields the
 definitions.
 """
 
-import typing
 from dataclasses import dataclass
 from typing import Annotated, Any, ClassVar
 
@@ -16,7 +15,6 @@ import pytest
 from conductor import (
     Deprecation,
     GraphRecord,
-    Named,
     NodeDeclarationError,
     NodeRecord,
     NodeRegistry,
@@ -650,36 +648,6 @@ def test_a_registry_is_a_container_and_not_a_mapping():
     assert not hasattr(registry, "get") and not hasattr(registry, "items")
 
 
-def test_a_type_with_no_class_of_its_own_is_named_with_named():
-    from typing import Annotated
-
-    from conductor import Named, make_graph, node
-
-    YesNo = Annotated[bool, Named("yes-no", title="Ja/Nej")]
-
-    @node("approved")
-    def approved(text: str) -> YesNo:
-        return bool(text)
-
-    @node("note")
-    def note(ok: bool) -> str:
-        return "yes" if ok else "no"
-
-    @node("maybe")
-    def maybe(ok: Annotated[YesNo, Param(title="OK")] = False) -> YesNo | None:
-        return ok
-
-    registry = NodeRegistry(types=[YesNo])
-    registry.add(approved, note, maybe)
-    described = registry.describe()
-    assert {"id": "yes-no", "title": "Ja/Nej", "accepted_as": ["yes-no", "bool"]} in [t.model_dump() for t in described.types]
-    assert approved.describe().outputs[0].type == "yes-no" and maybe.describe().outputs[0].type == "yes-no"
-    assert maybe.describe().inputs[0].title == "OK" and maybe.describe().inputs[0].type == "yes-no"
-    assert "yes-no" in registry.accepted_as(bool)
-    graph = registry.load(make_graph(approved, note, maybe, edges=[("approved.result", "note.ok"), ("approved.result", "maybe.ok")]))
-    assert graph.problems == [] and graph.run(text="x").outputs == {"note.result": "yes", "maybe.result": True}
-
-
 def test_a_stored_graph_made_a_node_is_read_as_load_reads_a_record():
     from conductor import InvalidCallError, node
 
@@ -689,19 +657,10 @@ def test_a_stored_graph_made_a_node_is_read_as_load_reads_a_record():
     assert node("e")('{"nodes": [{"id": "a", "node": "x"}]}').graph == GraphRecord(nodes=[NodeRecord(id="a", node="x")])
 
 
-def test_a_type_named_twice_is_refused_and_an_infinite_default_writes_as_text():
+def test_an_infinite_default_writes_as_text():
     import json
-    from typing import Annotated
 
-    from conductor import Named, node
-
-    with pytest.raises(NodeDeclarationError) as raised:
-
-        @node("two")
-        def two(x: Annotated[Annotated[bool, Named("a")], Named("b")]) -> str:
-            return ""
-
-    assert raised.value.code == "named_twice"
+    from conductor import node
 
     @node("far")
     def far(limit: float = float("inf")) -> float:
@@ -724,21 +683,3 @@ def test_a_stored_graphs_fields_are_listed_by_the_registry_that_holds_its_nodes_
     assert alone.is_graph and alone.inputs == [] and alone.outputs == []
     listed = next(n for n in registry.describe().nodes if n.id == "shout")
     assert [f.name for f in listed.inputs] == ["text"] and [f.name for f in listed.outputs] == ["result"]
-
-
-def test_a_named_alias_written_twice_is_one_type():
-    """typing may hand back a fresh, equal ``Annotated`` object for the same alias, after its cache lets the first go."""
-    first = Annotated[bool, Named("yes-no", title="Ja/Nej")]
-    for clear in typing._cleanups:  # type: ignore[attr-defined]  # what an evicting cache does
-        clear()
-    again = Annotated[bool, Named("yes-no", title="Ja/Nej")]
-    assert first == again and first is not again
-
-    @node("keep")
-    def keep(value: again) -> again:  # type: ignore[valid-type]
-        return value
-
-    registry = NodeRegistry(types=[first])
-    registry.add(keep)
-
-    assert "keep" in registry and list(registry.types) == ["yes-no"]
