@@ -11,6 +11,7 @@ import io
 import json
 import logging
 import random
+import time
 from typing import Any, TypedDict
 
 import polars as pl
@@ -1193,6 +1194,40 @@ def test_a_node_redeclared_to_take_a_blank_is_called_on_the_blank_row_it_skipped
     again = registry_of(rows, send_blank).load(record).load_run(saved).again()
 
     assert again.results["s"]["result"] == ["to i@a.dk", "to None"]
+
+
+def test_a_row_that_comes_back_before_an_identical_earlier_row_takes_its_earlier_work_once_that_row_has():
+    calls: list[str] = []
+
+    @node("a", policy=Policy(concurrency=2))
+    def a(text: str) -> Series[str]:
+        return ["x"]
+
+    @node("c", policy=Policy(concurrency=2))
+    def c(text: str) -> str:
+        if text == "p":
+            time.sleep(0.3)  # the second row's inputs are made first
+        return "c"
+
+    @node("b")
+    def b(x: str, y: str) -> str:
+        calls.append(x + y)
+        return x + y
+
+    @node("split")
+    def split(text: str) -> Series[str]:
+        return text.split(",")
+
+    graph = registry_of(split, a, c, b).load(GraphRecord(
+        nodes=[NodeRecord(id=n, node=n) for n in ("split", "a", "c", "b")],
+        edges=[("split.result", "a.text"), ("split.result", "c.text"), ("a.result", "b.x"), ("c.result", "b.y")],
+    ))
+    first = graph.run(text="p,q")
+    calls.clear()
+
+    again = first.forget("a", "c").resume()
+
+    assert again.status == "complete" and again.results["b"] == {"result": ["xc", "xc"]} and calls == []
 
 
 def _counted() -> tuple[Any, list[str]]:

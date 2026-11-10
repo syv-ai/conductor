@@ -299,7 +299,8 @@ class Leg:
             earlier := run._reused(placed, key, kwargs, lambda: self._in_turn(placed, key))
         ) is not None:
             if earlier is PENDING:
-                return False  # a row before it may take this earlier unit; the walk tries it again
+                self.left_pending = True  # a row before it may take this earlier unit; the next walk tries it again
+                return False
             self.reused[placed.id] += 1
             self._record(placed, key, earlier, walking)
         else:
