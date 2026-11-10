@@ -367,6 +367,20 @@ def test_saving_a_run_that_holds_a_value_with_no_json_form_raises_naming_the_out
     assert (problem.type, problem.ctx["at"]) == ("state_unwritable", "o.result")
 
 
+def test_saving_a_run_given_an_input_with_no_json_form_raises_naming_the_input():
+    @node("take")
+    def take(value: Any) -> str:
+        return "ok"
+
+    run = registry_of(take).load(GraphRecord(nodes=[NodeRecord(id="t", node="take")])).run(value=_Opaque())
+
+    with pytest.raises(InvalidCallError) as refused:
+        run.to_json()
+
+    (problem,) = refused.value.errors()
+    assert (problem.type, problem.ctx["at"]) == ("state_unwritable", "t.value")
+
+
 def test_a_column_json_cannot_keep_makes_the_save_raise_naming_the_output_and_column():
     class Blob(TypedDict):
         data: bytes

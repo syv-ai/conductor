@@ -1187,13 +1187,14 @@ _ANY_COLUMN = carried_list(Any)
 
 
 def _dump_input(graph: Graph, address: str, value: Any) -> Any:
-    """A caller's input as JSON: a table as a saved table output is, anything else by its field."""
+    """A caller's input as JSON: a table as a saved table output is, anything else by its field; a value with no JSON
+    form raises ``_Unreadable`` naming the input."""
     field = graph._input_fields[address]
     if field.spec.shape == "table":
         return None if value is None else _dump_frame(field.spec, Frame(value.height, value.to_dict(as_series=False)), address)
     if field.listed:
-        return field.spec.column_adapter.dump_python(value, mode="json")
-    return field.spec.column_adapter.dump_python([value], mode="json")[0]  # written as a list is, a float that isn't finite kept
+        return _written_as_json(field.spec.column_adapter, value, address)
+    return _written_as_json(field.spec.column_adapter, [value], address)[0]  # written as a list is, a float that isn't finite kept
 
 
 def _load_input(graph: Graph, address: str, saved: Any) -> Any:
