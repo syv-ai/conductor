@@ -182,7 +182,7 @@ saved = finished.to_json()                               # graph.load_run(saved)
 
 **Values the host supplies.** A parameter marked `FromRun[T]` is filled by type from `run.resume(from_run={T: value})`, not from an edge.
 
-**Testing nodes.** `upper("a")` tests one node. `conductor.testing.check_registry(registry, examples={"upper": [{"text": "a"}]})` tests a registry in one line: it runs each example through the engine and lists, as `Problem`s, a hook that fails, an upgrade that breaks a saved node, a body that changes what it was given, an example that fails, and a body that raises `Ask` with no example that paused it. A body is called only for a node given an example.
+**Testing nodes.** `upper("a")` tests one node. `conductor.testing.check_registry(registry, examples={"upper": [{"text": "a"}]})` tests a whole registry in one line and returns what it finds as `Problem`s; a body is called only for a node given an example. Its docstring, and `python -m conductor.about testing`, list the checks.
 
 **Widgets.** A widget is the control a person edits an input with: `TextWidget`, `Textarea`, `Dropdown`, `NumberWidget`, `Switch`, `FileUpload` and more, from `conductor.widgets`. Each is a pydantic model with a `type`. No type has a default widget, so an input names its own.
 

@@ -134,9 +134,7 @@ its stored graphs itself. What a 1.x user changes:
   `registry.load(graph).describe()`, and `context_factory` is a `Depends` on your route, passed as
   `from_run`.
 - **Testing nodes.** `conductor.testing.check_registry(registry, examples=...)` is one test for a
-  whole registry: a hook that fails, an upgrade that breaks a saved node, a body that changes what it
-  was given, an example that fails, and a body that raises `Ask` with no example that paused it. A
-  body is called only for a node given an example.
+  whole registry; its docstring lists the checks.
 - **Canvas.** `conductor_providers.react` is gone: `graph_to_react`, `react_to_graph` and
   `topological_positions`. A canvas stores the `GraphRecord` as it is, its edges as drawn and a
   node's position in `node.display["position"]`; for layout, use the canvas's own engine.

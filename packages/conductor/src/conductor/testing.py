@@ -13,8 +13,8 @@ node id to the inputs of its calls, by name, a ``FromRun`` parameter's value
 among them, and ``(id, version)`` to those of an older version. Each example
 runs through the engine as a graph of that one node, its inputs typed in.
 
-Every problem is a ``Problem`` whose ``loc`` is ``(node_id, version)``, or ``(node_id,)`` for the
-last two:
+Every problem is a ``Problem``. Its ``loc`` is ``(node_id, version)``, except for
+``example_for_no_node`` without a version and ``waiver_not_needed``, which are ``(node_id,)``:
 
 ``hook_failed``
     a ``compute_added_inputs`` or ``compute_outputs`` hook fails on the
@@ -64,7 +64,7 @@ from conductor._internal.record import GraphRecord, NodeRecord
 from conductor._internal.registry import NodeRegistry
 
 #: One call's inputs, by name.
-Example = Mapping[str, Any]
+_Example = Mapping[str, Any]
 
 
 #: The problems of loading that are a hook's.
@@ -82,7 +82,7 @@ def check_registry(
     registry: NodeRegistry,
     /,
     *,
-    examples: Mapping[str | tuple[str, int], Sequence[Example]] | None = None,
+    examples: Mapping[str | tuple[str, int], Sequence[_Example]] | None = None,
     expected_failures: Mapping[str, str] | None = None,
 ) -> list[Problem]:
     """Every way a node of ``registry`` breaks what a host relies on, all at once; ``[]`` when none does."""
@@ -97,7 +97,7 @@ def check_registry(
     return _without_waived(found, expected_failures or {})
 
 
-def _problems_of(definition: NodeDefinition[..., Any], registry: NodeRegistry, examples: Mapping[Any, Sequence[Example]]) -> list[Problem]:
+def _problems_of(definition: NodeDefinition[..., Any], registry: NodeRegistry, examples: Mapping[Any, Sequence[_Example]]) -> list[Problem]:
     found: list[Problem] = []
     paused = False
     version: NodeDefinition[..., Any] | None = definition
@@ -148,7 +148,7 @@ def _hook_problems(version: NodeDefinition[..., Any], registry: NodeRegistry) ->
     return [_problem("hook_failed", version.id, version.version, f"a hook failed on the node's defaults and made-up values: {p.msg}", **_causes([p])) for p in failed]
 
 
-def _upgrade_problems(older: NodeDefinition[..., Any], registry: NodeRegistry, given: Sequence[Example]) -> list[Problem]:
+def _upgrade_problems(older: NodeDefinition[..., Any], registry: NodeRegistry, given: Sequence[_Example]) -> list[Problem]:
     """Place the node at ``older`` with an example's values, or made-up ones, move it to the newest version and load it."""
     if given:
         values = {name: value for name, value in given[0].items() if name not in older.from_run}
@@ -166,7 +166,7 @@ def _upgrade_problems(older: NodeDefinition[..., Any], registry: NodeRegistry, g
     return [_problem("upgrade_broken", older.id, older.version, f"after moving to version {newest}: {said}", **_causes(problems))]
 
 
-def _run_problems(version: NodeDefinition[..., Any], registry: NodeRegistry, example: Example) -> tuple[list[Problem], bool]:
+def _run_problems(version: NodeDefinition[..., Any], registry: NodeRegistry, example: _Example) -> tuple[list[Problem], bool]:
     """Run one example through the engine: what went wrong, and whether it paused for a person."""
     values = {name: value for name, value in example.items() if name not in version.from_run}
     from_run = {version.from_run[name]: value for name, value in example.items() if name in version.from_run}
@@ -205,9 +205,11 @@ def _watched(version: NodeDefinition[..., Any]) -> tuple[NodeDefinition[..., Any
         for name, value in kwargs.items():
             if name not in version.from_run:
                 try:
-                    before[name] = copy.deepcopy(value)
+                    kept = copy.deepcopy(value)
                 except Exception:  # noqa: BLE001, S112  a value that can't be copied can't be compared
                     continue
+                if _same(kept, value):  # a value unequal to its own copy (NaN, no __eq__) can't be compared
+                    before[name] = kept
         try:
             return function(**kwargs)
         finally:
@@ -278,6 +280,8 @@ def _filled(cell: Any) -> bool:
 
 
 def _same(one: Any, other: Any) -> bool:
+    if one is other:
+        return True
     if isinstance(one, Mapping) and isinstance(other, Mapping):
         return one.keys() == other.keys() and all(_same(one[key], other[key]) for key in one)
     if isinstance(one, pl.DataFrame) and isinstance(other, pl.DataFrame):

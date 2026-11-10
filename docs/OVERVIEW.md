@@ -8,7 +8,7 @@ A node's signature is read once into a field per input and output. The engine ca
 
 ## Declare, load, run
 
-- **Declare.** `@node` checks a function when it is decorated: an `async def`, a parameter without a type, a limit that doesn't fit its type, or a `Mapping` return with no hook fails at import. A `NodeRegistry` is what a host offers: `@registry.node` declares and adds, `add_subregistry` copies a module's registry in, and a second node under one id raises.
+- **Declare.** `@node` checks a function when it is decorated: an `async def`, a parameter without a type, a limit that doesn't fit its type, or a dataclass of outputs that isn't frozen fails at import. A `NodeRegistry` is what a host offers: `@registry.node` declares and adds, `add_subregistry` copies a module's registry in, and a second node under one id raises.
 - **Load.** `registry.load(record)` resolves each node's version, puts each embedded graph's nodes in its place, checks every edge and value, asks the field hooks, and decides where each node runs. Everything wrong is a `Problem` in `graph.problems`; `graph.is_runnable` says whether a run may start, and `graph.plan` says where each node runs.
 - **Run.** `graph.run(**inputs)` returns the `Run` its leg ended on. `run.stream()` yields the events of one leg. Every result, failure and pause is on the run, and `run.to_json()` is all of it.
 

@@ -54,7 +54,7 @@ assert registry["greet"] is greet
 
 ## Testing a registry
 
-`upper("a")` tests one node. One test covers what a declaration can't show, for a whole registry: a hook that fails, an upgrade that breaks a saved node, a body that changes what it was given, an example that fails or a pause no example reaches.
+`upper("a")` tests one node. `check_registry` tests what a declaration can't show, for a whole registry; `python -m conductor.about testing` lists its checks.
 
 ```python
 from conductor.testing import check_registry

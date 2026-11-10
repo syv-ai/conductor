@@ -221,3 +221,15 @@ def test_a_waiver_hides_its_failure_and_one_that_no_longer_fails_is_a_problem():
     assert found(registry_of(breaks), expected_failures={"breaks:hook_failed": "the service is mocked in CI"}) == []
     stale = check_registry(registry_of(upper), expected_failures={"upper:run_failed": "fixed since"})
     assert [(p.type, p.loc, p.ctx["waiver"]) for p in stale] == [("waiver_not_needed", ("upper",), "upper:run_failed")]
+
+
+def test_a_value_unequal_to_its_own_copy_is_never_called_changed():
+    class Opaque:
+        pass
+
+    @node("reads")
+    def reads(values: Series[float], thing: Any) -> int:
+        return len(values)
+
+    examples = {"reads": [{"values": [1.0, float("nan")], "thing": Opaque()}]}
+    assert found(registry_of(reads), examples=examples) == []

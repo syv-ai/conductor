@@ -95,7 +95,7 @@ Any type pydantic can check and write as JSON travels on edges: `str`, `int`, `f
 
 - `registry.types`: every type its nodes declare plus `NodeRegistry(types=[...])`, by id; one id claimed by two classes raises (`duplicate_type_id`). `registry.accepted_as(T)`: the ids a value of `T` may land on.
 - `Series[X]`: many values of one type. A plain list to the node and to a type checker. `list[X]` stays one value that is a list.
-- `Table[R]`, whose columns a `TypedDict` names, or bare `Table`: a whole table, a `polars.DataFrame` at run time. To a type checker it is a frame that keeps `R`: frame methods need no narrowing, a plain `polars.DataFrame` may be returned, and pyright tells two row types apart (mypy shows `R` but doesn't compare it).
+- `Table[R]`, whose columns a `TypedDict` names, or bare `Table`: a whole table, a `polars.DataFrame` at run time. To a type checker it is a frame that names `R`: frame methods need no narrowing and a plain `polars.DataFrame` may be returned. A checker shows `R` (`reveal_type`, `assert_type`), but it accepts a table of one row type where another is expected, because the type includes a plain `polars.DataFrame`.
 
 ### The graph record
 
