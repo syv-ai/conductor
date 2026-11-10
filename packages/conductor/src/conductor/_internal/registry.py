@@ -21,12 +21,17 @@ copied in when it is added, so changing it afterwards changes nothing here.
 
 The registry also holds which value types exist: the ones its nodes
 declare on their inputs and outputs, plus the ``types`` a host names, each
-under its ``id``. Nothing about a type is process-wide, so two registries
-in one process may each hold a ``text`` of their own; one id claimed by
-two classes in one registry raises where the second arrives, naming both.
-``accepted_as`` — every type here that admits a given one — is answered
-here, and ``describe()`` is what an editor reads: every node's record and
-every type's, once.
+under its ``id`` (its own ``id`` attribute, else its class name). Nothing
+about a type is process-wide, so two registries in one process may each
+hold a ``text`` of their own; one id claimed by two classes in one registry
+raises where the second arrives, naming both. ``accepted_as`` (every type
+here that admits a given one) is answered here, and ``describe()`` is what
+an editor reads: every node and every type, once, as JSON.
+
+``registry.load(record)`` reads a stored graph into a ``Graph`` that keeps
+its own copy of the definitions it resolved, so a later change to the
+registry doesn't reach it. ``registry.upgrade(record, node_id)`` moves one
+node of a record to a newer version.
 """
 
 from __future__ import annotations
@@ -34,43 +39,17 @@ from __future__ import annotations
 import dataclasses
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from types import MappingProxyType
-from typing import Any, Concatenate
+from typing import TYPE_CHECKING, Any, Concatenate
 
 from pydantic import JsonValue
 
-from conductor._internal.conductor_model import ConductorModel
-from conductor._internal.dtype import DType, _PlainPythonType, _UntypedValue, dtype_of
-from conductor._internal.errors import NodeDeclarationError
-from conductor._internal.node_definition import NodeDefinition, NodeDescription, checked_extra, node
+from conductor._internal.errors import InvalidCallError, NodeDeclarationError, make_problem
+from conductor._internal.fields import accepts, type_id, type_title, without_none
+from conductor._internal.node_definition import NodeDefinition, checked_extra, node
+from conductor._internal.record import GraphRecord, as_record
 
-
-class TypeDescription(ConductorModel):
-    """One type of a registry as an editor reads it.
-
-    Built by ``NodeRegistry.describe()`` for every type in the registry,
-    never stored: ``id`` and ``title`` are the type's own, ``accepted_as``
-    is the registry's answer to "where may a value of this type land?" —
-    the ids of every type here whose ``accepts`` admits it,
-    its own included. A field's record (``DType.describe()``) carries the
-    id alone and an editor looks the rest up here, so the fact is served
-    once per type rather than on every field that names it.
-    """
-
-    id: str
-    title: str
-    accepted_as: tuple[str, ...]
-
-
-class RegistryDescription(ConductorModel):
-    """A registry as an editor reads it.
-
-    ``nodes`` is every registered node's ``NodeDescription``; ``types`` is
-    the types, one ``TypeDescription`` each. Built on demand by
-    ``NodeRegistry.describe()`` and dumped through pydantic.
-    """
-
-    nodes: tuple[NodeDescription, ...]
-    types: tuple[TypeDescription, ...]
+if TYPE_CHECKING:
+    from conductor._internal.graph import Graph
 
 
 def _takes_the_arguments_of[**P, R](
@@ -98,20 +77,21 @@ class NodeRegistry:
         category: str = "",
         tags: Sequence[str] = (),
         extra: Mapping[str, JsonValue] | None = None,
-        types: Iterable[type[DType]] = (),
+        types: Iterable[type] = (),
     ) -> None:
         """An empty registry whose nodes default to ``category``, ``tags`` and ``extra``, holding the types in ``types``."""
         self._category = category
         self._tags = tuple(tags)
         self._extra = checked_extra(extra)
         #: The types a host names, whether or not a node declares them.
-        self._named_types = tuple(
-            dtype for dtype in (_registered_type_of(dtype_of(named) or named, named_by_host=True) for named in types) if dtype is not None
-        )
+        self._named_types = tuple(types)
+        for named in self._named_types:
+            if not isinstance(named, type):
+                raise NodeDeclarationError(f"{named!r} is not a type", code="not_a_type")
         #: The definitions, by id, in the order they arrived.
         self._nodes: dict[str, NodeDefinition[..., Any]] = {}
         #: Every type, by id: the ones the nodes declare, then the named ones.
-        self._types: dict[str, type[DType]] = _types_by_id(self._named_types, ())
+        self._types: dict[str, type] = _types_by_id(self._named_types, ())
 
     def __repr__(self) -> str:
         """How many nodes it holds, then each as its own repr, one per line."""
@@ -152,7 +132,7 @@ class NodeRegistry:
 
         def decorate(function: Callable[..., Any]) -> NodeDefinition[..., Any]:
             definition = declare(function)
-            if replaces is not None and _same_versions(self._nodes.get(definition.id), replaces):
+            if replaces is not None and _same_version(self._nodes.get(definition.id), replaces):
                 self.replace(definition)
             else:
                 self.add(definition)
@@ -217,7 +197,7 @@ class NodeRegistry:
             return definition
         return dataclasses.replace(definition, tags=tags, category=category, extra=MappingProxyType(extra))
 
-    def _hold(self, nodes: dict[str, NodeDefinition[..., Any]], named_types: tuple[type[DType], ...]) -> None:
+    def _hold(self, nodes: dict[str, NodeDefinition[..., Any]], named_types: tuple[type, ...]) -> None:
         """Hold exactly ``nodes`` and ``named_types``, once their types give one class per id."""
         self._types = _types_by_id(named_types, nodes.values())
         self._nodes, self._named_types = nodes, named_types
@@ -228,38 +208,111 @@ class NodeRegistry:
     # -- the types ---------------------------------------------------------------
 
     @property
-    def types(self) -> Mapping[str, type[DType]]:
+    def types(self) -> Mapping[str, type]:
         """Every type by its id: the ones the nodes declare, then the ones a host named. Read-only."""
         return MappingProxyType(self._types)
 
-    def accepted_as(self, dtype: type[DType]) -> tuple[str, ...]:
-        """The ids of every type here a value of ``dtype`` may land on, its own included.
+    def accepted_as(self, value_type: type) -> tuple[str, ...]:
+        """The ids of every type here a value of ``value_type`` may land on, its own included.
 
-        Derived from each type's ``accepts``, so a type that widens its
-        welcome is served without a table kept by hand. A bug in a type's ``accepts`` surfaces here, not as a
-        silent absence.
+        Derived from subclassing and each type's ``accepts``, so a type that
+        widens its welcome is served without a table kept by hand.
         """
-        return tuple(target.id for target in self._types.values() if target.accepts(dtype))
+        return tuple(type_id_ for type_id_, target in self._types.items() if accepts(target, value_type))
 
-    def describe(self) -> RegistryDescription:
-        """This registry as an editor reads it: every node's record and every type's, once."""
-        return RegistryDescription(
-            nodes=tuple(definition.describe() for definition in self._nodes.values()),
-            types=tuple(
-                TypeDescription(id=dtype.id, title=dtype.display_title, accepted_as=self.accepted_as(dtype))
-                for dtype in self._types.values()
-            ),
-        )
+    def describe(self) -> dict[str, Any]:
+        """This registry as an editor reads it, as JSON: every node, and every type with where a value of it may land."""
+        return {
+            "nodes": [definition.describe() for definition in self._nodes.values()],
+            "types": [{"id": type_id_, "title": type_title(held), "accepted_as": list(self.accepted_as(held))} for type_id_, held in self._types.items()],
+        }
+
+    # -- graphs ------------------------------------------------------------------
+
+    def load(self, record: GraphRecord | str | bytes | Mapping[str, Any]) -> Graph:
+        """Load a stored graph, given as a record, JSON text or a mapping read from JSON.
+
+        It never raises for a half-finished drawing: what is wrong is in
+        ``graph.problems``. The graph keeps its own copy of the definitions
+        as they are when it loads.
+        """
+        from conductor._internal.graph import Graph
+
+        return Graph(as_record(record), self._nodes)
+
+    def upgrade(self, record: GraphRecord | str | bytes | Mapping[str, Any], node_id: str, *, to: int | None = None) -> GraphRecord:
+        """``record`` with the node ``node_id`` moved from the version it was saved at to ``to``, the newest by default.
+
+        Runs each newer version's ``Upgrade`` in order and sets the version.
+        Each step first moves what the record holds on the inputs it renames
+        (values, defaults, ``many`` and the edges into them), then rewrites
+        what is typed into the node, values and defaults as one map: a key
+        that was a default stays one, and every other key the rewrite returns
+        is a value, fixed as the author's. Every edge out of a renamed output,
+        or out of a column of it, reads the new name. A node already at ``to``
+        returns the record as it is. The record returned is not loaded here:
+        load it to show the author what the newer version makes of it.
+
+        A node the record does not have, a node this registry does not, and a
+        version it can't move to are each an ``InvalidCallError``.
+        """
+        graph = as_record(record)
+        placed = next((n for n in graph.nodes if n.id == node_id), None)
+        if placed is None:
+            raise InvalidCallError([make_problem("node_not_in_graph", node_id, node_id=node_id, nodes=", ".join(n.id for n in graph.nodes))])
+        if placed.node not in self._nodes:
+            raise InvalidCallError([make_problem("unknown_node", node_id, node=placed.node, choices=", ".join(sorted(self._nodes)) or "none")])
+        newest = self._nodes[placed.node]
+        target = newest.version if to is None else to
+        if target == placed.version:
+            return graph
+        destination = newest.version_of(target)
+        if target < placed.version or destination is None or newest.version_of(placed.version) is None:
+            raise InvalidCallError([make_problem(
+                "cannot_move_to_version", node_id,
+                node=placed.node, version=placed.version, target=target, versions=", ".join(str(number) for number in sorted(newest.versions)),
+            )])
+        steps = []
+        step: NodeDefinition[..., Any] | None = destination
+        while step is not None and step.version > placed.version:
+            steps.append(step)
+            step = step.replaces
+        values, defaults, many, edges = dict(placed.values), dict(placed.defaults), set(placed.many), list(graph.edges)
+        for upgrade in (s.upgrade for s in reversed(steps) if s.upgrade is not None):
+            values, defaults = _with_keys_renamed(values, upgrade.renamed_inputs), _with_keys_renamed(defaults, upgrade.renamed_inputs)
+            many = {upgrade.renamed_inputs.get(name, name) for name in many}
+            if upgrade.rewrite is not None:
+                rewritten = upgrade.rewrite({**defaults, **values})
+                defaults = {name: value for name, value in rewritten.items() if name in defaults and name not in values}
+                values = {name: value for name, value in rewritten.items() if name not in defaults}
+            edges = [
+                (_renamed_on(source, node_id, upgrade.renamed_outputs), _renamed_on(target_, node_id, upgrade.renamed_inputs))
+                for source, target_ in edges
+            ]
+        moved = placed.model_copy(update={"version": target, "values": values, "defaults": defaults, "many": frozenset(many)})
+        return graph.model_copy(update={"nodes": tuple(moved if n is placed else n for n in graph.nodes), "edges": tuple(sorted(edges))})
 
 
-def _types_by_id(named: Iterable[type[DType]], definitions: Iterable[NodeDefinition[..., Any]]) -> dict[str, type[DType]]:
+def _with_keys_renamed(by_name: Mapping[str, Any], renames: Mapping[str, str]) -> dict[str, Any]:
+    """``by_name`` with each key a step renames under its new name."""
+    return {renames.get(name, name): value for name, value in by_name.items()}
+
+
+def _renamed_on(address: str, node_id: str, renames: Mapping[str, str]) -> str:
+    """``address`` with its field renamed when it is on ``node_id`` and the step renames it; a column (``result.email``) moves with its field."""
+    owner, _, rest = address.partition(".")
+    field, dot, column = rest.partition(".")
+    return f"{owner}.{renames[field]}{dot}{column}" if owner == node_id and field in renames else address
+
+
+def _types_by_id(named: Iterable[type], definitions: Iterable[NodeDefinition[..., Any]]) -> dict[str, type]:
     """The types ``definitions`` declare, then the named ones, by id; raises when one id names two classes."""
-    by_id: dict[str, type[DType]] = {}
-    for dtype in (*(dtype for definition in definitions for dtype in _types_declared_by(definition)), *named):
-        existing = by_id.setdefault(dtype.id, dtype)
-        if existing is not dtype:
+    by_id: dict[str, type] = {}
+    for held in (*(held for definition in definitions for held in _types_declared_by(definition)), *named):
+        existing = by_id.setdefault(type_id(held), held)
+        if existing is not held:
             raise NodeDeclarationError(
-                f"type id {dtype.id!r} is declared by both {_qualified_name(existing)} and {_qualified_name(dtype)}; "
+                f"type id {type_id(held)!r} is declared by both {_qualified_name(existing)} and {_qualified_name(held)}; "
                 "one registry holds one type per id",
                 code="duplicate_type_id",
             )
@@ -271,54 +324,32 @@ def _raise_unless_definition(definition: Any) -> None:
         raise NodeDeclarationError(f"{definition!r} is not a node; declare one with @node", code="not_a_node_definition")
 
 
-def _same_versions(held: NodeDefinition[..., Any] | None, replaced: NodeDefinition[..., Any]) -> bool:
-    """Whether ``held`` is ``replaced``, possibly with a registry's defaults applied: the same version records."""
-    return held is not None and held.versions.keys() == replaced.versions.keys() and all(
-        held.versions[number] is version for number, version in replaced.versions.items()
-    )
+def _same_version(held: NodeDefinition[..., Any] | None, replaced: NodeDefinition[..., Any]) -> bool:
+    """Whether ``held`` is ``replaced``, possibly with a registry's defaults applied."""
+    return held is not None and (held is replaced or (
+        held.version == replaced.version and held.function is replaced.function and held.graph is replaced.graph and held.replaces is replaced.replaces
+    ))
 
 
 def _where_declared(definition: NodeDefinition[..., Any]) -> str:
-    """Where a node's newest version was written: its function's module and name, or the graph it is built from."""
-    body = definition.versions[definition.current_version].body
-    if not callable(body):
-        return f"a node built from graphs titled {definition.title!r} (versions {', '.join(map(str, sorted(definition.versions)))})"
-    return f"{getattr(body, '__module__', '?')}.{getattr(body, '__qualname__', '?')}"
+    """Where a node was written: its function's module and name, or the graph it is."""
+    if definition.function is None:
+        return f"a node that is a graph, titled {definition.title!r} (versions {', '.join(map(str, definition.versions))})"
+    return f"{getattr(definition.function, '__module__', '?')}.{getattr(definition.function, '__qualname__', '?')}"
 
 
-def _registered_type_of(declared: Any, *, named_by_host: bool = False) -> type[DType] | None:
-    """The registry type a declared type names, or ``None`` when it names none.
-
-    A scalar type is itself; a ``Table[...]`` is ``Table``. An untyped field and
-    a type no edge can carry name none. With ``named_by_host`` — the host
-    naming a type in ``types`` — the base ``DType`` and a non-type raise
-    rather than silently naming nothing.
-    """
-    if not (isinstance(declared, type) and issubclass(declared, DType)):
-        if named_by_host:
-            raise NodeDeclarationError(f"{declared!r} is not a DType subclass", code="not_a_dtype")
-        return None
-    if issubclass(declared, _UntypedValue) or (issubclass(declared, _PlainPythonType) and not declared.travels_on_edges):
-        return None
-    if declared is DType:
-        if named_by_host:
-            raise NodeDeclarationError("the base DType is not a type to add; add a concrete type", code="base_dtype_added")
-        return None
-    if declared._generic_base is not None:
-        return _registered_type_of(declared._generic_base, named_by_host=named_by_host)
-    return declared
+def _types_declared_by(definition: NodeDefinition[..., Any]) -> list[type]:
+    """Every class a node's versions declare on their inputs and outputs, each once, in declaration order."""
+    found: list[type] = []
+    step: NodeDefinition[..., Any] | None = definition
+    while step is not None:
+        for spec in (*step.inputs.values(), *step.outputs.values()):
+            held = without_none(spec.type)
+            if spec.shape != "table" and isinstance(held, type) and held not in found:
+                found.append(held)
+        step = step.replaces
+    return found
 
 
-def _types_declared_by(definition: NodeDefinition[..., Any]) -> list[type[DType]]:
-    """Every type a node's versions declare on their inputs and outputs, each once, in declaration order."""
-    dtypes: list[type[DType]] = []
-    for version in definition.versions.values():
-        for field in (*version.interface.inputs, *version.interface.outputs):
-            dtype = _registered_type_of(field.dtype)
-            if dtype is not None and dtype not in dtypes:
-                dtypes.append(dtype)
-    return dtypes
-
-
-def _qualified_name(dtype: type[DType]) -> str:
-    return f"{dtype.__module__}.{dtype.__qualname__}"
+def _qualified_name(held: type) -> str:
+    return f"{held.__module__}.{held.__qualname__}"

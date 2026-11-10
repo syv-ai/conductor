@@ -7,14 +7,14 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Annotated, Any
 
-from conductor import AskPerson, ArrivingType, Deprecation, ExternalFailure, FromRun, Input, Upgrade, node, Output, Param, Policy, ComputeHookError, Result, Series, SKIPPED
+from conductor import SKIPPED, Ask, Deprecation, ExternalFailure, FromRun, Param, Policy, Series, Upgrade, node
 from conductor.widgets import Switch, Textarea, TextWidget
 
 
 @dataclass(frozen=True)
 class Branches:                       # one output per field; a shared choice makes them a branch
-    yes: Annotated[str, Result(title="If yes", exclusive_group="answer")]
-    no: Annotated[str, Result(title="If no", exclusive_group="answer")]
+    yes: Annotated[str, Param(title="If yes", exclusive_group="answer")]
+    no: Annotated[str, Param(title="If no", exclusive_group="answer")]
 
 
 @node("route", title="Route", description="Sends the text one way or the other.", category="logic")
@@ -23,8 +23,8 @@ def route(text: Annotated[str, Param(title="Text", widget=Textarea())], go: Anno
 
 
 @node("words", title="Words", description="One row per word.", category="text")
-def words(text: Annotated[str, Param(title="Text", widget=Textarea())]) -> Annotated[Series[str], Result(title="Words")]:
-    return [word for word in text.split()]      # any sequence on a Series output: one row per item
+def words(text: Annotated[str, Param(title="Text", widget=Textarea())]) -> Annotated[Series[str], Param(title="Words")]:
+    return [word for word in text.split()]      # a list on a Series output: one row per item
 
 
 class Caller:
@@ -33,32 +33,33 @@ class Caller:
 
 
 @node("approve", title="Approve", description="Asks a person to approve or rewrite the proposal.", category="review")
-def approve(proposal: Annotated[str, Param(title="Proposal", widget=Textarea())], who: FromRun[Caller]) -> Annotated[str, Result(title="Decision")] | AskPerson:
-    # what is asked is the declared output; a default proposes an answer
-    return AskPerson(prompt=f"{who.name}, approve?", defaults={"result": proposal}, widgets={"result": Textarea()})
+def approve(proposal: Annotated[str, Param(title="Proposal", widget=Textarea())], who: FromRun[Caller]) -> Annotated[str, Param(title="Decision")]:
+    # what is asked is what the node returns; a default proposes an answer
+    raise Ask(f"{who.name}, approve?", default=proposal, widget=Textarea())
 
 
-def fetch_v1(url: Annotated[str, Param(title="URL", widget=TextWidget())]) -> Annotated[str, Result(title="Body")]: ...
+def fetch_v1(url: Annotated[str, Param(title="URL", widget=TextWidget())]) -> Annotated[str, Param(title="Body")]: ...
 
 @node("fetch", title="Fetch", description="Fetches a page.", category="http", policy=Policy(retries=3, retry_delay=0.5, attempt_timeout=10.0, concurrency=4, retry_on=(TimeoutError,)), replaces=node("fetch", deprecation=Deprecation(header="Use version 2"))(fetch_v1), upgrade=Upgrade(renamed_inputs={"url": "address"}))
-def fetch(address: Annotated[str, Param(title="Address", widget=TextWidget())]) -> Annotated[str, Result(title="Body")]:
+def fetch(address: Annotated[str, Param(title="Address", widget=TextWidget())]) -> Annotated[str, Param(title="Body")]:
     if not address:
         raise ExternalFailure("no address")          # retried, like any retry_on class
     return f"<html>{address}</html>"
 
 
-def columns_outputs(names):
+def columns_outputs(names: str) -> dict[str, Any]:
     if not names:
-        raise ComputeHookError("Type at least one column name.", code="no_columns")   # a compile Problem on the node
-    return tuple(Output(name, str) for name in names.split(","))
+        raise ValueError("Type at least one column name.")   # a problem on the node when a graph loads, not an exception
+    return {name: str for name in names.split(",")}
 
 @node("columns", title="Columns", description="One output per column name typed in.", category="table", compute_outputs=columns_outputs)
 def columns(names: Annotated[str, Param(title="Column names", widget=TextWidget())]) -> Mapping[str, Any]:
     return {name: name.upper() for name in names.split(",")}
 
 
-assert approve.versions[1].interface.needs == {Caller}
+assert approve.from_run == {"who": Caller}
 ```
 
 - A pydantic model a node returns is one value, not one output per field.
+- `Ask` is a `BaseException`: an `except Exception` in the node lets it through.
 - Only `ExternalFailure` and `retry_on` classes retry; attempt `n` waits `retry_delay * 2 ** (n - 1)`. A timed-out attempt is final.

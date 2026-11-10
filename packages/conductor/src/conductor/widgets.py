@@ -2,7 +2,7 @@
 
 A widget is the control an input is edited with, plus what that control
 needs: a dropdown's choices, a text area's height. It is a frozen,
-keyword-only record with a ``type``, and neither compile nor the engine
+keyword-only record with a ``type``, and neither loading nor the engine
 reads it: conductor carries it from the signature to whatever draws the
 editor. An author writes one on the ``Param`` inside ``Annotated``::
 
@@ -19,7 +19,7 @@ A widget is the control and nothing more. What a person reads about the
 input, whether an edge can reach it and the limits a value must keep to are
 the ``Param``'s, where they are enforced. An input with no widget is
 filled by an edge only. Nor does a widget change how the engine runs: a
-pause is a node that returns ``AskPerson``, not a widget type.
+pause is a node that raises ``Ask``, not a widget type.
 
 Conductor picks no default widget for any type: a text may be a
 textarea, a single line or a dropdown, so every input declares its own.

@@ -4,10 +4,10 @@
 
 # Conductor
 
-Compile and run graphs of typed Python functions. A node is a function and its type hints are its interface. You write a graph as data, its nodes and edges, compile it into a record that says what's wrong and where everything runs, and run it as a stream of events, once per row wherever a column arrives.
+Run graphs of typed Python functions. A node is a function and its type hints are its interface. You write a graph as data, its nodes and edges, load it into a graph that says what's wrong and where everything runs, and run it, once per row wherever a column arrives.
 
 ```python
-from conductor import CompiledGraph, NodeRegistry, make_graph
+from conductor import NodeRegistry, make_graph
 
 registry = NodeRegistry()
 
@@ -17,8 +17,8 @@ def length(text: str) -> int:
     return len(text)
 
 
-compiled = CompiledGraph.from_graph(make_graph(length, values={"length.text": "abcd"}), registry)
-print(compiled.outputs(compiled.run_sync()))  # {'length.result': 4}
+graph = registry.load(make_graph(length, values={"length.text": "abcd"}))
+print(graph.run().outputs)  # {'length.result': 4}
 ```
 
 ## Read next

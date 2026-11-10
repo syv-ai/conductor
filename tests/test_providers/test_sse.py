@@ -5,67 +5,65 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import dataclass
-from typing import Annotated
+from typing import Annotated, Any
 
 import pytest
-from conductor import (
-    SKIPPED,
-    CompiledGraph,
-    GraphRecord,
-    NodeRecord,
-    Problem,
-    Result,
-    RunState,
-    node,
-)
-from conductor._internal.execution.run_state import OutputColumn, Question, WaitingUnit, WorkOfNode
-from conductor.events import Event, NodeComplete, NodeFailed, RunEnd, UnitWaiting
-from helpers import Json, registry_of, stream_of
+from conductor import SKIPPED, Ask, GraphRecord, NodeRecord, Param, Problem, node
+from conductor.events import NodeComplete, NodeFailed, RunEnd, UnitWaiting
+from conductor.widgets import Textarea
+
+from tests.test_core.nodes import registry_of
 
 
-def _payload(event: Event) -> dict:
+def _payload(event: Any) -> dict:
     return json.loads(event.model_dump_json())
 
 
-def test_many_values_keep_their_rows_and_an_ending_says_only_its_status():
-    lines = {"rows": [(0, 0), (1, 0)], "values": ["a", "b"]}
-    state = RunState(status="complete", nodes={"split": WorkOfNode(fingerprint="f" * 64, outputs={"result": OutputColumn(rows=[(0,)], values=["a"])})})
+def _events(graph: GraphRecord, *nodes: Any) -> list[Any]:
+    run = registry_of(*nodes).load(graph).with_inputs()
 
-    payload = _payload(NodeComplete(type="node_complete", node_id="split", outputs={"result": lines}))
-    ending = _payload(RunEnd(state=state))
+    async def collect() -> list[Any]:
+        return [event async for event in run.stream()]
 
-    assert payload["outputs"]["result"] == {
-        "rows": [[0, 0], [1, 0]],
-        "values": ["a", "b"],
-    }
-    assert ending == {"type": "run_end", "status": "complete"}
+    return asyncio.run(collect())
 
 
-def test_a_pending_units_questions_and_a_failures_cause_are_records():
-    question = Question(name="result", title="Svar", dtype={"id": "text"}, json_schema={"type": "string"}, widget={"type": "textarea"}, default="forslag", required=False)
-
-    pending = _payload(UnitWaiting(unit=WaitingUnit(id="ask@1", node_id="ask", row=(1,), questions=(question,))))
-    failed = _payload(NodeFailed(type="node_failed", node_id="n", cause=Problem(type="boom", msg="Boom.", loc=("n", 2))))
-
-    (asked,) = pending["unit"]["questions"]
-    assert (asked["name"], asked["default"], asked["widget"]["type"]) == ("result", "forslag", "textarea")
-    assert pending["unit"]["row"] == [1]
-    assert failed["cause"] == {"type": "boom", "msg": "Boom.", "loc": ["n", 2], "ctx": {}, "fatal": True}
+@node("split")
+def split(text: str) -> list[str]:
+    return text.split(",")
 
 
-def test_a_typed_value_dumps_through_its_own_type_and_one_with_no_form_raises():
-    parsed = {"rows": [(0,), (1,)], "values": [Json({"a": 1}), Json([2])]}
+def test_an_ending_says_only_its_status():
+    (ending,) = [e for e in _events(GraphRecord(nodes=[NodeRecord(id="s", node="split", values={"text": "a,b"})]), split) if isinstance(e, RunEnd)]
 
-    assert _payload(NodeComplete(type="node_complete", node_id="parse", outputs={"result": parsed}))["outputs"]["result"]["values"] == [{"a": 1}, [2]]
-    assert _payload(NodeComplete(type="node_complete", node_id="n", outputs={"n": float("nan")}))["outputs"] == {"n": "NaN"}
+    assert _payload(ending) == {"type": "run_end", "status": "complete"}
+    assert ending.run.outputs == {"s.result": ["a", "b"]}
+
+
+def test_a_waiting_units_question_and_a_failures_cause_are_records():
+    @node("ask")
+    def ask(text: str) -> Annotated[str, Param(title="Svar")]:
+        raise Ask("Hvad?", default="forslag", widget=Textarea())
+
+    (waiting,) = [e for e in _events(GraphRecord(nodes=[NodeRecord(id="ask", node="ask", values={"text": "x"})]), ask) if isinstance(e, UnitWaiting)]
+    failed = _payload(NodeFailed(node_id="n", cause=Problem(type="boom", msg="Boom.", loc=("n", 2))))
+
+    unit = _payload(waiting)["unit"]
+    assert (unit["id"], unit["prompt"], unit["default"], unit["widget"]["type"], unit["answer_schema"]["type"]) == ("ask", "Hvad?", "forslag", "textarea", "string")
+    assert unit["inputs"] == {"text": "x"}
+    assert failed["cause"] == {"type": "boom", "msg": "Boom.", "loc": ["n", 2], "ctx": {}}
+
+
+def test_a_float_that_isnt_finite_is_text_and_a_value_with_no_form_raises():
+    assert _payload(NodeComplete(node_id="n", outputs={"n": float("nan")}))["outputs"] == {"n": "NaN"}
     with pytest.raises(Exception, match="object"):
-        NodeComplete(type="node_complete", node_id="n", outputs={"x": object()}).model_dump_json()
+        NodeComplete(node_id="n", outputs={"x": object()}).model_dump_json()
 
 
 @dataclass(frozen=True)
 class Emptiness:
-    not_empty: Annotated[str, Result(exclusive_group="emptiness")]
-    empty: Annotated[str, Result(exclusive_group="emptiness")]
+    not_empty: Annotated[str, Param(exclusive_group="emptiness")]
+    empty: Annotated[str, Param(exclusive_group="emptiness")]
 
 
 @node("if-empty")
@@ -73,17 +71,9 @@ def if_empty(text: str) -> Emptiness:
     return Emptiness(not_empty=text, empty=SKIPPED) if text.strip() else Emptiness(not_empty=SKIPPED, empty=text)
 
 
-def test_a_branch_nodes_completion_streams_with_only_the_branch_taken():
-    compiled = CompiledGraph.from_graph(
-        GraphRecord(nodes=[
-            NodeRecord(id="d", node="if-empty", values={"text": "x"}),
-        ]),
-        registry_of(if_empty),
-    )
+def test_a_branch_nodes_completion_streams_with_the_branch_not_taken_blank():
+    events = _events(GraphRecord(nodes=[NodeRecord(id="d", node="if-empty", values={"text": "x"})]), if_empty)
 
-    async def events() -> list[Event]:
-        return [event async for event in stream_of(compiled)]
+    (completed,) = [_payload(event) for event in events if event.type == "node_complete"]
 
-    (completed,) = [_payload(event) for event in asyncio.run(events()) if event.type == "node_complete"]
-
-    assert completed["outputs"] == {"not_empty": "x"}
+    assert completed["outputs"] == {"not_empty": "x", "empty": None}

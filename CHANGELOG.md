@@ -7,109 +7,106 @@ All notable changes to `syv-conductor`; up to 1.x this also covered `syv-conduct
 
 ## [Unreleased]
 
-Ships as 2.0.0, a new major. The node contract, the graph record, compile and the engine are each
+Ships as 2.0.0, a new major. The node contract, the graph record, loading and the engine are each
 replaced, and no alias keeps a 1.x name alive. A 1.x graph does not load as saved; a host converts
 its stored graphs itself. What a 1.x user changes:
 
 - **Imports.** Import from `conductor`, `conductor.widgets` and `conductor.events`; everything else is
-  `conductor._internal`. Conductor depends on `polars>=2.0` and `pydantic>=2.11`. The records a
-  public call returns but nobody names (`CompiledNode`, `RunPlan`, `WorkOfNode`, `Question` and the
-  like) are not exported.
+  `conductor._internal`. Conductor depends on `polars>=2.0` and `pydantic>=2.11`.
 - **A node.** `BaseNode` is a plain function under `@registry.node("id")`, or under `@node("id")`,
   which takes the same arguments and registers nothing. Either returns a frozen, callable
-  `NodeDefinition`; `version=` and `name=` are gone. `async def` isn't allowed: the function runs in a
-  worker thread. `NodeCategory` and auto-discovery are gone. A node takes `extra=`, the host's own
-  JSON about it, kept and described and never read.
+  `NodeDefinition`; `name=` is gone. `async def` isn't allowed. `NodeCategory` and auto-discovery are
+  gone. A node takes `extra=`, the host's own JSON about it, kept and described and never read.
 - **A registry.** `NodeRegistry(category=, tags=, extra=, types=)` starts empty. `@registry.node`
   declares and adds; `add(*definitions)` adds plain `@node`s, and a second node under one id raises;
   `replace` and `remove` change one. `add_subregistry(other)` copies another registry's nodes in, so
   each module keeps a registry and the host joins them. A node entering takes the registry's
   defaults: tags add up, outermost first, and its own `category` and `extra` keys win.
-  `filter(predicate)` is a new registry of the nodes kept. Looping yields the definitions. A
-  deprecation's `alternative` need not be in the registry.
+  `filter(predicate)` is a new registry of the nodes kept. Looping yields the definitions.
+  `registry.describe()` is the palette as JSON.
 - **Inputs and outputs.** The type hints are the interface: `text: str`, or
-  `Annotated[str, Param(title=..., widget=...)]`. `-> str` is one output named `result`, a frozen
-  dataclass is one output per field, and `Result(...)` titles one. `InputMetadata` and
-  `OutputMetadata` are `Input` and `Output`. A default is checked where it is written:
-  `x: int = "abc"` is a `NodeDeclarationError` at import.
+  `Annotated[str, Param(title=..., widget=..., ge=..., max_length=...)]`. `-> str` is one output
+  named `result`, a frozen dataclass is one output per field, and `Param(title=...)` titles one. A
+  default is checked where it is written, and so is a limit against its type: `x: int = "abc"` and
+  `Param(ge=0)` on a `str` are each a `NodeDeclarationError` at import.
 - **Fields that depend on configuration** come from `compute_added_inputs=` and `compute_outputs=`,
-  plain functions whose parameters name the inputs they read. `ArrivingType` gives the type on an
-  edge, and `ComputeHookError` reports what's wrong.
+  plain functions whose parameters name the inputs they read and that return `{name: type hint}`. A
+  parameter annotated `type` gets the type on an edge. They run when a graph is loaded, and one that
+  raises is the problem `compute_hook_failed` on its node.
 - **Versions.** A newer version names the one it replaces, `@node("id", replaces=older,
-  upgrade=Upgrade(...))`, where `older` is a `@node` of the same id. Each version has its own
-  `Policy`, hooks and `deprecation=`, and the newest version's notice is the node's.
-  `upgrade_node(graph, node_id, registry)` moves one node of a record on: an `Upgrade`'s renames move
-  its values, defaults and edges, and its `rewrite` takes and returns what is typed into the node,
-  values and defaults as one map (a default stays one; anything new is a value).
+  upgrade=Upgrade(...))`, where `older` is a `@node` of the same id; a definition is one version,
+  `version`, the older ones on `replaces`. `registry.upgrade(record, node_id)` moves one node of a
+  record on: an `Upgrade`'s renames move its values, defaults and edges, and its `rewrite` takes and
+  returns what is typed into the node, values and defaults as one map (a default stays one; anything
+  new is a value). `Deprecation(...)` marks a version going away.
 - **What the run supplies.** `FlowStore` and `store_data` are a parameter typed `FromRun[T]`, filled
-  from `compiled.run(from_run={T: value})`.
+  from `run.resume(from_run={T: value})`.
 - **Retries and failures.** `max_retries`, `retry_delay` and `RetryConfig` are
-  `Policy(retries=, retry_delay=, attempt_timeout=, concurrency=, retry_on=)`. Only an
-  `ExternalFailure`, or an exception named in `retry_on`, is retried. `NodeValidationError`,
+  `Policy(concurrency=, retries=, retry_delay=, attempt_timeout=, retry_on=)`. A node with
+  `concurrency` 1 (the default) and no `attempt_timeout` is called in order on the leg's own thread.
+  Only an `ExternalFailure`, or an exception named in `retry_on`, is retried. `NodeValidationError`,
   `NodeExecutionError` and `NodeTimeoutError` are `NodeError(message, code=, ctx=)`, or
   `ExternalFailure` for what the outside world caused.
 - **Widgets.** A widget is the control alone, with a `type`, and no type has a default one.
   Conductor ships text, textarea, dropdown, number, range, switch, date, file and list, and a host
   subclasses `Widget` for its own. The limits of a value go on the `Param` (`ge`, `le`, `min_length`,
-  `max_length`, `pattern`), where they are enforced at compile and on every call. `Checkbox`,
+  `max_length`, `pattern`), where they are enforced on every value typed in or given. `Checkbox`,
   `Multiselect`, `DependentDropdown`, `HumanReview`, `TableSource`, `ConditionBuilder` and
   `ColumnSelect` are gone, and so is the widget called `Output`.
-- **Types.** Plain Python types and pydantic models travel on edges. Write `class X(DType, str)` with
-  an `id` only for a type of your own; `target.accepts(source)` is the edge check.
-- **Rows.** The for-each, while, subprocess and signal nodes and regions are gone. A column arriving
-  on an input declared for one value runs the node once per row, and a node isn't called for a blank
-  unless its input says `| None`. `Series[X]` marks a field as holding many values of `X`: a
-  `Sequence[X]` to a type checker, a plain list to the node, every value under the node's row.
-  `results()`, `outputs()` and `NodeComplete.outputs` give it as `{"rows": [...], "values": [...]}`.
-  `compiled.run_plan` says what compile decided.
-- **Tables.** `Table[TypedDict]` is a whole table, a `polars.DataFrame`. Tables and columns wired
-  into one `Table` input merge on the hidden `__row` column: a parent is only copied down onto its
-  children, so the rows are those of the deepest source; sources on one level keep all their rows,
-  with blanks beside; and tables with no rows in common are refused when the graph is checked
-  (`no_rows_in_common`), so join those on a key in a node of your own.
+- **Types.** Any type pydantic can carry travels on edges, a host's own class included, with no base
+  class. A class may declare `id`, `display_title` and a classmethod `accepts(source)` that lets other
+  types land on it.
+- **Rows.** The for-each, while, subprocess and signal nodes and regions are gone. A list or a column
+  arriving on an input declared for one value runs the node once per row, and a node isn't called for
+  a blank unless its input says `| None`; `run.not_called` records the row and input. `Series[X]`
+  marks a field as holding many values of `X`, a plain list to the node, every value under the
+  node's row. An open input named in its node's `many` takes a list from the caller. Rows of two
+  different tables never meet by themselves (`rows_not_related`): join them on a key in a node.
+  `max_rows=` on a run is a ceiling checked before any node is called on the rows (`row_ceiling`).
+- **Tables.** `Table[TypedDict]` is a whole table, a `polars.DataFrame`. Columns wired into one
+  `Table` input are read along one path of the row tree, a parent's value copied down onto its
+  children's rows.
 - **Graphs.** `Flow` is a `GraphRecord`, plain data: `{"nodes": [...], "edges": [["a.result",
   "b.text"], ...]}`. A `NodeRecord` is `id`, `node` (the node it uses; was `type`), `version` (1 when
-  left out), `values` (typed in, fixed), `defaults` (typed in, open to a caller) and `display` (the
-  host's own); empty fields are left out when saved, and there is no `"id@version"` string. Edges are
-  a set: several into one input gather in the order their nodes appear in `nodes`. An edge drawn
-  twice, an edge into a node the graph doesn't have and an input with an edge and a value are each
-  a problem. `make_graph(upper, exclaim, values={"exclaim.times": 2})` writes a record from Python:
-  a chain with no `edges`, or exactly the `edges` given. `conductor.flow_format` is
-  `graph.model_dump_json()` and `GraphRecord.model_validate_json(...)`, and YAML is gone with `pyyaml`.
+  left out), `values` (typed in, fixed), `defaults` (typed in, open to a caller), `many` and
+  `display` (the host's own); empty fields are left out when saved. Edges are a set: several into one
+  input gather in the order their nodes appear in `nodes`, then the order a node declares its
+  outputs. An edge drawn twice, an edge naming a node the graph doesn't have and an input set two
+  ways are each a problem. `make_graph(upper, exclaim, values={"exclaim.times": 2})` writes a record
+  from Python: a chain with no `edges`, or exactly the `edges` given. YAML is gone with `pyyaml`.
   CEL guards on edges, shared references, compensation and `on_error` are gone.
-- **Compile.** `compile(...)` is `CompiledGraph.from_graph(graph, registry)`. It never raises for a
-  fault in the graph: read `problems` and `is_runnable`, or `compiled.describe()` for all of it as
-  one JSON-ready record. A `Problem` is `type`, `loc`, `msg` and `ctx`.
-- **Embedded graphs.** `extension_resolver` is gone. A graph embedded as a node is
-  `NodeDefinition.from_compiled_graphs(...)`, wired by the names it offers, and it runs as its nodes
-  drawn in its place.
-- **Running.** `execute`, `execute_sync` and `collect` are `compiled.stream()`, `compiled.run()` and
-  `compiled.run_sync()`. A run is its `RunState`: a pause, a failure or a timeout is a `status`, and
-  `compiled.results(state)` or `compiled.outputs(state)` reads it. A failed unit stops anything new
-  from starting; the calls already running finish and are kept.
+- **Loading.** `compile(...)` is `registry.load(record)`, which takes a record, JSON text or a
+  mapping and gives a `Graph` with its own copy of the definitions it resolved. It never raises for a
+  fault in the graph: read `graph.problems` and `graph.is_runnable`, or `graph.describe()` for all of
+  it as JSON. A `Problem` is `type`, `loc`, `msg` and `ctx`. An open input of a first node is an input
+  of the graph, not a problem; `unbound_on_later_node` is a later node's.
+- **Embedded graphs.** `extension_resolver` is gone. A stored graph is a node, `node("id")(record)`,
+  wired by the names it offers, and it runs as its nodes drawn in its place.
+- **Running.** `execute`, `execute_sync` and `collect` are `graph.run(**inputs)`, which returns a
+  `Run`; `graph.with_inputs(...)` checks the inputs and returns a run not yet started, and
+  `run.resume()` and `run.stream()` run the next leg. A pause, a failure or a timeout is
+  `run.status`, with `run.cause`; `run.results` and `run.outputs` read it. A run is one JSON value:
+  `run.to_json()` and `graph.load_run(saved)`. A failed unit stops anything new from starting; the
+  calls already running finish and are kept.
 - **Events.** `flow_*` events are `run_start`, `node_failed`, `unit_waiting` and `run_end`. What goes
   wrong is always a `Problem`, and a node's own exception goes to the `conductor` logger. An event
-  writes itself with `event.model_dump_json()`; `to_jsonable(value)` does the same for results.
-  `run_end` keeps its `state` for the host and writes only its `status`. `node_progress` arrives at
-  most four times a second per node.
-- **A person in the loop.** `HumanInputRequired` and `SignalRequired` are `AskPerson`, returned by a
-  node typed `-> X | AskPerson`. In place of `resume`, `compiled.answer(state, {unit.id: {output:
-  value}})` returns a state to run from. An answer stays with the row it was asked on: a row replaced
-  or edited is asked again.
-- **Running again.** Pass an earlier leg's state to `compiled.run`. A node nothing changed above is
-  restored whole, and a changed node reuses every row that received the same as before, so one row
-  added to a CSV of 5,000 sends one mail. `Policy(reuse_when_inputs_match=False)` opts a node out,
-  `RunState.without_nodes(...)` forgets one, and a state goes back only to the runner it came from.
-  A long leg saves as it goes with `compiled.stream(checkpoint_every=...)`.
+  writes itself with `event.model_dump_json()`. `run_end` keeps its `run` for the host and writes
+  only its `status`. `node_progress` arrives at most four times a second per node.
+- **A person in the loop.** `HumanInputRequired` and `SignalRequired` are `raise Ask(prompt,
+  choices=, default=, widget=)`; the node's return type says what the answer is. In place of
+  `resume`, `run.answer(unit, value)` returns a run to resume.
+- **Running again.** `run.again(**changed)` runs with changed inputs, the rest as before: a row that
+  receives what it received before is not called again, so one row added to a CSV of 5,000 sends one
+  mail. `Policy(reuse_when_inputs_match=False)` opts a node out.
 - **Standard nodes and providers.** `syv-conductor-nodes` (`conductor_nodes`, with
   `get_default_registry`) and `syv-conductor-providers` (`conductor_providers`, with the Mermaid
   drawing) are no longer published: the docs declare the few nodes they need where they use them.
 - **HTTP.** `conductor_providers.fastapi` and the `fastapi` extra are gone: `conductor_router`,
   `/execute`, `/execute-stream`, `/nodes`, `/compile`, `/entities/{kind}`, `context_factory`,
   `entity_resolver`, `palette_from_registry` and `sse_frame`. Copy `docs/serving-runs.md` onto your
-  own application; it needs `fastapi>=0.135`. `/nodes` is `registry.describe()`, `/compile` is
-  `CompiledGraph.from_graph(graph, registry).describe()`, and `context_factory` is a `Depends` on your
-  route, passed as `from_run`.
+  own application; it needs `fastapi>=0.135`. `/nodes` is `registry.describe()`, `/load` is
+  `registry.load(graph).describe()`, and `context_factory` is a `Depends` on your route, passed as
+  `from_run`.
 - **Canvas.** `conductor_providers.react` is gone: `graph_to_react`, `react_to_graph` and
   `topological_positions`. A canvas stores the `GraphRecord` as it is, its edges as drawn and a
   node's position in `node.display["position"]`; for layout, use the canvas's own engine.

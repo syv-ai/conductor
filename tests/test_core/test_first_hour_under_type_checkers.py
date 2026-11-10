@@ -17,7 +17,7 @@ _A_FRAME_IN_AND_OUT = """
 from typing import TypedDict
 
 import polars as pl
-from conductor import CompiledGraph, NodeRegistry, Table, make_graph
+from conductor import NodeRegistry, Table, make_graph
 
 registry = NodeRegistry()
 
@@ -42,15 +42,14 @@ def rows(table: Table) -> int:
     return table.height
 
 
-graph = make_graph(sales, first_row, rows)
-compiled = CompiledGraph.from_graph(graph, registry)
-results = compiled.results(compiled.run_sync())
+graph = registry.load(make_graph(sales, first_row, rows))
+results = graph.run().results
 assert results["first-row"]["result"]["region"].to_list() == ["north"]
 assert results["rows"]["result"] == 1
 """
 
 _AN_EMBEDDED_GRAPH = """
-from conductor import CompiledGraph, NodeDefinition, NodeRegistry, make_graph, node
+from conductor import NodeRegistry, make_graph, node
 
 
 @node("trim")
@@ -65,12 +64,10 @@ def upper(text: str) -> str:
 
 base = NodeRegistry()
 base.add(trim, upper)
-inner = CompiledGraph.from_graph(make_graph(trim, upper), base)
-clean = NodeDefinition.from_compiled_graphs("clean", versions=inner)
-outer = make_graph(clean, upper, values={"clean.text": "  hi  "})
+clean = node("clean")(make_graph(trim, upper))
 base.add(clean)
-compiled = CompiledGraph.from_graph(outer, base)
-assert compiled.outputs(compiled.run_sync()) == {"upper.result": "HI"}
+outer = make_graph(clean, upper, edges=[("clean.result", "upper.text")], values={"clean.text": "  hi  "})
+assert base.load(outer).run().outputs == {"upper.result": "HI"}
 """
 
 
@@ -80,6 +77,7 @@ def _programs() -> dict[str, str]:
     return {
         "readme_first_program.py": blocks[first] + blocks[first + 1],
         "readme_csv.py": blocks[first + 2],
+        "readme_ask.py": next(block for block in blocks if "raise Ask(" in block),
         "a_frame_in_and_out.py": _A_FRAME_IN_AND_OUT,
         "an_embedded_graph.py": _AN_EMBEDDED_GRAPH,
     }

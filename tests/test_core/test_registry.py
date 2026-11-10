@@ -12,28 +12,24 @@ from typing import Annotated, Any
 
 import pytest
 from conductor import (
-    CompiledGraph,
     Deprecation,
-    DType,
     GraphRecord,
     NodeDeclarationError,
-    NodeDefinition,
     NodeRecord,
     NodeRegistry,
     Param,
-    Result,
     Upgrade,
     node,
 )
 from conductor.widgets import Textarea
 
 
-class Txt(DType, str):
+class Txt(str):
     id = "registry-test-text"
     display_title = "Text"
 
 
-Out = Annotated[Txt, Result(title="Output")]
+Out = Annotated[Txt, Param(title="Output")]
 
 
 def echo_v1(text: Annotated[Txt, Param(title="Input", widget=Textarea())]) -> Out:
@@ -148,13 +144,12 @@ def test_replaces_naming_a_node_the_registry_does_not_hold_is_still_a_duplicate(
 
 
 def test_two_nodes_built_from_graphs_under_one_id_are_told_apart_by_title():
-    inner = CompiledGraph.from_graph(GraphRecord(nodes=[NodeRecord(id="a", node="upper")]), _registry_with(upper_node))
+    inner = GraphRecord(nodes=[NodeRecord(id="a", node="upper")])
     registry = NodeRegistry()
-    registry.add(NodeDefinition.from_compiled_graphs("g", title="First", versions=inner))
+    registry.add(node("g", title="First")(inner))
 
     with pytest.raises(NodeDeclarationError, match="titled 'First'.*titled 'Second'"):
-        registry.add(NodeDefinition.from_compiled_graphs("g", title="Second", versions=inner))
-
+        registry.add(node("g", title="Second")(inner))
 
 
 def test_a_second_node_under_one_id_is_refused_naming_where_both_were_written():
@@ -302,7 +297,7 @@ def test_one_id_in_two_subregistries_is_refused():
 
 
 def test_a_subregistrys_named_types_come_along():
-    class Money(DType, float):
+    class Money(float):
         id = "money"
         display_title = "Money"
 
@@ -345,11 +340,9 @@ def test_a_filtered_registry_compiles_only_what_it_kept():
     registry.add(_node("kept"), _node("dropped"))
     narrowed = registry.filter(lambda definition: definition.id == "kept")
 
-    compiled = CompiledGraph.from_graph(GraphRecord(nodes=[
-        NodeRecord(id="d", node="dropped"),
-    ]), narrowed)
+    graph = narrowed.load(GraphRecord(nodes=[NodeRecord(id="d", node="dropped")]))
 
-    assert [problem.type for problem in compiled.problems] == ["unknown_node_type"]
+    assert [problem.type for problem in graph.problems] == ["unknown_node"]
 
 
 # --- extra ------------------------------------------------------------------
@@ -361,7 +354,7 @@ def test_extra_is_json_kept_and_described_but_never_read():
         return text
 
     assert dict(tagged.extra) == {"icon": "star", "order": [1, 2], "beta": None}
-    assert tagged.describe().model_dump(mode="json")["extra"] == {"icon": "star", "order": [1, 2], "beta": None}
+    assert tagged.describe()["extra"] == {"icon": "star", "order": [1, 2], "beta": None}
 
 
 @pytest.mark.parametrize("extra", [{"x": float("nan")}, {"x": [float("inf")]}, "ab", [("a", 1)], {1: "a"}, {"x": (1, 2)}])
@@ -389,54 +382,49 @@ def test_extra_that_is_not_json_is_refused_where_it_is_written():
 
 
 def test_inputs_extracted_from_signature():
-    iface = echo.versions[1].interface
-    assert len(iface.inputs) == 1
-    assert iface.inputs[0].name == "text"
-    assert iface.inputs[0].title == "Input"
+    older = echo.replaces
+    assert older is not None and list(older.inputs) == ["text"]
+    assert older.inputs["text"].title == "Input"
 
 
 def test_outputs_extracted_from_return_type():
-    iface = echo.versions[1].interface
-    assert [o.name for o in iface.outputs] == ["result"]
-    assert iface.outputs[0].title == "Output"
+    assert list(echo.outputs) == ["result"]
+    assert echo.outputs["result"].title == "Output"
 
 
 def test_multi_input_node():
-    iface = echo.versions[2].interface
-    assert [i.name for i in iface.inputs] == ["text", "prefix"]
+    assert list(echo.inputs) == ["text", "prefix"]
 
 
 def test_default_values_captured():
-    iface = echo.versions[2].interface
-    text, prefix = iface.inputs
+    text, prefix = echo.inputs.values()
     assert text.required is True
     assert prefix.default == ""
     assert prefix.required is False
 
 
-def test_var_keyword_is_not_an_input():
+def test_var_keyword_is_where_added_inputs_arrive_and_needs_the_hook():
     """``**values`` is where the inputs a ``compute_added_inputs`` hook adds arrive;
-    the hook declares them, so the signature walk skips the parameter."""
+    the hook declares them, so without one it is refused."""
 
-    @node("varkw", title="VarKw", description="Dynamic", category="test")
+    @node("varkw", compute_added_inputs=lambda: {"extra_one": str})
     def var_kw(text: Annotated[Txt, Param(title="Text", widget=Textarea())], **values: Any) -> Out:
         return text
 
-    assert [i.name for i in var_kw.versions[1].interface.inputs] == ["text"]
+    assert list(var_kw.inputs) == ["text"]
+    with pytest.raises(NodeDeclarationError) as raised:
+
+        @node("varkw")
+        def no_hook(text: str, **values: Any) -> str:
+            return text
+
+    assert raised.value.code == "var_keyword_without_hook"
 
 
 def test_var_positional_is_refused():
     """A ``*args`` parameter has no name an edge could land on."""
-    with pytest.raises(TypeError, match=r"\*args names none"):
+    with pytest.raises(NodeDeclarationError, match="passed by name"):
 
         @node("varpos", title="VarPos", description="Dynamic", category="test")
         def var_pos(text: Annotated[Txt, Param(title="Text", widget=Textarea())], *args: Any) -> Out:
             return text
-
-
-def test_a_node_that_is_only_var_keyword_declares_no_inputs():
-    @node("allkw", title="AllKw", description="Dynamic", category="test")
-    def all_kw(**values: Any) -> Out:
-        return Txt("x")
-
-    assert all_kw.versions[1].interface.inputs == ()

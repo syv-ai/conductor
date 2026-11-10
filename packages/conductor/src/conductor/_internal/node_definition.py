@@ -1,102 +1,121 @@
-"""``@node`` — a plain function becomes a frozen ``NodeDefinition``.
+"""``@node``: a plain function, or a stored graph, becomes a frozen ``NodeDefinition``.
 
 A node is a function. Its typed signature is its interface::
 
     @node("upper")
-    def upper(text: Text) -> Text:
+    def upper(text: str) -> str:
         \"\"\"Upper-cases a text.\"\"\"
-        return Text(text.upper())
+        return text.upper()
 
 ``@node`` wraps the function into a value and registers nothing, so
-``upper(Text("a"))`` is the unit test and a host decides what to offer by
-adding definitions to a ``NodeRegistry`` (whose ``@registry.node`` takes
-the same arguments and adds the node too). The title defaults to the
-function's name and the description to its docstring. ``extra`` is the
-host's own JSON about the node, which conductor keeps and never reads.
+``upper("a")`` is the unit test and a host decides what to offer by adding
+definitions to a ``NodeRegistry`` (whose ``@registry.node`` takes the same
+arguments and adds the node too). The title defaults to the function's name
+in everyday words and the description to its docstring's first paragraph.
+``extra`` is the host's own JSON about the node, which conductor keeps and
+never reads.
 
-A newer version of a node names the one it replaces, itself a ``@node`` of the
-same id, and says how a node saved at that one moves here. A version's
-number is its place in that chain, so a hole can't be written::
+One output is ``result``; a frozen dataclass returned gives one output per
+field. ``Series[X]`` and ``Table[R]`` give many rows, ``SKIPPED`` on an output
+is a branch not taken, and ``raise Ask(...)`` stops the row for a person.
+
+A newer version of a node names the one it ``replaces``, itself a ``@node``
+of the same id, and says with ``upgrade`` how a node saved at that one moves
+here. A definition is one version; the older ones hang off ``replaces``::
 
     @node("split")
-    def split_v1(text: Text, sep: Text = Text("\\n")) -> Series[Text]: ...
+    def split_v1(text: str, sep: str = "\\n") -> Series[str]: ...
 
     @node("split", replaces=split_v1, upgrade=Upgrade(renamed_inputs={"sep": "separator"}))
-    def split(text: Text, separator: Text = Text("\\n")) -> Series[Text]: ...
-
-Only the newest goes in a registry, and only its title, description and
-category are read. A setting of one version (its ``policy``, ``deprecation``
-and hooks) is written on that version's ``@node``.
+    def split(text: str, separator: str = "\\n") -> Series[str]: ...
 
 Two hooks shape a node from what it is given in one graph, each a plain
-function whose signature says what it reads. A parameter names an input of
-the node and receives its value, the static or the declared default; a
-parameter marked ``ArrivingType`` receives the type one call gets there, the
-edge's or the static's, and ``**x: ArrivingType`` receives all of them. ``compute_added_inputs`` returns the
-inputs to add, ``compute_outputs`` all the outputs. If a value it needs is
-neither set nor defaulted, the hook is not called and the node keeps
-what it declares.
+function run when a graph is loaded, never per row. A parameter of a hook
+names an input of the node and receives the value typed into it (or its
+default); a parameter annotated ``type`` receives the type arriving on the
+input of that name by its edge (``Any`` until one does). A hook returns
+``{name: type hint}``, read like a signature. ``compute_added_inputs`` adds
+inputs, which the function takes as ``**kwargs``; ``compute_outputs`` gives
+every output, and the function returns them as a mapping. A hook that raises
+is a problem of the graph, not an exception.
 
-A host hands over a saved graph as a node with
-``NodeDefinition.from_compiled_graphs``.
+A stored graph is a node too: ``node("enrich")(record)``. Loading a graph that
+uses it puts the stored graph's nodes in its place.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import inspect
 import math
-from collections.abc import Callable, Iterable, Mapping, Sequence
+import typing
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Annotated, Any, Generic, ParamSpec, TypeVar, get_type_hints
+from typing import Any, Generic, ParamSpec, Protocol, TypeVar, overload
 
-from pydantic import Field, JsonValue, TypeAdapter, ValidationError
-from pydantic.json_schema import SkipJsonSchema
+from pydantic import JsonValue, TypeAdapter, ValidationError
 
 from conductor._internal.conductor_model import ConductorModel
-from conductor._internal.dtype import (
-    DType,
-    DTypeField,
-    _AsItArrivesMark,
-    _UntypedValue,
-    dtype_of,
-    is_untyped,
-)
 from conductor._internal.errors import NodeDeclarationError
-from conductor._internal.field_records import Input, Output, humanised
-from conductor._internal.node_signature import (
-    Interface,
-    input_template_for_var_keyword,
-    read_signature,
+from conductor._internal.fields import (
+    REQUIRED,
+    SKIPPED,
+    FieldSpec,
+    Param,
+    _FromRunMarker,
+    humanised,
+    read_field,
 )
-from conductor._internal.table import is_frame, type_of_frame
-
-if TYPE_CHECKING:
-    from conductor._internal.graph.compiled_graph import CompiledGraph
+from conductor._internal.record import GraphRecord
 
 _P = ParamSpec("_P")
 _R = TypeVar("_R")
 
 
 @dataclass(frozen=True)
-class _ArrivingMark:
-    """What makes a hook's parameter a type arriving on an input, not its value."""
+class Policy:
+    """How the engine calls a node, set by its author: ``@node("fetch", policy=Policy(retries=3))``.
 
+    ``concurrency`` rows are called at once, on threads; with 1 and no
+    ``attempt_timeout`` the node is called in order, on the leg's own thread.
+    A call that raises ``ExternalFailure``, or one of the ``retry_on`` classes
+    of the node's own client, is tried ``retries`` more times, the first after
+    ``retry_delay`` seconds and each later one twice as long; anything else
+    fails at once, since repeating a computation repeats its failure. An
+    attempt that runs past ``attempt_timeout`` fails the unit, finally: its
+    thread can't be stopped, and a second call beside it would repeat its
+    effect. ``reuse_when_inputs_match=False`` is for a node that reads the
+    world, not only its inputs: ``run.again`` calls it on every row.
+    """
 
-#: On a ``compute_outputs`` parameter: the type one call of the node receives
-#: on that input: the edge's, or the static's when no edge is there,
-#: ``Any`` until something is. ``**x: ArrivingType`` receives every connected input's.
-ArrivingType = Annotated[type[DType], _ArrivingMark()]
+    concurrency: int = 1
+    retries: int = 0
+    retry_delay: float = 1.0
+    attempt_timeout: float | None = None
+    retry_on: tuple[type[BaseException], ...] = ()
+    reuse_when_inputs_match: bool = True
+    #: Whether a call goes to a thread: several at once, or a clock on each attempt.
+    threaded: bool = field(default=False, init=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        if self.concurrency < 1 or self.retries < 0 or self.retry_delay < 0 or (self.attempt_timeout is not None and self.attempt_timeout <= 0):
+            raise ValueError(f"{self}: concurrency is at least 1, retries and retry_delay at least 0, attempt_timeout above 0")
+        object.__setattr__(self, "threaded", self.concurrency > 1 or self.attempt_timeout is not None)
+
+    def describe(self) -> dict[str, Any]:
+        """The policy as JSON; ``retry_on`` is classes, which have no JSON form, so it is left out."""
+        return {"concurrency": self.concurrency, "retries": self.retries, "retry_delay": self.retry_delay,
+                "attempt_timeout": self.attempt_timeout, "reuse_when_inputs_match": self.reuse_when_inputs_match}
 
 
 class Deprecation(ConductorModel):
-    """A notice that a version of a node is going away; on the newest version, that the node is.
+    """A notice that a version of a node is going away.
 
-    Every part is optional prose. ``alternative`` is the id of the node to
-    use instead (``NodeRegistry`` checks it names something in the same
-    registry); ``migration`` explains how to move. It is content an editor
-    shows; a graph that uses a deprecated node is not wrong, so this is
-    never a ``Problem``.
+    Every part is optional prose: ``alternative`` names the node to use
+    instead, ``migration`` explains how to move. It is content an editor
+    shows; a graph that uses a deprecated node is not wrong, so this is never
+    a ``Problem``.
     """
 
     header: str | None = None
@@ -105,64 +124,21 @@ class Deprecation(ConductorModel):
     migration: str | None = None
 
 
-class Policy(ConductorModel):
-    """How the engine runs one version of a node: retries, timeout, concurrency.
-
-    Written by the node author, ``@node("fetch", policy=Policy(retries=3))``,
-    and read only by the engine; a person adding the node never sees it.
-    Worth setting for work that can fail transiently or hang, such as a
-    network call. Retrying a pure computation only repeats the same failure,
-    which is why only an ``ExternalFailure`` is retried: the node raises one
-    itself, or names its client's exception classes in ``retry_on`` and the
-    engine wraps those. Every bound is checked when the policy is built.
-    """
-
-    #: How many times to re-run after an ``ExternalFailure``. 0 means run once.
-    retries: int = Field(default=0, ge=0)
-
-    #: Seconds before the first retry; each later one waits twice as long.
-    #: Ignored when ``retries`` is 0.
-    retry_delay: float = Field(default=1.0, ge=0)
-
-    #: Seconds the leg waits on one attempt before failing the node with
-    #: code ``timeout``. The thread the attempt runs on is not interrupted,
-    #: and a timed-out attempt is final. ``None`` means the leg waits.
-    attempt_timeout: float | None = Field(default=None, gt=0)
-
-    #: How many rows may run at once when the node runs once per row of a
-    #: series. ``1`` means one after another. The engine has no other cap.
-    concurrency: int = Field(default=8, ge=1)
-
-    #: ``False`` for a node whose result depends on the world, not on its
-    #: inputs (a file read by its path, today's exchange rate): a new leg from a
-    #: ``complete`` state calls it again, and an earlier unit that received the
-    #: same inputs never stands in for it. A leg going on from a waiting, failed
-    #: or cancelled state keeps what it read.
-    reuse_when_inputs_match: bool = True
-
-    #: Exception classes from the node's own client that mean the outside
-    #: world failed — a connection error, a timeout, a rate limit. A foreign
-    #: exception of one of these classes is wrapped as ``ExternalFailure``
-    #: and retried; any other is the code ``execution_failed`` and is
-    #: not. Left out of the dump and the schema: an editor reads the policy
-    #: as JSON, and a class has no JSON form.
-    retry_on: SkipJsonSchema[tuple[type[BaseException], ...]] = Field(default=(), exclude=True)
-
-
 @dataclass(frozen=True)
 class Upgrade:
-    """How a node saved at one version becomes the next: the fields it renames and a rewrite of its values.
+    """How a node saved at the version a newer one replaces becomes the newer one.
 
-    Given on the newer version's ``@node``, beside ``replaces``. Required only
-    when a field name of the replaced version is gone from the newer one. Read only by ``upgrade_node``; compile
-    never upgrades, so a graph pinned at an old version runs that version.
+    Given on the newer version's ``@node``, beside ``replaces``; required only
+    when a field name of the replaced version is gone from the newer one.
+    Read only by ``registry.upgrade``: loading never upgrades, so a graph
+    saved at an old version runs that version.
 
-    ``renamed_inputs`` moves each input's value, default and edges in to
-    the new name before ``rewrite`` runs. ``rewrite`` takes what is typed
-    into the node, its values and defaults as one dict, and returns it for
-    the next version: a key that was a default stays one, any other key is
-    a value. ``renamed_outputs`` rewrites every edge in the graph that read
-    the old name or a column of it.
+    ``renamed_inputs`` moves each input's value, default and edges to the new
+    name before ``rewrite`` runs. ``rewrite`` takes what is typed into the
+    node, its values and defaults as one dict, and returns it for the newer
+    version: a key that was a default stays one, any other key is a value.
+    ``renamed_outputs`` moves every edge that read the old name, or a column
+    of it.
     """
 
     renamed_inputs: Mapping[str, str] = field(default_factory=dict)
@@ -170,144 +146,252 @@ class Upgrade:
     rewrite: Callable[[dict[str, Any]], dict[str, Any]] | None = None
 
 
-@dataclass(frozen=True, repr=False)
-class _ComputeFieldsHook:
-    """A ``compute_added_inputs`` or ``compute_outputs`` function and what its signature reads."""
+@dataclass(frozen=True, eq=False)
+class NodeDefinition(Generic[_P, _R]):
+    """One version of a node: what it takes, what it gives, and how to call it.
 
-    function: Callable[..., Iterable[Any]]
-    #: The inputs whose values it receives; those in ``inputs_it_cannot_run_without`` it can't be called without.
-    inputs_it_reads: tuple[str, ...]
-    inputs_it_cannot_run_without: frozenset[str]
-    #: The inputs whose arriving type it receives by name, and whether it takes all of them.
-    inputs_whose_arriving_type_it_reads: tuple[str, ...]
-    reads_every_arriving_type: bool
-    #: What each input it reads holds when nothing sets it, for the inputs that have a default.
-    defaults: Mapping[str, Any]
-
-    def call_with(self, statics: Mapping[str, Any], arriving_types: Mapping[str, Any]) -> tuple[Any, ...] | None:
-        """The hook's fields for these statics and arriving types; ``None`` when a value it needs has none.
-
-        An ``ArrivingType`` parameter gets the edge's type, or the type of the
-        static when no edge is there; ``Any`` until something is."""
-        values = {**self.defaults, **statics}
-        if not self.inputs_it_cannot_run_without <= values.keys():
-            return None
-        arguments = {name: values[name] for name in self.inputs_it_reads if name in values}
-        for name in self.inputs_whose_arriving_type_it_reads:
-            static_value: Any = statics.get(name)
-            arguments[name] = arriving_types.get(name, type_of_frame(static_value) if is_frame(static_value) else (dtype_of(type(static_value)) or _UntypedValue))
-        if self.reads_every_arriving_type:
-            arguments.update({name: dtype for name, dtype in arriving_types.items() if name not in arguments})
-        return tuple(self.function(**arguments))
-
-    def __repr__(self) -> str:
-        return self.function.__qualname__
-
-
-def _parse_hook(function: Callable[..., Iterable[Any]], interface: Interface, kind: str) -> _ComputeFieldsHook:
-    """``function``'s signature, checked against the version it shapes."""
-    hints = get_type_hints(function, include_extras=True)
-    names = {input_.name: input_ for input_ in interface.inputs}
-    reads: list[str] = []
-    required: set[str] = set()
-    arriving: list[str] = []
-    reads_every_arriving_type = False
-    for name, parameter in inspect.signature(function).parameters.items():
-        hint = hints.get(name)
-        is_arriving = getattr(hint, "__metadata__", ()) and any(isinstance(extra, _ArrivingMark) for extra in hint.__metadata__)
-        if is_arriving and kind == "compute_added_inputs":
-            raise NodeDeclarationError(f"compute_added_inputs parameter {name!r} is ArrivingType, but inputs are decided before anything arrives", code="arriving_on_compute_added_inputs")
-        if parameter.kind is inspect.Parameter.VAR_KEYWORD:
-            if not is_arriving:
-                raise NodeDeclarationError(f"{kind} parameter **{name}: the only ** a hook can take is **{name}: ArrivingType", code="hook_parameter_unknown")
-            reads_every_arriving_type = True
-            continue
-        if parameter.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.POSITIONAL_ONLY):
-            raise NodeDeclarationError(f"{kind} parameter {name!r}: a hook's parameters are passed by name", code="hook_parameter_unknown")
-        if name not in names:
-            raise NodeDeclarationError(f"{kind} parameter {name!r} names no input of the node; it has {sorted(names)}", code="hook_parameter_unknown")
-        if is_arriving:
-            arriving.append(name)
-            continue
-        reads.append(name)
-        if parameter.default is inspect.Parameter.empty:
-            required.add(name)
-    return _ComputeFieldsHook(function, tuple(reads), frozenset(required), tuple(arriving), reads_every_arriving_type, {name: names[name].default for name in reads if not names[name].required})
-
-
-@dataclass(frozen=True, repr=False)
-class NodeVersion:
-    """One version of a node: its body, ``Interface``, ``Policy``, hooks and notice.
-
-    Kept in ``NodeDefinition.versions`` keyed by number. Read by the
-    compiler when a node pins a version and by the engine, which calls
-    ``body`` under ``policy``. The body is a function, or a graph a host
-    compiled, whose interface is what it offers.
+    Frozen, and callable with the function's own signature, so a node is
+    tested by calling it. ``graph`` is set instead of ``function`` for a node
+    that is a stored graph; its fields are the graph's, worked out when a
+    graph using it is loaded.
     """
 
-    body: Callable[..., Any] | CompiledGraph
-    interface: Interface
-    #: How the engine runs a function; ``None`` on a graph, which nothing runs as one unit.
-    policy: Policy | None
-    #: The notice that this version is going away; ``None`` means it is not.
+    #: The id a graph names it by. Stored in every graph that uses it, so
+    #: changing it is a data migration, not a rename.
+    id: str
+    version: int
+    function: Callable[..., Any] | None
+    inputs: Mapping[str, FieldSpec]
+    outputs: Mapping[str, FieldSpec]
+    #: The return annotation; a frozen dataclass when the node has several outputs.
+    returns: Any = None
+    title: str = ""
+    description: str = ""
+    #: Where an editor lists it; a plain string whose titles the host keeps.
+    category: str = ""
+    tags: tuple[str, ...] = ()
+    #: The host's own JSON about the node: kept and described, never read here.
+    extra: Mapping[str, JsonValue] = field(default_factory=dict)
+    #: Long-form markdown for the node's help, when the description isn't all there is to say.
+    docs: str | None = None
     deprecation: Deprecation | None = None
-    #: The ``FromRun`` parameters: the value of each type goes under this name in a call.
+    replaces: NodeDefinition[..., Any] | None = None
+    upgrade: Upgrade | None = None
+    graph: GraphRecord | None = None
+    policy: Policy = Policy()
+    compute_added_inputs: Callable[..., Mapping[str, Any]] | None = None
+    compute_outputs: Callable[..., Mapping[str, Any]] | None = None
+    #: The ``FromRun`` parameters: the type whose value goes under each name in a call.
     from_run: Mapping[str, type] = field(default_factory=dict)
-    #: How a return splits across the outputs (``ParsedSignature.return_shape``).
-    return_shape: Any = None
-    #: For a ``**x: T`` no hook owns: what every edge into the node is an input
-    #: like, its name left to the edge. ``None`` otherwise.
-    open_input_template: Input | None = None
-    compute_added_inputs: _ComputeFieldsHook | None = None
-    compute_outputs: _ComputeFieldsHook | None = None
-    #: How a node saved at the version before this one moves here; ``None`` when nothing moves.
-    upgrade_from_previous: Upgrade | None = None
 
-    @property
-    def embedded_graph(self) -> CompiledGraph | None:
-        """The compiled graph this version is; ``None`` when its body is a function."""
-        return None if callable(self.body) else self.body
+    def __call__(self, *args: _P.args, **kwargs: _P.kwargs) -> _R:
+        """Call the function, as a test or a host would."""
+        if self.function is None:
+            raise TypeError(f"{self.id!r} is a graph, so it has no function to call; load a graph that uses it")
+        return typing.cast(_R, self.function(*args, **kwargs))
 
     def __repr__(self) -> str:
-        """A function body by its qualified name rather than an address."""
-        notice = "" if self.deprecation is None else f", deprecation={self.deprecation!r}"
-        body = self.body.__qualname__ if callable(self.body) else repr(self.body)
-        return f"NodeVersion(body={body}, interface={self.interface!r}, policy={self.policy!r}{notice})"
+        parts = [f"id={self.id!r}", f"version={self.version}", f"title={self.title!r}"]
+        if self.category:
+            parts.append(f"category={self.category!r}")
+        if self.tags:
+            parts.append(f"tags={self.tags!r}")
+        return f"NodeDefinition({', '.join(parts)})"
+
+    def version_of(self, version: int) -> NodeDefinition[..., Any] | None:
+        """This node at ``version``, walking back through what each version replaces; ``None`` when there is none."""
+        found: NodeDefinition[..., Any] | None = self
+        while found is not None and found.version != version:
+            found = found.replaces
+        return found
+
+    @property
+    def versions(self) -> tuple[int, ...]:
+        """Every version number, newest first."""
+        found: list[int] = []
+        step: NodeDefinition[..., Any] | None = self
+        while step is not None:
+            found.append(step.version)
+            step = step.replaces
+        return tuple(found)
+
+    def describe(self) -> dict[str, Any]:
+        """The node as an editor's palette shows it, as JSON."""
+        return {
+            "id": self.id,
+            "version": self.version,
+            "versions": list(self.versions),
+            "title": self.title,
+            "description": self.description,
+            "category": self.category,
+            "tags": list(self.tags),
+            "extra": dict(self.extra),
+            "docs": self.docs,
+            "deprecation": None if self.deprecation is None else self.deprecation.model_dump(mode="json"),
+            "is_graph": self.graph is not None,
+            "policy": self.policy.describe(),
+            "inputs": [f.describe() for f in self.inputs.values()],
+            "outputs": [f.describe() for f in self.outputs.values()],
+            "takes_added_inputs": self.compute_added_inputs is not None,
+            "computes_outputs": self.compute_outputs is not None,
+        }
+
+    def spread(self, returned: Any) -> Any:
+        """What the function returned, as ``{output: value}``; ``SKIPPED`` when the whole call was a branch not taken."""
+        if returned is SKIPPED:
+            return SKIPPED
+        if not self.outputs:
+            return {}
+        if self.compute_outputs is not None:
+            return {name: returned[name] for name in self.outputs}
+        if dataclasses.is_dataclass(self.returns):
+            return {name: getattr(returned, name) for name in self.outputs}
+        return {"result": returned}
 
 
-def _version_of_function(
-    function: Callable[..., Any], policy: Policy, deprecation: Deprecation | None,
-    compute_added_inputs: Callable[..., Iterable[Input]] | None, compute_outputs: Callable[..., Iterable[Output]] | None, upgrade: Upgrade | None,
-) -> NodeVersion:
-    """One ``NodeVersion`` of a function, its signature read and its hooks checked against it."""
-    if inspect.iscoroutinefunction(function) or inspect.isasyncgenfunction(function):
-        raise NodeDeclarationError(f"{function.__name__} is async; a node is a plain function, and the engine gives each call a thread", code="async_run")
-    signature = read_signature(function)
-    outputs_hook = None if compute_outputs is None else _parse_hook(compute_outputs, signature.interface, "compute_outputs")
-    inputs_hook = None if compute_added_inputs is None else _parse_hook(compute_added_inputs, signature.interface, "compute_added_inputs")
-    if outputs_hook is None and signature.return_shape is Mapping:
-        raise NodeDeclarationError(f"{function.__name__} returns a Mapping but has no compute_outputs to say which outputs it holds", code="mapping_return_without_hook")
-    if outputs_hook is None and any(is_untyped(out.dtype) for out in signature.interface.outputs):
-        raise NodeDeclarationError(f"{function.__name__} declares an output typed Any but no compute_outputs to type it from what arrives", code="any_output_without_hook")
-    open_input_template = None
-    if inputs_hook is not None:
-        if signature.var_keyword_name_and_hint is None:
-            raise NodeDeclarationError(f"{function.__name__} has a compute_added_inputs hook but no **parameter for its inputs to land on", code="compute_added_inputs_without_var_keyword")
-        if any(isinstance(extra, _AsItArrivesMark) for extra in getattr(signature.var_keyword_name_and_hint[1], "__metadata__", ())):
-            raise NodeDeclarationError(f"**{signature.var_keyword_name_and_hint[0]}: AsItArrives is every edge an input, so a compute_added_inputs hook has nothing to land on it", code="as_it_arrives_beside_compute_added_inputs")
-    elif signature.var_keyword_name_and_hint is not None:
-        open_input_template = input_template_for_var_keyword(*signature.var_keyword_name_and_hint)
-    return NodeVersion(
-        body=function, interface=signature.interface, policy=policy, deprecation=deprecation, from_run=signature.from_run, return_shape=signature.return_shape,
-        open_input_template=open_input_template, compute_added_inputs=inputs_hook, compute_outputs=outputs_hook, upgrade_from_previous=upgrade,
-    )
+class _Declare(Protocol):
+    """What ``@node(...)`` returns: it makes a node of a function, or of a stored graph."""
+
+    @overload
+    def __call__(self, target: GraphRecord, /) -> NodeDefinition[..., Any]: ...
+
+    @overload
+    def __call__(self, target: Callable[_P, _R], /) -> NodeDefinition[_P, _R]: ...
+
+    def __call__(self, target: Any, /) -> NodeDefinition[..., Any]: ...
 
 
-def _raise_if_upgrade_is_missing(older: NodeVersion, newer: NodeVersion) -> None:
+def node(
+    id: str,
+    /,
+    *,
+    version: int | None = None,
+    title: str | None = None,
+    description: str | None = None,
+    category: str = "",
+    tags: Sequence[str] = (),
+    extra: Mapping[str, JsonValue] | None = None,
+    docs: str | None = None,
+    policy: Policy | None = None,
+    deprecation: Deprecation | None = None,
+    compute_added_inputs: Callable[..., Mapping[str, Any]] | None = None,
+    compute_outputs: Callable[..., Mapping[str, Any]] | None = None,
+    replaces: NodeDefinition[..., Any] | None = None,
+    upgrade: Upgrade | None = None,
+) -> _Declare:
+    """Make the function below it, or a stored graph, a node (see the module docstring).
+
+    ``version`` is one past the version it ``replaces``, or 1, unless given:
+    a host whose stored graphs have their own numbers names them.
+    """
+    if not isinstance(id, str) or not id:
+        raise NodeDeclarationError(f"@node takes the node's id first, a non-empty string: @node('upper'); got {id!r}", code="node_id_invalid")
+    if upgrade is not None and replaces is None:
+        raise NodeDeclarationError(f"@node({id!r}) has an upgrade but replaces nothing; name the version it upgrades with replaces=", code="upgrade_without_replaces")
+    if replaces is not None and (not isinstance(replaces, NodeDefinition) or replaces.id != id):
+        raise NodeDeclarationError(f"@node({id!r}) replaces {replaces!r}; a node replaces an earlier @node of its own id", code="replaces_another_node")
+    number = version if version is not None else (replaces.version + 1 if replaces is not None else 1)
+    if replaces is not None and number <= replaces.version:
+        raise NodeDeclarationError(f"@node({id!r}) is version {number}, not after the version {replaces.version} it replaces", code="version_not_after")
+    checked = MappingProxyType(checked_extra(extra))
+
+    def make(target: Any) -> NodeDefinition[..., Any]:
+        common: dict[str, Any] = {
+            "id": id, "version": number, "category": category, "tags": tuple(tags), "extra": checked, "docs": docs,
+            "deprecation": deprecation, "replaces": replaces, "upgrade": upgrade, "policy": policy or Policy(),
+        }
+        if not callable(target):
+            record = target if isinstance(target, GraphRecord) else GraphRecord.model_validate(target)
+            return NodeDefinition(function=None, inputs={}, outputs={}, graph=record, title=title or humanised(id), description=description or "", **common)
+        where = f"@node({id!r}) on {getattr(target, '__name__', target)}: "
+        if inspect.iscoroutinefunction(target) or inspect.isasyncgenfunction(target):
+            raise NodeDeclarationError(f"{where}a node is a plain def; the engine gives a slow one threads with Policy(concurrency=)", code="async_run")
+        inputs, outputs, returns = _read_signature(where, target, compute_outputs is not None)
+        from_run = {name: typing.get_args(spec.type)[0] for name, spec in inputs.items() if spec.param is _FROM_RUN}
+        inputs = {name: spec for name, spec in inputs.items() if name not in from_run}
+        takes_kwargs = any(p.kind is p.VAR_KEYWORD for p in inspect.signature(target).parameters.values())
+        if compute_added_inputs is not None and not takes_kwargs:
+            raise NodeDeclarationError(f"{where}a node with compute_added_inputs takes them as **kwargs", code="compute_added_inputs_without_var_keyword")
+        if compute_added_inputs is None and takes_kwargs:
+            raise NodeDeclarationError(f"{where}**kwargs takes the inputs compute_added_inputs adds; the node has no such hook", code="var_keyword_without_hook")
+        for hook, kind in ((compute_added_inputs, "compute_added_inputs"), (compute_outputs, "compute_outputs")):
+            if hook is not None:
+                _check_hook(where, hook, kind, inputs)
+        definition: NodeDefinition[..., Any] = NodeDefinition(
+            function=target, inputs=inputs, outputs=outputs, returns=returns, from_run=from_run,
+            title=title or humanised(target.__name__),
+            description=(inspect.getdoc(target) or "").split("\n\n")[0].replace("\n", " ") if description is None else description,
+            compute_added_inputs=compute_added_inputs, compute_outputs=compute_outputs, **common,
+        )
+        if replaces is not None:
+            _raise_if_upgrade_is_missing(where, replaces, definition)
+        return definition
+
+    return typing.cast(_Declare, make)
+
+
+#: The ``Param`` a ``FromRun`` parameter is read with, so it is told apart from an input.
+_FROM_RUN = Param()
+
+
+def _read_signature(where: str, function: Callable[..., Any], computed_outputs: bool) -> tuple[dict[str, FieldSpec], dict[str, FieldSpec], Any]:
+    """The inputs, outputs and return annotation a function's signature declares."""
+    hints = typing.get_type_hints(function, include_extras=True)
+    inputs = {}
+    for name, parameter in inspect.signature(function).parameters.items():
+        if parameter.kind is parameter.VAR_KEYWORD:
+            continue
+        if parameter.kind in (parameter.VAR_POSITIONAL, parameter.POSITIONAL_ONLY):
+            raise NodeDeclarationError(f"{where}{name}: a node's inputs are passed by name", code="parameter_not_by_name")
+        if name not in hints:
+            raise NodeDeclarationError(f"{where}{name}: an input needs a type hint", code="input_without_type")
+        default = REQUIRED if parameter.default is inspect.Parameter.empty else parameter.default
+        hint = hints[name]
+        if typing.get_origin(hint) is typing.Annotated and any(isinstance(m, _FromRunMarker) for m in hint.__metadata__):
+            inputs[name] = FieldSpec(name, "one", hint, param=_FROM_RUN)
+            continue
+        inputs[name] = read_field(name, hint, default, where)
+        if inputs[name].param.exclusive_group is not None:
+            raise NodeDeclarationError(f"{where}{name}: exclusive_group is for outputs", code="exclusive_group_on_input")
+    if "return" not in hints:
+        raise NodeDeclarationError(f"{where}a node needs a return type", code="output_without_type")
+    returns = hints["return"]
+    if computed_outputs:
+        return inputs, {}, returns
+    if returns is None or returns is type(None):
+        return inputs, {}, None
+    if isinstance(returns, type) and dataclasses.is_dataclass(returns):
+        if not returns.__dataclass_params__.frozen:  # type: ignore[attr-defined]
+            raise NodeDeclarationError(f"{where}a dataclass of outputs is frozen", code="outputs_not_frozen")
+        own = typing.get_type_hints(returns, include_extras=True)
+        return inputs, {f.name: read_field(f.name, own[f.name], where=where) for f in dataclasses.fields(returns)}, returns
+    if typing.get_origin(returns) in (dict, Mapping) or returns in (dict, Mapping, Any):
+        raise NodeDeclarationError(
+            f"{where}return one type, or a frozen dataclass for several outputs, not {returns!r}; outputs that depend on the graph come from compute_outputs",
+            code="mapping_return_without_hook",
+        )
+    return inputs, {"result": read_field("result", returns, where=where)}, returns
+
+
+def _check_hook(where: str, hook: Callable[..., Any], kind: str, inputs: Mapping[str, FieldSpec]) -> None:
+    """A hook's parameters each name an input of the node, by name."""
+    for name, parameter in inspect.signature(hook).parameters.items():
+        arriving = parameter.annotation in (type, "type")
+        if parameter.kind is not parameter.POSITIONAL_OR_KEYWORD and parameter.kind is not parameter.KEYWORD_ONLY:
+            raise NodeDeclarationError(f"{where}{kind} parameter {name!r}: a hook's parameters are passed by name", code="hook_parameter_unknown")
+        if arriving and kind == "compute_added_inputs":
+            raise NodeDeclarationError(f"{where}compute_added_inputs parameter {name!r} reads an arriving type, but inputs are decided before anything arrives", code="arriving_on_compute_added_inputs")
+        if not arriving and name not in inputs:
+            raise NodeDeclarationError(f"{where}{kind} parameter {name!r} names no input of the node; it has {sorted(inputs)}", code="hook_parameter_unknown")
+
+
+def _raise_if_upgrade_is_missing(where: str, older: NodeDefinition[..., Any], newer: NodeDefinition[..., Any]) -> None:
     """A field name of the replaced version that is gone from the newer one needs an upgrade to say where it went."""
-    gone_inputs = {i.name for i in older.interface.inputs} - {i.name for i in newer.interface.inputs}
-    gone_outputs = {o.name for o in older.interface.outputs} - {o.name for o in newer.interface.outputs}
-    upgrade = newer.upgrade_from_previous
+    if older.graph is not None or newer.graph is not None:
+        return
+    gone_inputs = set(older.inputs) - set(newer.inputs)
+    gone_outputs = set(older.outputs) - set(newer.outputs)
+    upgrade = newer.upgrade
     if upgrade is None:
         unexplained = gone_inputs | gone_outputs
     elif upgrade.rewrite is None:
@@ -315,148 +399,7 @@ def _raise_if_upgrade_is_missing(older: NodeVersion, newer: NodeVersion) -> None
     else:
         unexplained = set()
     if unexplained:
-        raise NodeDeclarationError(f"the version it replaces has {sorted(unexplained)}, gone from this one; its Upgrade says where they went", code="upgrade_missing")
-
-
-@dataclass(frozen=True, eq=False, repr=False)
-class NodeDefinition(Generic[_P, _R]):
-    """A node: what ``@node`` returns, what a registry holds and what a graph names by ``id``.
-
-    Frozen, and callable with the function's own signature, so a node is
-    tested by calling it. ``versions`` holds one record per version, keyed
-    by number, and ``current_version`` is the highest.
-    """
-
-    #: The registry id. Stored in every graph that uses this node, so
-    #: changing it is a data migration, not a rename.
-    id: str
-    #: What a person sees in an editor's list of nodes. A node copies these when it is
-    #: added to a graph and may edit its own copy.
-    title: str
-    description: str
-    #: Where an editor lists it. A plain string; the host keeps the table
-    #: that titles categories.
-    category: str
-    tags: tuple[str, ...]
-    #: Long-form markdown for the node's help. ``None`` means the
-    #: description is all there is to say.
-    docs: str | None
-    versions: Mapping[int, NodeVersion]
-    current_version: int
-    #: The host's own data about the node, as JSON: kept and described,
-    #: never read by conductor.
-    extra: Mapping[str, JsonValue]
-
-    def __call__(self, *args: _P.args, **kwargs: _P.kwargs) -> _R:
-        """Call the newest version's function, as a test or a host would."""
-        body = self.versions[self.current_version].body
-        if not callable(body):
-            raise TypeError(f"{self.id!r} is a graph, so it has no function to call; run it through a compiled graph")
-        return body(*args, **kwargs)
-
-    def __repr__(self) -> str:
-        """The record as the call that states what it is, optional parts only when set."""
-        parts = [f"id={self.id!r}", f"title={self.title!r}", f"category={self.category!r}"]
-        if self.tags:
-            parts.append(f"tags={self.tags!r}")
-        parts.append(f"versions={tuple(sorted(self.versions))!r}")
-        return f"NodeDefinition({', '.join(parts)})"
-
-    @classmethod
-    def from_compiled_graphs(
-        cls,
-        id: str,
-        *,
-        title: str | None = None,
-        description: str = "",
-        category: str = "",
-        tags: Sequence[str] = (),
-        extra: Mapping[str, JsonValue] | None = None,
-        docs: str | None = None,
-        deprecation: Deprecation | None = None,
-        versions: CompiledGraph | Mapping[int, CompiledGraph],
-    ) -> NodeDefinition[..., Any]:
-        """A node whose versions are graphs a host compiled, by number; its numbers may have holes. One graph alone is
-        version 1. The title defaults to the id, as ``@node``'s does to the function's name. ``deprecation`` is the newest version's."""
-        if not isinstance(versions, Mapping):
-            versions = {1: versions}
-        if not versions:
-            raise NodeDeclarationError(f"{id!r} has no versions; a definition declares at least one", code="versions_empty")
-        return NodeDefinition(
-            id=id, title=title or humanised(id), description=description, category=category, tags=tuple(tags), docs=docs,
-            versions=MappingProxyType({
-                number: NodeVersion(body=graph, interface=graph._embeddable.interface, policy=None, deprecation=deprecation if number == max(versions) else None)
-                for number, graph in versions.items()
-            }),
-            current_version=max(versions),
-            extra=MappingProxyType(checked_extra(extra)),
-        )
-
-    def describe(self) -> NodeDescription:
-        """This definition as a ``NodeDescription``: what an editor reads."""
-        return NodeDescription(
-            id=self.id, title=self.title, description=self.description, category=self.category, tags=self.tags,
-            extra=dict(self.extra), docs=self.docs,
-            versions={
-                number: VersionDescription(
-                    interface=version.interface,
-                    policy=version.policy,
-                    open_input_type=None if version.open_input_template is None else version.open_input_template.dtype,
-                    deprecation=version.deprecation,
-                )
-                for number, version in self.versions.items()
-            },
-            current_version=self.current_version,
-        )
-
-
-def node(
-    id: str,
-    /,
-    *,
-    title: str | None = None,
-    description: str | None = None,
-    category: str = "",
-    tags: Sequence[str] = (),
-    extra: Mapping[str, JsonValue] | None = None,
-    docs: str | None = None,
-    policy: Policy = Policy(),
-    deprecation: Deprecation | None = None,
-    compute_added_inputs: Callable[..., Iterable[Input]] | None = None,
-    compute_outputs: Callable[..., Iterable[Output]] | None = None,
-    replaces: NodeDefinition[..., Any] | None = None,
-    upgrade: Upgrade | None = None,
-) -> Callable[[Callable[_P, _R]], NodeDefinition[_P, _R]]:
-    """Declare a node from the function below it (see the module docstring)."""
-    if not isinstance(id, str) or not id:
-        raise NodeDeclarationError(f"@node takes the node's id first, a non-empty string: @node('upper'); got {id!r}", code="node_id_invalid")
-
-    def decorate(function: Callable[_P, _R]) -> NodeDefinition[_P, _R]:
-        try:
-            if upgrade is not None and replaces is None:
-                raise NodeDeclarationError("has an upgrade but replaces nothing; name the version it upgrades with replaces=", code="upgrade_without_replaces")
-            if replaces is not None and (not isinstance(replaces, NodeDefinition) or replaces.id != id):
-                raise NodeDeclarationError(f"replaces {replaces!r}; a node replaces an earlier @node of its own id", code="replaces_another_node")
-            checked = checked_extra(extra)
-            version = _version_of_function(function, policy, deprecation, compute_added_inputs, compute_outputs, upgrade)
-            if replaces is not None:
-                _raise_if_upgrade_is_missing(replaces.versions[replaces.current_version], version)
-        except NodeDeclarationError as error:
-            raise NodeDeclarationError(f"@node({id!r}) on {function.__name__}: {error}", code=error.code) from error
-        number = 1 if replaces is None else replaces.current_version + 1
-        return NodeDefinition(
-            id=id,
-            title=title or humanised(function.__name__),
-            description=(inspect.getdoc(function) or "").split("\n\n")[0].replace("\n", " ") if description is None else description,
-            category=category,
-            tags=tuple(tags),
-            docs=docs,
-            versions=MappingProxyType({**({} if replaces is None else replaces.versions), number: version}),
-            current_version=number,
-            extra=MappingProxyType(checked),
-        )
-
-    return decorate
+        raise NodeDeclarationError(f"{where}the version it replaces has {sorted(unexplained)}, gone from this one; its Upgrade says where they went", code="upgrade_missing")
 
 
 _EXTRA = TypeAdapter(dict[str, JsonValue])
@@ -487,36 +430,3 @@ def _all_finite(value: JsonValue) -> bool:
     if isinstance(value, list):
         return all(_all_finite(item) for item in value)
     return True
-
-
-class VersionDescription(ConductorModel):
-    """One version as an editor reads it: its interface, its policy, what an edge
-    into it becomes when its inputs are open, and its deprecation notice.
-
-    ``policy`` is ``None`` for a version whose body is a graph, which
-    nothing runs as one unit.
-    """
-
-    interface: Interface
-    policy: Policy | None
-    open_input_type: DTypeField | None
-    deprecation: Deprecation | None
-
-
-class NodeDescription(ConductorModel):
-    """A node definition as a record, what an editor lists.
-
-    Built by ``NodeDefinition.describe()`` on demand and read by an editor:
-    what it offers is these records dumped through pydantic. Describes the
-    *definition*; what a host shows for one node in a graph it keeps in that node's ``display``.
-    """
-
-    id: str
-    title: str
-    description: str
-    category: str
-    tags: tuple[str, ...]
-    extra: dict[str, JsonValue]
-    docs: str | None
-    versions: dict[int, VersionDescription]
-    current_version: int

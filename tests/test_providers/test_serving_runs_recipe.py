@@ -18,7 +18,7 @@ import pytest
 pytest.importorskip("fastapi")
 httpx = pytest.importorskip("httpx")
 
-from conductor import AskPerson, FromRun, Result, node  # noqa: E402
+from conductor import Ask, FromRun, Param, Policy, node  # noqa: E402
 from conductor.widgets import Switch  # noqa: E402
 
 PAGE = Path(__file__).parents[2] / "docs" / "serving-runs.md"
@@ -31,7 +31,7 @@ class Caller:
     name: str
 
 
-@node("gate")
+@node("gate", policy=Policy(concurrency=2))  # on a thread, so a cancel ends the leg while it runs
 def gate() -> float:
     _gate_calls.append("gate")
     assert _gate.wait(20), "the test never opened the gate"
@@ -39,8 +39,8 @@ def gate() -> float:
 
 
 @node("ask")
-def ask(value: float) -> Annotated[bool, Result(title="Approved")] | AskPerson:
-    return AskPerson(widgets={"result": Switch()})
+def ask(value: float) -> Annotated[bool, Param(title="Approved")]:
+    raise Ask("Approve?", widget=Switch())
 
 
 @node("who")
@@ -129,14 +129,14 @@ def test_a_run_is_started_followed_late_saved_answered_on_a_new_process_and_canc
         assert completed["outputs"]["result"] == "NaN"
 
         read = (await first.client.get(f"/runs/{run_id}")).json()
-        assert read["status"] == "waiting" and "state" not in read and "graph" not in read
+        assert read["status"] == "waiting" and "run" not in read and "graph" not in read
         (unit,) = read["waiting"]
 
         # The next process has only what the row holds.
         second = _Host()
         row = first.module.saved[run_id].model_dump_json()
         second.module.saved[run_id] = second.module.SavedRun.model_validate_json(row)
-        assert (await second.client.post(f"/runs/{run_id}/answers", json={unit["id"]: {"result": True}})).status_code == 202
+        assert (await second.client.post(f"/runs/{run_id}/answers", json={unit["id"]: True})).status_code == 202
         assert (await second.frames(run_id))[-1] == {"type": "run_end", "status": "complete"}
         assert second.module.saved[run_id].status == "complete"
         assert _gate_calls == ["gate"]  # what ran did not run again
@@ -161,11 +161,11 @@ def test_a_wrong_answer_is_a_422_listing_every_fault_and_a_run_not_waiting_is_a_
         await host.frames(run_id)
         (unit,) = host.module.saved[run_id].waiting
 
-        wrong = await host.client.post(f"/runs/{run_id}/answers", json={unit.id: {"result": "not a bool"}, "nonesuch": {}})
+        wrong = await host.client.post(f"/runs/{run_id}/answers", json={unit.id: "not a bool", "nonesuch": True})
         assert wrong.status_code == 422 and len(wrong.json()["detail"]) == 2
         assert host.module.saved[run_id].status == "waiting"
 
-        assert (await host.client.post(f"/runs/{run_id}/answers", json={unit.id: {"result": False}})).status_code == 202
+        assert (await host.client.post(f"/runs/{run_id}/answers", json={unit.id: False})).status_code == 202
         assert (await host.client.post(f"/runs/{run_id}/answers", json={})).status_code == 409
         await host.frames(run_id)
         assert (await host.client.post("/runs/nonesuch/answers", json={})).status_code == 404
@@ -191,7 +191,7 @@ def test_what_a_node_receives_comes_from_the_routes_own_dependency():
         run_id = await host.start("who")
         await host.frames(run_id)
         run = module.saved[run_id]
-        assert module.CompiledGraph.from_graph(run.graph, module.registry).outputs(run.state) == {"who.result": "bo"}
+        assert module.registry.load(run.graph).load_run(run.run).outputs == {"who.result": "bo"}
 
     _run(scenario)
 
@@ -218,8 +218,8 @@ def test_the_published_schema_says_what_each_route_answers():
     assert union["discriminator"]["propertyName"] == "type" and {"$ref": "#/components/schemas/RunEnd"} in union["oneOf"]
     run_end = spec["components"]["schemas"]["RunEnd"]
     assert set(run_end["properties"]) == {"type", "status"}
-    assert spec["paths"]["/nodes"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]["$ref"].endswith("/RegistryDescription")
-    assert spec["paths"]["/compile"]["post"]["responses"]["200"]["content"]["application/json"]["schema"]["$ref"].endswith("/GraphDescription")
+    waiting = spec["components"]["schemas"]["Waiting"]
+    assert {"id", "node_id", "row", "prompt", "answer_schema", "inputs"} <= set(waiting["required"])
 
 
 def test_a_stream_says_not_to_cache_it():

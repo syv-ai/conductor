@@ -1,11 +1,11 @@
 # Conductor
 
-A general-purpose Python library that compiles and runs graphs of typed nodes. It serves any host; nothing in it is fitted to one application. The user docs are `README.md`, `docs/` and the packaged reference `packages/conductor/src/conductor/about/llms.txt` (`python -m conductor.about`).
+A general-purpose Python library that runs graphs of typed nodes. It serves any host; nothing in it is fitted to one application. The user docs are `README.md`, `docs/` and the packaged reference `packages/conductor/src/conductor/about/llms.txt` (`python -m conductor.about`).
 
 ## Layout
 
-- `packages/conductor/` (`syv-conductor`, import `conductor`): the engine. Three public modules, `__init__.py`, `widgets.py` (the controls) and `events.py`, plus `about/` and `_internal/`, which holds everything else: `node_definition.py` is the node contract, `node_signature.py` reads a signature, `field_records.py` the records of a field, `dtype.py` / `table.py` / `ref.py` the types, `errors.py` the exceptions, `registry.py`, `graph/` (the record, compile, `CompiledGraph`) and `execution/` (the engine, events, `RunState`).
-- `tests/`: `test_core`, `test_providers` (the serving recipe and event JSON), `test_stress`.
+- `packages/conductor/` (`syv-conductor`, import `conductor`): the engine. Three public modules, `__init__.py`, `widgets.py` (the controls) and `events.py`, plus `about/` and `_internal/`, which holds everything else: `fields.py` reads a signature's annotations into fields and says which types an edge may join, `node_definition.py` is the node contract (`@node`, `Policy`, `Upgrade`), `errors.py` the problems and exceptions, `registry.py`, `record.py` (the stored graph, `make_graph`), `graph.py` (loading: `Graph`, where each node runs), `run.py` (`Run`, the ledger of units and its JSON) and `leg.py` (one leg: the scheduler, retries, events).
+- `tests/`: `test_core`, `test_providers` (the serving recipe and event JSON).
 - `examples/`: Jupyter notebooks. `skills/`: agent skills for adding a node and building a graph.
 
 Pushing a `v*` tag publishes `syv-conductor` to PyPI.
@@ -24,14 +24,14 @@ CI runs ruff and pytest on every PR. Tests marked `slow` time the wall clock and
 ## Rules
 
 - **Conductor stands alone.** No host's words ("flow", "app", an access model), no host's imports, and no concrete type declared by the core. The library's word is graph.
-- **One node contract.** A node is a function under `@node`, its typed signature its interface, and `@node` returns a frozen `NodeDefinition` that registers nothing. A plain Python type travels on edges as it is; a type no edge can carry (`list[X]`, a `Literal`) closes its input by itself.
-- **Behaviour is a value, not a flag.** A branch not taken returns `SKIPPED`; a node that needs a person returns `AskPerson`. There is no role or marker on a class that tells the engine what to do.
-- **Placement shape lives in the hooks.** `compute_added_inputs` and `compute_outputs` are plain functions, given per version, whose parameters name the inputs they read; `ArrivingType` gives the type on an edge. They are the only home for fields that depend on configuration.
-- **Compile reports, it does not raise.** A fault in a graph is a `Problem` with a stable `type`, anchored on a node. Only running a graph that is not runnable raises (`InvalidCallError`).
-- **Retries belong to the version's `Policy`.** Only an `ExternalFailure`, or an exception class named in `retry_on`, is retried. Every run-time failure carries a `Problem`; a node's own exception goes to the `conductor` logger, and only its class name reaches an event.
-- **Streaming is the only execution path.** `compiled.stream` is the leg; `run` and `run_sync` drain it.
-- **Records are pydantic models** on `ConductorModel` and cross JSON with pydantic's own `model_dump_json` and `model_validate_json`. What compile and the engine build per call stays a frozen dataclass.
-- **The widget set is open.** Conductor ships the common controls; a host subclasses `Widget` for its own. Compile and the engine never read a widget. What a value must satisfy goes on `Param` (`ge`, `le`, `max_length`, ...), where it is enforced.
+- **One node contract.** A node is a function under `@node`, its typed signature its interface, and `@node` returns a frozen `NodeDefinition` that registers nothing. Any type pydantic can carry travels on edges as it is; a host's own type needs no base class.
+- **Behaviour is a value, not a flag.** A branch not taken returns `SKIPPED`; a node that needs a person raises `Ask`. There is no role or marker on a class that tells the engine what to do.
+- **Placement shape lives in the hooks.** `compute_added_inputs` and `compute_outputs` are plain functions, given per version, whose parameters name the inputs they read and that return `{name: type hint}`; a parameter annotated `type` gets the type on an edge. They are the only home for fields that depend on configuration, and they run when a graph is loaded.
+- **Loading reports, it does not raise.** A fault in a graph is a `Problem` with a stable `type`, anchored on a node, in `graph.problems`; a failing hook is one too. Only running a graph that is not runnable raises (`InvalidCallError`).
+- **Retries belong to the node's `Policy`.** Only an `ExternalFailure`, or an exception class named in `retry_on`, is retried. Every run-time failure carries a `Problem`; a node's own exception other than a `NodeError` goes to the `conductor` logger, and only its class name reaches an event.
+- **A leg is one walk, with or without a listener.** `run.resume()` and `run.stream()` run the same leg; streaming only adds the events. A node with `concurrency` 1 and no `attempt_timeout` is called on the leg's own thread; any other runs on threads.
+- **Records are pydantic models** on `ConductorModel` (the stored graph, a problem, an event, a waiting unit) and cross JSON with pydantic's own `model_dump_json` and `model_validate_json`. A `Run` writes itself with `to_json()`. What loading and the engine build per call stays a dataclass.
+- **The widget set is open.** Conductor ships the common controls; a host subclasses `Widget` for its own. Loading and the engine never read a widget. What a value must satisfy goes on `Param` (`ge`, `le`, `max_length`, ...), where it is enforced.
 - **Two definitions under one id raise** when the second is added to a registry; so does one type id from two classes.
 - **Fail loud.** No defensive `None` checks or silent defaults where the state means a bug.
 - **Imports.** Code outside the core library imports only from the three public modules: `conductor`, `conductor.widgets` and `conductor.events`. Inside the core, import a name from the module that defines it. Only those three and `conductor.about` declare `__all__`.

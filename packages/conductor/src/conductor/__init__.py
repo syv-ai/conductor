@@ -1,99 +1,62 @@
-"""Conductor: declare nodes, write a graph record of them, compile it, run it.
+"""Conductor: typed Python functions as nodes, graphs of them as data, runs as JSON.
 
-This package is the main public door. With ``conductor.widgets`` (the
-input controls) and ``conductor.events`` (what a run emits) it is
+A node author writes ``@node`` functions with ``Param``, ``Series``, ``Table``,
+``SKIPPED`` and ``Ask``. A host collects them in a ``NodeRegistry``, loads a
+``GraphRecord`` into a ``Graph``, and runs it: a ``Run`` pauses for a person,
+takes answers, resumes and goes again, and is JSON throughout.
+
+This package is the main public door. With ``conductor.widgets`` (the input
+controls) and ``conductor.events`` (what a run says as it goes) it is
 everything a caller outside the library imports; ``__all__`` lists it.
 Everything in ``conductor._internal`` is the library's own and may move.
 """
 
 from typing import TYPE_CHECKING
 
-from conductor._internal.codec import to_jsonable
-from conductor._internal.dtype import AsItArrives, DType, Series
 from conductor._internal.errors import (
     PROBLEM_CODES,
-    ComputeHookError,
     ExternalFailure,
     InvalidCallError,
     NodeDeclarationError,
     NodeError,
     Problem,
 )
-from conductor._internal.execution.run_state import RunState, RunStatus, WaitingUnit
-from conductor._internal.field_records import Input, Output, Param, Result
-from conductor._internal.graph.compiled_graph import CompiledGraph
-from conductor._internal.graph.graph_description import GraphDescription
-from conductor._internal.graph.graph_records import GraphRecord, NodeRecord, make_graph
-from conductor._internal.graph.output_conditions import ALWAYS, NEVER, BranchTaken, Condition
-from conductor._internal.graph.receive_modes import ReceiveMode
-from conductor._internal.graph.upgrade import upgrade_node
-from conductor._internal.node_definition import (
-    ArrivingType,
-    Deprecation,
-    NodeDefinition,
-    NodeDescription,
-    Policy,
-    Upgrade,
-    node,
-)
-from conductor._internal.node_signature import FromRun, Interface
-from conductor._internal.ref import Ref
-from conductor._internal.registry import NodeRegistry, RegistryDescription, TypeDescription
-from conductor._internal.skip_and_ask import SKIPPED, AskPerson
-from conductor._internal.table import ROW_ID_COLUMN, table_with_columns
+from conductor._internal.fields import SKIPPED, Ask, FromRun, Param, Series
+from conductor._internal.graph import Graph
+from conductor._internal.node_definition import Deprecation, NodeDefinition, Policy, Upgrade, node
+from conductor._internal.record import GraphRecord, NodeRecord, make_graph
+from conductor._internal.registry import NodeRegistry
+from conductor._internal.run import Run, Waiting
 
 if TYPE_CHECKING:
     # A node takes and returns frames; a type checker reads ``Table[R]`` as one.
     from conductor._internal.table_as_a_type_checker_reads_it import Table
 else:
-    from conductor._internal.table import Table
+    from conductor._internal.fields import Table
 
 __all__ = [
-    "ALWAYS",
-    "NEVER",
     "PROBLEM_CODES",
-    "ROW_ID_COLUMN",
     "SKIPPED",
-    "ArrivingType",
-    "AsItArrives",
-    "AskPerson",
-    "BranchTaken",
-    "CompiledGraph",
-    "ComputeHookError",
-    "Condition",
-    "DType",
+    "Ask",
     "Deprecation",
     "ExternalFailure",
     "FromRun",
-    "GraphDescription",
+    "Graph",
     "GraphRecord",
-    "Input",
-    "Interface",
     "InvalidCallError",
     "NodeDeclarationError",
     "NodeDefinition",
-    "NodeDescription",
     "NodeError",
     "NodeRecord",
     "NodeRegistry",
-    "Output",
     "Param",
     "Policy",
     "Problem",
-    "ReceiveMode",
-    "Ref",
-    "RegistryDescription",
-    "Result",
-    "RunState",
-    "RunStatus",
+    "Run",
     "Series",
     "Table",
-    "TypeDescription",
     "Upgrade",
-    "WaitingUnit",
+    "Waiting",
     "make_graph",
     "node",
-    "table_with_columns",
-    "to_jsonable",
-    "upgrade_node",
 ]

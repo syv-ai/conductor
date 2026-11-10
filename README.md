@@ -5,11 +5,11 @@
 <h1 align="center">Conductor</h1>
 
 <p align="center">
-  Compile and run graphs of typed Python functions.
+  Run graphs of typed Python functions.
 </p>
 
 ```python
-from conductor import CompiledGraph, NodeRegistry, make_graph
+from conductor import NodeRegistry, make_graph
 
 registry = NodeRegistry()
 
@@ -24,15 +24,12 @@ def exclaim(text: str, times: int = 1) -> str:
     return text + "!" * times
 
 
-graph = make_graph(upper, exclaim, values={"exclaim.times": 2})
-compiled = CompiledGraph.from_graph(graph, registry)
-
-ready = compiled.with_inputs(text="hello")
-state = ready.run_sync()  # in async code: await ready.run()
-print(ready.outputs(state))  # {'exclaim.result': 'HELLO!!'}
+graph = registry.load(make_graph(upper, exclaim, values={"exclaim.times": 2}))
+run = graph.run(text="hello")
+print(run.outputs)  # {'exclaim.result': 'HELLO!!'}
 ```
 
-A node is a function, and its type hints are its interface. The same hints drive validation, the run and the palette a visual editor shows. A registry is what a host offers: `@registry.node` declares a node and adds it. A graph is data, a `GraphRecord`: its nodes, each naming the node it uses and what is typed into it, and its edges, `{"nodes": [{"id": "upper", "node": "upper"}, ...], "edges": [["upper.result", "exclaim.text"]]}`. That is what an editor writes and a host stores. `make_graph(...)` writes one from Python: with no `edges` the nodes form a chain, each taking its one required open input from the one output before it; with `edges=[("upper.result", "exclaim.text")]` those are every edge. A node's id in the graph is its own id, `upper-1`, `upper-2` when it is used twice. `values` are typed in and fixed.
+A node is a function, and its type hints are its interface. The same hints drive validation, the run and the palette a visual editor shows. A registry is what a host offers: `@registry.node` declares a node and adds it. A graph is data, a `GraphRecord`: its nodes, each naming the node it uses and what is typed into it, and its edges, `{"nodes": [{"id": "upper", "node": "upper"}, ...], "edges": [["upper.result", "exclaim.text"]]}`. That is what an editor writes and a host stores. `registry.load(record)` reads one, as a record, JSON text or a mapping, into a `Graph`. `make_graph(...)` writes one from Python: with no `edges` the nodes form a chain, each taking its one required open input from the one output before it; with `edges=[("upper.result", "exclaim.text")]` those are every edge. A node's id in the graph is its own id, `upper-1`, `upper-2` when it is used twice. `values` are typed in and fixed.
 
 The core has no web framework, database or auth in it. It depends on pydantic and polars.
 
@@ -54,25 +51,25 @@ uv run pytest tests/ -q
 
 ## Inputs and outputs
 
-A graph takes the inputs of its first nodes, those with no edge into any of their inputs, and returns the outputs nothing reads. `with_inputs` returns a copy with inputs filled, by name or by address, and it takes nothing else, since it is what you hand an end user's values to:
+A graph takes the open inputs of its first nodes, those with no edge into any of their inputs, and returns the outputs nothing reads. `graph.inputs` lists them by name (by address, `node.input`, where two share a name) and `graph.outputs` by address. `graph.run(**inputs)` runs; `graph.with_inputs(**inputs)` checks the inputs and returns a run not yet started, for a host that checks a request now and runs it later. A required input left out raises `InvalidCallError` at the call:
 
 ```python
-ready = compiled.with_inputs(text="good night")
-print(ready.outputs(ready.run_sync()))  # {'exclaim.result': 'GOOD NIGHT!!'}
+ready = graph.with_inputs(text="good night")
+print(ready.resume().outputs)  # {'exclaim.result': 'GOOD NIGHT!!'}
 ```
 
-A value the author types in is fixed, and the graph doesn't offer that input. A node's `defaults` fill an input that stays open, so a caller may still change it: `NodeRecord(id="exclaim", node="exclaim", defaults={"times": 3})`.
+A value the author types in is fixed, and the graph doesn't offer that input. A node's `defaults` fill an input that stays open, so a caller may still change it: `NodeRecord(id="exclaim", node="exclaim", defaults={"times": 3})`. An open input named in the node's `many` takes a list from the caller, a row per item: `NodeRecord(id="upper", node="upper", many={"text"})`.
 
 ## Tables
 
-Every level of a graph is a table. A node typed for one value, wired to a column, runs once per row, and its result becomes a column on the same rows:
+A node typed for one value, wired to a column, runs once per row, and its result is a column on the same rows:
 
 ```python
 import io
 from typing import TypedDict
 
 import polars as pl
-from conductor import CompiledGraph, NodeRegistry, Series, Table, make_graph
+from conductor import NodeRegistry, Series, Table, make_graph
 
 registry = NodeRegistry()
 
@@ -98,65 +95,58 @@ def count(values: Series[str]) -> int:
 
 
 csv = "name,email\nIda,ida@a.dk\nBo,bo@b.dk\n"
-graph = make_graph(
+graph = registry.load(make_graph(
     read_csv, domain, count,
     edges=[("read-csv.result.email", "domain.email"), ("domain.result", "count.values")],
     values={"read-csv.text": csv},
-)
-compiled = CompiledGraph.from_graph(graph, registry)
-results = compiled.results(compiled.run_sync())
-print(results["domain"]["result"]["values"])    # ['a.dk', 'b.dk']
-print(results["count"]["result"])               # 2
+))
+run = graph.run()
+print(run.results["domain"]["result"])    # ['a.dk', 'b.dk']
+print(run.results["count"]["result"])     # 2
+print(graph.plan)                         # where each node runs
 ```
-
-`print(compiled.run_plan)` says in plain words where each node runs and what each input receives.
 
 ## Watching a run
 
 ```python
-async with compiled.stream() as events:
-    async for event in events:
-        if event.type == "node_complete":
-            print(event.node_id, event.outputs)
-        elif event.type == "run_end":
-            state = event.state  # the run to save
+async for event in graph.with_inputs().stream():
+    if event.type == "node_complete":
+        print(event.node_id, event.outputs)
+    elif event.type == "run_end":
+        finished = event.run  # the run to save
 ```
 
-A leg yields `run_start`, `node_start`, `node_progress`, `node_complete`, `node_skipped`, `node_retry`, `node_failed` and `unit_waiting`, and ends with `run_end`, whose `state` stays out of what the event writes. Leaving the block stops every unit. An event writes itself as JSON: `event.model_dump(mode="json")` or `model_dump_json()`, tables whole, and `conductor.to_jsonable(compiled.results(state))` does the same for results. `node_progress` arrives at most four times a second per node, its last count always among them.
-
-`compiled.stream(checkpoint_every=5.0)` also yields `run_checkpoint`, a state with status `running` you can save as the run goes. After a crash, `compiled.run(state)` skips the finished units and calls the ones that were in flight again, so a unit runs at least once. A saved state can't tell whether its run is still alive, so a host that resumes one holds a lease of its own.
+A leg yields `run_start`, `node_start`, `node_progress`, `node_complete`, `node_skipped`, `node_retry`, `node_failed` and `unit_waiting`, and ends with `run_end`, whose `run` stays out of what the event writes. The leg runs on a thread of its own, so a slow node never holds the event loop; leaving the loop, or setting `stream(cancel=event)`, ends it before its next unit. `event.model_dump(mode="json")` is the event as JSON. `node_progress` arrives at most four times a second per node.
 
 ## Concepts
 
-**Nodes.** `@node("id")` wraps a plain function and returns a frozen, callable `NodeDefinition`. It registers nothing, so `upper("a")` is the unit test; `@registry.node("id")` takes the same arguments and adds the node to a registry too. The title defaults to the function's name and the description to its docstring. A parameter is `text: str`, or `Annotated[str, Param(title=..., widget=...)]` when a person needs to read more. A default makes it optional, and `Param(connectable=False)` closes it to edges. `-> str` is one output named `result`, a frozen dataclass is one output per field, and `-> None` declares none. The engine calls the function in a worker thread. `@node` checks the function, so a mistake fails at import.
+**Nodes.** `@node("id")` wraps a plain function and returns a frozen, callable `NodeDefinition`. It registers nothing, so `upper("a")` is the unit test; `@registry.node("id")` takes the same arguments and adds the node to a registry too. The title defaults to the function's name and the description to its docstring. A parameter is `text: str`, or `Annotated[str, Param(title=..., widget=...)]` when a person needs to read more; `Param` also takes pydantic's limits (`ge`, `le`, `max_length`, ...). A default makes it optional. `-> str` is one output named `result`, a frozen dataclass is one output per field, and `-> None` declares none. `@node` checks the function, so a mistake fails at import with a `NodeDeclarationError`.
 
-**Types.** `str`, `int`, `float`, `bool`, `date`, `datetime` and a pydantic model travel on edges as they are. `Series[X]` says a field holds many values of `X`: a `Sequence[X]` to a type checker, a plain list to the node. A `list[X]` stays one value. `Table[Contact]` is a whole table whose columns a `TypedDict` names, and a `polars.DataFrame` at run time and to a type checker. A list of something you only type in, `list[Branch]`, closes its input. Write `class Text(DType, str)` with an `id` only for a type of your own: one whose edges stay among its own, one a palette names, one that formats itself. A subtype lands wherever its parent does. A registry holds the types its nodes declare plus the `types` a host names, and `target.accepts(source)` decides whether an edge may land.
+**Types.** Any type pydantic can check and write as JSON travels on edges: `str`, `int`, `float`, `bool`, `date`, a pydantic model, a class of your own. `Series[X]` says a field holds many values of `X`: a plain list to the node and to a type checker. A `list[X]` stays one value. `Table[Contact]` is a whole table whose columns a `TypedDict` names, a `polars.DataFrame` at run time and to a type checker. A subtype lands wherever its parent does, and a class of your own may declare `id` (the name an editor knows it by), `display_title`, and a classmethod `accepts(source)` that lets values of another type land on it.
 
-**Registries.** A `NodeRegistry` is the nodes a host offers, by id: `"upper" in registry`, `registry["upper"]`, and looping yields the definitions. `registry.add(upper, shout)` adds plain `@node`s, and a second node under one id raises; `replace` and `remove` change one. `registry.add_subregistry(text_nodes)` copies another registry's nodes in, so each module can keep a registry of its own and the host adds them at the top. `NodeRegistry(category="text", tags=["builtin"], extra={...})` sets defaults for every node that enters: tags add up, outermost first, and the node's own `category` and `extra` keys win. `extra` is the host's own JSON about a node, kept and described, never read by conductor. `registry.filter(lambda definition: ...)` is a new registry of the nodes kept, say the ones one customer may place.
+**Registries.** A `NodeRegistry` is the nodes a host offers, by id: `"upper" in registry`, `registry["upper"]`, and looping yields the definitions. `registry.add(upper, shout)` adds plain `@node`s, and a second node under one id raises; `replace` and `remove` change one. `registry.add_subregistry(text_nodes)` copies another registry's nodes in, so each module can keep a registry of its own and the host adds them at the top. `NodeRegistry(category="text", tags=["builtin"], extra={...})` sets defaults for every node that enters: tags add up, outermost first, and the node's own `category` and `extra` keys win. `extra` is the host's own JSON about a node, kept and described, never read by conductor. `registry.filter(lambda definition: ...)` is a new registry of the nodes kept, say the ones one customer may place. `registry.describe()` is the palette an editor reads, as JSON.
 
-**Graph records.** A `GraphRecord` is its `nodes` and its `edges`. A `NodeRecord` is `id`, `node` (the node it uses), `version` (1 when left out), `values` (typed in, fixed), `defaults` (typed in, open to a caller) and `display` (the host's own, never read); empty fields are left out when saved. Edges are `[from, to]` addresses and a set, kept sorted, so their order never tells two records apart: several edges into one input gather in the order their nodes appear in `nodes`, two outputs of one node in the order of their addresses. An input takes an edge, a value or a default, never two; an edge drawn twice or into a node the graph doesn't have is a problem too. An input with none of them takes its declared default. A saved graph embedded as a node is wired by the names it offers, the bare name where unique and the address on a clash; what's inside stays private. A `GraphRecord` saves as JSON with pydantic's own `model_dump_json` and reads back with `GraphRecord.model_validate_json`.
+**Graph records.** A `GraphRecord` is its `nodes` and its `edges`. A `NodeRecord` is `id`, `node` (the node it uses), `version` (1 when left out), `values` (typed in, fixed), `defaults` (typed in, open to a caller), `many` (open inputs that take a list) and `display` (the host's own, never read); empty fields are left out when saved. Edges are `[from, to]` addresses and a set, kept sorted, so their order never tells two records apart: several edges into one input gather in the order their nodes appear in `nodes`, then in the order a node declares its outputs. An input takes an edge, a value or a default, never two; an edge drawn twice or naming a node the graph doesn't have is a problem too. A `GraphRecord` saves as JSON with pydantic's own `model_dump_json`.
 
-**Compile.** `CompiledGraph.from_graph(graph, registry)` never raises for a fault in the graph. Everything wrong is a `Problem` with a stable `type`, anchored on a node, and `is_runnable` says whether a run may start. Ask the result about the graph with `compiled.node(id)`, `compiled.field(ref)` or `compiled.run_plan`. Every node has a `state` (`ready`, `wiring_failed` or `resolution_failed`) and its own `problems`, so an editor can draw a half-finished graph node by node. `compiled.describe()` is all of that as one JSON-ready record, as `registry.describe()` is for what can be placed.
+**Loading.** `registry.load(record)` never raises for a fault in the graph. Everything wrong is a `Problem` with a stable `type` and a place (`loc`), in `graph.problems`, and `graph.is_runnable` says whether a run may start. An open input of a first node is not a problem: it is an input of the graph. A required input on a later node that nothing feeds is `unbound_on_later_node`. `graph.describe()` is the graph as an editor draws it, as JSON. A loaded graph keeps its own copy of the definitions it used, so a later change to the registry doesn't reach it.
 
-**Rows.** A series arriving on an input declared for one value runs the node once per row, up to its policy's `concurrency` at a time. A `Series[X]` input receives every value under the node's row, flat, however many levels down. When nothing else says where the node runs, it runs once per row of the level right above the series.
+**Rows.** A list or table arriving on an input declared for one value runs the node once per row of it, and each result stays on its row. A `Series[X]` input gathers every value under the node's row. Sources must lie on one path of the row tree: a value from rows above is copied down, and rows of two different tables meet only through a join on a key the author draws in a node (`rows_not_related`). `max_rows=` on a run is a ceiling on any one table's rows, checked before any node is called on them: over it, the run stops with a `row_ceiling` problem, and `run.resume(max_rows=...)` carries on with a higher one.
 
-**Merging tables.** Every table carries a `__row` column (`contacts.result:0`) saying which row is which. You never declare it, and a row you return without an id gets a fresh one. Wire several tables or columns into one `Table` input and they are merged on those ids. A parent column beside its children is copied down, so the rows are those of the deepest source and a parent with nothing under it has no row in that table. Sources on the same level keep all their rows, with blanks where one has nothing. A table rebuilt in a node and merged with its source has to keep `__row`, or the node fails with `row_ids_lost`. A column is named after its output (or, from a table, keeps its own name). A column a table carries on from the table it was made from is one column with it, read from the newer table where that has the row. Two columns of one name that aren't related: the later takes its output's name (`name_contacts`, `result_2`). Tables with no rows in common are refused when the graph is checked (`no_rows_in_common`): join them on a key in a node of your own.
+**Blanks.** A value can be blank (`None`, a cell with nothing in it). If an input's type doesn't say `| None`, the node isn't called for that row and its outputs are blank there; `run.not_called` lists each such row with its node and input. To get the blank, write `email: str | None`. `Series[str]` leaves blanks out row by row, `Series[str | None]` keeps them. Two `Series` inputs reading opposite branches of one decision would lose every row, so that is refused when the graph is loaded (`series_inputs_never_share_a_row`).
 
-**Blanks.** A value can be blank (`None`, a cell with nothing in it). If an input's type doesn't say `| None`, the node isn't called for that row and its outputs are blank there; to get the blank, write `email: str | None`. A default is for an input nothing is wired to. `Series[str]` leaves blanks out row by row, `Series[str | None]` keeps them. A row one column skipped counts as blank there, so `Series` inputs reading one table stay on the same rows whatever a node zips: a row `Series[str]` can't take leaves all of them. Two such inputs reading opposite branches of one decision would lose every row, so that is refused when the graph is checked (`series_inputs_never_share_a_row`): write `Series[str | None]`, or wire both branches into one input. `node_complete` counts the rows not called, per input (`rows_not_called`).
-
-**Branching.** A node returns `SKIPPED` on the branch it did not take, and nodes fed only `SKIPPED` are skipped in turn. Outputs that are alternatives share an `exclusive_group`. Exclusive tables wired into one `Table` input are the branch that ran.
+**Branching.** A node returns `SKIPPED` on the branch it did not take, and nodes fed only `SKIPPED` are skipped in turn. Outputs that are alternatives share an `exclusive_group`.
 
 ```python
 from dataclasses import dataclass
 from typing import Annotated
 
-from conductor import SKIPPED, Result, node
+from conductor import SKIPPED, Param, node
 
 
 @dataclass(frozen=True)
 class Routed:
-    big: Annotated[str, Result(exclusive_group="size")]
-    small: Annotated[str, Result(exclusive_group="size")]
+    big: Annotated[str, Param(exclusive_group="size")]
+    small: Annotated[str, Param(exclusive_group="size")]
 
 
 @node("route")
@@ -164,35 +154,35 @@ def route(text: str) -> Routed:
     return Routed(text, SKIPPED) if len(text) > 3 else Routed(SKIPPED, text)
 ```
 
-**A person in the loop.** A node returns `AskPerson`, annotated `-> X | AskPerson`, and its declared outputs are what is asked. The rest of the graph runs on and the state ends `waiting`, each waiting unit and its questions in `state.waiting`.
+**A person in the loop.** A node raises `Ask`, and its return type says what the answer is. The rest of the graph runs on and the run ends `waiting`, each waiting row in `run.waiting`, with the JSON schema of its answer.
 
 ```python
-from conductor import AskPerson, CompiledGraph, NodeRegistry, make_graph
-
+from conductor import Ask, NodeRegistry, make_graph
 
 registry = NodeRegistry()
 
 
 @registry.node("approve")
-def approve(invoice: str) -> str | AskPerson:
-    return AskPerson(prompt=f"Approve {invoice}?")
+def approve(invoice: str) -> bool:
+    raise Ask(f"Approve {invoice}?")
 
 
-compiled = CompiledGraph.from_graph(make_graph(approve, values={"approve.invoice": "INV-1"}), registry)
-paused = compiled.run_sync()                                                   # paused.status == "waiting"
-answered = compiled.answer(paused, {unit.id: {"result": "yes"} for unit in paused.waiting})  # checks them; no node runs
-state = compiled.run_sync(answered)
+graph = registry.load(make_graph(approve, values={"approve.invoice": "INV-1"}))
+paused = graph.run()                                     # paused.status == "waiting"
+answered = paused.answer(paused.waiting[0], True)        # checked; no node runs
+finished = answered.resume()
+saved = finished.to_json()                               # graph.load_run(saved) reads it back
 ```
 
-**Running again.** Pass the state of an earlier leg and a node nothing changed above is restored whole; a changed node reuses the result of every row that received the same as before, even if it moved. Add one row to a CSV and one mail goes out: `state = compiled.with_inputs(contacts=edited).run_sync(state)`. A person's answer stays with the row it was asked on: when that row is replaced or any of its columns edited, the person is asked again. A node that reads the world says so with `Policy(reuse_when_inputs_match=False)`: a node reading a file by its path is called again on a new leg from a `complete` state, so an edited file is read, and the rows below it reuse as they always do. A leg going on from a waiting, failed or cancelled state keeps what it read, so answering a person doesn't re-read the file. To read one again in any state, `state.without_nodes("read")`. A state goes back only to the runner it came from.
+**Running again.** `run.again(**changed)` runs with changed inputs, the rest as before: a row that receives what it received before is not called again, even if it moved. Add one row to a CSV and one mail goes out. A node that reads the world says so with `Policy(reuse_when_inputs_match=False)`, and is called again on every row.
 
-**Versions and retries.** A newer version names the one it replaces, itself a `@node` of the same id: `@node("split", replaces=split_v1, upgrade=Upgrade(renamed_inputs={"sep": "separator"}))`. Each version has its own `Policy` (`retries`, `retry_delay`, `attempt_timeout`, `concurrency`, `retry_on`, `reuse_when_inputs_match`) and hooks. `upgrade_node(graph, node_id, registry)` moves a node forward, and `Deprecation(...)` retires a version; on the newest, the node. Only an `ExternalFailure`, or an exception class named in `retry_on`, is retried.
+**Versions and retries.** A newer version names the one it replaces, itself a `@node` of the same id: `@node("split", replaces=split_v1, upgrade=Upgrade(renamed_inputs={"sep": "separator"}))`. A stored graph runs the version it was saved at; `registry.upgrade(record, node_id)` moves a node forward, and `Deprecation(...)` marks a version going away. `Policy` sets `concurrency` (rows called at once, on threads), `retries`, `retry_delay`, `attempt_timeout`, `retry_on` and `reuse_when_inputs_match`. Only an `ExternalFailure`, or an exception class named in `retry_on`, is retried.
 
-**Failures.** Every run-time failure is a `Problem` (`type`, `loc`, `msg`, `ctx`), the same record a compile reports, on the event and on `state.cause`. A node's own exception goes to `logging.getLogger("conductor")` with its traceback, and only its class name reaches `ctx`. A failed unit starts nothing more; the calls already on a thread finish and are kept, so running on from the state doesn't repeat them. A call that can't be acted on raises `InvalidCallError`, with every fault listed.
+**Failures.** Every run-time failure is a `Problem` (`type`, `loc`, `msg`, `ctx`), the same record loading reports, on the event and on `run.cause`. A `NodeError` keeps the message its node wrote; any other exception goes to `logging.getLogger("conductor")` with its traceback, and only its class name reaches `ctx`. A failed unit starts nothing more; the calls already on a thread finish and are kept, so resuming doesn't repeat them. A call that can't be acted on raises `InvalidCallError`, with every fault listed.
 
-**Values the host supplies.** A parameter marked `FromRun[T]` is filled by type from `compiled.run_sync(from_run={T: value})`, not from an edge.
+**Values the host supplies.** A parameter marked `FromRun[T]` is filled by type from `run.resume(from_run={T: value})`, not from an edge.
 
-**Widgets.** A widget is the control a person edits an input with: `TextWidget`, `Textarea`, `Dropdown`, `NumberWidget`, `Switch`, `FileUpload` and more. Each is a pydantic model with a `type`. No type has a default widget, so an input names its own.
+**Widgets.** A widget is the control a person edits an input with: `TextWidget`, `Textarea`, `Dropdown`, `NumberWidget`, `Switch`, `FileUpload` and more, from `conductor.widgets`. Each is a pydantic model with a `type`. No type has a default widget, so an input names its own.
 
 ## Serving runs
 

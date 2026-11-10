@@ -1,5 +1,5 @@
 site_name: Conductor Documentation
-site_description: Documentation for Conductor, a compile-then-execute engine for graphs of typed nodes.
+site_description: Documentation for Conductor, an engine that runs graphs of typed nodes.
 nav:
   - Home: index.md
   - Overview: OVERVIEW.md
