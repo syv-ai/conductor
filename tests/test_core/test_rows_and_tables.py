@@ -896,3 +896,145 @@ def test_inside_an_embedding_a_rebuilt_table_and_a_column_made_per_row_of_it_com
     assert run.results["sub"]["result"].to_dicts() == [
         {"name": "Ida", "email": "ida@x", "result": "sent to ida@x"}, {"name": "Nina", "email": "nina@x", "result": "sent to nina@x"},
     ]
+
+
+# -- skips above a group -----------------------------------------------------------------------
+
+
+def test_a_skip_above_the_rows_skips_the_reduction_and_absent_rows_give_an_empty_list():
+    skipped = ran({"id": "b", "node": "decide"}, {"id": "a", "node": "split"}, {"id": "j", "node": "join"},
+                  edges=(("b.no", "a.text"), ("a.result", "j.texts")), text="ab")
+    assert skipped.results["j"]["result"] is None
+    empty = ran({"id": "a", "node": "split"}, {"id": "j", "node": "join"}, edges=(("a.result", "j.texts"),), text="")
+    assert empty.results["j"]["result"] == ""
+
+
+def test_a_skipped_node_makes_no_rows_so_everything_below_is_skipped():
+    run = ran({"id": "g", "node": "decide"}, {"id": "docs", "node": "split"}, {"id": "u", "node": "upper"}, {"id": "j", "node": "join"},
+              edges=(("g.no", "docs.text"), ("docs.result", "u.text"), ("u.result", "j.texts")), text="a,b")
+    assert run.results["docs"]["result"] is None and run.results["u"]["result"] == [] and run.results["j"]["result"] is None
+
+
+def test_a_document_whose_gate_is_shut_gets_no_rows_under_it_and_its_reduction_is_skipped():
+    run = ran({"id": "docs", "node": "split", "values": {"sep": "|"}}, {"id": "g", "node": "decide"}, {"id": "paras", "node": "split", "values": {"sep": ";"}},
+              {"id": "lines", "node": "split"}, {"id": "up", "node": "upper"}, {"id": "j", "node": "labelled"},
+              edges=(("docs.result", "g.text"), ("g.yes", "paras.text"), ("paras.result", "lines.text"), ("lines.result", "up.text"),
+                     ("docs.result", "j.label"), ("up.result", "j.texts")),
+              registry=registry_of(split, decide, upper, labelled), text="a,b;c|no")
+    assert run.results["lines"]["result"] == [["a", "b"], ["c"]]
+    assert run.results["j"]["result"] == ["a,b;c=A,B,C", None]
+
+
+def test_a_reduction_waits_for_the_unit_above_its_group_before_it_runs_on_nothing():
+    import threading
+    import time
+
+    from conductor import Policy
+
+    release = threading.Event()
+
+    @node("held", policy=Policy(concurrency=2))
+    def held(text: str) -> YesNo:
+        release.wait(5)
+        return YesNo(SKIPPED, text) if "no" in text else YesNo(text, SKIPPED)
+
+    loaded = graph({"id": "docs", "node": "split", "values": {"sep": "|"}}, {"id": "g", "node": "held"}, {"id": "l", "node": "split"},
+                   {"id": "j", "node": "join"}, edges=(("docs.result", "g.text"), ("g.yes", "l.text"), ("l.result", "j.texts")),
+                   registry=registry_of(split, held, join))
+    CALLED.clear()
+    timer = threading.Timer(0.2, release.set)
+    timer.start()
+    started = time.monotonic()
+    run = loaded.run(text="a|slow-no")
+    assert time.monotonic() - started >= 0.2 and run.status == "complete", run.cause
+    assert run.results["j"]["result"] == ["a", None]
+    assert "join []" not in CALLED
+
+
+def test_a_document_skipped_above_its_table_is_not_totalled_and_the_others_still_total():
+    run = ran(DOCS, {"id": "gate", "node": "decide"}, READ, {"id": "total", "node": "total"},
+              edges=(("docs.result", "gate.text"), ("gate.yes", "read.text"), ("read.result.amount", "total.amounts")), text="acme:10|no|beta:7")
+    assert run.results["total"]["result"] == [10.0, None, 7.0]
+
+
+def test_skipped_inside_a_returned_list_leaves_gaps_on_those_rows_through_json():
+    @node("sparse")
+    def sparse() -> Series[str]:
+        return ["a", SKIPPED, "c"]
+
+    run = ran({"id": "s", "node": "sparse"}, {"id": "u", "node": "upper"}, edges=(("s.result", "u.text"),), registry=registry_of(sparse, upper))
+    assert run.results["u"]["result"] == ["A", None, "C"]
+    assert through_json(run).results == run.results
+
+
+def test_two_series_at_different_depths_are_both_read_per_row_of_the_shallowest_level_above_them():
+    run = ran(*THREE_LEVELS, {"id": "n", "node": "two-columns"}, edges=(*THREE_EDGES, ("paras.result", "n.a"), ("lines.result", "n.b")),
+              registry=DEEP, text="a,b;c|d")
+    assert run.graph.plan["n"] == "per row of docs.result"
+    assert run.results["n"]["result"] == ["a,b,c+a,b,c", "d+d"]
+
+
+def test_a_child_table_a_branch_skipped_gives_no_rows_and_the_sheet_keeps_its_columns():
+    run = ran(DOCS, READ, {"id": "x", "node": "show"}, edges=(READ_EDGE, ("docs.result", "x.table"), ("read.result", "x.table")), text="acme:10|skip")
+    assert [(s.height, sorted(s.columns)) for s in sheet(run)] == [(1, ["amount", "result", "vendor"]), (0, ["amount", "result", "vendor"])]
+
+
+# -- a table input's columns -------------------------------------------------------------------
+
+
+class Names(TypedDict):
+    name: str
+
+
+class Scored(TypedDict):
+    name: str
+    score: float
+
+
+@node("names-in")
+def names_in(table: Table[Names]) -> str:
+    return ",".join(table.columns)
+
+
+@node("scored-in")
+def scored_in(table: Table[Scored]) -> Table[Scored]:
+    return table
+
+
+TABLES = registry_of(contacts, send, names_in, scored_in, show, upper)
+
+
+def test_a_table_input_takes_a_table_with_at_least_its_columns_and_gets_exactly_them():
+    run = ran({"id": "c", "node": "contacts"}, {"id": "n", "node": "names-in"}, edges=(("c.result", "n.table"),), registry=TABLES, text=CSV)
+    assert run.results["n"]["result"] == "name"  # the email column is dropped
+    assert problems({"id": "c", "node": "contacts"}, {"id": "s", "node": "scored-in"}, edges=(("c.result", "s.table"),), registry=TABLES) != []
+
+
+def test_a_declared_table_input_missing_a_column_is_refused_when_checked():
+    loaded = graph({"id": "c", "node": "contacts"}, {"id": "s", "node": "send"}, {"id": "t", "node": "scored-in"},
+                   edges=(("c.result.email", "s.email"), ("c.result.name", "t.table"), ("s.result", "t.table")), registry=TABLES)
+    assert [p.loc for p in loaded.problems] == [("t", "table")] and "score" in str(loaded.problems[0].ctx), loaded.problems
+
+
+def test_a_typed_in_list_of_records_is_one_table_not_many():
+    run = ran({"id": "x", "node": "show", "values": {"table": [{"a": "1"}, {"a": "2"}]}}, registry=TABLES)
+    assert run.graph.plan["x"] == "once"
+    assert isinstance(sheet(run), pl.DataFrame) and sheet(run).to_dicts() == [{"a": "1"}, {"a": "2"}]
+
+
+# -- embedded graphs fold per outer row --------------------------------------------------------
+
+
+def test_an_inner_reduction_over_the_entering_rows_runs_once_per_outer_row():
+    inner = embedded("inner", {"id": "holder", "node": "upper"}, {"id": "gather", "node": "join"}, edges=(("holder.result", "gather.texts"),))
+    run = ran({"id": "docs", "node": "split"}, {"id": "emb", "node": "inner"}, {"id": "after", "node": "join"},
+              edges=(("docs.result", "emb.text"), ("emb.result", "after.texts")), registry=registry_of(split, upper, join, inner), text="a,b,c")
+    assert run.graph.plan["emb"] == "per row of docs.result"
+    assert run.results["emb"]["result"] == ["A", "B", "C"]  # a gather of one per row, never all three once
+    assert run.results["after"]["result"] == "A+B+C"
+
+
+def test_a_skipped_source_inside_a_per_row_graph_gives_its_series_an_empty_list_on_each_row():
+    inner = embedded("skips", {"id": "b", "node": "decide"}, {"id": "j", "node": "join"}, edges=(("b.no", "j.texts"),))
+    run = ran({"id": "s", "node": "split"}, {"id": "e", "node": "skips"}, edges=(("s.result", "e.text"),), registry=registry_of(split, decide, join, inner), text="p,q")
+    assert run.results["e"]["result"] == ["", ""]
