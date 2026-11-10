@@ -77,6 +77,20 @@ from conductor._internal.record import GraphRecord, as_record
 
 _P = ParamSpec("_P")
 _R = TypeVar("_R")
+_R_co = TypeVar("_R_co", covariant=True)
+
+
+class NodeFunction(Protocol[_P, _R_co]):
+    """A function a node is made of: called with its own signature, and named where it was written.
+
+    Every function, method and static method has these names, so a node says where it was declared from them.
+    """
+
+    __name__: str
+    __module__: str
+    __qualname__: str
+
+    def __call__(self, *args: _P.args, **kwargs: _P.kwargs) -> _R_co: ...
 
 #: The hooks a node may have, by the keyword ``@node`` takes each as.
 HookName = Literal["compute_added_inputs", "compute_outputs"]
@@ -229,7 +243,7 @@ class NodeDefinition(Generic[_P, _R]):
 
     id: str
     version: int
-    function: Callable[..., Any] | None
+    function: NodeFunction[..., Any] | None
     inputs: Mapping[str, FieldSpec]
     outputs: Mapping[str, FieldSpec]
     outputs_class: type | None = None
@@ -325,7 +339,7 @@ class NodeDecorator(Protocol):
     def __call__(self, target: GraphRecord | str | bytes | Mapping[str, Any], /) -> NodeDefinition[..., Any]: ...
 
     @overload
-    def __call__(self, target: Callable[_P, _R], /) -> NodeDefinition[_P, _R]: ...
+    def __call__(self, target: NodeFunction[_P, _R], /) -> NodeDefinition[_P, _R]: ...
 
     def __call__(self, target: Any, /) -> NodeDefinition[..., Any]: ...
 
@@ -391,8 +405,8 @@ def node(
     @overload
     def make(target: GraphRecord | str | bytes | Mapping[str, Any], /) -> NodeDefinition[..., Any]: ...
     @overload
-    def make(target: Callable[_P, _R], /) -> NodeDefinition[_P, _R]: ...
-    def make(target: GraphRecord | str | bytes | Mapping[str, Any] | Callable[..., Any], /) -> NodeDefinition[..., Any]:
+    def make(target: NodeFunction[_P, _R], /) -> NodeDefinition[_P, _R]: ...
+    def make(target: GraphRecord | str | bytes | Mapping[str, Any] | NodeFunction[..., Any], /) -> NodeDefinition[..., Any]:
         common: dict[str, Any] = {
             "id": id, "version": number, "category": category, "tags": tuple(tags), "extra": MappingProxyType(dict(extra)), "docs": docs,
             "deprecation": deprecation, "replaces": replaces, "upgrade": upgrade or Upgrade(), "policy": policy or Policy(),
@@ -406,7 +420,7 @@ def node(
                 )
             record = as_record(target)  # a record, JSON text or a mapping, read as registry.load reads one
             return NodeDefinition(function=None, inputs={}, outputs={}, graph=record, title=title or humanised(id), description=description or "", **common)
-        where = f"@node({id!r}) on {getattr(target, '__name__', target)}: "
+        where = f"@node({id!r}) on {target.__name__}: "
         if inspect.iscoroutinefunction(target) or inspect.isasyncgenfunction(target):
             raise NodeDeclarationError(f"{where}a node is a plain def; the engine gives a slow one threads with Policy(concurrency=)", code="async_run")
         inputs, from_run, outputs, outputs_class = _read_signature(where, target, compute_outputs is not None)

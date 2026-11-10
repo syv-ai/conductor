@@ -373,7 +373,7 @@ def _where_declared(definition: NodeDefinition[..., Any]) -> str:
     """Where a node was written: its function's module and name, or the graph it is."""
     if definition.function is None:
         return f"a node that is a graph, titled {definition.title!r} (versions {', '.join(map(str, definition.versions))})"
-    return f"{getattr(definition.function, '__module__', '?')}.{getattr(definition.function, '__qualname__', '?')}"
+    return f"{definition.function.__module__}.{definition.function.__qualname__}"
 
 
 def _types_declared_by(definitions: Iterable[NodeDefinition[..., Any]]) -> list[type]:
