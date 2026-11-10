@@ -175,8 +175,11 @@ def _added(spec: FieldSpec, kind: str, value: Any, so_far: Mapping[str, Any]) ->
 
 
 def questions(placed: PlacedNode, added: Mapping[str, Mapping[str, Any]]) -> list[FieldDescription]:
-    """A waiting row's questions: each output's record, with what its ``Ask`` added."""
-    return [FieldDescription.model_validate(question) for question in _asked(placed, added)]
+    """A waiting row's questions: each output's record, with what its ``Ask`` added; one the ``Ask`` adds nothing to is
+    the node's own record, made once."""
+    if not added:
+        return list(placed.question_records.values())
+    return [FieldDescription.model_validate(question) if question["name"] in added else placed.question_records[question["name"]] for question in _asked(placed, added)]
 
 
 def _asked(placed: PlacedNode, added: Mapping[str, Mapping[str, Any]]) -> list[dict[str, Any]]:
