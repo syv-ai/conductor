@@ -9,6 +9,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TypedDict
+from unittest import mock
 
 import polars as pl
 import pytest
@@ -43,13 +44,19 @@ CSV = "name,email,amount\nIda,ida@a.dk,100\nBo,bo@b.dk,5000\nAl,al@c.dk,7000\n"
 
 def calls(fn):
     """What ``fn`` returns, and the calls the nodes noted while it ran."""
-    with tempfile.TemporaryDirectory() as work:
-        os.environ["CALLS"] = str(Path(work) / "calls")
+    with tempfile.TemporaryDirectory() as work, mock.patch.dict(os.environ, {"CALLS": str(Path(work) / "calls")}):
         Path(os.environ["CALLS"]).touch()
         out = fn()
-        noted = Path(os.environ["CALLS"]).read_text().split("\n")[:-1]
-        del os.environ["CALLS"]
-        return out, noted
+        return out, Path(os.environ["CALLS"]).read_text().split("\n")[:-1]
+
+
+def test_calls_leaves_the_environment_as_it_found_it_when_what_it_runs_fails():
+    def failing() -> None:
+        raise AssertionError("the test's own failure")
+
+    with pytest.raises(AssertionError):
+        calls(failing)
+    assert "CALLS" not in os.environ
 
 
 def test_registry():
