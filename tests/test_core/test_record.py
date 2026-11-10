@@ -308,6 +308,26 @@ def test_make_graph_checks_every_address_and_value_at_the_call_and_lists_every_f
     ]
 
 
+def test_make_graph_refuses_a_type_mismatch_and_a_field_a_hook_does_not_give_at_the_call():
+    @node("fan", compute_outputs=lambda n: {f"o{i}": int for i in range(n)})
+    def fan(n: int = 2) -> dict:
+        return {f"o{i}": i for i in range(n)}
+
+    with pytest.raises(InvalidCallError) as refused:
+        make_graph(_count, _hello, edges=[("count.result", "hello.name")])
+    assert [(p.type, p.loc) for p in refused.value.errors()] == [("type_mismatch", ("hello", "name"))]
+    with pytest.raises(InvalidCallError) as refused:
+        make_graph(fan, _shout, edges=[("fan.o5", "shout.text")])
+    assert [p.type for p in refused.value.errors()] == ["unknown_output"]
+
+
+def test_every_code_make_graph_raises_from_the_load_is_a_catalogued_problem():
+    from conductor._internal.errors import PROBLEM_CATALOGUE
+    from conductor._internal.record import SAID_AT_THE_CALL
+
+    assert SAID_AT_THE_CALL <= PROBLEM_CATALOGUE.keys()
+
+
 def test_make_graph_writes_defaults_a_list_of_items_among_them():
     record = make_graph(_hello, defaults={"hello.name": ["you"]})
     assert record.nodes[0].defaults == {"name": ["you"]}

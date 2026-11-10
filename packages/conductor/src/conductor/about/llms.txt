@@ -37,7 +37,7 @@ run.results["upper"]["result"]     # ["A", "B", "C"]: ran once per value
 run.results["join"]["result"]      # "A+B+C": Series[str] received every value once
 ```
 
-`make_graph(*nodes, edges=None, values=None, defaults=None)` writes a `GraphRecord`, each node at its version and under its own id (`upper-1`, `upper-2` when one is used twice). With no `edges` the nodes form a chain: each takes its one required input nothing typed in fills from the one output before it (`not_a_chain` otherwise). With `edges=[("upper.result", "join.texts")]` those are every edge; nothing is matched by name. `values={"upper.text": "x"}` types values in, fixed; `defaults=` the same, open to the caller; Every address, value and the chain are checked at the call against the definitions, and every fault is one `InvalidCallError` (a node a hook shapes, or a stored graph, is checked when the graph loads).
+`make_graph(*nodes, edges=None, values=None, defaults=None)` writes a `GraphRecord`, each node at its version and under its own id (`upper-1`, `upper-2` when one is used twice). With no `edges` the nodes form a chain: each takes its one required input nothing typed in fills from the one output before it (`not_a_chain` otherwise). With `edges=[("upper.result", "join.texts")]` those are every edge; nothing is matched by name. `values={"upper.text": "x"}` types values in, fixed; `defaults=` the same, open to the caller. The record is loaded against the definitions at the call, and every fault of what the call said (an address, a value, a type, an edge into a value or a setting, a chain it can't draw) is one `InvalidCallError`; a graph still half drawn (an open input, a cycle) is written, and `graph.problems` says so when it loads.
 
 ## Core Concepts
 

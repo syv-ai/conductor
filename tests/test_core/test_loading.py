@@ -725,7 +725,9 @@ def test_a_type_mismatch_into_a_series_says_the_series_it_reads():
     registry.add(words, count)
     (problem,) = registry.load({"nodes": [{"id": "w", "node": "words"}, {"id": "c", "node": "count"}], "edges": [["w.result", "c.flags"]]}).problems
     assert (problem.type, problem.ctx["got"], problem.ctx["expected"]) == ("type_mismatch", "Series[str]", "Series[bool]")
-    assert make_graph(words, count).nodes[1].node == "count"
+    with pytest.raises(InvalidCallError) as refused:
+        make_graph(words, count)
+    assert [p.type for p in refused.value.errors()] == ["type_mismatch"]
 
 
 def test_what_the_outside_gives_an_embedded_input_replaces_the_inner_default():
@@ -854,7 +856,8 @@ def test_a_yes_or_no_never_lands_on_a_hosts_number_type_whose_own_rule_lets_an_i
         raise Ask("How many?")
 
     assert "number" not in registry.accepted_as(boolean) and "number" in registry.accepted_as(int)
-    assert [p.type for p in registry.load(make_graph(yes, half)).problems] == ["type_mismatch"]
+    mistyped = {"nodes": [{"id": "yes", "node": "yes"}, {"id": "half", "node": "half"}], "edges": [["yes.result", "half.value"]]}
+    assert [p.type for p in registry.load(mistyped).problems] == ["type_mismatch"]
     (problem,) = registry.load({"nodes": [{"id": "h", "node": "half", "values": {"value": True}}]}).problems
     assert problem.type == "invalid_value"
     with pytest.raises(InvalidCallError):

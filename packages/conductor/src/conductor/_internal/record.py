@@ -47,14 +47,7 @@ from pydantic import (
 )
 
 from conductor._internal.conductor_model import ConductorModel
-from conductor._internal.errors import InvalidCallError, Problem, make_problem, value_free_errors
-from conductor._internal.fields import (
-    Refused,
-    carried_list,
-    given_as_items,
-    read_table,
-    refuse_a_bool_for_a_number,
-)
+from conductor._internal.errors import InvalidCallError, Problem, make_problem
 
 if TYPE_CHECKING:
     from conductor._internal.node_definition import NodeDefinition
@@ -185,11 +178,13 @@ def make_graph(
     it. With ``edges``, those are every edge of the graph. Nothing is matched
     by name.
 
-    Every address, every value's type and the chain are checked here, against
-    the definitions; what is wrong raises one ``InvalidCallError`` listing
-    each fault. A node whose fields a hook works out, or that is a stored
-    graph, is checked when the graph loads.
+    The record is loaded against the definitions here, and every fault of what
+    the call said (an address, a value, a type, an edge into a value or a
+    setting) raises one ``InvalidCallError`` listing each; so does a chain it
+    can't draw. A graph still half drawn (an input left open, a cycle) is
+    written: ``graph.problems`` says that when it loads.
     """
+    from conductor._internal.graph import load_graph  # which imports this module
     from conductor._internal.node_definition import NodeDefinition  # which imports this module
 
     for argument in nodes:
@@ -202,18 +197,10 @@ def make_graph(
     for kind, given in (("values", values or {}), ("defaults", defaults or {})):
         for address, value in given.items():
             node_id, _, name = address.partition(".")
-            definition = known.get(node_id)
-            if definition is None:
+            if node_id not in known:
                 problems.append(make_problem("node_not_in_graph", node_id, node_id=node_id, nodes=ids))
-            elif _fields_known(definition) and name not in definition.inputs:
-                problems.append(make_problem("unknown_input", node_id, name, inputs=list(definition.inputs)))
             else:
                 typed[kind].setdefault(node_id, {})[name] = value
-    for node_id, by_name in typed["values"].items():
-        problems += [make_problem("value_and_default", node_id, name) for name in by_name if name in typed["defaults"].get(node_id, {})]
-    for kind in ("values", "defaults"):
-        for node_id, by_name in typed[kind].items():
-            problems += [problem for name, value in by_name.items() for problem in _value_problems(known[node_id], node_id, name, value)]
     if edges is None:
         edges = []
         for index in range(1, len(nodes)):
@@ -224,10 +211,14 @@ def make_graph(
             else:
                 edges.append(edge)
     else:
-        problems += [problem for source, target in edges for problem in _edge_problems(source, target, known)]
+        for source, target in edges:
+            try:
+                _checked_address(source), _checked_address(target)
+            except ValueError as wrong:
+                problems.append(make_problem("invalid_record", "record", "edges", at=f"{source} -> {target}", reason=str(wrong), error="value_error"))
     if problems:
         raise InvalidCallError(problems)
-    return GraphRecord(
+    record = GraphRecord(
         nodes=[
             NodeRecord(
                 id=node_id, node=definition.id, version=definition.version, values=typed["values"].get(node_id, {}),
@@ -237,6 +228,18 @@ def make_graph(
         ],
         edges=list(edges),
     )
+    found = [p for p in load_graph(record, {d.id: d for d in nodes}).problems if p.type in SAID_AT_THE_CALL]
+    if found:
+        raise InvalidCallError(found)
+    return record
+
+
+#: What loading finds that ``make_graph`` raises: a fault of what the call said (an address, a value, a type, an edge
+#: where a value or a setting is), never a half-drawn graph's.
+SAID_AT_THE_CALL = frozenset({
+    "unknown_input", "unknown_output", "edge_names_missing_node", "invalid_value", "value_and_default", "value_and_edge",
+    "setting_on_edge", "type_mismatch", "columns_missing", "repeated_edge",
+})
 
 
 def _ids_of(nodes: Sequence[NodeDefinition[..., Any]]) -> list[str]:
@@ -253,56 +256,6 @@ def _ids_of(nodes: Sequence[NodeDefinition[..., Any]]) -> list[str]:
         taken.add(node_id)
         ids.append(node_id)
     return ids
-
-
-def _fields_known(definition: NodeDefinition[..., Any]) -> bool:
-    """Whether a definition's fields are known before a graph loads: not a stored graph, and no hook works them out."""
-    return definition.graph is None and definition.compute_added_inputs is None and definition.compute_outputs is None
-
-
-def _value_problems(definition: NodeDefinition[..., Any], node_id: str, name: str, value: Any) -> list[Problem]:
-    """What is wrong with ``value`` typed into the input ``name``, as loading would say it; nothing for a field not known yet."""
-    spec = definition.inputs.get(name)
-    if spec is None:
-        return []
-    try:
-        refuse_a_bool_for_a_number(spec, value)
-        if spec.shape == "table":
-            read_table(spec, value, strict=False, given=True)
-        elif given_as_items(spec, value):
-            carried_list(spec.type).validate_python(value)
-        elif not (value is None and spec.shape == "many" and spec.default is None):
-            spec.adapter.validate_python(value)
-    except ValidationError as error:
-        return [make_problem("invalid_value", node_id, name, reason=value_free_errors(error)[0]["msg"])]
-    except Refused as refused:
-        return [make_problem("invalid_value", node_id, name, reason=refused.reason, **refused.ctx)]
-    return []
-
-
-def _edge_problems(source: str, target: str, known: Mapping[str, NodeDefinition[..., Any]]) -> list[Problem]:
-    """What is wrong with the edge ``source`` to ``target``: an address that isn't one, a node, output or input not there."""
-    try:
-        _checked_address(source), _checked_address(target)
-    except ValueError as wrong:
-        return [make_problem("invalid_record", "record", "edges", at=f"{source} -> {target}", reason=str(wrong), error="value_error")]
-    to_node, _, to_field = target.partition(".")
-    found = []
-    for node_id in dict.fromkeys((source.partition(".")[0], to_node)):
-        if node_id not in known:
-            found.append(make_problem("edge_names_missing_node", to_node, to_field, node_id=node_id, source=source, target=target))
-    source_id, _, rest = source.partition(".")
-    output, _, column = rest.partition(".")
-    giver = known.get(source_id)
-    if giver is not None and _fields_known(giver):
-        spec = giver.outputs.get(output)
-        if spec is None or (column and spec.shape != "table") or (column and spec.columns is not None and column not in spec.columns):
-            could = [f"{source_id}.{output}.{c}" for c in spec.columns] if column and spec is not None and spec.columns is not None else [f"{source_id}.{o}" for o in giver.outputs]
-            found.append(make_problem("unknown_output", to_node, to_field, source=source, outputs=could, **({"column": column} if column else {})))
-    taker = known.get(to_node)
-    if taker is not None and _fields_known(taker) and to_field not in taker.inputs:
-        found.append(make_problem("unknown_input", to_node, to_field, inputs=list(taker.inputs)))
-    return found
 
 
 def _chain_edge(

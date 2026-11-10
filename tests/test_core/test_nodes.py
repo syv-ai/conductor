@@ -13,6 +13,7 @@ from conductor import (
     Choice,
     Deprecation,
     GraphRecord,
+    InvalidCallError,
     Named,
     NodeDeclarationError,
     NodeRecord,
@@ -386,7 +387,8 @@ def test_a_subclass_lands_where_its_parent_is_asked_for_and_not_the_other_way():
         return t
 
     assert load(make, on_str).run(x="a").results["on_str"]["result"] == "Text"
-    assert codes(load(plain, on_text)) == ["type_mismatch"]
+    mistyped = GraphRecord(nodes=[placed("plain", "plain"), placed("on_text", "on_text")], edges=[("plain.result", "on_text.t")])
+    assert codes(load(plain, on_text, record=mistyped)) == ["type_mismatch"]
 
 
 def test_each_plain_type_carries_its_own_value():
@@ -668,8 +670,9 @@ def test_a_hook_gets_the_typed_in_value_or_else_the_declared_default():
     def fan(n: int = 2) -> dict:
         return {f"o{i}": i for i in range(n)}
 
-    assert load(fan).describe().nodes["fan"].outputs[1].name == "o1"
-    load(fan, values={"fan.n": 3})
+    assert load(fan, record=GraphRecord(nodes=[placed("fan", "fan")])).describe().nodes["fan"].outputs[1].name == "o1"
+    assert seen == [2]
+    load(fan, record=GraphRecord(nodes=[placed("fan", "fan", values={"n": 3})]))
     assert seen == [2, 3]
 
 
@@ -768,7 +771,7 @@ def test_a_hook_reads_any_on_an_input_no_edge_feeds_even_with_a_value_typed_in()
     def f(x: Any) -> dict:
         return {"result": 1}
 
-    load(f)
+    load(f, record=GraphRecord(nodes=[placed("f", "f")]))
     load(f, record=GraphRecord(nodes=[placed("f", "f", values={"x": "typed"})]))
     assert seen == [Any, Any]
 
@@ -1069,5 +1072,9 @@ def test_a_setting_is_never_an_input_of_the_graph_and_the_author_sets_it():
     assert [(p.type, p.loc) for p in registry.load(make_graph(needs_model)).problems] == [("setting_not_set", ("needs-model", "model"))]
     defaulted = registry.load(make_graph(needs_model, defaults={"needs-model.model": "m"}))
     assert defaulted.problems == [] and list(defaulted.inputs) == ["prompt"]
-    fed = registry.load(make_graph(ask_model, needs_model, edges=[("ask-model.result", "needs-model.model"), ("ask-model.result", "needs-model.prompt")]))
+    edges = [("ask-model.result", "needs-model.model"), ("ask-model.result", "needs-model.prompt")]
+    with pytest.raises(InvalidCallError) as refused:
+        make_graph(ask_model, needs_model, edges=edges)
+    assert [(p.type, p.loc) for p in refused.value.errors()] == [("setting_on_edge", ("needs-model", "model"))]
+    fed = registry.load(GraphRecord(nodes=[placed("ask-model", "ask-model"), placed("needs-model", "needs-model")], edges=edges))
     assert [(p.type, p.loc) for p in fed.problems] == [("setting_on_edge", ("needs-model", "model"))]

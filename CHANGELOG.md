@@ -30,7 +30,9 @@ What changes in how you work, before the name-by-name tables:
   calls before a run. A blank skips the node for that row unless its input says `| None`.
 - **Loading never raises for a fault in the graph.** `registry.load(record)` returns a `Graph`;
   read `graph.problems`, each a `Problem(type, loc, msg, ctx)`. Only a record of the wrong shape raises,
-  `InvalidCallError` with the code `invalid_record`.
+  `InvalidCallError` with the code `invalid_record`. `make_graph(*nodes, edges=, values=, defaults=)`
+  writes a record from Python and raises at the call for a fault of what it was told: an address, a
+  value, or an edge whose types don't meet (`type_mismatch`).
 - **A run is one value.** `graph.run(**inputs)` returns a `Run` whose `status` says how the leg
   ended. It pauses for a person (`raise Ask(...)`, then `run.answer(...)` and `run.resume()`), writes
   itself as JSON (`run.to_json()`, `graph.load_run(saved)`) and runs again on changed inputs,
