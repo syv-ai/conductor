@@ -658,9 +658,13 @@ def _column_of(item: Any) -> Any:
     return types.GenericAlias(list, (item,))
 
 
+#: Why a set is refused wherever a list is read or written: its order differs between processes.
+SET_HAS_NO_ORDER = "a set has no order, so its rows would come in another order in another process; give a list"
+
+
 def _not_a_set(value: Any) -> Any:
     if isinstance(value, (set, frozenset)):
-        raise PydanticCustomError("set_has_no_order", "a set has no order, so its rows would come in another order in another process; give a list")
+        raise PydanticCustomError("set_has_no_order", SET_HAS_NO_ORDER)
     return value
 
 

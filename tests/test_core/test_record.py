@@ -313,6 +313,14 @@ def test_make_graph_checks_every_address_and_value_at_the_call_and_lists_every_f
     ]
 
 
+@pytest.mark.parametrize("value", [{"ida", "bo"}, frozenset({"ida"}), [{"ida"}], {"names": {"ida"}}], ids=["set", "frozenset", "in-a-list", "in-a-dict"])
+def test_make_graph_refuses_a_set_typed_in_as_set_has_no_order(value: object):
+    with pytest.raises(InvalidCallError) as refused:
+        make_graph(_hello, values={"hello.name": value})
+    (problem,) = refused.value.errors()
+    assert (problem.type, problem.loc, [e["type"] for e in problem.ctx["errors"]]) == ("invalid_value", ("hello", "name"), ["set_has_no_order"])
+
+
 def test_make_graph_refuses_a_type_mismatch_and_a_field_a_hook_does_not_give_at_the_call():
     @node("fan", compute_outputs=lambda n: {f"o{i}": int for i in range(n)})
     def fan(n: int = 2) -> dict:

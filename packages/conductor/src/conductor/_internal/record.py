@@ -50,6 +50,7 @@ from pydantic_core import PydanticSerializationError, from_json, to_json
 
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.errors import InvalidCallError, NodeDeclarationError, Problem, make_problem
+from conductor._internal.fields import SET_HAS_NO_ORDER
 
 if TYPE_CHECKING:
     from conductor._internal.node_definition import NodeDefinition
@@ -156,10 +157,15 @@ def _said_of_shape(error: Any) -> str:
 
 def typed_in(node_id: str, values: Mapping[str, Any]) -> tuple[dict[str, JsonValue], list[Problem]]:
     """``values`` typed into the node ``node_id`` as its record keeps them, each as its JSON reads back (a date as its ISO
-    text, a float that isn't finite as ``"NaN"`` or ``"Infinity"``); and an ``invalid_value`` for each with no JSON form."""
+    text, a float that isn't finite as ``"NaN"`` or ``"Infinity"``); and an ``invalid_value`` for each with no JSON form,
+    or holding a set, whose JSON would list it in another order in another process (``set_has_no_order``)."""
     typed: dict[str, JsonValue] = {}
     problems: list[Problem] = []
     for name, value in values.items():
+        if _holds_a_set(value):
+            errors = [{"type": "set_has_no_order", "loc": [], "msg": SET_HAS_NO_ORDER}]
+            problems.append(make_problem("invalid_value", node_id, name, reason=SET_HAS_NO_ORDER, errors=errors))
+            continue
         try:
             typed[name] = from_json(to_json(value, inf_nan_mode="strings"))
         except PydanticSerializationError:
@@ -168,6 +174,14 @@ def typed_in(node_id: str, values: Mapping[str, Any]) -> tuple[dict[str, JsonVal
                 reason += "; give a table as a list of rows"
             problems.append(make_problem("invalid_value", node_id, name, reason=reason))
     return typed, problems
+
+
+def _holds_a_set(value: Any) -> bool:
+    if isinstance(value, (set, frozenset)):
+        return True
+    if isinstance(value, dict):
+        return any(map(_holds_a_set, value.values()))
+    return isinstance(value, (list, tuple)) and any(map(_holds_a_set, value))
 
 
 def make_graph(

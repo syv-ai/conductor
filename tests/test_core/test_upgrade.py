@@ -332,6 +332,20 @@ def test_an_output_an_upgrade_renamed_is_accounted_for():
     assert node("o", replaces=node("o")(_older_out), upgrade=Upgrade(renamed_outputs={"x": "y"}))(_newer_out).version == 2
 
 
+def test_a_rewrite_returning_a_set_is_set_has_no_order_at_the_node():
+    def tagged_v1(tag: str) -> str:
+        return tag
+
+    @node("tagged", replaces=node("tagged")(tagged_v1), upgrade=Upgrade(rewrite=lambda typed: {"tags": set(typed.values())}))
+    def tagged(tags: list[str]) -> str:
+        return ",".join(tags)
+
+    with pytest.raises(InvalidCallError) as refused:
+        registry_of(tagged).upgrade(GraphRecord(nodes=[NodeRecord(id="t", node="tagged", values={"tag": "a"})]), "t")
+    (problem,) = refused.value.errors()
+    assert (problem.type, problem.loc, [e["type"] for e in problem.ctx["errors"]]) == ("invalid_value", ("t", "tags"), ["set_has_no_order"])
+
+
 def test_a_rewrite_is_written_as_json_and_one_with_no_json_form_is_invalid_value_at_the_node():
     import datetime
 
