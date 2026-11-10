@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, TypeAliasType
 
 import pytest
 from conductor import Ask, GraphRecord, InvalidCallError, NodeRegistry, Param, Series, node
@@ -287,3 +287,19 @@ def test_a_param_holds_its_limits_inside_a_hosts_own_model_and_its_schema_says_t
         Order(count=-1)
     assert refused.value.errors()[0]["type"] == "greater_than_equal"
     assert Order.model_json_schema()["properties"]["count"] == {"type": "integer", "minimum": 0, "title": "Count"}
+
+
+Tree = TypeAliasType("Tree", "dict[str, Tree] | list[Tree] | int")
+
+
+def test_a_list_given_to_a_type_alias_whose_values_may_be_lists_is_one_value():
+    held = NodeRegistry()
+
+    @held.node("depth")
+    def depth(tree: Tree) -> str:
+        return repr(tree)
+
+    graph = held.load(GraphRecord(nodes=[{"id": "d", "node": "depth"}]))
+
+    assert graph.inputs["tree"].per_item is False
+    assert graph.run(tree=[1, [2]]).outputs == {"d.result": "[1, [2]]"}

@@ -605,12 +605,11 @@ def given_as_items(spec: FieldSpec, value: Any) -> bool:
 
 def _takes_a_list(hint: Any) -> bool:
     """Whether a list is one value of ``hint``: a list's, a tuple's, a set's or a sequence's, ``Any``'s, a union
-    holding one, or any type whose JSON form may be an array (a pydantic ``RootModel`` of a tuple)."""
+    holding one, or any type whose JSON form may be an array (a pydantic ``RootModel`` of a tuple, a type alias such as
+    pydantic's ``JsonValue``)."""
     hint = _unnamed(hint)
     if hint is Any or hint is object or isinstance(hint, TypeVar):
         return True
-    if hasattr(hint, "__value__"):  # a type alias, such as pydantic's JsonValue
-        return _takes_a_list(hint.__value__)
     origin = get_origin(hint)
     if origin in (Union, types.UnionType):
         return any(_takes_a_list(a) for a in get_args(hint))
