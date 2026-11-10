@@ -388,6 +388,19 @@ print(problems({"nodes": [{"id": "m", "node": "model"}]}))  # ['setting_not_set'
 
 **Fix.** Type a value into it. A setting is the graph author's to set, so a caller never fills it.
 
+### `setting_on_edge`
+
+> '{field}' is a setting, which the graph's author types in; remove the edge into it and type a value.
+
+```python
+print(problems({
+    "nodes": [{"id": "a", "node": "upper"}, {"id": "m", "node": "model", "values": {"text": "x"}}],
+    "edges": [["a.result", "m.name"]],
+}))  # ['setting_on_edge']
+```
+
+**Fix.** Type a value into the setting and remove the edge. A setting is the graph author's to set, never fed by another node.
+
 ### `several_edges_into_one_value`
 
 > '{field}' takes one value, and more than one of the edges into it from {sources} can hold one on a row. Feed it from opposite branches of one decision, or take them through a Series or Table input.
