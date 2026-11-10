@@ -941,7 +941,7 @@ def test_a_stopped_leg_with_calls_on_threads_offers_a_checkpoint_before_it_drain
     kinds = [e.type for e in seen]
     (checkpoint,) = [e for e in seen if e.type == "run_checkpoint"]
     assert kinds[-1] == "run_end" and seen[-1].run.status == "cancelled"
-    assert checkpoint.run.results["llm"]["result"] == [None] * 6  # taken as the cancel came, before the calls in flight came back
+    assert checkpoint.run.status == "cancelled" and checkpoint.run.results["llm"]["result"] == [None] * 6  # taken as the cancel came, before the calls in flight came back
     assert 0 < sum(v is not None for v in seen[-1].run.results["llm"]["result"]) == len(calls) < 6
 
 
@@ -951,3 +951,60 @@ def test_checkpoint_every_is_a_number_of_seconds_above_zero(every: Any) -> None:
     with pytest.raises(InvalidCallError) as refused:
         graph.with_inputs(text="a").stream(checkpoint_every=every)
     assert [p.type for p in refused.value.errors()] == ["invalid_checkpoint_every"]
+
+
+def test_each_checkpoint_of_a_leg_that_reuses_earlier_work_resumes_without_a_call():
+    """A checkpoint keeps the earlier work not yet taken as it stood, written after the stream ended or at once."""
+    calls: list[int] = []
+    llm = _counting_llm(calls, 0.0005)
+    graph = registry_of(llm).load(GraphRecord(nodes=[NodeRecord(id="llm", node="llm", many={"n"})]))
+    first = graph.run(n=list(range(300)))
+    calls.clear()
+
+    async def checkpoints() -> list[Any]:
+        return [e.run async for e in first.with_inputs().stream(checkpoint_every=0.0001) if e.type == "run_checkpoint"]
+
+    taken = _bounded(checkpoints())
+    assert len(taken) > 5 and calls == []
+    for snapshot in taken:
+        assert graph.load_run(snapshot.to_json()).resume().results == first.results
+    assert calls == []
+
+
+def test_a_failed_leg_with_calls_on_threads_offers_a_checkpoint_saying_it_failed():
+    @node("flaky", policy=Policy(concurrency=4))
+    def flaky(n: int) -> int:
+        if n == 0:
+            raise RuntimeError("boom")
+        time.sleep(0.3)
+        return n
+
+    graph = registry_of(flaky).load(GraphRecord(nodes=[NodeRecord(id="f", node="flaky", many={"n"})]))
+
+    async def leg() -> list[Any]:
+        return [e async for e in graph.with_inputs(n=[1, 2, 0, 3, 4, 5]).stream(checkpoint_every=60)]
+
+    seen = _bounded(leg())
+    (checkpoint,) = [e for e in seen if e.type == "run_checkpoint"]
+    assert (checkpoint.run.status, checkpoint.run.cause.type) == ("failed", "execution_failed")
+    assert seen[-1].type == "run_end" and seen[-1].status == "failed"
+
+
+def test_an_embeddings_rows_not_called_count_once_however_many_of_its_nodes_were_not():
+    @node("words")
+    def words(text: str) -> Series[str | None]:
+        return [None if w == "_" else w for w in text.split()]
+
+    @node("upper")
+    def upper(text: str) -> str:
+        return text.upper()
+
+    inner = node("twice")(GraphRecord(nodes=[NodeRecord(id="u", node="upper"), NodeRecord(id="v", node="upper")], edges=[("u.result", "v.text")]))
+    graph = registry_of(words, upper, inner).load(GraphRecord(
+        nodes=[NodeRecord(id="w", node="words"), NodeRecord(id="emb", node="twice")], edges=[("w.result", "emb.text")],
+    ))
+    events = _events(graph.with_inputs(text="a _ b _"))
+
+    (complete,) = [e for e in events if e.type == "node_complete" and e.node_id == "emb"]
+    assert (complete.rows, complete.not_called) == (4, 2)
+    assert events[-1].run.not_called == [{"node_id": "emb", "row": (1,), "input": "text"}, {"node_id": "emb", "row": (3,), "input": "text"}]

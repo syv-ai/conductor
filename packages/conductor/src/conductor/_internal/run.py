@@ -318,7 +318,8 @@ class Run:
     def _carried(self, into: Graph | None = None) -> dict[str, dict[str, list[Unit]]]:
         """What a run going on from this one may take: each node's finished and waiting units by what they received, then what this run carried and didn't take.
 
-        ``into`` another graph keeps only the nodes it holds as they are here (by ``reuse_digest``).
+        ``into`` another graph keeps only the nodes it holds as they are here (by ``reuse_digest``): the others' units could
+        never be taken there, and carried they would only make its save larger.
         """
         earlier: dict[str, dict[str, list[Unit]]] = {}
         for n, units in self._units.items():
@@ -373,10 +374,13 @@ class Run:
     @property
     def not_called(self) -> list[dict[str, Any]]:
         """Rows a node wasn't called on because a plain input was blank: which node, row and input."""
-        return [
-            {"node_id": self.graph._outward(n), "row": k, "input": self.graph._outward(f"{n}.{u.question['input']}").partition(".")[2] or u.question["input"]}
-            for n, units in self._units.items() for k, u in units.items() if u.state == "blank" and u.question
-        ]
+        found, seen = [], set()
+        for n, units in self._units.items():
+            for k, u in units.items():
+                if u.state == "blank" and u.question and (place := (self.graph._outward(n), k)) not in seen:  # an embedding's row once, by its first node
+                    seen.add(place)
+                    found.append({"node_id": place[0], "row": k, "input": self.graph._outward(f"{n}.{u.question['input']}").partition(".")[2] or u.question["input"]})
+        return found
 
     @property
     def results(self) -> dict[str, dict[str, Any]]:
@@ -740,10 +744,14 @@ class Run:
                 numbered: dict[Key, Unit] = {(i,): unit for i, (_, unit) in enumerate(listed)}
                 earlier[n] = {"fingerprints": [fp for fp, _ in listed], **_dump_units(self.graph._nodes[n], numbered, keyed=False)}
         inputs = {address: _dump_input(self.graph, address, v) for address, v in self.inputs.items()}
+        non_finite: dict[str, list[list[Any]]] = {}
+        for address, written_input in inputs.items():
+            _find_non_finite(written_input, [], non_finite.setdefault(address, []))
         cause = self.cause.model_dump(mode="json") if self.cause else None
         code = {n: self._ran_as.get(n) or self.graph._nodes[n].reuse_digest for n in {*(n for n, us in self._units.items() if us), *earlier}}
         written = {
-            "graph": self.graph.fingerprint, "status": self.status, "cause": cause, "max_rows": self.max_rows, "inputs": inputs, "units": units, "earlier": earlier,
+            "graph": self.graph.fingerprint, "status": self.status, "cause": cause, "max_rows": self.max_rows, "inputs": inputs,
+            **({"non_finite_inputs": {a: paths for a, paths in non_finite.items() if paths}} if any(non_finite.values()) else {}), "units": units, "earlier": earlier,
             "code": code, "complete": sorted(self._complete),
         }
         return pydantic_core.to_json(written, inf_nan_mode="strings").decode()
@@ -769,6 +777,12 @@ def run_from_json(graph: Graph, saved: str | bytes | Mapping[str, Any]) -> Run:
         if data["graph"] != graph.fingerprint:
             raise InvalidCallError([make_problem("state_of_another_graph", "state", saved=data["graph"], graph=graph.fingerprint)])
         inputs = {address: _load_input(graph, address, v) for address, v in data["inputs"].items()}
+        for address, paths in data.get("non_finite_inputs", {}).items():
+            for path in paths:
+                if path:
+                    _put_non_finite([inputs[address]], [0, *path])
+                elif isinstance(inputs[address], str):
+                    inputs[address] = float(inputs[address])
         run = Run(graph, inputs, max_rows=data["max_rows"], _door=STARTING)
         unknown = sorted(data["units"].keys() - graph._nodes.keys())
         if unknown:
@@ -999,8 +1013,11 @@ def _put_non_finite(values: list[Any], path: list[Any]) -> None:
     for step in path[:-1]:
         holder = holder[step] if isinstance(holder, (dict, list)) else getattr(holder, step)
     last = path[-1]
-    if isinstance(holder, (dict, list)) and isinstance(holder[last], str):
-        holder[last] = float(holder[last])
+    if isinstance(holder, (dict, list)):
+        if isinstance(holder[last], str):
+            holder[last] = float(holder[last])
+    elif isinstance(getattr(holder, last, None), str):  # a model's or a dataclass's field, frozen or not
+        object.__setattr__(holder, last, float(getattr(holder, last)))
 
 
 def _load_frame(spec: FieldSpec, saved: Mapping[str, Any], at: str) -> Frame:
@@ -1068,8 +1085,9 @@ def _dump_input(graph: Graph, address: str, value: Any) -> Any:
     graph_input = _graph_input(graph, address)
     if graph_input.spec.shape == "table" and not graph_input.many:
         return None if value is None else _dump_frame(graph_input.spec, Frame(value.height, value.to_dict(as_series=False)), address)
-    adapter = carried_list(graph_input.spec.type) if graph_input.many else graph_input.spec.adapter
-    return adapter.dump_python(value, mode="json")
+    if graph_input.many:
+        return carried_list(graph_input.spec.type).dump_python(value, mode="json")
+    return carried_list(graph_input.spec.type).dump_python([value], mode="json")[0]  # written as a list is, a float that isn't finite kept
 
 
 def _load_input(graph: Graph, address: str, saved: Any) -> Any:
@@ -1102,20 +1120,22 @@ def _hand_over(loop: asyncio.AbstractEventLoop, events: asyncio.Queue[Any], even
 def _fingerprint(digest: str, kwargs: dict[str, Any], *, plain: bool = False) -> str | None:
     """What a unit of a node (its ``reuse_digest``) received, as a short hash; ``None`` for a value with no JSON form, which is never reused.
 
-    ``plain`` says no input holds a mapping, so the keys need no sorting: the inputs' own order is the node's.
+    ``plain`` says no input holds a mapping, so no key came from a store: the inputs' own order is the node's.
     """
     try:
-        if plain:
-            written = pydantic_core.to_json([digest, kwargs], fallback=_frame_columns)
-        else:
-            written = canonical_json([digest, kwargs], fallback=_frame_columns)  # a mapping's keys may come back from a store in any order
+        written = canonical_json([digest, kwargs], fallback=_frame_columns, sort_keys=not plain)
     except (TypeError, ValueError, pydantic_core.PydanticSerializationError):
         return None
     return hashlib.blake2b(written, digest_size=12).hexdigest()
 
 
-def canonical_json(value: Any, fallback: Callable[[Any], Any] | None = None) -> bytes:
-    """``value`` as JSON with every object's keys sorted, so a value a JSON store gave back in another key order is written alike."""
+def canonical_json(value: Any, fallback: Callable[[Any], Any] | None = None, *, sort_keys: bool = True) -> bytes:
+    """``value`` as JSON to hash, with every object's keys sorted, so a value a JSON store gave back in another key order is written alike.
+
+    Every hash of conductor's is written here. ``sort_keys=False`` is for a caller that knows no key came from a store.
+    """
+    if not sort_keys:
+        return pydantic_core.to_json(value, fallback=fallback)
     plain = pydantic_core.to_jsonable_python(value, fallback=fallback)
     return json.dumps(plain, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
 
@@ -1134,10 +1154,8 @@ def _unit_id(node_id: str, key: Key) -> str:
 def _question_fingerprint(placed: PlacedNode, unit: Unit) -> str:
     """Eight hex digits of which node asks, as which code, and what it received, so a waiting id stops matching when its row holds another question."""
     inputs = (unit.question or {}).get("inputs") or {}
-    if any(isinstance(v, (dict, list)) for v in inputs.values()):
-        written = json.dumps([placed.id, placed.reuse_digest, inputs], sort_keys=True).encode()  # a JSON store may give the keys back in any order
-    else:
-        written = pydantic_core.to_json([placed.id, placed.reuse_digest, sorted(inputs.items())])
+    values = [inputs[name] for name in sorted(inputs)]  # saved, so the names may come back from a store in any order
+    written = canonical_json([placed.id, placed.reuse_digest, values], sort_keys=any(isinstance(v, (dict, list)) for v in values))
     return hashlib.blake2b(written, digest_size=4).hexdigest()
 
 

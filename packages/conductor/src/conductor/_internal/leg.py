@@ -151,7 +151,8 @@ class RunEnd(_EventBase):
 class RunCheckpoint(_EventBase):
     """The run as it stands mid-leg, for a host to store, every ``checkpoint_every`` seconds and once when the leg is stopped.
 
-    ``run`` is a copy, with ``status`` ``running``: ``graph.load_run`` takes its JSON and ``resume()`` calls only
+    ``run`` is a copy, its ``status`` ``running``, or once stopped how it stopped (``cancelled``, ``failed``,
+    ``stopped``, ``timed_out``) with its ``cause``: ``graph.load_run`` takes its JSON and ``resume()`` calls only
     the units it holds no record of, so a process that dies mid-leg repeats at most the calls that were in
     flight. Like ``RunEnd``'s, it stays out of what the event writes.
     """
@@ -205,7 +206,7 @@ class Leg:
         # what only a listener needs
         self.started = {run.graph._outward(n) for n, units in run._units.items() if units}
         #: For an embedding, what each of its nodes came to once complete: all skipped, the rows not called, the rows reused.
-        self.inside: dict[str, dict[str, tuple[bool, int, int, int]]] = {}
+        self.inside: dict[str, dict[str, tuple[bool, int, set[Key], int]]] = {}
         self.touched: set[str] = set()
         #: The nodes said complete, on this leg or on an earlier one; a node an answer finished between legs is said on this one.
         self.complete: set[str] = set(run._complete)
@@ -213,7 +214,8 @@ class Leg:
         for node_id in self.complete & run.graph._spliced:  # an embedding completes once its last node does
             units = run._units[node_id].values()
             skipped = bool(units) and all(u.state == "skipped" for u in units)
-            self.inside.setdefault(run.graph._outward(node_id), {})[node_id] = (skipped, len(units), sum(u.state == "blank" for u in units), 0)
+            blank = {k for k, u in run._units[node_id].items() if u.state == "blank"}
+            self.inside.setdefault(run.graph._outward(node_id), {})[node_id] = (skipped, len(units), blank, 0)
         self.reused = {p.id: 0 for p in self.nodes}
         self.progress_at: dict[str, float] = {}
         self.progress_said: dict[str, int] = {}
@@ -226,6 +228,8 @@ class Leg:
         try:
             if not self._over_ceiling():
                 self._loop()
+            if self.checkpoint_every is not None and self.running:  # stopped with calls on threads: the drain may outlast the process
+                self._checkpoint()
             while self.running and self.run.status != "running":  # calls already made had their effect: keep them, as long as their timeouts allow
                 self._wait()
         finally:
@@ -250,8 +254,6 @@ class Leg:
             if self.stop is not None and (stopped := self.stop()) is not None:
                 self.run.status, self.run.cause = stopped.type.removeprefix("run_"), stopped  # type: ignore[assignment]
                 self._start_nothing_more()
-                if self.checkpoint_every is not None and self.running:  # the drain may outlast the process
-                    self._checkpoint()
             elif self.ready:
                 position, key = heapq.heappop(self.ready)
                 self._try(self.nodes[position], key)
@@ -455,7 +457,6 @@ class Leg:
         self.next_checkpoint = time.monotonic() + self.checkpoint_every
         snapshot = self.run._copy()
         snapshot._earlier = {n: {fp: list(units) for fp, units in by.items()} for n, by in self.run._earlier.items()}  # taking pops from them
-        snapshot.status = "running"
         self.emit(RunCheckpoint(run=snapshot))
 
     def _in_turn(self, placed: PlacedNode, key: Key) -> bool:
@@ -584,13 +585,12 @@ class Leg:
             if placed.level and node_id in self.progress_said:
                 self._progress(placed, last=True)
             skipped = bool(keys) and all(units[k].state == "skipped" for k in keys)
-            not_called = sum(units[k].state == "blank" for k in keys)
             if node_id in self.run.graph._spliced:
-                self._inner_complete(node_id, skipped, len(keys), not_called)
+                self._inner_complete(node_id, skipped, len(keys), {k for k in keys if units[k].state == "blank"})
             elif skipped:
                 self.emit(NodeSkipped(node_id=node_id))
             else:
-                self.emit(NodeComplete(node_id=node_id, rows=len(keys), not_called=not_called, reused_units=self.reused[node_id]))
+                self.emit(NodeComplete(node_id=node_id, rows=len(keys), not_called=sum(units[k].state == "blank" for k in keys), reused_units=self.reused[node_id]))
 
     def _finished(self, placed: PlacedNode) -> bool:
         """Whether every row of ``placed`` is known and none of them is still to run or waiting."""
@@ -599,8 +599,9 @@ class Leg:
         rows = (counted[0][0] if counted else 0) if placed.level else 1
         return known and len(units) == rows and all(u.state != "waiting" for u in units.values())
 
-    def _inner_complete(self, node_id: str, skipped: bool, rows: int, not_called: int) -> None:
-        """A node of an embedding is complete: once all of them are, the embedding is, as one node, its rows the most any of them has."""
+    def _inner_complete(self, node_id: str, skipped: bool, rows: int, not_called: set[Key]) -> None:
+        """A node of an embedding is complete: once all of them are, the embedding is, as one node: its rows the most any of
+        them has, a row not called once however many of its nodes weren't."""
         assert self.emit is not None
         graph = self.run.graph
         outer = graph._outward(node_id)
@@ -612,4 +613,4 @@ class Leg:
             self.emit(NodeSkipped(node_id=outer))
             return
         counts = list(inside.values())
-        self.emit(NodeComplete(node_id=outer, rows=max(r for _, r, _, _ in counts), not_called=sum(n for _, _, n, _ in counts), reused_units=sum(u for _, _, _, u in counts)))
+        self.emit(NodeComplete(node_id=outer, rows=max(r for _, r, _, _ in counts), not_called=len(set().union(*(n for _, _, n, _ in counts))), reused_units=sum(u for _, _, _, u in counts)))

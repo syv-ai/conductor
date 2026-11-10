@@ -598,3 +598,34 @@ def test_a_save_loaded_into_a_graph_that_lost_a_node_is_refused_with_the_graphs_
         narrow.load_run(saved)
 
     assert refused.value.errors() == narrow.problems and (narrow.problems[0].type, narrow.problems[0].loc[0]) == ("unknown_node", gone)
+
+
+def test_a_float_that_is_not_finite_in_a_models_any_field_and_in_a_callers_dict_reads_back_as_the_float():
+    class Reading(BaseModel):
+        v: Any
+        d: dict
+
+    @node("reading")
+    def reading(x: int) -> Reading:
+        return Reading(v=math.nan, d={"w": math.inf})
+
+    @node("readings")
+    def readings(x: int) -> Series[Reading]:
+        return [Reading(v=-math.inf, d={}), Reading(v=1, d={"s": "NaN"})]
+
+    @node("given")
+    def given(options: dict, level: Any) -> str:
+        return repr((options, level))
+
+    record = GraphRecord(nodes=[NodeRecord(id=n, node=n) for n in ("reading", "readings", "given")])
+    graph = registry_of(reading, readings, given).load(record)
+    run = graph.run({"reading.x": 1, "readings.x": 1, "given.options": {"a": math.nan, "b": [math.inf]}, "given.level": -math.inf})
+    _strict(run.to_json())
+    back = _round_trip(run)
+
+    one = back.results["reading"]["result"]
+    assert math.isnan(one.v) and one.d == {"w": math.inf}
+    first, second = back.results["readings"]["result"]
+    assert first.v == -math.inf and second.d == {"s": "NaN"}
+    options = back.inputs["given.options"]
+    assert math.isnan(options["a"]) and options["b"] == [math.inf] and back.inputs["given.level"] == -math.inf
