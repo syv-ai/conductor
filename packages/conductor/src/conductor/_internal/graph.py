@@ -250,7 +250,7 @@ class Graph:
         raise TypeError("a graph is loaded with registry.load(record)")
 
     def _load(
-        self, record: GraphRecord, definitions: Mapping[str, NodeDefinition[..., Any]], embedded_in: tuple[str, ...], alone: dict[Any, list[Problem]],
+        self, record: GraphRecord, definitions: Mapping[str, NodeDefinition[..., Any]], embedded_in: tuple[str, ...], alone: dict[Any, tuple[list[Problem], dict[str, tuple[str, str]], dict[str, str]]],
         listed: frozenset[str] | None,
     ) -> None:
         self.record = record
@@ -291,6 +291,9 @@ class Graph:
         self._graph_inputs: list[tuple[GraphInput, str, FieldSpec, Any, bool]] = []
         #: Each graph input as the run keeps it, by the address of the placed node's input.
         self._input_fields: dict[str, InputField] = {}
+        #: Each first node's input a hook reads and nothing fills, by its placed address: a caller never fills it, and
+        #: a record embedding this graph may type a value into it.
+        self._fixed_open: list[str] = []
         self._position = {r.id: n for n, (r, _) in enumerate(placed_records)}
         self._readers: dict[str, list[PlacedNode]] = {r.id: [] for r, _ in placed_records}
         self._above: dict[str, frozenset[str]] = {}
@@ -324,8 +327,13 @@ class Graph:
     @property
     def outputs(self) -> list[str]:
         """The outputs of the nodes nothing reads, as addresses."""
+        return [address for address, _ in self._last_outputs]
+
+    @functools.cached_property
+    def _last_outputs(self) -> list[tuple[str, str]]:
+        """Each output of the nodes nothing reads: its address in ``outputs``, beside the placed node's address."""
         read = {s.node_id for p in self._nodes.values() for i in p.inputs.values() for s in i.sources}
-        return [self._outward(f"{p.id}.{o}") for p in self._nodes.values() if p.id not in read for o in p.definition.outputs]
+        return [(self._outward(f"{p.id}.{o}"), f"{p.id}.{o}") for p in self._nodes.values() if p.id not in read for o in p.definition.outputs]
 
     @property
     def plan(self) -> dict[str, RunsOn]:
@@ -510,6 +518,28 @@ class Graph:
 
         return run_from_json(self, saved)
 
+    def _offered(self) -> tuple[list[Problem], dict[str, tuple[str, str]], dict[str, str]]:
+        """What this graph offers where it is embedded: its problems, and its inputs and outputs by the name an
+        embedding offers them under, beside the placed address behind each.
+
+        They are this graph's own ``inputs`` and ``outputs``, as its hooks made them, and the open inputs its hooks
+        read, which take a value typed on the embedding; each named by its field where that is unique and else
+        ``node/field``, as a name holds no dot.
+        """
+        keys = [*((f.address, f.key) for f in self._input_fields.values()), *((self._outward(k), k) for k in self._fixed_open)]
+        ins = [(address, (key.rpartition(".")[0], key.rpartition(".")[2])) for address, key in keys]
+        outs = self._last_outputs
+
+        def names(fields: list[tuple[str, Any]]) -> list[str]:
+            fields_only = [address.partition(".")[2] for address, _ in fields]
+            return [f if fields_only.count(f) == 1 else address.replace(".", "/", 1) for f, (address, _) in zip(fields_only, fields, strict=True)]
+
+        return (
+            self.problems,
+            dict(zip(names(ins), (placed for _, placed in ins), strict=True)),
+            dict(zip(names(outs), (placed for _, placed in outs), strict=True)),
+        )
+
     def _placed_as(self, node_id: str) -> list[str]:
         """The placed nodes an id of this record names: the node itself, or every node an embedding put in its place."""
         found = self._placed.get(node_id)
@@ -628,15 +658,17 @@ class Graph:
                 continue
             loaded_alone = (definition.id, definition.version, (*stack, definition.id))
             if loaded_alone not in self._alone:
-                self._alone[loaded_alone] = load_graph(definition.graph, self._definitions, loaded_alone[2], self._alone, listed=frozenset()).problems
-            if self._alone[loaded_alone]:
-                inner_problems = [p.model_dump(mode="json") for p in self._alone[loaded_alone]]
+                self._alone[loaded_alone] = load_graph(definition.graph, self._definitions, loaded_alone[2], self._alone, listed=frozenset())._offered()
+            alone_problems, offered_ins, offered_outs = self._alone[loaded_alone]
+            if alone_problems:
+                inner_problems = [p.model_dump(mode="json") for p in alone_problems]
                 self.problems.append(make_problem("embedded_graph_broken", node_record.id, graph=definition.id, count=len(inner_problems), problems=inner_problems))
                 out.append((node_record, None))
                 continue
             self._embedded[node_record.id] = definition.graph
             inner, inner_edges = self._splice(definition.graph, node_record.id + "/", (*stack, definition.id))
-            ins, outs = _interface(inner, inner_edges, node_record.id + "/", self._seen_as)
+            ins = {name: (node_record.id + "/" + n, i) for name, (n, i) in offered_ins.items()}
+            outs = {name: node_record.id + "/" + address for name, address in offered_outs.items()}
             for name, (inner_node, inner_input) in ins.items():
                 self._seen_as[f"{inner_node}.{inner_input}"] = f"{node_record.id}.{name}"
             for name, address in outs.items():
@@ -815,6 +847,8 @@ class Graph:
                 self.problems.append(make_problem("unbound_on_later_node", placed.id, name))
             else:
                 plan.value = spec.default
+                if first and name in read_at_load:
+                    self._fixed_open.append(f"{placed.id}.{name}")
         if broken or not self._place(placed):
             return
         placed.checked = tuple(name for name, plan in placed.inputs.items() if any(not _settled(plan.spec, s) for s in plan.sources if s.node_id is not None))
@@ -1190,7 +1224,7 @@ class Graph:
 
 
 def load_graph(
-    record: GraphRecord, definitions: Mapping[str, NodeDefinition[..., Any]], embedded_in: tuple[str, ...] = (), alone: dict[Any, list[Problem]] | None = None,
+    record: GraphRecord, definitions: Mapping[str, NodeDefinition[..., Any]], embedded_in: tuple[str, ...] = (), alone: dict[Any, tuple[list[Problem], dict[str, tuple[str, str]], dict[str, str]]] | None = None,
     *, listed: frozenset[str] | None = None,
 ) -> Graph:
     """``record`` loaded against ``definitions``, the one way a ``Graph`` is made; ``embedded_in`` names the graphs it is
@@ -1201,36 +1235,6 @@ def load_graph(
     graph = Graph.__new__(Graph)
     graph._load(record, definitions, embedded_in, {} if alone is None else alone, listed)
     return graph
-
-
-def _interface(
-    placed_records: list[tuple[NodeRecord, NodeDefinition[..., Any] | None]], edges: list[tuple[str, str]], prefix: str, seen_as: Mapping[str, str],
-) -> tuple[dict[str, tuple[str, str]], dict[str, str]]:
-    """An embedded graph's inputs (the open inputs of its first nodes) and outputs (what nothing reads), by name.
-
-    A name is the bare field name where it is unique, else ``node/field`` as the embedded graph's own record says
-    it: a field of a graph embedded in it by that node and the name it offers (``f/x/text``), never a spliced id. A
-    name holds no dot, so an address of it reads ``e.x/text``, and one of a column ``e.x/result.column``.
-    """
-    fed = {b.partition(".")[0] for _, b in edges}
-    read = {a.partition(".")[0] for a, _ in edges}
-    ins = [(r.id, n) for r, d in placed_records if d is not None and r.id not in fed for n, spec in d.inputs.items() if n not in r.values]
-    outs = [(r.id, n) for r, d in placed_records if d is not None and r.id not in read for n in d.outputs]
-
-    def named(fields: list[tuple[str, str]]) -> list[tuple[str, str, str]]:
-        """Each field's node and name as this record shows them, beside its placed address."""
-        shown = []
-        for b, n in fields:
-            node_id, _, name = seen_as.get(f"{b}.{n}", f"{b}.{n}").removeprefix(prefix).partition(".")
-            shown.append((node_id, name, f"{b}.{n}"))
-        return shown
-
-    shown_in, shown_out = named(ins), named(outs)
-    bare_in, bare_out = [n for _, n, _ in shown_in], [n for _, n, _ in shown_out]
-    return (
-        {(n if bare_in.count(n) == 1 else f"{b}/{n}"): tuple(a.rsplit(".", 1)) for b, n, a in shown_in},  # type: ignore[misc]
-        {(n if bare_out.count(n) == 1 else f"{b}/{n}"): a for b, n, a in shown_out},
-    )
 
 
 def _given_from_outside(record: NodeRecord, typed: Mapping[str, Mapping[str, Any]]) -> NodeRecord:

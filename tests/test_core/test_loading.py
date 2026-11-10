@@ -1011,3 +1011,23 @@ def test_a_typeddict_lands_on_one_whose_keys_it_holds_with_types_that_fit():
     assert fits.problems == [] and fits.run().results["g"]["result"] == "Bo"
     assert [p.type for p in misfits.problems] == ["type_mismatch"]
     assert {n.id for n in registry.describe().nodes} == {"contact", "greet", "count"}
+
+
+def _named_inputs(names: list[str] = []) -> dict[str, Any]:  # noqa: B006
+    return {name: str for name in names}
+
+
+@node("adds", compute_added_inputs=_named_inputs)
+def adds(names: list[str] = [], **values: Any) -> str:  # noqa: B006
+    return ",".join(f"{k}={v}" for k, v in values.items())
+
+
+def test_an_embedding_offers_the_fields_its_graph_offers_alone_as_its_hooks_made_them():
+    added = GraphRecord(nodes=[NodeRecord(id="a", node="adds", values={"names": ["who"]})])
+    made = GraphRecord(nodes=[NodeRecord(id="c", node="columns", values={"names": ["x", "y"]})])
+    registry = registry_of(adds, columns, node("box_in")(added), node("box_out")(made))
+    assert list(registry.load(added).inputs) == ["who"]
+    graph = registry.load({"nodes": [{"id": "b", "node": "box_in"}]})
+    assert graph.problems == [] and list(graph.inputs) == ["who"] and graph.run(who="x").outputs == {"b.result": "who=x"}
+    graph = registry.load({"nodes": [{"id": "b", "node": "box_out"}]})
+    assert graph.outputs == ["b.x", "b.y"] and graph.run(text="hi").outputs == {"b.x": "hi", "b.y": "hi"}

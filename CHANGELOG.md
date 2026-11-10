@@ -43,7 +43,8 @@ What changes in how you work, before the name-by-name tables:
   value, or an edge whose types don't meet (`type_mismatch`). A record's `values`, `defaults` and
   `display` are JSON values; `make_graph` writes each value typed in as its JSON, a float that isn't
   finite as `"NaN"` or `"Infinity"`, so a record equals its JSON, and an `upgrade` rewrite is written
-  the same way (`invalid_value` where it has no JSON form).
+  the same way (`invalid_value` where it has no JSON form). A stored graph used as a node offers
+  the inputs and outputs it offers loaded alone, the fields its hooks add included.
 - **A run is one value.** `graph.run(**inputs)` returns a `Run` whose `status` says how the leg
   ended. It pauses for a person (`raise Ask(...)`, then `run.answer(...)` and `run.resume()`), writes
   itself as JSON (`run.to_json()`, `graph.load_run(saved)`; a save that doesn't fit is `state_unreadable`,
