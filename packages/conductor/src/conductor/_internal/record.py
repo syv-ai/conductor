@@ -37,12 +37,15 @@ from collections import Counter
 from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Annotated, Any
 
+import polars as pl
 from pydantic import (
     AfterValidator,
     Field,
+    JsonValue,
     ValidationError,
     field_validator,
 )
+from pydantic_core import PydanticSerializationError, to_jsonable_python
 
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.errors import InvalidCallError, Problem, make_problem
@@ -83,11 +86,11 @@ class NodeRecord(ConductorModel):
     #: Left out of the saved record when it is 1, as is each field below when empty.
     version: int = Field(default=1, exclude_if=lambda version: version == 1)
     #: Typed into these inputs and fixed: no caller may change them.
-    values: Mapping[str, Any] = Field(default_factory=dict, exclude_if=_empty)
+    values: Mapping[str, JsonValue] = Field(default_factory=dict, exclude_if=_empty)
     #: Typed into these inputs, which stay open for a caller to change.
-    defaults: Mapping[str, Any] = Field(default_factory=dict, exclude_if=_empty)
+    defaults: Mapping[str, JsonValue] = Field(default_factory=dict, exclude_if=_empty)
     #: The host's own: position, size, titles a person edited. Stored and never read here.
-    display: Mapping[str, Any] = Field(default_factory=dict, exclude_if=_empty)
+    display: Mapping[str, JsonValue] = Field(default_factory=dict, exclude_if=_empty)
 
 
 class GraphRecord(ConductorModel):
@@ -103,7 +106,7 @@ class GraphRecord(ConductorModel):
     #: ``(from, to)`` pairs of addresses, ``("read.text", "up.text")``; sorted once built.
     edges: Sequence[tuple[Address, Address]] = ()
     #: The host's own about the whole graph: a viewport, flags. Stored, never read here, and no part of the fingerprint.
-    display: Mapping[str, Any] = Field(default_factory=dict, exclude_if=_empty)
+    display: Mapping[str, JsonValue] = Field(default_factory=dict, exclude_if=_empty)
 
     @field_validator("nodes")
     @classmethod
@@ -141,6 +144,21 @@ def as_record(record: GraphRecord | str | bytes | Mapping[str, Any]) -> GraphRec
 def _said_of_shape(error: Any) -> str:
     """pydantic's sentence for a fault of shape; a validator's own sentence keeps only what it says after ``Value error,``."""
     return str(error["msg"]).removeprefix("Value error, ")
+
+
+def typed_in(node_id: str, values: Mapping[str, Any]) -> tuple[dict[str, JsonValue], list[Problem]]:
+    """``values`` typed into the node ``node_id`` as its record keeps them, JSON; and an ``invalid_value`` for each with no JSON form."""
+    typed: dict[str, JsonValue] = {}
+    problems: list[Problem] = []
+    for name, value in values.items():
+        try:
+            typed[name] = to_jsonable_python(value)
+        except PydanticSerializationError:
+            reason = "a value typed into a graph is saved with it as JSON"
+            if isinstance(value, pl.DataFrame):
+                reason += "; give a table as a list of rows"
+            problems.append(make_problem("invalid_value", node_id, name, reason=reason))
+    return typed, problems
 
 
 def make_graph(
@@ -182,14 +200,18 @@ def make_graph(
     ids = _ids_of(nodes)
     known = dict(zip(ids, nodes, strict=True))
     problems: list[Problem] = []
-    typed: dict[str, dict[str, Any]] = {"values": {}, "defaults": {}}
+    typed: dict[str, dict[str, dict[str, JsonValue]]] = {"values": {}, "defaults": {}}
     for kind, given in (("values", values or {}), ("defaults", defaults or {})):
+        by_node: dict[str, dict[str, Any]] = {}
         for address, value in given.items():
             node_id, _, name = address.partition(".")
             if node_id not in known:
                 problems.append(make_problem("node_not_in_graph", node_id, node_id=node_id, nodes=ids))
             else:
-                typed[kind].setdefault(node_id, {})[name] = value
+                by_node.setdefault(node_id, {})[name] = value
+        for node_id, named in by_node.items():
+            typed[kind][node_id], faults = typed_in(node_id, named)
+            problems += faults
     if edges is None:
         edges = []
         for index in range(1, len(nodes)):

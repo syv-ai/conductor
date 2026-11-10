@@ -16,6 +16,7 @@ from conductor import (
     NodeRecord,
     Param,
     Series,
+    Table,
     Upgrade,
     make_graph,
     node,
@@ -668,3 +669,44 @@ def test_make_graph_refuses_a_value_beside_a_default_and_what_is_not_a_node():
     assert sorted(p.type for p in refused.value.errors()) == ["value_and_default"]
     with pytest.raises(TypeError, match="node definitions"):
         make_graph(_hello, "shout")  # type: ignore[arg-type]
+
+
+def test_a_value_typed_in_from_python_is_its_json_so_the_record_equals_its_own_reload():
+    import datetime
+    import enum
+
+    class Color(enum.Enum):
+        RED = "red"
+
+    @node("typed")
+    def typed(when: datetime.date, color: Color, pair: tuple[int, int]) -> str:
+        return f"{when} {color.value} {pair[0]}"
+
+    record = make_graph(typed, values={"typed.when": datetime.date(2026, 1, 2), "typed.color": Color.RED, "typed.pair": (1, 2)})
+    assert record.nodes[0].values == {"when": "2026-01-02", "color": "red", "pair": [1, 2]}
+    reloaded = GraphRecord.model_validate_json(record.model_dump_json())
+    assert reloaded == record
+    loaded, from_json = registry_of(typed).load(record), registry_of(typed).load(reloaded)
+    assert loaded.fingerprint == from_json.fingerprint
+    assert loaded.run().outputs == from_json.run().outputs == {"typed.result": "2026-01-02 red 1"}
+
+
+def test_a_table_typed_in_is_refused_at_the_call_and_said_to_be_given_as_rows():
+    import polars as pl
+
+    @node("count")
+    def count(rows: Table) -> int:
+        return rows.height
+
+    with pytest.raises(InvalidCallError) as refused:
+        make_graph(count, values={"count.rows": pl.DataFrame({"a": [1]})})
+    (problem,) = refused.value.errors()
+    assert (problem.type, problem.loc) == ("invalid_value", ("count", "rows"))
+    assert problem.ctx["reason"] == "a value typed into a graph is saved with it as JSON; give a table as a list of rows"
+
+
+def test_a_record_holds_only_json_in_its_values_and_display():
+    with pytest.raises(ValidationError):
+        GraphRecord(nodes=[], display={"x": object()})
+    with pytest.raises(ValidationError):
+        NodeRecord(id="a", node="a", values={"x": object()})

@@ -61,7 +61,7 @@ from conductor._internal.errors import InvalidCallError, Problem
 from conductor._internal.fields import FieldSpec, without_none
 from conductor._internal.graph import load_graph
 from conductor._internal.node_definition import NodeDefinition
-from conductor._internal.record import GraphRecord, NodeRecord
+from conductor._internal.record import GraphRecord, NodeRecord, typed_in
 from conductor._internal.registry import NodeRegistry
 
 #: One call's inputs, by name.
@@ -126,8 +126,14 @@ def _problem(code: str, node_id: str, version: int | None, message: str, **ctx: 
 
 
 def _placed(version: NodeDefinition[..., Any], values: Mapping[str, Any]) -> GraphRecord:
-    """A graph of this one node, at its version, with ``values`` typed in, placed under its own id."""
-    return GraphRecord(nodes=[NodeRecord(id=version.id, node=version.id, version=version.version, values=values)])
+    """A graph of this one node, at its version, with ``values`` typed in, placed under its own id.
+
+    A value with no JSON form can't be typed into a graph: ``InvalidCallError``, ``invalid_value`` at the node and input.
+    """
+    typed, problems = typed_in(version.id, values)
+    if problems:
+        raise InvalidCallError(problems)
+    return GraphRecord(nodes=[NodeRecord(id=version.id, node=version.id, version=version.version, values=typed)])
 
 
 def _causes(problems: Sequence[Problem]) -> dict[str, Any]:
@@ -156,7 +162,11 @@ def _upgrade_problems(older: NodeDefinition[..., Any], registry: NodeRegistry, g
         values = {name: made for name, spec in older.inputs.items() if (made := _made_up(spec)) is not _CANNOT}
     newest = registry[older.id].version
     try:
-        upgraded = registry.upgrade(_placed(older, values), older.id)
+        placed = _placed(older, values)
+    except InvalidCallError:
+        return []  # the example's own run says what can't be typed in
+    try:
+        upgraded = registry.upgrade(placed, older.id)
     except Exception as raised:  # noqa: BLE001  an upgrade's rewrite is the author's code
         return [_problem("upgrade_broken", older.id, older.version, f"moving to version {newest} raised {type(raised).__name__}: {raised}", error=type(raised).__name__)]
     problems = registry.load(upgraded).problems
@@ -175,10 +185,15 @@ def _run_problems(version: NodeDefinition[..., Any], registry: NodeRegistry, exa
     else:
         watched, changed = _watched(version)
         definitions = {version.id: watched}
-    graph = load_graph(_placed(version, values), definitions)
-    if graph.problems:
-        code = "hook_failed" if all(p.type in _HOOK_CODES for p in graph.problems) else "run_failed"
-        return [_problem(code, version.id, version.version, "the example doesn't load: " + "; ".join(p.msg for p in graph.problems), **_causes(graph.problems))], False
+    try:
+        graph = load_graph(_placed(version, values), definitions)
+    except InvalidCallError as refused:
+        problems = refused.errors()
+    else:
+        problems = graph.problems
+    if problems:
+        code = "hook_failed" if all(p.type in _HOOK_CODES for p in problems) else "run_failed"
+        return [_problem(code, version.id, version.version, "the example doesn't load: " + "; ".join(p.msg for p in problems), **_causes(problems))], False
     try:
         run = graph.run(from_run=from_run)
     except InvalidCallError as refused:

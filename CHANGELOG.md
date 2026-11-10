@@ -36,7 +36,8 @@ What changes in how you work, before the name-by-name tables:
   `InvalidCallError` with the code `invalid_record`. A value typed in or given that its field refuses
   (`invalid_value`, `invalid_input`) carries pydantic's value-free `errors` in `ctx`. `make_graph(*nodes, edges=, values=, defaults=)`
   writes a record from Python and raises at the call for a fault of what it was told: an address, a
-  value, or an edge whose types don't meet (`type_mismatch`).
+  value, or an edge whose types don't meet (`type_mismatch`). A record's `values`, `defaults` and
+  `display` are JSON values; `make_graph` writes each value typed in as its JSON.
 - **A run is one value.** `graph.run(**inputs)` returns a `Run` whose `status` says how the leg
   ended. It pauses for a person (`raise Ask(...)`, then `run.answer(...)` and `run.resume()`), writes
   itself as JSON (`run.to_json()`, `graph.load_run(saved)`; a save that doesn't fit is `state_unreadable`,

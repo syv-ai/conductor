@@ -240,15 +240,25 @@ def test_a_waiver_hides_its_failure_and_one_that_no_longer_fails_is_a_problem():
 
 
 def test_a_value_unequal_to_its_own_copy_is_never_called_changed():
-    class Opaque:
-        pass
-
     @node("reads")
     def reads(values: Series[float], thing: Any) -> int:
         return len(values)
 
-    examples = {"reads": [{"values": [1.0, float("nan")], "thing": Opaque()}]}
+    examples = {"reads": [{"values": [1.0, float("nan")], "thing": float("nan")}]}
     assert found(registry_of(reads), examples=examples) == []
+
+
+def test_an_example_with_no_json_form_is_run_failed_by_its_node_and_input_and_raises_nothing():
+    class Opaque:
+        pass
+
+    @node("takes")
+    def takes(thing: Any) -> str:
+        return repr(thing)
+
+    (problem,) = check_registry(registry_of(takes), examples={"takes": [{"thing": Opaque()}]})
+    assert (problem.type, problem.loc, problem.ctx["cause"]) == ("run_failed", ("takes", 1), ["invalid_value"])
+    assert problem.ctx["problems"][0]["loc"] == ["takes", "thing"]
 
 
 def test_a_body_returning_what_its_type_refuses_is_run_failed():
