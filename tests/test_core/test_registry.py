@@ -683,3 +683,28 @@ def test_a_stored_graphs_fields_are_listed_by_the_registry_that_holds_its_nodes_
     assert alone.is_graph and alone.inputs == [] and alone.outputs == []
     listed = next(n for n in registry.describe().nodes if n.id == "shout")
     assert [f.name for f in listed.inputs] == ["text"] and [f.name for f in listed.outputs] == ["result"]
+
+
+def test_a_stored_graph_is_described_once_until_the_registry_changes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``describe()`` is what an editor's palette asks on every open, so a stored graph's fields are worked out once."""
+    registry = NodeRegistry()
+
+    @registry.node("shout")
+    def shout(text: str) -> str:
+        return text.upper()
+
+    registry.add(node("loud")(GraphRecord(nodes=[NodeRecord(id="s", node="shout")])))
+    loads = []
+    load = NodeRegistry.load
+    monkeypatch.setattr(NodeRegistry, "load", lambda self, record: loads.append(record) or load(self, record))
+
+    first, second = registry.describe(), registry.describe()
+    assert first == second and len(loads) == 1
+
+    @node("shout")
+    def shout_in_words(words: str) -> str:
+        return words.upper()
+
+    registry.replace(shout_in_words)
+    (loud,) = [n for n in registry.describe().nodes if n.id == "loud"]
+    assert [field.name for field in loud.inputs] == ["words"] and len(loads) == 2

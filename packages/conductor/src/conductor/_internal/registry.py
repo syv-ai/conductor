@@ -99,6 +99,8 @@ class NodeRegistry:
         self._nodes: dict[str, NodeDefinition[..., Any]] = {}
         #: Every type, by id: the ones the nodes declare, then the named ones.
         self._types: dict[str, type] = _types_by_id(self._named_types, ())
+        #: Each stored graph's description, by id, as these nodes make it; emptied whenever what is held changes.
+        self._graph_descriptions: dict[str, NodeDescription] = {}
 
     def __repr__(self) -> str:
         """How many nodes it holds, then each as its own repr, one per line."""
@@ -208,6 +210,7 @@ class NodeRegistry:
         """Hold exactly ``nodes`` and ``named_types``, once their types give one class per id."""
         self._types = _types_by_id(named_types, nodes.values())
         self._nodes, self._named_types = nodes, named_types
+        self._graph_descriptions = {}
 
     def _not_here(self, node_id: object) -> KeyError:
         return KeyError(f"{node_id!r} is not registered here; the ids are {', '.join(self._nodes) or 'none'}")
@@ -235,13 +238,14 @@ class NodeRegistry:
         )
 
     def _described(self, definition: NodeDefinition[..., Any]) -> NodeDescription:
-        """A node as the palette shows it; a stored graph with the fields it offers, worked out against this registry."""
-        described = definition.describe()
+        """A node as the palette shows it; a stored graph with the fields it offers, worked out against this registry once."""
         if definition.graph is None:
-            return described
-        placed = self.load(GraphRecord(nodes=[NodeRecord(id="node", node=definition.id, version=definition.version)])).describe().nodes["node"]
-        inputs = [FieldDescription.model_validate(field.model_dump(exclude={"feed"})) for field in placed.inputs]
-        return described.model_copy(update={"inputs": inputs, "outputs": placed.outputs})
+            return definition.describe()
+        if definition.id not in self._graph_descriptions:
+            placed = self.load(GraphRecord(nodes=[NodeRecord(id="node", node=definition.id, version=definition.version)])).describe().nodes["node"]
+            inputs = [FieldDescription.model_validate(field.model_dump(exclude={"feed"})) for field in placed.inputs]
+            self._graph_descriptions[definition.id] = definition.describe().model_copy(update={"inputs": inputs, "outputs": placed.outputs})
+        return self._graph_descriptions[definition.id]
 
     # -- graphs ------------------------------------------------------------------
 
