@@ -726,7 +726,9 @@ class Graph:
                 return read_table(spec, value, strict=False, given=True)
             return spec.adapter.validate_python(value)
         except ValidationError as error:
-            self.problems.append(make_problem("invalid_value", node_id, name, reason=value_free_errors(error)[0]["msg"]))
+            problem = make_problem("invalid_value", node_id, name, reason=value_free_errors(error)[0]["msg"])
+            if problem not in self.problems:  # a hook reads the value its node's input reads, and is told once
+                self.problems.append(problem)
             return REQUIRED
         except Refused as refused:
             self.problems.append(make_problem("invalid_value", node_id, name, reason=refused.reason, **refused.ctx))

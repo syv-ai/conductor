@@ -213,7 +213,7 @@ class Run:
         if value is not _ONE_ANSWER:
             given: Mapping[str, Any] = {unit.id if isinstance(unit, Waiting) else str(unit): value}
         elif isinstance(unit, Mapping):
-            given = unit
+            given = unit if all(isinstance(key, str) for key in unit) else {str(key): one for key, one in unit.items()}
         else:
             raise TypeError("run.answer takes a unit and its answer, or a mapping of unit ids to answers")
         problems: list[Problem] = []

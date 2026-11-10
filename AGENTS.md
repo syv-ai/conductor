@@ -4,7 +4,7 @@ A general-purpose Python library that runs graphs of typed nodes. It serves any 
 
 ## Layout
 
-- `packages/conductor/` (`syv-conductor`, import `conductor`): the engine. Three public modules, `__init__.py`, `widgets.py` (the controls) and `events.py`, plus `about/` and `_internal/`, which holds everything else: `fields.py` reads a signature's annotations into fields and says which types an edge may join, `node_definition.py` is the node contract (`@node`, `Policy`, `Upgrade`), `errors.py` the problems and exceptions, `registry.py`, `record.py` (the stored graph, `make_graph`), `graph.py` (loading: `Graph`, where each node runs), `run.py` (`Run`, the ledger of units and its JSON) and `leg.py` (one leg: the scheduler, retries, events).
+- `packages/conductor/` (`syv-conductor`, import `conductor`): the engine. Four public modules, `__init__.py`, `widgets.py` (the controls), `events.py` and `testing.py` (`check_registry`, one test for a whole registry), plus `about/` and `_internal/`, which holds everything else: `fields.py` reads a signature's annotations into fields and says which types an edge may join, `node_definition.py` is the node contract (`@node`, `Policy`, `Upgrade`), `errors.py` the problems and exceptions, `registry.py`, `record.py` (the stored graph, `make_graph`), `graph.py` (loading: `Graph`, where each node runs), `run.py` (`Run`, the ledger of units and its JSON) and `leg.py` (one leg: the scheduler, retries, events).
 - `tests/`: `test_core`, `test_providers` (the serving recipe and event JSON).
 - `examples/`: Jupyter notebooks. `skills/`: agent skills for adding a node and building a graph.
 
@@ -34,11 +34,11 @@ CI runs ruff and pytest on every PR. Tests marked `slow` time the wall clock and
 - **The widget set is open.** Conductor ships the common controls; a host subclasses `Widget` for its own. Loading and the engine never read a widget. What a value must satisfy goes on `Param` (`ge`, `le`, `max_length`, ...), where it is enforced.
 - **Two definitions under one id raise** when the second is added to a registry; so does one type id from two classes.
 - **Fail loud.** No defensive `None` checks or silent defaults where the state means a bug.
-- **Imports.** Code outside the core library imports only from the three public modules: `conductor`, `conductor.widgets` and `conductor.events`. Inside the core, import a name from the module that defines it. Only those three and `conductor.about` declare `__all__`.
+- **Imports.** Code outside the core library imports only from the four public modules: `conductor`, `conductor.widgets`, `conductor.events` and `conductor.testing`. Inside the core, import a name from the module that defines it. Only those four and `conductor.about` declare `__all__`.
 - **Identifiers are English.**
 - **Notebook outputs are stripped on commit.** Run the cells to see values.
 - **Keep the docs true.** A change to public API updates `README.md`, `docs/`, `llms.txt` and the skills in the same change, and adds a `CHANGELOG.md` line under `[Unreleased]`. Keep every Python block in the docs runnable. Docs describe what the code does; where a commit message and the code disagree, trust the code.
 
 ## Public API
 
-The public API is what the three public modules list in `__all__`. Everything in `conductor._internal`, including anything with a leading underscore, is internal. A breaking change to the public API needs a major version.
+The public API is what the four public modules list in `__all__`. Everything in `conductor._internal`, including anything with a leading underscore, is internal. A breaking change to the public API needs a major version.

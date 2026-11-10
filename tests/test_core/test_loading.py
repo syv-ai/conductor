@@ -340,6 +340,12 @@ def test_a_hook_that_raises_is_a_problem_on_its_node_never_an_exception():
     assert (problem.type, problem.loc, problem.ctx["error"]) == ("compute_hook_failed", ("r",), "ValueError")
 
 
+def test_a_value_its_type_refuses_never_reaches_a_hook_and_is_said_once():
+    # "refuses" reads its mode in a hook; a list typed into the str would have reached it
+    problems = REGISTRY.load({"nodes": [{"id": "r", "node": "refuses", "values": {"mode": ["a", "b"]}}]}).problems
+    assert [(p.type, p.loc) for p in problems] == [("invalid_value", ("r", "mode"))]
+
+
 def test_a_subtype_lands_where_its_parent_is_asked_for_and_not_the_other_way():
     assert _problems({"nodes": [{"id": "n", "node": "name"}, {"id": "u", "node": "upper"}], "edges": [["n.result", "u.text"]]}) == []
     assert _problems({"nodes": [{"id": "u", "node": "upper"}, {"id": "n", "node": "nonempty"}], "edges": [["u.result", "n.text"]]}) == [

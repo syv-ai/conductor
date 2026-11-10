@@ -38,9 +38,9 @@ from conductor._internal.conductor_model import ConductorModel
 
 
 class Widget(ConductorModel):
-    """The base of every control: a ``type`` and what that control needs. A host subclasses it for a control of its own."""
-
-    type: str
+    """The base of every control. Each control declares its own ``type: Literal[...]`` and what it needs; a host
+    subclasses it for a control of its own the same way. The base declares no ``type``, so a subclass's
+    ``Literal`` overrides nothing and passes a strict type checker."""
 
 
 class TextWidget(Widget):

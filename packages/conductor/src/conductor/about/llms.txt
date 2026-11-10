@@ -46,11 +46,11 @@ run.results["join"]["result"]      # "A+B+C": Series[str] received every value o
 `@node("id", version=, title=, description=, category=, tags=, extra=, docs=, policy=, deprecation=, compute_added_inputs=, compute_outputs=, replaces=, upgrade=)` wraps a plain function and returns a frozen, callable `NodeDefinition`; it registers nothing. `@registry.node(...)` takes the same arguments and adds the node to that registry. Only the id is required: the title defaults to the function's name in everyday words, the description to its docstring's first paragraph. `extra` is the host's own JSON about the node, kept and described, never read by conductor.
 
 - Input: `text: str`, or `Annotated[str, Param(title=, description=, widget=, ge=, le=, max_length=, ...)]`. Without a widget an editor shows no control for it: an edge fills it, or a value set in code. A default makes it optional, and is checked against the type where it is written (`default_invalid`). A limit that can't apply to its type (`ge` on a `str`) is refused where it is written (`bound_invalid`).
-- Output: `-> str` is one output named `result`, `Annotated[str, Param(title=)]` says more; a frozen dataclass is one output per field, and `Param(exclusive_group=)` on its fields marks alternatives (at most one holds a value on a row, else `invalid_output`); `-> Mapping[str, Any]` returns the computed outputs by name and needs `compute_outputs`; `-> None` declares no outputs.
+- Output: `-> str` is one output named `result`, `Annotated[str, Param(title=)]` says more; a frozen dataclass is one output per field, and `Param(exclusive_group=)` on its fields marks alternatives (at most one holds a value on a row, else `invalid_output`); any other type is one value, a `dict[str, int]` included; with `compute_outputs` the function returns the outputs the hook gives as a mapping by name; `-> None` declares no outputs.
 - A value can be blank. If an input's type doesn't say `| None` (`email: str | None`), the node isn't called for that row, its outputs are blank there, and `run.not_called` records the node, row and input. `Series[X]` leaves blanks out, row by row across the series inputs on one table; `Series[X | None]` keeps them. Two `Series[X]` inputs reading opposite branches of one decision would lose every row: that is `series_inputs_never_share_a_row`.
 - The function returns `SKIPPED` on a branch not taken and raises `Ask(...)` when a person must answer.
 - What the run supplies arrives through `FromRun[T]` parameters.
-- `@node` checks the function: an `async def`, a parameter with no type, `*args`, `**kwargs` with no `compute_added_inputs`, a `Mapping` return with no hook, and a field name gone from the next version with no `Upgrade` raise `NodeDeclarationError`, with a `code`.
+- `@node` checks the function: an `async def`, a parameter with no type, `*args`, `**kwargs` with no `compute_added_inputs`, a dataclass of outputs that isn't frozen, and a field name gone from the next version with no `Upgrade` raise `NodeDeclarationError`, with a `code`.
 
 ### Versions and Policies
 
@@ -95,7 +95,7 @@ Any type pydantic can check and write as JSON travels on edges: `str`, `int`, `f
 
 - `registry.types`: every type its nodes declare plus `NodeRegistry(types=[...])`, by id; one id claimed by two classes raises (`duplicate_type_id`). `registry.accepted_as(T)`: the ids a value of `T` may land on.
 - `Series[X]`: many values of one type. A plain list to the node and to a type checker. `list[X]` stays one value that is a list.
-- `Table[R]`, whose columns a `TypedDict` names, or bare `Table`: a whole table, a `polars.DataFrame` at run time and to a type checker.
+- `Table[R]`, whose columns a `TypedDict` names, or bare `Table`: a whole table, a `polars.DataFrame` at run time. To a type checker it is a frame that keeps `R`: frame methods need no narrowing, a plain `polars.DataFrame` may be returned, and pyright tells two row types apart (mypy shows `R` but doesn't compare it).
 
 ### The graph record
 
@@ -237,7 +237,7 @@ assert GraphRecord.model_validate_json(text) == record
 
 ## API Reference
 
-Three public modules: `conductor`, `conductor.widgets` and `conductor.events`. Each lists its names in `__all__`; import from nothing else.
+Four public modules: `conductor`, `conductor.widgets`, `conductor.events` and `conductor.testing`. Each lists its names in `__all__`; import from nothing else.
 
 ### conductor
 
@@ -276,6 +276,10 @@ Frozen models with a `type`, and a host subclasses `Widget` for a control of its
 | `FileUpload` | `accept`, `max_size_mb`, `multiple` |
 | `ListWidget` | none |
 
+### conductor.testing
+
+`check_registry(registry, /, *, examples=None, expected_failures=None)` is one test a node package or host runs in CI: `assert check_registry(registry, examples={"upper": [{"text": "hi"}]}) == []`. It returns every problem at once as `Problem`s, `loc` `(node_id, version)`. A body is called only for a node given an example, once per example, through the engine as a graph of that one node; `(id, version)` keys an older version's examples, and a `FromRun` value goes in by its parameter name. The checks: `hook_failed` (a hook fails on the node's defaults and made-up values, or on an example), `needs_example` (a hook reads a required input no value can be made up for), `upgrade_broken` (an older version, moved on with `registry.upgrade`, doesn't load cleanly), `changed_its_inputs` (the body changed a value it was given; rows of a run can share one), `run_failed` (an example didn't run to the end or to a pause), `pause_untested` (the body raises `Ask`, itself or through a function it calls, and no example paused it), `example_for_no_node` and `waiver_not_needed`. `expected_failures={"id:code": "why"}` accepts a failure in the test; one that no longer fails is reported. These codes are the kit's, not in `PROBLEM_CODES`.
+
 ### conductor.events
 
 Every event record: `Event` (the union on `type`), `RunStart`, `NodeStart`, `NodeProgress`, `NodeComplete`, `NodeSkipped`, `NodeFailed`, `NodeRetry`, `UnitWaiting`, `RunEnd`.
@@ -288,7 +292,7 @@ There is no HTTP adapter. `docs/serving-runs.md` is a page of FastAPI routes to 
 
 ```
 packages/
-└── conductor/src/conductor/            __init__, widgets, events: the three public modules
+└── conductor/src/conductor/            __init__, widgets, events, testing: the four public modules
     ├── about/                          this document
     └── _internal/                      everything else; import nothing from here
 ```

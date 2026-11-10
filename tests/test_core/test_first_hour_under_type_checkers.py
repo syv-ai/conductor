@@ -1,4 +1,8 @@
-"""The README's programs and the other first-hour programs pass pyright and mypy strict, and run."""
+"""The README's programs and the other first-hour programs pass pyright and mypy strict, and run.
+
+The first hour includes the custom widget ``docs/widgets.md`` shows, and a ``Table[R]`` whose row type a
+checker keeps.
+"""
 
 from __future__ import annotations
 
@@ -8,10 +12,12 @@ import re
 import shutil
 import subprocess
 import sys
+from typing import Any
 
 import pytest
 
 _README = pathlib.Path(__file__).parents[2] / "README.md"
+_WIDGETS = pathlib.Path(__file__).parents[2] / "docs" / "widgets.md"
 
 _A_FRAME_IN_AND_OUT = """
 from typing import TypedDict
@@ -71,6 +77,53 @@ assert base.load(outer).run().outputs == {"upper.result": "HI"}
 """
 
 
+_A_TABLE_KEEPS_ITS_ROW_TYPE = """
+from typing import TypedDict, assert_type
+
+import polars as pl
+from conductor import Table, node
+
+
+class Sale(TypedDict):
+    region: str
+    amount: int
+
+
+@node("sales")
+def sales() -> Table[Sale]:
+    return pl.DataFrame({"region": ["north", "south"], "amount": [3, 9]})
+
+
+@node("first-row")
+def first_row(table: Table[Sale]) -> Table[Sale]:
+    assert_type(table, Table[Sale])
+    return table.head(1)
+
+
+assert first_row(sales()).height == 1
+"""
+
+#: Two row types a checker tells apart: pyright refuses the ``assert_type``, mypy shows ``Sale`` on ``reveal_type``.
+_TWO_ROW_TYPES = """
+from typing import TypedDict, assert_type, reveal_type
+
+from conductor import Table
+
+
+class Sale(TypedDict):
+    amount: int
+
+
+class Order(TypedDict):
+    id: int
+
+
+def first(sales: Table[Sale]) -> None:
+    reveal_type(sales)
+    assert_type(sales, Table[Order])
+"""
+
+
 def _programs() -> dict[str, str]:
     blocks = re.findall(r"```python\n(.*?)```", _README.read_text(), re.S)
     first = blocks.index(next(block for block in blocks if '@registry.node("exclaim")' in block))
@@ -80,6 +133,8 @@ def _programs() -> dict[str, str]:
         "readme_ask.py": next(block for block in blocks if "raise Ask(" in block),
         "a_frame_in_and_out.py": _A_FRAME_IN_AND_OUT,
         "an_embedded_graph.py": _AN_EMBEDDED_GRAPH,
+        "a_table_keeps_its_row_type.py": _A_TABLE_KEEPS_ITS_ROW_TYPE,
+        "docs_custom_widget.py": next(block for block in re.findall(r"```python\n(.*?)```", _WIDGETS.read_text(), re.S) if "(Widget):" in block),
     }
 
 
@@ -108,7 +163,7 @@ def test_the_first_hour_programs_pass_mypy_strict(programs: list[pathlib.Path], 
     assert done.returncode == 0, done.stdout + done.stderr
 
 
-def test_the_first_hour_programs_pass_pyright_strict(programs: list[pathlib.Path]) -> None:
+def _pyright_strict(programs: list[pathlib.Path]) -> dict[str, Any]:
     pyright = pathlib.Path(sys.executable).with_name("pyright")
     if not pyright.exists() and shutil.which("pyright") is None:
         pytest.skip("pyright is not installed")
@@ -120,5 +175,22 @@ def test_the_first_hour_programs_pass_pyright_strict(programs: list[pathlib.Path
         "venv": pathlib.Path(sys.prefix).name,
     }))
     done = subprocess.run([str(pyright if pyright.exists() else "pyright"), "--outputjson", *map(str, programs)], capture_output=True, text=True, cwd=directory)
-    report = json.loads(done.stdout)
+    report: dict[str, Any] = json.loads(done.stdout)
+    return report
+
+
+def test_the_first_hour_programs_pass_pyright_strict(programs: list[pathlib.Path]) -> None:
+    report = _pyright_strict(programs)
     assert report["summary"]["errorCount"] == 0, json.dumps([d for d in report["generalDiagnostics"] if d["severity"] == "error"], indent=1)
+
+
+def test_a_checker_keeps_a_tables_row_type(tmp_path: pathlib.Path) -> None:
+    program = tmp_path / "two_row_types.py"
+    program.write_text(_TWO_ROW_TYPES)
+    found = _pyright_strict([program])["generalDiagnostics"]
+    assert [d.get("rule") for d in found if d["severity"] == "error"] == ["reportAssertTypeFailure"], found
+    assert any("_RowsOf[Sale]" in d["message"] for d in found if d["severity"] == "information"), found
+    done = subprocess.run(
+        [sys.executable, "-m", "mypy", "--strict", "--cache-dir", str(tmp_path / "cache"), str(program)], capture_output=True, text=True, cwd=tmp_path,
+    )
+    assert "_RowsOf[TypedDict(two_row_types.Sale" in done.stdout, done.stdout

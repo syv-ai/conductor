@@ -6,8 +6,9 @@ A node author writes ``@node`` functions with ``Param``, ``Series``, ``Table``,
 takes answers, resumes and goes again, and is JSON throughout.
 
 This package is the main public door. With ``conductor.widgets`` (the input
-controls) and ``conductor.events`` (what a run says as it goes) it is
-everything a caller outside the library imports; ``__all__`` lists it.
+controls), ``conductor.events`` (what a run says as it goes) and
+``conductor.testing`` (one test for a whole registry) it is everything a
+caller outside the library imports; ``__all__`` lists it.
 Everything in ``conductor._internal`` is the library's own and may move.
 """
 
@@ -30,7 +31,7 @@ from conductor._internal.registry import NodeRegistry
 from conductor._internal.run import Run
 
 if TYPE_CHECKING:
-    # A node takes and returns frames; a type checker reads ``Table[R]`` as one.
+    # A node takes and returns frames; a type checker reads ``Table[R]`` as one that keeps its row type ``R``.
     from conductor._internal.table_as_a_type_checker_reads_it import Table
 else:
     from conductor._internal.fields import Table

@@ -52,6 +52,18 @@ assert registry["greet"] is greet
 
 `@registry.node` takes `@node`'s arguments and adds the node; plain `@node` registers nothing, and `registry.add(node_a, node_b)` adds such nodes later. A module keeps a registry of its own (`NodeRegistry(category=, tags=, extra=)` set its nodes' defaults) and the host joins them with `registry.add_subregistry(module_registry)`. Two definitions under one id raise; `replace` and `remove` change one, and `registry.filter(predicate)` is a narrower registry. `extra=` is your own JSON about a node, which conductor keeps and never reads.
 
+## Testing a registry
+
+`upper("a")` tests one node. One test covers what a declaration can't show, for a whole registry: a hook that fails, an upgrade that breaks a saved node, a body that changes what it was given, an example that fails or a pause no example reaches.
+
+```python
+from conductor.testing import check_registry
+
+assert check_registry(registry, examples={"greet": [{"name": "Ida"}]}) == []
+```
+
+A body is called only for a node given an example (a node may send mail), once per example, through the engine. `("greet", 1)` keys an older version's examples, and a `FromRun` value goes in by its parameter name. `expected_failures={"greet:run_failed": "why"}` accepts a known failure in the test; one that no longer fails is reported.
+
 ## Common mistakes
 
 | Mistake | Fix |

@@ -473,6 +473,15 @@ def test_every_fault_of_one_answer_call_is_refused_at_once_and_nothing_is_answer
     assert [place(w) for w in run.waiting] == ["q@1", "q@2"]
 
 
+def test_answering_by_row_with_ids_that_are_no_waiting_id_is_refused_as_problems():
+    gate, _ = _counted()
+    _, run = _asking(gate, text="b1,b2")
+    faults = _refused(lambda: run.answer({0: "B1", None: "B2", "q@x": "B", "q": "B", "q@0@1": "B"}))  # type: ignore[dict-item]
+    assert [(f.type, f.loc) for f in faults] == [
+        ("not_waiting", ("0",)), ("not_waiting", ("None",)), ("not_waiting", ("q",)), ("not_waiting", ("q",)), ("not_waiting", ("q", 0, 1)),
+    ]
+
+
 def test_one_answer_is_a_unit_and_its_value_and_several_a_mapping():
     gate, _ = _counted()
     _, run = _asking(gate, text="b1,b2")

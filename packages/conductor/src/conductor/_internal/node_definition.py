@@ -15,8 +15,8 @@ in everyday words and the description to its docstring's first paragraph.
 ``extra`` is the host's own JSON about the node, which conductor keeps and
 never reads.
 
-One output is ``result``; a frozen dataclass returned gives one output per
-field. ``Series[X]`` and ``Table[R]`` give many rows, ``SKIPPED`` on an output
+One output is ``result``, of whatever type is returned, a ``dict`` included;
+a frozen dataclass returned gives one output per field. ``Series[X]`` and ``Table[R]`` give many rows, ``SKIPPED`` on an output
 is a branch not taken, and ``raise Ask(...)`` stops the row for a person.
 
 A newer version of a node names the one it ``replaces``, itself a ``@node``
@@ -361,11 +361,6 @@ def _read_signature(where: str, function: Callable[..., Any], computed_outputs: 
             raise NodeDeclarationError(f"{where}a dataclass of outputs is frozen", code="outputs_not_frozen")
         own = typing.get_type_hints(returns, include_extras=True)
         return inputs, {f.name: read_field(f.name, own[f.name], _declared_default(f), where=where) for f in dataclasses.fields(returns)}, returns
-    if typing.get_origin(returns) in (dict, Mapping) or returns in (dict, Mapping, Any):
-        raise NodeDeclarationError(
-            f"{where}return one type, or a frozen dataclass for several outputs, not {returns!r}; outputs that depend on the graph come from compute_outputs",
-            code="mapping_return_without_hook",
-        )
     return inputs, {"result": read_field("result", returns, where=where)}, returns
 
 

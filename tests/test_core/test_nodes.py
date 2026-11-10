@@ -139,18 +139,28 @@ def test_a_bound_written_wrong_is_refused_where_it_is_written():
     def on_table(x: Annotated[Table, Param(min_length=1)]) -> int:
         return 0
 
-    for wrong in (on_text, on_table):
+    def on_text_or_blank(x: Annotated[str | None, Param(ge=0)] = None) -> str:
+        return ""
+
+    def on_texts(x: Annotated[Series[str], Param(ge=0)]) -> str:
+        return ""
+
+    for wrong in (on_text, on_table, on_text_or_blank, on_texts):
         with pytest.raises(NodeDeclarationError) as raised:
             declared(wrong)
         assert raised.value.code == "bound_invalid"
 
 
-def test_a_return_must_be_one_type_or_a_frozen_dataclass_unless_a_hook_gives_the_outputs():
-    def mapping(x: int) -> dict[str, int]:
-        return {}
+def test_a_dict_returned_is_one_output_and_only_a_loose_dataclass_is_refused():
+    def summary(labels: Series[str]) -> dict[str, int]:
+        return {label: labels.count(label) for label in labels}
 
     def anything(x: int) -> Any:
         return x
+
+    for one in (summary, anything):
+        assert list(declared(one).outputs) == ["result"], one
+    assert load(declared(summary)).run(labels=["a", "b", "a"]).outputs == {"x.result": {"a": 2, "b": 1}}
 
     @dataclass
     class Loose:
@@ -159,10 +169,9 @@ def test_a_return_must_be_one_type_or_a_frozen_dataclass_unless_a_hook_gives_the
     def loose(x: int) -> Loose:
         return Loose(x)
 
-    for wrong, code in ((mapping, "mapping_return_without_hook"), (anything, "mapping_return_without_hook"), (loose, "outputs_not_frozen")):
-        with pytest.raises(NodeDeclarationError) as raised:
-            declared(wrong)
-        assert raised.value.code == code, wrong
+    with pytest.raises(NodeDeclarationError) as raised:
+        declared(loose)
+    assert raised.value.code == "outputs_not_frozen"
 
 
 def test_a_class_pydantic_cannot_check_is_refused_at_declaration():

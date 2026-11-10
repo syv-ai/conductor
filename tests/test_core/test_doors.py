@@ -1,4 +1,4 @@
-"""The three public doors: ``conductor``, ``conductor.widgets`` and ``conductor.events``.
+"""The public doors: ``conductor``, ``conductor.widgets``, ``conductor.events`` and ``conductor.testing``.
 
 Everything a caller outside the library needs is exported from one of
 these, and each lists its names in ``__all__``. The lists are pinned here
@@ -32,13 +32,14 @@ DOORS: dict[str, list[str]] = {
         "Event", "NodeComplete", "NodeFailed", "NodeProgress", "NodeRetry", "NodeSkipped", "NodeStart",
         "RunEnd", "RunStart", "UnitWaiting",
     ],
+    "conductor.testing": ["check_registry"],
 }
 
 
 def test_the_package_holds_the_doors_and_one_private_directory():
     package = ROOT / "packages" / "conductor" / "src" / "conductor"
     entries = {entry.name for entry in package.iterdir() if entry.name != "__pycache__"}
-    assert entries == {"__init__.py", "widgets.py", "events.py", "about", "_internal", "py.typed"}
+    assert entries == {"__init__.py", "widgets.py", "events.py", "testing.py", "about", "_internal", "py.typed"}
 
 
 @pytest.mark.parametrize("door", sorted(DOORS))

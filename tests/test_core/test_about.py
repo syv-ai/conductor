@@ -103,9 +103,9 @@ def test_cli_help_flag():
 
 
 def _library_names() -> set[str]:
-    """Every name a reader can import: what the three doors list, typing's and the builtins."""
+    """Every name a reader can import: what the doors list, typing's and the builtins."""
     names = set(dir(typing)) | set(dir(builtins))
-    for door in ("conductor", "conductor.widgets", "conductor.events"):
+    for door in ("conductor", "conductor.widgets", "conductor.events", "conductor.testing"):
         names.update(importlib.import_module(door).__all__)
     return names
 

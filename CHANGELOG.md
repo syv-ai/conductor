@@ -11,8 +11,8 @@ Ships as 2.0.0, a new major. The node contract, the graph record, loading and th
 replaced, and no alias keeps a 1.x name alive. A 1.x graph does not load as saved; a host converts
 its stored graphs itself. What a 1.x user changes:
 
-- **Imports.** Import from `conductor`, `conductor.widgets` and `conductor.events`; everything else is
-  `conductor._internal`. Conductor depends on `polars>=2.0` and `pydantic>=2.11`.
+- **Imports.** Import from `conductor`, `conductor.widgets`, `conductor.events` and
+  `conductor.testing`; everything else is `conductor._internal`. Conductor depends on `polars>=2.0` and `pydantic>=2.11`.
 - **A node.** `BaseNode` is a plain function under `@registry.node("id")`, or under `@node("id")`,
   which takes the same arguments and registers nothing. Either returns a frozen, callable
   `NodeDefinition`; `name=` is gone. `async def` isn't allowed. `NodeCategory` and auto-discovery are
@@ -26,7 +26,8 @@ its stored graphs itself. What a 1.x user changes:
   `registry.describe()` is the palette as JSON.
 - **Inputs and outputs.** The type hints are the interface: `text: str`, or
   `Annotated[str, Param(title=..., widget=..., ge=..., max_length=...)]`. `-> str` is one output
-  named `result`, a frozen dataclass is one output per field, and `Param(title=...)` titles one. A
+  named `result`, and so is any other type, a `dict` included; a frozen dataclass is one output per
+  field, and `Param(title=...)` titles one. A
   default is checked where it is written, and so is a limit against its type: `x: int = "abc"` and
   `Param(ge=0)` on a `str` are each a `NodeDeclarationError` at import.
 - **Fields that depend on configuration** come from `compute_added_inputs=` and `compute_outputs=`,
@@ -49,7 +50,8 @@ its stored graphs itself. What a 1.x user changes:
   `ExternalFailure` for what the outside world caused.
 - **Widgets.** A widget is the control alone, with a `type`, and no type has a default one.
   Conductor ships text, textarea, dropdown, number, range, switch, date, file and list, and a host
-  subclasses `Widget` for its own. The limits of a value go on the `Param` (`ge`, `le`, `min_length`,
+  subclasses `Widget` for its own, declaring its `type` as a `Literal` (the base declares none, so the
+  subclass passes mypy and pyright strict). The limits of a value go on the `Param` (`ge`, `le`, `min_length`,
   `max_length`, `pattern`), where they are enforced on every value typed in or given. `Checkbox`,
   `Multiselect`, `DependentDropdown`, `HumanReview`, `TableSource`, `ConditionBuilder` and
   `ColumnSelect` are gone, and so is the widget called `Output`.
@@ -65,7 +67,8 @@ its stored graphs itself. What a 1.x user changes:
   are `two_typed_in_lists`. Rows of two
   different tables never meet by themselves (`rows_not_related`): join them on a key in a node.
   `max_rows=` on a run is a ceiling checked before any node is called on the rows (`row_ceiling`).
-- **Tables.** `Table[TypedDict]` is a whole table, a `polars.DataFrame`. Columns wired into one
+- **Tables.** `Table[TypedDict]` is a whole table, a `polars.DataFrame`, which to a type checker
+  keeps its row type. Columns wired into one
   `Table` input are read along one path of the row tree, a parent's value copied down onto its
   children's rows.
 - **Graphs.** `Flow` is a `GraphRecord`, plain data: `{"nodes": [...], "edges": [["a.result",
@@ -130,6 +133,10 @@ its stored graphs itself. What a 1.x user changes:
   own application; it needs `fastapi>=0.135`. `/nodes` is `registry.describe()`, `/load` is
   `registry.load(graph).describe()`, and `context_factory` is a `Depends` on your route, passed as
   `from_run`.
+- **Testing nodes.** `conductor.testing.check_registry(registry, examples=...)` is one test for a
+  whole registry: a hook that fails, an upgrade that breaks a saved node, a body that changes what it
+  was given, an example that fails, and a body that raises `Ask` with no example that paused it. A
+  body is called only for a node given an example.
 - **Canvas.** `conductor_providers.react` is gone: `graph_to_react`, `react_to_graph` and
   `topological_positions`. A canvas stores the `GraphRecord` as it is, its edges as drawn and a
   node's position in `node.display["position"]`; for layout, use the canvas's own engine.
