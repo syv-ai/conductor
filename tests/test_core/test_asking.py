@@ -174,7 +174,7 @@ class Review:
 
 @node("review")
 def review(name: str) -> Review:
-    raise Ask(f"Review {name}", defaults={"amount": 100.0}, widgets={"note": Textarea(rows=6)})
+    raise Ask(f"Review {name}", default={"amount": 100.0}, widget={"note": Textarea(rows=6)})
 
 
 def test_a_frozen_dataclass_is_a_form_of_one_question_per_field():
@@ -365,8 +365,8 @@ def test_a_reader_left_with_no_rows_by_an_answer_shows_so_before_the_next_leg():
     (lambda: Ask("?", choices=["a"], default="b"), "the default for 'result' is not an answer it takes: the answer is not one of the choices"),
     (lambda: Ask("?", choices=["a", "a"]), "a choice for 'result' is offered twice"),
     (lambda: Ask("?", choices=[]), "'result' is offered no choices"),
-    (lambda: Ask("?", choice=["a"]), "Ask has no argument 'choice'; it takes choices, default, widget, defaults, widgets"),  # type: ignore[call-arg]
-    (lambda: Ask("?", defaults={"result": "a"}), "the node has one output, so it takes default=, widget= and a list of choices"),
+    (lambda: Ask("?", choice=["a"]), "Ask has no argument 'choice'; it takes choices, default, widget"),  # type: ignore[call-arg]
+    (lambda: Ask("?", choices={"result": ["a"]}), "the choices for 'result' are a list"),
 ])
 def test_a_node_asking_what_its_output_cant_be_answered_with_fails_naming_why(ask, reason):
     @node("wrong")
@@ -378,9 +378,9 @@ def test_a_node_asking_what_its_output_cant_be_answered_with_fails_naming_why(as
 
 
 @pytest.mark.parametrize(("ask", "reason"), [
-    (lambda: Ask("?", default={"keep": "a"}), "the node has 2 outputs, so it takes defaults=, widgets= and choices= by output name"),
-    (lambda: Ask("?", defaults={"stay": "a"}), "the default names 'stay', which is not an output; the outputs are keep, drop"),
-    (lambda: Ask("?", choices=["a"]), "the node has 2 outputs, so it takes defaults=, widgets= and choices= by output name"),
+    (lambda: Ask("?", default="a"), "the node has 2 outputs, so it is answered by output name, and default= goes by output name too"),
+    (lambda: Ask("?", default={"stay": "a"}), "the default names 'stay', which is not an output; the outputs are keep, drop"),
+    (lambda: Ask("?", choices=["a"]), "the node has 2 outputs, so it is answered by output name, and choices= goes by output name too"),
 ])
 def test_a_node_of_several_outputs_asks_by_output_name(ask, reason):
     @node("wrong")

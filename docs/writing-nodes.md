@@ -174,7 +174,7 @@ run = registry.load(make_graph(assign)).run(ticket="T-1")
 print(run.waiting[0].questions[0].choices)  # [{'id': 'ida', 'title': 'ida'}, {'id': 'bo', 'title': 'bo'}]
 ```
 
-For a node with several outputs, give them by output name with `choices`, `defaults` and `widgets`. A `Choice(id, title)` gives a choice a title of its own:
+A node with several outputs is answered by output name, so `choices`, `default` and `widget` go by output name too, naming only the outputs they are for. A `Choice(id, title)` gives a choice a title of its own:
 
 ```python
 from conductor import Choice
@@ -193,7 +193,7 @@ def review(proposal: str) -> Review:
     raise Ask(
         f"Review: {proposal}",
         choices={"owner": [Choice("ida", "Ida B."), Choice("bo", "Bo K.")]},
-        widgets={"note": Textarea()},
+        widget={"note": Textarea()},
     )
 
 

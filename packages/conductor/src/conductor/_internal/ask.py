@@ -43,9 +43,7 @@ class AskArguments(TypedDict, total=False):
 
     choices: Sequence[Any] | Mapping[str, Sequence[Any]]
     default: Any
-    widget: Widget | Mapping[str, JsonValue]
-    defaults: Mapping[str, Any]
-    widgets: Mapping[str, Widget | Mapping[str, JsonValue]]
+    widget: Widget | Mapping[str, JsonValue] | Mapping[str, Widget | Mapping[str, JsonValue]]
 
 
 class Ask(BaseException):
@@ -55,8 +53,9 @@ class Ask(BaseException):
     ``choices`` limits the answer to these values (each a value, or a
     ``Choice`` to give it a title; a pick of several for a ``Series``),
     ``default`` proposes an answer and ``widget`` is a control of the host's,
-    as on ``Param``. For a node with several outputs the same go by output
-    name: ``choices`` a mapping, ``defaults`` and ``widgets``. A question with
+    as on ``Param``. Each has the shape of the answer: for a node with
+    several outputs, which is answered by output name, each is a mapping by
+    output name, and may name only some of them. A question with
     a default may be left out of the answer. Nothing runs for the row until an
     answer arrives; the answer is the node's outputs, and the node is not
     called again for that row::
@@ -112,18 +111,13 @@ def asked(ask: Ask, definition: NodeDefinition[..., Any]) -> dict[str, dict[str,
     if unknown:
         raise WrongAsk(f"Ask has no argument '{unknown[0]}'; it takes {', '.join(AskArguments.__annotations__)}")
     lone = next(iter(outputs)) if len(outputs) == 1 else None
-    by_name = isinstance(given.get("choices"), Mapping)
-    if lone is not None:
-        if "defaults" in given or "widgets" in given or by_name:
-            raise WrongAsk("the node has one output, so it takes default=, widget= and a list of choices")
-        choices, defaults, widgets = ({lone: given[kind]} if kind in given else {} for kind in ("choices", "default", "widget"))
-    else:
-        if "default" in given or "widget" in given or ("choices" in given and not by_name):
-            raise WrongAsk(f"the node has {len(outputs)} outputs, so it takes defaults=, widgets= and choices= by output name")
-        choices, defaults, widgets = (dict(given.get(kind) or {}) for kind in ("choices", "defaults", "widgets"))
     added: dict[str, dict[str, Any]] = {}
-    for kind, given in (("choices", choices), ("default", defaults), ("widget", widgets)):
-        for name, value in given.items():
+    for kind in AskArguments.__annotations__:  # choices first: a default is held to them
+        if kind not in given:
+            continue
+        if lone is None and not isinstance(given[kind], Mapping):
+            raise WrongAsk(f"the node has {len(outputs)} outputs, so it is answered by output name, and {kind}= goes by output name too")
+        for name, value in ({lone: given[kind]} if lone is not None else given[kind]).items():
             spec = outputs.get(name)
             if spec is None:
                 raise WrongAsk(f"the {kind} names '{name}', which is not an output; the outputs are {', '.join(outputs) or 'none'}")

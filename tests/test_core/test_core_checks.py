@@ -256,7 +256,7 @@ def test_ask_forms_and_several():
 
     @node("review")
     def review(name: str) -> Review:
-        raise Ask(f"Review {name}", defaults={"approved": True, "note": ""})
+        raise Ask(f"Review {name}", default={"approved": True, "note": ""})
 
     @node("tags")
     def tags(name: str) -> Series[str]:

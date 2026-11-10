@@ -48,7 +48,7 @@ class Review:                         # a form: one question per field; a field'
 @node("review", title="Review", category="review")
 def review(proposal: str) -> Review:
     # several outputs: what the run knows goes by output name
-    raise Ask(f"Review {proposal}", choices={"owner": [Choice("ida", "Ida B."), Choice("bo", "Bo K.")]}, widgets={"note": Textarea()})
+    raise Ask(f"Review {proposal}", choices={"owner": [Choice("ida", "Ida B."), Choice("bo", "Bo K.")]}, widget={"note": Textarea()})
 
 
 def fetch_v1(url: Annotated[str, Param(title="URL", widget=TextInput())]) -> Annotated[str, Param(title="Body")]:
