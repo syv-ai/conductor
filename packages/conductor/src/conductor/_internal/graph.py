@@ -938,9 +938,7 @@ class Graph:
                     self.problems.append(make_problem("hook_needs_value", record.id, name))
                     return None
                 if raw is not REQUIRED and given_as_items(spec, raw):  # the input would take it as rows; the hook can't
-                    problem = make_problem("invalid_value", record.id, name, reason="a hook works out this node's fields from one value; a list can't be typed in here")
-                    if problem not in self.problems:  # both hooks of a node read it
-                        self.problems.append(problem)
+                    self.problems.append(make_problem("invalid_value", record.id, name, reason="a hook works out this node's fields from one value; a list can't be typed in here"))
                     return None
                 value = spec.default if raw is REQUIRED else self._typed(record.id, name, spec, raw)
                 if value is REQUIRED:
