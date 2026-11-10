@@ -20,6 +20,7 @@ from conductor import (
     InvalidCallError,
     NodeRecord,
     Param,
+    Policy,
     RunsOn,
     Series,
     Table,
@@ -1606,6 +1607,23 @@ def test_the_row_ceiling_counts_a_typed_list_s_rows_under_every_row_it_goes_unde
 
     assert (stopped.status, stopped.cause.ctx["table"], stopped.cause.ctx["rows"]) == ("stopped", "q.question", 9) and calls == []
     assert stopped.resume(max_rows=9).status == "complete" and len(calls) == 9
+
+
+@pytest.mark.timeout(10)
+def test_the_row_ceiling_stops_a_leg_whose_rows_wait_for_a_thread_and_resuming_calls_each_row_once():
+    calls: list[str] = []
+
+    @node("explode", policy=Policy(concurrency=2))
+    def explode(letter: str) -> Series[str]:
+        calls.append(letter)
+        return [letter + str(i) for i in range(10)]
+
+    loaded = graph({"id": "s", "node": "split"}, {"id": "e", "node": "explode"}, edges=(("s.result", "e.letter"),), registry=registry_of(split, explode))
+
+    stopped = loaded.run(text=",".join("abcdefghij"), max_rows=15)
+
+    assert (stopped.status, stopped.cause.type) == ("stopped", "row_ceiling") and len(calls) < 10
+    assert stopped.resume(max_rows=100).status == "complete" and sorted(calls) == list("abcdefghij")
 
 
 def test_a_sibling_gather_says_it_gathers_under_the_row_the_two_share():

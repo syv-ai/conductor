@@ -528,11 +528,13 @@ class Leg:
             self._made(address, rows * len(self.run._given(address)))
 
     def _over_ceiling(self) -> bool:
+        """Whether a table holds more rows than ``max_rows``; if so the run stops, and starts nothing more."""
         limit = self.run.max_rows
         if limit is not None:
             for table, count in self.made.items():
                 if count > limit:
                     self.run._stop(table, count)
+                    self._start_nothing_more()
                     return True
         return False
 
