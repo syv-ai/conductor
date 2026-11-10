@@ -513,7 +513,11 @@ class Graph:
         return self.with_inputs(inputs, max_rows=max_rows, **by_name).resume(from_run=from_run, timeout=timeout)
 
     def load_run(self, saved: str | bytes | Mapping[str, Any]) -> Run:
-        """A run of this graph from what ``run.to_json()`` wrote, compiled for the lists it was given; a graph with problems refuses it with them."""
+        """A run of this graph from what ``run.to_json()`` wrote, compiled for the lists it was given; a graph with problems refuses it with them.
+
+        A save is read from its JSON text, a mapping written as JSON first, so a float marked as not finite is in
+        place before each value's type reads it.
+        """
         from conductor._internal.run import run_from_json
 
         return run_from_json(self, saved)

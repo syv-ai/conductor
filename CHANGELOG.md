@@ -50,8 +50,8 @@ What changes in how you work, before the name-by-name tables:
   a stored graph refuses a `policy` or a hook as `not_for_a_graph`.
 - **A run is one value.** `graph.run(**inputs)` returns a `Run` whose `status` says how the leg
   ended. It pauses for a person (`raise Ask(...)`, then `run.answer(...)` and `run.resume()`), writes
-  itself as JSON (`run.to_json()`, `graph.load_run(saved)`; a save that doesn't fit is `state_unreadable`,
-  `ctx.at` its place in the save) and runs again on changed inputs,
+  itself as JSON (`run.to_json()`, `graph.load_run(saved)`, which reads a save from its JSON text; a save that
+  doesn't fit is `state_unreadable`, `ctx.at` its place in the save) and runs again on changed inputs,
   calling only the rows that changed (`run.again(...)`).
 - **Only an outside failure is retried.** `ExternalFailure`, or a class in `Policy(retry_on=)`;
   a `NodeError`, a wrong output or an `Ask` never is, whatever `retry_on` names.

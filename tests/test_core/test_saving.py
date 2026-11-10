@@ -206,6 +206,28 @@ def test_a_blank_returned_for_a_blank_taking_series_is_saved_and_read_back_as_a_
     assert _round_trip(run).results["m"]["result"] is None
 
 
+def test_a_float_that_is_not_finite_in_a_tuple_its_type_reads_back_comes_back_the_float():
+    """A ``tuple`` inside a ``dict`` output or a model's field is a list in the save; its ``nan`` reads back all the same."""
+
+    class Point(BaseModel):
+        xy: tuple[float, Any]
+
+    @node("pair")
+    def pair(text: str) -> dict[str, tuple[Any, ...]]:
+        return {"a": (math.nan, text)}
+
+    @node("point")
+    def point(text: str) -> Point:
+        return Point(xy=(1.0, math.inf))
+
+    record = GraphRecord(nodes=[NodeRecord(id=n, node=n) for n in ("pair", "point")])
+    graph = registry_of(pair, point).load(record)
+    results = _round_trip(graph.run({"pair.text": "x", "point.text": "x"})).results
+
+    assert math.isnan(results["pair"]["result"]["a"][0]) and results["pair"]["result"]["a"][1] == "x"
+    assert results["point"]["result"].xy == (1.0, math.inf)
+
+
 def test_a_float_that_is_not_finite_where_its_type_does_not_say_float_reads_back_as_the_float():
     """A ``dict``, ``Any`` or a model's ``Any`` field holding ``nan`` gives the same value after a save as on a straight run."""
 

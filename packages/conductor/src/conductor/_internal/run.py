@@ -800,7 +800,10 @@ def run_from_json(graph: Graph, saved: str | bytes | Mapping[str, Any]) -> Run:
     if graph.problems:
         raise InvalidCallError(graph.problems)
     try:
-        data = _SAVED.validate_json(saved) if isinstance(saved, (str, bytes)) else _SAVED.validate_python(saved)
+        # read from its JSON text, so the values it holds are the save's own and its marked floats are put in place
+        data = _SAVED.validate_json(saved if isinstance(saved, (str, bytes)) else pydantic_core.to_json(saved, inf_nan_mode="strings"))
+    except pydantic_core.PydanticSerializationError:
+        raise InvalidCallError([make_problem("state_unreadable", "state", at="the run", reason="it is not JSON")]) from None
     except ValidationError as error:
         # The save's own shape is conductor's, so its whole place is named: node ids, output names, indexes, never a value.
         at = ".".join(str(step) for step in error.errors(include_input=False)[0]["loc"]) or "the run"
@@ -815,15 +818,11 @@ def run_from_json(graph: Graph, saved: str | bytes | Mapping[str, Any]) -> Run:
         graph = graph._compiled_for(frozenset(a for a, v in data.inputs.items() if fields[a].spec.per_item and isinstance(v, list)))
         if graph.problems:
             raise InvalidCallError(graph.problems)
-        inputs = {address: _load_input(graph, address, v) for address, v in data.inputs.items()}
-        for address, paths in data.non_finite_inputs.items():
-            if address not in inputs:
-                raise _Unreadable(address, "the graph has no such input")
-            for path in paths:
-                if path:
-                    _put_non_finite([inputs[address]], [0, *path], address)
-                elif isinstance(inputs[address], str):
-                    inputs[address] = float(inputs[address])
+        unknown = sorted(data.non_finite_inputs.keys() - data.inputs.keys())
+        if unknown:
+            raise _Unreadable(unknown[0], "the graph has no such input")
+        written = {address: _with_non_finite(v, data.non_finite_inputs.get(address, ()), address) for address, v in data.inputs.items()}
+        inputs = {address: _load_input(graph, address, v) for address, v in written.items()}
         run = start_run(graph, inputs, data.max_rows)
         for saved_nodes in (data.units, data.earlier):
             unknown = sorted(saved_nodes.keys() - graph._nodes.keys())
@@ -1063,13 +1062,11 @@ def _load_units(placed: PlacedNode, dumped: _SavedUnits) -> list[tuple[Key, Unit
             if spec.shape == "table":
                 values = [None if v is None else _load_frame(spec, _SAVED_TABLE.validate_python(v), at) for v in column.values]
             else:
-                values = spec.column_adapter.validate_python(column.values)
+                values = spec.column_adapter.validate_python(_with_non_finite(column.values, column.non_finite, at))
         except ValidationError as error:
             raise _Unreadable(at, value_free_errors(error)[0]["msg"]) from None
         if len(values) != done:
             raise _Unreadable(at, f"it holds {len(values)} values for {done} finished units")
-        for path in column.non_finite:
-            _put_non_finite(values, path, at)
         for i in column.skipped:
             if i >= done:
                 raise _Unreadable(at, f"it skips the value {i} of {done}")
@@ -1112,24 +1109,30 @@ def _find_non_finite(value: Any, path: list[Any], found: list[list[Any]]) -> Non
             _find_non_finite(v, [*path, i], found)
 
 
-def _put_non_finite(values: list[Any], path: list[Any], at: str) -> None:
-    """Read back a float that isn't finite where a save marked it, the text ``NaN``, ``Infinity`` or ``-Infinity`` it was written as."""
+def _with_non_finite(written: Any, paths: Any, at: str) -> Any:
+    """A saved value with each float a save marked read back from the text it was written as, before its type reads it.
+
+    The marks are places in the JSON, so only its mappings and lists are walked. The value is the save's own, read
+    from its text, so it is changed in place.
+    """
+    root: list[Any] = [written]
     try:
-        _put_non_finite_at(values, path)
-    except (LookupError, AttributeError, TypeError, ValueError):
+        for path in paths:
+            holder: Any = root
+            steps: list[Any] = [0, *path]
+            for step in steps[:-1]:
+                holder = holder[step]
+            last = steps[-1]
+            if holder[last] not in _NON_FINITE_TEXT:
+                raise LookupError(last)
+            holder[last] = float(holder[last])  # a text holder can't take it: TypeError
+    except (LookupError, TypeError):
         raise _Unreadable(at, "it marks a float where the value has none") from None
+    return root[0]
 
 
-def _put_non_finite_at(values: list[Any], path: list[Any]) -> None:
-    holder: Any = values
-    for step in path[:-1]:
-        holder = holder[step] if isinstance(holder, (dict, list)) else getattr(holder, step)
-    last = path[-1]
-    if isinstance(holder, (dict, list)):
-        if isinstance(holder[last], str):
-            holder[last] = float(holder[last])
-    elif isinstance(getattr(holder, last, None), str):  # a model's or a dataclass's field, frozen or not
-        object.__setattr__(holder, last, float(getattr(holder, last)))
+#: How a save writes a float that isn't finite.
+_NON_FINITE_TEXT = frozenset({"NaN", "Infinity", "-Infinity"})
 
 
 def _load_frame(spec: FieldSpec, saved: _SavedTable, at: str) -> Frame:
