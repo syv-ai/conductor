@@ -27,9 +27,23 @@ from conductor import (
     make_graph,
     node,
 )
+from conductor._internal.run import _SAVED, Run
 from pydantic import BaseModel
 
 from tests.test_core.nodes import registry_of
+
+
+@pytest.fixture(autouse=True)
+def _every_save_reads_as_the_declared_shape(monkeypatch: pytest.MonkeyPatch) -> None:
+    """What ``run.to_json()`` writes in these tests is read back by the one model ``load_run`` reads a save with."""
+    write = Run.to_json
+
+    def written_and_read(run: Run) -> str:
+        text = write(run)
+        _SAVED.validate_json(text)
+        return text
+
+    monkeypatch.setattr(Run, "to_json", written_and_read)
 
 
 def _round_trip(run: Any) -> Any:
@@ -638,4 +652,66 @@ def test_a_save_missing_a_key_says_which_key_not_a_python_error():
 
     graph = registry_of(same).load(make_graph(same))
     problem = _refused(graph, {})
-    assert problem.ctx["reason"] == "it has no 'graph'" and "KeyError" not in problem.msg
+    assert problem.ctx["at"] == "graph" and problem.ctx["reason"] == "Field required" and "KeyError" not in problem.msg
+
+
+@pytest.mark.parametrize(
+    ("where", "damaged"),
+    [
+        ("units", lambda s: s.__setitem__("units", [])),
+        ("inputs", lambda s: s.__setitem__("inputs", [])),
+        ("status", lambda s: s.__setitem__("status", "banana")),
+        ("max_rows", lambda s: s.__setitem__("max_rows", -1)),
+        ("units.split.states", lambda s: s["units"]["split"].__setitem__("states", {})),
+        ("units.split.keys.0.0", lambda s: s["units"]["split"].__setitem__("keys", [["x"]])),
+        ("split.result", lambda s: s["units"]["split"]["outputs"]["result"].__setitem__("skipped", [7])),
+    ],
+)
+def test_a_save_damaged_in_shape_is_refused_by_where(where: str, damaged: Any) -> None:
+    graph = registry_of(split).load(make_graph(split))
+    saved = json.loads(graph.run(text="a,b").to_json())
+    damaged(saved)
+    assert _refused(graph, saved).ctx["at"] == where
+
+
+@node("upper_word")
+def upper_word(word: str) -> str:
+    return word.upper()
+
+
+@node("ok_word")
+def ok_word(word: str) -> bool:
+    raise Ask("ok?")
+
+
+@pytest.mark.parametrize(
+    ("where", "damaged"),
+    [
+        ("units", lambda s: s.__setitem__("units", [])),
+        ("earlier", lambda s: s.__setitem__("earlier", [])),
+        ("inputs", lambda s: s.__setitem__("inputs", [])),
+        ("code", lambda s: s.__setitem__("code", [])),
+        ("complete", lambda s: s.__setitem__("complete", 3)),
+        ("status", lambda s: s.__setitem__("status", "banana")),
+        ("max_rows", lambda s: s.__setitem__("max_rows", "ten")),
+        ("max_rows", lambda s: s.__setitem__("max_rows", -1)),
+        ("units.upper.states", lambda s: s["units"]["upper"].__setitem__("states", {})),
+        ("units.upper.keys.0.0", lambda s: s["units"]["upper"].__setitem__("keys", [["x"], ["y"]])),
+        ("units.ok.questions", lambda s: s["units"]["ok"].__setitem__("questions", [])),
+        ("upper.result", lambda s: s["units"]["upper"]["outputs"]["result"].__setitem__("skipped", [7])),
+        ("graph", lambda s: s.clear()),
+        ("text", lambda s: s["inputs"].__setitem__("text", ["a"])),
+    ],
+)
+def test_a_save_of_a_waiting_run_damaged_in_shape_is_refused_by_where(where: str, damaged: Any) -> None:
+    graph = registry_of(split, upper_word, ok_word).load(
+        {
+            "nodes": [{"id": "split", "node": "split"}, {"id": "upper", "node": "upper_word"}, {"id": "ok", "node": "ok_word"}],
+            "edges": [["split.result", "upper.word"], ["upper.result", "ok.word"]],
+        }
+    )
+    run = graph.run(text="a,b")
+    assert run.status == "waiting"
+    saved = json.loads(run.to_json())
+    damaged(saved)
+    assert _refused(graph, saved).ctx["at"] == where
