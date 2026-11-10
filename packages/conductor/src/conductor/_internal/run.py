@@ -31,7 +31,7 @@ from conductor._internal.errors import InvalidCallError, Problem, make_problem, 
 from conductor._internal.fields import SKIPPED, FieldSpec, carried_list, type_id, without_none
 
 if TYPE_CHECKING:
-    from conductor._internal.graph import Graph, Level, PlacedNode, Source
+    from conductor._internal.graph import Graph, InputPlan, Level, PlacedNode, Source
     from conductor._internal.leg import Event
     from conductor._internal.node_definition import NodeDefinition
 
@@ -451,33 +451,44 @@ class Run:
                     continue
                 items: list[tuple[Level, Key, Any]] = []
                 skipped_above = 0
-                origins = []
+                skips = []  # for each item that is a skip: whether its branch was decided at or above the row it is gathered under, and where
+                on: dict[Level, list[Source]] = {}  # sources on one table are read row by row, in the table's order
                 for source in plan.sources:
                     if source.node_id is None and not source.made:  # the caller's list, given whole
                         items.extend(((source.output,), (i,), v) for i, v in enumerate(self.inputs[source.output]))
                         continue
-                    keys, complete = self._rows(source.level, row)
+                    on.setdefault(source.level, []).append(source)
+                for level, sources in on.items():
+                    under = row[: sources[0].anchor]
+                    keys, complete = self._rows(level, under)
                     if not complete:
                         return PENDING
-                    if not keys and self._skipped_above(source, row):
-                        skipped_above += 1
+                    if not keys:
+                        skipped_above += sum(self._skipped_above(source, under) for source in sources)
                     for key in keys:
-                        value = self._cell(source, key)
-                        if value is PENDING:
-                            return PENDING
-                        if value is SKIPPED:
-                            origins.append(self._skip_origin(source, key))
-                        items.append((source.level, key, None if value is SKIPPED else value))
+                        values, origins = [], []
+                        for source in sources:
+                            value = self._cell(source, key)
+                            if value is PENDING:
+                                return PENDING
+                            if value is SKIPPED:
+                                origins.append(self._skip_origin(source, key))
+                            else:
+                                values.append(value)
+                        if values:
+                            items.extend((level, key, value) for value in values)
+                        else:
+                            items.append((level, key, None))
+                            skips.append((len(key) > len(under) and max(origins) <= len(under), min(origins)))
                 if skipped_above and skipped_above == len(plan.sources):
                     return SkippedAt(len(row))  # every source was a branch not taken above this row: so is the call
-                below = all(len(k) > len(row) for _, k, _ in items)
-                if items and below and len(origins) == len(items) and max(origins) <= len(row):
-                    return SkippedAt(min(origins))  # every row under this one was skipped by a decision at or above it
+                if items and len(skips) == len(items) and all(above for above, _ in skips):
+                    return SkippedAt(min(origin for _, origin in skips))  # every row under this one was skipped by a decision at or above it
                 gathered[name] = items
             else:
-                table = self._table(plan.sources, plan.table_level, row, spec.columns)
-                if table is PENDING:
-                    return PENDING
+                table = self._table(plan, row)
+                if table is PENDING or isinstance(table, SkippedAt):
+                    return table
                 kwargs[name] = table
         if gathered:
             # A row a Series input can't take leaves every Series input on that table.
@@ -488,8 +499,18 @@ class Run:
                 kwargs[name] = [v for lvl, k, v in items if (keep_blank or v is not None) and not any((lvl, k) in rows for rows in others)]
         return kwargs
 
-    def _table(self, sources: list[Source], level: Level, row: Key, declared: Mapping[str, Any] | None = None) -> Any:
-        """The table a ``Table`` input receives on ``row``: its sources' columns on the rows of ``level``, only the declared ones when it names them."""
+    def _table(self, plan: InputPlan, row: Key) -> Any:
+        """The table a ``Table`` input receives on ``row``; for alternatives, the one whose branch ran, or a ``SkippedAt`` when none did."""
+        if not plan.alternatives:
+            return self._columns(plan.sources, plan.table_level, row[: plan.table_anchor], plan.spec.columns)
+        for source in plan.sources:
+            under = row[: source.anchor]
+            if not self._skipped_above(source, under):
+                return self._columns([source], source.level, under, plan.spec.columns)
+        return SkippedAt(len(row))
+
+    def _columns(self, sources: list[Source], level: Level, row: Key, declared: Mapping[str, Any] | None) -> Any:
+        """``sources``' columns on the rows of ``level`` under ``row``, only the declared ones when the input names them."""
         keys, complete = self._rows(level, row)
         if not complete:
             return PENDING

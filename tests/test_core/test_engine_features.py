@@ -310,7 +310,7 @@ def _branch_outputs(cases: list[str], value: type) -> dict[str, Any]:
 
     from conductor import Param
 
-    return {name: Annotated[value, Param(title=name.title())] for name in [*cases, "otherwise"]}
+    return {name: Annotated[value, Param(title=name.title(), exclusive_group="case")] for name in [*cases, "otherwise"]}
 
 
 @node("route", compute_outputs=_branch_outputs)

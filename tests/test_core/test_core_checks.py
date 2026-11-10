@@ -185,7 +185,7 @@ def test_branches_and_blanks():
     run = graph.run(text="abcd,ab,xyzzy")
     assert run.results["L"]["result"] == ["ABCD", None, "XYZZY"]
     assert run.results["J"]["result"] == "ABCD+XYZZY"
-    assert run.results["both"]["result"] == "ab+ABCD+XYZZY"  # several edges gather in node order: r before L
+    assert run.results["both"]["result"] == "ABCD+ab+XYZZY"  # several edges on one table's rows gather in its row order
     blank = registry_of(read_csv, mail).load({"nodes": [{"id": "read", "node": "read-csv"}, {"id": "mail", "node": "mail"}], "edges": [["read.result.email", "mail.email"]]})
     run = blank.run(text="name,email,amount\nIda,ida@a.dk,1\nBo,,2\n")
     assert run.status == "complete" and run.results["mail"]["result"] == ["sent to ida@a.dk", None]

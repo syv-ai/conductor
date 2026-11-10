@@ -15,10 +15,14 @@ A node runs once per row of its level:
 
 - an input of ``one`` value fed from deeper rows runs the node on those rows,
   and a value from rows above is copied down;
-- a ``Series`` or ``Table`` input gathers the rows under the node's row; it
-  chooses the level, one up from its source, only when no ``one`` input does;
-- sources must lie on one path of the row tree. Rows of two different tables
-  meet only through a join the author draws.
+- a ``Series`` or ``Table`` input gathers the rows under the node's row, or
+  under the row it shares with a sibling table; it chooses the level, one up
+  from its source, only when no ``one`` input does. Several sources on one
+  table are read in that table's row order;
+- ``one``-value sources must lie on one path of the row tree. Rows of two
+  different tables meet only through a join the author draws. Several edges
+  into one ``one`` input must be alternatives: on opposite branches of one
+  decision, so a row holds at most one of them.
 """
 
 from __future__ import annotations
@@ -75,6 +79,8 @@ class Source:
     name: str = ""
     #: For a whole table, the columns its row type names; ``None`` when they are known only when it arrives.
     columns: Mapping[str, Any] | None = None
+    #: For a gather, how many places of the node's row its rows are gathered under: the row both share.
+    anchor: int = 0
 
 
 @dataclass
@@ -86,6 +92,10 @@ class InputPlan:
     value: Any = REQUIRED
     #: For a table input, the level whose rows it gathers.
     table_level: Level = ()
+    #: How many places of the node's row the table's rows are gathered under: the row both share.
+    table_anchor: int = 0
+    #: For a table input fed several whole tables on opposite branches: it takes the one whose branch ran.
+    alternatives: bool = False
 
 
 @dataclass
@@ -582,19 +592,26 @@ class Graph:
         return self._branches[source.node_id] | own
 
     def _on_opposite_branches(self, placed: PlacedNode) -> bool:
-        """Note the branches ``placed`` holds a value on; refuse two Series inputs that never share a row."""
+        """Note the branches ``placed`` holds a value on, and refuse what never meets on a row.
+
+        Several edges into one value must be alternatives, each on its own branch of one decision, or a row would
+        have two values for it. Two ``Series`` inputs whose sources never both have a value on a row would drop every row.
+        """
         taken: set[tuple[str, str, str]] = set()
-        for plan in placed.inputs.values():  # a skip on any one input skips the row
+        for name, plan in placed.inputs.items():  # a skip on any one input skips the row
             if plan.spec.shape == "one" and plan.sources:
-                taken |= frozenset.intersection(*(self._branch(s) for s in plan.sources))
+                branches = [self._branch(s) for s in plan.sources]
+                if not all(_opposed(a, b) for i, a in enumerate(branches) for b in branches[i + 1:]):
+                    self.problems.append(make_problem(
+                        "several_edges_into_one_value", placed.id, name, sources=", ".join(_address(s) for s in plan.sources),
+                    ))
+                    return True
+                taken |= frozenset.intersection(*branches)
         self._branches[placed.id] = frozenset(taken)
-        series = [
-            (n, frozenset[tuple[str, str, str]]().union(*(self._branch(s) for s in p.sources)))
-            for n, p in placed.inputs.items() if p.spec.shape == "many" and p.sources and not p.spec.optional
-        ]
+        series = [(n, [self._branch(s) for s in p.sources]) for n, p in placed.inputs.items() if p.spec.shape == "many" and p.sources and not p.spec.optional]
         for i, (a, on_a) in enumerate(series):
             for b, on_b in series[i + 1:]:
-                if any(x[:2] == y[:2] and x[2] != y[2] for x in on_a for y in on_b):
+                if all(_opposed(x, y) for x in on_a for y in on_b):
                     self.problems.append(make_problem("series_inputs_never_share_a_row", placed.id, a=a, b=b))
                     return True
         return False
@@ -656,9 +673,13 @@ class Graph:
         return True
 
     def _place(self, placed: PlacedNode) -> bool:
-        """Decide the rows ``placed`` runs on, or report sources on rows of different tables."""
+        """Decide the rows ``placed`` runs on, or report one-value sources on rows of different tables.
+
+        A ``Series`` or ``Table`` input gathers the rows of its source under the deepest row it shares with the
+        node's, so a reduction of a sibling table (every keyword of a document, beside each of its invoices)
+        gathers under their common parent.
+        """
         ones = [s.level for p in placed.inputs.values() if p.spec.shape == "one" for s in p.sources]
-        gathers = [s for p in placed.inputs.values() if p.spec.shape != "one" for s in p.sources]
         # With no one-value input, a node runs one level above what its Series and Table inputs gather: each input
         # gathers at its deepest source (parents copied down), and the node sits above the shallowest input, so no
         # input receives a list of one.
@@ -670,32 +691,52 @@ class Graph:
                 self._unrelated(placed, placed.level, floor)
                 return False
             placed.level = floor
-        for level in ones + [s.level for s in gathers]:
+        for level in ones:
             if not (_under(placed.level, level) or _under(level, placed.level)):
                 self._unrelated(placed, placed.level, level)
                 return False
         for plan in placed.inputs.values():
-            if plan.spec.shape == "table" and plan.sources:
-                plan.table_level = _deepest([s.level for s in plan.sources])
+            if plan.spec.shape != "one":
+                plan.sources = [dataclasses.replace(s, anchor=shared_depth(placed.level, s.level)) for s in plan.sources]
                 for s in plan.sources:
-                    if not _under(s.level, plan.table_level):
-                        self._unrelated(placed, s.level, plan.table_level)
+                    if not _gathers_from(placed.level, s.level):
+                        self._unrelated(placed, placed.level, s.level)
                         return False
-                names: list[str] = []
-                for i, s in enumerate(plan.sources):
-                    if not s.whole_table and s.name in names:
-                        plan.sources[i] = dataclasses.replace(s, name=f"{s.name}_{s.node_id}")
-                    names.append(plan.sources[i].name)
-                if plan.spec.columns is not None and all(not s.whole_table or s.columns is not None for s in plan.sources):
-                    given = {c for s in plan.sources for c in ((s.columns or {}) if s.whole_table else (s.name,))}
-                    missing = sorted(plan.spec.columns.keys() - given)
-                    if missing:
-                        name = next(n for n, p in placed.inputs.items() if p is plan)
-                        self.problems.append(make_problem(
-                            "type_mismatch", placed.id, name, source=", ".join(f"{s.node_id}.{s.output}" for s in plan.sources),
-                            got=f"the columns {sorted(given)}", expected=f"the columns {sorted(plan.spec.columns)}",
-                        ))
-                        return False
+            if plan.spec.shape == "table" and plan.sources and not self._table_fits(placed, plan):
+                return False
+        return True
+
+    def _table_fits(self, placed: PlacedNode, plan: InputPlan) -> bool:
+        """Settle the rows a ``Table`` input combines its sources on; sources on two paths of the row tree are a problem."""
+        plan.table_level = _deepest([s.level for s in plan.sources])
+        plan.table_anchor = shared_depth(placed.level, plan.table_level)
+        branches = [self._branch(s) for s in plan.sources]
+        plan.alternatives = len(plan.sources) > 1 and all(s.whole_table for s in plan.sources) and all(
+            _opposed(a, b) for i, a in enumerate(branches) for b in branches[i + 1:]
+        )
+        for s in plan.sources:
+            if not plan.alternatives and not _under(s.level, plan.table_level):
+                self._unrelated(placed, s.level, plan.table_level)
+                return False
+        names: list[str] = []
+        for i, s in enumerate(plan.sources):
+            if not s.whole_table and s.name in names:
+                plan.sources[i] = dataclasses.replace(s, name=f"{s.name}_{s.node_id}")
+            names.append(plan.sources[i].name)
+        if plan.spec.columns is not None:
+            each = [[s] for s in plan.sources] if plan.alternatives else [plan.sources]
+            for sources in each:
+                if any(s.whole_table and s.columns is None for s in sources):
+                    continue
+                given = {c for s in sources for c in ((s.columns or {}) if s.whole_table else (s.name,))}
+                missing = sorted(plan.spec.columns.keys() - given)
+                if missing:
+                    name = next(n for n, p in placed.inputs.items() if p is plan)
+                    self.problems.append(make_problem(
+                        "type_mismatch", placed.id, name, source=", ".join(f"{s.node_id}.{s.output}" for s in sources),
+                        got=f"the columns {sorted(given)}", expected=f"the columns {sorted(plan.spec.columns)}",
+                    ))
+                    return False
         return True
 
     def _floor(self, placed: PlacedNode) -> Level:
@@ -804,6 +845,15 @@ def _arriving(source: Source) -> Any:
     return source.type
 
 
+def _opposed(a: frozenset[tuple[str, str, str]], b: frozenset[tuple[str, str, str]]) -> bool:
+    """Whether two sets of branches never hold together: one decision goes one way for ``a`` and another for ``b``."""
+    return any(x[:2] == y[:2] and x[2] != y[2] for x in a for y in b)
+
+
+def _address(source: Source) -> str:
+    return source.output if source.node_id is None else ".".join(p for p in (source.node_id, source.output, source.column) if p)
+
+
 def _settled(spec: FieldSpec, source: Source) -> bool:
     """Whether every value ``source`` brings is already one ``spec`` takes as it is, with no limits to hold it to."""
     if spec.param.constraints:
@@ -839,6 +889,19 @@ def _reaches(start: str, goal: str, readers: Mapping[str, list[str]], within: se
 
 def _under(prefix: Level, level: Level) -> bool:
     return level[: len(prefix)] == prefix
+
+
+def _gathers_from(level: Level, source: Level) -> bool:
+    """Whether a node on ``level`` can gather ``source``'s rows: one is under the other, or they share a table above both."""
+    return _under(level, source) or _under(source, level) or shared_depth(level, source) > 0
+
+
+def shared_depth(a: Level, b: Level) -> int:
+    """How many tables two levels share from the graph's own row down."""
+    n = 0
+    while n < min(len(a), len(b)) and a[n] == b[n]:
+        n += 1
+    return n
 
 
 def _deepest(levels: list[Level]) -> Level:

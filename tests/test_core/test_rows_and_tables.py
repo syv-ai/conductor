@@ -2,8 +2,8 @@
 
 Every value sits on a row of a table. A node fed a column runs once per row of
 it; a value from a row above is copied down; a ``Series`` or ``Table`` input
-gathers the rows under the node's row. Sources must lie on one path of the row
-tree. A blank cell keeps a node from being called on its row unless the input
+gathers the rows under the node's row, or under the row it shares with a
+sibling table. One-value sources must lie on one path of the row tree. A blank cell keeps a node from being called on its row unless the input
 says ``| None``; a branch not taken skips the row.
 """
 from dataclasses import dataclass
@@ -469,11 +469,41 @@ def test_a_gather_reading_rows_that_are_not_under_the_nodes_row_is_refused():
                     edges=(("o.result", "j.items"), ("s.result", "j.at")), registry=reg) == ["rows_not_related"]
 
 
-def test_two_series_under_unrelated_rows_are_refused():
-    assert problems(*THREE_LEVELS, {"id": "again", "node": "split", "values": {"sep": ";"}}, {"id": "lines2", "node": "split"},
-                    {"id": "n", "node": "two-columns"},
-                    edges=(*THREE_EDGES, ("docs.result", "again.text"), ("again.result", "lines2.text"), ("lines.result", "n.a"), ("lines2.result", "n.b")),
-                    registry=DEEP) == ["rows_not_related"]
+def test_two_series_of_sibling_tables_each_gather_under_the_row_they_share():
+    """``n`` runs per paragraph: ``a`` gathers that paragraph's lines, ``b`` every line of the other table under the same document."""
+    run = ran(*THREE_LEVELS, {"id": "again", "node": "split", "values": {"sep": ";"}}, {"id": "lines2", "node": "split"},
+              {"id": "n", "node": "two-columns"},
+              edges=(*THREE_EDGES, ("docs.result", "again.text"), ("again.result", "lines2.text"), ("lines.result", "n.a"), ("lines2.result", "n.b")),
+              registry=DEEP, text="a;b,c|d")
+
+    assert run.results["n"]["result"] == ["a+a,b,c", "b,c+a,b,c", "d+d"]
+
+
+def test_a_reduction_of_a_sibling_table_lands_beside_each_row_of_the_other_through_json():
+    """Every keyword of a document beside each of its invoices: the gather starts at the document, the rows they share."""
+
+    @dataclass(frozen=True)
+    class Parts:
+        invoices: Series[str]
+        keywords: Series[str]
+
+    @node("parts")
+    def parts(text: str) -> Parts:
+        head, _, tail = text.partition(":")
+        return Parts(head.split(","), tail.split(","))
+
+    @node("beside")
+    def beside(invoice: str, keywords: Series[str]) -> str:
+        return f"{invoice}[{'/'.join(keywords)}]"
+
+    reg = registry_of(split, parts, beside)
+    nodes = ({"id": "docs", "node": "split", "values": {"sep": "|"}}, {"id": "p", "node": "parts"}, {"id": "b", "node": "beside"})
+    edges = (("docs.result", "p.text"), ("p.invoices", "b.invoice"), ("p.keywords", "b.keywords"))
+    run = ran(*nodes, edges=edges, registry=reg, text="i1,i2:k1,k2|i3:k3")
+
+    assert run.results["b"]["result"] == ["i1[k1/k2]", "i2[k1/k2]", "i3[k3]"]
+    assert through_json(run).results == run.results
+    assert graph(*nodes, edges=edges, registry=reg).plan["b"] == "per row of p.invoices"
 
 
 # -- empty and skipped rows --------------------------------------------------------------------
@@ -1075,3 +1105,127 @@ def test_a_skip_above_an_empty_group_hides_what_the_reduction_returned():
                      ("t.result", "x.a"), ("m.result", "x.b"), ("x.result", "j.texts")), text="p,no")
     assert run.graph.plan["j"] == "per row of l.result"
     assert run.results["j"]["result"] == [None, None]
+
+
+# -- several edges into one input --------------------------------------------------------------
+
+
+def test_two_edges_into_one_plain_input_that_can_both_hold_a_value_are_a_problem_never_first_wins():
+    """``upper(a, b)`` would silently lose ``b``; two per-row edges on one table into one value would cover each row twice."""
+    assert problems({"id": "a", "node": "upper"}, {"id": "b", "node": "upper"}, {"id": "u", "node": "upper"},
+                    edges=(("a.result", "u.text"), ("b.result", "u.text"))) == ["several_edges_into_one_value"]
+    loaded = graph({"id": "s", "node": "split"}, {"id": "a", "node": "upper"}, {"id": "b", "node": "upper"}, {"id": "m", "node": "upper"},
+                   edges=(("s.result", "a.text"), ("s.result", "b.text"), ("a.result", "m.text"), ("b.result", "m.text")))
+    (problem,) = loaded.problems
+    assert (problem.type, problem.loc, problem.ctx) == ("several_edges_into_one_value", ("m", "text"), {"sources": "a.result, b.result"})
+
+
+def test_two_branches_wired_into_one_plain_input_merge_back_onto_the_rows_and_the_chain_stays_on_them():
+    run = ran({"id": "s", "node": "split"}, {"id": "d", "node": "decide"}, {"id": "u", "node": "upper"}, {"id": "after", "node": "upper"},
+              edges=(("s.result", "d.text"), ("d.yes", "u.text"), ("d.no", "u.text"), ("u.result", "after.text")), text="ok,no,fine")
+
+    assert run.results["u"]["result"] == ["OK", "NO", "FINE"]
+    assert run.graph.plan["after"] == "per row of s.result"
+
+
+def test_tables_below_two_branches_merge_back_too():
+    """What hangs off opposite branches is as exclusive as the branches themselves."""
+    run = ran({"id": "s", "node": "split"}, {"id": "d", "node": "decide"}, {"id": "y", "node": "upper"}, {"id": "n", "node": "upper"}, {"id": "u", "node": "upper"},
+              edges=(("s.result", "d.text"), ("d.yes", "y.text"), ("d.no", "n.text"), ("y.result", "u.text"), ("n.result", "u.text")), text="ok,no")
+
+    assert run.results["u"]["result"] == ["OK", "NO"]
+
+
+def test_a_node_reading_both_branches_through_one_input_lies_on_neither_so_it_pairs_only_with_rows_that_have_both():
+    run = ran({"id": "s", "node": "split"}, {"id": "d", "node": "decide"}, {"id": "p", "node": "pair"},
+              edges=(("s.result", "d.text"), ("d.yes", "p.a"), ("d.no", "p.a"), ("d.yes", "p.b")), text="ok,no,fine")
+
+    assert run.results["p"]["result"] == ["ok:ok", None, "fine:fine"]
+
+
+def test_a_series_fed_by_both_branches_shares_rows_with_one_fed_by_either():
+    assert problems({"id": "s", "node": "split"}, {"id": "d", "node": "decide"}, {"id": "z", "node": "zipped"},
+                    edges=(("s.result", "d.text"), ("d.yes", "z.a"), ("d.no", "z.a"), ("d.yes", "z.b")),
+                    registry=registry_of(split, decide, zipped)) == []
+
+
+def test_opposite_branches_through_one_series_input_are_one_column_in_row_order():
+    """``join(d.no, d.yes)`` reads the rows as the table holds them, not one source's rows after the other's."""
+    run = ran({"id": "s", "node": "split"}, {"id": "d", "node": "decide"}, {"id": "j", "node": "join"},
+              edges=(("s.result", "d.text"), ("d.no", "j.texts"), ("d.yes", "j.texts")), text="v10,no11,v12")
+
+    assert run.results["j"]["result"] == "v10+no11+v12"
+
+
+def test_two_columns_of_one_table_into_a_series_input_read_that_table_row_by_row():
+    run = ran({"id": "s", "node": "split"}, {"id": "a", "node": "upper"}, {"id": "b", "node": "upper"}, {"id": "j", "node": "join"},
+              edges=(("s.result", "a.text"), ("s.result", "b.text"), ("a.result", "j.texts"), ("b.result", "j.texts")), text="x,y")
+
+    assert run.results["j"]["result"] == "X+X+Y+Y"
+
+
+def test_columns_of_two_tables_of_their_own_into_one_series_input_follow_one_another():
+    run = ran({"id": "a", "node": "split"}, {"id": "b", "node": "split"}, {"id": "j", "node": "join"},
+              edges=(("a.result", "j.texts"), ("b.result", "j.texts")), **{"a.text": "x,y", "b.text": "z"})
+
+    assert run.results["j"]["result"] == "x+y+z"
+
+
+class Line(TypedDict):
+    text: str
+
+
+@dataclass(frozen=True)
+class BigOrSmall:
+    big: Annotated[Table[Line], Param(exclusive_group="size")]
+    small: Annotated[Table[Line], Param(exclusive_group="size")]
+
+
+@node("sort-out")
+def sort_out(text: str) -> BigOrSmall:
+    """A table of the text's words, as ``big`` when there are more than two, else ``small``."""
+    words = pl.DataFrame({"text": text.split()})
+    return BigOrSmall(words, SKIPPED) if words.height > 2 else BigOrSmall(SKIPPED, words)
+
+
+@node("words")
+def words(table: Table[Line]) -> str:
+    return "-".join(table["text"])
+
+
+@node("lines-of")
+def lines_of(text: str) -> Table[Line]:
+    return pl.DataFrame({"text": [text.upper()]})
+
+
+ALTERNATIVES = registry_of(split, sort_out, words, lines_of, upper)
+
+
+def test_alternative_tables_into_one_table_input_are_the_branch_that_ran():
+    nodes = ({"id": "o", "node": "sort-out"}, {"id": "w", "node": "words"})
+    edges = (("o.big", "w.table"), ("o.small", "w.table"))
+
+    assert ran(*nodes, edges=edges, registry=ALTERNATIVES, text="a b c").outputs == {"w.result": "a-b-c"}
+    assert ran(*nodes, edges=edges, registry=ALTERNATIVES, text="a b").outputs == {"w.result": "a-b"}
+
+
+def test_alternatives_per_row_take_the_branch_each_row_took_through_json():
+    run = ran({"id": "s", "node": "split"}, {"id": "o", "node": "sort-out"}, {"id": "w", "node": "words"},
+              edges=(("s.result", "o.text"), ("o.big", "w.table"), ("o.small", "w.table")), registry=ALTERNATIVES, text="a b c,d e")
+
+    assert run.results["w"]["result"] == ["a-b-c", "d-e"]
+    assert through_json(run).results["w"] == run.results["w"]
+
+
+def test_tables_hanging_off_two_branches_into_one_table_input_are_the_branch_that_ran():
+    nodes = ({"id": "s", "node": "split"}, {"id": "d", "node": "decide"}, {"id": "y", "node": "lines-of"}, {"id": "n", "node": "lines-of"},
+             {"id": "w", "node": "words"})
+    edges = (("s.result", "d.text"), ("d.yes", "y.text"), ("d.no", "n.text"), ("y.result", "w.table"), ("n.result", "w.table"))
+    reg = registry_of(split, decide, lines_of, words)
+
+    assert ran(*nodes, edges=edges, registry=reg, text="ok,no").results["w"]["result"] == ["OK", "NO"]
+
+
+def test_whole_tables_that_can_both_hold_rows_into_one_table_input_are_still_rows_of_different_tables():
+    assert problems({"id": "a", "node": "lines-of"}, {"id": "b", "node": "lines-of"}, {"id": "w", "node": "words"},
+                    edges=(("a.result", "w.table"), ("b.result", "w.table")), registry=ALTERNATIVES) == ["rows_not_related"]

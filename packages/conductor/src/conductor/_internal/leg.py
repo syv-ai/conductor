@@ -38,6 +38,7 @@ from conductor._internal.ask import Ask, Waiting, WrongAsk, asked
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.errors import ExternalFailure, NodeError, Problem, make_problem
 from conductor._internal.fields import SKIPPED
+from conductor._internal.graph import shared_depth
 from conductor._internal.run import (
     PENDING,
     Key,
@@ -177,6 +178,7 @@ class Leg:
         self.attempts: dict[tuple[str, Key], int] = {}  # the attempt each unit on a thread is on
         self.pool: ThreadPoolExecutor | None = None
         self.made = run._rows_made()
+        self.shared: dict[tuple[str, str], int] = {}
         self.recorded_since_walk = 1
         self.left_pending = True
         # what only a listener needs
@@ -394,11 +396,19 @@ class Leg:
         if walking or run.status != "running":
             return
         for reader in run.graph._readers[placed.id]:
-            if len(reader.level) < len(key):
-                self.gathers.add((reader.id, key[: len(reader.level)]))
+            shared = self._shared(placed, reader)
+            if shared < len(key):  # a reader above this row, or beside it: tried once nothing it reads works under the row they share
+                self.gathers.add((reader.id, key[:shared]))
             else:
                 for row in run._rows(reader.level, key)[0]:
                     heapq.heappush(self.ready, (self.position[reader.id], row))
+
+    def _shared(self, placed: PlacedNode, reader: PlacedNode) -> int:
+        """How many tables the rows of ``placed`` and of a node reading it share from the graph's own row down."""
+        found = self.shared.get((placed.id, reader.id))
+        if found is None:
+            found = self.shared[(placed.id, reader.id)] = shared_depth(placed.level, reader.level)
+        return found
 
     def _start_nothing_more(self) -> None:
         """Drop the units not yet on a thread and the retries not yet due; the calls on threads are waited for and kept."""
@@ -417,7 +427,9 @@ class Leg:
             above = self.run.graph._above_of(node_id)
             if not self.running or not any(n in above and k[: len(key)] == key for n, k in busy):
                 self.gathers.discard((node_id, key))
-                heapq.heappush(self.ready, (self.position[node_id], key))
+                placed = self.nodes[self.position[node_id]]
+                for row in self.run._rows(placed.level, key)[0] if len(key) < len(placed.level) else (key,):
+                    heapq.heappush(self.ready, (self.position[node_id], row))
         if self.gathers and not self.ready:
             self._wait()
 
