@@ -179,6 +179,8 @@ class Leg:
         self.pool: ThreadPoolExecutor | None = None
         self.made = run._rows_made()
         self.shared: dict[tuple[str, str], int] = {}
+        #: For a node taking earlier work, its rows in order, each row's place, and how many from the first have been tried.
+        self.turns: dict[str, list[Any]] = {}
         self.recorded_since_walk = 1
         self.left_pending = True
         # what only a listener needs
@@ -258,7 +260,11 @@ class Leg:
             self._record(placed, key, Unit("skipped", question={"from": kwargs.depth}), walking)
         elif isinstance(kwargs, str):
             self._record(placed, key, Unit("blank", question={"input": kwargs}), walking)
-        elif run._earlier and placed.definition.policy.reuse_when_inputs_match and (earlier := run._reused(placed, key, kwargs)) is not None:
+        elif run._earlier and placed.definition.policy.reuse_when_inputs_match and (
+            earlier := run._reused(placed, key, kwargs, lambda: self._in_turn(placed, key))
+        ) is not None:
+            if earlier is PENDING:
+                return False  # a row before it may take this earlier unit; the walk tries it again
             self.reused[placed.id] += 1
             self._record(placed, key, earlier, walking)
         else:
@@ -405,6 +411,19 @@ class Leg:
             else:
                 for row in run._rows(reader.level, key)[0]:
                     heapq.heappush(self.ready, (self.position[reader.id], row))
+
+    def _in_turn(self, placed: PlacedNode, key: Key) -> bool:
+        """Whether every row of ``placed`` before ``key`` has been tried, so identical rows take earlier work in row order, whatever thread finished first."""
+        turn = self.turns.get(placed.id)
+        if turn is None or key not in turn[1]:
+            order = self.run._rows(placed.level, ())[0]
+            turn = self.turns[placed.id] = [order, {k: i for i, k in enumerate(order)}, 0]
+        order, index, reached = turn
+        units = self.run._units[placed.id]
+        while reached < len(order) and (order[reached] in units or (placed.id, order[reached]) in self.running):
+            reached += 1
+        turn[2] = reached
+        return index.get(key, 0) <= reached
 
     def _shared(self, placed: PlacedNode, reader: PlacedNode) -> int:
         """How many tables the rows of ``placed`` and of a node reading it share from the graph's own row down."""

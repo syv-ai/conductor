@@ -1296,3 +1296,34 @@ def test_a_save_of_a_node_redeclared_so_it_runs_on_other_rows_does_not_fit_and_i
         registry_of(split, count_all).load(record).load_run(saved)
 
     assert [(p.type, p.ctx["at"]) for p in refused.value.errors()] == [("state_unreadable", "c")]
+
+
+def test_identical_rows_take_earlier_answers_in_row_order_whatever_thread_finished_first():
+    """Row 1's upstream finishes before row 0's, so row 1 is tried first; it still takes the second earlier answer."""
+    import threading
+
+    first_done = threading.Event()
+
+    @node("fetch", policy=Policy(concurrency=2, reuse_when_inputs_match=False))
+    def fetch(name: str) -> str:
+        if name == "bo-0":
+            assert first_done.wait(timeout=10)  # row 0 comes back after row 1
+        else:
+            first_done.set()
+        return "bo"
+
+    @node("approve")
+    def approve(name: str) -> bool:
+        raise Ask(f"Mail {name}?")
+
+    graph = registry_of(fetch, approve).load(GraphRecord(
+        nodes=[NodeRecord(id="f", node="fetch", many={"name"}), NodeRecord(id="a", node="approve")], edges=[("f.result", "a.name")],
+    ))
+    first = graph.run(name=["bo-0", "bo-1"])
+    answered = first.answer({w.id: w.row == (0,) for w in first.waiting}).resume()
+    assert answered.results["a"]["result"] == [True, False]
+
+    for _ in range(3):
+        first_done.clear()
+        again = answered.again(name=["bo-0", "bo-1"])
+        assert again.results["a"]["result"] == [True, False] and again.waiting == []

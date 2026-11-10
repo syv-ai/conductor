@@ -357,8 +357,11 @@ class Run:
 
     # -- what a leg reads -------------------------------------------------------
 
-    def _reused(self, placed: PlacedNode, key: Key, kwargs: dict[str, Any]) -> Unit | None:
+    def _reused(self, placed: PlacedNode, key: Key, kwargs: dict[str, Any], in_turn: Callable[[], bool]) -> Any:
         """The next earlier unit of ``placed`` that received ``kwargs``, taken so an identical row after it takes the one after.
+
+        Identical rows take them in row order: when an earlier unit is there to take and ``in_turn`` says a row
+        before this one hasn't been tried yet, this is ``PENDING``, tried again once it has.
 
         A person's answer, or a question still waiting, is taken only by a row under the same rows above it, so two
         documents' identical lines keep each document's answers when the documents move.
@@ -376,6 +379,8 @@ class Run:
             fingerprint = asked
         if not earlier.get(fingerprint):
             return None
+        if not in_turn():
+            return PENDING
         if placed.id not in self._earlier_own:  # the lists are the earlier run's too until this run takes from them
             earlier = self._earlier[placed.id] = {fp: list(units) for fp, units in earlier.items()}
             self._earlier_own.add(placed.id)
