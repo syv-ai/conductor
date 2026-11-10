@@ -98,16 +98,14 @@ class Run:
     ``timed_out``; ``cause`` is the ``Problem`` behind any of the last four.
     """
 
-    def __init__(
-        self, graph: Graph, inputs: dict[str, Any], *, max_rows: int | None = None, units: dict[str, dict[Key, Unit]] | None = None,
-        status: RunStatus = "ready", cause: Problem | None = None, earlier: dict[str, dict[str, dict[str, Any]]] | None = None,
-    ) -> None:
+    def __init__(self, graph: Graph, inputs: dict[str, Any], *, max_rows: int | None = None) -> None:
+        """A run of ``graph`` on checked ``inputs``, by address, not started: what ``graph.with_inputs`` gives."""
         self.graph, self.inputs, self.max_rows = graph, inputs, max_rows
-        self._units: dict[str, dict[Key, Unit]] = units if units is not None else {n: {} for n in graph._nodes}
-        self.status: RunStatus = status
-        self.cause = cause
+        self._units: dict[str, dict[Key, Unit]] = {n: {} for n in graph._nodes}
+        self.status: RunStatus = "ready"
+        self.cause: Problem | None = None
         #: node -> fingerprint of what a unit received -> its outputs, from the run this one went on from.
-        self._earlier = earlier or {}
+        self._earlier: dict[str, dict[str, dict[str, Any]]] = {}
 
     def __repr__(self) -> str:
         return f"<Run {self.status}: {sum(len(u) for u in self._units.values())} units>"
@@ -120,6 +118,7 @@ class Run:
         ``max_rows`` raises (or sets) the ceiling a stopped run carries on
         under. ``from_run`` gives each ``FromRun`` type its value.
         """
+        checked_max_rows(max_rows)
         return self._leg(max_rows, from_run, None, _deadline(timeout))
 
     def stream(
@@ -133,6 +132,7 @@ class Run:
         before its next unit. A call that can't start raises here, before
         anything is iterated.
         """
+        checked_max_rows(max_rows)
         self._check_from_run(from_run)
         return self._stream(max_rows, from_run, timeout, cancel)
 
@@ -218,7 +218,8 @@ class Run:
                     fingerprint = _fingerprint(placed.definition.version, self._inputs(placed, k)) if u.state == "done" and u.out is not None else None
                     if fingerprint is not None:
                         by[fingerprint] = u.out  # type: ignore[assignment]
-        return Run(self.graph, fresh.inputs, max_rows=fresh.max_rows, earlier=earlier)
+        fresh._earlier = earlier
+        return fresh
 
     def again(
         self, inputs: Mapping[str, Any] | None = None, /, *, max_rows: int | None = None, from_run: Mapping[type, Any] | None = None,
@@ -429,29 +430,37 @@ class Run:
         cause = self.cause.model_dump(mode="json") if self.cause else None
         return pydantic_core.to_json({"status": self.status, "cause": cause, "max_rows": self.max_rows, "inputs": inputs, "units": units, "earlier": earlier}, inf_nan_mode="strings").decode()
 
-    @classmethod
-    def from_json(cls, graph: Graph, saved: str | bytes | Mapping[str, Any]) -> Run:
-        try:
-            data = pydantic_core.from_json(saved) if isinstance(saved, (str, bytes)) else saved
-            inputs = {address: _input_adapter(graph, address).validate_python(v) for address, v in data["inputs"].items()}
-            units: dict[str, dict[Key, Unit]] = {n: {} for n in graph._nodes}
-            for n, dumped in data["units"].items():
-                units[n] = {tuple(k): u for k, u in _load_units(graph._nodes[n], dumped)}
-            earlier = {
-                n: {fp: u.out for fp, (_, u) in zip(dumped["fingerprints"], _load_units(graph._nodes[n], dumped), strict=True)}
-                for n, dumped in data["earlier"].items()
-            }
-            cause = Problem.model_validate(data["cause"]) if data["cause"] else None
-            return cls(graph, inputs, max_rows=data["max_rows"], units=units, status=data["status"], cause=cause, earlier=earlier)  # type: ignore[arg-type]
-        except (KeyError, TypeError, ValueError, StopIteration) as error:
-            reason = value_free_errors(error)[0]["msg"] if isinstance(error, ValidationError) else f"{type(error).__name__} {error}"
-            raise InvalidCallError([make_problem("state_unreadable", "state", reason=reason)]) from None
-
     def _copy(self, **changes: Any) -> Run:
-        return Run(
-            self.graph, self.inputs, max_rows=changes.get("max_rows", self.max_rows), units={n: dict(us) for n, us in self._units.items()},
-            status=self.status, cause=self.cause, earlier=self._earlier,
-        )
+        copy = Run(self.graph, self.inputs, max_rows=changes.get("max_rows", self.max_rows))
+        copy._units = {n: dict(us) for n, us in self._units.items()}
+        copy.status, copy.cause, copy._earlier = self.status, self.cause, self._earlier
+        return copy
+
+
+def run_from_json(graph: Graph, saved: str | bytes | Mapping[str, Any]) -> Run:
+    """A run of ``graph`` from what ``run.to_json()`` wrote; ``graph.load_run`` is the door to it."""
+    try:
+        data = pydantic_core.from_json(saved) if isinstance(saved, (str, bytes)) else saved
+        inputs = {address: _input_adapter(graph, address).validate_python(v) for address, v in data["inputs"].items()}
+        run = Run(graph, inputs, max_rows=data["max_rows"])
+        for n, dumped in data["units"].items():
+            run._units[n] = {tuple(k): u for k, u in _load_units(graph._nodes[n], dumped)}
+        run._earlier = {
+            n: {fp: u.out for fp, (_, u) in zip(dumped["fingerprints"], _load_units(graph._nodes[n], dumped), strict=True) if u.out is not None}
+            for n, dumped in data["earlier"].items()
+        }
+        run.status = data["status"]
+        run.cause = Problem.model_validate(data["cause"]) if data["cause"] else None
+        return run
+    except (KeyError, TypeError, ValueError, StopIteration) as error:
+        reason = value_free_errors(error)[0]["msg"] if isinstance(error, ValidationError) else f"{type(error).__name__} {error}"
+        raise InvalidCallError([make_problem("state_unreadable", "state", reason=reason)]) from None
+
+
+def checked_max_rows(max_rows: int | None) -> None:
+    """A ceiling below one row is refused at the call."""
+    if max_rows is not None and (not isinstance(max_rows, int) or max_rows < 1):
+        raise InvalidCallError([make_problem("invalid_max_rows", "max_rows", max_rows=max_rows)])
 
 
 # -- values -------------------------------------------------------------------------------------
@@ -560,14 +569,12 @@ def _load_units(placed: PlacedNode, dumped: Mapping[str, Any]) -> list[tuple[Key
     return loaded
 
 
-_COLUMN_ADAPTERS: dict[tuple[int, str], TypeAdapter[Any]] = {}
-
-
 def _column_adapter(spec: FieldSpec, column: str) -> TypeAdapter[Any]:
-    found = _COLUMN_ADAPTERS.get((id(spec), column))
-    if found is None:
-        found = _COLUMN_ADAPTERS[(id(spec), column)] = carried_list((spec.columns or {}).get(column, Any))
-    return found
+    """Checks and writes one column of a table output: by the column's type where the row type names it."""
+    return spec.column_adapters.get(column) or _ANY_COLUMN
+
+
+_ANY_COLUMN = carried_list(Any)
 
 
 def _input_adapter(graph: Graph, address: str) -> TypeAdapter[Any]:

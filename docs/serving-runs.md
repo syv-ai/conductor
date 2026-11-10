@@ -185,7 +185,7 @@ async def run_published(name: str, inputs: dict[str, Any], caller: CallerDep) ->
 
 **A registry per request.** The graph is loaded by your route, so a graph that embeds other saved graphs loads through a registry of its own: `request_registry = NodeRegistry()`, then `request_registry.add_subregistry(registry)` and `request_registry.add(*definitions)`. The shared `registry` is left as it was.
 
-**Cancelling.** A cancel ends the leg before its next unit. A node called on the leg's own thread (`Policy` with `concurrency` 1 and no `attempt_timeout`) finishes the call it is in first, so give a slow node `concurrency` or an `attempt_timeout`: its calls then run on threads and a cancel doesn't wait for them.
+**Cancelling.** A cancel ends the leg before its next unit. The calls already made finish first and are kept, so resuming the run doesn't make them again (no mail goes out twice). Give a slow node an `attempt_timeout` to bound how long a cancel waits for it.
 
 **One process.** The comment on `legs` is the limit that matters. A leg is an asyncio task, so `GET /runs/{id}/events` and `POST /runs/{id}/cancel` reach it only on the process running it. `GET /runs/{id}` and answering work anywhere, because they read the saved row. With more than one worker you route those two yourself, or keep a cancel flag on the row and stream from the request that started the leg.
 

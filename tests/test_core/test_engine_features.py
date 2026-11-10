@@ -515,3 +515,43 @@ def test_describe_for_a_palette_and_a_drawing():
     drawing = reg7.load({"nodes": [{"id": "c", "node": "count"}, {"id": "f", "node": "formula", "values": {"formula": "{a}+{b}"}}], "edges": [["c.result", "f.a"]]})
     placed = json.loads(json.dumps(drawing.describe()))["nodes"]
     assert [f["name"] for f in placed["f"]["inputs"]] == ["formula", "a", "b"], placed["f"]
+
+
+def test_a_hook_reading_a_value_nobody_typed_in_is_a_problem_and_its_node_does_not_vanish():
+    def added(n: int) -> dict[str, Any]:
+        return {f"x{i}": str for i in range(n)}
+
+    @node("hooky", compute_added_inputs=added)
+    def hooky(n: int, **values: str) -> str:
+        return "called"
+
+    graph = registry_of(hooky, upper).load({"nodes": [{"id": "h", "node": "hooky"}, {"id": "u", "node": "upper"}], "edges": [["h.result", "u.text"]]})
+
+    assert [(p.type, p.loc) for p in graph.problems] == [("hook_needs_value", ("h", "n"))]
+
+
+def test_a_hook_naming_a_field_no_address_can_say_is_a_problem():
+    @node("dotted", compute_outputs=lambda: {"a.b": str})
+    def dotted() -> Mapping[str, Any]:
+        return {"a.b": "x"}
+
+    graph = registry_of(dotted).load({"nodes": [{"id": "d", "node": "dotted"}]})
+
+    assert [(p.type, p.loc) for p in graph.problems] == [("parameter_name_invalid", ("d", "a.b"))]
+
+
+def test_a_timed_out_or_cancelled_leg_keeps_the_calls_already_on_threads():
+    sent: list[str] = []
+
+    @node("mail4", policy=Policy(concurrency=4))
+    def mail4(text: str) -> str:
+        t.sleep(0.2)
+        sent.append(text)
+        return text
+
+    graph = registry_of(split, mail4).load(chain("split", "mail4"))
+    stopped = graph.with_inputs(text="a,b,c,d").resume(timeout=0.05)
+    finished = graph.load_run(stopped.to_json()).resume()
+
+    assert stopped.status == "timed_out" and sorted(sent) == ["a", "b", "c", "d"]
+    assert finished.status == "complete" and sorted(sent) == ["a", "b", "c", "d"]

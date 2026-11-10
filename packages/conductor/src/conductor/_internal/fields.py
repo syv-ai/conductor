@@ -213,6 +213,11 @@ class FieldSpec:
         one: Any = _list_of(carried) if self.shape == "many" else carried
         return TypeAdapter(_list_of(one | None), config=_FLOATS_AS_TEXT)
 
+    @functools.cached_property
+    def column_adapters(self) -> dict[str, TypeAdapter[Any]]:
+        """For a table, a check and writer of each column its row type names."""
+        return {column: carried_list(hint) for column, hint in (self.columns or {}).items()}
+
     def describe(self) -> dict[str, Any]:
         """The field as JSON: its shape, its type's ``id`` and JSON schema, and what a person reads about it."""
         out: dict[str, Any] = {"name": self.name, "title": self.title, "shape": self.shape, "required": self.required}
@@ -249,6 +254,8 @@ def read_field(name: str, hint: Any, default: Any = REQUIRED, where: str = "") -
         markers = [m for m in meta if isinstance(m, (_ManyMarker, _TableMarker))]
         if markers and isinstance(markers[0], _ManyMarker):
             item = get_args(base)[0]
+            if item is pl.DataFrame or item is Table or (get_origin(item) is Annotated and any(isinstance(m, _TableMarker) for m in get_args(item)[1:])):
+                raise NodeDeclarationError(f"{where}{name}: a Series of tables; a table already holds many rows, so take or return one table", code="series_of_tables")
             return _checked(FieldSpec(name, "many", item, _is_optional(item), default, param), where)
         if markers and isinstance(markers[0], _TableMarker):
             return _checked(FieldSpec(name, "table", pl.DataFrame, False, default, param, _columns_of(markers[0].row)), where)

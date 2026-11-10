@@ -326,3 +326,75 @@ def test_a_value_given_for_one_or_many_is_checked_against_many_never_decides_it(
     with pytest.raises(InvalidCallError):
         many.run(text="a")
     assert many.run(text=["a"]).outputs == {"u.result": ["A"]}
+
+
+def test_many_only_marks_an_open_input_of_a_first_node_and_its_default_is_a_list():
+    later = GraphRecord(nodes=[NodeRecord(id="a", node="text"), NodeRecord(id="b", node="both", many={"no"}, values={"no": "n"})], edges=[("a.result", "b.yes")])
+    closed = GraphRecord(nodes=[NodeRecord(id="u", node="upper", many={"text"}, values={"text": "x"})])
+    listed = REGISTRY.load(GraphRecord(nodes=[NodeRecord(id="u", node="upper", many={"text"}, defaults={"text": ["a", "b"]})]))
+
+    assert ("many_not_open", ("b", "no")) in _problems(later)
+    assert _problems(closed) == [("many_not_open", ("u", "text"))]
+    assert _problems(GraphRecord(nodes=[NodeRecord(id="u", node="upper", many={"text"}, defaults={"text": "a"})])) == [("invalid_value", ("u", "text"))]
+    assert listed.run().outputs == {"u.result": ["A", "B"]}
+
+
+def test_a_default_on_a_later_node_is_a_problem_since_no_caller_reaches_it():
+    record = GraphRecord(nodes=[NodeRecord(id="a", node="text"), NodeRecord(id="b", node="both", defaults={"no": "n"})], edges=[("a.result", "b.yes")])
+
+    assert _problems(record) == [("default_on_later_node", ("b", "no"))]
+
+
+def test_an_input_given_by_name_and_by_address_and_a_ceiling_below_one_are_refused_at_the_call():
+    graph = REGISTRY.load(GraphRecord(nodes=[NodeRecord(id="u", node="upper")]))
+
+    with pytest.raises(InvalidCallError) as twice:
+        graph.run({"text": "a", "u.text": "b"})
+    with pytest.raises(InvalidCallError) as ceiling:
+        graph.run(text="a", max_rows=0)
+
+    assert [p.type for p in twice.value.errors()] == ["input_given_twice"]
+    assert [p.type for p in ceiling.value.errors()] == ["invalid_max_rows"]
+    with pytest.raises(InvalidCallError):
+        graph.with_inputs(text="a").resume(max_rows=-1)
+
+
+def test_a_stored_graph_with_problems_of_its_own_is_one_problem_where_it_is_used():
+    broken = node("broken")(GraphRecord(nodes=[NodeRecord(id="x", node="gone")]))
+    graph = registry_of(upper, broken).load(GraphRecord(nodes=[NodeRecord(id="b", node="broken"), NodeRecord(id="u", node="upper")], edges=[("b.result", "u.text")]))
+
+    (problem,) = graph.problems
+    assert (problem.type, problem.loc, problem.ctx["graph"]) == ("embedded_graph_broken", ("b",), "broken")
+    assert [p["type"] for p in problem.ctx["problems"]] == ["unknown_node"]
+
+
+def test_an_edge_naming_a_column_a_table_does_not_declare_is_unknown_output_with_the_column():
+    from typing import TypedDict
+
+    import polars as pl
+    from conductor import Table
+
+    class Row(TypedDict):
+        name: str
+
+    @node("rows")
+    def rows() -> Table[Row]:
+        return pl.DataFrame({"name": ["a"]})
+
+    graph = registry_of(rows, upper).load(GraphRecord(nodes=[NodeRecord(id="r", node="rows"), NodeRecord(id="u", node="upper")], edges=[("r.result.email", "u.text")]))
+
+    (problem,) = graph.problems
+    assert (problem.type, problem.ctx["column"]) == ("unknown_output", "email")
+
+
+def test_a_series_of_tables_is_refused_where_it_is_declared():
+    import polars as pl
+    from conductor import NodeDeclarationError, Table
+
+    with pytest.raises(NodeDeclarationError) as raised:
+
+        @node("tables")
+        def tables(text: str) -> Series[Table]:
+            return [pl.DataFrame()]
+
+    assert raised.value.code == "series_of_tables"

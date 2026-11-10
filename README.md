@@ -58,7 +58,7 @@ ready = graph.with_inputs(text="good night")
 print(ready.resume().outputs)  # {'exclaim.result': 'GOOD NIGHT!!'}
 ```
 
-A value the author types in is fixed, and the graph doesn't offer that input. A node's `defaults` fill an input that stays open, so a caller may still change it: `NodeRecord(id="exclaim", node="exclaim", defaults={"times": 3})`. An open input named in the node's `many` takes a list from the caller, a row per item: `NodeRecord(id="upper", node="upper", many={"text"})`.
+A value the author types in is fixed, and the graph doesn't offer that input. A node's `defaults` fill an input that stays open, so a caller may still change it: `NodeRecord(id="exclaim", node="exclaim", defaults={"times": 3})`. Only an open input of a first node takes a default; on a later node it is the problem `default_on_later_node`, and a value says it. An open input named in the node's `many` takes a list from the caller, a row per item: `NodeRecord(id="upper", node="upper", many={"text"})`.
 
 ## Tables
 
@@ -116,7 +116,7 @@ async for event in graph.with_inputs().stream():
         finished = event.run  # the run to save
 ```
 
-A leg yields `run_start`, `node_start`, `node_progress`, `node_complete`, `node_skipped`, `node_retry`, `node_failed` and `unit_waiting`, and ends with `run_end`, whose `run` stays out of what the event writes. The leg runs on a thread of its own, so a slow node never holds the event loop; leaving the loop, or setting `stream(cancel=event)`, ends it before its next unit. `event.model_dump(mode="json")` is the event as JSON. `node_progress` arrives at most four times a second per node.
+A leg yields `run_start`, `node_start`, `node_progress`, `node_complete`, `node_skipped`, `node_retry`, `node_failed` and `unit_waiting`, and ends with `run_end`, whose `run` stays out of what the event writes. The leg runs on a thread of its own, so a slow node never holds the event loop; leaving the loop, or setting `stream(cancel=event)`, ends it before its next unit, keeping the calls already made. `event.model_dump(mode="json")` is the event as JSON. `node_progress` arrives at most four times a second per node.
 
 ## Concepts
 

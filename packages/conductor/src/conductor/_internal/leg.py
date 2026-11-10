@@ -183,7 +183,7 @@ class Leg:
         try:
             if not self._over_ceiling():
                 self._loop()
-            while self.running and self.run.status == "failed":  # calls already made had their effect: keep them, as long as their timeouts allow
+            while self.running and self.run.status != "running":  # calls already made had their effect: keep them, as long as their timeouts allow
                 self._wait()
         finally:
             if self.pool is not None:
@@ -199,7 +199,7 @@ class Leg:
         while self.run.status == "running":
             if self.stop is not None and (stopped := self.stop()) is not None:
                 self.run.status, self.run.cause = stopped.type.removeprefix("run_"), stopped  # type: ignore[assignment]
-                self.running.clear()
+                self._start_nothing_more()
             elif self.ready:
                 position, key = heapq.heappop(self.ready)
                 self._try(self.nodes[position], key)
@@ -347,13 +347,7 @@ class Leg:
         if isinstance(unit, Problem):
             if run.cause is None:
                 run.status, run.cause = "failed", unit
-                for node_id, waiting in self.slots_waiting.items():
-                    for k, _, _ in waiting:
-                        self.running.pop((node_id, k), None)
-                    waiting.clear()
-                for _, _, node_id, k, attempt in self.timers:
-                    if attempt >= 0:
-                        self.running.pop((node_id, k), None)
+                self._start_nothing_more()
                 if self.emit:
                     self.emit(NodeFailed(node_id=placed.id, cause=unit))
             return
@@ -379,6 +373,16 @@ class Leg:
             else:
                 for row in run._rows(reader.level, key)[0]:
                     heapq.heappush(self.ready, (self.position[reader.id], row))
+
+    def _start_nothing_more(self) -> None:
+        """Drop the units not yet on a thread and the retries not yet due; the calls on threads are waited for and kept."""
+        for node_id, waiting in self.slots_waiting.items():
+            for k, _, _ in waiting:
+                self.running.pop((node_id, k), None)
+            waiting.clear()
+        for _, _, node_id, k, attempt in self.timers:
+            if attempt >= 0:
+                self.running.pop((node_id, k), None)
 
     def _check_gathers(self) -> None:
         """Make ready each gathering unit nothing above it is still working under; wait if none is."""

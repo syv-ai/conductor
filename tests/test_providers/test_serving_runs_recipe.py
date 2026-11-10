@@ -18,7 +18,7 @@ import pytest
 pytest.importorskip("fastapi")
 httpx = pytest.importorskip("httpx")
 
-from conductor import Ask, FromRun, Param, Policy, node  # noqa: E402
+from conductor import Ask, FromRun, Param, node  # noqa: E402
 from conductor.widgets import Switch  # noqa: E402
 
 PAGE = Path(__file__).parents[2] / "docs" / "serving-runs.md"
@@ -31,7 +31,7 @@ class Caller:
     name: str
 
 
-@node("gate", policy=Policy(concurrency=2))  # on a thread, so a cancel ends the leg while it runs
+@node("gate")
 def gate() -> float:
     _gate_calls.append("gate")
     assert _gate.wait(20), "the test never opened the gate"
@@ -145,6 +145,7 @@ def test_a_run_is_started_followed_late_saved_answered_on_a_new_process_and_canc
         stopping = await second.start("gate")
         await second.emitted(stopping, "node_start")
         assert (await second.client.post(f"/runs/{stopping}/cancel")).json() == {"cancelled": True}
+        _gate.set()  # a cancel waits for the call already made, and keeps it
         assert (await second.frames(stopping))[-1] == {"type": "run_end", "status": "cancelled"}
         assert second.module.saved[stopping].status == "cancelled"
         assert (await second.client.post(f"/runs/{stopping}/cancel")).json() == {"cancelled": False}

@@ -433,3 +433,36 @@ def test_an_answer_stays_with_its_row_when_a_row_is_inserted_above_and_an_edited
 
     assert [w.id for w in moved.waiting] == ["a@0"] and moved.results["a"]["result"] == [None, True, False]
     assert [w.inputs["name"] for w in edited.waiting] == ["bob"] and edited.results["a"]["result"] == [True, None]
+
+
+def test_a_table_output_reads_back_by_its_own_column_types_whatever_graphs_came_before():
+    """A column's check belongs to its field, so graphs loaded and dropped before never lend theirs."""
+    import gc
+    from datetime import date
+    from typing import TypedDict
+
+    import polars as pl
+
+    class Dated(TypedDict):
+        v: date
+
+    class Texts(TypedDict):
+        v: str
+
+    def outs(kind: str) -> dict[str, Any]:
+        from conductor import Table
+
+        return {"result": Table[Dated] if kind == "date" else Table[Texts]}
+
+    @node("mk", compute_outputs=outs)
+    def mk(kind: str) -> dict[str, Any]:
+        return {"result": pl.DataFrame({"v": [date(2020, 1, 1)] if kind == "date" else ["2020-01-01"]})}
+
+    registry = registry_of(mk)
+    for i in range(60):
+        kind = "date" if i % 2 == 0 else "str"
+        graph = registry.load(GraphRecord(nodes=[NodeRecord(id="m", node="mk", values={"kind": kind})]))
+        value = graph.load_run(graph.run().to_json()).results["m"]["result"]["v"][0]
+        assert isinstance(value, date) == (kind == "date"), (i, value)
+        del graph
+        gc.collect()

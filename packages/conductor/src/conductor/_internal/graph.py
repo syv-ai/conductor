@@ -124,11 +124,11 @@ class Graph:
     outputs of the nodes nothing reads.
     """
 
-    def __init__(self, record: GraphRecord, definitions: Mapping[str, NodeDefinition[..., Any]]) -> None:
+    def __init__(self, record: GraphRecord, definitions: Mapping[str, NodeDefinition[..., Any]], _embedded_in: tuple[str, ...] = ()) -> None:
         self.record = record
         self.problems: list[Problem] = []
         self._definitions = dict(definitions)
-        placed_records, edges = self._splice(record, "", ())
+        placed_records, edges = self._splice(record, "", _embedded_in)
         self._nodes: dict[str, PlacedNode] = {}
         self.inputs: dict[str, GraphInput] = {}
         #: Each table, by name, and the node and output that make it (``None`` for a graph input).
@@ -194,10 +194,11 @@ class Graph:
         take as keywords (``{"a.text": ...}``). ``max_rows`` is a ceiling on
         the rows any one table of the run may have.
         """
-        from conductor._internal.run import Run
+        from conductor._internal.run import Run, checked_max_rows
 
         if self.problems:
             raise InvalidCallError(self.problems)
+        checked_max_rows(max_rows)
         return Run(self, self._checked_inputs({**(inputs or {}), **by_name}), max_rows=max_rows)
 
     def run(
@@ -209,9 +210,9 @@ class Graph:
 
     def load_run(self, saved: str | bytes | Mapping[str, Any]) -> Run:
         """A run of this graph from what ``run.to_json()`` wrote."""
-        from conductor._internal.run import Run
+        from conductor._internal.run import run_from_json
 
-        return Run.from_json(self, saved)
+        return run_from_json(self, saved)
 
     def _above_of(self, node_id: str) -> frozenset[str]:
         """Every node ``node_id`` waits on, however far up."""
@@ -232,6 +233,9 @@ class Graph:
         """The caller's inputs by address, each checked against its field and ``many``; every fault at once."""
         problems, values = [], {}
         named = {graph_input.address: name for name, graph_input in self.inputs.items()}
+        twice = [key for key in given if key in named and named[key] != key and named[key] in given]
+        if twice:
+            raise InvalidCallError([make_problem("input_given_twice", "inputs", named[key], name=named[key], address=key) for key in twice])
         given = {named.get(key, key): value for key, value in given.items()}
         for name in given.keys() - self.inputs.keys():
             problems.append(make_problem("not_offered", "inputs", name, name=name, inputs=", ".join(self.inputs) or "none"))
@@ -239,7 +243,7 @@ class Graph:
             if name not in given:
                 if graph_input.required:
                     problems.append(make_problem("missing_input", "inputs", name, name=name))
-                values[graph_input.address] = [] if graph_input.many else graph_input.default
+                values[graph_input.address] = graph_input.default
                 continue
             adapter = carried_list(graph_input.spec.type) if graph_input.many else graph_input.spec.adapter
             try:
@@ -267,6 +271,12 @@ class Graph:
                 continue
             if definition.id in stack:
                 self.problems.append(make_problem("embeds_itself", node_record.id, node=definition.id))
+                out.append((node_record, None))
+                continue
+            alone = Graph(definition.graph, self._definitions, (*stack, definition.id))
+            if alone.problems:
+                inner_problems = [p.model_dump(mode="json") for p in alone.problems]
+                self.problems.append(make_problem("embedded_graph_broken", node_record.id, graph=definition.id, count=len(inner_problems), problems=inner_problems))
                 out.append((node_record, None))
                 continue
             inner, inner_edges = self._splice(definition.graph, node_record.id + "/", (*stack, definition.id))
@@ -372,6 +382,8 @@ class Graph:
             plan = placed.inputs[name] = InputPlan(spec)
             if name in record.values and name in record.defaults:
                 self.problems.append(make_problem("value_and_default", placed.id, name))
+            if name in record.many and name not in edges and (name in record.values or not first):
+                self.problems.append(make_problem("many_not_open", placed.id, name))
             if name in edges:
                 if name in record.values or name in record.defaults:
                     self.problems.append(make_problem("value_and_edge", placed.id, name))
@@ -386,9 +398,14 @@ class Graph:
             elif name in record.values:
                 plan.value = self._typed(placed.id, name, spec, record.values[name])
             elif first:
-                plan.value = self._typed(placed.id, name, spec, record.defaults[name]) if name in record.defaults else spec.default
+                many = name in record.many and spec.shape == "one"
+                if name in record.defaults:
+                    plan.value = self._typed(placed.id, name, spec, record.defaults[name], many)
+                else:
+                    plan.value = [] if many and not spec.required else spec.default
                 self._open(placed, name, plan, record)
             elif name in record.defaults:
+                self.problems.append(make_problem("default_on_later_node", placed.id, name))
                 plan.value = self._typed(placed.id, name, spec, record.defaults[name])
             elif spec.required:
                 self.problems.append(make_problem("unbound_on_later_node", placed.id, name))
@@ -430,13 +447,25 @@ class Graph:
             elif name in definition.inputs:
                 spec = definition.inputs[name]
                 raw = record.values.get(name, record.defaults.get(name, REQUIRED))
+                if raw is REQUIRED and spec.default is REQUIRED:
+                    self.problems.append(make_problem("hook_needs_value", record.id, name))
+                    return None
                 value = spec.default if raw is REQUIRED else self._typed(record.id, name, spec, raw)
                 if value is REQUIRED:
-                    return None  # a value not typed in, or one with its own problem
+                    return None  # a value with its own problem
                 kwargs[name] = value
         try:
-            return {name: read_field(name, hint, where=f"node {definition.id!r}, ") for name, hint in hook(**kwargs).items()}
+            fields = dict(hook(**kwargs))
         except Exception as error:  # noqa: BLE001  the hook's failure is this node's problem
+            self.problems.append(make_problem("compute_hook_failed", record.id, reason=str(error), error=type(error).__name__))
+            return None
+        bad = [name for name in fields if not (isinstance(name, str) and name and not set(name) & set("./@"))]
+        if bad:
+            self.problems.extend(make_problem("parameter_name_invalid", record.id, str(name)) for name in bad)
+            return None
+        try:
+            return {name: read_field(name, hint, where=f"node {definition.id!r}, ") for name, hint in fields.items()}
+        except Exception as error:  # noqa: BLE001  a hint conductor can't carry is the hook's failure
             self.problems.append(make_problem("compute_hook_failed", record.id, reason=str(error), error=type(error).__name__))
             return None
 
@@ -466,8 +495,11 @@ class Graph:
                     return True
         return False
 
-    def _typed(self, node_id: str, name: str, spec: FieldSpec, value: Any) -> Any:
+    def _typed(self, node_id: str, name: str, spec: FieldSpec, value: Any, many: bool = False) -> Any:
+        """``value`` as ``spec`` reads it (a list of them when ``many``), or ``REQUIRED`` with the problem noted."""
         try:
+            if many:
+                return carried_list(spec.type).validate_python(value)
             return spec.adapter.validate_python(value) if spec.shape != "table" else value
         except ValidationError as error:
             self.problems.append(make_problem("invalid_value", node_id, name, reason=value_free_errors(error)[0]["msg"]))
@@ -494,7 +526,9 @@ class Graph:
             return None
         spec = source.definition.outputs.get(output)
         if spec is None or (column and spec.shape != "table") or (column and spec.columns is not None and column not in spec.columns):
-            self.problems.append(make_problem("unknown_output", node_id, name, source=address, outputs=", ".join(source.definition.outputs) or "none"))
+            self.problems.append(make_problem(
+                "unknown_output", node_id, name, source=address, outputs=", ".join(source.definition.outputs) or "none", **({"column": column} if column else {}),
+            ))
             return None
         if spec.shape == "one":
             return Source(source_id, output, None, source.level, False, spec.type, name=output)

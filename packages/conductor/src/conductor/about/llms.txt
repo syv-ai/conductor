@@ -103,8 +103,8 @@ Any type pydantic can check and write as JSON travels on edges: `str`, `int`, `f
 
 - Edges are a set, kept sorted, so two records differing only in edge order are equal. Several into one input gather in the order their source nodes appear in `nodes`, then the order a node declares its outputs. An edge is `node.field`, or `node.output.column` for one column of a table. An edge drawn twice is `repeated_edge`; one naming a node the graph doesn't have, at either end, is `edge_names_missing_node`.
 - `values`: typed in and fixed; the graph doesn't offer that input to a caller.
-- `defaults`: typed in, and the input stays open for a caller to fill. An input takes an edge, a value or a default, never two (`value_and_edge`, `value_and_default`).
-- `many`: the open inputs of a first node that take a list from the caller, a row per item. On an input an edge feeds it is `many_on_edge`; on a `Series` input, `many_on_series`.
+- `defaults`: typed in, and the input stays open for a caller to fill. Only an open input of a first node has a caller, so a default elsewhere is `default_on_later_node`: write a value. An input takes an edge, a value or a default, never two (`value_and_edge`, `value_and_default`).
+- `many`: the open inputs of a first node that take a list from the caller, a row per item; a default beside it is a list. On an input an edge feeds it is `many_on_edge`, on one a value closes or on a later node `many_not_open`, on a `Series` input `many_on_series`.
 - Nothing set: the declared default.
 - `display`: the host's own, stored and never read.
 
@@ -115,7 +115,7 @@ Any type pydantic can check and write as JSON travels on edges: `str`, `int`, `f
 - `graph.inputs`: the open inputs of its first nodes (those no edge feeds), by bare name or by address where two share a name. Each has `address`, `node_id`, `input`, `many`, `required`, `default` (the record's default, else the node's) and `describe()`. An open first-node input is not a problem; a required input on a later node nothing feeds is `unbound_on_later_node`.
 - `graph.outputs`: the outputs of the nodes nothing reads, by address. `graph.plan`: where each node runs, `once` or `per row of <table>`. `graph.decisions`: each node's exclusive groups and their outputs.
 - `graph.describe()`: the graph as an editor draws it, as JSON: each node's fields as its hooks made them and where it runs, the inputs, the outputs, the problems.
-- Other codes: `unknown_node`, `unknown_version`, `unknown_input` (a value, default, `many` or edge naming an input the node lacks), `unknown_output`, `type_mismatch`, `invalid_value` (a typed-in value its type refuses), `duplicate_node_id`, `cycle`, `embeds_itself`, `rows_not_related`.
+- Other codes: `unknown_node`, `unknown_version`, `unknown_input` (a value, default, `many` or edge naming an input the node lacks), `unknown_output` (an output, or a column of a table output, the node doesn't give), `type_mismatch`, `invalid_value` (a typed-in value its type refuses), `duplicate_node_id`, `cycle`, `embeds_itself`, `embedded_graph_broken` (a stored graph used as a node has problems of its own, in `ctx`), `rows_not_related`, `hook_needs_value` (a value a hook reads is not typed in), `parameter_name_invalid` (a hook gave a field a name no address can say).
 
 ### Rows
 
@@ -146,7 +146,7 @@ finished = answered.resume()
 again = approving.load_run(finished.to_json())           # a run is JSON
 ```
 
-- Each entry of `run.waiting` is a `Waiting`: `id` (`approve@1`, the node and its row), `node_id`, `row`, `prompt`, `choices`, `default`, `widget`, `answer_schema` (the JSON schema of the answer, from the return type), and `inputs`, what the call received, as JSON.
+- Each entry of `run.waiting` is a `Waiting`: `id` (`approve@1`: the node's id, then `@` and each number of its row; `approve` alone for a node that ran once), `node_id`, `row`, `prompt`, `choices`, `default`, `widget`, `answer_schema` (the JSON schema of the answer, from the return type), and `inputs`, what the call received, as JSON.
 - `run.answer(unit, value)` checks the value against the return type and `choices` and returns a new run; a wrong one is `invalid_answer`, a unit not waiting `not_waiting`. A node that asked is not called again for that row.
 - `run.to_json()` is the whole run; `graph.load_run(saved)` reads it back, and what doesn't fit is `state_unreadable`.
 - A parameter typed `FromRun[T]` receives the value of `T` from `run.resume(from_run={T: value})` or `graph.run(from_run=...)`. A missing one is `from_run_missing`, at the call.
@@ -178,7 +178,7 @@ Retries live on the node's `Policy`, per unit.
 - Only `ExternalFailure` retries: raised by the node, or a class in `Policy.retry_on` (`external_failed`). Anything else is `execution_failed` or the node's own `NodeError` code, run once.
 - Attempt `n` waits `retry_delay * 2 ** (n - 1)` and emits `node_retry`.
 - `Policy.attempt_timeout` bounds one attempt: the unit fails with the code `timeout`, final; the thread is not interrupted.
-- `run.resume(timeout=60)` ends the leg `timed_out`; `run.stream(cancel=asyncio.Event())` ends it `cancelled` when set, and so does leaving the loop.
+- `run.resume(timeout=60)` ends the leg `timed_out`; `run.stream(cancel=asyncio.Event())` ends it `cancelled` when set, and so does leaving the loop. Either way the calls already made finish and are kept, so resuming repeats none of them.
 
 ### Errors
 
@@ -238,7 +238,7 @@ Three public modules: `conductor`, `conductor.widgets` and `conductor.events`. E
 ### Running
 
 - `graph.run(inputs=None, /, *, max_rows=None, from_run=None, timeout=None, **by_name)`: one leg from the start; its `Run`. A pause or failure is a `status`.
-- `graph.with_inputs(inputs=None, /, *, max_rows=None, **by_name)`: a `Run` with the inputs checked and not started; a name it doesn't offer (`not_offered`), a required one left out (`missing_input`) or a value its type can't read (`invalid_input`) raises `InvalidCallError`, every fault at once.
+- `graph.with_inputs(inputs=None, /, *, max_rows=None, **by_name)`: a `Run` with the inputs checked and not started; a name it doesn't offer (`not_offered`), a required one left out (`missing_input`), one given by both its name and its address (`input_given_twice`), a value its type can't read (`invalid_input`) or a `max_rows` below 1 (`invalid_max_rows`) raises `InvalidCallError`, every fault at once.
 - `run.resume(*, max_rows=None, from_run=None, timeout=None)`: the next leg. `run.stream(...)`, the same arguments and `cancel=`: the leg's events.
 - `run.answer(unit, value)`, `run.with_inputs(inputs=None, /, *, max_rows=None, **by_name)` (a run carrying this one's work, to resume or stream), `run.again(...)` (the same, resumed; takes `from_run=` and `timeout=` too), `run.to_json()`, `graph.load_run(saved)`.
 - `run.results`: every node's outputs so far, by node id: one value for a node that ran once, a list in row order for one that ran per row, `None` where a row has none. `run.outputs`: narrowed to `graph.outputs`, by address. `run.waiting`, `run.not_called`, `run.status`, `run.cause`.
