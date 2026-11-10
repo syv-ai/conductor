@@ -365,7 +365,10 @@ class Leg:
                 if self.emit:
                     self.emit(NodeFailed(node_id=placed.id, cause=unit))
             return
-        run._units[placed.id][key] = unit
+        units = run._units[placed.id]
+        if units and key not in units and key < next(reversed(units)):
+            run._unordered.add(placed.id)
+        units[key] = unit
         self.recorded_since_walk += 1
         if unit.state == "done" and placed.makes:
             for output, level in placed.makes.items():
@@ -429,8 +432,10 @@ class Leg:
     def _progress(self, placed: PlacedNode, last: bool = False) -> None:
         """Say how far a node running per row has got, at most four times a second; ``last`` says its final count, unless already said."""
         now = time.monotonic()
-        done = sum(1 for unit in self.run._units[placed.id].values() if unit.state != "waiting")
-        if self.emit and (now - self.progress_at.get(placed.id, -1.0) >= _SECONDS_BETWEEN_PROGRESS or last) and self.progress_said.get(placed.id) != done:
+        if not self.emit or not (last or now - self.progress_at.get(placed.id, -1.0) >= _SECONDS_BETWEEN_PROGRESS):
+            return
+        done = sum(1 for unit in self.run._units[placed.id].values() if unit.state != "waiting")  # counted only when said, at most four times a second
+        if self.progress_said.get(placed.id) != done:
             self.progress_at[placed.id], self.progress_said[placed.id] = now, done
             keys, known = self.run._rows(placed.level, ())
             self.emit(NodeProgress(node_id=placed.id, done=done, total=len(keys) if known else None))

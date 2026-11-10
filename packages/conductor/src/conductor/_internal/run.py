@@ -119,6 +119,8 @@ class Run:
         self.cause: Problem | None = None
         #: node -> fingerprint of what a unit received -> its outputs, from the run this one went on from.
         self._earlier: dict[str, dict[str, dict[str, Any]]] = {}
+        #: The nodes whose units were recorded out of row order (threads finish when they finish), sorted when read.
+        self._unordered: set[str] = set()
 
     def __repr__(self) -> str:
         return f"<Run {self.status}: {sum(len(u) for u in self._units.values())} units>"
@@ -249,7 +251,12 @@ class Run:
     @property
     def waiting(self) -> list[Waiting]:
         """Every row waiting for a person, in node then row order."""
-        return [self._waiting(n, k, u) for n, units in self._units.items() for k, u in sorted(units.items()) if u.state == "waiting"]
+        return [self._waiting(n, k, u) for n in self._units for k, u in self._in_order(n) if u.state == "waiting"]
+
+    def _in_order(self, node_id: str) -> Any:
+        """A node's units in row order."""
+        units = self._units[node_id]
+        return sorted(units.items()) if node_id in self._unordered else units.items()
 
     def _waiting(self, node_id: str, key: Key, unit: Unit) -> Waiting:
         return Waiting(id=_unit_id(node_id, key), node_id=node_id, row=key, answer_schema=_answer_schema(self.graph._nodes[node_id]), **(unit.question or {}))
@@ -491,7 +498,7 @@ class Run:
             raise InvalidCallError([make_problem("state_unwritable", "state", unwritable.at, at=unwritable.at, reason=unwritable.reason)]) from None
 
     def _written(self) -> str:
-        units = {n: _dump_units(self.graph._nodes[n], dict(sorted(us.items()))) for n, us in self._units.items()}
+        units = {n: _dump_units(self.graph._nodes[n], dict(self._in_order(n)) if n in self._unordered else us) for n, us in self._units.items()}
         earlier = {
             n: {"fingerprints": list(by), **_dump_units(self.graph._nodes[n], {(i,): Unit("done", out) for i, out in enumerate(by.values())}, keyed=False)}
             for n, by in self._earlier.items()
@@ -503,7 +510,7 @@ class Run:
     def _copy(self, **changes: Any) -> Run:
         copy = Run(self.graph, self.inputs, max_rows=changes.get("max_rows", self.max_rows), _door=STARTING)
         copy._units = {n: dict(us) for n, us in self._units.items()}
-        copy.status, copy.cause, copy._earlier = self.status, self.cause, self._earlier
+        copy.status, copy.cause, copy._earlier, copy._unordered = self.status, self.cause, self._earlier, set(self._unordered)
         return copy
 
 
@@ -641,7 +648,10 @@ class _Unreadable(Exception):
 def _load_units(placed: PlacedNode, dumped: Mapping[str, Any]) -> list[tuple[Key, Unit]]:
     """A node's saved units, each output read by its own type; anything that doesn't fit raises ``_Unreadable`` naming where."""
     states, questions = dumped["states"], dumped["questions"]
-    done = sum(1 for state in states if state == "done")
+    done = states.count("done")
+    strange = set(states) - {"done", "skipped", "blank", "waiting"}
+    if strange:
+        raise _Unreadable(placed.id, f"a unit is {sorted(strange)[0]!r}")
     columns: dict[str, list[Any]] = {}
     for name, spec in placed.definition.outputs.items():
         at = f"{placed.id}.{name}"
@@ -676,8 +686,6 @@ def _load_units(placed: PlacedNode, dumped: Mapping[str, Any]) -> list[tuple[Key
         raise _Unreadable(placed.id, f"it holds {len(keys)} rows for {len(states)} units")
     loaded, n = [], 0
     for i, (key, state) in enumerate(zip(keys, states, strict=True)):
-        if state not in ("done", "skipped", "blank", "waiting"):
-            raise _Unreadable(placed.id, f"a unit is {state!r}")
         out = None
         if state == "done":
             out = {name: values[n] for name, values in columns.items()}
