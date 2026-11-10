@@ -343,6 +343,10 @@ def _carried(hint: Any) -> Any:
     return hint
 
 
+#: The classes whose values are plain in JSON: no keys to order, and read back by their type as they were.
+SCALARS = frozenset({str, int, float, bool, type(None), datetime.date, datetime.datetime, datetime.time, datetime.timedelta})
+
+
 def carried_list(hint: Any) -> TypeAdapter[Any]:
     """Checks a list of ``hint``, as a caller gives many values on one input, and writes it as JSON."""
     return TypeAdapter(_list_of(_carried(hint)), config=_FLOATS_AS_TEXT)

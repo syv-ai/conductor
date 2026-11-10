@@ -886,3 +886,68 @@ def test_a_call_past_its_timeout_that_comes_back_while_the_leg_drains_is_kept_an
     resumed = run.resume()
 
     assert resumed.status == "complete" and resumed.results["l"]["result"] == "mail" and effects == ["mail"]
+
+
+def _counting_llm(calls: list[int], seconds: float) -> Any:
+    @node("llm", policy=Policy(concurrency=4))
+    def llm(n: int) -> int:
+        time.sleep(seconds)
+        calls.append(n)
+        return n * 2
+
+    return llm
+
+
+def test_a_stream_offers_checkpoints_and_resuming_the_last_one_repeats_only_the_calls_in_flight():
+    calls: list[int] = []
+    llm = _counting_llm(calls, 0.005)
+    graph = registry_of(llm).load(GraphRecord(nodes=[NodeRecord(id="llm", node="llm", many={"n"})]))
+
+    async def until_killed() -> tuple[str, int]:
+        saved, start = None, time.monotonic()
+        async for event in graph.with_inputs(n=list(range(400))).stream(checkpoint_every=0.05):
+            if event.type == "run_checkpoint":
+                assert event.run.status == "running" and event.model_dump(mode="json") == {"type": "run_checkpoint"}
+                saved = event.run.to_json()
+            if time.monotonic() - start > 0.25 and saved is not None:
+                break  # the process dies here
+        return saved, len(calls)
+
+    saved, before = _bounded(until_killed())
+    time.sleep(0.1)  # the abandoned leg's threads come back
+    calls.clear()
+    held = sum(r is not None for r in graph.load_run(saved).results["llm"]["result"])
+    resumed = graph.load_run(saved).resume()
+
+    assert 0 < held <= before < 400
+    assert resumed.status == "complete" and resumed.results["llm"]["result"] == [n * 2 for n in range(400)]
+    assert len(calls) == 400 - held  # only what the checkpoint holds no record of
+
+
+def test_a_stopped_leg_with_calls_on_threads_offers_a_checkpoint_before_it_drains():
+    calls: list[int] = []
+    llm = _counting_llm(calls, 0.3)
+    graph = registry_of(llm).load(GraphRecord(nodes=[NodeRecord(id="llm", node="llm", many={"n"})]))
+
+    async def cancelled() -> list[Any]:
+        cancel, seen = asyncio.Event(), []
+        async for event in graph.with_inputs(n=[1, 2, 3, 4, 5, 6]).stream(cancel=cancel, checkpoint_every=60):
+            seen.append(event)
+            if event.type == "node_start":
+                cancel.set()
+        return seen
+
+    seen = _bounded(cancelled())
+    kinds = [e.type for e in seen]
+    (checkpoint,) = [e for e in seen if e.type == "run_checkpoint"]
+    assert kinds[-1] == "run_end" and seen[-1].run.status == "cancelled"
+    assert checkpoint.run.results["llm"]["result"] == [None] * 6  # taken as the cancel came, before the calls in flight came back
+    assert 0 < sum(v is not None for v in seen[-1].run.results["llm"]["result"]) == len(calls) < 6
+
+
+@pytest.mark.parametrize("every", [0, -1, "1", True])
+def test_checkpoint_every_is_a_number_of_seconds_above_zero(every: Any) -> None:
+    graph = registry_of(split).load(make_graph(split))
+    with pytest.raises(InvalidCallError) as refused:
+        graph.with_inputs(text="a").stream(checkpoint_every=every)
+    assert [p.type for p in refused.value.errors()] == ["invalid_checkpoint_every"]

@@ -50,6 +50,7 @@ from conductor._internal.errors import (
 )
 from conductor._internal.fields import (
     REQUIRED,
+    SCALARS,
     FieldSpec,
     Refused,
     accepts,
@@ -134,6 +135,13 @@ class PlacedNode:
         code = getattr(definition.function, "__code__", None)
         written = repr((definition.id, definition.version, _code_text(code) if code is not None else "", fields, self.level))
         return hashlib.blake2b(written.encode(), digest_size=8).hexdigest()
+
+    @functools.cached_property
+    def plain_inputs(self) -> bool:
+        """Whether no input can hold a mapping (each is a table, or of plain classes), so what a unit received needs no key sorting to hash."""
+        return all(
+            spec.shape == "table" or (bool(spec.plain_classes) and set(spec.plain_classes) <= SCALARS) for spec in self.definition.inputs.values()
+        )
 
     @functools.cached_property
     def questions(self) -> dict[str, dict[str, Any]]:

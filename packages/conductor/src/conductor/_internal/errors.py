@@ -107,6 +107,7 @@ PROBLEM_CATALOGUE: Mapping[str, str] = {
     "input_given_twice": "'{name}' is given twice, by its name and by its address '{address}'; give it once.",
     "invalid_input": "The value given for '{name}' is not valid: {reason}",
     "invalid_max_rows": "max_rows is at least 1; it was {max_rows}.",
+    "invalid_checkpoint_every": "checkpoint_every is a number of seconds above 0; it was {checkpoint_every}.",
     "missing_input": "'{name}' is required.",
     "node_not_in_graph": "'{node_id}' is not a node of this graph; it has {nodes}.",
     "not_offered": "The graph has no input '{name}'; it has {inputs}.",

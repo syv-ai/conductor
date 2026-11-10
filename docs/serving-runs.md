@@ -182,7 +182,7 @@ async def run_published(name: str, inputs: dict[str, Any], caller: CallerDep) ->
 
 **One process.** The comment on `legs` is the limit that matters. A leg is an asyncio task, so `GET /runs/{id}/events` and `POST /runs/{id}/cancel` reach it only on the process running it. `GET /runs/{id}` and answering work anywhere, because they read the saved row. With more than one worker you route those two yourself, or keep a cancel flag on the row and stream from the request that started the leg.
 
-**A restart.** The row outlives the process, so a paused run answers as usual. A run that was `running` when the process died stays `running` until your own cleanup ends it. The row holds the run the leg started from, so a host holding a lease can resume it, calling again what that leg had called.
+**A restart.** The row outlives the process, so a paused run answers as usual. A run that was `running` when the process died stays `running` until your own cleanup ends it. Stream with `checkpoint_every=` a number of seconds and write each `run_checkpoint`'s `event.run.to_json()` to the row: a host holding a lease resumes from the newest, and calls again only what that checkpoint held no record of (the calls in flight, and those since it was taken). Without checkpoints the row holds the run the leg started from, and every call of that leg is made again.
 
 **Writing the row.** `run_leg` runs on the event loop, so a slow synchronous write stalls every other run. Use an async driver, or `asyncio.to_thread` for a large run.
 

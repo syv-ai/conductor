@@ -148,8 +148,20 @@ class RunEnd(_EventBase):
     run: SkipJsonSchema[Run] = Field(exclude=True)
 
 
+class RunCheckpoint(_EventBase):
+    """The run as it stands mid-leg, for a host to store, every ``checkpoint_every`` seconds and once when the leg is stopped.
+
+    ``run`` is a copy, with ``status`` ``running``: ``graph.load_run`` takes its JSON and ``resume()`` calls only
+    the units it holds no record of, so a process that dies mid-leg repeats at most the calls that were in
+    flight. Like ``RunEnd``'s, it stays out of what the event writes.
+    """
+
+    type: Literal["run_checkpoint"] = "run_checkpoint"
+    run: SkipJsonSchema[Run] = Field(exclude=True)
+
+
 Event = Annotated[
-    RunStart | NodeStart | NodeProgress | NodeComplete | NodeSkipped | NodeFailed | NodeRetry | UnitWaiting | RunEnd,
+    RunStart | NodeStart | NodeProgress | NodeComplete | NodeSkipped | NodeFailed | NodeRetry | UnitWaiting | RunCheckpoint | RunEnd,
     Field(discriminator="type"),
 ]
 Event.__doc__ = "Any event ``run.stream()`` yields, told apart by ``type``: ``TypeAdapter(Event)`` reads one back from JSON."
@@ -164,8 +176,13 @@ class Leg:
     ``stop`` is asked between units, and says why the leg must end now (a cancel, the deadline), or None.
     """
 
-    def __init__(self, run: Run, emit: Callable[[_EventBase], None] | None, stop: Callable[[], Problem | None] | None, from_run: dict[type, Any]) -> None:
+    def __init__(
+        self, run: Run, emit: Callable[[_EventBase], None] | None, stop: Callable[[], Problem | None] | None, from_run: dict[type, Any],
+        checkpoint_every: float | None = None,
+    ) -> None:
         self.run, self.stop, self.from_run = run, stop, from_run
+        self.checkpoint_every = checkpoint_every if emit is not None else None
+        self.next_checkpoint = time.monotonic() + checkpoint_every if checkpoint_every is not None else 0.0
         self.emit = emit if emit is None or not run.graph._spliced else self._as_seen_from_outside(emit)
         self.nodes = list(run.graph._nodes.values())
         self.position = {p.id: i for i, p in enumerate(self.nodes)}
@@ -191,7 +208,7 @@ class Leg:
         self.inside: dict[str, dict[str, tuple[bool, int, int, int]]] = {}
         self.touched: set[str] = set()
         #: The nodes said complete, on this leg or on an earlier one; a node an answer finished between legs is said on this one.
-        self.complete: set[str] = {n for n in run._complete if self._finished(run.graph._nodes[n])}
+        self.complete: set[str] = set(run._complete)
         self.touched.update(n for n, units in run._units.items() if units and n not in self.complete)
         for node_id in self.complete & run.graph._spliced:  # an embedding completes once its last node does
             units = run._units[node_id].values()
@@ -214,9 +231,10 @@ class Leg:
         finally:
             if self.pool is not None:
                 self.pool.shutdown(wait=False, cancel_futures=True)
-        if run.status == "running":
-            run.status = "waiting" if any(u.state == "waiting" for us in run._units.values() for u in us.values()) else "complete"
-        run._complete = frozenset(p.id for p in self.nodes if self._finished(p))
+        run._complete = frozenset(self.complete | {p.id for p in self.nodes if p.id not in self.complete and self._finished(p)})
+        if run.status == "running":  # a finished node has no row waiting
+            waits = any(u.state == "waiting" for n, us in run._units.items() if n not in run._complete for u in us.values())
+            run.status = "waiting" if waits else "complete"
         for node_id in run._complete:  # what a finished node was carried and didn't take, no row of this run will
             run._earlier.pop(node_id, None)
         if self.emit:
@@ -232,6 +250,8 @@ class Leg:
             if self.stop is not None and (stopped := self.stop()) is not None:
                 self.run.status, self.run.cause = stopped.type.removeprefix("run_"), stopped  # type: ignore[assignment]
                 self._start_nothing_more()
+                if self.checkpoint_every is not None and self.running:  # the drain may outlast the process
+                    self._checkpoint()
             elif self.ready:
                 position, key = heapq.heappop(self.ready)
                 self._try(self.nodes[position], key)
@@ -404,6 +424,8 @@ class Leg:
             run._unordered.add(placed.id)
         units[key] = unit
         self.recorded_since_walk += 1
+        if self.checkpoint_every is not None and time.monotonic() >= self.next_checkpoint:
+            self._checkpoint()
         if unit.state == "done" and placed.makes:
             for output, level in placed.makes.items():
                 self._made(level[-1], _length(unit.out[output]))  # type: ignore[index]
@@ -426,6 +448,15 @@ class Leg:
             else:
                 for row in run._rows(reader.level, key)[0]:
                     heapq.heappush(self.ready, (self.position[reader.id], row))
+
+    def _checkpoint(self) -> None:
+        """Hand the listener a copy of the run as it stands, and set when the next is due."""
+        assert self.emit is not None and self.checkpoint_every is not None
+        self.next_checkpoint = time.monotonic() + self.checkpoint_every
+        snapshot = self.run._copy()
+        snapshot._earlier = {n: {fp: list(units) for fp, units in by.items()} for n, by in self.run._earlier.items()}  # taking pops from them
+        snapshot.status = "running"
+        self.emit(RunCheckpoint(run=snapshot))
 
     def _in_turn(self, placed: PlacedNode, key: Key) -> bool:
         """Whether every row of ``placed`` before ``key`` has been tried, so identical rows take earlier work in row order, whatever thread finished first.
@@ -564,8 +595,9 @@ class Leg:
     def _finished(self, placed: PlacedNode) -> bool:
         """Whether every row of ``placed`` is known and none of them is still to run or waiting."""
         units = self.run._units[placed.id]
-        keys, known = self.run._rows(placed.level, ())
-        return known and all(units.get(k) is not None and units[k].state != "waiting" for k in keys)
+        counted, known = self.run._rows(placed.level, (), counted=True)
+        rows = (counted[0][0] if counted else 0) if placed.level else 1
+        return known and len(units) == rows and all(u.state != "waiting" for u in units.values())
 
     def _inner_complete(self, node_id: str, skipped: bool, rows: int, not_called: int) -> None:
         """A node of an embedding is complete: once all of them are, the embedding is, as one node, its rows the most any of them has."""

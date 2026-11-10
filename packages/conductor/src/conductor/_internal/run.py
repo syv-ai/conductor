@@ -29,6 +29,7 @@ from pydantic import TypeAdapter, ValidationError
 from conductor._internal.ask import Waiting, answer_outputs, questions
 from conductor._internal.errors import InvalidCallError, Problem, make_problem, value_free_errors
 from conductor._internal.fields import (
+    SCALARS,
     SKIPPED,
     FieldSpec,
     Refused,
@@ -143,20 +144,28 @@ class Run:
 
     def stream(
         self, *, max_rows: int | None = None, from_run: Mapping[type, Any] | None = None, timeout: float | None = None, cancel: asyncio.Event | None = None,
+        checkpoint_every: float | None = None,
     ) -> AsyncIterator[Event]:
         """``resume``, saying what happens as it happens: ``async for event in run.stream(): ...``.
 
         The leg runs on its own thread, so a slow node never holds the event
         loop. The last event is ``RunEnd``, whose ``run`` is the run as the leg
         left it. Setting ``cancel``, or leaving the loop early, ends the leg
-        before its next unit. A call that can't start raises here, before
-        anything is iterated.
+        before its next unit. With ``checkpoint_every`` (seconds), a
+        ``RunCheckpoint`` comes at most that often while units finish, and once
+        when the leg is stopped with calls still on threads: a host that stores
+        its ``run`` loses only the calls in flight if the process dies. A call
+        that can't start raises here, before anything is iterated.
         """
         checked_max_rows(max_rows)
+        if checkpoint_every is not None and (isinstance(checkpoint_every, bool) or not isinstance(checkpoint_every, (int, float)) or not checkpoint_every > 0):
+            raise InvalidCallError([make_problem("invalid_checkpoint_every", "checkpoint_every", checkpoint_every=checkpoint_every)])
         self._check_from_run(from_run)
-        return self._stream(max_rows, from_run, timeout, cancel)
+        return self._stream(max_rows, from_run, timeout, cancel, checkpoint_every)
 
-    async def _stream(self, max_rows: int | None, from_run: Mapping[type, Any] | None, timeout: float | None, cancel: asyncio.Event | None) -> AsyncIterator[Event]:
+    async def _stream(
+        self, max_rows: int | None, from_run: Mapping[type, Any] | None, timeout: float | None, cancel: asyncio.Event | None, checkpoint_every: float | None,
+    ) -> AsyncIterator[Event]:
         loop, events = asyncio.get_running_loop(), asyncio.Queue["Event | None"]()
         cancelled = threading.Event()
         deadline = _deadline(timeout)
@@ -170,7 +179,7 @@ class Run:
 
         def leg() -> None:
             try:
-                self._leg(max_rows, from_run, lambda event: _hand_over(loop, events, event), stop)
+                self._leg(max_rows, from_run, lambda event: _hand_over(loop, events, event), stop, checkpoint_every)
             except BaseException as error:  # the engine's own defect reaches the caller
                 failed.append(error)
             finally:
@@ -194,12 +203,12 @@ class Run:
         if missing:
             raise InvalidCallError(missing)
 
-    def _leg(self, max_rows: int | None, from_run: Mapping[type, Any] | None, emit: Any, stop: Any) -> Run:
+    def _leg(self, max_rows: int | None, from_run: Mapping[type, Any] | None, emit: Any, stop: Any, checkpoint_every: float | None = None) -> Run:
         from conductor._internal.leg import Leg
 
         self._check_from_run(from_run)
         run = self._copy(max_rows=max_rows if max_rows is not None else self.max_rows)
-        Leg(run, emit, stop, dict(from_run or {})).go()
+        Leg(run, emit, stop, dict(from_run or {}), checkpoint_every).go()
         return run
 
     @overload
@@ -316,7 +325,7 @@ class Run:
             by: dict[str, list[Unit]] = {}
             for k, u in self._in_order(n):
                 if u.state == "done" or u.state == "waiting":
-                    fingerprint = _fingerprint(placed.reuse_digest, self._inputs(placed, k))
+                    fingerprint = _fingerprint(placed.reuse_digest, self._inputs(placed, k), plain=placed.plain_inputs)
                     if fingerprint is not None:
                         by.setdefault(self._asked_key(placed, k, fingerprint) if u.question else fingerprint, []).append(u)
             for fingerprint, left in self._earlier.get(n, {}).items():
@@ -406,7 +415,7 @@ class Run:
         earlier = self._earlier.get(placed.id)
         if not earlier:
             return None
-        fingerprint = _fingerprint(placed.reuse_digest, kwargs)
+        fingerprint = _fingerprint(placed.reuse_digest, kwargs, plain=placed.plain_inputs)
         if fingerprint is None:
             return None
         asks = self._asking.get(placed.id)
@@ -491,12 +500,15 @@ class Run:
                     made[address] = len(self.graph._typed_lists[address]) * (made.get(parent, 0) if parent else 1)
         return made
 
-    def _rows(self, level: Level, row: Key) -> tuple[list[Key], bool]:
-        """The rows of ``level`` under ``row`` (or the one above it), and whether all of them exist yet."""
+    def _rows(self, level: Level, row: Key, *, counted: bool = False) -> tuple[list[Key], bool]:
+        """The rows of ``level`` under ``row`` (or the one above it), and whether all of them exist yet.
+
+        With ``counted``, the last table's rows are only counted: ``[(n,)]`` stands for ``n`` rows, unbuilt.
+        """
         if len(row) >= len(level):
             return [row[: len(level)]], True
         keys, complete = [row], True
-        for table in level[len(row):]:
+        for depth, table in enumerate(level[len(row):], len(row)):
             node_id, output = self.graph._makers[table]
             below: list[Key] = []
             for parent in keys:
@@ -511,7 +523,10 @@ class Run:
                 if count is None:
                     complete = False
                     continue
-                below.extend((*parent, i) for i in range(count))
+                if counted and depth == len(level) - 1:
+                    below = [(below[0][0] + count,)] if below else [(count,)]
+                else:
+                    below.extend((*parent, i) for i in range(count))
             keys = below
         return keys, complete
 
@@ -887,7 +902,7 @@ def _dump_units(placed: PlacedNode, units: Mapping[Key, Unit], keyed: bool = Tru
             plain = [None if v is SKIPPED else [None if i is SKIPPED else i for i in v] if spec.shape == "many" else v for v in values]
             dumped = _written_as_json(spec.column_adapter, plain, at)
         non_finite: list[list[Any]] = []
-        if spec.shape != "table" and not (spec.plain_classes and set(spec.plain_classes) <= _READ_BACK_BY_TYPE):
+        if spec.shape != "table" and not (spec.plain_classes and set(spec.plain_classes) <= SCALARS):
             _find_non_finite(dumped, [], non_finite)
         items = {str(n): [i for i, item in enumerate(v) if item is SKIPPED] for n, v in enumerate(values) if spec.shape == "many" and v is not SKIPPED}
         outputs[name] = {
@@ -958,10 +973,6 @@ def _load_units(placed: PlacedNode, dumped: Mapping[str, Any]) -> list[tuple[Key
             n += 1
         loaded.append((tuple(key), Unit(state, out, asked.get(i))))
     return loaded
-
-
-#: The classes whose values read back from their JSON as they were, a float that isn't finite included.
-_READ_BACK_BY_TYPE = {str, int, float, bool, type(None), datetime.date, datetime.datetime, datetime.time, datetime.timedelta}
 
 
 def _find_non_finite(value: Any, path: list[Any], found: list[list[Any]]) -> None:
@@ -1083,10 +1094,16 @@ def _hand_over(loop: asyncio.AbstractEventLoop, events: asyncio.Queue[Any], even
         pass
 
 
-def _fingerprint(digest: str, kwargs: dict[str, Any]) -> str | None:
-    """What a unit of a node (its ``reuse_digest``) received, as a short hash; ``None`` for a value with no JSON form, which is never reused."""
+def _fingerprint(digest: str, kwargs: dict[str, Any], *, plain: bool = False) -> str | None:
+    """What a unit of a node (its ``reuse_digest``) received, as a short hash; ``None`` for a value with no JSON form, which is never reused.
+
+    ``plain`` says no input holds a mapping, so the keys need no sorting: the inputs' own order is the node's.
+    """
     try:
-        written = canonical_json([digest, kwargs], fallback=_frame_columns)
+        if plain:
+            written = pydantic_core.to_json([digest, kwargs], fallback=_frame_columns)
+        else:
+            written = canonical_json([digest, kwargs], fallback=_frame_columns)  # a mapping's keys may come back from a store in any order
     except (TypeError, ValueError, pydantic_core.PydanticSerializationError):
         return None
     return hashlib.blake2b(written, digest_size=12).hexdigest()
@@ -1111,7 +1128,11 @@ def _unit_id(node_id: str, key: Key) -> str:
 
 def _question_fingerprint(placed: PlacedNode, unit: Unit) -> str:
     """Eight hex digits of which node asks, as which code, and what it received, so a waiting id stops matching when its row holds another question."""
-    written = canonical_json([placed.id, placed.reuse_digest, (unit.question or {}).get("inputs")])
+    inputs = (unit.question or {}).get("inputs") or {}
+    if any(isinstance(v, (dict, list)) for v in inputs.values()):
+        written = json.dumps([placed.id, placed.reuse_digest, inputs], sort_keys=True).encode()  # a JSON store may give the keys back in any order
+    else:
+        written = pydantic_core.to_json([placed.id, placed.reuse_digest, sorted(inputs.items())])
     return hashlib.blake2b(written, digest_size=4).hexdigest()
 
 

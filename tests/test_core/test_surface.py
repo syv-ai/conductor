@@ -45,6 +45,7 @@ from conductor.events import (
     NodeRetry,
     NodeSkipped,
     NodeStart,
+    RunCheckpoint,
     RunEnd,
     RunStart,
     UnitWaiting,
@@ -290,6 +291,7 @@ SHAPES = {
     "node_failed": ["cause", "node_id", "type"],
     "node_retry": ["attempt", "cause", "delay", "node_id", "retries", "row", "type"],
     "unit_waiting": ["type", "unit"],
+    "run_checkpoint": ["type"],
     "run_end": ["status", "type"],
 }
 
@@ -358,6 +360,7 @@ def _every_event() -> list[Any]:
         NodeFailed(node_id="n", cause=cause),
         NodeRetry(node_id="n", row=(), attempt=1, retries=2, delay=0.5, cause=cause),
         UnitWaiting(unit=waiting),
+        RunCheckpoint(run=streamed[-1].run),
     ]
     return [*streamed, *built]
 
@@ -374,7 +377,7 @@ def test_every_event_writes_itself_as_json_and_a_strict_parser_reads_it(event):
 
     assert document == _strict(TypeAdapter(Event).dump_json(event))
     assert document == _strict(json.dumps(event.model_dump(mode="json"), allow_nan=False))
-    if not isinstance(event, RunEnd):
+    if not isinstance(event, (RunEnd, RunCheckpoint)):  # their run stays out of what they write
         assert TypeAdapter(Event).validate_json(event.model_dump_json()).type == event.type
 
 
