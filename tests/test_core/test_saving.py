@@ -16,7 +16,7 @@ import struct
 import subprocess
 import sys
 from decimal import Decimal
-from typing import Any, Literal, TypedDict
+from typing import Any, ClassVar, Literal, TypedDict
 
 import polars as pl
 import pytest
@@ -210,6 +210,8 @@ def test_a_float_that_is_not_finite_in_a_tuple_its_type_reads_back_comes_back_th
     """A ``tuple`` inside a ``dict`` output or a model's field is a list in the save; its ``nan`` reads back all the same."""
 
     class Point(BaseModel):
+        type_id: ClassVar[str] = "Point"
+        type_title: ClassVar[str] = "Point"
         xy: tuple[float, Any]
 
     @node("pair")
@@ -232,6 +234,8 @@ def test_a_float_that_is_not_finite_where_its_type_does_not_say_float_reads_back
     """A ``dict``, ``Any`` or a model's ``Any`` field holding ``nan`` gives the same value after a save as on a straight run."""
 
     class Loose(BaseModel):
+        type_id: ClassVar[str] = "Loose"
+        type_title: ClassVar[str] = "Loose"
         data: Any
 
     @node("loose")
@@ -291,7 +295,9 @@ def test_a_float_or_text_field_keeps_a_nan_a_float_and_the_text_nan_text_after_a
     assert seen == []  # down receives what it received before the save, so it is not called again
 
 
-class Point(TypedDict):
+class Point(BaseModel):
+    type_id: ClassVar[str] = "point"
+    type_title: ClassVar[str] = "Point"
     x: int
     y: int
 
@@ -412,6 +418,8 @@ def test_two_identical_runs_save_byte_identical_json():
 
 class _Opaque:
     """A value pydantic carries but has no JSON form for."""
+    type_id: ClassVar[str] = "_Opaque"
+    type_title: ClassVar[str] = "Opaque"
 
     @classmethod
     def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> Any:
@@ -701,6 +709,8 @@ def test_a_save_loaded_into_a_graph_that_lost_a_node_is_refused_with_the_graphs_
 
 def test_a_float_that_is_not_finite_in_a_models_any_field_and_in_a_callers_dict_reads_back_as_the_float():
     class Reading(BaseModel):
+        type_id: ClassVar[str] = "Reading"
+        type_title: ClassVar[str] = "Reading"
         v: Any
         d: dict
 

@@ -8,7 +8,7 @@ Every example on this page runs after this block. `problems(drawing)` loads a dr
 import asyncio
 import time
 from dataclasses import dataclass
-from typing import Annotated
+from typing import Annotated, ClassVar
 
 from conductor import (
     Ask, ExternalError, FromRun, GraphRecord, InvalidCallError, NodeDeclarationError,
@@ -1053,11 +1053,13 @@ except NodeDeclarationError as error:
 
 ```python
 class Amount(int):
-    id = "money"
+    type_id: ClassVar[str] = "money"
+    type_title: ClassVar[str] = "Amount"
 
 
 class Price(float):
-    id = "money"
+    type_id: ClassVar[str] = "money"
+    type_title: ClassVar[str] = "Price"
 
 
 try:
@@ -1066,7 +1068,7 @@ except NodeDeclarationError as error:
     print(error.code)  # duplicate_type_id
 ```
 
-**Fix.** Give one of the classes another `id`.
+**Fix.** Give one of the classes another `type_id`.
 
 ### `exclusive_group_on_input`
 
@@ -1297,7 +1299,8 @@ except NodeDeclarationError as error:
 
 ```python
 class Plain:
-    pass
+    type_id: ClassVar[str] = "plain"
+    type_title: ClassVar[str] = "Plain"
 
 
 try:
@@ -1308,7 +1311,7 @@ except NodeDeclarationError as error:
     print(error.code)  # type_not_carried
 ```
 
-**Fix.** Use a type pydantic can check and write as JSON: a pydantic model, a dataclass, a `TypedDict` or a builtin.
+**Fix.** Use a type pydantic can check and write as JSON: a pydantic model, a dataclass or a builtin.
 
 ### `upgrade_missing`
 

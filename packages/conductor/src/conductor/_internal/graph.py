@@ -1067,7 +1067,7 @@ class Graph:
             for column, hint in (spec.columns or {}).items():
                 if column in given and not accepts(hint, given[column]):
                     self.problems.append(make_problem(
-                        "type_mismatch", node_id, name, source=address, got=type_id(given[column]), expected=type_id(hint), column=column,
+                        "type_mismatch", node_id, name, source=address, got=type_id(given[column]), expected=spec.column_type_ids[column], column=column,
                     ))
                     return False
             return True

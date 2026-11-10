@@ -67,7 +67,6 @@ from conductor._internal.fields import (
     REQUIRED,
     FieldDescription,
     FieldSpec,
-    Param,
     _FromRunMarker,
     humanised,
     is_a_number,
@@ -405,9 +404,7 @@ def node(
         where = f"@node({id!r}) on {getattr(target, '__name__', target)}: "
         if inspect.iscoroutinefunction(target) or inspect.isasyncgenfunction(target):
             raise NodeDeclarationError(f"{where}a node is a plain def; the engine gives a slow one threads with Policy(concurrency=)", code="async_run")
-        inputs, outputs, outputs_class = _read_signature(where, target, compute_outputs is not None)
-        from_run = {name: typing.get_args(spec.type)[0] for name, spec in inputs.items() if spec.param is _FROM_RUN}
-        inputs = {name: spec for name, spec in inputs.items() if name not in from_run}
+        inputs, from_run, outputs, outputs_class = _read_signature(where, target, compute_outputs is not None)
         takes_kwargs = any(p.kind is p.VAR_KEYWORD for p in inspect.signature(target).parameters.values())
         if compute_added_inputs is not None and not takes_kwargs:
             raise NodeDeclarationError(f"{where}a node with compute_added_inputs takes them as **kwargs; add **values to its signature", code="compute_added_inputs_without_var_keyword")
@@ -475,14 +472,14 @@ def _fits(needed: type, key: Any, value: Any) -> bool:
         return False
 
 
-#: The ``Param`` a ``FromRun`` parameter is read with, so it is told apart from an input.
-_FROM_RUN = Param()
-
-
-def _read_signature(where: str, function: Callable[..., Any], computed_outputs: bool) -> tuple[dict[str, FieldSpec], dict[str, FieldSpec], type | None]:
-    """The inputs and outputs a function's signature declares, and the frozen dataclass it returns them as, if it does."""
+def _read_signature(
+    where: str, function: Callable[..., Any], computed_outputs: bool,
+) -> tuple[dict[str, FieldSpec], dict[str, type], dict[str, FieldSpec], type | None]:
+    """The inputs, the ``FromRun`` parameters (the class each takes) and the outputs a function's signature declares,
+    and the frozen dataclass it returns its outputs as, if it does."""
     hints = typing.get_type_hints(function, include_extras=True)
-    inputs = {}
+    inputs: dict[str, FieldSpec] = {}
+    from_run: dict[str, type] = {}
     for name, parameter in inspect.signature(function).parameters.items():
         if parameter.kind is parameter.VAR_KEYWORD:
             continue
@@ -495,7 +492,7 @@ def _read_signature(where: str, function: Callable[..., Any], computed_outputs: 
         if typing.get_origin(hint) is typing.Annotated and any(isinstance(m, _FromRunMarker) for m in hint.__metadata__):
             if not isinstance(typing.get_args(hint)[0], type):
                 raise NodeDeclarationError(f"{where}{name}: FromRun names the class of the value the run is given, FromRun[Session]", code="from_run_not_a_class")
-            inputs[name] = FieldSpec(name, "one", hint, param=_FROM_RUN)
+            from_run[name] = typing.get_args(hint)[0]
             continue
         inputs[name] = read_field(name, hint, default, where)
         if inputs[name].param.exclusive_group is not None:
@@ -504,14 +501,14 @@ def _read_signature(where: str, function: Callable[..., Any], computed_outputs: 
         raise NodeDeclarationError(f"{where}a node needs a return type; write one, or -> None for no outputs", code="output_without_type")
     returns = hints["return"]
     if computed_outputs or returns is None or returns is type(None):
-        return inputs, {}, None
+        return inputs, from_run, {}, None
     if isinstance(returns, type) and dataclasses.is_dataclass(returns):
         if not returns.__dataclass_params__.frozen:  # type: ignore[attr-defined]
             raise NodeDeclarationError(f"{where}a dataclass of outputs is frozen; write @dataclass(frozen=True)", code="outputs_not_frozen")
         own = typing.get_type_hints(returns, include_extras=True)
         outputs = {f.name: read_field(f.name, own[f.name], _declared_default(f), where=where) for f in dataclasses.fields(returns)}
-        return inputs, outputs, returns
-    return inputs, {"result": read_field("result", returns, where=where)}, None
+        return inputs, from_run, outputs, returns
+    return inputs, from_run, {"result": read_field("result", returns, where=where)}, None
 
 
 def _declared_default(declared: dataclasses.Field[Any]) -> Any:

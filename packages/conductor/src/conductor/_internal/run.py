@@ -45,8 +45,6 @@ from conductor._internal.fields import (
     is_a_number,
     read_value,
     takes_a_blank,
-    type_id,
-    without_none,
 )
 from conductor._internal.node_definition import from_run_values
 
@@ -965,7 +963,7 @@ def _checked(spec: FieldSpec, name: str, value: Any, *, code: str) -> Any:
         refused.code, refused.ctx = code, {"name": name, **refused.ctx}
         raise
     if code == "invalid_output" and spec.shape == "one" and spec.plain_classes and read is not SKIPPED and not isinstance(read, spec.plain_classes):
-        raise FieldValueError(f"its type's own check gave a {type(read).__name__}, not a {type_id(without_none(spec.type))}", code="invalid_output", name=name)
+        raise FieldValueError(f"its type's own check gave a {type(read).__name__}, not a {spec.type_id}", code="invalid_output", name=name)
     return read
 
 

@@ -6,7 +6,7 @@ problem of that graph, never an exception.
 """
 
 from dataclasses import dataclass
-from typing import Annotated
+from typing import Annotated, ClassVar
 
 import pytest
 from conductor import (
@@ -690,7 +690,11 @@ def test_a_value_typed_in_from_python_is_its_json_so_the_record_equals_its_own_r
     import datetime
     import enum
 
-    class Color(enum.Enum):
+    class Named:
+        type_id: ClassVar[str] = "color"
+        type_title: ClassVar[str] = "Color"
+
+    class Color(Named, enum.Enum):
         RED = "red"
 
     @node("typed")

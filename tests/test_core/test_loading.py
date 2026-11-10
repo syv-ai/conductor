@@ -9,7 +9,7 @@ by ``with_inputs`` all at once.
 import io
 import json
 from dataclasses import dataclass
-from typing import Annotated, Any, TypedDict
+from typing import Annotated, Any, ClassVar, TypedDict
 
 import polars as pl
 import pytest
@@ -84,6 +84,8 @@ def styled(
 
 class Name(str):
     """A ``str`` that lands wherever a ``str`` is asked for."""
+    type_id: ClassVar[str] = "Name"
+    type_title: ClassVar[str] = "Name"
 
 
 @node("name")
@@ -92,6 +94,8 @@ def name_of(text: str) -> Name:
 
 
 class Nonempty(str):
+    type_id: ClassVar[str] = "Nonempty"
+    type_title: ClassVar[str] = "Nonempty"
     def __new__(cls, value: str) -> "Nonempty":
         if not value:
             raise ValueError("empty")
@@ -250,6 +254,8 @@ def test_a_typed_in_value_is_read_once_when_the_graph_loads_and_not_again_per_ro
     reads = []
 
     class Counted(str):
+        type_id: ClassVar[str] = "Counted"
+        type_title: ClassVar[str] = "Counted"
         @classmethod
         def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> Any:
             def read(value: str) -> "Counted":
@@ -819,6 +825,8 @@ def test_a_yes_or_no_never_lands_on_a_number_and_a_union_is_said_by_its_members_
     from conductor import NodeRegistry, node
 
     class Text(str):
+        type_id: ClassVar[str] = "Text"
+        type_title: ClassVar[str] = "Text"
         pass
 
     @node("flag")
@@ -896,7 +904,8 @@ def test_a_yes_or_no_never_lands_on_a_hosts_number_type_whose_own_rule_lets_an_i
     from conductor import Ask, NodeRegistry, make_graph
 
     class Number(float):
-        id = "number"
+        type_id: ClassVar[str] = "number"
+        type_title: ClassVar[str] = "Number"
 
         @classmethod
         def accepts(cls, source: type) -> bool:
@@ -992,41 +1001,17 @@ def test_a_run_and_the_compile_it_ran_on_are_freed_without_the_cycle_collector(r
         gc.enable()
 
 
-class _Contact(TypedDict):
-    name: str
-    email: str
+def test_a_hosts_type_without_its_id_and_title_fails_its_node_where_it_is_declared():
+    """A TypedDict holds no class attributes, so on a field it is a host's type that can't name itself."""
 
+    class Contact(TypedDict):
+        name: str
 
-class _Named(TypedDict):
-    name: str
+    with pytest.raises(AttributeError, match="type_id"):
 
-
-class _Count(TypedDict):
-    name: int
-
-
-def test_a_typeddict_lands_on_one_whose_keys_it_holds_with_types_that_fit():
-    """A TypedDict is read by its keys, as a type checker reads one."""
-
-    @node("contact")
-    def contact() -> _Contact:
-        return {"name": "Bo", "email": "bo@example.com"}
-
-    @node("greet")
-    def greet(who: _Named) -> str:
-        return who["name"]
-
-    @node("count")
-    def count(who: _Count) -> int:
-        return who["name"]
-
-    registry = registry_of(contact, greet, count)
-    fits = registry.load({"nodes": [{"id": "c", "node": "contact"}, {"id": "g", "node": "greet"}], "edges": [["c.result", "g.who"]]})
-    misfits = registry.load({"nodes": [{"id": "c", "node": "contact"}, {"id": "n", "node": "count"}], "edges": [["c.result", "n.who"]]})
-
-    assert fits.problems == [] and fits.run().results["g"]["result"] == "Bo"
-    assert [p.type for p in misfits.problems] == ["type_mismatch"]
-    assert {n.id for n in registry.describe().nodes} == {"contact", "greet", "count"}
+        @node("contact")
+        def contact() -> Contact:
+            return {"name": "Bo"}
 
 
 def _named_inputs(names: list[str] = []) -> dict[str, Any]:  # noqa: B006

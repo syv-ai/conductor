@@ -1,10 +1,10 @@
 """What a node author writes in a signature, and the one record each input and output becomes.
 
-A type is any class pydantic can check and write as JSON. A host's own type
-may declare ``id`` (the name a stored graph and an editor know it by),
-``display_title``, and a classmethod ``accepts(source)`` that lets values of
-another type land on it; otherwise a subclass lands where its parent is
-asked for. A subclass of a builtin (``class Text(str)``) is checked as the
+A type is any class pydantic can check and write as JSON. Conductor's own
+types are named in ``CONDUCTOR_TYPES``; a host's own type is a ``NamedType``,
+declaring its ``type_id`` and ``type_title``. A host's type may declare a
+classmethod ``accepts(source)`` that lets values of another type land on it;
+otherwise a subclass lands where its parent is asked for. A subclass of a builtin (``class Text(str)``) is checked as the
 builtin, then made one.
 
 A field has one of three shapes: ``one`` value, ``many`` values
@@ -22,17 +22,23 @@ import dataclasses
 import datetime
 import decimal
 import functools
-import inspect
 import types
 import typing
+import uuid
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import (
     TYPE_CHECKING,
     Annotated,
     Any,
     ClassVar,
+    Final,
     Literal,
+    NamedTuple,
+    Protocol,
+    TypeAliasType,
+    TypeGuard,
     TypeVar,
     Union,
     get_args,
@@ -292,6 +298,10 @@ class FieldSpec:
     param: Param = field(default_factory=Param)
     #: A table's columns by name, from its row type; ``None`` for a table of any columns.
     columns: dict[str, Any] | None = None
+    #: The id of one value's type, ``| None`` off, as an editor reads it; ``Table`` for a table.
+    type_id: str = field(kw_only=True)
+    #: The ids of a table's declared column types, by column.
+    column_type_ids: Mapping[str, str] = field(kw_only=True, default_factory=dict[str, str])
 
     @property
     def required(self) -> bool:
@@ -409,7 +419,7 @@ class FieldSpec:
         Only the keys the field has are set."""
         out: dict[str, Any] = {"name": self.name, "title": self.title, "shape": self.shape, "required": self.required}
         if self.shape != "table":
-            out["type"] = type_id(without_none(self.type))
+            out["type"] = self.type_id
         out.update(copy.deepcopy(self._schemas))  # the caller may change what it is given
         if not self.required:
             out["default"] = to_jsonable_python(self.default, fallback=lambda _: None)
@@ -513,15 +523,17 @@ def read_field(name: str, hint: Any, default: Any = REQUIRED, where: str = "") -
                 raise NodeDeclarationError(f"{where}{name}: a Series of tables; a table already holds many rows, so take or return one table", code="series_of_tables")
             if marked(item, _ManyMarker):
                 raise NodeDeclarationError(f"{where}{name}: a Series of Series; rows are never nested in a field, so return one Series", code="nested_series")
-            return _checked(FieldSpec(name, "many", item, or_none, default, param), where)
+            return _checked(FieldSpec(name, "many", item, or_none, default, param, type_id=type_id(without_none(item))), where)
         if markers and isinstance(markers[0], _TableMarker):
-            return _checked(FieldSpec(name, "table", pl.DataFrame, or_none, default, param, _columns_of(markers[0].row, name, where)), where)
+            columns = _columns_of(markers[0].row, name, where)
+            column_type_ids = {column: type_id(hint) for column, hint in columns.items()} if columns is not None else {}
+            return _checked(FieldSpec(name, "table", pl.DataFrame, or_none, default, param, columns, type_id="Table", column_type_ids=column_type_ids), where)
         hint = base
     if hint is pl.DataFrame or hint is Table:
-        return _checked(FieldSpec(name, "table", pl.DataFrame, or_none, default, param, None), where)
+        return _checked(FieldSpec(name, "table", pl.DataFrame, or_none, default, param, None, type_id="Table"), where)
     if or_none:
         hint = Union[hint, None]  # noqa: UP007
-    return _checked(FieldSpec(name, "one", hint, takes_a_blank(hint), default, param), where)
+    return _checked(FieldSpec(name, "one", hint, takes_a_blank(hint), default, param, type_id=type_id(without_none(hint))), where)
 
 
 def _stacked(params: list[Param]) -> Param:
@@ -747,7 +759,7 @@ _JSON_KIND = {type(None): "null", bool: "boolean", int: "integer", float: "numbe
 _alias_kinds = functools.lru_cache(maxsize=None)(_json_kinds)
 
 
-def _is_alias(hint: Any) -> bool:
+def _is_alias(hint: Any) -> TypeGuard[TypeAliasType]:
     """Whether ``hint`` is a type alias (``type X = ...``, ``TypeAliasType``), which is read by its JSON schema."""
     return type(hint).__name__ == "TypeAliasType"  # typing's, or typing_extensions' as pydantic's JsonValue is
 
@@ -833,37 +845,84 @@ def _one_accepts(target: Any, source: Any) -> bool:
     return False
 
 
-def type_id(hint: Any) -> str:
-    """The name an editor and a stored graph know a type by: its ``id`` if it declares one, else its name.
+class NamedType(Protocol):
+    """A host's own type, as people see it: the id an editor and a stored graph know it by, and the title a person
+    reads for it. Every class of a host's that a node's field holds, and every class in ``NodeRegistry(types=)``,
+    declares both.
 
-    A ``Literal`` is known by the type of its values (``Literal["low", "high"]`` is ``str``), its values in the schema.
+    Attributes:
+        type_id: The name an editor and a stored graph know the type by, such as ``"money"``.
+        type_title: What a person reads for the type, such as ``"Money"``.
     """
-    if get_origin(hint) is Literal:
-        return " | ".join(dict.fromkeys(type_id(type(value)) for value in get_args(hint)))
-    if get_origin(hint) in (Union, types.UnionType):  # each member by its own name: a host's Text | None is "Text | None"
-        return " | ".join("None" if member is type(None) else type_id(member) for member in get_args(hint))
-    own = _declared(hint, "id") if isinstance(hint, type) else None
-    return own if own is not None else getattr(hint, "__name__", None) or str(hint)
+
+    type_id: ClassVar[str]
+    type_title: ClassVar[str]
 
 
-def type_title(cls: type) -> str:
-    """What a person reads for a type: its ``display_title`` if it declares one, else its name."""
-    own = _declared(cls, "display_title")
-    return own if own is not None else cls.__name__
+class TypeName(NamedTuple):
+    """A type's id and title, as ``NamedType`` declares them.
+
+    Attributes:
+        id: The name an editor and a stored graph know the type by.
+        title: What a person reads for the type.
+    """
+
+    id: str
+    title: str
 
 
-@functools.cache
-def _declared(cls: type, name: str) -> str | None:
-    """The text a class sets as ``name`` for itself (``id = "money"``, or annotated ``ClassVar``); a field of that name
-    is each value's own, its default never the class's."""
-    own = getattr(cls, name, None)
-    if not isinstance(own, str):
-        return None
-    for klass in cls.__mro__:
-        annotation = inspect.get_annotations(klass).get(name)
-        if annotation is not None:
-            return own if get_origin(annotation) is ClassVar or str(annotation).startswith(("ClassVar", "typing.ClassVar")) else None
-    return own
+#: The id and title of each type conductor itself knows. Every other class a field holds is a ``NamedType``.
+CONDUCTOR_TYPES: Final[Mapping[object, TypeName]] = MappingProxyType({
+    Any: TypeName("Any", "Any value"),
+    object: TypeName("object", "Any value"),
+    type(None): TypeName("None", "Nothing"),
+    bool: TypeName("bool", "Yes or no"),
+    int: TypeName("int", "Whole number"),
+    float: TypeName("float", "Number"),
+    decimal.Decimal: TypeName("Decimal", "Decimal number"),
+    str: TypeName("str", "Text"),
+    bytes: TypeName("bytes", "Bytes"),
+    datetime.date: TypeName("date", "Date"),
+    datetime.datetime: TypeName("datetime", "Date and time"),
+    datetime.time: TypeName("time", "Time of day"),
+    datetime.timedelta: TypeName("timedelta", "Duration"),
+    uuid.UUID: TypeName("UUID", "UUID"),
+    dict: TypeName("dict", "Mapping"),
+    list: TypeName("list", "List"),
+    tuple: TypeName("tuple", "Tuple"),
+    set: TypeName("set", "Set"),
+    frozenset: TypeName("frozenset", "Set"),
+})
+
+
+def type_name(cls: Any) -> TypeName:
+    """A class's id and title: its entry in ``CONDUCTOR_TYPES`` for conductor's own, else the ``type_id`` and
+    ``type_title`` it declares as a ``NamedType``."""
+    if cls in CONDUCTOR_TYPES:
+        return CONDUCTOR_TYPES[cls]
+    return TypeName(cls.type_id, cls.type_title)
+
+
+def type_id(hint: Any) -> str:
+    """The name an editor and a stored graph know a hint by.
+
+    A class is known by its ``type_name``. A ``Literal`` is known by the types of its values (``Literal["low",
+    "high"]`` is ``str``), a union by its members (``Money | None`` is ``money | None``), a generic by its class
+    (``dict[str, int]`` is ``dict``), and a type alias by the name it is declared under.
+    """
+    match get_origin(hint):
+        case typing.Literal:
+            return " | ".join(dict.fromkeys(type_id(type(value)) for value in get_args(hint)))
+        case typing.Union | types.UnionType:
+            return " | ".join(type_id(member) for member in get_args(hint))
+        case typing.Annotated:
+            return type_id(get_args(hint)[0])
+        case None if _is_alias(hint):
+            return hint.__name__
+        case None:
+            return type_name(hint).id
+        case generic:
+            return type_id(generic)
 
 
 # -- reading a value as its field ---------------------------------------------------------------

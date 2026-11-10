@@ -27,8 +27,8 @@ from conductor.widgets import Textarea
 
 
 class Txt(str):
-    id = "registry-test-text"
-    display_title = "Text"
+    type_id: ClassVar[str] = "registry-test-text"
+    type_title: ClassVar[str] = "Text"
 
 
 Out = Annotated[Txt, Param(title="Output")]
@@ -300,8 +300,8 @@ def test_one_id_in_two_subregistries_is_refused():
 
 def test_a_subregistrys_named_types_come_along():
     class Money(float):
-        id = "money"
-        display_title = "Money"
+        type_id: ClassVar[str] = "money"
+        type_title: ClassVar[str] = "Money"
 
     top = NodeRegistry()
     top.add_subregistry(NodeRegistry(types=[Money]))
@@ -415,28 +415,28 @@ def test_var_positional_is_refused():
 
 
 class Text(str):
-    id = "text"
-    display_title = "Text"
+    type_id: ClassVar[str] = "text"
+    type_title: ClassVar[str] = "Text"
 
 
 class Number(float):
-    id = "number"
-    display_title = "Number"
+    type_id: ClassVar[str] = "number"
+    type_title: ClassVar[str] = "Number"
 
 
 class AnotherText(str):
     """A second class claiming ``text``: what a second library, or a notebook cell run again, makes."""
 
-    id = "text"
-    display_title = "Text"
+    type_id: ClassVar[str] = "text"
+    type_title: ClassVar[str] = "Text"
 
 
 def _declare_text() -> type:
     """What a notebook cell does when it runs again: the same class body, a new class."""
 
     class Text(str):
-        id = "text"
-        display_title = "Text"
+        type_id: ClassVar[str] = "text"
+        type_title: ClassVar[str] = "Text"
 
     return Text
 
@@ -456,40 +456,46 @@ def test_a_hosts_type_is_described_by_its_own_id_and_title():
     assert [t.model_dump() for t in registry.describe().types] == [{"id": "text", "title": "Text", "accepted_as": ["text"]}]
 
 
-def test_a_type_without_an_id_or_title_is_known_by_its_class_name():
-    class Plain(str):
-        pass
+def test_a_hosts_type_is_described_by_the_id_and_title_it_declares_and_conductors_by_its_table():
+    class Money(float):
+        type_id: ClassVar[str] = "money"
+        type_title: ClassVar[str] = "Beløb"
 
-    assert [t.model_dump() for t in NodeRegistry(types=[Plain]).describe().types] == [{"id": "Plain", "title": "Plain", "accepted_as": ["Plain"]}]
+    @node("price")
+    def price(text: str) -> Money:
+        return Money(1)
+
+    registry = NodeRegistry()
+    registry.add(price)
+
+    assert {t.id: t.title for t in registry.describe().types} == {"str": "Text", "money": "Beløb"}
 
 
 @dataclass(frozen=True)
 class Customer:
+    type_id: ClassVar[str] = "customer"
+    type_title: ClassVar[str] = "Customer"
     id: str = ""
-    name: str = ""
-
-
-@dataclass(frozen=True)
-class Order:
-    id: str = ""
-    total: int = 0
+    title: str = ""
 
 
 @dataclass(frozen=True)
 class Money:
-    id: ClassVar[str] = "money"
+    type_id: ClassVar[str] = "money"
+    type_title: ClassVar[str] = "Money"
     amount: float = 0.0
 
 
-def test_a_field_named_id_is_the_records_own_and_never_its_types_id_unless_it_is_a_class_variable():
+def test_fields_named_id_and_title_are_the_records_own():
     @node("bill")
-    def bill(customer: Customer, order: Order, price: Money) -> None:
+    def bill(customer: Customer, price: Money) -> None:
         pass
 
     registry = NodeRegistry()
     registry.add(bill)
 
-    assert dict(registry.types) == {"Customer": Customer, "Order": Order, "money": Money}
+    assert dict(registry.types) == {"customer": Customer, "money": Money}
+    assert Customer(id="c1", title="Ms").title == "Ms"
 
 
 def test_adding_a_node_adds_the_types_it_declares_a_series_giving_its_item():
@@ -561,7 +567,7 @@ def test_a_subclass_without_its_own_id_cannot_sit_beside_its_parent():
     """A subclass is a type of its own; under its parent's id it would travel as the parent."""
 
     class Short(Text):
-        display_title = "Short"
+        type_title: ClassVar[str] = "Short"
 
     @node("cut")
     def cut(text: Short) -> Short:
@@ -578,7 +584,8 @@ def test_a_subclass_without_its_own_id_cannot_sit_beside_its_parent():
 
 def test_the_types_are_read_only_and_filter_keeps_the_named_ones():
     class Score(float):
-        id = "score"
+        type_id: ClassVar[str] = "score"
+        type_title: ClassVar[str] = "Score"
 
     registry = NodeRegistry(types=[Score])
     registry.add(weigh)
@@ -592,7 +599,8 @@ def test_the_types_are_read_only_and_filter_keeps_the_named_ones():
 
 def test_a_bug_in_a_types_accepts_is_not_swallowed():
     class Broken(str):
-        id = "broken"
+        type_id: ClassVar[str] = "broken"
+        type_title: ClassVar[str] = "Broken"
 
         @classmethod
         def accepts(cls, source: Any) -> bool:

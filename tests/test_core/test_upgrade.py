@@ -9,7 +9,7 @@ version runs that version.
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Annotated
+from typing import Annotated, ClassVar
 
 import pytest
 from conductor import (
@@ -28,8 +28,8 @@ from tests.test_core.nodes import registry_of
 
 
 class Txt(str):
-    id = "upgrade-test-txt"
-    display_title = "Text"
+    type_id: ClassVar[str] = "upgrade-test-txt"
+    type_title: ClassVar[str] = "Text"
 
 
 def _param(title: str):

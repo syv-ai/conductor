@@ -13,7 +13,7 @@ import json
 import math
 import threading
 from dataclasses import dataclass
-from typing import Annotated, Any, Literal, TypedDict
+from typing import Annotated, Any, ClassVar, Literal, TypedDict
 
 import polars as pl
 import pytest
@@ -77,12 +77,8 @@ def test_returning_none_needs_the_hint():
     assert _returning(None, str).cause.type == "invalid_output"
 
 
-class Coordinates(TypedDict):
-    x: int
-
-
-@pytest.mark.parametrize(("returned", "return_type"), [([1], list[int] | None), ("a", Literal["a", "b"] | None), ({"x": 1}, Coordinates | None)],
-                         ids=["a-list", "a-literal", "a-typed-dict"])
+@pytest.mark.parametrize(("returned", "return_type"), [([1], list[int] | None), ("a", Literal["a", "b"] | None)],
+                         ids=["a-list", "a-literal"])
 def test_a_blank_taking_output_of_a_type_that_is_not_a_class_takes_its_value(returned, return_type):
     """``-> list[int] | None`` returning ``[1]`` is read by its type as ``-> list[int]`` is, not held to the class ``NoneType``."""
     run = _returning(returned, return_type)
@@ -95,9 +91,13 @@ def test_a_value_read_as_its_type_is_kept_as_the_type():
     """A model returned as a dict, an int for a float, a str for a ``class Text(str)``: each lands as its declared type."""
 
     class Point(BaseModel):
+        type_id: ClassVar[str] = "Point"
+        type_title: ClassVar[str] = "Point"
         x: int
 
     class Text(str):
+        type_id: ClassVar[str] = "Text"
+        type_title: ClassVar[str] = "Text"
         pass
 
     assert _returning({"x": 1}, Point).results["g"]["result"] == Point(x=1)
@@ -111,6 +111,8 @@ class Shape(dict):  # type: ignore[type-arg]
 
 class Square(Shape):
     """A type whose own check lets any ``Shape`` through as it is: in memory it accepts what it would never build."""
+    type_id: ClassVar[str] = "Square"
+    type_title: ClassVar[str] = "Square"
 
     @classmethod
     def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> Any:
@@ -250,6 +252,8 @@ def test_a_table_that_is_not_a_frame_fails_its_node():
 
 class PickyId(str):
     """A type whose own check quotes what it refuses, which is ordinary Python."""
+    type_id: ClassVar[str] = "PickyId"
+    type_title: ClassVar[str] = "Picky id"
 
     @classmethod
     def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> Any:
@@ -363,10 +367,14 @@ class Dog(BaseModel):
 
 
 class Pet(BaseModel):
+    type_id: ClassVar[str] = "Pet"
+    type_title: ClassVar[str] = "Pet"
     pet: Annotated[Cat | Dog, Discriminator("kind")]
 
 
 class Asserting(BaseModel):
+    type_id: ClassVar[str] = "Asserting"
+    type_title: ClassVar[str] = "Asserting"
     code: str
 
     @field_validator("code")
@@ -377,10 +385,14 @@ class Asserting(BaseModel):
 
 
 class ByPerson(BaseModel):
+    type_id: ClassVar[str] = "ByPerson"
+    type_title: ClassVar[str] = "By person"
     counts: dict[str, int]
 
 
 class Bounded(BaseModel):
+    type_id: ClassVar[str] = "Bounded"
+    type_title: ClassVar[str] = "Bounded"
     number: int = Field(ge=5)
 
 
@@ -428,6 +440,8 @@ def test_a_key_of_a_dict_given_is_never_in_the_errors_and_a_declared_field_or_an
 
 class _SlowOutput(str):
     """An output type whose check waits until the other node's completion has been streamed."""
+    type_id: ClassVar[str] = "_SlowOutput"
+    type_title: ClassVar[str] = "Slow output"
 
     check_began = threading.Event()
     other_reported = threading.Event()

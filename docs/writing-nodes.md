@@ -91,12 +91,16 @@ Pass an instance, `widget=Textarea()`: a type checker refuses the class passed b
 Any type pydantic can check and write as JSON can be an input or an output: `str`, `int`, `float`, `bool`, `date`, a pydantic model, a dataclass, a subclass of `str`. A pydantic model is the usual way to carry a record of your own:
 
 ```python
+from typing import ClassVar
+
 from pydantic import BaseModel
 
 from conductor import node
 
 
 class Address(BaseModel):
+    type_id: ClassVar[str] = "address"
+    type_title: ClassVar[str] = "Address"
     street: str
     city: str
 
@@ -109,7 +113,7 @@ def city(address: Address) -> str:
 print(city(Address(street="Nørregade 1", city="Aarhus")))  # Aarhus
 ```
 
-A class pydantic can't check, such as a plain class with only an `__init__`, is refused when the node is declared, as `type_not_carried`.
+A type of your own is shown to people, so it declares the id an editor knows it by and the title a person reads as class attributes, `type_id` and `type_title`, as `Address` does. They are read when the node is declared, so a type missing one fails at import. A table's row type is never shown and declares nothing. Conductor's own types (`str`, `int`, `date` and the rest) take theirs from conductor's table. A class pydantic can't check, such as a plain class with only an `__init__`, is refused when the node is declared, as `type_not_carried`.
 
 
 - `X | None` takes a blank. If an input's type has no `| None`, the node isn't called for a row where it is blank, and its outputs are blank there too. Rows a blank node never made are not zero rows: a `Series` or `Table` input that would gather them is blank in turn.

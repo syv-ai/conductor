@@ -48,9 +48,10 @@ from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.errors import InvalidCallError, NodeDeclarationError, make_problem
 from conductor._internal.fields import (
     FieldDescription,
+    NamedType,
     accepts,
     type_id,
-    type_title,
+    type_name,
     without_none,
 )
 from conductor._internal.node_definition import NodeDefinition, NodeDescription, node
@@ -85,9 +86,10 @@ class NodeRegistry:
         category: str = "",
         tags: Sequence[str] = (),
         extra: Mapping[str, JsonValue] = MappingProxyType({}),
-        types: Iterable[type] = (),
+        types: Iterable[type[NamedType]] = (),
     ) -> None:
-        """An empty registry whose nodes default to ``category``, ``tags`` and ``extra``, holding the types in ``types``."""
+        """An empty registry whose nodes default to ``category``, ``tags`` and ``extra``, holding the host's types in
+        ``types`` whether or not a node uses them."""
         self._category = category
         self._tags = tuple(tags)
         self._extra = dict(extra)
@@ -233,7 +235,7 @@ class NodeRegistry:
         return RegistryDescription(
             nodes=[self._described(definition) for definition in self._nodes.values()],
             types=[
-                TypeDescription(id=type_id_, title=type_title(held), accepted_as=[landing for landing, target in types if accepts(target, held)])
+                TypeDescription(id=type_id_, title=type_name(held).title, accepted_as=[landing for landing, target in types if accepts(target, held)])
                 for type_id_, held in types
             ],
         )

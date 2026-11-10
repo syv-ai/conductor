@@ -5,7 +5,7 @@ import json
 import typing
 import warnings
 from dataclasses import dataclass
-from typing import Annotated, Any, Literal, TypedDict
+from typing import Annotated, Any, ClassVar, Literal, TypedDict
 
 import polars as pl
 import pytest
@@ -59,10 +59,14 @@ def field_of(definition, name, side="inputs"):
 
 
 class Text(str):
+    type_id: ClassVar[str] = "Text"
+    type_title: ClassVar[str] = "Text"
     pass
 
 
 class Whole(int):
+    type_id: ClassVar[str] = "Whole"
+    type_title: ClassVar[str] = "Whole"
     pass
 
 
@@ -193,7 +197,8 @@ def test_a_dict_returned_is_one_output_and_only_a_loose_dataclass_is_refused():
 
 def test_a_class_pydantic_cannot_check_is_refused_at_declaration():
     class Thing:
-        pass
+        type_id: ClassVar[str] = "thing"
+        type_title: ClassVar[str] = "Thing"
 
     def f(x: Thing) -> int:
         return 1
@@ -438,6 +443,8 @@ def test_each_plain_type_carries_its_own_value():
 
 def test_a_pydantic_model_travels_on_an_edge_and_through_json():
     class Visit(BaseModel):
+        type_id: ClassVar[str] = "Visit"
+        type_title: ClassVar[str] = "Visit"
         who: str
         when: datetime.date
 
@@ -973,6 +980,8 @@ def test_a_value_an_edge_brings_is_held_to_the_inputs_choices_as_to_its_limits()
 def test_a_params_choices_hold_on_a_field_of_a_dataclass_a_node_takes_as_its_limits_do():
     @dataclass(frozen=True)
     class Order:
+        type_id: ClassVar[str] = "Order"
+        type_title: ClassVar[str] = "Order"
         colour: Annotated[str, Param(choices=["red", "blue"])]
         n: Annotated[int, Param(ge=0)]
 
@@ -1238,7 +1247,11 @@ def test_a_declared_choice_is_read_strictly_and_held_to_the_fields_limits(choice
 def test_a_declared_choice_is_read_as_an_answer_is_so_an_enums_value_or_its_member_is_a_choice() -> None:
     import enum
 
-    class Color(enum.Enum):
+    class Named:
+        type_id: ClassVar[str] = "color"
+        type_title: ClassVar[str] = "Color"
+
+    class Color(Named, enum.Enum):
         RED = "red"
         BLUE = "blue"
 
@@ -1291,6 +1304,8 @@ def test_a_limit_pydantic_holds_on_a_type_is_taken_and_one_it_cant_is_refused_in
 
     @dataclasses.dataclass(frozen=True)
     class Order:
+        type_id: ClassVar[str] = "Order"
+        type_title: ClassVar[str] = "Order"
         code: Annotated[str, Param(ge=0)]
 
     def takes(order: Order) -> int:
@@ -1304,6 +1319,8 @@ def test_a_limit_pydantic_holds_on_a_type_is_taken_and_one_it_cant_is_refused_in
 def test_a_param_whose_choices_are_not_values_of_its_type_is_refused_at_node_in_a_model_a_node_takes_and_on_a_table():
     @dataclasses.dataclass(frozen=True)
     class Order:
+        type_id: ClassVar[str] = "Order"
+        type_title: ClassVar[str] = "Order"
         n: Annotated[int, Param(choices=["one", "two"])]
 
     def takes(order: Order) -> int:

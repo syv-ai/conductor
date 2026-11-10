@@ -9,7 +9,7 @@ says ``| None``; a branch not taken skips the row.
 import datetime
 import json
 from dataclasses import dataclass
-from typing import Annotated, Any, Optional, TypedDict
+from typing import Annotated, Any, ClassVar, Optional, TypedDict
 
 import polars as pl
 import pytest
@@ -1584,6 +1584,8 @@ class Dated(TypedDict):
 
 class Comma(float):
     """A number written with a decimal comma, as a host's own type reads it."""
+    type_id: ClassVar[str] = "Comma"
+    type_title: ClassVar[str] = "Comma"
 
     @classmethod
     def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> Any:

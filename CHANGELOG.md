@@ -17,6 +17,11 @@ What changes in how you work, before the name-by-name tables:
 - **Five modules.** Import from `conductor`, `conductor.widgets`, `conductor.events`,
   `conductor.testing` and `conductor.about`, the reference. Everything else is `conductor._internal`.
   A type's `accepted_as` is read from `registry.describe().types`.
+- **What a person sees for a type is declared.** Each entry of `registry.describe().types` has the
+  `id` and `title` its owner declared: conductor's own types from one fixed table (`str` is `Text`,
+  `int` `Whole number`), a host's class from its `type_id` and `type_title` class attributes
+  (`NamedType`); nothing falls back to the class's name. `NodeRegistry(types=)` takes only
+  `NamedType`s, so a type checker refuses a class without them there.
 - **A node is a typed function.** `@node("id")` (registers nothing) or `@registry.node("id")`
   returns a frozen, callable `NodeDefinition`. The signature is the interface:
   `Annotated[str, Param(title=, widget=, ge=, ...)]` for what a person sees and the limits a value

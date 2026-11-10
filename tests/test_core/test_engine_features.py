@@ -6,7 +6,7 @@ import re
 import time as t
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Annotated, Any, Literal, TypeAliasType
+from typing import Annotated, Any, ClassVar, Literal, TypeAliasType
 
 import pytest
 from conductor import (
@@ -352,13 +352,15 @@ def test_outputs_typed_by_what_arrives():
 
 
 class Integer(int):
-    id = "integer"
+    type_id: ClassVar[str] = "integer"
+    type_title: ClassVar[str] = "Integer"
 
 
 class Number(float):
     """Reads the Danish decimal comma; takes an Integer."""
 
-    id = "number"
+    type_id: ClassVar[str] = "number"
+    type_title: ClassVar[str] = "Number"
 
     @classmethod
     def __get_pydantic_core_schema__(cls, source: Any, handler: GetCoreSchemaHandler) -> core_schema.CoreSchema:
@@ -371,7 +373,8 @@ class Number(float):
 
 
 class File:
-    id = "file"
+    type_id: ClassVar[str] = "file"
+    type_title: ClassVar[str] = "File"
 
     def __init__(self, name: str, content: bytes) -> None:
         self.name, self.content = name, content
@@ -654,6 +657,8 @@ def test_a_field_reads_as_its_author_wrote_it():
     from conductor import Table
 
     class Whole(int):
+        type_id: ClassVar[str] = "Whole"
+        type_title: ClassVar[str] = "Whole"
         pass
 
     @node("kinds")
