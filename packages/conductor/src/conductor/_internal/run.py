@@ -82,9 +82,12 @@ class Frame:
         return pl.DataFrame(self.columns, strict=False) if self.columns else pl.DataFrame()
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class Unit:
-    """What one node came to on one row."""
+    """What one node came to on one row.
+
+    A run and its copies share their units, so a unit is never changed in place: a new state is a new ``Unit``.
+    """
 
     state: Literal["done", "skipped", "blank", "waiting"]
     out: dict[str, Any] | None = None
