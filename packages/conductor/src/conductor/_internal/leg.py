@@ -459,7 +459,7 @@ class Leg:
         assert self.emit is not None and self.checkpoint_every is not None
         self.next_checkpoint = time.monotonic() + self.checkpoint_every
         snapshot = self.run._copy()
-        snapshot._earlier = {n: {fp: list(units) for fp, units in by.items()} for n, by in self.run._earlier.items()}  # taking pops from them
+        self.run._earlier_own = set()  # the snapshot shares what is carried: the leg copies a node's before it next takes from it
         self.emit(RunCheckpoint(run=snapshot))
 
     def _in_turn(self, placed: PlacedNode, key: Key) -> bool:
