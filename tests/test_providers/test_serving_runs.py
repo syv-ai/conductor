@@ -110,6 +110,15 @@ class Worker:
             await asyncio.sleep(0.01)
         raise AssertionError(f"never {statuses}: {row}")
 
+    async def until_refused(self, run_id: str) -> dict[str, Any]:
+        """The run once it holds a refused answer, which is written just after the leg's own last write."""
+        for _ in range(3000):
+            row = await self.read(run_id)
+            if row["refused"]:
+                return row
+            await asyncio.sleep(0.01)
+        raise AssertionError(f"never refused: {row}")
+
     async def frames(self, run_id: str) -> list[dict[str, Any]]:
         response = await self.client.get(f"/runs/{run_id}/events")
         assert response.status_code == 200
@@ -212,11 +221,8 @@ def test_two_workers_answering_one_run_at_once_start_one_leg(served: Served) -> 
             await a.until_status(run_id, "complete")
             assert served.calls == ["after"]
             if said[0] != 409:
-                for _ in range(500):  # the refusal is written just after the status
-                    if (row := await a.read(run_id))["refused"]:
-                        break
-                    await asyncio.sleep(0.01)
-                assert [problem["type"] for problem in row["refused"][unit["id"]]] == ["not_waiting"]
+                refused = (await a.until_refused(run_id))["refused"]
+                assert [problem["type"] for problem in refused[unit["id"]]] == ["not_waiting"]
 
     _run(scenario)
 
@@ -328,8 +334,8 @@ def test_an_answer_sent_while_a_leg_runs_to_a_row_that_waits_for_nothing_is_refu
             await served.until_calls(1)
             assert (await b.client.post(f"/runs/{run_id}/answers", json={"nobody": True})).json() == {"answers": "queued"}
             served.open_the_gate()
-            row = await b.until_status(run_id, "waiting")
-            assert [unit["id"] for unit in row["waiting"]] == [second["id"]]
+            row = await b.until_refused(run_id)
+            assert row["status"] == "waiting" and [unit["id"] for unit in row["waiting"]] == [second["id"]]
             assert [problem["type"] for problem in row["refused"]["nobody"]] == ["not_waiting"]
 
     _run(scenario)
@@ -359,12 +365,8 @@ def test_an_answer_sent_while_a_leg_runs_that_ends_the_run_is_refused_when_it_en
             await served.until_calls(1)
             assert (await b.client.post(f"/runs/{run_id}/answers", json={"nobody": True})).json() == {"answers": "queued"}
             served.open_the_gate()
-            await a.until_status(run_id, "complete")
-            for _ in range(500):  # the refusal is written just after the status
-                row = await a.read(run_id)
-                if row["refused"]:
-                    break
-                await asyncio.sleep(0.01)
+            row = await a.until_refused(run_id)
+            assert row["status"] == "complete"
             assert [problem["type"] for problem in row["refused"]["nobody"]] == ["not_waiting"]
 
     _run(scenario)
