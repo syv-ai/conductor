@@ -90,7 +90,7 @@ def check_registry(
     found: list[Problem] = []
     for key in examples:
         node_id, version = (key, None) if isinstance(key, str) else key
-        if node_id not in registry or (version is not None and registry[node_id].version_of(version) is None):
+        if node_id not in registry or (version is not None and version not in registry[node_id].versions):
             found.append(_problem("example_for_no_node", node_id, version, f"{key!r} names no node of the registry"))
     for definition in registry:
         found += _problems_of(definition, registry, examples)

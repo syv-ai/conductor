@@ -232,6 +232,7 @@ def parse(text: str) -> int:
 
 
 run = registry.load(make_graph(parse)).run(text="twelve")
+assert run.cause is not None  # a run that failed, stopped or timed out says why
 print(run.status, run.cause.type, run.cause.msg)  # failed not_a_number The text is not a number.
 ```
 
@@ -242,7 +243,7 @@ Raise `ExternalFailure` when the outside world failed: a timeout, a rate limit, 
 ```python
 from conductor import ExternalFailure, Policy
 
-attempts = []
+attempts: list[str] = []
 
 
 @registry.node("fetch", policy=Policy(retries=2, retry_delay=0.01))

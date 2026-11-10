@@ -22,7 +22,7 @@ import functools
 import types
 import typing
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Annotated, Any, Literal, Union, get_args, get_origin
+from typing import Annotated, Any, Literal, TypeVar, Union, get_args, get_origin
 
 import polars as pl
 from pydantic import AfterValidator, ConfigDict, TypeAdapter, ValidationError
@@ -128,28 +128,15 @@ class _FromRunMarker:
     pass
 
 
-if TYPE_CHECKING:
-    from builtins import list as Series
+_T = TypeVar("_T")
 
-    FromRun = Annotated
-else:
+#: ``FromRun[X]``: a value the host hands the run by its type (a session, who is running), never an input. It takes
+#: no edge, is not stored in the record, and is no part of what makes a row's result reusable. The run is given one
+#: with ``from_run={X: value}``. To a type checker the parameter is an ``X``.
+FromRun = Annotated[_T, _FromRunMarker()]
 
-    class FromRun:
-        """``FromRun[X]``: a value the host hands the run by its type (a session, who is running), never an input.
-
-        It takes no edge, is not stored in the record, and is no part of what
-        makes a row's result reusable. The run is given one with
-        ``from_run={X: value}``.
-        """
-
-        def __class_getitem__(cls, item: Any) -> Any:
-            return Annotated[item, _FromRunMarker()]
-
-    class Series:
-        """``Series[X]``: many values of ``X``, one per row; a plain list to the node."""
-
-        def __class_getitem__(cls, item: Any) -> Any:
-            return Annotated[list[item], _ManyMarker()]
+#: ``Series[X]``: many values of ``X``, one per row; a plain ``list[X]`` to the node and to a type checker.
+Series = Annotated[list[_T], _ManyMarker()]
 
 
 class Table:
@@ -256,8 +243,6 @@ def read_field(name: str, hint: Any, default: Any = REQUIRED, where: str = "") -
     ``Annotated[X, Param(...)] | None`` is read as ``X | None`` with that ``Param``, and a bare ``Series`` as many
     values of any type.
     """
-    if hint is Series:
-        hint = Series[Any]
     or_none = False
     if get_origin(hint) in (Union, types.UnionType):
         members = [a for a in get_args(hint) if a is not type(None)]
@@ -277,6 +262,8 @@ def read_field(name: str, hint: Any, default: Any = REQUIRED, where: str = "") -
         markers = [m for m in meta if isinstance(m, (_ManyMarker, _TableMarker))]
         if markers and isinstance(markers[0], _ManyMarker):
             item = get_args(base)[0]
+            if isinstance(item, TypeVar):  # a bare Series
+                item = Any
             if item is pl.DataFrame or item is Table or _marked(item, _TableMarker):
                 raise NodeDeclarationError(f"{where}{name}: a Series of tables; a table already holds many rows, so take or return one table", code="series_of_tables")
             if _marked(item, _ManyMarker):

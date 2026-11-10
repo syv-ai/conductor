@@ -54,18 +54,20 @@ run.results["join"]["result"]      # "A+B+C": Series[str] received every value o
 
 ### Versions and Policies
 
-A newer version names the one it replaces, a `@node` of the same id, and the decorated function is the newest. A definition is one version; the older ones hang off `replaces`.
+A newer version names the one it replaces, a `@node` of the same id, and the decorated function is the newest. A definition is one version, and each version names the one before it in `replaces`.
 
 ```python
 @node("greet")
-def greet_v1(name: Annotated[str, Param(title="Name", widget=Textarea())]) -> str: ...
+def greet_v1(name: Annotated[str, Param(title="Name", widget=Textarea())]) -> str:
+    return f"Hello {name}"
 
 def _split_name(values: dict) -> dict:
     first, _, last = values.pop("name").partition(" ")
     return {**values, "first": first, "last": last}
 
 @node("greet", policy=Policy(retries=2, retry_delay=0.5, attempt_timeout=10, concurrency=4), replaces=greet_v1, upgrade=Upgrade(rewrite=_split_name))
-def greet(first: str, last: str) -> str: ...
+def greet(first: str, last: str) -> str:
+    return f"Hello {first} {last}"
 
 assert greet.versions == (2, 1) and greet.version_of(1) is greet_v1
 ```

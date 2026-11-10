@@ -274,14 +274,13 @@ class NodeRegistry:
         target = newest.version if to is None else to
         if target == placed.version:
             return graph
-        destination = newest.version_of(target)
-        if target < placed.version or destination is None or newest.version_of(placed.version) is None:
+        if target < placed.version or target not in newest.versions or placed.version not in newest.versions:
             raise InvalidCallError([make_problem(
                 "cannot_move_to_version", node_id,
                 node=placed.node, version=placed.version, target=target, versions=", ".join(str(number) for number in sorted(newest.versions)),
             )])
         steps = []
-        step: NodeDefinition[..., Any] | None = destination
+        step: NodeDefinition[..., Any] | None = newest.version_of(target)
         while step is not None and step.version > placed.version:
             steps.append(step)
             step = step.replaces

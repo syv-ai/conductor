@@ -36,6 +36,7 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Mapping, Sequence
+from collections.abc import Set as AbstractSet
 from typing import TYPE_CHECKING, Annotated, Any
 
 from pydantic import (
@@ -81,7 +82,7 @@ class NodeRecord(ConductorModel):
     #: Typed into these inputs, which stay open for a caller to change.
     defaults: Mapping[str, Any] = Field(default_factory=dict)
     #: The inputs that take a list, a row per item: from the caller on an open input, or typed in as the value.
-    many: frozenset[str] = frozenset()
+    many: Annotated[AbstractSet[str], AfterValidator(frozenset)] = frozenset()
     #: The host's own: position, size, titles a person edited. Stored and never read here.
     display: Mapping[str, Any] = Field(default_factory=dict)
 

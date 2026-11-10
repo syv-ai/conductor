@@ -51,7 +51,8 @@ def review(proposal: str) -> Review:
     raise Ask(f"Review {proposal}", choices={"owner": [Choice("ida", "Ida B."), Choice("bo", "Bo K.")]}, widgets={"note": Textarea()})
 
 
-def fetch_v1(url: Annotated[str, Param(title="URL", widget=TextWidget())]) -> Annotated[str, Param(title="Body")]: ...
+def fetch_v1(url: Annotated[str, Param(title="URL", widget=TextWidget())]) -> Annotated[str, Param(title="Body")]:
+    return f"<html>{url}</html>"
 
 @node("fetch", title="Fetch", description="Fetches a page.", category="http", policy=Policy(retries=3, retry_delay=0.5, attempt_timeout=10.0, concurrency=4, retry_on=(TimeoutError,)), replaces=node("fetch", deprecation=Deprecation(header="Use version 2"))(fetch_v1), upgrade=Upgrade(renamed_inputs={"url": "address"}))
 def fetch(address: Annotated[str, Param(title="Address", widget=TextWidget())]) -> Annotated[str, Param(title="Body")]:

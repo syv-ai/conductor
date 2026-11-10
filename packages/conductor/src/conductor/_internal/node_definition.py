@@ -21,7 +21,8 @@ is a branch not taken, and ``raise Ask(...)`` stops the row for a person.
 
 A newer version of a node names the one it ``replaces``, itself a ``@node``
 of the same id, and says with ``upgrade`` how a node saved at that one moves
-here. A definition is one version; the older ones hang off ``replaces``::
+here. A definition is one version, and each version names the one before it in
+``replaces``::
 
     @node("split")
     def split_v1(text: str, sep: str = "\\n") -> Series[str]: ...
@@ -206,11 +207,14 @@ class NodeDefinition(Generic[_P, _R]):
             parts.append(f"tags={self.tags!r}")
         return f"NodeDefinition({', '.join(parts)})"
 
-    def version_of(self, version: int) -> NodeDefinition[..., Any] | None:
-        """This node at ``version``, walking back through what each version replaces; ``None`` when there is none."""
+    def version_of(self, version: int) -> NodeDefinition[..., Any]:
+        """This node at ``version``, walking back through what each version replaces; a ``KeyError`` naming the versions
+        there are when it has none. ``version in definition.versions`` asks first."""
         found: NodeDefinition[..., Any] | None = self
         while found is not None and found.version != version:
             found = found.replaces
+        if found is None:
+            raise KeyError(f"{self.id!r} has no version {version!r}; it has {', '.join(map(str, self.versions))}")
         return found
 
     @property
@@ -364,6 +368,8 @@ def _read_signature(where: str, function: Callable[..., Any], computed_outputs: 
         default = REQUIRED if parameter.default is inspect.Parameter.empty else parameter.default
         hint = hints[name]
         if typing.get_origin(hint) is typing.Annotated and any(isinstance(m, _FromRunMarker) for m in hint.__metadata__):
+            if not isinstance(typing.get_args(hint)[0], type):
+                raise NodeDeclarationError(f"{where}{name}: FromRun names the class of the value the run is given, FromRun[Session]", code="from_run_not_a_class")
             inputs[name] = FieldSpec(name, "one", hint, param=_FROM_RUN)
             continue
         inputs[name] = read_field(name, hint, default, where)

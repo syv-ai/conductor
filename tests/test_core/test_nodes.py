@@ -547,6 +547,8 @@ def test_a_version_number_is_its_place_in_the_chain_and_each_keeps_its_own_setti
     assert [v3.version_of(n).policy for n in (1, 2, 3)] == [Policy(retries=1), Policy(retries=2), Policy(concurrency=3)]
     assert v3.version_of(1).deprecation == Deprecation(header="Use v3") and v3.deprecation is None
     assert v3.version_of(1).describe()["deprecation"]["header"] == "Use v3" and v3.describe()["deprecation"] is None
+    with pytest.raises(KeyError, match="'v' has no version 4; it has 3, 2, 1"):
+        v3.version_of(4)
     for saved, body in ((1, "one"), (3, "three")):
         graph = load(v3, record=GraphRecord(nodes=[placed("n", "v", version=saved)]))
         assert graph.run(x="a").results["n"]["result"] == body
@@ -909,3 +911,23 @@ def test_a_hook_reads_a_whole_table_arriving_with_its_columns():
     row_type = typing.get_args(seen[0])[1].row  # Table[R] carries R, a TypedDict of the arriving columns
     assert graph.problems == [] and typing.get_type_hints(row_type) == {"name": str, "amount": int}
     assert graph.run(text="Bo").results["look"]["result"] == "name,amount"
+
+
+def test_from_run_names_a_class() -> None:
+    from conductor import FromRun
+
+    with pytest.raises(NodeDeclarationError, match="FromRun names the class") as raised:
+
+        @node("bare")
+        def bare(who: FromRun) -> str:  # type: ignore[type-arg]
+            return "x"
+
+    assert raised.value.code == "from_run_not_a_class"
+
+
+def test_a_bare_series_is_many_values_of_any_type() -> None:
+    @node("count")
+    def count(items: Series) -> int:  # type: ignore[type-arg]
+        return len(items)
+
+    assert count.inputs["items"].shape == "many" and count.inputs["items"].type is Any

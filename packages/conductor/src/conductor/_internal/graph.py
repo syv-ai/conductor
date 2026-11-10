@@ -528,10 +528,10 @@ class Graph:
         if newest is None:
             self.problems.append(make_problem("unknown_node", node_record.id, node=node_record.node, choices=", ".join(sorted(self._definitions)) or "none"))
             return None
-        found = newest.version_of(node_record.version)
-        if found is None:
+        if node_record.version not in newest.versions:
             self.problems.append(make_problem("unknown_version", node_record.id, node=node_record.node, version=node_record.version, newest=newest.version))
-        return found
+            return None
+        return newest.version_of(node_record.version)
 
     # -- compile ----------------------------------------------------------------
 
