@@ -64,8 +64,6 @@ from conductor._internal.dtype import (
 )
 from conductor._internal.errors import NodeDeclarationError
 from conductor._internal.field_records import Input, Output, humanised
-from conductor._internal.graph.binding import OPEN, From, Static
-from conductor._internal.graph.graph_records import GraphNode
 from conductor._internal.node_signature import (
     Interface,
     input_template_for_var_keyword,
@@ -159,12 +157,12 @@ class Upgrade:
     when a field name of the replaced version is gone from the newer one. Read only by ``upgrade_node``; compile
     never upgrades, so a graph pinned at an old version runs that version.
 
-    ``renamed_inputs`` moves each input's binding, lock and author-written
-    content to the new name before ``rewrite`` runs. ``rewrite`` takes the
-    node's bindings as a dict, a static as itself and an edge as its
-    ``From``, and returns the same shape for the next version.
-    ``renamed_outputs`` moves each output's content and rewrites every edge
-    in the graph that read the old name.
+    ``renamed_inputs`` moves each input's value, default and edges in to
+    the new name before ``rewrite`` runs. ``rewrite`` takes the node's
+    values as a dict and returns them for the next version; it is called
+    on the node's ``values`` and on its ``defaults``, each on its own, and
+    never on an empty one. ``renamed_outputs`` rewrites every edge in the
+    graph that read the old name.
     """
 
     renamed_inputs: Mapping[str, str] = field(default_factory=dict)
@@ -356,30 +354,6 @@ class NodeDefinition(Generic[_P, _R]):
             raise TypeError(f"{self.id!r} is a graph, so it has no function to call; run it through a compiled graph")
         return body(*args, **kwargs)
 
-    def graph_node(self, id: str, /, *args: _P.args, **kwargs: _P.kwargs) -> GraphNode:
-        """This node as it sits in a graph, at its current version, called the way its function is::
-
-            upper.graph_node("b", text=From("a.result"), times=2)
-
-        A value becomes a static; ``From`` is an edge. ``OPEN`` leaves an input with
-        nothing on it, for the caller to fill or a ``FromRun`` to supply.
-        """
-        body = self.versions[self.current_version].body
-        if callable(body):
-            try:
-                bound = inspect.signature(body).bind_partial(*args, **kwargs).arguments
-            except TypeError as wrong:
-                inputs = ", ".join(input_.name for input_ in self.versions[self.current_version].interface.inputs)
-                raise TypeError(f"{self.id!r} placed as {id!r}: {wrong}; its inputs are {inputs or 'none'}") from wrong
-            spread = next((name for name, parameter in inspect.signature(body).parameters.items() if parameter.kind is inspect.Parameter.VAR_KEYWORD), None)
-            values = {**{name: value for name, value in bound.items() if name != spread}, **bound.get(spread, {})}
-        elif args:
-            raise TypeError(f"{self.id!r} is a graph; its inputs are given by name")
-        else:
-            values = kwargs
-        bindings = {name: value if isinstance(value, (From, Static)) else Static(value) for name, value in values.items() if value is not OPEN}
-        return GraphNode(id=id, type=self.id, version=self.current_version, bindings=bindings)
-
     def __repr__(self) -> str:
         """The record as the call that states what it is, optional parts only when set."""
         parts = [f"id={self.id!r}", f"title={self.title!r}", f"category={self.category!r}"]
@@ -534,7 +508,7 @@ class NodeDescription(ConductorModel):
 
     Built by ``NodeDefinition.describe()`` on demand and read by an editor:
     what it offers is these records dumped through pydantic. Describes the
-    *type*. The titles one node in a graph shows live on its ``GraphNode``.
+    *definition*; what a host shows for one node in a graph it keeps in that node's ``display``.
     """
 
     id: str

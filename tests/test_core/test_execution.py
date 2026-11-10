@@ -5,18 +5,7 @@ from dataclasses import dataclass
 from typing import Annotated
 
 import pytest
-from conductor import (
-    SKIPPED,
-    CompiledGraph,
-    DType,
-    From,
-    Graph,
-    GraphNode,
-    Param,
-    Result,
-    Static,
-    node,
-)
+from conductor import SKIPPED, CompiledGraph, DType, GraphRecord, NodeRecord, Param, Result, node
 from conductor.widgets import Textarea
 from helpers import stream_of, with_added
 
@@ -79,13 +68,13 @@ class TestStreamingExecution:
         # B(0.3s) -> D(0.3s) --+
         registry = with_added(registry, slow)
         registry = with_added(registry, combine)
-        compiled = CompiledGraph.from_graph(Graph(nodes=[
-            GraphNode(id="a", type="slow", version=1, bindings={"text": Static("hello")}),
-            GraphNode(id="b", type="slow", version=1, bindings={"text": Static("world")}),
-            GraphNode(id="c", type="slow", version=1, bindings={"text": From("a.result")}),
-            GraphNode(id="d", type="slow", version=1, bindings={"text": From("b.result")}),
-            GraphNode(id="e", type="combine", version=1, bindings={"a": From("c.result"), "b": From("d.result")}),
-        ]), registry)
+        compiled = CompiledGraph.from_graph(GraphRecord(nodes=[
+            NodeRecord(id="a", node="slow", values={"text": "hello"}),
+            NodeRecord(id="b", node="slow", values={"text": "world"}),
+            NodeRecord(id="c", node="slow"),
+            NodeRecord(id="d", node="slow"),
+            NodeRecord(id="e", node="combine"),
+        ], edges=[("a.result", "c.text"), ("b.result", "d.text"), ("c.result", "e.a"), ("d.result", "e.b")]), registry)
 
         start = time.monotonic()
         results = compiled.results(compiled.run_sync())
@@ -97,10 +86,10 @@ class TestStreamingExecution:
 
     async def test_linear_chain_events(self, three_node_registry):
         """echo -> upper should produce start/complete events for each node."""
-        compiled = CompiledGraph.from_graph(Graph(nodes=[
-                GraphNode(id="n1", type="echo", version=1, bindings={"text": Static("hello")}),
-                GraphNode(id="n2", type="upper", version=1, bindings={"text": From('n1.result')}),
-            ]), three_node_registry)
+        compiled = CompiledGraph.from_graph(GraphRecord(nodes=[
+            NodeRecord(id="n1", node="echo", values={"text": "hello"}),
+            NodeRecord(id="n2", node="upper"),
+        ], edges=[('n1.result', "n2.text")]), three_node_registry)
 
         events = []
         async for event in stream_of(compiled):
@@ -113,10 +102,10 @@ class TestStreamingExecution:
 
     async def test_linear_chain_results(self, three_node_registry):
         """echo('hello') -> upper -> 'HELLO'."""
-        compiled = CompiledGraph.from_graph(Graph(nodes=[
-                GraphNode(id="n1", type="echo", version=1, bindings={"text": Static("hello")}),
-                GraphNode(id="n2", type="upper", version=1, bindings={"text": From('n1.result')}),
-            ]), three_node_registry)
+        compiled = CompiledGraph.from_graph(GraphRecord(nodes=[
+            NodeRecord(id="n1", node="echo", values={"text": "hello"}),
+            NodeRecord(id="n2", node="upper"),
+        ], edges=[('n1.result', "n2.text")]), three_node_registry)
 
         results = compiled.results((await compiled.run()))
         assert results["n2"]["result"] == "HELLO"
@@ -126,12 +115,12 @@ class TestStreamingExecution:
         echo('hello') -> upper  -> combine
         echo('hello') -> echo2  -> combine
         """
-        compiled = CompiledGraph.from_graph(Graph(nodes=[
-                GraphNode(id="n1", type="echo", version=1, bindings={"text": Static("hello")}),
-                GraphNode(id="n2", type="upper", version=1, bindings={"text": From('n1.result')}),
-                GraphNode(id="n3", type="echo", version=1, bindings={"text": From('n1.result')}),
-                GraphNode(id="n4", type="combine", version=1, bindings={"a": From('n2.result'), "b": From('n3.result')}),
-            ]), three_node_registry)
+        compiled = CompiledGraph.from_graph(GraphRecord(nodes=[
+            NodeRecord(id="n1", node="echo", values={"text": "hello"}),
+            NodeRecord(id="n2", node="upper"),
+            NodeRecord(id="n3", node="echo"),
+            NodeRecord(id="n4", node="combine"),
+        ], edges=[('n1.result', "n2.text"), ('n1.result', "n3.text"), ('n2.result', "n4.a"), ('n3.result', "n4.b")]), three_node_registry)
 
         results = compiled.results((await compiled.run()))
         assert results["n4"]["result"] == "HELLO hello"
@@ -144,17 +133,19 @@ class TestStreamingExecution:
 class TestSyncExecution:
     def test_run_sync_linear(self, three_node_registry):
         """Blocking API: echo -> upper."""
-        compiled = CompiledGraph.from_graph(Graph(nodes=[
-                GraphNode(id="n1", type="echo", version=1, bindings={"text": Static("world")}),
-                GraphNode(id="n2", type="upper", version=1, bindings={"text": From('n1.result')}),
-            ]), three_node_registry)
+        compiled = CompiledGraph.from_graph(GraphRecord(nodes=[
+            NodeRecord(id="n1", node="echo", values={"text": "world"}),
+            NodeRecord(id="n2", node="upper"),
+        ], edges=[('n1.result', "n2.text")]), three_node_registry)
 
         results = compiled.results(compiled.run_sync())
         assert results["n2"]["result"] == "WORLD"
 
     def test_single_node_no_edges(self, three_node_registry):
         """A single node with static data, no edges."""
-        compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n1", type="echo", version=1, bindings={"text": Static("standalone")})]), three_node_registry)
+        compiled = CompiledGraph.from_graph(GraphRecord(nodes=[
+            NodeRecord(id="n1", node="echo", values={"text": "standalone"}),
+        ]), three_node_registry)
 
         results = compiled.results(compiled.run_sync())
         assert results["n1"]["result"] == "standalone"
@@ -167,7 +158,9 @@ class TestSyncExecution:
 class TestErrorHandling:
     async def test_a_node_error_ends_the_graph_in_error(self, registry):
         registry = with_added(registry, fail)
-        compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n1", type="fail", version=1, bindings={"text": Static("hello")})]), registry)
+        compiled = CompiledGraph.from_graph(GraphRecord(nodes=[
+            NodeRecord(id="n1", node="fail", values={"text": "hello"}),
+        ]), registry)
 
         events = []
         async for event in stream_of(compiled):
@@ -179,7 +172,9 @@ class TestErrorHandling:
 
     def test_run_sync_returns_the_error_ending(self, registry):
         registry = with_added(registry, fail)
-        compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n1", type="fail", version=1, bindings={"text": Static("hello")})]), registry)
+        compiled = CompiledGraph.from_graph(GraphRecord(nodes=[
+            NodeRecord(id="n1", node="fail", values={"text": "hello"}),
+        ]), registry)
 
         assert compiled.run_sync().status == "failed"
 
@@ -196,7 +191,9 @@ class TestTimeout:
             return text
 
         registry = with_added(registry, slow)
-        compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n1", type="slow", version=1, bindings={"text": Static("hello")})]), registry)
+        compiled = CompiledGraph.from_graph(GraphRecord(nodes=[
+            NodeRecord(id="n1", node="slow", values={"text": "hello"}),
+        ]), registry)
 
         events = []
         async for event in stream_of(compiled, timeout=1):
@@ -228,10 +225,10 @@ class TestSkipPropagation:
 
         registry = with_added(registry, echo)
         registry = with_added(registry, conditional)
-        compiled = CompiledGraph.from_graph(Graph(nodes=[
-                GraphNode(id="n1", type="conditional", version=1, bindings={"text": Static("hello")}),
-                GraphNode(id="n2", type="echo", version=1, bindings={"text": From('n1.not_taken')}),  # connected to the branch not taken
-            ]), registry)
+        compiled = CompiledGraph.from_graph(GraphRecord(nodes=[
+            NodeRecord(id="n1", node="conditional", values={"text": "hello"}),
+            NodeRecord(id="n2", node="echo"),
+        ], edges=[('n1.not_taken', "n2.text")]), registry)
 
         events = []
         async for event in stream_of(compiled):

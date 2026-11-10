@@ -25,7 +25,7 @@ Only embedding writes a ``/``: an id holding one is the problem ``invalid_node_i
 An embedded graph has an interface of its own. Each input and output it offers
 goes by its bare name where that is unique on its side, by its address on a
 clash (``offered_names``), and from outside those names are all there is: a
-binding, a ``From``, an entry in an editor's list of nodes. A rename inside it breaks no caller.
+value, an edge, an entry in an editor's list of nodes. A rename inside it breaks no caller.
 Inner addresses stay for reading a run (``approve/check``).
 """
 
@@ -33,7 +33,7 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
 from conductor._internal.graph.binding import Binding, From, Static
@@ -46,7 +46,7 @@ if TYPE_CHECKING:
     from conductor._internal.errors import Problem
     from conductor._internal.field_records import Input
     from conductor._internal.graph.compiled_graph import CompiledGraph
-    from conductor._internal.graph.graph_records import GraphNode
+    from conductor._internal.graph.graph_records import LoadedNode
 
 
 def offered_names(addresses: Iterable[Ref]) -> dict[Ref, str]:
@@ -137,11 +137,11 @@ def _problems_blocking_embedding(graph: CompiledGraph, nodes: Mapping[str, Compi
     return [problem for problem in graph.problems if problem.fatal and not a_value_from_outside_fills_it(problem)]
 
 
-def inner_node_placed_at(inner: GraphNode, prefix: str, filled_from_outside: Mapping[str, Binding]) -> GraphNode:
+def inner_node_placed_at(inner: LoadedNode, prefix: str, filled_from_outside: Mapping[str, Binding]) -> LoadedNode:
     """``inner`` as the node it is once embedded at ``prefix``: its id and edges under that path, and any edge or static the graph node set on it in place."""
     bindings: dict[str, Binding] = {
         name: From(*(Ref(prefix + ref.node_id, ref.field) for ref in binding.refs)) if isinstance(binding, From) else binding
         for name, binding in inner.bindings.items()
     }
     bindings.update(filled_from_outside)
-    return inner.model_copy(update={"id": prefix + inner.id, "bindings": bindings, "locked": ()})
+    return replace(inner, id=prefix + inner.id, bindings=bindings, fixed=frozenset())

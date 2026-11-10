@@ -9,7 +9,7 @@
 </p>
 
 ```python
-from conductor import CompiledGraph, From, Graph, NodeRegistry
+from conductor import CompiledGraph, NodeRegistry, make_graph
 
 registry = NodeRegistry()
 
@@ -24,17 +24,15 @@ def exclaim(text: str, times: int = 1) -> str:
     return text + "!" * times
 
 
-graph = Graph(nodes=[
-    upper.graph_node("a", text="hello"),
-    exclaim.graph_node("b", text=From("a.result"), times=2),
-])
+graph = make_graph(upper, exclaim, values={"exclaim.times": 2})
 compiled = CompiledGraph.from_graph(graph, registry)
 
-state = compiled.run_sync()  # in async code: await compiled.run()
-print(compiled.outputs(state))  # {'b.result': 'HELLO!!'}
+ready = compiled.with_inputs(text="hello")
+state = ready.run_sync()  # in async code: await ready.run()
+print(ready.outputs(state))  # {'exclaim.result': 'HELLO!!'}
 ```
 
-A node is a function, and its type hints are its interface. The same hints drive validation, the run and the palette a visual editor shows. A registry is what a host offers: `@registry.node` declares a node and adds it. `node.graph_node(...)` places a node: the first argument is its id in the graph, and a type checker reads the rest as the function's own parameters. A plain value is typed in; `From("a.result")` is an edge. The result is a plain `GraphNode`, the form a graph is stored in. Write `text=OPEN` for an input left open for the caller, or for a value the run supplies.
+A node is a function, and its type hints are its interface. The same hints drive validation, the run and the palette a visual editor shows. A registry is what a host offers: `@registry.node` declares a node and adds it. A graph is data, a `GraphRecord`: its nodes, each naming the node it uses and what is typed into it, and its edges, `{"nodes": [{"id": "upper", "node": "upper"}, ...], "edges": [["upper.result", "exclaim.text"]]}`. That is what an editor writes and a host stores. `make_graph(...)` writes one from Python: with no `edges` the nodes form a chain, each taking its one required open input from the one output before it; with `edges=[("upper.result", "exclaim.text")]` those are every edge. A node's id in the graph is its own id, `upper-1`, `upper-2` when it is used twice. `values` are typed in and fixed.
 
 The core has no web framework, database or auth in it. It depends on pydantic and polars.
 
@@ -60,10 +58,10 @@ A graph takes the inputs of its first nodes, those with no edge into any of thei
 
 ```python
 ready = compiled.with_inputs(text="good night")
-print(ready.outputs(ready.run_sync()))  # {'b.result': 'GOOD NIGHT!!'}
+print(ready.outputs(ready.run_sync()))  # {'exclaim.result': 'GOOD NIGHT!!'}
 ```
 
-As the author you can type a value in anywhere an edge doesn't feed: `graph = graph.with_values({"b.times": 3})`.
+A value the author types in is fixed, and the graph doesn't offer that input. A node's `defaults` fill an input that stays open, so a caller may still change it: `NodeRecord(id="exclaim", node="exclaim", defaults={"times": 3})`.
 
 ## Tables
 
@@ -74,7 +72,7 @@ import io
 from typing import TypedDict
 
 import polars as pl
-from conductor import CompiledGraph, From, Graph, NodeRegistry, Series, Table
+from conductor import CompiledGraph, NodeRegistry, Series, Table, make_graph
 
 registry = NodeRegistry()
 
@@ -100,15 +98,15 @@ def count(values: Series[str]) -> int:
 
 
 csv = "name,email\nIda,ida@a.dk\nBo,bo@b.dk\n"
-graph = Graph(nodes=[
-    read_csv.graph_node("csv", text=csv),
-    domain.graph_node("domain", email=From("csv.result.email")),
-    count.graph_node("how_many", values=From("domain.result")),
-])
+graph = make_graph(
+    read_csv, domain, count,
+    edges=[("read-csv.result.email", "domain.email"), ("domain.result", "count.values")],
+    values={"read-csv.text": csv},
+)
 compiled = CompiledGraph.from_graph(graph, registry)
 results = compiled.results(compiled.run_sync())
 print(results["domain"]["result"]["values"])    # ['a.dk', 'b.dk']
-print(results["how_many"]["result"])            # 2
+print(results["count"]["result"])               # 2
 ```
 
 `print(compiled.run_plan)` says in plain words where each node runs and what each input receives.
@@ -136,7 +134,7 @@ A leg yields `run_start`, `node_start`, `node_progress`, `node_complete`, `node_
 
 **Registries.** A `NodeRegistry` is the nodes a host offers, by id: `"upper" in registry`, `registry["upper"]`, and looping yields the definitions. `registry.add(upper, shout)` adds plain `@node`s, and a second node under one id raises; `replace` and `remove` change one. `registry.add_subregistry(text_nodes)` copies another registry's nodes in, so each module can keep a registry of its own and the host adds them at the top. `NodeRegistry(category="text", tags=["builtin"], extra={...})` sets defaults for every node that enters: tags add up, outermost first, and the node's own `category` and `extra` keys win. `extra` is the host's own JSON about a node, kept and described, never read by conductor. `registry.filter(lambda definition: ...)` is a new registry of the nodes kept, say the ones one customer may place.
 
-**Graphs and bindings.** A graph is its nodes. Each input holds at most one binding: `From("node.output")` is an edge, `Static(value)` is a typed-in value, and no binding means the declared default. A saved graph embedded as a node is wired by the names it offers, the bare name where unique and the address on a clash; what's inside stays private. A `Graph` saves as JSON with pydantic's own `model_dump_json`.
+**Graph records.** A `GraphRecord` is its `nodes` and its `edges`. A `NodeRecord` is `id`, `node` (the node it uses), `version` (1 when left out), `values` (typed in, fixed), `defaults` (typed in, open to a caller) and `display` (the host's own, never read); empty fields are left out when saved. Edges are `[from, to]` addresses and a set: several edges into one input gather in the order their nodes appear in `nodes`, whatever order the list holds. An input takes an edge, a value or a default, never two; an edge drawn twice or into a node the graph doesn't have is a problem too. An input with none of them takes its declared default. A saved graph embedded as a node is wired by the names it offers, the bare name where unique and the address on a clash; what's inside stays private. A `GraphRecord` saves as JSON with pydantic's own `model_dump_json` and reads back with `GraphRecord.model_validate_json`.
 
 **Compile.** `CompiledGraph.from_graph(graph, registry)` never raises for a fault in the graph. Everything wrong is a `Problem` with a stable `type`, anchored on a node, and `is_runnable` says whether a run may start. Ask the result about the graph with `compiled.node(id)`, `compiled.field(ref)` or `compiled.run_plan`. Every node has a `state` (`ready`, `wiring_failed` or `resolution_failed`) and its own `problems`, so an editor can draw a half-finished graph node by node. `compiled.describe()` is all of that as one JSON-ready record, as `registry.describe()` is for what can be placed.
 
@@ -169,7 +167,7 @@ def route(text: str) -> Routed:
 **A person in the loop.** A node returns `AskPerson`, annotated `-> X | AskPerson`, and its declared outputs are what is asked. The rest of the graph runs on and the state ends `waiting`, each waiting unit and its questions in `state.waiting`.
 
 ```python
-from conductor import AskPerson, CompiledGraph, Graph, NodeRegistry
+from conductor import AskPerson, CompiledGraph, NodeRegistry, make_graph
 
 
 registry = NodeRegistry()
@@ -180,7 +178,7 @@ def approve(invoice: str) -> str | AskPerson:
     return AskPerson(prompt=f"Approve {invoice}?")
 
 
-compiled = CompiledGraph.from_graph(Graph(nodes=[approve.graph_node("approve", invoice="INV-1")]), registry)
+compiled = CompiledGraph.from_graph(make_graph(approve, values={"approve.invoice": "INV-1"}), registry)
 paused = compiled.run_sync()                                                   # paused.status == "waiting"
 answered = compiled.answer(paused, {unit.id: {"result": "yes"} for unit in paused.waiting})  # checks them; no node runs
 state = compiled.run_sync(answered)

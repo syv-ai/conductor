@@ -69,6 +69,7 @@ PROBLEM_CATALOGUE: Mapping[str, str] = {
     "duplicate_node_id": "Two nodes have the id '{node_id}'.",
     "embedded_graph_broken": "The graph '{graph}' has {problems} problem(s) to fix before it can be used here.",
     "edge_into_unconnectable_input": "Nothing can be connected to the field '{field}'.",
+    "edge_into_unknown_node": "An edge from '{source}' leads into '{node_id}', which is not in the graph.",
     "output_has_no_type": "The output '{field}' has no type that can travel on an edge.",
     "invalid_node_id": "'{node_id}' cannot be a node id: '/', '.' and '@' each mean something in an address.",
     "invalid_static": "The value {input} in '{field}' cannot be read as {expected}. {reason}",
@@ -87,25 +88,27 @@ PROBLEM_CATALOGUE: Mapping[str, str] = {
     "misaligned": "'{a}' and '{b}' get their rows from different sources, so the node cannot run per row.",
     "no_outputs": "The node has no fields to pass on, so nothing can be connected from it.",
     "one_edge_per_parameter": "Parameter '{field}' takes one edge; an extra edge is an extra parameter.",
+    "repeated_edge": "The edge from '{source}' into '{field}' is drawn twice.",
     "parameter_name_invalid": "'{field}' cannot be a parameter name; use letters, digits and underscores, and start with a letter.",
     "stale_binding": "Field '{field}' is not an input of the node; it has {inputs}.",
     "type_mismatch": "'{source}' is {source_said}, but '{node_id}.{field}' takes {target_said}.",
     "unbound_required": "Nothing is connected to the field.",
     "union_needs_one_index": "Field '{field}' has several edges; that only works when they are all rows of one table.",
-    "unknown_locked_field": "The lock on '{node_id}.{field}' points at a field the node does not have.",
     "unknown_node_type": "Node type '{node_type}' does not exist; the types are {choices}.",
     "unknown_node_version": "'{node_type}' has no version {version}.",
     "unknown_ref_node": "Field '{field}' is connected to '{source_node}', which is not in the graph.",
     "unknown_ref_output": "Field '{field}' is connected to '{source}', which is not an output of that node; it has {outputs}.",
+    "value_and_default": "Field '{field}' has both a value and a default; keep one.",
+    "value_and_edge": "Field '{field}' has an edge and a typed-in value; keep one.",
     "unused_binding": "Field '{field}' is not an input of the node as it is set up, so its value is not used; it has {inputs}.",
     # -- what a call to a compiled graph is rejected for -----------------------
     "cannot_move_to_version": "'{node_type}' cannot move from version {version} to {target}; it has {versions}.",
-    "from_run_missing": "'{node}' needs a {needs} for '{parameter}', and the call did not give one in from_run.",
+    "from_run_missing": "'{node_id}' needs a {needs} for '{parameter}', and the call did not give one in from_run.",
     "from_run_not_a_type": "from_run is keyed by type; {key} is not one.",
     "choice_unanswered": "Answer exactly one of {alternatives}; {answered} answered.",
     "invalid_value": "That is not a valid answer: {reason}",
     "missing": "'{name}' was not answered.",
-    "node_not_in_graph": "'{node}' is not a node of this graph; it has {nodes}.",
+    "node_not_in_graph": "'{node_id}' is not a node of this graph; it has {nodes}.",
     "not_asked": "'{name}' was not asked.",
     "not_offered": "This graph does not offer that input: {reason}",
     "not_waiting": "Nothing is waiting on an answer as {waiting_id!r}.",
@@ -127,7 +130,7 @@ PROBLEM_CATALOGUE: Mapping[str, str] = {
 
 #: The codes that don't stop what they are about: states an author can leave a
 #: graph in and still run it. Every other code stops it, a host's own included.
-_CODES_A_GRAPH_CAN_RUN_WITH = frozenset({"no_outputs", "unknown_locked_field", "unused_binding"})
+_CODES_A_GRAPH_CAN_RUN_WITH = frozenset({"no_outputs", "unused_binding"})
 
 #: The codes a host translating by code has to cover.
 PROBLEM_CODES: frozenset[str] = frozenset(PROBLEM_CATALOGUE)

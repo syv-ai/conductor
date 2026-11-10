@@ -38,7 +38,8 @@ its stored graphs itself. What a 1.x user changes:
 - **Versions.** A newer version names the one it replaces, `@node("id", replaces=older,
   upgrade=Upgrade(...))`, where `older` is a `@node` of the same id. Each version has its own
   `Policy`, hooks and `deprecation=`, and the newest version's notice is the node's.
-  `upgrade_node(graph, node_id, registry)` moves a placed node on.
+  `upgrade_node(graph, node_id, registry)` moves one node of a record on: an `Upgrade`'s renames move
+  its values, defaults and edges, and its `rewrite` takes and returns the node's values.
 - **What the run supplies.** `FlowStore` and `store_data` are a parameter typed `FromRun[T]`, filled
   from `compiled.run(from_run={T: value})`.
 - **Retries and failures.** `max_retries`, `retry_delay` and `RetryConfig` are
@@ -65,10 +66,15 @@ its stored graphs itself. What a 1.x user changes:
   children, so the rows are those of the deepest source; sources on one level keep all their rows,
   with blanks beside; and tables with no rows in common are refused when the graph is checked
   (`no_rows_in_common`), so join those on a key in a node of your own.
-- **Graphs.** `Flow` is `Graph(nodes=[...])`, with a node placed by
-  `upper.graph_node("a", text="hello")`. An input is bound by `From("node.output")` or
-  `Static(value)`, and `text=OPEN` leaves it for the caller; there is no edge list and no
-  `"id@version"` string. `conductor.flow_format` is `graph.model_dump_json()` and `Graph.model_validate_json(...)`, and YAML is gone with `pyyaml`.
+- **Graphs.** `Flow` is a `GraphRecord`, plain data: `{"nodes": [...], "edges": [["a.result",
+  "b.text"], ...]}`. A `NodeRecord` is `id`, `node` (the node it uses; was `type`), `version` (1 when
+  left out), `values` (typed in, fixed), `defaults` (typed in, open to a caller) and `display` (the
+  host's own); empty fields are left out when saved, and there is no `"id@version"` string. Edges are
+  a set: several into one input gather in the order their nodes appear in `nodes`. An edge drawn
+  twice, an edge into a node the graph doesn't have and an input with an edge and a value are each
+  a problem. `make_graph(upper, exclaim, values={"exclaim.times": 2})` writes a record from Python:
+  a chain with no `edges`, or exactly the `edges` given. `conductor.flow_format` is
+  `graph.model_dump_json()` and `GraphRecord.model_validate_json(...)`, and YAML is gone with `pyyaml`.
   CEL guards on edges, shared references, compensation and `on_error` are gone.
 - **Compile.** `compile(...)` is `CompiledGraph.from_graph(graph, registry)`. It never raises for a
   fault in the graph: read `problems` and `is_runnable`, or `compiled.describe()` for all of it as
@@ -104,9 +110,8 @@ its stored graphs itself. What a 1.x user changes:
   `CompiledGraph.from_graph(graph, registry).describe()`, and `context_factory` is a `Depends` on your
   route, passed as `from_run`.
 - **Canvas.** `conductor_providers.react` is gone: `graph_to_react`, `react_to_graph` and
-  `topological_positions`. A canvas stores the `Graph` as it is, with one edge per ref of each `From`
-  binding and a node's position in `node.display["position"]`; for layout, use the canvas's own engine
-  or `dependencies_of(graph.nodes)` for the order.
+  `topological_positions`. A canvas stores the `GraphRecord` as it is, its edges as drawn and a
+  node's position in `node.display["position"]`; for layout, use the canvas's own engine.
 
 ## [1.12.2]
 

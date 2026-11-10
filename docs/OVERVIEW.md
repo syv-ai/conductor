@@ -9,7 +9,7 @@ A node's signature is read once into `Input` and `Output` records. The engine ca
 ## Declare, compile, run
 
 - **Declare.** `@node` checks a function when it is decorated: a widget written bare instead of on a `Param`, an `async def`, or an `Any` or `Mapping` return with no hook fails at import. A `NodeRegistry` is what a host offers: `@registry.node` declares and adds, `add_subregistry` copies a module's registry in, and a second node under one id raises.
-- **Compile.** `CompiledGraph.from_graph(graph, registry)` resolves each node's version, validates the bindings, types each field from its edges, decides where each node runs, asks the field hooks and puts each embedded graph's nodes in its place. Everything wrong is a `Problem`; `is_runnable` says whether a run may start. `compiled.run_plan` says what compile decided.
+- **Compile.** `CompiledGraph.from_graph(graph, registry)` loads the record, resolves each node's version, checks its edges and values, types each field from its edges, decides where each node runs, asks the field hooks and puts each embedded graph's nodes in its place. Everything wrong is a `Problem`; `is_runnable` says whether a run may start. `compiled.run_plan` says what compile decided.
 - **Run.** `async with compiled.stream() as events:` yields the events of one leg. `await compiled.run()` returns the `RunState` it ended on, and `compiled.run_sync()` does the same from a script. Every result, failure and pause is on that state.
 
 ## Every level is a table
@@ -44,6 +44,6 @@ Retries live on the version's `Policy`, and each row retries on its own. Only th
 
 Every failure is a `Problem` (`type`, `loc`, `msg`, `ctx`) on the event and on the state, the same record a compile reports, so a host routes it by its type.
 
-## Bindings
+## The graph record
 
-A graph is its nodes; there is no edge list. Each input holds one binding at most: `From("node.output")` is an edge, `Static(value)` is what the author typed, and no binding means the declared default. Dependencies, cycles and what the graph takes and returns are worked out from the bindings. A `Graph` saves as JSON with pydantic's own `model_dump_json`.
+A graph is a `GraphRecord`, plain data: `{"nodes": [...], "edges": [["a.result", "b.text"], ...]}`. A node names the node it uses (`node`), its version, and what is typed into it: `values` are fixed, `defaults` stay open for a caller. Edges are a set; several into one input gather in node order. An input takes an edge, a value or a default, never two, and with none of them its declared default. Dependencies, cycles and what the graph takes and returns are worked out from the edges. `make_graph(...)` writes a record from Python. A `GraphRecord` saves as JSON with pydantic's own `model_dump_json`.

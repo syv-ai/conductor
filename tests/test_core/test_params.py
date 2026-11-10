@@ -18,15 +18,13 @@ from conductor import (
     AskPerson,
     CompiledGraph,
     DType,
-    From,
-    Graph,
-    GraphNode,
+    GraphRecord,
     Input,
+    NodeRecord,
     NodeRegistry,
     Param,
     Result,
     Series,
-    Static,
     node,
 )
 from conductor._internal.node_signature import read_signature
@@ -146,7 +144,9 @@ def _registry() -> NodeRegistry:
 
 def _asking_once() -> CompiledGraph:
     compiled = CompiledGraph.from_graph(
-        Graph(nodes=[GraphNode(id="ask", type="ask-each", version=1, bindings={"proposal": Static("hi")})]),
+        GraphRecord(nodes=[
+            NodeRecord(id="ask", node="ask-each", values={"proposal": "hi"}),
+        ]),
         _registry(),
     )
     assert compiled.is_runnable, compiled.problems
@@ -155,10 +155,10 @@ def _asking_once() -> CompiledGraph:
 
 def _asking_per_row(text: str) -> CompiledGraph:
     compiled = CompiledGraph.from_graph(
-        Graph(nodes=[
-            GraphNode(id="docs", type="docs", version=1, bindings={"text": Static(text)}),
-            GraphNode(id="ask", type="ask-each", version=1, bindings={"proposal": From("docs.result")}),
-        ]),
+        GraphRecord(nodes=[
+            NodeRecord(id="docs", node="docs", values={"text": text}),
+            NodeRecord(id="ask", node="ask-each"),
+        ], edges=[("docs.result", "ask.proposal")]),
         _registry(),
     )
     assert compiled.is_runnable, compiled.problems
@@ -190,11 +190,11 @@ def test_each_row_of_a_per_row_node_is_answered_by_its_own_id():
 def test_a_row_skipped_upstream_never_asks():
     """Row 1 was skipped upstream, so the asking node never asked about it."""
     compiled = CompiledGraph.from_graph(
-        Graph(nodes=[
-            GraphNode(id="docs", type="docs", version=1, bindings={"text": Static("aa,b,cc")}),
-            GraphNode(id="skip", type="skip-short", version=1, bindings={"text": From("docs.result")}),
-            GraphNode(id="ask", type="ask-each", version=1, bindings={"proposal": From("skip.result")}),
-        ]),
+        GraphRecord(nodes=[
+            NodeRecord(id="docs", node="docs", values={"text": "aa,b,cc"}),
+            NodeRecord(id="skip", node="skip-short"),
+            NodeRecord(id="ask", node="ask-each"),
+        ], edges=[("docs.result", "skip.text"), ("skip.result", "ask.proposal")]),
         _registry(),
     )
     assert compiled.is_runnable, compiled.problems

@@ -11,12 +11,11 @@ import pytest
 from conductor import (
     SKIPPED,
     CompiledGraph,
-    Graph,
-    GraphNode,
+    GraphRecord,
+    NodeRecord,
     Problem,
     Result,
     RunState,
-    Static,
     node,
 )
 from conductor._internal.execution.run_state import OutputColumn, Question, WaitingUnit, WorkOfNode
@@ -76,7 +75,9 @@ def if_empty(text: str) -> Emptiness:
 
 def test_a_branch_nodes_completion_streams_with_only_the_branch_taken():
     compiled = CompiledGraph.from_graph(
-        Graph(nodes=[GraphNode(id="d", type="if-empty", version=1, bindings={"text": Static("x")})]),
+        GraphRecord(nodes=[
+            NodeRecord(id="d", node="if-empty", values={"text": "x"}),
+        ]),
         registry_of(if_empty),
     )
 

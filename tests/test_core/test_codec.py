@@ -13,21 +13,18 @@ import pytest
 from conductor import (
     CompiledGraph,
     DType,
-    From,
-    Graph,
-    GraphNode,
     NodeDefinition,
     Param,
     Result,
     RunState,
     Series,
-    Static,
     node,
     to_jsonable,
 )
 from conductor._internal.execution.run_ledger import RunLedger
+from conductor._internal.graph.binding import From, Static
 from conductor.widgets import Textarea
-from helpers import Json, registry_of
+from helpers import Json, Placed, placed, record, registry_of
 from pydantic import TypeAdapter
 
 
@@ -98,15 +95,15 @@ def upper_node(text: Annotated[Txt, Param(title="In", widget=Textarea())] = Txt(
     return Txt(text.upper())
 
 
-def _compiled(*classes: type[NodeDefinition], nodes: list[GraphNode]) -> CompiledGraph:
+def _compiled(*classes: type[NodeDefinition], nodes: list[Placed]) -> CompiledGraph:
     reg = registry_of(*classes)
-    return CompiledGraph.from_graph(Graph(nodes=nodes), reg)
+    return CompiledGraph.from_graph(record(*nodes), reg)
 
 
 def test_a_text_that_spells_the_old_skip_marker_is_a_text_after_a_round_trip():
     compiled = _compiled(split_node, upper_node, nodes=[
-        GraphNode(id="split", type="split", version=1, bindings={"text": Static("__skipped__,x")}),
-        GraphNode(id="up", type="upper", version=1, bindings={"text": From("split.result")}),
+        placed("split", "split", text=Static("__skipped__,x")),
+        placed("up", "upper", text=From("split.result")),
     ])
     ledger = RunLedger(compiled)
     ledger.record(("split", ()), {"result": [Txt("__skipped__"), Txt("x")]})
@@ -126,8 +123,8 @@ def test_a_skip_is_listed_beside_the_values():
     from conductor import SKIPPED
 
     compiled = _compiled(split_node, upper_node, nodes=[
-        GraphNode(id="split", type="split", version=1, bindings={"text": Static("a,b")}),
-        GraphNode(id="up", type="upper", version=1, bindings={"text": From("split.result")}),
+        placed("split", "split", text=Static("a,b")),
+        placed("up", "upper", text=From("split.result")),
     ])
     ledger = RunLedger(compiled)
     ledger.record(("split", ()), {"result": [Txt("a"), Txt("b")]})
@@ -153,7 +150,7 @@ def test_a_value_with_no_json_form_raises_naming_the_field():
     def opens(text: Annotated[Txt, Param(title="In", widget=Textarea())] = Txt("")) -> Annotated[Opaque, Result(title="Handle")]:
         return Opaque(object())
 
-    compiled = _compiled(opens, nodes=[GraphNode(id="o", type="opens", version=1, bindings={"text": Static("x")})])
+    compiled = _compiled(opens, nodes=[placed("o", "opens", text=Static("x"))])
     ledger = RunLedger(compiled)
     ledger.record(("o", ()), {"result": Opaque(object())})
 

@@ -1,6 +1,6 @@
 """How a graph is compiled: one forward walk, each node from the nodes compiled above it.
 
-``CompiledGraph.from_graph(graph, registry)`` is the one way in. Pure: no session,
+``CompiledGraph.from_graph(record, registry)`` is the one way in. Pure: no session,
 no I/O, no loading. Every definition the graph names must already be in the
 registry. Everything wrong with the graph comes back as a ``Problem`` rather
 than raising, so an editor can show a half-finished graph with its problems
@@ -17,7 +17,7 @@ from conductor._internal.errors import Problem, make_problem
 from conductor._internal.graph.compile_one_node import compile_one_node
 from conductor._internal.graph.compiled_node import CompiledField, CompiledNode
 from conductor._internal.graph.graph_interface import derive_interface
-from conductor._internal.graph.graph_records import Graph, GraphNode
+from conductor._internal.graph.graph_records import GraphRecord, LoadedNode, load_record
 from conductor._internal.graph.row_origins import RowOriginsSeen
 from conductor._internal.graph.topology import dependencies_of, topological_order
 from conductor._internal.node_signature import Interface
@@ -58,7 +58,7 @@ class CompileResult:
     row_ids_must_survive: frozenset[Ref]
 
 
-def _node_compile_could_not_resolve(node: GraphNode, problem: Problem) -> CompiledNode:
+def _node_compile_could_not_resolve(node: LoadedNode, problem: Problem) -> CompiledNode:
     """A node compile can't resolve at all: the id or the wiring around it says why."""
     return CompiledNode(
         id=node.id, graph_node=node, embedded_in=None, problems=(problem,), cause=problem,
@@ -66,11 +66,17 @@ def _node_compile_could_not_resolve(node: GraphNode, problem: Problem) -> Compil
     )
 
 
-def compile_graph(graph: Graph, registry: NodeRegistry) -> CompileResult:
-    """Walk ``graph`` once: ids that can't name a node and cycles first, then each node in an order where its sources come before it."""
+def compile_graph(record: GraphRecord, registry: NodeRegistry) -> CompileResult:
+    """Load ``record`` and walk it once: ids that can't name a node and cycles first, then each node in an order where its sources come before it."""
     progress = CompileProgress()
-    nodes_by_id: dict[str, GraphNode] = {}
-    for node in graph.nodes:
+    loaded, record_problems = load_record(record)
+    for problem in record_problems:
+        if str(problem.loc[0]) in {node.id for node in loaded}:
+            progress.problems_found_early.setdefault(str(problem.loc[0]), []).append(problem)
+        else:
+            progress.problems.append(problem)
+    nodes_by_id: dict[str, LoadedNode] = {}
+    for node in loaded:
         if NODE_PATH_SEPARATOR in node.id or "." in node.id or "@" in node.id:
             problem = make_problem("invalid_node_id", node.id)
             progress.invalid_node_ids[node.id] = problem
@@ -90,7 +96,7 @@ def compile_graph(graph: Graph, registry: NodeRegistry) -> CompileResult:
         compile_one_node(nodes_by_id[node_id], progress, registry)
     compiled = progress.compiled
     interface = derive_interface(
-        graph, {node_id: compiled[node_id].interface for node_id in nodes_by_id if compiled[node_id].interface is not None}, dependencies,
+        loaded, {node_id: compiled[node_id].interface for node_id in nodes_by_id if compiled[node_id].interface is not None}, dependencies,
     )
     execution_order = tuple(
         node_id for node_id, node in compiled.items()

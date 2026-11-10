@@ -10,21 +10,10 @@ from dataclasses import dataclass
 from typing import Annotated
 
 import pytest
-from conductor import (
-    SKIPPED,
-    CompiledGraph,
-    DType,
-    From,
-    Graph,
-    GraphNode,
-    InvalidCallError,
-    Param,
-    Result,
-    Static,
-    node,
-)
+from conductor import SKIPPED, CompiledGraph, DType, InvalidCallError, Param, Result, node
+from conductor._internal.graph.binding import From, Static
 from conductor.widgets import Textarea
-from helpers import registry_of, with_added
+from helpers import Placed, placed, record, registry_of, with_added
 
 from test_core.embedded import embedded_graph_node
 
@@ -69,10 +58,10 @@ def gives() -> _AnOutputNamedText:
     return _AnOutputNamedText(text=Txt("given"))
 
 
-def _compiled(*nodes: GraphNode) -> CompiledGraph:
+def _compiled(*nodes: Placed) -> CompiledGraph:
     registry = registry_of(upper_node, needs, fails, skips, gives)
-    registry = with_added(registry, embedded_graph_node("shout", (GraphNode(id="up", type="upper", version=1),), registry, "Shout"))
-    return CompiledGraph.from_graph(Graph(nodes=nodes), registry)
+    registry = with_added(registry, embedded_graph_node("shout", (placed("up", "upper"),), registry, "Shout"))
+    return CompiledGraph.from_graph(record(*nodes), registry)
 
 
 def _outputs(compiled: CompiledGraph) -> dict:
@@ -82,12 +71,12 @@ def _outputs(compiled: CompiledGraph) -> dict:
 
 
 def test_outputs_reads_a_graph_where_an_input_and_an_output_share_a_field_name():
-    compiled = _compiled(GraphNode(id="giver", type="gives", version=1), GraphNode(id="up", type="upper", version=1))
+    compiled = _compiled(placed("giver", "gives"), placed("up", "upper"))
     assert _outputs(compiled)["giver.text"] == "given"
 
 
 def test_a_bare_name_fills_the_one_input_that_has_it():
-    compiled = _compiled(GraphNode(id="a", type="upper", version=1))
+    compiled = _compiled(placed("a", "upper"))
 
     ready = compiled.with_inputs(text="hi")
 
@@ -96,17 +85,17 @@ def test_a_bare_name_fills_the_one_input_that_has_it():
 
 def test_the_copy_carries_the_authored_graph_with_the_value_on_it():
     """A host stores what ran; the graph it was compiled from is on the copy, the original untouched."""
-    compiled = _compiled(GraphNode(id="a", type="upper", version=1))
+    compiled = _compiled(placed("a", "upper"))
 
     ready = compiled.with_inputs(text="hi")
 
-    assert ready.graph.nodes[0].bindings == {"text": Static("hi")}
-    assert compiled.graph.nodes[0].bindings == {}
+    assert ready.graph.nodes[0].defaults == {"text": "hi"}
+    assert compiled.graph.nodes[0].defaults == {}
 
 
 def test_a_filled_input_stays_offered_and_filling_it_again_overrides_it():
-    """A static is a value a caller may answer over, so the copy still offers the input."""
-    compiled = _compiled(GraphNode(id="a", type="upper", version=1))
+    """A caller's value is a default on the copy, which a caller may answer over, so the copy still offers the input."""
+    compiled = _compiled(placed("a", "upper"))
 
     once = compiled.with_inputs(text="hi")
 
@@ -116,7 +105,7 @@ def test_a_filled_input_stays_offered_and_filling_it_again_overrides_it():
 
 
 def test_a_bare_name_two_inputs_share_is_refused_naming_both_and_the_address_fills_one():
-    compiled = _compiled(GraphNode(id="a", type="upper", version=1), GraphNode(id="b", type="upper", version=1))
+    compiled = _compiled(placed("a", "upper"), placed("b", "upper"))
 
     with pytest.raises(InvalidCallError, match=r"a\.text.*b\.text"):
         compiled.with_inputs(text="hi")
@@ -124,7 +113,7 @@ def test_a_bare_name_two_inputs_share_is_refused_naming_both_and_the_address_fil
 
 
 def test_an_unknown_name_is_refused_listing_the_names_offered():
-    compiled = _compiled(GraphNode(id="a", type="upper", version=1))
+    compiled = _compiled(placed("a", "upper"))
 
     with pytest.raises(InvalidCallError, match=r"'txt'.*a\.text"):
         compiled.with_inputs(txt="hi")
@@ -132,15 +121,15 @@ def test_an_unknown_name_is_refused_listing_the_names_offered():
         compiled.with_inputs(**{"b.text": "hi"})
 
 
-def test_a_locked_input_is_refused_by_name():
-    compiled = _compiled(GraphNode(id="a", type="upper", version=1, locked=("text",)))
+def test_an_input_a_value_fixes_is_refused_by_name():
+    compiled = _compiled(placed("a", "upper", text=Static("fixed")))
 
     with pytest.raises(InvalidCallError, match="takes no inputs"):
         compiled.with_inputs(text="hi")
 
 
 def test_a_list_on_an_input_for_one_value_runs_the_graph_once_per_item():
-    compiled = _compiled(GraphNode(id="a", type="upper", version=1))
+    compiled = _compiled(placed("a", "upper"))
 
     out = _outputs(compiled.with_inputs(text=["x", "y"]))
 
@@ -148,31 +137,31 @@ def test_a_list_on_an_input_for_one_value_runs_the_graph_once_per_item():
 
 
 def test_a_required_input_left_unfilled_is_compiles_own_problem():
-    compiled = _compiled(GraphNode(id="n", type="needs", version=1))
+    compiled = _compiled(placed("n", "needs"))
 
     assert "unbound_required" in [p.type for p in compiled.problems]
     assert compiled.with_inputs(text="x").is_runnable
 
 
 def test_an_input_inside_an_embedded_graph_is_filled_by_its_address():
-    compiled = _compiled(GraphNode(id="emb", type="shout", version=1))
+    compiled = _compiled(placed("emb", "shout"))
 
     assert _outputs(compiled.with_inputs(**{"emb.text": "hi"})) == {"emb.result": "HI"}
 
 
 def test_an_input_inside_an_embedded_graph_is_filled_by_its_bare_name_when_no_other_has_it():
-    compiled = _compiled(GraphNode(id="emb", type="shout", version=1))
+    compiled = _compiled(placed("emb", "shout"))
 
     assert _outputs(compiled.with_inputs(text="hi")) == {"emb.result": "HI"}
 
 
 def test_outputs_leave_out_a_skipped_output_and_read_what_a_failed_leg_produced():
-    skipped = _compiled(GraphNode(id="s", type="skips", version=1))
+    skipped = _compiled(placed("s", "skips"))
     assert _outputs(skipped) == {}
 
     failed = _compiled(
-        GraphNode(id="a", type="upper", version=1, bindings={"text": Static("ok")}),
-        GraphNode(id="f", type="fails", version=1),
+        placed("a", "upper", text=Static("ok")),
+        placed("f", "fails"),
     )
     ending = failed.run_sync()
     assert ending.status == "failed"
@@ -182,7 +171,7 @@ def test_outputs_leave_out_a_skipped_output_and_read_what_a_failed_leg_produced(
 
 
 def test_two_fillings_are_two_graphs_with_two_fingerprints():
-    compiled = _compiled(GraphNode(id="a", type="upper", version=1))
+    compiled = _compiled(placed("a", "upper"))
 
     one, other = compiled.with_inputs(text="x"), compiled.with_inputs(text="y")
 
@@ -191,6 +180,6 @@ def test_two_fillings_are_two_graphs_with_two_fingerprints():
 
 
 def test_an_edge_input_is_not_offered():
-    compiled = _compiled(GraphNode(id="a", type="upper", version=1), GraphNode(id="b", type="upper", version=1, bindings={"text": From("a.result")}))
+    compiled = _compiled(placed("a", "upper"), placed("b", "upper", text=From("a.result")))
 
     assert _outputs(compiled.with_inputs(text="hi")) == {"b.result": "HI"}

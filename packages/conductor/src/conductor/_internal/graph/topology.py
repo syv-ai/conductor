@@ -14,10 +14,10 @@ from collections import deque
 from collections.abc import Iterable, Mapping
 
 from conductor._internal.graph.binding import From
-from conductor._internal.graph.graph_records import GraphNode
+from conductor._internal.graph.graph_records import LoadedNode
 
 
-def dependencies_of(nodes: Iterable[GraphNode]) -> dict[str, frozenset[str]]:
+def dependencies_of(nodes: Iterable[LoadedNode]) -> dict[str, frozenset[str]]:
     """Which nodes each node waits for, by id.
 
     A set: a node that feeds two inputs of the same target is one

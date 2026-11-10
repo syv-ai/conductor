@@ -9,9 +9,6 @@ from conductor import (
     AsItArrives,
     CompiledGraph,
     DType,
-    From,
-    Graph,
-    GraphNode,
     Input,
     InvalidCallError,
     NodeDefinition,
@@ -20,11 +17,11 @@ from conductor import (
     Param,
     Ref,
     Series,
-    Static,
     Table,
     node,
 )
-from helpers import registry_of, with_added
+from conductor._internal.graph.binding import From, Static
+from helpers import Placed, placed, record, registry_of, with_added
 
 
 class Txt(DType, str):
@@ -107,12 +104,12 @@ NODES = [upload, split, count, note, excel, make_table, rebuild, rebuild_keeping
 REGISTRY = registry_of(*NODES)
 
 
-def _compiled(*nodes: GraphNode, registry: NodeRegistry = REGISTRY) -> CompiledGraph:
-    return CompiledGraph.from_graph(Graph(nodes=nodes), registry)
+def _compiled(*nodes: Placed, registry: NodeRegistry = REGISTRY) -> CompiledGraph:
+    return CompiledGraph.from_graph(record(*nodes), registry)
 
 
-def _node(id: str, type: str, **bindings: Any) -> GraphNode:
-    return GraphNode(id=id, type=type, version=1, bindings=bindings)
+def _node(id: str, type: str, **bindings: Any) -> Placed:
+    return placed(id, type, **bindings)
 
 
 FLOW = (
@@ -245,9 +242,9 @@ def test_a_series_of_a_table_subclass_is_refused_as_any_series_of_tables():
 
 
 def test_a_graph_takes_any_sequence_of_nodes():
-    assert Graph(nodes=[_node("a", "upload")]).nodes == Graph(nodes=(_node("a", "upload"),)).nodes
+    assert record(_node("a", "upload")).nodes == record(_node("a", "upload")).nodes
     with pytest.raises(ValueError):
-        Graph(nodes="ab")
+        record(*"ab")
 
 
 def test_from_compiled_graphs_takes_one_graph_as_version_one():

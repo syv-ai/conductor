@@ -1,139 +1,211 @@
-"""``Graph`` and ``GraphNode`` — the persisted graph.
+"""``GraphRecord`` and ``NodeRecord``, the stored graph; ``make_graph`` writes one from Python.
 
-A graph is a list of nodes and nothing else: edges live in each
-node's ``bindings``, and a canvas derives its own edges from them. A
-node's fields fall in three groups:
+A graph record is its nodes and its edges, and nothing else::
 
-* **behaviour** — ``type``, ``version``, ``bindings``, ``locked`` — is what
-  the runtime reads and branches on;
-* **content** — the node's ``title``, ``description`` and one
-  ``FieldContent`` per field — is shown to people and emitted in events,
-  never branched on;
-* **display** — ``display`` — is stored and returned and never parsed.
+    {
+        "nodes": [
+            {"id": "read", "node": "read_file", "values": {"path": "in.txt"}},
+            {"id": "up", "node": "upper"}
+        ],
+        "edges": [["read.text", "up.text"]]
+    }
 
-So a diff of the behaviour fields is the behavioural diff, and display can
-change shape without a migration. Each record is a ``ConductorModel``.
+A node names the definition it uses (``node``) and the version (``version``,
+1 when left out). ``values`` are typed into its inputs and fixed there: no
+caller may change them. ``defaults`` fill an input that stays open, so a
+caller may still give it another value. ``display`` is the host's own:
+conductor stores it and never reads it. An empty field is left out when the
+record is saved, so a bare node is ``{"id": "up", "node": "upper"}``.
+
+Edges are a set of ``[from, to]`` addresses. Several edges into one input
+gather in the order their source nodes appear in ``nodes``, not in the order
+the list holds them, so a host may sort the list as it likes; only two
+outputs of one node into one input keep the list's order between them.
+
+``load_record`` is the one place the record is read: it gathers each node's
+edges, values and defaults onto its inputs, which is what compile reads, and
+reports what the record says that can't be meant (a repeated edge, an edge
+into a node the graph doesn't have, an input set two ways).
 """
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Mapping, Sequence
-from typing import Any
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Annotated, Any
 
-from pydantic import Field, field_validator
+from pydantic import (
+    AfterValidator,
+    Field,
+    SerializerFunctionWrapHandler,
+    field_validator,
+    model_serializer,
+)
 
 from conductor._internal.conductor_model import ConductorModel
-from conductor._internal.errors import InvalidCallError, Problem, make_problem
+from conductor._internal.errors import Problem, make_problem
 from conductor._internal.graph.binding import Binding, From, Static
 from conductor._internal.ref import Ref
 
+if TYPE_CHECKING:
+    from conductor._internal.node_definition import NodeDefinition
 
-class FieldContent(ConductorModel):
-    """The title and description a person reads for one field of one node.
-
-    Copied from the node's declaration when the node is added, and edited
-    freely afterwards; nothing resolves it against the declaration again,
-    so an upstream rename never reaches an existing graph. Read by
-    whatever shows the field to a person, by nothing that decides
-    behaviour.
-    """
-
-    title: str
-    description: str | None = None
+#: An address ``"node.field"``, written as a string and read as a ``Ref``.
+Address = Annotated[str, AfterValidator(Ref)]
 
 
-class GraphNode(ConductorModel):
-    """One node as it sits in a graph: one use of a definition.
+class NodeRecord(ConductorModel):
+    """One node of a graph record: which definition it uses, and what is typed into its inputs.
 
-    A definition (``NodeDefinition``) is what a developer wrote; a node in
-    a graph is one use of it, with its own ``id``, minted when the node is
-    added and never renamed.
-
-    ``type`` names the definition and ``version`` selects one of its
-    versions; ``bindings`` says where each input's value comes from (one
-    entry per input, so a static and an edge cannot both claim one);
-    ``locked`` names inputs no caller may fill. ``title``, ``description``
-    and ``fields`` are copies of the declaration's text that the author may
-    edit. ``display`` is the canvas's own::
-
-        GraphNode(
-            id="upper-1", type="upper", version=1,
-            bindings={"text": From("reader-1.text")},
-            title="Upper case",
-        )
-
-    A canvas derives edges from ``bindings``. What the node's inputs and outputs actually are is
-    answered when the graph is compiled (``CompiledGraph.node(node_id).interface``), not stored here.
+    ``id`` names this use of the definition within the graph, and edges and
+    addresses say it; ``node`` is the definition's id. The node's actual
+    inputs and outputs are what compile answers
+    (``CompiledGraph.node(node_id).interface``), not stored here.
     """
 
     id: str
-    #: Which definition runs this node, and which of its versions. Two
-    #: fields; nothing parses a ``type@version`` string.
-    type: str
-    version: int
-    bindings: Mapping[str, Binding] = Field(default_factory=dict)
-    #: Inputs of this node no caller may fill. Only matters on a
-    #: node with no edge into it, since only those offer inputs to a
-    #: caller.
-    locked: tuple[str, ...] = ()
-    #: Content.
-    title: str = ""
-    description: str = ""
-    fields: Mapping[str, FieldContent] = Field(default_factory=dict)
-    #: Display: position, size, whatever the canvas keeps. Never parsed here.
+    #: The id of the node definition this node uses.
+    node: str
+    version: int = 1
+    #: Typed into these inputs and fixed: no caller may change them.
+    values: Mapping[str, Any] = Field(default_factory=dict)
+    #: Typed into these inputs, which stay open for a caller to change.
+    defaults: Mapping[str, Any] = Field(default_factory=dict)
+    #: The host's own: position, size, titles a person edited. Stored and never read here.
     display: Mapping[str, Any] = Field(default_factory=dict)
 
+    @model_serializer(mode="wrap")
+    def _without_empty_fields(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        """The record as saved: an empty map and the version 1 are left out."""
+        written: dict[str, Any] = handler(self)
+        return {key: value for key, value in written.items() if value != {} and not (key == "version" and value == 1)}
 
-class Graph(ConductorModel):
-    """The persisted graph: its nodes and its display.
 
-    What a host stores for one version of a graph; edges live in each
-    node's ``bindings``. What the graph takes and returns is derived when it is
-    compiled (``derive_interface``), never stored.
+class GraphRecord(ConductorModel):
+    """A graph as a host stores it: its nodes and its edges.
+
+    What a graph takes and returns is derived when it is compiled, never
+    stored: the open inputs of the nodes nothing feeds, and the outputs of the
+    nodes nothing reads.
     """
 
     #: Any sequence going in; a tuple once built.
-    nodes: Sequence[GraphNode]
-    #: Display, for the whole graph.
-    display: Mapping[str, Any] = Field(default_factory=dict)
+    nodes: Sequence[NodeRecord] = ()
+    #: ``(from, to)`` pairs of addresses, ``("read.text", "up.text")``.
+    edges: Sequence[tuple[Address, Address]] = ()
 
-    @field_validator("nodes")
+    @field_validator("nodes", "edges")
     @classmethod
-    def _nodes_as_tuple(cls, nodes: Sequence[GraphNode]) -> tuple[GraphNode, ...]:
-        return tuple(nodes)
+    def _as_tuple(cls, items: Sequence[Any]) -> tuple[Any, ...]:
+        return tuple(items)
 
-    def with_values(self, values: Mapping[str, Any], /) -> Graph:
-        """A copy with these values typed in, each on the input at its address, anywhere in the graph::
 
-            graph = graph.with_values({"mail.greeting": "hello"})
+@dataclass(frozen=True)
+class LoadedNode:
+    """A node of a record as compile reads it: its edges, values and defaults gathered onto its inputs."""
 
-        An author's tool: ``CompiledGraph.with_inputs`` is what fills what a graph offers
-        a caller. An address on no node, or on an input an edge feeds, raises
-        ``InvalidCallError``, code ``not_offered``, every such address at once; a value its
-        input can't read is what compile says of it."""
-        nodes = {node.id: node for node in self.nodes}
-        statics: dict[str, dict[str, Static]] = {}
-        problems: list[Problem] = []
-        for address, value in values.items():
-            try:
-                ref = Ref(address)
-            except ValueError:
-                problems.append(make_problem("not_offered", "values", address, reason=f"{address!r} is not an address; one reads 'node.field'", offered=[]))
-                continue
-            node = nodes.get(ref.node_id)
-            if node is None:
-                problems.append(make_problem("not_offered", "values", address, reason=f"{ref.node_id!r} is not a node of this graph", offered=sorted(nodes)))
-            elif isinstance(node.bindings.get(ref.field), From):
-                problems.append(make_problem("not_offered", "values", address, reason=f"{address!r} is fed by an edge; a value goes on an input nothing feeds", offered=[]))
-            else:
-                statics.setdefault(ref.node_id, {})[ref.field] = Static(value)
-        if problems:
-            raise InvalidCallError(problems)
-        return self._with_statics(statics)
+    id: str
+    #: The id of the node definition it uses.
+    node: str
+    version: int
+    #: One binding per input the record sets.
+    bindings: Mapping[str, Binding]
+    #: The inputs a value fixes, which no caller may fill.
+    fixed: frozenset[str] = frozenset()
 
-    def _with_statics(self, statics: Mapping[str, Mapping[str, Static]]) -> Graph:
-        """A copy with these bindings set, by node id and input: the one way a value gets written onto a graph."""
-        return self.model_copy(update={"nodes": tuple(
-            node.model_copy(update={"bindings": {**node.bindings, **statics.get(node.id, {})}})
-            for node in self.nodes
-        )})
+
+def load_record(record: GraphRecord) -> tuple[tuple[LoadedNode, ...], list[Problem]]:
+    """Every node of ``record`` with its inputs bound, and what the record says that can't be meant.
+
+    An edge drawn twice, an edge into a node the record doesn't have, and an
+    input with both an edge and a value (or a value and a default) are each a
+    problem; the edge is kept once and wins over a value.
+    """
+    position: dict[str, int] = {}
+    for index, node in enumerate(record.nodes):
+        position.setdefault(node.id, index)
+    problems: list[Problem] = []
+    sources_into: dict[str, dict[str, list[Ref]]] = {}
+    seen: set[tuple[str, str]] = set()
+    for source, target in record.edges:
+        to = Ref(target)
+        if (source, target) in seen:
+            problems.append(make_problem("repeated_edge", to.node_id, to.field, source=source))
+            continue
+        seen.add((source, target))
+        if to.node_id not in position:
+            problems.append(make_problem("edge_into_unknown_node", to.node_id, to.field, source=source))
+            continue
+        sources_into.setdefault(to.node_id, {}).setdefault(to.field, []).append(Ref(source))
+    loaded = []
+    for node in record.nodes:
+        bindings: dict[str, Binding] = {name: Static(value) for name, value in node.defaults.items()}
+        for name, value in node.values.items():
+            if name in node.defaults:
+                problems.append(make_problem("value_and_default", node.id, name))
+            bindings[name] = Static(value)
+        for name, sources in sources_into.get(node.id, {}).items():
+            if name in node.values or name in node.defaults:
+                problems.append(make_problem("value_and_edge", node.id, name))
+            bindings[name] = From(*sorted(sources, key=lambda ref: position.get(ref.node_id, len(position))))
+        loaded.append(LoadedNode(id=node.id, node=node.node, version=node.version, bindings=bindings, fixed=frozenset(node.values)))
+    return tuple(loaded), problems
+
+
+def make_graph(
+    *nodes: NodeDefinition[..., Any],
+    edges: Sequence[tuple[str, str]] | None = None,
+    values: Mapping[str, Any] | None = None,
+) -> GraphRecord:
+    """A graph record written from Python, each node at its current version::
+
+        make_graph(read_file, upper)                                  # a chain
+        make_graph(read_file, upper, edges=[("read_file.text", "upper.text")])
+        make_graph(read_file, upper, values={"read_file.path": "in.txt"})
+
+    A node's id in the graph is its definition's id; a definition used more
+    than once is ``upper-1``, ``upper-2``, and so on. ``values`` are keyed by
+    those ids, ``"node.input"``, and fixed in the record.
+
+    With no ``edges`` the nodes form a chain: each takes its one required
+    input that no value fills from the one output of the node before it, and
+    anything else raises ``TypeError`` here. With ``edges``, those are every
+    edge of the graph. Nothing is matched by name.
+    """
+    used = Counter(definition.id for definition in nodes)
+    numbered: Counter[str] = Counter()
+    ids: list[str] = []
+    for definition in nodes:
+        numbered[definition.id] += 1
+        ids.append(f"{definition.id}-{numbered[definition.id]}" if used[definition.id] > 1 else definition.id)
+    values_of: dict[str, dict[str, Any]] = {}
+    for address, value in (values or {}).items():
+        ref = Ref(address)
+        if ref.node_id not in ids:
+            raise TypeError(f"make_graph: values names {ref.node_id!r}, which is not one of the nodes {', '.join(ids)}")
+        values_of.setdefault(ref.node_id, {})[ref.field] = value
+    if edges is None:
+        edges = [_chain_edge(ids[index - 1], nodes[index - 1], ids[index], nodes[index], values_of.get(ids[index], {})) for index in range(1, len(nodes))]
+    return GraphRecord(
+        nodes=[
+            NodeRecord(id=node_id, node=definition.id, version=definition.current_version, values=values_of.get(node_id, {}))
+            for node_id, definition in zip(ids, nodes, strict=True)
+        ],
+        edges=list(edges),
+    )
+
+
+def _chain_edge(before_id: str, before: NodeDefinition[..., Any], after_id: str, after: NodeDefinition[..., Any], typed_in: Mapping[str, Any]) -> tuple[str, str]:
+    """The one edge from ``before`` into ``after`` in a chain; ``TypeError`` when there isn't exactly one."""
+    outputs = [output.name for output in before.versions[before.current_version].interface.outputs]
+    open_inputs = [
+        input_.name for input_ in after.versions[after.current_version].interface.inputs
+        if input_.required and input_.connectable and input_.name not in typed_in
+    ]
+    if len(outputs) != 1 or len(open_inputs) != 1:
+        raise TypeError(
+            f"make_graph: a chain takes {after_id!r}'s one required open input (it has {', '.join(open_inputs) or 'none'}) "
+            f"from {before_id!r}'s one output (it has {', '.join(outputs) or 'none'}); pass edges="
+        )
+    return f"{before_id}.{outputs[0]}", f"{after_id}.{open_inputs[0]}"

@@ -7,19 +7,16 @@ from conductor import (
     CompiledGraph,
     Deprecation,
     DType,
-    FieldContent,
-    From,
-    Graph,
-    GraphNode,
+    GraphRecord,
     Input,
     Interface,
     NodeDescription,
+    NodeRecord,
     Output,
     Param,
     Policy,
     Problem,
     Result,
-    Static,
 )
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.execution.run_ledger import SkippedAtRow
@@ -35,38 +32,36 @@ class Txt(DType, str):
     display_title = "Text"
 
 
-def _graph() -> Graph:
-    return Graph(
-        nodes=[
-            GraphNode(id="a", type="echo", version=1, bindings={"x": Static("hi")}, locked=("x",), title="A", fields={"x": FieldContent(title="X")}),
-            GraphNode(id="b", type="echo", version=1, bindings={"x": From("a.result")}, display={"x": 1}),
-        ],
-    )
+def _graph() -> GraphRecord:
+    return GraphRecord(nodes=[
+        NodeRecord(id="a", node="echo", values={"x": "hi"}),
+        NodeRecord(id="b", node="echo", display={"x": 1}),
+    ], edges=[("a.result", "b.x")])
 
 
 def test_a_graph_round_trips_through_json():
-    assert Graph.model_validate_json(_graph().model_dump_json()) == _graph()
+    assert GraphRecord.model_validate_json(_graph().model_dump_json()) == _graph()
 
 
 def test_the_dump_is_the_record():
-    """A ref stores as its address, the one form it has anywhere: the same
-    string a graph-level ``Input`` is named by, so the stored graph and the
-    derived interface cannot spell one edge two ways."""
+    """An edge stores as two addresses, the one form a field has anywhere: the
+    same string a graph-level ``Input`` is named by, so the stored graph and the
+    derived interface cannot spell one field two ways."""
     data = _graph().model_dump(mode="json")
 
-    assert data["nodes"][1]["bindings"]["x"] == {"refs": ["a.result"]}
-    assert data["nodes"][0]["locked"] == ["x"]
-    assert "inputs" not in data and "outputs" not in data and "edges" not in data
+    assert data == {
+        "nodes": [{"id": "a", "node": "echo", "values": {"x": "hi"}}, {"id": "b", "node": "echo", "display": {"x": 1}}],
+        "edges": [["a.result", "b.x"]],
+    }
 
 
-def test_a_node_without_a_type_is_refused():
+def test_a_node_without_its_node_is_refused():
     with pytest.raises(ValidationError):
-        Graph.model_validate({"nodes": [{"id": "a", "version": 1}]})
+        GraphRecord.model_validate({"nodes": [{"id": "a", "version": 1}]})
 
 
 def test_a_node_id_with_a_dot_reads_back_and_is_for_compile_to_refuse():
-    assert GraphNode(id="a.b", type="echo", version=1).id == "a.b"
-    assert Graph.model_validate({"nodes": [{"id": "a.b", "type": "echo", "version": 1}]}).nodes[0].id == "a.b"
+    assert GraphRecord.model_validate({"nodes": [{"id": "a.b", "node": "echo"}]}).nodes[0].id == "a.b"
 
 
 def test_an_index_is_its_id_whatever_its_parent():
@@ -80,9 +75,8 @@ def test_an_index_is_its_id_whatever_its_parent():
 
 
 READ_BACK = (
-    FieldContent(title="X", description="x"),
-    From("a.result", "b.result"),
-    Static({"rows": [1, 2]}),
+    NodeRecord(id="a", node="echo", version=2, values={"x": {"rows": [1, 2]}}, defaults={"y": 1}, display={"x": 1}),
+    _graph(),
     Problem(type="cycle", msg="m", loc=("a", "x"), ctx={"path": ["a", "b"]}),
     Deprecation(header="Gone", alternative="echo"),
     Policy(retries=2, retry_delay=0.5, attempt_timeout=3.0, concurrency=1),
@@ -113,7 +107,7 @@ def test_a_description_does_not_read_back_as_a_type():
 
 
 SAVED = (
-    Graph, GraphNode, FieldContent, From, Static, Problem,
+    GraphRecord, NodeRecord, Problem,
     Deprecation, Policy, VersionDescription, NodeDescription,
     Param, Result, Input, Output, Widget, Textarea, Dropdown, Choice, Index,
 )

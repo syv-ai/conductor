@@ -6,21 +6,20 @@ import pytest
 from conductor import (
     CompiledGraph,
     DType,
-    From,
-    Graph,
-    GraphNode,
+    GraphRecord,
     Input,
+    NodeRecord,
     Output,
     Param,
     Series,
-    Static,
     Table,
     node,
 )
 from conductor._internal.dtype import read_field_annotation
 from conductor._internal.errors import NodeDeclarationError
+from conductor._internal.graph.binding import From, Static
 from conductor._internal.index import Index
-from helpers import registry_of
+from helpers import Placed, placed, record, registry_of
 
 
 class Text(DType, str):
@@ -104,37 +103,42 @@ def collect_with_default(parts: Series[Text] | None = None) -> Text:
 REGISTRY = registry_of(split_series, collect, collect_with_default)
 
 
-def _run(*nodes: GraphNode) -> dict[str, Any]:
-    compiled = CompiledGraph.from_graph(Graph(nodes=list(nodes)), REGISTRY)
+def _run(*nodes: Placed) -> dict[str, Any]:
+    compiled = CompiledGraph.from_graph(record(*list(nodes)), REGISTRY)
     assert compiled.is_runnable, compiled.problems
     return compiled.results(compiled.run_sync())
 
 
 def test_a_node_receives_a_plain_list_and_may_return_any_sequence():
     results = _run(
-        GraphNode(id="s", type="split-series", version=1, bindings={"text": Static("a,b")}),
-        GraphNode(id="c", type="collect", version=1, bindings={"parts": From("s.result")}),
+        placed("s", "split-series", text=Static("a,b")),
+        placed("c", "collect", parts=From("s.result")),
     )
     assert results["s"]["result"] == {"rows": [(0,), (1,)], "values": ["a", "b"]}
     assert results["c"]["result"] == "a+b"
 
 
 def test_a_list_set_on_a_series_input_is_received_whole():
-    assert _run(GraphNode(id="c", type="collect", version=1, bindings={"parts": Static(["x", "y"])}))["c"]["result"] == "x+y"
+    assert _run(placed("c", "collect", parts=Static(["x", "y"])))["c"]["result"] == "x+y"
 
 
 def test_a_scalar_is_not_silently_wrapped_into_many():
-    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="c", type="collect", version=1, bindings={"parts": Static("x")})]), REGISTRY)
+    compiled = CompiledGraph.from_graph(GraphRecord(nodes=[
+        NodeRecord(id="c", node="collect", values={"parts": "x"}),
+    ]), REGISTRY)
     assert [problem.type for problem in compiled.problems] == ["invalid_static"]
 
 
 def test_a_series_that_may_be_none_defaults_to_none():
-    assert _run(GraphNode(id="c", type="collect-with-default", version=1))["c"]["result"] == "None"
+    assert _run(placed("c", "collect-with-default"))["c"]["result"] == "None"
 
 
 def test_a_field_on_rows_is_many_and_its_type_is_one_value():
     compiled = CompiledGraph.from_graph(
-        Graph(nodes=[GraphNode(id="s", type="split-series", version=1, bindings={"text": Static("a")}), GraphNode(id="c", type="collect", version=1, bindings={"parts": From("s.result")})]),
+        GraphRecord(nodes=[
+            NodeRecord(id="s", node="split-series", values={"text": "a"}),
+            NodeRecord(id="c", node="collect"),
+        ], edges=[("s.result", "c.parts")]),
         REGISTRY,
     )
     field = compiled.node("s")._fields["result"]
@@ -157,11 +161,11 @@ def test_a_reduction_over_tables_receives_a_list_of_them():
         return len(tables)
 
     compiled = CompiledGraph.from_graph(
-        Graph(nodes=[
-            GraphNode(id="d", type="docs-of-tables", version=1),
-            GraphNode(id="t", type="one-table", version=1, bindings={"name": From("d.result")}),
-            GraphNode(id="c", type="count-tables", version=1, bindings={"tables": From("t.result")}),
-        ]),
+        GraphRecord(nodes=[
+            NodeRecord(id="d", node="docs-of-tables"),
+            NodeRecord(id="t", node="one-table"),
+            NodeRecord(id="c", node="count-tables"),
+        ], edges=[("d.result", "t.name"), ("t.result", "c.tables")]),
         registry_of(docs_of_tables, one_table, count_tables),
     )
     assert compiled.is_runnable, compiled.problems

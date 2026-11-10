@@ -9,13 +9,11 @@ from conductor import (
     CompiledGraph,
     ComputeHookError,
     DType,
-    FieldContent,
-    From,
     FromRun,
-    Graph,
-    GraphNode,
+    GraphRecord,
     Input,
     Interface,
+    NodeRecord,
     NodeRegistry,
     Output,
     Param,
@@ -24,13 +22,13 @@ from conductor import (
     Ref,
     Result,
     Series,
-    Static,
     Upgrade,
     node,
 )
+from conductor._internal.graph.binding import From, Static
 from conductor._internal.node_signature import build_call_validator
 from conductor.widgets import Choice, Dropdown, Textarea
-from helpers import registry_of
+from helpers import placed, record, registry_of
 from pydantic import ValidationError
 
 from test_core.embedded import embedded_graph_node
@@ -130,26 +128,19 @@ def _registry(*extra):
 
 
 def _compiled(nodes, registry=None, **kw):
-    return CompiledGraph.from_graph(Graph(nodes=nodes, **kw), registry or _registry())
+    return CompiledGraph.from_graph(record(*nodes), registry or _registry())
 
 
 def _exposed(node_id="besked", value="hej"):
     """One node whose `value` field a graph can name."""
-    return GraphNode(
-        id=node_id,
-        type="text-input",
-        version=1,
-        title="Message",
-        fields={"value": FieldContent(title="Message"), "result": FieldContent(title="Text")},
-        bindings={"value": Static(value)},
-    )
+    return placed(node_id, "text-input", defaults_={"value": value})
 
 
 # --- the artifact ---------------------------------------------------------
 
 
 def test_compiling_returns_an_asked_artifact():
-    compiled = _compiled([GraphNode(id="a", type="echo", version=1, bindings={"x": Static("hi")})])
+    compiled = _compiled([placed("a", "echo", x=Static("hi"))])
 
     assert isinstance(compiled, CompiledGraph)
     assert compiled.execution_order == ("a",)
@@ -158,7 +149,7 @@ def test_compiling_returns_an_asked_artifact():
 
 
 def test_callers_never_touch_a_binding_table():
-    compiled = _compiled([GraphNode(id="a", type="echo", version=1)])
+    compiled = _compiled([placed("a", "echo")])
 
     for traversed in ("bindings", "node_map", "edge_map", "incoming_map", "for_engine"):
         assert not hasattr(compiled, traversed), traversed
@@ -166,7 +157,7 @@ def test_callers_never_touch_a_binding_table():
 
 def test_compile_builds_each_node_and_field_once():
     """``node`` and ``field`` hand back what compile stored: the same value on every ask."""
-    compiled = _compiled([GraphNode(id="a", type="echo", version=1)])
+    compiled = _compiled([placed("a", "echo")])
     name = compiled.node("a").interface.inputs[0].name
 
     assert compiled.node("a") is compiled.node("a")
@@ -175,7 +166,7 @@ def test_compile_builds_each_node_and_field_once():
 
 def test_a_compiled_value_is_equal_only_to_itself():
     """The same graph compiled twice gives two nodes and two fields, never equal across the two."""
-    graph = [GraphNode(id="a", type="echo", version=1)]
+    graph = [placed("a", "echo")]
     first, second = _compiled(graph), _compiled(graph)
     name = first.node("a").interface.inputs[0].name
 
@@ -187,10 +178,10 @@ def test_a_compiled_value_is_equal_only_to_itself():
 def _half_finished():
     """``a`` is fine, ``b`` reads a node that is not there, ``c`` reads ``b``, ``x`` names a lost type."""
     return _compiled([
-        GraphNode(id="a", type="echo", version=1, bindings={"x": Static("hi")}),
-        GraphNode(id="b", type="echo", version=1, bindings={"x": From("zzz.result")}),
-        GraphNode(id="c", type="echo", version=1, bindings={"x": From("b.result")}),
-        GraphNode(id="x", type="nope", version=1),
+        placed("a", "echo", x=Static("hi")),
+        placed("b", "echo", x=From("zzz.result")),
+        placed("c", "echo", x=From("b.result")),
+        placed("x", "nope"),
     ])
 
 
@@ -225,14 +216,14 @@ def test_reading_what_a_state_lacks_names_the_problem():
     # What each state has still answers.
     assert compiled.node("c").interface.inputs[0].name == "x"
     assert compiled.node("c").graph_node.bindings["x"] == From("b.result")
-    assert compiled.node("x").graph_node.type == "nope"
+    assert compiled.node("x").graph_node.node == "nope"
 
 
 def test_a_node_downstream_of_a_cycle_carries_the_cycle():
     compiled = _compiled([
-        GraphNode(id="a", type="echo", version=1, bindings={"x": From("b.result")}),
-        GraphNode(id="b", type="echo", version=1, bindings={"x": From("a.result")}),
-        GraphNode(id="c", type="echo", version=1, bindings={"x": From("b.result")}),
+        placed("a", "echo", x=From("b.result")),
+        placed("b", "echo", x=From("a.result")),
+        placed("c", "echo", x=From("b.result")),
     ])
 
     assert (compiled.node("a").status, compiled.node("b").status) == ("resolution_failed", "resolution_failed")
@@ -258,8 +249,8 @@ def test_a_painter_reads_every_node_of_a_broken_graph():
 
 def test_node_problems_are_the_problems_anchored_on_it():
     compiled = _compiled([
-        GraphNode(id="a", type="echo", version=1, locked=("ghost",), bindings={"x": Static("hi"), "z": Static(1)}),
-        GraphNode(id="b", type="echo", version=1),
+        placed("a", "echo", x=Static("hi"), z=Static(1)),
+        placed("b", "echo"),
     ])
 
     assert compiled.node("a").problems == compiled.problems
@@ -270,8 +261,8 @@ def test_node_problems_are_the_problems_anchored_on_it():
 def test_an_input_named_with_a_leading_underscore_is_refused_at_compile():
     """A call cannot carry such a name, so compile says so instead of the first call failing."""
     compiled = _compiled([
-        GraphNode(id="a", type="echo", version=1),
-        GraphNode(id="s", type="open-inputs", version=1, bindings={"_x": From("a.result")}),
+        placed("a", "echo"),
+        placed("s", "open-inputs", _x=From("a.result")),
     ], _registry(open_inputs))
 
     assert [(p.type, p.loc[0], p.loc[1]) for p in compiled.problems] == [("parameter_name_invalid", "s", "_x")]
@@ -279,7 +270,7 @@ def test_an_input_named_with_a_leading_underscore_is_refused_at_compile():
 
 
 def test_a_hook_that_adds_an_input_named_with_a_leading_underscore_is_refused_at_compile():
-    compiled = _compiled([GraphNode(id="h", type="hidden", version=1)], _registry(adds_hidden))
+    compiled = _compiled([placed("h", "hidden")], _registry(adds_hidden))
 
     assert [(p.type, p.loc[1]) for p in compiled.problems] == [("parameter_name_invalid", "_x")]
     assert compiled.node("h").status == "wiring_failed"
@@ -296,8 +287,8 @@ def test_an_empty_typed_input_is_a_value_that_arrives_later():
     works out the node and everything after it, so an editor draws their
     types and a host can offer the field as an input of the graph."""
     compiled = _compiled([
-        GraphNode(id="n", type="needs", version=1),
-        GraphNode(id="e", type="echo", version=1, bindings={"x": From("n.result")}),
+        placed("n", "needs"),
+        placed("e", "echo", x=From("n.result")),
     ], _registry(needs_node))
 
     assert not compiled.is_runnable
@@ -322,7 +313,7 @@ def headed(header: Annotated[Txt, Param(title="Header", widget=Textarea())]) -> 
 def test_a_hook_is_not_handed_a_required_input_left_empty():
     """``values`` has no entry for a required input nobody filled, just as
     for a connected one; a hook that needs it refuses, and compile reports."""
-    compiled = _compiled([GraphNode(id="n", type="headed", version=1)], _registry(headed))
+    compiled = _compiled([placed("n", "headed")], _registry(headed))
 
     assert [(p.type, p.fatal) for p in compiled.problems] == [("unbound_required", True), ("header_missing", True)]
 
@@ -334,14 +325,14 @@ def gathers(items: Annotated[Series[Any], Param(title="Items", widget=Textarea()
 
 
 def test_an_empty_list_of_anything_breaks_its_node_like_anything():
-    compiled = _compiled([GraphNode(id="n", type="gathers", version=1)], _registry(gathers))
+    compiled = _compiled([placed("n", "gathers")], _registry(gathers))
 
     assert [p.type for p in compiled.problems] == ["unbound_required"]
     assert compiled.node("n").status == "wiring_failed"
 
 
 #: A stored graph embedded as a node: one echo inside.
-Wrapped = embedded_graph_node("wrapped", (GraphNode(id="inner", type="echo", version=1),), _registry(), "Wrapped")
+Wrapped = embedded_graph_node("wrapped", (placed("inner", "echo"),), _registry(), "Wrapped")
 
 
 class CountingRegistry(NodeRegistry):
@@ -358,19 +349,19 @@ def test_compile_looks_each_node_up_once():
     registry = CountingRegistry()
     registry.add(echo, Wrapped)
     registry.counts = Counter()
-    CompiledGraph.from_graph(Graph(nodes=[
-        GraphNode(id="a", type="echo", version=1),
-        GraphNode(id="b", type="echo", version=1, bindings={"x": From("a.result")}),
-        GraphNode(id="emb", type="wrapped", version=1, bindings={"x": From("b.result")}),
-    ]), registry)
+    CompiledGraph.from_graph(GraphRecord(nodes=[
+        NodeRecord(id="a", node="echo"),
+        NodeRecord(id="b", node="echo"),
+        NodeRecord(id="emb", node="wrapped"),
+    ], edges=[("a.result", "b.x"), ("b.result", "emb.x")]), registry)
 
     assert registry.counts == {"echo": 2, "wrapped": 1}
 
 
 def test_a_compiled_node_holds_the_class_it_resolved_to():
     compiled = _compiled([
-        GraphNode(id="a", type="echo", version=1),
-        GraphNode(id="emb", type="wrapped", version=1),
+        placed("a", "echo"),
+        placed("emb", "wrapped"),
     ], _registry(Wrapped))
 
     assert compiled.node("a").definition is echo
@@ -418,8 +409,8 @@ def test_the_compiled_values_know_neither_the_compiler_nor_the_graph():
 
 def test_execution_order_follows_the_edges():
     compiled = _compiled([
-        GraphNode(id="b", type="echo", version=1, bindings={"x": From("a.result")}),
-        GraphNode(id="a", type="echo", version=1),
+        placed("b", "echo", x=From("a.result")),
+        placed("a", "echo"),
     ])
 
     assert compiled.execution_order == ("a", "b")
@@ -430,7 +421,7 @@ def test_execution_order_follows_the_edges():
 
 def test_a_field_the_node_does_not_have_has_no_view():
     """A programming error, not a state of the graph."""
-    compiled = _compiled([GraphNode(id="a", type="echo", version=1)])
+    compiled = _compiled([placed("a", "echo")])
 
     with pytest.raises(KeyError, match="nonexistent"):
         compiled.field(Ref("a", "nonexistent"))
@@ -443,7 +434,7 @@ def test_a_node_reads_the_version_it_pins():
     """The version freezes which behaviour a node in a graph points at.
     Reading the class's current version instead would silently re-point
     every old node at the newest signature."""
-    compiled = _compiled([GraphNode(id="old", type="renamed", version=1)])
+    compiled = _compiled([placed("old", "renamed")])
 
     assert [i.name for i in compiled.node("old").interface.inputs] == ["old"]
     assert compiled.node("old").version.policy == Policy()
@@ -453,7 +444,7 @@ def test_a_node_reads_the_version_it_pins():
 def test_a_node_type_the_registry_lacks_is_a_fatal_problem():
     """A catalog can drift under a stored graph. That is a graph state, and
     the editor needs to show where."""
-    compiled = _compiled([GraphNode(id="a", type="gone", version=1)])
+    compiled = _compiled([placed("a", "gone")])
 
     (make_problem,) = compiled.problems
     assert (make_problem.type, make_problem.fatal, make_problem.loc[0]) == ("unknown_node_type", True, "a")
@@ -465,7 +456,7 @@ def test_a_node_type_the_registry_lacks_is_a_fatal_problem():
 
 
 def test_a_version_the_class_no_longer_declares_is_a_fatal_problem():
-    compiled = _compiled([GraphNode(id="a", type="renamed", version=7)])
+    compiled = _compiled([placed("a", "renamed", version=7)])
 
     (make_problem,) = compiled.problems
     assert (make_problem.type, make_problem.loc[0]) == ("unknown_node_version", "a")
@@ -473,8 +464,8 @@ def test_a_version_the_class_no_longer_declares_is_a_fatal_problem():
 
 def test_two_nodes_with_one_id_is_a_fatal_problem():
     compiled = _compiled([
-        GraphNode(id="a", type="echo", version=1),
-        GraphNode(id="a", type="echo", version=1),
+        placed("a", "echo"),
+        placed("a", "echo"),
     ])
 
     assert [p.type for p in compiled.problems] == ["duplicate_node_id"]
@@ -485,8 +476,8 @@ def test_two_nodes_with_one_id_is_a_fatal_problem():
 
 def test_a_nodes_interface_is_what_the_hooks_answered():
     compiled = _compiled([
-        GraphNode(id="m", type="modes", version=1, bindings={"mode": Static("a")}),
-        GraphNode(id="s", type="open-sheet", version=1, bindings={"header": Static("name,email")}),
+        placed("m", "modes", mode=Static("a")),
+        placed("s", "open-sheet", header=Static("name,email")),
     ])
 
     assert isinstance(compiled.node("m").interface, Interface)
@@ -495,7 +486,7 @@ def test_a_nodes_interface_is_what_the_hooks_answered():
 
 
 def test_a_node_with_no_opinion_has_its_declaration_as_its_interface():
-    compiled = _compiled([GraphNode(id="a", type="echo", version=1)])
+    compiled = _compiled([placed("a", "echo")])
 
     declared = echo.versions[1].interface
     assert compiled.node("a").interface == declared
@@ -505,8 +496,8 @@ def test_a_inputs_depends_only_on_what_the_author_typed():
     """A connected input has no value until the graph runs, so the node's interface falls
     back to the declaration for it."""
     compiled = _compiled([
-        GraphNode(id="src", type="text-input", version=1, bindings={"value": Static("b")}),
-        GraphNode(id="m", type="modes", version=1, bindings={"mode": From("src.result")}),
+        placed("src", "text-input", value=Static("b")),
+        placed("m", "modes", mode=From("src.result")),
     ])
 
     assert [i.name for i in compiled.node("m").interface.inputs] == ["mode"]
@@ -514,16 +505,12 @@ def test_a_inputs_depends_only_on_what_the_author_typed():
 
 def test_a_column_a_node_computed_can_be_a_graph_output():
     """End to end: the graph names a column that is on no declaration."""
-    sheet = GraphNode(
-        id="s", type="open-sheet", version=1, title="Sheet",
-        fields={"header": FieldContent(title="Header"), "name": FieldContent(title="Name"), "email": FieldContent(title="E-mail")},
-        bindings={"header": Static("name,email")},
-    )
+    sheet = placed("s", "open-sheet", header=Static("name,email"))
     compiled = _compiled([sheet])
 
     assert compiled.is_runnable
     assert [o.name for o in compiled.interface.outputs] == ["s.name", "s.email"]
-    assert [o.title for o in compiled.interface.outputs] == ["Name", "E-mail"]
+    assert [o.title for o in compiled.interface.outputs] == ["Name", "Email"]
 
 
 # --- what the graph takes and returns ----------------------------------------
@@ -554,9 +541,9 @@ def test_needs_is_the_union_of_the_nodes_needs():
     by parameter name — and `execute` refuses a graph whose needs it was not
     given."""
     compiled = _compiled([
-        GraphNode(id="a", type="stamped", version=1),
-        GraphNode(id="b", type="stamped", version=1, bindings={"x": From("a.result")}),
-        GraphNode(id="c", type="echo", version=1),
+        placed("a", "stamped"),
+        placed("b", "stamped", x=From("a.result")),
+        placed("c", "echo"),
     ], _registry(stamped))
 
     assert compiled.is_runnable, compiled.problems
@@ -571,14 +558,13 @@ def test_an_input_arrives_with_its_whole_declaration():
     assert declared.name == "besked.value"
     assert declared.widget is not None
     assert declared.dtype is Txt
-    # The node's title, not the declaration's.
-    assert declared.title == "Message"
+    assert declared.title == "Text"
 
 
 def test_a_node_that_did_not_resolve_contributes_no_fields():
     """The node's own fatal problem says it all; the derivation skips a
     node compile could not resolve rather than anchoring it again."""
-    compiled = _compiled([GraphNode(id="a", type="gone", version=1)])
+    compiled = _compiled([placed("a", "gone")])
 
     assert [p.type for p in compiled.problems] == ["unknown_node_type"]
     assert compiled.interface.inputs == () and compiled.interface.outputs == ()
@@ -588,9 +574,9 @@ def test_a_node_that_did_not_resolve_contributes_no_fields():
 
 
 def test_the_engine_asks_for_a_placement_its_version_and_its_runner():
-    compiled = _compiled([GraphNode(id="old", type="renamed", version=1, bindings={"old": Static("hi")})])
+    compiled = _compiled([placed("old", "renamed", old=Static("hi"))])
 
-    assert compiled.node("old").graph_node.type == "renamed"
+    assert compiled.node("old").graph_node.node == "renamed"
     assert compiled.node("old").version.interface.inputs[0].name == "old"
     assert compiled.node("old").version.body(old=Txt("hej")) == "hej"
 
@@ -600,10 +586,10 @@ def test_the_engine_asks_for_a_placement_its_version_and_its_runner():
 
 def test_compiling_the_same_graph_twice_gives_the_same_answers():
     def build():
-        return Graph(nodes=[
-            GraphNode(id="a", type="echo", version=1, bindings={"x": Static("hi")}),
-            GraphNode(id="b", type="echo", version=1, bindings={"x": From("a.result")}),
-        ])
+        return GraphRecord(nodes=[
+            NodeRecord(id="a", node="echo", values={"x": "hi"}),
+            NodeRecord(id="b", node="echo"),
+        ], edges=[("a.result", "b.x")])
 
     first = CompiledGraph.from_graph(build(), _registry())
     second = CompiledGraph.from_graph(build(), _registry())
@@ -620,7 +606,9 @@ def test_compiling_the_same_graph_twice_gives_the_same_answers():
 def test_compiling_does_not_mutate_the_graph():
     import copy
 
-    graph = Graph(nodes=[GraphNode(id="a", type="echo", version=1, bindings={"x": Static("hi")})])
+    graph = GraphRecord(nodes=[
+        NodeRecord(id="a", node="echo", values={"x": "hi"}),
+    ])
     before = copy.deepcopy(graph)
     CompiledGraph.from_graph(graph, _registry())
 
@@ -643,12 +631,12 @@ def test_a_compiled_node_validates_a_call_and_hands_back_its_keyword_arguments()
     """Validating a call is compile's, through a model built once per
     node; the engine asks ``validate`` and gets the keyword arguments the
     call runs with, and never meets the model."""
-    compiled = _compiled([GraphNode(id="a", type="echo", version=1, bindings={"x": Static("hi")})])
+    compiled = _compiled([placed("a", "echo", x=Static("hi"))])
     graph_node = compiled.node("a")
 
     kwargs = graph_node._validate_call_inputs({"x": Txt("a"), "y": Txt("")})
     assert set(kwargs) == {"x", "y"} and isinstance(kwargs["x"], Txt) and kwargs["y"] == Txt("")
-    wired = _compiled([_exposed(), GraphNode(id="b", type="echo", version=1, bindings={"x": From("besked.result")})]).node("b")
+    wired = _compiled([_exposed(), placed("b", "echo", x=From("besked.result"))]).node("b")
     with pytest.raises(ValidationError):
         wired._validate_call_inputs({"x": ["not", "text"], "y": Txt("")})
 
@@ -664,7 +652,7 @@ def test_a_default_reaches_the_node_as_its_input_s_type():
         seen.append(n)
         return Txt("")
 
-    compiled = _compiled([GraphNode(id="c", type="counted", version=1)], registry_of(counted))
+    compiled = _compiled([placed("c", "counted")], registry_of(counted))
 
     assert compiled.run_sync().status == "complete"
     assert [type(n) for n in seen] == [Num] and seen == [3.0]
@@ -675,7 +663,9 @@ def test_the_record_keeps_the_authored_graph_and_the_registry_and_drops_what_not
     the problems about it, a slice of ``compiled.problems`` — while the
     authored graph and the registry stay, so a compiled graph can produce
     another."""
-    graph = Graph(nodes=[GraphNode(id="a", type="echo", version=1, bindings={"x": Static("hi"), "z": Static(1)})])
+    graph = GraphRecord(nodes=[
+        NodeRecord(id="a", node="echo", values={"x": "hi", "z": 1}),
+    ])
     registry = _registry()
     compiled = CompiledGraph.from_graph(graph, registry)
 

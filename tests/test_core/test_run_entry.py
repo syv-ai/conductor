@@ -15,16 +15,7 @@ from importlib.resources import files
 from typing import Annotated
 
 import pytest
-from conductor import (
-    CompiledGraph,
-    DType,
-    Graph,
-    GraphNode,
-    Param,
-    Result,
-    Static,
-    node,
-)
+from conductor import CompiledGraph, DType, GraphRecord, NodeRecord, Param, Result, node
 from conductor.widgets import Textarea
 from helpers import registry_of
 
@@ -42,7 +33,9 @@ def upper_node(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Tx
 def _compiled() -> CompiledGraph:
     registry = registry_of(upper_node)
     compiled = CompiledGraph.from_graph(
-        Graph(nodes=[GraphNode(id="u", type="upper", version=1, bindings={"text": Static("hi")})]), registry
+        GraphRecord(nodes=[
+            NodeRecord(id="u", node="upper", values={"text": "hi"}),
+        ]), registry
     )
     assert compiled.is_runnable, compiled.problems
     return compiled

@@ -14,23 +14,23 @@ from conductor import (
     AskPerson,
     CompiledGraph,
     DType,
-    From,
     FromRun,
-    Graph,
-    GraphNode,
+    GraphRecord,
     InvalidCallError,
     NodeDefinition,
+    NodeRecord,
     NodeRegistry,
     Ref,
     RunState,
     Series,
-    Static,
     Table,
+    make_graph,
     node,
 )
 from conductor._internal.errors import NodeDeclarationError
-from helpers import registry_of, with_added
-from pydantic import BaseModel, ValidationError
+from conductor._internal.graph.binding import From, Static
+from helpers import Placed, placed, record, registry_of, with_added
+from pydantic import BaseModel
 
 
 class Text(DType, str):
@@ -43,7 +43,9 @@ def _boom() -> Text:
 
 
 def test_a_nodes_exception_reaches_the_log_with_its_traceback_and_stays_off_the_state(caplog):
-    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="a", type="boom", version=1)]), registry_of(_boom))
+    compiled = CompiledGraph.from_graph(GraphRecord(nodes=[
+        NodeRecord(id="a", node="boom"),
+    ]), registry_of(_boom))
 
     with caplog.at_level(logging.ERROR, logger="conductor"):
         state = compiled.run_sync()
@@ -134,13 +136,13 @@ def _half(value: float) -> float:
 PLAIN = registry_of(_hello, _shout, _lengths, _words, _flag, _next_day, _person, _name_of, _email, _wants_email, _count, _half)
 
 
-def _plain(*nodes: GraphNode) -> CompiledGraph:
-    compiled = CompiledGraph.from_graph(Graph(nodes=nodes), PLAIN)
+def _plain(*nodes: Placed) -> CompiledGraph:
+    compiled = CompiledGraph.from_graph(record(*nodes), PLAIN)
     return compiled
 
 
-def _n(id: str, type: str, **bindings) -> GraphNode:
-    return GraphNode(id=id, type=type, version=1, bindings=bindings)
+def _n(id: str, type: str, **bindings) -> Placed:
+    return placed(id, type, **bindings)
 
 
 def test_a_str_input_and_output_run_with_no_type_declared_and_the_values_stay_plain():
@@ -231,7 +233,7 @@ def _headcount(table: Table) -> int:
 
 def test_a_table_parameter_is_a_frame_and_a_node_returns_a_frame():
     compiled = CompiledGraph.from_graph(
-        Graph(nodes=[_n("p", "people"), _n("o", "oldest", people=From("p.result")), _n("h", "headcount", table=From("o.result"))]),
+        record(_n("p", "people"), _n("o", "oldest", people=From("p.result")), _n("h", "headcount", table=From("o.result"))),
         registry_of(_people, _oldest, _headcount),
     )
     results = compiled.results(compiled.run_sync())
@@ -260,7 +262,10 @@ def _up(text: str) -> str:
 def _clean() -> tuple[NodeRegistry, NodeDefinition]:
     base = registry_of(_trim, _up)
     inner = CompiledGraph.from_graph(
-        Graph(nodes=[GraphNode(id="t", type="trim", version=1), GraphNode(id="u", type="up", version=1, bindings={"text": From("t.result")})]), base,
+        GraphRecord(nodes=[
+            NodeRecord(id="t", node="trim"),
+            NodeRecord(id="u", node="up"),
+        ], edges=[("t.result", "u.text")]), base,
     )
     clean = NodeDefinition.from_compiled_graphs("clean-text", versions=inner)
     return with_added(base, clean), clean
@@ -270,10 +275,10 @@ def test_an_embedded_graph_is_wired_by_its_own_names_and_titled_like_a_node():
     registry, clean = _clean()
     assert clean.title == "Clean text"
     compiled = CompiledGraph.from_graph(
-        Graph(nodes=[
-            GraphNode(id="c", type="clean-text", version=1, bindings={"text": Static("  hi ")}),
-            GraphNode(id="v", type="up", version=1, bindings={"text": From("c.result")}),
-        ]),
+        GraphRecord(nodes=[
+            NodeRecord(id="c", node="clean-text", values={"text": "  hi "}),
+            NodeRecord(id="v", node="up"),
+        ], edges=[("c.result", "v.text")]),
         registry,
     )
     assert compiled.is_runnable, compiled.problems
@@ -285,10 +290,14 @@ def test_an_embedded_graph_is_wired_by_its_own_names_and_titled_like_a_node():
 def test_renaming_a_node_inside_breaks_no_caller():
     def graph_with_inner_id(inner_id: str) -> CompiledGraph:
         base = registry_of(_trim)
-        inner = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id=inner_id, type="trim", version=1)]), base)
+        inner = CompiledGraph.from_graph(GraphRecord(nodes=[
+            NodeRecord(id=inner_id, node="trim"),
+        ]), base)
         wrapped = NodeDefinition.from_compiled_graphs("wrapped", versions=inner)
         return CompiledGraph.from_graph(
-            Graph(nodes=[GraphNode(id="w", type="wrapped", version=1, bindings={"text": Static(" x ")})]), with_added(base, wrapped),
+            GraphRecord(nodes=[
+                NodeRecord(id="w", node="wrapped", values={"text": " x "}),
+            ]), with_added(base, wrapped),
         )
 
     assert graph_with_inner_id("before").is_runnable and graph_with_inner_id("after-rename").is_runnable
@@ -296,23 +305,25 @@ def test_renaming_a_node_inside_breaks_no_caller():
 
 def test_an_inner_address_never_wires_into_or_out_of_an_embedded_graph():
     registry, _ = _clean()
-    binding = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="c", type="clean-text", version=1, bindings={"t.text": Static("x")})]), registry)
+    binding = CompiledGraph.from_graph(GraphRecord(nodes=[
+        NodeRecord(id="c", node="clean-text", values={"t.text": "x"}),
+    ]), registry)
     assert [(p.type, p.loc[1]) for p in binding.problems if p.type == "stale_binding"] == [("stale_binding", "t.text")]
 
     edge = CompiledGraph.from_graph(
-        Graph(nodes=[
-            GraphNode(id="c", type="clean-text", version=1, bindings={"text": Static("x")}),
-            GraphNode(id="v", type="up", version=1, bindings={"text": From("c.u.result")}),
-        ]),
+        GraphRecord(nodes=[
+            NodeRecord(id="c", node="clean-text", values={"text": "x"}),
+            NodeRecord(id="v", node="up"),
+        ], edges=[("c.u.result", "v.text")]),
         registry,
     )
     assert [p.type for p in edge.problems] == ["unknown_ref_output"]
 
     slash = CompiledGraph.from_graph(
-        Graph(nodes=[
-            GraphNode(id="c", type="clean-text", version=1, bindings={"text": Static("x")}),
-            GraphNode(id="v", type="up", version=1, bindings={"text": From("c/u.result")}),
-        ]),
+        GraphRecord(nodes=[
+            NodeRecord(id="c", node="clean-text", values={"text": "x"}),
+            NodeRecord(id="v", node="up"),
+        ], edges=[("c/u.result", "v.text")]),
         registry,
     )
     assert [p.type for p in slash.problems] == ["unknown_ref_node"]
@@ -325,7 +336,10 @@ def test_a_clash_is_named_by_address_and_only_then():
 
     base = registry_of(_trim, _join_two)
     inner = CompiledGraph.from_graph(
-        Graph(nodes=[GraphNode(id="x", type="trim", version=1), GraphNode(id="y", type="trim", version=1)]), base,
+        GraphRecord(nodes=[
+            NodeRecord(id="x", node="trim"),
+            NodeRecord(id="y", node="trim"),
+        ]), base,
     )
     clashing = NodeDefinition.from_compiled_graphs("two", versions=inner)
     described = clashing.describe().versions[1]
@@ -333,29 +347,57 @@ def test_a_clash_is_named_by_address_and_only_then():
     assert [o.name for o in described.interface.outputs] == ["x.result", "y.result"]
 
 
-# -- a node placed in a graph, typed -----------------------------------------------------
+# -- a graph written from Python: make_graph -----------------------------------------------
 
 
-def test_graph_node_is_a_plain_graph_node_at_the_current_version():
-    placed = _shout.graph_node("b", text=From("a.result"), times=2)
-    assert placed == GraphNode(id="b", type="shout", version=1, bindings={"text": From("a.result"), "times": Static(2)})
+def test_make_graph_with_no_edges_chains_each_node_to_the_one_before():
+    graph = make_graph(_hello, _shout, values={"hello.name": "ida"})
+
+    assert graph == GraphRecord(nodes=[
+        NodeRecord(id="hello", node="hello", values={"name": "ida"}),
+        NodeRecord(id="shout", node="shout"),
+    ], edges=[("hello.result", "shout.text")])
+    compiled = CompiledGraph.from_graph(graph, PLAIN)
+    assert compiled.outputs(compiled.run_sync()) == {"shout.result": "HELLO IDA!"}
 
 
-def test_graph_node_binds_positional_arguments_to_their_parameters():
-    assert _shout.graph_node("b", From("a.result"), 3).bindings == {"text": From("a.result"), "times": Static(3)}
+def test_make_graph_numbers_a_node_used_twice():
+    graph = make_graph(_hello, _shout, _shout, values={"hello.name": "ida", "shout-2.times": 2})
+
+    assert [node.id for node in graph.nodes] == ["hello", "shout-1", "shout-2"]
+    assert graph.edges == (("hello.result", "shout-1.text"), ("shout-1.result", "shout-2.text"))
+    compiled = CompiledGraph.from_graph(graph, PLAIN)
+    assert compiled.outputs(compiled.run_sync()) == {"shout-2.result": "HELLO IDA!!!"}
 
 
-def test_graph_node_refuses_a_name_the_node_doesnt_have_where_it_is_written():
-    with pytest.raises(TypeError, match="txt"):
-        _shout.graph_node("b", txt="x")  # type: ignore[call-arg]
+def test_make_graph_with_edges_takes_those_as_every_edge_and_matches_nothing_by_name():
+    graph = make_graph(_hello, _shout, edges=[])
+
+    assert graph.edges == ()
+    assert [i.name for i in CompiledGraph.from_graph(graph, PLAIN).interface.inputs] == ["hello.name", "shout.text", "shout.times"]
 
 
-def test_graph_node_keeps_a_graph_it_was_given_on_a_node_that_is_a_graph():
-    registry, clean = _clean()
-    placed = clean.graph_node("c", text="  x ")
-    assert placed.bindings == {"text": Static("  x ")}
-    compiled = CompiledGraph.from_graph(Graph(nodes=[placed]), registry)
-    assert compiled.is_runnable, compiled.problems
+def test_make_graph_refuses_a_chain_it_cannot_draw_at_the_call():
+    with pytest.raises(TypeError, match="pass edges="):
+        make_graph(_email, _count)
+    with pytest.raises(TypeError, match="pass edges="):
+        make_graph(_count, _hello, _shout, values={"hello.name": "x"})
+
+
+def test_make_graph_refuses_a_value_on_a_node_it_does_not_have():
+    with pytest.raises(TypeError, match="'nobody'"):
+        make_graph(_hello, values={"nobody.name": "x"})
+
+
+def test_make_graph_writes_each_node_at_its_current_version():
+    def older(name: str) -> str:
+        return name
+
+    @node("v", replaces=node("v")(older))
+    def _newer(name: str) -> str:
+        return name
+
+    assert make_graph(_newer).nodes[0].version == 2
 
 
 def test_a_column_into_a_one_value_input_stays_legal():
@@ -364,7 +406,10 @@ def test_a_column_into_a_one_value_input_stays_legal():
         return pl.DataFrame({"name": ["a", "b"], "age": [1, 2]})
 
     compiled = CompiledGraph.from_graph(
-        Graph(nodes=[rows.graph_node("r"), _shout.graph_node("s", text=From("r.result.name"))]), registry_of(rows, _shout),
+        GraphRecord(nodes=[
+            NodeRecord(id="r", node=rows.id),
+            NodeRecord(id="s", node=_shout.id),
+        ], edges=[("r.result.name", "s.text")]), registry_of(rows, _shout),
     )
     assert compiled.results(compiled.run_sync())["s"]["result"]["values"] == ["A!", "B!"]
 
@@ -395,13 +440,6 @@ def test_each_missing_input_beside_a_typo_is_still_reported():
     assert [p.type for p in compiled.problems] == ["stale_binding", "unbound_required"]
 
 
-def test_a_binding_that_is_neither_from_nor_static_is_one_error():
-    with pytest.raises(ValidationError) as raised:
-        GraphNode(id="a", type="t", version=1, bindings={"text": "hi"})
-    (error,) = raised.value.errors()
-    assert error["type"] == "not_a_binding"
-
-
 class Clock:
     pass
 
@@ -411,11 +449,13 @@ def test_from_run_missing_raises_at_the_call():
     def timed(clock: FromRun[Clock]) -> str:
         return "now"
 
-    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="t", type="timed", version=1)]), registry_of(timed))
+    compiled = CompiledGraph.from_graph(GraphRecord(nodes=[
+        NodeRecord(id="t", node="timed"),
+    ]), registry_of(timed))
     with pytest.raises(InvalidCallError) as raised:
         compiled.run_sync()
     (error,) = raised.value.errors()
-    assert error.type == "from_run_missing" and error.ctx["node"] == "t" and error.ctx["needs"] == "Clock"
+    assert error.type == "from_run_missing" and error.ctx["node_id"] == "t" and error.ctx["needs"] == "Clock"
 
 
 def test_a_from_run_key_that_is_no_type_is_refused_and_a_type_no_node_needs_is_fine():
@@ -471,7 +511,9 @@ def test_a_question_falls_back_to_the_nodes_title_not_result():
     def ask() -> str | AskPerson:
         return AskPerson()
 
-    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="a", type="ask", version=1)]), registry_of(ask))
+    compiled = CompiledGraph.from_graph(GraphRecord(nodes=[
+        NodeRecord(id="a", node="ask"),
+    ]), registry_of(ask))
     (waiting,) = compiled.run_sync().waiting
     assert waiting.questions[0].title == "Approve the invoice"
 
@@ -523,7 +565,7 @@ def _through_json(state: RunState) -> RunState:
 @pytest.mark.parametrize(("value", "spelled"), [(math.nan, "NaN"), (math.inf, "Infinity"), (-math.inf, "-Infinity")])
 def test_a_float_output_that_is_not_finite_survives_json_as_the_float(value, spelled):
     NOT_FINITE["value"] = value
-    compiled = CompiledGraph.from_graph(Graph(nodes=[_n("n", "not-finite"), _n("p", "passes-on", value=From("n.result"))]), _FLOATS)
+    compiled = CompiledGraph.from_graph(record(_n("n", "not-finite"), _n("p", "passes-on", value=From("n.result"))), _FLOATS)
 
     state = compiled.run_sync()
 
@@ -537,7 +579,7 @@ def test_a_float_output_that_is_not_finite_survives_json_as_the_float(value, spe
 @pytest.mark.parametrize("value", [math.nan, math.inf, -math.inf])
 def test_a_series_of_floats_keeps_one_that_is_not_finite_through_json(value):
     NOT_FINITE["value"] = value
-    compiled = CompiledGraph.from_graph(Graph(nodes=[_n("n", "not-finite-many")]), _FLOATS)
+    compiled = CompiledGraph.from_graph(record(_n("n", "not-finite-many")), _FLOATS)
 
     back = compiled.results(_through_json(compiled.run_sync()))["n"]["result"]["values"]
 
@@ -548,7 +590,7 @@ def test_a_series_of_floats_keeps_one_that_is_not_finite_through_json(value):
 def test_an_output_per_row_keeps_a_float_that_is_not_finite_through_json(value):
     NOT_FINITE["value"] = value
     compiled = CompiledGraph.from_graph(
-        Graph(nodes=[_n("w", "words", text=Static("a b")), _n("n", "not-finite-per-row", text=From("w.result"))]), _FLOATS,
+        record(_n("w", "words", text=Static("a b")), _n("n", "not-finite-per-row", text=From("w.result"))), _FLOATS,
     )
 
     back = compiled.results(_through_json(compiled.run_sync()))["n"]["result"]["values"]
@@ -558,7 +600,7 @@ def test_an_output_per_row_keeps_a_float_that_is_not_finite_through_json(value):
 
 def test_a_not_finite_float_is_refused_on_an_int_output_so_none_reaches_a_float_input_that_way():
     NOT_FINITE["value"] = math.nan
-    compiled = CompiledGraph.from_graph(Graph(nodes=[_n("i", "int-of-not-finite"), _n("h", "half", value=From("i.result"))]), _FLOATS)
+    compiled = CompiledGraph.from_graph(record(_n("i", "int-of-not-finite"), _n("h", "half", value=From("i.result"))), _FLOATS)
 
     assert compiled.is_runnable, compiled.problems
     state = compiled.run_sync()

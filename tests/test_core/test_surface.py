@@ -13,17 +13,17 @@ import pytest
 from conductor import (
     CompiledGraph,
     DType,
-    Graph,
-    GraphNode,
+    GraphRecord,
     Input,
+    NodeRecord,
     NodeRegistry,
     Param,
     Result,
-    Static,
     node,
 )
+from conductor._internal.graph.binding import Static
 from conductor.widgets import Textarea
-from helpers import registry_of
+from helpers import Placed, placed, record, registry_of
 
 
 class Txt(DType, str):
@@ -56,8 +56,8 @@ def _registry() -> NodeRegistry:
     return registry
 
 
-def _compiled(*nodes: GraphNode) -> CompiledGraph:
-    return CompiledGraph.from_graph(Graph(nodes=list(nodes)), _registry())
+def _compiled(*nodes: Placed) -> CompiledGraph:
+    return CompiledGraph.from_graph(record(*list(nodes)), _registry())
 
 
 # --- a dead binding ------------------------------------------------------------------
@@ -65,7 +65,7 @@ def _compiled(*nodes: GraphNode) -> CompiledGraph:
 
 def test_a_misspelled_binding_on_a_node_whose_inputs_are_its_signature_is_fatal():
     """'facter' for 'factor' used to run with the default and a quiet note."""
-    compiled = _compiled(GraphNode(id="s", type="scale", version=1, bindings={"facter": Static("3")}))
+    compiled = _compiled(placed("s", "scale", facter=Static("3")))
 
     (make_problem,) = compiled.problems
     assert (make_problem.type, make_problem.fatal, make_problem.loc[1]) == ("stale_binding", True, "facter")
@@ -73,7 +73,7 @@ def test_a_misspelled_binding_on_a_node_whose_inputs_are_its_signature_is_fatal(
 
 
 def test_the_dead_binding_names_the_inputs_the_node_has():
-    compiled = _compiled(GraphNode(id="s", type="scale", version=1, bindings={"facter": Static("3")}))
+    compiled = _compiled(placed("s", "scale", facter=Static("3")))
 
     assert compiled.problems[0].msg == "Field 'facter' is not an input of the node; it has factor, value."
 
@@ -81,7 +81,7 @@ def test_the_dead_binding_names_the_inputs_the_node_has():
 def test_a_node_whose_inputs_come_and_go_keeps_the_binding_as_a_note():
     """A node with ``compute_added_inputs`` really can lose a field when its mode
     changes, so the binding it held is left over, not a typo."""
-    compiled = _compiled(GraphNode(id="h", type="shaped", version=1, bindings={"gone": Static("x")}))
+    compiled = _compiled(placed("h", "shaped", gone=Static("x")))
 
     (make_problem,) = compiled.problems
     assert (make_problem.type, make_problem.fatal) == ("unused_binding", False)
@@ -92,12 +92,12 @@ def test_a_node_whose_inputs_come_and_go_keeps_the_binding_as_a_note():
 
 
 def test_a_stored_graph_with_a_misspelled_key_is_refused_naming_it():
-    """A stored graph is a trust boundary: 'bindngs' used to load as a node
-    with no bindings at all."""
+    """A stored graph is a trust boundary: a misspelled 'valuse' would otherwise load as a node
+    with no values at all."""
     from pydantic import ValidationError
 
-    with pytest.raises(ValidationError, match="bindngs"):
-        Graph.model_validate({"nodes": [{"id": "s", "type": "scale", "version": 1, "bindngs": {}}]})
+    with pytest.raises(ValidationError, match="valuse"):
+        GraphRecord.model_validate({"nodes": [{"id": "s", "node": "scale", "valuse": {}}]})
 
 
 def test_a_widget_refuses_a_key_it_does_not_have():
@@ -108,7 +108,7 @@ def test_a_widget_refuses_a_key_it_does_not_have():
 
 
 def test_display_is_the_canvas_own_and_takes_any_key():
-    graph_node = GraphNode(id="s", type="scale", version=1, display={"position": {"x": 1}, "colour": "red"})
+    graph_node = NodeRecord(id="s", node="scale", display={"position": {"x": 1}, "colour": "red"})
     assert graph_node.display["colour"] == "red"
 
 
@@ -126,7 +126,7 @@ def test_a_node_version_prints_its_run_by_name():
 
 
 def test_a_compiled_graph_prints_a_one_line_summary():
-    compiled = _compiled(GraphNode(id="s", type="scale", version=1))
+    compiled = _compiled(placed("s", "scale"))
     assert repr(compiled) == "CompiledGraph(nodes=('s',), is_runnable=True, problems=0)"
 
 
@@ -143,7 +143,7 @@ def test_a_compilation_error_lists_its_fatal_problems():
     """The message lists the problems, not only 'the graph cannot run'."""
     from conductor import InvalidCallError
 
-    compiled = _compiled(GraphNode(id="s", type="scale", version=1, bindings={"facter": Static("3")}))
+    compiled = _compiled(placed("s", "scale", facter=Static("3")))
     with pytest.raises(InvalidCallError) as raised:
         compiled.run_sync()
 
@@ -199,7 +199,9 @@ def test_a_parameter_named_like_a_pydantic_model_attribute_validates_without_a_w
     registry = registry_of(graph_node)
     with warnings.catch_warnings():
         warnings.simplefilter("error")
-        compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n", type="bad", version=1, bindings={name: Static("x")})]), registry)
+        compiled = CompiledGraph.from_graph(GraphRecord(nodes=[
+            NodeRecord(id="n", node="bad", values={name: "x"}),
+        ]), registry)
         assert compiled.node("n")._validate_call_inputs({name: Txt("x")}) == {name: "x"}
     assert compiled.run_sync().status == "complete"
 
@@ -210,7 +212,9 @@ def test_an_aliased_input_and_an_input_named_like_its_field_both_arrive():
     graph_node = _declare(run=_run({"json_": text, "json": text}))
     registry = registry_of(graph_node)
     compiled = CompiledGraph.from_graph(
-        Graph(nodes=[GraphNode(id="n", type="bad", version=1, bindings={"json_": Static("a"), "json": Static("b")})]),
+        GraphRecord(nodes=[
+            NodeRecord(id="n", node="bad", values={"json_": "a", "json": "b"}),
+        ]),
         registry,
     )
 
@@ -226,11 +230,13 @@ def test_args_stay_refused():
 
 
 def test_a_graphs_nodes_are_a_tuple():
-    graph = Graph(nodes=[GraphNode(id="s", type="scale", version=1)])
+    graph = GraphRecord(nodes=[
+        NodeRecord(id="s", node="scale"),
+    ])
 
     assert isinstance(graph.nodes, tuple)
     with pytest.raises(AttributeError):
-        graph.nodes.append(GraphNode(id="t", type="scale", version=1))
+        graph.nodes.append(placed("t", "scale"))
 
 
 # --- one refusal, raised -------------------------------------------------------------
@@ -297,30 +303,9 @@ def test_an_unknown_id_is_a_key_error_that_lists_the_ids():
 
 
 def test_the_order_and_the_decisions_are_properties():
-    compiled = _compiled(GraphNode(id="s", type="scale", version=1))
+    compiled = _compiled(placed("s", "scale"))
 
     assert compiled.execution_order == ("s",)
     assert compiled.decisions == {}
 
 
-# --- a binding reads as it is written -------------------------------------------------
-
-
-def test_from_and_static_construct_positionally_and_store_as_before():
-    from conductor import From, Ref
-
-    edge = From("a.result", Ref("b", "result"))
-    assert edge.refs == (Ref("a", "result"), Ref("b", "result"))
-    assert edge.model_dump(mode="json") == {"refs": ["a.result", "b.result"]}
-    assert Static(200).model_dump() == {"value": 200}
-    assert GraphNode.model_validate(
-        {"id": "n", "type": "scale", "version": 1, "bindings": {"value": {"refs": ["a.result"]}, "factor": {"value": "3"}}}
-    ).bindings == {"value": From("a.result"), "factor": Static("3")}
-
-
-def test_from_refuses_an_empty_edge():
-    from conductor import From
-    from pydantic import ValidationError
-
-    with pytest.raises(ValidationError):
-        From()

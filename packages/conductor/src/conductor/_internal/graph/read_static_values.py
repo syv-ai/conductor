@@ -1,6 +1,6 @@
 """How a static reads: one value, or many.
 
-A stored ``Static`` holds JSON: a file comes back as a dict, an authored
+A value in a record holds JSON: a file comes back as a dict, an authored
 schema as a list. Each is read here once, through its field's declared type.
 A sequence the type can't read as one value is read as a sequence of values,
 which keeps a list-shaped scalar (a schema, a list of tags) one value while
@@ -19,11 +19,11 @@ from conductor._internal.dtype import type_name_for_sentence
 from conductor._internal.errors import Problem, make_problem
 from conductor._internal.field_records import Input, adapter_of_input
 from conductor._internal.graph.binding import static_values
-from conductor._internal.graph.graph_records import GraphNode
+from conductor._internal.graph.graph_records import LoadedNode
 from conductor._internal.table import is_table_type, missing_column_in
 
 
-def read_static_values(inputs: Iterable[Input], node: GraphNode) -> tuple[dict[str, Any], frozenset[str], list[Problem]]:
+def read_static_values(inputs: Iterable[Input], node: LoadedNode) -> tuple[dict[str, Any], frozenset[str], list[Problem]]:
     """Every static on ``node`` for ``inputs``, read through its type; which of them hold many values; and the problems no type could read."""
     values = static_values(node.bindings)
     if not values:

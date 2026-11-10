@@ -10,19 +10,16 @@ from conductor import (
     BranchTaken,
     CompiledGraph,
     DType,
-    From,
-    Graph,
-    GraphNode,
     Output,
     Param,
     Ref,
     Result,
     Series,
-    Static,
     node,
 )
+from conductor._internal.graph.binding import From, Static
 from conductor.widgets import Switch, Textarea
-from helpers import registry_of
+from helpers import placed, record, registry_of
 
 
 class Txt(DType, str):
@@ -85,20 +82,20 @@ def docs(folder: Annotated[Txt, Param(title="Folder", widget=Textarea())] = Txt(
 
 def _compiled(nodes):
     registry = registry_of(gate, holder, upper_node, docs, single)
-    return CompiledGraph.from_graph(Graph(nodes=nodes), registry)
+    return CompiledGraph.from_graph(record(*nodes), registry)
 
 
 def test_an_output_nothing_gates_appears_always():
-    compiled = _compiled([GraphNode(id="h", type="holder", version=1, bindings={"value": Static("x")})])
+    compiled = _compiled([placed("h", "holder", value=Static("x"))])
 
     assert compiled.field(Ref("h", "result")).condition == ALWAYS
 
 
 def test_a_branch_appears_when_its_decision_went_that_way():
     compiled = _compiled([
-        GraphNode(id="h", type="holder", version=1, bindings={"value": Static("x")}),
-        GraphNode(id="g", type="gate", version=1, bindings={"value": From("h.result")}),
-        GraphNode(id="yes", type="upper", version=1, bindings={"text": From("g.if_true")}),
+        placed("h", "holder", value=Static("x")),
+        placed("g", "gate", value=From("h.result")),
+        placed("yes", "upper", text=From("g.if_true")),
     ])
 
     assert compiled.is_runnable, compiled.problems
@@ -111,11 +108,11 @@ def test_a_merge_adds_an_alternative():
     """A `Series[X]` input drops the skipped edges, so past the
     merge the output appears when either branch fired."""
     compiled = _compiled([
-        GraphNode(id="h", type="holder", version=1, bindings={"value": Static("x")}),
-        GraphNode(id="g", type="gate", version=1, bindings={"value": From("h.result")}),
-        GraphNode(id="a", type="upper", version=1, bindings={"text": From("g.if_true")}),
-        GraphNode(id="b", type="upper", version=1, bindings={"text": From("g.if_false")}),
-        GraphNode(id="m", type="single", version=1, bindings={"values": From("a.result", "b.result")}),
+        placed("h", "holder", value=Static("x")),
+        placed("g", "gate", value=From("h.result")),
+        placed("a", "upper", text=From("g.if_true")),
+        placed("b", "upper", text=From("g.if_false")),
+        placed("m", "single", values=From("a.result", "b.result")),
     ])
 
     assert compiled.is_runnable, compiled.problems
@@ -126,10 +123,10 @@ def test_a_merge_adds_an_alternative():
 
 def test_two_decisions_in_series_conjoin_and_a_contradiction_is_dropped():
     compiled = _compiled([
-        GraphNode(id="h", type="holder", version=1, bindings={"value": Static("x")}),
-        GraphNode(id="g1", type="gate", version=1, bindings={"value": From("h.result")}),
-        GraphNode(id="g2", type="gate", version=1, bindings={"value": From("g1.if_true")}),
-        GraphNode(id="both", type="single", version=1, bindings={"values": From("g2.if_true", "g1.if_false")}),
+        placed("h", "holder", value=Static("x")),
+        placed("g1", "gate", value=From("h.result")),
+        placed("g2", "gate", value=From("g1.if_true")),
+        placed("both", "single", values=From("g2.if_true", "g1.if_false")),
     ])
 
     assert compiled.is_runnable, compiled.problems
@@ -146,9 +143,9 @@ def test_an_iterating_decision_masks_rows_and_is_not_a_condition():
     """Both branches produce, each sparse, so nothing below a
     iterating decision is conditional on it — and it is not a dimension."""
     compiled = _compiled([
-        GraphNode(id="docs", type="docs", version=1),
-        GraphNode(id="g", type="gate", version=1, bindings={"value": From("docs.result")}),
-        GraphNode(id="yes", type="upper", version=1, bindings={"text": From("g.if_true")}),
+        placed("docs", "docs"),
+        placed("g", "gate", value=From("docs.result")),
+        placed("yes", "upper", text=From("g.if_true")),
     ])
 
     assert compiled.is_runnable, compiled.problems
@@ -161,8 +158,8 @@ def test_a_decision_on_a_node_whose_wiring_failed_is_not_one_a_run_makes():
     """A gate whose edge names an output its source lacks has failed wiring: it
     is not counted as a decision, and asking whether it runs per row says why."""
     compiled = _compiled([
-        GraphNode(id="h", type="holder", version=1, bindings={"value": Static("x")}),
-        GraphNode(id="g", type="gate", version=1, bindings={"value": From("h.nope")}),
+        placed("h", "holder", value=Static("x")),
+        placed("g", "gate", value=From("h.nope")),
     ])
 
     assert compiled.decisions == {}
@@ -204,7 +201,7 @@ def _per_row_branches():
 def _types_of_problems(*nodes):
     definitions = _per_row_branches()
     by_id = {definition.id: definition for definition in definitions}
-    built = Graph(nodes=[by_id[kind].graph_node(node_id, **bindings) for kind, node_id, bindings in nodes])
+    built = record(*[placed(node_id, by_id[kind].id, **bindings) for kind, node_id, bindings in nodes])
     compiled = CompiledGraph.from_graph(built, registry_of(*definitions))
     return compiled, [problem.type for problem in compiled.problems]
 
@@ -235,7 +232,7 @@ def test_a_field_s_public_condition_holds_only_decisions_on_nodes_that_run_once(
 def test_a_long_chain_of_decisions_merged_per_row_stays_small():
     definitions = _per_row_branches()
     by_id = {definition.id: definition for definition in definitions}
-    nodes = [by_id["rows"].graph_node("s"), by_id["branch_on_each_row"].graph_node("d0", value=From("s.result"))]
-    nodes += [by_id["branch_on_each_row"].graph_node(f"d{i}", value=From(f"d{i-1}.yes", f"d{i-1}.no")) for i in range(1, 40)]
-    compiled = CompiledGraph.from_graph(Graph(nodes=nodes), registry_of(*definitions))
+    nodes = [placed("s", by_id["rows"].id), placed("d0", by_id["branch_on_each_row"].id, value=From("s.result"))]
+    nodes += [placed(f"d{i}", by_id["branch_on_each_row"].id, value=From(f"d{i-1}.yes", f"d{i-1}.no")) for i in range(1, 40)]
+    compiled = CompiledGraph.from_graph(record(*nodes), registry_of(*definitions))
     assert compiled.is_runnable and len(compiled.field("d39.yes")._condition_with_rows) <= 32

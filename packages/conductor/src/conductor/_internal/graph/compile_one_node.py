@@ -11,6 +11,7 @@ of that graph the same way, under the row it runs on.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 from conductor._internal.dtype import is_untyped
@@ -39,7 +40,7 @@ from conductor._internal.graph.embedding import (
     place_under,
 )
 from conductor._internal.graph.graph_interface import field_problems
-from conductor._internal.graph.graph_records import GraphNode
+from conductor._internal.graph.graph_records import LoadedNode
 from conductor._internal.graph.output_conditions import (
     ALWAYS,
     Condition,
@@ -64,18 +65,18 @@ def _interface_with_fields(interface: Interface, inputs: tuple[Input, ...], outp
     return Interface(inputs=inputs, outputs=outputs, needs=interface.needs)
 
 
-def compile_one_node(node: GraphNode, progress: CompileProgress, registry: NodeRegistry, runs_under: Index | None = None) -> None:
+def compile_one_node(node: LoadedNode, progress: CompileProgress, registry: NodeRegistry, runs_under: Index | None = None) -> None:
     """Compile ``node`` and add it to ``progress``, with its inner nodes if a graph stands for it.
 
     ``runs_under``, on a node inside an embedded graph, is the row the graph node runs on."""
     problems = progress.problems_found_early.pop(node.id, [])
-    if node.type not in registry:
-        problems.append(make_problem("unknown_node_type", node.id, node_type=node.type, choices=", ".join(sorted(definition.id for definition in registry)) or "none"))
+    if node.node not in registry:
+        problems.append(make_problem("unknown_node_type", node.id, node_type=node.node, choices=", ".join(sorted(definition.id for definition in registry)) or "none"))
         return _record_compiled_node(progress, node, problems)
-    definition = registry[node.type]
+    definition = registry[node.node]
     version: Any = definition.versions.get(node.version)
     if version is None:
-        problems.append(make_problem("unknown_node_version", node.id, node_type=node.type, version=node.version))
+        problems.append(make_problem("unknown_node_version", node.id, node_type=node.node, version=node.version))
         return _record_compiled_node(progress, node, problems)
     drawn = node
     #: An inner node's edges read as compile left them, and its fields passed the same checks when its graph was compiled.
@@ -153,7 +154,7 @@ def compile_one_node(node: GraphNode, progress: CompileProgress, registry: NodeR
 
 
 def _record_compiled_node(
-    progress: CompileProgress, node: GraphNode, problems: list[Problem], definition: Any = None, version: Any = None,
+    progress: CompileProgress, node: LoadedNode, problems: list[Problem], definition: Any = None, version: Any = None,
     interface: Interface | None = None, statics: dict[str, Any] | None = None, fields: Mapping[str, CompiledField] | None = None, runs_per_row_of: Index | None = None,
 ) -> None:
     """One finished record, with the cause of a node that isn't wired."""
@@ -165,7 +166,7 @@ def _record_compiled_node(
     progress.problems.extend(problems)
 
 
-def _why_node_is_unwired(node: GraphNode, problems: list[Problem], progress: CompileProgress) -> Problem:
+def _why_node_is_unwired(node: LoadedNode, problems: list[Problem], progress: CompileProgress) -> Problem:
     """Why a node isn't wired: its own first fatal problem, or else the cause of the first source that isn't."""
     own = next((problem for problem in problems if problem.fatal), None)
     if own is not None:
@@ -190,7 +191,7 @@ def _refused_graph_around(node_id: str, progress: CompileProgress) -> CompiledNo
     return None if graph_id is None else progress.compiled[graph_id]
 
 
-def _with_edges_out_of_embedded_graphs_resolved(node: GraphNode, progress: CompileProgress) -> GraphNode:
+def _with_edges_out_of_embedded_graphs_resolved(node: LoadedNode, progress: CompileProgress) -> LoadedNode:
     """``node`` with every edge out of an embedded graph pointed at the field
     inside it that the name offers (``approve.total`` at ``approve/check.total``):
     the one place compile reads an offered name. An edge naming an output it
@@ -202,14 +203,14 @@ def _with_edges_out_of_embedded_graphs_resolved(node: GraphNode, progress: Compi
 
     if not any(isinstance(binding, From) and any(ref.node_id in progress.embedded_graph_node_ids for ref in binding.refs) for binding in node.bindings.values()):
         return node
-    return node.model_copy(update={"bindings": {
+    return replace(node, bindings={
         name: From(*(resolved(ref) for ref in binding.refs)) if isinstance(binding, From) else binding
         for name, binding in node.bindings.items()
-    }})
+    })
 
 
 def _bindings_can_be_wired(
-    node: GraphNode, inputs: tuple[Input, ...], version: Any, progress: CompileProgress, problems: list[Problem],
+    node: LoadedNode, inputs: tuple[Input, ...], version: Any, progress: CompileProgress, problems: list[Problem],
 ) -> bool:
     """The stored bindings against the inputs the node actually has, and those
     inputs against the field rules. ``False`` when its edges can't be wired.
@@ -217,8 +218,6 @@ def _bindings_can_be_wired(
     A required input left empty is fatal but wiring goes on: its type is
     declared, so the node and everything after it are still worked out."""
     declared = {input_.name: input_ for input_ in inputs}
-    if node.locked:
-        problems.extend(make_problem("unknown_locked_field", node.id, name) for name in node.locked if name not in declared)
     can_wire = True
     #: A misspelled binding also leaves its input unbound: one problem, the typo, for each.
     unbound_explained_by_typos = 0
@@ -281,7 +280,7 @@ def _with_types_from_their_edges(inputs: tuple[Input, ...], inputs_read: WhatArr
 
 
 def _fields_of_function_node(
-    node: GraphNode, interface: Interface, received: Mapping[str, ReceivedAtTheRow], tables_taken_in: tuple[CompiledField, ...], lists_set_on_inputs: Mapping[str, Sequence[Any]], runs_per_row_of: Index | None, progress: CompileProgress, problems: list[Problem],
+    node: LoadedNode, interface: Interface, received: Mapping[str, ReceivedAtTheRow], tables_taken_in: tuple[CompiledField, ...], lists_set_on_inputs: Mapping[str, Sequence[Any]], runs_per_row_of: Index | None, progress: CompileProgress, problems: list[Problem],
 ) -> dict[str, CompiledField]:
     """Every field of a node that is a function, built once its row is known."""
     outputs = interface.outputs
@@ -350,7 +349,7 @@ def _fields_of_function_node(
 
 
 def _place_embedded_graph(
-    node: GraphNode, definition: Any, version: NodeVersion, interface: Interface, statics: dict[str, Any], runs_per_row_of: Index | None, progress: CompileProgress, problems: list[Problem],
+    node: LoadedNode, definition: Any, version: NodeVersion, interface: Interface, statics: dict[str, Any], runs_per_row_of: Index | None, progress: CompileProgress, problems: list[Problem],
 ) -> None:
     """The graph node's record, and every node inside it compiled where it stands.
 

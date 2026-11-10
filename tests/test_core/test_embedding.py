@@ -34,21 +34,20 @@ from conductor import (
     CompiledGraph,
     ComputeHookError,
     DType,
-    From,
-    Graph,
-    GraphNode,
+    GraphRecord,
     NodeDefinition,
+    NodeRecord,
     NodeRegistry,
     Output,
     Param,
     Ref,
     Result,
     Series,
-    Static,
     node,
 )
+from conductor._internal.graph.binding import From, Static
 from conductor.widgets import Switch, Textarea
-from helpers import registry_of, with_added
+from helpers import Placed, placed, record, registry_of, with_added
 
 FIXTURE = Path(__file__).parent / "fixtures" / "embedded_expected.json"
 RESULTS = Path(__file__).parent / "fixtures" / "embedded_expected_results.json"
@@ -157,7 +156,6 @@ def single(values: Annotated[Series[Any], Param(title="Values")]) -> Annotated[A
 
 
 PLAIN = (holder, upper_node, join_node, docs, lines, pair, need, both, picky, gate, single)
-N = GraphNode
 
 
 # -- the scenarios ----------------------------------------------------------------------
@@ -169,58 +167,58 @@ N = GraphNode
 
 @dataclass(frozen=True)
 class Scenario:
-    graphs: tuple[tuple[str, tuple[GraphNode, ...]], ...]
-    nodes: tuple[GraphNode, ...]
+    graphs: tuple[tuple[str, tuple[Placed, ...]], ...]
+    nodes: tuple[Placed, ...]
 
 
 def _inner_graph():
     return (
-        N(id="holder", type="holder", version=1, title="Text", bindings={"value": Static("inner")}),
-        N(id="up", type="upper", version=1, title="Upper", bindings={"text": From("holder.result")}),
-        N(id="join", type="join", version=1, title="Join", bindings={"texts": From("up.result")}),
+        placed("holder", "holder", defaults_={"value": "inner"}),
+        placed("up", "upper", text=From("holder.result")),
+        placed("join", "join", texts=From("up.result")),
     )
 
 
 def _graph_like_a_host_stores(width=8):
     """A graph like the ones a host stores: a holder for its input, a chain, a split into lines, a reduction."""
-    nodes = [N(id="holder", type="holder", version=1, title="Text", bindings={"value": Static("x")})]
+    nodes = [placed("holder", "holder", defaults_={"value": "x"})]
     before = "holder"
     for i in range(width):
-        nodes.append(N(id=f"s{i}", type="upper", version=1, bindings={"text": From(f"{before}.result")}))
+        nodes.append(placed(f"s{i}", "upper", text=From(f"{before}.result")))
         before = f"s{i}"
-    nodes.append(N(id="lines", type="lines", version=1, bindings={"text": From(f"{before}.result")}))
-    nodes.append(N(id="up", type="upper", version=1, bindings={"text": From("lines.result")}))
-    nodes.append(N(id="join", type="join", version=1, bindings={"texts": From("up.result")}))
+    nodes.append(placed("lines", "lines", text=From(f"{before}.result")))
+    nodes.append(placed("up", "upper", text=From("lines.result")))
+    nodes.append(placed("join", "join", texts=From("up.result")))
     return tuple(nodes)
 
 
 def _branching():
     """holder → gate → an upper on the true branch, and whichever branch fired."""
     return (
-        N(id="holder", type="holder", version=1, bindings={"value": Static("x")}),
-        N(id="gate", type="gate", version=1, bindings={"value": From("holder.result")}),
-        N(id="up", type="upper", version=1, bindings={"text": From("gate.if_true")}),
-        N(id="single", type="single", version=1, bindings={"values": From("gate.if_true", "gate.if_false")}),
+        placed("holder", "holder", defaults_={"value": "x"}),
+        placed("gate", "gate", value=From("holder.result")),
+        placed("up", "upper", text=From("gate.if_true")),
+        placed("single", "single", values=From("gate.if_true", "gate.if_false")),
     )
 
 
 def _middle_branching():
     return (
-        N(id="h", type="holder", version=1, bindings={"value": Static("m")}),
-        N(id="g", type="gate", version=1, bindings={"value": From("h.result")}),
-        N(id="b", type="branchy", version=1, bindings={"value": From("g.if_true")}),
-        N(id="s", type="single", version=1, bindings={"values": From("b.up.result", "g.if_false")}),
+        placed("h", "holder", defaults_={"value": "m"}),
+        placed("g", "gate", value=From("h.result")),
+        placed("b", "branchy", value=From("g.if_true")),
+        placed("s", "single", values=From("b.up.result", "g.if_false")),
     )
 
 
 def _docs():
-    return N(id="docs", type="docs", version=1)
+    return placed("docs", "docs")
 
 
 def _embedded_many(k):
     return Scenario(
         graphs=(("stored-graph", _graph_like_a_host_stores()),),
-        nodes=(_docs(), *(N(id=f"e{i}", type="stored-graph", version=1, bindings={"value": From("docs.result")}) for i in range(k))),
+        nodes=(_docs(), *(placed(f"e{i}", "stored-graph", value=From("docs.result")) for i in range(k))),
     )
 
 
@@ -228,189 +226,189 @@ def _nested(depth):
     graphs = [("level0", _graph_like_a_host_stores())]
     for level in range(1, depth):
         graphs.append((f"level{level}", (
-            N(id="holder", type="holder", version=1, bindings={"value": Static("x")}),
-            N(id="inner", type=f"level{level - 1}", version=1, bindings={"value": From("holder.result")}),
-            N(id="lines", type="lines", version=1, bindings={"text": From("inner.result")}),
-            N(id="up", type="upper", version=1, bindings={"text": From("lines.result")}),
-            N(id="join", type="join", version=1, bindings={"texts": From("up.result")}),
+            placed("holder", "holder", defaults_={"value": "x"}),
+            placed("inner", f"level{level - 1}", value=From("holder.result")),
+            placed("lines", "lines", text=From("inner.result")),
+            placed("up", "upper", text=From("lines.result")),
+            placed("join", "join", texts=From("up.result")),
         )))
     return Scenario(
         graphs=tuple(graphs),
-        nodes=(_docs(), N(id="top", type=f"level{depth - 1}", version=1, bindings={"value": From("docs.result")})),
+        nodes=(_docs(), placed("top", f"level{depth - 1}", value=From("docs.result"))),
     )
 
 
 SCENARIOS: dict[str, Scenario] = {
-    "runs_once": Scenario((("inner-graph", _inner_graph()),), (N(id="emb", type="inner-graph", version=1),)),
+    "runs_once": Scenario((("inner-graph", _inner_graph()),), (placed("emb", "inner-graph"),)),
     "runs_once_fed": Scenario((("inner-graph", _inner_graph()),), (
-        N(id="h", type="holder", version=1, bindings={"value": Static("z")}),
-        N(id="emb", type="inner-graph", version=1, bindings={"value": From("h.result")}),
+        placed("h", "holder", defaults_={"value": "z"}),
+        placed("emb", "inner-graph", value=From("h.result")),
     )),
     "entering_scalar": Scenario((("inner-graph", _inner_graph()),), (
-        _docs(), N(id="emb", type="inner-graph", version=1, bindings={"value": From("docs.result")}),
+        _docs(), placed("emb", "inner-graph", value=From("docs.result")),
     )),
     "read_from_outside": Scenario((("inner-graph", _inner_graph()),), (
         _docs(),
-        N(id="emb", type="inner-graph", version=1, bindings={"value": From("docs.result")}),
-        N(id="after", type="join", version=1, bindings={"texts": From("emb.result")}),
+        placed("emb", "inner-graph", value=From("docs.result")),
+        placed("after", "join", texts=From("emb.result")),
     )),
     "rows_made_inside": Scenario((("splitter", (
-        N(id="holder", type="holder", version=1, bindings={"value": Static("a\nb")}),
-        N(id="lines", type="lines", version=1, bindings={"text": From("holder.result")}),
-        N(id="join", type="join", version=1, bindings={"texts": From("lines.result")}),
-    )),), (_docs(), N(id="emb", type="splitter", version=1, bindings={"value": From("docs.result")}))),
+        placed("holder", "holder", defaults_={"value": "a\nb"}),
+        placed("lines", "lines", text=From("holder.result")),
+        placed("join", "join", texts=From("lines.result")),
+    )),), (_docs(), placed("emb", "splitter", value=From("docs.result")))),
     "rows_made_inside_unfed": Scenario((("splitter", (
-        N(id="holder", type="holder", version=1, bindings={"value": Static("a\nb")}),
-        N(id="entered", type="holder", version=1),
-        N(id="lines", type="lines", version=1, bindings={"text": From("holder.result")}),
-        N(id="join", type="join", version=1, bindings={"texts": From("lines.result")}),
-    )),), (_docs(), N(id="emb", type="splitter", version=1, bindings={"entered.value": From("docs.result")}))),
+        placed("holder", "holder", defaults_={"value": "a\nb"}),
+        placed("entered", "holder"),
+        placed("lines", "lines", text=From("holder.result")),
+        placed("join", "join", texts=From("lines.result")),
+    )),), (_docs(), placed("emb", "splitter", **{"entered.value": From("docs.result")}))),
     "rows_made_inside_exposed": Scenario((("splitter", (
-        N(id="holder", type="holder", version=1, bindings={"value": Static("a\nb")}),
-        N(id="lines", type="lines", version=1, bindings={"text": From("holder.result")}),
+        placed("holder", "holder", defaults_={"value": "a\nb"}),
+        placed("lines", "lines", text=From("holder.result")),
     )),), (
         _docs(),
-        N(id="emb", type="splitter", version=1, bindings={"value": From("docs.result")}),
-        N(id="after", type="join", version=1, bindings={"texts": From("emb.result")}),
+        placed("emb", "splitter", value=From("docs.result")),
+        placed("after", "join", texts=From("emb.result")),
     )),
     "two_crossings": Scenario((("pair-graph", (
-        N(id="a", type="holder", version=1), N(id="b", type="holder", version=1),
-        N(id="ua", type="upper", version=1, bindings={"text": From("a.result")}),
+        placed("a", "holder"), placed("b", "holder"),
+        placed("ua", "upper", text=From("a.result")),
     )),), (
         _docs(),
-        N(id="lines", type="lines", version=1, bindings={"text": From("docs.result")}),
-        N(id="emb", type="pair-graph", version=1, bindings={"a.value": From("docs.result"), "b.value": From("lines.result")}),
+        placed("lines", "lines", text=From("docs.result")),
+        placed("emb", "pair-graph", **{"a.value": From("docs.result"), "b.value": From("lines.result")}),
     )),
-    "series_field": Scenario((("joiner", (N(id="join", type="join", version=1),)),), (
-        _docs(), N(id="emb", type="joiner", version=1, bindings={"texts": From("docs.result")}),
+    "series_field": Scenario((("joiner", (placed("join", "join"),)),), (
+        _docs(), placed("emb", "joiner", texts=From("docs.result")),
     )),
-    "gathered_into_the_graph_node": Scenario((("joiner", (N(id="join", type="join", version=1),)),), (
-        N(id="h1", type="holder", version=1, bindings={"value": Static("a")}),
-        N(id="h2", type="holder", version=1, bindings={"value": Static("b")}),
-        N(id="emb", type="joiner", version=1, bindings={"texts": From("h1.result", "h2.result")}),
-        N(id="after", type="upper", version=1, bindings={"text": From("emb.result")}),
+    "gathered_into_the_graph_node": Scenario((("joiner", (placed("join", "join"),)),), (
+        placed("h1", "holder", defaults_={"value": "a"}),
+        placed("h2", "holder", defaults_={"value": "b"}),
+        placed("emb", "joiner", texts=From("h1.result", "h2.result")),
+        placed("after", "upper", text=From("emb.result")),
     )),
     "rows_made_under_a_row_inside": Scenario((("rows-inside", (
         _docs(),
-        N(id="lines", type="lines", version=1, bindings={"text": From("docs.result")}),
+        placed("lines", "lines", text=From("docs.result")),
     )),), (
-        N(id="emb", type="rows-inside", version=1),
-        N(id="after", type="join", version=1, bindings={"texts": From("emb.result")}),
+        placed("emb", "rows-inside"),
+        placed("after", "join", texts=From("emb.result")),
     )),
     "per_row_output_read_outside": Scenario((("splitter", (
-        N(id="holder", type="holder", version=1, bindings={"value": Static("a\nb")}),
-        N(id="lines", type="lines", version=1, bindings={"text": From("holder.result")}),
-        N(id="up", type="upper", version=1, bindings={"text": From("lines.result")}),
+        placed("holder", "holder", defaults_={"value": "a\nb"}),
+        placed("lines", "lines", text=From("holder.result")),
+        placed("up", "upper", text=From("lines.result")),
     )),), (
         _docs(),
-        N(id="emb", type="splitter", version=1, bindings={"value": From("docs.result")}),
-        N(id="after", type="join", version=1, bindings={"texts": From("emb.result")}),
+        placed("emb", "splitter", value=From("docs.result")),
+        placed("after", "join", texts=From("emb.result")),
     )),
     "value_and_edge_per_row": Scenario((("pair-graph", (
-        N(id="a", type="holder", version=1), N(id="b", type="holder", version=1),
-        N(id="ua", type="upper", version=1, bindings={"text": From("a.result")}),
-        N(id="lines", type="lines", version=1, bindings={"text": From("b.result")}),
-        N(id="p", type="pair", version=1, bindings={"a": From("ua.result"), "b": From("lines.result")}),
+        placed("a", "holder"), placed("b", "holder"),
+        placed("ua", "upper", text=From("a.result")),
+        placed("lines", "lines", text=From("b.result")),
+        placed("p", "pair", a=From("ua.result"), b=From("lines.result")),
     )),), (
         _docs(),
-        N(id="emb", type="pair-graph", version=1, bindings={"a.value": From("docs.result"), "b.value": Static("x\ny")}),
-        N(id="after", type="join", version=1, bindings={"texts": From("emb.result")}),
+        placed("emb", "pair-graph", **{"a.value": From("docs.result"), "b.value": Static("x\ny")}),
+        placed("after", "join", texts=From("emb.result")),
     )),
     "required_input_filled_inside": Scenario((("filled", (
-        N(id="n", type="need", version=1, bindings={"text": Static("inside")}),
-        N(id="u", type="upper", version=1, bindings={"text": From("n.result")}),
+        placed("n", "need", defaults_={"text": "inside"}),
+        placed("u", "upper", text=From("n.result")),
     )),), (
-        N(id="emb", type="filled", version=1),
-        N(id="after", type="upper", version=1, bindings={"text": From("emb.result")}),
+        placed("emb", "filled"),
+        placed("after", "upper", text=From("emb.result")),
     )),
     "edge_into_a_value_filled_inside": Scenario((("filled", (
-        N(id="n", type="need", version=1, bindings={"text": Static("inside")}),
-        N(id="u", type="upper", version=1, bindings={"text": From("n.result")}),
+        placed("n", "need", defaults_={"text": "inside"}),
+        placed("u", "upper", text=From("n.result")),
     )),), (
-        N(id="h", type="holder", version=1, bindings={"value": Static("outside")}),
-        N(id="emb", type="filled", version=1, bindings={"text": From("h.result")}),
-        N(id="after", type="upper", version=1, bindings={"text": From("emb.result")}),
+        placed("h", "holder", defaults_={"value": "outside"}),
+        placed("emb", "filled", text=From("h.result")),
+        placed("after", "upper", text=From("emb.result")),
     )),
     "edge_into_a_list_filled_inside": Scenario((("listy", (
-        N(id="n", type="upper", version=1, bindings={"text": Static(["p", "q"])}),
-        N(id="j", type="join", version=1, bindings={"texts": From("n.result")}),
+        placed("n", "upper", defaults_={"text": ["p", "q"]}),
+        placed("j", "join", texts=From("n.result")),
     )),), (
-        N(id="h", type="holder", version=1, bindings={"value": Static("outside")}),
-        N(id="emb", type="listy", version=1, bindings={"text": From("h.result")}),
-        N(id="after", type="upper", version=1, bindings={"text": From("emb.result")}),
+        placed("h", "holder", defaults_={"value": "outside"}),
+        placed("emb", "listy", text=From("h.result")),
+        placed("after", "upper", text=From("emb.result")),
     )),
     "typed_list_inside": Scenario((("typed-inside", (
-        N(id="h", type="upper", version=1),
-        N(id="t", type="pair", version=1, bindings={"a": From("h.result"), "b": Static(["p", "q"])}),
-        N(id="j", type="join", version=1, bindings={"texts": From("t.result")}),
-    )),), (_docs(), N(id="emb", type="typed-inside", version=1, bindings={"text": From("docs.result")}))),
+        placed("h", "upper"),
+        placed("t", "pair", a=From("h.result"), b=Static(["p", "q"])),
+        placed("j", "join", texts=From("t.result")),
+    )),), (_docs(), placed("emb", "typed-inside", text=From("docs.result")))),
     "gather_two_inside": Scenario((("two", (
-        N(id="holder", type="holder", version=1, bindings={"value": Static("x")}),
-        N(id="up", type="upper", version=1, bindings={"text": From("holder.result")}),
-        N(id="join", type="join", version=1, bindings={"texts": From("holder.result", "up.result")}),
-    )),), (_docs(), N(id="emb", type="two", version=1, bindings={"value": From("docs.result")}))),
+        placed("holder", "holder", defaults_={"value": "x"}),
+        placed("up", "upper", text=From("holder.result")),
+        placed("join", "join", texts=From("holder.result", "up.result")),
+    )),), (_docs(), placed("emb", "two", value=From("docs.result")))),
     "embedded_3": _embedded_many(3),
     "nested_2": _nested(2),
     "nested_4": _nested(4),
     "nested_iterating": Scenario((
         ("leaf", _graph_like_a_host_stores(3)),
         ("middle", (
-            N(id="holder", type="holder", version=1, bindings={"value": Static("a\nb")}),
-            N(id="lines", type="lines", version=1, bindings={"text": From("holder.result")}),
-            N(id="leafy", type="leaf", version=1, bindings={"value": From("lines.result")}),
-            N(id="join", type="join", version=1, bindings={"texts": From("leafy.result")}),
+            placed("holder", "holder", defaults_={"value": "a\nb"}),
+            placed("lines", "lines", text=From("holder.result")),
+            placed("leafy", "leaf", value=From("lines.result")),
+            placed("join", "join", texts=From("leafy.result")),
         )),
     ), (
         _docs(),
-        N(id="top", type="middle", version=1, bindings={"value": From("docs.result")}),
-        N(id="after", type="join", version=1, bindings={"texts": From("top.result")}),
+        placed("top", "middle", value=From("docs.result")),
+        placed("after", "join", texts=From("top.result")),
     )),
     "required_input_left_empty": Scenario((("needy", (
-        N(id="n", type="need", version=1),
-        N(id="u", type="upper", version=1, bindings={"text": From("n.result")}),
-        N(id="join", type="join", version=1, bindings={"texts": From("u.result")}),
-    )),), (_docs(), N(id="emb", type="needy", version=1, bindings={"text": From("docs.result")}))),
+        placed("n", "need"),
+        placed("u", "upper", text=From("n.result")),
+        placed("join", "join", texts=From("u.result")),
+    )),), (_docs(), placed("emb", "needy", text=From("docs.result")))),
     "value_on_the_graph_node": Scenario((("inner-graph", _inner_graph()),), (
-        N(id="emb", type="inner-graph", version=1, bindings={"value": Static("set outside")}),
-        N(id="after", type="upper", version=1, bindings={"text": From("emb.result")}),
+        placed("emb", "inner-graph", value=Static("set outside")),
+        placed("after", "upper", text=From("emb.result")),
     )),
     "many_values_on_the_graph_node": Scenario((("inner-graph", _inner_graph()),), (
-        N(id="emb", type="inner-graph", version=1, bindings={"value": Static(["a", "b"])}),
-        N(id="after", type="join", version=1, bindings={"texts": From("emb.result")}),
+        placed("emb", "inner-graph", value=Static(["a", "b"])),
+        placed("after", "join", texts=From("emb.result")),
     )),
     "cond_inner_choice_once": Scenario((("branchy", _branching()),), (
-        N(id="emb", type="branchy", version=1),
-        N(id="after", type="upper", version=1, bindings={"text": From("emb.up.result")}),
+        placed("emb", "branchy"),
+        placed("after", "upper", text=From("emb.up.result")),
     )),
     "cond_inner_choice_per_row": Scenario((("branchy", _branching()),), (
         _docs(),
-        N(id="emb", type="branchy", version=1, bindings={"value": From("docs.result")}),
-        N(id="after", type="single", version=1, bindings={"values": From("emb.up.result")}),
+        placed("emb", "branchy", value=From("docs.result")),
+        placed("after", "single", values=From("emb.up.result")),
     )),
     "cond_outer_gate_into_graph": Scenario((("branchy", _branching()),), (
-        N(id="h", type="holder", version=1, bindings={"value": Static("y")}),
-        N(id="og", type="gate", version=1, bindings={"value": From("h.result")}),
-        N(id="emb", type="branchy", version=1, bindings={"value": From("og.if_false")}),
-        N(id="after", type="upper", version=1, bindings={"text": From("emb.single.result")}),
+        placed("h", "holder", defaults_={"value": "y"}),
+        placed("og", "gate", value=From("h.result")),
+        placed("emb", "branchy", value=From("og.if_false")),
+        placed("after", "upper", text=From("emb.single.result")),
     )),
     "cond_merge_inside": Scenario((("merge", (
-        N(id="a", type="holder", version=1, bindings={"value": Static("x")}),
-        N(id="b", type="holder", version=1, bindings={"value": Static("z")}),
-        N(id="g", type="gate", version=1, bindings={"value": From("b.result")}),
-        N(id="single", type="single", version=1, bindings={"values": From("a.result", "g.if_true")}),
+        placed("a", "holder", defaults_={"value": "x"}),
+        placed("b", "holder", defaults_={"value": "z"}),
+        placed("g", "gate", value=From("b.result")),
+        placed("single", "single", values=From("a.result", "g.if_true")),
     )),), (
-        N(id="h", type="holder", version=1, bindings={"value": Static("y")}),
-        N(id="og", type="gate", version=1, bindings={"value": From("h.result")}),
-        N(id="emb", type="merge", version=1, bindings={"a.value": From("og.if_true")}),
+        placed("h", "holder", defaults_={"value": "y"}),
+        placed("og", "gate", value=From("h.result")),
+        placed("emb", "merge", **{"a.value": From("og.if_true")}),
     )),
     "cond_nested_once": Scenario((("branchy", _branching()), ("mid", _middle_branching())), (
-        N(id="top", type="mid", version=1),
-        N(id="after", type="upper", version=1, bindings={"text": From("top.result")}),
+        placed("top", "mid"),
+        placed("after", "upper", text=From("top.result")),
     )),
     "cond_nested_per_row": Scenario((("branchy", _branching()), ("mid", _middle_branching())), (
         _docs(),
-        N(id="top", type="mid", version=1, bindings={"value": From("docs.result")}),
-        N(id="after", type="single", version=1, bindings={"values": From("top.result")}),
+        placed("top", "mid", value=From("docs.result")),
+        placed("after", "single", values=From("top.result")),
     )),
 }
 
@@ -430,13 +428,13 @@ def _registry(scenario: Scenario) -> NodeRegistry:
     """The plain nodes, then each inner graph compiled once and offered as a definition, innermost first."""
     registry = _plain_registry()
     for type_id, nodes in scenario.graphs:
-        registry = with_added(registry, _definition(type_id, CompiledGraph.from_graph(Graph(nodes=list(nodes)), registry)))
+        registry = with_added(registry, _definition(type_id, CompiledGraph.from_graph(record(*list(nodes)), registry)))
     return registry
 
 
 def _compiled(name: str) -> CompiledGraph:
     scenario = SCENARIOS[name]
-    return CompiledGraph.from_graph(Graph(nodes=list(scenario.nodes)), _registry(scenario))
+    return CompiledGraph.from_graph(record(*list(scenario.nodes)), _registry(scenario))
 
 
 # -- the oracle --------------------------------------------------------------------------
@@ -528,10 +526,10 @@ def test_a_value_set_on_the_placed_node_is_read_by_the_inner_node():
 
 
 def _broken_graph_registry():
-    broken = CompiledGraph.from_graph(Graph(nodes=[
-        N(id="a", type="holder", version=1),
-        N(id="b", type="upper", version=1, bindings={"text": From("a.nope")}),
-    ]), _plain_registry())
+    broken = CompiledGraph.from_graph(GraphRecord(nodes=[
+        NodeRecord(id="a", node="holder"),
+        NodeRecord(id="b", node="upper"),
+    ], edges=[("a.nope", "b.text")]), _plain_registry())
     return broken, with_added(_plain_registry(), _definition("broken", broken))
 
 
@@ -539,10 +537,10 @@ def test_a_broken_graph_is_one_problem_on_the_graph_node():
     """The graph's own problems stay on the graph, in its own words; where
     it is embedded, the author sees one problem saying the graph needs fixing."""
     broken, registry = _broken_graph_registry()
-    compiled = CompiledGraph.from_graph(Graph(nodes=[
-        N(id="emb", type="broken", version=1),
-        N(id="after", type="upper", version=1, bindings={"text": From("emb.result")}),
-    ]), registry)
+    compiled = CompiledGraph.from_graph(GraphRecord(nodes=[
+        NodeRecord(id="emb", node="broken"),
+        NodeRecord(id="after", node="upper"),
+    ], edges=[("emb.result", "after.text")]), registry)
 
     (found,) = compiled.problems
     assert (found.type, found.fatal, found.loc) == ("embedded_graph_broken", True, ("emb",))
@@ -555,10 +553,10 @@ def test_a_broken_graph_is_one_problem_on_the_graph_node():
 
 def test_an_outer_edge_may_only_read_what_the_graph_offers():
     """``up`` feeds ``join`` inside, so the graph does not offer its output."""
-    compiled = CompiledGraph.from_graph(Graph(nodes=[
-        N(id="emb", type="inner-graph", version=1),
-        N(id="after", type="upper", version=1, bindings={"text": From("emb.up.result")}),
-    ]), _registry(SCENARIOS["runs_once"]))
+    compiled = CompiledGraph.from_graph(GraphRecord(nodes=[
+        NodeRecord(id="emb", node="inner-graph"),
+        NodeRecord(id="after", node="upper"),
+    ], edges=[("emb.up.result", "after.text")]), _registry(SCENARIOS["runs_once"]))
 
     assert [(p.type, p.loc[0]) for p in compiled.problems] == [("unknown_ref_output", "after")]
 
@@ -569,13 +567,13 @@ def test_two_series_made_by_different_nodes_inside_do_not_line_up_outside():
     inside that makes it, so two unrelated ones are ``misaligned`` where they
     meet, exactly as if the graph were drawn in place."""
     scenario = Scenario((("two-series", (
-        N(id="a", type="lines", version=1, bindings={"text": Static("x\ny")}),
-        N(id="b", type="lines", version=1, bindings={"text": Static("p\nq")}),
+        placed("a", "lines", text=Static("x\ny")),
+        placed("b", "lines", text=Static("p\nq")),
     )),), (
-        N(id="emb", type="two-series", version=1),
-        N(id="after", type="pair", version=1, bindings={"a": From("emb.a.result"), "b": From("emb.b.result")}),
+        placed("emb", "two-series"),
+        placed("after", "pair", a=From("emb.a.result"), b=From("emb.b.result")),
     ))
-    problems = CompiledGraph.from_graph(Graph(nodes=list(scenario.nodes)), _registry(scenario)).problems
+    problems = CompiledGraph.from_graph(record(*list(scenario.nodes)), _registry(scenario)).problems
 
     assert [(p.type, p.loc[0]) for p in problems] == [("misaligned", "after")]
 
@@ -583,13 +581,15 @@ def test_two_series_made_by_different_nodes_inside_do_not_line_up_outside():
 
 def test_a_graph_that_cannot_run_is_refused_even_when_every_node_is_ready():
     """A value no type can read is fatal without breaking its node."""
-    graph = CompiledGraph.from_graph(Graph(nodes=[
-        N(id="h", type="holder", version=1),
-        N(id="g", type="gate", version=1, bindings={"value": From("h.result"), "when": Static("not a number")}),
-    ]), _plain_registry())
+    graph = CompiledGraph.from_graph(GraphRecord(nodes=[
+        NodeRecord(id="h", node="holder"),
+        NodeRecord(id="g", node="gate", values={"when": "not a number"}),
+    ], edges=[("h.result", "g.value")]), _plain_registry())
     assert not graph.is_runnable
     compiled = CompiledGraph.from_graph(
-        Graph(nodes=[N(id="emb", type="bad", version=1)]), with_added(_plain_registry(), _definition("bad", graph)),
+        GraphRecord(nodes=[
+            NodeRecord(id="emb", node="bad"),
+        ]), with_added(_plain_registry(), _definition("bad", graph)),
     )
 
     assert [(p.type, p.ctx) for p in compiled.problems] == [("embedded_graph_broken", {"graph": "Graph bad", "problems": 1})]
@@ -602,29 +602,27 @@ def test_a_graph_whose_required_input_is_left_empty_can_be_placed():
     assert compiled.is_runnable, compiled.problems
 
 
-def _embedded_alone(inner: tuple[GraphNode, ...], **bindings: Any) -> CompiledGraph:
-    graph = CompiledGraph.from_graph(Graph(nodes=list(inner)), _plain_registry())
+def _embedded_alone(inner: tuple[Placed, ...], **bindings: Any) -> CompiledGraph:
+    graph = CompiledGraph.from_graph(record(*list(inner)), _plain_registry())
     registry = with_added(_plain_registry(), _definition("g", graph))
-    return CompiledGraph.from_graph(Graph(nodes=[N(id="emb", type="g", version=1, bindings=bindings)]), registry)
+    return CompiledGraph.from_graph(record(placed("emb", "g", **bindings)), registry)
 
 
 def test_a_graph_with_an_empty_input_it_does_not_offer_cannot_be_embedded():
-    """Only an input the graph offers can be filled where it is embedded. A
-    locked one, or one on a node that also has an edge in, stays empty."""
-    locked = _embedded_alone((N(id="n", type="need", version=1, locked=("text",)),))
+    """Only an input the graph offers can be filled where it is embedded. One
+    on a node that also has an edge in stays empty."""
     fed_beside = _embedded_alone((
-        N(id="h", type="holder", version=1, bindings={"value": Static("x")}),
-        N(id="p", type="both", version=1, bindings={"a": From("h.result")}),
+        placed("h", "holder", defaults_={"value": "x"}),
+        placed("p", "both", a=From("h.result")),
     ))
 
-    for compiled in (locked, fed_beside):
-        assert [(p.type, p.ctx) for p in compiled.problems] == [("embedded_graph_broken", {"graph": "Graph g", "problems": 1})]
+    assert [(p.type, p.ctx) for p in fed_beside.problems] == [("embedded_graph_broken", {"graph": "Graph g", "problems": 1})]
 
 
 def test_a_value_typed_on_a_placed_graph_that_a_hook_inside_refuses_is_the_outer_authors_problem():
     """Inside the graph, the value is refused. The outer author
     typed it, so they see the hook's own words on the field they typed in."""
-    compiled = _embedded_alone((N(id="p", type="picky", version=1),), **{"mode": Static("bad")})
+    compiled = _embedded_alone((placed("p", "picky"),), **{"mode": Static("bad")})
 
     assert [(p.type, p.msg, p.loc[0], p.loc[1]) for p in compiled.problems] == [
         ("picky_refuses", "Not that mode.", "emb", "mode"),
@@ -633,9 +631,13 @@ def test_a_value_typed_on_a_placed_graph_that_a_hook_inside_refuses_is_the_outer
 
 
 def test_an_input_filled_inside_is_offered_as_not_required():
-    """The graph node is whole without it: its author already put a value there."""
-    graph = CompiledGraph.from_graph(Graph(nodes=[N(id="n", type="need", version=1, bindings={"text": Static("inside")})]), _plain_registry())
-    empty = CompiledGraph.from_graph(Graph(nodes=[N(id="n", type="need", version=1)]), _plain_registry())
+    """The graph node is whole without it: its author already put a default there."""
+    graph = CompiledGraph.from_graph(GraphRecord(nodes=[
+        NodeRecord(id="n", node="need", defaults={"text": "inside"}),
+    ]), _plain_registry())
+    empty = CompiledGraph.from_graph(GraphRecord(nodes=[
+        NodeRecord(id="n", node="need"),
+    ]), _plain_registry())
 
     assert [(input_.name, input_.required) for input_ in graph._embeddable.interface.inputs] == [("text", False)]
     assert [(input_.name, input_.required) for input_ in empty._embeddable.interface.inputs] == [("text", True)]
@@ -652,9 +654,15 @@ def as_it_arrives(**thing: AsItArrives) -> Annotated[Any, Result(title="Thing")]
 
 def test_a_value_inside_a_graph_run_per_row_arrives_as_itself_on_an_as_it_arrives_input():
     """One value per run of the graph: a hook is told its type, and the call gets it at its own row."""
-    inner = CompiledGraph.from_graph(Graph(nodes=[N(id="h", type="holder", version=1), N(id="kw", type="as_it_arrives", version=1, bindings={"thing": From("h.result")})]), with_added(_plain_registry(), as_it_arrives))
+    inner = CompiledGraph.from_graph(GraphRecord(nodes=[
+        NodeRecord(id="h", node="holder"),
+        NodeRecord(id="kw", node="as_it_arrives"),
+    ], edges=[("h.result", "kw.thing")]), with_added(_plain_registry(), as_it_arrives))
     registry = with_added(_plain_registry(), as_it_arrives, _definition("g", inner))
-    compiled = CompiledGraph.from_graph(Graph(nodes=[N(id="docs", type="docs", version=1), N(id="emb", type="g", version=1, bindings={"value": From("docs.result")})]), registry)
+    compiled = CompiledGraph.from_graph(GraphRecord(nodes=[
+        NodeRecord(id="docs", node="docs"),
+        NodeRecord(id="emb", node="g"),
+    ], edges=[("docs.result", "emb.value")]), registry)
 
     assert compiled.is_runnable, compiled.problems
     plan = compiled.run_plan.nodes["emb/kw"].inputs["thing"]
@@ -666,19 +674,19 @@ def test_a_graph_run_per_row_sees_an_input_fed_whole_as_a_whole():
     """``u`` is fed one doc per call, so the embedded graph runs once per doc.
     ``j`` is fed the docs too, into a series input: like any node that runs
     per row, each run sees the series whole."""
-    scenario = Scenario((("mixed", (N(id="u", type="upper", version=1), N(id="j", type="join", version=1))),), (
+    scenario = Scenario((("mixed", (placed("u", "upper"), placed("j", "join"))),), (
         _docs(),
-        N(id="emb", type="mixed", version=1, bindings={"text": From("docs.result"), "texts": From("docs.result")}),
+        placed("emb", "mixed", text=From("docs.result"), texts=From("docs.result")),
     ))
-    compiled = CompiledGraph.from_graph(Graph(nodes=list(scenario.nodes)), _registry(scenario))
+    compiled = CompiledGraph.from_graph(record(*list(scenario.nodes)), _registry(scenario))
 
     assert [str(value) for value in compiled.results(compiled.run_sync())["emb/j"]["result"]["values"]] == ["a+b", "a+b"]
 
 
 def test_a_broken_graph_with_a_value_typed_on_it_is_one_problem():
     broken, registry = _broken_graph_registry()
-    compiled = CompiledGraph.from_graph(Graph(nodes=[
-        N(id="emb", type="broken", version=1, bindings={"value": Static("v")}),
+    compiled = CompiledGraph.from_graph(GraphRecord(nodes=[
+        NodeRecord(id="emb", node="broken", values={"value": "v"}),
     ]), registry)
 
     assert [p.type for p in compiled.problems] == ["embedded_graph_broken"]
@@ -688,12 +696,14 @@ def test_a_graph_the_walk_leaves_out_is_one_node_with_nothing_inside():
     """Its edge in is broken, or it can't be embedded: either way it stays one
     ``graph`` node, saying why it is not ready, and nothing inside it is a
     node of this graph. What is inside is read through its version."""
-    upstream_broken = CompiledGraph.from_graph(Graph(nodes=[
-        N(id="bad", type="nope", version=1),
-        N(id="emb", type="inner-graph", version=1, bindings={"value": From("bad.result")}),
-    ]), _registry(SCENARIOS["runs_once"]))
+    upstream_broken = CompiledGraph.from_graph(GraphRecord(nodes=[
+        NodeRecord(id="bad", node="nope"),
+        NodeRecord(id="emb", node="inner-graph"),
+    ], edges=[("bad.result", "emb.value")]), _registry(SCENARIOS["runs_once"]))
     broken, registry = _broken_graph_registry()
-    unembeddable = CompiledGraph.from_graph(Graph(nodes=[N(id="emb", type="broken", version=1)]), registry)
+    unembeddable = CompiledGraph.from_graph(GraphRecord(nodes=[
+        NodeRecord(id="emb", node="broken"),
+    ]), registry)
 
     for compiled, cause in ((upstream_broken, "unknown_node_type"), (unembeddable, "embedded_graph_broken")):
         graph_node = compiled.node("emb")
@@ -706,8 +716,8 @@ def test_a_graph_the_walk_leaves_out_is_one_node_with_nothing_inside():
 def test_a_value_on_a_field_the_graph_does_not_offer_is_a_stale_binding():
     """``up.text`` is fed inside, so the graph does not offer it; its value
     inside is not what the graph node reports holding."""
-    compiled = CompiledGraph.from_graph(Graph(nodes=[
-        N(id="emb", type="inner-graph", version=1, bindings={"text": Static("x")}),
+    compiled = CompiledGraph.from_graph(GraphRecord(nodes=[
+        NodeRecord(id="emb", node="inner-graph", values={"text": "x"}),
     ]), _registry(SCENARIOS["runs_once"]))
 
     assert [(p.type, p.loc[0], p.loc[1]) for p in compiled.problems] == [("stale_binding", "emb", "text")]
@@ -715,10 +725,10 @@ def test_a_value_on_a_field_the_graph_does_not_offer_is_a_stale_binding():
 
 
 def test_an_edge_into_a_field_the_graph_does_not_offer_is_a_stale_binding():
-    compiled = CompiledGraph.from_graph(Graph(nodes=[
-        N(id="h", type="holder", version=1),
-        N(id="emb", type="inner-graph", version=1, bindings={"text": From("h.result")}),
-    ]), _registry(SCENARIOS["runs_once"]))
+    compiled = CompiledGraph.from_graph(GraphRecord(nodes=[
+        NodeRecord(id="h", node="holder"),
+        NodeRecord(id="emb", node="inner-graph"),
+    ], edges=[("h.result", "emb.text")]), _registry(SCENARIOS["runs_once"]))
 
     assert [(p.type, p.loc[0], p.loc[1]) for p in compiled.problems] == [("stale_binding", "emb", "text")]
 

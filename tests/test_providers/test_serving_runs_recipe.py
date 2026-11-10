@@ -87,12 +87,10 @@ class _Host:
 
 
 def _graph(*node_types: str) -> dict[str, Any]:
-    """A chain of nodes, each with its type as its id, ``ask`` reading the one before it."""
-    nodes: list[dict[str, Any]] = []
-    for position, node_type in enumerate(node_types):
-        bindings = {"value": {"refs": [f"{node_types[position - 1]}.result"]}} if node_type == "ask" else {}
-        nodes.append({"id": node_type, "type": node_type, "version": 1, "bindings": bindings})
-    return {"nodes": nodes}
+    """A chain of nodes, each with its node as its id, ``ask`` reading the one before it."""
+    nodes = [{"id": node_type, "node": node_type} for node_type in node_types]
+    edges = [[f"{node_types[position - 1]}.result", "ask.value"] for position, node_type in enumerate(node_types) if node_type == "ask"]
+    return {"nodes": nodes, "edges": edges}
 
 
 @pytest.fixture(autouse=True)
@@ -178,7 +176,7 @@ def test_a_wrong_answer_is_a_422_listing_every_fault_and_a_run_not_waiting_is_a_
 def test_a_graph_that_cannot_run_is_a_422_before_anything_is_saved():
     async def scenario() -> None:
         host = _Host()
-        refused = await host.client.post("/runs", json={"nodes": [{"id": "x", "type": "nonesuch", "version": 1}]})
+        refused = await host.client.post("/runs", json={"nodes": [{"id": "x", "node": "nonesuch"}]})
         assert refused.status_code == 422 and refused.json()["detail"]
         assert host.module.saved == {}
 
@@ -201,7 +199,7 @@ def test_what_a_node_receives_comes_from_the_routes_own_dependency():
 def test_an_end_user_fills_the_inputs_of_a_published_graph_and_names_no_node():
     async def scenario() -> None:
         host = _Host()
-        host.module.published["hello"] = host.module.Graph.model_validate(_graph("greet"))
+        host.module.published["hello"] = host.module.GraphRecord.model_validate(_graph("greet"))
         created = await host.client.post("/graphs/hello/runs", json={"greet.name": "ida"})
         assert created.status_code == 202, created.text
         await host.frames(created.json()["id"])

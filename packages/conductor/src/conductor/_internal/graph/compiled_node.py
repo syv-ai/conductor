@@ -24,6 +24,7 @@ from pydantic_core import to_jsonable_python
 from conductor._internal.codec import cell_validator_for, json_schema_of, to_jsonable
 from conductor._internal.execution.run_state import Question
 from conductor._internal.field_records import was_titled_by_its_author
+from conductor._internal.graph.binding import From
 from conductor._internal.graph.output_conditions import ALWAYS, run_once_condition
 from conductor._internal.graph.receive_modes import FixedValue
 from conductor._internal.graph.run_plan import NodeRunPlan, plan_of_node
@@ -35,7 +36,7 @@ if TYPE_CHECKING:
     from conductor._internal.execution.values_of_run import HeldAs
     from conductor._internal.field_records import Input
     from conductor._internal.graph.compiled_graph import CompiledGraph
-    from conductor._internal.graph.graph_records import GraphNode
+    from conductor._internal.graph.graph_records import LoadedNode
     from conductor._internal.graph.output_conditions import Condition
     from conductor._internal.graph.receive_modes import ReceiveMode
     from conductor._internal.index import Index
@@ -74,9 +75,9 @@ class CompiledNode:
 
     #: Its id in the graph that runs: its path, ``"approve/check"``, for an inner node.
     id: str
-    #: The node as the author stored it: its type, version number, title and
+    #: The node as compile read it from the record: its definition, version and
     #: bindings. An inner node's has its path as its id.
-    graph_node: GraphNode = field(repr=False)
+    graph_node: LoadedNode = field(repr=False)
     #: The id of the graph node this node sits inside, or ``None`` for a node the author drew.
     embedded_in: str | None = field(repr=False)
     #: Every problem about this node or one of its fields, in ``CompiledGraph.problems`` order.
@@ -140,10 +141,12 @@ class CompiledNode:
                 # it: ``2`` and ``2.0`` on a number are one value, and a graph
                 # built in Python hashes like the stored graph with its JSON.
                 bindings[name] = {"static": to_jsonable(self.statics[name])}
+            elif isinstance(binding, From):
+                bindings[name] = {"refs": list(binding.refs)}
             else:
-                bindings[name] = binding.model_dump()
+                bindings[name] = {"value": binding.value}
         used = {
-            "type": node.type,
+            "type": node.node,
             "version": node.version,
             "bindings": bindings,
             "plan": self._run_plan,
@@ -165,7 +168,7 @@ class CompiledNode:
         how its inputs get there is not (the fingerprint holds that)."""
         assert self.interface is not None
         node = self.graph_node
-        identity = {"type": node.type, "version": node.version, "inputs": [input_.name for input_ in self.interface.inputs], "outputs": self._outputs_described}
+        identity = {"type": node.node, "version": node.version, "inputs": [input_.name for input_ in self.interface.inputs], "outputs": self._outputs_described}
         return hashlib.blake2b(json.dumps(to_jsonable_python(identity), sort_keys=True).encode("utf-8"), digest_size=16).digest()
 
     @cached_property
@@ -184,7 +187,7 @@ class CompiledNode:
     def _title_of_a_question(self, out: Any) -> str:
         """An output nobody titled, on a node with one output, reads as the node's own title rather than ``result``."""
         untitled = not was_titled_by_its_author(out) and len(self.interface.outputs) == 1  # type: ignore[union-attr]
-        return (self.graph_node.title or self.definition.title) if untitled and self.definition is not None else out.title
+        return self.definition.title if untitled and self.definition is not None else out.title
 
     @cached_property
     def _validate_call_inputs(self) -> Callable[[Mapping[str, Any]], dict[str, Any]]:

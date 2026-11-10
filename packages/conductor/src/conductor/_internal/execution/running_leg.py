@@ -177,7 +177,7 @@ class RunningLeg:
         for node_id in compiled.execution_order:
             version = compiled.node(node_id).version
             problems += [
-                make_problem("from_run_missing", "from_run", needed.__name__, node=node_id, parameter=name, needs=needed.__name__)
+                make_problem("from_run_missing", "from_run", needed.__name__, node_id=node_id, parameter=name, needs=needed.__name__)
                 for name, needed in version.from_run.items() if needed not in from_run
             ]
             self.free_slots[node_id] = version.policy.concurrency

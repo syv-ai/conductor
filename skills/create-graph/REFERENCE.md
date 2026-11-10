@@ -6,7 +6,7 @@ One module, on three text nodes declared at the top. Events, errors and serving 
 import asyncio
 from typing import Annotated
 
-from conductor import AskPerson, CompiledGraph, From, Graph, GraphNode, NodeRegistry, Param, Result, RunState, Series, Static, node
+from conductor import AskPerson, CompiledGraph, GraphRecord, NodeRecord, NodeRegistry, Param, Result, RunState, Series, node
 from conductor.widgets import Textarea
 
 registry = NodeRegistry(category="text")
@@ -24,7 +24,7 @@ def uppercase(text: str) -> str:
 
 # compile never raises for a bad graph; key on each Problem's type
 broken = CompiledGraph.from_graph(
-    Graph(nodes=[GraphNode(id="loud", type="text-uppercase", version=1, bindings={"text": From("ghost.result")})]),
+    GraphRecord(nodes=[NodeRecord(id="loud", node="text-uppercase")], edges=[("ghost.result", "loud.text")]),
     registry,
 )
 assert [p.type for p in broken.problems] == ["unknown_ref_node"]
@@ -37,10 +37,10 @@ def approve(proposal: Annotated[str, Param(title="Proposal", widget=Textarea())]
 
 registry.add(approve)
 asking = CompiledGraph.from_graph(
-    Graph(nodes=[
-        GraphNode(id="drafts", type="text-split", version=1, bindings={"text": Static("first,second")}),
-        GraphNode(id="approve", type="approve", version=1, bindings={"proposal": From("drafts.result")}),
-    ]),
+    GraphRecord(
+        nodes=[NodeRecord(id="drafts", node="text-split", values={"text": "first,second"}), NodeRecord(id="approve", node="approve")],
+        edges=[("drafts.result", "approve.proposal")],
+    ),
     registry,
 )
 

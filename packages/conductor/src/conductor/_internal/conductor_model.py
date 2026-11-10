@@ -4,7 +4,7 @@ A graph a host stores, a problem it shows, an input it renders, the cause
 of a failure it reports: each crosses into JSON, so each is a frozen
 pydantic model on this one base.
 
-What a host saves reads back what it wrote — a ``Graph`` and its parts, a
+What a host saves reads back what it wrote — a ``GraphRecord`` and its nodes, a
 ``Problem``, a ``Policy``, an ``Index``: ``model_dump_json`` and
 ``model_validate_json``, pydantic's own.
 

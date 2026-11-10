@@ -7,9 +7,9 @@ import pytest
 from conductor import (
     CompiledGraph,
     DType,
-    From,
-    Graph,
+    GraphRecord,
     InvalidCallError,
+    NodeRecord,
     RunState,
     node,
 )
@@ -74,7 +74,9 @@ def _failed_run(returned, return_type):
         return returned
 
     made = node("give")(give)
-    compiled = CompiledGraph.from_graph(Graph(nodes=[made.graph_node("g")]), registry_of(made))
+    compiled = CompiledGraph.from_graph(GraphRecord(nodes=[
+        NodeRecord(id="g", node=made.id),
+    ]), registry_of(made))
     state = compiled.run_sync()
     assert state.status == "failed"
     return state.cause
@@ -110,7 +112,10 @@ def test_what_a_node_received_is_not_in_the_failure_of_its_input():
         return identifier
 
     made_source, made_sink = node("source")(source), node("sink")(sink)
-    compiled = CompiledGraph.from_graph(Graph(nodes=[made_source.graph_node("a"), made_sink.graph_node("b", identifier=From("a.result"))]), registry_of(made_source, made_sink))
+    compiled = CompiledGraph.from_graph(GraphRecord(nodes=[
+        NodeRecord(id="a", node=made_source.id),
+        NodeRecord(id="b", node=made_sink.id),
+    ], edges=[("a.result", "b.identifier")]), registry_of(made_source, made_sink))
     state = compiled.run_sync()
     assert (state.status, state.cause.type) == ("failed", "invalid_input")
     assert SECRET not in state.cause.model_dump_json()
@@ -122,7 +127,9 @@ def test_a_stored_value_is_not_in_the_refusal_to_read_a_state_back():
         return PickyId("fine")
 
     made = node("give")(give)
-    compiled = CompiledGraph.from_graph(Graph(nodes=[made.graph_node("g")]), registry_of(made))
+    compiled = CompiledGraph.from_graph(GraphRecord(nodes=[
+        NodeRecord(id="g", node=made.id),
+    ]), registry_of(made))
     stored = json.loads(compiled.run_sync().model_dump_json())
     stored["nodes"]["g"]["outputs"]["result"]["values"] = [SECRET]
     with pytest.raises(InvalidCallError) as refused:

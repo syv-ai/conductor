@@ -5,16 +5,14 @@ from typing import Annotated
 
 from conductor import (
     CompiledGraph,
-    From,
     FromRun,
-    Graph,
-    GraphNode,
+    GraphRecord,
     Input,
     NodeDefinition,
+    NodeRecord,
     Param,
     Ref,
     Series,
-    Static,
     node,
 )
 from helpers import registry_of
@@ -46,19 +44,21 @@ def translate(language: Annotated[str, Param(connectable=False)] = "da", **texts
 _inner = registry_of(shout)
 _embedded = NodeDefinition.from_compiled_graphs(
     "wrapped", title="Wrapped", description="d", category="test",
-    versions={1: CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="all", type="shout", version=1)]), _inner)},
+    versions={1: CompiledGraph.from_graph(GraphRecord(nodes=[
+        NodeRecord(id="all", node="shout"),
+    ]), _inner)},
 )
 _registry = registry_of(shout, split, translate, _embedded)
 
 
 def _compiled() -> CompiledGraph:
     return CompiledGraph.from_graph(
-        Graph(nodes=[
-            GraphNode(id="emb", type="wrapped", version=1),
-            GraphNode(id="words", type="split", version=1, bindings={"text": From(Ref("emb", "result"))}),
-            GraphNode(id="hook", type="translate", version=1, bindings={"language": Static("en"), "en": From(Ref("words", "result"))}),
-            GraphNode(id="gone", type="nothing-here", version=1),
-        ]),
+        GraphRecord(nodes=[
+            NodeRecord(id="emb", node="wrapped"),
+            NodeRecord(id="words", node="split"),
+            NodeRecord(id="hook", node="translate", values={"language": "en"}),
+            NodeRecord(id="gone", node="nothing-here"),
+        ], edges=[(Ref("emb", "result"), "words.text"), (Ref("words", "result"), "hook.en")]),
         _registry,
     )
 

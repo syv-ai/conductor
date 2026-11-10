@@ -5,21 +5,11 @@ from typing import Any
 
 import polars as pl
 import pytest
-from conductor import (
-    AskPerson,
-    CompiledGraph,
-    From,
-    Graph,
-    GraphNode,
-    RunState,
-    Series,
-    Static,
-    Table,
-    node,
-)
+from conductor import AskPerson, CompiledGraph, RunState, Series, Table, node
 from conductor._internal.execution.run_state import OutputColumn, WorkOfNode
+from conductor._internal.graph.binding import From, Static
 from conductor.events import RunEnd, UnitWaiting
-from helpers import answer, registry_of
+from helpers import Placed, answer, placed, record, registry_of
 from pydantic import ValidationError
 
 
@@ -58,14 +48,14 @@ def ask_with_default(key: str) -> Table | AskPerson:
 REGISTRY = registry_of(load, keep, names, approve, ask_with_default)
 
 
-def _graph(*nodes: GraphNode) -> CompiledGraph:
-    compiled = CompiledGraph.from_graph(Graph(nodes=list(nodes)), REGISTRY)
+def _graph(*nodes: Placed) -> CompiledGraph:
+    compiled = CompiledGraph.from_graph(record(*list(nodes)), REGISTRY)
     assert compiled.is_runnable, compiled.problems
     return compiled
 
 
-def _node(node_id: str, node_type: str, **bindings: Any) -> GraphNode:
-    return GraphNode(id=node_id, type=node_type, version=1, bindings=bindings)
+def _node(node_id: str, node_type: str, **bindings: Any) -> Placed:
+    return placed(node_id, node_type, **bindings)
 
 
 def _chain_and_waiting_units(rows: int, units: int) -> tuple[CompiledGraph, RunState]:

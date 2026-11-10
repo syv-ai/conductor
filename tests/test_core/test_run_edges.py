@@ -21,9 +21,6 @@ from conductor import (
     AskPerson,
     CompiledGraph,
     DType,
-    From,
-    Graph,
-    GraphNode,
     InvalidCallError,
     NodeDefinition,
     NodeRegistry,
@@ -34,13 +31,13 @@ from conductor import (
     Result,
     RunState,
     Series,
-    Static,
     Table,
     node,
 )
 from conductor._internal.errors import NodeDeclarationError
+from conductor._internal.graph.binding import From, Static
 from conductor.widgets import Textarea
-from helpers import answer, read_table, registry_of, with_added
+from helpers import Placed, answer, placed, read_table, record, registry_of, with_added
 
 
 class Txt(DType, str):
@@ -68,8 +65,8 @@ CALLS: list[Any] = []
 CANNED: dict[str, Any] = {}
 
 
-def n(id: str, type: str | None = None, **bindings: Any) -> GraphNode:
-    return GraphNode(id=id, type=type or id, version=1, bindings=bindings)
+def n(id: str, type: str | None = None, **bindings: Any) -> Placed:
+    return placed(id, type or id, **bindings)
 
 
 @node("source", title="s", description="d", category="t")
@@ -238,8 +235,8 @@ def lookup(x: Wire, t: Annotated[Contacts, Param(title="T")]) -> TableOut:
 REGISTRY = registry_of(source, split, upper, join, two, lister, route, num, num_in, frame_node, frame_in, anything, pass_table, merged, module_frame, csv, rebuild, none_left, reference, lookup, ask, ask_table, ask_rows, ask_choice_default, ask_choice, ask_default_skipped, ask_bad_widget, ask_slow_first)
 
 
-def compiled_of(*nodes: GraphNode, registry: NodeRegistry = REGISTRY) -> CompiledGraph:
-    return CompiledGraph.from_graph(Graph(nodes=nodes), registry)
+def compiled_of(*nodes: Placed, registry: NodeRegistry = REGISTRY) -> CompiledGraph:
+    return CompiledGraph.from_graph(record(*nodes), registry)
 
 
 def through_json(state: RunState) -> RunState:
@@ -437,7 +434,7 @@ def test_a_fresh_id_never_takes_one_a_later_row_holds():
 
 
 def test_a_table_and_columns_of_it_wired_beside_it_are_one_table():
-    compiled = compiled_of(n("c", "csv", k=Static("a,b")), n("m", "merged", table=From("c.result.name", "c.result", "c.result.name")))
+    compiled = compiled_of(n("c", "csv", k=Static("a,b")), n("m", "merged", table=From("c.result.name", "c.result")))
     state = compiled.run_sync()
     assert state.status == "complete", state.cause
     assert compiled.results(state)["m"]["result"].columns == ["__row", "name", "email"]

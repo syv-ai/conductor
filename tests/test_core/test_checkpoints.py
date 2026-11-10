@@ -9,10 +9,9 @@ from conductor import (
     AskPerson,
     CompiledGraph,
     DType,
-    From,
-    Graph,
-    GraphNode,
+    GraphRecord,
     InvalidCallError,
+    NodeRecord,
     Param,
     Policy,
     Result,
@@ -70,11 +69,11 @@ REGISTRY = registry_of(lines_node, work, count)
 
 
 def compiled() -> CompiledGraph:
-    made = CompiledGraph.from_graph(Graph(nodes=(
-        GraphNode(id="lines", type="lines", version=1),
-        GraphNode(id="work", type="work", version=1, bindings={"line": From("lines.result")}),
-        GraphNode(id="count", type="count", version=1, bindings={"lines": From("work.result")}),
-    )), REGISTRY)
+    made = CompiledGraph.from_graph(GraphRecord(nodes=[
+        NodeRecord(id="lines", node="lines"),
+        NodeRecord(id="work", node="work"),
+        NodeRecord(id="count", node="count"),
+    ], edges=[("lines.result", "work.line"), ("work.result", "count.lines")]), REGISTRY)
     assert made.is_runnable, made.problems
     return made
 

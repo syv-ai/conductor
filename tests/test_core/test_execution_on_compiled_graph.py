@@ -12,19 +12,18 @@ from conductor import (
     SKIPPED,
     CompiledGraph,
     DType,
-    From,
-    Graph,
-    GraphNode,
+    GraphRecord,
     InvalidCallError,
+    NodeRecord,
     Param,
     Policy,
     Result,
     Series,
-    Static,
     node,
 )
+from conductor._internal.graph.binding import From, Static
 from conductor.widgets import Textarea
-from helpers import events_of, registry_of
+from helpers import events_of, placed, record, registry_of
 
 
 class Txt(DType, str):
@@ -74,14 +73,14 @@ def _registry():
 
 
 def _run(nodes):
-    compiled = CompiledGraph.from_graph(Graph(nodes=nodes), _registry())
+    compiled = CompiledGraph.from_graph(record(*nodes), _registry())
     return compiled.results(compiled.run_sync())
 
 
 def test_a_graph_of_bindings_compiles_and_runs():
     results = _run([
-        GraphNode(id="a", type="upper", version=1, bindings={"text": Static("hi")}),
-        GraphNode(id="b", type="upper", version=1, bindings={"text": From("a.result")}),
+        placed("a", "upper", text=Static("hi")),
+        placed("b", "upper", text=From("a.result")),
     ])
 
     assert results["a"]["result"] == "HI"
@@ -89,15 +88,15 @@ def test_a_graph_of_bindings_compiles_and_runs():
 
 
 def test_an_unbound_input_falls_back_to_its_declared_default():
-    assert _run([GraphNode(id="a", type="upper", version=1)])["a"]["result"] == ""
+    assert _run([placed("a", "upper")])["a"]["result"] == ""
 
 
 def test_a_branch_not_taken_is_skipped_downstream():
     """A branch is an output; SKIPPED on it skips what hangs off it."""
     results = _run([
-        GraphNode(id="g", type="gate", version=1, bindings={"x": Static("hi")}),
-        GraphNode(id="yes", type="upper", version=1, bindings={"text": From("g.yes")}),
-        GraphNode(id="no", type="upper", version=1, bindings={"text": From("g.no")}),
+        placed("g", "gate", x=Static("hi")),
+        placed("yes", "upper", text=From("g.yes")),
+        placed("no", "upper", text=From("g.no")),
     ])
 
     assert results["yes"]["result"] == "HI"
@@ -106,9 +105,9 @@ def test_a_branch_not_taken_is_skipped_downstream():
 
 def test_a_gather_arrives_as_a_series():
     results = _run([
-        GraphNode(id="a", type="upper", version=1, bindings={"text": Static("a")}),
-        GraphNode(id="b", type="upper", version=1, bindings={"text": Static("b")}),
-        GraphNode(id="j", type="join", version=1, bindings={"texts": From("a.result", "b.result")}),
+        placed("a", "upper", text=Static("a")),
+        placed("b", "upper", text=Static("b")),
+        placed("j", "join", texts=From("a.result", "b.result")),
     ])
 
     assert results["j"]["result"] == "A+B"
@@ -116,14 +115,16 @@ def test_a_gather_arrives_as_a_series():
 
 def test_policy_is_read_off_the_pinned_version():
     flaky_state.calls = 0
-    results = _run([GraphNode(id="f", type="flaky", version=1, bindings={"text": Static("ok")})])
+    results = _run([placed("f", "flaky", text=Static("ok"))])
 
     assert results["f"]["result"] == "ok"
     assert flaky_state.calls == 3
 
 
 def test_a_graph_compile_rejected_is_refused_with_its_problems():
-    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="a", type="gone", version=1)]), _registry())
+    compiled = CompiledGraph.from_graph(GraphRecord(nodes=[
+        NodeRecord(id="a", node="gone"),
+    ]), _registry())
 
     with pytest.raises(InvalidCallError) as raised:
         compiled.run_sync()
@@ -132,7 +133,9 @@ def test_a_graph_compile_rejected_is_refused_with_its_problems():
 
 def test_events_carry_the_placement_title():
     compiled = CompiledGraph.from_graph(
-        Graph(nodes=[GraphNode(id="a", type="upper", version=1, title="Shout", bindings={"text": Static("hi")})]),
+        GraphRecord(nodes=[
+            NodeRecord(id="a", node="upper", values={"text": "hi"}),
+        ]),
         _registry(),
     )
 

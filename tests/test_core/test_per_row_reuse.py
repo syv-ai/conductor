@@ -16,25 +16,22 @@ import pytest
 from conductor import (
     AskPerson,
     CompiledGraph,
-    From,
     FromRun,
-    Graph,
-    GraphNode,
     InvalidCallError,
     Param,
     Policy,
     Result,
     RunState,
     Series,
-    Static,
     Table,
     Upgrade,
     node,
 )
 from conductor._internal.execution.input_hash import hash_of_inputs
 from conductor._internal.execution.run_state import OutputColumn
+from conductor._internal.graph.binding import From, Static
 from conductor.events import NodeComplete, NodeProgress, NodeStart, UnitWaiting
-from helpers import answer, events_of, registry_of
+from helpers import Placed, answer, events_of, placed, record, registry_of
 
 from test_core.embedded import embedded_graph_node
 
@@ -144,12 +141,12 @@ def parse(contacts: str = "") -> Annotated[Table[Contact], Result(title="Contact
 registry = registry_of(csv, parse, mail, ask, export, split, per, count, doc_table, doc_table_or_fail, ask_or_fail, rate, fail_on, note_dict)
 
 
-def n(node_id: str, node_type: str, **bindings: Any) -> GraphNode:
-    return GraphNode(id=node_id, type=node_type, version=1, bindings=bindings)
+def n(node_id: str, node_type: str, **bindings: Any) -> Placed:
+    return placed(node_id, node_type, **bindings)
 
 
 def mail_graph(rows: str, body: str = "Hej") -> CompiledGraph:
-    return CompiledGraph.from_graph(Graph(nodes=[n("c", "csv", rows=Static(rows)), n("m", "mail", email=From("c.result.email"), body=Static(body)), n("x", "export", table=From("c.result", "m.result"))]), registry)
+    return CompiledGraph.from_graph(record(n("c", "csv", rows=Static(rows)), n("m", "mail", email=From("c.result.email"), body=Static(body)), n("x", "export", table=From("c.result", "m.result"))), registry)
 
 
 def through_json(state: RunState) -> RunState:
@@ -204,7 +201,7 @@ def test_a_changed_csv_sends_only_the_mails_it_has_to(edited: str, body: str, ma
 
 
 def test_the_common_case_with_inputs_on_a_compiled_graph() -> None:
-    compiled = CompiledGraph.from_graph(Graph(nodes=[n("p", "parse", contacts=Static(BASE)), n("m", "mail", email=From("p.result.email"), body=Static("Hej"))]), registry).with_inputs(contacts=BASE)
+    compiled = CompiledGraph.from_graph(record(n("p", "parse", defaults_={"contacts": BASE}), n("m", "mail", email=From("p.result.email"), body=Static("Hej"))), registry).with_inputs(contacts=BASE)
     state = compiled.run_sync()
     CALLS.clear()
 
@@ -245,7 +242,7 @@ def test_a_changed_node_function_is_new_work() -> None:
         return "v2"
 
     newer = node("mail", category="test", replaces=node("mail")(mail.versions[1].body), upgrade=Upgrade(renamed_outputs={"result": "result"}))(mail_v2)
-    graph = Graph(nodes=[n("c", "csv", rows=Static(BASE)), GraphNode(id="m", type="mail", version=2, bindings={"email": From("c.result.email"), "body": Static("Hej")})])
+    graph = record(n("c", "csv", rows=Static(BASE)), placed("m", "mail", version=2, email=From("c.result.email"), body=Static("Hej")))
     ending = CompiledGraph.from_graph(graph, registry_of(csv, newer)).run_sync(through_json(state))
 
     assert CALLS["mail"] == 3 and ending.nodes["m"].reused_units == 0
@@ -264,7 +261,7 @@ def test_a_node_nothing_changed_is_restored_with_no_hashing_and_no_reuse_count()
 
 def test_a_series_reordered_is_new_work_and_one_unchanged_is_not() -> None:
     def graph(rows: str) -> CompiledGraph:
-        return CompiledGraph.from_graph(Graph(nodes=[n("c", "csv", rows=Static(rows)), n("cnt", "count", lines=From("c.result.email"))]), registry)
+        return CompiledGraph.from_graph(record(n("c", "csv", rows=Static(rows)), n("cnt", "count", lines=From("c.result.email"))), registry)
 
     state = graph(BASE).run_sync()
     CALLS.clear()
@@ -278,7 +275,7 @@ def test_a_series_reordered_is_new_work_and_one_unchanged_is_not() -> None:
 
 def test_a_whole_table_input_is_read_with_its_row_ids() -> None:
     def graph(rows: str) -> CompiledGraph:
-        return CompiledGraph.from_graph(Graph(nodes=[n("c", "csv", rows=Static(rows)), n("x", "export", table=From("c.result"))]), registry)
+        return CompiledGraph.from_graph(record(n("c", "csv", rows=Static(rows)), n("x", "export", table=From("c.result"))), registry)
 
     state = graph(BASE).run_sync()
     CALLS.clear()
@@ -346,7 +343,7 @@ def test_a_value_that_reaches_every_row_is_read_once_and_its_memo_is_tied_to_the
 
 def test_a_list_or_mapping_is_identified_by_its_content() -> None:
     def graph(stuff: Any) -> CompiledGraph:
-        return CompiledGraph.from_graph(Graph(nodes=[n("c", "csv", rows=Static(BASE)), n("no", "note_dict", email=From("c.result.email"), stuff=Static(stuff))]), registry)
+        return CompiledGraph.from_graph(record(n("c", "csv", rows=Static(BASE)), n("no", "note_dict", email=From("c.result.email"), stuff=Static(stuff))), registry)
 
     state = graph({"a": [1, 2]}).run_sync()
     CALLS.clear()
@@ -368,7 +365,7 @@ def test_a_from_run_value_is_not_part_of_what_a_unit_received() -> None:
     reg = registry_of(csv, via_client)
 
     def graph(rows: str) -> CompiledGraph:
-        return CompiledGraph.from_graph(Graph(nodes=[n("c", "csv", rows=Static(rows)), n("v", "via_client", email=From("c.result.email"))]), reg)
+        return CompiledGraph.from_graph(record(n("c", "csv", rows=Static(rows)), n("v", "via_client", email=From("c.result.email"))), reg)
 
     state = graph(BASE).run_sync(from_run={Client: Client()})
     CALLS.clear()
@@ -380,7 +377,7 @@ def test_a_from_run_value_is_not_part_of_what_a_unit_received() -> None:
 
 def test_a_policy_says_a_result_depends_on_the_world() -> None:
     def graph(rows: str) -> CompiledGraph:
-        return CompiledGraph.from_graph(Graph(nodes=[n("c", "csv", rows=Static(rows)), n("r", "rate", email=From("c.result.email"))]), registry)
+        return CompiledGraph.from_graph(record(n("c", "csv", rows=Static(rows)), n("r", "rate", email=From("c.result.email"))), registry)
 
     state = graph(BASE).run_sync()
     CALLS.clear()
@@ -397,7 +394,7 @@ def test_a_table_output_reused_at_another_row_says_where_it_now_is() -> None:
     """The ids a unit minted name its row, so moved with it; a downstream merge on them would match wrong rows otherwise."""
 
     def graph(rows: str) -> CompiledGraph:
-        return CompiledGraph.from_graph(Graph(nodes=[n("c", "csv", rows=Static(rows)), n("d", "doc_table", text=From("c.result.name")), n("m", "mail", email=From("d.result.email"), body=Static("b"))]), registry)
+        return CompiledGraph.from_graph(record(n("c", "csv", rows=Static(rows)), n("d", "doc_table", text=From("c.result.name")), n("m", "mail", email=From("d.result.email"), body=Static("b"))), registry)
 
     state = graph(BASE).run_sync()
     CALLS.clear()
@@ -419,7 +416,7 @@ def test_a_table_output_reused_at_another_row_says_where_it_now_is() -> None:
 
 def test_a_row_inside_a_list_moves_with_the_row_it_is_under() -> None:
     def graph(text: str) -> CompiledGraph:
-        return CompiledGraph.from_graph(Graph(nodes=[n("c", "csv", rows=Static(text)), n("sp", "split", text=From("c.result.name")), n("p", "per", line=From("sp.result")), n("cn", "count", lines=From("p.result"))]), registry)
+        return CompiledGraph.from_graph(record(n("c", "csv", rows=Static(text)), n("sp", "split", text=From("c.result.name")), n("p", "per", line=From("sp.result")), n("cn", "count", lines=From("p.result"))), registry)
 
     first = "x,y|e\nu,v,w|f\n"
     state = graph(first).run_sync()
@@ -436,7 +433,7 @@ def test_a_row_inside_a_list_moves_with_the_row_it_is_under() -> None:
 
 def test_a_changed_row_is_new_work_all_the_way_down() -> None:
     def graph(text: str) -> CompiledGraph:
-        return CompiledGraph.from_graph(Graph(nodes=[n("c", "csv", rows=Static(text)), n("sp", "split", text=From("c.result.name")), n("p", "per", line=From("sp.result"))]), registry)
+        return CompiledGraph.from_graph(record(n("c", "csv", rows=Static(text)), n("sp", "split", text=From("c.result.name")), n("p", "per", line=From("sp.result"))), registry)
 
     state = graph("x,y|e\n").run_sync()
     CALLS.clear()
@@ -450,7 +447,7 @@ def test_a_changed_row_is_new_work_all_the_way_down() -> None:
 
 
 def ask_graph(rows: str) -> CompiledGraph:
-    return CompiledGraph.from_graph(Graph(nodes=[n("c", "csv", rows=Static(rows)), n("a", "ask", email=From("c.result.email")), n("x", "export", table=From("c.result", "a.result"))]), registry)
+    return CompiledGraph.from_graph(record(n("c", "csv", rows=Static(rows)), n("a", "ask", email=From("c.result.email")), n("x", "export", table=From("c.result", "a.result"))), registry)
 
 
 def test_a_waiting_unit_goes_on_waiting_at_its_new_row_with_no_new_question() -> None:
@@ -528,7 +525,7 @@ def test_identical_answered_rows_keep_their_answers_in_order_when_they_all_move(
     """Two rows with the same inputs, answered differently: moved rows keep theirs, the k-th to the k-th."""
 
     def graph(rows: str) -> CompiledGraph:
-        return CompiledGraph.from_graph(Graph(nodes=[n("c", "csv", rows=Static(rows)), n("a", "ask", email=From("c.result.email"))]), registry)
+        return CompiledGraph.from_graph(record(n("c", "csv", rows=Static(rows)), n("a", "ask", email=From("c.result.email"))), registry)
 
     compiled = graph("a|d@x\nb|d@x\n")
     state = compiled.run_sync()
@@ -559,7 +556,7 @@ def test_an_answered_unit_keeps_its_answer_through_a_row_edit_elsewhere() -> Non
 
 
 def fail_graph(rows: str) -> CompiledGraph:
-    return CompiledGraph.from_graph(Graph(nodes=[n("c", "csv", rows=Static(rows)), n("f", "fail_on", email=From("c.result.email"))]), registry)
+    return CompiledGraph.from_graph(record(n("c", "csv", rows=Static(rows)), n("f", "fail_on", email=From("c.result.email"))), registry)
 
 
 def test_a_failed_leg_does_not_lose_what_it_has_not_reached_yet() -> None:
@@ -636,7 +633,7 @@ def test_an_answer_on_a_changed_graph_keeps_the_changed_nodes_earlier_work() -> 
     """Answering runs no node: the mails the edited graph hasn't reached stay reusable."""
 
     def graph(rows: str) -> CompiledGraph:
-        return CompiledGraph.from_graph(Graph(nodes=[n("c", "csv", rows=Static(rows)), n("q", "ask", email=Static("?")), n("m", "mail", email=From("c.result.email"), body=From("q.result"))]), registry)
+        return CompiledGraph.from_graph(record(n("c", "csv", rows=Static(rows)), n("q", "ask", email=Static("?")), n("m", "mail", email=From("c.result.email"), body=From("q.result"))), registry)
 
     compiled = graph(BASE)
     state = compiled.run_sync(answer(compiled, compiled.run_sync(), {"q": {"result": "Hej"}}))
@@ -697,7 +694,7 @@ def contacts_for_rows(addresses: list[str]) -> str:
 
 
 def ask_or_fail_graph(addresses: list[str]) -> CompiledGraph:
-    return CompiledGraph.from_graph(Graph(nodes=[n("c", "csv", rows=Static(contacts_for_rows(addresses))), n("a", "ask_or_fail", email=From("c.result.email"))]), registry)
+    return CompiledGraph.from_graph(record(n("c", "csv", rows=Static(contacts_for_rows(addresses))), n("a", "ask_or_fail", email=From("c.result.email"))), registry)
 
 
 def answered_state_of(addresses: list[str]) -> RunState:
@@ -742,7 +739,7 @@ def test_two_identical_answered_rows_keep_their_answers_across_a_stopped_leg() -
 
 
 def doc_table_or_fail_graph(addresses: list[str]) -> CompiledGraph:
-    return CompiledGraph.from_graph(Graph(nodes=[n("c", "csv", rows=Static(contacts_for_rows(addresses))), n("t", "doc_table_or_fail", text=From("c.result.email"))]), registry)
+    return CompiledGraph.from_graph(record(n("c", "csv", rows=Static(contacts_for_rows(addresses))), n("t", "doc_table_or_fail", text=From("c.result.email"))), registry)
 
 
 def test_a_reused_table_keeps_the_ids_of_its_row_after_a_stopped_leg() -> None:
@@ -847,12 +844,12 @@ def test_a_nothing_reused_leg_reports_no_reuse() -> None:
 
 
 def test_inner_units_of_an_embedded_graph_are_reused_like_any_others() -> None:
-    inner = (GraphNode(id="t", type="mail", version=1, bindings={"body": Static("inner")}),)
+    inner = (placed("t", "mail", body=Static("inner")),)
     sub = embedded_graph_node("sub", inner, registry_of(csv, mail))
     reg = registry_of(csv, mail, sub)
 
     def graph(rows: str) -> CompiledGraph:
-        return CompiledGraph.from_graph(Graph(nodes=[n("c", "csv", rows=Static(rows)), n("s", "sub", email=From("c.result.email"))]), reg)
+        return CompiledGraph.from_graph(record(n("c", "csv", rows=Static(rows)), n("s", "sub", email=From("c.result.email"))), reg)
 
     state = graph(BASE).run_sync()
     CALLS.clear()

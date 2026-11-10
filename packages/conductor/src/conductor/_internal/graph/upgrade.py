@@ -1,7 +1,7 @@
-"""``upgrade_node``: one node of a graph moved to a newer version of its definition.
+"""``upgrade_node``: one node of a graph record moved to a newer version of its definition.
 
 Compile never upgrades, so a graph pinned at an old version runs that
-version; a person asks, and a host calls this. The graph it returns is not
+version; a person asks, and a host calls this. The record it returns is not
 compiled here: a host compiles it to show the author what the new version
 makes of it.
 """
@@ -12,55 +12,57 @@ from collections.abc import Mapping
 from typing import Any
 
 from conductor._internal.errors import InvalidCallError, make_problem
-from conductor._internal.graph.binding import From, Static, static_values
-from conductor._internal.graph.graph_records import Graph, GraphNode
-from conductor._internal.node_definition import Upgrade
+from conductor._internal.graph.graph_records import GraphRecord
 from conductor._internal.ref import Ref
 from conductor._internal.registry import NodeRegistry
 
 
-def upgrade_node(graph: Graph, node_id: str, registry: NodeRegistry, *, to: int | None = None) -> Graph:
+def upgrade_node(graph: GraphRecord, node_id: str, registry: NodeRegistry, *, to: int | None = None) -> GraphRecord:
     """``graph`` with one node moved from the version it was saved at to ``to``, the newest by default.
 
-    Runs each version's ``Upgrade`` in order and sets the version. Each
-    step first moves the inputs it renames (binding, lock and content),
-    then rewrites the bindings, then moves the content of the outputs it
-    renames; every edge elsewhere in the graph that read a renamed output
-    reads the new name. A node already at ``to`` returns ``graph`` itself.
-    A version whose body is a graph has no steps, so the node only has its
-    version set and compile reports any binding the new version does not
-    have. A node the graph does not have, a type the registry does not, and
-    a version it can't move to are each ``InvalidCallError``.
+    Runs each version's ``Upgrade`` in order and sets the version. Each step
+    first moves what the record holds on the inputs it renames (values,
+    defaults and the edges into them), then rewrites the values and the
+    defaults, each map on its own; every edge out of a renamed output reads
+    the new name. A node already at ``to`` returns ``graph`` itself. A version
+    whose body is a graph has no steps, so the node only has its version set
+    and compile reports any input the new version does not have. A node the
+    graph does not have, a node definition the registry does not, and a
+    version it can't move to are each ``InvalidCallError``.
     """
     node = next((graph_node for graph_node in graph.nodes if graph_node.id == node_id), None)
     if node is None:
-        raise InvalidCallError([make_problem("node_not_in_graph", "node", node_id, node=node_id, nodes=", ".join(graph_node.id for graph_node in graph.nodes))])
-    if node.type not in registry:
-        raise InvalidCallError([make_problem("unknown_node_type", "node", node_id, node_type=node.type, choices=", ".join(sorted(definition.id for definition in registry)) or "none")])
-    definition = registry[node.type]
+        raise InvalidCallError([make_problem("node_not_in_graph", "node", node_id, node_id=node_id, nodes=", ".join(graph_node.id for graph_node in graph.nodes))])
+    if node.node not in registry:
+        raise InvalidCallError([make_problem("unknown_node_type", "node", node_id, node_type=node.node, choices=", ".join(sorted(definition.id for definition in registry)) or "none")])
+    definition = registry[node.node]
     target = definition.current_version if to is None else to
     if target == node.version:
         return graph
     if target < node.version or target not in definition.versions or node.version not in definition.versions:
         raise InvalidCallError([make_problem(
             "cannot_move_to_version", "node", node_id,
-            node_type=node.type, version=node.version, target=target, versions=", ".join(str(graph_node) for graph_node in sorted(definition.versions)),
+            node_type=node.node, version=node.version, target=target, versions=", ".join(str(number) for number in sorted(definition.versions)),
         )])
     steps = [
         step
         for number in range(node.version + 1, target + 1)
         if number in definition.versions and (step := definition.versions[number].upgrade_from_previous) is not None
     ]
-    bindings, locked, fields = dict(node.bindings), node.locked, dict(node.fields)
+    values, defaults, edges = dict(node.values), dict(node.defaults), list(graph.edges)
     for step in steps:
-        bindings, locked, fields = _with_keys_renamed(bindings, step.renamed_inputs), _names_renamed(locked, step.renamed_inputs), _with_keys_renamed(fields, step.renamed_inputs)
+        values, defaults = _with_keys_renamed(values, step.renamed_inputs), _with_keys_renamed(defaults, step.renamed_inputs)
         if step.rewrite is not None:
-            values = step.rewrite({**bindings, **static_values(bindings)})
-            bindings = {name: value if isinstance(value, From) else Static(value) for name, value in values.items()}
-        fields = _with_keys_renamed(fields, step.renamed_outputs)
-    moved = node.model_copy(update={"version": target, "bindings": bindings, "locked": locked, "fields": fields})
+            values = step.rewrite(values) if values else values
+            defaults = step.rewrite(defaults) if defaults else defaults
+        edges = [
+            (_renamed_on(source, node_id, step.renamed_outputs), _renamed_on(target_, node_id, step.renamed_inputs))
+            for source, target_ in edges
+        ]
+    moved = node.model_copy(update={"version": target, "values": values, "defaults": defaults})
     return graph.model_copy(update={
-        "nodes": tuple(moved if graph_node is node else _with_edges_to_renamed_outputs(graph_node, node_id, steps) for graph_node in graph.nodes),
+        "nodes": tuple(moved if graph_node is node else graph_node for graph_node in graph.nodes),
+        "edges": tuple(edges),
     })
 
 
@@ -69,24 +71,7 @@ def _with_keys_renamed(by_name: Mapping[str, Any], renames: Mapping[str, str]) -
     return {renames.get(name, name): value for name, value in by_name.items()}
 
 
-def _names_renamed(names: tuple[str, ...], renames: Mapping[str, str]) -> tuple[str, ...]:
-    """``names`` with each one a step renames replaced by its new name."""
-    return tuple(renames.get(name, name) for name in names)
-
-
-def _with_edges_to_renamed_outputs(node: GraphNode, source: str, steps: list[Upgrade]) -> GraphNode:
-    """``node`` with every edge it has from ``source`` pointing at the output's name after every step.
-
-    Each ref is taken through the steps one by one, so a later step that
-    reuses a name an earlier one renamed away does not catch it."""
-
-    def name_after_every_step(field: str) -> str:
-        for step in steps:
-            field = step.renamed_outputs.get(field, field)
-        return field
-
-    bindings = {
-        name: From(*(Ref(source, name_after_every_step(ref.field)) if ref.node_id == source else ref for ref in binding.refs)) if isinstance(binding, From) else binding
-        for name, binding in node.bindings.items()
-    }
-    return node if bindings == dict(node.bindings) else node.model_copy(update={"bindings": bindings})
+def _renamed_on(address: str, node_id: str, renames: Mapping[str, str]) -> str:
+    """``address`` with its field renamed when it is on ``node_id`` and the step renames that field."""
+    ref = Ref(address)
+    return Ref(node_id, renames[ref.field]) if ref.node_id == node_id and ref.field in renames else ref

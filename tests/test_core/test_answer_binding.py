@@ -16,19 +16,16 @@ from conductor import (
     ROW_ID_COLUMN,
     AskPerson,
     CompiledGraph,
-    From,
-    Graph,
-    GraphNode,
     InvalidCallError,
     Param,
     Result,
     RunState,
     Series,
-    Static,
     Table,
     node,
 )
-from helpers import registry_of
+from conductor._internal.graph.binding import From, Static
+from helpers import Placed, placed, record, registry_of
 
 CALLS: Counter = Counter()
 
@@ -136,12 +133,12 @@ def left_over(tag: Tag) -> Annotated[Table[Invoice], Result(title="f")]:
 registry = registry_of(invoices, approve, drop_who, note, lines_of, keep_ends_2, whole_table, only_big, words_of, approve_word, merge_all, pass_table, upper, same_again, left_over)
 
 
-def n(node_id: str, node_type: str, /, **bindings) -> GraphNode:
-    return GraphNode(id=node_id, type=node_type, version=1, bindings=bindings)
+def n(node_id: str, node_type: str, /, **bindings) -> Placed:
+    return placed(node_id, node_type, **bindings)
 
 
-def compile_nodes(*nodes: GraphNode) -> CompiledGraph:
-    compiled = CompiledGraph.from_graph(Graph(nodes=list(nodes)), registry)
+def compile_nodes(*nodes: Placed) -> CompiledGraph:
+    compiled = CompiledGraph.from_graph(record(*list(nodes)), registry)
     assert compiled.is_runnable, compiled.problems
     return compiled
 
@@ -329,13 +326,7 @@ def test_a_reused_table_that_moved_lines_up_in_a_merge_with_what_was_called_afre
     reg = registry_of(invoices, lines_of, keep_ends_2, upper_text, merge_all)
 
     def graph(body: str) -> CompiledGraph:
-        return CompiledGraph.from_graph(Graph(nodes=[
-            n("i", "invoices", body=Static(body)),
-            n("l", "lines_of", amount=From("i.result.amount")),
-            n("k", "keep_ends_2", lines=From("l.result")),
-            n("u", "upper_text", text=From("k.result.text")),
-            n("m", "merge_all", t=From("k.result", "u.up")),
-        ]), reg)
+        return CompiledGraph.from_graph(record(n("i", "invoices", body=Static(body)), n("l", "lines_of", amount=From("i.result.amount")), n("k", "keep_ends_2", lines=From("l.result")), n("u", "upper_text", text=From("k.result.text")), n("m", "merge_all", t=From("k.result", "u.up"))), reg)
 
     state = graph("A|a\nB|b\n").run_sync()
     moved = graph("N|n\nA|a\nB|b\n")
@@ -369,15 +360,7 @@ def test_a_table_passed_through_per_row_merges_row_by_row_without_multiplying() 
 
     reg = registry_of(invoices, pass_table, same_again, up_who, low_who, merge_all)
 
-    compiled = CompiledGraph.from_graph(Graph(nodes=[
-        n("d", "invoices", body=Static("a|1\nb|2\n")),
-        n("c", "invoices", body=Static("Ida|x\nBo|y\nNina|z\n")),
-        n("p", "pass_table", amount=From("d.result.amount"), t=From("c.result")),
-        n("s", "same_again", t=From("p.result")),
-        n("u", "up_who", who=From("p.result.who")),
-        n("l", "low_who", who=From("s.result.who")),
-        n("m", "merge_all", t=From("u.up", "l.low")),
-    ]), reg)
+    compiled = CompiledGraph.from_graph(record(n("d", "invoices", body=Static("a|1\nb|2\n")), n("c", "invoices", body=Static("Ida|x\nBo|y\nNina|z\n")), n("p", "pass_table", amount=From("d.result.amount"), t=From("c.result")), n("s", "same_again", t=From("p.result")), n("u", "up_who", who=From("p.result.who")), n("l", "low_who", who=From("s.result.who")), n("m", "merge_all", t=From("u.up", "l.low"))), reg)
 
     merged = compiled.results(compiled.run_sync())["m"]["result"]
 

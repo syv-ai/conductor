@@ -15,10 +15,10 @@ from conductor import (
     CompiledGraph,
     Deprecation,
     DType,
-    Graph,
-    GraphNode,
+    GraphRecord,
     NodeDeclarationError,
     NodeDefinition,
+    NodeRecord,
     NodeRegistry,
     Param,
     Result,
@@ -148,7 +148,7 @@ def test_replaces_naming_a_node_the_registry_does_not_hold_is_still_a_duplicate(
 
 
 def test_two_nodes_built_from_graphs_under_one_id_are_told_apart_by_title():
-    inner = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="a", type="upper", version=1)]), _registry_with(upper_node))
+    inner = CompiledGraph.from_graph(GraphRecord(nodes=[NodeRecord(id="a", node="upper")]), _registry_with(upper_node))
     registry = NodeRegistry()
     registry.add(NodeDefinition.from_compiled_graphs("g", title="First", versions=inner))
 
@@ -345,7 +345,9 @@ def test_a_filtered_registry_compiles_only_what_it_kept():
     registry.add(_node("kept"), _node("dropped"))
     narrowed = registry.filter(lambda definition: definition.id == "kept")
 
-    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="d", type="dropped", version=1)]), narrowed)
+    compiled = CompiledGraph.from_graph(GraphRecord(nodes=[
+        NodeRecord(id="d", node="dropped"),
+    ]), narrowed)
 
     assert [problem.type for problem in compiled.problems] == ["unknown_node_type"]
 

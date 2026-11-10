@@ -1036,7 +1036,7 @@
       "many": false
      },
      "values": {
-      "binding": "From(refs=('top/b/up.result', 'top/g.if_false'))",
+      "binding": "From(refs=('top/g.if_false', 'top/b/up.result'))",
       "type": "Txt",
       "many": true
      }
@@ -1050,7 +1050,7 @@
         {
          "receive_mode": "same_value_every_row",
          "sources": [
-          "top/b/up.result"
+          "top/g.if_false"
          ],
          "rows_of": null,
          "depth": 0,
@@ -1059,7 +1059,7 @@
         {
          "receive_mode": "same_value_every_row",
          "sources": [
-          "top/g.if_false"
+          "top/b/up.result"
          ],
          "rows_of": null,
          "depth": 0,
@@ -1409,7 +1409,7 @@
       "many": true
      },
      "values": {
-      "binding": "From(refs=('top/b/up.result', 'top/g.if_false'))",
+      "binding": "From(refs=('top/g.if_false', 'top/b/up.result'))",
       "type": "Txt",
       "many": true
      }
@@ -1423,7 +1423,7 @@
         {
          "receive_mode": "all_rows_under_row",
          "sources": [
-          "top/b/up.result"
+          "top/g.if_false"
          ],
          "rows_of": "docs.result",
          "grouped_under": "docs.result",
@@ -1433,7 +1433,7 @@
         {
          "receive_mode": "all_rows_under_row",
          "sources": [
-          "top/g.if_false"
+          "top/b/up.result"
          ],
          "rows_of": "docs.result",
          "grouped_under": "docs.result",

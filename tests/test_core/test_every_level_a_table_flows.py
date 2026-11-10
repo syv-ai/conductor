@@ -11,9 +11,6 @@ from conductor import (
     AskPerson,
     CompiledGraph,
     DType,
-    From,
-    Graph,
-    GraphNode,
     InvalidCallError,
     NodeDefinition,
     NodeRegistry,
@@ -23,13 +20,13 @@ from conductor import (
     Result,
     RunState,
     Series,
-    Static,
     Table,
     node,
     table_with_columns,
 )
+from conductor._internal.graph.binding import From, Static
 from conductor.widgets import TextWidget
-from helpers import answer, registry_of, with_added
+from helpers import Placed, answer, placed, record, registry_of, with_added
 
 
 class Contact(TypedDict):
@@ -71,12 +68,12 @@ def _catalogue(*extra: type[NodeDefinition]) -> NodeRegistry:
     return registry_of(csv, send, export, rebuild, keep, *extra)
 
 
-def _node(node_id: str, node_type: str, **bindings: Any) -> GraphNode:
-    return GraphNode(id=node_id, type=node_type, version=1, bindings=bindings)
+def _node(node_id: str, node_type: str, **bindings: Any) -> Placed:
+    return placed(node_id, node_type, **bindings)
 
 
-def _compiled(*nodes: GraphNode, registry: NodeRegistry | None = None) -> CompiledGraph:
-    compiled = CompiledGraph.from_graph(Graph(nodes=list(nodes)), registry or _catalogue())
+def _compiled(*nodes: Placed, registry: NodeRegistry | None = None) -> CompiledGraph:
+    compiled = CompiledGraph.from_graph(record(*list(nodes)), registry or _catalogue())
     return compiled
 
 
@@ -87,8 +84,8 @@ def _sheet(compiled: CompiledGraph, node_id: str = "x") -> pl.DataFrame:
     return compiled.results(state)[node_id]["result"].drop(ROW_ID_COLUMN)
 
 
-def _embedded(node_id: str, nodes: tuple[GraphNode, ...], registry: NodeRegistry) -> NodeDefinition:
-    return NodeDefinition.from_compiled_graphs(node_id, title=node_id, category="t", description="d", versions={1: CompiledGraph.from_graph(Graph(nodes=list(nodes)), registry)})
+def _embedded(node_id: str, nodes: tuple[Placed, ...], registry: NodeRegistry) -> NodeDefinition:
+    return NodeDefinition.from_compiled_graphs(node_id, title=node_id, category="t", description="d", versions={1: CompiledGraph.from_graph(record(*list(nodes)), registry)})
 
 
 # -- a table rebuilt inside an embedded graph --------------------------------------

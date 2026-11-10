@@ -24,17 +24,16 @@ import pytest
 from conductor import (
     CompiledGraph,
     ExternalFailure,
-    From,
-    Graph,
-    GraphNode,
+    GraphRecord,
+    NodeRecord,
     Param,
     Policy,
     Result,
-    Static,
     node,
 )
+from conductor._internal.graph.binding import From, Static
 from conductor.widgets import Textarea
-from helpers import registry_of, stream_of
+from helpers import Placed, placed, record, registry_of, stream_of
 
 Out = Annotated[str, Result(title="Output")]
 
@@ -60,17 +59,16 @@ def test_500_node_linear_chain_compile_and_execute() -> None:
     registry = registry_of(upper_node)
 
     n = 500
-    nodes: list[GraphNode] = []
+    nodes: list[Placed] = []
 
     # The first node carries a static input; every subsequent node takes
     # the previous node's ``result`` on its ``text`` parameter.
-    nodes.append(GraphNode(id="n0", type="upper", version=1, bindings={"text": Static("hello")}))
+    nodes.append(placed("n0", "upper", text=Static("hello")))
     for i in range(1, n):
-        nodes.append(GraphNode(id=f"n{i}", type="upper", version=1, bindings={"text": From(f"n{i - 1}.result")},
-        ))
+        nodes.append(placed(f"n{i}", "upper", text=From(f"n{i - 1}.result")))
 
     t0 = time.monotonic()
-    compiled = CompiledGraph.from_graph(Graph(nodes=nodes), registry)
+    compiled = CompiledGraph.from_graph(record(*nodes), registry)
     compile_seconds = time.monotonic() - t0
     assert compile_seconds < 5.0, (
         f"compile took {compile_seconds:.2f}s; expected <5s"
@@ -111,7 +109,9 @@ async def test_cancellation_honored_during_retry_sleep() -> None:
 
     registry = registry_of(always_flaky)
 
-    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n1", type="always-flaky", version=1, bindings={"text": Static("x")})]), registry)
+    compiled = CompiledGraph.from_graph(GraphRecord(nodes=[
+        NodeRecord(id="n1", node="always-flaky", values={"text": "x"}),
+    ]), registry)
 
     cancel = asyncio.Event()
     events: list[dict] = []

@@ -7,14 +7,10 @@ import pytest
 from conductor import (
     SKIPPED,
     CompiledGraph,
-    From,
-    Graph,
-    GraphNode,
     InvalidCallError,
     Result,
     RunState,
     Series,
-    Static,
     node,
     table_with_columns,
 )
@@ -26,7 +22,8 @@ from conductor._internal.execution.values_of_run import (
     OneValue,
     TableAtRow,
 )
-from helpers import registry_of
+from conductor._internal.graph.binding import From, Static
+from helpers import Placed, placed, record, registry_of
 
 from test_core.test_table import Txt
 
@@ -55,8 +52,8 @@ def shout(text: Txt = Txt("")) -> Annotated[Txt, Result(title="Shouted")]:
 REGISTRY = registry_of(contacts, names, shout)
 
 
-def _compiled(*graph_nodes: GraphNode) -> CompiledGraph:
-    return CompiledGraph.from_graph(Graph(nodes=list(graph_nodes)), REGISTRY)
+def _compiled(*graph_nodes: Placed) -> CompiledGraph:
+    return CompiledGraph.from_graph(record(*list(graph_nodes)), REGISTRY)
 
 
 def _held_as(compiled: CompiledGraph, address: str) -> object:
@@ -65,11 +62,11 @@ def _held_as(compiled: CompiledGraph, address: str) -> object:
 
 def test_compile_says_once_how_each_field_is_held():
     compiled = _compiled(
-        GraphNode(id="t", type="contacts", version=1, bindings={"text": Static("a,b")}),
-        GraphNode(id="row", type="shout", version=1, bindings={"text": From("t.result.name")}),
-        GraphNode(id="s", type="names", version=1, bindings={"text": Static("a,b")}),
-        GraphNode(id="one", type="shout", version=1, bindings={"text": Static("a")}),
-        GraphNode(id="list", type="shout", version=1, bindings={"text": Static(["a", "b"])}),
+        placed("t", "contacts", text=Static("a,b")),
+        placed("row", "shout", text=From("t.result.name")),
+        placed("s", "names", text=Static("a,b")),
+        placed("one", "shout", text=Static("a")),
+        placed("list", "shout", text=Static(["a", "b"])),
     )
 
     assert isinstance(_held_as(compiled, "t.result"), TableAtRow)
@@ -89,8 +86,8 @@ def test_a_skip_at_the_top_leaves_a_node_on_its_rows_absent_from_a_state_read_ba
     """Whether the skip is read live or off a state's columns, what a reader of those rows gets is the same."""
     reader_edge = "m.result.name" if maker == "contacts" else "m.result"
     compiled = _compiled(
-        GraphNode(id="m", type=maker, version=1, bindings={"text": Static("skip")}),
-        GraphNode(id="r", type="shout", version=1, bindings={"text": From(reader_edge)}),
+        placed("m", maker, text=Static("skip")),
+        placed("r", "shout", text=From(reader_edge)),
     )
     state = compiled.run_sync()
 
@@ -99,7 +96,7 @@ def test_a_skip_at_the_top_leaves_a_node_on_its_rows_absent_from_a_state_read_ba
 
 
 def test_a_null_stored_where_a_table_makes_rows_is_refused_when_read_for_a_result():
-    compiled = _compiled(GraphNode(id="t", type="contacts", version=1, bindings={"text": Static("a,b")}))
+    compiled = _compiled(placed("t", "contacts", text=Static("a,b")))
     data = compiled.run_sync().model_dump(mode="json")
     data["nodes"]["t"]["outputs"]["result"]["values"][0] = None
     corrupted = RunState.model_validate(data)

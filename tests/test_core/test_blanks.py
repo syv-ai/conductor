@@ -10,24 +10,23 @@ from conductor import (
     AskPerson,
     CompiledGraph,
     DType,
-    From,
-    Graph,
-    GraphNode,
+    GraphRecord,
     Input,
+    NodeRecord,
     Output,
     Param,
     Result,
     Series,
-    Static,
     Table,
     node,
     table_with_columns,
 )
 from conductor._internal.errors import NodeDeclarationError
+from conductor._internal.graph.binding import From
 from conductor._internal.node_signature import read_signature
 from conductor.events import NodeComplete, NodeSkipped
 from conductor.widgets import Textarea
-from helpers import answer, events_of, registry_of
+from helpers import answer, events_of, placed, record, registry_of
 
 
 class Txt(DType, str):
@@ -113,18 +112,18 @@ def _registry(*more):
 
 
 def _results(*nodes, registry=None):
-    compiled = CompiledGraph.from_graph(Graph(nodes=list(nodes)), registry or _registry())
+    compiled = CompiledGraph.from_graph(record(*list(nodes)), registry or _registry())
     assert compiled.is_runnable, compiled.problems
     state = compiled.run_sync()
     assert state.status == "complete", state.cause
     return compiled, state, compiled.results(state)
 
 
-CSV = GraphNode(id="csv", type="rows2", version=1)
+CSV = placed("csv", "rows2")
 
 
 def _per_row(type_id, **bindings):
-    return GraphNode(id="n", type=type_id, version=1, bindings=bindings or {"email": From("csv.result.email")})
+    return placed("n", type_id, **bindings or {"email": From("csv.result.email")})
 
 
 # --- what can be written --------------------------------------------------------
@@ -217,12 +216,12 @@ def test_a_default_is_for_an_input_nothing_is_wired_to_not_for_a_blank():
     def defaulted(x: Txt = Txt("fallback")) -> Txt:
         return x
 
-    _, _, results = _results(CSV, GraphNode(id="n", type="defaulted", version=1, bindings={"x": From("csv.result.email")}), registry=_registry(defaulted))
+    _, _, results = _results(CSV, placed("n", "defaulted", x=From("csv.result.email")), registry=_registry(defaulted))
     assert results["n"]["result"]["values"] == ["ida@x", None, "nina@x"]
 
 
 def test_the_event_counts_the_rows_not_called_and_the_state_keeps_them():
-    compiled = CompiledGraph.from_graph(Graph(nodes=[CSV, _per_row("plain")]), _registry())
+    compiled = CompiledGraph.from_graph(record(CSV, _per_row("plain")), _registry())
 
     events = events_of(compiled)
     complete = next(e for e in events if isinstance(e, NodeComplete) and e.node_id == "n")
@@ -237,10 +236,10 @@ def test_a_node_all_blank_completes_it_is_never_skipped():
     def nothing() -> Txt | None:
         return None
 
-    compiled = CompiledGraph.from_graph(Graph(nodes=[
-        GraphNode(id="s", type="nothing", version=1),
-        GraphNode(id="n", type="plain", version=1, bindings={"email": From("s.result")}),
-    ]), _registry(nothing))
+    compiled = CompiledGraph.from_graph(GraphRecord(nodes=[
+        NodeRecord(id="s", node="nothing"),
+        NodeRecord(id="n", node="plain"),
+    ], edges=[("s.result", "n.email")]), _registry(nothing))
 
     events = events_of(compiled)
     assert not [e for e in events if isinstance(e, NodeSkipped) and e.node_id == "n"]
@@ -250,7 +249,7 @@ def test_a_node_all_blank_completes_it_is_never_skipped():
 def test_choice_outputs_are_skipped_when_not_called():
     _, _, results = _results(
         CSV, _per_row("branched"),
-        GraphNode(id="k", type="after-branch", version=1, bindings={"value": From("n.known")}),
+        placed("k", "after-branch", value=From("n.known")),
     )
     assert results["n"]["known"]["rows"] == [(0,), (2,)]
     assert results["k"]["result"]["rows"] == [(0,), (2,)]
@@ -259,7 +258,7 @@ def test_choice_outputs_are_skipped_when_not_called():
 def test_a_row_making_output_has_no_rows_when_not_called_so_a_count_gives_zero():
     _, _, results = _results(
         CSV, _per_row("splits"),
-        GraphNode(id="c", type="count", version=1, bindings={"values": From("n.result")}),
+        placed("c", "count", values=From("n.result")),
     )
     assert results["c"]["result"]["values"] == [5, 0, 6]
 
@@ -271,25 +270,27 @@ def test_a_table_output_has_no_rows_when_not_called():
 
 
 def test_a_series_leaves_blanks_out():
-    _, _, results = _results(CSV, GraphNode(id="n", type="join", version=1, bindings={"values": From("csv.result.email")}))
+    _, _, results = _results(CSV, placed("n", "join", values=From("csv.result.email")))
     assert results["n"]["result"] == "ida@x,nina@x"
 
 
 def test_a_series_saying_none_keeps_them():
-    _, _, results = _results(CSV, GraphNode(id="n", type="keep", version=1, bindings={"values": From("csv.result.email")}))
+    _, _, results = _results(CSV, placed("n", "keep", values=From("csv.result.email")))
     assert results["n"]["result"] == 1
 
 
 def test_series_on_one_index_lose_a_blank_row_together():
-    _, _, results = _results(CSV, GraphNode(id="n", type="zipped", version=1, bindings={
-        "a": From("csv.result.name"), "b": From("csv.result.email"),
-    }))
+    _, _, results = _results(CSV, placed("n", "zipped", a=From("csv.result.name"), b=From("csv.result.email")))
     assert results["n"]["result"] == "Idaida@x|Ninanina@x"
 
 
 def test_a_static_none_needs_the_hint():
-    plain_static = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n", type="plain", version=1, bindings={"email": Static(None)})]), _registry())
-    takes_static = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n", type="takes", version=1, bindings={"email": Static(None)})]), _registry())
+    plain_static = CompiledGraph.from_graph(GraphRecord(nodes=[
+        NodeRecord(id="n", node="plain", values={"email": None}),
+    ]), _registry())
+    takes_static = CompiledGraph.from_graph(GraphRecord(nodes=[
+        NodeRecord(id="n", node="takes", values={"email": None}),
+    ]), _registry())
 
     assert [p.type for p in plain_static.problems] == ["invalid_static"]
     assert takes_static.is_runnable
@@ -305,8 +306,12 @@ def test_returning_none_needs_the_hint():
         return None
 
     registry = _registry(bad, good)
-    failed = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n", type="bad", version=1, bindings={"x": Static("a")})]), registry).run_sync()
-    fine = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n", type="good", version=1, bindings={"x": Static("a")})]), registry).run_sync()
+    failed = CompiledGraph.from_graph(GraphRecord(nodes=[
+        NodeRecord(id="n", node="bad", values={"x": "a"}),
+    ]), registry).run_sync()
+    fine = CompiledGraph.from_graph(GraphRecord(nodes=[
+        NodeRecord(id="n", node="good", values={"x": "a"}),
+    ]), registry).run_sync()
 
     assert failed.status == "failed" and failed.cause.type == "invalid_output"
     assert fine.status == "complete"
@@ -317,7 +322,9 @@ def test_a_question_with_a_blank_hint_may_be_left_out():
     def ask(x: Txt) -> Annotated[Txt | None, Result(title="A")] | AskPerson:
         return AskPerson()
 
-    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n", type="ask", version=1, bindings={"x": Static("a")})]), _registry(ask))
+    compiled = CompiledGraph.from_graph(GraphRecord(nodes=[
+        NodeRecord(id="n", node="ask", values={"x": "a"}),
+    ]), _registry(ask))
     waiting = compiled.run_sync()
     unit = waiting.waiting[0]
     assert not unit.questions[0].required
@@ -327,7 +334,7 @@ def test_a_question_with_a_blank_hint_may_be_left_out():
 
 def test_a_reader_of_a_blank_chain_is_not_called_either():
     CALLED.clear()
-    _, _, results = _results(CSV, _per_row("plain"), GraphNode(id="m", type="plain", version=1, bindings={"email": From("n.result")}))
+    _, _, results = _results(CSV, _per_row("plain"), placed("m", "plain", email=From("n.result")))
     assert results["m"]["result"]["values"] == ["IDA@X", None, "NINA@X"]
     assert len(CALLED) == 4
 
@@ -337,12 +344,12 @@ def test_a_blank_in_a_widget_input_is_read_through_the_annotated_form():
     def wid(x: Annotated[Txt | None, Param(widget=Textarea())] = None) -> Txt:
         return Txt("empty" if x is None else x)
 
-    _, _, results = _results(GraphNode(id="n", type="wid", version=1), registry=_registry(wid))
+    _, _, results = _results(placed("n", "wid"), registry=_registry(wid))
     assert results["n"]["result"] == "empty"
 
 
 def test_a_blank_on_a_state_round_trips_through_its_json():
-    compiled = CompiledGraph.from_graph(Graph(nodes=[CSV, _per_row("plain")]), _registry())
+    compiled = CompiledGraph.from_graph(record(CSV, _per_row("plain")), _registry())
     state = compiled.run_sync()
 
     restored = type(state).model_validate_json(state.model_dump_json())

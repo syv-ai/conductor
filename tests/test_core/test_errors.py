@@ -11,19 +11,19 @@ from conductor import (
     CompiledGraph,
     ComputeHookError,
     DType,
-    Graph,
-    GraphNode,
+    GraphRecord,
     InvalidCallError,
     NodeError,
+    NodeRecord,
     NodeRegistry,
     Param,
     Problem,
     Result,
-    Static,
     node,
 )
 from conductor._internal.errors import ConductorError, NodeDeclarationError, make_problem
-from helpers import registry_of
+from conductor._internal.graph.binding import Static
+from helpers import placed, record, registry_of
 
 
 class Txt(DType, str):
@@ -61,10 +61,10 @@ def test_fatality_cannot_be_set_on_a_record():
 
 
 def test_a_dump_has_fatal_and_reads_back():
-    told = make_problem("unknown_locked_field", "a", "x")
+    told = make_problem("unused_binding", "a", "x", inputs="y")
     dumped = told.model_dump(mode="json")
 
-    assert dumped == {"type": "unknown_locked_field", "msg": told.msg, "loc": ["a", "x"], "ctx": {}, "fatal": False}
+    assert dumped == {"type": "unused_binding", "msg": told.msg, "loc": ["a", "x"], "ctx": {"inputs": "y"}, "fatal": False}
     assert Problem.model_validate(dumped) == told
 
 
@@ -119,7 +119,9 @@ def test_a_node_failure_takes_its_code_and_ctx_from_what_the_node_raised():
 
 
 def test_a_graph_that_cannot_run_is_refused_with_its_own_problems():
-    graph = Graph(nodes=[GraphNode(id="a", type="echo", version=1)])
+    graph = GraphRecord(nodes=[
+        NodeRecord(id="a", node="echo"),
+    ])
     compiled = CompiledGraph.from_graph(graph, _registry())
 
     with pytest.raises(InvalidCallError) as raised:
@@ -145,7 +147,9 @@ def _hooked(raised: Exception) -> Any:
 
 def test_a_compile_problem_from_a_hook_lands_on_the_field_it_names():
     registry = _registry(_hooked(ComputeHookError("Not that mode.", code="wrong_mode", field="text")))
-    graph = Graph(nodes=[GraphNode(id="h", type="hooked", version=1)])
+    graph = GraphRecord(nodes=[
+        NodeRecord(id="h", node="hooked"),
+    ])
 
     (told,) = CompiledGraph.from_graph(graph, registry).problems
 
@@ -160,7 +164,9 @@ def test_a_hook_may_not_raise_a_code_the_catalogue_says_can_still_run():
 def test_a_hook_that_raises_anything_else_is_a_bug_and_leaves_compile():
     """Compile never raises for a fault in the graph; a hook's own bug is not one."""
     registry = _registry(_hooked(KeyError("mode")))
-    graph = Graph(nodes=[GraphNode(id="h", type="hooked", version=1)])
+    graph = GraphRecord(nodes=[
+        NodeRecord(id="h", node="hooked"),
+    ])
 
     with pytest.raises(KeyError):
         CompiledGraph.from_graph(graph, registry)
@@ -178,15 +184,17 @@ def test_a_binding_on_a_field_a_hook_took_away_is_unused_and_a_typo_is_fatal():
         return text
 
     bound = {"gone": Static(1)}
-    (stale,) = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="a", type="echo", version=1, bindings={"text": Static("x"), **bound})]), _registry()).problems
-    (unused,) = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="a", type="comes", version=1, bindings={"text": Static("x"), **bound})]), _registry(comes)).problems
+    (stale,) = CompiledGraph.from_graph(record(placed("a", "echo", **{"text": Static("x"), **bound})), _registry()).problems
+    (unused,) = CompiledGraph.from_graph(record(placed("a", "comes", **{"text": Static("x"), **bound})), _registry(comes)).problems
 
     assert (stale.type, stale.fatal) == ("stale_binding", True)
     assert (unused.type, unused.fatal) == ("unused_binding", False)
 
 
 def test_an_unknown_node_type_lists_what_there_is():
-    graph = Graph(nodes=[GraphNode(id="a", type="ecko", version=1)])
+    graph = GraphRecord(nodes=[
+        NodeRecord(id="a", node="ecko"),
+    ])
 
     (told,) = CompiledGraph.from_graph(graph, _registry()).problems
 

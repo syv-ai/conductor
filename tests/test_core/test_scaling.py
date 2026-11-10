@@ -12,21 +12,10 @@ import time
 from dataclasses import dataclass
 from typing import Annotated
 
-from conductor import (
-    SKIPPED,
-    CompiledGraph,
-    DType,
-    From,
-    Graph,
-    GraphNode,
-    Param,
-    Result,
-    Series,
-    Static,
-    node,
-)
+from conductor import SKIPPED, CompiledGraph, DType, Param, Result, Series, node
+from conductor._internal.graph.binding import From, Static
 from conductor.widgets import Textarea
-from helpers import registry_of, stream_of
+from helpers import placed, record, registry_of, stream_of
 
 
 class Txt(DType, str):
@@ -83,18 +72,7 @@ def _compiled(rows: int) -> CompiledGraph:
     """Ten nodes over ``rows`` rows; every third row takes the short branch."""
     registry = registry_of(docs, upper_node, pair, join_node, long_only)
     text = ",".join(f"row{i}" if i % 3 else "r" for i in range(rows))
-    graph = Graph(nodes=[
-        GraphNode(id="docs", type="docs", version=1, bindings={"text": Static(text)}),
-        GraphNode(id="prefix", type="upper", version=1, bindings={"text": Static("p")}),
-        GraphNode(id="up", type="upper", version=1, bindings={"text": _edge("docs", "texts")}),
-        GraphNode(id="pair", type="pair", version=1, bindings={"a": _edge("prefix", "result"), "b": _edge("up", "result")}),
-        GraphNode(id="gate", type="long-only", version=1, bindings={"text": _edge("pair", "result")}),
-        GraphNode(id="long", type="upper", version=1, bindings={"text": _edge("gate", "long")}),
-        GraphNode(id="short", type="upper", version=1, bindings={"text": _edge("gate", "short")}),
-        GraphNode(id="long-joined", type="join", version=1, bindings={"texts": _edge("long", "result")}),
-        GraphNode(id="short-joined", type="join", version=1, bindings={"texts": _edge("short", "result")}),
-        GraphNode(id="names", type="join", version=1, bindings={"texts": _edge("docs", "names")}),
-    ])
+    graph = record(placed("docs", "docs", text=Static(text)), placed("prefix", "upper", text=Static("p")), placed("up", "upper", text=_edge("docs", "texts")), placed("pair", "pair", a=_edge("prefix", "result"), b=_edge("up", "result")), placed("gate", "long-only", text=_edge("pair", "result")), placed("long", "upper", text=_edge("gate", "long")), placed("short", "upper", text=_edge("gate", "short")), placed("long-joined", "join", texts=_edge("long", "result")), placed("short-joined", "join", texts=_edge("short", "result")), placed("names", "join", texts=_edge("docs", "names")))
     compiled = CompiledGraph.from_graph(graph, registry)
     assert compiled.is_runnable, compiled.problems
     return compiled

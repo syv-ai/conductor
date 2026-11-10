@@ -1,6 +1,6 @@
 """``CompiledGraph`` — everything the compiler learned about a graph, as one immutable value, and every verb that runs it.
 
-``CompiledGraph.from_graph`` builds it from a ``Graph`` and a ``NodeRegistry``.
+``CompiledGraph.from_graph`` builds it from a ``GraphRecord`` and a ``NodeRegistry``.
 Everyone else asks it questions and never reads the nodes' bindings
 themselves: which version each node uses, which inputs and outputs it
 actually has, where each input's value comes from and how each unit
@@ -22,7 +22,7 @@ for an editor. ``node(node_id)`` returns a ``CompiledNode``, everything
 compile knows about one node, and ``field(ref)`` a ``CompiledField``, the same
 for one input or output of a node compile fully worked out. Both hand back the
 same value on every call. A node compile couldn't fully work out says so by
-its ``status``, and its ``cause`` says why. The graph stores a ``GraphNode`` (a node as the author
+its ``status``, and its ``cause`` says why. The record holds a ``NodeRecord`` (a node as the author
 saved it) and addresses fields by ``Ref``; what compile learned about that
 node or field lives on its ``CompiledNode`` and ``CompiledField``.
 
@@ -72,7 +72,6 @@ from conductor._internal.execution.run_state import Answers, RunState
 from conductor._internal.execution.running_leg import RunningLeg
 from conductor._internal.execution.values_of_run import ValuesOfRun
 from conductor._internal.execution.waiting_units import apply_answers
-from conductor._internal.graph.binding import Static
 from conductor._internal.graph.compile_graph import compile_graph
 from conductor._internal.graph.compiled_node import CompiledField, CompiledNode
 from conductor._internal.graph.embedding import (
@@ -87,7 +86,7 @@ from conductor._internal.graph.run_plan import RunPlan
 from conductor._internal.ref import Ref
 
 if TYPE_CHECKING:
-    from conductor._internal.graph.graph_records import Graph
+    from conductor._internal.graph.graph_records import GraphRecord
     from conductor._internal.node_signature import Interface
     from conductor._internal.registry import NodeRegistry
 
@@ -131,15 +130,14 @@ class CompiledGraph:
     #: its target. A node in a cycle is not in it; it has a fatal ``Problem`` instead.
     execution_order: tuple[str, ...]
     #: What this graph takes and returns, in the same record a node version
-    #: declares: ``inputs`` are the unlocked, connectable fields of the nodes
-    #: nothing feeds into (each declaration whole, titled as the author
-    #: titled it on that node), ``outputs`` every field of the nodes nothing
+    #: declares: ``inputs`` are the connectable fields no value fixes of the nodes
+    #: nothing feeds into (each declaration whole), ``outputs`` every field of the nodes nothing
     #: reads from, both named by address (``"node.field"``).
     interface: Interface
     #: The graph as the author saved it — with the values ``with_inputs``
     #: filled, on a copy it made — which a host stores as what ran. Not read
     #: back for what compile learned: ask ``node`` and ``field`` for that.
-    graph: Graph
+    graph: GraphRecord
     #: Everything wrong with the graph, fatal or not, each on the node and
     #: field it is about, all on nodes of the authored graph. An embedded
     #: graph that cannot be embedded is one ``embedded_graph_broken`` on the
@@ -151,7 +149,7 @@ class CompiledGraph:
     _row_ids_must_survive: frozenset[Ref] = field(repr=False)
 
     @classmethod
-    def from_graph(cls, graph: Graph, registry: NodeRegistry) -> CompiledGraph:
+    def from_graph(cls, graph: GraphRecord, registry: NodeRegistry) -> CompiledGraph:
         """Compile ``graph`` against ``registry``: the one way to get a ``CompiledGraph``.
 
         Pure: the same graph and registry always give the same result. Every
@@ -224,24 +222,26 @@ class CompiledGraph:
         ``inputs`` is keyed by address (``a.text``, ``emb.text`` on a node that
         is a graph); a keyword is a field name when no other input has that name. A name the interface does not offer raises
         ``InvalidCallError``, code ``not_offered``, every such name at once.
-        Each value becomes a ``Static`` on its input in a copy of the graph,
+        Each value becomes a default on its input in a copy of the record,
         which compiles against the same registry: a list on an input for one
-        value runs the graph once per item. Only what the interface offers: a
-        caller's body can go here, and ``Graph.with_values`` is an author's. A value its input's type can't
+        value runs the graph once per item. A value its input's type can't
         read is an ``invalid_static``, raised with any names it doesn't offer.
         The copy offers every input as this one does. Not a run.
         """
         values = {**(inputs or {}), **by_name}
         offered = [input_.name for input_ in self.interface.inputs]
         problems: list[Problem] = []
-        statics_to_set: dict[str, dict[str, Static]] = {}
+        defaults_to_set: dict[str, dict[str, Any]] = {}
         written_as: dict[tuple[str, str], str] = {}
         for name, value in values.items():
             ref = self._offered_input_named(name, offered, problems)
             if ref is not None:
-                statics_to_set.setdefault(ref.node_id, {})[ref.field] = Static(value)
+                defaults_to_set.setdefault(ref.node_id, {})[ref.field] = value
                 written_as[ref.node_id, ref.field] = name
-        refilled = CompiledGraph.from_graph(self.graph._with_statics(statics_to_set), self._registry)
+        refilled = CompiledGraph.from_graph(self.graph.model_copy(update={"nodes": tuple(
+            node.model_copy(update={"defaults": {**node.defaults, **defaults_to_set[node.id]}}) if node.id in defaults_to_set else node
+            for node in self.graph.nodes
+        )}), self._registry)
         problems += [
             problem.model_copy(update={"loc": ("inputs", written_as[problem.loc])})  # type: ignore[index]
             for problem in refilled.problems if problem.type in ("invalid_static", "table_column_missing") and problem.loc in written_as

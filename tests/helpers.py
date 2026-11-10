@@ -1,13 +1,57 @@
-"""What several test modules need to read a stream."""
+"""What several test modules need: writing a graph record compactly, reading a stream."""
 
 import asyncio
 from collections.abc import AsyncIterator, Iterable, Mapping
+from dataclasses import dataclass
 from typing import Any
 
-from conductor import CompiledGraph, DType, NodeDefinition, NodeRegistry, RunState
+from conductor import (
+    CompiledGraph,
+    DType,
+    GraphRecord,
+    NodeDefinition,
+    NodeRecord,
+    NodeRegistry,
+    RunState,
+)
+from conductor._internal.graph.binding import From, Static
 from conductor.events import Event
 from pydantic import TypeAdapter
 from pydantic_core import core_schema
+
+
+@dataclass(frozen=True)
+class Placed:
+    """One node of a record a test writes, with the edges into it: ``record`` collects them."""
+
+    node: NodeRecord
+    edges: tuple[tuple[str, str], ...]
+
+    @property
+    def id(self) -> str:
+        return self.node.id
+
+
+def placed(
+    node_id: str, node: str, /, version: int = 1, defaults_: Mapping[str, Any] | None = None, display_: Mapping[str, Any] | None = None, **inputs: Any,
+) -> Placed:
+    """A node as a test writes it, each input set the way compile reads it::
+
+        placed("b", "upper", text=From("a.result"), times=Static(2))
+
+    A ``From`` is the edges into that input, a ``Static`` (or a plain value) a value typed in;
+    ``defaults_`` are the node's defaults."""
+    values = {name: value.value if isinstance(value, Static) else value for name, value in inputs.items() if not isinstance(value, From)}
+    edges = tuple((str(ref), f"{node_id}.{name}") for name, value in inputs.items() if isinstance(value, From) for ref in value.refs)
+    return Placed(NodeRecord(id=node_id, node=node, version=version, values=values, defaults=defaults_ or {}, display=display_ or {}), edges)
+
+
+def record(*nodes: Placed | NodeRecord, edges: Iterable[tuple[str, str]] = ()) -> GraphRecord:
+    """The graph record of ``nodes``, with their edges and ``edges``."""
+    return GraphRecord(
+        nodes=[node.node if isinstance(node, Placed) else node for node in nodes],
+        edges=[*(edge for node in nodes if isinstance(node, Placed) for edge in node.edges), *edges],
+    )
 
 
 def waiting_id(state: RunState, name: str) -> str:

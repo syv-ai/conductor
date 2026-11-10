@@ -12,7 +12,7 @@ from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
 from typing import Annotated, Any
 
-from conductor import CompiledGraph, Graph, GraphDescription, InvalidCallError, NodeRegistry, RegistryDescription, RunState, RunStatus, WaitingUnit
+from conductor import CompiledGraph, GraphDescription, GraphRecord, InvalidCallError, NodeRegistry, RegistryDescription, RunState, RunStatus, WaitingUnit
 from conductor.events import Event, RunEnd
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -33,7 +33,7 @@ class RunView(BaseModel):
 class SavedRun(RunView):
     """One row of your table."""
 
-    graph: Graph
+    graph: GraphRecord
     state: RunState | None = None
 
 
@@ -112,12 +112,12 @@ def nodes() -> RegistryDescription:
 
 
 @app.post("/compile")
-def compile_graph(graph: Graph) -> GraphDescription:
+def compile_graph(graph: GraphRecord) -> GraphDescription:
     return CompiledGraph.from_graph(graph, registry).describe()
 
 
 @app.post("/runs", status_code=202)
-async def start(graph: Graph, caller: CallerDep) -> dict[str, str]:
+async def start(graph: GraphRecord, caller: CallerDep) -> dict[str, str]:
     run_id = uuid.uuid4().hex
     launch(run_id, CompiledGraph.from_graph(graph, registry), None, {Caller: caller})
     return {"id": run_id}
@@ -164,7 +164,7 @@ async def cancel(run_id: str) -> dict[str, bool]:
 **Who can reach `POST /runs`.** That route takes any graph, so whoever reaches it runs any node on any value. It is an author's endpoint: put your author check on it with `dependencies=[Depends(...)]`, and the same on `/nodes` and `/compile`. For an end user, offer one saved graph and let the body fill its inputs and nothing else:
 
 ```python
-published: dict[str, Graph] = {}  # the graphs you offer
+published: dict[str, GraphRecord] = {}  # the graphs you offer
 
 
 @app.post("/graphs/{name}/runs", status_code=202)

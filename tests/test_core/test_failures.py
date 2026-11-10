@@ -16,16 +16,14 @@ from conductor import (
     CompiledGraph,
     DType,
     ExternalFailure,
-    From,
-    Graph,
-    GraphNode,
+    GraphRecord,
     NodeDefinition,
     NodeError,
+    NodeRecord,
     Param,
     Policy,
     Result,
     Series,
-    Static,
     node,
 )
 from conductor._internal.execution.call_node import CallFailed, call_node
@@ -46,7 +44,9 @@ def _compiled(node_cls: type[NodeDefinition], *more: type[NodeDefinition]) -> Co
     """One node of ``node_cls`` as ``n1``, its text typed in."""
     reg = registry_of(node_cls, *more)
     return CompiledGraph.from_graph(
-        Graph(nodes=[GraphNode(id="n1", type=node_cls.id, version=1, bindings={"text": Static("x")})]), reg
+        GraphRecord(nodes=[
+            NodeRecord(id="n1", node=node_cls.id, values={"text": "x"}),
+        ]), reg
     )
 
 
@@ -241,10 +241,10 @@ def test_a_failed_row_is_retried_alone():
 
     reg = registry_of(split_node, flaky_on_b)
     compiled = CompiledGraph.from_graph(
-        Graph(nodes=[
-            GraphNode(id="split", type="split", version=1, bindings={"text": Static("a,b,c")}),
-            GraphNode(id="rows", type="flaky-on-b", version=1, bindings={"text": From("split.result")}),
-        ]),
+        GraphRecord(nodes=[
+            NodeRecord(id="split", node="split", values={"text": "a,b,c"}),
+            NodeRecord(id="rows", node="flaky-on-b"),
+        ], edges=[("split.result", "rows.text")]),
         reg,
     )
 
@@ -275,11 +275,11 @@ def test_a_flaky_node_in_one_branch_retries_while_the_other_branch_completes():
 
     reg = registry_of(flaky_a, fast_b, join)
     compiled = CompiledGraph.from_graph(
-        Graph(nodes=[
-            GraphNode(id="n1", type="flaky-a", version=1, bindings={"text": Static("x")}),
-            GraphNode(id="n2", type="fast-b", version=1, bindings={"text": Static("y")}),
-            GraphNode(id="n3", type="join", version=1, bindings={"a": From("n1.result"), "b": From("n2.result")}),
-        ]),
+        GraphRecord(nodes=[
+            NodeRecord(id="n1", node="flaky-a", values={"text": "x"}),
+            NodeRecord(id="n2", node="fast-b", values={"text": "y"}),
+            NodeRecord(id="n3", node="join"),
+        ], edges=[("n1.result", "n3.a"), ("n2.result", "n3.b")]),
         reg,
     )
 
@@ -323,7 +323,9 @@ def test_a_type_whose_validator_does_not_return_the_type_fails_loud():
         return Shape(side=2)
 
     registry = registry_of(draws)
-    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="d", type="draws", version=1)]), registry)
+    compiled = CompiledGraph.from_graph(GraphRecord(nodes=[
+        NodeRecord(id="d", node="draws"),
+    ]), registry)
 
     ending = compiled.run_sync()
 

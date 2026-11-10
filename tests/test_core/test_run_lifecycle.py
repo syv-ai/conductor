@@ -11,24 +11,33 @@ from conductor import (
     AskPerson,
     CompiledGraph,
     DType,
-    From,
-    Graph,
-    GraphNode,
+    GraphRecord,
     InvalidCallError,
     NodeDefinition,
     NodeError,
+    NodeRecord,
     NodeRegistry,
     Param,
     Result,
     RunState,
     Series,
-    Static,
     node,
     table_with_columns,
 )
+from conductor._internal.graph.binding import From, Static
 from conductor.events import RunEnd, RunStart, UnitWaiting
 from conductor.widgets import Textarea
-from helpers import answer, events_of, read_table, registry_of, waiting_id, with_added
+from helpers import (
+    Placed,
+    answer,
+    events_of,
+    placed,
+    read_table,
+    record,
+    registry_of,
+    waiting_id,
+    with_added,
+)
 
 
 class Txt(DType, str):
@@ -138,14 +147,14 @@ def slow() -> Out:
 REGISTRY = registry_of(split_node, words, upper_node, approve, decide, ask_table, ask_many, read_emails, boom, wrong_type, ask_stray, slow)
 
 
-def compiled_of(*nodes: GraphNode) -> CompiledGraph:
-    compiled = CompiledGraph.from_graph(Graph(nodes=nodes), REGISTRY)
+def compiled_of(*nodes: Placed) -> CompiledGraph:
+    compiled = CompiledGraph.from_graph(record(*nodes), REGISTRY)
     assert compiled.is_runnable, compiled.problems
     return compiled
 
 
-def n(id: str, type: str | None = None, **bindings: Any) -> GraphNode:
-    return GraphNode(id=id, type=type or id, version=1, bindings=bindings)
+def n(id: str, type: str | None = None, **bindings: Any) -> Placed:
+    return placed(id, type or id, **bindings)
 
 
 def roundtrip(state: RunState) -> RunState:
@@ -233,7 +242,9 @@ def test_stream_starts_with_run_start_ends_with_run_end():
 
 
 def test_a_refused_stream_raises_at_the_call_not_inside_the_block():
-    broken = CompiledGraph.from_graph(Graph(nodes=(GraphNode(id="x", type="nope", version=1),)), REGISTRY)
+    broken = CompiledGraph.from_graph(GraphRecord(nodes=[
+        NodeRecord(id="x", node="nope"),
+    ]), REGISTRY)
     with pytest.raises(InvalidCallError) as raised:
         broken.stream()
     (fault,) = raised.value.errors()
@@ -492,7 +503,9 @@ def test_a_node_returning_none_on_a_typed_output_still_fails():
         return None  # type: ignore[return-value]
 
     registry = registry_of(returns_none)
-    compiled = CompiledGraph.from_graph(Graph(nodes=(GraphNode(id="r", type="returns-none", version=1),)), registry)
+    compiled = CompiledGraph.from_graph(GraphRecord(nodes=[
+        NodeRecord(id="r", node="returns-none"),
+    ]), registry)
     assert compiled.run_sync().cause.type == "invalid_output"
 
 
@@ -506,7 +519,9 @@ def test_a_dump_of_a_value_with_no_json_form_names_the_output():
         return Opaque()
 
     registry = registry_of(makes_opaque)
-    state = CompiledGraph.from_graph(Graph(nodes=(GraphNode(id="o", type="makes-opaque", version=1),)), registry).run_sync()
+    state = CompiledGraph.from_graph(GraphRecord(nodes=[
+        NodeRecord(id="o", node="makes-opaque"),
+    ]), registry).run_sync()
     with pytest.raises(Exception, match=r"o\.result"):
         state.model_dump_json()
 
@@ -529,7 +544,9 @@ def test_no_series_constructor_is_needed_for_skips_in_a_many_valued_output():
         return [Txt("a"), SKIPPED, Txt("c")]
 
     registry = registry_of(sparse)
-    compiled = CompiledGraph.from_graph(Graph(nodes=(GraphNode(id="s", type="sparse", version=1),)), registry)
+    compiled = CompiledGraph.from_graph(GraphRecord(nodes=[
+        NodeRecord(id="s", node="sparse"),
+    ]), registry)
     assert compiled.outputs(roundtrip(compiled.run_sync()))["s.result"]["rows"] == [(0,), (2,)]
 
 
@@ -581,7 +598,7 @@ def test_a_signature_that_moves_a_node_to_other_rows_changes_its_fingerprint():
 
     per_row = compiled_of(*LINES)
     registry = registry_of(split_node, whole_)
-    whole = CompiledGraph.from_graph(Graph(nodes=LINES), registry)
+    whole = CompiledGraph.from_graph(record(*LINES), registry)
     assert per_row.node("count").fingerprint != whole.node("count").fingerprint
     assert whole._nodes_changed_since(per_row.run_sync()) == ["count"]
 
@@ -601,9 +618,9 @@ def test_an_input_that_starts_taking_a_blank_changes_the_fingerprint_and_is_call
         _called("counted")
         return Whole(0 if x is None else x)
 
-    nodes = [GraphNode(id="n", type="nothing", version=1), GraphNode(id="c", type="counted", version=1, bindings={"x": From("n.result")})]
-    before = CompiledGraph.from_graph(Graph(nodes=nodes), with_added(NodeRegistry(), nothing, refuses_a_blank))
-    after = CompiledGraph.from_graph(Graph(nodes=nodes), with_added(NodeRegistry(), nothing, takes_a_blank))
+    nodes = [placed("n", "nothing"), placed("c", "counted", x=From("n.result"))]
+    before = CompiledGraph.from_graph(record(*nodes), with_added(NodeRegistry(), nothing, refuses_a_blank))
+    after = CompiledGraph.from_graph(record(*nodes), with_added(NodeRegistry(), nothing, takes_a_blank))
     state = before.run_sync()
     assert calls == {}
 
@@ -619,8 +636,14 @@ def test_a_leg_from_a_state_where_a_function_nodes_id_now_holds_a_graph_runs_it_
         return text.upper()
 
     registry = registry_of(upper)
-    state = CompiledGraph.from_graph(Graph(nodes=[upper.graph_node("x", text="a")]), registry).run_sync()
-    inner = CompiledGraph.from_graph(Graph(nodes=[upper.graph_node("in", text="b")]), registry)
+    state = CompiledGraph.from_graph(GraphRecord(nodes=[
+        NodeRecord(id="x", node=upper.id, values={"text": "a"}),
+    ]), registry).run_sync()
+    inner = CompiledGraph.from_graph(GraphRecord(nodes=[
+        NodeRecord(id="in", node=upper.id, values={"text": "b"}),
+    ]), registry)
     sub = NodeDefinition.from_compiled_graphs("sub", versions=inner)
-    replaced = CompiledGraph.from_graph(Graph(nodes=[sub.graph_node("x")]), registry_of(upper, sub))
+    replaced = CompiledGraph.from_graph(GraphRecord(nodes=[
+        NodeRecord(id="x", node=sub.id),
+    ]), registry_of(upper, sub))
     assert replaced.run_sync(state).status == "complete"

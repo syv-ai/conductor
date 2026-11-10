@@ -17,7 +17,7 @@ _A_FRAME_IN_AND_OUT = """
 from typing import TypedDict
 
 import polars as pl
-from conductor import CompiledGraph, From, Graph, NodeRegistry, Table
+from conductor import CompiledGraph, NodeRegistry, Table, make_graph
 
 registry = NodeRegistry()
 
@@ -42,15 +42,15 @@ def rows(table: Table) -> int:
     return table.height
 
 
-graph = Graph(nodes=[sales.graph_node("s"), first_row.graph_node("b", table=From("s.result")), rows.graph_node("r", table=From("b.result"))])
+graph = make_graph(sales, first_row, rows)
 compiled = CompiledGraph.from_graph(graph, registry)
 results = compiled.results(compiled.run_sync())
-assert results["b"]["result"]["region"].to_list() == ["north"]
-assert results["r"]["result"] == 1
+assert results["first-row"]["result"]["region"].to_list() == ["north"]
+assert results["rows"]["result"] == 1
 """
 
 _AN_EMBEDDED_GRAPH = """
-from conductor import CompiledGraph, From, Graph, NodeDefinition, NodeRegistry, node
+from conductor import CompiledGraph, NodeDefinition, NodeRegistry, make_graph, node
 
 
 @node("trim")
@@ -65,12 +65,12 @@ def upper(text: str) -> str:
 
 base = NodeRegistry()
 base.add(trim, upper)
-inner = CompiledGraph.from_graph(Graph(nodes=[trim.graph_node("t", text=""), upper.graph_node("u", text=From("t.result"))]), base)
+inner = CompiledGraph.from_graph(make_graph(trim, upper), base)
 clean = NodeDefinition.from_compiled_graphs("clean", versions=inner)
-outer = Graph(nodes=[clean.graph_node("c", text="  hi  "), upper.graph_node("v", text=From("c.result"))])
+outer = make_graph(clean, upper, values={"clean.text": "  hi  "})
 base.add(clean)
 compiled = CompiledGraph.from_graph(outer, base)
-assert compiled.outputs(compiled.run_sync()) == {"v.result": "HI"}
+assert compiled.outputs(compiled.run_sync()) == {"upper.result": "HI"}
 """
 
 

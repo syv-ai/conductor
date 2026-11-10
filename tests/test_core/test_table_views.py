@@ -3,21 +3,9 @@
 from dataclasses import dataclass
 from typing import Annotated
 
-from conductor import (
-    CompiledGraph,
-    From,
-    Graph,
-    GraphNode,
-    NodeDefinition,
-    Output,
-    Ref,
-    Result,
-    Series,
-    Static,
-    Table,
-    node,
-)
-from helpers import with_added
+from conductor import CompiledGraph, NodeDefinition, Output, Ref, Result, Series, Table, node
+from conductor._internal.graph.binding import From, Static
+from helpers import Placed, placed, record, with_added
 
 from test_core.test_table import Num, Txt
 from test_core.test_table_runs import CSV, Contacts, Text, _registry
@@ -43,9 +31,9 @@ def bare(text: Text = Txt("")) -> Annotated[Table, Result(title="Anything")]:
     raise NotImplementedError
 
 
-def _compiled(*nodes: GraphNode, extra: tuple[type[NodeDefinition], ...] = ()) -> CompiledGraph:
+def _compiled(*nodes: Placed, extra: tuple[type[NodeDefinition], ...] = ()) -> CompiledGraph:
     registry = with_added(_registry(), *extra)
-    return CompiledGraph.from_graph(Graph(nodes=list(nodes)), registry)
+    return CompiledGraph.from_graph(record(*list(nodes)), registry)
 
 
 def test_a_column_is_a_series_on_rows_the_table_output_owns():
@@ -57,7 +45,7 @@ def test_a_column_is_a_series_on_rows_the_table_output_owns():
 
 
 def test_a_column_wired_into_a_single_value_input_runs_the_node_per_row_of_the_table():
-    compiled = _compiled(CSV, GraphNode(id="send", type="send", version=1, bindings={"email": From("csv.result.email")}))
+    compiled = _compiled(CSV, placed("send", "send", email=From("csv.result.email")))
 
     assert compiled.is_runnable, compiled.problems
     assert compiled.run_plan.nodes["send"].runs_per_row_of == "csv.result"
@@ -65,9 +53,9 @@ def test_a_column_wired_into_a_single_value_input_runs_the_node_per_row_of_the_t
 
 def test_a_table_per_document_offers_columns_on_rows_under_each_document():
     compiled = _compiled(
-        GraphNode(id="docs", type="docs", version=1, bindings={"text": Static("a:1|b:2")}),
-        GraphNode(id="read", type="structured", version=1, bindings={"text": From("docs.result")}),
-        GraphNode(id="check", type="check", version=1, bindings={"vendor": From("read.result.vendor")}),
+        placed("docs", "docs", text=Static("a:1|b:2")),
+        placed("read", "structured", text=From("docs.result")),
+        placed("check", "check", vendor=From("read.result.vendor")),
     )
 
     assert compiled.is_runnable, compiled.problems
@@ -83,14 +71,14 @@ def test_a_column_appears_exactly_when_its_table_does():
 
 
 def test_a_bare_table_offers_no_columns():
-    compiled = _compiled(GraphNode(id="b", type="bare", version=1), extra=(bare,))
+    compiled = _compiled(placed("b", "bare"), extra=(bare,))
 
     assert compiled.is_runnable, compiled.problems
     assert set(compiled.node("b")._fields) == {"text", "result"}
 
 
 def test_an_output_named_like_a_column_is_refused():
-    compiled = _compiled(GraphNode(id="c", type="clash", version=1), extra=(clash_node,))
+    compiled = _compiled(placed("c", "clash"), extra=(clash_node,))
 
     assert [(p.type, p.loc[1]) for p in compiled.problems] == [("view_name_taken", "rows.email")]
 
@@ -101,6 +89,6 @@ def many_tables(text: Text = Txt("")) -> Annotated[Series[Contacts], Result(titl
 
 
 def test_a_series_of_tables_is_refused_since_a_table_is_already_many_rows():
-    compiled = _compiled(GraphNode(id="m", type="many-tables", version=1), extra=(many_tables,))
+    compiled = _compiled(placed("m", "many-tables"), extra=(many_tables,))
 
     assert [(p.type, p.loc[1], p.fatal) for p in compiled.problems] == [("series_of_tables", "result", True)]

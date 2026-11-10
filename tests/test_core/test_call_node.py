@@ -12,10 +12,9 @@ from conductor import (
     CompiledGraph,
     DType,
     ExternalFailure,
-    From,
-    Graph,
-    GraphNode,
+    GraphRecord,
     NodeError,
+    NodeRecord,
     Policy,
     Result,
     Table,
@@ -23,9 +22,10 @@ from conductor import (
 )
 from conductor._internal.execution.call_node import CallFailed, call_node
 from conductor._internal.execution.run_state import WaitingUnit
+from conductor._internal.graph.binding import From
 from conductor.events import NodeComplete, RunEnd
 from conductor.widgets import Textarea
-from helpers import registry_of
+from helpers import placed, record, registry_of
 from pydantic import TypeAdapter, ValidationError
 
 
@@ -38,14 +38,16 @@ Contacts = Table[Contact]
 
 
 def _compiled_node(function):
-    graph = Graph(nodes=[GraphNode(id="n", type=function.id, version=1)])
+    graph = GraphRecord(nodes=[
+        NodeRecord(id="n", node=function.id),
+    ])
     return CompiledGraph.from_graph(graph, registry_of(function)).node("n")
 
 
 def _compiled_node_fed_by_an_edge(function, source):
     """``function``, its one input on an edge: a value that isn't on an edge was read at compile, and a call doesn't read it again."""
     name = next(iter(inspect.signature(function.versions[1].body).parameters))
-    graph = Graph(nodes=[GraphNode(id="s", type=source.id, version=1), GraphNode(id="n", type=function.id, version=1, bindings={name: From("s.result")})])
+    graph = record(placed("s", source.id), placed("n", function.id, **{name: From("s.result")}))
     return CompiledGraph.from_graph(graph, registry_of(source, function)).node("n")
 
 
@@ -255,7 +257,10 @@ def test_a_slow_output_check_does_not_stall_the_other_units():
         assert _SlowOutput.check_began.wait(timeout=5)
         return 1
 
-    graph = Graph(nodes=[GraphNode(id="s", type="slow_output", version=1), GraphNode(id="o", type="other", version=1)])
+    graph = GraphRecord(nodes=[
+        NodeRecord(id="s", node="slow_output"),
+        NodeRecord(id="o", node="other"),
+    ])
     compiled = CompiledGraph.from_graph(graph, registry_of(slow_output, other))
 
     async def run() -> str:

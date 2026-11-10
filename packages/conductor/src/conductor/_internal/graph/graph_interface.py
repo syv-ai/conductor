@@ -18,13 +18,12 @@ from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING
 
 from conductor._internal.errors import Problem, make_problem
-from conductor._internal.graph.graph_records import GraphNode
 from conductor._internal.node_signature import Interface
 from conductor._internal.ref import Ref
 
 if TYPE_CHECKING:
     from conductor._internal.field_records import Input, Output
-    from conductor._internal.graph.graph_records import Graph
+    from conductor._internal.graph.graph_records import LoadedNode
 
 
 def field_problems(
@@ -57,21 +56,20 @@ def field_problems(
 
 
 def derive_interface(
-    graph: Graph,
+    nodes: Sequence[LoadedNode],
     interfaces: Mapping[str, Interface],
     dependencies: Mapping[str, frozenset[str]],
 ) -> Interface:
     """What this graph takes and returns, read off its nodes.
 
     Inputs: every input of a node no edge leads into, except inputs with
-    no handle and locked ones. Outputs: every output of a node no edge
+    no handle and those a value fixes. Outputs: every output of a node no edge
     leads out of. A node with an edge in, or with any output consumed, is
     an intermediate step and contributes nothing. The rule is per node, so
     ordinary editing does not shift the surface by accident.
 
     Each ``Input`` / ``Output`` returned is the node's own record, named by
-    its address ``Ref(node_id, field)`` and carrying the title the author
-    gave that field on that node. ``needs`` is the union of what the
+    its address ``Ref(node_id, field)``. ``needs`` is the union of what the
     nodes need, by type.
 
     ``interfaces`` holds each node's actual fields (its computed
@@ -87,26 +85,18 @@ def derive_interface(
     inputs: list[Input] = []
     outputs: list[Output] = []
     needs: set[type] = set()
-    for node in graph.nodes:
+    for node in nodes:
         if node.id not in interfaces:
             continue
         interface = interfaces[node.id]
         needs |= interface.needs
         if not dependencies[node.id]:
             inputs.extend(
-                _field_under_its_address(node, declared)
+                declared.model_copy(update={"name": Ref(node.id, declared.name)})
                 for declared in interface.inputs
-                if declared.connectable and declared.name not in node.locked
+                if declared.connectable and declared.name not in node.fixed
             )
         if node.id not in nodes_read_by_another:
-            outputs.extend(_field_under_its_address(node, declared) for declared in interface.outputs)
+            outputs.extend(declared.model_copy(update={"name": Ref(node.id, declared.name)}) for declared in interface.outputs)
     return Interface(inputs=tuple(inputs), outputs=tuple(outputs), needs=frozenset(needs))
 
-
-def _field_under_its_address[InputOrOutput: (Input, Output)](node: GraphNode, declared: InputOrOutput) -> InputOrOutput:
-    """``declared`` under its address, ``node.field``, an embedded graph's fields under the names it offers; with the title the author gave it on this node where there is one."""
-    at = Ref(node.id, declared.name)
-    content = node.fields.get(declared.name)
-    if content is None:
-        return declared.model_copy(update={"name": at})
-    return declared.model_copy(update={"name": at, "title": content.title, "description": content.description})

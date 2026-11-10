@@ -73,7 +73,7 @@ from conductor._internal.execution.values_of_run import (
 from conductor._internal.field_records import Input
 from conductor._internal.graph.binding import From
 from conductor._internal.graph.embedding import parent_graph_of_node_id
-from conductor._internal.graph.graph_records import GraphNode
+from conductor._internal.graph.graph_records import LoadedNode
 from conductor._internal.graph.output_conditions import can_never_both_hold
 from conductor._internal.graph.receive_modes import (
     Cell,
@@ -145,7 +145,7 @@ class WhatArrivesOnInputs(NamedTuple):
 
 
 def read_what_arrives_on_inputs(
-    node: GraphNode, inputs: tuple[Input, ...], statics: Mapping[str, Any], inputs_given_a_list: frozenset[str], progress: CompileProgress, problems: list[Problem],
+    node: LoadedNode, inputs: tuple[Input, ...], statics: Mapping[str, Any], inputs_given_a_list: frozenset[str], progress: CompileProgress, problems: list[Problem],
 ) -> WhatArrivesOnInputs:
     """The reading of each of ``inputs``, stopping at the first one that can't be read."""
     readings: list[ReadingOfInput] = []

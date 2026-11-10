@@ -10,16 +10,14 @@ from conductor import (
     CompiledGraph,
     DType,
     ExternalFailure,
-    From,
-    Graph,
-    GraphNode,
+    GraphRecord,
     NodeDefinition,
     NodeError,
+    NodeRecord,
     NodeRegistry,
     Param,
     Policy,
     Result,
-    Static,
     node,
 )
 from conductor.widgets import NumberWidget, Textarea
@@ -116,11 +114,11 @@ class TestDecisionCombinations:
 
     def test_decision_branch_failure_does_not_affect_other_branch(self):
         """The branch not taken holds a failing node that never runs."""
-        compiled = CompiledGraph.from_graph(Graph(nodes=[
-                GraphNode(id="d", type="decide", version=1, bindings={"value": Static(100)}),
-                GraphNode(id="a", type="tally", version=1, bindings={"label": Static("A"), "number": From('d.high')}),
-                GraphNode(id="b", type="always-fail", version=1, bindings={"number": From('d.low')}),
-            ]), _registry())
+        compiled = CompiledGraph.from_graph(GraphRecord(nodes=[
+            NodeRecord(id="d", node="decide", values={"value": 100}),
+            NodeRecord(id="a", node="tally", values={"label": "A"}),
+            NodeRecord(id="b", node="always-fail"),
+        ], edges=[('d.high', "a.number"), ('d.low', "b.number")]), _registry())
         r = compiled.results(compiled.run_sync())
         # A ran; B was skipped so it never failed
         assert r["a"]["result"] == "A"
@@ -151,7 +149,9 @@ class TestRetry:
                 raise ExternalFailure("transient")
             return Txt("ok")
 
-        compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n1", type="flaky", version=1)]), _registry(flaky))
+        compiled = CompiledGraph.from_graph(GraphRecord(nodes=[
+            NodeRecord(id="n1", node="flaky"),
+        ]), _registry(flaky))
         r = compiled.results(compiled.run_sync())
         assert r["n1"]["result"] == "ok"
         assert calls == 2  # one failure + one success
@@ -185,11 +185,11 @@ class TestEdgeCases:
     """Shapes that once caught bugs."""
 
     def test_decision_routes_only_the_taken_branch(self):
-        compiled = CompiledGraph.from_graph(Graph(nodes=[
-                GraphNode(id="d", type="decide", version=1, bindings={"value": Static(100)}),
-                GraphNode(id="taken", type="tally", version=1, bindings={"label": Static("TAKEN"), "number": From('d.high')}),
-                GraphNode(id="other", type="tally", version=1, bindings={"label": Static("OTHER"), "number": From('d.low')}),
-            ]), _registry())
+        compiled = CompiledGraph.from_graph(GraphRecord(nodes=[
+            NodeRecord(id="d", node="decide", values={"value": 100}),
+            NodeRecord(id="taken", node="tally", values={"label": "TAKEN"}),
+            NodeRecord(id="other", node="tally", values={"label": "OTHER"}),
+        ], edges=[('d.high', "taken.number"), ('d.low', "other.number")]), _registry())
         r = compiled.results(compiled.run_sync())
         assert r["taken"]["result"] == "TAKEN"
         assert "other" not in r
@@ -197,12 +197,12 @@ class TestEdgeCases:
     def test_skip_propagates_through_decision_else_branch(self):
         """A deciding node fed by an edge routes the taken branch; the else branch is skipped."""
 
-        compiled = CompiledGraph.from_graph(Graph(nodes=[
-                GraphNode(id="source", type="echo", version=1, bindings={"text": Static("data")}),
-                GraphNode(id="d", type="route", version=1, bindings={"text": From('source.result')}),
-                GraphNode(id="taken", type="echo", version=1, bindings={"text": From('d.match')}),
-                GraphNode(id="else_b", type="echo", version=1, bindings={"text": From('d.other')}),
-            ]), _registry(route))
+        compiled = CompiledGraph.from_graph(GraphRecord(nodes=[
+            NodeRecord(id="source", node="echo", values={"text": "data"}),
+            NodeRecord(id="d", node="route"),
+            NodeRecord(id="taken", node="echo"),
+            NodeRecord(id="else_b", node="echo"),
+        ], edges=[('source.result', "d.text"), ('d.match', "taken.text"), ('d.other', "else_b.text")]), _registry(route))
         r = compiled.results(compiled.run_sync())
         assert r["taken"]["result"] == "data"
         assert "else_b" not in r

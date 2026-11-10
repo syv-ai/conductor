@@ -6,16 +6,14 @@ import pytest
 from conductor import (
     CompiledGraph,
     DType,
-    From,
     FromRun,
-    Graph,
-    GraphNode,
+    GraphRecord,
     InvalidCallError,
+    NodeRecord,
     Param,
     Ref,
     Result,
     Series,
-    Static,
     node,
 )
 from conductor._internal.node_signature import read_signature
@@ -59,22 +57,26 @@ def test_a_from_run_parameter_is_a_need_not_an_input():
 
 
 def test_the_run_supplies_a_need_by_type():
-    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="g", type="greet", version=1, bindings={"text": Static(Txt("hello"))})]), _registry())
+    compiled = CompiledGraph.from_graph(GraphRecord(nodes=[
+        NodeRecord(id="g", node="greet", values={"text": Txt("hello")}),
+    ]), _registry())
     assert compiled.is_runnable, compiled.problems
     assert compiled.results(compiled.run_sync(from_run={Who: Who("Ida")}))["g"]["result"] == "hello Ida"
 
 
 def test_a_need_the_host_did_not_provide_is_refused_before_anything_runs():
-    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="g", type="greet", version=1, bindings={"text": Static(Txt("hello"))})]), _registry())
+    compiled = CompiledGraph.from_graph(GraphRecord(nodes=[
+        NodeRecord(id="g", node="greet", values={"text": Txt("hello")}),
+    ]), _registry())
     with pytest.raises(InvalidCallError, match="needs a Who"):
         compiled.run_sync()
 
 
 def test_a_static_sequence_on_a_scalar_input_makes_the_node_iterate():
-    compiled = CompiledGraph.from_graph(Graph(nodes=[
-        GraphNode(id="u", type="upper", version=1, bindings={"text": Static([Txt("a"), Txt("b"), Txt("c")])}),
-        GraphNode(id="j", type="joinall", version=1, bindings={"texts": From("u.result")}),
-    ]), _registry())
+    compiled = CompiledGraph.from_graph(GraphRecord(nodes=[
+        NodeRecord(id="u", node="upper", values={"text": [Txt("a"), Txt("b"), Txt("c")]}),
+        NodeRecord(id="j", node="joinall"),
+    ], edges=[("u.result", "j.texts")]), _registry())
     assert compiled.is_runnable, compiled.problems
     assert compiled.run_plan.nodes["u"].runs_per_row_of == "u.text"
     assert compiled.field(Ref("u", "text")).dtype is Txt and compiled.field(Ref("u", "text")).many
@@ -86,16 +88,18 @@ def test_a_static_sequence_on_a_scalar_input_makes_the_node_iterate():
 
 
 def test_an_empty_static_sequence_is_an_empty_series():
-    compiled = CompiledGraph.from_graph(Graph(nodes=[
-        GraphNode(id="u", type="upper", version=1, bindings={"text": Static([])}),
-        GraphNode(id="j", type="joinall", version=1, bindings={"texts": From("u.result")}),
-    ]), _registry())
+    compiled = CompiledGraph.from_graph(GraphRecord(nodes=[
+        NodeRecord(id="u", node="upper", values={"text": []}),
+        NodeRecord(id="j", node="joinall"),
+    ], edges=[("u.result", "j.texts")]), _registry())
     results = compiled.results(compiled.run_sync())
     assert results["u"]["result"]["values"] == []
     assert results["j"]["result"] == ""
 
 
 def test_a_static_string_is_one_value_not_a_sequence():
-    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="u", type="upper", version=1, bindings={"text": Static(Txt("abc"))})]), _registry())
+    compiled = CompiledGraph.from_graph(GraphRecord(nodes=[
+        NodeRecord(id="u", node="upper", values={"text": Txt("abc")}),
+    ]), _registry())
     assert compiled.run_plan.nodes["u"].runs_per_row_of is None
     assert compiled.results(compiled.run_sync())["u"]["result"] == "ABC"

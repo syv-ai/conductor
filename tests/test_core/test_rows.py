@@ -14,22 +14,21 @@ from conductor import (
     AskPerson,
     CompiledGraph,
     DType,
-    From,
-    Graph,
-    GraphNode,
+    GraphRecord,
     Input,
     InvalidCallError,
     NodeError,
+    NodeRecord,
     Output,
     Param,
     Policy,
     Result,
     Series,
-    Static,
     node,
 )
+from conductor._internal.graph.binding import From, Static
 from conductor.widgets import Textarea
-from helpers import events_of, registry_of, with_added
+from helpers import events_of, placed, record, registry_of, with_added
 
 from test_core.embedded import embedded_graph_node
 
@@ -138,33 +137,28 @@ def _registry():
 
 
 def _docs(texts):
-    return GraphNode(id="docs", type="docs", version=1, bindings={"text": Static(texts)})
+    return placed("docs", "docs", text=Static(texts))
 
 
 def _run(nodes):
-    compiled = CompiledGraph.from_graph(Graph(nodes=nodes), _registry())
+    compiled = CompiledGraph.from_graph(record(*nodes), _registry())
     assert compiled.is_runnable, compiled.problems
     return compiled.results(compiled.run_sync())
 
 
 def _events(nodes):
-    return events_of(CompiledGraph.from_graph(Graph(nodes=nodes), _registry()))
+    return events_of(CompiledGraph.from_graph(record(*nodes), _registry()))
 
 
 # --- what no run reaches by another way ---------------------------------------------------
 
 
 def test_an_unconnected_series_input_receives_its_default():
-    assert _run([GraphNode(id="j", type="join", version=1)])["j"]["result"] == ""
+    assert _run([placed("j", "join")])["j"]["result"] == ""
 
 
 def test_a_row_two_edges_both_supply_fails_the_node_with_the_row():
-    compiled = CompiledGraph.from_graph(Graph(nodes=[
-        _docs("x"),
-        GraphNode(id="a", type="upper", version=1, bindings={"text": From("docs.texts")}),
-        GraphNode(id="b", type="upper", version=1, bindings={"text": From("docs.texts")}),
-        GraphNode(id="m", type="upper", version=1, bindings={"text": From("a.result", "b.result")}),
-    ]), _registry())
+    compiled = CompiledGraph.from_graph(record(_docs("x"), placed("a", "upper", text=From("docs.texts")), placed("b", "upper", text=From("docs.texts")), placed("m", "upper", text=From("a.result", "b.result"))), _registry())
 
     state = compiled.run_sync()
 
@@ -178,8 +172,8 @@ def test_a_row_two_edges_both_supply_fails_the_node_with_the_row():
 def test_a_computed_inputs_runs_by_name_and_edges_like_any_field():
     results = _run([
         _docs("a,b"),
-        GraphNode(id="c", type="columns", version=1, bindings={"text": From("docs.texts"), "spec": Static("navn,email")}),
-        GraphNode(id="up", type="upper", version=1, bindings={"text": From("c.email")}),
+        placed("c", "columns", text=From("docs.texts"), spec=Static("navn,email")),
+        placed("up", "upper", text=From("c.email")),
     ])
 
     assert results["c"]["navn"]["values"] == ["navn:a", "navn:b"]
@@ -188,7 +182,9 @@ def test_a_computed_inputs_runs_by_name_and_edges_like_any_field():
 
 
 def test_a_computed_inputs_with_no_outputs_is_compiles_problem():
-    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="c", type="columns", version=1, bindings={"spec": Static("")})]), _registry())
+    compiled = CompiledGraph.from_graph(GraphRecord(nodes=[
+        NodeRecord(id="c", node="columns", values={"spec": ""}),
+    ]), _registry())
 
     assert [(p.type, p.loc[0], p.fatal) for p in compiled.problems] == [("no_outputs", "c", False)]
     assert compiled.is_runnable
@@ -200,8 +196,8 @@ def test_a_computed_inputs_with_no_outputs_is_compiles_problem():
 def test_an_iterating_chain_runs_per_row_and_a_reduction_collapses_it():
     results = _run([
         _docs("a,b,c"),
-        GraphNode(id="up", type="upper", version=1, bindings={"text": From("docs.texts")}),
-        GraphNode(id="j", type="join", version=1, bindings={"texts": From("up.result")}),
+        placed("up", "upper", text=From("docs.texts")),
+        placed("j", "join", texts=From("up.result")),
     ])
 
     up = results["up"]["result"]
@@ -212,8 +208,8 @@ def test_an_iterating_chain_runs_per_row_and_a_reduction_collapses_it():
 def test_a_scalar_broadcasts_beside_a_series():
     results = _run([
         _docs("a,b"),
-        GraphNode(id="prefix", type="upper", version=1, bindings={"text": Static("p")}),
-        GraphNode(id="p", type="pair", version=1, bindings={"a": From("prefix.result"), "b": From("docs.texts")}),
+        placed("prefix", "upper", text=Static("p")),
+        placed("p", "pair", a=From("prefix.result"), b=From("docs.texts")),
     ])
 
     assert results["p"]["result"]["values"] == ["P:a", "P:b"]
@@ -224,9 +220,9 @@ def test_an_iterating_node_returning_a_series_unfolds_and_a_reduction_refolds():
     one text per document again."""
     results = _run([
         _docs("a/b,c"),
-        GraphNode(id="lines", type="lines", version=1, bindings={"text": From("docs.texts")}),
-        GraphNode(id="up", type="upper", version=1, bindings={"text": From("lines.result")}),
-        GraphNode(id="j", type="join", version=1, bindings={"texts": From("up.result")}),
+        placed("lines", "lines", text=From("docs.texts")),
+        placed("up", "upper", text=From("lines.result")),
+        placed("j", "join", texts=From("up.result")),
     ])
 
     lines = results["lines"]["result"]
@@ -239,8 +235,8 @@ def test_an_iterating_node_returning_a_series_unfolds_and_a_reduction_refolds():
 def test_a_parent_series_broadcasts_down_to_a_child_row():
     results = _run([
         _docs("a/b,c"),
-        GraphNode(id="lines", type="lines", version=1, bindings={"text": From("docs.texts")}),
-        GraphNode(id="p", type="pair", version=1, bindings={"a": From("lines.result"), "b": From("docs.texts")}),
+        placed("lines", "lines", text=From("docs.texts")),
+        placed("p", "pair", a=From("lines.result"), b=From("docs.texts")),
     ])
 
     assert results["p"]["result"]["values"] == ["a:a/b", "b:a/b", "c:c"]
@@ -248,9 +244,9 @@ def test_a_parent_series_broadcasts_down_to_a_child_row():
 
 def test_a_gather_of_scalars_arrives_as_a_series():
     results = _run([
-        GraphNode(id="a", type="upper", version=1, bindings={"text": Static("a")}),
-        GraphNode(id="b", type="upper", version=1, bindings={"text": Static("b")}),
-        GraphNode(id="j", type="join", version=1, bindings={"texts": From("a.result", "b.result")}),
+        placed("a", "upper", text=Static("a")),
+        placed("b", "upper", text=Static("b")),
+        placed("j", "join", texts=From("a.result", "b.result")),
     ])
 
     assert results["j"]["result"] == "A+B"
@@ -260,7 +256,7 @@ def test_a_list_set_on_a_node_running_per_row_runs_once_per_value_in_each_row():
     """Questions set on «Spørg», which runs per document: each document asks each question."""
     results = _run([
         _docs("a,b,c"),
-        GraphNode(id="ask", type="pair", version=1, bindings={"a": From("docs.texts"), "b": Static(["q1", "q2", "q3"])}),
+        placed("ask", "pair", a=From("docs.texts"), b=Static(["q1", "q2", "q3"])),
     ])
 
     asked = results["ask"]["result"]
@@ -271,7 +267,7 @@ def test_a_list_set_on_a_node_running_per_row_runs_once_per_value_in_each_row():
 def test_no_documents_ask_no_questions():
     results = _run([
         _docs(""),
-        GraphNode(id="ask", type="pair", version=1, bindings={"a": From("docs.texts"), "b": Static(["q1", "q2"])}),
+        placed("ask", "pair", a=From("docs.texts"), b=Static(["q1", "q2"])),
     ])
 
     assert results["ask"]["result"]["values"] == []
@@ -280,8 +276,8 @@ def test_no_documents_ask_no_questions():
 def test_a_document_skipped_above_asks_none_of_its_questions():
     results = _run([
         _docs("abc,d,efg"),
-        GraphNode(id="g", type="long-only", version=1, bindings={"text": From("docs.texts")}),
-        GraphNode(id="ask", type="pair", version=1, bindings={"a": From("g.long"), "b": Static(["q1", "q2"])}),
+        placed("g", "long-only", text=From("docs.texts")),
+        placed("ask", "pair", a=From("g.long"), b=Static(["q1", "q2"])),
     ])
 
     assert results["ask"]["result"]["rows"] == [(0, 0), (0, 1), (2, 0), (2, 1)]
@@ -293,9 +289,9 @@ def test_a_document_skipped_above_asks_none_of_its_questions():
 def test_an_iterating_gate_masks_rows_and_downstream_runs_on_fewer():
     results = _run([
         _docs("abc,d,efg"),
-        GraphNode(id="g", type="long-only", version=1, bindings={"text": From("docs.texts")}),
-        GraphNode(id="long", type="upper", version=1, bindings={"text": From("g.long")}),
-        GraphNode(id="short", type="upper", version=1, bindings={"text": From("g.short")}),
+        placed("g", "long-only", text=From("docs.texts")),
+        placed("long", "upper", text=From("g.long")),
+        placed("short", "upper", text=From("g.short")),
     ])
 
     assert results["long"]["result"]["rows"] == [(0,), (2,)]
@@ -306,8 +302,8 @@ def test_an_iterating_gate_masks_rows_and_downstream_runs_on_fewer():
 def test_a_reduction_over_a_sparse_series_sees_only_the_rows_present():
     results = _run([
         _docs("abc,d,efg"),
-        GraphNode(id="g", type="long-only", version=1, bindings={"text": From("docs.texts")}),
-        GraphNode(id="j", type="join", version=1, bindings={"texts": From("g.long")}),
+        placed("g", "long-only", text=From("docs.texts")),
+        placed("j", "join", texts=From("g.long")),
     ])
 
     assert results["j"]["result"] == "abc+efg"
@@ -315,9 +311,9 @@ def test_a_reduction_over_a_sparse_series_sees_only_the_rows_present():
 
 def test_a_skipped_scalar_skips_what_hangs_off_it():
     results = _run([
-        GraphNode(id="g", type="long-only", version=1, bindings={"text": Static("hey")}),
-        GraphNode(id="long", type="upper", version=1, bindings={"text": From("g.long")}),
-        GraphNode(id="short", type="upper", version=1, bindings={"text": From("g.short")}),
+        placed("g", "long-only", text=Static("hey")),
+        placed("long", "upper", text=From("g.long")),
+        placed("short", "upper", text=From("g.short")),
     ])
 
     assert results["long"]["result"] == "HEY"
@@ -328,11 +324,11 @@ def test_two_branches_merge_back_by_wiring_and_the_chain_stays_on_the_index():
     """Merging by edges, end to end: a decision running per row, each branch through its own node, both connected into one input."""
     results = _run([
         _docs("hey,x,world"),
-        GraphNode(id="g", type="long-only", version=1, bindings={"text": From("docs.texts")}),
-        GraphNode(id="long", type="upper", version=1, bindings={"text": From("g.long")}),
-        GraphNode(id="short", type="pair", version=1, bindings={"a": From("g.short"), "b": Static("!")}),
-        GraphNode(id="all", type="upper", version=1, bindings={"text": From("long.result", "short.result")}),
-        GraphNode(id="j", type="join", version=1, bindings={"texts": From("all.result")}),
+        placed("g", "long-only", text=From("docs.texts")),
+        placed("long", "upper", text=From("g.long")),
+        placed("short", "pair", a=From("g.short"), b=Static("!")),
+        placed("all", "upper", text=From("long.result", "short.result")),
+        placed("j", "join", texts=From("all.result")),
     ])
 
     assert results["all"]["result"]["values"] == ["HEY", "X:!", "WORLD"]
@@ -342,10 +338,10 @@ def test_two_branches_merge_back_by_wiring_and_the_chain_stays_on_the_index():
 
 def test_a_skipped_node_skips_the_series_it_would_have_made():
     results = _run([
-        GraphNode(id="g", type="long-only", version=1, bindings={"text": Static("hey")}),
-        GraphNode(id="docs", type="docs", version=1, bindings={"text": From("g.short")}),
-        GraphNode(id="up", type="upper", version=1, bindings={"text": From("docs.texts")}),
-        GraphNode(id="j", type="join", version=1, bindings={"texts": From("up.result")}),
+        placed("g", "long-only", text=Static("hey")),
+        placed("docs", "docs", text=From("g.short")),
+        placed("up", "upper", text=From("docs.texts")),
+        placed("j", "join", texts=From("up.result")),
     ])
 
     assert "docs" not in results
@@ -359,8 +355,8 @@ def test_a_skipped_node_skips_the_series_it_would_have_made():
 def test_a_failed_row_fails_the_node_and_the_cause_names_the_row():
     events = _events([
         _docs("ok,boom,ok"),
-        GraphNode(id="f", type="fails-on", version=1, bindings={"text": From("docs.texts")}),
-        GraphNode(id="j", type="join", version=1, bindings={"texts": From("f.result")}),
+        placed("f", "fails-on", text=From("docs.texts")),
+        placed("j", "join", texts=From("f.result")),
     ])
 
     (error,) = [e for e in events if e.type == "node_failed"]
@@ -373,7 +369,7 @@ def test_a_failed_row_fails_the_node_and_the_cause_names_the_row():
 
 def test_run_sync_returns_the_error_ending_with_its_cause():
     compiled = CompiledGraph.from_graph(
-        Graph(nodes=[_docs("boom"), GraphNode(id="f", type="fails-on", version=1, bindings={"text": From("docs.texts")})]),
+        record(_docs("boom"), placed("f", "fails-on", text=From("docs.texts"))),
         _registry(),
     )
 
@@ -393,7 +389,7 @@ def test_a_defect_in_the_engine_fails_the_leg_instead_of_hanging_it(monkeypatch)
         raise RuntimeError("the ledger lost a value")
 
     monkeypatch.setattr(RunLedger, "inputs_for", broken)
-    compiled = CompiledGraph.from_graph(Graph(nodes=[_docs("a,b")]), _registry())
+    compiled = CompiledGraph.from_graph(record(_docs("a,b")), _registry())
 
     events = events_of(compiled, timeout=5)
 
@@ -404,7 +400,9 @@ def test_a_defect_in_the_engine_fails_the_leg_instead_of_hanging_it(monkeypatch)
 
 
 def test_a_graph_compile_rejected_is_refused_with_its_problems():
-    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="a", type="gone", version=1)]), _registry())
+    compiled = CompiledGraph.from_graph(GraphRecord(nodes=[
+        NodeRecord(id="a", node="gone"),
+    ]), _registry())
 
     with pytest.raises(InvalidCallError) as raised:
         compiled.run_sync()
@@ -416,21 +414,21 @@ def test_a_graph_compile_rejected_is_refused_with_its_problems():
 
 def test_rows_run_concurrently_under_the_engines_cap():
     wide_state.peak = 0
-    _run([_docs("a,b,c,d"), GraphNode(id="w", type="wide", version=1, bindings={"text": From("docs.texts")})])
+    _run([_docs("a,b,c,d"), placed("w", "wide", text=From("docs.texts"))])
 
     assert wide_state.peak > 1
 
 
 def test_a_policy_of_one_runs_rows_one_at_a_time():
     slow_state.peak, slow_state.seen = 0, []
-    _run([_docs("a,b,c"), GraphNode(id="s", type="slow", version=1, bindings={"text": From("docs.texts")})])
+    _run([_docs("a,b,c"), placed("s", "slow", text=From("docs.texts"))])
 
     assert slow_state.peak == 1
     assert sorted(slow_state.seen) == ["a", "b", "c"]
 
 
 def test_progress_is_per_row_and_the_total_is_known_once_the_index_is_sealed():
-    events = _events([_docs("a,b,c"), GraphNode(id="up", type="upper", version=1, bindings={"text": From("docs.texts")})])
+    events = _events([_docs("a,b,c"), placed("up", "upper", text=From("docs.texts"))])
 
     progress = [(e.done, e.total) for e in events if e.type == "node_progress" and e.node_id == "up"]
     assert progress[0] == (1, 3) and progress[-1] == (3, 3)
@@ -443,9 +441,9 @@ def test_a_unit_above_rows_never_made_reports_no_progress():
     never made and ``up`` stands in at ``(1,)``, which counts as no row."""
     events = _events([
         _docs("a/b,x"),
-        GraphNode(id="long", type="long-only", version=1, bindings={"text": From("docs.texts")}),
-        GraphNode(id="lines", type="lines", version=1, bindings={"text": From("long.long")}),
-        GraphNode(id="up", type="upper", version=1, bindings={"text": From("lines.result")}),
+        placed("long", "long-only", text=From("docs.texts")),
+        placed("lines", "lines", text=From("long.long")),
+        placed("up", "upper", text=From("lines.result")),
     ])
 
     progress = [(e.done, e.total) for e in events if e.type == "node_progress" and e.node_id == "up"]
@@ -469,15 +467,7 @@ def test_computed_inputs_reach_the_node_as_keywords():
 
     registry = with_added(_registry(), template_node)
     compiled = CompiledGraph.from_graph(
-        Graph(nodes=[
-            _docs("Ida,Bo"),
-            GraphNode(id="case", type="upper", version=1, bindings={"text": Static("24-1")}),
-            GraphNode(id="t", type="template", version=1, bindings={
-                "template": Static("Dear {name} ({case})"),
-                "name": From("docs.texts"),
-                "case": From("case.result"),
-            }),
-        ]),
+        record(_docs("Ida,Bo"), placed("case", "upper", text=Static("24-1")), placed("t", "template", template=Static("Dear {name} ({case})"), name=From("docs.texts"), case=From("case.result"))),
         registry,
     )
     assert compiled.is_runnable, compiled.problems
@@ -486,7 +476,7 @@ def test_computed_inputs_reach_the_node_as_keywords():
 
 
 def test_node_complete_carries_the_series():
-    events = _events([_docs("a,b"), GraphNode(id="up", type="upper", version=1, bindings={"text": From("docs.texts")})])
+    events = _events([_docs("a,b"), placed("up", "upper", text=From("docs.texts"))])
 
     (done,) = [e for e in events if e.type == "node_complete" and e.node_id == "up"]
     assert done.outputs["result"]["values"] == ["A", "B"]
@@ -500,9 +490,9 @@ def test_a_cancelled_leg_carries_its_state():
     """`graph_cancelled` and `graph_timeout` end a leg the way `graph_complete`
     and `graph_pending` do — the run's state beside their reason — so a host can start a new run from any ending."""
     compiled = CompiledGraph.from_graph(
-        Graph(nodes=[
-            GraphNode(id="a", type="upper", version=1, bindings={"text": Static("a")}),
-            GraphNode(id="b", type="upper", version=1, bindings={"text": Static("b")}),
+        GraphRecord(nodes=[
+            NodeRecord(id="a", node="upper", values={"text": "a"}),
+            NodeRecord(id="b", node="upper", values={"text": "b"}),
         ]),
         _registry(),
     )
@@ -542,11 +532,11 @@ def test_a_node_that_asks_ends_the_leg_pending_with_its_question_named_by_addres
     """The leg runs to quiescence — the independent node completes in
     the same leg — and ends pending with the question, not paused at it."""
     compiled = CompiledGraph.from_graph(
-        Graph(nodes=[
-            GraphNode(id="ask", type="asks", version=1, bindings={"proposal": Static("proposal")}),
-            GraphNode(id="up", type="upper", version=1, bindings={"text": From("ask.result")}),
-            GraphNode(id="other", type="upper", version=1, bindings={"text": Static("x")}),
-        ]),
+        GraphRecord(nodes=[
+            NodeRecord(id="ask", node="asks", values={"proposal": "proposal"}),
+            NodeRecord(id="up", node="upper"),
+            NodeRecord(id="other", node="upper", values={"text": "x"}),
+        ], edges=[("ask.result", "up.text")]),
         _registry_with_asks(),
     )
     events = events_of(compiled)
@@ -565,11 +555,11 @@ def test_answering_is_the_next_leg_from_the_state_and_the_cache():
     """The answer becomes the asking node's output; the state carries
     what the first leg produced, so nothing done is done twice."""
     compiled = CompiledGraph.from_graph(
-        Graph(nodes=[
-            GraphNode(id="ask", type="asks", version=1, bindings={"proposal": Static("proposal")}),
-            GraphNode(id="up", type="upper", version=1, bindings={"text": From("ask.result")}),
-            GraphNode(id="other", type="upper", version=1, bindings={"text": Static("x")}),
-        ]),
+        GraphRecord(nodes=[
+            NodeRecord(id="ask", node="asks", values={"proposal": "proposal"}),
+            NodeRecord(id="up", node="upper"),
+            NodeRecord(id="other", node="upper", values={"text": "x"}),
+        ], edges=[("ask.result", "up.text")]),
         _registry_with_asks(),
     )
     first = events_of(compiled)[-1].state
@@ -586,11 +576,7 @@ def test_an_iterating_asking_node_pends_once_per_row_and_is_answered_as_a_series
     """Ten units blocked are ten questions in one set; each unit
     answers for itself, by its own id."""
     compiled = CompiledGraph.from_graph(
-        Graph(nodes=[
-            _docs("a,b"),
-            GraphNode(id="ask", type="asks", version=1, bindings={"proposal": From("docs.texts")}),
-            GraphNode(id="up", type="upper", version=1, bindings={"text": From("ask.result")}),
-        ]),
+        record(_docs("a,b"), placed("ask", "asks", proposal=From("docs.texts")), placed("up", "upper", text=From("ask.result"))),
         _registry_with_asks(),
     )
     first = events_of(compiled)[-1].state
@@ -614,11 +600,7 @@ def asks_if_long(proposal: Annotated[Txt, Param(title="Proposal", widget=Textare
 
 def _asks_if_long(texts):
     return CompiledGraph.from_graph(
-        Graph(nodes=[
-            _docs(texts),
-            GraphNode(id="ask", type="asks-if-long", version=1, bindings={"proposal": From("docs.texts")}),
-            GraphNode(id="up", type="upper", version=1, bindings={"text": From("ask.result")}),
-        ]),
+        record(_docs(texts), placed("ask", "asks-if-long", proposal=From("docs.texts")), placed("up", "upper", text=From("ask.result"))),
         _registry_with_asks(asks_if_long),
     )
 
@@ -653,9 +635,9 @@ def test_a_row_left_unanswered_goes_on_waiting_with_its_question_frozen():
 
 def test_two_asking_nodes_in_parallel_are_one_pending_set():
     compiled = CompiledGraph.from_graph(
-        Graph(nodes=[
-            GraphNode(id="a", type="asks", version=1, bindings={"proposal": Static("1")}),
-            GraphNode(id="b", type="asks", version=1, bindings={"proposal": Static("2")}),
+        GraphRecord(nodes=[
+            NodeRecord(id="a", node="asks", values={"proposal": "1"}),
+            NodeRecord(id="b", node="asks", values={"proposal": "2"}),
         ]),
         _registry_with_asks(),
     )
@@ -666,7 +648,9 @@ def test_two_asking_nodes_in_parallel_are_one_pending_set():
 
 def test_run_sync_returns_the_pending_ending():
     compiled = CompiledGraph.from_graph(
-        Graph(nodes=[GraphNode(id="ask", type="asks", version=1, bindings={"proposal": Static("p")})]),
+        GraphRecord(nodes=[
+            NodeRecord(id="ask", node="asks", values={"proposal": "p"}),
+        ]),
         _registry_with_asks(),
     )
 
@@ -684,9 +668,9 @@ def test_run_sync_returns_the_pending_ending():
 
 #: An embedded graph whose inner node pairs what enters with a list the author typed.
 TypedInside = embedded_graph_node("typed-inside", (
-    GraphNode(id="h", type="upper", version=1),
-    GraphNode(id="t", type="pair", version=1, bindings={"a": From("h.result"), "b": Static(["p", "q"])}),
-    GraphNode(id="j", type="join", version=1, bindings={"texts": From("t.result")}),
+    placed("h", "upper"),
+    placed("t", "pair", a=From("h.result"), b=Static(["p", "q"])),
+    placed("j", "join", texts=From("t.result")),
 ), _registry(), "Indlejret")
 
 
@@ -696,10 +680,7 @@ def test_a_typed_in_list_inside_an_iterating_embedded_graph_is_a_child_row_under
     inner reduction gathers those under the outer row. With no outer rows
     there are no typed rows either, and the run still completes."""
     compiled = CompiledGraph.from_graph(
-        Graph(nodes=[
-            _docs(texts),
-            GraphNode(id="emb", type="typed-inside", version=1, bindings={"text": From("docs.texts")}),
-        ]),
+        record(_docs(texts), placed("emb", "typed-inside", text=From("docs.texts"))),
         _registry_with_asks(TypedInside),
     )
 
@@ -716,7 +697,7 @@ def test_a_skip_above_an_embedded_list_leaves_it_with_no_rows_and_the_inner_node
     from conductor._internal.execution.run_ledger import RunLedger, SkippedAtRow
 
     compiled = CompiledGraph.from_graph(
-        Graph(nodes=[_docs("a,b"), GraphNode(id="emb", type="typed-inside", version=1, bindings={"text": From("docs.texts")})]),
+        record(_docs("a,b"), placed("emb", "typed-inside", text=From("docs.texts"))),
         _registry_with_asks(TypedInside),
     )
     live = RunLedger(compiled)
@@ -735,16 +716,12 @@ def test_an_inner_reduction_over_the_entering_series_runs_once_per_outer_row():
     rule, not a second kind of index."""
 
     embedded = embedded_graph_node("inner-graph", (
-        GraphNode(id="holder", type="upper", version=1, bindings={"text": Static("inner")}),
-        GraphNode(id="gather", type="join", version=1, bindings={"texts": From("holder.result")}),
+        placed("holder", "upper", defaults_={"text": "inner"}),
+        placed("gather", "join", texts=From("holder.result")),
     ), _registry(), "Indlejret")
 
     compiled = CompiledGraph.from_graph(
-        Graph(nodes=[
-            _docs("a,b,c"),
-            GraphNode(id="emb", type="inner-graph", version=1, bindings={"text": From("docs.texts")}),
-            GraphNode(id="after", type="join", version=1, bindings={"texts": From("emb.result")}),
-        ]),
+        record(_docs("a,b,c"), placed("emb", "inner-graph", text=From("docs.texts")), placed("after", "join", texts=From("emb.result"))),
         _registry_with_asks(embedded),
     )
     assert compiled.is_runnable, compiled.problems

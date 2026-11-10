@@ -3,10 +3,11 @@
 from typing import Annotated
 
 import pytest
-from conductor import CompiledGraph, DType, From, Graph, GraphNode, Param, Result, Static, node
+from conductor import CompiledGraph, DType, NodeRecord, Param, Result, node
+from conductor._internal.graph.binding import From, Static
 from conductor._internal.graph.topology import topological_order
 from conductor.widgets import Textarea
-from helpers import with_added
+from helpers import placed, record, with_added
 from pydantic import ValidationError
 
 
@@ -24,10 +25,10 @@ def echo(text: Annotated[Txt, Param(title="In", widget=Textarea())]) -> Out:
 
 
 class TestGraphModel:
-    def test_graph_node_is_frozen(self):
-        graph_node = GraphNode(id="n1", type="echo", version=1, bindings={"text": Static("hello")})
+    def test_a_node_record_is_frozen(self):
+        graph_node = NodeRecord(id="n1", node="echo", values={"text": "hello"})
         assert graph_node.id == "n1"
-        assert graph_node.type == "echo"
+        assert graph_node.node == "echo"
         assert graph_node.version == 1
         with pytest.raises(ValidationError, match="frozen"):
             graph_node.id = "n2"
@@ -72,33 +73,33 @@ class TestCompile:
     def test_compile_returns_compiled_graph(self, registry):
         registry = with_added(registry, echo)
         nodes = [
-            GraphNode(id="n1", type="echo", version=1, bindings={"text": Static("hello")}),
-            GraphNode(id="n2", type="echo", version=1, bindings={"text": From('n1.result')}),
+            placed("n1", "echo", text=Static("hello")),
+            placed("n2", "echo", text=From('n1.result')),
         ]
 
-        compiled = CompiledGraph.from_graph(Graph(nodes=nodes), registry)
+        compiled = CompiledGraph.from_graph(record(*nodes), registry)
         assert compiled.is_runnable, compiled.problems
         assert compiled.execution_order == ("n1", "n2")
 
     def test_compile_unknown_node_type_is_a_problem(self, registry):
-        nodes = [GraphNode(id="n1", type="nonexistent", version=1)]
-        compiled = CompiledGraph.from_graph(Graph(nodes=nodes), registry)
+        nodes = [placed("n1", "nonexistent")]
+        compiled = CompiledGraph.from_graph(record(*nodes), registry)
         assert [p.type for p in compiled.problems] == ["unknown_node_type"]
         assert not compiled.is_runnable
 
     def test_compile_edge_from_a_missing_node_is_a_problem(self, registry):
         registry = with_added(registry, echo)
-        nodes = [GraphNode(id="n1", type="echo", version=1, bindings={"text": From("n_missing.result")})]
+        nodes = [placed("n1", "echo", text=From("n_missing.result"))]
 
-        compiled = CompiledGraph.from_graph(Graph(nodes=nodes), registry)
+        compiled = CompiledGraph.from_graph(record(*nodes), registry)
         assert [p.type for p in compiled.problems] == ["unknown_ref_node"]
 
     def test_compile_cycle_is_a_problem_on_each_node_in_it(self, registry):
         registry = with_added(registry, echo)
         nodes = [
-            GraphNode(id="n1", type="echo", version=1, bindings={"text": From('n2.result')}),
-            GraphNode(id="n2", type="echo", version=1, bindings={"text": From('n1.result')}),
+            placed("n1", "echo", text=From('n2.result')),
+            placed("n2", "echo", text=From('n1.result')),
         ]
-        compiled = CompiledGraph.from_graph(Graph(nodes=nodes), registry)
+        compiled = CompiledGraph.from_graph(record(*nodes), registry)
         assert [(p.type, p.loc[0]) for p in compiled.problems] == [("cycle", "n1"), ("cycle", "n2")]
         assert not compiled.is_runnable

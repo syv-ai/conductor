@@ -17,20 +17,19 @@ from conductor import (
     AskPerson,
     CompiledGraph,
     DType,
-    From,
-    Graph,
-    GraphNode,
+    GraphRecord,
+    NodeRecord,
     NodeRegistry,
     Param,
     Result,
     RunState,
     Series,
-    Static,
     Upgrade,
     node,
 )
+from conductor._internal.graph.binding import From, Static
 from conductor.widgets import Textarea
-from helpers import events_of, registry_of
+from helpers import Placed, events_of, placed, record, registry_of
 from pydantic import ValidationError
 
 
@@ -83,8 +82,8 @@ def _registry() -> NodeRegistry:
     return registry_of(split_node, upper_node, wrap, echo, ask)
 
 
-def _compiled(nodes: list[GraphNode]) -> CompiledGraph:
-    compiled = CompiledGraph.from_graph(Graph(nodes=nodes), _registry())
+def _compiled(nodes: list[Placed]) -> CompiledGraph:
+    compiled = CompiledGraph.from_graph(record(*nodes), _registry())
     assert compiled.is_runnable, compiled.problems
     return compiled
 
@@ -103,9 +102,9 @@ def _through_json(state: RunState) -> RunState:
 def test_a_paused_legs_state_survives_json_and_the_next_leg_returns_typed_results():
     calls.clear()
     compiled = _compiled([
-        GraphNode(id="split", type="split", version=1, bindings={"text": Static("a,b")}),
-        GraphNode(id="ask", type="ask", version=1, bindings={"text": _edge("split")}),
-        GraphNode(id="up", type="upper", version=1, bindings={"text": _edge("ask")}),
+        placed("split", "split", text=Static("a,b")),
+        placed("ask", "ask", text=_edge("split")),
+        placed("up", "upper", text=_edge("ask")),
     ])
 
     first = events_of(compiled)
@@ -125,8 +124,8 @@ def test_a_paused_legs_state_survives_json_and_the_next_leg_returns_typed_result
 
 def test_the_state_carries_a_fingerprint_per_node():
     compiled = _compiled([
-        GraphNode(id="a", type="echo", version=1, bindings={"text": Static("x")}),
-        GraphNode(id="b", type="upper", version=1, bindings={"text": _edge("a")}),
+        placed("a", "echo", text=Static("x")),
+        placed("b", "upper", text=_edge("a")),
     ])
 
     state = events_of(compiled)[-1].state
@@ -142,15 +141,15 @@ def test_the_state_carries_a_fingerprint_per_node():
 def test_a_static_edited_between_legs_reruns_that_node_and_its_readers_and_nothing_else():
     calls.clear()
     nodes = [
-        GraphNode(id="a", type="echo", version=1, bindings={"text": Static("x")}),
-        GraphNode(id="b", type="upper", version=1, bindings={"text": _edge("a")}),
-        GraphNode(id="c", type="wrap", version=1, bindings={"text": _edge("b")}),
-        GraphNode(id="d", type="echo", version=1, bindings={"text": Static("alone")}),
+        placed("a", "echo", text=Static("x")),
+        placed("b", "upper", text=_edge("a")),
+        placed("c", "wrap", text=_edge("b")),
+        placed("d", "echo", text=Static("alone")),
     ]
     state = events_of(_compiled(nodes))[-1].state
     calls.clear()
 
-    edited = _compiled([GraphNode(id="a", type="echo", version=1, bindings={"text": Static("y")}), *nodes[1:]])
+    edited = _compiled([placed("a", "echo", text=Static("y")), *nodes[1:]])
     ending = events_of(edited, state=_through_json(state))[-1].state
 
     assert ending.status == "complete"
@@ -162,18 +161,18 @@ def test_a_static_edited_between_legs_reruns_that_node_and_its_readers_and_nothi
 def test_a_node_removed_between_legs_is_dropped_with_its_readers():
     calls.clear()
     state = events_of(_compiled([
-        GraphNode(id="a", type="echo", version=1, bindings={"text": Static("x")}),
-        GraphNode(id="b", type="upper", version=1, bindings={"text": _edge("a")}),
-        GraphNode(id="c", type="echo", version=1, bindings={"text": Static("c")}),
-        GraphNode(id="d", type="wrap", version=1, bindings={"text": _edge("c")}),
+        placed("a", "echo", text=Static("x")),
+        placed("b", "upper", text=_edge("a")),
+        placed("c", "echo", text=Static("c")),
+        placed("d", "wrap", text=_edge("c")),
     ]))[-1].state
     calls.clear()
 
     # ``c`` is gone and ``d`` now reads ``a``: ``c``'s values are dropped, ``d`` runs again, ``a`` and ``b`` do not.
     smaller = _compiled([
-        GraphNode(id="a", type="echo", version=1, bindings={"text": Static("x")}),
-        GraphNode(id="b", type="upper", version=1, bindings={"text": _edge("a")}),
-        GraphNode(id="d", type="wrap", version=1, bindings={"text": _edge("a")}),
+        placed("a", "echo", text=Static("x")),
+        placed("b", "upper", text=_edge("a")),
+        placed("d", "wrap", text=_edge("a")),
     ])
     ending = events_of(smaller, state=_through_json(state))[-1].state
 
@@ -186,13 +185,13 @@ def test_a_node_removed_between_legs_is_dropped_with_its_readers():
 def test_a_nodes_shape_changed_between_legs_reruns_it():
     calls.clear()
     nodes = [
-        GraphNode(id="a", type="echo", version=1, bindings={"text": Static("x")}),
-        GraphNode(id="w", type="wrap", version=1, bindings={"text": _edge("a")}),
+        placed("a", "echo", text=Static("x")),
+        placed("w", "wrap", text=_edge("a")),
     ]
     state = events_of(_compiled(nodes))[-1].state
     calls.clear()
 
-    bumped = _compiled([nodes[0], GraphNode(id="w", type="wrap", version=2, bindings={"text": _edge("a")})])
+    bumped = _compiled([nodes[0], placed("w", "wrap", version=2, text=_edge("a"))])
     ending = events_of(bumped, state=_through_json(state))[-1].state
 
     assert bumped.results(ending)["w"]["result"] == "<x>"
@@ -204,10 +203,10 @@ def test_without_nodes_forgets_only_the_nodes_it_names():
     restore drops what reads it, so they run again while the rest is kept."""
     calls.clear()
     compiled = _compiled([
-        GraphNode(id="split", type="split", version=1, bindings={"text": Static("a,b")}),
-        GraphNode(id="up", type="upper", version=1, bindings={"text": _edge("split")}),
-        GraphNode(id="w", type="wrap", version=1, bindings={"text": _edge("up")}),
-        GraphNode(id="d", type="echo", version=1, bindings={"text": Static("alone")}),
+        placed("split", "split", text=Static("a,b")),
+        placed("up", "upper", text=_edge("split")),
+        placed("w", "wrap", text=_edge("up")),
+        placed("d", "echo", text=Static("alone")),
     ])
     state = events_of(compiled)[-1].state
     calls.clear()
@@ -235,10 +234,7 @@ def test_a_return_of_the_wrong_type_fails_the_returning_node_with_invalid_output
         return 42  # type: ignore[return-value]
 
     reg = registry_of(wrong, upper_node)
-    compiled = CompiledGraph.from_graph(Graph(nodes=[
-        GraphNode(id="w", type="wrong", version=1, bindings={"text": Static("x")}),
-        GraphNode(id="up", type="upper", version=1, bindings={"text": _edge("w")}),
-    ]), reg)
+    compiled = CompiledGraph.from_graph(record(placed("w", "wrong", text=Static("x")), placed("up", "upper", text=_edge("w"))), reg)
 
     events = events_of(compiled)
 
@@ -255,7 +251,7 @@ def test_a_state_value_that_does_not_read_back_as_its_type_is_refused():
     import pytest
     from conductor import InvalidCallError
 
-    compiled = _compiled([GraphNode(id="e", type="echo", version=1, bindings={"text": Static("x")})])
+    compiled = _compiled([placed("e", "echo", text=Static("x"))])
     state = events_of(compiled)[-1].state
     dumped = state.model_dump(mode="json")
     dumped["nodes"]["e"]["outputs"]["result"]["values"] = [{"not": "text"}]
@@ -267,7 +263,7 @@ def test_a_state_value_that_does_not_read_back_as_its_type_is_refused():
 def test_a_node_that_runs_once_is_at_the_empty_row_on_the_wire():
     """The top is the empty row, ``[]`` in JSON, for a value and a done unit
     alike; a state read back from that JSON runs nothing again."""
-    compiled = _compiled([GraphNode(id="e", type="echo", version=1, bindings={"text": Static("x")})])
+    compiled = _compiled([placed("e", "echo", text=Static("x"))])
     wire = events_of(compiled)[-1].state.model_dump(mode="json")
     assert wire["nodes"]["e"]["outputs"]["result"]["rows"] == [[]] and wire["nodes"]["e"]["finished_units"][0][0] == []
 
@@ -277,7 +273,7 @@ def test_a_node_that_runs_once_is_at_the_empty_row_on_the_wire():
 
 
 def _once_state() -> dict:
-    compiled = _compiled([GraphNode(id="e", type="echo", version=1, bindings={"text": Static("x")})])
+    compiled = _compiled([placed("e", "echo", text=Static("x"))])
     return events_of(compiled)[-1].state.model_dump(mode="json")
 
 
@@ -289,7 +285,7 @@ def _once_state() -> dict:
 def test_a_state_entry_a_node_that_runs_once_has_no_place_for_is_refused(edit, refusal):
     from conductor import InvalidCallError
 
-    compiled = _compiled([GraphNode(id="e", type="echo", version=1, bindings={"text": Static("x")})])
+    compiled = _compiled([placed("e", "echo", text=Static("x"))])
     dumped = events_of(compiled)[-1].state.model_dump(mode="json")
     edit(dumped)
 
@@ -312,8 +308,8 @@ def test_an_answer_reads_through_the_outputs_type():
     """A host may hand an answer in wire form, as it came over HTTP, or as the typed value."""
     calls.clear()
     once = _compiled([
-        GraphNode(id="ask", type="ask", version=1, bindings={"text": Static("q")}),
-        GraphNode(id="up", type="upper", version=1, bindings={"text": _edge("ask")}),
+        placed("ask", "ask", text=Static("q")),
+        placed("up", "upper", text=_edge("ask")),
     ])
     first = events_of(once)[-1].state
     ending = events_of(once, state=first, answers={"ask": {"result": "typed in"}})[-1].state
@@ -336,7 +332,9 @@ def test_a_unit_whose_second_output_is_invalid_writes_nothing():
         return Both(head=Txt("h"), parts=3)  # type: ignore[arg-type]
 
     reg = registry_of(splits)
-    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="s", type="splits", version=1, bindings={"text": Static("x")})]), reg)
+    compiled = CompiledGraph.from_graph(GraphRecord(nodes=[
+        NodeRecord(id="s", node="splits", values={"text": "x"}),
+    ]), reg)
 
     state = compiled.run_sync()
 
@@ -351,18 +349,18 @@ def test_a_list_set_on_a_node_edited_between_legs_reruns_on_the_new_rows():
     """The rows of a list set on a node are the graph's, never the state's: grown,
     shrunk or added between legs, the node runs on what the author typed now."""
     calls.clear()
-    state = events_of(_compiled([GraphNode(id="e", type="upper", version=1, bindings={"text": Static(["a", "b"])})]))[-1].state
+    state = events_of(_compiled([placed("e", "upper", text=Static(["a", "b"]))]))[-1].state
     calls.clear()
 
-    longer = _compiled([GraphNode(id="e", type="upper", version=1, bindings={"text": Static(["a", "b", "c"])})])
+    longer = _compiled([placed("e", "upper", text=Static(["a", "b", "c"]))])
     grown = events_of(longer, state=_through_json(state))[-1].state
     assert grown.status == "complete" and longer.results(grown)["e"]["result"]["values"] == ["A", "B", "C"]
-    shorter = _compiled([GraphNode(id="e", type="upper", version=1, bindings={"text": Static(["a"])})])
+    shorter = _compiled([placed("e", "upper", text=Static(["a"]))])
     shrunk = events_of(shorter, state=_through_json(state))[-1].state
     assert shrunk.status == "complete" and shorter.results(shrunk)["e"]["result"]["values"] == ["A"]
     wider = _compiled([
-        GraphNode(id="e", type="upper", version=1, bindings={"text": Static(["a", "b"])}),
-        GraphNode(id="f", type="upper", version=1, bindings={"text": Static(["x", "y"])}),
+        placed("e", "upper", text=Static(["a", "b"])),
+        placed("f", "upper", text=Static(["x", "y"])),
     ])
     added = events_of(wider, state=_through_json(state))[-1].state
     assert added.status == "complete" and wider.results(added)["f"]["result"]["values"] == ["X", "Y"]
@@ -380,7 +378,9 @@ def test_a_static_hashes_as_its_type_writes_it_not_as_the_author_spelled_it():
 
     def fingerprint(value):
         reg = registry_of(half)
-        return CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="h", type="half", version=1, bindings={"n": Static(value)})]), reg).node("h").fingerprint
+        return CompiledGraph.from_graph(GraphRecord(nodes=[
+            NodeRecord(id="h", node="half", values={"n": value}),
+        ]), reg).node("h").fingerprint
 
     assert fingerprint(2) == fingerprint(2.0) == fingerprint(Num(2))
     assert fingerprint(2) != fingerprint(3)
@@ -399,7 +399,9 @@ def test_series_outputs_of_two_lengths_both_land_each_on_its_own_index():
         return Both(a=[Txt("x")], b=[Txt("y"), Txt("z")])
 
     reg = registry_of(uneven)
-    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="u", type="uneven", version=1, bindings={"text": Static("x")})]), reg)
+    compiled = CompiledGraph.from_graph(GraphRecord(nodes=[
+        NodeRecord(id="u", node="uneven", values={"text": "x"}),
+    ]), reg)
 
     ending = list(events_of(compiled))[-1].state
     result = compiled.results(ending)["u"]
@@ -412,8 +414,8 @@ def test_the_state_an_ending_carries_reads_as_a_stored_one_does():
     """A state a leg just built holds its values typed; the same state stored
     and read back holds their wire form. Both read the same."""
     compiled = _compiled([
-        GraphNode(id="s", type="split", version=1, bindings={"text": Static("a,b")}),
-        GraphNode(id="up", type="upper", version=1, bindings={"text": _edge("s")}),
+        placed("s", "split", text=Static("a,b")),
+        placed("up", "upper", text=_edge("s")),
     ])
     state = events_of(compiled)[-1].state
     live, stored = compiled.results(state), compiled.results(_through_json(state))
@@ -424,8 +426,8 @@ def test_the_state_an_ending_carries_reads_as_a_stored_one_does():
 
 def test_a_live_state_read_over_an_edited_graph_leaves_out_what_changed():
     """Over an edited graph, the edited node is left out of what a state reads as."""
-    nodes = [GraphNode(id="a", type="echo", version=1, bindings={"text": Static("x")})]
+    nodes = [placed("a", "echo", text=Static("x"))]
     state = events_of(_compiled(nodes))[-1].state
-    edited = _compiled([GraphNode(id="a", type="echo", version=1, bindings={"text": Static("y")})])
+    edited = _compiled([placed("a", "echo", text=Static("y"))])
 
     assert "a" not in edited.results(state)

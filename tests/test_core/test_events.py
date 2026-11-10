@@ -17,14 +17,13 @@ from conductor import (
     AskPerson,
     CompiledGraph,
     DType,
-    Graph,
-    GraphNode,
+    GraphRecord,
+    NodeRecord,
     Param,
     Problem,
     Result,
     RunState,
     Series,
-    Static,
     node,
 )
 from conductor._internal.execution.run_state import OutputColumn, Question, WaitingUnit, WorkOfNode
@@ -64,7 +63,9 @@ def ask(text: Annotated[Txt, Param(title="In", widget=Textarea())] = Txt("")) ->
 def _compiled(text: str) -> CompiledGraph:
     registry = registry_of(split_node)
     return CompiledGraph.from_graph(
-        Graph(nodes=(GraphNode(id="s", type="split", version=1, bindings={"text": Static(text)}),)), registry
+        GraphRecord(nodes=[
+            NodeRecord(id="s", node="split", values={"text": text}),
+        ]), registry
     )
 
 
@@ -152,7 +153,9 @@ def test_a_frame_is_the_json_the_dict_was():
 def test_a_pending_unit_is_a_record_too():
     registry = registry_of(ask)
     compiled = CompiledGraph.from_graph(
-        Graph(nodes=(GraphNode(id="q", type="ask", version=1, bindings={"text": Static("x")}),)), registry
+        GraphRecord(nodes=[
+            NodeRecord(id="q", node="ask", values={"text": "x"}),
+        ]), registry
     )
 
     ending = compiled.run_sync()
