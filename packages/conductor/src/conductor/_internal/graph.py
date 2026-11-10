@@ -186,7 +186,8 @@ class Graph:
             node_id = self._outer_id(p.id)
             if node_id in plan and node_id != p.id and not any(self._outer.get(f"{p.id}.{o}") for o in p.definition.outputs):
                 continue
-            plan[node_id] = f"per row of {self._outer.get(p.level[-1], p.level[-1])}" if p.level else "once"
+            table = self._outer.get(p.level[-1], p.level[-1].rpartition("/")[2]) if p.level else ""
+            plan[node_id] = f"per row of {table}" if p.level else "once"
         return plan
 
     @property
@@ -637,7 +638,7 @@ class Graph:
         # input receives a list of one.
         gathered = [_deepest([s.level for s in p.sources]) for p in placed.inputs.values() if p.spec.shape != "one" and p.sources]
         placed.level = _deepest(ones) if ones else min((level[:-1] for level in gathered), key=len, default=())
-        floor = self._floor(placed.id)
+        floor = self._floor(placed)
         if not _under(floor, placed.level):  # an embedded graph runs on each row its embedding runs on
             if not _under(placed.level, floor):
                 self._unrelated(placed, placed.level, floor)
@@ -671,12 +672,22 @@ class Graph:
                         return False
         return True
 
-    def _floor(self, node_id: str) -> Level:
-        """The rows an embedded node runs on at least: the rows its embedding runs on, set by the edges entering it."""
+    def _floor(self, placed: PlacedNode) -> Level:
+        """The rows an embedded node runs on at least: the rows its embedding enters on, by the entering edges it reads from.
+
+        A node reads an entering edge when the edge lands on it or on a node above it inside the embedding.
+        """
+        node_id = placed.id
         levels: list[Level] = []
+        above: set[str] | None = None
         for e in self._embeddings:
             if node_id.startswith(e + "/"):
+                if above is None:
+                    sources = {s.node_id for p in placed.inputs.values() for s in p.sources if s.node_id is not None}
+                    above = {node_id, *sources, *(a for n in sources for a in self._above_of(n))}
                 for address, target in self._entering[e]:
+                    if target.partition(".")[0] not in above:
+                        continue
                     source = self._nodes.get(address.partition(".")[0])
                     if source is None:
                         continue

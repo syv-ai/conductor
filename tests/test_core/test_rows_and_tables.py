@@ -755,15 +755,15 @@ def test_a_table_made_inside_per_outer_row_is_a_child_of_that_row_fed_or_not():
     fed = embedded("splitter", {"id": "lines", "node": "split", "values": {"sep": "/"}}, {"id": "join", "node": "join"}, edges=(("lines.result", "join.texts"),))
     run = ran({"id": "docs", "node": "split"}, {"id": "emb", "node": "splitter"}, edges=(("docs.result", "emb.text"),),
               registry=registry_of(split, join, fed), text="a/b,c")
-    assert run.graph.plan["emb/lines"] == run.graph.plan["emb/join"] == "per row of docs.result"
-    assert run.results["emb/join"]["result"] == ["a+b", "c"]
+    assert run.graph.plan["emb"] == "per row of docs.result"
+    assert run.results["emb"]["result"] == ["a+b", "c"]
 
     unfed = embedded("splitter-unfed", {"id": "entered", "node": "upper"}, {"id": "lines", "node": "split", "values": {"text": "x/y", "sep": "/"}},
                      {"id": "join", "node": "join"}, {"id": "p", "node": "pair"},
                      edges=(("lines.result", "join.texts"), ("entered.result", "p.a"), ("join.result", "p.b")))
     run = ran({"id": "docs", "node": "split"}, {"id": "emb", "node": "splitter-unfed"}, edges=(("docs.result", "emb.text"),),
               registry=registry_of(split, join, upper, pair, unfed), text="a,b")
-    assert run.results["emb/p"]["result"] == ["A:x+y", "B:x+y"]
+    assert run.results["emb"]["result"] == ["A:x+y", "B:x+y"]
 
 
 def test_inputs_from_a_table_and_its_child_table_run_the_inner_nodes_on_the_deeper_rows():
@@ -776,15 +776,15 @@ def test_inputs_from_a_table_and_its_child_table_run_the_inner_nodes_on_the_deep
     run = ran({"id": "docs", "node": "split", "values": {"sep": "|"}}, {"id": "lines", "node": "split"}, {"id": "emb", "node": "pair-up"},
               edges=(("docs.result", "lines.text"), ("docs.result", "emb.word"), ("lines.result", "emb.text")),
               registry=registry_of(split, upper, pair, shout, inner), text="a,b|c")
-    assert run.graph.plan["emb/ua"] == "per row of docs.result" and run.graph.plan["emb/p"] == "per row of lines.result"
-    assert run.results["emb/p"]["result"] == ["A,B:A", "A,B:B", "C:C"]
+    assert run.graph.plan["emb"] == "per row of lines.result"
+    assert run.results["emb"]["result"] == ["A,B:A", "A,B:B", "C:C"]
 
 
 def test_a_list_into_an_embedded_series_input_is_one_value_and_the_graph_runs_once():
     inner = embedded("joiner", {"id": "join", "node": "join"})
     run = ran({"id": "docs", "node": "split"}, {"id": "emb", "node": "joiner"}, edges=(("docs.result", "emb.texts"),),
               registry=registry_of(split, join, inner), text="a,b")
-    assert run.graph.plan["emb/join"] == "once" and run.results["emb/join"]["result"] == "a+b"
+    assert run.graph.plan["emb"] == "once" and run.results["emb"]["result"] == "a+b"
 
 
 def test_two_unrelated_tables_into_one_embedding_are_refused_once_with_the_authors_addresses():
@@ -841,16 +841,16 @@ def test_a_gather_inside_a_per_row_graph_reads_only_its_own_rows_from_several_so
                      edges=(("a.result", "j.texts"), ("o.result", "j.texts")))
     run = ran({"id": "s", "node": "split"}, {"id": "e", "node": "gathers"}, edges=(("s.result", "e.text"), ("s.result", "e.word")),
               registry=registry_of(split, shout, join, inner), text="a;b,c")
-    assert run.graph.plan["e/j"] == "per row of s.result"
-    assert run.results["e/j"]["result"] == ["a+b+A;B", "c+C"]
+    assert run.graph.plan["e"] == "per row of s.result"
+    assert run.results["e"]["result"] == ["a+b+A;B", "c+C"]
 
 
 def test_a_series_input_of_an_embedding_fed_a_whole_column_sees_it_whole():
     inner = embedded("mixed", {"id": "u", "node": "upper"}, {"id": "j", "node": "join"})
     run = ran({"id": "docs", "node": "split"}, {"id": "emb", "node": "mixed"}, edges=(("docs.result", "emb.text"), ("docs.result", "emb.texts")),
               registry=registry_of(split, upper, join, inner), text="a,b")
-    assert run.graph.plan == {"docs": "once", "emb/u": "per row of docs.result", "emb/j": "once"}
-    assert run.results["emb/j"]["result"] == "a+b"
+    assert set(run.graph.plan) == {"docs", "emb"}
+    assert run.results["emb"] == {"u.result": ["A", "B"], "j.result": "a+b"}
 
 
 def test_a_graph_embedded_under_a_row_runs_as_the_same_nodes_drawn_flat():
@@ -860,9 +860,8 @@ def test_a_graph_embedded_under_a_row_runs_as_the_same_nodes_drawn_flat():
     reg = registry_of(split, pair, inner)
     embedded_run = ran({"id": "s", "node": "split"}, {"id": "e", "node": "deep"}, edges=(("s.result", "e.text"),), registry=reg, text="a/b;c,d")
     flat_run = ran({"id": "s", "node": "split"}, *nodes, edges=(("s.result", "i.text"), *edges), registry=reg, text="a/b;c,d")
-    for name in ("i", "c", "p"):
-        assert embedded_run.results[f"e/{name}"] == flat_run.results[name]
-        assert embedded_run.graph.plan[f"e/{name}"].replace("e/", "") == flat_run.graph.plan[name]
+    assert embedded_run.results["e"] == flat_run.results["p"]
+    assert embedded_run.graph.plan["e"] == flat_run.graph.plan["p"]
 
 
 def test_a_table_inputs_columns_are_named_the_same_embedded_as_alone():
@@ -875,14 +874,14 @@ def test_a_table_inputs_columns_are_named_the_same_embedded_as_alone():
     reg = registry_of(split, contacts, send_or_say, columns, embedded("sheet", *merge, edges=edges))
     alone = ran(*merge, edges=edges, registry=reg)
     inside = ran({"id": "e", "node": "sheet"}, registry=reg)
-    assert alone.results["t"]["result"] == inside.results["e/t"]["result"] == "name,result"
+    assert alone.results["t"]["result"] == inside.results["e"]["result"] == "name,result"
 
 
 def test_a_table_input_inside_an_embedded_graph_combines_its_inner_sources():
     merge = ({"id": "c", "node": "contacts", "values": {"text": CSV}}, {"id": "s", "node": "send-or-say"}, {"id": "x", "node": "show"})
     edges = (("c.result.email", "s.email"), ("c.result", "x.table"), ("s.result", "x.table"))
     run = ran({"id": "e", "node": "sheet"}, registry=registry_of(contacts, send_or_say, show, embedded("sheet", *merge, edges=edges)))
-    assert run.results["e/x"]["result"]["result"].to_list() == ["sent to ida@x", "no address", "sent to nina@x"]
+    assert run.results["e"]["result"]["result"].to_list() == ["sent to ida@x", "no address", "sent to nina@x"]
 
 
 def test_inside_an_embedding_a_rebuilt_table_and_a_column_made_per_row_of_it_combine():
@@ -894,6 +893,6 @@ def test_inside_an_embedding_a_rebuilt_table_and_a_column_made_per_row_of_it_com
                      edges=(("k.result.email", "s.email"), ("k.result", "m.table"), ("s.result", "m.table")))
     run = ran({"id": "c", "node": "contacts"}, {"id": "sub", "node": "rb"}, edges=(("c.result", "sub.table"),),
               registry=registry_of(contacts, rebuild, send, show, inner), text=CSV)
-    assert run.results["sub/m"]["result"].to_dicts() == [
+    assert run.results["sub"]["result"].to_dicts() == [
         {"name": "Ida", "email": "ida@x", "result": "sent to ida@x"}, {"name": "Nina", "email": "nina@x", "result": "sent to nina@x"},
     ]
