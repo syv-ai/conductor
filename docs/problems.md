@@ -1162,6 +1162,19 @@ except NodeDeclarationError as error:
 
 **Fix.** Pass the class itself.
 
+### `not_for_a_graph`
+
+> @node({id}) on a stored graph takes no {given}: its nodes run by their own policies and fields; set them there
+
+```python
+try:
+    node("wrapped", policy=Policy(concurrency=4))(make_graph(upper))
+except NodeDeclarationError as error:
+    print(error.code)  # not_for_a_graph
+```
+
+**Fix.** Set the policy, or the hook, on the nodes inside the graph.
+
 ### `output_without_type`
 
 > a node needs a return type; write one, or -> None for no outputs

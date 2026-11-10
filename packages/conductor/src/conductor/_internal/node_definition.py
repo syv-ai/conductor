@@ -359,6 +359,12 @@ def node(
             "deprecation": deprecation, "replaces": replaces, "upgrade": upgrade, "policy": policy or Policy(),
         }
         if not callable(target):
+            given = ", ".join(name for name, value in (("policy", policy), ("compute_added_inputs", compute_added_inputs), ("compute_outputs", compute_outputs)) if value is not None)
+            if given:
+                raise NodeDeclarationError(
+                    f"@node({id!r}) on a stored graph takes no {given}: its nodes run by their own policies and fields; set them there",
+                    code="not_for_a_graph",
+                )
             record = as_record(target)  # a record, JSON text or a mapping, read as registry.load reads one
             return NodeDefinition(function=None, inputs={}, outputs={}, graph=record, title=title or humanised(id), description=description or "", **common)
         where = f"@node({id!r}) on {getattr(target, '__name__', target)}: "

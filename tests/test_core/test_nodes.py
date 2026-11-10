@@ -1241,3 +1241,15 @@ def test_a_declared_choice_is_read_as_an_answer_is_so_an_enums_value_or_its_memb
     assert [c["id"] for c in by_value.describe().inputs[0].choices or ()] == ["red"]
     assert [c["id"] for c in by_member.describe().inputs[0].choices or ()] == ["red"]
     assert a_day.describe().inputs[0].choices == [{"id": "2024-01-02", "title": "2024-01-02"}]
+
+
+@pytest.mark.parametrize("given", [
+    {"policy": Policy(concurrency=4)},
+    {"compute_outputs": lambda: {"x": int}},
+    {"compute_added_inputs": lambda: {"x": int}},
+])
+def test_a_stored_graph_takes_no_policy_or_hook_since_its_own_nodes_run_by_theirs(given: dict[str, Any]) -> None:
+    record = GraphRecord(nodes=[NodeRecord(id="u", node="upper")])
+    with pytest.raises(NodeDeclarationError) as raised:
+        node("wrapped", **given)(record)
+    assert raised.value.code == "not_for_a_graph"
