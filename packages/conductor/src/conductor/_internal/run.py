@@ -432,7 +432,10 @@ class Run:
 
     def _stop(self, table: str, count: int) -> None:
         self.status = "stopped"
-        self.cause = make_problem("row_ceiling", self.graph._makers[table][0] or "inputs", table=table, rows=count, max_rows=self.max_rows)
+        maker = self.graph._makers[table][0]
+        self.cause = make_problem(
+            "row_ceiling", self.graph.outward(maker) if maker else "inputs", table=self.graph.outward(table, table=True), rows=count, max_rows=self.max_rows,
+        )
 
     def _rows_made(self) -> dict[str, int]:
         made: dict[str, int] = {}

@@ -6,6 +6,7 @@ gathers the rows under the node's row, or under the row it shares with a
 sibling table. One-value sources must lie on one path of the row tree. A blank cell keeps a node from being called on its row unless the input
 says ``| None``; a branch not taken skips the row.
 """
+import json
 from dataclasses import dataclass
 from typing import Annotated, Any, Optional, TypedDict
 
@@ -1358,3 +1359,79 @@ def test_two_series_outputs_of_one_node_and_two_children_of_one_parent_do_not_li
     assert problems({"id": "t", "node": "two"}, {"id": "p", "node": "pair"}, edges=(("t.a", "p.a"), ("t.b", "p.b")), registry=reg) == ["rows_not_related"]
     assert problems({"id": "s", "node": "split"}, {"id": "x", "node": "split"}, {"id": "y", "node": "split"}, {"id": "p", "node": "pair"},
                     edges=(("s.result", "x.text"), ("s.result", "y.text"), ("x.result", "p.a"), ("y.result", "p.b")), registry=reg) == ["rows_not_related"]
+
+
+# -- an embedded graph is one node from outside ------------------------------------------------
+
+
+def _streamed(run: Any) -> list[Any]:
+    import asyncio
+
+    async def collect() -> list[Any]:
+        return [event async for event in run.stream()]
+
+    return asyncio.run(collect())
+
+
+@node("ask-ok")
+def ask_ok(text: str) -> bool:
+    raise Ask(f"OK {text}?")
+
+
+@node("fails")
+def fails(text: str) -> str:
+    raise ValueError("inner trouble")
+
+
+def test_events_waiting_ids_and_failures_name_an_embedding_never_its_inner_nodes():
+    inner = embedded("checker", {"id": "u", "node": "upper"}, {"id": "a", "node": "ask-ok"}, edges=(("u.result", "a.text"),))
+    loaded = graph({"id": "s", "node": "split"}, {"id": "e", "node": "checker"}, edges=(("s.result", "e.text"),),
+                   registry=registry_of(split, upper, ask_ok, inner))
+
+    events = _streamed(loaded.with_inputs(text="x,y"))
+    run = events[-1].run
+
+    named = {e.node_id for e in events if hasattr(e, "node_id")} | {e.unit.node_id for e in events if e.type == "unit_waiting"}
+    assert named == {"s", "e"} and [e.node_id for e in events if e.type == "node_start"] == ["s", "e"]
+    assert [(w.node_id, w.row) for w in run.waiting] == [("e", (0,)), ("e", (1,))] and all(w.id.startswith("e@") for w in run.waiting)
+    done = run.answer({w.id: True for w in run.waiting}).with_inputs()
+    finished = _streamed(done)
+    (complete,) = [e for e in finished if e.type == "node_complete" and e.node_id == "e"]
+    assert complete.outputs == {"result": [True, True]} and "/" not in json.dumps([e.model_dump(mode="json") for e in finished])
+
+    broken = embedded("breaker", {"id": "f", "node": "fails"})
+    failed = graph({"id": "b", "node": "breaker"}, registry=registry_of(fails, broken)).run(text="x")
+    assert (failed.cause.type, failed.cause.loc) == ("execution_failed", ("b",))
+
+
+def test_decisions_of_an_embedding_name_the_outputs_it_offers():
+    inner = embedded("decider", {"id": "d", "node": "decide"})
+    loaded = graph({"id": "e", "node": "decider"}, registry=registry_of(decide, inner))
+
+    assert loaded.decisions == {"e": {"answer": ["yes", "no"]}}
+
+
+def test_an_embedding_fed_partly_from_outside_still_offers_its_other_inputs():
+    inner = embedded("pairer", {"id": "p", "node": "pair"})
+    loaded = graph({"id": "u", "node": "upper"}, {"id": "e", "node": "pairer"}, edges=(("u.result", "e.a"),), registry=registry_of(upper, pair, inner))
+
+    assert loaded.problems == [] and list(loaded.inputs) == ["text", "b"]
+    assert loaded.run(text="x", b="y").results["e"] == {"result": "X:y"}
+
+
+def test_a_nested_embedding_names_its_fields_as_each_record_says_them_never_by_a_spliced_id():
+    two = embedded("two", {"id": "x", "node": "upper"}, {"id": "y", "node": "upper"})
+    outer = embedded("outer", {"id": "f", "node": "two"}, {"id": "z", "node": "upper"})
+    loaded = graph({"id": "o", "node": "outer"}, registry=registry_of(upper, two, outer))
+
+    assert list(loaded.inputs) == ["x.text", "y.text", "text"]
+    assert all("/" not in i.address for i in loaded.inputs.values())
+    assert loaded.run({"x.text": "a", "y.text": "b", "text": "c"}).results["o"] == {"x.result": "A", "y.result": "B", "result": "C"}
+
+
+def test_many_on_an_embedded_node_takes_a_list_as_its_inner_input_would():
+    inner = embedded("shouter", {"id": "u", "node": "upper"})
+    loaded = graph({"id": "e", "node": "shouter", "many": ["text"]}, registry=registry_of(upper, inner))
+
+    assert loaded.inputs["text"].many and loaded.run(text=["a", "b"]).results["e"] == {"result": ["A", "B"]}
+    assert problems({"id": "e", "node": "shouter", "many": ["nope"]}, registry=registry_of(upper, inner)) == ["unknown_input"]

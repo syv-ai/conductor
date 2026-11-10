@@ -182,7 +182,9 @@ class Leg:
         self.recorded_since_walk = 1
         self.left_pending = True
         # what only a listener needs
-        self.started = {n for n, units in run._units.items() if units}
+        self.started = {run.graph.outward(n) for n, units in run._units.items() if units}
+        #: For an embedding, what each of its nodes came to once complete: all skipped, the rows not called, the rows reused.
+        self.inside: dict[str, dict[str, tuple[bool, list[dict[str, Any]], int]]] = {}
         self.touched: set[str] = set()
         self.complete: set[str] = set()
         self.reused = {p.id: 0 for p in self.nodes}
@@ -315,7 +317,7 @@ class Leg:
             elif self.attempts.get((node_id, key)) == -1 - attempt and (node_id, key) in self.running:  # the attempt still runs
                 del self.running[(node_id, key)]
                 seconds = placed.definition.policy.attempt_timeout
-                self._record(placed, key, make_problem("timeout", node_id, *key, seconds=seconds))
+                self._record(placed, key, make_problem("timeout", self.run.graph.outward(node_id), *key, seconds=seconds))
 
     def _returned(self, node_id: str, key: Key, attempt: int, out: Any, error: BaseException | None) -> None:
         placed = self.run.graph._nodes[node_id]
@@ -339,7 +341,7 @@ class Leg:
         self.running[(placed.id, key)] = kwargs
         heapq.heappush(self.timers, (time.monotonic() + delay, len(self.timers), placed.id, key, attempt + 1))
         if self.emit:
-            self.emit(NodeRetry(node_id=placed.id, row=key, attempt=attempt + 1, retries=policy.retries, delay=delay, cause=self._failure(placed, key, error)))
+            self.emit(NodeRetry(node_id=self.run.graph.outward(placed.id), row=key, attempt=attempt + 1, retries=policy.retries, delay=delay, cause=self._failure(placed, key, error)))
         return True
 
     def _outcome(self, placed: PlacedNode, key: Key, kwargs: dict[str, Any], out: Any, error: BaseException | None) -> Unit | Problem:
@@ -351,20 +353,21 @@ class Leg:
                 try:
                     question["asked"] = asked(error, placed.definition)
                 except WrongAsk as wrong:
-                    return make_problem("invalid_ask", placed.id, *key, reason=str(wrong))
+                    return make_problem("invalid_ask", self.run.graph.outward(placed.id), *key, reason=str(wrong))
             return Unit("waiting", None, question)
         return self._failure(placed, key, error)
 
     def _failure(self, placed: PlacedNode, key: Key, error: BaseException) -> Problem:
         """The problem a node's exception is: its own words for a ``NodeError``; for any other, only its class, the text to the log."""
+        outer = self.run.graph.outward(placed.id)  # a node of an embedding fails as the embedding, from outside
         if isinstance(error, NodeError):
-            return error._as_problem_at(placed.id, *key)
+            return error._as_problem_at(outer, *key)
         if isinstance(error, NotDeclared):
-            return make_problem(error.code, placed.id, *key, **error.ctx)
+            return make_problem(error.code, outer, *key, **error.ctx)
         _logger.error("node %r failed on row %r", placed.id, key, exc_info=error)
         if isinstance(error, placed.definition.policy.retry_on):
-            return make_problem("external_failed", placed.id, *key, error=type(error).__name__)
-        return make_problem("execution_failed", placed.id, *key, error=type(error).__name__)
+            return make_problem("external_failed", outer, *key, error=type(error).__name__)
+        return make_problem("execution_failed", outer, *key, error=type(error).__name__)
 
     def _record(self, placed: PlacedNode, key: Key, unit: Unit | Problem, walking: bool = False) -> None:
         """Keep what a unit came to, and make ready what reads it."""
@@ -374,7 +377,7 @@ class Leg:
                 run.status, run.cause = "failed", unit
                 self._start_nothing_more()
                 if self.emit:
-                    self.emit(NodeFailed(node_id=placed.id, cause=unit))
+                    self.emit(NodeFailed(node_id=self.run.graph.outward(placed.id), cause=unit))
             return
         units = run._units[placed.id]
         if units and key not in units and key < next(reversed(units)):
@@ -445,14 +448,17 @@ class Leg:
     # -- what the leg says --------------------------------------------------------------------
 
     def _announce(self, placed: PlacedNode) -> None:
-        if placed.id not in self.started:
-            self.started.add(placed.id)
+        outer = self.run.graph.outward(placed.id)
+        if outer not in self.started:
+            self.started.add(outer)
             if self.emit:
-                self.emit(NodeStart(node_id=placed.id))
+                self.emit(NodeStart(node_id=outer))
 
     def _progress(self, placed: PlacedNode, last: bool = False) -> None:
         """Say how far a node running per row has got, at most four times a second; ``last`` says its final count, unless already said."""
         now = time.monotonic()
+        if placed.id in self.run.graph._spliced:
+            return  # an embedding's own nodes are not seen from outside; its completion is
         if not self.emit or not (last or now - self.progress_at.get(placed.id, -1.0) >= _SECONDS_BETWEEN_PROGRESS):
             return
         done = sum(1 for unit in self.run._units[placed.id].values() if unit.state != "waiting")  # counted only when said, at most four times a second
@@ -476,8 +482,26 @@ class Leg:
             self.complete.add(node_id)
             if placed.level and node_id in self.progress_said:
                 self._progress(placed, last=True)
-            if keys and all(units[k].state == "skipped" for k in keys):
-                self.emit(NodeSkipped(node_id=node_id))
-                continue
+            skipped = bool(keys) and all(units[k].state == "skipped" for k in keys)
             not_called = [{"row": list(k), "input": units[k].question["input"]} for k in keys if units[k].state == "blank" and units[k].question]  # type: ignore[index]
-            self.emit(NodeComplete(node_id=node_id, outputs=self.run._outputs_json(placed), not_called=not_called, reused_units=self.reused[node_id]))
+            if node_id in self.run.graph._spliced:
+                self._inner_complete(node_id, skipped, not_called)
+            elif skipped:
+                self.emit(NodeSkipped(node_id=node_id))
+            else:
+                self.emit(NodeComplete(node_id=node_id, outputs=self.run._outputs_json(placed), not_called=not_called, reused_units=self.reused[node_id]))
+
+    def _inner_complete(self, node_id: str, skipped: bool, not_called: list[dict[str, Any]]) -> None:
+        """A node of an embedding is complete: once all of them are, the embedding is, as one node with the outputs it offers."""
+        assert self.emit is not None
+        graph = self.run.graph
+        outer = graph.outward(node_id)
+        inside = self.inside.setdefault(outer, {})
+        inside[node_id] = (skipped, [{**n, "input": graph.outward(f"{node_id}.{n['input']}").partition(".")[2] or n["input"]} for n in not_called], self.reused[node_id])
+        if len(inside) < len(graph._placed_as(outer)):
+            return
+        if all(s for s, _, _ in inside.values()):
+            self.emit(NodeSkipped(node_id=outer))
+            return
+        outputs = {name: self.run._outputs_json(graph._nodes[n])[o] for name, (n, o) in graph._readable[outer].items()}
+        self.emit(NodeComplete(node_id=outer, outputs=outputs, not_called=[n for _, ns, _ in inside.values() for n in ns], reused_units=sum(r for _, _, r in inside.values())))

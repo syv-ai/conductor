@@ -179,6 +179,8 @@ class Graph:
         #: Each embedding, at any depth, by its spliced id; and for the ones drawn in this record, what they offer.
         self._embeddings: set[str] = set()
         self._offers: dict[str, tuple[dict[str, tuple[str, str]], dict[str, str]]] = {}
+        #: A placed field inside an embedding as the record holding that embedding names it: ``o/f/x.text`` -> ``o/f.x.text``.
+        self._seen_as: dict[str, str] = {}
         placed_records, edges = self._splice(record, "", _embedded_in)
         #: Each embedding's edges from outside it into it, which set the rows its nodes run on.
         self._entering = {e: [(a, b) for a, b in edges if b.startswith(e + "/") and not a.startswith(e + "/")] for e in self._embeddings}
@@ -198,6 +200,8 @@ class Graph:
         self._readers: dict[str, list[PlacedNode]] = {r.id: [] for r, _ in placed_records}
         self._above: dict[str, frozenset[str]] = {}
         self._placed: dict[str, list[str]] = {}
+        #: The placed nodes an embedding put in its place, at any depth.
+        self._spliced: frozenset[str] = frozenset()
         #: Each node's branches: the ways decisions must go for it to hold a value, ``(node, group, output)``.
         self._branches: dict[str, frozenset[tuple[str, str, str]]] = {}
         self._compile(placed_records, edges)
@@ -244,10 +248,11 @@ class Graph:
     def decisions(self) -> dict[str, dict[str, list[str]]]:
         """Each node's exclusive groups and their outputs, for a host to say which way a run went."""
         found: dict[str, dict[str, list[str]]] = {}
-        for placed in self._nodes.values():
-            for name, spec in placed.definition.outputs.items():
-                if spec.param.exclusive_group:
-                    found.setdefault(placed.id, {}).setdefault(spec.param.exclusive_group, []).append(name)
+        for drawn, fields in self._readable.items():  # an embedding's by the outputs it offers
+            for name, (node_id, output) in fields.items():
+                group = self._nodes[node_id].definition.outputs[output].param.exclusive_group
+                if group:
+                    found.setdefault(drawn, {}).setdefault(group, []).append(name)
         return found
 
     def describe(self) -> dict[str, Any]:
@@ -396,7 +401,11 @@ class Graph:
                 out.append((node_record, None))
                 continue
             inner, inner_edges = self._splice(definition.graph, node_record.id + "/", (*stack, definition.id))
-            ins, outs = _interface(inner, inner_edges, node_record.id + "/")
+            ins, outs = _interface(inner, inner_edges, node_record.id + "/", self._seen_as)
+            for name, (inner_node, inner_input) in ins.items():
+                self._seen_as[f"{inner_node}.{inner_input}"] = f"{node_record.id}.{name}"
+            for name, address in outs.items():
+                self._seen_as[address] = f"{node_record.id}.{name}"
             self._embeddings.add(node_record.id)
             offered_here[node_record.id] = (ins, outs)
             if not prefix:
@@ -412,8 +421,17 @@ class Graph:
                         self.problems.append(make_problem("unknown_input", node_record.id, name, inputs=", ".join(ins) or "none"))
                         continue
                     typed.setdefault(ins[name][0], {}).setdefault(key, {})[ins[name][1]] = value
+            many: dict[str, set[str]] = {}
+            for name in node_record.many:  # an embedded graph's input takes a list as its inner node's would
+                if name not in ins:
+                    self.problems.append(make_problem("unknown_input", node_record.id, name, inputs=", ".join(ins) or "none"))
+                    continue
+                many.setdefault(ins[name][0], set()).add(ins[name][1])
             inner = [
-                (r.model_copy(update={k: {**getattr(r, k), **v} for k, v in typed[r.id].items()}) if r.id in typed else r, d)
+                (r.model_copy(update={
+                    **{k: {**getattr(r, k), **v} for k, v in typed.get(r.id, {}).items()},
+                    **({"many": r.many | many[r.id]} if r.id in many else {}),
+                }) if r.id in typed or r.id in many else r, d)
                 for r, d in inner
             ]
             out.extend(inner)
@@ -471,6 +489,7 @@ class Graph:
         offered = [self._outside(p) for p in self._graph_inputs]
         bare = [p.input for p in offered]
         self.inputs = {(p.input if bare.count(p.input) == 1 else p.address): p for p in offered}
+        self._spliced = frozenset(n for n in self._nodes if "/" in n)
         for placed in self._nodes.values():
             for source_id in {s.node_id for p in placed.inputs.values() for s in p.sources if s.node_id is not None}:
                 self._readers[source_id].append(placed)
@@ -515,8 +534,10 @@ class Graph:
         inputs = ", ".join(definition.inputs) or "none"
         for name in sorted({*record.values, *record.defaults, *record.many, *edges} - definition.inputs.keys()):
             self.problems.append(make_problem("unknown_input", placed.id, name, inputs=inputs))
-        first = not any(name in definition.inputs for name in edges)
+        first_node = not any(name in definition.inputs for name in edges)
         for name, spec in definition.inputs.items():
+            # an input an embedded graph offers is open to the caller whether or not edges from outside feed the others
+            first = first_node or f"{record.id}.{name}" in self._seen_as
             plan = placed.inputs[name] = InputPlan(spec)
             if name in record.values and name in record.defaults:
                 self.problems.append(make_problem("value_and_default", placed.id, name))
@@ -858,20 +879,31 @@ class Graph:
 
 
 def _interface(
-    placed_records: list[tuple[NodeRecord, NodeDefinition[..., Any] | None]], edges: list[tuple[str, str]], prefix: str = "",
+    placed_records: list[tuple[NodeRecord, NodeDefinition[..., Any] | None]], edges: list[tuple[str, str]], prefix: str, seen_as: Mapping[str, str],
 ) -> tuple[dict[str, tuple[str, str]], dict[str, str]]:
     """An embedded graph's inputs (the open inputs of its first nodes) and outputs (what nothing reads), by name.
 
-    A name is the bare field name where it is unique, else ``node.field`` with the node's id as its own record says it.
+    A name is the bare field name where it is unique, else ``node.field`` as the embedded graph's own record says
+    it: a field of a graph embedded in it by that node and the name it offers (``f.x.text``), never a spliced id.
     """
     fed = {b.partition(".")[0] for _, b in edges}
     read = {a.partition(".")[0] for a, _ in edges}
     ins = [(r.id, n) for r, d in placed_records if d is not None and r.id not in fed for n in d.inputs if n not in r.values]
     outs = [(r.id, n) for r, d in placed_records if d is not None and r.id not in read for n in d.outputs]
-    bare_in, bare_out = [n for _, n in ins], [n for _, n in outs]
+
+    def named(fields: list[tuple[str, str]]) -> list[tuple[str, str, str]]:
+        """Each field's node and name as this record shows them, beside its placed address."""
+        shown = []
+        for b, n in fields:
+            node_id, _, name = seen_as.get(f"{b}.{n}", f"{b}.{n}").removeprefix(prefix).partition(".")
+            shown.append((node_id, name, f"{b}.{n}"))
+        return shown
+
+    shown_in, shown_out = named(ins), named(outs)
+    bare_in, bare_out = [n for _, n, _ in shown_in], [n for _, n, _ in shown_out]
     return (
-        {(n if bare_in.count(n) == 1 else f"{b.removeprefix(prefix)}.{n}"): (b, n) for b, n in ins},
-        {(n if bare_out.count(n) == 1 else f"{b.removeprefix(prefix)}.{n}"): f"{b}.{n}" for b, n in outs},
+        {(n if bare_in.count(n) == 1 else f"{b}.{n}"): tuple(a.rsplit(".", 1)) for b, n, a in shown_in},  # type: ignore[misc]
+        {(n if bare_out.count(n) == 1 else f"{b}.{n}"): a for b, n, a in shown_out},
     )
 
 
