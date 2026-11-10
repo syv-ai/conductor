@@ -955,3 +955,40 @@ def test_a_run_and_the_compile_it_ran_on_are_freed_without_the_cycle_collector(r
         assert [ref() for ref in held] == [None, None]
     finally:
         gc.enable()
+
+
+class _Contact(TypedDict):
+    name: str
+    email: str
+
+
+class _Named(TypedDict):
+    name: str
+
+
+class _Count(TypedDict):
+    name: int
+
+
+def test_a_typeddict_lands_on_one_whose_keys_it_holds_with_types_that_fit():
+    """A TypedDict is read by its keys, as a type checker reads one."""
+
+    @node("contact")
+    def contact() -> _Contact:
+        return {"name": "Bo", "email": "bo@example.com"}
+
+    @node("greet")
+    def greet(who: _Named) -> str:
+        return who["name"]
+
+    @node("count")
+    def count(who: _Count) -> int:
+        return who["name"]
+
+    registry = registry_of(contact, greet, count)
+    fits = registry.load({"nodes": [{"id": "c", "node": "contact"}, {"id": "g", "node": "greet"}], "edges": [["c.result", "g.who"]]})
+    misfits = registry.load({"nodes": [{"id": "c", "node": "contact"}, {"id": "n", "node": "count"}], "edges": [["c.result", "n.who"]]})
+
+    assert fits.problems == [] and fits.run().results["g"]["result"] == "Bo"
+    assert [p.type for p in misfits.problems] == ["type_mismatch"]
+    assert {n.id for n in registry.describe().nodes} == {"contact", "greet", "count"}

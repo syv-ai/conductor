@@ -757,12 +757,23 @@ def _one_accepts(target: Any, source: Any) -> bool:
         if get_origin(target) is Literal:  # a narrower Literal lands on one holding every value it may be
             return {(type(v), v) for v in get_args(source)} <= {(type(v), v) for v in get_args(target)}
         return all(_one_accepts(target, type(v)) for v in get_args(source))
+    if typing.is_typeddict(target):
+        return _typeddict_accepts(target, source)
     if isinstance(target, type) and isinstance(source, type):
         own = getattr(target, "accepts", None)  # a host's type may widen what lands on it
         if issubclass(source, bool) and issubclass(target, (int, float)) and not issubclass(target, bool):
             return False  # a yes or no is never a number, a host's own included, though Python counts True as 1
         return issubclass(source, target) or (target is float and issubclass(source, int)) or (callable(own) and bool(own(source)))
     return False
+
+
+def _typeddict_accepts(target: Any, source: Any) -> bool:
+    """A TypedDict lands on another whose keys it holds, each with a type that fits, and required wherever the target
+    requires it: read by its keys, as a type checker reads one. Nothing else lands on a TypedDict."""
+    if not typing.is_typeddict(source):
+        return False
+    wanted, given = typing.get_type_hints(target), typing.get_type_hints(source)
+    return target.__required_keys__ <= source.__required_keys__ and all(key in given and accepts(hint, given[key]) for key, hint in wanted.items())
 
 
 def type_id(hint: Any) -> str:
