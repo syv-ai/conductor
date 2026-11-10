@@ -202,6 +202,27 @@ def test_a_table_that_may_be_nothing_takes_a_callers_none_a_return_of_none_and_a
     assert never.run(y=1).outputs == {"c.result": -1}
 
 
+def test_a_series_that_may_be_nothing_takes_a_return_of_none_and_a_list_never_made_as_a_table_does():
+    @node("count-items")
+    def count_items(xs: Series[int] | None = None) -> int:
+        return -1 if xs is None else len(xs)
+
+    @node("maybe-items")
+    def maybe_items(x: int) -> Series[int] | None:
+        return None if x < 0 else [x]
+
+    @node("may-be-blank")
+    def may_be_blank(y: int) -> int | None:
+        return None
+
+    made = graph({"id": "m", "node": "maybe-items"}, {"id": "c", "node": "count-items"}, edges=(("m.result", "c.xs"),), registry=registry_of(maybe_items, count_items))
+    assert made.run(x=-1).outputs == {"c.result": -1} and made.run(x=3).outputs == {"c.result": 1}
+
+    never = graph({"id": "b", "node": "may-be-blank"}, {"id": "m", "node": "maybe-items"}, {"id": "c", "node": "count-items"},
+                  edges=(("b.result", "m.x"), ("m.result", "c.xs")), registry=registry_of(may_be_blank, maybe_items, count_items))
+    assert never.run(y=1).outputs == {"c.result": -1}
+
+
 @pytest.mark.parametrize(("annotation", "takes_blank"), [
     (str, False),
     (str | None, True),

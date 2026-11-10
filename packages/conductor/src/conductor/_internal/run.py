@@ -671,6 +671,9 @@ class Run:
                 if skipped_above and skipped_above == len(plan.sources):
                     return Unit("skipped", skipped_from=len(row))  # every source was a branch not taken above this row: so is the call
                 if blank_above and skipped_above + blank_above == len(plan.sources):
+                    if spec.optional:  # a Series that may be None receives the blank in place of the list, as a Table does
+                        kwargs[name] = None
+                        continue
                     return Unit("blank", blank_input=name)  # the rows were never made, as their maker had a blank input: not the same as no rows
                 if items and len(skips) == len(items) and all(above for above, _ in skips):
                     return Unit("skipped", skipped_from=min(origin for _, origin in skips))  # every row under this one was skipped by a decision at or above it
