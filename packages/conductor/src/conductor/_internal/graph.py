@@ -266,16 +266,15 @@ class Graph:
         self._alone = alone
         self.problems: list[Problem] = []
         self._definitions = dict(definitions)
-        #: Each embedding, at any depth, by its spliced id; and for the ones drawn in this record, what they offer.
-        self._embeddings: set[str] = set()
+        #: What each embedding drawn in this record offers.
         self._offers: dict[str, tuple[dict[str, tuple[str, str]], dict[str, str]]] = {}
-        #: The record of each graph embedded at any depth, by the spliced id of the node that embeds it.
+        #: Each embedding at any depth, by its spliced id: the record of the graph it embeds.
         self._embedded: dict[str, GraphRecord] = {}
         #: A placed field inside an embedding as the record holding that embedding names it: ``o/f/x.text`` -> ``o/f.x.text``.
         self._seen_as: dict[str, str] = {}
         placed_records, edges = self._splice(record, "", embedded_in)
         #: Each embedding's edges from outside it into it, which set the rows its nodes run on.
-        self._entering = {e: [(a, b) for a, b in edges if b.startswith(e + "/") and not a.startswith(e + "/")] for e in self._embeddings}
+        self._entering = {e: [(a, b) for a, b in edges if b.startswith(e + "/") and not a.startswith(e + "/")] for e in self._embedded}
         #: An inner address as seen from outside: ``e/upper.text`` -> ``e.text``.
         self._outer: dict[str, str] = {}
         for e, (ins, outs) in self._offers.items():
@@ -638,7 +637,6 @@ class Graph:
                 self._seen_as[f"{inner_node}.{inner_input}"] = f"{node_record.id}.{name}"
             for name, address in outs.items():
                 self._seen_as[address] = f"{node_record.id}.{name}"
-            self._embeddings.add(node_record.id)
             offered_here[node_record.id] = (ins, outs)
             if not prefix:
                 self._offers[node_record.id] = (ins, outs)
@@ -710,8 +708,8 @@ class Graph:
             if node_id in known:  # the input is drawn as fed, whether or not its source exists
                 into[node_id].setdefault(name, []).append(source)
         #: Each node's readers by the record's edges, before any is placed; only an embedded node's floor reads them, while compiling.
-        self._fed: dict[str, list[str]] = {i: [] for i in known} if self._embeddings else {}
-        for node_id, fed in into.items() if self._embeddings else ():
+        self._fed: dict[str, list[str]] = {i: [] for i in known} if self._embedded else {}
+        for node_id, fed in into.items() if self._embedded else ():
             for sources in fed.values():
                 for source in sources:
                     if source.partition(".")[0] in self._fed:
@@ -1086,7 +1084,7 @@ class Graph:
         node_id = placed.id
         levels: list[Level] = []
         above: set[str] | None = None
-        for e in self._embeddings:
+        for e in self._embedded:
             if node_id.startswith(e + "/"):
                 if above is None:
                     sources = {s.node_id for p in placed.inputs.values() for s in p.sources if s.node_id is not None}
@@ -1155,7 +1153,7 @@ class Graph:
 
     def _seen_from_outside(self, problem: Problem) -> Problem:
         """A problem as the author of this record reads it: inside an embedded graph, on the node that embeds it."""
-        if problem.type == "invalid_node_id" or not problem.loc or not isinstance(problem.loc[0], str) or problem.loc[0].split("/", 1)[0] not in self._embeddings or "/" not in problem.loc[0]:
+        if problem.type == "invalid_node_id" or not problem.loc or not isinstance(problem.loc[0], str) or problem.loc[0].split("/", 1)[0] not in self._embedded or "/" not in problem.loc[0]:
             return problem
         inner = problem.loc[0]
         field = problem.loc[1] if len(problem.loc) > 1 and isinstance(problem.loc[1], str) else None
