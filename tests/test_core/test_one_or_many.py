@@ -292,6 +292,33 @@ def test_a_yes_or_no_never_lands_on_a_literal_of_numbers():
     assert graph.run(n=2).outputs == {"x.result": 2}
 
 
+def test_a_yes_or_no_never_lands_on_a_union_a_number_is_in_and_a_yes_or_no_is_not():
+    held = NodeRegistry()
+
+    @held.node("either")
+    def either(n: int | float) -> str:
+        return repr(n)
+
+    @held.node("or-text")
+    def or_text(n: int | str | None = None) -> str:
+        return repr(n)
+
+    @held.node("or-flag")
+    def or_flag(n: int | bool) -> str:
+        return repr(n)
+
+    @held.node("returns-yes")
+    def returns_yes(n: int) -> Literal[1, 2] | float:
+        return True  # type: ignore[return-value]
+
+    for node_id in ("either", "or-text"):
+        graph = held.load(GraphRecord(nodes=[{"id": "x", "node": node_id}]))
+        assert _refused_as(lambda: graph.run(n=True)) == [("invalid_input", "bool_is_not_a_number")]
+        assert graph.run(n=2).outputs == {"x.result": "2"}
+    assert held.load(GraphRecord(nodes=[{"id": "x", "node": "or-flag"}])).run(n=True).outputs == {"x.result": "True"}
+    assert held.load(GraphRecord(nodes=[{"id": "x", "node": "returns-yes"}])).run(n=1).status == "failed"
+
+
 class Order(BaseModel):
     count: Annotated[int, Param(title="Count", ge=0)]
 

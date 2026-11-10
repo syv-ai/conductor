@@ -310,15 +310,18 @@ class FieldSpec:
         numbers; ``_lax_one`` adds the refusal for a value read laxly.
         """
         one: Any = Annotated[_carried(self.type), self.param] if self.param.constraints or self.param.choices is not None else _carried(self.type)
-        literal = literal_values(self.type) is not None
-        if self.takes_a_number and literal:  # True == 1, strict or not
+        if self.takes_a_number and self._literal_option:  # True == 1, strict or not
             one = Annotated[one, BeforeValidator(_not_a_bool)]
         return one
 
     @functools.cached_property
+    def _literal_option(self) -> bool:
+        return any(get_origin(option) is Literal for option in _options(self.type))
+
+    @functools.cached_property
     def _lax_one(self) -> Any:
         """``_one`` for a value read laxly (given, typed in, brought by an edge), where pydantic's int and float take True as 1."""
-        if self.takes_a_number and literal_values(self.type) is None:
+        if self.takes_a_number and not self._literal_option:
             return Annotated[self._one, BeforeValidator(_not_a_bool)]
         return self._one
 
@@ -366,11 +369,11 @@ class FieldSpec:
 
     @functools.cached_property
     def takes_a_number(self) -> bool:
-        """Whether the type is a number's (``int``, ``float``, a class of theirs, or a ``Literal`` of numbers), which a ``bool`` must not land on."""
-        base = without_none(self.type)
-        if get_origin(base) is Literal:
-            return all(isinstance(value, (int, float)) and not isinstance(value, bool) for value in get_args(base))
-        return base is not bool and isinstance(base, type) and issubclass(base, (int, float))
+        """Whether a ``bool`` must not land here: an option of the type is a number's (``int``, ``float``, a class of
+        theirs, or a ``Literal`` of numbers), and no option takes a ``bool`` as it is (``bool``, ``Any``, ``object``, a
+        ``Literal`` holding one)."""
+        options = [option for option in _options(self.type) if option is not type(None)]
+        return any(map(_a_number_type, options)) and not any(map(_takes_a_bool, options))
 
     @functools.cached_property
     def plain_classes(self) -> tuple[type, ...]:
@@ -890,6 +893,19 @@ def read_strictly(adapter: TypeAdapter[Any], value: Any) -> Any:
         return adapter.validate_json(written, strict=True)
     except ValidationError as error:
         raise Refused(value_free_errors(error)[0]["msg"]) from None
+
+
+def _a_number_type(option: Any) -> bool:
+    """Whether ``option`` is ``int``, ``float``, a class of theirs other than ``bool``, or a ``Literal`` of such numbers."""
+    if get_origin(option) is Literal:
+        return all(isinstance(value, (int, float)) and not isinstance(value, bool) for value in get_args(option))
+    return isinstance(option, type) and issubclass(option, (int, float)) and not issubclass(option, bool)
+
+
+def _takes_a_bool(option: Any) -> bool:
+    if get_origin(option) is Literal:
+        return any(isinstance(value, bool) for value in get_args(option))
+    return option in (bool, Any, object)
 
 
 def _not_a_bool(value: Any) -> Any:

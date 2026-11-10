@@ -210,7 +210,7 @@ asyncio.run(follow())
 
 - **Every record is a frozen pydantic model:** `GraphRecord`, `Problem`, the events (one union on `type`), `Waiting`, and every `describe()` result. Each serves as a FastAPI response model as it is.
 - **`Param` is pydantic metadata.** It implements pydantic's schema hooks, so its limits and its choices hold inside a host's own `BaseModel` as on a node's field: the choice rule has one home, the hook. A field's limits live in its JSON schema, not in a separate list.
-- **Strict where a program produced the value, lax where a person or caller typed it.** Answers, declared choices and node outputs are read strictly (`"12"` is never an `int`). Typed-in values, inputs and edges are read laxly. A `bool` never lands on a number, a value or a table's column.
+- **Strict where a program produced the value, lax where a person or caller typed it.** Answers, declared choices and node outputs are read strictly (`"12"` is never an `int`). Typed-in values, inputs and edges are read laxly. A `bool` never lands on a number, nor on a union a number is in and a `bool` isn't (`int | float`), as a value or in a table's column.
 - **A type's id is its own.** A builtin is known by its name (`bool`, `str`); a type that needs an id and a title of its own is a class (`id`, `display_title`). A host shows its own words for type ids in its editor. `Series[T]` and `FromRun[T]` are `Annotated` aliases, and every Python block in the docs is type-checked under mypy and pyright.
 
 ```python
