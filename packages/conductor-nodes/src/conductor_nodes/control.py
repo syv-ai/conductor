@@ -32,7 +32,7 @@ def _either_way(value: type) -> dict[str, Any]:
     }
 
 
-@registry.node("decision", compute_outputs=_either_way)
+@registry.node("decision", title="Decision", description="Sends the value one way when the switch is on and the other way when it is off.", compute_outputs=_either_way)
 def decision(value: Any, when: Flag = True) -> dict[str, Any]:
     """Sends a value one of two ways by `when`."""
     if when:
@@ -52,7 +52,7 @@ class Equality:
     not_equal: Annotated[str, Param(title="Not equal", exclusive_group="equality")]
 
 
-@registry.node("logic-if-empty", title="If empty")
+@registry.node("logic-if-empty", title="If empty", description="Sends the text one way when it is empty and the other way when it has something in it.")
 def if_empty(text: LongText) -> Emptiness:
     """Routes the text by whether it is empty once stripped."""
     if text.strip():
@@ -60,7 +60,7 @@ def if_empty(text: LongText) -> Emptiness:
     return Emptiness(not_empty=SKIPPED, empty=text)
 
 
-@registry.node("logic-if-equals", title="If equals")
+@registry.node("logic-if-equals", title="If equals", description="Sends the first text one way when it matches the second and the other way when it doesn't.")
 def if_equals(a: Line, b: Line, case_sensitive: Flag = True) -> Equality:
     """Routes `a` by whether it equals `b`."""
     same = a == b if case_sensitive else a.lower() == b.lower()

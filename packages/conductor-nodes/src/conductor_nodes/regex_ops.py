@@ -46,7 +46,7 @@ def _compiled(pattern: str, ignore_case: bool) -> regex.Pattern[str]:
         return regex.compile(pattern, flags=regex.IGNORECASE if ignore_case else 0)
 
 
-@registry.node("regex-match")
+@registry.node("regex-match", title="Pattern matches", description="Tells whether a pattern is found anywhere in the text.")
 def match(text: LongText, pattern: Line, ignore_case: Flag = False) -> Annotated[bool, Param(title="Matched")]:
     """Whether the pattern matches anywhere in the text."""
     compiled = _compiled(pattern, ignore_case)
@@ -54,7 +54,7 @@ def match(text: LongText, pattern: Line, ignore_case: Flag = False) -> Annotated
         return compiled.search(text, timeout=TIMEOUT) is not None
 
 
-@registry.node("regex-replace")
+@registry.node("regex-replace", title="Replace pattern", description="Replaces everything in the text that matches a pattern.")
 def replace_all(
     text: LongText,
     pattern: Line,
@@ -67,7 +67,7 @@ def replace_all(
         return compiled.sub(replacement, text, timeout=TIMEOUT)
 
 
-@registry.node("regex-extract")
+@registry.node("regex-extract", title="Find pattern", description="Finds every piece of the text that matches a pattern, one row for each.")
 def extract(text: LongText, pattern: Line, ignore_case: Flag = False) -> Annotated[Series[str], Param(title="Matches")]:
     """Every match, a row each, or the first group of each when the pattern has groups; a group that took no part is ``""``."""
     compiled = _compiled(pattern, ignore_case)

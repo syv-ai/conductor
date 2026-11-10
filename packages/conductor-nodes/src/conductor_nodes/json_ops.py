@@ -15,7 +15,7 @@ registry = NodeRegistry(category="json")
 JsonText = Annotated[str, Param(title="JSON text", widget=Textarea())]
 
 
-@registry.node("json-parse", title="JSON parse")
+@registry.node("json-parse", title="Read JSON", description="Reads JSON text into a value. Text that isn't JSON is an error.")
 def parse(text: JsonText) -> Annotated[JsonValue, Param(title="Parsed")]:
     """Reads a JSON text into a value; fails on text that isn't JSON."""
     try:
@@ -25,7 +25,7 @@ def parse(text: JsonText) -> Annotated[JsonValue, Param(title="Parsed")]:
     return parsed
 
 
-@registry.node("json-stringify", title="JSON stringify")
+@registry.node("json-stringify", title="Write JSON", description="Writes a value out as JSON text.")
 def stringify(
     value: JsonValue,
     indent: Annotated[int, Param(ge=0, le=8, widget=NumberInput())] = 0,
@@ -35,7 +35,7 @@ def stringify(
     return json.dumps(value, indent=indent or None, sort_keys=sort_keys)
 
 
-@registry.node("json-get", title="JSON get")
+@registry.node("json-get", title="Get from JSON", description="Picks one value out of JSON by its path, such as user.name. It is blank when nothing is there.")
 def get_path(value: JsonValue, path: Line) -> Annotated[JsonValue, Param(title="Extracted")]:
     """Reads a dotted path from a JSON value, such as `user.name` or `items.0.id`; blank where there is nothing."""
     current = value
