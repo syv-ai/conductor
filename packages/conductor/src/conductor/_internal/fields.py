@@ -281,28 +281,48 @@ class FieldSpec:
 
     @functools.cached_property
     def _one(self) -> Any:
-        """The type one value is checked by: the type pydantic reads, its limits, its choices, and no ``bool`` on a number."""
+        """The type one value is checked by: the type pydantic reads, its limits, its choices, and no ``bool`` on a number.
+
+        Read strictly, pydantic refuses a ``bool`` on an ``int`` or ``float`` itself, but not on a ``Literal`` of
+        numbers; ``_lax_one`` adds the refusal for a value read laxly.
+        """
         one: Any = _carried(self.type)
         if self.param.constraints:  # a field's title and description are its record's own, not repeated in its schema
             one = Annotated[one, self.param]
-        if self.param.choices is not None and literal_values(self.type) is None:
+        literal = literal_values(self.type) is not None
+        if self.param.choices is not None and not literal:
             one = Annotated[one, AfterValidator(self._one_of_the_choices)]
-        if self.takes_a_number:  # pydantic's lax int and float take True as 1
+        if self.takes_a_number and literal:  # True == 1, strict or not
             one = Annotated[one, BeforeValidator(_not_a_bool)]
         return one
 
     @functools.cached_property
-    def adapter(self) -> TypeAdapter[Any]:
-        """Checks one value of this field (a ``Series``' list of them), held to its limits and choices."""
+    def _lax_one(self) -> Any:
+        """``_one`` for a value read laxly (given, typed in, brought by an edge), where pydantic's int and float take True as 1."""
+        if self.takes_a_number and literal_values(self.type) is None:
+            return Annotated[self._one, BeforeValidator(_not_a_bool)]
+        return self._one
+
+    def _of_field(self, one: Any) -> TypeAdapter[Any]:
         if self.shape != "many":
-            return TypeAdapter(self._one)
-        many: Any = Union[_list_of(self._one), None] if self.optional else _list_of(self._one)  # noqa: UP007
+            return TypeAdapter(one)
+        many: Any = Union[_list_of(one), None] if self.optional else _list_of(one)  # noqa: UP007
         return TypeAdapter(many)
 
     @functools.cached_property
+    def adapter(self) -> TypeAdapter[Any]:
+        """Checks one value of this field (a ``Series``' list of them) read strictly, held to its limits and choices, and writes it."""
+        return self._of_field(self._one)
+
+    @functools.cached_property
+    def lax_adapter(self) -> TypeAdapter[Any]:
+        """Checks one value of this field (a ``Series``' list of them) read laxly: given, typed in, or brought by an edge."""
+        return self._of_field(self._lax_one)
+
+    @functools.cached_property
     def list_adapter(self) -> TypeAdapter[Any]:
-        """Checks a list of values of a field that takes one, each run as its own row, and writes it as JSON."""
-        return TypeAdapter(_list_of(self._one), config=_FLOATS_AS_TEXT)
+        """Checks a list given for a field that takes one value, each run as its own row, and writes it as JSON."""
+        return TypeAdapter(_list_of(self._lax_one), config=_FLOATS_AS_TEXT)
 
     @functools.cached_property
     def choice_ids(self) -> tuple[Any, ...]:
@@ -539,7 +559,7 @@ def _checked(spec: FieldSpec, where: str) -> FieldSpec:
         raise NodeDeclarationError(f"{where}{spec.name}: the default None is a blank; write its type with | None", code="default_invalid")
     if not spec.required and spec.default is not None and spec.default is not SKIPPED:
         try:
-            made = spec.adapter.validate_python(spec.default)
+            made = spec.lax_adapter.validate_python(spec.default)
         except Exception as error:  # noqa: BLE001  pydantic's own error says why
             raise NodeDeclarationError(f"{where}{spec.name}: the default {spec.default!r} is not a {getattr(base, '__name__', base)}: {error}", code="default_invalid") from None
         return dataclasses.replace(spec, default=made)
@@ -739,7 +759,7 @@ def read_given(spec: FieldSpec, value: Any, *, items: bool) -> Any:
             return spec.list_adapter.validate_python(value)
         if spec.shape == "table":
             return read_table(spec, value, strict=False, given=True)
-        return spec.adapter.validate_python(value)
+        return spec.lax_adapter.validate_python(value)
     except ValidationError as error:
         raise _refused(error) from None
 
@@ -758,7 +778,7 @@ def read_value(spec: FieldSpec, value: Any, *, strict: bool) -> Any:
     elif spec.shape == "many" and isinstance(value, pl.Series):
         value = value.to_list()  # a column of a frame is its values, as a frame is a Table
     try:
-        return spec.adapter.validate_python(value, strict=strict)
+        return (spec.adapter if strict else spec.lax_adapter).validate_python(value, strict=strict)
     except ValidationError as error:
         if spec.shape == "many" and isinstance(value, list) and any(item is SKIPPED for item in value):
             items = iter(read_value(spec, [item for item in value if item is not SKIPPED], strict=strict))

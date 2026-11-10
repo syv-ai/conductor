@@ -383,3 +383,9 @@ def test_a_node_typed_any_returns_anything_and_a_node_taking_any_receives_it(ret
     run = _feeding(returned, return_type, take_any)
     assert run.status == "complete"
     assert run.results["b"]["result"] == returned
+
+
+def test_a_yes_or_no_returned_for_a_literal_of_numbers_is_refused_as_for_a_number():
+    for return_type in (int, float, Literal[1, 2]):
+        run = _returning(True, return_type)
+        assert (run.status, run.cause.type) == ("failed", "invalid_output"), return_type
