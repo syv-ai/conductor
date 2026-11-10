@@ -747,7 +747,7 @@ class Run:
             raise InvalidCallError([make_problem("state_unwritable", "state", unwritable.at, at=unwritable.at, reason=unwritable.reason)]) from None
 
     def _written(self) -> str:
-        units = {n: _dump_units(self.graph._nodes[n], dict(self._in_order(n)) if n in self._unordered else us) for n, us in self._units.items()}
+        units = {n: _dump_units(self.graph._nodes[n], dict(self._in_order(n)) if n in self._unordered else us) for n, us in self._units.items() if us}
         earlier = {}
         for n, by in self._earlier.items():
             listed = [(fp, unit) for fp, units in by.items() for unit in units]

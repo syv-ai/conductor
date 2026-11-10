@@ -155,7 +155,7 @@ def test_a_unit_whose_second_output_is_invalid_writes_none_of_its_outputs():
 
     assert (run.cause.type, run.cause.ctx["name"]) == ("invalid_output", "count")
     assert run.results["g"] == {"name": None, "count": None}
-    assert json.loads(run.to_json())["units"]["g"]["states"] == []
+    assert "g" not in json.loads(run.to_json())["units"]
 
 
 def _computed(returned: Any) -> Any:
