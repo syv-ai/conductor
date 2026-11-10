@@ -355,7 +355,7 @@ def test_extra_is_json_kept_and_described_but_never_read():
         return text
 
     assert dict(tagged.extra) == {"icon": "star", "order": [1, 2], "beta": None}
-    assert tagged.describe()["extra"] == {"icon": "star", "order": [1, 2], "beta": None}
+    assert tagged.describe().extra == {"icon": "star", "order": [1, 2], "beta": None}
 
 
 @pytest.mark.parametrize("extra", [{"x": float("nan")}, {"x": [float("inf")]}, "ab", [("a", 1)], {1: "a"}, {"x": (1, 2)}])
@@ -473,14 +473,14 @@ def test_a_new_registry_holds_no_types():
 def test_a_hosts_type_is_described_by_its_own_id_and_title():
     registry = NodeRegistry(types=[Text])
 
-    assert registry.describe()["types"] == [{"id": "text", "title": "Text", "accepted_as": ["text"]}]
+    assert [t.model_dump() for t in registry.describe().types] == [{"id": "text", "title": "Text", "accepted_as": ["text"]}]
 
 
 def test_a_type_without_an_id_or_title_is_known_by_its_class_name():
     class Plain(str):
         pass
 
-    assert NodeRegistry(types=[Plain]).describe()["types"] == [{"id": "Plain", "title": "Plain", "accepted_as": ["Plain"]}]
+    assert [t.model_dump() for t in NodeRegistry(types=[Plain]).describe().types] == [{"id": "Plain", "title": "Plain", "accepted_as": ["Plain"]}]
 
 
 def test_adding_a_node_adds_the_types_it_declares_a_series_giving_its_item():
@@ -499,7 +499,7 @@ def test_an_any_input_adds_no_type():
     registry.add(passes)
 
     assert dict(registry.types) == {"text": Text}
-    assert registry.describe()["types"] == [{"id": "text", "title": "Text", "accepted_as": ["text"]}]
+    assert [t.model_dump() for t in registry.describe().types] == [{"id": "text", "title": "Text", "accepted_as": ["text"]}]
 
 
 def test_two_classes_may_claim_one_id_until_one_registry_holds_both():
@@ -640,9 +640,9 @@ def test_a_type_with_no_class_of_its_own_is_named_with_named():
     registry = NodeRegistry(types=[YesNo])
     registry.add(approved, note, maybe)
     described = registry.describe()
-    assert {"id": "yes-no", "title": "Ja/Nej", "accepted_as": ["yes-no", "bool"]} in described["types"]
-    assert approved.describe()["outputs"][0]["type"] == "yes-no" and maybe.describe()["outputs"][0]["type"] == "yes-no"
-    assert maybe.describe()["inputs"][0]["title"] == "OK" and maybe.describe()["inputs"][0]["type"] == "yes-no"
+    assert {"id": "yes-no", "title": "Ja/Nej", "accepted_as": ["yes-no", "bool"]} in [t.model_dump() for t in described.types]
+    assert approved.describe().outputs[0].type == "yes-no" and maybe.describe().outputs[0].type == "yes-no"
+    assert maybe.describe().inputs[0].title == "OK" and maybe.describe().inputs[0].type == "yes-no"
     assert "yes-no" in registry.accepted_as(bool)
     graph = registry.load(make_graph(approved, note, maybe, edges=[("approved.result", "note.ok"), ("approved.result", "maybe.ok")]))
     assert graph.problems == [] and graph.run(text="x").outputs == {"note.result": "yes", "maybe.result": True}

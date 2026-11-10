@@ -53,7 +53,7 @@ def declared(function, **options):
 
 
 def field_of(definition, name, side="inputs"):
-    return next(f for f in definition.describe()[side] if f["name"] == name)
+    return next(f for f in getattr(definition.describe(), side) if f.name == name)
 
 
 class Text(str):
@@ -233,9 +233,9 @@ def test_a_node_is_called_like_its_function_and_declares_from_its_signature():
 
     assert split_lines("a\nb") == ["a", "b"]
     described = split_lines.describe()
-    assert (described["title"], described["description"], described["category"], described["version"]) == ("Split lines", "Splits a text into lines.", "", 1)
-    assert [(f["name"], f["required"]) for f in described["inputs"]] == [("text", True)]
-    assert [f["name"] for f in described["outputs"]] == ["result"]
+    assert (described.title, described.description, described.category, described.version) == ("Split lines", "Splits a text into lines.", "", 1)
+    assert [(f.name, f.required) for f in described.inputs] == [("text", True)]
+    assert [f.name for f in described.outputs] == ["result"]
 
 
 def test_describe_is_the_node_as_json_with_no_keys_beyond_its_own():
@@ -247,7 +247,7 @@ def test_describe_is_the_node_as_json_with_no_keys_beyond_its_own():
     def v2(text: Annotated[str, Param(widget=Textarea(rows=2))]) -> Text:
         return Text(text)
 
-    described = json.loads(json.dumps(v2.describe()))
+    described = json.loads(v2.describe().model_dump_json())
     assert set(described) == {
         "id", "version", "versions", "title", "description", "category", "tags", "extra", "docs", "deprecation", "is_graph",
         "policy", "inputs", "outputs", "takes_added_inputs", "computes_outputs",
@@ -282,11 +282,11 @@ def test_each_of_several_outputs_carries_its_own_type_and_title():
     def parts(text: str) -> Parts:
         return Parts(text, None, True, 1.0)
 
-    outputs = {f["name"]: f for f in parts.describe()["outputs"]}
-    assert {n: f["type"] for n, f in outputs.items()} == {"name": "str", "count": "int", "case_sensitive": "bool", "renamed": "float"}
-    assert {n: f["title"] for n, f in outputs.items()} == {"name": "Name", "count": "Count", "case_sensitive": "Case sensitive", "renamed": "Score"}
+    outputs = {f.name: f for f in parts.describe().outputs}
+    assert {n: f.type for n, f in outputs.items()} == {"name": "str", "count": "int", "case_sensitive": "bool", "renamed": "float"}
+    assert {n: f.title for n, f in outputs.items()} == {"name": "Name", "count": "Count", "case_sensitive": "Case sensitive", "renamed": "Score"}
     # the field typed `| None` takes a blank, its sibling doesn't
-    assert {"type": "null"} in outputs["count"]["schema"]["anyOf"] and "anyOf" not in outputs["name"]["schema"]
+    assert {"type": "null"} in outputs["count"].json_schema["anyOf"] and "anyOf" not in outputs["name"].json_schema
     assert load(parts).run(text="a").results["parts"] == {"name": "a", "count": None, "case_sensitive": True, "renamed": 1.0}
 
 
@@ -295,7 +295,7 @@ def test_an_untitled_field_reads_as_its_name_in_everyday_words():
     def f(case_sensitive: bool, texts: Series[str], titled: Annotated[str, Param(title="Given")]) -> str:
         return ""
 
-    assert [i["title"] for i in f.describe()["inputs"]] == ["Case sensitive", "Texts", "Given"]
+    assert [i.title for i in f.describe().inputs] == ["Case sensitive", "Texts", "Given"]
 
 
 # -- the type of a field -----------------------------------------------------------------------
@@ -306,9 +306,9 @@ def test_the_bare_type_is_what_a_field_is_typed_as_when_it_may_be_blank():
     def f(many: Series[Text | None], one: Text | None) -> Text | None:
         return None
 
-    assert [(i["name"], i["type"], i["shape"]) for i in f.describe()["inputs"]] == [("many", "Text", "many"), ("one", "Text", "one")]
+    assert [(i.name, i.type, i.shape) for i in f.describe().inputs] == [("many", "Text", "many"), ("one", "Text", "one")]
     output = field_of(f, "result", "outputs")
-    assert output["type"] == "Text" and {"type": "null"} in output["schema"]["anyOf"]
+    assert output.type == "Text" and {"type": "null"} in output.json_schema["anyOf"]
     assert load(f, record=GraphRecord(nodes=[placed("f", "f", values={"many": [None], "one": None})])).run().results["f"] == {"result": None}
 
 
@@ -317,7 +317,7 @@ def test_a_none_default_with_a_blank_hint_is_optional_and_arrives_as_none():
     def f(x: int | None = None, picked: Annotated[str | None, Param(widget=TextInput())] = None) -> str:
         return f"{x}-{picked}"
 
-    assert [i["required"] for i in f.describe()["inputs"]] == [False, False]
+    assert [i.required for i in f.describe().inputs] == [False, False]
     assert load(f).run().results["f"]["result"] == "None-None"
 
 
@@ -344,7 +344,7 @@ def test_bounds_are_on_the_field_an_editor_reads():
     def f(n: Annotated[int, Param(ge=0, le=9)], s: Annotated[str, Param(max_length=3)] = "a") -> int:
         return n
 
-    assert [i["constraints"] for i in f.describe()["inputs"]] == [{"ge": 0, "le": 9}, {"max_length": 3}]
+    assert [i.constraints for i in f.describe().inputs] == [{"ge": 0, "le": 9}, {"max_length": 3}]
 
 
 def test_a_value_typed_into_a_series_is_checked_item_by_item_at_load_and_arrives_as_a_list():
@@ -435,7 +435,9 @@ def test_an_any_input_has_a_json_form_before_anything_is_wired():
     def f(x: Any) -> str:
         return ""
 
-    assert json.loads(json.dumps(f.describe()))["inputs"][0] == {"name": "x", "title": "X", "shape": "one", "required": True, "type": "Any", "schema": {}}
+    assert json.loads(f.describe().model_dump_json(exclude_none=True))["inputs"][0] == {
+        "name": "x", "title": "X", "shape": "one", "required": True, "type": "Any", "schema": {}, "setting": False,
+    }
 
 
 def test_describe_writes_as_json_whatever_default_a_host_set():
@@ -450,7 +452,7 @@ def test_describe_writes_as_json_whatever_default_a_host_set():
     def f(a: Any = Own(), b: list[Point] = [Point(1)]) -> str:  # noqa: B006, B008
         return ""
 
-    written = json.loads(json.dumps(f.describe()))
+    written = json.loads(f.describe().model_dump_json())
     assert [i["default"] for i in written["inputs"]] == [None, [{"x": 1}]]
 
 
@@ -473,7 +475,7 @@ def test_a_series_input_takes_many_values_of_its_element_type_and_a_list_is_one_
     def f(texts: Series[Text], numbers: list[float]) -> str:
         return ""
 
-    assert [(i["shape"], i["type"]) for i in f.describe()["inputs"]] == [("many", "Text"), ("one", "list")]
+    assert [(i.shape, i.type) for i in f.describe().inputs] == [("many", "Text"), ("one", "list")]
 
 
 def test_a_table_declares_its_columns_and_their_types():
@@ -486,8 +488,8 @@ def test_a_table_declares_its_columns_and_their_types():
         return pl.DataFrame()
 
     output = field_of(read, "result", "outputs")
-    assert output["shape"] == "table" and output["columns"] == {"name": {"type": "string"}, "amount": {"type": "integer"}}
-    assert field_of(bare, "result", "outputs")["columns"] == {}
+    assert output.shape == "table" and output.columns == {"name": {"type": "string"}, "amount": {"type": "integer"}}
+    assert field_of(bare, "result", "outputs").columns == {}
 
 
 # -- Param and widgets -------------------------------------------------------------------------
@@ -500,9 +502,9 @@ def test_a_param_with_a_widget_describes_with_one_title_on_the_field():
     def f(lang: Annotated[str, Param(title="Language", description="Which one", widget=language)] = "en") -> str:
         return lang
 
-    described = f.describe()["inputs"][0]
-    assert (described["title"], described["description"], described["type"]) == ("Language", "Which one", "str")
-    assert described["widget"] == {"type": "dropdown", "choices": [{"id": "en", "title": "English"}, {"id": "da", "title": "Dansk"}]}
+    described = f.describe().inputs[0]
+    assert (described.title, described.description, described.type) == ("Language", "Which one", "str")
+    assert described.widget == {"type": "dropdown", "choices": [{"id": "en", "title": "English"}, {"id": "da", "title": "Dansk"}]}
 
 
 def test_a_param_with_a_title_alone_is_an_input_with_no_control():
@@ -510,7 +512,7 @@ def test_a_param_with_a_title_alone_is_an_input_with_no_control():
     def f(x: Annotated[str, Param(title="Text")], y: str) -> str:
         return x
 
-    assert ["widget" in i for i in f.describe()["inputs"]] == [False, False]
+    assert [i.widget is not None for i in f.describe().inputs] == [False, False]
 
 
 def test_a_widget_is_frozen_keyword_only_and_refuses_a_key_it_does_not_have():
@@ -538,7 +540,7 @@ def test_a_host_declares_a_control_of_its_own_and_it_loads_runs_and_describes_wh
     def greet(who: Annotated[str, Param(widget=EntityPicker(entity_kind="user"))]) -> str:
         return f"hi {who}"
 
-    assert greet.describe()["inputs"][0]["widget"] == {"type": "entity-picker", "entity_kind": "user"}
+    assert greet.describe().inputs[0].widget == {"type": "entity-picker", "entity_kind": "user"}
     graph = load(greet)
     assert graph.problems == [] and graph.run(who="Bo").results["greet"]["result"] == "hi Bo"
 
@@ -562,7 +564,7 @@ def test_a_version_number_is_its_place_in_the_chain_and_each_keeps_its_own_setti
     assert v3.versions == (3, 2, 1) and v3("a") == "three"
     assert [v3.version_of(n).policy for n in (1, 2, 3)] == [Policy(retries=1), Policy(retries=2), Policy(concurrency=3)]
     assert v3.version_of(1).deprecation == Deprecation(header="Use v3") and v3.deprecation is None
-    assert v3.version_of(1).describe()["deprecation"]["header"] == "Use v3" and v3.describe()["deprecation"] is None
+    assert v3.version_of(1).describe().deprecation.header == "Use v3" and v3.describe().deprecation is None
     with pytest.raises(KeyError, match="'v' has no version 4; it has 3, 2, 1"):
         v3.version_of(4)
     for saved, body in ((1, "one"), (3, "three")):
@@ -616,7 +618,7 @@ def test_a_definition_may_hold_a_graph_at_a_version_of_its_own():
         return text
 
     inner = node("inner", version=3)(make_graph(read))
-    assert inner.version == 3 and inner.versions == (3,) and inner.describe()["is_graph"] is True
+    assert inner.version == 3 and inner.versions == (3,) and inner.describe().is_graph is True
     with pytest.raises(TypeError):
         inner("a")
     graph = load(read, inner, record=GraphRecord(nodes=[placed("e", "inner", version=3)]))
@@ -665,7 +667,7 @@ def test_a_hook_gets_the_typed_in_value_or_else_the_declared_default():
     def fan(n: int = 2) -> dict:
         return {f"o{i}": i for i in range(n)}
 
-    assert load(fan).describe()["nodes"]["fan"]["outputs"][1]["name"] == "o1"
+    assert load(fan).describe().nodes["fan"].outputs[1].name == "o1"
     load(fan, values={"fan.n": 3})
     assert seen == [2, 3]
 
@@ -724,8 +726,8 @@ def test_a_field_built_by_a_hook_takes_a_blank_when_its_hint_says_so():
         return {"result": None}
 
     graph = load(maybe)
-    output = graph.describe()["nodes"]["maybe"]["outputs"][0]
-    assert output["type"] == "int" and {"type": "null"} in output["schema"]["anyOf"]
+    output = graph.describe().nodes["maybe"].outputs[0]
+    assert output.type == "int" and {"type": "null"} in output.json_schema["anyOf"]
     assert graph.run(x="a").results["maybe"]["result"] is None
 
 
@@ -749,7 +751,7 @@ def test_a_hook_reads_the_element_type_a_series_input_receives():
         nodes=[placed("lengths", "lengths"), placed("first", "first"), placed("double", "double")],
         edges=[("lengths.result", "first.items"), ("first.result", "double.n")],
     ))
-    assert graph.problems == [] and graph.describe()["nodes"]["first"]["outputs"][0]["type"] == "int"
+    assert graph.problems == [] and graph.describe().nodes["first"].outputs[0].type == "int"
     assert graph.plan["first"].msg == "once"
     assert graph.run(text="ab c").results["double"]["result"] == 4
 
@@ -882,7 +884,7 @@ def test_a_bare_series_is_many_values_of_anything():
     def count(xs: Series) -> int:
         return len(xs)
 
-    assert [(i["shape"], i["type"]) for i in count.describe()["inputs"]] == [("many", "Any")]
+    assert [(i.shape, i.type) for i in count.describe().inputs] == [("many", "Any")]
     assert load(count, record=GraphRecord(nodes=[placed("c", "count", values={"xs": [1, "a"]})])).run().results["c"]["result"] == 2
 
 
@@ -891,7 +893,7 @@ def test_a_series_that_may_be_none_is_still_many_values():
     def f(xs: Series[int] | None = None) -> str:
         return repr(xs)
 
-    assert [(i["shape"], i["type"]) for i in f.describe()["inputs"]] == [("many", "int")]
+    assert [(i.shape, i.type) for i in f.describe().inputs] == [("many", "int")]
 
 
 def test_table_is_only_a_type():
@@ -954,9 +956,9 @@ def test_a_literal_inputs_choices_are_in_its_record_and_a_widget_draws_them():
     def priority(level: Annotated[Literal["low", "high"], Param(widget=Dropdown())]) -> str:
         return level
 
-    described = priority.describe()["inputs"][0]
-    assert described["choices"] == [{"id": "low", "title": "low"}, {"id": "high", "title": "high"}]
-    assert described["widget"] == {"type": "dropdown", "choices": []}
+    described = priority.describe().inputs[0]
+    assert described.choices == [{"id": "low", "title": "low"}, {"id": "high", "title": "high"}]
+    assert described.widget == {"type": "dropdown", "choices": []}
 
 
 def test_a_literal_input_whose_widget_declares_choices_too_is_refused():
@@ -1025,7 +1027,7 @@ def test_a_setting_is_never_an_input_of_the_graph_and_the_author_sets_it():
     registry.add(ask_model, needs_model)
     graph = registry.load(make_graph(ask_model, values={"ask-model.model": "big"}))
     assert list(graph.inputs) == ["prompt"] and graph.run(prompt="hi").outputs == {"ask-model.result": "big:hi"}
-    assert ask_model.describe()["inputs"][1]["setting"] is True
+    assert ask_model.describe().inputs[1].setting is True
     assert [(p.type, p.loc) for p in registry.load(make_graph(needs_model)).problems] == [("setting_not_set", ("needs-model", "model"))]
     defaulted = registry.load(make_graph(needs_model, defaults={"needs-model.model": "m"}))
     assert defaulted.problems == [] and list(defaulted.inputs) == ["prompt"]

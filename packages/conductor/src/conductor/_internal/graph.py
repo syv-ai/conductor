@@ -53,6 +53,7 @@ from conductor._internal.errors import (
 from conductor._internal.fields import (
     REQUIRED,
     SCALARS,
+    FieldDescription,
     FieldSpec,
     Refused,
     accepts,
@@ -171,6 +172,47 @@ class Receives(ConductorModel):
     msg: str
 
 
+class PlacedFieldDescription(FieldDescription):
+    """An input of a node in a loaded graph: its field, and how it ``receives`` on each row its node runs on."""
+
+    receives: Receives
+
+
+class GraphInputDescription(FieldDescription):
+    """An input of the graph as a form shows it: its node's field, the ``address`` and ``node_id`` a caller fills, and
+    whether it takes ``many`` values, a row per item."""
+
+    address: str
+    node_id: str
+    many: bool
+
+
+class GraphNodeDescription(ConductorModel):
+    """One node of a loaded graph as an editor draws it: the definition it uses, whether it ``loaded``, its own
+    ``problems``, and once loaded where it ``runs`` and its fields as its hooks made them."""
+
+    node: str
+    version: int
+    loaded: bool
+    problems: list[Problem]
+    runs: RunsOn | None = None
+    inputs: list[PlacedFieldDescription] = []
+    outputs: list[FieldDescription] = []
+
+
+class GraphDescription(ConductorModel):
+    """A loaded graph as an editor draws it: each node of the record by id, the graph's inputs and outputs, and every problem."""
+
+    nodes: dict[str, GraphNodeDescription]
+    inputs: dict[str, GraphInputDescription]
+    outputs: list[str]
+    problems: list[Problem]
+
+
+def _placed_field(field: dict[str, Any], receives: Receives) -> PlacedFieldDescription:
+    return PlacedFieldDescription.model_validate({**field, "receives": receives})
+
+
 @dataclass(frozen=True)
 class GraphInput:
     """An open input of a first node, a value of ``graph.inputs``: what a caller fills, at ``address`` (``node.input``).
@@ -191,13 +233,13 @@ class GraphInput:
     #: Where the run keeps the caller's value: the address of the placed node that takes it.
     _key: str = field(repr=False, compare=False, kw_only=True)
 
-    def describe(self) -> dict[str, Any]:
-        """The input as a form shows it, as JSON."""
-        described = {"address": self.address, "node_id": self.node_id, "many": self.many, **self._spec.describe(), "name": self.input, "required": self.required}
+    def describe(self) -> GraphInputDescription:
+        """The input as a form shows it."""
+        described = {**self._spec.as_json(), "address": self.address, "node_id": self.node_id, "many": self.many, "name": self.input, "required": self.required}
         described.pop("default", None)
         if not self.required:
             described["default"] = _jsonable(self._spec, self.default)
-        return described
+        return GraphInputDescription.model_validate(described)
 
 
 class Graph:
@@ -304,44 +346,45 @@ class Graph:
                     found.setdefault(drawn, {}).setdefault(group, []).append(name)
         return found
 
-    def describe(self) -> dict[str, Any]:
+    def describe(self) -> GraphDescription:
         """The loaded graph as an editor draws it: every node of the record, with its fields as its hooks made them and where it runs.
 
         Each node lists its own ``problems``, and ``problems`` beside the nodes lists every one. A node that didn't
         load (an unknown node, a broken edge, or one below it) is there with ``loaded`` false, its problems saying why;
         an embedded graph is one node, with the fields it offers.
         """
-        nodes: dict[str, Any] = {}
+        nodes: dict[str, dict[str, Any]] = {}
         plan = self.plan
-        problems = [p.model_dump(mode="json") for p in self.problems]
         for record in self.record.nodes:
             nodes[record.id] = {
                 "node": record.node, "version": record.version, "loaded": record.id in self._nodes or record.id in plan,
-                "problems": [p for p in problems if p["loc"][:1] == [record.id]],
+                "problems": [p for p in self.problems if p.loc[:1] == (record.id,)],
             }
         for p in self._nodes.values():
             if p.id in nodes:
                 nodes[p.id].update({
-                    "runs": plan[p.id].model_dump(mode="json"),
-                    "inputs": [{**f.describe(), "receives": self._receives(p, n).model_dump(mode="json")} for n, f in p.definition.inputs.items()],
+                    "runs": plan[p.id],
+                    "inputs": [_placed_field(f.as_json(), self._receives(p, n)) for n, f in p.definition.inputs.items()],
                     "outputs": [f.describe() for f in p.definition.outputs.values()],
                 })
         for e, (ins, _) in self._offers.items():
             if e in plan:
                 nodes[e].update({
-                    "runs": plan[e].model_dump(mode="json"),
+                    "runs": plan[e],
                     "inputs": [
-                        {**self._nodes[n].definition.inputs[i].describe(), "name": name, "receives": self._receives(self._nodes[n], i).model_dump(mode="json")}
+                        _placed_field({**self._nodes[n].definition.inputs[i].as_json(), "name": name}, self._receives(self._nodes[n], i))
                         for name, (n, i) in ins.items() if n in self._nodes
                     ],
-                    "outputs": [{**self._nodes[n].definition.outputs[o].describe(), "name": name} for name, (n, o) in self._readable[e].items()],
+                    "outputs": [
+                        FieldDescription.model_validate({**self._nodes[n].definition.outputs[o].as_json(), "name": name}) for name, (n, o) in self._readable[e].items()
+                    ],
                 })
-        return {
-            "nodes": nodes,
-            "inputs": {name: i.describe() for name, i in self.inputs.items()},
-            "outputs": self.outputs,
-            "problems": problems,
-        }
+        return GraphDescription(
+            nodes={node_id: GraphNodeDescription(**fields) for node_id, fields in nodes.items()},
+            inputs={name: i.describe() for name, i in self.inputs.items()},
+            outputs=self.outputs,
+            problems=list(self.problems),
+        )
 
     def _receives(self, placed: PlacedNode, name: str) -> Receives:
         """How one input receives on each row its node runs on: ``one`` value, ``copied_down`` from a table above,

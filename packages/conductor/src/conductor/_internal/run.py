@@ -367,9 +367,7 @@ class Run:
         question = unit.question or {}
         outer = self.graph._outward(node_id)
         shown = self.graph._shown_outputs(node_id)
-        asked = questions(self.graph._nodes[node_id], question.get("asked", {}))
-        for q in asked:
-            q["name"] = shown.get(q["name"], q["name"])
+        asked = [q.model_copy(update={"name": shown[q.name]}) if q.name in shown else q for q in questions(self.graph._nodes[node_id], question.get("asked", {}))]
         return Waiting(
             id=f"{_unit_id(outer, key)}~{_question_fingerprint(self.graph._nodes[node_id], unit)}", node_id=outer, row=key, prompt=question["prompt"],
             questions=asked, inputs=question["inputs"],

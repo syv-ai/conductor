@@ -49,6 +49,7 @@ from pydantic import Field as PydanticField
 from pydantic.errors import PydanticInvalidForJsonSchema
 from pydantic_core import PydanticCustomError, to_jsonable_python
 
+from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.errors import NodeDeclarationError, value_free_errors
 
 if TYPE_CHECKING:
@@ -271,8 +272,12 @@ class FieldSpec:
         """For a table, a check and writer of each column its row type names."""
         return {column: carried_list(Union[hint, None]) for column, hint in (self.columns or {}).items()}  # noqa: UP007  a cell may be blank
 
-    def describe(self) -> dict[str, Any]:
-        """The field as JSON: its shape, its type's ``id`` and JSON schema, and what a person reads about it."""
+    def describe(self) -> FieldDescription:
+        """The field as an editor reads it: its shape, its type's ``id`` and JSON schema, and what a person reads about it."""
+        return FieldDescription.model_validate(self.as_json())
+
+    def as_json(self) -> dict[str, Any]:
+        """``describe()`` as JSON, with only the keys the field has."""
         out: dict[str, Any] = {"name": self.name, "title": self.title, "shape": self.shape, "required": self.required}
         if self.shape != "table":
             out["type"] = type_id(without_none(self.type))
@@ -292,6 +297,33 @@ class FieldSpec:
         if self.param.constraints:
             out["constraints"] = to_jsonable_python(self.param.constraints, fallback=str)
         return out
+
+
+class FieldDescription(ConductorModel):
+    """An input or output as an editor reads it, and a question a waiting row asks.
+
+    ``type`` is its type's id and ``schema`` its JSON schema, for one value or a ``Series`` item; a table has
+    ``columns`` instead, each column's schema. ``default`` is what it holds when it is not ``required``.
+    ``choices`` are ``{"id", "title"}`` records, from a ``Literal`` or, on a question, the ``Ask`` (a host's
+    ``Choice`` subclass adds its own keys). The rest is the ``Param``'s.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid", validate_by_name=True, validate_by_alias=True, serialize_by_alias=True)
+
+    name: str
+    title: str
+    shape: Literal["one", "many", "table"]
+    required: bool
+    type: str | None = None
+    json_schema: dict[str, Any] | None = PydanticField(default=None, alias="schema")
+    columns: dict[str, dict[str, Any]] | None = None
+    default: Any = None
+    choices: list[dict[str, Any]] | None = None
+    description: str | None = None
+    widget: dict[str, Any] | None = None
+    exclusive_group: str | None = None
+    setting: bool = False
+    constraints: dict[str, Any] | None = None
 
 
 def literal_values(hint: Any) -> tuple[Any, ...] | None:

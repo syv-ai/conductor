@@ -198,7 +198,7 @@ def test_a_value_closes_its_input_and_a_default_leaves_it_open_prefilled():
     graph = REGISTRY.load(GraphRecord(nodes=[NodeRecord(id="b", node="both", values={"yes": "y"}, defaults={"no": "n"})]))
 
     assert list(graph.inputs) == ["no"] and not graph.inputs["no"].required and graph.inputs["no"].default == "n"
-    assert graph.inputs["no"].describe()["default"] == "n"
+    assert graph.inputs["no"].describe().default == "n"
     assert graph.run().outputs == {"b.result": "yn"}
     assert graph.run(no="!").outputs == {"b.result": "y!"}
 
@@ -453,8 +453,8 @@ def test_an_embedding_is_filled_wired_and_read_by_its_own_id():
     assert graph.problems == [] and {n: i.address for n, i in graph.inputs.items()} == {"text": "e.text"}
     run = graph.run({"e.text": "hi"})
     assert run.outputs == {"u.result": "HI."} and set(run.results) == {"e", "u"} and run.results["e"] == {"result": "HI."}
-    assert set(graph.plan) == {"e", "u"} and set(graph.describe()["nodes"]) == {"e", "u"}
-    assert [f["name"] for f in graph.describe()["nodes"]["e"]["inputs"]] == ["text"]
+    assert set(graph.plan) == {"e", "u"} and set(graph.describe().nodes) == {"e", "u"}
+    assert [f.name for f in graph.describe().nodes["e"].inputs] == ["text"]
 
 
 def test_a_wrong_address_on_an_embedding_is_a_problem_on_it_and_never_names_an_inner_node():
@@ -481,9 +481,9 @@ def test_a_graph_embedded_per_outer_row_folds_its_inner_reductions_per_outer_row
 
 
 def test_a_stored_graph_offers_its_fields_in_the_palette_of_the_registry_that_holds_its_nodes():
-    described = next(n for n in EMBEDDED.describe()["nodes"] if n["id"] == "pair")
+    described = next(n for n in EMBEDDED.describe().nodes if n.id == "pair")
 
-    assert [f["name"] for f in described["inputs"]] == ["x/text", "y/text"] and [f["name"] for f in described["outputs"]] == ["result"]
+    assert [f.name for f in described.inputs] == ["x/text", "y/text"] and [f.name for f in described.outputs] == ["result"]
 
 
 def test_a_reduction_over_rows_a_branch_never_made_is_skipped_not_called_on_nothing():

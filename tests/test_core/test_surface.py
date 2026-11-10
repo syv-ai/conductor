@@ -534,3 +534,28 @@ def test_a_problems_ctx_holds_lists_as_lists_and_its_message_writes_them():
 
     empty = NodeRegistry().load({"nodes": [{"id": "x", "node": "read"}]}).problems[0]
     assert (empty.ctx["choices"], empty.msg) == ([], "There is no node 'read'; the nodes are none.")
+
+
+def test_every_description_is_a_typed_record_a_host_publishes_as_its_schema():
+    from conductor import (
+        FieldDescription,
+        GraphDescription,
+        NodeDescription,
+        NodeRegistry,
+        RegistryDescription,
+        node,
+    )
+
+    @node("upper")
+    def upper(text: str) -> str:
+        return text.upper()
+
+    registry = NodeRegistry()
+    registry.add(upper)
+    described = registry.describe()
+    assert isinstance(described, RegistryDescription) and isinstance(described.nodes[0], NodeDescription)
+    assert isinstance(described.nodes[0].inputs[0], FieldDescription) and described.nodes[0].inputs[0].json_schema == {"type": "string"}
+    assert isinstance(registry.load({"nodes": [{"id": "u", "node": "upper"}]}).describe(), GraphDescription)
+    for record in (RegistryDescription, GraphDescription):
+        assert "schema" in json.dumps(record.model_json_schema(mode="serialization"))
+    assert RegistryDescription.model_validate_json(described.model_dump_json()) == described

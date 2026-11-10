@@ -199,7 +199,7 @@ def test_compile_leaves_a_pinned_version_alone():
     registry = _registry()
     graph = registry.load(_graph())
 
-    assert graph.describe()["nodes"]["r"]["version"] == 1
+    assert graph.describe().nodes["r"].version == 1
     assert graph.is_runnable, graph.problems
     assert graph.run().outputs == {"e.result": "Ada Lovelace"}
 

@@ -505,7 +505,7 @@ def test_two_series_on_opposite_branches_refused():
 
 def test_describe_for_a_palette_and_a_drawing():
     reg7 = registry_of(count, double, attach, size, formula, route, decide, greet, slow)
-    palette = json.loads(json.dumps(reg7.describe()))
+    palette = json.loads(reg7.describe().model_dump_json())
     nodes = {n["id"]: n for n in palette["nodes"]}
     assert nodes["slow"]["policy"]["concurrency"] == 8 and nodes["formula"]["takes_added_inputs"] and nodes["route"]["computes_outputs"]
     assert [f["name"] for f in nodes["greet"]["inputs"]] == ["text"]  # FromRun is no input
@@ -513,7 +513,7 @@ def test_describe_for_a_palette_and_a_drawing():
     types = {t["id"]: t["accepted_as"] for t in palette["types"]}
     assert "number" in types["integer"] and "integer" not in types["number"], types
     drawing = reg7.load({"nodes": [{"id": "c", "node": "count"}, {"id": "f", "node": "formula", "values": {"formula": "{a}+{b}"}}], "edges": [["c.result", "f.a"]]})
-    placed = json.loads(json.dumps(drawing.describe()))["nodes"]
+    placed = json.loads(drawing.describe().model_dump_json())["nodes"]
     assert [f["name"] for f in placed["f"]["inputs"]] == ["formula", "a", "b"], placed["f"]
 
 
@@ -602,9 +602,9 @@ def test_a_field_reads_as_its_author_wrote_it():
     ) -> str:
         return type(whole).__name__
 
-    fields = {f["name"]: f for f in kinds.describe()["inputs"]}
-    assert fields["maybe"]["title"] == "Maybe" and fields["maybe"]["shape"] == "one"
-    assert fields["many"]["shape"] == "many" and fields["some"]["shape"] == "many"
+    fields = {f.name: f for f in kinds.describe().inputs}
+    assert fields["maybe"].title == "Maybe" and fields["maybe"].shape == "one"
+    assert fields["many"].shape == "many" and fields["some"].shape == "many"
     graph = registry_of(kinds).load({"nodes": [{"id": "k", "node": "kinds"}]})
     assert graph.run().outputs == {"k.result": "Whole"}
     assert Table is not None

@@ -78,7 +78,7 @@ def test_a_bool_is_a_yes_or_no_and_a_word_for_it_is_refused():
     graph, run = _once(confirm, name="F-1")
     (waiting,) = run.waiting
     (question,) = waiting.questions
-    assert (place(waiting), waiting.prompt, question["schema"], question["required"]) == ("q", "Approve F-1?", {"type": "boolean"}, True)
+    assert (place(waiting), waiting.prompt, question.json_schema, question.required) == ("q", "Approve F-1?", {"type": "boolean"}, True)
     (fault,) = _refused(lambda: run.answer(waiting, "maybe"))
     assert (fault.type, fault.loc, fault.ctx["waiting_id"]) == ("invalid_answer", ("q",), waiting.id)
     assert run.answer(waiting, True).resume().outputs == {"q.result": True}
@@ -91,7 +91,7 @@ def test_a_literal_offers_its_values_and_an_answer_outside_them_is_refused():
 
     _, run = _once(urgency, name="x")
     (question,) = run.waiting[0].questions
-    assert question["choices"] == [{"id": "low", "title": "low"}, {"id": "high", "title": "high"}]
+    assert question.choices == [{"id": "low", "title": "low"}, {"id": "high", "title": "high"}]
     assert _refused(lambda: run.answer("q", "urgent"))[0].type == "invalid_answer"
     assert run.answer("q", "high").resume().outputs == {"q.result": "high"}
 
@@ -102,7 +102,7 @@ def test_choices_the_run_knows_limit_the_answer_and_a_choice_gives_a_title():
         raise Ask(f"Who takes {ticket}?", choices=[Choice("ida", "Ida B."), "bo"])
 
     _, run = _once(assign, ticket="T-1")
-    assert run.waiting[0].questions[0]["choices"] == [{"id": "ida", "title": "Ida B."}, {"id": "bo", "title": "bo"}]
+    assert run.waiting[0].questions[0].choices == [{"id": "ida", "title": "Ida B."}, {"id": "bo", "title": "bo"}]
     (fault,) = _refused(lambda: run.answer("q", "carl"))
     assert fault.msg == "That is not a valid answer: the answer is not one of the choices"
     assert run.answer("q", "bo").resume().outputs == {"q.result": "bo"}
@@ -118,7 +118,7 @@ def test_a_hosts_own_choice_carries_its_fields_to_the_question():
         raise Ask(f"Who takes {ticket}?", choices=[Person("ida", "Ida B.", team="sales")])
 
     _, run = _once(assign, ticket="T-1")
-    assert run.waiting[0].questions[0]["choices"] == [{"id": "ida", "title": "Ida B.", "team": "sales"}]
+    assert run.waiting[0].questions[0].choices == [{"id": "ida", "title": "Ida B.", "team": "sales"}]
     assert run.answer("q", "ida").resume().outputs == {"q.result": "ida"}
 
 
@@ -134,7 +134,7 @@ def test_a_number_and_a_date_are_read_from_their_json_form_into_the_outputs_type
     graph = registry_of(when, weekday).load({"nodes": [{"id": "q", "node": "when", "values": {"name": "x"}}, {"id": "w", "node": "weekday"}],
                                               "edges": [["q.result", "w.day"]]})
     run = graph.run()
-    assert run.waiting[0].questions[0]["schema"] == {"format": "date", "type": "string"}
+    assert run.waiting[0].questions[0].json_schema == {"format": "date", "type": "string"}
     done = graph.load_run(run.answer("q", "2026-11-10").to_json()).resume()
     assert done.results["q"]["result"] == datetime.date(2026, 11, 10) and done.outputs == {"w.result": 2}
     assert _refused(lambda: run.answer("q", "next tuesday"))[0].type == "invalid_answer"
@@ -149,9 +149,9 @@ def test_a_lone_output_is_titled_by_the_node_unless_its_type_names_it():
     def named() -> Annotated[str, Param(title="Decision", description="What you decided")]:
         raise Ask("?")
 
-    assert _once(ask)[1].waiting[0].questions[0]["title"] == "Approve the invoice"
+    assert _once(ask)[1].waiting[0].questions[0].title == "Approve the invoice"
     question = _once(named)[1].waiting[0].questions[0]
-    assert (question["title"], question["description"]) == ("Decision", "What you decided")
+    assert (question.title, question.description) == ("Decision", "What you decided")
 
 
 def test_a_question_whose_type_takes_a_blank_may_be_answered_with_none():
@@ -160,7 +160,7 @@ def test_a_question_whose_type_takes_a_blank_may_be_answered_with_none():
         raise Ask("A note?")
 
     _, run = _once(note, name="x")
-    assert run.waiting[0].questions[0]["required"] is False
+    assert run.waiting[0].questions[0].required is False
     assert run.answer("q", None).resume().outputs == {"q.result": None}
 
 
@@ -180,9 +180,9 @@ def review(name: str) -> Review:
 def test_a_frozen_dataclass_is_a_form_of_one_question_per_field():
     _, run = _asking(review)
     approved, amount, note, due = run.waiting[0].questions
-    assert [q["name"] for q in (approved, amount, note, due)] == ["approved", "amount", "note", "due"]
-    assert (approved["required"], amount["default"], amount["required"], note["required"], note["widget"]) == (True, 100.0, False, False, {"type": "textarea", "rows": 6})
-    assert (due["default"], due["required"]) == ("2026-12-01", False)  # a field's own default is proposed
+    assert [q.name for q in (approved, amount, note, due)] == ["approved", "amount", "note", "due"]
+    assert (approved.required, amount.default, amount.required, note.required, note.widget) == (True, 100.0, False, False, {"type": "textarea", "rows": 6})
+    assert (due.default, due.required) == ("2026-12-01", False)  # a field's own default is proposed
 
 
 def test_a_form_left_short_takes_its_defaults_and_blanks_and_refuses_what_has_neither():
@@ -226,8 +226,8 @@ def test_a_table_is_answered_as_records_which_are_new_rows_and_keep_through_json
     graph = _lines_graph()
     run = graph.run()
     (question,) = run.waiting[0].questions
-    assert question["shape"] == "table" and set(question["columns"]) == {"sku", "qty"}
-    assert question["default"] == [{"sku": "A", "qty": 1}]  # what an answer looks like
+    assert question.shape == "table" and set(question.columns) == {"sku", "qty"}
+    assert question.default == [{"sku": "A", "qty": 1}]  # what an answer looks like
     answered = graph.load_run(graph.load_run(run.to_json()).answer("q", [{"sku": "B", "qty": 2}, {"sku": "C", "qty": 3}]).to_json())
     assert answered.resume().outputs == {"e.result": ["BB", "CCC"]}
 
@@ -235,7 +235,7 @@ def test_a_table_is_answered_as_records_which_are_new_rows_and_keep_through_json
 def test_a_table_default_survives_saving_and_answers_like_any_value():
     graph = _lines_graph()
     run = graph.load_run(graph.run().to_json())
-    assert run.answer("q", run.waiting[0].questions[0]["default"]).resume().outputs == {"e.result": ["A"]}
+    assert run.answer("q", run.waiting[0].questions[0].default).resume().outputs == {"e.result": ["A"]}
 
 
 def test_an_empty_list_answers_a_table_with_no_rows_and_a_wrong_record_is_refused():
@@ -259,7 +259,7 @@ def test_a_hooks_outputs_are_asked_by_their_types():
         raise Ask("Check each")
 
     _, run = _once(checks, names="signed,paid")
-    assert [(q["name"], q["schema"]) for q in run.waiting[0].questions] == [("signed", {"type": "boolean"}), ("paid", {"type": "boolean"})]
+    assert [(q.name, q.json_schema) for q in run.waiting[0].questions] == [("signed", {"type": "boolean"}), ("paid", {"type": "boolean"})]
     assert run.answer("q", {"signed": True, "paid": False}).resume().outputs == {"q.signed": True, "q.paid": False}
 
 
@@ -279,7 +279,7 @@ def test_answering_one_branch_of_an_exclusive_group_leaves_the_other_not_taken()
         "edges": [["q.keep", "k.text"], ["q.drop", "d.text"]],
     })
     run = graph.run()
-    assert [(q["exclusive_group"], q["required"]) for q in run.waiting[0].questions] == [("route", False), ("route", False)]
+    assert [(q.exclusive_group, q.required) for q in run.waiting[0].questions] == [("route", False), ("route", False)]
     done = run.answer("q", {"keep": "a"}).resume()
     assert done.status == "complete" and done.results["k"]["result"] == "A" and done.results["d"]["result"] is None
     assert _refused(lambda: run.answer("q", {"keep": "a", "drop": "a"}))[0].msg == "That is not a valid answer: answer exactly one of keep, drop"
@@ -301,7 +301,7 @@ def test_a_series_of_a_literal_is_a_pick_of_several_run_end_to_end_through_json(
     })
     run = graph.load_run(graph.run().to_json())
     (question,) = run.waiting[0].questions
-    assert (question["shape"], question["default"], [c["id"] for c in question["choices"]]) == ("many", ["red"], ["red", "green", "blue"])
+    assert (question.shape, question.default, [c["id"] for c in question.choices]) == ("many", ["red"], ["red", "green", "blue"])
     faults = _refused(lambda: run.answer({"q@0": ["red", "red"], "q@1": ["pink"]}))
     assert [f.msg for f in faults] == ["That is not a valid answer: a choice is picked twice", "That is not a valid answer: Input should be 'red', 'green' or 'blue'"]
     answered = graph.load_run(run.answer({"q@0": ["red", "blue"], "q@1": []}).to_json())
@@ -317,7 +317,7 @@ def test_a_series_with_choices_the_run_knows_is_a_pick_of_several_of_those():
 
     _, run = _once(people, team="sales")
     (question,) = run.waiting[0].questions
-    assert (question["shape"], [c["title"] for c in question["choices"]]) == ("many", ["Ida B.", "Bo K.", "Carl"])
+    assert (question.shape, [c["title"] for c in question.choices]) == ("many", ["Ida B.", "Bo K.", "Carl"])
     assert _refused(lambda: run.answer("q", ["ida", "eve"]))[0].msg == "That is not a valid answer: the answer is not one of the choices"
     assert run.answer("q", ["carl", "ida"]).resume().outputs == {"q.result": ["carl", "ida"]}
 
@@ -399,7 +399,7 @@ def test_a_question_whose_choices_limit_it_must_be_answered_even_if_its_type_tak
         raise Ask("?", choices={"who": ["a"]})
 
     _, run = _once(pick)
-    assert [q["required"] for q in run.waiting[0].questions] == [True, False]
+    assert [q.required for q in run.waiting[0].questions] == [True, False]
     assert _refused(lambda: run.answer("q", {}))[0].msg == "That is not a valid answer: 'who' was not answered"
     assert run.answer("q", {"who": "a"}).resume().outputs == {"q.who": "a", "q.note": None}
 
@@ -630,6 +630,7 @@ def test_a_question_record_is_json_a_host_draws_from_with_no_graph_loaded():
         "questions": [{
             "name": "result", "title": "Assignee", "shape": "one", "required": False, "type": "str", "schema": {"type": "string"},
             "choices": [{"id": "ida", "title": "Ida B."}], "default": "ida", "widget": {"type": "textarea", "rows": 4},
+            "columns": None, "description": None, "exclusive_group": None, "setting": False, "constraints": None,
         }],
     }
 
@@ -639,10 +640,10 @@ def test_a_literal_says_the_type_of_its_values_on_an_input_and_on_a_question():
     def priority(level: Literal["a", "b"], ticket: str) -> Literal["low", "high"]:
         raise Ask(f"How urgent is {ticket}?")
 
-    assert [field["type"] for field in priority.describe()["inputs"]] == ["str", "str"]
+    assert [field.type for field in priority.describe().inputs] == ["str", "str"]
     run = registry_of(priority).load(make_graph(priority, values={"priority.level": "a"})).run(ticket="T-1")
     (question,) = run.waiting[0].questions
-    assert question["type"] == "str" and question["schema"] == {"enum": ["low", "high"], "type": "string"}
+    assert question.type == "str" and question.json_schema == {"enum": ["low", "high"], "type": "string"}
 
 
 def test_one_row_answered_twice_in_one_call_is_refused_and_nothing_is_answered():
@@ -696,6 +697,6 @@ def test_an_embeddings_questions_are_named_by_the_outputs_it_offers():
     registry = NodeRegistry()
     registry.add(ask, ask2, node("both")(GraphRecord(nodes=[NodeRecord(id="q", node="ask"), NodeRecord(id="q2", node="ask2")])))
     run = registry.load(make_graph(registry["both"], values={"both.q/text": "a", "both.q2/text": "b"})).run()
-    assert sorted(q["name"] for w in run.waiting for q in w.questions) == ["q/result", "q2/result"]
+    assert sorted(q.name for w in run.waiting for q in w.questions) == ["q/result", "q2/result"]
     done = run.answer({w.id: "yes" for w in run.waiting}).resume()
     assert done.outputs == {"both.q/result": "yes", "both.q2/result": "yes"}

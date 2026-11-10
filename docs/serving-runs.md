@@ -11,7 +11,7 @@ from collections.abc import AsyncIterable, AsyncIterator, Mapping
 from dataclasses import dataclass, field
 from typing import Annotated, Any
 
-from conductor import GraphRecord, InvalidCallError, NodeRegistry, Run, Waiting
+from conductor import GraphDescription, GraphRecord, InvalidCallError, NodeRegistry, RegistryDescription, Run, Waiting
 from conductor.events import Event, RunEnd
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -105,12 +105,12 @@ def refused(request: Request, error: InvalidCallError) -> JSONResponse:
 
 
 @app.get("/nodes")
-def nodes() -> dict[str, Any]:
+def nodes() -> RegistryDescription:
     return registry.describe()
 
 
 @app.post("/load")
-def load(graph: GraphRecord) -> dict[str, Any]:
+def load(graph: GraphRecord) -> GraphDescription:
     return registry.load(graph).describe()
 
 

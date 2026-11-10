@@ -26,7 +26,7 @@ about a type is process-wide, so two registries in one process may each
 hold a ``text`` of their own; one id claimed by two classes in one registry
 raises where the second arrives, naming both. ``accepted_as`` (every type
 here that admits a given one) is answered here, and ``describe()`` is what
-an editor reads: every node and every type, once, as JSON.
+an editor reads: every node and every type, once, as a ``RegistryDescription``.
 
 ``registry.load(record)`` reads a stored graph into a ``Graph`` that keeps
 its own copy of the definitions it resolved, so a later change to the
@@ -44,9 +44,17 @@ from typing import TYPE_CHECKING, Any, Concatenate
 
 from pydantic import JsonValue
 
+from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.errors import InvalidCallError, NodeDeclarationError, make_problem
-from conductor._internal.fields import Named, accepts, type_id, type_title, without_none
-from conductor._internal.node_definition import NodeDefinition, checked_extra, node
+from conductor._internal.fields import (
+    FieldDescription,
+    Named,
+    accepts,
+    type_id,
+    type_title,
+    without_none,
+)
+from conductor._internal.node_definition import NodeDefinition, NodeDescription, checked_extra, node
 from conductor._internal.record import GraphRecord, NodeRecord, as_record
 
 if TYPE_CHECKING:
@@ -221,20 +229,21 @@ class NodeRegistry:
         """
         return tuple(type_id_ for type_id_, target in self._types.items() if accepts(target, value_type))
 
-    def describe(self) -> dict[str, Any]:
-        """This registry as an editor reads it, as JSON: every node, and every type with where a value of it may land."""
-        return {
-            "nodes": [self._described(definition) for definition in self._nodes.values()],
-            "types": [{"id": type_id_, "title": type_title(held), "accepted_as": list(self.accepted_as(held))} for type_id_, held in self._types.items()],
-        }
+    def describe(self) -> RegistryDescription:
+        """This registry as an editor reads it: every node, and every type with where a value of it may land."""
+        return RegistryDescription(
+            nodes=[self._described(definition) for definition in self._nodes.values()],
+            types=[TypeDescription(id=type_id_, title=type_title(held), accepted_as=list(self.accepted_as(held))) for type_id_, held in self._types.items()],
+        )
 
-    def _described(self, definition: NodeDefinition[..., Any]) -> dict[str, Any]:
+    def _described(self, definition: NodeDefinition[..., Any]) -> NodeDescription:
         """A node as the palette shows it; a stored graph with the fields it offers, worked out against this registry."""
         described = definition.describe()
-        if definition.graph is not None:
-            placed = self.load(GraphRecord(nodes=[NodeRecord(id="node", node=definition.id, version=definition.version)])).describe()["nodes"]["node"]
-            described["inputs"], described["outputs"] = placed.get("inputs", []), placed.get("outputs", [])
-        return described
+        if definition.graph is None:
+            return described
+        placed = self.load(GraphRecord(nodes=[NodeRecord(id="node", node=definition.id, version=definition.version)])).describe().nodes["node"]
+        inputs = [FieldDescription.model_validate(field.model_dump(exclude={"receives"})) for field in placed.inputs]
+        return described.model_copy(update={"inputs": inputs, "outputs": placed.outputs})
 
     # -- graphs ------------------------------------------------------------------
 
@@ -299,6 +308,21 @@ class NodeRegistry:
             ]
         moved = placed.model_copy(update={"version": target, "values": values, "defaults": defaults, "many": frozenset(many)})
         return graph.model_copy(update={"nodes": tuple(moved if n is placed else n for n in graph.nodes), "edges": tuple(sorted(edges))})
+
+
+class TypeDescription(ConductorModel):
+    """A type as an editor reads it: its ``id``, its ``title``, and the ids of every type a value of it may land on."""
+
+    id: str
+    title: str
+    accepted_as: list[str]
+
+
+class RegistryDescription(ConductorModel):
+    """A registry as an editor's palette reads it: every node, and every type."""
+
+    nodes: list[NodeDescription]
+    types: list[TypeDescription]
 
 
 def _with_keys_renamed(by_name: Mapping[str, Any], renames: Mapping[str, str]) -> dict[str, Any]:

@@ -57,7 +57,7 @@ for problem in graph.problems:
 
 `make_graph(repeat, values={"repeat.times": 20})` raises that same problem at the call, as an `InvalidCallError`: from Python, the traceback points at the line you wrote.
 
-`repeat.describe()` is the node as an editor's palette reads it, as JSON, and `registry.describe()` is the whole palette.
+`repeat.describe()` is the node as an editor's palette reads it, a `NodeDescription`, and `registry.describe()` is the whole palette, a `RegistryDescription`: pydantic records a host returns as they are, which `model_dump(mode="json")` writes as JSON.
 
 ### Widgets
 
@@ -181,7 +181,7 @@ def assign(ticket: str) -> str:
 
 
 run = registry.load(make_graph(assign)).run(ticket="T-1")
-print(run.waiting[0].questions[0].get("choices"))  # [{'id': 'ida', 'title': 'ida'}, {'id': 'bo', 'title': 'bo'}]
+print(run.waiting[0].questions[0].choices)  # [{'id': 'ida', 'title': 'ida'}, {'id': 'bo', 'title': 'bo'}]
 ```
 
 For a node with several outputs, give them by output name with `choices`, `defaults` and `widgets`. A `Choice(id, title)` gives a choice a title of its own:
@@ -209,7 +209,7 @@ def review(proposal: str) -> Review:
 
 run = registry.load(make_graph(review)).run(proposal="Move the server")
 (waiting,) = run.waiting
-print([question["name"] for question in waiting.questions])  # ['approved', 'owner', 'note']
+print([question.name for question in waiting.questions])  # ['approved', 'owner', 'note']
 
 run = run.answer(waiting, {"approved": True, "owner": "ida"}).resume()
 print(run.outputs)  # {'review.approved': True, 'review.owner': 'ida', 'review.note': None}

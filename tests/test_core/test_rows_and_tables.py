@@ -20,6 +20,7 @@ from conductor import (
     InvalidCallError,
     NodeRecord,
     Param,
+    RunsOn,
     Series,
     Table,
     make_graph,
@@ -748,13 +749,13 @@ def test_a_table_made_per_document_offers_its_columns_on_rows_under_each_documen
     loaded = graph(DOCS, READ, {"id": "check", "node": "check"}, edges=(READ_EDGE, ("read.result.vendor", "check.vendor")))
     assert loaded.problems == []
     assert {k: v.msg for k, v in loaded.plan.items()} == {"docs": "once", "read": "per row of docs.result", "check": "per row of read.result"}
-    (result,) = loaded.describe()["nodes"]["read"]["outputs"]
-    assert result["shape"] == "table" and result["columns"]["amount"] == {"type": "number"}
+    (result,) = loaded.describe().nodes["read"].outputs
+    assert result.shape == "table" and result.columns["amount"] == {"type": "number"}
 
 
 def test_a_bare_table_offers_no_columns():
-    (result,) = graph({"id": "s", "node": "show"}).describe()["nodes"]["s"]["outputs"]
-    assert (result["shape"], result["columns"]) == ("table", {})
+    (result,) = graph({"id": "s", "node": "show"}).describe().nodes["s"].outputs
+    assert (result.shape, result.columns) == ("table", {})
 
 
 # -- branches ----------------------------------------------------------------------------------
@@ -1554,13 +1555,13 @@ def test_each_input_in_describe_says_how_it_receives_on_each_row_its_node_runs_o
     loaded = graph({"id": "s", "node": "split"}, {"id": "u", "node": "upper"}, {"id": "j", "node": "join"}, {"id": "p", "node": "pair", "values": {"b": "x"}},
                    {"id": "k", "node": "pair"},
                    edges=(("s.result", "u.text"), ("u.result", "j.texts"), ("u.result", "p.a"), ("j.result", "k.a"), ("u.result", "k.b")))
-    nodes = loaded.describe()["nodes"]
+    nodes = loaded.describe().nodes
 
     def receives(node_id: str) -> dict[str, str]:
-        return {i["name"]: i["receives"]["msg"] for i in nodes[node_id]["inputs"]}
+        return {i.name: i.receives.msg for i in nodes[node_id].inputs}
 
-    assert nodes["k"]["inputs"][0]["receives"] == {"mode": "copied_down", "tables": [None], "under": None, "msg": "copied down from the graph's own row"}
-    assert nodes["j"]["runs"] == {"mode": "once", "table": None, "msg": "once"}
+    assert nodes["k"].inputs[0].receives.model_dump() == {"mode": "copied_down", "tables": [None], "under": None, "msg": "copied down from the graph's own row"}
+    assert nodes["j"].runs == RunsOn(mode="once", msg="once")
     assert loaded.plan["u"].mode == "per_row" and loaded.plan["u"].table == "s.result"
     assert receives("u") == {"text": "per row of s.result"}
     assert receives("j") == {"texts": "whole column of s.result"}
@@ -1624,10 +1625,10 @@ def test_a_sibling_gather_says_it_gathers_under_the_row_the_two_share():
     loaded = graph({"id": "s", "node": "split"}, {"id": "p", "node": "parts"}, {"id": "b", "node": "beside"},
                    edges=(("s.result", "p.text"), ("p.invoices", "b.invoice"), ("p.keywords", "b.keywords")), registry=registry_of(split, parts, beside))
 
-    assert {i["name"]: i["receives"]["msg"] for i in loaded.describe()["nodes"]["b"]["inputs"]} == {
+    assert {i.name: i.receives.msg for i in loaded.describe().nodes["b"].inputs} == {
         "invoice": "per row of p.invoices", "keywords": "whole column of p.keywords under each row of s.result",
     }
-    assert loaded.describe()["nodes"]["b"]["inputs"][1]["receives"] == {
+    assert loaded.describe().nodes["b"].inputs[1].receives.model_dump() == {
         "mode": "whole_column", "tables": ["p.keywords"], "under": "s.result", "msg": "whole column of p.keywords under each row of s.result",
     }
 

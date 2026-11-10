@@ -119,7 +119,7 @@ Any type pydantic can check and write as JSON travels on edges: `str`, `int`, `f
 
 - `graph.inputs`: the open inputs of its first nodes (those no edge feeds), by bare name or by address where two share a name. Each has `address`, `node_id`, `input`, `many`, `required`, `default` (the record's default, else the node's) and `describe()`. An open first-node input is not a problem; a required input on a later node nothing feeds is `unbound_on_later_node`.
 - `graph.outputs`: the outputs of the nodes nothing reads, by address. `graph.plan`: where each node runs, a `RunsOn` whose `mode` is `once` or `per_row` with its `table`, and whose `msg` says it in English. `graph.exclusive_groups`: each node's exclusive groups and their outputs.
-- `graph.describe()`: the graph as an editor draws it, as JSON: each node's fields as its hooks made them and where it runs, the inputs, the outputs, the problems. Each input of a node says how it `receives` on each row the node runs on, as `mode`, `tables`, `under` and `msg`: `one`, `per_row` of a table, `copied_down` from a table (a value from rows above) or the `whole_column` of a table (a gather), `under` each row of a table a sibling shares with the node.
+- `graph.describe()`: the graph as an editor draws it, a `GraphDescription`: each node's fields as its hooks made them and where it runs, the inputs, the outputs, the problems. Each input of a node says how it `receives` on each row the node runs on, as `mode`, `tables`, `under` and `msg`: `one`, `per_row` of a table, `copied_down` from a table (a value from rows above) or the `whole_column` of a table (a gather), `under` each row of a table a sibling shares with the node.
 - Other codes: `unknown_node`, `unknown_version`, `unknown_input` (a value, default, `many` or edge naming an input the node lacks), `unknown_output` (an output, or a column of a table output, the node doesn't give), `type_mismatch`, `invalid_value` (a typed-in value its type refuses), `duplicate_node_id`, `cycle`, `embeds_itself`, `embedded_graph_broken` (a stored graph used as a node has problems of its own, in `ctx`), `rows_not_related`, `hook_needs_value` (a value a hook reads is not typed in), `parameter_name_invalid` (a hook gave a field a name no address can say).
 
 ### What a node returns
@@ -238,7 +238,7 @@ assert GraphRecord.model_validate_json(text) == record
 
 ### The Palette
 
-`NodeDefinition.describe()` is a node as JSON (`id`, `version`, `versions`, `title`, `description`, `category`, `tags`, `extra`, `docs`, `deprecation`, `is_graph`, `policy`, `inputs`, `outputs`, each field with `name`, `title`, `shape`, `type`, `schema`, `required`, `default`, `widget`, `exclusive_group`). `registry.describe()` has `nodes` and `types` (each `id`, `title`, `accepted_as`).
+`NodeDefinition.describe()` is a `NodeDescription`, a pydantic record (`id`, `version`, `versions`, `title`, `description`, `category`, `tags`, `extra`, `docs`, `deprecation`, `is_graph`, `policy`, `inputs`, `outputs`), each field a `FieldDescription` (`name`, `title`, `shape`, `required`, `type`, `json_schema` written as `schema`, `columns`, `default`, `choices`, `description`, `widget`, `exclusive_group`, `setting`, `constraints`; a key it doesn't have is `None`). `registry.describe()` is a `RegistryDescription`: `nodes` and `types` (each `id`, `title`, `accepted_as`). `graph.describe()` is a `GraphDescription`. Each is a host's response model as it is; `model_dump(mode="json")` writes it.
 
 ## API Reference
 

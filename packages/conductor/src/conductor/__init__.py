@@ -14,7 +14,7 @@ Everything in ``conductor._internal`` is the library's own and may move.
 
 from typing import TYPE_CHECKING
 
-from conductor._internal.ask import Ask, Choice, Question, Waiting
+from conductor._internal.ask import Ask, Choice, Waiting
 from conductor._internal.errors import (
     PROBLEM_CODES,
     ExternalFailure,
@@ -23,11 +23,18 @@ from conductor._internal.errors import (
     NodeError,
     Problem,
 )
-from conductor._internal.fields import SKIPPED, FromRun, Named, Param, Series
-from conductor._internal.graph import Graph, GraphInput, Receives, RunsOn
-from conductor._internal.node_definition import Deprecation, NodeDefinition, Policy, Upgrade, node
+from conductor._internal.fields import SKIPPED, FieldDescription, FromRun, Named, Param, Series
+from conductor._internal.graph import Graph, GraphDescription, GraphInput, Receives, RunsOn
+from conductor._internal.node_definition import (
+    Deprecation,
+    NodeDefinition,
+    NodeDescription,
+    Policy,
+    Upgrade,
+    node,
+)
 from conductor._internal.record import GraphRecord, NodeRecord, make_graph
-from conductor._internal.registry import NodeRegistry
+from conductor._internal.registry import NodeRegistry, RegistryDescription
 from conductor._internal.run import Run, RunStatus
 
 if TYPE_CHECKING:
@@ -43,22 +50,25 @@ __all__ = [
     "Choice",
     "Deprecation",
     "ExternalFailure",
+    "FieldDescription",
     "FromRun",
     "Graph",
+    "GraphDescription",
     "GraphInput",
     "GraphRecord",
     "InvalidCallError",
     "Named",
     "NodeDeclarationError",
     "NodeDefinition",
+    "NodeDescription",
     "NodeError",
     "NodeRecord",
     "NodeRegistry",
     "Param",
     "Policy",
     "Problem",
-    "Question",
     "Receives",
+    "RegistryDescription",
     "Run",
     "RunStatus",
     "RunsOn",

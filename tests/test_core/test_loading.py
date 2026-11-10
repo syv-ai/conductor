@@ -290,8 +290,8 @@ def test_a_single_value_typed_into_a_series_input_is_refused_not_wrapped_into_a_
 
 def test_a_graph_input_carries_its_title_type_and_widget_for_a_form():
     described = REGISTRY.load({"nodes": [{"id": "s", "node": "styled"}]}).inputs["mode"].describe()
-    assert described["title"] == "Mode" and described["type"] == "str" and described["required"] is False
-    assert described["widget"]["choices"] == [{"id": "a", "title": "A"}, {"id": "b", "title": "B"}]
+    assert described.title == "Mode" and described.type == "str" and described.required is False
+    assert described.widget["choices"] == [{"id": "a", "title": "A"}, {"id": "b", "title": "B"}]
 
 
 def test_graph_inputs_come_in_the_order_of_the_nodes():
@@ -307,7 +307,7 @@ def test_a_node_one_of_whose_outputs_is_read_offers_none_of_its_outputs():
 def test_an_output_a_hook_computed_is_a_graph_output_with_its_title():
     graph = REGISTRY.load({"nodes": [{"id": "c", "node": "columns", "values": {"names": ["net", "vat"]}}]})
     assert graph.problems == [] and graph.outputs == ["c.net", "c.vat"]
-    assert [o["title"] for o in graph.describe()["nodes"]["c"]["outputs"]] == ["Net", "Vat"]
+    assert [o.title for o in graph.describe().nodes["c"].outputs] == ["Net", "Vat"]
     assert graph.run(text="9").outputs == {"c.net": "9", "c.vat": "9"}
 
 
@@ -320,7 +320,7 @@ def test_an_output_and_an_input_sharing_a_name_are_read_by_address():
 
 def test_a_description_of_a_broken_graph_is_json_and_carries_its_problems():
     graph = REGISTRY.load({"nodes": [{"id": "n", "node": "nonempty", "values": {"text": ""}}, {"id": "u", "node": "upper"}]})
-    described = json.loads(json.dumps(graph.describe(), allow_nan=False))
+    described = json.loads(graph.describe().model_dump_json())
     assert not graph.is_runnable
     assert [(p["type"], p["loc"]) for p in described["problems"]] == [("invalid_value", ["n", "text"])]
     assert list(described["inputs"]) == ["text"]
@@ -442,7 +442,7 @@ def test_with_inputs_refuses_every_fault_at_once_listing_what_it_offers():
 def test_an_embedding_offers_its_inner_open_input_and_output_as_one_node():
     assert enrich.title == "Enrich"
     graph = REGISTRY.load({"nodes": [{"id": "e", "node": "enrich"}]})
-    assert graph.problems == [] and list(graph.inputs) == ["text"] and graph.inputs["text"].describe()["title"] == "Text"
+    assert graph.problems == [] and list(graph.inputs) == ["text"] and graph.inputs["text"].describe().title == "Text"
     run = graph.run(text="hi")
     assert run.outputs == {"e.result": "HI."} and run.results["e"] == {"result": "HI."}
 
@@ -498,8 +498,8 @@ def test_a_table_made_inside_an_embedding_offers_its_columns():
 def test_a_node_built_from_a_graph_offers_its_inner_inputs_and_carries_its_deprecation():
     graph = REGISTRY.load({"nodes": [{"id": "w", "node": "wrapped"}]})
     assert list(graph.inputs) == ["text"] and graph.run(text="a").outputs == {"w.result": "A"}
-    assert wrapped.describe()["deprecation"]["header"] == "Gone"
-    assert REGISTRY.describe()["nodes"][[n.id for n in REGISTRY].index("wrapped")]["deprecation"]["header"] == "Gone"
+    assert wrapped.describe().deprecation.header == "Gone"
+    assert REGISTRY.describe().nodes[[n.id for n in REGISTRY].index("wrapped")].deprecation.header == "Gone"
 
 
 @node("pair")
@@ -603,7 +603,7 @@ def test_only_the_nodes_on_a_cycle_are_a_cycle_and_a_node_below_keeps_its_fields
         "edges": [["a.result", "b.text"], ["b.result", "a.text"], ["b.result", "c.text"]],
     })
     assert [(p.type, p.loc) for p in graph.problems] == [("cycle", ("a",)), ("cycle", ("b",))]
-    assert set(graph.describe()["nodes"]) == {"a", "b", "c"}
+    assert set(graph.describe().nodes) == {"a", "b", "c"}
 
 
 def test_an_editor_reads_every_node_of_a_half_broken_graph_and_which_ones_loaded():
@@ -611,7 +611,7 @@ def test_an_editor_reads_every_node_of_a_half_broken_graph_and_which_ones_loaded
         "nodes": [{"id": "a", "node": "upper"}, {"id": "b", "node": "upper"}, {"id": "c", "node": "tail"}, {"id": "x", "node": "gone"}],
         "edges": [["a.nope", "b.text"], ["b.result", "c.text"]],
     })
-    drawn = json.loads(json.dumps(graph.describe()))["nodes"]
+    drawn = json.loads(graph.describe().model_dump_json())["nodes"]
     assert list(drawn) == ["a", "b", "c", "x"]
     assert {node_id: d["loaded"] for node_id, d in drawn.items()} == {"a": True, "b": False, "c": False, "x": False}
 
@@ -654,7 +654,7 @@ def test_an_embeddings_inputs_are_filled_by_its_own_address():
 
 
 def test_two_inner_inputs_sharing_a_name_are_offered_by_the_inner_records_ids():
-    assert [f["name"] for f in next(n for n in OUTSIDE.describe()["nodes"] if n["id"] == "halves")["inputs"]] == ["x/text", "y/text"]
+    assert [f.name for f in next(n for n in OUTSIDE.describe().nodes if n.id == "halves").inputs] == ["x/text", "y/text"]
     graph = OUTSIDE.load({"nodes": [{"id": "s", "node": "upper"}, {"id": "c", "node": "halves"}], "edges": [["s.result", "c.x/text"]]})
     assert graph.problems == []
     assert graph.run({"s.text": "a", "c.y/text": "b"}).outputs == {"c.result": "AB"}
@@ -706,8 +706,8 @@ def test_graphs_embedded_forty_deep_load_at_once():
 
 def test_describe_lists_each_nodes_problems_on_it():
     described = REGISTRY.load({"nodes": [{"id": "u", "node": "upper"}, {"id": "x", "node": "uper"}]}).describe()
-    assert [p["type"] for p in described["nodes"]["x"]["problems"]] == ["unknown_node"] and described["nodes"]["u"]["problems"] == []
-    assert described["problems"] == described["nodes"]["x"]["problems"]
+    assert [p.type for p in described.nodes["x"].problems] == ["unknown_node"] and described.nodes["u"].problems == []
+    assert described.problems == described.nodes["x"].problems
 
 
 def test_a_type_mismatch_into_a_series_says_the_series_it_reads():

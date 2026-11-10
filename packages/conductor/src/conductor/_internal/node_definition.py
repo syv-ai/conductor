@@ -64,6 +64,7 @@ from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.errors import InvalidCallError, NodeDeclarationError, make_problem
 from conductor._internal.fields import (
     REQUIRED,
+    FieldDescription,
     FieldSpec,
     Param,
     _FromRunMarker,
@@ -112,10 +113,22 @@ class Policy:
         changed = [f"{name}={getattr(self, name)!r}" for name in fields if getattr(self, name) != getattr(_DEFAULT_POLICY, name)]
         return f"Policy({', '.join(changed)})"
 
-    def describe(self) -> dict[str, Any]:
-        """The policy as JSON; ``retry_on`` is classes, which have no JSON form, so it is left out."""
-        return {"concurrency": self.concurrency, "retries": self.retries, "retry_delay": self.retry_delay,
-                "attempt_timeout": self.attempt_timeout, "reuse_when_inputs_match": self.reuse_when_inputs_match}
+    def describe(self) -> PolicyDescription:
+        """The policy as an editor reads it; ``retry_on`` is classes, which have no JSON form, so it is left out."""
+        return PolicyDescription(
+            concurrency=self.concurrency, retries=self.retries, retry_delay=self.retry_delay,
+            attempt_timeout=self.attempt_timeout, reuse_when_inputs_match=self.reuse_when_inputs_match,
+        )
+
+
+class PolicyDescription(ConductorModel):
+    """A node's ``Policy`` as an editor reads it, ``retry_on`` left out."""
+
+    concurrency: int
+    retries: int
+    retry_delay: float
+    attempt_timeout: float | None
+    reuse_when_inputs_match: bool
 
 
 _DEFAULT_POLICY = Policy()
@@ -230,26 +243,40 @@ class NodeDefinition(Generic[_P, _R]):
             step = step.replaces
         return tuple(found)
 
-    def describe(self) -> dict[str, Any]:
-        """The node as an editor's palette shows it, as JSON."""
-        return {
-            "id": self.id,
-            "version": self.version,
-            "versions": list(self.versions),
-            "title": self.title,
-            "description": self.description,
-            "category": self.category,
-            "tags": list(self.tags),
-            "extra": dict(self.extra),
-            "docs": self.docs,
-            "deprecation": None if self.deprecation is None else self.deprecation.model_dump(mode="json"),
-            "is_graph": self.graph is not None,
-            "policy": self.policy.describe(),
-            "inputs": [f.describe() for f in self.inputs.values()],
-            "outputs": [f.describe() for f in self.outputs.values()],
-            "takes_added_inputs": self.compute_added_inputs is not None,
-            "computes_outputs": self.compute_outputs is not None,
-        }
+    def describe(self) -> NodeDescription:
+        """The node as an editor's palette shows it."""
+        return NodeDescription(
+            id=self.id, version=self.version, versions=list(self.versions), title=self.title, description=self.description,
+            category=self.category, tags=list(self.tags), extra=dict(self.extra), docs=self.docs, deprecation=self.deprecation,
+            is_graph=self.graph is not None, policy=self.policy.describe(),
+            inputs=[f.describe() for f in self.inputs.values()], outputs=[f.describe() for f in self.outputs.values()],
+            takes_added_inputs=self.compute_added_inputs is not None, computes_outputs=self.compute_outputs is not None,
+        )
+
+
+class NodeDescription(ConductorModel):
+    """A node as an editor's palette shows it: what it is, its versions, its policy and its fields.
+
+    A node that is a stored graph (``is_graph``) has the fields it offers when a registry describes it, as loading
+    works them out. ``takes_added_inputs`` and ``computes_outputs`` say its fields depend on what is typed into it.
+    """
+
+    id: str
+    version: int
+    versions: list[int]
+    title: str
+    description: str
+    category: str
+    tags: list[str]
+    extra: dict[str, JsonValue]
+    docs: str | None
+    deprecation: Deprecation | None
+    is_graph: bool
+    policy: PolicyDescription
+    inputs: list[FieldDescription]
+    outputs: list[FieldDescription]
+    takes_added_inputs: bool
+    computes_outputs: bool
 
 
 class NodeDecorator(Protocol):
