@@ -958,7 +958,7 @@ except NodeDeclarationError as error:
 
 > {unheld} can't apply to {getattr(_bare(source), '__name__', source)}, as pydantic holds no such limit on it; take them off, or check the value in the node
 
-> {spec.name}: the limits {spec.param.constraints} don't fit {getattr(base, '__name__', base)}: {error}
+> {spec.name}: the limits {spec.param.constraints} don't fit {getattr(base, '__name__', base)}, so change one: {error}
 
 ```python
 try:
@@ -1015,7 +1015,7 @@ except NodeDeclarationError as error:
 
 > {spec.name}: the default None is a blank; write its type with | None
 
-> {spec.name}: the default {spec.default} is not a {getattr(base, '__name__', base)}: {error}
+> {spec.name}: the default {spec.default} is not a {getattr(base, '__name__', base)}, so give one that is: {error}
 
 ```python
 try:

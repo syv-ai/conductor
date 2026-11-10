@@ -589,24 +589,24 @@ def _checked(spec: FieldSpec, where: str) -> FieldSpec:
         raise
     except Exception as error:  # noqa: BLE001  pydantic can't build a schema for this type
         if limits:
-            raise NodeDeclarationError(f"{where}{spec.name}: the limits {spec.param.constraints!r} don't fit {getattr(base, '__name__', base)}: {error}", code="bound_invalid") from None
+            raise NodeDeclarationError(f"{where}{spec.name}: the limits {spec.param.constraints!r} don't fit {getattr(base, '__name__', base)}, so change one: {error}", code="bound_invalid") from None
         raise NodeDeclarationError(
             f"{where}{spec.name}: conductor can't check or write {getattr(base, '__name__', base)} as JSON; "
             "use a type pydantic knows, such as a pydantic model or a dataclass",
             code="type_not_carried",
         ) from None
-    if spec.default is None and spec.shape != "table" and not spec.optional:
+    if spec.default is None and not spec.optional:
         raise NodeDeclarationError(f"{where}{spec.name}: the default None is a blank; write its type with | None", code="default_invalid")
     if not spec.required and spec.default is not None and spec.default is not SKIPPED:
         try:
             made = spec.lax_adapter.validate_python(spec.default)
         except Exception as error:  # noqa: BLE001  pydantic's own error says why
-            raise NodeDeclarationError(f"{where}{spec.name}: the default {spec.default!r} is not a {getattr(base, '__name__', base)}: {error}", code="default_invalid") from None
+            raise NodeDeclarationError(f"{where}{spec.name}: the default {spec.default!r} is not a {getattr(base, '__name__', base)}, so give one that is: {error}", code="default_invalid") from None
         return dataclasses.replace(spec, default=made)
     return spec
 
 
-_BUILTINS = (bool, int, float, str, bytes, datetime.datetime, datetime.date)
+_BUILTINS: tuple[type, ...] = (bool, int, float, str, bytes, datetime.datetime, datetime.date)
 
 
 def _bare(hint: Any) -> Any:
@@ -743,7 +743,8 @@ def _schema_kinds(schema: Mapping[str, Any], defs: Mapping[str, Any]) -> frozens
     branches = [*schema.get("anyOf", ()), *schema.get("oneOf", ()), *schema.get("allOf", ())[:1]]
     if branches:
         kinds = [_schema_kinds(branch, defs) for branch in branches]
-        return None if None in kinds else frozenset().union(*kinds)  # type: ignore[arg-type]
+        known = [k for k in kinds if k is not None]
+        return frozenset[str]().union(*known) if len(known) == len(kinds) else None
     kind = schema.get("type")
     if kind is not None:
         return frozenset([kind] if isinstance(kind, str) else kind)
@@ -826,7 +827,11 @@ def _one_accepts(target: Any, source: Any) -> bool:
         return True
     if _is_alias(target):  # a value lands if its JSON form is one the alias's may be: a number on a JSON value
         kinds, given = _alias_kinds(target), _json_kinds(source)
-        return kinds is None or (bool(given) and given is not None and all(k in kinds or (k == "integer" and "number" in kinds) for k in given))
+        if kinds is None:
+            return True
+        if not given:  # a type with no JSON form, or none known
+            return False
+        return all(k in kinds or (k == "integer" and "number" in kinds) for k in given)
     if get_origin(source) is Literal:
         if get_origin(target) is Literal:  # a narrower Literal lands on one holding every value it may be
             return {(type(v), v) for v in get_args(source)} <= {(type(v), v) for v in get_args(target)}
@@ -1040,7 +1045,7 @@ def read_table(spec: FieldSpec, value: Any, *, strict: bool, given: bool = False
     missing = [c for c in spec.columns if c not in value.columns and (value.height or not given)]
     if missing:
         raise FieldValueError(f"the column '{missing[0]}' its row type declares is missing", column=missing[0])
-    read = {}
+    read: dict[str, list[object]] = {}
     for column, hint in spec.columns.items():
         if column not in value.columns:
             read[column] = [None] * value.height
