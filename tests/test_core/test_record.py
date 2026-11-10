@@ -95,10 +95,18 @@ def test_several_edges_into_one_input_gather_in_node_order_whatever_the_list_ord
     assert one_way["j"].bindings["texts"] == other_way["j"].bindings["texts"] == From("first.result", "second.result")
 
 
-def test_two_outputs_of_one_node_into_one_input_keep_the_lists_order():
+def test_two_outputs_of_one_node_into_one_input_gather_in_the_order_of_their_addresses():
     nodes = [NodeRecord(id="g", node="t"), NodeRecord(id="j", node="t")]
 
-    assert _loaded(GraphRecord(nodes=nodes, edges=[("g.yes", "j.texts"), ("g.no", "j.texts")]))[0]["j"].bindings["texts"] == From("g.yes", "g.no")
+    assert _loaded(GraphRecord(nodes=nodes, edges=[("g.yes", "j.texts"), ("g.no", "j.texts")]))[0]["j"].bindings["texts"] == From("g.no", "g.yes")
+
+
+def test_edges_are_a_set_so_their_order_never_tells_two_records_apart():
+    nodes = [NodeRecord(id="a", node="t"), NodeRecord(id="b", node="t")]
+    one_way = GraphRecord(nodes=nodes, edges=[("a.x", "b.x"), ("a.y", "b.y")])
+    other_way = GraphRecord(nodes=nodes, edges=[("a.y", "b.y"), ("a.x", "b.x")])
+
+    assert one_way == other_way and one_way.model_dump_json() == other_way.model_dump_json()
 
 
 def test_a_repeated_edge_is_a_problem_and_read_once():

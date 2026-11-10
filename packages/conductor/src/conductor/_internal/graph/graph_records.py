@@ -17,10 +17,11 @@ caller may still give it another value. ``display`` is the host's own:
 conductor stores it and never reads it. An empty field is left out when the
 record is saved, so a bare node is ``{"id": "up", "node": "upper"}``.
 
-Edges are a set of ``[from, to]`` addresses. Several edges into one input
-gather in the order their source nodes appear in ``nodes``, not in the order
-the list holds them, so a host may sort the list as it likes; only two
-outputs of one node into one input keep the list's order between them.
+Edges are a set of ``[from, to]`` addresses, kept sorted, so two records
+that differ only in the order of their edges are equal and save alike.
+Several edges into one input gather in the order their source nodes appear
+in ``nodes``; two outputs of one node into one input, in the order of their
+addresses.
 
 ``load_record`` is the one place the record is read: it gathers each node's
 edges, values and defaults onto its inputs, which is what compile reads, and
@@ -92,13 +93,18 @@ class GraphRecord(ConductorModel):
 
     #: Any sequence going in; a tuple once built.
     nodes: Sequence[NodeRecord] = ()
-    #: ``(from, to)`` pairs of addresses, ``("read.text", "up.text")``.
+    #: ``(from, to)`` pairs of addresses, ``("read.text", "up.text")``; sorted once built.
     edges: Sequence[tuple[Address, Address]] = ()
 
-    @field_validator("nodes", "edges")
+    @field_validator("nodes")
     @classmethod
-    def _as_tuple(cls, items: Sequence[Any]) -> tuple[Any, ...]:
-        return tuple(items)
+    def _nodes_as_tuple(cls, nodes: Sequence[NodeRecord]) -> tuple[NodeRecord, ...]:
+        return tuple(nodes)
+
+    @field_validator("edges")
+    @classmethod
+    def _edges_sorted(cls, edges: Sequence[tuple[str, str]]) -> tuple[tuple[str, str], ...]:
+        return tuple(sorted(edges))
 
 
 @dataclass(frozen=True)
@@ -120,7 +126,10 @@ def load_record(record: GraphRecord) -> tuple[tuple[LoadedNode, ...], list[Probl
 
     An edge drawn twice, an edge into a node the record doesn't have, and an
     input with both an edge and a value (or a value and a default) are each a
-    problem; the edge is kept once and wins over a value.
+    problem; the edge is kept once and wins over a value. Edges are read in
+    the order of their source nodes in ``nodes``, then of their addresses:
+    the order several edges into one input gather in, and the order a node
+    that takes an input per edge has them.
     """
     position: dict[str, int] = {}
     for index, node in enumerate(record.nodes):
@@ -128,7 +137,7 @@ def load_record(record: GraphRecord) -> tuple[tuple[LoadedNode, ...], list[Probl
     problems: list[Problem] = []
     sources_into: dict[str, dict[str, list[Ref]]] = {}
     seen: set[tuple[str, str]] = set()
-    for source, target in record.edges:
+    for source, target in sorted(record.edges, key=lambda edge: (position.get(Ref(edge[0]).node_id, len(position)), edge)):
         to = Ref(target)
         if (source, target) in seen:
             problems.append(make_problem("repeated_edge", to.node_id, to.field, source=source))
@@ -148,7 +157,7 @@ def load_record(record: GraphRecord) -> tuple[tuple[LoadedNode, ...], list[Probl
         for name, sources in sources_into.get(node.id, {}).items():
             if name in node.values or name in node.defaults:
                 problems.append(make_problem("value_and_edge", node.id, name))
-            bindings[name] = From(*sorted(sources, key=lambda ref: position.get(ref.node_id, len(position))))
+            bindings[name] = From(*sources)
         loaded.append(LoadedNode(id=node.id, node=node.node, version=node.version, bindings=bindings, fixed=frozenset(node.values)))
     return tuple(loaded), problems
 
@@ -165,7 +174,8 @@ def make_graph(
         make_graph(read_file, upper, values={"read_file.path": "in.txt"})
 
     A node's id in the graph is its definition's id; a definition used more
-    than once is ``upper-1``, ``upper-2``, and so on. ``values`` are keyed by
+    than once is ``upper-1``, ``upper-2``, and so on, skipping an id another
+    node already has. ``values`` are keyed by
     those ids, ``"node.input"``, and fixed in the record.
 
     With no ``edges`` the nodes form a chain: each takes its one required
@@ -174,11 +184,16 @@ def make_graph(
     edge of the graph. Nothing is matched by name.
     """
     used = Counter(definition.id for definition in nodes)
+    taken = {definition.id for definition in nodes if used[definition.id] == 1}
     numbered: Counter[str] = Counter()
     ids: list[str] = []
     for definition in nodes:
-        numbered[definition.id] += 1
-        ids.append(f"{definition.id}-{numbered[definition.id]}" if used[definition.id] > 1 else definition.id)
+        node_id = definition.id
+        while used[definition.id] > 1 and (node_id == definition.id or node_id in taken):
+            numbered[definition.id] += 1
+            node_id = f"{definition.id}-{numbered[definition.id]}"
+        taken.add(node_id)
+        ids.append(node_id)
     values_of: dict[str, dict[str, Any]] = {}
     for address, value in (values or {}).items():
         ref = Ref(address)

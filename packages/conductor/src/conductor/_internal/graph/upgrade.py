@@ -22,9 +22,11 @@ def upgrade_node(graph: GraphRecord, node_id: str, registry: NodeRegistry, *, to
 
     Runs each version's ``Upgrade`` in order and sets the version. Each step
     first moves what the record holds on the inputs it renames (values,
-    defaults and the edges into them), then rewrites the values and the
-    defaults, each map on its own; every edge out of a renamed output reads
-    the new name. A node already at ``to`` returns ``graph`` itself. A version
+    defaults and the edges into them), then rewrites what is typed into the
+    node, values and defaults as one map: a key that was a default stays
+    one, and every other key the rewrite returns is a value, fixed as the
+    author's. Every edge out of a renamed output, or out of a column of it,
+    reads the new name. A node already at ``to`` returns ``graph`` itself. A version
     whose body is a graph has no steps, so the node only has its version set
     and compile reports any input the new version does not have. A node the
     graph does not have, a node definition the registry does not, and a
@@ -53,8 +55,9 @@ def upgrade_node(graph: GraphRecord, node_id: str, registry: NodeRegistry, *, to
     for step in steps:
         values, defaults = _with_keys_renamed(values, step.renamed_inputs), _with_keys_renamed(defaults, step.renamed_inputs)
         if step.rewrite is not None:
-            values = step.rewrite(values) if values else values
-            defaults = step.rewrite(defaults) if defaults else defaults
+            rewritten = step.rewrite({**defaults, **values})
+            defaults = {name: value for name, value in rewritten.items() if name in defaults and name not in values}
+            values = {name: value for name, value in rewritten.items() if name not in defaults}
         edges = [
             (_renamed_on(source, node_id, step.renamed_outputs), _renamed_on(target_, node_id, step.renamed_inputs))
             for source, target_ in edges
@@ -72,6 +75,7 @@ def _with_keys_renamed(by_name: Mapping[str, Any], renames: Mapping[str, str]) -
 
 
 def _renamed_on(address: str, node_id: str, renames: Mapping[str, str]) -> str:
-    """``address`` with its field renamed when it is on ``node_id`` and the step renames that field."""
+    """``address`` with its field renamed when it is on ``node_id`` and the step renames that field; a column (``result.email``) moves with its field."""
     ref = Ref(address)
-    return Ref(node_id, renames[ref.field]) if ref.node_id == node_id and ref.field in renames else ref
+    field, dot, column = ref.field.partition(".")
+    return Ref(node_id, renames[field] + dot + column) if ref.node_id == node_id and field in renames else ref

@@ -301,8 +301,8 @@ def test_an_open_inputs_takes_one_input_per_edge_received_whole():
 
     assert compiled.is_runnable, compiled.problems
     interface = compiled.node("s").interface
-    assert [(i.name, i.dtype, i.many) for i in interface.inputs] == [("code", Txt, False), ("antal", Num, False), ("tekster", Txt, True)]
-    assert interface.inputs[2].widget is None
+    assert [(i.name, i.dtype, i.many) for i in interface.inputs] == [("code", Txt, False), ("tekster", Txt, True), ("antal", Num, False)]
+    assert interface.inputs[1].widget is None
     assert compiled.run_plan.nodes["s"].runs_per_row_of is None
     assert compiled.run_plan.nodes["s"].inputs["tekster"].receive_mode == "entire_value"
 

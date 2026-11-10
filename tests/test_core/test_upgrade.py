@@ -168,13 +168,27 @@ def test_an_edge_into_an_input_the_step_renames_moves_with_it():
     assert upgraded.edges == (("src.result", "r.full"),)
 
 
-def test_a_rewrite_runs_on_the_values_and_on_the_defaults_each_on_its_own():
+def test_a_rewrite_sees_values_and_defaults_as_one_and_a_default_stays_one():
+    def counted_v1(src: Annotated[Txt, _param("Source")] = Txt(""), n: int = 0) -> Annotated[Txt, Result(title="R")]:
+        return src
+
+    @node("counted", replaces=node("counted")(counted_v1), upgrade=Upgrade(rewrite=lambda typed: {**typed, "n": typed.get("n", 0) + 1, "added": 1}))
+    def counted(src: Annotated[Txt, _param("Source")] = Txt(""), n: int = 0, added: int = 0) -> Annotated[Txt, Result(title="R")]:
+        return src
+
+    registry = registry_of(counted)
+    with_both = upgrade_node(GraphRecord(nodes=[NodeRecord(id="c", node="counted", values={"n": 2}, defaults={"src": "x"})]), "c", registry).nodes[0]
+    with_neither = upgrade_node(GraphRecord(nodes=[NodeRecord(id="c", node="counted")]), "c", registry).nodes[0]
+
+    assert (with_both.values, with_both.defaults) == ({"n": 3, "added": 1}, {"src": "x"})
+    assert (with_neither.values, with_neither.defaults) == ({"n": 1, "added": 1}, {})
+
+
+def test_an_edge_reading_a_column_of_a_renamed_output_moves_with_it():
     registry = _registry()
-    graph = GraphRecord(nodes=[NodeRecord(id="r", node="rename", values={"name": "Ada Lovelace"}, defaults={"name": "Grace Hopper"})])
+    graph = GraphRecord(nodes=[NodeRecord(id="r", node="rename", version=2), NodeRecord(id="e", node="echo")], edges=[("r.result.text", "e.text")])
 
-    moved = upgrade_node(graph, "r", registry).nodes[0]
-
-    assert (moved.values, moved.defaults) == ({"first": "Ada", "last": "Lovelace"}, {"first": "Grace", "last": "Hopper"})
+    assert upgrade_node(graph, "r", registry).edges == (("r.text.text", "e.text"),)
 
 
 def test_a_downgrade_or_an_unknown_node_raises():

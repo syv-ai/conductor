@@ -158,11 +158,11 @@ class Upgrade:
     never upgrades, so a graph pinned at an old version runs that version.
 
     ``renamed_inputs`` moves each input's value, default and edges in to
-    the new name before ``rewrite`` runs. ``rewrite`` takes the node's
-    values as a dict and returns them for the next version; it is called
-    on the node's ``values`` and on its ``defaults``, each on its own, and
-    never on an empty one. ``renamed_outputs`` rewrites every edge in the
-    graph that read the old name.
+    the new name before ``rewrite`` runs. ``rewrite`` takes what is typed
+    into the node, its values and defaults as one dict, and returns it for
+    the next version: a key that was a default stays one, any other key is
+    a value. ``renamed_outputs`` rewrites every edge in the graph that read
+    the old name or a column of it.
     """
 
     renamed_inputs: Mapping[str, str] = field(default_factory=dict)

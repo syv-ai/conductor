@@ -39,7 +39,8 @@ its stored graphs itself. What a 1.x user changes:
   upgrade=Upgrade(...))`, where `older` is a `@node` of the same id. Each version has its own
   `Policy`, hooks and `deprecation=`, and the newest version's notice is the node's.
   `upgrade_node(graph, node_id, registry)` moves one node of a record on: an `Upgrade`'s renames move
-  its values, defaults and edges, and its `rewrite` takes and returns the node's values.
+  its values, defaults and edges, and its `rewrite` takes and returns what is typed into the node,
+  values and defaults as one map (a default stays one; anything new is a value).
 - **What the run supplies.** `FlowStore` and `store_data` are a parameter typed `FromRun[T]`, filled
   from `compiled.run(from_run={T: value})`.
 - **Retries and failures.** `max_retries`, `retry_delay` and `RetryConfig` are

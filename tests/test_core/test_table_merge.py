@@ -383,7 +383,7 @@ def test_parents_with_nothing_under_them_give_a_table_of_no_rows_with_every_colu
     )
     sheet = _sheet(compiled)
 
-    assert (sheet.height, sheet.columns) == (0, ["result", "vendor", "amount"])
+    assert (sheet.height, sheet.columns) == (0, ["result", "amount", "vendor"])
 
 
 def test_a_parent_column_beside_a_table_made_per_row_of_it_is_copied_down():

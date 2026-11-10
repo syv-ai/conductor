@@ -370,6 +370,14 @@ def test_make_graph_numbers_a_node_used_twice():
     assert compiled.outputs(compiled.run_sync()) == {"shout-2.result": "HELLO IDA!!!"}
 
 
+def test_make_graph_skips_an_id_another_node_already_has():
+    @node("hello-1")
+    def _other(name: str) -> str:
+        return name
+
+    assert [node.id for node in make_graph(_hello, _hello, _other, edges=[]).nodes] == ["hello-2", "hello-3", "hello-1"]
+
+
 def test_make_graph_with_edges_takes_those_as_every_edge_and_matches_nothing_by_name():
     graph = make_graph(_hello, _shout, edges=[])
 
