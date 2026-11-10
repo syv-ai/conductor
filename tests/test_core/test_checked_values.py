@@ -113,6 +113,19 @@ def test_a_node_returning_something_other_than_its_dataclass_fails_naming_the_cl
     assert "Pair" in run.cause.ctx["reason"] and "tuple" in run.cause.ctx["reason"]
 
 
+@dataclass(frozen=True)
+class OnlyResult:
+    result: str
+
+
+def test_a_dataclass_whose_one_field_is_named_result_is_spread_like_any_dataclass_of_outputs():
+    assert _returning(OnlyResult("hi"), OnlyResult).results["g"] == {"result": "hi"}
+
+    run = _returning("hi", OnlyResult)
+
+    assert (run.cause.type, run.cause.loc) == ("invalid_output", ("g",)) and "OnlyResult" in run.cause.ctx["reason"]
+
+
 def test_a_unit_whose_second_output_is_invalid_writes_none_of_its_outputs():
     run = _returning(Pair("ok", "many"), Pair)  # type: ignore[arg-type]
 

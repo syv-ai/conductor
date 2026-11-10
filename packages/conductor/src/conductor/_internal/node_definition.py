@@ -187,8 +187,8 @@ class NodeDefinition(Generic[_P, _R]):
     function: Callable[..., Any] | None
     inputs: Mapping[str, FieldSpec]
     outputs: Mapping[str, FieldSpec]
-    #: The return annotation; a frozen dataclass when the node has several outputs.
-    returns: Any = None
+    #: The frozen dataclass the function returns when it has one output per field; None for any other return type.
+    outputs_class: type | None = None
     title: str = ""
     description: str = ""
     #: Where an editor lists it; a plain string whose titles the host keeps.
@@ -361,7 +361,7 @@ def node(
         where = f"@node({id!r}) on {getattr(target, '__name__', target)}: "
         if inspect.iscoroutinefunction(target) or inspect.isasyncgenfunction(target):
             raise NodeDeclarationError(f"{where}a node is a plain def; the engine gives a slow one threads with Policy(concurrency=)", code="async_run")
-        inputs, outputs, returns = _read_signature(where, target, compute_outputs is not None)
+        inputs, outputs, outputs_class = _read_signature(where, target, compute_outputs is not None)
         from_run = {name: typing.get_args(spec.type)[0] for name, spec in inputs.items() if spec.param is _FROM_RUN}
         inputs = {name: spec for name, spec in inputs.items() if name not in from_run}
         takes_kwargs = any(p.kind is p.VAR_KEYWORD for p in inspect.signature(target).parameters.values())
@@ -373,7 +373,7 @@ def node(
             if hook is not None:
                 _check_hook(where, hook, kind, inputs)
         definition: NodeDefinition[..., Any] = NodeDefinition(
-            function=target, inputs=inputs, outputs=outputs, returns=returns, from_run=from_run,
+            function=target, inputs=inputs, outputs=outputs, outputs_class=outputs_class, from_run=from_run,
             title=title or humanised(target.__name__),
             description=(inspect.getdoc(target) or "").split("\n\n")[0].replace("\n", " ") if description is None else description,
             compute_added_inputs=compute_added_inputs, compute_outputs=compute_outputs, **common,
@@ -436,8 +436,8 @@ def _fits(needed: type, key: Any, value: Any) -> bool:
 _FROM_RUN = Param()
 
 
-def _read_signature(where: str, function: Callable[..., Any], computed_outputs: bool) -> tuple[dict[str, FieldSpec], dict[str, FieldSpec], Any]:
-    """The inputs, outputs and return annotation a function's signature declares."""
+def _read_signature(where: str, function: Callable[..., Any], computed_outputs: bool) -> tuple[dict[str, FieldSpec], dict[str, FieldSpec], type | None]:
+    """The inputs and outputs a function's signature declares, and the frozen dataclass it returns them as, if it does."""
     hints = typing.get_type_hints(function, include_extras=True)
     inputs = {}
     for name, parameter in inspect.signature(function).parameters.items():
@@ -460,9 +460,7 @@ def _read_signature(where: str, function: Callable[..., Any], computed_outputs: 
     if "return" not in hints:
         raise NodeDeclarationError(f"{where}a node needs a return type; write one, or -> None for no outputs", code="output_without_type")
     returns = hints["return"]
-    if computed_outputs:
-        return inputs, {}, returns
-    if returns is None or returns is type(None):
+    if computed_outputs or returns is None or returns is type(None):
         return inputs, {}, None
     if isinstance(returns, type) and dataclasses.is_dataclass(returns):
         if not returns.__dataclass_params__.frozen:  # type: ignore[attr-defined]
@@ -473,7 +471,7 @@ def _read_signature(where: str, function: Callable[..., Any], computed_outputs: 
         return inputs, outputs, returns
     outputs = {"result": read_field("result", returns, where=where)}
     _raise_if_setting_on(where, outputs)
-    return inputs, outputs, returns
+    return inputs, outputs, None
 
 
 def _raise_if_setting_on(where: str, outputs: Mapping[str, FieldSpec]) -> None:

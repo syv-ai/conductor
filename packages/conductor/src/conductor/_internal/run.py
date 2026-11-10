@@ -888,7 +888,7 @@ def checked_outputs(definition: NodeDefinition[..., Any], returned: Any) -> Any:
     if returned is SKIPPED:
         return SKIPPED
     outputs = definition.outputs
-    if definition.compute_outputs is None and definition.returns is not None and len(outputs) == 1 and "result" in outputs:
+    if definition.outputs_class is None and definition.compute_outputs is None and outputs:  # -> X: one output, named result
         spec = outputs["result"]
         if spec.shape == "one" and type(returned) in spec.plain_classes:  # the common case: one output, already its type
             return {"result": returned}
@@ -902,14 +902,14 @@ def checked_outputs(definition: NodeDefinition[..., Any], returned: Any) -> Any:
             name = (missing or unknown)[0]
             raise Refused(f"'{name}' is {'missing from' if missing else 'not one of'} the outputs it returns", code="invalid_output", name=str(name))
         spread = {name: returned[name] for name in outputs}
-    elif not outputs:
+    elif definition.outputs_class is not None:
+        if not isinstance(returned, definition.outputs_class):
+            raise Refused(f"the node returns a {definition.outputs_class.__name__}, not a {type(returned).__name__}", code="invalid_output")
+        spread = {name: getattr(returned, name) for name in outputs}
+    else:
         if returned is not None:
             raise Refused(f"the node declares no outputs, but returned a {type(returned).__name__}", code="invalid_output")
         return {}
-    else:
-        if not isinstance(returned, definition.returns):
-            raise Refused(f"the node returns a {definition.returns.__name__}, not a {type(returned).__name__}", code="invalid_output")
-        spread = {name: getattr(returned, name) for name in outputs}
     groups: dict[str, str] = {}
     for name, spec in outputs.items():
         spread[name] = _checked(spec, name, spread[name], "invalid_output")
