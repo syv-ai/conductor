@@ -173,6 +173,35 @@ def test_a_series_that_may_be_nothing_reads_an_explicit_none_like_leaving_it_out
     assert set_to_none.outputs == left_out.outputs == {"m.result": "None"}
 
 
+class Amount(TypedDict):
+    a: int
+
+
+def test_a_table_that_may_be_nothing_takes_a_callers_none_a_return_of_none_and_a_table_never_made():
+    @node("count-rows")
+    def count_rows(t: Table[Amount] | None = None) -> int:
+        return -1 if t is None else t.height
+
+    @node("maybe-table")
+    def maybe_table(x: int) -> Table[Amount] | None:
+        return None if x < 0 else pl.DataFrame({"a": [x]})
+
+    @node("may-be-blank")
+    def may_be_blank(y: int) -> int | None:
+        return None
+
+    alone = graph({"id": "c", "node": "count-rows"}, registry=registry_of(count_rows))
+    assert alone.run(t=None).outputs == alone.run().outputs == {"c.result": -1}
+
+    made = graph({"id": "m", "node": "maybe-table"}, {"id": "c", "node": "count-rows"}, edges=(("m.result", "c.t"),), registry=registry_of(maybe_table, count_rows))
+    assert made.run(x=-1).outputs == {"c.result": -1} and made.run(x=3).outputs == {"c.result": 1}
+    assert made.load_run(made.run(x=-1).to_json()).results["m"] == {"result": None}
+
+    never = graph({"id": "b", "node": "may-be-blank"}, {"id": "m", "node": "maybe-table"}, {"id": "c", "node": "count-rows"},
+                  edges=(("b.result", "m.x"), ("m.result", "c.t")), registry=registry_of(may_be_blank, maybe_table, count_rows))
+    assert never.run(y=1).outputs == {"c.result": -1}
+
+
 @pytest.mark.parametrize(("annotation", "takes_blank"), [
     (str, False),
     (str | None, True),

@@ -553,7 +553,8 @@ class Run:
         return self._not_made(source, row) == "skipped"
 
     def _not_made(self, source: Source, row: Key) -> Literal["skipped", "blank"] | None:
-        """Why the table ``source`` reads under ``row`` was never made: its maker took no branch there, or wasn't called for a blank input."""
+        """Why the table ``source`` reads under ``row`` was never made: its maker took no branch there, or wasn't called for
+        a blank input, or gave a blank in place of it."""
         if len(row) >= len(source.level) or source.node_id is None:
             return None
         node_id, output = self.graph._makers[source.level[len(row)]]
@@ -562,7 +563,7 @@ class Run:
             return None
         if unit.state == "skipped" or (unit.state == "done" and unit.out is not None and unit.out.get(output) is SKIPPED):
             return "skipped"
-        return "blank" if unit.state == "blank" else None
+        return "blank" if unit.state == "blank" or (unit.state == "done" and unit.out is not None and output in unit.out and unit.out[output] is None) else None
 
     def _skip_origin(self, source: Source, key: Key) -> int:
         """The depth of the row where the branch behind a skipped value was decided."""
@@ -682,7 +683,7 @@ class Run:
                 table = self._table(plan, row)
                 if table is PENDING or isinstance(table, Unit):
                     return table
-                if table is None:
+                if table is None and not spec.optional:
                     return Unit("blank", blank_input=name)
                 kwargs[name] = table
         if gathered:
@@ -869,7 +870,7 @@ def kept_outputs(outputs: Mapping[str, FieldSpec], spread: dict[str, Any]) -> di
     """A node's checked outputs by name as a run keeps them: a table as columns, a ``Series`` as a list."""
     for name, spec in outputs.items():
         value = spread[name]
-        if value is SKIPPED:
+        if value is SKIPPED or value is None:  # a branch not taken, or the blank of a field that may be nothing
             continue
         if spec.shape == "table":
             spread[name] = Frame(value.height, value.to_dict(as_series=False))
@@ -950,7 +951,7 @@ def _dump_units(placed: PlacedNode, units: Mapping[Key, Unit], keyed: bool = Tru
         skipped = [i for i, v in enumerate(values) if v is SKIPPED]
         at = f"{placed.id}.{name}"
         if spec.shape == "table":
-            dumped: Any = [None if v is SKIPPED else _dump_frame(spec, v, at) for v in values]
+            dumped: Any = [None if v is SKIPPED or v is None else _dump_frame(spec, v, at) for v in values]
         else:
             plain = [None if v is SKIPPED else [None if i is SKIPPED else i for i in v] if spec.shape == "many" else v for v in values]
             dumped = _written_as_json(spec.column_adapter, plain, at)
@@ -1077,7 +1078,7 @@ def _load_units(placed: PlacedNode, dumped: _SavedUnits) -> list[tuple[Key, Unit
                 raise _Unreadable(at, f"it skips an item the value {n} doesn't hold")
             for i in positions:
                 values[n][i] = SKIPPED
-        if spec.shape != "one" and any(v is None for v in values):
+        if spec.shape != "one" and not spec.optional and any(v is None for v in values):
             raise _Unreadable(at, "a finished unit has no value on an output that makes rows")
         columns[name] = values
     unknown = sorted(dumped.outputs.keys() - placed.definition.outputs.keys())

@@ -485,7 +485,7 @@ def read_field(name: str, hint: Any, default: Any = REQUIRED, where: str = "") -
     or_none = False
     if get_origin(hint) in (Union, types.UnionType):
         members = [a for a in get_args(hint) if a is not type(None)]
-        if type(None) in get_args(hint) and len(members) == 1 and get_origin(members[0]) is Annotated:
+        if type(None) in get_args(hint) and len(members) == 1 and (get_origin(members[0]) is Annotated or members[0] in (pl.DataFrame, Table)):
             hint, or_none = members[0], True
     param = Param()
     if get_origin(hint) is Annotated:
@@ -509,7 +509,7 @@ def read_field(name: str, hint: Any, default: Any = REQUIRED, where: str = "") -
                 raise NodeDeclarationError(f"{where}{name}: a Series of Series; rows are never nested in a field, so return one Series", code="nested_series")
             return _checked(FieldSpec(name, "many", item, or_none, default, param), where)
         if markers and isinstance(markers[0], _TableMarker):
-            return _checked(FieldSpec(name, "table", pl.DataFrame, False, default, param, _columns_of(markers[0].row)), where)
+            return _checked(FieldSpec(name, "table", pl.DataFrame, or_none, default, param, _columns_of(markers[0].row)), where)
         names = [m for m in meta if isinstance(m, Named)]
         if len(names) > 1:
             raise NodeDeclarationError(
@@ -518,7 +518,7 @@ def read_field(name: str, hint: Any, default: Any = REQUIRED, where: str = "") -
             )
         hint = Annotated[base, names[0]] if names else base
     if hint is pl.DataFrame or hint is Table:
-        return _checked(FieldSpec(name, "table", pl.DataFrame, False, default, param, None), where)
+        return _checked(FieldSpec(name, "table", pl.DataFrame, or_none, default, param, None), where)
     if or_none:
         hint = Union[hint, None]  # noqa: UP007
     return _checked(FieldSpec(name, "one", hint, takes_a_blank(hint), default, param), where)
@@ -819,7 +819,7 @@ def read_given(spec: FieldSpec, value: Any, *, items: bool) -> Any:
         if items:
             return spec.list_adapter.validate_python(value)
         if spec.shape == "table":
-            return read_table(spec, value, strict=False, given=True)
+            return None if value is None and spec.optional else read_table(spec, value, strict=False, given=True)
         return spec.lax_adapter.validate_python(value)
     except ValidationError as error:
         raise _refused(error, _list_of(spec.type) if items or spec.shape == "many" else spec.type) from None
@@ -831,7 +831,7 @@ def read_value(spec: FieldSpec, value: Any, *, strict: bool) -> Any:
     if value is SKIPPED:
         return value
     if spec.shape == "table":
-        return read_table(spec, value, strict=strict)
+        return None if value is None and spec.optional else read_table(spec, value, strict=strict)
     if spec.shape == "one" and type(value) in spec.plain_classes:
         return value
     if spec.shape == "many" and isinstance(value, (tuple, range)):
