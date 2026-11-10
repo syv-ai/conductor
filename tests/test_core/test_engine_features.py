@@ -285,14 +285,6 @@ def test_reuse_when_inputs_match_false_calls_again():
     assert calls == ["a", "b"], calls
 
 
-def test_policy_bounds_checked():
-    try:
-        Policy(concurrency=0)
-        raise AssertionError
-    except ValueError:
-        pass
-
-
 # -- 3. hooks ------------------------------------------------------------------------------------
 
 

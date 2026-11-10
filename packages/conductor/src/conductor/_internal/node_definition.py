@@ -105,7 +105,7 @@ class Policy:
 
     def __post_init__(self) -> None:
         if self.concurrency < 1 or self.retries < 0 or self.retry_delay < 0 or (self.attempt_timeout is not None and self.attempt_timeout <= 0):
-            raise ValueError(f"{self}: concurrency is at least 1, retries and retry_delay at least 0, attempt_timeout above 0")
+            raise NodeDeclarationError(f"{self}: concurrency is at least 1, retries and retry_delay at least 0, attempt_timeout above 0", code="policy_invalid")
         object.__setattr__(self, "threaded", self.concurrency > 1 or self.attempt_timeout is not None)
 
     def __repr__(self) -> str:

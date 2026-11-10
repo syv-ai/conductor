@@ -22,6 +22,7 @@ from conductor import (
     FromRun,
     GraphRecord,
     InvalidCallError,
+    NodeDeclarationError,
     NodeError,
     NodeRecord,
     Policy,
@@ -176,8 +177,9 @@ def test_a_validation_error_the_node_raised_is_never_retried():
 
 def test_a_policy_out_of_bounds_is_refused_and_its_description_leaves_retry_on_out():
     for wrong in ({"concurrency": 0}, {"retries": -1}, {"retry_delay": -1}, {"attempt_timeout": 0}):
-        with pytest.raises(ValueError):
+        with pytest.raises(NodeDeclarationError) as raised:
             Policy(**wrong)
+        assert raised.value.code == "policy_invalid"
     assert "retry_on" not in Policy(retry_on=(ConnectionError,)).describe()
 
 

@@ -1209,6 +1209,19 @@ except NodeDeclarationError as error:
 
 **Fix.** Drop the `/` and `*args`: the engine passes every input by its name.
 
+### `policy_invalid`
+
+> {self}: concurrency is at least 1, retries and retry_delay at least 0, attempt_timeout above 0
+
+```python
+try:
+    Policy(concurrency=0)
+except NodeDeclarationError as error:
+    print(error.code)  # policy_invalid
+```
+
+**Fix.** Give `concurrency` 1 or more, `retries` and `retry_delay` 0 or more, and `attempt_timeout` a number above 0 or `None`.
+
 ### `replaces_another_node`
 
 > @node({id}) replaces {replaces}; a node replaces an earlier @node of its own id
