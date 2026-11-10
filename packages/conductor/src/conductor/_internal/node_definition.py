@@ -191,43 +191,62 @@ class Upgrade:
 class NodeDefinition(Generic[_P, _R]):
     """One version of a node: what it takes, what it gives, and how to call it.
 
-    Frozen, and callable with the function's own signature, so a node is
-    tested by calling it. ``graph`` is set instead of ``function`` for a node
-    that is a stored graph; its fields are the graph's, worked out when a
-    graph using it is loaded.
+    Frozen, and callable with the function's own signature, so a node is tested by calling it. ``@node`` makes one;
+    a host reads it from ``registry[id]`` or by looping over a registry.
+
+    Attributes:
+        id: The id a graph names it by. Stored in every graph that uses it, so changing it is a data migration, not
+            a rename.
+        version: Which version of the node this is, counted from 1; a graph pins it.
+        function: What runs on each row; ``None`` for a node that is a stored graph.
+        inputs: Each input by name, as its signature declares it. A ``FromRun`` parameter is not an input: it is in
+            ``from_run``. An input a hook adds is not here either; a loaded graph's node holds it.
+        outputs: Each output by name: ``result`` for one value, a field each for a frozen dataclass returned.
+        outputs_class: The frozen dataclass the function returns when it has one output per field; ``None`` for any
+            other return type.
+        title: What a person reads for the node; its function's name in everyday words when not given.
+        description: What it does, for its help; its docstring's first paragraph when not given.
+        category: Where an editor lists it; a plain string whose titles the host keeps.
+        tags: The host's labels for finding it, as given.
+        extra: The host's own JSON about the node: kept and described, never read here.
+        docs: Long-form markdown for the node's help, when the description isn't all there is to say.
+        deprecation: Set when the node is on its way out: what to tell a person, and what to use instead.
+        replaces: The version before this one, under the same id; ``None`` for a first version.
+        upgrade: How a node saved at ``replaces`` moves to this version; read only when ``replaces`` names one.
+        graph: The stored graph this node is, set instead of ``function``; its fields are the graph's, worked out
+            when a graph using it is loaded.
+        policy: How it runs: how many rows at once, its retries and time limit, whether it reuses earlier work.
+        compute_added_inputs: A hook run at load that adds inputs from the values typed into it; the function takes
+            them as ``**kwargs``.
+        compute_outputs: A hook run at load that gives every output, from the values typed in and the types
+            arriving; the function returns them as a mapping.
+        from_run: The ``FromRun`` parameters: the type whose value goes under each name in a call.
+        hook_parameters: Each hook's parameters, by the hook's name (``compute_added_inputs``, ``compute_outputs``)
+            and then the parameter's: ``True`` where it is annotated ``type`` and receives the type arriving on the
+            input of that name, ``False`` where it receives the value typed into that input. Read from the hooks'
+            signatures once, at ``@node``.
     """
 
-    #: The id a graph names it by. Stored in every graph that uses it, so
-    #: changing it is a data migration, not a rename.
     id: str
     version: int
     function: Callable[..., Any] | None
     inputs: Mapping[str, FieldSpec]
     outputs: Mapping[str, FieldSpec]
-    #: The frozen dataclass the function returns when it has one output per field; None for any other return type.
     outputs_class: type | None = None
     title: str = ""
     description: str = ""
-    #: Where an editor lists it; a plain string whose titles the host keeps.
     category: str = ""
     tags: tuple[str, ...] = ()
-    #: The host's own JSON about the node: kept and described, never read here.
     extra: Mapping[str, JsonValue] = field(default_factory=dict[str, JsonValue])
-    #: Long-form markdown for the node's help, when the description isn't all there is to say.
     docs: str | None = None
     deprecation: Deprecation | None = None
     replaces: NodeDefinition[..., Any] | None = None
-    #: How a node saved at the version ``replaces`` names moves here; read only when it names one.
     upgrade: Upgrade = Upgrade()
     graph: GraphRecord | None = None
     policy: Policy = Policy()
     compute_added_inputs: Callable[..., Mapping[str, Any]] | None = None
     compute_outputs: Callable[..., Mapping[str, Any]] | None = None
-    #: The ``FromRun`` parameters: the type whose value goes under each name in a call.
     from_run: Mapping[str, type] = field(default_factory=dict[str, type])
-    #: Each hook's parameters, by the hook's name (``compute_added_inputs``, ``compute_outputs``) and then the
-    #: parameter's: ``True`` where it is annotated ``type`` and receives the type arriving on the input of that name,
-    #: ``False`` where it receives the value typed into that input. Read from the hooks' signatures once, at ``@node``.
     hook_parameters: Mapping[HookName, Mapping[str, bool]] = field(default_factory=dict[HookName, Mapping[str, bool]])
 
     def __call__(self, *args: _P.args, **kwargs: _P.kwargs) -> _R:

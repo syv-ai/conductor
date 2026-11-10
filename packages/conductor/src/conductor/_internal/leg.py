@@ -214,6 +214,8 @@ class Leg:
         self.nodes = list(run.graph._nodes.values())
         self.position = {p.id: i for i, p in enumerate(self.nodes)}
         self.ready: list[tuple[int, Key]] = []  # (node position, row), tried in that order
+        #: (node, row above it): a node that reads rows from below its own, started on the rows under that one once
+        #: nothing it reads still works there.
         self.gathers: set[tuple[str, Key]] = set()
         self.running: dict[tuple[str, Key], dict[str, Any]] = {}  # units handed to threads, and their inputs
         self.slots_waiting: dict[str, deque[tuple[Key, dict[str, Any], int]]] = {p.id: deque() for p in self.nodes}
@@ -223,11 +225,15 @@ class Leg:
         self.timers: list[tuple[float, int, Literal["retry", "deadline"], str, Key, int]] = []
         self.attempts: dict[tuple[str, Key], int] = {}  # the attempt each unit on a thread is on
         self.pool: ThreadPoolExecutor | None = None
+        #: How many rows each table holds so far, held to ``max_rows``.
         self.made = run._rows_made()
+        #: (node, a node reading it): how many tables their rows share, worked out once.
         self.shared: dict[tuple[str, str], int] = {}
         #: For a node taking earlier work, how far through its rows in order the leg has tried.
         self.turns: dict[str, _Turn] = {}
+        #: Units recorded since the last walk over every row; a walk with none to follow would find nothing new.
         self.recorded_since_walk = 1
+        #: Whether the last walk left a row whose inputs weren't there yet, so another walk may start it.
         self.left_pending = True
         # what only a listener needs
         self.started = {run.graph._outward(n) for n, units in run._units.items() if units}

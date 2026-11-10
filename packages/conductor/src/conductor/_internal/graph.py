@@ -85,21 +85,32 @@ Level = tuple[str, ...]
 
 @dataclass(frozen=True)
 class Source:
-    """Where one edge reads: a node's output (``node_id`` None for a graph input) at ``level``."""
+    """Where one input reads a value from: a node's output, or a graph input, at the rows of ``level``.
+
+    Attributes:
+        node_id: The node whose output it reads; ``None`` for a graph input or a list typed in.
+        output: The output's name, or for a graph input its address.
+        column: The column of a table output it reads; ``None`` when it reads the output whole.
+        level: The tables whose rows its values come in, from the graph's own row down.
+        made: Whether each value is one item of a list or table the output makes at ``level``. Its unit then sits on
+            the row above, and the item is picked by the last place of the row.
+        type: The type of each value it brings.
+        whole_table: Whether it brings a whole table, not its rows one by one.
+        name: The column it becomes in a table input.
+        columns: For a whole table, the columns its row type names; ``None`` when they are known only when it
+            arrives.
+        anchor: For a gather, how many places of the node's row its rows are gathered under: the row both share.
+    """
 
     node_id: str | None
     output: str
     column: str | None
     level: Level
-    #: One item of a list or table made at ``level``; its unit sits on the parent row.
     made: bool
     type: Any
     whole_table: bool = False
-    #: The column it becomes in a table input.
     name: str = ""
-    #: For a whole table, the columns its row type names; ``None`` when they are known only when it arrives.
     columns: Mapping[str, Any] | None = None
-    #: For a gather, how many places of the node's row its rows are gathered under: the row both share.
     anchor: int = 0
 
 

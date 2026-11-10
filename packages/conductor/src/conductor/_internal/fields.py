@@ -374,10 +374,12 @@ class FieldSpec:
 
     @functools.cached_property
     def plain_classes(self) -> tuple[type, ...]:
-        """The classes a value of exactly which needs no reading: the type's own, ``None`` for a blank-taking one.
+        """The classes whose instances, of exactly that class, the field takes as they are, with no reading.
 
-        None when any option is not a class (``list[int]``, a ``Literal``, a ``TypedDict``, ``Any``) or the field has
-        limits or choices: such a value is always read by the type.
+        Returns:
+            Each option of the type, ``NoneType`` included for a blank-taking one. Empty when any option is not a
+            class (``list[int]``, a ``Literal``, a ``TypedDict``, ``Any``) or the field has limits or choices: such a
+            value is always read by the type.
         """
         options = _options(self.type)
         if self.param.holds_a_value:
