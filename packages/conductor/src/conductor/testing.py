@@ -104,8 +104,7 @@ def _problems_of(
 ) -> list[Problem]:
     found: list[Problem] = []
     paused = False
-    version: NodeDefinition[..., Any] | None = definition
-    while version is not None:
+    for version in definition.lineage:
         given = [*(examples.get(definition.id, ()) if version is definition else ()), *examples.get((definition.id, version.version), ())]
         if not given:
             found += _hook_problems(version, registry)
@@ -115,7 +114,6 @@ def _problems_of(
             problems, asked = _run_problems(version, registry, example, from_run)
             found += problems
             paused = paused or (asked and version is definition)
-        version = version.replaces
     if definition.function is not None and not paused and _may_ask(definition.function):
         found.append(_problem("pause_untested", definition.id, definition.version, "the body raises Ask, and no example made it pause; add an example that makes it ask"))
     return found

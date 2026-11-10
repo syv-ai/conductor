@@ -866,10 +866,10 @@ def type_id(hint: Any) -> str:
     return own if own is not None else getattr(hint, "__name__", None) or str(hint)
 
 
-def type_title(hint: Any) -> str:
+def type_title(cls: type) -> str:
     """What a person reads for a type: its ``display_title`` if it declares one, else its name."""
-    own = _declared(hint, "display_title") if isinstance(hint, type) else None
-    return own if own is not None else getattr(hint, "__name__", None) or str(hint)
+    own = _declared(cls, "display_title")
+    return own if own is not None else cls.__name__
 
 
 @functools.cache

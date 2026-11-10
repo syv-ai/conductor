@@ -359,27 +359,6 @@ def test_extra_is_json_kept_and_described_but_never_read():
     assert tagged.describe().extra == {"icon": "star", "order": [1, 2], "beta": None}
 
 
-@pytest.mark.parametrize("extra", [{"x": float("nan")}, {"x": [float("inf")]}, {"a": [1, {"b": float("nan")}]}, "ab", [("a", 1)], {1: "a"}, {"x": (1, 2)}])
-def test_extra_that_is_not_strict_json_is_a_declaration_error(extra):
-    with pytest.raises(NodeDeclarationError, match="extra must be JSON") as raised:
-        _node("bad", extra=extra)
-    assert raised.value.code == "extra_not_json"
-    with pytest.raises(NodeDeclarationError, match="extra must be JSON"):
-        NodeRegistry(extra=extra)
-
-
-def test_extra_that_is_not_json_is_refused_where_it_is_written():
-    with pytest.raises(NodeDeclarationError, match="extra must be JSON") as raised:
-
-        @node("bad", extra={"when": object()})  # type: ignore[dict-item]
-        def bad(text: str) -> str:
-            return text
-
-    assert raised.value.code == "extra_not_json"
-    with pytest.raises(NodeDeclarationError, match="extra must be JSON"):
-        NodeRegistry(extra={"when": object()})  # type: ignore[dict-item]
-
-
 # --- what a version declares ------------------------------------------------
 
 
@@ -626,16 +605,6 @@ def test_a_bug_in_a_types_accepts_is_not_swallowed():
 
 
 # --- what a registry is -----------------------------------------------------
-
-
-def test_something_that_is_not_a_node_is_refused():
-    def plain(text: str) -> str:
-        return text
-
-    with pytest.raises(NodeDeclarationError, match="declare one with @node") as raised:
-        NodeRegistry().add(plain)  # type: ignore[arg-type]
-
-    assert raised.value.code == "not_a_node_definition"
 
 
 def test_a_registry_is_a_container_and_not_a_mapping():

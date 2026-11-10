@@ -1085,21 +1085,6 @@ except NodeDeclarationError as error:
 
 **Fix.** Put `exclusive_group` on the outputs that are branches, the fields of the frozen dataclass the node returns.
 
-### `extra_not_json`
-
-> extra must be JSON, a mapping of str to JSON values with finite numbers; got {extra}
-
-```python
-try:
-    @node("tagged", extra={"weight": float("nan")})
-    def tagged(text: str) -> str:
-        return text
-except NodeDeclarationError as error:
-    print(error.code)  # extra_not_json
-```
-
-**Fix.** Give `extra` as JSON: a mapping of strings to JSON values, every number finite.
-
 ### `from_run_misplaced`
 
 > {name}: FromRun is a whole parameter the host always gives, name: FromRun[Session]; anywhere else, a caller would fill it
@@ -1198,32 +1183,6 @@ except NodeDeclarationError as error:
 ```
 
 **Fix.** Return one `Series`. A node after it that runs per row makes the next level.
-
-### `not_a_node_definition`
-
-> {definition} is not a node; declare one with @node
-
-```python
-try:
-    NodeRegistry().add(len)  # type: ignore[arg-type]
-except NodeDeclarationError as error:
-    print(error.code)  # not_a_node_definition
-```
-
-**Fix.** Declare the function with `@node("id")` first, and add what it returns.
-
-### `not_a_type`
-
-> {named} is not a type; pass the class itself
-
-```python
-try:
-    NodeRegistry(types=["money"])  # type: ignore[list-item]
-except NodeDeclarationError as error:
-    print(error.code)  # not_a_type
-```
-
-**Fix.** Pass the class itself.
 
 ### `not_for_a_graph`
 

@@ -50,6 +50,7 @@ uses it puts the stored graph's nodes in its place.
 from __future__ import annotations
 
 import dataclasses
+import functools
 import inspect
 import math
 import typing
@@ -58,7 +59,7 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Generic, ParamSpec, Protocol, TypeVar, overload
 
-from pydantic import ConfigDict, JsonValue, TypeAdapter, ValidationError
+from pydantic import JsonValue
 
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.errors import InvalidCallError, NodeDeclarationError, make_problem
@@ -178,9 +179,9 @@ class Upgrade:
     of it.
     """
 
-    renamed_inputs: Mapping[str, str] = field(default_factory=dict)
-    renamed_outputs: Mapping[str, str] = field(default_factory=dict)
-    rewrite: Callable[[dict[str, Any]], dict[str, Any]] | None = None
+    renamed_inputs: Mapping[str, str] = field(default_factory=dict[str, str])
+    renamed_outputs: Mapping[str, str] = field(default_factory=dict[str, str])
+    rewrite: Callable[[dict[str, JsonValue]], Mapping[str, Any]] | None = None
 
 
 @dataclass(frozen=True, eq=False)
@@ -208,18 +209,19 @@ class NodeDefinition(Generic[_P, _R]):
     category: str = ""
     tags: tuple[str, ...] = ()
     #: The host's own JSON about the node: kept and described, never read here.
-    extra: Mapping[str, JsonValue] = field(default_factory=dict)
+    extra: Mapping[str, JsonValue] = field(default_factory=dict[str, JsonValue])
     #: Long-form markdown for the node's help, when the description isn't all there is to say.
     docs: str | None = None
     deprecation: Deprecation | None = None
     replaces: NodeDefinition[..., Any] | None = None
-    upgrade: Upgrade | None = None
+    #: How a node saved at the version ``replaces`` names moves here; read only when it names one.
+    upgrade: Upgrade = Upgrade()
     graph: GraphRecord | None = None
     policy: Policy = Policy()
     compute_added_inputs: Callable[..., Mapping[str, Any]] | None = None
     compute_outputs: Callable[..., Mapping[str, Any]] | None = None
     #: The ``FromRun`` parameters: the type whose value goes under each name in a call.
-    from_run: Mapping[str, type] = field(default_factory=dict)
+    from_run: Mapping[str, type] = field(default_factory=dict[str, type])
 
     def __call__(self, *args: _P.args, **kwargs: _P.kwargs) -> _R:
         """Call the function, as a test or a host would."""
@@ -238,22 +240,20 @@ class NodeDefinition(Generic[_P, _R]):
     def version_of(self, version: int) -> NodeDefinition[..., Any]:
         """This node at ``version``, walking back through what each version replaces; a ``KeyError`` naming the versions
         there are when it has none. ``version in definition.versions`` asks first."""
-        found: NodeDefinition[..., Any] | None = self
-        while found is not None and found.version != version:
-            found = found.replaces
-        if found is None:
-            raise KeyError(f"{self.id!r} has no version {version!r}; it has {', '.join(map(str, self.versions))}")
-        return found
+        for found in self.lineage:
+            if found.version == version:
+                return found
+        raise KeyError(f"{self.id!r} has no version {version!r}; it has {', '.join(map(str, self.versions))}")
+
+    @functools.cached_property
+    def lineage(self) -> tuple[NodeDefinition[..., Any], ...]:
+        """This version, then each version it replaces, newest first."""
+        return (self,) if self.replaces is None else (self, *self.replaces.lineage)
 
     @property
     def versions(self) -> tuple[int, ...]:
         """Every version number, newest first."""
-        found: list[int] = []
-        step: NodeDefinition[..., Any] | None = self
-        while step is not None:
-            found.append(step.version)
-            step = step.replaces
-        return tuple(found)
+        return tuple(step.version for step in self.lineage)
 
     def describe(self) -> NodeDescription:
         """The node as an editor's palette shows it; a stored graph's fields only through ``registry.describe()``, which holds the nodes it uses."""
@@ -313,7 +313,7 @@ def node(
     description: str | None = None,
     category: str = "",
     tags: Sequence[str] = (),
-    extra: Mapping[str, JsonValue] | None = None,
+    extra: Mapping[str, JsonValue] = MappingProxyType({}),
     docs: str | None = None,
     policy: Policy | None = None,
     deprecation: Deprecation | None = None,
@@ -361,12 +361,11 @@ def node(
     number = version if version is not None else (replaces.version + 1 if replaces is not None else 1)
     if replaces is not None and number <= replaces.version:
         raise NodeDeclarationError(f"@node({id!r}) is version {number}, not after the version {replaces.version} it replaces; leave version= out, or give one above {replaces.version}", code="version_not_after")
-    checked = MappingProxyType(checked_extra(extra))
 
     def make(target: Any) -> NodeDefinition[..., Any]:
         common: dict[str, Any] = {
-            "id": id, "version": number, "category": category, "tags": tuple(tags), "extra": checked, "docs": docs,
-            "deprecation": deprecation, "replaces": replaces, "upgrade": upgrade, "policy": policy or Policy(),
+            "id": id, "version": number, "category": category, "tags": tuple(tags), "extra": MappingProxyType(dict(extra)), "docs": docs,
+            "deprecation": deprecation, "replaces": replaces, "upgrade": upgrade or Upgrade(), "policy": policy or Policy(),
         }
         if not callable(target):
             given = ", ".join(name for name, value in (("policy", policy), ("compute_added_inputs", compute_added_inputs), ("compute_outputs", compute_outputs)) if value is not None)
@@ -521,26 +520,9 @@ def _raise_if_upgrade_is_missing(where: str, older: NodeDefinition[..., Any], ne
         return
     gone_inputs = set(older.inputs) - set(newer.inputs)
     gone_outputs = set(older.outputs) - set(newer.outputs)
-    upgrade = newer.upgrade or Upgrade()
+    upgrade = newer.upgrade
     unexplained = gone_outputs - set(upgrade.renamed_outputs)
     if upgrade.rewrite is None:
         unexplained |= gone_inputs - set(upgrade.renamed_inputs)
     if unexplained:
         raise NodeDeclarationError(f"{where}the version it replaces has {sorted(unexplained)}, gone from this one; its Upgrade says where they went", code="upgrade_missing")
-
-
-_EXTRA = TypeAdapter(dict[str, JsonValue], config=ConfigDict(allow_inf_nan=False))
-
-
-def checked_extra(extra: Mapping[str, JsonValue] | None) -> dict[str, JsonValue]:
-    """``extra`` as a plain dict, once it is JSON: a mapping of str to JSON values, every number finite. Anything else raises."""
-    if extra is None:
-        return {}
-    wrong_shape = NodeDeclarationError(f"extra must be JSON, a mapping of str to JSON values with finite numbers; got {extra!r}", code="extra_not_json")
-    if not isinstance(extra, Mapping):
-        raise wrong_shape
-    try:
-        checked = _EXTRA.validate_python(dict(extra), strict=True)
-    except (ValidationError, TypeError, ValueError) as wrong:
-        raise wrong_shape from wrong
-    return checked

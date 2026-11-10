@@ -36,6 +36,7 @@ node of a record to a newer version.
 
 from __future__ import annotations
 
+import copy
 import dataclasses
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from types import MappingProxyType
@@ -52,7 +53,7 @@ from conductor._internal.fields import (
     type_title,
     without_none,
 )
-from conductor._internal.node_definition import NodeDefinition, NodeDescription, checked_extra, node
+from conductor._internal.node_definition import NodeDefinition, NodeDescription, node
 from conductor._internal.record import GraphRecord, NodeRecord, as_record, typed_in
 
 if TYPE_CHECKING:
@@ -83,18 +84,15 @@ class NodeRegistry:
         *,
         category: str = "",
         tags: Sequence[str] = (),
-        extra: Mapping[str, JsonValue] | None = None,
+        extra: Mapping[str, JsonValue] = MappingProxyType({}),
         types: Iterable[type] = (),
     ) -> None:
         """An empty registry whose nodes default to ``category``, ``tags`` and ``extra``, holding the types in ``types``."""
         self._category = category
         self._tags = tuple(tags)
-        self._extra = checked_extra(extra)
+        self._extra = dict(extra)
         #: The types a host names, whether or not a node declares them.
         self._named_types = tuple(types)
-        for named in self._named_types:
-            if not isinstance(named, type):
-                raise NodeDeclarationError(f"{named!r} is not a type; pass the class itself", code="not_a_type")
         #: The definitions, by id, in the order they arrived.
         self._nodes: dict[str, NodeDefinition[..., Any]] = {}
         #: The types the nodes declare, by id, in the order the nodes arrived.
@@ -139,11 +137,10 @@ class NodeRegistry:
         with the registry's defaults applied.
         """
         declare = node(*args, **kwargs)
-        replaces = kwargs.get("replaces")
 
-        def decorate(function: Callable[..., Any]) -> NodeDefinition[..., Any]:
-            definition = declare(function)
-            if replaces is not None and _same_version(self._nodes.get(definition.id), replaces):
+        def decorate(target: Callable[..., Any] | GraphRecord | str | bytes | Mapping[str, Any]) -> NodeDefinition[..., Any]:
+            definition = declare(target)
+            if definition.replaces is not None and _same_version(self._nodes.get(definition.id), definition.replaces):
                 self.replace(definition)
             else:
                 self.add(definition)
@@ -157,7 +154,6 @@ class NodeRegistry:
 
     def replace(self, definition: NodeDefinition[..., Any]) -> None:
         """Put ``definition`` in place of the node registered under its id; an id not here is a ``KeyError``."""
-        _raise_unless_definition(definition)
         if definition.id not in self._nodes:
             raise self._not_here(definition.id)
         self._hold({**self._nodes, definition.id: self._with_defaults(definition)}, self._named_types)
@@ -180,7 +176,7 @@ class NodeRegistry:
 
     def filter(self, predicate: Callable[[NodeDefinition[..., Any]], bool]) -> NodeRegistry:
         """A new registry with this one's defaults and named types, holding the nodes ``predicate`` keeps."""
-        kept = NodeRegistry(category=self._category, tags=self._tags, extra=self._extra, types=self._named_types)
+        kept = copy.copy(self)
         kept._hold({definition.id: definition for definition in self._nodes.values() if predicate(definition)}, self._named_types)
         return kept
 
@@ -188,7 +184,6 @@ class NodeRegistry:
         """What this registry holds plus ``definitions``, each under this registry's defaults; a repeated id raises."""
         nodes = dict(self._nodes)
         for definition in definitions:
-            _raise_unless_definition(definition)
             held = nodes.get(definition.id)
             if held is not None:
                 raise NodeDeclarationError(
@@ -218,7 +213,7 @@ class NodeRegistry:
         self._nodes, self._named_types, self._declared = nodes, named_types, declared
         self._graph_descriptions = {}
 
-    def _not_here(self, node_id: object) -> KeyError:
+    def _not_here(self, node_id: str) -> KeyError:
         return KeyError(f"{node_id!r} is not registered here; the ids are {', '.join(self._nodes) or 'none'}")
 
     # -- the types ---------------------------------------------------------------
@@ -301,16 +296,11 @@ class NodeRegistry:
                 "cannot_move_to_version", node_id,
                 node=placed.node, version=placed.version, target=target, versions=sorted(newest.versions),
             )])
-        steps = []
-        step: NodeDefinition[..., Any] | None = newest.version_of(target)
-        while step is not None and step.version > placed.version:
-            steps.append(step)
-            step = step.replaces
+        lineage = newest.version_of(target).lineage
+        steps = [(newer, older) for newer, older in zip(lineage, lineage[1:], strict=False) if newer.version > placed.version]
         values, defaults, edges = dict(placed.values), dict(placed.defaults), list(graph.edges)
-        for step in reversed(steps):
-            upgrade, older = step.upgrade, step.replaces
-            if upgrade is None or older is None:
-                continue
+        for step, older in reversed(steps):
+            upgrade = step.upgrade
             values, defaults = _with_keys_renamed(values, upgrade.renamed_inputs), _with_keys_renamed(defaults, upgrade.renamed_inputs)
             if upgrade.rewrite is not None:
                 rewritten, faults = typed_in(node_id, upgrade.rewrite({**defaults, **values}))
@@ -343,7 +333,7 @@ class RegistryDescription(ConductorModel):
     types: list[TypeDescription]
 
 
-def _with_keys_renamed(by_name: Mapping[str, Any], renames: Mapping[str, str]) -> dict[str, Any]:
+def _with_keys_renamed[V](by_name: Mapping[str, V], renames: Mapping[str, str]) -> dict[str, V]:
     """``by_name`` with each key a step renames under its new name."""
     return {renames.get(name, name): value for name, value in by_name.items()}
 
@@ -374,11 +364,6 @@ def _by_id(types: Iterable[type], start: Mapping[str, type]) -> dict[str, type]:
     return by_id
 
 
-def _raise_unless_definition(definition: Any) -> None:
-    if not isinstance(definition, NodeDefinition):
-        raise NodeDeclarationError(f"{definition!r} is not a node; declare one with @node", code="not_a_node_definition")
-
-
 def _same_version(held: NodeDefinition[..., Any] | None, replaced: NodeDefinition[..., Any]) -> bool:
     """Whether ``held`` is ``replaced``, possibly with a registry's defaults applied."""
     return held is not None and (held is replaced or (
@@ -396,13 +381,11 @@ def _where_declared(definition: NodeDefinition[..., Any]) -> str:
 def _types_declared_by(definition: NodeDefinition[..., Any]) -> list[type]:
     """Every class a node's versions declare on their inputs and outputs, each once, in declaration order."""
     found: list[type] = []
-    step: NodeDefinition[..., Any] | None = definition
-    while step is not None:
+    for step in definition.lineage:
         for spec in (*step.inputs.values(), *step.outputs.values()):
             held = without_none(spec.type)
             if spec.shape != "table" and isinstance(held, type) and held is not Any and held not in found:
                 found.append(held)
-        step = step.replaces
     return found
 
 

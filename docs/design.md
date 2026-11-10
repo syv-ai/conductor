@@ -13,7 +13,7 @@ This page is a reviewer's guide to 2.0's design. It goes topic by topic: what ea
 - **`@node` wraps a function and registers nothing.** It returns a frozen, callable `NodeDefinition`, so calling it like the function is its unit test. `@registry.node(...)` takes the same arguments, typed as one signature, and adds the node.
 - **`NodeRegistry` works like a FastAPI router.** `add_subregistry` copies another registry's nodes in, so a package keeps one registry per module. One merge rule applies wherever a node enters: the registry's tags come first, then the node's; the node's own `category` wins; `extra` merges key by key. Replacing `extra` whole would drop a registry's filter key from any node with an `extra` of its own. Live, linked subregistries were not built, because nothing needs them.
 - **One way each.** The decorator is for your own nodes, `add(*definitions)` for other people's, and the constructor takes no node list. `add` raises on a repeated id; `replace` and `remove` are explicit.
-- **`registry.filter(predicate)` returns a registry of its own.** The predicate gets the whole definition. `extra` is the host's JSON: checked when it is declared, shown by `describe()`, never read by conductor.
+- **`registry.filter(predicate)` returns a registry of its own.** The predicate gets the whole definition. `extra` is the host's JSON, typed as JSON: shown by `describe()`, never read by conductor.
 
 ```python
 from conductor import InvalidCallError, NodeRegistry, Series, make_graph

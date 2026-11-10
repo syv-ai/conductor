@@ -263,7 +263,7 @@ Five public modules: `conductor`, `conductor.widgets`, `conductor.events`, `cond
 
 - Nodes: `node`, `NodeDefinition`, `Upgrade`, `Policy`, `Deprecation`, `Param`, `FromRun`, `Series`, `Table`
 - In a node: `SKIPPED`, `Ask`, `Choice`, `NodeError`, `ExternalFailure`
-- Registry: `NodeRegistry(*, category="", tags=(), extra=None, types=())` (`@registry.node`, `add(*definitions)`, `replace(definition)`, `remove(node_id)`, `add_subregistry(registry)`, `filter(predicate)`, `load(record)`, `upgrade(record, node_id, to=None)`, `in`, `[]`, `len`, iteration over the definitions, `types`, `describe`). A node entering a registry takes its defaults: tags add up, outermost first; the node's own `category` and `extra` keys win. A second node under one id raises; a subregistry is copied in when added.
+- Registry: `NodeRegistry(*, category="", tags=(), extra={}, types=())` (`@registry.node`, `add(*definitions)`, `replace(definition)`, `remove(node_id)`, `add_subregistry(registry)`, `filter(predicate)`, `load(record)`, `upgrade(record, node_id, to=None)`, `in`, `[]`, `len`, iteration over the definitions, `types`, `describe`). A node entering a registry takes its defaults: tags add up, outermost first; the node's own `category` and `extra` keys win. A second node under one id raises; a subregistry is copied in when added.
 - Graph: `GraphRecord`, `NodeRecord`, `make_graph`, `Graph`
 - A run: `Run`, `Waiting`
 - Errors: `NodeDeclarationError`, `InvalidCallError`, `Problem`, `PROBLEM_CODES`

@@ -10,7 +10,7 @@ the pattern lacks as ``invalid_replacement``.
 """
 
 from collections.abc import Callable
-from typing import Annotated, Any
+from typing import Annotated
 
 import regex
 from conductor import NodeError, NodeRegistry, Param, Series
@@ -24,10 +24,10 @@ registry = NodeRegistry(category="regex")
 TIMEOUT = 2.0
 
 
-def _timed(operation: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
-    """``operation(*args, **kwargs)`` under the timeout, a pattern's faults as the node's own."""
+def _timed[R](operation: Callable[[float], R]) -> R:
+    """``operation(TIMEOUT)``, a call given the timeout, a pattern's faults as the node's own."""
     try:
-        return operation(*args, timeout=TIMEOUT, **kwargs)
+        return operation(TIMEOUT)
     except TimeoutError:
         raise NodeError("The pattern took too long.", code="pattern_timeout") from None
     except regex.error as error:
@@ -49,7 +49,7 @@ def _flags(ignore_case: bool) -> int:
 @registry.node("regex-match")
 def match(text: LongText, pattern: Line, ignore_case: Flag = False) -> Annotated[bool, Param(title="Matched")]:
     """Whether the pattern matches anywhere in the text."""
-    return _timed(regex.search, pattern, text, flags=_flags(ignore_case)) is not None
+    return _timed(lambda timeout: regex.search(pattern, text, flags=_flags(ignore_case), timeout=timeout)) is not None
 
 
 @registry.node("regex-replace")
@@ -61,8 +61,7 @@ def replace_all(
 ) -> str:
     """Replaces every match of the pattern."""
     compiled = _timed(lambda timeout: regex.compile(pattern, flags=_flags(ignore_case)))
-    replaced: str = _timed(_replaced, compiled, replacement, text)
-    return replaced
+    return _timed(lambda timeout: _replaced(compiled, replacement, text, timeout))
 
 
 @registry.node("regex-extract")
