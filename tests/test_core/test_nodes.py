@@ -967,3 +967,65 @@ def test_a_literal_input_whose_widget_declares_choices_too_is_refused():
             return level
 
     assert raised.value.code == "choices_declared_twice"
+
+
+def test_an_input_a_hook_adds_may_have_a_default_and_a_hook_may_give_its_own_code():
+    from conductor import NodeError
+
+    def added(names: str) -> dict[str, Any]:
+        if names == "boom":
+            raise NodeError("No such column.", code="no_column", ctx={"names": names})
+        return {name: (str, "x") for name in names.split(",")}
+
+    @node("glue", compute_added_inputs=added)
+    def glue(text: str, names: str = "a,b", **columns: str) -> str:
+        return text + "".join(columns.values())
+
+    registry = NodeRegistry()
+    registry.add(glue)
+    graph = registry.load(GraphRecord(nodes=[NodeRecord(id="g", node="glue", values={"text": "t"})]))
+    assert graph.problems == [] and graph.run().outputs == {"g.result": "txx"}
+    (problem,) = registry.load(GraphRecord(nodes=[NodeRecord(id="g", node="glue", values={"text": "t", "names": "boom"})])).problems
+    assert (problem.type, problem.ctx["error"], problem.ctx["names"], problem.msg) == (
+        "compute_hook_failed", "no_column", "boom", "The node could not work out its fields from what it was given: No such column. Check what is typed into the node.",
+    )
+
+
+def test_a_hook_reads_the_columns_gathered_into_a_table_input_as_a_table_of_them():
+    seen: list[Any] = []
+
+    def outputs(rows: type) -> dict[str, Any]:
+        seen.append(typing.get_type_hints(typing.get_args(rows)[1].row))
+        return {"result": int}
+
+    @node("pair")
+    def pair() -> Table[TypedDict("Pair", {"a": int, "b": str})]:  # type: ignore[valid-type]  # noqa: UP013
+        return pl.DataFrame({"a": [1], "b": ["x"]})
+
+    @node("count", compute_outputs=outputs)
+    def count(rows: Table) -> dict[str, Any]:
+        return {"result": rows.height}
+
+    registry = NodeRegistry()
+    registry.add(pair, count)
+    graph = registry.load(make_graph(pair, count, edges=[("pair.result.a", "count.rows"), ("pair.result.b", "count.rows")]))
+    assert graph.problems == [] and seen[-1] == {"a": int, "b": str}
+
+
+def test_a_setting_is_never_an_input_of_the_graph_and_the_author_sets_it():
+    @node("ask-model")
+    def ask_model(prompt: str, model: Annotated[str, Param(setting=True)] = "small", temperature: Annotated[float, Param(setting=True)] = 0.0) -> str:
+        return f"{model}:{prompt}"
+
+    @node("needs-model")
+    def needs_model(prompt: str, model: Annotated[str, Param(setting=True)]) -> str:
+        return model
+
+    registry = NodeRegistry()
+    registry.add(ask_model, needs_model)
+    graph = registry.load(make_graph(ask_model, values={"ask-model.model": "big"}))
+    assert list(graph.inputs) == ["prompt"] and graph.run(prompt="hi").outputs == {"ask-model.result": "big:hi"}
+    assert ask_model.describe()["inputs"][1]["setting"] is True
+    assert [(p.type, p.loc) for p in registry.load(make_graph(needs_model)).problems] == [("setting_not_set", ("needs-model", "model"))]
+    defaulted = registry.load(make_graph(needs_model, defaults={"needs-model.model": "m"}))
+    assert defaulted.problems == [] and list(defaulted.inputs) == ["prompt"]

@@ -119,24 +119,28 @@ class Param:
     ``conductor.widgets`` control, say), carried to the host and never read
     here; on an output it is the control a person answers it with. Outputs of one node that share an ``exclusive_group`` are
     alternatives: on each row the node gives a value on one of them and
-    ``SKIPPED`` on the rest. The limits are pydantic's: ``ge``, ``gt``,
-    ``le``, ``lt``, ``multiple_of``, ``min_length``, ``max_length``, ``pattern``.
+    ``SKIPPED`` on the rest. An input that is a ``setting`` (a model, a
+    temperature) is the graph author's to set, by a value in the record or its
+    own default; it is never one of the graph's inputs, so no caller gives it.
+    The limits are pydantic's: ``ge``, ``gt``, ``le``, ``lt``,
+    ``multiple_of``, ``min_length``, ``max_length``, ``pattern``.
     """
 
     title: str | None = None
     description: str | None = None
     widget: Widget | Mapping[str, JsonValue] | None = None
     exclusive_group: str | None = None
+    setting: bool = False
     constraints: dict[str, Any] = field(default_factory=dict)
 
     def __init__(
         self, *, title: str | None = None, description: str | None = None, widget: Widget | Mapping[str, JsonValue] | None = None,
-        exclusive_group: str | None = None, **constraints: Unpack[Limits],
+        exclusive_group: str | None = None, setting: bool = False, **constraints: Unpack[Limits],
     ) -> None:
         unknown = sorted(constraints.keys() - _NUMERIC - _SIZED)  # a caller a type checker didn't see
         if unknown:
             raise NodeDeclarationError(
-                f"Param has no argument {unknown[0]!r}; it takes title, description, widget, exclusive_group and the limits {sorted(_NUMERIC | _SIZED)}",
+                f"Param has no argument {unknown[0]!r}; it takes title, description, widget, exclusive_group, setting and the limits {sorted(_NUMERIC | _SIZED)}",
                 code="bound_invalid",
             )
         if widget is not None:
@@ -148,6 +152,7 @@ class Param:
         object.__setattr__(self, "description", description)
         object.__setattr__(self, "widget", widget)
         object.__setattr__(self, "exclusive_group", exclusive_group)
+        object.__setattr__(self, "setting", setting)
         object.__setattr__(self, "constraints", constraints)
 
 
@@ -263,6 +268,8 @@ class FieldSpec:
         for key in ("description", "widget", "exclusive_group"):
             if getattr(self.param, key) is not None:
                 out[key] = to_jsonable_python(getattr(self.param, key), fallback=str)
+        if self.param.setting:
+            out["setting"] = True
         if self.param.constraints:
             out["constraints"] = to_jsonable_python(self.param.constraints, fallback=str)
         return out
@@ -441,6 +448,8 @@ def _one_accepts(target: Any, source: Any) -> bool:
         return all(_one_accepts(target, type(v)) for v in get_args(source))
     if isinstance(target, type) and isinstance(source, type):
         own = getattr(target, "accepts", None)  # a host's type may widen what lands on it
+        if issubclass(source, bool) and target in (int, float):
+            return False  # a yes or no is never a number, though Python counts True as 1
         return issubclass(source, target) or (target is float and issubclass(source, int)) or (callable(own) and bool(own(source)))
     return False
 
@@ -452,6 +461,8 @@ def type_id(hint: Any) -> str:
     """
     if get_origin(hint) is Literal:
         return " | ".join(dict.fromkeys(type_id(type(value)) for value in get_args(hint)))
+    if get_origin(hint) in (Union, types.UnionType):  # each member by its own name: a host's Text | None is "Text | None"
+        return " | ".join("None" if member is type(None) else type_id(member) for member in get_args(hint))
     own = getattr(hint, "id", None)
     return own if isinstance(own, str) else getattr(hint, "__name__", None) or str(hint)
 

@@ -35,7 +35,10 @@ function run when a graph is loaded, never per row. A parameter of a hook
 names an input of the node and receives the value typed into it (or its
 default); a parameter annotated ``type`` receives the type arriving on the
 input of that name by its edge (``Any`` until one does). A hook returns
-``{name: type hint}``, read like a signature. ``compute_added_inputs`` adds
+``{name: type hint}``, read like a signature, or ``{name: (type hint, default)}``
+for a field with a default, as pydantic's ``create_model`` takes one. A hook
+that raises ``NodeError`` gives its own message, code and ``ctx`` to the
+problem. ``compute_added_inputs`` adds
 inputs, which the function takes as ``**kwargs``; ``compute_outputs`` gives
 every output, and the function returns them as a mapping. A hook that raises
 is a problem of the graph, not an exception.
@@ -428,8 +431,18 @@ def _read_signature(where: str, function: Callable[..., Any], computed_outputs: 
         if not returns.__dataclass_params__.frozen:  # type: ignore[attr-defined]
             raise NodeDeclarationError(f"{where}a dataclass of outputs is frozen; write @dataclass(frozen=True)", code="outputs_not_frozen")
         own = typing.get_type_hints(returns, include_extras=True)
-        return inputs, {f.name: read_field(f.name, own[f.name], _declared_default(f), where=where) for f in dataclasses.fields(returns)}, returns
-    return inputs, {"result": read_field("result", returns, where=where)}, returns
+        outputs = {f.name: read_field(f.name, own[f.name], _declared_default(f), where=where) for f in dataclasses.fields(returns)}
+        _raise_if_setting_on(where, outputs)
+        return inputs, outputs, returns
+    outputs = {"result": read_field("result", returns, where=where)}
+    _raise_if_setting_on(where, outputs)
+    return inputs, outputs, returns
+
+
+def _raise_if_setting_on(where: str, outputs: Mapping[str, FieldSpec]) -> None:
+    for name, spec in outputs.items():
+        if spec.param.setting:
+            raise NodeDeclarationError(f"{where}{name}: a setting is an input the graph's author sets; an output is never one", code="setting_on_output")
 
 
 def _declared_default(declared: dataclasses.Field[Any]) -> Any:

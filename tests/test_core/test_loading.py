@@ -726,3 +726,51 @@ def test_a_type_mismatch_into_a_series_says_the_series_it_reads():
     (problem,) = registry.load({"nodes": [{"id": "w", "node": "words"}, {"id": "c", "node": "count"}], "edges": [["w.result", "c.flags"]]}).problems
     assert (problem.type, problem.ctx["got"], problem.ctx["expected"]) == ("type_mismatch", "Series[str]", "Series[bool]")
     assert make_graph(words, count).nodes[1].node == "count"
+
+
+def test_what_the_outside_gives_an_embedded_input_replaces_the_inner_default():
+    from conductor import NodeRegistry, make_graph, node
+
+    @node("upper")
+    def upper(text: str) -> str:
+        return text.upper()
+
+    @node("hello")
+    def hello() -> str:
+        return "hi"
+
+    registry = NodeRegistry()
+    registry.add(upper, hello, node("shout")(make_graph(upper, defaults={"upper.text": "inner"})))
+    shout = registry["shout"]
+    assert registry.load(make_graph(shout)).run().outputs == {"shout.result": "INNER"}
+    typed = registry.load(make_graph(shout, values={"shout.text": "outer"}))
+    assert typed.problems == [] and typed.run().outputs == {"shout.result": "OUTER"}
+    defaulted = registry.load(make_graph(shout, defaults={"shout.text": "outer"}))
+    assert defaulted.problems == [] and defaulted.run().outputs == {"shout.result": "OUTER"}
+    fed = registry.load(make_graph(hello, shout, edges=[("hello.result", "shout.text")]))
+    assert fed.problems == [] and fed.run().outputs == {"shout.result": "HI"}
+
+
+def test_a_yes_or_no_never_lands_on_a_number_and_a_union_is_said_by_its_members_names():
+    from conductor import NodeRegistry, node
+
+    class Text(str):
+        pass
+
+    @node("flag")
+    def flag() -> bool:
+        return True
+
+    @node("maybe")
+    def maybe() -> Text | None:
+        return None
+
+    @node("double")
+    def double(x: float) -> float:
+        return x * 2
+
+    registry = NodeRegistry()
+    registry.add(flag, maybe, double)
+    for source, got in (("flag", "bool"), ("maybe", "Text | None")):
+        (problem,) = registry.load({"nodes": [{"id": "s", "node": source}, {"id": "d", "node": "double"}], "edges": [["s.result", "d.x"]]}).problems
+        assert (problem.type, problem.ctx["got"]) == ("type_mismatch", got)

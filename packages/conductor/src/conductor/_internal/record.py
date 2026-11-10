@@ -1,6 +1,6 @@
 """``GraphRecord`` and ``NodeRecord``, the stored graph; ``make_graph`` writes one from Python.
 
-A graph record is its nodes and its edges, and nothing else::
+A graph record is its nodes and its edges, and a ``display`` of the host's own::
 
     {
         "nodes": [
@@ -112,6 +112,16 @@ class GraphRecord(ConductorModel):
     nodes: Sequence[NodeRecord] = ()
     #: ``(from, to)`` pairs of addresses, ``("read.text", "up.text")``; sorted once built.
     edges: Sequence[tuple[Address, Address]] = ()
+    #: The host's own about the whole graph: a viewport, flags. Stored, never read here, and no part of the fingerprint.
+    display: Mapping[str, Any] = Field(default_factory=dict)
+
+    @model_serializer(mode="wrap")
+    def _without_empty_display(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        """The record as saved: an empty ``display`` is left out."""
+        written: dict[str, Any] = handler(self)
+        if written.get("display") == {}:
+            del written["display"]
+        return written
 
     @field_validator("nodes")
     @classmethod

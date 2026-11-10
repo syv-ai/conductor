@@ -79,7 +79,7 @@ def _problems(record: GraphRecord) -> list[tuple[str, tuple]]:
 
 def test_a_node_is_its_id_its_node_and_what_is_typed_in():
     assert list(NodeRecord.model_fields) == ["id", "node", "version", "values", "defaults", "many", "display"]
-    assert list(GraphRecord.model_fields) == ["nodes", "edges"]
+    assert list(GraphRecord.model_fields) == ["nodes", "edges", "display"]
 
 
 def test_a_bare_node_saves_as_its_id_and_node():
@@ -634,3 +634,10 @@ def test_a_column_whose_name_has_a_dot_is_wired_by_its_address():
 
     record = make_graph(sheet, double, edges=[("sheet.result.Amount in USD.", "double.amount")])
     assert registry_of(sheet, double).load(record).run().outputs == {"double.result": [6, 8]}
+
+
+def test_a_graphs_display_is_the_hosts_own_kept_and_outside_the_fingerprint():
+    plain = GraphRecord(nodes=[NodeRecord(id="h", node="hello")])
+    shown = GraphRecord(nodes=[NodeRecord(id="h", node="hello")], display={"viewport": [0, 0, 1]})
+    assert "display" not in plain.model_dump(mode="json") and GraphRecord.model_validate_json(shown.model_dump_json()) == shown
+    assert PLAIN.load(plain).fingerprint == PLAIN.load(shown).fingerprint

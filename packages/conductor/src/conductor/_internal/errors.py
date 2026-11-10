@@ -93,6 +93,7 @@ PROBLEM_CATALOGUE: Mapping[str, str] = {
     "two_typed_in_lists": "Only one list can be typed into a node, and {inputs} are all lists; type one in and feed the others through edges.",
     "type_mismatch": "'{source}' gives {got}, but '{node_id}.{field}' takes {expected}; connect an output that gives {expected}, or convert it in a node between.",
     "columns_missing": "'{node_id}.{field}' takes the columns {missing}, which nothing wired into it from {sources} gives; wire them in, or take a Table of any columns.",
+    "setting_not_set": "'{field}' is a setting with no default; type a value into it.",
     "unbound_on_later_node": "Nothing feeds '{field}', and only a first node takes inputs from the caller; draw an edge into it or type a value in.",
     "unknown_input": "'{node_id}' has no input '{field}'; it has {inputs}.",
     "unknown_node": "There is no node '{node}'; the nodes are {choices}.",
@@ -202,6 +203,8 @@ def make_problem(code: str, /, *loc: str | int | None, **ctx: Any) -> Problem:
     """
     location = tuple(place for place in loc if place is not None)
     said = {key: _said(value) for key, value in ctx.items()}
+    if isinstance(said.get("reason"), str):
+        said["reason"] = said["reason"].rstrip(".")  # the row's own sentence goes on after it
     slots = {"reason": "", "node_id": location[0] if location else None, "field": location[1] if len(location) > 1 else None, **said}
     return Problem(type=code, loc=location, msg=PROBLEM_CATALOGUE[code].format_map(slots).rstrip(), ctx=ctx)
 

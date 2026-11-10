@@ -45,6 +45,7 @@ from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.errors import (
     PROBLEM_CATALOGUE,
     InvalidCallError,
+    NodeError,
     Problem,
     make_problem,
     value_free_errors,
@@ -535,13 +536,13 @@ class Graph:
                     self.problems.append(make_problem("unknown_input", node_record.id, name, inputs=list(ins)))
                     continue
                 many.setdefault(ins[name][0], set()).add(ins[name][1])
-            inner = [
-                (r.model_copy(update={
-                    **{k: {**getattr(r, k), **v} for k, v in typed.get(r.id, {}).items()},
-                    **({"many": r.many | many[r.id]} if r.id in many else {}),
-                }) if r.id in typed or r.id in many else r, d)
-                for r, d in inner
-            ]
+            # What the outside gives an input it offers (a value, a default, an edge) takes the place of the inner default.
+            drawn_id = node_record.id[len(prefix):]
+            for _, target in record.edges:
+                to_node, _, name = target.partition(".")
+                if to_node == drawn_id and name in ins:
+                    typed.setdefault(ins[name][0], {}).setdefault("fed", {})[ins[name][1]] = None
+            inner = [(_given_from_outside(r, typed.get(r.id, {}), many.get(r.id)) if r.id in typed or r.id in many else r, d) for r, d in inner]
             out.extend(inner)
             edges.extend(inner_edges)
         followed = []
@@ -673,7 +674,7 @@ class Graph:
                 self._typed_list(placed, name, plan, record.values[name])
             elif name in record.values:
                 plan.value = self._typed(placed.id, name, spec, record.values[name])
-            elif first:
+            elif first and not spec.param.setting:
                 many = name in record.many and spec.shape == "one"
                 if name in record.defaults:
                     plan.value = self._typed(placed.id, name, spec, record.defaults[name], many)
@@ -681,10 +682,11 @@ class Graph:
                     plan.value = [] if many and not spec.required else spec.default
                 self._open(placed, name, plan, record)
             elif name in record.defaults:
-                self.problems.append(make_problem("default_on_later_node", placed.id, name))
+                if not spec.param.setting:  # a setting's default is the author's, as a value is
+                    self.problems.append(make_problem("default_on_later_node", placed.id, name))
                 plan.value = self._typed(placed.id, name, spec, record.defaults[name])
             elif spec.required:
-                self.problems.append(make_problem("unbound_on_later_node", placed.id, name))
+                self.problems.append(make_problem("setting_not_set" if spec.param.setting else "unbound_on_later_node", placed.id, name))
             else:
                 plan.value = spec.default
         if broken or not self._place(placed):
@@ -719,8 +721,8 @@ class Graph:
         kwargs: dict[str, Any] = {}
         for name, parameter in inspect.signature(hook).parameters.items():
             if parameter.annotation in (type, "type"):
-                sources = placed.inputs[name].sources if placed is not None and name in placed.inputs else []
-                kwargs[name] = _arriving(sources[0]) if sources else Any
+                plan = placed.inputs.get(name) if placed is not None else None
+                kwargs[name] = _arriving(plan) if plan is not None and plan.sources else Any
             elif name in definition.inputs:
                 spec = definition.inputs[name]
                 raw = record.values.get(name, record.defaults.get(name, REQUIRED))
@@ -733,6 +735,9 @@ class Graph:
                 kwargs[name] = value
         try:
             fields = dict(hook(**kwargs))
+        except NodeError as error:  # the hook's own account, with its own code
+            self.problems.append(make_problem("compute_hook_failed", record.id, reason=error.message, error=error.code or type(error).__name__, **error.ctx))
+            return None
         except Exception as error:  # noqa: BLE001  the hook's failure is this node's problem
             self.problems.append(make_problem("compute_hook_failed", record.id, reason=str(error), error=type(error).__name__))
             return None
@@ -741,7 +746,7 @@ class Graph:
             self.problems.extend(make_problem("parameter_name_invalid", record.id, str(name)) for name in bad)
             return None
         try:
-            return {name: read_field(name, hint, where=f"node {definition.id!r}, ") for name, hint in fields.items()}
+            return {name: read_field(name, *_hint_and_default(hint), where=f"node {definition.id!r}, ") for name, hint in fields.items()}
         except Exception as error:  # noqa: BLE001  a hint conductor can't carry is the hook's failure
             self.problems.append(make_problem("compute_hook_failed", record.id, reason=str(error), error=type(error).__name__))
             return None
@@ -1054,7 +1059,7 @@ def _interface(
     """
     fed = {b.partition(".")[0] for _, b in edges}
     read = {a.partition(".")[0] for a, _ in edges}
-    ins = [(r.id, n) for r, d in placed_records if d is not None and r.id not in fed for n in d.inputs if n not in r.values]
+    ins = [(r.id, n) for r, d in placed_records if d is not None and r.id not in fed for n, spec in d.inputs.items() if n not in r.values and not spec.param.setting]
     outs = [(r.id, n) for r, d in placed_records if d is not None and r.id not in read for n in d.outputs]
 
     def named(fields: list[tuple[str, str]]) -> list[tuple[str, str, str]]:
@@ -1073,6 +1078,25 @@ def _interface(
     )
 
 
+def _given_from_outside(record: NodeRecord, typed: Mapping[str, Mapping[str, Any]], many: set[str] | None) -> NodeRecord:
+    """An embedded graph's node with what the record embedding it gives its offered inputs: values and defaults typed in,
+    each replacing the inner default of its input, as an edge from outside does; ``many`` added to its own."""
+    outside = {name for given in typed.values() for name in given}
+    defaults = {name: value for name, value in record.defaults.items() if name not in outside}
+    return record.model_copy(update={
+        "values": {**record.values, **typed.get("values", {})},
+        "defaults": {**defaults, **typed.get("defaults", {})},
+        **({"many": record.many | many} if many else {}),
+    })
+
+
+def _hint_and_default(given: Any) -> tuple[Any, Any]:
+    """What a hook gives for one field: a hint, or ``(hint, default)`` as pydantic's ``create_model`` takes one."""
+    if isinstance(given, tuple) and len(given) == 2:
+        return given[0], given[1]
+    return given, REQUIRED
+
+
 def _follow(address: str, renamed: Mapping[str, str]) -> str:
     """Rewrite ``node.field[.column]`` to the inner node an embedded graph spliced in for it."""
     node_id, _, rest = address.partition(".")
@@ -1082,12 +1106,16 @@ def _follow(address: str, renamed: Mapping[str, str]) -> str:
     return address
 
 
-def _arriving(source: Source) -> Any:
-    """The type a hook reads for what arrives on an edge: a whole table as ``Table[R]`` with its columns, else the value's type."""
-    if source.whole_table and source.columns is not None:
-        from conductor._internal.fields import Table
+def _arriving(plan: InputPlan) -> Any:
+    """The type a hook reads for what arrives on an input: a whole table as ``Table[R]`` with its columns, columns
+    gathered into a ``Table`` input as ``Table[R]`` of those columns, else the value's type."""
+    from conductor._internal.fields import Table
 
+    source = plan.sources[0]
+    if source.whole_table and source.columns is not None:
         return Table.__class_getitem__(typing.TypedDict("Arriving", dict(source.columns)))  # type: ignore[operator]
+    if plan.spec.shape == "table" and not any(s.whole_table for s in plan.sources):
+        return Table.__class_getitem__(typing.TypedDict("Arriving", {s.name: s.type for s in plan.sources}))  # type: ignore[operator]
     return source.type
 
 
