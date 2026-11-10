@@ -94,6 +94,34 @@ def test_again_by_another_caller_who_may_see_the_run_is_checked_on_that_callers_
     asyncio.run(scenario())
 
 
+def _maybe_caller(x_user: Annotated[str | None, Header()] = None) -> str | None:
+    return x_user
+
+
+def test_again_by_an_anonymous_caller_is_checked_on_the_nodes_of_no_caller_not_the_starters() -> None:
+    full, bare = NodeRegistry(), NodeRegistry()
+
+    @full.node("double")
+    def double(x: int) -> int:
+        return 2 * x
+
+    graph = GraphRecord(nodes=[NodeRecord(id="d", node="double")]).model_dump(mode="json")
+    app = FastAPI()
+    app.include_router(run_router(
+        store=MemoryStore(), registry=lambda who: full if who == "anna" else bare, caller=_maybe_caller, may_see=lambda caller, started_by: True,
+    ))
+
+    async def scenario() -> None:
+        async with app.router.lifespan_context(app), httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as client:
+            run_id = (await client.post("/runs", json={"graph": graph, "inputs": {"x": 1}}, headers={"x-user": "anna"})).json()["id"]
+            assert (await _until_ended(client, run_id, "anna"))["status"] == "complete"
+            anonymous = await client.post(f"/runs/{run_id}/again", json={"x": 2})
+            assert anonymous.status_code == 422
+            assert [problem["type"] for problem in anonymous.json()["detail"]] == ["unknown_node"]
+
+    asyncio.run(scenario())
+
+
 def test_an_output_that_isnt_finite_reads_as_its_text() -> None:
     registry = NodeRegistry()
 

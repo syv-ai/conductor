@@ -15,10 +15,11 @@ import logging
 import time
 import typing
 import uuid
-from collections.abc import AsyncIterable, AsyncIterator, Callable, Mapping
+from collections.abc import AsyncGenerator, AsyncIterable, Callable, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field, replace
-from typing import Annotated, Any, TypeVar
+from functools import cached_property
+from typing import Annotated, Any, TypeVar, Unpack, overload
 
 import polars as pl
 from conductor import (
@@ -115,13 +116,60 @@ class _Leg:
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
+def _nobody() -> None:
+    """The caller when the host names none."""
+    return None
+
+
+def _same(caller: object, started_by: object) -> bool:
+    return caller == started_by
+
+
+def _no_values(caller: object) -> Mapping[type, Any]:
+    """The ``FromRun`` values when the host gives none."""
+    return {}
+
+
+@overload
 def run_router(
     *,
     store: RunStore,
     registry: NodeRegistry | Callable[[C], NodeRegistry],
-    caller: Callable[..., C] | None = None,
-    from_run: Callable[[C], Mapping[type, Any]] | None = None,
-    may_see: Callable[[C, C], bool] | None = None,
+    caller: Callable[..., C],
+    from_run: Callable[[C], Mapping[type, Any]] = ...,
+    may_see: Callable[[C, C], bool] = ...,
+    published: Callable[..., GraphRecord] | None = None,
+    max_rows: int | None = None,
+    lease: float = 30.0,
+    checkpoint_every: float = 5.0,
+    leg_timeout: float | None = 300.0,
+    poll: float = 0.1,
+) -> APIRouter: ...
+
+
+@overload
+def run_router(
+    *,
+    store: RunStore,
+    registry: NodeRegistry | Callable[[None], NodeRegistry],
+    from_run: Callable[[None], Mapping[type, Any]] = ...,
+    may_see: Callable[[None, None], bool] = ...,
+    published: Callable[..., GraphRecord] | None = None,
+    max_rows: int | None = None,
+    lease: float = 30.0,
+    checkpoint_every: float = 5.0,
+    leg_timeout: float | None = 300.0,
+    poll: float = 0.1,
+) -> APIRouter: ...
+
+
+def run_router(
+    *,
+    store: RunStore,
+    registry: NodeRegistry | Callable[[C], NodeRegistry],
+    caller: Callable[..., Any] = _nobody,
+    from_run: Callable[[C], Mapping[type, Any]] = _no_values,
+    may_see: Callable[[C, C], bool] = _same,
     published: Callable[..., GraphRecord] | None = None,
     max_rows: int | None = None,
     lease: float = 30.0,
@@ -153,40 +201,40 @@ def run_router(
     legs: dict[str, _Leg] = {}
     tasks: set[asyncio.Task[None]] = set()
     stopping = False
-    caller_dependency: Callable[..., Any] = caller if caller is not None else _nobody
-    callers: TypeAdapter[Any] = TypeAdapter(_caller_type(caller_dependency))
-    sees = may_see if may_see is not None else _same
+    callers: TypeAdapter[C] = TypeAdapter(_caller_type(caller))
+    nodes_for: Callable[[C], NodeRegistry] = _always(registry) if isinstance(registry, NodeRegistry) else registry
 
-    def nodes_for(who: Any) -> NodeRegistry:
-        return registry if isinstance(registry, NodeRegistry) else registry(who)
-
-    def started_by(row: StoredRun) -> Any:
+    def started_by(row: StoredRun) -> C:
         return callers.validate_json(row.caller)
 
-    def load(row: StoredRun, who: Any = None) -> Run:
-        """The stored run, on the nodes of ``who``, or of the caller who started it."""
-        return nodes_for(who if who is not None else started_by(row)).load(row.graph).load_run(row.run)
+    def load(row: StoredRun, nodes: NodeRegistry) -> Run:
+        """The stored run, on ``nodes``."""
+        return nodes.load(row.graph).load_run(row.run)
 
     # -- legs -------------------------------------------------------------------------------------
 
-    async def claim(row: StoredRun, changes: RunChanges | None = None) -> bool:
-        """Take ``row`` for this worker if nobody holds it and it is still at the ``rev`` read, writing ``changes`` too.
-        Of two workers, one wins. A cancel asked of the run stays asked: only a resume clears it."""
-        if row.owner is not None and row.lease_until >= time.time():
+    async def claim(row: StoredRun, ceiling: int | None = None, **changes: Unpack[RunChanges]) -> bool:
+        """Take ``row`` for this worker if nobody holds it and it is still at the ``rev`` read, writing ``changes`` too,
+        and run its next leg. Of two workers, one wins. A cancel asked of the run stays asked: only a resume clears it."""
+        if row.lease_until >= time.time():
             return False
-        return await store.update(row.id, row.rev, {**held(), **(changes or {})})
+        written: RunChanges = {**held(), **changes}
+        if not await store.update(row.id, row.rev, written):
+            return False
+        launch(replace(row, **written, rev=row.rev + 1), ceiling)
+        return True
 
     def held() -> RunChanges:
         """What a row says while this worker holds it: running, with no cause yet."""
         return {"status": "running", "owner": worker, "lease_until": time.time() + lease, "cause": None}
 
-    def launch(run_id: str, rev: int, ceiling: int | None = None, cancelled: bool = False) -> None:
-        """Run the next leg of a run this worker has just claimed at ``rev``, in the background; ``cancelled`` when a
-        cancel was asked of it, which the leg then hears before its first unit."""
-        leg = legs[run_id] = _Leg(rev=rev)
-        if cancelled:
+    def launch(row: StoredRun, ceiling: int | None = None) -> None:
+        """Run the next leg of ``row``, as this worker has just written it, in the background; a cancel asked of it the
+        leg hears before its first unit."""
+        leg = legs[row.id] = _Leg(rev=row.rev)
+        if row.cancel:
             leg.cancel.set()
-        task = asyncio.get_running_loop().create_task(drive(run_id, leg, ceiling))
+        task = asyncio.get_running_loop().create_task(drive(row, leg, ceiling))
         tasks.add(task)
         task.add_done_callback(tasks.discard)
 
@@ -207,14 +255,14 @@ def run_router(
                     leg.cancel.set()
                 leg.rev = row.rev
 
-    async def drive(run_id: str, leg: _Leg, ceiling: int | None) -> None:
+    async def drive(row: StoredRun, leg: _Leg, ceiling: int | None) -> None:
         """Run the leg, and write its end while its lease is still renewed; a leg that raised ends ``failed``."""
+        run_id = row.id
         keep_lease = asyncio.create_task(hold(run_id, leg))
         try:
-            row = await store.get(run_id)
-            assert row is not None
-            run = await asyncio.to_thread(load, row)
-            values = from_run(started_by(row)) if from_run is not None else None
+            who = started_by(row)
+            run = await asyncio.to_thread(load, row, nodes_for(who))
+            values = from_run(who)
             stream = run.stream(
                 from_run=values, max_rows=ceiling, timeout=leg_timeout,
                 cancel=leg.cancel, checkpoint_every=checkpoint_every,
@@ -227,18 +275,18 @@ def run_router(
                     if await store.add_event(run_id, worker, event.model_dump_json()) is None:
                         leg.cancel.set()  # another worker holds the run
                     if isinstance(event, RunEnd):
-                        await finish(run_id, leg, keep_lease, event.run)
+                        await finish(run_id, leg, keep_lease, await asyncio.to_thread(_Ended, event.run))
         except Exception:
             log.exception("the leg of run %s failed", run_id)
             await store.add_event(run_id, worker, '{"type":"run_end","status":"failed","cause":null}')
-            await finish(run_id, leg, keep_lease, None)
+            await finish(run_id, leg, keep_lease, _Raised())
         finally:
             keep_lease.cancel()
             if legs.get(run_id) is leg:  # the answers queued during this leg may have launched the next one already
                 del legs[run_id]
 
-    async def finish(run_id: str, leg: _Leg, keep_lease: asyncio.Task[None], run: Run | None) -> None:
-        """Write how a leg ended with ``run`` (``None`` when it raised), decided from the row as read for each try of
+    async def finish(run_id: str, leg: _Leg, keep_lease: asyncio.Task[None], ending: "_Ended | _Raised") -> None:
+        """Write how a leg ended, decided from the row as read for each try of
         the write, so a cancel or an answer that lands meanwhile is never written over.
 
         A leg this worker stopped to shut down, with no cancel asked of the run, is handed back for any worker to go on
@@ -249,10 +297,9 @@ def run_router(
         ``keep_lease`` renews the lease until the end is written, and each JSON of a run is made once, outside the
         write's tries: a run however long it takes to write as JSON stays this worker's, and a try lost to a renewal
         or a queued answer costs a read and a write."""
-        status: RunStatus = run.status if run is not None else "failed"
-        written: RunChanges = await asyncio.to_thread(_ended, run) if run is not None else {"cause": None}
+        status = ending.status
+        written = ending.written
         handed_back: RunChanges = {"status": "running", "owner": None, "lease_until": 0.0}
-        as_ended: str | None = None
         answered_from: tuple[str, str] | None = None
         answered: tuple[str | None, dict[str, Any]] = (None, {})
         try:
@@ -268,15 +315,13 @@ def run_router(
                     if row.pending != "{}":
                         if answered_from != (row.pending, row.refused):
                             answered_from = (row.pending, row.refused)
-                            answered = await asyncio.to_thread(_answered, run, json.loads(row.pending), json.loads(row.refused))
+                            answered = await asyncio.to_thread(ending.answered, json.loads(row.pending), json.loads(row.refused))
                         saved, refused = answered
                         changes.update({"pending": "{}", "refused": to_json(refused).decode()})
                     if saved is not None:  # a worker shutting down hands the next leg back rather than start it
                         changes.update({"run": saved, **(handed_back if stopping else held()), "cause": None})
-                if saved is None and run is not None:
-                    if as_ended is None:
-                        as_ended = await asyncio.to_thread(run.to_json)
-                    changes["run"] = as_ended
+                if saved is None:
+                    changes.update(await asyncio.to_thread(lambda: ending.as_saved))
                 async with leg.lock:  # no renewal lands between this write and the lease's last renewal
                     ended = await store.update(run_id, row.rev, changes)
                     if ended:
@@ -284,7 +329,7 @@ def run_router(
                 if ended:
                     await _stopped(keep_lease)
                     if saved is not None and not stopping:
-                        launch(run_id, row.rev + 1)
+                        launch(replace(row, **changes, rev=row.rev + 1))
                     return
         finally:
             await _stopped(keep_lease)
@@ -300,26 +345,26 @@ def run_router(
         """Go on with the runs whose worker died or handed them back."""
         while True:
             for row in await store.expired(time.time()):
-                if row.id not in legs and await claim(row):
-                    launch(row.id, row.rev + 1, cancelled=row.cancel)
+                if row.id not in legs:
+                    await claim(row)
             await asyncio.sleep(lease / 3)
 
-    async def start(graph: GraphRecord, inputs: Mapping[str, Any], who: Any) -> Started:
+    async def start(graph: GraphRecord, inputs: Mapping[str, Any], who: C) -> Started:
         try:
             saved = await asyncio.to_thread(lambda: nodes_for(who).load(graph).with_inputs(inputs, max_rows=max_rows).to_json())
         except InvalidCallError as error:
             raise _unprocessable(error) from None
         return await begin(graph.model_dump_json(), who, saved)
 
-    async def begin(graph: str, who: Any, saved: str) -> Started:
+    async def begin(graph: str, who: C, saved: str) -> Started:
         """Store a run of ``who``'s, held by this worker, and run its first leg."""
-        run_id = uuid.uuid4().hex
-        await store.create(replace(StoredRun(id=run_id, graph=graph, caller=callers.dump_json(who).decode(), run=saved, status="running"), **held()))
-        launch(run_id, 0)
-        return Started(id=run_id)
+        row = replace(StoredRun(id=uuid.uuid4().hex, graph=graph, caller=callers.dump_json(who).decode(), run=saved, status="running"), **held())
+        await store.create(row)
+        launch(row)
+        return Started(id=row.id)
 
     @asynccontextmanager
-    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         nonlocal stopping
         sweeping = asyncio.create_task(sweep())
         yield
@@ -332,41 +377,35 @@ def run_router(
     # -- routes -----------------------------------------------------------------------------------
 
     router = APIRouter(lifespan=lifespan)
-    Caller = Annotated[Any, Depends(caller_dependency)]
-
-    async def stored(run_id: str, who: Caller) -> StoredRun:
+    async def stored(run_id: str, who: Annotated[C, Depends(caller)]) -> StoredRun:
         row = await store.get(run_id)
-        if row is None or not sees(who, started_by(row)):
+        if row is None or not may_see(who, started_by(row)):
             raise HTTPException(404, "no such run")
         return row
 
-    Stored = Annotated[StoredRun, Depends(stored)]
-
     @router.get("/nodes")
-    def palette(who: Caller) -> RegistryDescription:
+    def palette(who: Annotated[C, Depends(caller)]) -> RegistryDescription:
         """The nodes the caller may use, as an editor's palette reads them."""
         return nodes_for(who).describe()
 
     @router.post("/load")
-    def check(graph: GraphRecord, who: Caller) -> GraphDescription:
+    def check(graph: GraphRecord, who: Annotated[C, Depends(caller)]) -> GraphDescription:
         """The graph as loading reads it: each node's fields, where it runs, and every problem."""
         return nodes_for(who).load(graph).describe()
 
     @router.post("/runs", status_code=202)
-    async def start_run(body: StartRun, who: Caller) -> Started:
+    async def start_run(body: StartRun, who: Annotated[C, Depends(caller)]) -> Started:
         """Start a run of any graph; this is an author's route, so guard it with your own dependency."""
         return await start(body.graph, body.inputs, who)
 
     if published is not None:
-        Published = Annotated[GraphRecord, Depends(published)]
-
         @router.post("/graphs/{name}/runs", status_code=202)
-        async def start_published(graph: Published, inputs: dict[str, Any], who: Caller) -> Started:
+        async def start_published(graph: Annotated[GraphRecord, Depends(published)], inputs: dict[str, Any], who: Annotated[C, Depends(caller)]) -> Started:
             """Start a graph you offer by name, on inputs alone."""
             return await start(graph, inputs, who)
 
     @router.get("/runs/{run_id}")
-    def read(row: Stored) -> RunView:
+    def read(row: Annotated[StoredRun, Depends(stored)]) -> RunView:
         return RunView(
             id=row.id, status=row.status, waiting=json.loads(row.waiting),
             outputs=json.loads(row.outputs) if row.outputs is not None else None, refused=json.loads(row.refused),
@@ -374,9 +413,9 @@ def run_router(
         )
 
     @router.get("/runs/{run_id}/events", response_class=EventSourceResponse)
-    async def follow(row: Stored, last_event_id: Annotated[int | None, Header()] = None) -> AsyncIterable[ServerSentEvent]:
+    async def follow(row: Annotated[StoredRun, Depends(stored)], last_event_id: Annotated[int, Header()] = -1) -> AsyncIterable[ServerSentEvent]:
         """The run's events, from whichever worker runs it, until it stops running; ``Last-Event-ID`` goes on after a reconnect."""
-        seen = -1 if last_event_id is None else last_event_id
+        seen = last_event_id
         while True:
             new = await store.events(row.id, seen)
             for seq, body in new:
@@ -391,7 +430,7 @@ def run_router(
                 await asyncio.sleep(poll)
 
     @router.post("/runs/{run_id}/answers", status_code=202)
-    async def answer(row: Stored, answers: dict[str, Any]) -> Answered:
+    async def answer(row: Annotated[StoredRun, Depends(stored)], answers: dict[str, Any]) -> Answered:
         """Answer waiting rows by their ids. While a leg runs, the answers wait for it to end, and a row answered once
         meanwhile is refused a second answer. An answer to a row whose question changed since it was read is refused by
         its waiting id (``answer_stale``)."""
@@ -409,37 +448,35 @@ def run_router(
         if row.status != "waiting":
             raise HTTPException(409, _not_waiting(row.status).msg)
         try:  # every wrong answer is refused at once
-            answered = await asyncio.to_thread(lambda: load(row).answer(answers).to_json())
+            answered = await asyncio.to_thread(lambda: load(row, nodes_for(started_by(row))).answer(answers).to_json())
         except InvalidCallError as error:
             raise _unprocessable(error) from None
-        if not await claim(row, {"run": answered}):
+        if not await claim(row, run=answered):
             raise HTTPException(409, "the run changed since it was read")
-        launch(row.id, row.rev + 1)
         return Answered(answers="started")
 
     @router.post("/runs/{run_id}/resume", status_code=202)
-    async def resume(row: Stored, max_rows: Annotated[PositiveInt | None, Body(embed=True)] = None) -> Started:
+    async def resume(row: Annotated[StoredRun, Depends(stored)], max_rows: Annotated[PositiveInt | None, Body(embed=True)] = None) -> Started:
         """Go on with a run that timed out, stopped at its ceiling, was cancelled or failed; nothing finished is called
         again. ``{"max_rows": ...}`` raises the ceiling of a run that stopped at it; a resume needs no body."""
         if row.status not in _RESUMABLE:
             raise HTTPException(409, f"the run is {row.status}")
-        if not await claim(row, {"cancel": False}):
+        if not await claim(row, max_rows, cancel=False):
             raise HTTPException(409, "the run changed since it was read")
-        launch(row.id, row.rev + 1, max_rows)
         return Started(id=row.id)
 
     @router.post("/runs/{run_id}/again", status_code=202)
-    async def again(row: Stored, inputs: dict[str, Any], who: Caller) -> Started:
+    async def again(row: Annotated[StoredRun, Depends(stored)], inputs: dict[str, Any], who: Annotated[C, Depends(caller)]) -> Started:
         """A new run of the caller's with these inputs changed, on the caller's own nodes; a row that receives what it
         received before isn't called again."""
         try:
-            saved = await asyncio.to_thread(lambda: load(row, who).with_inputs(inputs).to_json())
+            saved = await asyncio.to_thread(lambda: load(row, nodes_for(who)).with_inputs(inputs).to_json())
         except InvalidCallError as error:
             raise _unprocessable(error) from None
         return await begin(row.graph, who, saved)
 
     @router.post("/runs/{run_id}/cancel")
-    async def cancel(row: Stored) -> Cancelled:
+    async def cancel(row: Annotated[StoredRun, Depends(stored)]) -> Cancelled:
         """Stop a running leg before its next unit; the calls already made are kept, and ``resume`` goes on."""
         while row.status == "running":
             if await store.update(row.id, row.rev, {"cancel": True}):
@@ -455,39 +492,69 @@ def run_router(
     return router
 
 
-def _ended(run: Run) -> RunChanges:
-    """What a leg's end writes of ``run`` beside the run itself: its waiting rows, its outputs once complete (a table as
-    records, wherever it sits, a float that isn't finite as text, as every JSON conductor writes), and its cause."""
-    changes: RunChanges = {
-        "waiting": to_json(run.waiting).decode(),
-        "cause": run.cause.model_dump_json() if run.cause is not None else None,
-    }
-    if run.status == "complete":
-        changes["outputs"] = to_json(run.outputs, fallback=_records, inf_nan_mode="strings").decode()
-    return changes
+def _always(registry: NodeRegistry) -> Callable[[object], NodeRegistry]:
+    """``registry``, whoever calls."""
+    return lambda caller: registry
+
+
+class _Ended:
+    """A leg that ended with ``run``: its status, and what its end writes of it beside the run itself (its waiting
+    rows, its outputs once complete, a table as records wherever it sits, a float that isn't finite as text, as every
+    JSON conductor writes, and its cause)."""
+
+    def __init__(self, run: Run) -> None:
+        self.run = run
+        self.status: RunStatus = run.status
+        self.written: RunChanges = {
+            "waiting": to_json(run.waiting).decode(),
+            "cause": run.cause.model_dump_json() if run.cause is not None else None,
+        }
+        if run.status == "complete":
+            self.written["outputs"] = to_json(run.outputs, fallback=_records, inf_nan_mode="strings").decode()
+
+    @cached_property
+    def as_saved(self) -> RunChanges:
+        """The run as JSON, made once however many tries its write takes."""
+        return {"run": self.run.to_json()}
+
+    def answered(self, pending: dict[str, Any], refused: dict[str, Any]) -> tuple[str | None, dict[str, Any]]:
+        """The answers queued during the leg, each on its own: the run they give as JSON when any was taken, else
+        ``None``, and ``refused`` with the problems of each one that wasn't. A run that ended needing a resume takes
+        none (``run_not_waiting``); otherwise a wrong answer, or one whose row waits for nothing (``not_waiting``, as
+        on a complete run), keeps its own problems."""
+        if self.status in _RESUMABLE:
+            return _refuse_all(self.status, pending, refused)
+        run, taken = self.run, False
+        for unit_id, value in pending.items():
+            try:
+                run, taken = run.answer(unit_id, value), True
+            except InvalidCallError as error:
+                refused[unit_id] = [problem.model_dump(mode="json") for problem in error.errors()]
+        return (run.to_json() if taken else None), refused
+
+
+class _Raised:
+    """A leg that raised: it ends ``failed`` with no cause, keeps the run as last saved, and takes no answers."""
+
+    status: RunStatus = "failed"
+
+    def __init__(self) -> None:
+        self.written: RunChanges = {"cause": None}
+        self.as_saved: RunChanges = {}
+
+    def answered(self, pending: dict[str, Any], refused: dict[str, Any]) -> tuple[str | None, dict[str, Any]]:
+        return _refuse_all(self.status, pending, refused)
+
+
+def _refuse_all(status: RunStatus, pending: dict[str, Any], refused: dict[str, Any]) -> tuple[None, dict[str, Any]]:
+    problem = _not_waiting(status).model_dump(mode="json")
+    return None, {**refused, **{unit_id: [problem] for unit_id in pending}}
 
 
 async def _stopped(task: asyncio.Task[None]) -> None:
     """Cancel ``task`` and wait until it has stopped."""
     task.cancel()
     await asyncio.wait([task])
-
-
-def _answered(run: Run | None, pending: dict[str, Any], refused: dict[str, Any]) -> tuple[str | None, dict[str, Any]]:
-    """The answers queued during a leg that ended with ``run`` (``None`` when it raised), each on its own: the run they
-    give as JSON when any was taken, else ``None``, and ``refused`` with the problems of each one that wasn't. A run
-    that ended needing a resume takes none (``run_not_waiting``); otherwise a wrong answer, or one whose row waits for
-    nothing (``not_waiting``, as on a complete run), keeps its own problems."""
-    if run is None or run.status in _RESUMABLE:
-        problem = _not_waiting(run.status if run is not None else "failed").model_dump(mode="json")
-        return None, {**refused, **{unit_id: [problem] for unit_id in pending}}
-    taken = False
-    for unit_id, value in pending.items():
-        try:
-            run, taken = run.answer(unit_id, value), True
-        except InvalidCallError as error:
-            refused[unit_id] = [problem.model_dump(mode="json") for problem in error.errors()]
-    return (run.to_json() if taken else None), refused
 
 
 def _not_waiting(status: RunStatus) -> Problem:
@@ -510,15 +577,6 @@ def _caller_type(caller: Callable[..., Any]) -> Any:
     if returns is None:
         raise TypeError(f"caller {caller!r} has no return annotation; annotate it with the type it gives, so a run keeps its caller as that type")
     return returns
-
-
-def _nobody() -> None:
-    """The caller when the host names none."""
-    return None
-
-
-def _same(caller: Any, started_by: Any) -> bool:
-    return bool(caller == started_by)
 
 
 def _unprocessable(error: InvalidCallError) -> HTTPException:

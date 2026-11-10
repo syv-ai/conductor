@@ -71,12 +71,15 @@ class RunStore(Protocol):
 
     async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
         """Write ``changes`` and move ``rev`` one on, only if the run is still at ``rev``; whether it was."""
+        ...
 
     async def expired(self, now: float) -> list[StoredRun]:
         """The runs whose status is ``running`` and whose ``lease_until`` is before ``now``: their worker died or handed them back."""
+        ...
 
     async def add_event(self, run_id: str, owner: str, body: str) -> int | None:
         """Append an event, numbered one past the run's last, only while ``owner`` holds the run; its number, or ``None``."""
 
     async def events(self, run_id: str, after: int) -> list[tuple[int, str]]:
         """The run's events numbered above ``after``, in order, as ``(number, body)``."""
+        ...
