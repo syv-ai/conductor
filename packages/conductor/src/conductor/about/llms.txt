@@ -219,7 +219,7 @@ A failed unit ends the leg `failed`, its problem on `run.cause`: nothing more st
 | `node_failed` | `node_id`, `cause` (a `Problem`) |
 | `unit_waiting` | `unit` (a `Waiting`) |
 | `run_start` | `waiting` |
-| `run_checkpoint` | `run` (status `running`), which it does not write; only with `stream(checkpoint_every=seconds)`, at most that often and once when a leg is stopped with calls on threads |
+| `run_checkpoint` | `run` (status `running`, or how a stopped leg stopped), which it does not write; only with `stream(checkpoint_every=seconds)`, at most that often and once when a leg is stopped with calls on threads |
 | `run_end` | `status`, and `run`, which it does not write |
 
 ### Saving a graph
