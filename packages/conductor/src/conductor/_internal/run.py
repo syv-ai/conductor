@@ -387,8 +387,9 @@ class Run:
         outer = self.graph._outward(node_id)
         shown = self.graph._shown_outputs(node_id) if node_id in self.graph._spliced else {}
         asked = [q.model_copy(update={"name": shown[q.name]}) if q.name in shown else q for q in waiting_questions(self.graph._nodes[node_id], question.overrides)]
+        row = "".join(f"@{i}" for i in key)  # a waiting id is node@row~fingerprint, as _parse_unit reads it
         return Waiting(
-            id=f"{_unit_id(outer, key)}~{_question_fingerprint(self.graph._nodes[node_id], unit)}", node_id=outer, row=key, prompt=question.prompt,
+            id=f"{outer}{row}~{_question_fingerprint(self.graph._nodes[node_id], unit)}", node_id=outer, row=key, prompt=question.prompt,
             questions=asked, inputs=question.inputs,
         )
 
@@ -492,7 +493,7 @@ class Run:
         """
         try:
             for name in placed.checked:
-                kwargs = {**kwargs, name: checked_input(placed.definition.inputs[name], name, kwargs[name])}
+                kwargs = {**kwargs, name: _checked(placed.definition.inputs[name], name, kwargs[name], code="invalid_edge_value")}
             if placed.definition.from_run:
                 kwargs = {**kwargs, **{name: from_run[needed] for name, needed in placed.definition.from_run.items()}}
             returned = placed.definition.function(**kwargs)  # type: ignore[misc]
@@ -957,11 +958,6 @@ def checked_outputs(definition: NodeDefinition[..., Any], returned: Any) -> Any:
     return kept_outputs(outputs, spread)
 
 
-def checked_input(spec: FieldSpec, name: str, value: Any) -> Any:
-    """A value an edge brought, read by the input's type as a typed-in value is; ``FieldValueError`` as ``invalid_edge_value`` if it can't be."""
-    return _checked(spec, name, value, code="invalid_edge_value")
-
-
 def _checked(spec: FieldSpec, name: str, value: Any, *, code: str) -> Any:
     try:
         read = read_value(spec, value, strict=code == "invalid_output")
@@ -1313,10 +1309,6 @@ def _frame_columns(value: Any) -> Any:
     if isinstance(value, pl.DataFrame):
         return [[c, s] for c, s in value.to_dict(as_series=False).items()]
     raise TypeError(type(value).__name__)
-
-
-def _unit_id(node_id: str, key: Key) -> str:
-    return node_id + "".join(f"@{i}" for i in key)
 
 
 def _question_fingerprint(placed: PlacedNode, unit: WaitingUnit) -> str:
