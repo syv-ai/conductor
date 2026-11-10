@@ -80,7 +80,7 @@ def _problems(record: GraphRecord) -> list[tuple[str, tuple]]:
 
 def test_a_node_is_its_id_its_node_and_what_is_typed_in():
     assert list(NodeRecord.model_fields) == ["id", "node", "version", "values", "defaults", "display"]
-    assert list(GraphRecord.model_fields) == ["nodes", "edges", "display"]
+    assert list(GraphRecord.model_fields) == ["nodes", "edges"]
 
 
 def test_a_bare_node_saves_as_its_id_and_node():
@@ -89,7 +89,7 @@ def test_a_bare_node_saves_as_its_id_and_node():
     assert NodeRecord(id="a", node="upper", version=2, values={"text": "hi"}).model_dump() == {
         "id": "a", "node": "upper", "version": 2, "values": {"text": "hi"},
     }
-    graph = GraphRecord.model_validate({"nodes": [{"id": "a", "node": "upper", "version": 1, "defaults": {}, "display": {}}], "display": {}})
+    graph = GraphRecord.model_validate({"nodes": [{"id": "a", "node": "upper", "version": 1, "defaults": {}, "display": {}}]})
     assert graph.model_dump(mode="json") == {"nodes": [{"id": "a", "node": "upper"}], "edges": []}
     assert graph.model_dump(mode="json", include={"nodes", "edges"}) == {"nodes": [{"id": "a", "node": "upper"}], "edges": []}
 
@@ -658,10 +658,10 @@ def test_a_column_whose_name_has_a_dot_is_wired_by_its_address():
     assert registry_of(sheet, double).load(record).run().outputs == {"double.result": [6, 8]}
 
 
-def test_a_graphs_display_is_the_hosts_own_kept_and_outside_the_fingerprint():
+def test_a_node_display_is_the_hosts_own_kept_and_outside_the_fingerprint():
     plain = GraphRecord(nodes=[NodeRecord(id="h", node="hello")])
-    shown = GraphRecord(nodes=[NodeRecord(id="h", node="hello")], display={"viewport": [0, 0, 1]})
-    assert "display" not in plain.model_dump(mode="json") and GraphRecord.model_validate_json(shown.model_dump_json()) == shown
+    shown = GraphRecord(nodes=[NodeRecord(id="h", node="hello", display={"x": 3})])
+    assert GraphRecord.model_validate_json(shown.model_dump_json()) == shown
     assert PLAIN.load(plain).fingerprint == PLAIN.load(shown).fingerprint
 
 
@@ -713,7 +713,7 @@ def test_a_table_typed_in_is_refused_at_the_call_and_said_to_be_given_as_rows():
 
 def test_a_record_holds_only_json_in_its_values_and_display():
     with pytest.raises(ValidationError):
-        GraphRecord(nodes=[], display={"x": object()})
+        NodeRecord(id="a", node="a", display={"x": object()})
     with pytest.raises(ValidationError):
         NodeRecord(id="a", node="a", values={"x": object()})
 
@@ -739,6 +739,6 @@ def test_a_float_that_isnt_finite_typed_in_is_written_as_its_text_so_a_record_eq
     stored = registry.load(waiting.record.model_dump_json())
     assert stored.load_run(waiting.run().to_json()).status == "waiting"
     with pytest.raises(ValidationError):
-        GraphRecord(display={"z": float("inf")})
+        NodeRecord(id="x", node="half", display={"z": float("inf")})
     with pytest.raises(ValidationError):
         NodeRecord(id="x", node="half", values={"x": float("nan")})

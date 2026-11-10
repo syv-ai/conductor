@@ -1,6 +1,6 @@
 """``GraphRecord`` and ``NodeRecord``, the stored graph; ``make_graph`` writes one from Python.
 
-A graph record is its nodes and its edges, and a ``display`` of the host's own::
+A graph record is its nodes and its edges, and nothing else::
 
     {
         "nodes": [
@@ -105,7 +105,8 @@ class GraphRecord(ConductorModel):
 
     What a graph takes and returns is derived when it is loaded, never
     stored: the open inputs of the nodes nothing feeds, and the outputs of the
-    nodes nothing reads.
+    nodes nothing reads. What a host keeps about the whole graph (its name, a
+    viewport) it stores beside the record.
     """
 
     model_config = ConductorModel.model_config | _JSON_ONLY
@@ -114,8 +115,6 @@ class GraphRecord(ConductorModel):
     nodes: Sequence[NodeRecord] = ()
     #: ``(from, to)`` pairs of addresses, ``("read.text", "up.text")``; sorted once built.
     edges: Sequence[tuple[Address, Address]] = ()
-    #: The host's own about the whole graph: a viewport, flags. Stored, never read here, and no part of the fingerprint.
-    display: Mapping[str, JsonValue] = Field(default_factory=dict, exclude_if=_empty)
 
     @field_validator("nodes")
     @classmethod
