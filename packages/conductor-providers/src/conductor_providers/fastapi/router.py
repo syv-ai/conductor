@@ -221,7 +221,8 @@ def run_router(
             changes["status"] = "running"
         changes["waiting"] = to_json([unit.model_dump(mode="json") for unit in run.waiting]).decode()
         if run.status == "complete":
-            changes["outputs"] = to_json({a: v.to_dicts() if isinstance(v, pl.DataFrame) else v for a, v in run.outputs.items()}).decode()
+            outputs = {a: v.to_dicts() if isinstance(v, pl.DataFrame) else v for a, v in run.outputs.items()}
+            changes["outputs"] = to_json(outputs, inf_nan_mode="strings").decode()  # as every JSON conductor writes
         changes["run"] = await asyncio.to_thread(run.to_json)
         if await write(run_id, leg, changes):
             await apply_pending(run_id)

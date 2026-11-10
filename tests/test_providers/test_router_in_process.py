@@ -87,3 +87,22 @@ def test_again_by_another_caller_who_may_see_the_run_is_checked_on_that_callers_
             assert (await _until_ended(client, mine.json()["id"], "anna"))["outputs"] == {"d.result": 4}
 
     asyncio.run(scenario())
+
+
+def test_an_output_that_isnt_finite_reads_as_its_text() -> None:
+    registry = NodeRegistry()
+
+    @registry.node("edges")
+    def edges(x: int) -> list[float]:
+        return [float("inf"), float("-inf"), float("nan"), x]
+
+    graph = GraphRecord(nodes=[NodeRecord(id="e", node="edges")]).model_dump(mode="json")
+    app = FastAPI()
+    app.include_router(run_router(store=MemoryStore(), registry=registry, caller=_caller))
+
+    async def scenario() -> None:
+        async with app.router.lifespan_context(app), httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as client:
+            run_id = (await client.post("/runs", json={"graph": graph, "inputs": {"x": 1}})).json()["id"]
+            assert (await _until_ended(client, run_id, "anna"))["outputs"] == {"e.result": ["Infinity", "-Infinity", "NaN", 1.0]}
+
+    asyncio.run(scenario())
