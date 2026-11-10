@@ -513,7 +513,9 @@ class Graph:
             raise InvalidCallError(self.problems)
         checked_leg(max_rows=max_rows)
         by_key, problems = self._given_by_key({**(inputs or {}), **by_name})
-        graph = self._compiled_for(self._listed_in(by_key))
+        graph = self._compiled_for(frozenset(  # each open input given a list, or given nothing and its default a list
+            key for key, f in self._input_fields.items() if given_as_items(f.spec, by_key[key] if key in by_key else f.default)
+        ))
         if graph.problems:
             raise InvalidCallError(graph.problems)
         run = start_run(graph, graph._checked_inputs(by_key, problems), max_rows)
@@ -542,7 +544,11 @@ class Graph:
         ))
         if graph.problems:
             raise InvalidCallError(graph.problems)
-        sizes = graph._list_lengths({key: n for key, n in by_key.items() if graph._input_fields[key].listed})
+        # how many items each list has, by its address: each typed in, each length named, and each default list not named
+        sizes = {address: len(items) for address, items in graph._typed_lists.items()}
+        for key, f in graph._input_fields.items():
+            if f.listed:
+                sizes[key] = by_key[key] if key in by_key else len(f.default)
         counts: dict[str, int | None] = {}
         for placed in graph._nodes.values():
             calls: int | None = 1
@@ -639,21 +645,6 @@ class Graph:
             else:
                 by_key[offered.key] = value
         return by_key, problems
-
-    def _listed_in(self, by_key: Mapping[str, Any]) -> frozenset[str]:
-        """The open inputs a run of ``by_key`` takes a list of items at: each given a list, or given nothing and its default a list."""
-        return frozenset(
-            key for key, f in self._input_fields.items()
-            if given_as_items(f.spec, by_key[key] if key in by_key else f.default)
-        )
-
-    def _list_lengths(self, caller: Mapping[str, int]) -> dict[str, int]:
-        """How many items each given list has, by its address: the caller's (``caller``), each typed in, and each default list not given."""
-        lengths = {address: len(items) for address, items in self._typed_lists.items()}
-        for key, f in self._input_fields.items():
-            if f.listed:
-                lengths[key] = caller[key] if key in caller else len(f.default)
-        return lengths
 
     def _checked_inputs(self, by_key: Mapping[str, Any], problems: list[Problem]) -> dict[str, Any]:
         """The caller's inputs by address, each checked against its field, a list of items where this compile takes one;
@@ -1121,8 +1112,9 @@ class Graph:
             if plan.spec.shape != "one":
                 plan.sources = [dataclasses.replace(s, anchor=shared_depth(placed.level, s.level)) for s in plan.sources]
                 for s in plan.sources:
-                    # a caller's or typed list is collected whole wherever the node runs; a node's table only where it relates
-                    if not _gathers_from(placed.level, s.level) and self._makers[s.level[0]][0] is not None:
+                    # a caller's or typed list is collected whole wherever the node runs; a node's table only where it relates:
+                    # one level under the other, or the two sharing a table above both
+                    if not (_under(placed.level, s.level) or _under(s.level, placed.level) or s.anchor) and self._makers[s.level[0]][0] is not None:
                         self._unrelated(placed, placed.level, s.level)
                         return False
             if plan.spec.shape == "table" and plan.sources and not self._table_fits(placed, plan):
@@ -1194,7 +1186,7 @@ class Graph:
                     source = self._nodes.get(address.partition(".")[0])
                     if source is None:
                         continue
-                    level = self._level_of(source, address)
+                    level = source.makes.get(address.partition(".")[2].partition(".")[0], source.level)  # its node's rows, or the table its output makes
                     target_id, _, target_input = target.partition(".")
                     holder = placed if target_id == placed.id else self._nodes.get(target_id)
                     spec = holder.definition.inputs.get(target_input) if holder is not None else None  # its own copy, as its hooks made it
@@ -1211,11 +1203,6 @@ class Graph:
                 found.add(n)
                 stack.extend(self._fed[n])
         return found
-
-    def _level_of(self, source: PlacedNode, address: str) -> Level:
-        """The rows the value at ``address`` sits on: its node's, or the table one of its outputs makes."""
-        output = address.partition(".")[2].partition(".")[0]
-        return source.makes.get(output, source.level)
 
     def _outside(self, graph_input: GraphInput, key: str) -> GraphInput:
         """An input as a caller of this graph sees it: an embedded graph's by the node that embeds it."""
@@ -1419,11 +1406,6 @@ def _reaches(start: str, goal: str, readers: Mapping[str, list[str]], within: se
 
 def _under(prefix: Level, level: Level) -> bool:
     return level[: len(prefix)] == prefix
-
-
-def _gathers_from(level: Level, source: Level) -> bool:
-    """Whether a node on ``level`` can gather ``source``'s rows: one is under the other, or they share a table above both."""
-    return _under(level, source) or _under(source, level) or shared_depth(level, source) > 0
 
 
 def shared_depth(a: Level, b: Level) -> int:
