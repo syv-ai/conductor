@@ -288,8 +288,10 @@ class Run:
         second the second. Inputs are given as ``graph.with_inputs`` takes
         them, and checked the same way.
         """
-        given = {field.name: self.inputs[key] for key, field in self.graph._input_fields.items() if key in self.inputs}
-        fresh = self.graph.with_inputs({**given, **(inputs or {}), **by_name}, max_rows=max_rows if max_rows is not None else self.max_rows)
+        changed = {**(inputs or {}), **by_name}
+        named = self.graph._given_by_key(changed)[0]
+        given = {field.name: self.inputs[key] for key, field in self.graph._input_fields.items() if key in self.inputs and key not in named}
+        fresh = self.graph.with_inputs({**given, **changed}, max_rows=max_rows if max_rows is not None else self.max_rows)
         fresh._earlier = self._carried()
         return fresh
 

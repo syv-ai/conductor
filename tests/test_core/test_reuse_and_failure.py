@@ -1441,3 +1441,24 @@ def test_an_edited_graph_takes_an_earlier_runs_work_for_the_nodes_the_edit_left_
     assert second.results["s"]["result"][0] == "Long: T0" and calls == [f"summarize T{i}" for i in range(300)]
     calls.clear()
     assert edited.with_inputs(text=texts, earlier=second).resume().results == second.results and calls == []
+
+
+def test_again_and_with_inputs_take_an_input_by_its_address_as_graph_run_does():
+    @node("upper")
+    def upper(text: str) -> str:
+        return text.upper()
+
+    @node("join")
+    def join(a: str, b: str) -> str:
+        return a + b
+
+    box = node("box")(GraphRecord(nodes=[NodeRecord(id="j", node="join")]))
+    graph = registry_of(upper, join, box).load(GraphRecord(nodes=[NodeRecord(id="u", node="upper"), NodeRecord(id="e", node="box")]))
+    first = graph.run({"u.text": "a", "e.a": "x", "e.b": "y"})
+
+    assert first.again({"u.text": "b"}).outputs == {"u.result": "B", "e.result": "xy"}
+    assert first.again({"e.a": "z"}).outputs == {"u.result": "A", "e.result": "zy"}
+    assert first.with_inputs({"e.b": "w"}, text="c").resume().outputs == {"u.result": "C", "e.result": "xw"}
+    with pytest.raises(InvalidCallError) as refused:
+        first.again({"u.text": "b"}, text="c")
+    assert [p.type for p in refused.value.errors()] == ["input_given_twice"]
