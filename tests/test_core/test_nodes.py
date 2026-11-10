@@ -1069,9 +1069,24 @@ def test_an_input_a_hook_adds_may_have_a_default_and_a_hook_may_give_its_own_cod
     graph = registry.load(GraphRecord(nodes=[NodeRecord(id="g", node="glue", values={"text": "t"})]))
     assert graph.problems == [] and graph.run().outputs == {"g.result": "txx"}
     (problem,) = registry.load(GraphRecord(nodes=[NodeRecord(id="g", node="glue", values={"text": "t", "names": "boom"})])).problems
-    assert (problem.type, problem.ctx["error"], problem.ctx["names"], problem.msg) == (
-        "compute_hook_failed", "no_column", "boom", "The node could not work out its fields from what it was given: No such column. Check what is typed into the node.",
+    assert (problem.type, problem.ctx["error"], problem.ctx["error_ctx"], problem.msg) == (
+        "compute_hook_failed", "no_column", {"names": "boom"}, "The node could not work out its fields from what it was given: No such column. Check what is typed into the node.",
     )
+
+
+@pytest.mark.parametrize("ctx", [{"reason": "r", "error": "e"}, {}])
+def test_a_hooks_own_ctx_is_kept_whole_beside_the_reason_and_the_code(ctx: dict[str, Any]) -> None:
+    from conductor import NodeError
+
+    def added(names: str) -> dict[str, Any]:
+        raise NodeError("No such column.", code="no_column", ctx=ctx)
+
+    @node("glue", compute_added_inputs=added)
+    def glue(names: str, **columns: str) -> str:
+        return names
+
+    (problem,) = registry_of(glue).load(GraphRecord(nodes=[NodeRecord(id="g", node="glue", values={"names": "a"})])).problems
+    assert problem.ctx == {"reason": "No such column.", "error": "no_column", **({"error_ctx": ctx} if ctx else {})}
 
 
 def test_a_hook_reads_the_columns_gathered_into_a_table_input_as_a_table_of_them():

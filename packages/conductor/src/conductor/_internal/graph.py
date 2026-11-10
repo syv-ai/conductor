@@ -865,8 +865,9 @@ class Graph:
                 kwargs[name] = value
         try:
             fields = dict(hook(**kwargs))
-        except NodeError as error:  # the hook's own account, with its own code
-            self.problems.append(make_problem("compute_hook_failed", record.id, reason=error.message, error=error.code or type(error).__name__, **error.ctx))
+        except NodeError as error:  # the hook's own account, with its own code and its ctx kept whole
+            own = {"error_ctx": dict(error.ctx)} if error.ctx else {}
+            self.problems.append(make_problem("compute_hook_failed", record.id, reason=error.message, error=error.code or type(error).__name__, **own))
             return None
         except Exception as error:  # noqa: BLE001  the hook's failure is this node's problem
             self.problems.append(make_problem("compute_hook_failed", record.id, reason=str(error), error=type(error).__name__))
