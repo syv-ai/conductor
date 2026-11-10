@@ -220,7 +220,7 @@ Every public name of 1.12.2, by the module it was imported from. A name not list
 | `errors` | gone as a module: the classes import from `conductor` |
 | `FlowExecutionError` | gone: a failed leg returns its `Run`, `status` `failed` and `cause` a `Problem` |
 | `FlowPausedError` | gone: a paused leg returns its `Run`, `status` `waiting` |
-| `HumanInputRequired` | `raise Ask(prompt, choices=, default=, widget=)`; each has the answer's shape, so on several outputs each goes by output name |
+| `HumanInputRequired` | `raise Ask(prompt, choices=, default=)`; each has the answer's shape, so on several outputs each goes by output name; a question's widget is its output type's `Param` |
 | `LoopRunawayError` | `graph.run(max_rows=)`, the problem `row_ceiling` |
 | `NodeConnectionError` | `ExternalFailure`, the one failure that is retried |
 | `NodeError` | `NodeError(message, code=, ctx=)`, never retried |

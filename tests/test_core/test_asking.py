@@ -70,6 +70,51 @@ def _refused(call: Any) -> list[Any]:
 # -- the return type says how to ask ---------------------------------------------------------------
 
 
+def test_a_text_return_with_a_bare_ask_is_a_free_text_question():
+    @node("reason")
+    def reason(ticket: str) -> str:
+        raise Ask(f"Why was {ticket} closed?")
+
+    _, run = _once(reason, ticket="T-1")
+    (waiting,) = run.waiting
+    (question,) = waiting.questions
+    assert (waiting.prompt, question.type, question.choices, question.default, question.required) == ("Why was T-1 closed?", "str", None, None, True)
+    assert run.answer(waiting, "a duplicate").resume().outputs == {"q.result": "a duplicate"}
+
+
+def test_how_a_question_looks_is_its_types_so_a_hook_can_give_each_output_a_widget():
+    def outputs(names: str) -> dict[str, Any]:
+        return {name: Annotated[str, Param(widget=Textarea(rows=2))] for name in names.split(",")}
+
+    @node("notes", compute_outputs=outputs)
+    def notes(names: str) -> dict[str, Any]:
+        raise Ask("Notes", default={"a": "none"})
+
+    _, run = _once(notes, names="a,b")
+    assert [(q.name, q.widget, q.default, q.required) for q in run.waiting[0].questions] == [
+        ("a", {"type": "textarea", "rows": 2}, "none", False), ("b", {"type": "textarea", "rows": 2}, None, True),
+    ]
+
+
+def test_a_node_that_returns_nothing_is_answered_with_none_to_go_on():
+    @node("ack")
+    def ack(text: str) -> None:
+        raise Ask(f"Seen {text}?")
+
+    _, run = _once(ack, text="x")
+    assert run.waiting[0].questions == []
+    assert run.answer("q", None).resume().status == "complete"
+
+
+def test_an_ask_that_sets_nothing_saves_only_its_prompt_and_inputs():
+    @node("plain")
+    def plain(text: str) -> str:
+        raise Ask("?")
+
+    _, run = _once(plain, text="x")
+    assert '"questions":{"0":{"prompt":"?","inputs":{"text":"x"}}}' in run.to_json()
+
+
 def test_a_bool_is_a_yes_or_no_and_a_word_for_it_is_refused():
     @node("confirm")
     def confirm(name: str) -> bool:
@@ -168,13 +213,13 @@ def test_a_question_whose_type_takes_a_blank_may_be_answered_with_none():
 class Review:
     approved: bool
     amount: float
-    note: str | None
+    note: Annotated[str | None, Param(widget=Textarea(rows=6))]
     due: datetime.date = datetime.date(2026, 12, 1)
 
 
 @node("review")
 def review(name: str) -> Review:
-    raise Ask(f"Review {name}", default={"amount": 100.0}, widget={"note": Textarea(rows=6)})
+    raise Ask(f"Review {name}", default={"amount": 100.0})
 
 
 def test_a_frozen_dataclass_is_a_form_of_one_question_per_field():
@@ -358,15 +403,12 @@ def test_a_reader_left_with_no_rows_by_an_answer_shows_so_before_the_next_leg():
 
 @pytest.mark.parametrize(("ask", "reason"), [
     (lambda: Ask("?", default=3), "the default for 'result' is not an answer it takes: Input should be a valid string"),
-    (lambda: Ask("?", default=SKIPPED), "the default for 'result' is SKIPPED; a person answers a value"),
-    (lambda: Ask("?", widget=Textarea), "the widget for 'result' has no JSON form; give an instance, such as Textarea()"),
+    (lambda: Ask("?", default=SKIPPED), "the default for 'result' is not an answer it takes: the value has no JSON form"),
     (lambda: Ask("?", choices=["a", 2]), "a choice for 'result' is not what it returns: Input should be a valid string"),
-    (lambda: Ask("?", choices="ab"), "the choices for 'result' are a list"),
     (lambda: Ask("?", choices=["a"], default="b"), "the default for 'result' is not an answer it takes: the answer is not one of the choices"),
     (lambda: Ask("?", choices=["a", "a"]), "a choice for 'result' is offered twice"),
     (lambda: Ask("?", choices=[]), "'result' is offered no choices"),
-    (lambda: Ask("?", choice=["a"]), "Ask has no argument 'choice'; it takes choices, default, widget"),  # type: ignore[call-arg]
-    (lambda: Ask("?", choices={"result": ["a"]}), "the choices for 'result' are a list"),
+    (lambda: Ask("?", choices={"result": ["a"]}), "the node has one output, so it is answered with a value, and choices= is a list"),
 ])
 def test_a_node_asking_what_its_output_cant_be_answered_with_fails_naming_why(ask, reason):
     @node("wrong")
@@ -410,14 +452,6 @@ def test_a_node_of_several_outputs_asks_by_output_name(ask, reason):
         raise ask()
 
     assert _once(wrong)[1].cause.ctx["reason"] == reason
-
-
-def test_a_prompt_is_text():
-    @node("wrong")
-    def wrong() -> str:
-        raise Ask(3)  # type: ignore[arg-type]
-
-    assert _once(wrong)[1].cause.ctx["error"] == "TypeError"
 
 
 def test_a_default_obeys_what_an_answer_must():
@@ -656,10 +690,19 @@ def test_a_saved_waiting_row_the_graph_never_made_is_refused_on_load():
     assert fault.type == "state_unreadable"
 
 
+def test_a_saved_waiting_row_that_holds_no_question_is_refused_on_load():
+    gate, _ = _counted()
+    graph, run = _asking(gate, text="a,b")
+    saved = re.sub(r',"questions":\{"1":\{[^}]*\}\}\}', "", run.to_json())
+    assert saved != run.to_json()
+    (fault,) = _refused(lambda: graph.load_run(saved))
+    assert (fault.type, fault.ctx["at"]) == ("state_unreadable", "q")
+
+
 def test_a_question_record_is_json_a_host_draws_from_with_no_graph_loaded():
     @node("assign")
-    def assign(ticket: str) -> Annotated[str, Param(title="Assignee")]:
-        raise Ask(f"Who takes {ticket}?", choices=[Choice("ida", "Ida B.")], default="ida", widget=Textarea())
+    def assign(ticket: str) -> Annotated[str, Param(title="Assignee", widget=Textarea())]:
+        raise Ask(f"Who takes {ticket}?", choices=[Choice("ida", "Ida B.")], default="ida")
 
     _, run = _once(assign, ticket="T-1")
     written = run.waiting[0].model_dump(mode="json")

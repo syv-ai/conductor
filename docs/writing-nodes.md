@@ -161,7 +161,9 @@ A branch not taken reads as `None` in `run.results` and `run.outputs`.
 
 `raise Ask(prompt)` stops the node on that row and asks a person. Your return type says what they answer: `-> bool` asks a yes or no, and a frozen dataclass asks a form, one question per field, each field's default offered. What every type asks is in the reference (`python -m conductor.about`, "Legs and Asking").
 
-`Ask` adds what only the run knows: `choices`, `default` and `widget`. On a node with one output, `choices` is a list:
+With no more than a prompt, `-> str` asks for a line of free text: `raise Ask(f"Why was {ticket} closed?")`. How a question looks is its type's, as for an input: `-> Annotated[str, Param(title="Reason", widget=Textarea())]`.
+
+`Ask` adds what only the run knows: `choices` and `default`. On a node with one output, `choices` is a list:
 
 ```python
 from conductor import Ask
@@ -176,7 +178,7 @@ run = registry.load(make_graph(assign)).run(ticket="T-1")
 print(run.waiting[0].questions[0].choices)  # [{'id': 'ida', 'title': 'ida'}, {'id': 'bo', 'title': 'bo'}]
 ```
 
-A node with several outputs is answered by output name, so `choices`, `default` and `widget` go by output name too, naming only the outputs they are for. A `Choice(id, title)` gives a choice a title of its own:
+A node with several outputs is answered by output name, so `choices` and `default` go by output name too, naming only the outputs they are for. A `Choice(id, title)` gives a choice a title of its own:
 
 ```python
 from conductor import Choice
@@ -187,16 +189,12 @@ from conductor.widgets import Textarea
 class Review:
     approved: bool
     owner: str
-    note: str | None = None
+    note: Annotated[str | None, Param(widget=Textarea())] = None
 
 
 @registry.node("review")
 def review(proposal: str) -> Review:
-    raise Ask(
-        f"Review: {proposal}",
-        choices={"owner": [Choice("ida", "Ida B."), Choice("bo", "Bo K.")]},
-        widget={"note": Textarea()},
-    )
+    raise Ask(f"Review: {proposal}", choices={"owner": [Choice("ida", "Ida B."), Choice("bo", "Bo K.")]})
 
 
 run = registry.load(make_graph(review)).run(proposal="Move the server")

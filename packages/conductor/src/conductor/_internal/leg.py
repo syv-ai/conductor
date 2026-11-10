@@ -34,7 +34,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal
 from pydantic import ConfigDict, Field
 from pydantic.json_schema import SkipJsonSchema
 
-from conductor._internal.ask import Ask, Waiting, WrongAsk, asked
+from conductor._internal.ask import Ask, InvalidAskError, Waiting, row_question
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.errors import ExternalFailure, NodeError, Problem, make_problem
 from conductor._internal.fields import SKIPPED, Refused
@@ -45,6 +45,7 @@ from conductor._internal.run import (
     Run,
     RunStatus,
     Unit,
+    WaitingUnit,
     _length,
     jsonable,
 )
@@ -406,15 +407,13 @@ class Leg:
             return Unit("skipped") if out is SKIPPED else Unit("done", out)
         if isinstance(error, Ask):
             try:
-                question = {"prompt": error.prompt, "inputs": jsonable(kwargs)}
+                inputs = jsonable(kwargs)
             except Refused as unwritable:  # a person can't be shown what the node received
                 return self._failure(placed, key, unwritable)
-            if error.given:
-                try:
-                    question["asked"] = asked(error, placed.definition)
-                except WrongAsk as wrong:
-                    return make_problem("invalid_ask", placed.id, *key, reason=str(wrong))
-            return Unit("waiting", None, question)
+            try:
+                return WaitingUnit(question=row_question(error, placed.definition.outputs, inputs))
+            except InvalidAskError as invalid:
+                return make_problem("invalid_ask", placed.id, *key, reason=str(invalid))
         return self._failure(placed, key, error)
 
     def _failure(self, placed: PlacedNode, key: Key, error: BaseException) -> Problem:
@@ -454,7 +453,7 @@ class Leg:
             self.touched.add(placed.id)
             if unit.state != "skipped":
                 self._announce(placed)  # a unit taken from earlier work, or a blank row, starts its node as a call does
-            if unit.state == "waiting":
+            if isinstance(unit, WaitingUnit):
                 self.emit(UnitWaiting(unit=run._waiting(placed.id, key, unit)))
             if placed.level:
                 self._progress(placed)

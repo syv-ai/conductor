@@ -50,7 +50,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import polars as pl
 
-from conductor._internal.ask import questions_of
+from conductor._internal.ask import output_questions
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.errors import (
     PROBLEM_CATALOGUE,
@@ -157,7 +157,7 @@ class PlacedNode:
     @functools.cached_property
     def questions(self) -> dict[str, FieldDescription]:
         """What a person is asked for each output when the node raises ``Ask``, before the ``Ask`` adds to it."""
-        return questions_of(self.definition)
+        return output_questions(self.definition)
 
 
 class RunsOn(ConductorModel):

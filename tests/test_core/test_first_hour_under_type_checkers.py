@@ -198,12 +198,12 @@ from conductor.widgets import Textarea
 
 times = Param(gee=1)
 text = Param(widget=Textarea)
-asked = Ask("?", widget=Textarea)
+asked = Ask("?", choices="ab")
 """
 
 
-def test_a_checker_refuses_an_unknown_limit_and_a_widget_class_passed_bare(tmp_path: pathlib.Path) -> None:
-    """mypy reads a ``Param`` written outside ``Annotated``; inside it, metadata goes unchecked, and ``Param`` refuses at import."""
+def test_a_checker_refuses_an_unknown_limit_a_widget_class_passed_bare_and_choices_spelt_as_text(tmp_path: pathlib.Path) -> None:
+    """mypy reads a ``Param`` written outside ``Annotated`` and an ``Ask``'s keywords: what conductor no longer checks when they run."""
     program = tmp_path / "wrong_keywords.py"
     program.write_text(_WRONG_KEYWORDS)
     done = subprocess.run([sys.executable, "-m", "mypy", "--cache-dir", str(tmp_path / "cache"), str(program)], capture_output=True, text=True, cwd=tmp_path)

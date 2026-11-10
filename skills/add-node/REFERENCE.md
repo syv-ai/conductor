@@ -33,22 +33,22 @@ class Caller:
 
 
 @node("approve", title="Approve", description="Asks a person to approve or rewrite the proposal.", category="review")
-def approve(proposal: Annotated[str, Param(title="Proposal", widget=Textarea())], who: FromRun[Caller]) -> Annotated[str, Param(title="Decision")]:
-    # what is asked is what the node returns; a default proposes an answer
-    raise Ask(f"{who.name}, approve?", default=proposal, widget=Textarea())
+def approve(proposal: Annotated[str, Param(title="Proposal", widget=Textarea())], who: FromRun[Caller]) -> Annotated[str, Param(title="Decision", widget=Textarea())]:
+    # what is asked is what the node returns, and how it looks is its Param; a default proposes an answer
+    raise Ask(f"{who.name}, approve?", default=proposal)
 
 
 @dataclass(frozen=True)
 class Review:                         # a form: one question per field; a field's default is proposed
     approved: bool
     owner: str
-    note: str | None = None
+    note: Annotated[str | None, Param(widget=Textarea())] = None
 
 
 @node("review", title="Review", category="review")
 def review(proposal: str) -> Review:
-    # several outputs: what the run knows goes by output name
-    raise Ask(f"Review {proposal}", choices={"owner": [Choice("ida", "Ida B."), Choice("bo", "Bo K.")]}, widget={"note": Textarea()})
+    # several outputs: what only the run knows goes by output name
+    raise Ask(f"Review {proposal}", choices={"owner": [Choice("ida", "Ida B."), Choice("bo", "Bo K.")]})
 
 
 def fetch_v1(url: Annotated[str, Param(title="URL", widget=TextInput())]) -> Annotated[str, Param(title="Body")]:

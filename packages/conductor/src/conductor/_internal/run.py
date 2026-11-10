@@ -21,7 +21,7 @@ import threading
 import time
 from collections.abc import AsyncGenerator, Callable, Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal, NotRequired, TypedDict, overload
+from typing import TYPE_CHECKING, Any, Literal, overload
 
 import polars as pl
 import pydantic_core
@@ -34,7 +34,7 @@ from pydantic import (
     ValidationError,
 )
 
-from conductor._internal.ask import Waiting, answer_outputs, questions
+from conductor._internal.ask import RowQuestion, Waiting, answer_outputs, waiting_questions
 from conductor._internal.errors import InvalidCallError, Problem, make_problem, value_free_errors
 from conductor._internal.fields import (
     SKIPPED,
@@ -94,11 +94,19 @@ class Unit:
     state: Literal["done", "skipped", "blank", "waiting"]
     out: dict[str, Any] | None = None
     #: For a waiting unit, what the person is asked, and for a done one, what they were asked when a person answered it.
-    question: dict[str, Any] | None = None
+    question: RowQuestion | None = None
     #: For a blank unit, the plain input that got nothing.
     blank_input: str | None = None
     #: For a skipped unit, the depth of the row where the branch not taken was decided.
     skipped_from: int | None = None
+
+
+@dataclass(slots=True, kw_only=True)
+class WaitingUnit(Unit):
+    """A unit waiting for a person: its node raised ``Ask`` on the row, and it always holds the question."""
+
+    state: Literal["waiting"] = "waiting"
+    question: RowQuestion
 
 
 class Run:
@@ -246,7 +254,7 @@ class Run:
             if key is None:
                 problems.append(make_problem("not_waiting", outer, waiting_id=unit_id, status=self.status))
                 continue
-            here = [(n, u) for n in self.graph._placed_as(outer) if (u := self._units[n].get(key)) is not None and u.state == "waiting"]
+            here = [(n, u) for n in self.graph._placed_as(outer) if isinstance(u := self._units[n].get(key), WaitingUnit)]
             matching = [(n, u) for n, u in here if fingerprint is None or _question_fingerprint(self.graph._nodes[n], u) == fingerprint]
             if len(matching) != 1:
                 moved = {"moved_to": went} if fingerprint is not None and (went := self._moved_to(outer, fingerprint)) else {}
@@ -265,7 +273,7 @@ class Run:
             if shown and isinstance(one, Mapping):
                 own = {name: inner for inner, name in shown.items()}
                 one = {own.get(name, name): value for name, value in one.items()}
-            read, faults = answer_outputs(placed, one, (found.question or {}).get("asked", {}))
+            read, faults = answer_outputs(placed, one, found.question.overrides)
             if faults:
                 problems.extend(
                     make_problem("invalid_answer", outer, *key, waiting_id=unit_id, reason=reason, **({"question": shown.get(q, q)} if q else {})) for q, reason in faults
@@ -282,7 +290,7 @@ class Run:
         """The id of the row where the question a stale id names now waits, if it waits on another row of the same node."""
         for n in self.graph._placed_as(outer):
             for k, u in self._units[n].items():
-                if u.state == "waiting" and _question_fingerprint(self.graph._nodes[n], u) == fingerprint:
+                if isinstance(u, WaitingUnit) and _question_fingerprint(self.graph._nodes[n], u) == fingerprint:
                     return self._waiting(n, k, u).id
         return None
 
@@ -363,21 +371,21 @@ class Run:
     @property
     def waiting(self) -> list[Waiting]:
         """Every row waiting for a person, in node then row order."""
-        return [self._waiting(n, k, u) for n in self._units for k, u in self._in_order(n) if u.state == "waiting"]
+        return [self._waiting(n, k, u) for n in self._units for k, u in self._in_order(n) if isinstance(u, WaitingUnit)]
 
     def _in_order(self, node_id: str) -> Any:
         """A node's units in row order."""
         units = self._units[node_id]
         return sorted(units.items()) if node_id in self._unordered else units.items()
 
-    def _waiting(self, node_id: str, key: Key, unit: Unit) -> Waiting:
-        question = unit.question or {}
+    def _waiting(self, node_id: str, key: Key, unit: WaitingUnit) -> Waiting:
+        question = unit.question
         outer = self.graph._outward(node_id)
         shown = self.graph._shown_outputs(node_id) if node_id in self.graph._spliced else {}
-        asked = [q.model_copy(update={"name": shown[q.name]}) if q.name in shown else q for q in questions(self.graph._nodes[node_id], question.get("asked", {}))]
+        asked = [q.model_copy(update={"name": shown[q.name]}) if q.name in shown else q for q in waiting_questions(self.graph._nodes[node_id], question.overrides)]
         return Waiting(
-            id=f"{_unit_id(outer, key)}~{_question_fingerprint(self.graph._nodes[node_id], unit)}", node_id=outer, row=key, prompt=question["prompt"],
-            questions=asked, inputs=question["inputs"],
+            id=f"{_unit_id(outer, key)}~{_question_fingerprint(self.graph._nodes[node_id], unit)}", node_id=outer, row=key, prompt=question.prompt,
+            questions=asked, inputs=question.inputs,
         )
 
     @property
@@ -989,7 +997,7 @@ def _dump_units(placed: PlacedNode, units: Mapping[Key, Unit], keyed: bool = Tru
             **({"non_finite": non_finite} if non_finite else {}),
         }
     states = [u.state for u in units.values()]
-    out: dict[str, Any] = {"states": states, "questions": {str(i): u.question for i, u in enumerate(units.values()) if u.question}, "outputs": outputs}
+    out: dict[str, Any] = {"states": states, "questions": {str(i): u.question.as_json() for i, u in enumerate(units.values()) if u.question}, "outputs": outputs}
     if "blank" in states:
         out["blank_inputs"] = {str(i): u.blank_input for i, u in enumerate(units.values()) if u.blank_input is not None}
     if decided := "skipped" in states and {str(i): u.skipped_from for i, u in enumerate(units.values()) if u.skipped_from is not None}:
@@ -1001,14 +1009,6 @@ def _dump_units(placed: PlacedNode, units: Mapping[Key, Unit], keyed: bool = Tru
 
 #: A place in a saved value: a key of a mapping, or an index of a list.
 _Path = list[str | int]
-
-
-class _SavedQuestion(TypedDict):
-    """What a waiting unit asks, and what an answered one was asked: its prompt, what it received, and its questions."""
-
-    prompt: str
-    inputs: dict[str, Any]
-    asked: NotRequired[dict[str, Any]]
 
 
 class _SavedTable(BaseModel):
@@ -1032,7 +1032,7 @@ class _SavedUnits(BaseModel):
     model_config = ConfigDict(extra="forbid")
     keys: list[tuple[NonNegativeInt, ...]] | None = None
     states: list[Literal["done", "skipped", "blank", "waiting"]]
-    questions: dict[NonNegativeInt, _SavedQuestion] = {}
+    questions: dict[NonNegativeInt, RowQuestion] = {}
     blank_inputs: dict[NonNegativeInt, str] = {}
     skipped_from: dict[NonNegativeInt, NonNegativeInt] = {}
     outputs: dict[str, _SavedOutput] = {}
@@ -1110,14 +1110,20 @@ def _load_units(placed: PlacedNode, dumped: _SavedUnits) -> list[tuple[Key, Unit
     keys = dumped.keys if dumped.keys is not None else [() for _ in states]
     if len(keys) != len(states):
         raise _Unreadable(placed.id, f"it holds {len(keys)} rows for {len(states)} units")
-    loaded, n = [], 0
+    loaded: list[tuple[Key, Unit]] = []
+    n = 0
     for i, (key, state) in enumerate(zip(keys, states, strict=True)):
         out = None
         if state == "done":
             out = {name: values[n] for name, values in columns.items()}
             n += 1
         question = dumped.questions.get(i)
-        loaded.append((key, Unit(state, out, dict(question) if question is not None else None, dumped.blank_inputs.get(i), dumped.skipped_from.get(i))))
+        if state == "waiting":
+            if question is None:
+                raise _Unreadable(placed.id, f"the waiting unit {i} holds no question")
+            loaded.append((key, WaitingUnit(question=question)))
+        else:
+            loaded.append((key, Unit(state, out, question, dumped.blank_inputs.get(i), dumped.skipped_from.get(i))))
     return loaded
 
 
@@ -1300,9 +1306,9 @@ def _unit_id(node_id: str, key: Key) -> str:
     return node_id + "".join(f"@{i}" for i in key)
 
 
-def _question_fingerprint(placed: PlacedNode, unit: Unit) -> str:
+def _question_fingerprint(placed: PlacedNode, unit: WaitingUnit) -> str:
     """Eight hex digits of which node asks, as which code, and what it received, so a waiting id stops matching when its row holds another question."""
-    inputs = (unit.question or {}).get("inputs") or {}
+    inputs = unit.question.inputs
     values = [inputs[name] for name in sorted(inputs)]  # saved, so the names may come back from a store in any order
     hashed = [placed.id, placed.reuse_digest, values]
     written = canonical_json(hashed) if {type(v) for v in values} & {dict, list} else pydantic_core.to_json(hashed)  # plain values have no keys to sort

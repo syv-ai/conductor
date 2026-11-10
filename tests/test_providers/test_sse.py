@@ -41,8 +41,8 @@ def test_an_ending_says_its_status_and_cause_and_leaves_the_run_out():
 
 def test_a_waiting_units_question_and_a_failures_cause_are_records():
     @node("ask")
-    def ask(text: str) -> Annotated[str, Param(title="Svar")]:
-        raise Ask("Hvad?", default="forslag", widget=Textarea())
+    def ask(text: str) -> Annotated[str, Param(title="Svar", widget=Textarea())]:
+        raise Ask("Hvad?", default="forslag")
 
     (waiting,) = [e for e in _events(GraphRecord(nodes=[NodeRecord(id="ask", node="ask", values={"text": "x"})]), ask) if isinstance(e, UnitWaiting)]
     failed = _payload(NodeFailed(node_id="n", cause=Problem(type="boom", msg="Boom.", loc=("n", 2))))
