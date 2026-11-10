@@ -346,7 +346,7 @@ def _types_by_id(named: Iterable[Any], definitions: Iterable[NodeDefinition[...,
     by_id: dict[str, Any] = {}
     for held in (*(held for definition in definitions for held in _types_declared_by(definition)), *named):
         existing = by_id.setdefault(type_id(held), held)
-        if existing is not held:
+        if existing != held:  # an equal alias may be a different object: typing rebuilds them
             raise NodeDeclarationError(
                 f"type id {type_id(held)!r} is declared by both {_qualified_name(existing)} and {_qualified_name(held)}; "
                 "one registry holds one type per id",

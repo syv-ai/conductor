@@ -8,6 +8,7 @@ and ``filter`` change or narrow what is offered; looping yields the
 definitions.
 """
 
+import typing
 from dataclasses import dataclass
 from typing import Annotated, Any, ClassVar
 
@@ -15,6 +16,7 @@ import pytest
 from conductor import (
     Deprecation,
     GraphRecord,
+    Named,
     NodeDeclarationError,
     NodeRecord,
     NodeRegistry,
@@ -722,3 +724,21 @@ def test_a_stored_graphs_fields_are_listed_by_the_registry_that_holds_its_nodes_
     assert alone.is_graph and alone.inputs == [] and alone.outputs == []
     listed = next(n for n in registry.describe().nodes if n.id == "shout")
     assert [f.name for f in listed.inputs] == ["text"] and [f.name for f in listed.outputs] == ["result"]
+
+
+def test_a_named_alias_written_twice_is_one_type():
+    """typing may hand back a fresh, equal ``Annotated`` object for the same alias, after its cache lets the first go."""
+    first = Annotated[bool, Named("yes-no", title="Ja/Nej")]
+    for clear in typing._cleanups:  # type: ignore[attr-defined]  # what an evicting cache does
+        clear()
+    again = Annotated[bool, Named("yes-no", title="Ja/Nej")]
+    assert first == again and first is not again
+
+    @node("keep")
+    def keep(value: again) -> again:  # type: ignore[valid-type]
+        return value
+
+    registry = NodeRegistry(types=[first])
+    registry.add(keep)
+
+    assert "keep" in registry and list(registry.types) == ["yes-no"]
