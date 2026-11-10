@@ -48,6 +48,13 @@ class _Pending:
 PENDING: Any = _Pending()
 
 
+@dataclass(frozen=True, slots=True)
+class SkippedAt:
+    """What a unit's inputs are on a branch not taken: the depth of the row where the branch was decided."""
+
+    depth: int
+
+
 @dataclass(frozen=True)
 class Frame:
     """A table as a run keeps it: columns of plain values, so a cell is a list index."""
@@ -346,9 +353,22 @@ class Run:
         """Whether the table ``source`` reads under ``row`` was never made because its maker took no branch there."""
         if len(row) >= len(source.level) or source.node_id is None:
             return False
-        node_id, _ = self.graph._makers[source.level[len(row)]]
+        node_id, output = self.graph._makers[source.level[len(row)]]
         unit = self._units[node_id].get(row) if node_id is not None else None
-        return unit is not None and unit.state == "skipped"
+        return unit is not None and (unit.state == "skipped" or (unit.state == "done" and unit.out is not None and unit.out.get(output) is SKIPPED))
+
+    def _skip_origin(self, source: Source, key: Key) -> int:
+        """The depth of the row where the branch behind a skipped value was decided."""
+        if source.node_id is None:
+            return len(key)
+        unit_key = key[:-1] if source.made else key
+        unit = self._units[source.node_id].get(unit_key)
+        if unit is not None and unit.state == "skipped":
+            origin: int = (unit.question or {}).get("from", len(unit_key))
+            return origin
+        if unit is not None and unit.out is not None and unit.out.get(source.output) is SKIPPED:
+            return len(unit_key)  # the whole output was the branch not taken on its node's row
+        return len(key)
 
     def _cell(self, source: Source, key: Key) -> Any:
         if source.node_id is None:
@@ -369,7 +389,7 @@ class Run:
         return value[key[-1]]
 
     def _inputs(self, placed: PlacedNode, row: Key) -> Any:
-        """The keyword arguments for ``placed`` on ``row``; or PENDING, SKIPPED, or the name of a blank input."""
+        """The keyword arguments for ``placed`` on ``row``; or PENDING, a ``SkippedAt``, or the name of a blank input."""
         kwargs: dict[str, Any] = {}
         gathered: dict[str, list[tuple[Level, Key, Any]]] = {}
         for name, plan in placed.inputs.items():
@@ -378,14 +398,16 @@ class Run:
                 kwargs[name] = plan.value
             elif spec.shape == "one":
                 value = SKIPPED
+                origins = []
                 for source in plan.sources:
                     value = self._cell(source, row[: len(source.level)])
                     if value is PENDING:
                         return PENDING
                     if value is not SKIPPED:
                         break
+                    origins.append(self._skip_origin(source, row[: len(source.level)]))
                 if value is SKIPPED:
-                    return SKIPPED
+                    return SkippedAt(min(origins))
                 if value is None and not spec.optional:
                     return name
                 kwargs[name] = value
@@ -395,6 +417,7 @@ class Run:
                     continue
                 items: list[tuple[Level, Key, Any]] = []
                 skipped_above = 0
+                origins = []
                 for source in plan.sources:
                     if source.node_id is None and not source.made:  # the caller's list, given whole
                         items.extend(((source.output,), (i,), v) for i, v in enumerate(self.inputs[source.output]))
@@ -408,9 +431,14 @@ class Run:
                         value = self._cell(source, key)
                         if value is PENDING:
                             return PENDING
+                        if value is SKIPPED:
+                            origins.append(self._skip_origin(source, key))
                         items.append((source.level, key, None if value is SKIPPED else value))
                 if skipped_above and skipped_above == len(plan.sources):
-                    return SKIPPED  # every source was a branch not taken above this row: so is the call
+                    return SkippedAt(len(row))  # every source was a branch not taken above this row: so is the call
+                below = all(len(k) > len(row) for _, k, _ in items)
+                if items and below and len(origins) == len(items) and max(origins) <= len(row):
+                    return SkippedAt(min(origins))  # every row under this one was skipped by a decision at or above it
                 gathered[name] = items
             else:
                 table = self._table(plan.sources, plan.table_level, row, spec.columns)

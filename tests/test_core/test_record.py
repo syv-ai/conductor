@@ -550,3 +550,44 @@ def test_an_authored_id_with_a_slash_beside_an_embedding_is_its_own_problem_and_
 
     assert [(p.type, p.loc) for p in beside.problems] == [("invalid_node_id", ("e/upper",))]
     assert [(p.type, p.loc, p.ctx["target"]) for p in ghost.problems] == [("edge_names_missing_node", ("e", "text"), "e.text")]
+
+
+def test_a_gather_whose_rows_were_all_skipped_by_a_decision_on_its_own_row_is_skipped():
+    """A per-document decision copied down onto the lines skips every line of that document, so the per-document join is skipped too."""
+
+    @node("pair-two")
+    def pair_two(a: str, b: str) -> str:
+        return f"{a}:{b}"
+
+    @node("decide-doc")
+    def decide_doc(text: str) -> YesNo:
+        return YesNo(text, SKIPPED) if text.startswith("x") else YesNo(SKIPPED, text)
+
+    @node("docs")
+    def docs(text: str) -> Series[str]:
+        return text.split("|")
+
+    graph = registry_of(docs, decide_doc, split, pair_two, join).load({
+        "nodes": [{"id": "d", "node": "docs"}, {"id": "g", "node": "decide-doc"}, {"id": "l", "node": "split"}, {"id": "p", "node": "pair-two"}, {"id": "j", "node": "join"}],
+        "edges": [["d.result", "g.text"], ["d.result", "l.text"], ["l.result", "p.a"], ["g.yes", "p.b"], ["p.result", "j.texts"]],
+    })
+
+    assert graph.run(text="x|y,no").results["j"]["result"] == ["x:x", None]
+
+
+def test_a_gather_below_a_series_output_skipped_whole_is_skipped():
+    @dataclass(frozen=True)
+    class FullOrEmpty:
+        full: Annotated[Series[str], Param(exclusive_group="size")]
+        empty: Annotated[Series[str], Param(exclusive_group="size")]
+
+    @node("decide-list")
+    def decide_list(text: str) -> FullOrEmpty:
+        return FullOrEmpty(text.split(","), SKIPPED) if text else FullOrEmpty(SKIPPED, [])
+
+    graph = registry_of(decide_list, upper, join).load({
+        "nodes": [{"id": "d", "node": "decide-list"}, {"id": "up", "node": "upper"}, {"id": "after", "node": "join"}],
+        "edges": [["d.empty", "up.text"], ["up.result", "after.texts"]],
+    })
+
+    assert graph.run(text="a,b").results["after"]["result"] is None

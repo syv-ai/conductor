@@ -37,7 +37,17 @@ from pydantic.json_schema import SkipJsonSchema
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.errors import ExternalFailure, NodeError, Problem, make_problem
 from conductor._internal.fields import SKIPPED, Ask
-from conductor._internal.run import PENDING, Key, Run, RunStatus, Unit, Waiting, _length, jsonable
+from conductor._internal.run import (
+    PENDING,
+    Key,
+    Run,
+    RunStatus,
+    SkippedAt,
+    Unit,
+    Waiting,
+    _length,
+    jsonable,
+)
 
 if TYPE_CHECKING:
     from conductor._internal.graph import PlacedNode
@@ -239,8 +249,8 @@ class Leg:
         kwargs = run._inputs(placed, key)
         if kwargs is PENDING:
             return False
-        if kwargs is SKIPPED:
-            self._record(placed, key, Unit("skipped"), walking)
+        if isinstance(kwargs, SkippedAt):
+            self._record(placed, key, Unit("skipped", question={"from": kwargs.depth}), walking)
         elif isinstance(kwargs, str):
             self._record(placed, key, Unit("blank", question={"input": kwargs}), walking)
         elif run._earlier and placed.definition.policy.reuse_when_inputs_match and (out := run._reused(placed, kwargs)) is not None:
