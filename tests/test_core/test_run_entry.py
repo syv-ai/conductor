@@ -20,13 +20,13 @@ from conductor import (
     DType,
     Graph,
     GraphNode,
-    NodeRegistry,
     Param,
     Result,
     Static,
     node,
 )
 from conductor.widgets import Textarea
+from helpers import registry_of
 
 
 class Txt(DType, str):
@@ -40,7 +40,7 @@ def upper_node(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Tx
 
 
 def _compiled() -> CompiledGraph:
-    registry = NodeRegistry([upper_node])
+    registry = registry_of(upper_node)
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[GraphNode(id="u", type="upper", version=1, bindings={"text": Static("hi")})]), registry
     )

@@ -16,7 +16,6 @@ from conductor import (
     Graph,
     GraphNode,
     InvalidCallError,
-    NodeRegistry,
     Param,
     Policy,
     Result,
@@ -25,7 +24,7 @@ from conductor import (
     node,
 )
 from conductor.widgets import Textarea
-from helpers import events_of
+from helpers import events_of, registry_of
 
 
 class Txt(DType, str):
@@ -71,7 +70,7 @@ def flaky(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")
 
 
 def _registry():
-    return NodeRegistry([upper_node, gate, join_node, flaky])
+    return registry_of(upper_node, gate, join_node, flaky)
 
 
 def _run(nodes):

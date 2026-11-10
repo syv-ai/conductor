@@ -12,7 +12,6 @@ from conductor import (
     Graph,
     GraphNode,
     Input,
-    NodeDeclarationError,
     NodeDefinition,
     NodeDescription,
     NodeRegistry,
@@ -25,7 +24,9 @@ from conductor import (
     Upgrade,
     node,
 )
+from conductor._internal.errors import NodeDeclarationError
 from conductor.widgets import Choice, Dropdown, Textarea
+from helpers import registry_of
 from pydantic import TypeAdapter
 
 
@@ -150,7 +151,7 @@ def test_the_registry_gives_back_the_class():
     ) -> Out:
         return Txt(f"{language}:{text}")
 
-    registry = NodeRegistry([translate])
+    registry = registry_of(translate)
 
     assert registry["translate"] is translate
 
@@ -165,7 +166,7 @@ def test_a_caller_asks_the_class_rather_than_a_copy_of_it():
     ) -> Out:
         return text
 
-    registry = NodeRegistry([translate])
+    registry = registry_of(translate)
     found = registry["translate-2"]
 
     assert found.title == "Translation"
@@ -182,7 +183,7 @@ def test_every_declared_version_is_registered():
     def two(x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
         return x
 
-    registry = NodeRegistry([two])
+    registry = registry_of(two)
 
     assert set(registry["two-reg"].versions) == {1, 2}
 
@@ -192,11 +193,11 @@ def test_the_registry_keys_on_the_id():
     def echo(x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
         return x
 
-    registry = NodeRegistry([echo])
+    registry = registry_of(echo)
 
     assert "echo-key" in registry
     assert "echo-nothing" not in registry
-    assert registry.nodes == (echo,)
+    assert list(registry) == [echo]
 
 
 def test_the_flattened_record_is_gone():
@@ -349,7 +350,7 @@ def test_a_class_node_executes_in_a_graph():
     def shout(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Out:
         return Txt(_decorate(text))
 
-    registry = NodeRegistry([shout])
+    registry = registry_of(shout)
 
     compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="a", type="shout", version=1, bindings={"text": Static("hi")})]), registry)
     results = compiled.results(compiled.run_sync())
@@ -367,7 +368,7 @@ def test_two_versions_of_one_class_execute_independently():
     ) -> Out:
         return Txt(text + mark)
 
-    registry = NodeRegistry([suffix])
+    registry = registry_of(suffix)
 
     for pinned, expected in ((1, "hi"), (2, "hi?")):
         compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="a", type="suffix", version=pinned, bindings={"text": Static("hi")})]), registry)
@@ -382,7 +383,7 @@ def test_a_version_a_class_does_not_declare_is_refused():
     def once(x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Out:
         return x
 
-    registry = NodeRegistry([once])
+    registry = registry_of(once)
     compiled = CompiledGraph.from_graph(Graph(nodes=[
         GraphNode(id="a", type="once-exec", version=2),
         GraphNode(id="b", type="never-registered", version=1),
@@ -428,7 +429,7 @@ def test_a_sink_node_declares_no_outputs_and_runs():
     def sink(text: Txt) -> None:
         seen.append(text)
 
-    registry = NodeRegistry([sink])
+    registry = registry_of(sink)
     assert sink.versions[1].interface.outputs == ()
     compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="s", type="sink", version=1, bindings={"text": Static("hi")})]), registry)
     assert compiled.problems == ()
@@ -478,7 +479,7 @@ def test_a_definition_is_frozen():
         fixed.title = "Other"
 
 
-# --- the registry is built whole --------------------------------------------------
+# --- a registry holds one node per id ---------------------------------------------
 
 
 def test_two_definitions_with_one_id_are_refused():
@@ -490,27 +491,13 @@ def test_two_definitions_with_one_id_are_refused():
     def second(x: Txt) -> Txt:
         return x
 
-    with pytest.raises(NodeDeclarationError, match="declared twice"):
-        NodeRegistry([first, second])
+    with pytest.raises(NodeDeclarationError, match="two nodes have the id 'same'"):
+        registry_of(first, second)
 
 
 def test_something_that_is_not_a_node_is_refused():
     with pytest.raises(NodeDeclarationError, match="declare one with @node"):
-        NodeRegistry([_x])
-
-
-def test_an_alternative_may_come_later_in_the_list_and_must_exist():
-    @node("old", deprecation=Deprecation(alternative="new"))
-    def old(x: Txt) -> Txt:
-        return x
-
-    @node("new")
-    def new(x: Txt) -> Txt:
-        return x
-
-    assert len(NodeRegistry([old, new])) == 2
-    with pytest.raises(NodeDeclarationError, match="alternative"):
-        NodeRegistry([old])
+        registry_of(_x)
 
 
 # --- hooks read what their signature names ----------------------------------------
@@ -524,7 +511,7 @@ def test_a_hook_gets_the_typed_value_the_declared_default_included():
     def sheet(header: Annotated[Txt, Param(connectable=False)] = Txt("a,b")) -> Mapping[str, Any]:
         return {name: Txt(name) for name in header.split(",")}
 
-    registry = NodeRegistry([sheet])
+    registry = registry_of(sheet)
     default = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="s", type="sheet", version=1)]), registry)
     typed = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="s", type="sheet", version=1, bindings={"header": Static("c")})]), registry)
     assert [o.name for o in default.node("s").interface.outputs] == ["a", "b"]
@@ -539,7 +526,7 @@ def test_a_hook_is_not_called_when_a_value_it_needs_has_none():
     def needs_names(names: Txt) -> Annotated[Any, Result(title="R")]:
         return names
 
-    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n", type="n", version=1)]), NodeRegistry([needs_names]))
+    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n", type="n", version=1)]), registry_of(needs_names))
     assert [o.name for o in compiled.node("n").interface.outputs] == ["result"]
 
 
@@ -551,7 +538,7 @@ def test_compute_added_inputs_adds_to_what_the_node_declares():
     def modes(mode: Txt = Txt("a"), **more: Txt) -> Txt:
         return mode
 
-    registry = NodeRegistry([modes])
+    registry = registry_of(modes)
     def inputs(mode):
         graph = Graph(nodes=[GraphNode(id="n", type="n", version=1, bindings={"mode": Static(mode)})])
         return [i.name for i in CompiledGraph.from_graph(graph, registry).node("n").interface.inputs]
@@ -573,7 +560,7 @@ def test_each_version_has_its_own_hooks():
     def newer(x: Txt) -> Mapping[str, Any]:
         return {"two": x}
 
-    registry = NodeRegistry([newer])
+    registry = registry_of(newer)
     def outs(v):
         graph = Graph(nodes=[GraphNode(id="n", type="n", version=v, bindings={"x": Static("a")})])
         return [o.name for o in CompiledGraph.from_graph(graph, registry).node("n").interface.outputs]
@@ -638,7 +625,7 @@ def test_a_definition_may_hold_graphs_by_number_with_holes():
     def shout(text: Annotated[Txt, Param(widget=Textarea())] = Txt("")) -> Out:
         return text
 
-    inner = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="inner", type="shout", version=1)]), NodeRegistry([shout]))
+    inner = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="inner", type="shout", version=1)]), registry_of(shout))
     wrapped = NodeDefinition.from_compiled_graphs("wrapped", title="Embedded", description="d", versions={3: inner})
 
     assert set(wrapped.versions) == {3} and wrapped.current_version == 3
@@ -646,7 +633,7 @@ def test_a_definition_may_hold_graphs_by_number_with_holes():
     described = wrapped.describe().versions[3]
     assert [i.name for i in described.interface.inputs] == ["text"]
     assert described.policy is None and described.deprecation is None
-    assert "wrapped" in NodeRegistry([wrapped])
+    assert "wrapped" in registry_of(wrapped)
     with pytest.raises(TypeError, match="graph"):
         wrapped()
 
@@ -673,7 +660,7 @@ def test_arriving_is_the_edges_type_or_the_typed_in_values():
     def num() -> Num:
         return Num(1)
 
-    registry = NodeRegistry([echoed, num])
+    registry = registry_of(echoed, num)
     typed_in = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n", type="echoed", version=1, bindings={"x": Static("a")})]), registry)
     nothing = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n", type="echoed", version=1)]), registry)
 

@@ -13,7 +13,6 @@ from conductor import (
     Graph,
     GraphNode,
     InvalidCallError,
-    NodeRegistry,
     Param,
     Policy,
     Result,
@@ -22,7 +21,7 @@ from conductor import (
     node,
 )
 from conductor.events import Event, RunCheckpoint, RunEnd, UnitWaiting
-from helpers import answer
+from helpers import answer, registry_of
 
 
 class Txt(DType, str):
@@ -67,7 +66,7 @@ def count(lines: Annotated[Series[Txt], Param(title="L")]) -> Annotated[Txt, Res
 
 
 LINES = ["a", "b", "hold", "c"]
-REGISTRY = NodeRegistry([lines_node, work, count])
+REGISTRY = registry_of(lines_node, work, count)
 
 
 def compiled() -> CompiledGraph:

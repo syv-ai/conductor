@@ -20,16 +20,6 @@ dependencies = [
     "pydantic>=2.11",
 ]
 
-[project.optional-dependencies]
-# Sibling-package extras — published in lockstep from this monorepo, so
-# pinned `==` to the matching version to prevent resolver skew.
-nodes = ["syv-conductor-nodes==2.0.0"]
-providers = ["syv-conductor-providers==2.0.0"]
-all = [
-    "syv-conductor-nodes==2.0.0",
-    "syv-conductor-providers==2.0.0",
-]
-
 [project.urls]
 Repository = "https://github.com/syv-ai/conductor"
 

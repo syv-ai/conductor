@@ -5,12 +5,10 @@ A general-purpose Python library that compiles and runs graphs of typed nodes. I
 ## Layout
 
 - `packages/conductor/` (`syv-conductor`, import `conductor`): the engine. Three public modules, `__init__.py`, `widgets.py` (the controls) and `events.py`, plus `about/` and `_internal/`, which holds everything else: `node_definition.py` is the node contract, `node_signature.py` reads a signature, `field_records.py` the records of a field, `dtype.py` / `table.py` / `ref.py` the types, `errors.py` the exceptions, `registry.py`, `graph/` (the record, compile, `CompiledGraph`) and `execution/` (the engine, events, `RunState`).
-- `packages/conductor-nodes/` (`conductor_nodes`): the standard nodes and the one type of their own, `Json`.
-- `packages/conductor-providers/` (`conductor_providers`): the `mermaid` adapter.
-- `tests/`: `test_core`, `test_nodes`, `test_providers`, `test_stress`.
+- `tests/`: `test_core`, `test_providers` (the serving recipe and event JSON), `test_stress`.
 - `examples/`: Jupyter notebooks. `skills/`: agent skills for adding a node and building a graph.
 
-The three packages release together at one version, and the sibling packages pin `syv-conductor` with `==`. Pushing a `v*` tag publishes all three to PyPI.
+Pushing a `v*` tag publishes `syv-conductor` to PyPI.
 
 ## Commands
 
@@ -34,7 +32,7 @@ CI runs ruff and pytest on every PR. Tests marked `slow` time the wall clock and
 - **Streaming is the only execution path.** `compiled.stream` is the leg; `run` and `run_sync` drain it.
 - **Records are pydantic models** on `ConductorModel` and cross JSON with pydantic's own `model_dump_json` and `model_validate_json`. What compile and the engine build per call stays a frozen dataclass.
 - **The widget set is open.** Conductor ships the common controls; a host subclasses `Widget` for its own. Compile and the engine never read a widget. What a value must satisfy goes on `Param` (`ge`, `le`, `max_length`, ...), where it is enforced.
-- **Two definitions under one id raise** when a registry is built; so does one type id from two classes.
+- **Two definitions under one id raise** when the second is added to a registry; so does one type id from two classes.
 - **Fail loud.** No defensive `None` checks or silent defaults where the state means a bug.
 - **Imports.** Code outside the core library imports only from the three public modules: `conductor`, `conductor.widgets` and `conductor.events`. Inside the core, import a name from the module that defines it. Only those three and `conductor.about` declare `__all__`.
 - **Identifiers are English.**
@@ -43,4 +41,4 @@ CI runs ruff and pytest on every PR. Tests marked `slow` time the wall clock and
 
 ## Public API
 
-The public API is what the three public modules list in `__all__`, plus `conductor_nodes` and `conductor_providers`. Everything in `conductor._internal`, including anything with a leading underscore, is internal. A breaking change to the public API needs a major version.
+The public API is what the three public modules list in `__all__`. Everything in `conductor._internal`, including anything with a leading underscore, is internal. A breaking change to the public API needs a major version.

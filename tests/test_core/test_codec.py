@@ -17,7 +17,6 @@ from conductor import (
     Graph,
     GraphNode,
     NodeDefinition,
-    NodeRegistry,
     Param,
     Result,
     RunState,
@@ -28,7 +27,7 @@ from conductor import (
 )
 from conductor._internal.execution.run_ledger import RunLedger
 from conductor.widgets import Textarea
-from conductor_nodes.types import Json
+from helpers import Json, registry_of
 from pydantic import TypeAdapter
 
 
@@ -100,7 +99,7 @@ def upper_node(text: Annotated[Txt, Param(title="In", widget=Textarea())] = Txt(
 
 
 def _compiled(*classes: type[NodeDefinition], nodes: list[GraphNode]) -> CompiledGraph:
-    reg = NodeRegistry(classes)
+    reg = registry_of(*classes)
     return CompiledGraph.from_graph(Graph(nodes=nodes), reg)
 
 

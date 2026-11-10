@@ -6,4 +6,4 @@ The core of Conductor: nodes that are typed Python functions, graph compilation,
 import conductor
 ```
 
-The three distributions, `syv-conductor`, `syv-conductor-nodes` and `syv-conductor-providers`, are released together from one repository and pin each other to the same version. The documentation, the examples and the changelog live there: https://github.com/syv-ai/conductor
+The documentation, the examples and the changelog live in the repository: https://github.com/syv-ai/conductor

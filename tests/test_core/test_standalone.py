@@ -3,7 +3,7 @@
 Conductor ships every mechanism — the type machinery, the node contract,
 the widget controls, compile, the engine — and a host ships every word:
 its types, its nodes, the choices inside a widget, its language. These
-tests read the shipped source and `pyproject.toml` of all three packages, so a host's name, a
+tests read the shipped source and `pyproject.toml`, so a host's name, a
 host's import or a concrete type slipping into the library fails here
 rather than in the host that happens to install it.
 """
@@ -16,7 +16,6 @@ import tomllib
 from pathlib import Path
 
 import pytest
-from conductor import CompiledGraph, From, Graph, GraphNode, Static
 
 PACKAGES = Path(__file__).resolve().parents[2] / "packages"
 SOURCES = sorted(
@@ -25,19 +24,15 @@ SOURCES = sorted(
 
 #: What each package may import besides the standard library: itself, what
 #: it builds on, and what its ``pyproject.toml`` declares (``pydantic_core``
-#: comes with pydantic). The core imports no other package of the three.
+#: comes with pydantic).
 IMPORTS = {
     "conductor": {"conductor", "pydantic", "pydantic_core", "polars"},
-    "conductor-nodes": {"conductor_nodes", "conductor", "pydantic", "pydantic_core", "regex"},
-    "conductor-providers": {"conductor_providers", "conductor", "pydantic", "pydantic_core"},
 }
 
 #: What each ``pyproject.toml`` declares, extras included. A dependency added
 #: there fails here until it is listed, so a host's package cannot arrive unseen.
 DISTRIBUTIONS = {
-    "conductor": {"pydantic", "polars", "syv-conductor-nodes", "syv-conductor-providers"},
-    "conductor-nodes": {"syv-conductor", "pydantic", "regex"},
-    "conductor-providers": {"syv-conductor"},
+    "conductor": {"pydantic", "polars"},
 }
 
 #: A line as words: identifiers split at case and underscores, lowercased,
@@ -125,10 +120,8 @@ def test_each_package_declares_only_the_dependencies_listed_here(package):
     ("package", "line"),
     [
         ("conductor", "import fastapi"),
-        ("conductor", "from conductor_nodes.types import Json"),
-        ("conductor-nodes", "import yaml"),
-        ("conductor-nodes", "from conductor_providers.mermaid import flowchart"),
-        ("conductor-providers", "from app.models import Flow"),
+        ("conductor", "import yaml"),
+        ("conductor", "from app.models import Flow"),
     ],
 )
 def test_an_import_a_package_does_not_build_on_is_found(package, line):
@@ -198,30 +191,5 @@ def _types_declared_by(*packages: str) -> list[str]:
 
 
 def test_the_library_declares_no_type_of_its_own_beyond_series_and_table():
-    """Which values exist is the host's decision; importing every module of the core and the providers declares only the two shapes every level has, and the library's private stand-ins for an untyped or closed field."""
-    assert _types_declared_by("conductor", "conductor_providers") == ["any", "as_it_arrives", "setting", "table"]
-
-
-def test_a_package_that_declares_types_is_found():
-    """The standard nodes ship their own vocabulary, so the same probe over them finds it."""
-    assert "json" in _types_declared_by("conductor_nodes")
-
-
-def test_an_iteration_and_a_reduction_run_on_the_standard_nodes_alone():
-    import conductor_nodes
-
-    compiled = CompiledGraph.from_graph(
-        Graph(nodes=[
-            GraphNode(id="split", type="text-split", version=1, bindings={"text": Static("a,b,c")}),
-            GraphNode(id="upper", type="text-uppercase", version=1, bindings={"text": From("split.result")}),
-            GraphNode(id="join", type="text-join", version=1, bindings={"parts": From("upper.result"), "separator": Static("+")}),
-        ]),
-        conductor_nodes.registry(),
-    )
-    assert compiled.is_runnable, compiled.problems
-
-    results = compiled.results(compiled.run_sync())
-
-    assert compiled.run_plan.nodes["upper"].runs_per_row_of is not None
-    assert results["upper"]["result"]["values"] == ["A", "B", "C"]
-    assert results["join"]["result"] == "A+B+C"
+    """Which values exist is the host's decision; importing every module of the library declares only the two shapes every level has, and the library's private stand-ins for an untyped or closed field."""
+    assert _types_declared_by("conductor") == ["any", "as_it_arrives", "setting", "table"]

@@ -19,7 +19,6 @@ from conductor import (
     DType,
     Graph,
     GraphNode,
-    NodeRegistry,
     Param,
     Problem,
     Result,
@@ -43,7 +42,7 @@ from conductor.events import (
     UnitWaiting,
 )
 from conductor.widgets import Textarea
-from helpers import events_of
+from helpers import events_of, registry_of
 from pydantic import TypeAdapter, ValidationError
 
 
@@ -63,7 +62,7 @@ def ask(text: Annotated[Txt, Param(title="In", widget=Textarea())] = Txt("")) ->
 
 
 def _compiled(text: str) -> CompiledGraph:
-    registry = NodeRegistry([split_node])
+    registry = registry_of(split_node)
     return CompiledGraph.from_graph(
         Graph(nodes=(GraphNode(id="s", type="split", version=1, bindings={"text": Static(text)}),)), registry
     )
@@ -151,7 +150,7 @@ def test_a_frame_is_the_json_the_dict_was():
 
 
 def test_a_pending_unit_is_a_record_too():
-    registry = NodeRegistry([ask])
+    registry = registry_of(ask)
     compiled = CompiledGraph.from_graph(
         Graph(nodes=(GraphNode(id="q", type="ask", version=1, bindings={"text": Static("x")}),)), registry
     )

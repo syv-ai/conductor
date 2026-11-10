@@ -1,7 +1,7 @@
 # Changelog
 
-All notable changes to the three workspace packages (`syv-conductor`, `syv-conductor-nodes`,
-`syv-conductor-providers`), which release together at one version. The format follows
+All notable changes to `syv-conductor`; up to 1.x this also covered `syv-conductor-nodes` and
+`syv-conductor-providers`, released with it at one version. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); from `1.0.0` the project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
@@ -11,13 +11,22 @@ Ships as 2.0.0, a new major. The node contract, the graph record, compile and th
 replaced, and no alias keeps a 1.x name alive. A 1.x graph does not load as saved; a host converts
 its stored graphs itself. What a 1.x user changes:
 
-- **Imports.** Import from `conductor`, `conductor.widgets` and `conductor.events`. `conductor_nodes`
-  and `conductor_providers` are public too; everything else is `conductor._internal`. Conductor
-  depends on `polars>=2.0` and `pydantic>=2.11`.
-- **A node.** `@registry.node("id", version=1, name=...)` and `BaseNode` are `@node("id")` above a
-  plain function, which returns a frozen, callable `NodeDefinition` and registers nothing. `async def`
-  isn't allowed: the function runs in a worker thread. Build the registry whole,
-  `NodeRegistry([upper, join])`. `NodeCategory` and auto-discovery are gone.
+- **Imports.** Import from `conductor`, `conductor.widgets` and `conductor.events`; everything else is
+  `conductor._internal`. Conductor depends on `polars>=2.0` and `pydantic>=2.11`. The records a
+  public call returns but nobody names (`CompiledNode`, `RunPlan`, `WorkOfNode`, `Question` and the
+  like) and `NodeDeclarationError`, a `TypeError` raised at import, are not exported.
+- **A node.** `BaseNode` is a plain function under `@registry.node("id")`, or under `@node("id")`,
+  which takes the same arguments and registers nothing. Either returns a frozen, callable
+  `NodeDefinition`; `version=` and `name=` are gone. `async def` isn't allowed: the function runs in a
+  worker thread. `NodeCategory` and auto-discovery are gone. A node takes `extra=`, the host's own
+  JSON about it, kept and described and never read.
+- **A registry.** `NodeRegistry(category=, tags=, extra=, types=)` starts empty. `@registry.node`
+  declares and adds; `add(*definitions)` adds plain `@node`s, and a second node under one id raises;
+  `replace` and `remove` change one. `add_subregistry(other)` copies another registry's nodes in, so
+  each module keeps a registry and the host joins them. A node entering takes the registry's
+  defaults: tags add up, outermost first, and its own `category` and `extra` keys win.
+  `filter(predicate)` is a new registry of the nodes kept. Looping yields the definitions. A
+  deprecation's `alternative` need not be in the registry.
 - **Inputs and outputs.** The type hints are the interface: `text: str`, or
   `Annotated[str, Param(title=..., widget=...)]`. `-> str` is one output named `result`, a frozen
   dataclass is one output per field, and `Result(...)` titles one. `InputMetadata` and
@@ -85,8 +94,9 @@ its stored graphs itself. What a 1.x user changes:
   added to a CSV of 5,000 sends one mail. `Policy(reuse_when_inputs_match=False)` opts a node out,
   `RunState.without_nodes(...)` forgets one, and a state goes back only to the runner it came from.
   A long leg saves as it goes with `compiled.stream(checkpoint_every=...)`.
-- **Standard nodes.** `get_default_registry` is `conductor_nodes.registry(categories=...)`, and
-  `conductor_nodes.nodes()` lists the definitions.
+- **Standard nodes and providers.** `syv-conductor-nodes` (`conductor_nodes`, with
+  `get_default_registry`) and `syv-conductor-providers` (`conductor_providers`, with the Mermaid
+  drawing) are no longer published: the docs declare the few nodes they need where they use them.
 - **HTTP.** `conductor_providers.fastapi` and the `fastapi` extra are gone: `conductor_router`,
   `/execute`, `/execute-stream`, `/nodes`, `/compile`, `/entities/{kind}`, `context_factory`,
   `entity_resolver`, `palette_from_registry` and `sse_frame`. Copy `docs/serving-runs.md` onto your
@@ -96,7 +106,7 @@ its stored graphs itself. What a 1.x user changes:
 - **Canvas.** `conductor_providers.react` is gone: `graph_to_react`, `react_to_graph` and
   `topological_positions`. A canvas stores the `Graph` as it is, with one edge per ref of each `From`
   binding and a node's position in `node.display["position"]`; for layout, use the canvas's own engine
-  or `dependencies_of(graph.nodes)` for the order. `conductor_providers` holds the Mermaid drawing.
+  or `dependencies_of(graph.nodes)` for the order.
 
 ## [1.12.2]
 

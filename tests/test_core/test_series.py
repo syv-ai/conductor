@@ -10,8 +10,6 @@ from conductor import (
     Graph,
     GraphNode,
     Input,
-    NodeDeclarationError,
-    NodeRegistry,
     Output,
     Param,
     Series,
@@ -20,7 +18,9 @@ from conductor import (
     node,
 )
 from conductor._internal.dtype import read_field_annotation
+from conductor._internal.errors import NodeDeclarationError
 from conductor._internal.index import Index
+from helpers import registry_of
 
 
 class Text(DType, str):
@@ -101,7 +101,7 @@ def collect_with_default(parts: Series[Text] | None = None) -> Text:
     return Text(repr(parts))
 
 
-REGISTRY = NodeRegistry([split_series, collect, collect_with_default])
+REGISTRY = registry_of(split_series, collect, collect_with_default)
 
 
 def _run(*nodes: GraphNode) -> dict[str, Any]:
@@ -162,7 +162,7 @@ def test_a_reduction_over_tables_receives_a_list_of_them():
             GraphNode(id="t", type="one-table", version=1, bindings={"name": From("d.result")}),
             GraphNode(id="c", type="count-tables", version=1, bindings={"tables": From("t.result")}),
         ]),
-        NodeRegistry([docs_of_tables, one_table, count_tables]),
+        registry_of(docs_of_tables, one_table, count_tables),
     )
     assert compiled.is_runnable, compiled.problems
     assert compiled.results(compiled.run_sync())["c"]["result"] == 2

@@ -14,7 +14,6 @@ from conductor import (
     Graph,
     GraphNode,
     InvalidCallError,
-    NodeDeclarationError,
     NodeError,
     NodeRegistry,
     Param,
@@ -23,7 +22,8 @@ from conductor import (
     Static,
     node,
 )
-from conductor._internal.errors import ConductorError, make_problem
+from conductor._internal.errors import ConductorError, NodeDeclarationError, make_problem
+from helpers import registry_of
 
 
 class Txt(DType, str):
@@ -37,7 +37,7 @@ def echo(text: Annotated[Txt, Param()]) -> Annotated[Txt, Result(title="R")]:
 
 
 def _registry(*nodes: Any) -> NodeRegistry:
-    return NodeRegistry([echo, *nodes])
+    return registry_of(echo, *nodes)
 
 
 def test_a_problem_is_the_four_keys_and_its_fatality_is_its_codes():
@@ -221,7 +221,7 @@ def test_a_registry_refusal_names_the_node():
         return text
 
     with pytest.raises(NodeDeclarationError) as wrong:
-        NodeRegistry([echo, other])
+        registry_of(echo, other)
 
     assert wrong.value.code == "duplicate_node_id" and "echo" in str(wrong.value)
 

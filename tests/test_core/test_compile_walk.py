@@ -24,6 +24,7 @@ from conductor import (
     Table,
     node,
 )
+from helpers import registry_of, with_added
 
 
 class Txt(DType, str):
@@ -103,7 +104,7 @@ def hooked(**more: Any) -> Txt:
 
 
 NODES = [upload, split, count, note, excel, make_table, rebuild, rebuild_keeping_ids, from_any, hooked]
-REGISTRY = NodeRegistry(NODES)
+REGISTRY = registry_of(*NODES)
 
 
 def _compiled(*nodes: GraphNode, registry: NodeRegistry = REGISTRY) -> CompiledGraph:
@@ -162,7 +163,7 @@ def test_the_run_plan_says_a_typed_in_value():
     def blank(a: Txt | None, b: Txt = Txt("b")) -> Txt:
         return b
 
-    plan = _compiled(_node("b", "blank", a=From("upload.result")), _node("upload", "upload"), registry=NodeRegistry([upload, blank])).run_plan
+    plan = _compiled(_node("b", "blank", a=From("upload.result")), _node("upload", "upload"), registry=registry_of(upload, blank)).run_plan
 
     assert plan.nodes["b"].inputs["b"].receive_mode == "same_value_every_row"
 
@@ -172,7 +173,7 @@ def test_a_table_part_at_a_nodes_own_row_and_a_deep_column_are_said():
     def deep(doc: Txt, lines: Series[Txt]) -> Txt:
         return doc
 
-    registry = NodeRegistry([upload, split, deep])
+    registry = registry_of(upload, split, deep)
     plan = _compiled(
         _node("upload", "upload"),
         _node("para", "split", text=From("upload.result")),
@@ -212,7 +213,7 @@ def test_a_series_of_any_into_a_typed_or_table_input_is_a_problem_not_a_crash():
     def any_series() -> Mapping[str, Any]:
         return {"result": []}
 
-    registry = NodeRegistry([any_series, split, excel])
+    registry = registry_of(any_series, split, excel)
     for target, field in (("split", "text"), ("excel", "table")):
         compiled = _compiled(_node("a", "any-series"), _node("b", target, **{field: From("a.result")}), registry=registry)
         assert [p.type for p in compiled.problems] == ["type_mismatch"]
@@ -225,7 +226,7 @@ def test_a_static_is_read_once():
     def reads_one(value: CountedTxt) -> Txt:
         return Txt(value)
 
-    _compiled(_node("a", "reads-one", value=Static("x")), registry=NodeRegistry([reads_one]))
+    _compiled(_node("a", "reads-one", value=Static("x")), registry=registry_of(reads_one))
 
     assert READS == ["x"]
 
@@ -238,7 +239,7 @@ def test_a_series_of_a_table_subclass_is_refused_as_any_series_of_tables():
     def sheets() -> Mapping[str, Any]:
         return {"result": []}
 
-    compiled = _compiled(_node("a", "sheets"), registry=NodeRegistry([sheets], types=[Sheet]))
+    compiled = _compiled(_node("a", "sheets"), registry=registry_of(sheets, types=[Sheet]))
 
     assert [p.type for p in compiled.problems] == ["series_of_tables"]
 
@@ -305,10 +306,10 @@ def test_an_untyped_input_left_empty_inside_a_graph_cant_be_embedded():
     def any_in(value: Any) -> Mapping[str, Any]:
         return {"r": Txt("x")}
 
-    registry = NodeRegistry([any_in, split, upload])
+    registry = registry_of(any_in, split, upload)
     inner = _compiled(_node("x", "any-in"), registry=registry)
     emb = NodeDefinition.from_compiled_graphs("emb", title="e", description="", versions=inner)
-    extended = registry.with_nodes([emb])
+    extended = with_added(registry, emb)
 
     compiled = _compiled(_node("s", "split", text=Static("t")), _node("e", "emb", **{"value": From("s.result")}), registry=extended)
 
@@ -326,7 +327,7 @@ def test_a_hook_refusing_leaves_a_node_that_is_only_known_by_its_problem():
     def raised(**more: Any) -> Txt:
         return Txt("")
 
-    compiled = _compiled(_node("r", "raised"), registry=NodeRegistry([raised]))
+    compiled = _compiled(_node("r", "raised"), registry=registry_of(raised))
 
     assert compiled.node("r").interface is None and compiled.node("r").version is not None
     assert compiled.node("r").cause.type == "nope"

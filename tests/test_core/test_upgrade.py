@@ -20,7 +20,6 @@ from conductor import (
     Graph,
     GraphNode,
     InvalidCallError,
-    NodeDeclarationError,
     NodeDefinition,
     NodeRegistry,
     Param,
@@ -30,7 +29,9 @@ from conductor import (
     node,
     upgrade_node,
 )
+from conductor._internal.errors import NodeDeclarationError
 from conductor.widgets import Textarea
+from helpers import registry_of
 
 
 class Txt(DType, str):
@@ -76,7 +77,7 @@ def echo(text: Annotated[Txt, _param("Text")] = Txt("")) -> Annotated[Txt, Resul
 
 
 def _registry() -> NodeRegistry:
-    registry = NodeRegistry([rename, echo])
+    registry = registry_of(rename, echo)
     return registry
 
 
@@ -167,7 +168,7 @@ def test_an_edge_into_an_input_the_step_renames_moves_with_it():
     def carry(full: Annotated[Txt, _param("Full")] = Txt("")) -> Annotated[Txt, Result(title="R")]:
         return full
 
-    registry = NodeRegistry([echo, carry])
+    registry = registry_of(echo, carry)
     graph = Graph(nodes=[graph.nodes[0], GraphNode(id="r", type="carry", version=1, bindings=graph.nodes[1].bindings)])
 
     upgraded = upgrade_node(graph, "r", registry)
@@ -203,7 +204,7 @@ def renames(full: Annotated[Txt, _param("Full")] = Txt("")) -> Named:
 
 
 def test_a_renamed_input_takes_its_binding_lock_and_content_with_it():
-    registry = NodeRegistry([echo, renames])
+    registry = registry_of(echo, renames)
     graph = Graph(nodes=[
         GraphNode(
             id="r", type="renames", version=1, bindings={"name": Static("Ada")}, locked=("name",),
@@ -239,7 +240,7 @@ def test_a_later_step_reusing_a_renamed_away_name_does_not_catch_an_older_edge()
     def reuse() -> Mapping[str, Txt]:
         return {}
 
-    registry = NodeRegistry([echo, reuse])
+    registry = registry_of(echo, reuse)
     graph = Graph(nodes=[
         GraphNode(id="u", type="reuse", version=1),
         GraphNode(id="e", type="echo", version=1, bindings={"text": From("u.result")}),
@@ -258,7 +259,7 @@ def test_a_definition_with_no_steps_only_has_its_version_set():
     def embedded(inner_id: str) -> CompiledGraph:
         return CompiledGraph.from_graph(Graph(nodes=[GraphNode(id=inner_id, type="echo", version=1)]), _registry())
 
-    registry = NodeRegistry([NodeDefinition.from_compiled_graphs("embedded", title="Embedded", description="d", versions={1: embedded("inner"), 2: embedded("renamed")})])
+    registry = registry_of(NodeDefinition.from_compiled_graphs("embedded", title="Embedded", description="d", versions={1: embedded("inner"), 2: embedded("renamed")}))
     graph = Graph(nodes=[GraphNode(id="f", type="embedded", version=1, bindings={"text": Static("x")})])
 
     upgraded = upgrade_node(graph, "f", registry)

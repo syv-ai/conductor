@@ -14,7 +14,6 @@ from conductor import (
     Graph,
     GraphNode,
     Interface,
-    NodeRegistry,
     Output,
     Param,
     Ref,
@@ -26,6 +25,7 @@ from conductor import (
 from conductor._internal.graph.binding import static_values
 from conductor._internal.graph.graph_interface import derive_interface
 from conductor.widgets import Textarea
+from helpers import registry_of, with_added
 from pydantic import TypeAdapter
 
 
@@ -203,7 +203,7 @@ def stamped(
 
 
 def _registry():
-    reg = NodeRegistry([text_input, summarise, stamped])
+    reg = registry_of(text_input, summarise, stamped)
     return reg
 
 
@@ -361,7 +361,7 @@ def test_a_field_with_no_handle_is_never_an_input():
     ) -> Annotated[Txt, Result(title="Result")]:
         return code
 
-    reg = _registry().with_nodes([script])
+    reg = with_added(_registry(), script)
     graph = Graph(
         nodes=[GraphNode(id="s", type="script", version=1, title="Python",
                          fields={"code": FieldContent(title="Kode"), "result": FieldContent(title="Result")})],
@@ -450,7 +450,7 @@ def _echo_registry():
     def echo(x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Annotated[Txt, Result(title="Result")]:
         return Txt(x.upper())
 
-    registry = NodeRegistry([echo])
+    registry = registry_of(echo)
     return registry
 
 
@@ -490,7 +490,7 @@ def test_a_branch_not_taken_is_skipped_downstream():
     ) -> Answer:
         return Answer(yes=x, no=SKIPPED) if x else Answer(yes=SKIPPED, no=x)
 
-    registry = _echo_registry().with_nodes([gate])
+    registry = with_added(_echo_registry(), gate)
     graph = Graph(
         nodes=[
             GraphNode(id="g", type="gate", version=1, bindings={"x": Static("hi")}),

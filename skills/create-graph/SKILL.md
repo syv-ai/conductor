@@ -8,10 +8,26 @@ description: Puts conductor nodes in a Graph, compiles it with CompiledGraph.fro
 A graph is a list of nodes, each pinning a `type` and `version` and binding its inputs. Compile says what is wrong; `compiled.run` runs it as a stream of events. To declare a node, use the **add-node** skill. The installed library is the authority: `python -m conductor.about bindings` (or `compilation`, `rows`, `legs`, `events`, `errors`).
 
 ```python
-import conductor_nodes
-from conductor import CompiledGraph, From, Graph, GraphNode, Static
+from conductor import CompiledGraph, From, Graph, GraphNode, NodeRegistry, Series, Static
 
-registry = conductor_nodes.registry(categories=["text"])
+registry = NodeRegistry(category="text")
+
+
+@registry.node("text-split")
+def split(text: str, separator: str = ",") -> Series[str]:
+    return text.split(separator)
+
+
+@registry.node("text-uppercase")
+def uppercase(text: str) -> str:
+    return text.upper()
+
+
+@registry.node("text-join")
+def join(parts: Series[str], separator: str = "") -> str:
+    return separator.join(parts)
+
+
 graph = Graph(nodes=[
     GraphNode(id="words", type="text-split", version=1),
     GraphNode(id="loud", type="text-uppercase", version=1, bindings={"text": From("words.result")}),
@@ -44,7 +60,8 @@ An input holds one binding: `From("node.output")` over an edge, `Static(value)` 
 | A service or the caller inside a node | `compiled.run(from_run={Caller: caller})` |
 | A bound on the leg | `compiled.run(timeout=60, cancel=asyncio.Event())` |
 | To save | `graph.model_dump_json()`, `Graph.model_validate_json(text)` |
-| A drawing, a record an editor draws from | `conductor_providers.mermaid`, `compiled.describe()` |
+| A record an editor draws from | `compiled.describe()`, and `registry.describe()` for the palette |
+| A registry for one request | `per_request = NodeRegistry()`, `per_request.add_subregistry(registry)`, `per_request.add(*loaded)` |
 | HTTP routes | `docs/serving-runs.md`, a page to copy onto your own FastAPI application |
 
 ## Common mistakes

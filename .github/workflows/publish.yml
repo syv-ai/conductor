@@ -1,14 +1,12 @@
 name: Publish
 
 # Triggered on tag push (e.g. ``git tag v0.1.0 && git push --tags``).
-# Builds all three packages (``syv-conductor``, ``syv-conductor-nodes``,
-# ``syv-conductor-providers``) into a single ``dist/`` and uploads them
-# to PyPI.
+# Builds ``syv-conductor`` into ``dist/`` and uploads it to PyPI.
 #
 # Auth: ``PYPI_API_TOKEN`` repo secret. Use a project-scoped token from
-# https://pypi.org/manage/account/token/ — limit it to the three packages
+# https://pypi.org/manage/account/token/ — limit it to the package
 # rather than account-wide. Trusted Publishing (OIDC) is the long-term
-# upgrade once all three projects exist on PyPI.
+# upgrade.
 
 on:
   push:
@@ -30,14 +28,12 @@ jobs:
         with:
           enable-cache: true
 
-      # Build straight into a shared ``dist/`` so the publish step has
-      # a single, predictable directory to upload.
-      - name: Build wheels + sdists
+      # Build straight into ``dist/`` so the publish step has a single,
+      # predictable directory to upload.
+      - name: Build wheel + sdist
         run: |
           mkdir -p dist
-          for pkg in conductor conductor-nodes conductor-providers; do
-            uv build "packages/$pkg" --out-dir dist
-          done
+          uv build packages/conductor --out-dir dist
           ls -la dist
 
       - uses: pypa/gh-action-pypi-publish@release/v1

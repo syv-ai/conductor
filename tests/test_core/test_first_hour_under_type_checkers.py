@@ -17,7 +17,9 @@ _A_FRAME_IN_AND_OUT = """
 from typing import TypedDict
 
 import polars as pl
-from conductor import CompiledGraph, From, Graph, NodeRegistry, Table, node
+from conductor import CompiledGraph, From, Graph, NodeRegistry, Table
+
+registry = NodeRegistry()
 
 
 class Sale(TypedDict):
@@ -25,23 +27,23 @@ class Sale(TypedDict):
     amount: int
 
 
-@node("sales")
+@registry.node("sales")
 def sales() -> Table[Sale]:
     return pl.DataFrame({"region": ["north", "south"], "amount": [3, 9]})
 
 
-@node("first-row")
+@registry.node("first-row")
 def first_row(table: Table[Sale]) -> Table[Sale]:
     return table.head(1)
 
 
-@node("rows")
+@registry.node("rows")
 def rows(table: Table) -> int:
     return table.height
 
 
 graph = Graph(nodes=[sales.graph_node("s"), first_row.graph_node("b", table=From("s.result")), rows.graph_node("r", table=From("b.result"))])
-compiled = CompiledGraph.from_graph(graph, NodeRegistry([sales, first_row, rows]))
+compiled = CompiledGraph.from_graph(graph, registry)
 results = compiled.results(compiled.run_sync())
 assert results["b"]["result"]["region"].to_list() == ["north"]
 assert results["r"]["result"] == 1
@@ -61,18 +63,20 @@ def upper(text: str) -> str:
     return text.upper()
 
 
-base = NodeRegistry([trim, upper])
+base = NodeRegistry()
+base.add(trim, upper)
 inner = CompiledGraph.from_graph(Graph(nodes=[trim.graph_node("t", text=""), upper.graph_node("u", text=From("t.result"))]), base)
 clean = NodeDefinition.from_compiled_graphs("clean", versions=inner)
 outer = Graph(nodes=[clean.graph_node("c", text="  hi  "), upper.graph_node("v", text=From("c.result"))])
-compiled = CompiledGraph.from_graph(outer, base.with_nodes([clean]))
+base.add(clean)
+compiled = CompiledGraph.from_graph(outer, base)
 assert compiled.outputs(compiled.run_sync()) == {"v.result": "HI"}
 """
 
 
 def _programs() -> dict[str, str]:
     blocks = re.findall(r"```python\n(.*?)```", _README.read_text(), re.S)
-    first = blocks.index(next(block for block in blocks if "NodeRegistry([upper, exclaim])" in block))
+    first = blocks.index(next(block for block in blocks if '@registry.node("exclaim")' in block))
     return {
         "readme_first_program.py": blocks[first] + blocks[first + 1],
         "readme_csv.py": blocks[first + 2],
@@ -112,7 +116,7 @@ def test_the_first_hour_programs_pass_pyright_strict(programs: list[pathlib.Path
         pytest.skip("pyright is not installed")
     directory = programs[0].parent
     (directory / "pyrightconfig.json").write_text(json.dumps({
-        "extraPaths": [str(pathlib.Path(__file__).parents[2] / "packages" / package / "src") for package in ("conductor", "conductor-nodes", "conductor-providers")],
+        "extraPaths": [str(pathlib.Path(__file__).parents[2] / "packages" / package / "src") for package in ("conductor",)],
         "typeCheckingMode": "strict",
         "venvPath": str(pathlib.Path(sys.prefix).parent),
         "venv": pathlib.Path(sys.prefix).name,

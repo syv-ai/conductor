@@ -6,6 +6,7 @@ import pytest
 from conductor import CompiledGraph, DType, From, Graph, GraphNode, Param, Result, Static, node
 from conductor._internal.graph.topology import topological_order
 from conductor.widgets import Textarea
+from helpers import with_added
 from pydantic import ValidationError
 
 
@@ -69,7 +70,7 @@ class TestOrderOf:
 
 class TestCompile:
     def test_compile_returns_compiled_graph(self, registry):
-        registry = registry.with_nodes([echo])
+        registry = with_added(registry, echo)
         nodes = [
             GraphNode(id="n1", type="echo", version=1, bindings={"text": Static("hello")}),
             GraphNode(id="n2", type="echo", version=1, bindings={"text": From('n1.result')}),
@@ -86,14 +87,14 @@ class TestCompile:
         assert not compiled.is_runnable
 
     def test_compile_edge_from_a_missing_node_is_a_problem(self, registry):
-        registry = registry.with_nodes([echo])
+        registry = with_added(registry, echo)
         nodes = [GraphNode(id="n1", type="echo", version=1, bindings={"text": From("n_missing.result")})]
 
         compiled = CompiledGraph.from_graph(Graph(nodes=nodes), registry)
         assert [p.type for p in compiled.problems] == ["unknown_ref_node"]
 
     def test_compile_cycle_is_a_problem_on_each_node_in_it(self, registry):
-        registry = registry.with_nodes([echo])
+        registry = with_added(registry, echo)
         nodes = [
             GraphNode(id="n1", type="echo", version=1, bindings={"text": From('n2.result')}),
             GraphNode(id="n2", type="echo", version=1, bindings={"text": From('n1.result')}),

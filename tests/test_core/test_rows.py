@@ -20,7 +20,6 @@ from conductor import (
     Input,
     InvalidCallError,
     NodeError,
-    NodeRegistry,
     Output,
     Param,
     Policy,
@@ -30,7 +29,7 @@ from conductor import (
     node,
 )
 from conductor.widgets import Textarea
-from helpers import events_of
+from helpers import events_of, registry_of, with_added
 
 from test_core.embedded import embedded_graph_node
 
@@ -135,7 +134,7 @@ def columns(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("
 
 
 def _registry():
-    return NodeRegistry([docs, upper_node, pair, lines_node, join_node, long_only, fails_on, slow, wide, columns])
+    return registry_of(docs, upper_node, pair, lines_node, join_node, long_only, fails_on, slow, wide, columns)
 
 
 def _docs(texts):
@@ -468,7 +467,7 @@ def test_computed_inputs_reach_the_node_as_keywords():
     def template_node(template: Annotated[Txt, Param(title="Template", connectable=False, widget=Textarea())] = Txt(""), **values: Txt) -> Out:
         return Txt(re.sub(r"\{(\w+)\}", lambda m: str(values[m.group(1)]), template))
 
-    registry = _registry().with_nodes([template_node])
+    registry = with_added(_registry(), template_node)
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[
             _docs("Ida,Bo"),
@@ -536,7 +535,7 @@ def test_a_run_that_may_ask_says_so_and_still_declares_its_outputs():
 
 
 def _registry_with_asks(*extra):
-    return _registry().with_nodes([ask_node, *extra])
+    return with_added(_registry(), ask_node, *extra)
 
 
 def test_a_node_that_asks_ends_the_leg_pending_with_its_question_named_by_address():

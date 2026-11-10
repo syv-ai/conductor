@@ -17,6 +17,7 @@ from conductor import (
     Table,
     node,
 )
+from helpers import with_added
 
 from test_core.test_table import Num, Txt
 from test_core.test_table_runs import CSV, Contacts, Text, _registry
@@ -43,7 +44,7 @@ def bare(text: Text = Txt("")) -> Annotated[Table, Result(title="Anything")]:
 
 
 def _compiled(*nodes: GraphNode, extra: tuple[type[NodeDefinition], ...] = ()) -> CompiledGraph:
-    registry = _registry().with_nodes(extra)
+    registry = with_added(_registry(), *extra)
     return CompiledGraph.from_graph(Graph(nodes=list(nodes)), registry)
 
 

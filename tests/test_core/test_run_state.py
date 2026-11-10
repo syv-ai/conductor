@@ -30,7 +30,7 @@ from conductor import (
     node,
 )
 from conductor.widgets import Textarea
-from helpers import events_of
+from helpers import events_of, registry_of
 from pydantic import ValidationError
 
 
@@ -80,7 +80,7 @@ def ask(text: In = Txt("")) -> Out | AskPerson:
 
 
 def _registry() -> NodeRegistry:
-    return NodeRegistry([split_node, upper_node, wrap, echo, ask])
+    return registry_of(split_node, upper_node, wrap, echo, ask)
 
 
 def _compiled(nodes: list[GraphNode]) -> CompiledGraph:
@@ -234,7 +234,7 @@ def test_a_return_of_the_wrong_type_fails_the_returning_node_with_invalid_output
     def wrong(text: In = Txt("")) -> Out:
         return 42  # type: ignore[return-value]
 
-    reg = NodeRegistry([wrong, upper_node])
+    reg = registry_of(wrong, upper_node)
     compiled = CompiledGraph.from_graph(Graph(nodes=[
         GraphNode(id="w", type="wrong", version=1, bindings={"text": Static("x")}),
         GraphNode(id="up", type="upper", version=1, bindings={"text": _edge("w")}),
@@ -335,7 +335,7 @@ def test_a_unit_whose_second_output_is_invalid_writes_nothing():
     def splits(text: In = Txt("")) -> Both:
         return Both(head=Txt("h"), parts=3)  # type: ignore[arg-type]
 
-    reg = NodeRegistry([splits])
+    reg = registry_of(splits)
     compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="s", type="splits", version=1, bindings={"text": Static("x")})]), reg)
 
     state = compiled.run_sync()
@@ -379,7 +379,7 @@ def test_a_static_hashes_as_its_type_writes_it_not_as_the_author_spelled_it():
         return Num(n / 2)
 
     def fingerprint(value):
-        reg = NodeRegistry([half])
+        reg = registry_of(half)
         return CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="h", type="half", version=1, bindings={"n": Static(value)})]), reg).node("h").fingerprint
 
     assert fingerprint(2) == fingerprint(2.0) == fingerprint(Num(2))
@@ -398,7 +398,7 @@ def test_series_outputs_of_two_lengths_both_land_each_on_its_own_index():
     def uneven(text: In = Txt("")) -> Both:
         return Both(a=[Txt("x")], b=[Txt("y"), Txt("z")])
 
-    reg = NodeRegistry([uneven])
+    reg = registry_of(uneven)
     compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="u", type="uneven", version=1, bindings={"text": Static("x")})]), reg)
 
     ending = list(events_of(compiled))[-1].state

@@ -38,8 +38,9 @@ from conductor import (
     Table,
     node,
 )
+from conductor._internal.errors import NodeDeclarationError
 from conductor.widgets import Textarea
-from helpers import answer, read_table
+from helpers import answer, read_table, registry_of, with_added
 
 
 class Txt(DType, str):
@@ -234,10 +235,7 @@ def lookup(x: Wire, t: Annotated[Contacts, Param(title="T")]) -> TableOut:
     return t.filter(pl.col("name") == "a")  # type: ignore[return-value]
 
 
-REGISTRY = NodeRegistry([
-    source, split, upper, join, two, lister, route, num, num_in, frame_node, frame_in, anything, pass_table, merged, module_frame,
-    csv, rebuild, none_left, reference, lookup, ask, ask_table, ask_rows, ask_choice_default, ask_choice, ask_default_skipped, ask_bad_widget, ask_slow_first,
-])
+REGISTRY = registry_of(source, split, upper, join, two, lister, route, num, num_in, frame_node, frame_in, anything, pass_table, merged, module_frame, csv, rebuild, none_left, reference, lookup, ask, ask_table, ask_rows, ask_choice_default, ask_choice, ask_default_skipped, ask_bad_widget, ask_slow_first)
 
 
 def compiled_of(*nodes: GraphNode, registry: NodeRegistry = REGISTRY) -> CompiledGraph:
@@ -621,7 +619,7 @@ def test_a_blank_row_leaves_every_series_on_its_index_so_a_zip_stays_paired():
     def zipped(a: Annotated[Series[Txt], Param(title="A")], b: Annotated[Series[Txt | None], Param(title="B")]) -> Out:
         return Txt(str(list(zip(a, b, strict=True))))
 
-    registry = REGISTRY.with_nodes([blank_some, keep_all, zipped])
+    registry = with_added(REGISTRY, blank_some, keep_all, zipped)
     compiled = compiled_of(n("a", "blank_some", k=Static("1,_,3")), n("b", "keep_all", k=From("a.result")), n("z", "zipped", a=From("a.result"), b=From("b.result")), registry=registry)
     state = compiled.run_sync()
     assert compiled.results(state)["z"]["result"] == str([("1", "1?"), ("3", "3?")])
@@ -646,7 +644,7 @@ def test_a_reduction_waits_for_the_unit_above_the_rows_for_a_skip_above_its_grou
         CALLS.append(("held", str(text)))
         return Txt(text)
 
-    registry = REGISTRY.with_nodes([held])
+    registry = with_added(REGISTRY, held)
     compiled = compiled_of(
         n("docs", "source", text=Static(["a", "slow-no"])), n("g", "route", text=From("docs.result")), n("l", "split", text=From("g.yes")),
         n("h", "held", text=From("l.result")), n("j", "join", texts=From("h.result")), registry=registry,
@@ -681,7 +679,7 @@ def test_a_decision_over_a_whole_column_gates_what_hangs_off_the_branch_not_take
     compiled = compiled_of(
         n("docs", "split", text=Static("a,b")), n("d", "decide", texts=From("docs.result")),
         n("full", "join", texts=From("d.full")), n("up", "upper", text=From("d.empty")), n("after", "join", texts=From("up.result")),
-        registry=REGISTRY.with_nodes([decide]),
+        registry=with_added(REGISTRY, decide),
     )
     state = compiled.run_sync()
     results = compiled.results(state)
@@ -707,7 +705,7 @@ def test_a_skip_above_an_empty_group_hides_what_the_reduction_returned():
 def test_without_covers_the_nodes_of_an_embedded_graph():
     compiled, state = _waiting_run()
     inner = NodeDefinition.from_compiled_graphs("inner", title="I", description="d", category="t", versions={1: compiled_of(n("check", "source", text=Static("x")))})
-    outer = compiled_of(n("approve", "inner"), registry=REGISTRY.with_nodes([inner]))
+    outer = compiled_of(n("approve", "inner"), registry=with_added(REGISTRY, inner))
     done = outer.run_sync()
     assert done.nodes["approve/check"].finished_units is not None
     assert "approve/check" not in done.without_nodes("approve").nodes
@@ -721,14 +719,13 @@ def test_an_alternative_taking_both_ways_of_one_decision_can_never_hold():
     assert compiled.field(Ref("m.result")).condition == NEVER
 
 
-def test_a_loaded_definition_cannot_replace_one_already_registered():
+def test_a_loaded_definition_cannot_take_the_id_of_one_already_registered():
     @node("source", title="other", description="d", category="t")
     def other(text: In = Txt("")) -> Out:
         return Txt("not the built-in")
 
-    registry = REGISTRY.with_nodes([other])
-    compiled = compiled_of(n("s", "source", text=Static("x")), registry=registry)
-    assert compiled.results(compiled.run_sync())["s"]["result"] == "x"
+    with pytest.raises(NodeDeclarationError, match="two nodes have the id 'source'"):
+        with_added(REGISTRY, other)
 
 
 # -- rows that repeat an id under different parents -------------------------------------
@@ -765,7 +762,7 @@ def test_which_parent_a_repeated_id_lands_on_does_not_depend_on_which_finished_f
         time.sleep(0.05 if x == "p1" else 0)
         return t
 
-    registry = REGISTRY.with_nodes([pass_slow_first])
+    registry = with_added(REGISTRY, pass_slow_first)
     compiled = compiled_of(
         n("s", "source", text=Static(["p1", "p2"])), n("k", "reference"),
         n("h", "pass_slow_first", x=From("s.result"), t=From("k.result")), n("u", "upper", text=From("h.result.name")),
@@ -800,7 +797,7 @@ def ask_list(k: In = Txt("")) -> Parts | AskPerson:
 
 
 def test_a_reader_left_with_no_rows_by_an_answer_is_in_the_results_before_the_next_leg():
-    compiled = compiled_of(n("a", "ask_list"), n("u", "upper", text=From("a.result")), registry=REGISTRY.with_nodes([ask_list]))
+    compiled = compiled_of(n("a", "ask_list"), n("u", "upper", text=From("a.result")), registry=with_added(REGISTRY, ask_list))
     answered = answer(compiled, compiled.run_sync(), {"a": {"result": []}})
     assert compiled.results(answered)["u"]["result"]["values"] == []
     assert answered.nodes["u"].finished_units == []

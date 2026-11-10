@@ -10,11 +10,13 @@ A node is a function; its type hints are its interface, so `def greet(name: str)
 ```python
 from typing import Annotated
 
-from conductor import NodeRegistry, Param, node
+from conductor import NodeRegistry, Param
 from conductor.widgets import NumberWidget, TextWidget
 
+registry = NodeRegistry(category="text")   # its nodes' category, unless one sets its own
 
-@node("greet", category="text")         # the registry id; a graph pins it with a version
+
+@registry.node("greet")                 # the id; a graph pins it with a version
 def greet(
     name: Annotated[str, Param(title="Name", widget=TextWidget())],
     times: Annotated[int, Param(title="Times", widget=NumberWidget(integer_only=True))] = 1,
@@ -24,7 +26,7 @@ def greet(
 
 
 assert greet("Ida") == "hello Ida"    # a node is called like its function
-registry = NodeRegistry([greet])
+assert registry["greet"] is greet
 ```
 
 ## Rules, checked by `@node`
@@ -49,7 +51,7 @@ registry = NodeRegistry([greet])
 | Fields that depend on configuration | `compute_added_inputs=` / `compute_outputs=`: plain functions whose parameters name the inputs they read; `ArrivingType` gives the type on an edge |
 | Every connected name as an input | `**inputs: AsItArrives`, or `**values: float` to run per row |
 
-One `NodeRegistry` per host, built whole; two definitions under one id raise. `conductor_nodes.registry()` holds the standard nodes.
+`@registry.node` takes `@node`'s arguments and adds the node; plain `@node` registers nothing, and `registry.add(node_a, node_b)` adds such nodes later. A module keeps a registry of its own (`NodeRegistry(category=, tags=, extra=)` set its nodes' defaults) and the host joins them with `registry.add_subregistry(module_registry)`. Two definitions under one id raise; `replace` and `remove` change one, and `registry.filter(predicate)` is a narrower registry. `extra=` is your own JSON about a node, which conductor keeps and never reads.
 
 ## Common mistakes
 

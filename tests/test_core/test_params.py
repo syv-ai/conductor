@@ -31,7 +31,7 @@ from conductor import (
 )
 from conductor._internal.node_signature import read_signature
 from conductor.widgets import NumberWidget, Textarea
-from helpers import events_of
+from helpers import events_of, registry_of
 
 
 class Txt(DType, str):
@@ -140,7 +140,7 @@ def docs(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt(""))
 
 
 def _registry() -> NodeRegistry:
-    reg = NodeRegistry([docs, skip_short, ask_each])
+    reg = registry_of(docs, skip_short, ask_each)
     return reg
 
 

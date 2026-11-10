@@ -9,15 +9,17 @@
 </p>
 
 ```python
-from conductor import CompiledGraph, From, Graph, NodeRegistry, node
+from conductor import CompiledGraph, From, Graph, NodeRegistry
+
+registry = NodeRegistry()
 
 
-@node("upper")
+@registry.node("upper")
 def upper(text: str) -> str:
     return text.upper()
 
 
-@node("exclaim")
+@registry.node("exclaim")
 def exclaim(text: str, times: int = 1) -> str:
     return text + "!" * times
 
@@ -26,24 +28,22 @@ graph = Graph(nodes=[
     upper.graph_node("a", text="hello"),
     exclaim.graph_node("b", text=From("a.result"), times=2),
 ])
-compiled = CompiledGraph.from_graph(graph, NodeRegistry([upper, exclaim]))
+compiled = CompiledGraph.from_graph(graph, registry)
 
 state = compiled.run_sync()  # in async code: await compiled.run()
 print(compiled.outputs(state))  # {'b.result': 'HELLO!!'}
 ```
 
-A node is a function, and its type hints are its interface. The same hints drive validation, the run and the palette a visual editor shows. `node.graph_node(...)` places a node: the first argument is its id in the graph, and a type checker reads the rest as the function's own parameters. A plain value is typed in; `From("a.result")` is an edge. The result is a plain `GraphNode`, the form a graph is stored in. Write `text=OPEN` for an input left open for the caller, or for a value the run supplies.
+A node is a function, and its type hints are its interface. The same hints drive validation, the run and the palette a visual editor shows. A registry is what a host offers: `@registry.node` declares a node and adds it. `node.graph_node(...)` places a node: the first argument is its id in the graph, and a type checker reads the rest as the function's own parameters. A plain value is typed in; `From("a.result")` is an edge. The result is a plain `GraphNode`, the form a graph is stored in. Write `text=OPEN` for an input left open for the caller, or for a value the run supplies.
 
 The core has no web framework, database or auth in it. It depends on pydantic and polars.
 
 ## Install
 
-Python 3.12+. Three packages, released together at one version:
+Python 3.12+:
 
 ```bash
-uv add syv-conductor                # the engine: import conductor
-uv add syv-conductor-nodes          # standard nodes: import conductor_nodes
-uv add syv-conductor-providers      # a Mermaid drawing: import conductor_providers
+uv add syv-conductor                # import conductor
 ```
 
 To work on the repository:
@@ -74,7 +74,9 @@ import io
 from typing import TypedDict
 
 import polars as pl
-from conductor import CompiledGraph, From, Graph, NodeRegistry, Series, Table, node
+from conductor import CompiledGraph, From, Graph, NodeRegistry, Series, Table
+
+registry = NodeRegistry()
 
 
 class Contact(TypedDict):
@@ -82,17 +84,17 @@ class Contact(TypedDict):
     email: str
 
 
-@node("read-csv")
+@registry.node("read-csv")
 def read_csv(text: str) -> Table[Contact]:
     return pl.read_csv(io.StringIO(text))
 
 
-@node("domain")
+@registry.node("domain")
 def domain(email: str) -> str:
     return email.split("@")[1]
 
 
-@node("count")
+@registry.node("count")
 def count(values: Series[str]) -> int:
     return len(values)
 
@@ -103,7 +105,7 @@ graph = Graph(nodes=[
     domain.graph_node("domain", email=From("csv.result.email")),
     count.graph_node("how_many", values=From("domain.result")),
 ])
-compiled = CompiledGraph.from_graph(graph, NodeRegistry([read_csv, domain, count]))
+compiled = CompiledGraph.from_graph(graph, registry)
 results = compiled.results(compiled.run_sync())
 print(results["domain"]["result"]["values"])    # ['a.dk', 'b.dk']
 print(results["how_many"]["result"])            # 2
@@ -128,9 +130,11 @@ A leg yields `run_start`, `node_start`, `node_progress`, `node_complete`, `node_
 
 ## Concepts
 
-**Nodes.** `@node("id")` wraps a plain function and returns a frozen, callable `NodeDefinition`. It registers nothing, so `upper("a")` is the unit test. The title defaults to the function's name and the description to its docstring. A parameter is `text: str`, or `Annotated[str, Param(title=..., widget=...)]` when a person needs to read more. A default makes it optional, and `Param(connectable=False)` closes it to edges. `-> str` is one output named `result`, a frozen dataclass is one output per field, and `-> None` declares none. The engine calls the function in a worker thread. `@node` checks the function, so a mistake fails at import.
+**Nodes.** `@node("id")` wraps a plain function and returns a frozen, callable `NodeDefinition`. It registers nothing, so `upper("a")` is the unit test; `@registry.node("id")` takes the same arguments and adds the node to a registry too. The title defaults to the function's name and the description to its docstring. A parameter is `text: str`, or `Annotated[str, Param(title=..., widget=...)]` when a person needs to read more. A default makes it optional, and `Param(connectable=False)` closes it to edges. `-> str` is one output named `result`, a frozen dataclass is one output per field, and `-> None` declares none. The engine calls the function in a worker thread. `@node` checks the function, so a mistake fails at import.
 
 **Types.** `str`, `int`, `float`, `bool`, `date`, `datetime` and a pydantic model travel on edges as they are. `Series[X]` says a field holds many values of `X`: a `Sequence[X]` to a type checker, a plain list to the node. A `list[X]` stays one value. `Table[Contact]` is a whole table whose columns a `TypedDict` names, and a `polars.DataFrame` at run time and to a type checker. A list of something you only type in, `list[Branch]`, closes its input. Write `class Text(DType, str)` with an `id` only for a type of your own: one whose edges stay among its own, one a palette names, one that formats itself. A subtype lands wherever its parent does. A registry holds the types its nodes declare plus the `types` a host names, and `target.accepts(source)` decides whether an edge may land.
+
+**Registries.** A `NodeRegistry` is the nodes a host offers, by id: `"upper" in registry`, `registry["upper"]`, and looping yields the definitions. `registry.add(upper, shout)` adds plain `@node`s, and a second node under one id raises; `replace` and `remove` change one. `registry.add_subregistry(text_nodes)` copies another registry's nodes in, so each module can keep a registry of its own and the host adds them at the top. `NodeRegistry(category="text", tags=["builtin"], extra={...})` sets defaults for every node that enters: tags add up, outermost first, and the node's own `category` and `extra` keys win. `extra` is the host's own JSON about a node, kept and described, never read by conductor. `registry.filter(lambda definition: ...)` is a new registry of the nodes kept, say the ones one customer may place.
 
 **Graphs and bindings.** A graph is its nodes. Each input holds at most one binding: `From("node.output")` is an edge, `Static(value)` is a typed-in value, and no binding means the declared default. A saved graph embedded as a node is wired by the names it offers, the bare name where unique and the address on a clash; what's inside stays private. A `Graph` saves as JSON with pydantic's own `model_dump_json`.
 
@@ -165,15 +169,18 @@ def route(text: str) -> Routed:
 **A person in the loop.** A node returns `AskPerson`, annotated `-> X | AskPerson`, and its declared outputs are what is asked. The rest of the graph runs on and the state ends `waiting`, each waiting unit and its questions in `state.waiting`.
 
 ```python
-from conductor import AskPerson, CompiledGraph, Graph, NodeRegistry, node
+from conductor import AskPerson, CompiledGraph, Graph, NodeRegistry
 
 
-@node("approve")
+registry = NodeRegistry()
+
+
+@registry.node("approve")
 def approve(invoice: str) -> str | AskPerson:
     return AskPerson(prompt=f"Approve {invoice}?")
 
 
-compiled = CompiledGraph.from_graph(Graph(nodes=[approve.graph_node("approve", invoice="INV-1")]), NodeRegistry([approve]))
+compiled = CompiledGraph.from_graph(Graph(nodes=[approve.graph_node("approve", invoice="INV-1")]), registry)
 paused = compiled.run_sync()                                                   # paused.status == "waiting"
 answered = compiled.answer(paused, {unit.id: {"result": "yes"} for unit in paused.waiting})  # checks them; no node runs
 state = compiled.run_sync(answered)
@@ -189,11 +196,9 @@ state = compiled.run_sync(answered)
 
 **Widgets.** A widget is the control a person edits an input with: `TextWidget`, `Textarea`, `Dropdown`, `NumberWidget`, `Switch`, `FileUpload` and more. Each is a pydantic model with a `type`. No type has a default widget, so an input names its own.
 
-## Standard nodes and providers
+## Serving runs
 
-`conductor_nodes.registry(categories=[...])` builds a registry of the standard nodes (`text`, `math`, `logic`, `control`, `json`, `regex`), declared in plain Python types and `conductor_nodes.types.Json`. `conductor_nodes.nodes()` lists them for a registry of your own.
-
-`conductor_providers.mermaid.flowchart(compiled)` draws a compiled graph. To serve runs over HTTP, copy [`docs/serving-runs.md`](docs/serving-runs.md) onto your own FastAPI application: start, follow, read, answer and cancel.
+To serve runs over HTTP, copy [`docs/serving-runs.md`](docs/serving-runs.md) onto your own FastAPI application: start, follow, read, answer and cancel.
 
 ## Learn more
 
@@ -207,7 +212,7 @@ state = compiled.run_sync(answered)
 
 ## Versioning
 
-Conductor follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The public API is three modules, `conductor`, `conductor.widgets` and `conductor.events`, each listing its names in `__all__`, plus the `conductor_nodes` and `conductor_providers` packages. Anything else may change in any release. A breaking change to the public API ships in a major release.
+Conductor follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The public API is three modules, `conductor`, `conductor.widgets` and `conductor.events`, each listing its names in `__all__`. Anything else may change in any release. A breaking change to the public API ships in a major release.
 
 ## License
 

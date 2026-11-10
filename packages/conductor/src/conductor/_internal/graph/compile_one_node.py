@@ -70,7 +70,7 @@ def compile_one_node(node: GraphNode, progress: CompileProgress, registry: NodeR
     ``runs_under``, on a node inside an embedded graph, is the row the graph node runs on."""
     problems = progress.problems_found_early.pop(node.id, [])
     if node.type not in registry:
-        problems.append(make_problem("unknown_node_type", node.id, node_type=node.type, choices=", ".join(sorted(registry)) or "none"))
+        problems.append(make_problem("unknown_node_type", node.id, node_type=node.type, choices=", ".join(sorted(definition.id for definition in registry)) or "none"))
         return _record_compiled_node(progress, node, problems)
     definition = registry[node.type]
     version: Any = definition.versions.get(node.version)

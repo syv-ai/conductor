@@ -23,7 +23,7 @@ from conductor import (
     node,
 )
 from conductor.widgets import NumberWidget, Textarea
-from helpers import stream_of
+from helpers import registry_of, stream_of
 
 
 class Txt(DType, str):
@@ -88,7 +88,7 @@ def decide(
 
 
 def _registry(*extra: type[NodeDefinition]) -> NodeRegistry:
-    return NodeRegistry([echo, record, always_fail, decide, tally, *extra])
+    return registry_of(echo, record, always_fail, decide, tally, *extra)
 
 
 async def _events(compiled) -> list[dict]:

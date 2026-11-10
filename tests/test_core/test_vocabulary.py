@@ -1,8 +1,8 @@
 """A registry owns its type vocabulary.
 
 Which value types exist is the host's decision, and the host makes it on
-its ``NodeRegistry``: the types its nodes declare, plus what it adds with
-``add_types``. Nothing is process-wide. So a notebook cell that declares
+its ``NodeRegistry``: the types its nodes declare, plus the ``types`` it
+names. Nothing is process-wide. So a notebook cell that declares
 a type runs twice without complaint, two libraries in one process can
 each name a ``text``, one id claimed by two classes on one registry is
 refused where the second arrives, and "where may a value of this type
@@ -17,16 +17,8 @@ import re
 from typing import Annotated, Any
 
 import pytest
-from conductor import (
-    DType,
-    NodeDeclarationError,
-    NodeRegistry,
-    Param,
-    Result,
-    Series,
-    TypeDescription,
-    node,
-)
+from conductor import DType, NodeRegistry, Param, Result, Series, TypeDescription, node
+from conductor._internal.errors import NodeDeclarationError
 from conductor._internal.registry import RegistryDescription
 from conductor.widgets import Textarea
 
@@ -118,12 +110,13 @@ def test_two_classes_with_one_id_in_one_call_are_refused_together():
         return AnotherText(text)
 
     with pytest.raises(NodeDeclarationError, match="'text'"):
-        NodeRegistry([echo])
+        NodeRegistry().add(echo)
 
 
 def test_register_adds_the_types_a_node_declares():
     """A scalar is a word, a ``Series[X]`` contributes ``X``, and ``Any`` and a closed input's plain type contribute nothing."""
-    registry = NodeRegistry([shout])
+    registry = NodeRegistry()
+    registry.add(shout)
 
     assert registry.types == {"text": Text, "number": Number}
 
@@ -133,9 +126,10 @@ def test_a_collision_through_register_names_both_classes_and_files_nothing():
     def whisper(text: Annotated[AnotherText, Param(title="Text", widget=Textarea())]) -> Annotated[AnotherText, Result(title="Quiet")]:
         return AnotherText(text.lower())
 
-    registry = NodeRegistry([shout])
+    registry = NodeRegistry()
+    registry.add(shout)
     with pytest.raises(NodeDeclarationError) as raised:
-        registry = registry.with_nodes([whisper])
+        registry.add(whisper)
 
     assert f"{Text.__module__}.Text" in str(raised.value)
     assert f"{AnotherText.__module__}.AnotherText" in str(raised.value)
@@ -153,28 +147,30 @@ def test_a_series_is_not_a_word():
         NodeRegistry(types=[DType])
     registry = NodeRegistry()
 
-    registry = registry.with_nodes([shout])
+    registry.add(shout)
     assert Series not in registry.types.values()
 
 
-def test_the_vocabulary_is_read_only_and_kept_by_with_nodes():
-    registry = NodeRegistry([shout])
+def test_the_vocabulary_is_read_only_and_kept_by_filter():
+    registry = NodeRegistry(types=[Score])
+    registry.add(shout)
 
     with pytest.raises(TypeError):
         registry.types["score"] = Score  # type: ignore[index]
 
-    assert registry.with_nodes([]).types == registry.types
+    assert registry.filter(lambda definition: True).types == registry.types
+    assert registry.filter(lambda definition: False).types == {"score": Score}
 
 
 # --- accepted_as -------------------------------------------------------------
 
 
 def test_accepted_as_is_answered_over_the_registrys_words_self_included():
-    both = NodeRegistry([], types=[Number, Score])
+    both = NodeRegistry(types=[Number, Score])
     assert both.accepted_as(Number) == ("number", "score")
     assert both.accepted_as(Score) == ("score",)
 
-    alone = NodeRegistry([], types=[Number])
+    alone = NodeRegistry(types=[Number])
     assert alone.accepted_as(Number) == ("number",)
 
 
@@ -187,7 +183,7 @@ def test_a_bug_in_a_types_accepts_is_not_swallowed():
         def accepts(cls, source: Any) -> bool:
             raise TypeError("a bug in accepts")
 
-    registry = NodeRegistry([], types=[Text, Broken])
+    registry = NodeRegistry(types=[Text, Broken])
     with pytest.raises(TypeError, match="a bug in accepts"):
         registry.accepted_as(Text)
 
@@ -201,7 +197,8 @@ def test_a_type_record_is_its_id():
 
 
 def test_describe_is_the_palette_nodes_and_vocabulary():
-    registry = NodeRegistry([shout], types=[Score])
+    registry = NodeRegistry(types=[Score])
+    registry.add(shout)
 
     described = registry.describe()
 

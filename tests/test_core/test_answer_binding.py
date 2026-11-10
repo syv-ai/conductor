@@ -20,7 +20,6 @@ from conductor import (
     Graph,
     GraphNode,
     InvalidCallError,
-    NodeRegistry,
     Param,
     Result,
     RunState,
@@ -29,6 +28,7 @@ from conductor import (
     Table,
     node,
 )
+from helpers import registry_of
 
 CALLS: Counter = Counter()
 
@@ -133,10 +133,7 @@ def left_over(tag: Tag) -> Annotated[Table[Invoice], Result(title="f")]:
     return frame.filter(pl.col("amount").is_not_null()).head(3)
 
 
-registry = NodeRegistry([
-    invoices, approve, drop_who, note, lines_of, keep_ends_2, whole_table, only_big, words_of,
-    approve_word, merge_all, pass_table, upper, same_again, left_over,
-])
+registry = registry_of(invoices, approve, drop_who, note, lines_of, keep_ends_2, whole_table, only_big, words_of, approve_word, merge_all, pass_table, upper, same_again, left_over)
 
 
 def n(node_id: str, node_type: str, /, **bindings) -> GraphNode:
@@ -329,7 +326,7 @@ def test_a_reused_table_that_moved_lines_up_in_a_merge_with_what_was_called_afre
     def upper_text(text: str) -> Annotated[str, Result(name="up")]:
         return text.upper()
 
-    reg = NodeRegistry([invoices, lines_of, keep_ends_2, upper_text, merge_all])
+    reg = registry_of(invoices, lines_of, keep_ends_2, upper_text, merge_all)
 
     def graph(body: str) -> CompiledGraph:
         return CompiledGraph.from_graph(Graph(nodes=[
@@ -370,7 +367,7 @@ def test_a_table_passed_through_per_row_merges_row_by_row_without_multiplying() 
     def low_who(who: str) -> Annotated[str, Result(name="low")]:
         return who.lower()
 
-    reg = NodeRegistry([invoices, pass_table, same_again, up_who, low_who, merge_all])
+    reg = registry_of(invoices, pass_table, same_again, up_who, low_who, merge_all)
 
     compiled = CompiledGraph.from_graph(Graph(nodes=[
         n("d", "invoices", body=Static("a|1\nb|2\n")),

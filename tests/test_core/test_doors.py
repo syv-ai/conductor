@@ -4,12 +4,9 @@ Everything a caller outside the library needs is exported from one of
 these, and each lists its names in ``__all__``. The lists are pinned here
 so that adding or dropping a public name is a visible, reviewed change; a
 type checker accepts every name (``mypy --strict`` and pyright each refuse
-an import a package does not export explicitly); and the packages beside
-the core library, conductor-nodes and conductor-providers, import from
-nothing else — neither a module past a door nor a name a door does not list.
+an import a package does not export explicitly).
 """
 
-import ast
 import importlib
 import json
 import subprocess
@@ -23,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 DOORS: dict[str, list[str]] = {
     "conductor": [
-        "ALWAYS", "Answers", "ArrivingType", "AsItArrives", "AskPerson", "Binding", "BranchTaken", "CompiledField", "CompiledGraph", "CompiledNode", "CompiledNodeDescription", "ComputeHookError", "Condition", "DType", "Deprecation", "EarlierUnit", "ExternalFailure", "FieldContent", "FieldDescription", "From", "FromRun", "Graph", "GraphDescription", "GraphNode", "Input", "Interface", "InvalidCallError", "NEVER", "NodeDeclarationError", "NodeDefinition", "NodeDescription", "NodeError", "NodeRegistry", "NodeRunPlan", "NodeStatus", "NodeVersion", "OPEN", "Output", "OutputColumn", "PROBLEM_CODES", "Param", "Policy", "Problem", "Question", "ROW_ID_COLUMN", "ReceiveMode", "Ref", "RegistryDescription", "Result", "RunPlan", "RunState", "RunStatus", "SKIPPED", "Series", "Static", "Table", "TypeDescription", "Upgrade", "ValuesOnRows", "VersionDescription", "WaitingUnit", "WorkOfNode", "dependencies_of", "node", "table_with_columns", "to_jsonable", "upgrade_node",
+        "ALWAYS", "ArrivingType", "AsItArrives", "AskPerson", "BranchTaken", "CompiledGraph", "ComputeHookError", "Condition", "DType", "Deprecation", "ExternalFailure", "FieldContent", "From", "FromRun", "Graph", "GraphDescription", "GraphNode", "Input", "Interface", "InvalidCallError", "NEVER", "NodeDefinition", "NodeDescription", "NodeError", "NodeRegistry", "OPEN", "Output", "PROBLEM_CODES", "Param", "Policy", "Problem", "ROW_ID_COLUMN", "ReceiveMode", "Ref", "RegistryDescription", "Result", "RunState", "RunStatus", "SKIPPED", "Series", "Static", "Table", "TypeDescription", "Upgrade", "WaitingUnit", "dependencies_of", "node", "table_with_columns", "to_jsonable", "upgrade_node",
     ],
     "conductor.widgets": [
         "Choice", "DatePicker", "Dropdown", "FileUpload", "ListWidget", "NumberWidget", "Range", "Switch",
@@ -68,33 +65,3 @@ def test_pyright_accepts_every_name_of_every_door(tmp_path):
     )
     report = json.loads(found.stdout)
     assert report["generalDiagnostics"] == [], report["generalDiagnostics"]
-
-
-def _conductor_imports(source_root: Path) -> list[tuple[str, str]]:
-    """Every name the package under ``source_root`` imports from ``conductor``: (file, dotted name).
-
-    ``from conductor.events import Ending`` gives ``conductor.events.Ending``
-    and ``import conductor._internal.graph`` gives ``conductor._internal.graph``, so a submodule
-    reached through a door (``from conductor import graph``) is caught too.
-    """
-    found = []
-    for path in sorted(source_root.rglob("*.py")):
-        where = str(path.relative_to(ROOT))
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-            if isinstance(node, ast.ImportFrom) and node.module and node.module.split(".")[0] == "conductor":
-                found += [(where, f"{node.module}.{alias.name}") for alias in node.names]
-            if isinstance(node, ast.Import):
-                found += [(where, alias.name) for alias in node.names if alias.name.split(".")[0] == "conductor"]
-    return found
-
-
-def _through_a_door(name: str) -> bool:
-    """``name`` is a door itself, or a name one of the doors lists."""
-    module, _, attribute = name.rpartition(".")
-    return name in DOORS or attribute in DOORS.get(module, ())
-
-
-@pytest.mark.parametrize("package", ["conductor-nodes", "conductor-providers"])
-def test_the_packages_beside_the_library_import_only_the_doors(package):
-    outside = [(f, n) for f, n in _conductor_imports(ROOT / "packages" / package / "src") if not _through_a_door(n)]
-    assert outside == []

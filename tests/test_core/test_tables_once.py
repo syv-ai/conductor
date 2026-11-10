@@ -11,7 +11,6 @@ from conductor import (
     From,
     Graph,
     GraphNode,
-    NodeRegistry,
     RunState,
     Series,
     Static,
@@ -20,7 +19,7 @@ from conductor import (
 )
 from conductor._internal.execution.run_state import OutputColumn, WorkOfNode
 from conductor.events import RunEnd, UnitWaiting
-from helpers import answer
+from helpers import answer, registry_of
 from pydantic import ValidationError
 
 
@@ -56,7 +55,7 @@ def ask_with_default(key: str) -> Table | AskPerson:
     return AskPerson(defaults={"result": SOURCE[key]})
 
 
-REGISTRY = NodeRegistry([load, keep, names, approve, ask_with_default])
+REGISTRY = registry_of(load, keep, names, approve, ask_with_default)
 
 
 def _graph(*nodes: GraphNode) -> CompiledGraph:

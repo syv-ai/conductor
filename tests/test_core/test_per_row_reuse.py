@@ -21,7 +21,6 @@ from conductor import (
     Graph,
     GraphNode,
     InvalidCallError,
-    NodeRegistry,
     Param,
     Policy,
     Result,
@@ -35,7 +34,7 @@ from conductor import (
 from conductor._internal.execution.input_hash import hash_of_inputs
 from conductor._internal.execution.run_state import OutputColumn
 from conductor.events import NodeComplete, NodeProgress, NodeStart, UnitWaiting
-from helpers import answer, events_of
+from helpers import answer, events_of, registry_of
 
 from test_core.embedded import embedded_graph_node
 
@@ -142,7 +141,7 @@ def parse(contacts: str = "") -> Annotated[Table[Contact], Result(title="Contact
     return csv(rows=contacts)
 
 
-registry = NodeRegistry([csv, parse, mail, ask, export, split, per, count, doc_table, doc_table_or_fail, ask_or_fail, rate, fail_on, note_dict])
+registry = registry_of(csv, parse, mail, ask, export, split, per, count, doc_table, doc_table_or_fail, ask_or_fail, rate, fail_on, note_dict)
 
 
 def n(node_id: str, node_type: str, **bindings: Any) -> GraphNode:
@@ -247,7 +246,7 @@ def test_a_changed_node_function_is_new_work() -> None:
 
     newer = node("mail", category="test", replaces=node("mail")(mail.versions[1].body), upgrade=Upgrade(renamed_outputs={"result": "result"}))(mail_v2)
     graph = Graph(nodes=[n("c", "csv", rows=Static(BASE)), GraphNode(id="m", type="mail", version=2, bindings={"email": From("c.result.email"), "body": Static("Hej")})])
-    ending = CompiledGraph.from_graph(graph, NodeRegistry([csv, newer])).run_sync(through_json(state))
+    ending = CompiledGraph.from_graph(graph, registry_of(csv, newer)).run_sync(through_json(state))
 
     assert CALLS["mail"] == 3 and ending.nodes["m"].reused_units == 0
 
@@ -366,7 +365,7 @@ def test_a_from_run_value_is_not_part_of_what_a_unit_received() -> None:
         CALLS["via_client"] += 1
         return email
 
-    reg = NodeRegistry([csv, via_client])
+    reg = registry_of(csv, via_client)
 
     def graph(rows: str) -> CompiledGraph:
         return CompiledGraph.from_graph(Graph(nodes=[n("c", "csv", rows=Static(rows)), n("v", "via_client", email=From("c.result.email"))]), reg)
@@ -849,8 +848,8 @@ def test_a_nothing_reused_leg_reports_no_reuse() -> None:
 
 def test_inner_units_of_an_embedded_graph_are_reused_like_any_others() -> None:
     inner = (GraphNode(id="t", type="mail", version=1, bindings={"body": Static("inner")}),)
-    sub = embedded_graph_node("sub", inner, NodeRegistry([csv, mail]))
-    reg = NodeRegistry([csv, mail, sub])
+    sub = embedded_graph_node("sub", inner, registry_of(csv, mail))
+    reg = registry_of(csv, mail, sub)
 
     def graph(rows: str) -> CompiledGraph:
         return CompiledGraph.from_graph(Graph(nodes=[n("c", "csv", rows=Static(rows)), n("s", "sub", email=From("c.result.email"))]), reg)

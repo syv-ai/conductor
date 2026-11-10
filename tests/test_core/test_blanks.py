@@ -14,8 +14,6 @@ from conductor import (
     Graph,
     GraphNode,
     Input,
-    NodeDeclarationError,
-    NodeRegistry,
     Output,
     Param,
     Result,
@@ -25,10 +23,11 @@ from conductor import (
     node,
     table_with_columns,
 )
+from conductor._internal.errors import NodeDeclarationError
 from conductor._internal.node_signature import read_signature
 from conductor.events import NodeComplete, NodeSkipped
 from conductor.widgets import Textarea
-from helpers import answer, events_of
+from helpers import answer, events_of, registry_of
 
 
 class Txt(DType, str):
@@ -110,7 +109,7 @@ def make_table(email: Txt) -> Table:
 
 
 def _registry(*more):
-    return NodeRegistry([rows, rows2, plain, takes, branched, after_branch, splits, count, join, keep, zipped, make_table, *more])
+    return registry_of(rows, rows2, plain, takes, branched, after_branch, splits, count, join, keep, zipped, make_table, *more)
 
 
 def _results(*nodes, registry=None):

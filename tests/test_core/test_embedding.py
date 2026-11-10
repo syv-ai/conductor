@@ -48,6 +48,7 @@ from conductor import (
     node,
 )
 from conductor.widgets import Switch, Textarea
+from helpers import registry_of, with_added
 
 FIXTURE = Path(__file__).parent / "fixtures" / "embedded_expected.json"
 RESULTS = Path(__file__).parent / "fixtures" / "embedded_expected_results.json"
@@ -418,7 +419,7 @@ SCENARIOS: dict[str, Scenario] = {
 
 
 def _plain_registry() -> NodeRegistry:
-    return NodeRegistry(PLAIN)
+    return registry_of(*PLAIN)
 
 
 def _definition(type_id: str, version: Any) -> NodeDefinition:
@@ -429,7 +430,7 @@ def _registry(scenario: Scenario) -> NodeRegistry:
     """The plain nodes, then each inner graph compiled once and offered as a definition, innermost first."""
     registry = _plain_registry()
     for type_id, nodes in scenario.graphs:
-        registry = registry.with_nodes([_definition(type_id, CompiledGraph.from_graph(Graph(nodes=list(nodes)), registry))])
+        registry = with_added(registry, _definition(type_id, CompiledGraph.from_graph(Graph(nodes=list(nodes)), registry)))
     return registry
 
 
@@ -531,7 +532,7 @@ def _broken_graph_registry():
         N(id="a", type="holder", version=1),
         N(id="b", type="upper", version=1, bindings={"text": From("a.nope")}),
     ]), _plain_registry())
-    return broken, _plain_registry().with_nodes([_definition("broken", broken)])
+    return broken, with_added(_plain_registry(), _definition("broken", broken))
 
 
 def test_a_broken_graph_is_one_problem_on_the_graph_node():
@@ -588,7 +589,7 @@ def test_a_graph_that_cannot_run_is_refused_even_when_every_node_is_ready():
     ]), _plain_registry())
     assert not graph.is_runnable
     compiled = CompiledGraph.from_graph(
-        Graph(nodes=[N(id="emb", type="bad", version=1)]), _plain_registry().with_nodes([_definition("bad", graph)]),
+        Graph(nodes=[N(id="emb", type="bad", version=1)]), with_added(_plain_registry(), _definition("bad", graph)),
     )
 
     assert [(p.type, p.ctx) for p in compiled.problems] == [("embedded_graph_broken", {"graph": "Graph bad", "problems": 1})]
@@ -603,7 +604,7 @@ def test_a_graph_whose_required_input_is_left_empty_can_be_placed():
 
 def _embedded_alone(inner: tuple[GraphNode, ...], **bindings: Any) -> CompiledGraph:
     graph = CompiledGraph.from_graph(Graph(nodes=list(inner)), _plain_registry())
-    registry = _plain_registry().with_nodes([_definition("g", graph)])
+    registry = with_added(_plain_registry(), _definition("g", graph))
     return CompiledGraph.from_graph(Graph(nodes=[N(id="emb", type="g", version=1, bindings=bindings)]), registry)
 
 
@@ -651,8 +652,8 @@ def as_it_arrives(**thing: AsItArrives) -> Annotated[Any, Result(title="Thing")]
 
 def test_a_value_inside_a_graph_run_per_row_arrives_as_itself_on_an_as_it_arrives_input():
     """One value per run of the graph: a hook is told its type, and the call gets it at its own row."""
-    inner = CompiledGraph.from_graph(Graph(nodes=[N(id="h", type="holder", version=1), N(id="kw", type="as_it_arrives", version=1, bindings={"thing": From("h.result")})]), _plain_registry().with_nodes([as_it_arrives]))
-    registry = _plain_registry().with_nodes([as_it_arrives, _definition("g", inner)])
+    inner = CompiledGraph.from_graph(Graph(nodes=[N(id="h", type="holder", version=1), N(id="kw", type="as_it_arrives", version=1, bindings={"thing": From("h.result")})]), with_added(_plain_registry(), as_it_arrives))
+    registry = with_added(_plain_registry(), as_it_arrives, _definition("g", inner))
     compiled = CompiledGraph.from_graph(Graph(nodes=[N(id="docs", type="docs", version=1), N(id="emb", type="g", version=1, bindings={"value": From("docs.result")})]), registry)
 
     assert compiled.is_runnable, compiled.problems

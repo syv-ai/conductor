@@ -24,7 +24,7 @@ from conductor import (
 from conductor._internal.index import Index
 from conductor._internal.table import MergeSource, merge_tables_on_row_ids
 from conductor.widgets import Textarea
-from helpers import events_of
+from helpers import events_of, with_added
 
 from test_core.embedded import embedded_graph_node
 from test_core.test_table import Num, Txt
@@ -44,7 +44,7 @@ def only_with_email(contacts: Annotated[Contacts, Param(title="Contacts")]) -> A
 
 
 def _registry_with(*extra: type[NodeDefinition]) -> NodeRegistry:
-    return _registry().with_nodes([export, only_with_email, *extra])
+    return with_added(_registry(), export, only_with_email, *extra)
 
 
 def _compiled(*nodes: GraphNode, registry: NodeRegistry | None = None) -> CompiledGraph:
@@ -91,7 +91,7 @@ def test_an_embedded_graph_given_the_whole_table_lands_its_result_on_the_contact
         GraphNode(id="keep", type="with-email", version=1),
         GraphNode(id="send", type="send", version=1, bindings={"email": From("keep.result.email")}),
     ), registry, "Mailer")
-    registry = registry.with_nodes([inner])
+    registry = with_added(registry, inner)
     compiled = _compiled(
         CSV,
         GraphNode(id="emb", type="mailer", version=1, bindings={"contacts": From("csv.result")}),
@@ -226,7 +226,7 @@ def test_a_table_input_inside_an_embedded_graph_merges_its_inner_sources():
         GraphNode(id="send", type="send", version=1, bindings={"email": From("csv.result.email")}),
         GraphNode(id="excel", type="export", version=1, bindings={"table": From("csv.result", "send.result")}),
     ), registry, "Sheet maker")
-    compiled = _compiled(GraphNode(id="emb", type="sheet-maker", version=1), registry=registry.with_nodes([inner]))
+    compiled = _compiled(GraphNode(id="emb", type="sheet-maker", version=1), registry=with_added(registry, inner))
 
     assert _sheet(compiled, "emb/excel")["result"].to_list() == ["sent to ida@x", "no address"]
 
@@ -266,7 +266,7 @@ def test_an_embedded_graphs_table_rows_carry_ids_in_so_nothing_is_told():
         GraphNode(id="emb", type="filter", version=1, bindings={"contacts": From("csv.result")}),
         GraphNode(id="send", type="send", version=1, bindings={"email": From("emb.result.email")}),
         GraphNode(id="excel", type="export", version=1, bindings={"table": From("csv.result", "send.result")}),
-        registry=registry.with_nodes([inner]),
+        registry=with_added(registry, inner),
     )
 
     assert compiled.problems == ()

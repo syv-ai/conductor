@@ -23,6 +23,7 @@ from conductor import (
     node,
 )
 from conductor.widgets import Textarea
+from helpers import registry_of
 
 
 class Txt(DType, str):
@@ -51,7 +52,7 @@ def shaped(mode: Annotated[Txt, Param(title="Mode", widget=Textarea())] = Txt("a
 
 
 def _registry() -> NodeRegistry:
-    registry = NodeRegistry([scale, shaped])
+    registry = registry_of(scale, shaped)
     return registry
 
 
@@ -129,11 +130,10 @@ def test_a_compiled_graph_prints_a_one_line_summary():
     assert repr(compiled) == "CompiledGraph(nodes=('s',), is_runnable=True, problems=0)"
 
 
-def test_a_registry_prints_a_call_its_constructor_accepts():
-    registry = NodeRegistry((scale, shaped))
+def test_a_registry_prints_its_nodes_each_as_its_own_repr():
+    registry = registry_of(scale, shaped)
 
-    assert registry.nodes == (scale, shaped)
-    assert repr(registry).startswith("NodeRegistry(nodes=(\n    NodeDefinition(id='scale'")
+    assert repr(registry).startswith("<NodeRegistry of 2 nodes:\n    NodeDefinition(id='scale'")
 
 
 # --- an error's text names what went wrong --------------------------------------------
@@ -196,7 +196,7 @@ def test_a_parameter_named_like_a_pydantic_model_attribute_validates_without_a_w
 
 
     graph_node = _declare(run=_run({name: Annotated[Txt, Param(title="X", widget=Textarea())]}))
-    registry = NodeRegistry((graph_node,))
+    registry = registry_of(graph_node)
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n", type="bad", version=1, bindings={name: Static("x")})]), registry)
@@ -208,7 +208,7 @@ def test_an_aliased_input_and_an_input_named_like_its_field_both_arrive():
     """``json`` and ``json_`` are two inputs, and neither value may drop the other."""
     text = Annotated[Txt, Param(title="X", widget=Textarea())]
     graph_node = _declare(run=_run({"json_": text, "json": text}))
-    registry = NodeRegistry((graph_node,))
+    registry = registry_of(graph_node)
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[GraphNode(id="n", type="bad", version=1, bindings={"json_": Static("a"), "json": Static("b")})]),
         registry,
@@ -277,11 +277,11 @@ def test_a_registry_is_a_container_of_its_nodes_by_id():
     assert "scale" in registry and "nope" not in registry
     assert len(registry) == 2
     assert registry["scale"] is scale
-    assert list(registry) == ["scale", "shaped"]
+    assert list(registry) == [scale, shaped]
 
 
 def test_a_registry_is_a_container_and_not_a_mapping():
-    """It answers ``in``, ``[]``, ``len`` and iteration over its ids, and
+    """It answers ``in``, ``[]``, ``len`` and iteration over its definitions, and
     nothing more: no ``get`` returning ``None`` for a typo, no ``items``."""
     from collections.abc import Container
 

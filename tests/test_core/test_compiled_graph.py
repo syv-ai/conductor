@@ -30,6 +30,7 @@ from conductor import (
 )
 from conductor._internal.node_signature import build_call_validator
 from conductor.widgets import Choice, Dropdown, Textarea
+from helpers import registry_of
 from pydantic import ValidationError
 
 from test_core.embedded import embedded_graph_node
@@ -125,7 +126,7 @@ def adds_hidden(value: Annotated[Txt, Param(title="Value", widget=Textarea())] =
 
 
 def _registry(*extra):
-    return NodeRegistry([echo, text_input, modes, open_sheet, renamed, *extra])
+    return registry_of(echo, text_input, modes, open_sheet, renamed, *extra)
 
 
 def _compiled(nodes, registry=None, **kw):
@@ -354,7 +355,8 @@ class CountingRegistry(NodeRegistry):
 def test_compile_looks_each_node_up_once():
     """One lookup per node the author drew; everything after reads the class compile resolved. An
     embedded graph's own nodes were looked up once, when the host compiled it."""
-    registry = CountingRegistry(nodes=(echo, Wrapped))
+    registry = CountingRegistry()
+    registry.add(echo, Wrapped)
     registry.counts = Counter()
     CompiledGraph.from_graph(Graph(nodes=[
         GraphNode(id="a", type="echo", version=1),
@@ -662,7 +664,7 @@ def test_a_default_reaches_the_node_as_its_input_s_type():
         seen.append(n)
         return Txt("")
 
-    compiled = _compiled([GraphNode(id="c", type="counted", version=1)], NodeRegistry((counted,)))
+    compiled = _compiled([GraphNode(id="c", type="counted", version=1)], registry_of(counted))
 
     assert compiled.run_sync().status == "complete"
     assert [type(n) for n in seen] == [Num] and seen == [3.0]

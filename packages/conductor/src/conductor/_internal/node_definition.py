@@ -9,8 +9,10 @@ A node is a function. Its typed signature is its interface::
 
 ``@node`` wraps the function into a value and registers nothing, so
 ``upper(Text("a"))`` is the unit test and a host decides what to offer by
-listing definitions in a ``NodeRegistry``. The title defaults to the
-function's name and the description to its docstring.
+adding definitions to a ``NodeRegistry`` (whose ``@registry.node`` takes
+the same arguments and adds the node too). The title defaults to the
+function's name and the description to its docstring. ``extra`` is the
+host's own JSON about the node, which conductor keeps and never reads.
 
 A newer version of a node names the one it replaces, itself a ``@node`` of the
 same id, and says how a node saved at that one moves here. A version's
@@ -47,7 +49,7 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Annotated, Any, Generic, ParamSpec, TypeVar, get_type_hints
 
-from pydantic import Field
+from pydantic import Field, JsonValue, TypeAdapter, ValidationError
 from pydantic.json_schema import SkipJsonSchema
 
 from conductor._internal.conductor_model import ConductorModel
@@ -342,6 +344,9 @@ class NodeDefinition(Generic[_P, _R]):
     docs: str | None
     versions: Mapping[int, NodeVersion]
     current_version: int
+    #: The host's own data about the node, as JSON: kept and described,
+    #: never read by conductor.
+    extra: Mapping[str, JsonValue]
 
     def __call__(self, *args: _P.args, **kwargs: _P.kwargs) -> _R:
         """Call the newest version's function, as a test or a host would."""
@@ -391,6 +396,7 @@ class NodeDefinition(Generic[_P, _R]):
         description: str = "",
         category: str = "",
         tags: Sequence[str] = (),
+        extra: Mapping[str, JsonValue] | None = None,
         docs: str | None = None,
         deprecation: Deprecation | None = None,
         versions: CompiledGraph | Mapping[int, CompiledGraph],
@@ -408,13 +414,14 @@ class NodeDefinition(Generic[_P, _R]):
                 for number, graph in versions.items()
             }),
             current_version=max(versions),
+            extra=MappingProxyType(checked_extra(extra)),
         )
 
     def describe(self) -> NodeDescription:
         """This definition as a ``NodeDescription``: what an editor reads."""
         return NodeDescription(
             id=self.id, title=self.title, description=self.description, category=self.category, tags=self.tags,
-            docs=self.docs,
+            extra=dict(self.extra), docs=self.docs,
             versions={
                 number: VersionDescription(
                     interface=version.interface,
@@ -436,6 +443,7 @@ def node(
     description: str | None = None,
     category: str = "",
     tags: Sequence[str] = (),
+    extra: Mapping[str, JsonValue] | None = None,
     docs: str | None = None,
     policy: Policy = Policy(),
     deprecation: Deprecation | None = None,
@@ -454,6 +462,7 @@ def node(
                 raise NodeDeclarationError("has an upgrade but replaces nothing; name the version it upgrades with replaces=", code="upgrade_without_replaces")
             if replaces is not None and (not isinstance(replaces, NodeDefinition) or replaces.id != id):
                 raise NodeDeclarationError(f"replaces {replaces!r}; a node replaces an earlier @node of its own id", code="replaces_another_node")
+            checked = checked_extra(extra)
             version = _version_of_function(function, policy, deprecation, compute_added_inputs, compute_outputs, upgrade)
             if replaces is not None:
                 _raise_if_upgrade_is_missing(replaces.versions[replaces.current_version], version)
@@ -469,9 +478,23 @@ def node(
             docs=docs,
             versions=MappingProxyType({**({} if replaces is None else replaces.versions), number: version}),
             current_version=number,
+            extra=MappingProxyType(checked),
         )
 
     return decorate
+
+
+_EXTRA = TypeAdapter(dict[str, JsonValue])
+
+
+def checked_extra(extra: Mapping[str, JsonValue] | None) -> dict[str, JsonValue]:
+    """``extra`` as a plain dict, once it is JSON; anything else raises."""
+    if extra is None:
+        return {}
+    try:
+        return _EXTRA.validate_python(dict(extra), strict=True)
+    except (ValidationError, TypeError) as wrong:
+        raise NodeDeclarationError(f"extra must be JSON, a dict of str to JSON values; got {extra!r}", code="extra_not_json") from wrong
 
 
 class VersionDescription(ConductorModel):
@@ -501,6 +524,7 @@ class NodeDescription(ConductorModel):
     description: str
     category: str
     tags: tuple[str, ...]
+    extra: dict[str, JsonValue]
     docs: str | None
     versions: dict[int, VersionDescription]
     current_version: int

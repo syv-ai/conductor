@@ -11,7 +11,6 @@ from conductor import (
     Graph,
     GraphNode,
     InvalidCallError,
-    NodeRegistry,
     Result,
     RunState,
     Series,
@@ -27,6 +26,7 @@ from conductor._internal.execution.values_of_run import (
     OneValue,
     TableAtRow,
 )
+from helpers import registry_of
 
 from test_core.test_table import Txt
 
@@ -52,7 +52,7 @@ def shout(text: Txt = Txt("")) -> Annotated[Txt, Result(title="Shouted")]:
     return Txt(text.upper())
 
 
-REGISTRY = NodeRegistry([contacts, names, shout])
+REGISTRY = registry_of(contacts, names, shout)
 
 
 def _compiled(*graph_nodes: GraphNode) -> CompiledGraph:

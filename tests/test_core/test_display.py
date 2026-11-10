@@ -63,15 +63,14 @@ def test_a_node_prints_its_tags_only_when_it_has_them():
 
 def test_a_registry_prints_its_nodes():
     registry = NodeRegistry()
-    assert repr(registry) == "NodeRegistry(nodes=())"
+    assert repr(registry) == "<NodeRegistry of 0 nodes>"
 
-    registry = registry.with_nodes([greet])
-    registry = registry.with_nodes([truncate])
+    registry.add(greet, truncate)
     assert repr(registry) == (
-        "NodeRegistry(nodes=(\n"
-        "    NodeDefinition(id='greet', title='Greeting', category='text', versions=(1,)),\n"
-        "    NodeDefinition(id='truncate', title='Truncate', category='text', versions=(1, 2)),\n"
-        "))"
+        "<NodeRegistry of 2 nodes:\n"
+        "    NodeDefinition(id='greet', title='Greeting', category='text', versions=(1,))\n"
+        "    NodeDefinition(id='truncate', title='Truncate', category='text', versions=(1, 2))\n"
+        ">"
     )
 
 

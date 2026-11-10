@@ -9,8 +9,6 @@ from conductor import (
     From,
     Graph,
     GraphNode,
-    NodeRegistry,
-    RunPlan,
     Series,
     Static,
     Table,
@@ -26,6 +24,8 @@ from conductor._internal.graph.receive_modes import (
     RowsUnder,
     reads_of_input,
 )
+from conductor._internal.graph.run_plan import RunPlan
+from helpers import registry_of
 from pydantic import TypeAdapter
 
 
@@ -72,7 +72,7 @@ def join_two_tables(left: Series[str], right: str = "x") -> str:
     return right + "+".join(left)
 
 
-REGISTRY = NodeRegistry([words, upper, join, records, typed_records, hold, join_two_tables])
+REGISTRY = registry_of(words, upper, join, records, typed_records, hold, join_two_tables)
 
 
 def _gn(node_id, node_type, **bindings):
@@ -223,7 +223,7 @@ def test_an_input_makes_no_index_of_its_own_and_still_says_it_holds_many():
             one_text.graph_node("a"), one_text.graph_node("b"),
             takes_many.graph_node("gathers", values=From("a.result", "b.result")), takes_many.graph_node("left_to_its_default"),
         ]),
-        NodeRegistry([one_text, takes_many]),
+        registry_of(one_text, takes_many),
     )
     assert "collected_onto" not in compiled.run_plan.model_dump(mode="json")["nodes"]["gathers"]["inputs"]["values"]
     for node_id in ("gathers", "left_to_its_default"):

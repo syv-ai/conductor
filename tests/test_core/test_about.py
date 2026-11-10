@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import builtins
 import importlib
-import pkgutil
 import re
 import subprocess
 import sys
@@ -104,16 +103,10 @@ def test_cli_help_flag():
 
 
 def _library_names() -> set[str]:
-    """Every name a reader can import: what the three doors list, what the sibling packages define, typing's and the builtins."""
+    """Every name a reader can import: what the three doors list, typing's and the builtins."""
     names = set(dir(typing)) | set(dir(builtins))
     for door in ("conductor", "conductor.widgets", "conductor.events"):
         names.update(importlib.import_module(door).__all__)
-    for package_name in ("conductor_nodes", "conductor_providers"):
-        package = importlib.import_module(package_name)
-        for info in pkgutil.walk_packages(package.__path__, f"{package_name}."):
-            if info.name.endswith("__main__"):
-                continue
-            names.update(dir(importlib.import_module(info.name)))
     return names
 
 
@@ -128,7 +121,7 @@ def test_every_name_the_reference_puts_in_backticks_exists():
         if re.match(r"(GET|POST) ", span):
             continue
         code = re.sub(r'"[^"]*"', "", span)
-        for dotted in re.findall(r"\bconductor(?:_nodes|_providers)?(?:\.\w+)+", code):
+        for dotted in re.findall(r"\bconductor(?:\.\w+)+", code):
             module, _, attribute = dotted.rpartition(".")
             try:
                 importlib.import_module(dotted)

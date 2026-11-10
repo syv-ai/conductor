@@ -16,7 +16,6 @@ from conductor import (
     From,
     Graph,
     GraphNode,
-    NodeRegistry,
     Param,
     Result,
     Series,
@@ -24,6 +23,7 @@ from conductor import (
     node,
 )
 from conductor.widgets import Textarea
+from helpers import registry_of
 
 from test_core.embedded import embedded_graph_node
 
@@ -69,7 +69,7 @@ def tags_node(tags: Annotated[list[str], Param(title="Tags", connectable=False)]
 
 
 def _registry(*extra):
-    return NodeRegistry([docs, upper_node, lines, join_node, script, tags_node, *extra])
+    return registry_of(docs, upper_node, lines, join_node, script, tags_node, *extra)
 
 
 def _compiled(nodes, *extra):

@@ -18,13 +18,13 @@ from conductor import (
     Graph,
     GraphNode,
     InvalidCallError,
-    NodeRegistry,
     Param,
     Result,
     Static,
     node,
 )
 from conductor.widgets import Textarea
+from helpers import registry_of, with_added
 
 from test_core.embedded import embedded_graph_node
 
@@ -70,8 +70,8 @@ def gives() -> _AnOutputNamedText:
 
 
 def _compiled(*nodes: GraphNode) -> CompiledGraph:
-    registry = NodeRegistry([upper_node, needs, fails, skips, gives])
-    registry = registry.with_nodes([embedded_graph_node("shout", (GraphNode(id="up", type="upper", version=1),), registry, "Shout")])
+    registry = registry_of(upper_node, needs, fails, skips, gives)
+    registry = with_added(registry, embedded_graph_node("shout", (GraphNode(id="up", type="upper", version=1),), registry, "Shout"))
     return CompiledGraph.from_graph(Graph(nodes=nodes), registry)
 
 

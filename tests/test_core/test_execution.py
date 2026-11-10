@@ -18,7 +18,7 @@ from conductor import (
     node,
 )
 from conductor.widgets import Textarea
-from helpers import stream_of
+from helpers import stream_of, with_added
 
 
 class Txt(DType, str):
@@ -55,9 +55,9 @@ def fail(text: Annotated[Txt, Param(title="Input", widget=Textarea())]) -> Out:
 @pytest.fixture
 def three_node_registry(registry):
     """Registry with echo, upper, and combine nodes."""
-    registry = registry.with_nodes([echo])
-    registry = registry.with_nodes([upper_node])
-    registry = registry.with_nodes([combine])
+    registry = with_added(registry, echo)
+    registry = with_added(registry, upper_node)
+    registry = with_added(registry, combine)
     return registry
 
 
@@ -77,8 +77,8 @@ class TestStreamingExecution:
         # A(0.3s) -> C(0.3s) --+
         #                      +--> E
         # B(0.3s) -> D(0.3s) --+
-        registry = registry.with_nodes([slow])
-        registry = registry.with_nodes([combine])
+        registry = with_added(registry, slow)
+        registry = with_added(registry, combine)
         compiled = CompiledGraph.from_graph(Graph(nodes=[
             GraphNode(id="a", type="slow", version=1, bindings={"text": Static("hello")}),
             GraphNode(id="b", type="slow", version=1, bindings={"text": Static("world")}),
@@ -166,7 +166,7 @@ class TestSyncExecution:
 
 class TestErrorHandling:
     async def test_a_node_error_ends_the_graph_in_error(self, registry):
-        registry = registry.with_nodes([fail])
+        registry = with_added(registry, fail)
         compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n1", type="fail", version=1, bindings={"text": Static("hello")})]), registry)
 
         events = []
@@ -178,7 +178,7 @@ class TestErrorHandling:
         assert "node_failed" in event_types
 
     def test_run_sync_returns_the_error_ending(self, registry):
-        registry = registry.with_nodes([fail])
+        registry = with_added(registry, fail)
         compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n1", type="fail", version=1, bindings={"text": Static("hello")})]), registry)
 
         assert compiled.run_sync().status == "failed"
@@ -195,7 +195,7 @@ class TestTimeout:
             time.sleep(2)
             return text
 
-        registry = registry.with_nodes([slow])
+        registry = with_added(registry, slow)
         compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n1", type="slow", version=1, bindings={"text": Static("hello")})]), registry)
 
         events = []
@@ -226,8 +226,8 @@ class TestSkipPropagation:
         def conditional(text: Annotated[Txt, Param(title="Input", widget=Textarea())]) -> Branches:
             return Branches(taken=text, not_taken=SKIPPED)
 
-        registry = registry.with_nodes([echo])
-        registry = registry.with_nodes([conditional])
+        registry = with_added(registry, echo)
+        registry = with_added(registry, conditional)
         compiled = CompiledGraph.from_graph(Graph(nodes=[
                 GraphNode(id="n1", type="conditional", version=1, bindings={"text": Static("hello")}),
                 GraphNode(id="n2", type="echo", version=1, bindings={"text": From('n1.not_taken')}),  # connected to the branch not taken

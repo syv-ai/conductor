@@ -9,7 +9,7 @@ import pytest
 from conductor import ROW_ID_COLUMN, DType, Table, node, table_with_columns, to_jsonable
 from conductor._internal.index import Index
 from conductor._internal.table import global_row_id, polars_type_of, with_row_ids
-from helpers import read_table
+from helpers import read_table, registry_of
 from pydantic import TypeAdapter
 
 
@@ -153,14 +153,14 @@ def test_importing_conductor_does_not_import_polars():
 def test_a_node_returns_a_frame_and_its_output_holds_the_table_type():
     from typing import Annotated
 
-    from conductor import CompiledGraph, Graph, GraphNode, NodeRegistry, Param, Result, Static
+    from conductor import CompiledGraph, Graph, GraphNode, Param, Result, Static
     from conductor.widgets import Textarea
 
     @node("read", title="Read", description="d", category="test")
     def read(text: Annotated[Txt, Param(title="Text", widget=Textarea())] = Txt("")) -> Annotated[Contacts, Result(title="Contacts")]:
         return pl.DataFrame({"name": text.split(","), "score": [1.0] * len(text.split(","))})
 
-    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="r", type="read", version=1, bindings={"text": Static("Ida,Bo")})]), NodeRegistry((read,)))
+    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="r", type="read", version=1, bindings={"text": Static("Ida,Bo")})]), registry_of(read))
     contacts = compiled.results(compiled.run_sync())["r"]["result"]
 
     assert isinstance(contacts, pl.DataFrame)

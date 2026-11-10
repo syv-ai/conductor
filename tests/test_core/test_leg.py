@@ -23,7 +23,6 @@ from conductor import (
     Graph,
     GraphNode,
     NodeDefinition,
-    NodeRegistry,
     Param,
     Policy,
     Result,
@@ -33,7 +32,7 @@ from conductor import (
     node,
 )
 from conductor.widgets import Textarea
-from helpers import events_of, stream_of
+from helpers import events_of, registry_of, stream_of
 
 
 class Txt(DType, str):
@@ -58,7 +57,7 @@ def _rows(count: int) -> str:
 
 def _per_row(slow_cls: type[NodeDefinition], rows: int, *more: type[NodeDefinition]) -> CompiledGraph:
     """``split`` feeding ``rows`` rows into ``slow_cls`` as ``slow``, plus ``more`` as root nodes."""
-    reg = NodeRegistry([split_node, slow_cls, *more])
+    reg = registry_of(split_node, slow_cls, *more)
     nodes = [
         GraphNode(id="split", type="split", version=1, bindings={"text": Static(_rows(rows))}),
         GraphNode(id="slow", type=slow_cls.id, version=1, bindings={"text": From("split.result")}),
@@ -68,7 +67,7 @@ def _per_row(slow_cls: type[NodeDefinition], rows: int, *more: type[NodeDefiniti
 
 
 def _single(cls: type[NodeDefinition]) -> CompiledGraph:
-    reg = NodeRegistry([cls])
+    reg = registry_of(cls)
     return CompiledGraph.from_graph(
         Graph(nodes=[GraphNode(id="n1", type=cls.id, version=1, bindings={"text": Static("x")})]), reg
     )
@@ -155,7 +154,7 @@ def test_an_instant_node_beside_forty_slow_rows_does_not_time_out():
     def instant(texts: Annotated[Series[Txt], Param(title="In", widget=Textarea())]) -> Out:
         return Txt("now")
 
-    reg = NodeRegistry([split_node, _sleeper(0.5, calls, concurrency=40), instant])
+    reg = registry_of(split_node, _sleeper(0.5, calls, concurrency=40), instant)
     compiled = CompiledGraph.from_graph(Graph(nodes=[
         GraphNode(id="split", type="split", version=1, bindings={"text": Static(_rows(40))}),
         GraphNode(id="slow", type="sleeper", version=1, bindings={"text": From("split.result")}),
@@ -295,7 +294,7 @@ def test_anything_a_node_raises_fails_its_unit_and_the_leg_ends(raised):
     def raises(text: In = Txt("")) -> Out:
         raise raised
 
-    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="r", type="raises", version=1)]), NodeRegistry([raises]))
+    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="r", type="raises", version=1)]), registry_of(raises))
 
     async def bounded() -> RunState:
         return await asyncio.wait_for(compiled.run(), 3)
@@ -314,7 +313,7 @@ def _wide_graph(rows: int, **definition: Any) -> CompiledGraph:
         return text
 
     nodes = [GraphNode(id="s", type="source", version=1), GraphNode(id="o", type="one", version=1, bindings={"text": From("s.result")})]
-    return CompiledGraph.from_graph(Graph(nodes=nodes), NodeRegistry([source, one]))
+    return CompiledGraph.from_graph(Graph(nodes=nodes), registry_of(source, one))
 
 
 def test_a_cancel_set_while_the_queue_holds_messages_ends_the_leg_at_the_next_event():
@@ -357,7 +356,7 @@ def test_a_leg_that_goes_quiet_reports_the_last_count_of_a_node_still_waiting():
         return AskPerson() if text == "ask" else text
 
     nodes = [GraphNode(id="s", type="source", version=1), GraphNode(id="m", type="maybe", version=1, bindings={"text": From("s.result")})]
-    events = events_of(CompiledGraph.from_graph(Graph(nodes=nodes), NodeRegistry([source, maybe])))
+    events = events_of(CompiledGraph.from_graph(Graph(nodes=nodes), registry_of(source, maybe)))
 
     last = [event for event in events if event.type == "node_progress"][-1]
     assert (last.done, last.total) == (2, 3)
@@ -393,7 +392,7 @@ def test_units_waiting_for_a_slot_hold_no_tasks_and_the_leg_is_one_task():
         return text
 
     nodes = [GraphNode(id="s", type="source", version=1), GraphNode(id="h", type="held", version=1, bindings={"text": From("s.result")})]
-    compiled = CompiledGraph.from_graph(Graph(nodes=nodes), NodeRegistry([source, held]))
+    compiled = CompiledGraph.from_graph(Graph(nodes=nodes), registry_of(source, held))
 
     async def go() -> RunState:
         running = asyncio.create_task(compiled.run())
@@ -423,7 +422,7 @@ def test_the_retry_delay_doubles_each_time_and_a_retry_holds_no_slot_while_it_wa
 
     finished: list[str] = []
     nodes = [GraphNode(id="s", type="source", version=1), GraphNode(id="f", type="flaky", version=1, bindings={"text": From("s.result")})]
-    compiled = CompiledGraph.from_graph(Graph(nodes=nodes), NodeRegistry([source, flaky]))
+    compiled = CompiledGraph.from_graph(Graph(nodes=nodes), registry_of(source, flaky))
 
     events = events_of(compiled)
     assert [event.delay for event in events if event.type == "node_retry"] == [0.02, 0.04, 0.08]
@@ -444,7 +443,7 @@ def test_a_leg_makes_no_more_threads_than_calls_in_flight():
 
     nodes = [GraphNode(id="s", type="source", version=1), GraphNode(id="n0", type="step", version=1, bindings={"text": From("s.result")})]
     nodes += [GraphNode(id=f"n{i}", type="step", version=1, bindings={"text": From(f"n{i - 1}.result")}) for i in range(1, 100)]
-    compiled = CompiledGraph.from_graph(Graph(nodes=nodes), NodeRegistry([source, step]))
+    compiled = CompiledGraph.from_graph(Graph(nodes=nodes), registry_of(source, step))
     assert compiled.run_sync().status == "complete"
     assert len(seen) <= 21
 
@@ -614,7 +613,7 @@ def _leg_where_every_unit_is_reused(rows: int) -> tuple[CompiledGraph, RunState]
     def echo(text: Annotated[Txt, Param(title="T")]) -> Out:
         return text
 
-    registry = NodeRegistry([many, echo])
+    registry = registry_of(many, echo)
 
     def graph(tag: int) -> CompiledGraph:
         return CompiledGraph.from_graph(Graph(nodes=[

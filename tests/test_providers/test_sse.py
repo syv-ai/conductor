@@ -2,14 +2,26 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+from dataclasses import dataclass
+from typing import Annotated
 
 import pytest
-from conductor import Problem, RunState
+from conductor import (
+    SKIPPED,
+    CompiledGraph,
+    Graph,
+    GraphNode,
+    Problem,
+    Result,
+    RunState,
+    Static,
+    node,
+)
 from conductor._internal.execution.run_state import OutputColumn, Question, WaitingUnit, WorkOfNode
 from conductor.events import Event, NodeComplete, NodeFailed, RunEnd, UnitWaiting
-from conductor_nodes.types import Json
-from helpers import stream_of
+from helpers import Json, registry_of, stream_of
 
 
 def _payload(event: Event) -> dict:
@@ -51,15 +63,21 @@ def test_a_typed_value_dumps_through_its_own_type_and_one_with_no_form_raises():
         NodeComplete(type="node_complete", node_id="n", outputs={"x": object()}).model_dump_json()
 
 
+@dataclass(frozen=True)
+class Emptiness:
+    not_empty: Annotated[str, Result(exclusive_group="emptiness")]
+    empty: Annotated[str, Result(exclusive_group="emptiness")]
+
+
+@node("if-empty")
+def if_empty(text: str) -> Emptiness:
+    return Emptiness(not_empty=text, empty=SKIPPED) if text.strip() else Emptiness(not_empty=SKIPPED, empty=text)
+
+
 def test_a_branch_nodes_completion_streams_with_only_the_branch_taken():
-    import asyncio
-
-    import conductor_nodes
-    from conductor import CompiledGraph, Graph, GraphNode, Static
-
     compiled = CompiledGraph.from_graph(
-        Graph(nodes=[GraphNode(id="d", type="logic-if-empty", version=1, bindings={"text": Static("x")})]),
-        conductor_nodes.registry(),
+        Graph(nodes=[GraphNode(id="d", type="if-empty", version=1, bindings={"text": Static("x")})]),
+        registry_of(if_empty),
     )
 
     async def events() -> list[Event]:

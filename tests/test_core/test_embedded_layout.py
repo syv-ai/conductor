@@ -11,7 +11,6 @@ from conductor import (
     From,
     Graph,
     GraphNode,
-    NodeRegistry,
     Output,
     Param,
     Ref,
@@ -21,6 +20,7 @@ from conductor import (
     node,
 )
 from conductor.widgets import Textarea
+from helpers import registry_of
 
 from test_core.embedded import embedded_graph_node
 
@@ -70,7 +70,7 @@ def _inner_graph():
 
 
 def _registry(*extra):
-    return NodeRegistry([holder, upper_node, join_node, docs, *extra])
+    return registry_of(holder, upper_node, join_node, docs, *extra)
 
 
 def _inner_definition():

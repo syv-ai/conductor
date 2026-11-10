@@ -11,7 +11,6 @@ from conductor import (
     Graph,
     GraphNode,
     InvalidCallError,
-    NodeRegistry,
     Param,
     Ref,
     Result,
@@ -21,6 +20,7 @@ from conductor import (
 )
 from conductor._internal.node_signature import read_signature
 from conductor.widgets import ListWidget, TextWidget
+from helpers import registry_of
 
 
 class Txt(DType, str):
@@ -49,7 +49,7 @@ def join_all(texts: Annotated[Series[Txt], Param(title="T")] = ()) -> Annotated[
 
 
 def _registry():
-    return NodeRegistry([greet, upper_node, join_all])
+    return registry_of(greet, upper_node, join_all)
 
 
 def test_a_from_run_parameter_is_a_need_not_an_input():

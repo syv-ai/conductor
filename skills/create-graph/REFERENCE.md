@@ -1,17 +1,26 @@
 # create-graph reference
 
-One module, on the standard nodes. Events, errors and providers: `python -m conductor.about events` (or `errors`, `conductor-providers`).
+One module, on three text nodes declared at the top. Events, errors and serving runs: `python -m conductor.about events` (or `errors`, `serving-runs`).
 
 ```python
 import asyncio
 from typing import Annotated
 
-import conductor_nodes
-from conductor import AskPerson, CompiledGraph, From, Graph, GraphNode, Param, Result, RunState, Static, node
+from conductor import AskPerson, CompiledGraph, From, Graph, GraphNode, NodeRegistry, Param, Result, RunState, Series, Static, node
 from conductor.widgets import Textarea
 
+registry = NodeRegistry(category="text")
 
-registry = conductor_nodes.registry(categories=["text"])
+
+@registry.node("text-split")
+def split(text: str, separator: str = ",") -> Series[str]:
+    return text.split(separator)
+
+
+@registry.node("text-uppercase")
+def uppercase(text: str) -> str:
+    return text.upper()
+
 
 # compile never raises for a bad graph; key on each Problem's type
 broken = CompiledGraph.from_graph(
@@ -26,7 +35,7 @@ def approve(proposal: Annotated[str, Param(title="Proposal", widget=Textarea())]
     return AskPerson(defaults={"result": proposal}, widgets={"result": Textarea()})
 
 
-registry = registry.with_nodes([approve])
+registry.add(approve)
 asking = CompiledGraph.from_graph(
     Graph(nodes=[
         GraphNode(id="drafts", type="text-split", version=1, bindings={"text": Static("first,second")}),

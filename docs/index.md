@@ -7,15 +7,17 @@
 Compile and run graphs of typed Python functions. A node is a function and its type hints are its interface. You put nodes in a graph, compile it into a record that says what's wrong and where everything runs, and run it as a stream of events, once per row wherever a column arrives.
 
 ```python
-from conductor import CompiledGraph, Graph, NodeRegistry, node
+from conductor import CompiledGraph, Graph, NodeRegistry
+
+registry = NodeRegistry()
 
 
-@node("length")
+@registry.node("length")
 def length(text: str) -> int:
     return len(text)
 
 
-compiled = CompiledGraph.from_graph(Graph(nodes=[length.graph_node("size", text="abcd")]), NodeRegistry([length]))
+compiled = CompiledGraph.from_graph(Graph(nodes=[length.graph_node("size", text="abcd")]), registry)
 print(compiled.outputs(compiled.run_sync()))  # {'size.result': 4}
 ```
 

@@ -19,7 +19,6 @@ from conductor import (
     Graph,
     GraphNode,
     InvalidCallError,
-    NodeDeclarationError,
     NodeDefinition,
     NodeRegistry,
     Ref,
@@ -29,6 +28,8 @@ from conductor import (
     Table,
     node,
 )
+from conductor._internal.errors import NodeDeclarationError
+from helpers import registry_of, with_added
 from pydantic import BaseModel, ValidationError
 
 
@@ -42,7 +43,7 @@ def _boom() -> Text:
 
 
 def test_a_nodes_exception_reaches_the_log_with_its_traceback_and_stays_off_the_state(caplog):
-    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="a", type="boom", version=1)]), NodeRegistry([_boom]))
+    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="a", type="boom", version=1)]), registry_of(_boom))
 
     with caplog.at_level(logging.ERROR, logger="conductor"):
         state = compiled.run_sync()
@@ -130,7 +131,7 @@ def _half(value: float) -> float:
     return value / 2
 
 
-PLAIN = NodeRegistry([_hello, _shout, _lengths, _words, _flag, _next_day, _person, _name_of, _email, _wants_email, _count, _half])
+PLAIN = registry_of(_hello, _shout, _lengths, _words, _flag, _next_day, _person, _name_of, _email, _wants_email, _count, _half)
 
 
 def _plain(*nodes: GraphNode) -> CompiledGraph:
@@ -198,7 +199,7 @@ def test_a_type_no_edge_can_carry_closes_the_input_and_keeps_out_of_the_vocabula
     def tags(names: list[str] = []) -> str:  # noqa: B006
         return ",".join(names)
 
-    registry = NodeRegistry([tags])
+    registry = registry_of(tags)
     assert "setting" not in registry.types
     (names,) = tags.versions[1].interface.inputs
     assert names.connectable is False and names.dtype.describe() == {"id": "setting", "of": "list"}
@@ -231,7 +232,7 @@ def _headcount(table: Table) -> int:
 def test_a_table_parameter_is_a_frame_and_a_node_returns_a_frame():
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[_n("p", "people"), _n("o", "oldest", people=From("p.result")), _n("h", "headcount", table=From("o.result"))]),
-        NodeRegistry([_people, _oldest, _headcount]),
+        registry_of(_people, _oldest, _headcount),
     )
     results = compiled.results(compiled.run_sync())
     assert isinstance(results["o"]["result"], pl.DataFrame) and results["o"]["result"]["name"].to_list() == ["Ida", "Bo"]
@@ -257,12 +258,12 @@ def _up(text: str) -> str:
 
 
 def _clean() -> tuple[NodeRegistry, NodeDefinition]:
-    base = NodeRegistry([_trim, _up])
+    base = registry_of(_trim, _up)
     inner = CompiledGraph.from_graph(
         Graph(nodes=[GraphNode(id="t", type="trim", version=1), GraphNode(id="u", type="up", version=1, bindings={"text": From("t.result")})]), base,
     )
     clean = NodeDefinition.from_compiled_graphs("clean-text", versions=inner)
-    return base.with_nodes([clean]), clean
+    return with_added(base, clean), clean
 
 
 def test_an_embedded_graph_is_wired_by_its_own_names_and_titled_like_a_node():
@@ -283,11 +284,11 @@ def test_an_embedded_graph_is_wired_by_its_own_names_and_titled_like_a_node():
 
 def test_renaming_a_node_inside_breaks_no_caller():
     def graph_with_inner_id(inner_id: str) -> CompiledGraph:
-        base = NodeRegistry([_trim])
+        base = registry_of(_trim)
         inner = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id=inner_id, type="trim", version=1)]), base)
         wrapped = NodeDefinition.from_compiled_graphs("wrapped", versions=inner)
         return CompiledGraph.from_graph(
-            Graph(nodes=[GraphNode(id="w", type="wrapped", version=1, bindings={"text": Static(" x ")})]), base.with_nodes([wrapped]),
+            Graph(nodes=[GraphNode(id="w", type="wrapped", version=1, bindings={"text": Static(" x ")})]), with_added(base, wrapped),
         )
 
     assert graph_with_inner_id("before").is_runnable and graph_with_inner_id("after-rename").is_runnable
@@ -322,7 +323,7 @@ def test_a_clash_is_named_by_address_and_only_then():
     def _join_two(a: str, b: str) -> str:
         return a + b
 
-    base = NodeRegistry([_trim, _join_two])
+    base = registry_of(_trim, _join_two)
     inner = CompiledGraph.from_graph(
         Graph(nodes=[GraphNode(id="x", type="trim", version=1), GraphNode(id="y", type="trim", version=1)]), base,
     )
@@ -363,7 +364,7 @@ def test_a_column_into_a_one_value_input_stays_legal():
         return pl.DataFrame({"name": ["a", "b"], "age": [1, 2]})
 
     compiled = CompiledGraph.from_graph(
-        Graph(nodes=[rows.graph_node("r"), _shout.graph_node("s", text=From("r.result.name"))]), NodeRegistry([rows, _shout]),
+        Graph(nodes=[rows.graph_node("r"), _shout.graph_node("s", text=From("r.result.name"))]), registry_of(rows, _shout),
     )
     assert compiled.results(compiled.run_sync())["s"]["result"]["values"] == ["A!", "B!"]
 
@@ -410,7 +411,7 @@ def test_from_run_missing_raises_at_the_call():
     def timed(clock: FromRun[Clock]) -> str:
         return "now"
 
-    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="t", type="timed", version=1)]), NodeRegistry([timed]))
+    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="t", type="timed", version=1)]), registry_of(timed))
     with pytest.raises(InvalidCallError) as raised:
         compiled.run_sync()
     (error,) = raised.value.errors()
@@ -470,7 +471,7 @@ def test_a_question_falls_back_to_the_nodes_title_not_result():
     def ask() -> str | AskPerson:
         return AskPerson()
 
-    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="a", type="ask", version=1)]), NodeRegistry([ask]))
+    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="a", type="ask", version=1)]), registry_of(ask))
     (waiting,) = compiled.run_sync().waiting
     assert waiting.questions[0].title == "Approve the invoice"
 
@@ -506,7 +507,7 @@ def _int_of_not_finite() -> int:
     return NOT_FINITE["value"]  # type: ignore[return-value]
 
 
-_FLOATS = NodeRegistry([_words, _not_finite, _not_finite_many, _not_finite_per_row, _passes_on, _half, _int_of_not_finite])
+_FLOATS = registry_of(_words, _not_finite, _not_finite_many, _not_finite_per_row, _passes_on, _half, _int_of_not_finite)
 
 
 def _same_float(got: float, wanted: float) -> bool:

@@ -12,15 +12,14 @@ from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
 from typing import Annotated, Any
 
-import conductor_nodes
-from conductor import CompiledGraph, Graph, GraphDescription, InvalidCallError, RegistryDescription, RunState, RunStatus, WaitingUnit
+from conductor import CompiledGraph, Graph, GraphDescription, InvalidCallError, NodeRegistry, RegistryDescription, RunState, RunStatus, WaitingUnit
 from conductor.events import Event, RunEnd
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.sse import EventSourceResponse
 from pydantic import BaseModel
 
-registry = conductor_nodes.registry()
+registry = NodeRegistry()  # your nodes: @registry.node(...) or registry.add(...)
 app = FastAPI()
 
 
@@ -179,7 +178,7 @@ async def run_published(name: str, inputs: dict[str, Any], caller: CallerDep) ->
 
 **What a node receives.** A `FromRun[Caller]` parameter gets the `Caller` from `from_run`. A resource that has to live as long as the leg, such as a database session, opens in a `with` around `async with stream` in `run_leg`.
 
-**A registry per request.** `compiled` is built by your route, so a graph that embeds other saved graphs is one more line first: `registry.with_nodes(definitions)`.
+**A registry per request.** `compiled` is built by your route, so a graph that embeds other saved graphs compiles against a registry of its own: `request_registry = NodeRegistry()`, then `request_registry.add_subregistry(registry)` and `request_registry.add(*definitions)`. The shared `registry` is left as it was.
 
 **One process.** The comment on `legs` is the limit that matters. A leg is an asyncio task, so `GET /runs/{id}/events` and `POST /runs/{id}/cancel` reach it only on the process running it. `GET /runs/{id}` and answering work anywhere, because they read the saved row. With more than one worker you route those two yourself, or keep a cancel flag on the row and stream from the request that started the leg.
 

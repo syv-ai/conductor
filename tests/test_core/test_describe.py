@@ -11,13 +11,13 @@ from conductor import (
     GraphNode,
     Input,
     NodeDefinition,
-    NodeRegistry,
     Param,
     Ref,
     Series,
     Static,
     node,
 )
+from helpers import registry_of
 
 
 class Caller:
@@ -43,12 +43,12 @@ def translate(language: Annotated[str, Param(connectable=False)] = "da", **texts
     return language
 
 
-_inner = NodeRegistry([shout])
+_inner = registry_of(shout)
 _embedded = NodeDefinition.from_compiled_graphs(
     "wrapped", title="Wrapped", description="d", category="test",
     versions={1: CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="all", type="shout", version=1)]), _inner)},
 )
-_registry = NodeRegistry([shout, split, translate, _embedded])
+_registry = registry_of(shout, split, translate, _embedded)
 
 
 def _compiled() -> CompiledGraph:

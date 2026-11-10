@@ -1,6 +1,6 @@
 # Architecture at a glance
 
-Conductor compiles and runs graphs of typed nodes. It ships as three packages: `conductor` (the engine), `conductor_nodes` (standard nodes) and `conductor_providers` (the Mermaid drawing). Plain Python types travel on edges as they are. A host declares a `DType` class only for a type of its own.
+Conductor compiles and runs graphs of typed nodes. It ships as one package, `conductor`. Plain Python types travel on edges as they are. A host declares a `DType` class only for a type of its own.
 
 ## One declaration, three readers
 
@@ -8,7 +8,7 @@ A node's signature is read once into `Input` and `Output` records. The engine ca
 
 ## Declare, compile, run
 
-- **Declare.** `@node` checks a function when it is decorated: a widget written bare instead of on a `Param`, an `async def`, or an `Any` or `Mapping` return with no hook fails at import. `NodeRegistry` is built whole and adds the catalogue's rules, such as an alternative that exists.
+- **Declare.** `@node` checks a function when it is decorated: a widget written bare instead of on a `Param`, an `async def`, or an `Any` or `Mapping` return with no hook fails at import. A `NodeRegistry` is what a host offers: `@registry.node` declares and adds, `add_subregistry` copies a module's registry in, and a second node under one id raises.
 - **Compile.** `CompiledGraph.from_graph(graph, registry)` resolves each node's version, validates the bindings, types each field from its edges, decides where each node runs, asks the field hooks and puts each embedded graph's nodes in its place. Everything wrong is a `Problem`; `is_runnable` says whether a run may start. `compiled.run_plan` says what compile decided.
 - **Run.** `async with compiled.stream() as events:` yields the events of one leg. `await compiled.run()` returns the `RunState` it ended on, and `compiled.run_sync()` does the same from a script. Every result, failure and pause is on that state.
 

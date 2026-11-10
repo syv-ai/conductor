@@ -28,7 +28,7 @@ from conductor import (
 )
 from conductor.events import RunEnd, RunStart, UnitWaiting
 from conductor.widgets import Textarea
-from helpers import answer, events_of, read_table, waiting_id
+from helpers import answer, events_of, read_table, registry_of, waiting_id, with_added
 
 
 class Txt(DType, str):
@@ -135,7 +135,7 @@ def slow() -> Out:
     return Txt("late")
 
 
-REGISTRY = NodeRegistry([split_node, words, upper_node, approve, decide, ask_table, ask_many, read_emails, boom, wrong_type, ask_stray, slow])
+REGISTRY = registry_of(split_node, words, upper_node, approve, decide, ask_table, ask_many, read_emails, boom, wrong_type, ask_stray, slow)
 
 
 def compiled_of(*nodes: GraphNode) -> CompiledGraph:
@@ -491,7 +491,7 @@ def test_a_node_returning_none_on_a_typed_output_still_fails():
     def returns_none() -> Out:
         return None  # type: ignore[return-value]
 
-    registry = NodeRegistry([returns_none])
+    registry = registry_of(returns_none)
     compiled = CompiledGraph.from_graph(Graph(nodes=(GraphNode(id="r", type="returns-none", version=1),)), registry)
     assert compiled.run_sync().cause.type == "invalid_output"
 
@@ -505,7 +505,7 @@ def test_a_dump_of_a_value_with_no_json_form_names_the_output():
     def makes_opaque() -> Annotated[Opaque, Result(title="O")]:
         return Opaque()
 
-    registry = NodeRegistry([makes_opaque])
+    registry = registry_of(makes_opaque)
     state = CompiledGraph.from_graph(Graph(nodes=(GraphNode(id="o", type="makes-opaque", version=1),)), registry).run_sync()
     with pytest.raises(Exception, match=r"o\.result"):
         state.model_dump_json()
@@ -528,7 +528,7 @@ def test_no_series_constructor_is_needed_for_skips_in_a_many_valued_output():
     def sparse() -> Annotated[Series[Txt], Result(title="L")]:
         return [Txt("a"), SKIPPED, Txt("c")]
 
-    registry = NodeRegistry([sparse])
+    registry = registry_of(sparse)
     compiled = CompiledGraph.from_graph(Graph(nodes=(GraphNode(id="s", type="sparse", version=1),)), registry)
     assert compiled.outputs(roundtrip(compiled.run_sync()))["s.result"]["rows"] == [(0,), (2,)]
 
@@ -541,7 +541,7 @@ def extract(text: Annotated[Txt, Param(title="T", widget=Textarea())] = Txt(""))
     return read_table(Contacts, [{"name": text, "email": "a@x"}])
 
 
-REGISTRY = REGISTRY.with_nodes([extract])
+REGISTRY = with_added(REGISTRY, extract)
 
 
 def test_a_change_above_a_column_reader_drops_its_answer_and_it_asks_again():
@@ -580,7 +580,7 @@ def test_a_signature_that_moves_a_node_to_other_rows_changes_its_fingerprint():
         return Whole(len(text))
 
     per_row = compiled_of(*LINES)
-    registry = NodeRegistry([split_node, whole_])
+    registry = registry_of(split_node, whole_)
     whole = CompiledGraph.from_graph(Graph(nodes=LINES), registry)
     assert per_row.node("count").fingerprint != whole.node("count").fingerprint
     assert whole._nodes_changed_since(per_row.run_sync()) == ["count"]
@@ -602,8 +602,8 @@ def test_an_input_that_starts_taking_a_blank_changes_the_fingerprint_and_is_call
         return Whole(0 if x is None else x)
 
     nodes = [GraphNode(id="n", type="nothing", version=1), GraphNode(id="c", type="counted", version=1, bindings={"x": From("n.result")})]
-    before = CompiledGraph.from_graph(Graph(nodes=nodes), NodeRegistry().with_nodes([nothing, refuses_a_blank]))
-    after = CompiledGraph.from_graph(Graph(nodes=nodes), NodeRegistry().with_nodes([nothing, takes_a_blank]))
+    before = CompiledGraph.from_graph(Graph(nodes=nodes), with_added(NodeRegistry(), nothing, refuses_a_blank))
+    after = CompiledGraph.from_graph(Graph(nodes=nodes), with_added(NodeRegistry(), nothing, takes_a_blank))
     state = before.run_sync()
     assert calls == {}
 
@@ -618,9 +618,9 @@ def test_a_leg_from_a_state_where_a_function_nodes_id_now_holds_a_graph_runs_it_
     def upper(text: str) -> str:
         return text.upper()
 
-    registry = NodeRegistry([upper])
+    registry = registry_of(upper)
     state = CompiledGraph.from_graph(Graph(nodes=[upper.graph_node("x", text="a")]), registry).run_sync()
     inner = CompiledGraph.from_graph(Graph(nodes=[upper.graph_node("in", text="b")]), registry)
     sub = NodeDefinition.from_compiled_graphs("sub", versions=inner)
-    replaced = CompiledGraph.from_graph(Graph(nodes=[sub.graph_node("x")]), NodeRegistry([upper, sub]))
+    replaced = CompiledGraph.from_graph(Graph(nodes=[sub.graph_node("x")]), registry_of(upper, sub))
     assert replaced.run_sync(state).status == "complete"

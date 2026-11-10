@@ -21,7 +21,6 @@ from conductor import (
     GraphNode,
     NodeDefinition,
     NodeError,
-    NodeRegistry,
     Param,
     Policy,
     Result,
@@ -31,7 +30,7 @@ from conductor import (
 )
 from conductor._internal.execution.call_node import CallFailed, call_node
 from conductor.widgets import Textarea
-from helpers import events_of
+from helpers import events_of, registry_of
 
 
 class Txt(DType, str):
@@ -45,7 +44,7 @@ Out = Annotated[Txt, Result(title="Out")]
 
 def _compiled(node_cls: type[NodeDefinition], *more: type[NodeDefinition]) -> CompiledGraph:
     """One node of ``node_cls`` as ``n1``, its text typed in."""
-    reg = NodeRegistry([node_cls, *more])
+    reg = registry_of(node_cls, *more)
     return CompiledGraph.from_graph(
         Graph(nodes=[GraphNode(id="n1", type=node_cls.id, version=1, bindings={"text": Static("x")})]), reg
     )
@@ -240,7 +239,7 @@ def test_a_failed_row_is_retried_alone():
             raise ExternalFailure("transient")
         return Txt(text.upper())
 
-    reg = NodeRegistry([split_node, flaky_on_b])
+    reg = registry_of(split_node, flaky_on_b)
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[
             GraphNode(id="split", type="split", version=1, bindings={"text": Static("a,b,c")}),
@@ -274,7 +273,7 @@ def test_a_flaky_node_in_one_branch_retries_while_the_other_branch_completes():
     def join(a: Annotated[Txt, Param(title="A", widget=Textarea())] = Txt(""), b: Annotated[Txt, Param(title="B", widget=Textarea())] = Txt("")) -> Out:
         return Txt(f"{a}+{b}")
 
-    reg = NodeRegistry([flaky_a, fast_b, join])
+    reg = registry_of(flaky_a, fast_b, join)
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[
             GraphNode(id="n1", type="flaky-a", version=1, bindings={"text": Static("x")}),
@@ -323,7 +322,7 @@ def test_a_type_whose_validator_does_not_return_the_type_fails_loud():
     def draws() -> Annotated[Square, Result(title="Square")]:
         return Shape(side=2)
 
-    registry = NodeRegistry([draws])
+    registry = registry_of(draws)
     compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="d", type="draws", version=1)]), registry)
 
     ending = compiled.run_sync()

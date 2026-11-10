@@ -18,8 +18,6 @@ from conductor import (
     Graph,
     GraphNode,
     InvalidCallError,
-    NodeDeclarationError,
-    NodeRegistry,
     Param,
     Policy,
     Result,
@@ -30,6 +28,8 @@ from conductor import (
     node,
     table_with_columns,
 )
+from conductor._internal.errors import NodeDeclarationError
+from helpers import registry_of
 from pydantic import BaseModel
 
 
@@ -39,7 +39,7 @@ class _RunBy:
 
 
 def _compiled(*placed: GraphNode, nodes: list[Any]) -> CompiledGraph:
-    return CompiledGraph.from_graph(Graph(nodes=list(placed)), NodeRegistry(nodes))
+    return CompiledGraph.from_graph(Graph(nodes=list(placed)), registry_of(*nodes))
 
 
 class _Amount(TypedDict):
@@ -133,7 +133,7 @@ def test_describe_writes_as_json_whatever_a_host_set_on_a_closed_input() -> None
     compiled = _compiled(_with_rule.graph_node("a"), _with_branches.graph_node("b"), nodes=[_with_rule, _with_branches])
     written = compiled.describe().model_dump_json()
     assert '"title":"a"' in written
-    NodeRegistry([_with_rule, _with_branches]).describe().model_dump_json()
+    registry_of(_with_rule, _with_branches).describe().model_dump_json()
 
 
 @node("people")
@@ -408,7 +408,7 @@ def test_with_values_types_a_value_in_anywhere_and_refuses_an_address_it_cant_se
 
 def test_a_compiled_graph_does_not_offer_a_value_with_inputs_doesnt_take() -> None:
     graph = Graph(nodes=[_open_text.graph_node("a", text="x", suffix="!"), _open_text.graph_node("b", text=From("a.result"), suffix=OPEN)])
-    compiled = CompiledGraph.from_graph(graph, NodeRegistry([_open_text]))
+    compiled = CompiledGraph.from_graph(graph, registry_of(_open_text))
     with pytest.raises(InvalidCallError, match="not_offered"):
         compiled.with_inputs(**{"a.suffix": "!!", "a.nope": 1})
 

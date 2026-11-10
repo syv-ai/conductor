@@ -18,7 +18,7 @@ import pytest
 pytest.importorskip("fastapi")
 httpx = pytest.importorskip("httpx")
 
-from conductor import AskPerson, FromRun, NodeRegistry, Result, node  # noqa: E402
+from conductor import AskPerson, FromRun, Result, node  # noqa: E402
 from conductor.widgets import Switch  # noqa: E402
 
 PAGE = Path(__file__).parents[2] / "docs" / "serving-runs.md"
@@ -61,7 +61,7 @@ class _Host:
         sys.modules["serving_runs_recipe"] = self.module
         for block in re.findall(r"```python\n(.*?)```", PAGE.read_text(), re.S):
             exec(compile(block, str(PAGE), "exec"), self.module.__dict__)
-        self.module.registry = NodeRegistry([gate, ask, greet, who])
+        self.module.registry.add(gate, ask, greet, who)
         self.module.Caller = Caller
         self.client = httpx.AsyncClient(transport=httpx.ASGITransport(app=self.module.app), base_url="http://recipe")
 

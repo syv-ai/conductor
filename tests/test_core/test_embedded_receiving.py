@@ -31,6 +31,7 @@ from conductor import (
 )
 from conductor._internal.execution.run_ledger import RunLedger
 from conductor.widgets import Textarea
+from helpers import registry_of, with_added
 
 from tests.test_core.embedded import embedded_graph_node
 
@@ -123,7 +124,7 @@ def merged_columns_at_row(table: Annotated[Table, Param(title="Table")], at: Tex
     return Txt(f"{at}:" + ",".join(column for column in table.columns if not column.startswith("__")))
 
 
-REGISTRY = NodeRegistry([merged_columns_at_row, src, upper, split, join, joined_at_row, pair, two, whatever_arrives, whatever_arrives_at_row, always_yes, people, merged_columns])
+REGISTRY = registry_of(merged_columns_at_row, src, upper, split, join, joined_at_row, pair, two, whatever_arrives, whatever_arrives_at_row, always_yes, people, merged_columns)
 
 
 def n(node_id: str, node_type: str, **bindings: Any) -> GraphNode:
@@ -134,7 +135,7 @@ def embedded_per_row(inner: list[GraphNode], values: list[str], registry: NodeRe
     """``inner`` as a graph node run once per row of a list of ``values``."""
     definition = embedded_graph_node("g", tuple(inner), registry)
     outer = [n("s", "src", text=Static(values)), n("e", "g", **(bindings or {"text": From("s.result")}))]
-    return CompiledGraph.from_graph(Graph(nodes=outer), registry.with_nodes([definition]))
+    return CompiledGraph.from_graph(Graph(nodes=outer), with_added(registry, definition))
 
 
 def by_row(values: dict[str, list[Any]]) -> dict[tuple[int, ...], Any]:
@@ -263,7 +264,7 @@ def test_a_merge_cannot_hold_a_per_row_table_on_rows_the_node_does_not_sit_on():
     flat = CompiledGraph.from_graph(Graph(nodes=[*tables_and_rows, n("m", "merged_columns_at_row", table=From("p.result", "o.result"), at=From("y.result"))]), REGISTRY)
     definition = embedded_graph_node("g", (n("u", "upper"), n("m", "merged_columns")), REGISTRY)
     embedded = CompiledGraph.from_graph(
-        Graph(nodes=[*tables_and_rows, n("e", "g", text=From("y.result"), table=From("p.result", "o.result"))]), REGISTRY.with_nodes([definition]),
+        Graph(nodes=[*tables_and_rows, n("e", "g", text=From("y.result"), table=From("p.result", "o.result"))]), with_added(REGISTRY, definition),
     )
 
     assert [problem.type for problem in flat.problems] == ["misaligned"]
@@ -330,9 +331,9 @@ def test_run_plan_says_what_happens_when_the_group_is_skipped():
 
 def test_a_nested_graph_refused_gives_problems_and_never_raises():
     inner = embedded_graph_node("in", (n("i", "two"),), REGISTRY)
-    with_inner = REGISTRY.with_nodes([inner])
+    with_inner = with_added(REGISTRY, inner)
     middle = embedded_graph_node("mid", (n("b0", "in"), n("after", "upper", text=From("b0.result"))), with_inner)
-    compiled = CompiledGraph.from_graph(Graph(nodes=[n("o", "mid", a=Static(["1", "2"]), b=Static(["3", "4"]))]), with_inner.with_nodes([middle]))
+    compiled = CompiledGraph.from_graph(Graph(nodes=[n("o", "mid", a=Static(["1", "2"]), b=Static(["3", "4"]))]), with_added(with_inner, middle))
     assert not compiled.is_runnable
     assert "lists_on_a_per_row_node" in {problem.type for problem in compiled.problems if problem.fatal}
 

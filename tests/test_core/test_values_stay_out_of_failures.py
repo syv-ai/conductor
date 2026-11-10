@@ -10,10 +10,10 @@ from conductor import (
     From,
     Graph,
     InvalidCallError,
-    NodeRegistry,
     RunState,
     node,
 )
+from helpers import registry_of
 from pydantic import BaseModel, Discriminator, Field, field_validator
 from pydantic_core import core_schema
 
@@ -74,7 +74,7 @@ def _failed_run(returned, return_type):
         return returned
 
     made = node("give")(give)
-    compiled = CompiledGraph.from_graph(Graph(nodes=[made.graph_node("g")]), NodeRegistry([made]))
+    compiled = CompiledGraph.from_graph(Graph(nodes=[made.graph_node("g")]), registry_of(made))
     state = compiled.run_sync()
     assert state.status == "failed"
     return state.cause
@@ -110,7 +110,7 @@ def test_what_a_node_received_is_not_in_the_failure_of_its_input():
         return identifier
 
     made_source, made_sink = node("source")(source), node("sink")(sink)
-    compiled = CompiledGraph.from_graph(Graph(nodes=[made_source.graph_node("a"), made_sink.graph_node("b", identifier=From("a.result"))]), NodeRegistry([made_source, made_sink]))
+    compiled = CompiledGraph.from_graph(Graph(nodes=[made_source.graph_node("a"), made_sink.graph_node("b", identifier=From("a.result"))]), registry_of(made_source, made_sink))
     state = compiled.run_sync()
     assert (state.status, state.cause.type) == ("failed", "invalid_input")
     assert SECRET not in state.cause.model_dump_json()
@@ -122,7 +122,7 @@ def test_a_stored_value_is_not_in_the_refusal_to_read_a_state_back():
         return PickyId("fine")
 
     made = node("give")(give)
-    compiled = CompiledGraph.from_graph(Graph(nodes=[made.graph_node("g")]), NodeRegistry([made]))
+    compiled = CompiledGraph.from_graph(Graph(nodes=[made.graph_node("g")]), registry_of(made))
     stored = json.loads(compiled.run_sync().model_dump_json())
     stored["nodes"]["g"]["outputs"]["result"]["values"] = [SECRET]
     with pytest.raises(InvalidCallError) as refused:

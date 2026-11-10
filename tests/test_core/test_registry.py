@@ -1,23 +1,29 @@
-"""``NodeRegistry`` — filing a node class under its id, looking it up, and
-what its versions declare.
+"""``NodeRegistry`` — the nodes a host offers, by id.
 
-A registry holds classes: ``register(Cls)`` files the class under
-``Cls.id``, ``get(id)`` gives it back, and every fact about a version's
-fields is read off ``Cls.versions[n].interface``.
+Nodes go on a registry as routes go on a FastAPI router: ``@registry.node``
+declares and adds, ``add`` takes a plain ``@node`` from elsewhere, and
+``add_subregistry`` copies another registry's nodes in. Every node that
+enters takes the registry's defaults by one rule. ``replace``, ``remove``
+and ``filter`` change or narrow what is offered; looping yields the
+definitions.
 """
 
 from typing import Annotated, Any
 
 import pytest
 from conductor import (
+    CompiledGraph,
+    Deprecation,
     DType,
-    NodeDeclarationError,
+    Graph,
+    GraphNode,
     NodeRegistry,
     Param,
     Result,
     Upgrade,
     node,
 )
+from conductor._internal.errors import NodeDeclarationError
 from conductor.widgets import Textarea
 
 
@@ -32,6 +38,7 @@ Out = Annotated[Txt, Result(title="Output")]
 def echo_v1(text: Annotated[Txt, Param(title="Input", widget=Textarea())]) -> Out:
     return text
 
+
 @node("echo", title="Echo", description="Returns input unchanged", category="test", replaces=node("echo")(echo_v1), upgrade=Upgrade())
 def echo(
     text: Annotated[Txt, Param(title="Input", widget=Textarea())],
@@ -45,56 +52,304 @@ def upper_node(text: Annotated[Txt, Param(title="Input", widget=Textarea())]) ->
     return Txt(text.upper())
 
 
-@pytest.fixture
-def populated_registry() -> NodeRegistry:
-    reg = NodeRegistry([echo, upper_node])
-    return reg
+def _node(node_id: str, **declared: Any) -> Any:
+    @node(node_id, **declared)
+    def made(x: str = "") -> str:
+        return x
+
+    return made
 
 
-def test_register_files_the_class_under_its_id(registry):
-    registry = registry.with_nodes([echo])
+# --- looking a node up ------------------------------------------------------
+
+
+def test_a_node_is_looked_up_by_its_id_and_looping_yields_the_definitions_in_order():
+    registry = NodeRegistry()
+    registry.add(echo, upper_node)
 
     assert registry["echo"] is echo
-    assert registry["echo"].title == "Echo"
+    assert "upper" in registry and "nonexistent" not in registry
+    assert list(registry) == [echo, upper_node]
+    assert len(registry) == 2
 
 
-def test_a_second_class_under_the_same_id_is_refused(registry):
-    @node("dup", title="Dup", description="First", category="test")
-    def first(x: Annotated[Txt, Param(title="X", widget=Textarea())]) -> Out:
-        return x
+def test_an_unknown_id_is_a_key_error_naming_the_ids_there_are():
+    registry = NodeRegistry()
+    registry.add(echo)
 
-    @node("dup", title="Dup2", description="Second", category="test")
-    def second(x: Annotated[Txt, Param(title="X", widget=Textarea())]) -> Out:
-        return x
-
-    with pytest.raises(NodeDeclarationError, match="declared twice"):
-        NodeRegistry([first, second])
+    with pytest.raises(KeyError, match="'nope' is not registered here; the ids are echo"):
+        registry["nope"]
 
 
-def test_get_returns_none_for_unknown(populated_registry):
-    assert "nonexistent" not in populated_registry
+# --- the decorator ----------------------------------------------------------
 
 
-def test_inputs_extracted_from_signature(populated_registry):
-    iface = populated_registry["echo"].versions[1].interface
+def test_the_decorator_declares_as_node_does_and_adds_the_node():
+    registry = NodeRegistry()
+
+    @registry.node("shout", title="Shout")
+    def shout(text: str) -> str:
+        return text.upper()
+
+    assert registry["shout"] is shout
+    assert shout.title == "Shout"
+    assert shout("a") == "A"
+
+
+def test_a_plain_node_registers_nothing():
+    registry = NodeRegistry()
+
+    @node("alone")
+    def alone(text: str) -> str:
+        return text
+
+    assert "alone" not in registry
+    assert alone("a") == "a"
+
+
+# --- add, replace, remove ---------------------------------------------------
+
+
+def test_a_second_node_under_one_id_is_refused_naming_where_both_were_written():
+    registry = NodeRegistry()
+    first, second = _node("dup"), _node("dup")
+    registry.add(first)
+
+    with pytest.raises(NodeDeclarationError, match="two nodes have the id 'dup'") as raised:
+        registry.add(second)
+
+    assert raised.value.code == "duplicate_node_id"
+    assert str(raised.value).count("made") == 2
+    assert registry["dup"] is first
+
+
+def test_the_same_node_added_twice_is_a_duplicate_too():
+    registry = NodeRegistry()
+    registry.add(echo)
+
+    with pytest.raises(NodeDeclarationError, match="'echo'"):
+        registry.add(echo)
+
+
+def test_a_refused_add_adds_none_of_the_nodes_it_was_given():
+    registry = NodeRegistry()
+    registry.add(_node("taken"))
+
+    with pytest.raises(NodeDeclarationError):
+        registry.add(_node("fresh"), _node("taken"))
+
+    assert "fresh" not in registry
+
+
+def test_replace_puts_a_node_in_place_of_the_one_under_its_id():
+    registry = NodeRegistry()
+    registry.add(_node("a"), _node("b"))
+    newer = _node("a", title="Newer")
+
+    registry.replace(newer)
+
+    assert registry["a"] is newer
+    assert [definition.id for definition in registry] == ["a", "b"]
+
+
+def test_replace_and_remove_refuse_an_id_that_is_not_there():
+    registry = NodeRegistry()
+
+    with pytest.raises(KeyError, match="'a' is not registered here"):
+        registry.replace(_node("a"))
+    with pytest.raises(KeyError, match="'a' is not registered here"):
+        registry.remove("a")
+
+
+def test_remove_takes_a_node_out_and_the_types_only_it_declared():
+    registry = NodeRegistry()
+    registry.add(echo, _node("plain"))
+
+    registry.remove("echo")
+
+    assert "echo" not in registry
+    assert "registry-test-text" not in registry.types
+
+
+def test_a_deprecation_may_name_an_alternative_the_registry_does_not_hold():
+    """Which nodes a registry offers is the host's choice, so narrowing one never breaks a deprecation notice."""
+    registry = NodeRegistry()
+
+    registry.add(_node("old", deprecation=Deprecation(alternative="new", migration="Use new.")))
+
+    assert "old" in registry
+
+
+# --- defaults ---------------------------------------------------------------
+
+
+def test_a_node_takes_the_registrys_defaults_its_own_winning():
+    registry = NodeRegistry(category="text", tags=["builtin"], extra={"tier": "free", "icon": "a"})
+
+    @registry.node("own", category="mine", tags=["fast"], extra={"icon": "b"})
+    def own(text: str) -> str:
+        return text
+
+    @registry.node("bare")
+    def bare(text: str) -> str:
+        return text
+
+    assert (own.category, own.tags, dict(own.extra)) == ("mine", ("builtin", "fast"), {"tier": "free", "icon": "b"})
+    assert (bare.category, bare.tags, dict(bare.extra)) == ("text", ("builtin",), {"tier": "free", "icon": "a"})
+
+
+def test_add_applies_the_defaults_to_a_plain_node_and_leaves_the_plain_one_as_it_was():
+    plain = _node("plain")
+    registry = NodeRegistry(category="text")
+
+    registry.add(plain)
+
+    assert registry["plain"].category == "text"
+    assert plain.category == ""
+
+
+def test_a_node_with_nothing_to_take_is_held_as_it_is():
+    registry = NodeRegistry()
+    registry.add(echo)
+
+    assert registry["echo"] is echo
+
+
+# --- subregistries ----------------------------------------------------------
+
+
+def test_a_subregistry_is_copied_in_with_both_registries_defaults_outermost_first():
+    text = NodeRegistry(category="text", tags=["text"])
+
+    @text.node("upper")
+    def upper(value: str) -> str:
+        return value.upper()
+
+    top = NodeRegistry(category="other", tags=["builtin"])
+    top.add_subregistry(text)
+
+    assert (top["upper"].category, top["upper"].tags) == ("text", ("builtin", "text"))
+
+
+def test_a_change_to_a_subregistry_after_it_was_added_does_not_reach_the_registry():
+    sub = NodeRegistry()
+    sub.add(_node("a"))
+    top = NodeRegistry()
+    top.add_subregistry(sub)
+
+    sub.add(_node("b"))
+    sub.remove("a")
+
+    assert [definition.id for definition in top] == ["a"]
+
+
+def test_one_id_in_two_subregistries_is_refused():
+    first, second = NodeRegistry(), NodeRegistry()
+    first.add(_node("x"))
+    second.add(_node("x"))
+    top = NodeRegistry()
+    top.add_subregistry(first)
+
+    with pytest.raises(NodeDeclarationError, match="'x'"):
+        top.add_subregistry(second)
+
+
+def test_a_subregistrys_named_types_come_along():
+    class Money(DType, float):
+        id = "money"
+        display_title = "Money"
+
+    top = NodeRegistry()
+    top.add_subregistry(NodeRegistry(types=[Money]))
+
+    assert top.types == {"money": Money}
+
+
+def test_a_registry_per_request_leaves_the_shared_one_as_it_was():
+    shared = NodeRegistry()
+    shared.add(_node("built-in"))
+
+    per_request = NodeRegistry()
+    per_request.add_subregistry(shared)
+    per_request.add(_node("loaded"))
+
+    assert "loaded" in per_request and "built-in" in per_request
+    assert "loaded" not in shared
+
+
+# --- filter -----------------------------------------------------------------
+
+
+def test_filter_gives_a_new_registry_of_the_nodes_the_predicate_keeps():
+    registry = NodeRegistry(tags=["builtin"])
+    registry.add(_node("free", extra={"tier": "free"}), _node("paid", extra={"tier": "paid"}))
+
+    free = registry.filter(lambda definition: definition.extra.get("tier") == "free")
+
+    assert [definition.id for definition in free] == ["free"]
+    assert len(registry) == 2
+    free.add(_node("later"))
+    assert free["later"].tags == ("builtin",)
+    assert "later" not in registry
+
+
+def test_a_filtered_registry_compiles_only_what_it_kept():
+    registry = NodeRegistry()
+    registry.add(_node("kept"), _node("dropped"))
+    narrowed = registry.filter(lambda definition: definition.id == "kept")
+
+    compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="d", type="dropped", version=1)]), narrowed)
+
+    assert [problem.type for problem in compiled.problems] == ["unknown_node_type"]
+
+
+# --- extra ------------------------------------------------------------------
+
+
+def test_extra_is_json_kept_and_described_but_never_read():
+    @node("tagged", extra={"icon": "star", "order": [1, 2], "beta": None})
+    def tagged(text: str) -> str:
+        return text
+
+    assert dict(tagged.extra) == {"icon": "star", "order": [1, 2], "beta": None}
+    assert tagged.describe().model_dump(mode="json")["extra"] == {"icon": "star", "order": [1, 2], "beta": None}
+
+
+def test_extra_that_is_not_json_is_refused_where_it_is_written():
+    with pytest.raises(NodeDeclarationError, match="extra must be JSON") as raised:
+
+        @node("bad", extra={"when": object()})  # type: ignore[dict-item]
+        def bad(text: str) -> str:
+            return text
+
+    assert raised.value.code == "extra_not_json"
+    with pytest.raises(NodeDeclarationError, match="extra must be JSON"):
+        NodeRegistry(extra={"when": object()})  # type: ignore[dict-item]
+
+
+# --- what a version declares ------------------------------------------------
+
+
+def test_inputs_extracted_from_signature():
+    iface = echo.versions[1].interface
     assert len(iface.inputs) == 1
     assert iface.inputs[0].name == "text"
     assert iface.inputs[0].title == "Input"
 
 
-def test_outputs_extracted_from_return_type(populated_registry):
-    iface = populated_registry["echo"].versions[1].interface
+def test_outputs_extracted_from_return_type():
+    iface = echo.versions[1].interface
     assert [o.name for o in iface.outputs] == ["result"]
     assert iface.outputs[0].title == "Output"
 
 
-def test_multi_input_node(populated_registry):
-    iface = populated_registry["echo"].versions[2].interface
+def test_multi_input_node():
+    iface = echo.versions[2].interface
     assert [i.name for i in iface.inputs] == ["text", "prefix"]
 
 
-def test_default_values_captured(populated_registry):
-    iface = populated_registry["echo"].versions[2].interface
+def test_default_values_captured():
+    iface = echo.versions[2].interface
     text, prefix = iface.inputs
     assert text.required is True
     assert prefix.default == ""
@@ -127,51 +382,3 @@ def test_a_node_that_is_only_var_keyword_declares_no_inputs():
         return Txt("x")
 
     assert all_kw.versions[1].interface.inputs == ()
-
-
-def _node(node_id):
-    @node(node_id, title=node_id, description="d", category="test")
-    def made(x: Annotated[Txt, Param(title="X", widget=Textarea())] = Txt("")) -> Annotated[Txt, Result(title="R")]:
-        return x
-
-    return made
-
-
-def test_extending_leaves_the_original_alone():
-    """A per-run registry must not mutate the process-wide catalog."""
-    base = NodeRegistry()
-    base = base.with_nodes([_node("static")])
-    loaded = _node("loaded")
-
-    extended = base.with_nodes([loaded])
-
-    assert "loaded" in extended
-    assert "static" in extended
-    assert "loaded" not in base
-
-
-def test_a_registered_type_cannot_be_shadowed():
-    """A statically registered node means what it says, whatever a host loads."""
-    static = _node("shared-id")
-    base = NodeRegistry([static])
-
-    extended = base.with_nodes([_node("other")])
-
-    assert extended["shared-id"] is static
-
-
-def test_extending_with_nothing_is_the_same_registry_contents():
-    base = NodeRegistry()
-    base = base.with_nodes([_node("only")])
-
-    assert base.with_nodes([])["only"] is base["only"]
-
-
-def test_a_registry_lists_its_nodes_as_the_classes_in_registration_order():
-    registry = NodeRegistry()
-    greet, truncate = _node("greet"), _node("truncate")
-    registry = registry.with_nodes([greet])
-    registry = registry.with_nodes([truncate])
-
-    assert registry.nodes == (greet, truncate)
-    assert [cls.id for cls in registry.nodes] == ["greet", "truncate"]

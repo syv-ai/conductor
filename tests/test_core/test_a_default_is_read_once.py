@@ -3,18 +3,9 @@
 from typing import Annotated
 
 import pytest
-from conductor import (
-    CompiledGraph,
-    DType,
-    From,
-    Graph,
-    Input,
-    NodeDeclarationError,
-    NodeRegistry,
-    Param,
-    Series,
-    node,
-)
+from conductor import CompiledGraph, DType, From, Graph, Input, Param, Series, node
+from conductor._internal.errors import NodeDeclarationError
+from helpers import registry_of
 
 
 class Whole(DType, int):
@@ -54,7 +45,7 @@ def test_a_default_is_kept_as_its_type_read_it():
 
     made = node("take")(take)
     assert made.versions[1].interface.inputs[0].default.__class__ is Whole
-    compiled = CompiledGraph.from_graph(Graph(nodes=[made.graph_node("t")]), NodeRegistry([made]))
+    compiled = CompiledGraph.from_graph(Graph(nodes=[made.graph_node("t")]), registry_of(made))
     assert compiled.run_sync().status == "complete" and seen[0].__class__ is Whole
 
 
@@ -63,7 +54,7 @@ def _compiled_with_a_series_or_nothing(**bindings):
         return repr(xs)
 
     made = node("s")(s)
-    return CompiledGraph.from_graph(Graph(nodes=[made.graph_node("a", **bindings)]), NodeRegistry([made]))
+    return CompiledGraph.from_graph(Graph(nodes=[made.graph_node("a", **bindings)]), registry_of(made))
 
 
 def test_a_series_that_may_be_nothing_reads_an_explicit_none_like_leaving_it_out():
@@ -95,7 +86,7 @@ def test_a_static_is_read_once_at_compile_and_not_again_on_each_call():
         return f"{row}{fixed}"
 
     made_fan, made_use = node("fan")(fan), node("use")(use)
-    compiled = CompiledGraph.from_graph(Graph(nodes=[made_fan.graph_node("f"), made_use.graph_node("u", row=From("f.result"), fixed="x")]), NodeRegistry([made_fan, made_use]))
+    compiled = CompiledGraph.from_graph(Graph(nodes=[made_fan.graph_node("f"), made_use.graph_node("u", row=From("f.result"), fixed="x")]), registry_of(made_fan, made_use))
     assert not compiled.problems
     reads.clear()
     assert compiled.run_sync().status == "complete"

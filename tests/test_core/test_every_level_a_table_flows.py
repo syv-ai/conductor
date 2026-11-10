@@ -29,7 +29,7 @@ from conductor import (
     table_with_columns,
 )
 from conductor.widgets import TextWidget
-from helpers import answer
+from helpers import answer, registry_of, with_added
 
 
 class Contact(TypedDict):
@@ -68,7 +68,7 @@ def keep(table: Contacts) -> Annotated[Contacts, Result(title="Contacts")]:
 
 
 def _catalogue(*extra: type[NodeDefinition]) -> NodeRegistry:
-    return NodeRegistry([csv, send, export, rebuild, keep, *extra])
+    return registry_of(csv, send, export, rebuild, keep, *extra)
 
 
 def _node(node_id: str, node_type: str, **bindings: Any) -> GraphNode:
@@ -98,7 +98,7 @@ def test_a_table_rebuilt_inside_an_embedded_graph_fails_as_it_would_drawn_flat(i
     """The sub-flow that, wired beside its own source, used to give 6 rows with blanks on both sides and status complete."""
     registry = _catalogue()
     sub = _embedded("rb", (_node("k", inner), _node("s", "send", email=From("k.result.email"))), registry)
-    registry = registry.with_nodes([sub])
+    registry = with_added(registry, sub)
     compiled = _compiled(_node("c", "csv"), _node("sub", "rb", table=From("c.result")), _node("x", "export", table=From("c.result", "sub.result")), registry=registry)
     state = compiled.run_sync()
     flat = _compiled(_node("c", "csv"), _node("k", inner, table=From("c.result")), _node("s", "send", email=From("k.result.email")), _node("x", "export", table=From("c.result", "s.result")), registry=registry).run_sync()
@@ -116,9 +116,9 @@ def test_a_table_rebuilt_inside_an_embedded_graph_fails_as_it_would_drawn_flat(i
 def test_rebuilt_table_nested_two_embeddings_deep_still_fails() -> None:
     registry = _catalogue()
     inner = _embedded("inner", (_node("k", "rebuild"),), registry)
-    registry = registry.with_nodes([inner])
+    registry = with_added(registry, inner)
     outer = _embedded("outer", (_node("i", "inner"), _node("s", "send", email=From("i.result.email"))), registry)
-    registry = registry.with_nodes([outer])
+    registry = with_added(registry, outer)
     compiled = _compiled(_node("c", "csv"), _node("sub", "outer", table=From("c.result")), _node("x", "export", table=From("c.result", "sub.result")), registry=registry)
     state = compiled.run_sync()
     assert (state.status, state.cause.type) == ("failed", "row_ids_lost")
@@ -128,7 +128,7 @@ def test_a_rebuilt_table_merged_with_a_column_made_per_row_of_it_is_fine() -> No
     """M5's other side: the rebuilt table is merged with what was made from it, not with the table it came from."""
     registry = _catalogue()
     sub = _embedded("rb", (_node("k", "rebuild"), _node("s", "send", email=From("k.result.email")), _node("m", "export", table=From("k.result", "s.result"))), registry)
-    registry = registry.with_nodes([sub])
+    registry = with_added(registry, sub)
     compiled = _compiled(_node("c", "csv"), _node("sub", "rb", table=From("c.result")), registry=registry)
     sheet = _sheet(compiled, "sub/m")
     assert sheet.height == 3
@@ -141,7 +141,7 @@ def test_a_table_rebuilt_from_no_rows_inside_an_embedded_graph_loses_nothing() -
 
     registry = _catalogue(no_rows)
     sub = _embedded("rb", (_node("k", "rebuild"),), registry)
-    registry = registry.with_nodes([sub])
+    registry = with_added(registry, sub)
     compiled = _compiled(_node("c", "no-rows"), _node("sub", "rb", table=From("c.result")), _node("x", "export", table=From("c.result", "sub.result")), registry=registry)
     assert compiled.run_sync().status == "complete"
 

@@ -27,7 +27,7 @@ from conductor import (
     table_with_columns,
 )
 from conductor.widgets import Textarea
-from helpers import events_of
+from helpers import events_of, registry_of, with_added
 
 from test_core.embedded import embedded_graph_node
 from test_core.test_table import Num, Txt
@@ -102,7 +102,7 @@ def gate(text: Text = Txt("")) -> Annotated[Txt, Result(title="Passed")]:
 
 
 def _registry() -> NodeRegistry:
-    return NodeRegistry((read_csv, send_mail, docs, structured, check, total_node, join_texts, route, approve, gate))
+    return registry_of(read_csv, send_mail, docs, structured, check, total_node, join_texts, route, approve, gate)
 
 
 def _compiled(*nodes: GraphNode, registry: NodeRegistry | None = None) -> CompiledGraph:
@@ -210,7 +210,7 @@ def test_an_embedded_graph_run_per_row_lands_its_result_on_the_contacts():
     compiled = _compiled(
         CSV,
         GraphNode(id="emb", type="mailer", version=1, bindings={"email": From("csv.result.email")}),
-        registry=registry.with_nodes([sub]),
+        registry=with_added(registry, sub),
     )
     results = _results(compiled)
 
@@ -224,7 +224,7 @@ def test_a_table_made_inside_an_embedded_graph_offers_its_columns_at_the_graph_n
     compiled = _compiled(
         GraphNode(id="emb", type="reader", version=1, bindings={"text": Static("Ida,ida@x;Bo,")}),
         GraphNode(id="send", type="send", version=1, bindings={"email": From("emb.result.email")}),
-        registry=registry.with_nodes([sub]),
+        registry=with_added(registry, sub),
     )
 
     assert _results(compiled)["send"]["result"]["values"] == ["sent to ida@x", "no address"]

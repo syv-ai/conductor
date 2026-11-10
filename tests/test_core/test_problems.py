@@ -10,7 +10,6 @@ from conductor import (
     From,
     Graph,
     GraphNode,
-    NodeRegistry,
     Output,
     Param,
     Problem,
@@ -21,6 +20,7 @@ from conductor import (
     node,
 )
 from conductor.widgets import Textarea
+from helpers import registry_of, with_added
 from pydantic import ValidationError
 
 
@@ -124,7 +124,7 @@ def twice(value: Annotated[Txt, Param(title="Value", widget=Textarea())] = Txt("
 
 
 def _registry():
-    return NodeRegistry([echo, script, needs, join_node, picky, twice])
+    return registry_of(echo, script, needs, join_node, picky, twice)
 
 
 def _problems(nodes, **kw):
@@ -197,7 +197,7 @@ def test_a_hook_writing_an_output_of_no_dtype_is_a_bug_in_the_hook():
     def odd(value: Annotated[Txt, Param(title="Value", widget=Textarea())] = Txt("")) -> Out:
         return value
 
-    registry = _registry().with_nodes([odd])
+    registry = with_added(_registry(), odd)
     with pytest.raises(ValidationError, match="dtype"):
         CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="o", type="odd", version=1)]), registry)
 
@@ -289,7 +289,7 @@ def test_an_any_input_with_no_edge_is_unbound_required():
     def route(value: Annotated[Any, Param(title="Value")]) -> Annotated[Any, Result(title="R")]:
         return value
 
-    registry = _registry().with_nodes([route])
+    registry = with_added(_registry(), route)
     problems = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="r", type="route-p", version=1)]), registry).problems
 
     assert [(p.type, p.fatal, p.loc[1]) for p in problems] == [("unbound_required", True, "value")]
@@ -429,9 +429,9 @@ def test_an_edge_into_a_field_an_embedded_graph_lacks_names_the_authors_address(
     from test_core.embedded import embedded_graph_node
 
     registry = _registry()
-    registry = registry.with_nodes([embedded_graph_node(
+    registry = with_added(registry, embedded_graph_node(
         "emb-graph", (GraphNode(id="inner", type="echo", version=1),), registry,
-    )])
+    ))
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[
             GraphNode(id="e", type="emb-graph", version=1),
@@ -480,9 +480,9 @@ def test_an_edge_from_a_refused_id_beside_an_embedded_graph_does_not_read_inside
     from test_core.embedded import embedded_graph_node
 
     registry = _registry()
-    registry = registry.with_nodes([embedded_graph_node(
+    registry = with_added(registry, embedded_graph_node(
         "emb-graph", (GraphNode(id="inner", type="echo", version=1),), registry,
-    )])
+    ))
     compiled = CompiledGraph.from_graph(
         Graph(nodes=[
             GraphNode(id="e", type="emb-graph", version=1),

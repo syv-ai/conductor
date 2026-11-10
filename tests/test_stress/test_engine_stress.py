@@ -27,7 +27,6 @@ from conductor import (
     From,
     Graph,
     GraphNode,
-    NodeRegistry,
     Param,
     Policy,
     Result,
@@ -35,7 +34,7 @@ from conductor import (
     node,
 )
 from conductor.widgets import Textarea
-from helpers import stream_of
+from helpers import registry_of, stream_of
 
 Out = Annotated[str, Result(title="Output")]
 
@@ -58,7 +57,7 @@ def test_500_node_linear_chain_compile_and_execute() -> None:
                         the chain completes in a couple of seconds; the
                         bound leaves headroom for slow runners.)
     """
-    registry = NodeRegistry([upper_node])
+    registry = registry_of(upper_node)
 
     n = 500
     nodes: list[GraphNode] = []
@@ -110,7 +109,7 @@ async def test_cancellation_honored_during_retry_sleep() -> None:
             f"transient (attempt {call_count})",
         )
 
-    registry = NodeRegistry([always_flaky])
+    registry = registry_of(always_flaky)
 
     compiled = CompiledGraph.from_graph(Graph(nodes=[GraphNode(id="n1", type="always-flaky", version=1, bindings={"text": Static("x")})]), registry)
 

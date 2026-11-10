@@ -13,7 +13,6 @@ from conductor import (
     From,
     Graph,
     GraphNode,
-    NodeRegistry,
     Output,
     Param,
     Ref,
@@ -23,6 +22,7 @@ from conductor import (
     node,
 )
 from conductor.widgets import Switch, Textarea
+from helpers import registry_of
 
 
 class Txt(DType, str):
@@ -84,7 +84,7 @@ def docs(folder: Annotated[Txt, Param(title="Folder", widget=Textarea())] = Txt(
 
 
 def _compiled(nodes):
-    registry = NodeRegistry([gate, holder, upper_node, docs, single])
+    registry = registry_of(gate, holder, upper_node, docs, single)
     return CompiledGraph.from_graph(Graph(nodes=nodes), registry)
 
 
@@ -205,7 +205,7 @@ def _types_of_problems(*nodes):
     definitions = _per_row_branches()
     by_id = {definition.id: definition for definition in definitions}
     built = Graph(nodes=[by_id[kind].graph_node(node_id, **bindings) for kind, node_id, bindings in nodes])
-    compiled = CompiledGraph.from_graph(built, NodeRegistry(definitions))
+    compiled = CompiledGraph.from_graph(built, registry_of(*definitions))
     return compiled, [problem.type for problem in compiled.problems]
 
 
@@ -237,5 +237,5 @@ def test_a_long_chain_of_decisions_merged_per_row_stays_small():
     by_id = {definition.id: definition for definition in definitions}
     nodes = [by_id["rows"].graph_node("s"), by_id["branch_on_each_row"].graph_node("d0", value=From("s.result"))]
     nodes += [by_id["branch_on_each_row"].graph_node(f"d{i}", value=From(f"d{i-1}.yes", f"d{i-1}.no")) for i in range(1, 40)]
-    compiled = CompiledGraph.from_graph(Graph(nodes=nodes), NodeRegistry(definitions))
+    compiled = CompiledGraph.from_graph(Graph(nodes=nodes), registry_of(*definitions))
     assert compiled.is_runnable and len(compiled.field("d39.yes")._condition_with_rows) <= 32
