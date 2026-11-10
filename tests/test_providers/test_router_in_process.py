@@ -5,13 +5,14 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
-from typing import Annotated, Any
+from typing import Annotated, Any, TypedDict
 
 import pytest
 
 httpx = pytest.importorskip("httpx")
 
-from conductor import GraphRecord, NodeRecord, NodeRegistry  # noqa: E402
+import polars as pl  # noqa: E402
+from conductor import GraphRecord, NodeRecord, NodeRegistry, Series, Table, make_graph  # noqa: E402
 from conductor_providers.fastapi import RunChanges, StoredRun, run_router  # noqa: E402
 from fastapi import FastAPI, Header  # noqa: E402
 
@@ -127,5 +128,33 @@ def test_a_run_stopped_at_its_ceiling_is_resumed_with_no_body_or_a_higher_ceilin
             assert (await _until_ended(client, run_id, "anna"))["status"] == "stopped"
             assert (await client.post(f"/runs/{run_id}/resume", json={"max_rows": 2})).status_code == 202
             assert (await _until_ended(client, run_id, "anna"))["outputs"] == {"u.result": ["A", "B"]}
+
+    asyncio.run(scenario())
+
+
+class Part(TypedDict):
+    text: str
+
+
+def test_a_table_made_on_each_row_reads_as_a_list_of_records_per_row() -> None:
+    registry = NodeRegistry()
+
+    @registry.node("split")
+    def split(text: str) -> Series[str]:
+        return text.split(",")
+
+    @registry.node("as-table")
+    def as_table(text: str) -> Table[Part]:
+        return pl.DataFrame({"text": [text]})
+
+    graph = make_graph(split, as_table).model_dump(mode="json")
+    app = FastAPI()
+    app.include_router(run_router(store=MemoryStore(), registry=registry, caller=_caller))
+
+    async def scenario() -> None:
+        async with app.router.lifespan_context(app), httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as client:
+            run_id = (await client.post("/runs", json={"graph": graph, "inputs": {"text": "a,b"}})).json()["id"]
+            ended = await _until_ended(client, run_id, "anna")
+            assert (ended["status"], ended["outputs"]) == ("complete", {"as-table.result": [[{"text": "a"}], [{"text": "b"}]]})
 
     asyncio.run(scenario())

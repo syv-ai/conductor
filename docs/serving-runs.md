@@ -140,7 +140,7 @@ That gives these routes:
 | `POST /load` | A graph's problems and plan as an editor draws them: `graph.describe()`. |
 | `POST /runs` | Start a run of `{"graph": ..., "inputs": {...}}`; 202 with its `id`, 422 listing every problem. |
 | `POST /graphs/{name}/runs` | Start a graph you offer, on its inputs alone. Only with `published=`. |
-| `GET /runs/{id}` | Its `status`, `rev`, `waiting` rows, `outputs` once complete, and `refused` answers. |
+| `GET /runs/{id}` | Its `status`, `rev`, `waiting` rows, `outputs` once complete (a table as a list of records, wherever it sits), and `refused` answers. |
 | `GET /runs/{id}/events` | Its events as server-sent events, from any worker. |
 | `POST /runs/{id}/answers` | `{waiting_id: value}`; 202 `started` or `queued`, 409, or 422 listing every fault. |
 | `POST /runs/{id}/resume` | Go on with a run that `timed_out`, `stopped`, was `cancelled` or `failed`. |

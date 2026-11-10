@@ -186,7 +186,7 @@ def run_router(
         try:
             row = await store.get(run_id)
             assert row is not None
-            run = load(row)
+            run = await asyncio.to_thread(load, row)
             values = from_run(started_by(row)) if from_run is not None else None
             stream = run.stream(
                 from_run=values, max_rows=ceiling if ceiling is not None else max_rows, timeout=leg_timeout,
@@ -213,11 +213,7 @@ def run_router(
         changes: RunChanges = {"status": run.status, "owner": None, "lease_until": 0.0, "cancel": False}
         if stopping and run.status == "cancelled" and not leg.asked:
             changes["status"] = "running"
-        changes["waiting"] = to_json([unit.model_dump(mode="json") for unit in run.waiting]).decode()
-        if run.status == "complete":
-            outputs = {a: v.to_dicts() if isinstance(v, pl.DataFrame) else v for a, v in run.outputs.items()}
-            changes["outputs"] = to_json(outputs, inf_nan_mode="strings").decode()  # as every JSON conductor writes
-        changes["run"] = await asyncio.to_thread(run.to_json)
+        changes.update(await asyncio.to_thread(_ended, run))
         if await write(run_id, leg, changes):
             await apply_pending(run_id)
 
@@ -243,28 +239,33 @@ def run_router(
         pending: dict[str, Any] = json.loads(row.pending) if row is not None else {}
         if row is None or row.status == "running" or not pending:
             return
-        run = await asyncio.to_thread(load, row)
-        taken, refused = False, json.loads(row.refused)
-        for unit_id, value in pending.items():
-            try:
-                run, taken = run.answer(unit_id, value), True
-            except InvalidCallError as error:
-                refused[unit_id] = [problem.model_dump(mode="json") for problem in error.errors()]
+        stored_row = row
+
+        def answered() -> tuple[str | None, dict[str, Any]]:
+            run, taken, refused = load(stored_row), False, json.loads(stored_row.refused)
+            for unit_id, value in pending.items():
+                try:
+                    run, taken = run.answer(unit_id, value), True
+                except InvalidCallError as error:
+                    refused[unit_id] = [problem.model_dump(mode="json") for problem in error.errors()]
+            return (run.to_json() if taken else None), refused
+
+        saved, refused = await asyncio.to_thread(answered)
         changes: RunChanges = {"pending": "{}", "refused": to_json(refused).decode()}
-        if taken:
-            changes.update({"status": "running", "owner": worker, "lease_until": time.time() + lease, "run": await asyncio.to_thread(run.to_json)})
-        if await store.update(run_id, row.rev, changes) and taken:
+        if saved is not None:
+            changes.update({"status": "running", "owner": worker, "lease_until": time.time() + lease, "run": saved})
+        if await store.update(run_id, row.rev, changes) and saved is not None:
             launch(run_id, row.rev + 1)
         # a failed update means another worker changed the run first: the answers stay queued for the end of its leg
 
     async def start(graph: GraphRecord, inputs: Mapping[str, Any], who: Any) -> Started:
         try:
-            run = nodes_for(who).load(graph).with_inputs(inputs, max_rows=max_rows)
+            saved = await asyncio.to_thread(lambda: nodes_for(who).load(graph).with_inputs(inputs, max_rows=max_rows).to_json())
         except InvalidCallError as error:
             raise _unprocessable(error) from None
         run_id = uuid.uuid4().hex
         await store.create(StoredRun(
-            id=run_id, graph=graph.model_dump_json(), caller=callers.dump_json(who).decode(), run=run.to_json(),
+            id=run_id, graph=graph.model_dump_json(), caller=callers.dump_json(who).decode(), run=saved,
             status="running", owner=worker, lease_until=time.time() + lease,
         ))
         launch(run_id, 0)
@@ -384,12 +385,12 @@ def run_router(
         """A new run of the caller's with these inputs changed, on the caller's own nodes; a row that receives what it
         received before isn't called again."""
         try:
-            run = await asyncio.to_thread(lambda: load(row, who).with_inputs(inputs))
+            saved = await asyncio.to_thread(lambda: load(row, who).with_inputs(inputs).to_json())
         except InvalidCallError as error:
             raise _unprocessable(error) from None
         run_id = uuid.uuid4().hex
         await store.create(StoredRun(
-            id=run_id, graph=row.graph, caller=callers.dump_json(who).decode(), run=run.to_json(),
+            id=run_id, graph=row.graph, caller=callers.dump_json(who).decode(), run=saved,
             status="running", owner=worker, lease_until=time.time() + lease,
         ))
         launch(run_id, 0)
@@ -411,6 +412,21 @@ def run_router(
         return Cancelled(cancelled=False)
 
     return router
+
+
+def _ended(run: Run) -> RunChanges:
+    """What a leg's end writes of ``run``: its waiting rows, its outputs once complete (a table as records, wherever it
+    sits, a float that isn't finite as text, as every JSON conductor writes), and the run."""
+    changes: RunChanges = {"waiting": to_json([unit.model_dump(mode="json") for unit in run.waiting]).decode(), "run": run.to_json()}
+    if run.status == "complete":
+        changes["outputs"] = to_json(run.outputs, fallback=_records, inf_nan_mode="strings").decode()
+    return changes
+
+
+def _records(value: Any) -> Any:
+    if isinstance(value, pl.DataFrame):
+        return value.to_dicts()
+    raise TypeError(type(value).__name__)
 
 
 def _nobody() -> None:
