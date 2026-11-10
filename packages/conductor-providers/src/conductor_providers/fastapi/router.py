@@ -64,6 +64,8 @@ class RunView(BaseModel):
     outputs: dict[str, Any] | None = None
     #: Answers sent while a leg ran that were refused when it ended, by waiting id.
     refused: dict[str, list[Problem]] = {}
+    #: Why the run failed, stopped, was cancelled or timed out; ``None`` while it runs, waits or once complete.
+    cause: Problem | None = None
 
 
 class Started(BaseModel):
@@ -203,8 +205,8 @@ def run_router(
                     await finish(run_id, leg, event.run)
         except Exception:
             log.exception("the leg of run %s failed", run_id)
-            await store.add_event(run_id, worker, '{"type":"run_end","status":"failed"}')
-            await write(run_id, leg, {"status": "failed", "owner": None})
+            await store.add_event(run_id, worker, '{"type":"run_end","status":"failed","cause":null}')
+            await write(run_id, leg, {"status": "failed", "owner": None, "cause": None})
         finally:
             keep_lease.cancel()
             if legs.get(run_id) is leg:  # an answer queued during this leg may have launched the next one already
@@ -325,6 +327,7 @@ def run_router(
         return RunView(
             id=row.id, status=row.status, rev=row.rev, waiting=json.loads(row.waiting),
             outputs=json.loads(row.outputs) if row.outputs is not None else None, refused=json.loads(row.refused),
+            cause=json.loads(row.cause) if row.cause is not None and row.status != "running" else None,
         )
 
     @router.get("/runs/{run_id}/events", response_class=EventSourceResponse)
@@ -418,8 +421,11 @@ def run_router(
 
 def _ended(run: Run) -> RunChanges:
     """What a leg's end writes of ``run``: its waiting rows, its outputs once complete (a table as records, wherever it
-    sits, a float that isn't finite as text, as every JSON conductor writes), and the run."""
-    changes: RunChanges = {"waiting": to_json([unit.model_dump(mode="json") for unit in run.waiting]).decode(), "run": run.to_json()}
+    sits, a float that isn't finite as text, as every JSON conductor writes), its cause, and the run."""
+    changes: RunChanges = {
+        "waiting": to_json([unit.model_dump(mode="json") for unit in run.waiting]).decode(), "run": run.to_json(),
+        "cause": run.cause.model_dump_json() if run.cause is not None else None,
+    }
     if run.status == "complete":
         changes["outputs"] = to_json(run.outputs, fallback=_records, inf_nan_mode="strings").decode()
     return changes

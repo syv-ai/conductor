@@ -144,10 +144,14 @@ class UnitWaiting(_EventBase):
 
 
 class RunEnd(_EventBase):
-    """The leg ended, with ``status``. ``run`` is the run as the leg left it, every value in it; it stays out of what the event writes, for the host to store."""
+    """The leg ended, with ``status`` and, for a run that ``failed``, ``stopped``, was ``cancelled`` or ``timed_out``, its ``cause``.
+
+    ``run`` is the run as the leg left it, every value in it; it stays out of what the event writes, for the host to store.
+    """
 
     type: Literal["run_end"] = "run_end"
     status: RunStatus
+    cause: Problem | None = None
     run: SkipJsonSchema[Run] = Field(exclude=True)
 
 
@@ -255,7 +259,7 @@ class Leg:
             for placed in self.nodes:  # a node the leg left part done says how far it got
                 if placed.level and placed.id in self.progress_said:
                     self._progress(placed, last=True)
-            self.emit(RunEnd(status=run.status, run=run))
+            self.emit(RunEnd(status=run.status, cause=run.cause, run=run))
 
     def _loop(self) -> None:
         while self.run.status == "running":

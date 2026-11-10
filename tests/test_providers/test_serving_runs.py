@@ -190,7 +190,7 @@ def test_a_run_started_on_one_worker_is_followed_read_and_answered_on_the_other(
             served.open_the_gate()
             seen = await following
 
-            assert seen[0]["type"] == "run_start" and seen[-1] == {"type": "run_end", "status": "waiting"}
+            assert seen[0]["type"] == "run_start" and seen[-1] == {"type": "run_end", "status": "waiting", "cause": None}
             completed = next(frame for frame in seen if frame["type"] == "node_complete")
             assert completed == {"type": "node_complete", "node_id": "gate", "rows": 1, "not_called": 0, "reused_units": 0}
             assert await a.frames(run_id) == seen  # a follower that comes late gets every event
@@ -377,7 +377,7 @@ def test_a_leg_that_cannot_start_leaves_the_run_failed_and_its_follower_is_told(
         async with _workers(served, count=1) as (a,):
             run_id = await a.start(_chain("needs_missing"))
             await a.until_status(run_id, "failed")
-            assert (await a.frames(run_id))[-1] == {"type": "run_end", "status": "failed"}
+            assert (await a.frames(run_id))[-1] == {"type": "run_end", "status": "failed", "cause": None}
 
     _run(scenario)
 

@@ -33,7 +33,7 @@ class SqliteRunStore:
             connection.execute("PRAGMA journal_mode = WAL")
             connection.executescript(
                 "CREATE TABLE IF NOT EXISTS runs (id TEXT PRIMARY KEY, graph TEXT, caller TEXT, run TEXT, status TEXT,"
-                " rev INTEGER, waiting TEXT, outputs TEXT, owner TEXT, lease_until REAL, cancel INTEGER, pending TEXT, refused TEXT);"
+                " rev INTEGER, waiting TEXT, outputs TEXT, owner TEXT, lease_until REAL, cancel INTEGER, pending TEXT, refused TEXT, cause TEXT);"
                 "CREATE TABLE IF NOT EXISTS events (run_id TEXT, seq INTEGER, body TEXT, PRIMARY KEY (run_id, seq));"
             )
 
@@ -140,7 +140,7 @@ That gives these routes:
 | `POST /load` | A graph's problems and plan as an editor draws them: `graph.describe()`. |
 | `POST /runs` | Start a run of `{"graph": ..., "inputs": {...}}`; 202 with its `id`, 422 listing every problem. |
 | `POST /graphs/{name}/runs` | Start a graph you offer, on its inputs alone. Only with `published=`. |
-| `GET /runs/{id}` | Its `status`, `rev`, `waiting` rows, `outputs` once complete (a table as a list of records, wherever it sits), and `refused` answers. |
+| `GET /runs/{id}` | Its `status`, `rev`, `waiting` rows, `outputs` once complete (a table as a list of records, wherever it sits), `refused` answers, and the `cause` of a run that failed, stopped, was cancelled or timed out (a `row_ceiling` cause says the `rows` and `max_rows`, for choosing a resume's ceiling). |
 | `GET /runs/{id}/events` | Its events as server-sent events, from any worker. |
 | `POST /runs/{id}/answers` | `{waiting_id: value}`; 202 `started` or `queued`, 409, or 422 listing every fault. |
 | `POST /runs/{id}/resume` | Go on with a run that `timed_out`, `stopped`, was `cancelled` or `failed`. |
@@ -201,7 +201,7 @@ A connection or session opened on the event loop and passed in either fails or i
 
 **Resuming.** A leg can end `timed_out` (past `leg_timeout`, 300 seconds by default), `stopped` (a table outgrew `max_rows`), `cancelled` or `failed`. `POST /runs/{id}/resume` goes on from where it stopped and calls nothing that finished. It takes no body; `{"max_rows": ...}` raises the ceiling for a stopped run. Only `complete` is final. A cancelled run takes no answers, so `/answers` says to resume it first. A leg that raised is written `failed`, so a run never stays `running` with nobody on it.
 
-**Following from any worker.** The leg's worker writes each event to the store, numbered in order. `GET /runs/{id}/events` streams them on whichever worker the client reached, until the run stops running, and goes on from `Last-Event-ID` after a reconnect. A client that connects after the run ended gets every event, and `GET /runs/{id}` has the outputs. Each frame is the event's JSON as `conductor.events` defines it. `node_complete` carries counts only, and `run_end` leaves the run out, so a frame stays small whatever the size of the table.
+**Following from any worker.** The leg's worker writes each event to the store, numbered in order. `GET /runs/{id}/events` streams them on whichever worker the client reached, until the run stops running, and goes on from `Last-Event-ID` after a reconnect. A client that connects after the run ended gets every event, and `GET /runs/{id}` has the outputs. Each frame is the event's JSON as `conductor.events` defines it. `node_complete` carries counts only, and `run_end` its `status` and `cause` and leaves the run out, so a frame stays small whatever the size of the table.
 
 **The answer's shape.** `POST /runs/{id}/answers` takes `{waiting.id: value}`, each value what the node returns: its value for one output, a mapping by name for several. A client draws each row's `questions` and checks against their `schema` and `choices` before it sends, and the server checks again. A wrong answer is a 422 listing every fault, each naming the row in `ctx.waiting_id` and, for a form, the question in `ctx.question` ([problem codes](problems.md#a-refused-call)). A row left out goes on waiting.
 

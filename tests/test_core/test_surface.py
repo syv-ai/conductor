@@ -292,7 +292,7 @@ SHAPES = {
     "node_retry": ["attempt", "cause", "delay", "node_id", "retries", "row", "type"],
     "unit_waiting": ["type", "unit"],
     "run_checkpoint": ["type"],
-    "run_end": ["status", "type"],
+    "run_end": ["cause", "status", "type"],
 }
 
 

@@ -32,10 +32,10 @@ def split(text: str) -> list[str]:
     return text.split(",")
 
 
-def test_an_ending_says_only_its_status():
+def test_an_ending_says_its_status_and_cause_and_leaves_the_run_out():
     (ending,) = [e for e in _events(GraphRecord(nodes=[NodeRecord(id="s", node="split", values={"text": "a,b"})]), split) if isinstance(e, RunEnd)]
 
-    assert _payload(ending) == {"type": "run_end", "status": "complete"}
+    assert _payload(ending) == {"type": "run_end", "status": "complete", "cause": None}
     assert ending.run.outputs == {"s.result": ["a", "b"]}
 
 

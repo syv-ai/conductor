@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import json
 import threading
 import time
 from typing import Annotated, Any, TypedDict
@@ -111,7 +112,7 @@ def test_an_output_that_isnt_finite_reads_as_its_text() -> None:
     asyncio.run(scenario())
 
 
-def test_a_run_stopped_at_its_ceiling_is_resumed_with_no_body_or_a_higher_ceiling() -> None:
+def test_a_run_stopped_at_its_ceiling_says_why_and_is_resumed_with_no_body_or_a_higher_ceiling() -> None:
     registry = NodeRegistry()
 
     @registry.node("up")
@@ -119,17 +120,27 @@ def test_a_run_stopped_at_its_ceiling_is_resumed_with_no_body_or_a_higher_ceilin
         return text.upper()
 
     graph = GraphRecord(nodes=[NodeRecord(id="u", node="up")]).model_dump(mode="json")
+    store = MemoryStore()
     app = FastAPI()
-    app.include_router(run_router(store=MemoryStore(), registry=registry, caller=_caller, max_rows=1))
+    app.include_router(run_router(store=store, registry=registry, caller=_caller, max_rows=1))
+
+    def last_end(run_id: str) -> dict[str, Any]:
+        ends: list[dict[str, Any]] = [json.loads(body) for body in store.written[run_id] if json.loads(body)["type"] == "run_end"]
+        return ends[-1]
 
     async def scenario() -> None:
         async with app.router.lifespan_context(app), httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as client:
             run_id = (await client.post("/runs", json={"graph": graph, "inputs": {"text": ["a", "b"]}})).json()["id"]
-            assert (await _until_ended(client, run_id, "anna"))["status"] == "stopped"
+            stopped = await _until_ended(client, run_id, "anna")
+            assert stopped["status"] == "stopped"
+            assert stopped["cause"]["type"] == last_end(run_id)["cause"]["type"] == "row_ceiling"
+            assert stopped["cause"]["ctx"]["max_rows"] == 1 and "rows" in stopped["cause"]["ctx"]
             assert (await client.post(f"/runs/{run_id}/resume")).status_code == 202
             assert (await _until_ended(client, run_id, "anna"))["status"] == "stopped"
             assert (await client.post(f"/runs/{run_id}/resume", json={"max_rows": 2})).status_code == 202
-            assert (await _until_ended(client, run_id, "anna"))["outputs"] == {"u.result": ["A", "B"]}
+            completed = await _until_ended(client, run_id, "anna")
+            assert completed["outputs"] == {"u.result": ["A", "B"]}
+            assert completed["cause"] is None and last_end(run_id)["cause"] is None
 
     asyncio.run(scenario())
 

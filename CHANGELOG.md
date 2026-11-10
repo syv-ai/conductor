@@ -56,7 +56,8 @@ What changes in how you work, before the name-by-name tables:
   starts, follows, answers, resumes and cancels runs on several workers over a `RunStore` you
   write ([`docs/serving-runs.md`](docs/serving-runs.md)). An answer sent while a leg runs waits for it to
   end, and one that then finds nothing waiting is kept in `refused`; `again` runs on the nodes of
-  the caller who asks; `resume` takes no body; a float that isn't finite in a run's outputs reads as `"Infinity"` or `"NaN"`.
+  the caller who asks; `resume` takes no body; `GET /runs/{id}` says the `cause` of a run that
+  didn't complete; a float that isn't finite in a run's outputs reads as `"Infinity"` or `"NaN"`.
   There is no canvas package.
 
 A 1.x graph doesn't load as saved. Convert each stored graph with the table under
@@ -300,7 +301,7 @@ A 1.x `Flow` becomes a `GraphRecord`, `{"nodes": [...], "edges": [[from, to], ..
 
 ### Events
 
-Events are frozen pydantic models in `conductor.events`, told apart by `type`. Two are new: `run_start`, always first, and `run_checkpoint`, the run mid-leg for a host to store, sent when `run.stream(checkpoint_every=)` asks. `run_end` is always last, its `status` one of `complete`, `waiting`, `failed`, `stopped`, `cancelled`, `timed_out`.
+Events are frozen pydantic models in `conductor.events`, told apart by `type`. Two are new: `run_start`, always first, and `run_checkpoint`, the run mid-leg for a host to store, sent when `run.stream(checkpoint_every=)` asks. `run_end` is always last, its `status` one of `complete`, `waiting`, `failed`, `stopped`, `cancelled`, `timed_out`, and its `cause` the run's `Problem` for one that failed, stopped, was cancelled or timed out (`null` otherwise).
 
 | 1.12.2 `type` | 2.0 |
 |---|---|

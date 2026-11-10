@@ -41,6 +41,8 @@ class StoredRun:
     pending: str = "{}"
     #: Queued answers that were refused, by waiting id, as JSON lists of problems.
     refused: str = "{}"
+    #: Why the last leg ended as it did (``failed``, ``stopped``, ``cancelled``, ``timed_out``), as a problem's JSON.
+    cause: str | None = None
 
 
 class RunChanges(TypedDict, total=False):
@@ -55,6 +57,7 @@ class RunChanges(TypedDict, total=False):
     cancel: bool
     pending: str
     refused: str
+    cause: str | None
 
 
 class RunStore(Protocol):
