@@ -49,22 +49,37 @@ _RESUMABLE = ("timed_out", "stopped", "cancelled", "failed")
 
 
 class StartRun(BaseModel):
-    """What ``POST /runs`` takes: a graph and its inputs, by name or by address."""
+    """The body of ``POST /runs``: a graph to run and the values it starts on.
+
+    Attributes:
+        graph: The graph, as its stored record; loaded on the caller's registry, so a node it lacks is a 422.
+        inputs: Values for the graph's open inputs, each by its name in ``graph.inputs`` or its address
+            ``node.input``, checked as ``graph.with_inputs`` checks them.
+    """
 
     graph: GraphRecord
     inputs: dict[str, Any] = {}
 
 
 class RunView(BaseModel):
-    """What a client reads about a run."""
+    """The body of ``GET /runs/{id}``: a run as its last leg left it, read without loading the run.
+
+    Attributes:
+        id: The run's id, as ``POST /runs`` gave it.
+        status: Where the run is: ``running`` while a leg runs, ``waiting`` for answers, ``complete``, or
+            ``timed_out``, ``stopped``, ``cancelled`` or ``failed``, which ``POST /runs/{id}/resume`` goes on from.
+        waiting: The rows waiting for a person, as of the last leg's end; each ``id`` is what
+            ``POST /runs/{id}/answers`` takes.
+        outputs: The graph's outputs by name once the run is complete, a table as a list of records; ``None`` until then.
+        refused: Answers sent while a leg ran that were refused when it ended, by waiting id, each with its problems.
+        cause: Why the run failed, stopped, was cancelled or timed out; ``None`` while it runs, waits or once complete.
+    """
 
     id: str
     status: RunStatus
     waiting: list[Waiting] = []
     outputs: dict[str, Any] | None = None
-    #: Answers sent while a leg ran that were refused when it ended, by waiting id.
     refused: dict[str, list[Problem]] = {}
-    #: Why the run failed, stopped, was cancelled or timed out; ``None`` while it runs, waits or once complete.
     cause: Problem | None = None
 
 
@@ -75,7 +90,12 @@ class Started(BaseModel):
 
 
 class Answered(BaseModel):
-    """``started``: the answers started the next leg. ``queued``: a leg was running, so they are applied when it ends."""
+    """The body of a ``POST /runs/{id}/answers`` that was taken.
+
+    Attributes:
+        answers: ``started`` when the answers were checked and started the next leg; ``queued`` when a leg was
+            running, so they are checked when it ends, and any refused then is in ``RunView.refused``.
+    """
 
     answers: typing.Literal["started", "queued"]
 
