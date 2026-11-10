@@ -1,6 +1,6 @@
 # Conductor
 
-A general-purpose Python library that runs graphs of typed nodes. It serves any host; nothing in it is fitted to one application. The user docs are `README.md`, `docs/` and the packaged reference `packages/conductor/src/conductor/about/llms.txt` (`python -m conductor.about`).
+A general-purpose Python library that runs graphs of typed nodes. It serves any host; nothing in it is fitted to one application. The user docs are `README.md` (the first page; `docs/index.md` includes it whole), `docs/writing-nodes.md` (for node authors), `docs/OVERVIEW.md`, `docs/serving-runs.md`, and the packaged reference `packages/conductor/src/conductor/about/llms.txt` (`python -m conductor.about`), the one complete reference. A rule is written out once, in the reference; the pages teach by example.
 
 ## Layout
 

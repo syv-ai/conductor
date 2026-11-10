@@ -51,7 +51,7 @@ assert loaded.plan["joined"] == "once"                 # parts is Series[str]: o
 
 The same record as JSON is `{"nodes": [{"id": "words", "node": "text-split"}, ...], "edges": [["words.result", "loud.text"], ...]}`, what an editor writes and a host stores. From Python, `make_graph(split, uppercase, join, values={"text-join.separator": " + "})` writes it too: with no `edges` the nodes form a chain, each taking its one required open input from the one output before it; with `edges=[...]` those are every edge, and nothing is matched by name. A node's id there is its own id, `-1`, `-2` when used twice.
 
-An input takes an edge, a value or a default, never two: `values` are fixed, `defaults` stay open for a caller, and an input with none of them takes its declared default. An open input named in a node's `many` takes a list from the caller, a row per item. Several edges into one input gather in the order their nodes appear in `nodes`. A single output is named `result`. A node id may not contain `.`, `/` or `@`.
+An input takes an edge, a value or a default, never two: `values` are fixed, `defaults` stay open for a caller, and an input with none of them takes its declared default. An open input named in a node's `many` takes a list from the caller, a row per item. Several edges into one `Series` or `Table` input gather: on one table in its row order, otherwise in the order their nodes appear in `nodes`. Into a one-value input they must be branches of one decision (`several_edges_into_one_value`). A single output is named `result`. A node id may not contain `.`, `/` or `@`.
 
 ## Quick reference
 
