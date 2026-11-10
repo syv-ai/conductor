@@ -122,7 +122,7 @@ PROBLEM_CATALOGUE: Mapping[str, str] = {
     "invalid_output": "The node returned a value that is not what it declares: {reason}",
     "invalid_ask": "The node asked a question its outputs can't be answered with: {reason}",
     "row_ceiling": "{table} has {rows} rows, more than the {max_rows} this run may make.",
-    "run_cancelled": "The run was cancelled.",
+    "run_cancelled": "The run was cancelled. Resume it to carry on, or start a new run.",
     "run_timed_out": "The run took too long and was stopped.",
     "timeout": "The node did not answer in time.",
 }

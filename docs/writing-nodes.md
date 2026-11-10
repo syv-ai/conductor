@@ -117,7 +117,7 @@ print(city(Address(street="Nørregade 1", city="Aarhus")))  # Aarhus
 A class pydantic can't check, such as a plain class with only an `__init__`, is refused when the node is declared, as `type_not_carried`.
 
 
-- `X | None` takes a blank. If an input's type has no `| None`, the node isn't called for a row where it is blank, and its outputs are blank there too.
+- `X | None` takes a blank. If an input's type has no `| None`, the node isn't called for a row where it is blank, and its outputs are blank there too. Rows a blank node never made are not zero rows: a `Series` or `Table` input that would gather them is blank in turn.
 - `Series[X]` is many values of `X`, a plain list to your function. Wired to a column, it gets every value of it. Returned, each item is a row.
 - `Table[R]` is a whole table, a `polars.DataFrame` whose columns the `TypedDict` `R` names. Each column of a table you return is an output of its own: `read.result.email`.
 - `list[X]` is one value that happens to be a list.

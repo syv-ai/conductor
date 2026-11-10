@@ -643,3 +643,40 @@ def test_a_literal_says_the_type_of_its_values_on_an_input_and_on_a_question():
     run = registry_of(priority).load(make_graph(priority, values={"priority.level": "a"})).run(ticket="T-1")
     (question,) = run.waiting[0].questions
     assert question["type"] == "str" and question["schema"] == {"enum": ["low", "high"], "type": "string"}
+
+
+def test_one_row_answered_twice_in_one_call_is_refused_and_nothing_is_answered():
+    gate, _ = _counted()
+    _, run = _asking(gate, text="b1,b2")
+    faults = _refused(lambda: run.answer({"q@0": "one", run.waiting[0].id: "two"}))
+    assert [(f.type, f.loc) for f in faults] == [("invalid_answer", ("q", 0))]
+    assert [place(w) for w in run.waiting] == ["q@0", "q@1"]
+
+
+def test_an_id_whose_row_is_not_a_row_answers_nothing_not_even_a_node_that_runs_once():
+    @node("once")
+    def once(text: str) -> str:
+        raise Ask("ok?")
+
+    run = registry_of(once).load(make_graph(once)).run(text="x")
+    assert [(f.type, f.loc) for f in _refused(lambda: run.answer("once@banana", "y"))] == [("not_waiting", ("once",))]
+    assert run.answer("once", "y").status == "waiting"  # answered, not yet resumed
+
+
+async def test_a_cancelled_run_with_questions_waiting_takes_no_answer_until_it_is_resumed():
+    import asyncio
+
+    gate, called = _counted()
+    _, run = _asking(gate, text="b1,b2")
+    cancel = asyncio.Event()
+    cancel.set()
+    async for event in run.stream(cancel=cancel):
+        if event.type == "run_end":
+            cancelled = event.run
+    assert cancelled.status == "cancelled" and [place(w) for w in cancelled.waiting] == ["q@0", "q@1"]
+
+    (problem,) = _refused(lambda: cancelled.answer("q@0", "B1"))
+    assert problem.type == "run_cancelled"
+
+    resumed = cancelled.resume()
+    assert resumed.status == "waiting" and resumed.answer("q@0", "B1").status == "waiting"

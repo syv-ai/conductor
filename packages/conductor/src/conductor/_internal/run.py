@@ -208,9 +208,17 @@ class Run:
         ``run.answer(unit, value)`` answers one row, ``run.answer({unit_id: value, ...})``
         several. A node with one output is answered with its value, one with
         several with a mapping by output name, where a question with a default,
-        a blank-taking type or an ``exclusive_group`` may be left out. Every
-        fault is refused at once and the run is left as it was.
+        an ``exclusive_group``, or a blank-taking type without choices may be
+        left out; a question limited by choices is answered unless it has a
+        default. Every fault is refused at once and the run is left as it was:
+        a row answered twice in one call, an id that names nothing waiting
+        (``not_waiting``), or one whose row now holds another question
+        (``answer_stale``, with ``ctx.moved_to`` when that question waits on
+        another row). A cancelled run takes no answers (``run_cancelled``):
+        ``resume`` it, and it carries on and waits again, or start a new run.
         """
+        if self.status == "cancelled":
+            raise InvalidCallError([make_problem("run_cancelled", "status")])
         if value is not _ONE_ANSWER:
             given: Mapping[str, Any] = {unit.id if isinstance(unit, Waiting) else str(unit): value}
         elif isinstance(unit, Mapping):
@@ -221,28 +229,42 @@ class Run:
         answered: dict[str, dict[Key, Unit]] = {}
         for unit_id, one in given.items():
             outer, key, fingerprint = _parse_unit(unit_id)
+            if key is None:
+                problems.append(make_problem("not_waiting", outer, waiting_id=unit_id))
+                continue
             here = [(n, u) for n in self.graph._placed_as(outer) if (u := self._units[n].get(key)) is not None and u.state == "waiting"]
             matching = [(n, u) for n, u in here if fingerprint is None or _question_fingerprint(self.graph._nodes[n], u) == fingerprint]
             if len(matching) != 1:
+                moved = {"moved_to": went} if fingerprint is not None and (went := self._moved_to(outer, fingerprint)) else {}
                 if len(here) == 1 and fingerprint is not None:
                     current = self._waiting(here[0][0], key, here[0][1]).id
-                    problems.append(make_problem("answer_stale", outer, *key, waiting_id=unit_id, current=current))
+                    problems.append(make_problem("answer_stale", outer, *key, waiting_id=unit_id, current=current, **moved))
                 else:
-                    problems.append(make_problem("not_waiting", outer, *key, waiting_id=unit_id))
+                    problems.append(make_problem("not_waiting", outer, *key, waiting_id=unit_id, **moved))
                 continue
             ((node_id, found),) = matching
+            if key in answered.get(node_id, {}):
+                problems.append(make_problem("invalid_answer", outer, *key, waiting_id=unit_id, reason="the row is answered twice in one call"))
+                continue
             placed = self.graph._nodes[node_id]
             read, faults = answer_outputs(placed, one, (found.question or {}).get("asked", {}))
             if faults:
                 problems.extend(make_problem("invalid_answer", outer, *key, waiting_id=unit_id, reason=reason, **({"question": q} if q else {})) for q, reason in faults)
-            else:
-                answered.setdefault(node_id, {})[key] = Unit("done", kept_outputs(placed.definition.outputs, read), found.question)
+            answered.setdefault(node_id, {})[key] = Unit("done", kept_outputs(placed.definition.outputs, read), found.question) if not faults else found
         if problems:
             raise InvalidCallError(problems)
         run = self._copy(share_units=True)
         for node_id, units in answered.items():
             run._units[node_id] = {**self._units[node_id], **units}
         return run
+
+    def _moved_to(self, outer: str, fingerprint: str) -> str | None:
+        """The id of the row where the question a stale id names now waits, if it waits on another row of the same node."""
+        for n in self.graph._placed_as(outer):
+            for k, u in self._units[n].items():
+                if u.state == "waiting" and _question_fingerprint(self.graph._nodes[n], u) == fingerprint:
+                    return self._waiting(n, k, u).id
+        return None
 
     def with_inputs(self, inputs: Mapping[str, Any] | None = None, /, *, max_rows: int | None = None, **by_name: Any) -> Run:
         """A run of these changed inputs, the rest as before, ready to ``resume`` or ``stream``.
@@ -491,11 +513,19 @@ class Run:
 
     def _skipped_above(self, source: Source, row: Key) -> bool:
         """Whether the table ``source`` reads under ``row`` was never made because its maker took no branch there."""
+        return self._not_made(source, row) == "skipped"
+
+    def _not_made(self, source: Source, row: Key) -> Literal["skipped", "blank"] | None:
+        """Why the table ``source`` reads under ``row`` was never made: its maker took no branch there, or wasn't called for a blank input."""
         if len(row) >= len(source.level) or source.node_id is None:
-            return False
+            return None
         node_id, output = self.graph._makers[source.level[len(row)]]
         unit = self._units[node_id].get(row) if node_id is not None else None
-        return unit is not None and (unit.state == "skipped" or (unit.state == "done" and unit.out is not None and unit.out.get(output) is SKIPPED))
+        if unit is None:
+            return None
+        if unit.state == "skipped" or (unit.state == "done" and unit.out is not None and unit.out.get(output) is SKIPPED):
+            return "skipped"
+        return "blank" if unit.state == "blank" else None
 
     def _skip_origin(self, source: Source, key: Key) -> int:
         """The depth of the row where the branch behind a skipped value was decided."""
@@ -556,7 +586,7 @@ class Run:
                     kwargs[name] = None  # a Series that may be None, and nothing was given
                     continue
                 items: list[tuple[Level, Key, Any]] = []
-                skipped_above = 0
+                skipped_above = blank_above = 0
                 skips = []  # for each item that is a skip: whether its branch was decided at or above the row it is gathered under, and where
                 lone = plan.sources[0]
                 on: dict[Level, list[Source]] = {}  # sources on one table are read row by row, in the table's order
@@ -574,7 +604,8 @@ class Run:
                     if not complete:
                         return PENDING
                     if not keys:
-                        skipped_above += sum(self._skipped_above(source, under) for source in sources)
+                        why = [self._not_made(source, under) for source in sources]
+                        skipped_above, blank_above = skipped_above + why.count("skipped"), blank_above + why.count("blank")
                     if len(sources) == 1:  # one source: each row is its value, or a skip
                         (source,) = sources
                         for key in keys:
@@ -604,6 +635,8 @@ class Run:
                             skips.append((len(key) > len(under) and max(origins) <= len(under), min(origins)))
                 if skipped_above and skipped_above == len(plan.sources):
                     return SkippedAt(len(row))  # every source was a branch not taken above this row: so is the call
+                if blank_above and skipped_above + blank_above == len(plan.sources):
+                    return name  # the rows were never made, as their maker had a blank input: not the same as no rows
                 if items and len(skips) == len(items) and all(above for above, _ in skips):
                     return SkippedAt(min(origin for _, origin in skips))  # every row under this one was skipped by a decision at or above it
                 gathered[name] = items
@@ -613,6 +646,8 @@ class Run:
                 table = self._table(plan, row)
                 if table is PENDING or isinstance(table, SkippedAt):
                     return table
+                if table is None:
+                    return name
                 kwargs[name] = table
         if gathered:
             # A row a Series input can't take leaves every Series input on that table.
@@ -624,9 +659,15 @@ class Run:
         return kwargs
 
     def _table(self, plan: InputPlan, row: Key) -> Any:
-        """The table a ``Table`` input receives on ``row``; for alternatives, the one whose branch ran, or a ``SkippedAt`` when none did."""
+        """The table a ``Table`` input receives on ``row``; for alternatives, the one whose branch ran, or a ``SkippedAt`` when none did.
+
+        ``None`` when the table was never made there because its maker had a blank input.
+        """
         if not plan.alternatives:
-            return self._columns(plan.sources, plan.table_level, row[: plan.table_anchor], plan.spec.columns)
+            under = row[: plan.table_anchor]
+            if all(self._not_made(source, under) == "blank" for source in plan.sources):
+                return None  # its maker had a blank input there: the table was never made
+            return self._columns(plan.sources, plan.table_level, under, plan.spec.columns)
         for source in plan.sources:
             under = row[: source.anchor]
             if not self._skipped_above(source, under):
@@ -1064,14 +1105,14 @@ def _question_fingerprint(placed: PlacedNode, unit: Unit) -> str:
     return hashlib.blake2b(written, digest_size=4).hexdigest()
 
 
-def _parse_unit(unit_id: str) -> tuple[str, Key, str | None]:
-    """A waiting id's node, row and question fingerprint, ``None`` when the id names only the place (``node@row``)."""
+def _parse_unit(unit_id: str) -> tuple[str, Key | None, str | None]:
+    """A waiting id's node, row (``None`` when it isn't one) and question fingerprint (``None`` when the id names only the place, ``node@row``)."""
     place, _, fingerprint = unit_id.partition("~")
     node_id, *rest = place.split("@")
     try:
         return node_id, tuple(int(i) for i in rest), fingerprint or None
     except ValueError:
-        return node_id, (), fingerprint or None
+        return node_id, None, fingerprint or None
 
 
 def _dump(spec: FieldSpec, value: Any, many_rows: bool) -> Any:

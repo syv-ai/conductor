@@ -179,7 +179,8 @@ class Leg:
         self.pool: ThreadPoolExecutor | None = None
         self.made = run._rows_made()
         self.shared: dict[tuple[str, str], int] = {}
-        #: For a node taking earlier work, its rows in order, each row's place, and how many from the first have been tried.
+        #: For a node taking earlier work, its rows in order, each row's place, how many from the first have been tried,
+        #: and the rows that count as tried because nothing in the leg could start them (they wait on a person).
         self.turns: dict[str, list[Any]] = {}
         self.recorded_since_walk = 1
         self.left_pending = True
@@ -231,7 +232,7 @@ class Leg:
                     self._completions()
                 if self.running:
                     self._wait()
-                elif self.left_pending and self.recorded_since_walk:
+                elif self.left_pending and (self.recorded_since_walk or self._pass_untried()):
                     self._walk()
                 else:
                     return
@@ -413,17 +414,34 @@ class Leg:
                     heapq.heappush(self.ready, (self.position[reader.id], row))
 
     def _in_turn(self, placed: PlacedNode, key: Key) -> bool:
-        """Whether every row of ``placed`` before ``key`` has been tried, so identical rows take earlier work in row order, whatever thread finished first."""
+        """Whether every row of ``placed`` before ``key`` has been tried, so identical rows take earlier work in row order, whatever thread finished first.
+
+        The k-th of identical rows is the k-th in row order among the rows the leg could try: a row that waits on a
+        person counts as tried once nothing else can start (``_pass_untried``).
+        """
         turn = self.turns.get(placed.id)
         if turn is None or key not in turn[1]:
             order = self.run._rows(placed.level, ())[0]
-            turn = self.turns[placed.id] = [order, {k: i for i, k in enumerate(order)}, 0]
-        order, index, reached = turn
+            turn = self.turns[placed.id] = [order, {k: i for i, k in enumerate(order)}, 0, set()]
+        order, index, reached, passed = turn
         units = self.run._units[placed.id]
-        while reached < len(order) and (order[reached] in units or (placed.id, order[reached]) in self.running):
+        while reached < len(order) and (order[reached] in units or (placed.id, order[reached]) in self.running or order[reached] in passed):
             reached += 1
         turn[2] = reached
         return index.get(key, 0) <= reached
+
+    def _pass_untried(self) -> bool:
+        """With nothing left to start, count every row a node taking earlier work hasn't tried as tried, so the rows after it take theirs.
+
+        Such a row waits on a person, so this leg can't learn what it receives; if it does later, it takes what is left.
+        """
+        passed_any = False
+        for node_id, (order, _, reached, passed) in self.turns.items():
+            units = self.run._units[node_id]
+            untried = {k for k in order[reached:] if k not in units and k not in passed}
+            passed |= untried
+            passed_any = passed_any or bool(untried)
+        return passed_any
 
     def _shared(self, placed: PlacedNode, reader: PlacedNode) -> int:
         """How many tables the rows of ``placed`` and of a node reading it share from the graph's own row down."""

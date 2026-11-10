@@ -13,7 +13,17 @@ from typing import Annotated, Any, Optional, TypedDict
 
 import polars as pl
 import pytest
-from conductor import SKIPPED, Ask, GraphRecord, InvalidCallError, Param, Series, Table, node
+from conductor import (
+    SKIPPED,
+    Ask,
+    GraphRecord,
+    InvalidCallError,
+    NodeRecord,
+    Param,
+    Series,
+    Table,
+    node,
+)
 
 from tests.test_core.nodes import registry_of
 
@@ -234,16 +244,17 @@ def test_choice_outputs_are_skipped_when_not_called():
     assert [(n["node_id"], n["row"]) for n in run.not_called] == [("b", (1,)), ("u", (1,))]
 
 
-def test_a_row_making_output_has_no_rows_when_not_called_so_a_count_gives_zero():
+def test_a_row_making_output_not_called_makes_no_rows_so_a_count_of_them_is_not_called_either():
     run = ran({"id": "c", "node": "contacts"}, {"id": "s", "node": "split"}, {"id": "n", "node": "count"},
               edges=(("c.result.email", "s.text"), ("s.result", "n.values")), text=CSV)
-    assert run.results["n"]["result"] == [1, 0, 1]
+    assert run.results["n"]["result"] == [1, None, 1]
+    assert {"node_id": "n", "row": (1,), "input": "values"} in run.not_called
 
 
-def test_a_table_output_has_no_rows_when_not_called():
+def test_a_table_output_not_called_makes_no_rows_so_a_count_of_them_is_not_called_either():
     run = ran({"id": "c", "node": "contacts"}, {"id": "i", "node": "invoices"}, {"id": "n", "node": "count"},
               edges=(("c.result.email", "i.text"), ("i.result.vendor", "n.values")), text="Ida,a:1;Bo,")
-    assert run.results["n"]["result"] == [1, 0]
+    assert run.results["n"]["result"] == [1, None]
     assert run.results["i"]["result"][1] is None  # nothing was made on Bo's row
 
 
@@ -1588,3 +1599,42 @@ def test_a_sibling_gather_says_it_gathers_under_the_row_the_two_share():
     assert {i["name"]: i["receives"] for i in loaded.describe()["nodes"]["b"]["inputs"]} == {
         "invoice": "per row of p.invoices", "keywords": "whole column of p.keywords under each row of s.result",
     }
+
+
+def test_a_gather_over_rows_a_blank_kept_from_being_made_is_not_called_and_is_not_zero_rows():
+    """A document that couldn't be read is not an empty document: its count is not made, and ``not_called`` says which input."""
+
+    @node("docs")
+    def docs(text: str) -> Series[str | None]:
+        return [None if x == "-" else x for x in text.split(";")]
+
+    @node("lines")
+    def lines(text: str) -> Series[str]:
+        return [x for x in text.split(",") if x]
+
+    @node("count")
+    def count(items: Series[str]) -> int:
+        return len(items)
+
+    @node("width")
+    def width(table: Table) -> int:
+        return table.width
+
+    @node("as_table")
+    def as_table(text: str) -> Table:
+        return pl.DataFrame({"part": text.split(",")})
+
+    @node("total")
+    def total(ns: Series[int]) -> int:
+        return sum(ns)
+
+    graph = registry_of(docs, lines, count, width, as_table, total).load(GraphRecord(
+        nodes=[NodeRecord(id=n, node=d) for n, d in [("d", "docs"), ("l", "lines"), ("c", "count"), ("t", "total"), ("a", "as_table"), ("w", "width")]],
+        edges=[("d.result", "l.text"), ("l.result", "c.items"), ("c.result", "t.ns"), ("d.result", "a.text"), ("a.result", "w.table")],
+    ))
+    run = graph.run(text="a,b;-;c;")
+
+    assert run.results["c"]["result"] == [2, None, 1, 0]  # the last document is empty: 0 lines, made
+    assert run.results["w"]["result"] == [1, None, 1, 1]
+    assert run.results["t"]["result"] == 3
+    assert {(n["node_id"], n["row"], n["input"]) for n in run.not_called} >= {("c", (1,), "items"), ("w", (1,), "table")}

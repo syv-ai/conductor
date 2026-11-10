@@ -1112,7 +1112,7 @@ def test_a_waiting_row_carried_through_a_cancelled_again_waits_at_its_new_row():
     assert asked == ["eva"] and [w.inputs["name"] for w in resumed.waiting] == ["eva", "ida", "bo"]
 
 
-def test_an_answer_for_a_place_that_now_holds_another_question_is_answer_stale_naming_the_current_one():
+def test_an_answer_for_a_place_that_now_holds_another_question_is_answer_stale_naming_the_current_one_and_where_its_own_went():
     @node("approve")
     def approve(name: str) -> bool:
         raise Ask(f"Mail {name}?")
@@ -1126,7 +1126,8 @@ def test_an_answer_for_a_place_that_now_holds_another_question_is_answer_stale_n
         moved.answer(bo.id, True)  # bo's id names a@1, where al waits now
     (problem,) = refused.value.errors()
     current = moved.waiting[1].id
-    assert (problem.type, problem.loc, problem.ctx) == ("answer_stale", ("a", 1), {"waiting_id": bo.id, "current": current})
+    moved_to = moved.waiting[2].id  # bo's question waits at a@2
+    assert (problem.type, problem.loc, problem.ctx) == ("answer_stale", ("a", 1), {"waiting_id": bo.id, "current": current, "moved_to": moved_to})
     assert moved.answer("a@1", True).results["a"]["result"] == [None, True, None]  # a place alone answers what waits there
 
 
@@ -1327,3 +1328,37 @@ def test_identical_rows_take_earlier_answers_in_row_order_whatever_thread_finish
         first_done.clear()
         again = answered.again(name=["bo-0", "bo-1"])
         assert again.results["a"]["result"] == [True, False] and again.waiting == []
+
+
+def test_again_keeps_every_waiting_question_when_an_earlier_row_waits_on_a_person_above():
+    """split → ask_a → ask_b; a@0 still waits, b@1 and b@2 wait: ``again`` with the same inputs keeps all three, calling nothing."""
+    calls: list[str] = []
+
+    @node("split")
+    def split(text: str) -> Series[str]:
+        return text.split()
+
+    @node("ask_a")
+    def ask_a(text: str) -> str:
+        calls.append(f"a {text}")
+        raise Ask(f"A {text}?")
+
+    @node("ask_b")
+    def ask_b(text: str) -> str:
+        calls.append(f"b {text}")
+        raise Ask(f"B {text}?")
+
+    graph = registry_of(split, ask_a, ask_b).load(GraphRecord(
+        nodes=[NodeRecord(id="s", node="split"), NodeRecord(id="a", node="ask_a"), NodeRecord(id="b", node="ask_b")],
+        edges=[("s.result", "a.text"), ("a.result", "b.text")],
+    ))
+    first = graph.run(text="x y z")
+    second = first.answer({"a@1": "Y", "a@2": "Z"}).resume()
+    waiting = [w.id for w in second.waiting]
+    assert [w.split("~")[0] for w in waiting] == ["a@0", "b@1", "b@2"]
+    calls.clear()
+
+    again = second.again()
+
+    assert [w.id for w in again.waiting] == waiting and calls == []
+    assert again.answer({waiting[1]: "y", waiting[2]: "z"}).results["b"]["result"] == [None, "y", "z"]
