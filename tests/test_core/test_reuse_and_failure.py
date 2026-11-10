@@ -1261,3 +1261,38 @@ def test_a_table_nothing_holds_after_forget_is_not_written():
     written = json.loads(run.forget("s").to_json())
 
     assert written["units"]["s"]["states"] == [] and "s" not in written["earlier"]
+
+
+def test_identical_answered_rows_keep_their_answers_across_a_cancelled_leg_as_on_a_direct_one():
+    run = _answered(["bo", "bo", "al"], [True, False, True])
+    direct = run.again(name=["eva", "bo", "bo", "al"])
+    cancel = asyncio.Event()
+    cancel.set()
+    stopped = _events(run.with_inputs(name=["eva", "bo", "bo", "al"]), cancel=cancel)[-1].run
+
+    through = run.graph.load_run(stopped.to_json()).resume()
+
+    assert through.results == direct.results == {"a": {"result": [None, True, False, True]}}
+    assert [w.inputs for w in through.waiting] == [w.inputs for w in direct.waiting] == [{"name": "eva"}]
+
+
+def test_a_save_of_a_node_redeclared_so_it_runs_on_other_rows_does_not_fit_and_is_refused_naming_the_node():
+    @node("count")
+    def count(text: str) -> int:
+        return len(text)
+
+    @node("count")
+    def count_all(text: Series[str]) -> int:
+        return len(text)
+
+    @node("split")
+    def split(text: str) -> Series[str]:
+        return text.split(",")
+
+    record = GraphRecord(nodes=[NodeRecord(id="s", node="split"), NodeRecord(id="c", node="count")], edges=[("s.result", "c.text")])
+    saved = registry_of(split, count).load(record).run(text="ab,c").to_json()
+
+    with pytest.raises(InvalidCallError) as refused:
+        registry_of(split, count_all).load(record).load_run(saved)
+
+    assert [(p.type, p.ctx["at"]) for p in refused.value.errors()] == [("state_unreadable", "c")]
