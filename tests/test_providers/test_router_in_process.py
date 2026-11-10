@@ -16,6 +16,7 @@ httpx = pytest.importorskip("httpx")
 
 import polars as pl  # noqa: E402
 from conductor import Ask, FromRun, GraphRecord, NodeRecord, NodeRegistry, Series, Table, make_graph  # noqa: E402
+from conductor._internal.errors import PROBLEM_CATALOGUE  # noqa: E402
 from conductor_providers.fastapi import RunChanges, StoredRun, run_router  # noqa: E402
 from fastapi import FastAPI, Header  # noqa: E402
 
@@ -427,6 +428,7 @@ def test_an_answer_queued_during_a_leg_that_ends_needing_a_resume_is_refused_and
             row = (await client.get(f"/runs/{run_id}")).json()
             assert (row["status"], runs.rows[run_id].pending) == (ended, "{}")
             assert [(problem["type"], problem["ctx"]) for problem in row["refused"][waiting_id]] == [("run_not_waiting", {"status": ended})]
+            assert row["refused"][waiting_id][0]["msg"] == PROBLEM_CATALOGUE["run_not_waiting"].format(status=ended)
             direct = await client.post(f"/runs/{run_id}/answers", json={waiting_id: True})
             assert (direct.status_code, direct.json()["detail"]) == (409, row["refused"][waiting_id][0]["msg"])
 

@@ -471,8 +471,9 @@ def _answered(run: Run | None, pending: dict[str, Any], refused: dict[str, Any])
 
 
 def _not_waiting(status: RunStatus) -> Problem:
-    """Why a run that isn't ``waiting`` takes no answers: a leg starts only on a run that waits for them."""
-    return Problem(type="run_not_waiting", msg=f"the run is {status}; resume it first", ctx={"status": status})
+    """Why a run that isn't ``waiting`` takes no answers: a leg starts only on a run that waits for them. The code and
+    its message are in ``PROBLEM_CODES`` and conductor's catalogue, as every code conductor writes."""
+    return Problem(type="run_not_waiting", msg=f"The run is {status}, so it takes no answers; resume it first, then answer.", ctx={"status": status})
 
 
 def _records(value: Any) -> Any:

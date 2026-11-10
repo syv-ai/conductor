@@ -233,14 +233,14 @@ def test_the_outputs_of_a_failed_run_are_refused_and_its_results_say_what_it_did
 
 
 def _codes_written_by_the_library() -> set[str]:
-    """Every problem code a site in the library writes: ``make_problem``'s first argument,
+    """Every problem code a site in the library or its runs router writes: ``make_problem``'s first argument,
     ``Problem(type=...)``, a ``code=`` on any call but a declaration error's, and each error's code when none is given."""
     written: set[str] = set()
 
     def literals(expression: ast.expr) -> set[str]:
         return {found.value for found in ast.walk(expression) if isinstance(found, ast.Constant) and isinstance(found.value, str)}
 
-    for path in LIBRARY.rglob("*.py"):
+    for path in [*LIBRARY.rglob("*.py"), *(LIBRARY.parents[2] / "conductor-providers" / "src").rglob("*.py")]:
         for found in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             if isinstance(found, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "_code_when_none_given" for t in found.targets):
                 written |= literals(found.value)

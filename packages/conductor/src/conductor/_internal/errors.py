@@ -136,6 +136,8 @@ PROBLEM_CATALOGUE: Mapping[str, str] = {
     "run_cancelled": "The run was cancelled. Resume it to carry on, or start a new run.",
     "run_timed_out": "The run took too long and was stopped; run.resume() carries on.",
     "timeout": "The node did not answer in time; its Policy(attempt_timeout=) sets how long it may take.",
+    # -- what the runs router refuses ------------------------------------------
+    "run_not_waiting": "The run is {status}, so it takes no answers; resume it first, then answer.",
 }
 
 #: The codes a host translating by code has to cover.

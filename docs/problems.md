@@ -885,6 +885,18 @@ print(late.cause.type)  # timeout
 
 **Fix.** Raise the node's `Policy(attempt_timeout=)`, or make the call faster. The timeout is final for that row: it is not retried.
 
+## Serving runs
+
+In `refused` on a run `run_router` serves, by the waiting id of the answer, and as the `detail` of a 409 from `POST /runs/{run_id}/answers`.
+
+### `run_not_waiting`
+
+> The run is {status}, so it takes no answers; resume it first, then answer.
+
+An answer queued while a leg ran, when that leg ended `stopped`, `timed_out`, `cancelled` or `failed`, or an answer sent to a run in one of those states. `ctx.status` is the run's status. The router starts a leg on answers only for a run that waits for them, so a run that stopped at its ceiling or its timeout doesn't start again there on an answer.
+
+**Fix.** `POST /runs/{run_id}/resume`, then send the answer again once the run is `waiting`.
+
 ## Declaring a node
 
 Raised as `NodeDeclarationError` when the module that declares the node is imported. `error.code` is the code. The text is English and for the developer.
