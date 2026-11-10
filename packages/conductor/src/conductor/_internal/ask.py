@@ -135,12 +135,12 @@ def asked(ask: Ask, definition: NodeDefinition[..., Any]) -> dict[str, dict[str,
             spec = outputs.get(name)
             if spec is None:
                 raise WrongAsk(f"the {kind} names '{name}', which is not an output; the outputs are {', '.join(outputs) or 'none'}")
-            added.setdefault(name, {})[kind] = _added(spec, kind, value, added.get(name, {}))
+            added.setdefault(name, {})[kind] = _added(spec, kind, value, added.get(name, {}).get("choices"))
     return added
 
 
-def _added(spec: FieldSpec, kind: str, value: Any, so_far: Mapping[str, Any]) -> Any:
-    """One thing an ``Ask`` adds to a question, as JSON; a default is held to the rules an answer is, against the choices ``so_far``."""
+def _added(spec: FieldSpec, kind: str, value: Any, offered: list[dict[str, Any]] | None) -> Any:
+    """One thing an ``Ask`` adds to a question, as JSON; a default is held to the rules an answer is, against the choices ``offered`` so far."""
     if kind == "widget":
         try:
             return to_jsonable_python(value)
@@ -150,7 +150,7 @@ def _added(spec: FieldSpec, kind: str, value: Any, so_far: Mapping[str, Any]) ->
         if value is SKIPPED:
             raise WrongAsk(f"the default for '{spec.name}' is SKIPPED; a person answers a value")
         try:
-            return _as_json(spec, _checked_answer(spec, value, so_far))
+            return _as_json(spec, _checked_answer(spec, value, offered))
         except Refused as refused:
             raise WrongAsk(f"the default for '{spec.name}' is not an answer it takes: {refused.reason}") from None
     if spec.shape == "table":
@@ -171,58 +171,48 @@ def _added(spec: FieldSpec, kind: str, value: Any, so_far: Mapping[str, Any]) ->
 
 
 def questions(placed: PlacedNode, added: Mapping[str, Mapping[str, Any]]) -> list[FieldDescription]:
-    """A waiting row's questions: each output's record, with what its ``Ask`` added; one the ``Ask`` adds nothing to is
-    the node's own record, made once."""
-    if not added:
-        return list(placed.question_records.values())
-    return [FieldDescription.model_validate(question) if question["name"] in added else placed.question_records[question["name"]] for question in _asked(placed, added)]
+    """A waiting row's questions: each output's record, with what its ``Ask`` added."""
+    outputs = placed.definition.outputs
+    return [_with_added(outputs[name], question, added[name]) if name in added else question for name, question in placed.questions.items()]
 
 
-def _asked(placed: PlacedNode, added: Mapping[str, Mapping[str, Any]]) -> list[dict[str, Any]]:
-    """``questions`` as JSON, with only the keys each question has."""
-    out = []
-    for name, question in placed.questions.items():
-        extra = added.get(name)
-        if extra:
-            question = {**question, **extra}
-            question["required"] = _required(placed.definition.outputs[name], question)
-        else:
-            question = dict(question)
-        out.append(question)
-    return out
+def _with_added(spec: FieldSpec, question: FieldDescription, added: Mapping[str, Any]) -> FieldDescription:
+    choices = added.get("choices", question.choices)
+    required = _required(spec, added, limited=choices is not None)
+    return question.model_copy(update={**added, "required": required})
 
 
-def questions_of(definition: NodeDefinition[..., Any]) -> dict[str, dict[str, Any]]:
+def questions_of(definition: NodeDefinition[..., Any]) -> dict[str, FieldDescription]:
     """Each output's question before any ``Ask`` adds to it; a lone output takes the node's title."""
     lone = len(definition.outputs) == 1
     return {name: _question(spec, definition.title if lone else None) for name, spec in definition.outputs.items()}
 
 
-def _question(spec: FieldSpec, node_title: str | None) -> dict[str, Any]:
-    question = spec.as_json()
+def _question(spec: FieldSpec, node_title: str | None) -> FieldDescription:
+    changed: dict[str, Any] = {}
     if node_title is not None and spec.param.title is None:
-        question["title"] = node_title  # a lone output's own name, "result", says nothing to a person
+        changed["title"] = node_title  # a lone output's own name, "result", says nothing to a person
     if not spec.required:  # a field of a returned dataclass with a default proposes it
-        question["default"] = _as_json(spec, spec.default)
-    question["required"] = _required(spec, question)
-    return question
+        changed["default"] = _as_json(spec, spec.default)
+    question = spec.describe(**changed)
+    return question.model_copy(update={"required": _required(spec, {}, limited=question.choices is not None)})
 
 
-def _required(spec: FieldSpec, question: Mapping[str, Any]) -> bool:
-    """Whether an answer must give the question: not when it has a default or is one of an exclusive group, nor when its
-    type takes a blank and no choices limit what it takes."""
-    blank = spec.shape == "one" and spec.optional and "choices" not in question
-    return "default" not in question and spec.param.exclusive_group is None and not blank
+def _required(spec: FieldSpec, added: Mapping[str, Any], *, limited: bool) -> bool:
+    """Whether an answer must give the question: not when it has a default (its field's, or one its ``Ask`` ``added``) or
+    is one of an exclusive group, nor when its type takes a blank and no choices limit what it takes."""
+    defaulted = "default" in added or not spec.required
+    blank = spec.shape == "one" and spec.optional and not limited
+    return not defaulted and spec.param.exclusive_group is None and not blank
 
 
 def answer_outputs(placed: PlacedNode, value: Any, added: Mapping[str, Mapping[str, Any]]) -> tuple[dict[str, Any], list[tuple[str | None, str]]]:
     """A person's answer as the node's outputs, or every fault in it as ``(question, reason)``; nothing of the value is quoted."""
     outputs = placed.definition.outputs
-    asked_now = {question["name"]: question for question in _asked(placed, added)}
     if len(outputs) == 1:
         (name, spec), = outputs.items()
         try:
-            return {name: _checked_answer(spec, value, asked_now[name])}, []
+            return {name: _checked_answer(spec, value, added.get(name, {}).get("choices", placed.questions[name].choices))}, []
         except Refused as refused:
             return {}, [(None, refused.reason)]
     if value is None and not outputs:
@@ -233,16 +223,15 @@ def answer_outputs(placed: PlacedNode, value: Any, added: Mapping[str, Mapping[s
     read: dict[str, Any] = {}
     groups: dict[str, list[str]] = {}
     for name, spec in outputs.items():
-        question, group = asked_now[name], spec.param.exclusive_group
+        question, extra, group = placed.questions[name], added.get(name, {}), spec.param.exclusive_group
+        offered = extra.get("choices", question.choices)
         try:
             if name in value:
-                read[name] = _checked_answer(spec, value[name], question)
+                read[name] = _checked_answer(spec, value[name], offered)
             elif group is not None:
                 read[name] = SKIPPED
-            elif "default" in question:
-                read[name] = read_answer(spec, question["default"])
-            elif not question["required"]:
-                read[name] = None
+            elif not _required(spec, extra, limited=offered is not None):
+                read[name] = read_answer(spec, extra.get("default", question.default))  # a default, or a blank where the type takes one
             else:
                 faults.append((name, f"'{name}' was not answered"))
         except Refused as refused:
@@ -255,10 +244,9 @@ def answer_outputs(placed: PlacedNode, value: Any, added: Mapping[str, Mapping[s
     return read, faults
 
 
-def _checked_answer(spec: FieldSpec, value: Any, question: Mapping[str, Any]) -> Any:
-    """One question's answer in the node's own form, held to the choices it offers; a pick of several picks each once."""
+def _checked_answer(spec: FieldSpec, value: Any, offered: list[dict[str, Any]] | None) -> Any:
+    """One question's answer in the node's own form, held to the choices ``offered``; a pick of several picks each once."""
     read = read_answer(spec, value)
-    offered = question.get("choices")
     if offered is not None:
         picked = _as_json(spec, read)
         picks = picked if spec.shape == "many" else [picked]

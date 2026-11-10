@@ -153,12 +153,7 @@ class PlacedNode:
         )
 
     @functools.cached_property
-    def question_records(self) -> dict[str, FieldDescription]:
-        """``questions`` as the records a waiting row holds."""
-        return {name: FieldDescription.model_validate(question) for name, question in self.questions.items()}
-
-    @functools.cached_property
-    def questions(self) -> dict[str, dict[str, Any]]:
+    def questions(self) -> dict[str, FieldDescription]:
         """What a person is asked for each output when the node raises ``Ask``, before the ``Ask`` adds to it."""
         return questions_of(self.definition)
 
