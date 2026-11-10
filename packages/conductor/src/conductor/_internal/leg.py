@@ -29,6 +29,7 @@ import time
 from collections import deque
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from pydantic import ConfigDict, Field
@@ -179,6 +180,23 @@ Event.__doc__ = "Any event ``run.stream()`` yields, told apart by ``type``: ``Ty
 # -- the leg ------------------------------------------------------------------------------------
 
 
+@dataclass(slots=True)
+class _Turn:
+    """How far a leg has tried a node's rows in order, so identical rows take earlier work in row order.
+
+    Attributes:
+        order: The node's rows in row order.
+        place: Each row's position in ``order``.
+        reached: How many rows from the first have been tried.
+        passed: Rows counted as tried because nothing in the leg could start them (they wait on a person).
+    """
+
+    order: list[Key]
+    place: dict[Key, int]
+    reached: int = 0
+    passed: set[Key] = field(default_factory=set)
+
+
 class Leg:
     """One leg over ``run``, which it changes in place. ``emit`` is None when nobody listens.
 
@@ -201,14 +219,14 @@ class Leg:
         self.slots_waiting: dict[str, deque[tuple[Key, dict[str, Any], int]]] = {p.id: deque() for p in self.nodes}
         self.on_threads = {p.id: 0 for p in self.nodes}
         self.returned: queue.SimpleQueue[tuple[str, Key, int, Any, BaseException | None]] = queue.SimpleQueue()
-        self.timers: list[tuple[float, int, str, Key, int]] = []  # (when, order, node, row, attempt): a retry due, or an attempt's deadline
+        #: (when, order, what is due, node, row, attempt): a retry of the attempt, or the deadline of the attempt on a thread.
+        self.timers: list[tuple[float, int, Literal["retry", "deadline"], str, Key, int]] = []
         self.attempts: dict[tuple[str, Key], int] = {}  # the attempt each unit on a thread is on
         self.pool: ThreadPoolExecutor | None = None
         self.made = run._rows_made()
         self.shared: dict[tuple[str, str], int] = {}
-        #: For a node taking earlier work, its rows in order, each row's place, how many from the first have been tried,
-        #: and the rows that count as tried because nothing in the leg could start them (they wait on a person).
-        self.turns: dict[str, list[Any]] = {}
+        #: For a node taking earlier work, how far through its rows in order the leg has tried.
+        self.turns: dict[str, _Turn] = {}
         self.recorded_since_walk = 1
         self.left_pending = True
         # what only a listener needs
@@ -343,7 +361,7 @@ class Leg:
             if self.pool is None:
                 self.pool = ThreadPoolExecutor(sum(p.definition.policy.concurrency for p in self.nodes if p.definition.policy.threaded), "conductor")
             if policy.attempt_timeout is not None:
-                heapq.heappush(self.timers, (time.monotonic() + policy.attempt_timeout, len(self.timers), placed.id, key, -1 - attempt))
+                heapq.heappush(self.timers, (time.monotonic() + policy.attempt_timeout, len(self.timers), "deadline", placed.id, key, attempt))
             self.pool.submit(self._on_thread, placed, key, kwargs, attempt)
 
     def _on_thread(self, placed: PlacedNode, key: Key, kwargs: dict[str, Any], attempt: int) -> None:
@@ -360,12 +378,12 @@ class Leg:
             pass
         now = time.monotonic()
         while self.timers and self.timers[0][0] <= now:
-            _, _, node_id, key, attempt = heapq.heappop(self.timers)
+            _, _, due, node_id, key, attempt = heapq.heappop(self.timers)
             placed = self.run.graph._nodes[node_id]
-            if attempt >= 0:  # a retry is due
+            if due == "retry":
                 if self.run.status == "running":
                     self._attempt(placed, key, self.running[(node_id, key)], attempt)
-            elif self.attempts.get((node_id, key)) == -1 - attempt and (node_id, key) in self.running:  # the attempt still runs
+            elif self.attempts.get((node_id, key)) == attempt and (node_id, key) in self.running:  # the attempt still runs
                 del self.running[(node_id, key)]
                 seconds = placed.definition.policy.attempt_timeout
                 self._record(placed, key, make_problem("timeout", node_id, *key, seconds=seconds))
@@ -397,7 +415,7 @@ class Leg:
             return False
         delay = policy.retry_delay * 2**attempt
         self.running[(placed.id, key)] = kwargs
-        heapq.heappush(self.timers, (time.monotonic() + delay, len(self.timers), placed.id, key, attempt + 1))
+        heapq.heappush(self.timers, (time.monotonic() + delay, len(self.timers), "retry", placed.id, key, attempt + 1))
         if self.emit:
             self.emit(NodeRetry(node_id=placed.id, row=key, attempt=attempt + 1, retries=policy.retries, delay=delay, cause=self._failure(placed, key, error)))
         return True
@@ -482,15 +500,14 @@ class Leg:
         person counts as tried once nothing else can start (``_pass_untried``).
         """
         turn = self.turns.get(placed.id)
-        if turn is None or key not in turn[1]:
+        if turn is None or key not in turn.place:
             order = self.run._rows(placed.level, ())[0]
-            turn = self.turns[placed.id] = [order, {k: i for i, k in enumerate(order)}, 0, set()]
-        order, index, reached, passed = turn
-        units = self.run._units[placed.id]
-        while reached < len(order) and (order[reached] in units or (placed.id, order[reached]) in self.running or order[reached] in passed):
+            turn = self.turns[placed.id] = _Turn(order, {k: i for i, k in enumerate(order)})
+        order, units, passed, reached = turn.order, self.run._units[placed.id], turn.passed, turn.reached
+        while reached < len(order) and ((row := order[reached]) in units or (placed.id, row) in self.running or row in passed):
             reached += 1
-        turn[2] = reached
-        return index.get(key, 0) <= reached
+        turn.reached = reached
+        return turn.place.get(key, 0) <= reached
 
     def _pass_untried(self) -> bool:
         """With nothing left to start, count every row a node taking earlier work hasn't tried as tried, so the rows after it take theirs.
@@ -498,10 +515,10 @@ class Leg:
         Such a row waits on a person, so this leg can't learn what it receives; if it does later, it takes what is left.
         """
         passed_any = False
-        for node_id, (order, _, reached, passed) in self.turns.items():
+        for node_id, turn in self.turns.items():
             units = self.run._units[node_id]
-            untried = {k for k in order[reached:] if k not in units and k not in passed}
-            passed |= untried
+            untried = {k for k in turn.order[turn.reached :] if k not in units and k not in turn.passed}
+            turn.passed |= untried
             passed_any = passed_any or bool(untried)
         return passed_any
 
@@ -518,8 +535,8 @@ class Leg:
             for k, _, _ in waiting:
                 self.running.pop((node_id, k), None)
             waiting.clear()
-        for _, _, node_id, k, attempt in self.timers:
-            if attempt >= 0:
+        for _, _, due, node_id, k, _ in self.timers:
+            if due == "retry":
                 self.running.pop((node_id, k), None)
 
     def _check_gathers(self) -> None:
