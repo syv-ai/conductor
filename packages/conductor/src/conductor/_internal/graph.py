@@ -455,11 +455,11 @@ class Graph:
         if self.problems:
             raise InvalidCallError(self.problems)
         checked_max_rows(max_rows)
-        given = {**(inputs or {}), **by_name}
-        graph = self._compiled_for(self._listed_in(given))
+        by_key, problems = self._given_by_key({**(inputs or {}), **by_name})
+        graph = self._compiled_for(self._listed_in(by_key))
         if graph.problems:
             raise InvalidCallError(graph.problems)
-        run = start_run(graph, graph._checked_inputs(given), max_rows)
+        run = start_run(graph, graph._checked_inputs(by_key, problems), max_rows)
         if earlier is not None:
             run._earlier = earlier._carried(into=graph)
         return run
@@ -477,9 +477,9 @@ class Graph:
         bad = [name for name, n in given.items() if isinstance(n, bool) or not isinstance(n, int) or n < 0]
         if bad:
             raise InvalidCallError([make_problem("invalid_input", "inputs", name, name=name, reason="a length is a whole number of 0 or more") for name in bad])
-        by_key, unknown = self._given_by_key(given)
-        if unknown:
-            raise InvalidCallError([make_problem("not_offered", "inputs", name, name=name, inputs=list(self.inputs)) for name in unknown])
+        by_key, problems = self._given_by_key(given)
+        if problems:
+            raise InvalidCallError(problems)
         graph = self._compiled_for(frozenset(  # a length named is a list given; any other input lists as its default does
             key for key, f in self._input_fields.items() if (f.spec.per_item if key in by_key else given_as_items(f.spec, f.default))
         ))
@@ -541,14 +541,24 @@ class Graph:
             graph = self._compiles[listed] = load_graph(self.record, self._definitions, self._embedded_in, self._alone, listed=listed)
         return graph
 
-    def _given_by_key(self, given: Mapping[str, Any]) -> tuple[dict[str, Any], list[str]]:
-        """What ``given`` names by name or address, by the placed node's address; and the names it gives that the graph doesn't offer."""
+    def _given_by_key(self, given: Mapping[str, Any]) -> tuple[dict[str, Any], list[Problem]]:
+        """What ``given`` names by name or address, by the placed node's address; and each name the graph doesn't
+        offer, and each input given by both its name and its address, as a problem."""
         fields = {**{f.address: f for f in self._input_fields.values()}, **{f.name: f for f in self._input_fields.values()}}
-        return {fields[name].key: value for name, value in given.items() if name in fields}, [name for name in given if name not in fields]
+        by_key: dict[str, Any] = {}
+        problems = []
+        for name, value in given.items():
+            offered = fields.get(name)
+            if offered is None:
+                problems.append(make_problem("not_offered", "inputs", name, name=name, inputs=list(self.inputs)))
+            elif offered.key in by_key:
+                problems.append(make_problem("input_given_twice", "inputs", offered.name, name=offered.name, address=offered.address))
+            else:
+                by_key[offered.key] = value
+        return by_key, problems
 
-    def _listed_in(self, given: Mapping[str, Any]) -> frozenset[str]:
-        """The open inputs a run of ``given`` takes a list of items at: each given a list, or given nothing and its default a list."""
-        by_key = self._given_by_key(given)[0]
+    def _listed_in(self, by_key: Mapping[str, Any]) -> frozenset[str]:
+        """The open inputs a run of ``by_key`` takes a list of items at: each given a list, or given nothing and its default a list."""
         return frozenset(
             key for key, f in self._input_fields.items()
             if given_as_items(f.spec, by_key[key] if key in by_key else f.default)
@@ -562,24 +572,18 @@ class Graph:
                 lengths[key] = caller[key] if key in caller else len(f.default)
         return lengths
 
-    def _checked_inputs(self, given: Mapping[str, Any]) -> dict[str, Any]:
-        """The caller's inputs by address, each checked against its field, a list of items where this compile takes one; every fault at once."""
-        problems, values = [], {}
-        named = {graph_input.address: name for name, graph_input in self.inputs.items()}
-        twice = [key for key in given if key in named and named[key] != key and named[key] in given]
-        if twice:
-            raise InvalidCallError([make_problem("input_given_twice", "inputs", named[key], name=named[key], address=key) for key in twice])
-        given = {named.get(key, key): value for key, value in given.items()}
-        for name in given.keys() - self.inputs.keys():
-            problems.append(make_problem("not_offered", "inputs", name, name=name, inputs=list(self.inputs)))
+    def _checked_inputs(self, by_key: Mapping[str, Any], problems: list[Problem]) -> dict[str, Any]:
+        """The caller's inputs by address, each checked against its field, a list of items where this compile takes one;
+        every fault at once, after the ``problems`` naming them found."""
+        problems, values = list(problems), {}
         for key, offered in self._input_fields.items():
             name, spec = offered.name, offered.spec
-            if name not in given:
+            if key not in by_key:
                 if offered.default is REQUIRED:
                     problems.append(make_problem("missing_input", "inputs", name, name=name))
                 values[key] = offered.default
                 continue
-            value = given[name]
+            value = by_key[key]
             if spec.shape == "many" and value is not None and not isinstance(value, (list, tuple, set, frozenset, range, pl.Series)):
                 value = [value]  # one value where many are taken is a list of one
             try:

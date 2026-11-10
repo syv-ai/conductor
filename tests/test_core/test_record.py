@@ -414,8 +414,14 @@ def test_an_input_given_by_name_and_by_address_and_a_ceiling_below_one_are_refus
         graph.run({"text": "a", "u.text": "b"})
     with pytest.raises(InvalidCallError) as ceiling:
         graph.run(text="a", max_rows=0)
+    with pytest.raises(InvalidCallError) as lengths_twice:
+        graph.calls_for({"u.text": 5}, text=3)
+    with pytest.raises(InvalidCallError) as both:
+        graph.with_inputs({"u.text": ["b"]}, nope=1, text=["a"])
 
     assert [p.type for p in twice.value.errors()] == ["input_given_twice"]
+    assert [p.type for p in lengths_twice.value.errors()] == ["input_given_twice"]
+    assert sorted(p.type for p in both.value.errors()) == ["input_given_twice", "not_offered"]
     assert [p.type for p in ceiling.value.errors()] == ["invalid_max_rows"]
     with pytest.raises(InvalidCallError):
         graph.with_inputs(text="a").resume(max_rows=-1)

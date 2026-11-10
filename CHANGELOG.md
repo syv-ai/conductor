@@ -29,7 +29,7 @@ What changes in how you work, before the name-by-name tables:
   the graph (`graph.inputs[name].per_item` says where a list is rows). `Series[X]` takes many values
   and `Table[R]` a whole `polars.DataFrame`. Two lists meeting at one node are refused
   (`lists_not_collected`) until a node collects one. `graph.calls_for(file=11)` says each node's
-  calls before a run. A blank skips the node for that row unless its input says `| None`. Each item
+  calls before a run, refusing an input given by name and address as `with_inputs` does. A blank skips the node for that row unless its input says `| None`. Each item
   of a list given there is held to the input's limits and choices, as one value is. A choice is
   read as its answer would be: strictly, held to the field's limits.
 - **Loading never raises for a fault in the graph.** `registry.load(record)` returns a `Graph`;
