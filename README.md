@@ -16,6 +16,32 @@ The core depends on pydantic and polars. It has no web framework, database or lo
 uv add syv-conductor
 ```
 
+## The shortest graph
+
+Two functions, a graph of them, a run:
+
+```python
+from conductor import NodeRegistry, Series, make_graph
+
+registry = NodeRegistry()
+
+
+@registry.node("upper")
+def upper(text: str) -> str:
+    return text.upper()
+
+
+@registry.node("join")
+def join(texts: Series[str]) -> str:
+    return "+".join(texts)
+
+
+graph = registry.load(make_graph(upper, join, many={"upper.text"}))
+print(graph.run(text=["a", "b"]).outputs)  # {'join.result': 'A+B'}
+```
+
+`upper` takes one text, and `many` lets the caller give it a list, so it runs once per item. `join` takes a `Series[str]`, a plain list of every value, so it runs once. That is all iteration is. `make_graph` writes the graph from Python; an editor writes the same thing as JSON, as the rest of this page shows.
+
 ## Write nodes
 
 A node is a function, and its type hints are its interface:
@@ -27,7 +53,7 @@ from typing import TypedDict
 import polars as pl
 from conductor import Ask, NodeRegistry, Series, Table
 
-registry = NodeRegistry()
+registry = NodeRegistry()  # the invoice nodes get a registry of their own
 
 
 class Invoice(TypedDict):
@@ -83,7 +109,7 @@ print(graph.outputs)       # ['summary.result']
 print({node_id: runs.msg for node_id, runs in graph.plan.items()})  # {'read': 'once', 'approve': 'per row of read.result', 'summary': 'once'}
 ```
 
-Nobody declares what the graph takes or returns. Its inputs are the open inputs of its first nodes, and its outputs are the ones no node reads. `approve` takes one value and is fed a column, so it runs once per row.
+Nobody declares what the graph takes or returns. Its inputs are the open inputs of its first nodes, and its outputs are the outputs of the nodes no node reads. `approve` takes one value and is fed a column, so it runs once per row.
 
 ## Show problems
 
@@ -157,7 +183,7 @@ for unit in run.waiting:
 # Approve Bo, 5500 kr.?
 ```
 
-A row that gets what it got before isn't called again. Ida's row is the same, so it keeps its result, and only Bo's row is asked again. Adding a row works the same way: only the new row runs.
+A row that gets what it got before isn't called again. Ida's row is the same, so it keeps its result, and only Bo's row is asked again. Adding a row works the same way: only the new row is asked.
 
 ```python
 run = run.answer(run.waiting[0], True).again(csv=edited + "Eva,7000\n")
@@ -167,12 +193,14 @@ for unit in run.waiting:
 # Approve Eva, 7000 kr.?
 ```
 
-`run.with_inputs(...)` is the same run before it starts, for when you want to `stream()` its events.
+`run.with_inputs(...)` is `again` before it starts: the changed inputs and the earlier work, for when you want to `stream()` its events.
 
 ## Next
 
 - [Writing nodes for others](https://github.com/syv-ai/conductor/blob/main/docs/writing-nodes.md): types, controls, branches, questions, errors, versions, and one test for a whole registry.
 - [How it works](https://github.com/syv-ai/conductor/blob/main/docs/OVERVIEW.md): rows, legs and pauses on one page.
+- [A graph inside a graph](https://github.com/syv-ai/conductor/blob/main/docs/embedded-graphs.md): a saved graph used as one node of another.
+- [Problem codes](https://github.com/syv-ai/conductor/blob/main/docs/problems.md): every code, with an example and the fix.
 - [Serving runs over HTTP](https://github.com/syv-ai/conductor/blob/main/docs/serving-runs.md): FastAPI routes to copy into your own application.
 - [`examples/`](https://github.com/syv-ai/conductor/tree/main/examples): notebooks.
 - `python -m conductor.about`: the full reference, shipped in the package.

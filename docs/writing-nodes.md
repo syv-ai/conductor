@@ -2,6 +2,8 @@
 
 This page is for you if you write nodes that other people place in graphs: a package of nodes, or the nodes your own editor offers. The [first page](https://github.com/syv-ai/conductor#readme) shows a host loading and running a graph. Here every example builds its own small graph with `make_graph`, so you can see what a node does in one.
 
+`make_graph(a, b)` writes a graph record from Python. Each node goes under its own id, `upper-1` and `upper-2` when one is used twice. With no `edges`, the nodes form a chain: each takes its one required input from the one output of the node before it. `edges=[("a.result", "b.text")]` names the edges instead. `values={"a.text": "hi"}` types a value in, `defaults=` gives one a caller may change, and `many={"a.text"}` lets the caller give a list, a row per item. Every key is a `"node.input"` address, and a wrong one raises at the call.
+
 The rules in full are in the reference: `python -m conductor.about`.
 
 ## A registry of your own
@@ -42,7 +44,7 @@ A second node under an id the host already has raises. `extra` is your own JSON 
 
 ## What a person sees
 
-`Annotated[..., Param(...)]` says what an editor shows for a field: a `title`, a `description` and a `widget`, the control to edit it with. Without a title, the field's name is used, in everyday words. The title of the node is its function's name, and its description is the docstring.
+`Annotated[..., Param(...)]` says what an editor shows for a field: a `title`, a `description` and a `widget`, the control to edit it with. Without a title, the field's name is used, in everyday words. The title of the node is its function's name, and its description is the docstring's first paragraph.
 
 `Param` also takes pydantic's limits: `ge`, `gt`, `le`, `lt`, `multiple_of`, `min_length`, `max_length` and `pattern`. They are checked on every value someone types in or a caller gives:
 
@@ -61,19 +63,7 @@ for problem in graph.problems:
 
 ### Widgets
 
-No type has a default widget. A `str` may be one line, a text area or a dropdown, so each input names its own. An input with no widget gets no control: an edge fills it, or a value set in the graph. These ship in `conductor.widgets`:
-
-| Widget | For | Options |
-|--------|-----|---------|
-| `TextInput` | One line of text | |
-| `Textarea` | Several lines | `rows` |
-| `Dropdown` | One of the field's choices: `Param(choices=[Choice("en", "English"), ...])`, or a `Literal`'s values | nothing |
-| `NumberInput` | A number typed in | `step`, `integer_only` |
-| `Slider` | A number on a slider, between the `Param`'s `ge` and `le` | `step` |
-| `Switch` | On or off | |
-| `DatePicker` | A date | `initial` |
-| `FileUpload` | Uploaded files | `accept`, `max_size_mb`, `multiple` |
-| `ListInput` | A list typed by hand | |
+No type has a default widget. A `str` may be one line, a text area or a dropdown, so each input names its own. An input with no widget gets no control: an edge fills it, or a value set in the graph. These ship in `conductor.widgets`: `TextInput`, `Textarea`, `Dropdown`, `NumberInput`, `Slider`, `Switch`, `DatePicker`, `FileUpload` and `ListInput`. What each is for and the options it takes are in the reference (`python -m conductor.about conductor-widgets`). A `Dropdown` takes no choices of its own: they are the field's, a `Literal`'s values or `Param(choices=[Choice("en", "English"), ...])`.
 
 A widget is a pydantic model, and conductor never reads it: it passes it on to the editor. So a control of your own needs no conductor release. Subclass `Widget`, next to the component in your frontend that draws it:
 

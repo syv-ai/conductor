@@ -4,6 +4,7 @@ nav:
   - First steps: index.md
   - Writing nodes for others: writing-nodes.md
   - How it works: OVERVIEW.md
+  - A graph inside a graph: embedded-graphs.md
   - Serving runs over HTTP: serving-runs.md
   - Problem codes: problems.md
 markdown_extensions:
