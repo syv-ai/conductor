@@ -350,6 +350,46 @@ def test_an_answer_queued_during_a_leg_starts_the_next_leg_however_long_its_end_
     asyncio.run(scenario())
 
 
+def test_a_leg_whose_run_takes_longer_than_the_lease_to_write_keeps_it_and_writes_its_end_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    from conductor import Run
+
+    registry, graph, gate, inputs, waiting_id = _asking()
+    gate.set()
+    made, slow = [], threading.Event()
+    to_json = Run.to_json
+
+    def slow_to_json(self: Run) -> str:
+        if slow.is_set() and threading.current_thread() is not threading.main_thread():
+            made.append(self.status)
+            time.sleep(0.5)  # a large run, longer than the lease
+        return to_json(self)
+
+    monkeypatch.setattr(Run, "to_json", slow_to_json)
+
+    class EndIsSlow(MemoryStore):
+        async def add_event(self, run_id: str, owner: str, body: str) -> int | None:
+            if '"run_end"' in body:
+                slow.set()
+            return await super().add_event(run_id, owner, body)
+
+    store = EndIsSlow()
+    apps = [FastAPI(), FastAPI()]
+    for app in apps:
+        app.include_router(run_router(store=store, registry=registry, caller=_caller, lease=0.3))
+
+    async def scenario() -> None:
+        async with apps[0].router.lifespan_context(apps[0]), apps[1].router.lifespan_context(apps[1]):
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=apps[0]), base_url="http://t") as client:
+                run_id = (await client.post("/runs", json={"graph": graph.model_dump(mode="json"), "inputs": inputs})).json()["id"]
+                ended = await _until_status(store, run_id, "waiting")
+                await asyncio.sleep(0.4)  # a second worker that took the run would be running it again by now
+        assert ended.waiting == store.rows[run_id].waiting and json.loads(ended.waiting)[0]["id"] == waiting_id
+        assert [json.loads(body)["type"] for body in store.written[run_id]].count("run_start") == 1
+        assert made == ["waiting"]
+
+    asyncio.run(scenario())
+
+
 class _FailingEnd(MemoryStore):
     """Fails to add a leg's first ``run_end``, so the leg raises there."""
 
