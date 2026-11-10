@@ -95,7 +95,7 @@ its stored graphs itself. What a 1.x user changes:
 - **A person in the loop.** `HumanInputRequired` and `SignalRequired` are `raise Ask(prompt,
   choices=, default=, widget=)`; the node's return type says what the answer is. In place of
   `resume`, `run.answer(unit, value)` returns a run to resume.
-- **Running again.** `run.again(**changed)` runs with changed inputs, the rest as before: a row that
+- **Running again.** `run.again(**changed)` (`run.with_inputs(**changed)` to resume or stream it yourself) runs with changed inputs, the rest as before: a row that
   receives what it received before is not called again, so one row added to a CSV of 5,000 sends one
   mail. `Policy(reuse_when_inputs_match=False)` opts a node out.
 - **Standard nodes and providers.** `syv-conductor-nodes` (`conductor_nodes`, with

@@ -174,7 +174,7 @@ finished = answered.resume()
 saved = finished.to_json()                               # graph.load_run(saved) reads it back
 ```
 
-**Running again.** `run.again(**changed)` runs with changed inputs, the rest as before: a row that receives what it received before is not called again, even if it moved. Add one row to a CSV and one mail goes out. A node that reads the world says so with `Policy(reuse_when_inputs_match=False)`, and is called again on every row.
+**Running again.** `run.again(**changed)` runs with changed inputs, the rest as before: a row that receives what it received before is not called again, even if it moved. `run.with_inputs(**changed)` is the same run not yet started, to `resume()` or `stream()`, as `graph.with_inputs` is to `graph.run`. Add one row to a CSV and one mail goes out. A node that reads the world says so with `Policy(reuse_when_inputs_match=False)`, and is called again on every row.
 
 **Versions and retries.** A newer version names the one it replaces, itself a `@node` of the same id: `@node("split", replaces=split_v1, upgrade=Upgrade(renamed_inputs={"sep": "separator"}))`. A stored graph runs the version it was saved at; `registry.upgrade(record, node_id)` moves a node forward, and `Deprecation(...)` marks a version going away. `Policy` sets `concurrency` (rows called at once, on threads), `retries`, `retry_delay`, `attempt_timeout`, `retry_on` and `reuse_when_inputs_match`. Only an `ExternalFailure`, or an exception class named in `retry_on`, is retried.
 

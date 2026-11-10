@@ -199,17 +199,36 @@ class Run:
         run._units[node_id] = {**self._units[node_id], key: Unit("done", out)}
         return run
 
-    def again(
-        self, inputs: Mapping[str, Any] | None = None, /, *, max_rows: int | None = None, from_run: Mapping[type, Any] | None = None, **by_name: Any,
-    ) -> Run:
-        """Run again with changed inputs, the rest as before. A row that receives what it received before is not called again."""
+    def with_inputs(self, inputs: Mapping[str, Any] | None = None, /, *, max_rows: int | None = None, **by_name: Any) -> Run:
+        """A run of these changed inputs, the rest as before, ready to ``resume`` or ``stream``.
+
+        It carries this run's work: a row that receives what an earlier unit of
+        its node received takes that unit's outputs, answers included, and the
+        node is not called for it. Inputs are given as ``graph.with_inputs``
+        takes them, and checked the same way.
+        """
         given = {name: self.inputs[graph_input.address] for name, graph_input in self.graph.inputs.items() if graph_input.address in self.inputs}
         fresh = self.graph.with_inputs({**given, **(inputs or {}), **by_name}, max_rows=max_rows if max_rows is not None else self.max_rows)
-        earlier: dict[str, dict[str, dict[str, Any]]] = {
-            n: {_fingerprint(self.graph._nodes[n].definition.version, self._inputs(self.graph._nodes[n], k)): u.out for k, u in units.items() if u.state == "done" and u.out is not None}
-            for n, units in self._units.items() if self.graph._nodes[n].definition.policy.reuse_when_inputs_match
-        }
-        return Run(self.graph, fresh.inputs, max_rows=fresh.max_rows, earlier=earlier).resume(from_run=from_run)
+        earlier: dict[str, dict[str, dict[str, Any]]] = {}
+        for n, units in self._units.items():
+            placed = self.graph._nodes[n]
+            if placed.definition.policy.reuse_when_inputs_match:
+                by = earlier[n] = {}
+                for k, u in units.items():
+                    fingerprint = _fingerprint(placed.definition.version, self._inputs(placed, k)) if u.state == "done" and u.out is not None else None
+                    if fingerprint is not None:
+                        by[fingerprint] = u.out  # type: ignore[assignment]
+        return Run(self.graph, fresh.inputs, max_rows=fresh.max_rows, earlier=earlier)
+
+    def again(
+        self, inputs: Mapping[str, Any] | None = None, /, *, max_rows: int | None = None, from_run: Mapping[type, Any] | None = None,
+        timeout: float | None = None, **by_name: Any,
+    ) -> Run:
+        """Run again with changed inputs, the rest as before: ``run.with_inputs(...).resume(...)``.
+
+        A row that receives what it received before is not called again.
+        """
+        return self.with_inputs(inputs, max_rows=max_rows, **by_name).resume(from_run=from_run, timeout=timeout)
 
     # -- reading ----------------------------------------------------------------
 
@@ -253,7 +272,10 @@ class Run:
 
     def _reused(self, placed: PlacedNode, kwargs: dict[str, Any]) -> dict[str, Any] | None:
         earlier = self._earlier.get(placed.id)
-        return earlier.get(_fingerprint(placed.definition.version, kwargs)) if earlier else None
+        if not earlier:
+            return None
+        fingerprint = _fingerprint(placed.definition.version, kwargs)
+        return earlier.get(fingerprint) if fingerprint is not None else None
 
     def _call(self, placed: PlacedNode, kwargs: dict[str, Any], from_run: Mapping[type, Any]) -> tuple[Any, BaseException | None]:
         try:
@@ -348,8 +370,11 @@ class Run:
                     return name
                 kwargs[name] = value
             elif spec.shape == "many":
-                items = []
+                items: list[tuple[Level, Key, Any]] = []
                 for source in plan.sources:
+                    if source.node_id is None and not source.made:  # the caller's list, given whole
+                        items.extend(((source.output,), (i,), v) for i, v in enumerate(self.inputs[source.output]))
+                        continue
                     keys, complete = self._rows(source.level, row)
                     if not complete:
                         return PENDING
@@ -561,8 +586,13 @@ def jsonable(kwargs: dict[str, Any]) -> Any:
     return json.loads(pydantic_core.to_json(kwargs, fallback=_frame_json))
 
 
-def _fingerprint(version: int, kwargs: dict[str, Any]) -> str:
-    return hashlib.blake2b(pydantic_core.to_json([version, kwargs], fallback=_frame_json), digest_size=12).hexdigest()
+def _fingerprint(version: int, kwargs: dict[str, Any]) -> str | None:
+    """What a unit received, as a short hash; ``None`` for a value with no JSON form, which is never reused."""
+    try:
+        written = pydantic_core.to_json([version, kwargs], fallback=_frame_json)
+    except (TypeError, ValueError, pydantic_core.PydanticSerializationError):
+        return None
+    return hashlib.blake2b(written, digest_size=12).hexdigest()
 
 
 def _unit_id(node_id: str, key: Key) -> str:

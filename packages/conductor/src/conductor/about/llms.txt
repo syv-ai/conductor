@@ -153,7 +153,7 @@ again = approving.load_run(finished.to_json())           # a run is JSON
 
 ### Running again
 
-`run.again(**changed)` runs with changed inputs, the rest as before, and reuses what it can: a unit whose inputs match what an earlier unit of its node received takes that result, even if its row moved, and the node isn't called. Answers are reused the same way.
+`run.again(**changed)` runs with changed inputs, the rest as before, and reuses what it can (`run.with_inputs(**changed)` is the same run not started, to `resume()` or `stream()`, as `graph.with_inputs` is to `graph.run`): a unit whose inputs match what an earlier unit of its node received takes that result, even if its row moved, and the node isn't called. Answers are reused the same way.
 
 ```python
 @registry.node("send")
@@ -240,7 +240,7 @@ Three public modules: `conductor`, `conductor.widgets` and `conductor.events`. E
 - `graph.run(inputs=None, /, *, max_rows=None, from_run=None, timeout=None, **by_name)`: one leg from the start; its `Run`. A pause or failure is a `status`.
 - `graph.with_inputs(inputs=None, /, *, max_rows=None, **by_name)`: a `Run` with the inputs checked and not started; a name it doesn't offer (`not_offered`), a required one left out (`missing_input`) or a value its type can't read (`invalid_input`) raises `InvalidCallError`, every fault at once.
 - `run.resume(*, max_rows=None, from_run=None, timeout=None)`: the next leg. `run.stream(...)`, the same arguments and `cancel=`: the leg's events.
-- `run.answer(unit, value)`, `run.again(inputs=None, /, *, max_rows=None, from_run=None, **by_name)`, `run.to_json()`, `graph.load_run(saved)`.
+- `run.answer(unit, value)`, `run.with_inputs(inputs=None, /, *, max_rows=None, **by_name)` (a run carrying this one's work, to resume or stream), `run.again(...)` (the same, resumed; takes `from_run=` and `timeout=` too), `run.to_json()`, `graph.load_run(saved)`.
 - `run.results`: every node's outputs so far, by node id: one value for a node that ran once, a list in row order for one that ran per row, `None` where a row has none. `run.outputs`: narrowed to `graph.outputs`, by address. `run.waiting`, `run.not_called`, `run.status`, `run.cause`.
 
 ### Problem and error codes
