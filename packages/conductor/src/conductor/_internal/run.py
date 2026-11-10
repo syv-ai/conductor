@@ -1242,8 +1242,17 @@ def _frame_json(value: Any) -> Any:
 
 
 def jsonable(kwargs: dict[str, Any]) -> Any:
-    """What a unit received, as JSON; a float that isn't finite as text."""
-    return json.loads(pydantic_core.to_json(kwargs, fallback=_frame_json, inf_nan_mode="strings"))
+    """What a unit received, as JSON; a float that isn't finite as text. ``Refused`` as ``question_unwritable`` names
+    the first input with no JSON form."""
+    try:
+        return json.loads(pydantic_core.to_json(kwargs, fallback=_frame_json, inf_nan_mode="strings"))
+    except (TypeError, ValueError, pydantic_core.PydanticSerializationError) as error:
+        for name, value in kwargs.items():
+            try:
+                pydantic_core.to_json(value, fallback=_frame_json, inf_nan_mode="strings")
+            except (TypeError, ValueError, pydantic_core.PydanticSerializationError) as unwritable:
+                raise Refused(str(unwritable), code="question_unwritable", input=name) from None
+        raise error
 
 
 def _hand_over(loop: asyncio.AbstractEventLoop, events: asyncio.Queue[Any], event: Any) -> None:

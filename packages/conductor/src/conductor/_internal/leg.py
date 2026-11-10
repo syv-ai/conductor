@@ -405,7 +405,10 @@ class Leg:
         if error is None:
             return Unit("skipped") if out is SKIPPED else Unit("done", out)
         if isinstance(error, Ask):
-            question = {"prompt": error.prompt, "inputs": jsonable(kwargs)}
+            try:
+                question = {"prompt": error.prompt, "inputs": jsonable(kwargs)}
+            except Refused as unwritable:  # a person can't be shown what the node received
+                return self._failure(placed, key, unwritable)
             if error.given:
                 try:
                     question["asked"] = asked(error, placed.definition)

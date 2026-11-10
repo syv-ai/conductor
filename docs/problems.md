@@ -777,6 +777,23 @@ print(wrong.cause.type)  # invalid_output
 
 **Fix.** Return what the node declares. `"12"` is never an `int`: outputs are read strictly. `ctx.name` names the output.
 
+### `question_unwritable`
+
+> The node asked a person, but what it received at '{input}' has no JSON form to show them: {reason}. Give that input a type pydantic writes as JSON.
+
+```python
+@registry.node("approve-file")
+def approve_file(data: bytes) -> bool:
+    raise Ask("Send this file?")
+
+
+unshown = registry.load(make_graph(approve_file)).run(data=b"\xff")
+assert unshown.cause is not None
+print(unshown.cause.type)  # question_unwritable
+```
+
+**Fix.** Give the input a type pydantic writes as JSON, or ask in a node that receives one. A question carries what its node received, for the person answering it. `ctx.input` names the input.
+
 ### `row_ceiling`
 
 > {table} has {rows} rows, more than the {max_rows} this run may make; resume it with a larger max_rows.

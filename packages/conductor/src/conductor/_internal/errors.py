@@ -129,6 +129,7 @@ PROBLEM_CATALOGUE: Mapping[str, str] = {
     "external_failed": "An outside service did not answer.",
     "failed": "The node reported a failure.",
     "invalid_output": "The node returned a value that is not what it declares: {reason}. Fix what the node returns.",
+    "question_unwritable": "The node asked a person, but what it received at '{input}' has no JSON form to show them: {reason}. Give that input a type pydantic writes as JSON.",
     "invalid_ask": "The node asked a question its outputs can't be answered with: {reason}. Fix the node's Ask.",
     "row_ceiling": "{table} has {rows} rows, more than the {max_rows} this run may make; resume it with a larger max_rows.",
     "run_cancelled": "The run was cancelled. Resume it to carry on, or start a new run.",

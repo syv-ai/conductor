@@ -377,6 +377,28 @@ def test_a_node_asking_what_its_output_cant_be_answered_with_fails_naming_why(as
     assert (run.status, run.cause.type, run.cause.loc, run.cause.ctx["reason"]) == ("failed", "invalid_ask", ("q",), reason)
 
 
+@pytest.mark.parametrize("stream", [False, True])
+def test_a_question_on_inputs_with_no_json_form_fails_its_node_naming_the_input(stream):
+    @node("make")
+    def make(text: str) -> Any:
+        return object()
+
+    @node("approve")
+    def approve(label: str, value: Any) -> bool:
+        raise Ask("ok?")
+
+    graph = registry_of(make, approve).load({"nodes": [{"id": "m", "node": "make"}, {"id": "a", "node": "approve", "values": {"label": "x"}}],
+                                             "edges": [["m.result", "a.value"]]})
+
+    async def streamed() -> Any:
+        return [e async for e in graph.with_inputs(text="x").stream()][-1].run
+
+    import asyncio
+
+    run = asyncio.run(streamed()) if stream else graph.run(text="x")
+    assert (run.status, run.cause.type, run.cause.loc, run.cause.ctx["input"]) == ("failed", "question_unwritable", ("a",), "value")
+
+
 @pytest.mark.parametrize(("ask", "reason"), [
     (lambda: Ask("?", default="a"), "the node has 2 outputs, so it is answered by output name, and default= goes by output name too"),
     (lambda: Ask("?", default={"stay": "a"}), "the default names 'stay', which is not an output; the outputs are keep, drop"),
