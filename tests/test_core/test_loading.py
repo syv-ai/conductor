@@ -16,6 +16,7 @@ import pytest
 from conductor import (
     Choice,
     Deprecation,
+    FromRun,
     GraphRecord,
     InvalidCallError,
     NodeError,
@@ -613,6 +614,19 @@ def taken(formula: str = "", **values: float) -> float:
     return 0.0
 
 
+class _Service:
+    pass
+
+
+def _taken_from_run(formula: str) -> dict[str, Any]:
+    return {"service": str}
+
+
+@node("taken_from_run", compute_added_inputs=_taken_from_run)
+def taken_from_run(formula: str, service: FromRun[_Service], **values: str) -> str:
+    return formula
+
+
 def _refuses_bad(mode: str) -> dict[str, Any]:
     if mode == "bad":
         raise ValueError("Not that mode.")
@@ -629,7 +643,7 @@ halves = node("halves")(GraphRecord(
     edges=[("x.result", "b.a"), ("y.result", "b.b")],
 ))
 picky = node("picky")(make_graph(refuses_bad))
-OUTSIDE = registry_of(upper, tail, refuses_bad, both_halves, taken, enrich, halves, picky)
+OUTSIDE = registry_of(upper, tail, refuses_bad, both_halves, taken, taken_from_run, enrich, halves, picky)
 
 
 def test_only_the_nodes_on_a_cycle_are_a_cycle_and_a_node_below_keeps_its_fields():
@@ -651,8 +665,9 @@ def test_an_editor_reads_every_node_of_a_half_broken_graph_and_which_ones_loaded
     assert {node_id: d["loaded"] for node_id, d in drawn.items()} == {"a": True, "b": False, "c": False, "x": False}
 
 
-def test_an_input_a_hook_adds_under_a_name_the_node_declares_is_the_hooks_failure():
-    [problem] = OUTSIDE.load({"nodes": [{"id": "d", "node": "taken", "values": {"formula": "x"}}]}).problems
+@pytest.mark.parametrize("declared", ["taken", "taken_from_run"])
+def test_an_input_a_hook_adds_under_a_name_the_node_declares_is_the_hooks_failure(declared: str):
+    [problem] = OUTSIDE.load({"nodes": [{"id": "d", "node": declared, "values": {"formula": "x"}}]}).problems
     assert (problem.type, problem.loc, problem.ctx["error"]) == ("compute_hook_failed", ("d",), "added_input_taken")
 
 

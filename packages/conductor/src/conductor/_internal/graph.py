@@ -807,7 +807,7 @@ class Graph:
             added = self._hook(record, definition, definition.compute_added_inputs, edges)
             if added is None:
                 return
-            taken = sorted(added.keys() & definition.inputs.keys())
+            taken = sorted(added.keys() & (definition.inputs.keys() | definition.from_run.keys()))
             if taken:
                 self.problems.append(make_problem("compute_hook_failed", record.id, reason=f"it adds {taken[0]!r}, which the node already declares", error="added_input_taken"))
                 return
