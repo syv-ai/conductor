@@ -275,8 +275,9 @@ class Run:
     def with_inputs(self, inputs: Mapping[str, Any] | None = None, /, *, max_rows: int | None = None, **by_name: Any) -> Run:
         """A run of these changed inputs, the rest as before, ready to ``resume`` or ``stream``.
 
-        It carries this run's work, and what this run carried and didn't use:
-        a row that receives what an earlier unit of its node received takes
+        It carries this run's work, and what this run carried and didn't use
+        for a node that hasn't finished (a finished node's is dropped, so a
+        save stays its size over edits): a row that receives what an earlier unit of its node received takes
         that unit's outcome, an answer or a question still waiting included, and
         the node is not called for it. Identical rows match the earlier ones in
         row order: the first identical row takes the first earlier one, the

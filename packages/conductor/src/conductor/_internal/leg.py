@@ -217,6 +217,8 @@ class Leg:
         if run.status == "running":
             run.status = "waiting" if any(u.state == "waiting" for us in run._units.values() for u in us.values()) else "complete"
         run._complete = frozenset(p.id for p in self.nodes if self._finished(p))
+        for node_id in run._complete:  # what a finished node was carried and didn't take, no row of this run will
+            run._earlier.pop(node_id, None)
         if self.emit:
             self.touched.update(self.position)
             self._completions()

@@ -1012,8 +1012,11 @@ def test_identical_rows_never_share_a_result_a_third_gets_a_call_of_its_own():
     assert run.again(text=["a", "a", "a"]).results["e"]["result"] == ["A", "A", "A"] and calls == ["a"]
 
 
-def test_again_remembers_every_generation_an_answer_survives_an_edit_and_its_revert_and_mails_once():
-    """A answered; B changes Bo and waits; C reverts to A's input: Bo keeps A's answer and is not mailed twice."""
+def test_an_answer_survives_an_edit_and_its_revert_while_the_edited_row_still_waits_and_mails_once():
+    """A answered; B changes Bo and waits; C reverts to A's input: Bo keeps A's answer and is not mailed twice.
+
+    The node hadn't finished in B, so what it was carried and didn't take is still there.
+    """
     sent: list[str] = []
 
     @node("approve")
@@ -1060,7 +1063,7 @@ def test_a_second_edit_after_a_failed_leg_still_reuses_what_the_failed_leg_had_n
     assert fixed.status == "complete" and calls == [] and fixed.results["e"]["result"] == ["A", "B", "C"]
 
 
-def test_earlier_work_of_two_edits_can_sit_at_the_same_row_and_neither_hides_the_other():
+def test_work_a_finished_node_did_not_take_is_dropped_so_an_edit_undone_two_runs_later_calls_it_again():
     calls: list[str] = []
 
     @node("echo")
@@ -1069,10 +1072,10 @@ def test_earlier_work_of_two_edits_can_sit_at_the_same_row_and_neither_hides_the
         return text.upper()
 
     graph = registry_of(echo).load(GraphRecord(nodes=[NodeRecord(id="e", node="echo", many={"text"})]))
-    second = graph.run(text=["a"]).again(text=["b"])
+    second = graph.run(text=["a"]).again(text=["b"])  # echo finished on b: its unit for a is gone
     calls.clear()
 
-    assert second.again(text=["a", "b"]).results["e"]["result"] == ["A", "B"] and calls == []
+    assert second.again(text=["a", "b"]).results["e"]["result"] == ["A", "B"] and calls == ["a"]
 
 
 def test_a_waiting_row_goes_on_waiting_at_its_new_row_with_no_new_question():
@@ -1374,3 +1377,32 @@ def test_a_node_errors_own_code_inside_an_embedded_graph_fails_the_embedding_wit
 
     assert run.status == "failed"
     assert (run.cause.type, run.cause.loc, run.cause.msg, run.cause.ctx) == ("document_unreadable", ("r",), "Dokumentet kan ikke læses.", {"pages": 0})
+
+
+def test_a_saved_run_stays_the_same_size_over_one_row_edits_at_ten_thousand_rows():
+    """What a finished node was carried and didn't take is dropped, so ``again`` doesn't keep every generation."""
+
+    class Line(TypedDict):
+        name: str
+        text: str
+
+    @node("read_lines")
+    def read_lines(csv: str) -> Table[Line]:
+        return pl.read_csv(io.StringIO(csv))
+
+    @node("enrich")
+    def enrich(name: str, text: str) -> str:
+        return f"{name}: {text[:20]}"
+
+    graph = registry_of(read_lines, enrich).load(GraphRecord(
+        nodes=[NodeRecord(id="read", node="read_lines"), NodeRecord(id="enrich", node="enrich")],
+        edges=[("read.result.name", "enrich.name"), ("read.result.text", "enrich.text")],
+    ))
+    csv = "name,text\n" + "".join(f"p{i},some text for row {i}\n" for i in range(10_000))
+    run = graph.run(csv=csv)
+    sizes = []
+    for edit in range(5):
+        run = graph.load_run(run.to_json()).again(csv=csv.replace("p5,", f"p5v{edit},", 1))
+        sizes.append(len(run.to_json()))
+
+    assert run.status == "complete" and max(sizes) - min(sizes) < 100, sizes
