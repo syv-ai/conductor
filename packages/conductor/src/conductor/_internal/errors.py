@@ -102,7 +102,8 @@ PROBLEM_CATALOGUE: Mapping[str, str] = {
     "not_offered": "The graph has no input '{name}'; it has {inputs}.",
     "not_waiting": "Nothing is waiting on an answer as {waiting_id!r}.",
     "run_not_complete": "The run is {status}, so it has no outputs yet; run.results has what it did. {reason}",
-    "state_unreadable": "The saved run does not fit this graph: {reason}",
+    "state_unreadable": "The saved run does not fit this graph at '{at}': {reason}",
+    "state_unwritable": "The run can't be written as JSON at '{at}': {reason}",
     # -- why a node or a run stopped -------------------------------------------
     "execution_failed": "The node failed.",
     "external_failed": "An outside service did not answer.",

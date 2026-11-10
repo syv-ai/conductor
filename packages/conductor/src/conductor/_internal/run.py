@@ -485,6 +485,12 @@ class Run:
 
     def to_json(self) -> str:
         """The run as JSON: its inputs, every unit, and what it went on from, a column per output of each node."""
+        try:
+            return self._written()
+        except _Unreadable as unwritable:
+            raise InvalidCallError([make_problem("state_unwritable", "state", unwritable.at, at=unwritable.at, reason=unwritable.reason)]) from None
+
+    def _written(self) -> str:
         units = {n: _dump_units(self.graph._nodes[n], dict(sorted(us.items()))) for n, us in self._units.items()}
         earlier = {
             n: {"fingerprints": list(by), **_dump_units(self.graph._nodes[n], {(i,): Unit("done", out) for i, out in enumerate(by.values())}, keyed=False)}
@@ -507,18 +513,32 @@ def run_from_json(graph: Graph, saved: str | bytes | Mapping[str, Any]) -> Run:
         data = pydantic_core.from_json(saved) if isinstance(saved, (str, bytes)) else saved
         inputs = {address: _input_adapter(graph, address).validate_python(v) for address, v in data["inputs"].items()}
         run = Run(graph, inputs, max_rows=data["max_rows"], _door=STARTING)
+        unknown = sorted(data["units"].keys() - graph._nodes.keys())
+        if unknown:
+            raise _Unreadable(unknown[0], "the graph has no such node")
         for n, dumped in data["units"].items():
-            run._units[n] = {tuple(k): u for k, u in _load_units(graph._nodes[n], dumped)}
+            loaded = _load_units(graph._nodes[n], dumped)
+            run._units[n] = dict(loaded)
+            if len(run._units[n]) != len(loaded):
+                raise _Unreadable(n, "a row is listed twice")
         run._earlier = {
             n: {fp: u.out for fp, (_, u) in zip(dumped["fingerprints"], _load_units(graph._nodes[n], dumped), strict=True) if u.out is not None}
             for n, dumped in data["earlier"].items()
         }
         run.status = data["status"]
         run.cause = Problem.model_validate(data["cause"]) if data["cause"] else None
+        for n, units in run._units.items():  # every row is one the saved makers made
+            placed = graph._nodes[n]
+            made, _ = run._rows(placed.level, ())
+            stray = sorted(set(units) - set(made))
+            if stray:
+                raise _Unreadable(n, f"it holds the row {list(stray[0])}, which the saved run never made")
         return run
-    except (KeyError, TypeError, ValueError, StopIteration) as error:
+    except _Unreadable as unreadable:
+        raise InvalidCallError([make_problem("state_unreadable", "state", unreadable.at, at=unreadable.at, reason=unreadable.reason)]) from None
+    except (KeyError, TypeError, ValueError, StopIteration, IndexError) as error:
         reason = value_free_errors(error)[0]["msg"] if isinstance(error, ValidationError) else f"{type(error).__name__} {error}"
-        raise InvalidCallError([make_problem("state_unreadable", "state", reason=reason)]) from None
+        raise InvalidCallError([make_problem("state_unreadable", "state", at="the run", reason=reason)]) from None
 
 
 def checked_max_rows(max_rows: int | None) -> None:
@@ -596,11 +616,12 @@ def _dump_units(placed: PlacedNode, units: Mapping[Key, Unit], keyed: bool = Tru
     for name, spec in placed.definition.outputs.items():
         values = [u.out[name] for u in done]  # type: ignore[index]
         skipped = [i for i, v in enumerate(values) if v is SKIPPED]
+        at = f"{placed.id}.{name}"
         if spec.shape == "table":
-            dumped: Any = [None if v is SKIPPED else _dump_frame(spec, v) for v in values]
+            dumped: Any = [None if v is SKIPPED else _dump_frame(spec, v, at) for v in values]
         else:
             plain = [None if v is SKIPPED else [None if i is SKIPPED else i for i in v] if spec.shape == "many" else v for v in values]
-            dumped = spec.column_adapter.dump_python(plain, mode="json")
+            dumped = _written_as_json(spec.column_adapter, plain, at)
         items = {str(n): [i for i, item in enumerate(v) if item is SKIPPED] for n, v in enumerate(values) if spec.shape == "many" and v is not SKIPPED}
         outputs[name] = {"values": dumped, "skipped": skipped, **({"skipped_items": {k: v for k, v in items.items() if v}} if any(items.values()) else {})}
     out: dict[str, Any] = {"states": [u.state for u in units.values()], "questions": {str(i): u.question for i, u in enumerate(units.values()) if u.question}, "outputs": outputs}
@@ -609,27 +630,54 @@ def _dump_units(placed: PlacedNode, units: Mapping[Key, Unit], keyed: bool = Tru
     return out
 
 
+class _Unreadable(Exception):
+    """What a saved run says that this graph can't read, and where: ``node.output`` or ``node.output.column``."""
+
+    def __init__(self, at: str, reason: str) -> None:
+        super().__init__(reason)
+        self.at, self.reason = at, reason
+
+
 def _load_units(placed: PlacedNode, dumped: Mapping[str, Any]) -> list[tuple[Key, Unit]]:
+    """A node's saved units, each output read by its own type; anything that doesn't fit raises ``_Unreadable`` naming where."""
     states, questions = dumped["states"], dumped["questions"]
+    done = sum(1 for state in states if state == "done")
     columns: dict[str, list[Any]] = {}
-    for name, column in dumped["outputs"].items():
-        spec = placed.definition.outputs[name]
-        if spec.shape == "table":
-            values = [
-                None if v is None else Frame(v["rows"], {c: _column_adapter(spec, c, v.get("types", {}).get(c)).validate_python(col) for c, col in v["columns"].items()})
-                for v in column["values"]
-            ]
-        else:
-            values = spec.column_adapter.validate_python(column["values"])
-        for i in column["skipped"]:
+    for name, spec in placed.definition.outputs.items():
+        at = f"{placed.id}.{name}"
+        column = dumped["outputs"].get(name)
+        if column is None:
+            if done:
+                raise _Unreadable(at, "the output is missing")
+            continue
+        try:
+            if spec.shape == "table":
+                values = [None if v is None else _load_frame(spec, v, at) for v in column["values"]]
+            else:
+                values = spec.column_adapter.validate_python(column["values"])
+        except ValidationError as error:
+            raise _Unreadable(at, value_free_errors(error)[0]["msg"]) from None
+        if len(values) != done:
+            raise _Unreadable(at, f"it holds {len(values)} values for {done} finished units")
+        skipped = set(column["skipped"])
+        for i in skipped:
             values[i] = SKIPPED
         for n, positions in column.get("skipped_items", {}).items():
             for i in positions:
                 values[int(n)][i] = SKIPPED  # type: ignore[index]
+        if spec.shape != "one" and any(v is None for v in values):
+            raise _Unreadable(at, "a finished unit has no value on an output that makes rows")
         columns[name] = values
+    unknown = sorted(dumped["outputs"].keys() - placed.definition.outputs.keys())
+    if unknown:
+        raise _Unreadable(f"{placed.id}.{unknown[0]}", "the node has no such output")
     keys = dumped.get("keys") or [[] for _ in states]
+    if len(keys) != len(states):
+        raise _Unreadable(placed.id, f"it holds {len(keys)} rows for {len(states)} units")
     loaded, n = [], 0
     for i, (key, state) in enumerate(zip(keys, states, strict=True)):
+        if state not in ("done", "skipped", "blank", "waiting"):
+            raise _Unreadable(placed.id, f"a unit is {state!r}")
         out = None
         if state == "done":
             out = {name: values[n] for name, values in columns.items()}
@@ -638,20 +686,42 @@ def _load_units(placed: PlacedNode, dumped: Mapping[str, Any]) -> list[tuple[Key
     return loaded
 
 
+def _load_frame(spec: FieldSpec, saved: Mapping[str, Any], at: str) -> Frame:
+    """A saved table, each column read by its type; a column whose length isn't the row count is refused."""
+    rows, columns = saved["rows"], {}
+    for c, values in saved["columns"].items():
+        if len(values) != rows:
+            raise _Unreadable(f"{at}.{c}", f"it holds {len(values)} cells for {rows} rows")
+        try:
+            columns[c] = _column_adapter(spec, c, saved.get("types", {}).get(c)).validate_python(values)
+        except ValidationError as error:
+            raise _Unreadable(f"{at}.{c}", value_free_errors(error)[0]["msg"]) from None
+    return Frame(rows, columns)
+
+
 def _column_adapter(spec: FieldSpec, column: str, written_as: str | None = None) -> TypeAdapter[Any]:
     """Checks and writes one column of a table output: by the column's type where the row type names it, else by the type its values were written as."""
     return spec.column_adapters.get(column) or _COLUMN_OF.get(written_as or "", _ANY_COLUMN)
 
 
-def _dump_frame(spec: FieldSpec, frame: Frame) -> dict[str, Any]:
+def _dump_frame(spec: FieldSpec, frame: Frame, at: str) -> dict[str, Any]:
     """A table as JSON: its row count, its columns, and the value type of each column its row type doesn't name, so it reads back as written."""
     columns, types = {}, {}
     for c, values in frame.columns.items():
         written_as = None if c in spec.column_adapters else _value_type(values)
         if written_as is not None:
             types[c] = written_as
-        columns[c] = _column_adapter(spec, c, written_as).dump_python(values, mode="json")
+        columns[c] = _written_as_json(_column_adapter(spec, c, written_as), values, f"{at}.{c}")
     return {"rows": frame.rows, "columns": columns, **({"types": types} if types else {})}
+
+
+def _written_as_json(adapter: TypeAdapter[Any], values: list[Any], at: str) -> Any:
+    """``values`` as JSON; a value with no JSON form raises ``_Unreadable`` naming where, never quoting it."""
+    try:
+        written = adapter.dump_python(values, mode="json")
+    except Exception as error:  # noqa: BLE001  pydantic's and the codec's errors both quote the value
+        raise _Unreadable(at, f"a value has no JSON form ({type(error).__name__})") from None
+    return written
 
 
 def _value_type(values: list[Any]) -> str | None:

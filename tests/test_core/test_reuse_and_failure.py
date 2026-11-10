@@ -20,6 +20,7 @@ from conductor import (
     ExternalFailure,
     FromRun,
     GraphRecord,
+    InvalidCallError,
     NodeError,
     NodeRecord,
     Policy,
@@ -908,3 +909,28 @@ def test_waiting_rows_and_a_saved_run_keep_node_then_row_order_whatever_threads_
         run = graph.run(text=",".join("abcdefgh"))
         assert [w.id for w in run.waiting] == [f"slow-ask@{i}" for i in range(8)]
         assert json.loads(run.to_json())["units"]["slow-ask"]["keys"] == [[i] for i in range(8)]
+
+
+def test_a_saved_run_that_does_not_fit_is_refused_naming_where_and_never_with_a_raw_error():
+    @node("split")
+    def split(text: str) -> Series[str]:
+        return text.split(",")
+
+    @node("echo")
+    def echo(text: str) -> str:
+        return text
+
+    graph = registry_of(split, echo).load(make_graph(split, echo))
+    saved = json.loads(graph.run(text="a,b,c").to_json())
+    for tamper, at in (
+        (lambda s: s["units"]["echo"]["keys"].__setitem__(2, [7]), "echo"),
+        (lambda s: s["units"]["echo"]["outputs"]["result"]["values"].pop(), "echo.result"),
+        (lambda s: s["units"]["echo"]["outputs"].pop("result"), "echo.result"),
+        (lambda s: s["units"]["echo"]["outputs"]["result"]["values"].__setitem__(0, 5), "echo.result"),
+    ):
+        copy = json.loads(json.dumps(saved))
+        tamper(copy)
+        with pytest.raises(InvalidCallError) as refused:
+            graph.load_run(copy)
+        (problem,) = refused.value.errors()
+        assert (problem.type, problem.ctx["at"]) == ("state_unreadable", at), problem

@@ -150,7 +150,7 @@ again = approving.load_run(finished.to_json())           # a run is JSON
 
 - Each entry of `run.waiting` is a `Waiting`: `id` (`approve@1`: the node's id, then `@` and each number of its row; `approve` alone for a node that ran once), `node_id`, `row`, `prompt`, `choices`, `default`, `widget`, `answer_schema` (the JSON schema of the answer, from the return type), and `inputs`, what the call received, as JSON.
 - `run.answer(unit, value)` checks the value against the return type and `choices` and returns a new run; a wrong one is `invalid_answer`, a unit not waiting `not_waiting`. A node that asked is not called again for that row.
-- `run.to_json()` is the whole run; `graph.load_run(saved)` reads it back, and what doesn't fit is `state_unreadable`.
+- `run.to_json()` is the whole run; `graph.load_run(saved)` reads it back and checks it against the graph: a row its makers never made, a row listed twice, a missing output or a table whose column length isn't its row count is `state_unreadable`, with `ctx.at` the `node.output` (or `node.output.column`) where. A value with no JSON form is `state_unwritable` at `to_json`, naming where too.
 - A parameter typed `FromRun[T]` receives the value of `T` from `run.resume(from_run={T: value})` or `graph.run(from_run=...)`. A missing one is `from_run_missing`, at the call.
 
 ### Running again
