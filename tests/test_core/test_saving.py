@@ -18,6 +18,7 @@ from typing import Any, Literal, TypedDict
 import polars as pl
 import pytest
 from conductor import (
+    SKIPPED,
     Ask,
     GraphRecord,
     InvalidCallError,
@@ -698,6 +699,9 @@ def ok_word(word: str) -> bool:
         ("units.upper.states", lambda s: s["units"]["upper"].__setitem__("states", {})),
         ("units.upper.keys.0.0", lambda s: s["units"]["upper"].__setitem__("keys", [["x"], ["y"]])),
         ("units.ok.questions", lambda s: s["units"]["ok"].__setitem__("questions", [])),
+        ("units.ok.questions.0.prompt", lambda s: s["units"]["ok"]["questions"].__setitem__("0", {"inputs": {}})),
+        ("units.upper.blank_inputs.0", lambda s: s["units"]["upper"].__setitem__("blank_inputs", {"0": 1})),
+        ("units.upper.skipped_from.0", lambda s: s["units"]["upper"].__setitem__("skipped_from", {"0": -1})),
         ("upper.result", lambda s: s["units"]["upper"]["outputs"]["result"].__setitem__("skipped", [7])),
         ("graph", lambda s: s.clear()),
         ("text", lambda s: s["inputs"].__setitem__("text", ["a"])),
@@ -715,3 +719,38 @@ def test_a_save_of_a_waiting_run_damaged_in_shape_is_refused_by_where(where: str
     saved = json.loads(run.to_json())
     damaged(saved)
     assert _refused(graph, saved).ctx["at"] == where
+
+
+@node("addresses")
+def addresses(text: str) -> Series[str | None]:
+    return [part or None for part in text.split(",")]
+
+
+@node("short_or_skipped")
+def short_or_skipped(email: str) -> str:
+    return email if len(email) < 3 else SKIPPED
+
+
+@node("confirm")
+def confirm(email: str) -> bool:
+    raise Ask(f"Send to {email}?")
+
+
+def test_a_blank_and_a_skipped_unit_come_back_from_a_save_and_a_resumed_run_names_the_same_blanks():
+    graph = registry_of(addresses, short_or_skipped, confirm).load(
+        {
+            "nodes": [{"id": "a", "node": "addresses"}, {"id": "s", "node": "short_or_skipped"}, {"id": "c", "node": "confirm"}],
+            "edges": [["a.result", "s.email"], ["s.result", "c.email"]],
+        }
+    )
+    run = graph.run(text="ab,,long,cd")
+    assert run.status == "waiting"
+    assert [(u.state, u.blank_input) for u in run._units["s"].values()] == [("done", None), ("blank", "email"), ("skipped", None), ("done", None)]
+    assert [(u.state, u.skipped_from) for u in run._units["c"].values()] == [("waiting", None), ("blank", None), ("skipped", 1), ("waiting", None)]
+    assert run._units["c"][(1,)].blank_input == "email" and run._units["c"][(1,)].question is None
+    loaded = graph.load_run(run.to_json())
+    assert loaded._units == run._units
+    assert loaded.resume().not_called == run.not_called == [
+        {"node_id": "s", "row": (1,), "input": "email"},
+        {"node_id": "c", "row": (1,), "input": "email"},
+    ]

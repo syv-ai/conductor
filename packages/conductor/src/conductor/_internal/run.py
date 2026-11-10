@@ -71,13 +71,6 @@ PENDING: Any = _Pending()
 _ONE_ANSWER: Any = object()
 
 
-@dataclass(frozen=True, slots=True)
-class SkippedAt:
-    """What a unit's inputs are on a branch not taken: the depth of the row where the branch was decided."""
-
-    depth: int
-
-
 @dataclass(frozen=True)
 class Frame:
     """A table as a run keeps it: columns of plain values, so a cell is a list index."""
@@ -98,9 +91,12 @@ class Unit:
 
     state: Literal["done", "skipped", "blank", "waiting"]
     out: dict[str, Any] | None = None
-    #: For a waiting unit, what the person is asked, and for a done one, what they were asked when a person answered it;
-    #: for a blank one, ``{"input": name}``; for a skipped one, ``{"from": depth}``.
+    #: For a waiting unit, what the person is asked, and for a done one, what they were asked when a person answered it.
     question: dict[str, Any] | None = None
+    #: For a blank unit, the plain input that got nothing.
+    blank_input: str | None = None
+    #: For a skipped unit, the depth of the row where the branch not taken was decided.
+    skipped_from: int | None = None
 
 
 class Run:
@@ -387,9 +383,9 @@ class Run:
         found, seen = [], set()
         for n, units in self._units.items():
             for k, u in units.items():
-                if u.state == "blank" and u.question and (place := (self.graph._outward(n), k)) not in seen:  # an embedding's row once, by its first node
+                if u.blank_input is not None and (place := (self.graph._outward(n), k)) not in seen:  # an embedding's row once, by its first node
                     seen.add(place)
-                    found.append({"node_id": place[0], "row": k, "input": self.graph._outward(f"{n}.{u.question['input']}").partition(".")[2] or u.question["input"]})
+                    found.append({"node_id": place[0], "row": k, "input": self.graph._outward(f"{n}.{u.blank_input}").partition(".")[2] or u.blank_input})
         return found
 
     @property
@@ -575,8 +571,7 @@ class Run:
         unit_key = key[:-1] if source.made else key
         unit = self._units[source.node_id].get(unit_key)
         if unit is not None and unit.state == "skipped":
-            origin: int = (unit.question or {}).get("from", len(unit_key))
-            return origin
+            return unit.skipped_from if unit.skipped_from is not None else len(unit_key)
         if unit is not None and unit.out is not None and unit.out.get(source.output) is SKIPPED:
             return len(unit_key)  # the whole output was the branch not taken on its node's row
         return len(key)
@@ -600,7 +595,7 @@ class Run:
         return value[key[-1]]
 
     def _inputs(self, placed: PlacedNode, row: Key) -> Any:
-        """The keyword arguments for ``placed`` on ``row``; or PENDING, a ``SkippedAt``, or the name of a blank input."""
+        """The keyword arguments for ``placed`` on ``row``; PENDING; or the ``Unit`` it comes to uncalled, skipped or blank."""
         kwargs: dict[str, Any] = {}
         gathered: dict[str, list[tuple[Level, Key, Any]]] = {}
         for name, plan in placed.inputs.items():
@@ -618,9 +613,9 @@ class Run:
                         break
                     origins.append(self._skip_origin(source, row[: len(source.level)]))
                 if value is SKIPPED:
-                    return SkippedAt(min(origins))
+                    return Unit("skipped", skipped_from=min(origins))
                 if value is None and not spec.optional:
-                    return name
+                    return Unit("blank", blank_input=name)
                 kwargs[name] = value
             elif spec.shape == "many":
                 if len(plan.sources) == 1 and plan.sources[0].node_id is None and self.inputs[plan.sources[0].output] is None:
@@ -675,20 +670,20 @@ class Run:
                             items.append((level, key, None))
                             skips.append((len(key) > len(under) and max(origins) <= len(under), min(origins)))
                 if skipped_above and skipped_above == len(plan.sources):
-                    return SkippedAt(len(row))  # every source was a branch not taken above this row: so is the call
+                    return Unit("skipped", skipped_from=len(row))  # every source was a branch not taken above this row: so is the call
                 if blank_above and skipped_above + blank_above == len(plan.sources):
-                    return name  # the rows were never made, as their maker had a blank input: not the same as no rows
+                    return Unit("blank", blank_input=name)  # the rows were never made, as their maker had a blank input: not the same as no rows
                 if items and len(skips) == len(items) and all(above for above, _ in skips):
-                    return SkippedAt(min(origin for _, origin in skips))  # every row under this one was skipped by a decision at or above it
+                    return Unit("skipped", skipped_from=min(origin for _, origin in skips))  # every row under this one was skipped by a decision at or above it
                 gathered[name] = items
             elif plan.sources[0].node_id is None:
                 kwargs[name] = self.inputs[plan.sources[0].output]  # a caller's table, read to its columns at the call
             else:
                 table = self._table(plan, row)
-                if table is PENDING or isinstance(table, SkippedAt):
+                if table is PENDING or isinstance(table, Unit):
                     return table
                 if table is None:
-                    return name
+                    return Unit("blank", blank_input=name)
                 kwargs[name] = table
         if gathered:
             # A row a Series input can't take leaves every Series input on that table.
@@ -700,7 +695,7 @@ class Run:
         return kwargs
 
     def _table(self, plan: InputPlan, row: Key) -> Any:
-        """The table a ``Table`` input receives on ``row``; for alternatives, the one whose branch ran, or a ``SkippedAt`` when none did.
+        """The table a ``Table`` input receives on ``row``; for alternatives, the one whose branch ran, or a skipped ``Unit`` when none did.
 
         ``None`` when the table was never made there because its maker had a blank input.
         """
@@ -713,7 +708,7 @@ class Run:
             under = row[: source.anchor]
             if not self._skipped_above(source, under):
                 return self._columns([source], source.level, under, plan.spec.columns)
-        return SkippedAt(len(row))
+        return Unit("skipped", skipped_from=len(row))
 
     def _columns(self, sources: list[Source], level: Level, row: Key, declared: Mapping[str, Any] | None) -> Any:
         """``sources``' columns on the rows of ``level`` under ``row``, only the declared ones when the input names them."""
@@ -967,7 +962,12 @@ def _dump_units(placed: PlacedNode, units: Mapping[Key, Unit], keyed: bool = Tru
             "values": dumped, "skipped": skipped, **({"skipped_items": {k: v for k, v in items.items() if v}} if any(items.values()) else {}),
             **({"non_finite": non_finite} if non_finite else {}),
         }
-    out: dict[str, Any] = {"states": [u.state for u in units.values()], "questions": {str(i): u.question for i, u in enumerate(units.values()) if u.question}, "outputs": outputs}
+    listed = list(units.values())
+    out: dict[str, Any] = {"states": [u.state for u in listed], "questions": {str(i): u.question for i, u in enumerate(listed) if u.question}, "outputs": outputs}
+    if blank := {str(i): u.blank_input for i, u in enumerate(listed) if u.blank_input is not None}:
+        out["blank_inputs"] = blank
+    if decided := {str(i): u.skipped_from for i, u in enumerate(listed) if u.skipped_from is not None}:
+        out["skipped_from"] = decided
     if keyed:
         out["keys"] = [list(k) for k in units]
     return out
@@ -983,14 +983,6 @@ class _SavedQuestion(TypedDict):
     prompt: str
     inputs: dict[str, Any]
     asked: NotRequired[dict[str, Any]]
-
-
-class _SavedBlank(TypedDict):
-    input: str
-
-
-#: A skipped unit's depth of decision; ``from`` is a keyword, so the functional form names it.
-_SavedSkip = TypedDict("_SavedSkip", {"from": NonNegativeInt})
 
 
 class _SavedTable(BaseModel):
@@ -1014,7 +1006,9 @@ class _SavedUnits(BaseModel):
     model_config = ConfigDict(extra="forbid")
     keys: list[tuple[NonNegativeInt, ...]] | None = None
     states: list[Literal["done", "skipped", "blank", "waiting"]]
-    questions: dict[NonNegativeInt, _SavedQuestion | _SavedBlank | _SavedSkip] = {}
+    questions: dict[NonNegativeInt, _SavedQuestion] = {}
+    blank_inputs: dict[NonNegativeInt, str] = {}
+    skipped_from: dict[NonNegativeInt, NonNegativeInt] = {}
     outputs: dict[str, _SavedOutput] = {}
 
 
@@ -1099,7 +1093,7 @@ def _load_units(placed: PlacedNode, dumped: _SavedUnits) -> list[tuple[Key, Unit
             out = {name: values[n] for name, values in columns.items()}
             n += 1
         question = dumped.questions.get(i)
-        loaded.append((key, Unit(state, out, dict(question) if question is not None else None)))
+        loaded.append((key, Unit(state, out, dict(question) if question is not None else None, dumped.blank_inputs.get(i), dumped.skipped_from.get(i))))
     return loaded
 
 
