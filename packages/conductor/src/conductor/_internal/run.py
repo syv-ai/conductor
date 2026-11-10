@@ -49,7 +49,7 @@ from conductor._internal.node_definition import from_run_values
 
 if TYPE_CHECKING:
     from conductor._internal.graph import Graph, InputPlan, Level, PlacedNode, Source
-    from conductor._internal.leg import Event
+    from conductor._internal.leg import Event, _EventBase
     from conductor._internal.node_definition import NodeDefinition
 
 #: A row: the parent's key plus a number, ``()`` for the graph's own row.
@@ -120,6 +120,8 @@ class Run:
 
     graph: Graph
     inputs: dict[str, Any]
+    #: The caller's inputs and the lists an author typed in, by address: what a graph input's edge reads.
+    _given_values: dict[str, Any]
     max_rows: int | None
     _units: dict[str, dict[Key, Unit]]
     status: RunStatus
@@ -156,7 +158,7 @@ class Run:
         again.
         """
         checked_leg(max_rows=max_rows, timeout=timeout)
-        return self._leg(max_rows, from_run, None, _deadline(timeout))
+        return self._leg(max_rows, from_run_values(self.graph._needs_from_run, from_run), None, _deadline(timeout))
 
     def stream(
         self, *, max_rows: int | None = None, from_run: Mapping[type, Any] | None = None, timeout: float | None = None, cancel: asyncio.Event | None = None,
@@ -180,7 +182,7 @@ class Run:
         return self._stream(max_rows, from_run_values(self.graph._needs_from_run, from_run), timeout, cancel, checkpoint_every)
 
     async def _stream(
-        self, max_rows: int | None, from_run: Mapping[type, Any] | None, timeout: float | None, cancel: asyncio.Event | None, checkpoint_every: float | None,
+        self, max_rows: int | None, from_run: dict[type, Any], timeout: float | None, cancel: asyncio.Event | None, checkpoint_every: float | None,
     ) -> AsyncGenerator[Event]:
         loop, events = asyncio.get_running_loop(), asyncio.Queue["Event | None"]()
         cancelled = threading.Event()
@@ -211,12 +213,14 @@ class Run:
         finally:
             cancelled.set()
 
-    def _leg(self, max_rows: int | None, from_run: Mapping[type, Any] | None, emit: Any, stop: Any, checkpoint_every: float | None = None) -> Run:
+    def _leg(
+        self, max_rows: int | None, from_run: dict[type, Any], emit: Callable[[_EventBase], None] | None, stop: Callable[[], Problem | None] | None,
+        checkpoint_every: float | None = None,
+    ) -> Run:
         from conductor._internal.leg import Leg
 
-        values = from_run_values(self.graph._needs_from_run, from_run)
         run = self._copy(max_rows=max_rows if max_rows is not None else self.max_rows)
-        Leg(run, emit, stop, values, checkpoint_every).go()
+        Leg(run, emit, stop, from_run, checkpoint_every).go()
         return run
 
     @overload
@@ -468,8 +472,7 @@ class Run:
 
     def _given(self, address: str) -> Any:
         """The list a caller gave, or an author typed in, at ``address``, whose items are the rows of the table it makes."""
-        given = self.inputs.get(address)
-        return self.graph._typed_lists[address] if given is None and address in self.graph._typed_lists else given
+        return self._given_values[address]
 
     def _row_value(self, table: str, key: Key) -> Any:
         """What one row of a table holds: an item of a list, or a table's row as a mapping."""
@@ -524,7 +527,7 @@ class Run:
         while stack:
             parent, rows = stack.pop()
             for address in self.graph._lists_under.get(parent, ()):
-                made[address] = rows * len(self._given(address) or [])
+                made[address] = rows * len(self._given(address))
                 stack.append((address, made[address]))
         return made
 
@@ -798,6 +801,7 @@ def start_run(graph: Graph, inputs: dict[str, Any], max_rows: int | None) -> Run
     """A run of ``graph`` on ``inputs`` already checked, by address, not started; the one way a ``Run`` is made."""
     run = Run.__new__(Run)
     run.graph, run.inputs, run.max_rows = graph, inputs, max_rows
+    run._given_values = {**inputs, **graph._typed_lists}
     run._units = {n: {} for n in graph._nodes}
     run.status = "ready"
     run.cause = None
