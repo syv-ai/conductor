@@ -1528,3 +1528,24 @@ def test_each_input_in_describe_says_how_it_receives_on_each_row_its_node_runs_o
     assert receives("p") == {"a": "per row of s.result", "b": "one"}
     assert receives("k") == {"a": "copied down from the graph's own row", "b": "per row of s.result"}
     assert receives("s") == {"text": "one", "sep": "one"}
+
+
+def test_alternatives_on_rows_of_different_tables_into_one_value_are_a_problem_never_a_value_lost():
+    """``d.yes`` split into words and ``d.no`` as it is: a document that went ``no`` has no word rows to put its value on."""
+    @node("words-of")
+    def words_of(text: str) -> Series[str]:
+        return text.split("+")
+
+    assert problems({"id": "s", "node": "split"}, {"id": "d", "node": "decide"}, {"id": "w", "node": "words-of"}, {"id": "m", "node": "upper"},
+                    edges=(("s.result", "d.text"), ("d.yes", "w.text"), ("w.result", "m.text"), ("d.no", "m.text")),
+                    registry=registry_of(split, decide, words_of, upper)) == ["alternatives_on_different_rows"]
+
+
+def test_a_node_filling_two_outputs_of_one_exclusive_group_fails_as_invalid_output():
+    @node("both")
+    def both(text: str) -> YesNo:
+        return YesNo(text, text)
+
+    run = graph({"id": "b", "node": "both"}, registry=registry_of(both)).run(text="a")
+
+    assert (run.status, run.cause.type, run.cause.loc, run.cause.ctx["name"]) == ("failed", "invalid_output", ("b",), "no")

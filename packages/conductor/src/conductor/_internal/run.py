@@ -12,7 +12,6 @@ process.
 from __future__ import annotations
 
 import asyncio
-import dataclasses
 import datetime
 import hashlib
 import json
@@ -28,7 +27,15 @@ from pydantic import TypeAdapter, ValidationError
 
 from conductor._internal.ask import Waiting, answer_outputs, questions
 from conductor._internal.errors import InvalidCallError, Problem, make_problem, value_free_errors
-from conductor._internal.fields import SKIPPED, FieldSpec, carried_list, type_id, without_none
+from conductor._internal.fields import (
+    SKIPPED,
+    FieldSpec,
+    Refused,
+    carried_list,
+    read_value,
+    type_id,
+    without_none,
+)
 
 if TYPE_CHECKING:
     from conductor._internal.graph import Graph, InputPlan, Level, PlacedNode, Source
@@ -412,7 +419,7 @@ class Run:
         """Call ``placed`` on what a unit received: its outputs as a run keeps them, or what went wrong.
 
         A value an edge brings is checked against the input first where its source's type doesn't settle it, and what
-        the node returns against its declared outputs; either refusal is a ``NotDeclared``, which quotes no value.
+        the node returns against its declared outputs; either refusal is a ``Refused``, which quotes no value.
         """
         try:
             for name in placed.checked:
@@ -426,7 +433,7 @@ class Run:
             return None, error
         try:
             return checked_outputs(placed.definition, returned), None
-        except NotDeclared as wrong:
+        except Refused as wrong:
             return None, wrong
 
     def _outputs_json(self, placed: PlacedNode) -> dict[str, Any]:
@@ -729,127 +736,63 @@ def kept_outputs(outputs: Mapping[str, FieldSpec], spread: dict[str, Any]) -> di
     return spread
 
 
-class NotDeclared(Exception):
-    """A value that isn't what a node declares: one it returned (``invalid_output``) or one an edge brought it (``invalid_input``).
-
-    ``ctx`` names the field (``name``), and a table's ``column``, and says why in pydantic's words without the value.
-    """
-
-    def __init__(self, code: str, **ctx: Any) -> None:
-        super().__init__(code)
-        self.code, self.ctx = code, ctx
-
-
 def checked_outputs(definition: NodeDefinition[..., Any], returned: Any) -> Any:
-    """What a node returned, as its outputs by name, each made its declared type; ``SKIPPED`` for a whole branch not taken.
+    """What a node returned, as its outputs by name as a run keeps them; ``SKIPPED`` for a whole branch not taken.
 
-    A value already of its declared class is taken as it is; anything else is read by the output's type, so a
-    model may come back as a dict, and what can't be read raises ``NotDeclared``.
+    Each is read strictly by its declared type (a value already of its class as it is, a model from a dict, never
+    ``"12"`` for an ``int``), and of an ``exclusive_group`` at most one output holds a value. A fault raises
+    ``Refused`` with the code ``invalid_output``.
     """
     if returned is SKIPPED:
         return SKIPPED
     outputs = definition.outputs
-    if definition.compute_outputs is not None:
+    if definition.compute_outputs is None and definition.returns is not None and len(outputs) == 1 and "result" in outputs:
+        spec = outputs["result"]
+        if spec.shape == "one" and type(returned) in spec.plain_classes:  # the common case: one output, already its type
+            return {"result": returned}
+        spread = {"result": returned}
+    elif definition.compute_outputs is not None:
         if not isinstance(returned, Mapping):
-            raise NotDeclared("invalid_output", reason=f"the node returns its outputs as a mapping of {', '.join(outputs) or 'nothing'}, not a {type(returned).__name__}")
+            raise Refused(f"the node returns its outputs as a mapping of {', '.join(outputs) or 'nothing'}, not a {type(returned).__name__}", code="invalid_output")
         unknown = sorted(set(returned) - outputs.keys())
         missing = [name for name in outputs if name not in returned]
         if unknown or missing:
             name = (missing or unknown)[0]
-            raise NotDeclared("invalid_output", name=str(name), reason=f"'{name}' is {'missing from' if missing else 'not one of'} the outputs it returns")
+            raise Refused(f"'{name}' is {'missing from' if missing else 'not one of'} the outputs it returns", code="invalid_output", name=str(name))
         spread = {name: returned[name] for name in outputs}
     elif not outputs:
         if returned is not None:
-            raise NotDeclared("invalid_output", reason=f"the node declares no outputs, but returned a {type(returned).__name__}")
+            raise Refused(f"the node declares no outputs, but returned a {type(returned).__name__}", code="invalid_output")
         return {}
-    elif isinstance(definition.returns, type) and dataclasses.is_dataclass(definition.returns):
-        if not isinstance(returned, definition.returns):
-            raise NotDeclared("invalid_output", reason=f"the node returns a {definition.returns.__name__}, not a {type(returned).__name__}")
-        spread = {name: getattr(returned, name) for name in outputs}
     else:
-        spread = {"result": returned}
+        if not isinstance(returned, definition.returns):
+            raise Refused(f"the node returns a {definition.returns.__name__}, not a {type(returned).__name__}", code="invalid_output")
+        spread = {name: getattr(returned, name) for name in outputs}
+    groups: dict[str, str] = {}
     for name, spec in outputs.items():
-        spread[name] = _checked_value(spec, name, spread[name], "invalid_output")
+        spread[name] = _checked(spec, name, spread[name], "invalid_output")
+        group = spec.param.exclusive_group
+        if group is not None and spread[name] is not SKIPPED:
+            if group in groups:
+                raise Refused(f"'{groups[group]}' and '{name}' are alternatives of '{group}', and both hold a value", code="invalid_output", name=name)
+            groups[group] = name
     return kept_outputs(outputs, spread)
 
 
 def checked_input(spec: FieldSpec, name: str, value: Any) -> Any:
-    """A value an edge brought, read by the input's type; ``NotDeclared`` as ``invalid_input`` if it can't be."""
-    return _checked_value(spec, name, value, "invalid_input")
+    """A value an edge brought, read by the input's type as a typed-in value is; ``Refused`` as ``invalid_input`` if it can't be."""
+    return _checked(spec, name, value, "invalid_input")
 
 
-def _checked_value(spec: FieldSpec, name: str, value: Any, code: str) -> Any:
-    if value is SKIPPED:
-        return value
-    if spec.shape == "table":
-        return _checked_frame(spec, name, value, code)
-    if spec.shape == "one":
-        if type(value) in spec.plain_classes:
-            return value
-        read = _read(spec.adapter, value, code, name)
-        if code == "invalid_output" and spec.plain_classes and not isinstance(read, spec.plain_classes):  # a host type whose own check let something else through
-            raise NotDeclared(code, name=name, reason=f"its type's own check gave a {type(read).__name__}, not a {type_id(without_none(spec.type))}")
-        return read
-    if value is None and spec.default is None:
-        return None  # a Series that may be None
+def _checked(spec: FieldSpec, name: str, value: Any, code: str) -> Any:
     try:
-        return spec.adapter.validate_python(value)
-    except ValidationError as error:
-        if isinstance(value, list) and any(item is SKIPPED for item in value):  # a skipped item is a gap, checked around
-            kept = _read(spec.adapter, [item for item in value if item is not SKIPPED], code, name)
-            items = iter(kept)
-            return [SKIPPED if item is SKIPPED else next(items) for item in value]
-        raise NotDeclared(code, **_why(name, error)) from None
-
-
-def _checked_frame(spec: FieldSpec, name: str, value: Any, code: str) -> pl.DataFrame:
-    """A table with every column its row type names, each column whose dtype doesn't already say its type read by it."""
-    if not isinstance(value, pl.DataFrame):
-        raise NotDeclared(code, name=name, reason=f"a table is a polars DataFrame, not a {type(value).__name__}")
-    if spec.columns is None:
-        return value
-    missing = [c for c in spec.columns if c not in value.columns]
-    if missing:
-        raise NotDeclared(code, name=name, column=missing[0], reason=f"the column '{missing[0]}' its row type declares is missing")
-    read = {}
-    for column, hint in spec.columns.items():
-        if not _dtype_says(value.schema[column], hint):
-            read[column] = _read(spec.column_adapters[column], value[column].to_list(), code, name, column)
-    if not read:
-        return value
-    return value.with_columns(pl.Series(column, cells, strict=False) for column, cells in read.items())
-
-
-def _read(adapter: TypeAdapter[Any], value: Any, code: str, name: str, column: str | None = None) -> Any:
-    try:
-        return adapter.validate_python(value)
-    except ValidationError as error:
-        raise NotDeclared(code, **_why(name, error), **({"column": column} if column else {})) from None
-
-
-def _why(name: str, error: ValidationError) -> dict[str, Any]:
-    errors = value_free_errors(error)
-    return {"name": name, "reason": errors[0]["msg"], "errors": errors}
-
-
-
-
-#: The polars dtypes that already hold values of a column's declared type, so the column needs no reading.
-_DTYPES_OF: dict[Any, tuple[Any, ...]] = {
-    int: (pl.Int8, pl.Int16, pl.Int32, pl.Int64, pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64),
-    float: (pl.Float32, pl.Float64),
-    str: (pl.String,),
-    bool: (pl.Boolean,),
-    datetime.date: (pl.Date,),
-    datetime.datetime: (pl.Datetime,),
-}
-
-
-def _dtype_says(dtype: Any, hint: Any) -> bool:
-    """Whether a column of ``dtype`` holds only values of ``hint`` (or blanks)."""
-    if dtype == pl.Null:
-        return True
-    return any(dtype == kind or (isinstance(dtype, type) and dtype is kind) or dtype.base_type() == kind for kind in _DTYPES_OF.get(without_none(hint), ()))
+        read = read_value(spec, value, strict=code == "invalid_output")
+    except Refused as refused:
+        refused.code, refused.ctx = code, {"name": name, **refused.ctx}
+        raise
+    if code == "invalid_output" and spec.shape == "one" and spec.plain_classes and read is not SKIPPED and not isinstance(read, spec.plain_classes):
+        raise Refused(f"its type's own check gave a {type(read).__name__}, not a {type_id(without_none(spec.type))}", code="invalid_output", name=name)
+    return read
 
 
 def _length(value: Any) -> int:

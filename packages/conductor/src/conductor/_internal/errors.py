@@ -78,6 +78,10 @@ PROBLEM_CATALOGUE: Mapping[str, str] = {
     "parameter_name_invalid": "'{field}' cannot be a field name: '.', '/' and '@' each mean something in an address, and a name can't be empty.",
     "repeated_edge": "The edge from '{source}' into '{field}' is drawn twice.",
     "rows_not_related": "{a} and {b} are rows of different tables; join them on a key in a node, and wire the join.",
+    "alternatives_on_different_rows": (
+        "'{field}' takes alternatives from rows of different tables, {a} and {b}, so a row of one has no place for the other's value. "
+        "Bring them onto rows of one table first."
+    ),
     "several_edges_into_one_value": (
         "'{field}' takes one value, and more than one of the edges into it from {sources} can hold one on a row. "
         "Feed it from opposite branches of one decision, or take them through a Series or Table input."

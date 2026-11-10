@@ -38,17 +38,19 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 import polars as pl
-from pydantic import TypeAdapter, ValidationError
+from pydantic import ValidationError
 
 from conductor._internal.ask import questions_of
 from conductor._internal.errors import InvalidCallError, Problem, make_problem, value_free_errors
 from conductor._internal.fields import (
     REQUIRED,
     FieldSpec,
-    _options,
+    Refused,
     accepts,
+    already,
     carried_list,
     read_field,
+    read_table,
     type_id,
 )
 from conductor._internal.node_definition import NodeDefinition
@@ -179,6 +181,8 @@ class Graph:
         #: Each embedding, at any depth, by its spliced id; and for the ones drawn in this record, what they offer.
         self._embeddings: set[str] = set()
         self._offers: dict[str, tuple[dict[str, tuple[str, str]], dict[str, str]]] = {}
+        #: The record of each graph embedded at any depth, by the spliced id of the node that embeds it.
+        self._embedded: dict[str, GraphRecord] = {}
         #: A placed field inside an embedding as the record holding that embedding names it: ``o/f/x.text`` -> ``o/f.x.text``.
         self._seen_as: dict[str, str] = {}
         placed_records, edges = self._splice(record, "", _embedded_in)
@@ -304,13 +308,16 @@ class Graph:
 
     @functools.cached_property
     def fingerprint(self) -> str:
-        """A short hash of what a run of this graph rests on: each node's id, node, version, values, defaults and ``many``, and the edges.
+        """A short hash of what a run of this graph rests on: each node's id, node, version, values, defaults and ``many``,
+        and the edges, of this record and of every graph embedded in it, however deep.
 
         ``display`` is left out, as conductor never reads it. A saved run names it, and loading a save into a graph
         whose fingerprint differs is refused.
         """
-        written = self.record.model_dump_json(include={"nodes": {"__all__": {"id", "node", "version", "values", "defaults", "many"}}, "edges": True})
-        return hashlib.blake2b(written.encode(), digest_size=8).hexdigest()
+        include: Any = {"nodes": {"__all__": {"id", "node", "version", "values", "defaults", "many"}}, "edges": True}
+        written = [self.record.model_dump_json(include=include)]
+        written.extend(f"{node_id}:{self._embedded[node_id].model_dump_json(include=include)}" for node_id in sorted(self._embedded))
+        return hashlib.blake2b("\n".join(written).encode(), digest_size=8).hexdigest()
 
     # -- running ----------------------------------------------------------------
 
@@ -382,13 +389,13 @@ class Graph:
                 continue
             try:
                 if graph_input.spec.shape == "table" and not graph_input.many:
-                    values[graph_input.key] = given_table(graph_input.spec, given[name])
+                    values[graph_input.key] = read_table(graph_input.spec, given[name], strict=False, given=True)
                 else:
                     adapter = carried_list(graph_input.spec.type) if graph_input.many else graph_input.spec.adapter
                     values[graph_input.key] = adapter.validate_python(given[name])
             except ValidationError as error:
                 problems.append(make_problem("invalid_input", "inputs", name, name=name, reason=value_free_errors(error)[0]["msg"]))
-            except TableRefused as refused:
+            except Refused as refused:
                 problems.append(make_problem("invalid_input", "inputs", name, name=name, reason=refused.reason, **refused.ctx))
         if problems:
             raise InvalidCallError(problems)
@@ -431,6 +438,7 @@ class Graph:
                 self.problems.append(make_problem("embedded_graph_broken", node_record.id, graph=definition.id, count=len(inner_problems), problems=inner_problems))
                 out.append((node_record, None))
                 continue
+            self._embedded[node_record.id] = definition.graph
             inner, inner_edges = self._splice(definition.graph, node_record.id + "/", (*stack, definition.id))
             ins, outs = _interface(inner, inner_edges, node_record.id + "/", self._seen_as)
             for name, (inner_node, inner_input) in ins.items():
@@ -674,7 +682,7 @@ class Graph:
         """Note the branches ``placed`` holds a value on, and refuse what never meets on a row.
 
         Several edges into one value must be alternatives, each on its own branch of one decision, or a row would
-        have two values for it. Two ``Series`` inputs whose sources never both have a value on a row would drop every row.
+        have two values for it; and on rows of one table, or one's rows would have no place for the other's value. Two ``Series`` inputs whose sources never both have a value on a row would drop every row.
         """
         taken: set[tuple[str, str, str]] = set()
         for name, plan in placed.inputs.items():  # a skip on any one input skips the row
@@ -683,6 +691,12 @@ class Graph:
                 if not all(_opposed(a, b) for i, a in enumerate(branches) for b in branches[i + 1:]):
                     self.problems.append(make_problem(
                         "several_edges_into_one_value", placed.id, name, sources=", ".join(_address(s) for s in plan.sources),
+                    ))
+                    return True
+                levels = list(dict.fromkeys(s.level for s in plan.sources))
+                if len(levels) > 1:  # the rows of the deeper one would have no place for the other's value
+                    self.problems.append(make_problem(
+                        "alternatives_on_different_rows", placed.id, name, a=_table(levels[0]), b=_table(levels[1]),
                     ))
                     return True
                 taken |= frozenset.intersection(*branches)
@@ -703,12 +717,12 @@ class Graph:
             if many:
                 return carried_list(spec.type).validate_python(value)
             if spec.shape == "table":
-                return given_table(spec, value)
+                return read_table(spec, value, strict=False, given=True)
             return spec.adapter.validate_python(value)
         except ValidationError as error:
             self.problems.append(make_problem("invalid_value", node_id, name, reason=value_free_errors(error)[0]["msg"]))
             return REQUIRED
-        except TableRefused as refused:
+        except Refused as refused:
             self.problems.append(make_problem("invalid_value", node_id, name, reason=refused.reason, **refused.ctx))
             return REQUIRED
 
@@ -966,57 +980,6 @@ def _code_text(code: Any) -> str:
     return f"{code.co_code.hex()}:{consts}:{code.co_names}"
 
 
-class TableRefused(Exception):
-    """A table typed in or given that its input can't take: why, and the column it is about."""
-
-    def __init__(self, reason: str, **ctx: Any) -> None:
-        super().__init__(reason)
-        self.reason, self.ctx = reason, ctx
-
-
-_RECORDS = TypeAdapter(list[dict[str, Any]])
-
-
-def given_table(spec: FieldSpec, value: Any) -> pl.DataFrame:
-    """A table typed into a ``Table`` input or given for one: a frame or a list of records.
-
-    With a row type, each column it names is read by that column's type, so a host type reads its own text
-    (``"1,5"`` as 1.5) and a date its ISO text; a column missing is refused naming it, and other columns are left
-    out, as an edge into the input leaves them.
-    """
-    if isinstance(value, pl.DataFrame):
-        frame = value
-    else:
-        try:
-            records = _RECORDS.validate_python(value)
-        except ValidationError:
-            raise TableRefused("a table is a frame or a list of records, one object per row") from None
-        if spec.columns is not None:
-            seen = {key for record in records for key in record}
-            missing = [c for c in spec.columns if c not in seen and records]
-            if missing:
-                raise TableRefused(f"the column '{missing[0]}' is missing", column=missing[0])
-            frame = pl.DataFrame({c: [record.get(c) for record in records] for c in spec.columns}, strict=False)
-        else:
-            try:
-                return pl.DataFrame(records, strict=False)
-            except Exception:  # noqa: BLE001  polars' own account may quote a cell
-                raise TableRefused("the records don't make a table") from None
-    if spec.columns is None:
-        return frame
-    missing = [c for c in spec.columns if c not in frame.columns and frame.height]
-    if missing:
-        raise TableRefused(f"the column '{missing[0]}' is missing", column=missing[0])
-    columns = {}
-    for column, adapter in spec.column_adapters.items():
-        cells = frame[column].to_list() if column in frame.columns else [None] * frame.height
-        try:
-            columns[column] = adapter.validate_python(cells)
-        except ValidationError as error:
-            raise TableRefused(f"column '{column}': {value_free_errors(error)[0]['msg']}", column=column) from None
-    return pl.DataFrame(columns, strict=False)
-
-
 def _opposed(a: frozenset[tuple[str, str, str]], b: frozenset[tuple[str, str, str]]) -> bool:
     """Whether two sets of branches never hold together: one decision goes one way for ``a`` and another for ``b``."""
     return any(x[:2] == y[:2] and x[2] != y[2] for x in a for y in b)
@@ -1034,15 +997,8 @@ def _settled(spec: FieldSpec, source: Source) -> bool:
         if spec.columns is None:
             return True
         given = source.columns if source.whole_table else {source.name: source.type}
-        return given is not None and all(c not in given or _settled_type(hint, given[c]) for c, hint in spec.columns.items())
-    return _settled_type(spec.type, source.type)
-
-
-def _settled_type(target: Any, source: Any) -> bool:
-    if target is Any or target == source:
-        return True
-    targets = [t for t in _options(target) if isinstance(t, type)]
-    return all(isinstance(s, type) and any(issubclass(s, t) for t in targets) for s in _options(source) if s is not type(None))
+        return given is not None and all(c not in given or already(hint, given[c]) for c, hint in spec.columns.items())
+    return already(spec.type, source.type)
 
 
 def _reaches(start: str, goal: str, readers: Mapping[str, list[str]], within: set[str]) -> bool:

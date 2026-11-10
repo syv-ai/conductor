@@ -25,12 +25,12 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Annotated, Any, Literal, Union, get_args, get_origin
 
 import polars as pl
-from pydantic import AfterValidator, ConfigDict, TypeAdapter
+from pydantic import AfterValidator, ConfigDict, TypeAdapter, ValidationError
 from pydantic import Field as PydanticField
 from pydantic.errors import PydanticInvalidForJsonSchema
 from pydantic_core import to_jsonable_python
 
-from conductor._internal.errors import NodeDeclarationError
+from conductor._internal.errors import NodeDeclarationError, value_free_errors
 
 
 class _Required:
@@ -204,7 +204,7 @@ class FieldSpec:
         """The classes a value of exactly which needs no reading: the type's own, ``None`` for a blank-taking one; none under limits."""
         if self.param.constraints:
             return ()
-        return tuple(option for option in _options(self.type) if isinstance(option, type) and option is not typing.Any)
+        return tuple(option for option in _options(self.type) if isinstance(option, type) and not typing.is_typeddict(option))
 
     @functools.cached_property
     def item_adapter(self) -> TypeAdapter[Any]:
@@ -404,3 +404,102 @@ def type_title(hint: Any) -> str:
     """What a person reads for a type: its ``display_title`` if it declares one, else its name."""
     own = getattr(hint, "display_title", None)
     return own if isinstance(own, str) else getattr(hint, "__name__", None) or str(hint)
+
+
+# -- reading a value as its field ---------------------------------------------------------------
+
+
+class Refused(Exception):
+    """A value its field can't take: ``reason`` says why and quotes nothing of it; ``ctx`` has pydantic's ``errors``
+    without the value, the field's ``name`` and, for a table, the ``column``. ``code`` is the problem it is where it
+    was met: ``invalid_output`` for a node's return, ``invalid_input`` for what an edge brought."""
+
+    def __init__(self, reason: str, *, code: str = "", **ctx: Any) -> None:
+        super().__init__(reason)
+        self.reason, self.code, self.ctx = reason, code, ctx
+
+
+def already(target: Any, source: Any) -> bool:
+    """Whether every value of type ``source`` already is one ``target`` takes as it is, with nothing to read."""
+    if target is Any or target == source:
+        return True
+    targets = [t for t in _options(target) if isinstance(t, type) and not typing.is_typeddict(t)]
+    sources = [s for s in _options(source) if s is not type(None)]
+    return all(isinstance(s, type) and not typing.is_typeddict(s) and any(issubclass(s, t) for t in targets) for s in sources)
+
+
+def read_value(spec: FieldSpec, value: Any, *, strict: bool) -> Any:
+    """``value`` as one value of ``spec``: as it is when already of its class, else read by its type, ``strict`` as
+    pydantic's strict mode is. A ``SKIPPED`` item of a ``Series`` is a gap, read around."""
+    if value is SKIPPED:
+        return value
+    if spec.shape == "table":
+        return read_table(spec, value, strict=strict)
+    if spec.shape == "one" and type(value) in spec.plain_classes:
+        return value
+    if spec.shape == "many" and value is None and spec.default is None:
+        return None  # a Series that may be None
+    if spec.shape == "many" and isinstance(value, (tuple, range)):
+        value = list(value)  # any sequence a node returns is its rows
+    try:
+        return spec.adapter.validate_python(value, strict=strict)
+    except ValidationError as error:
+        if spec.shape == "many" and isinstance(value, list) and any(item is SKIPPED for item in value):
+            items = iter(read_value(spec, [item for item in value if item is not SKIPPED], strict=strict))
+            return [SKIPPED if item is SKIPPED else next(items) for item in value]
+        raise _refused(error) from None
+
+
+def read_table(spec: FieldSpec, value: Any, *, strict: bool, given: bool = False) -> pl.DataFrame:
+    """``value`` as a table of ``spec``: every column its row type names, each read by the column's type unless its
+    dtype already holds that type; a missing one is refused naming it.
+
+    A table ``given`` (typed in, or a caller's) may also be a list of records and keeps only the named columns, as
+    an edge into the input would; a table a node returns or an edge brings keeps its other columns too.
+    """
+    if given and not isinstance(value, pl.DataFrame):
+        try:
+            records = _RECORDS.validate_python(value)
+        except ValidationError:
+            raise Refused("a table is a frame or a list of records, one object per row") from None
+        names = list(spec.columns) if spec.columns is not None else list(dict.fromkeys(k for r in records for k in r))
+        present = {k for r in records for k in r}
+        try:
+            value = pl.DataFrame({c: [r.get(c) for r in records] for c in names if c in present or not records}, strict=False)
+        except Exception:  # noqa: BLE001  polars' own account may quote a cell
+            raise Refused("the records don't make a table") from None
+    if not isinstance(value, pl.DataFrame):
+        raise Refused(f"a table is a polars DataFrame, not a {type(value).__name__}")
+    if spec.columns is None:
+        return value
+    missing = [c for c in spec.columns if c not in value.columns and (value.height or not given)]
+    if missing:
+        raise Refused(f"the column '{missing[0]}' its row type declares is missing", column=missing[0])
+    read = {}
+    for column, hint in spec.columns.items():
+        if column not in value.columns:
+            read[column] = [None] * value.height
+        elif not already(hint, _PYTHON_OF.get(value.schema[column].base_type(), object)):
+            try:
+                read[column] = spec.column_adapters[column].validate_python(value[column].to_list(), strict=strict)
+            except ValidationError as error:
+                refused = _refused(error)
+                raise Refused(f"column '{column}': {refused.reason}", column=column, **refused.ctx) from None
+    if given:
+        return pl.DataFrame({c: read[c] if c in read else value[c] for c in spec.columns}, strict=False)
+    return value.with_columns(pl.Series(c, cells, strict=False) for c, cells in read.items()) if read else value
+
+
+def _refused(error: ValidationError) -> Refused:
+    errors = value_free_errors(error)
+    return Refused(errors[0]["msg"], errors=errors)
+
+
+_RECORDS = TypeAdapter(list[dict[str, Any]])
+
+#: The type a polars dtype's values already are, so a column of it needs no reading; ``Null`` holds only blanks.
+_PYTHON_OF: dict[Any, Any] = {
+    **dict.fromkeys((pl.Int8, pl.Int16, pl.Int32, pl.Int64, pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64), int),
+    pl.Float32: float, pl.Float64: float, pl.String: str, pl.Boolean: bool, pl.Date: datetime.date, pl.Datetime: datetime.datetime,
+    pl.Null: type(None),
+}

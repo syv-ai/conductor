@@ -92,8 +92,9 @@ its stored graphs itself. What a 1.x user changes:
   calls already running finish and are kept.
 - **Checked values.** What a node returns is checked against what it declares: a value that isn't
   its type fails that node as `invalid_output`, naming the output (and a table's `column`) and
-  quoting nothing of the value; a value of another class is read by the type, so a model may come
-  back as a dict and `12.0` lands in an `int` column as `12`. A value an edge brings that its
+  quoting nothing of the value; a value of another class is read strictly by the type, so a model
+  may come back as a dict but `"no"` is never a `bool`, `"12"` never an `int` and `12.0` never an
+  `int` column. Two outputs of one `exclusive_group` both holding a value are `invalid_output`. A value an edge brings that its
   source's type doesn't settle (a limit on the input, an `int` into a `float`, a host type's own
   check, a table's declared columns) is read by the input's type before the call, and one it refuses
   fails the node it reached as `invalid_input`.

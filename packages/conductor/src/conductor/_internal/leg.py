@@ -37,12 +37,11 @@ from pydantic.json_schema import SkipJsonSchema
 from conductor._internal.ask import Ask, Waiting, WrongAsk, asked
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.errors import ExternalFailure, NodeError, Problem, make_problem
-from conductor._internal.fields import SKIPPED
+from conductor._internal.fields import SKIPPED, Refused
 from conductor._internal.graph import shared_depth
 from conductor._internal.run import (
     PENDING,
     Key,
-    NotDeclared,
     Run,
     RunStatus,
     SkippedAt,
@@ -368,8 +367,8 @@ class Leg:
         outer = self.run.graph.outward(placed.id)  # a node of an embedding fails as the embedding, from outside
         if isinstance(error, NodeError):
             return error._as_problem_at(outer, *key)
-        if isinstance(error, NotDeclared):
-            return make_problem(error.code, outer, *key, **error.ctx)
+        if isinstance(error, Refused):
+            return make_problem(error.code, outer, *key, reason=error.reason, **error.ctx)
         _logger.error("node %r failed on row %r", placed.id, key, exc_info=error)
         if isinstance(error, placed.definition.policy.retry_on):
             return make_problem("external_failed", outer, *key, error=type(error).__name__)

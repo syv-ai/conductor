@@ -3,11 +3,12 @@
 A value that isn't what the node declares fails the node that returned it as
 ``invalid_output``, or the node it reached as ``invalid_input``, on that row,
 quoting nothing of the value. A value already of its declared class is taken
-as it is; anything else is read by the type, so a model may be returned as a
-dict and ``12.0`` lands in an ``int`` column as ``12``.
+as it is; anything else is read strictly by the type, so a model may be
+returned as a dict, but ``"12"`` is never an ``int`` nor ``12.0`` an ``int`` column.
 """
 
 import asyncio
+import datetime
 import json
 import math
 import threading
@@ -137,10 +138,10 @@ def test_a_node_with_computed_outputs_returns_exactly_them_as_a_mapping():
 
 
 def test_a_series_with_a_skipped_item_is_checked_around_the_gap():
-    run = _returning([1, SKIPPED, "2"], Series[int])
+    run = _returning([1, SKIPPED, 2], Series[int])
 
     assert run.status == "complete" and run.results["g"]["result"] == [1, None, 2]
-    assert _returning([1, SKIPPED, "x"], Series[int]).cause.type == "invalid_output"
+    assert _returning([1, SKIPPED, "2"], Series[int]).cause.type == "invalid_output"
 
 
 class Line(TypedDict):
@@ -154,12 +155,17 @@ def test_a_fraction_in_an_int_column_fails_the_node_rather_than_being_cut_off():
     assert (run.cause.type, run.cause.loc, run.cause.ctx["name"], run.cause.ctx["column"]) == ("invalid_output", ("g",), "result", "amount")
 
 
-def test_a_whole_number_held_as_a_float_reads_as_an_int_and_a_blank_stays_blank():
-    run = _returning(pl.DataFrame({"item": ["a", "b"], "amount": [12.0, None]}), Table[Line])
-
-    table = run.results["g"]["result"]
+def test_a_float_column_for_an_int_one_fails_even_when_whole_and_an_int_column_with_blanks_is_kept():
+    """Outputs are read strictly: ``12.0`` is a float, so an ``int`` column refuses it, as ``-> int`` refuses ``"12"``."""
+    assert _returning(pl.DataFrame({"item": ["a"], "amount": [12.0]}), Table[Line]).cause.type == "invalid_output"
+    table = _returning(pl.DataFrame({"item": ["a", "b"], "amount": [12, None]}), Table[Line]).results["g"]["result"]
     assert table.to_dicts() == [{"item": "a", "amount": 12}, {"item": "b", "amount": None}]
-    assert table.schema["amount"] == pl.Int64
+
+
+@pytest.mark.parametrize(("returned", "return_type"), [("no", bool), ("12", int), ("2026-01-02", datetime.date), (12.0, int)],
+                         ids=["a-word-for-a-bool", "text-for-an-int", "text-for-a-date", "a-float-for-an-int"])
+def test_an_output_is_read_strictly_never_from_text_that_spells_it(returned, return_type):
+    assert _returning(returned, return_type).cause.type == "invalid_output"
 
 
 def test_a_table_that_is_not_a_frame_fails_its_node():

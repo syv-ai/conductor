@@ -232,7 +232,7 @@ def test_the_outputs_of_a_failed_run_are_refused_and_its_results_say_what_it_did
 
 
 def _codes_written_by_the_library() -> set[str]:
-    """Every problem code a site in the library writes: ``make_problem``'s or ``NotDeclared``'s first argument,
+    """Every problem code a site in the library writes: ``make_problem``'s first argument,
     ``Problem(type=...)``, a ``code=`` on any call but a declaration error's, and each error's code when none is given."""
     written: set[str] = set()
 
@@ -246,7 +246,7 @@ def _codes_written_by_the_library() -> set[str]:
             if not isinstance(found, ast.Call):
                 continue
             called = found.func.id if isinstance(found.func, ast.Name) else None
-            if called in ("make_problem", "NotDeclared") and found.args:
+            if called == "make_problem" and found.args:
                 written |= literals(found.args[0])
             if called != "NodeDeclarationError":
                 written |= {code for keyword in found.keywords if keyword.arg == "code" for code in literals(keyword.value)}

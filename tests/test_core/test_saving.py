@@ -454,3 +454,23 @@ def test_a_save_names_its_graph_and_an_edited_graph_refuses_it_while_display_alo
     (problem,) = refused.value.errors()
     assert problem.type == "state_of_another_graph" and set(problem.ctx) == {"saved", "graph"}
     assert registry_of(shout).load(drawn).load_run(saved).results == {"s": {"result": "A"}}
+
+
+def test_a_save_names_the_graphs_embedded_in_its_graph_too():
+    @node("shout")
+    def shout(text: str) -> str:
+        return text.upper()
+
+    @node("quiet")
+    def quiet(text: str) -> str:
+        return text.lower()
+
+    def with_inner(*nodes: NodeRecord) -> Any:
+        return registry_of(shout, quiet, node("inner")(GraphRecord(nodes=list(nodes))))
+
+    outer = GraphRecord(nodes=[NodeRecord(id="e", node="inner")])
+    saved = with_inner(NodeRecord(id="x", node="shout")).load(outer).run(text="a").to_json()
+
+    with pytest.raises(InvalidCallError) as refused:
+        with_inner(NodeRecord(id="x", node="quiet")).load(outer).load_run(saved)
+    assert [p.type for p in refused.value.errors()] == ["state_of_another_graph"]
