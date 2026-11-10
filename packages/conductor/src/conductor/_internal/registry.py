@@ -268,7 +268,9 @@ class NodeRegistry:
         (values, defaults and the edges into them), then rewrites
         what is typed into the node, values and defaults as one map: a key
         that was a default stays one, and every other key the rewrite returns
-        is a value, fixed as the author's. Every edge out of a renamed output,
+        is a value, fixed as the author's. An edge into an input the step
+        neither keeps nor renames goes, as what was typed into it goes unless
+        the rewrite returns it. Every edge out of a renamed output,
         or out of a column of it, reads the new name. A node already at ``to``
         returns the record as it is. The record returned is not loaded here:
         load it to show the author what the newer version makes of it.
@@ -299,7 +301,10 @@ class NodeRegistry:
             steps.append(step)
             step = step.replaces
         values, defaults, edges = dict(placed.values), dict(placed.defaults), list(graph.edges)
-        for upgrade in (s.upgrade for s in reversed(steps) if s.upgrade is not None):
+        for step in reversed(steps):
+            upgrade, older = step.upgrade, step.replaces
+            if upgrade is None or older is None:
+                continue
             values, defaults = _with_keys_renamed(values, upgrade.renamed_inputs), _with_keys_renamed(defaults, upgrade.renamed_inputs)
             if upgrade.rewrite is not None:
                 rewritten, faults = typed_in(node_id, upgrade.rewrite({**defaults, **values}))
@@ -307,9 +312,11 @@ class NodeRegistry:
                     raise InvalidCallError(faults)
                 defaults = {name: value for name, value in rewritten.items() if name in defaults and name not in values}
                 values = {name: value for name, value in rewritten.items() if name not in defaults}
+            gone = {f"{node_id}.{name}" for name in older.inputs.keys() - step.inputs.keys() - upgrade.renamed_inputs.keys()}
             edges = [
                 (_renamed_on(source, node_id, upgrade.renamed_outputs), _renamed_on(target_, node_id, upgrade.renamed_inputs))
                 for source, target_ in edges
+                if target_ not in gone
             ]
         moved = placed.model_copy(update={"version": target, "values": values, "defaults": defaults})
         return graph.model_copy(update={"nodes": tuple(moved if n is placed else n for n in graph.nodes), "edges": tuple(sorted(edges))})

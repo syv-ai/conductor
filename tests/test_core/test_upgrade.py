@@ -164,6 +164,26 @@ def test_an_edge_into_an_input_the_step_renames_moves_with_it():
     assert upgraded.edges == (("src.result", "r.full"),)
 
 
+def test_an_edge_into_an_input_a_rewrite_leaves_gone_goes_with_it_and_the_graph_loads_clean():
+    def summed_v1(a: int, b: int) -> int:
+        return a + b
+
+    @node("summed", replaces=node("summed")(summed_v1), upgrade=Upgrade(rewrite=lambda typed: {k: v for k, v in typed.items() if k != "b"}))
+    def summed(a: int) -> int:
+        return a
+
+    @node("three")
+    def three() -> int:
+        return 3
+
+    registry = registry_of(three, summed)
+    graph = GraphRecord(nodes=[NodeRecord(id="t", node="three"), NodeRecord(id="s", node="summed", values={"a": 1})], edges=[("t.result", "s.b")])
+
+    upgraded = registry.upgrade(graph, "s")
+    assert (upgraded.edges, upgraded.nodes[1].values) == ((), {"a": 1})
+    assert registry.load(upgraded).problems == []
+
+
 def test_a_rewrite_sees_values_and_defaults_as_one_and_a_default_stays_one():
     def counted_v1(src: Annotated[Txt, _param("Source")] = Txt(""), n: int = 0) -> Annotated[Txt, Param(title="R")]:
         return src
