@@ -57,8 +57,8 @@ def replace_all(
 
 @registry.node("regex-extract")
 def extract(text: LongText, pattern: Line, ignore_case: Flag = False) -> Annotated[Series[str], Param(title="Matches")]:
-    """Every match, a row each, or the first group of each when the pattern has groups."""
+    """Every match, a row each, or the first group of each when the pattern has groups; a group that took no part is ``""``."""
     compiled = _timed(lambda timeout: regex.compile(pattern, flags=_flags(ignore_case)))
     # ``finditer`` is lazy and the timeout fires while it is walked, so the walk happens inside ``_timed``.
     found = _timed(lambda timeout: list(compiled.finditer(text, timeout=timeout)))
-    return [m.group(1) if compiled.groups else m.group(0) for m in found]
+    return [m.groups(default="")[0] if compiled.groups else m.group(0) for m in found]

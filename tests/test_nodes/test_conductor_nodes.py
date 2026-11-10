@@ -33,6 +33,7 @@ def _run(node_id: str, **values: Any) -> dict[str, Any]:
     ("json-get", {"value": {"a": 1}, "path": "does.not.exist"}, None),
     ("regex-match", {"text": "Hello", "pattern": "hello", "ignore_case": True}, True),
     ("regex-replace", {"text": "a1b2c3", "pattern": r"\d", "replacement": "-"}, "a-b-c-"),
+    ("regex-extract", {"text": "b ab", "pattern": r"(a)?b"}, ["", "a"]),
 ])
 def test_a_node_gives_its_result(node_id: str, values: dict[str, Any], expected: Any) -> None:
     assert _run(node_id, **values) == {"result": expected}
