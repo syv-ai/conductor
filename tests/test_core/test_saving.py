@@ -11,7 +11,10 @@ names where, and quotes no stored value.
 import datetime as dt
 import json
 import math
+import os
 import struct
+import subprocess
+import sys
 from decimal import Decimal
 from typing import Any, Literal, TypedDict
 
@@ -754,3 +757,27 @@ def test_a_blank_and_a_skipped_unit_come_back_from_a_save_and_a_resumed_run_name
         {"node_id": "s", "row": (1,), "input": "email"},
         {"node_id": "c", "row": (1,), "input": "email"},
     ]
+
+
+_SAVED_IN_ANOTHER_PROCESS = """
+from conductor import Ask, NodeRegistry, make_graph, node
+
+@node("check")
+def check(kind: str) -> str:
+    if kind in {"invoice", "receipt", "order", "bill"}:
+        raise Ask("ok?")
+    return kind
+
+registry = NodeRegistry()
+registry.add(check)
+print(registry.load(make_graph(check)).run(kind="invoice").waiting[0].id)
+"""
+
+
+@pytest.mark.parametrize("seeds", [("1", "2"), ("3", "4")])
+def test_a_waiting_row_has_one_id_in_every_process_though_its_node_tests_a_set(seeds):
+    ids = {
+        subprocess.run([sys.executable, "-c", _SAVED_IN_ANOTHER_PROCESS], env={**os.environ, "PYTHONHASHSEED": seed}, capture_output=True, text=True, check=True).stdout
+        for seed in seeds
+    }
+    assert len(ids) == 1

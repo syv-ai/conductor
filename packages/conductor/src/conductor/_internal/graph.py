@@ -1268,8 +1268,18 @@ def _arriving(plan: InputPlan) -> Any:
 
 def _code_text(code: Any) -> str:
     """A function's bytecode and constants as text that is the same in every process: a nested function by its own code."""
-    consts = [_code_text(c) if hasattr(c, "co_code") else repr(c) for c in code.co_consts]
-    return f"{code.co_code.hex()}:{consts}:{code.co_names}"
+    return f"{code.co_code.hex()}:{[_constant_text(c) for c in code.co_consts]}:{code.co_names}"
+
+
+def _constant_text(constant: Any) -> str:
+    """A constant as text that is the same in every process: a set's members sorted, as its order follows the hash seed."""
+    if hasattr(constant, "co_code"):
+        return _code_text(constant)
+    if isinstance(constant, frozenset):
+        return f"frozenset({sorted(_constant_text(c) for c in constant)})"
+    if isinstance(constant, tuple):
+        return f"({', '.join(_constant_text(c) for c in constant)},)"
+    return repr(constant)
 
 
 def _opposed(a: frozenset[tuple[str, str, str]], b: frozenset[tuple[str, str, str]]) -> bool:
