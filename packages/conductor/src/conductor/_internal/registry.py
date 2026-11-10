@@ -208,7 +208,7 @@ class NodeRegistry:
     ) -> None:
         """Hold exactly ``nodes`` and ``named_types``, once their types give one class per id. ``added`` are the nodes
         new beside the ones held, so only their types are read; without it every node's are."""
-        declared = _by_id(_types_declared_by_all(nodes.values() if added is None else added), self._declared if added is not None else {})
+        declared = _by_id(_types_declared_by(nodes.values() if added is None else added), self._declared if added is not None else {})
         self._types = _by_id(named_types, declared)
         self._nodes, self._named_types, self._declared = nodes, named_types, declared
         self._graph_descriptions = {}
@@ -223,19 +223,19 @@ class NodeRegistry:
         """Every type by its id: the ones the nodes declare, then the ones a host named. Read-only."""
         return MappingProxyType(self._types)
 
-    def _accepted_as(self, value_type: type) -> tuple[str, ...]:
-        """The ids of every type here a value of ``value_type`` may land on, its own included.
-
-        Worked out from subclassing and each type's ``accepts``, so no table of
-        what lands where is kept by hand.
-        """
-        return tuple(type_id_ for type_id_, target in self._types.items() if accepts(target, value_type))
-
     def describe(self) -> RegistryDescription:
-        """This registry as an editor reads it: every node, and every type with where a value of it may land."""
+        """This registry as an editor reads it: every node, and every type with where a value of it may land.
+
+        Where a value lands, its own type included, is worked out from subclassing and each type's ``accepts``, so no
+        table of it is kept by hand.
+        """
+        types = self._types.items()
         return RegistryDescription(
             nodes=[self._described(definition) for definition in self._nodes.values()],
-            types=[TypeDescription(id=type_id_, title=type_title(held), accepted_as=list(self._accepted_as(held))) for type_id_, held in self._types.items()],
+            types=[
+                TypeDescription(id=type_id_, title=type_title(held), accepted_as=[landing for landing, target in types if accepts(target, held)])
+                for type_id_, held in types
+            ],
         )
 
     def _described(self, definition: NodeDefinition[..., Any]) -> NodeDescription:
@@ -345,11 +345,6 @@ def _renamed_on(address: str, node_id: str, renames: Mapping[str, str]) -> str:
     return f"{owner}.{renames[field]}{dot}{column}" if owner == node_id and field in renames else address
 
 
-def _types_declared_by_all(definitions: Iterable[NodeDefinition[..., Any]]) -> list[type]:
-    """The types ``definitions`` declare, node by node."""
-    return [held for definition in definitions for held in _types_declared_by(definition)]
-
-
 def _by_id(types: Iterable[type], start: Mapping[str, type]) -> dict[str, type]:
     """``start``, then ``types``, by id; raises when one id names two classes."""
     by_id = dict(start)
@@ -378,14 +373,15 @@ def _where_declared(definition: NodeDefinition[..., Any]) -> str:
     return f"{getattr(definition.function, '__module__', '?')}.{getattr(definition.function, '__qualname__', '?')}"
 
 
-def _types_declared_by(definition: NodeDefinition[..., Any]) -> list[type]:
-    """Every class a node's versions declare on their inputs and outputs, each once, in declaration order."""
+def _types_declared_by(definitions: Iterable[NodeDefinition[..., Any]]) -> list[type]:
+    """Every class the versions of ``definitions`` declare on their inputs and outputs, each once, node by node in declaration order."""
     found: list[type] = []
-    for step in definition.lineage:
-        for spec in (*step.inputs.values(), *step.outputs.values()):
-            held = without_none(spec.type)
-            if spec.shape != "table" and isinstance(held, type) and held is not Any and held not in found:
-                found.append(held)
+    for definition in definitions:
+        for step in definition.lineage:
+            for spec in (*step.inputs.values(), *step.outputs.values()):
+                held = without_none(spec.type)
+                if spec.shape != "table" and isinstance(held, type) and held is not Any and held not in found:
+                    found.append(held)
     return found
 
 
