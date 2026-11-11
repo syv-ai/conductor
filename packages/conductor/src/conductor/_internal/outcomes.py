@@ -48,13 +48,17 @@ if TYPE_CHECKING:
 class NotReady(enum.Enum):
     """Why a node cannot be called yet for one item path.
 
+    Nothing in this file returns these. The code that works out the arguments of a call returns one of them
+    in place of the arguments, and the caller then tries the node again later.
+
     Attributes:
         NOT_READY: A value the call needs does not exist yet: the node that makes it has not run, or is waiting
             for a person. In the example, ``clean`` is not ready before ``load`` has returned.
-        NOT_ITS_TURN: The run continues an earlier run, and a person's answer from that run is waiting to be
-            used again. Answers are handed out in the order the questions were asked. This call could use the
-            answer, but a call of the same node with a lower item path has not been tried yet and may be
-            the one the answer belongs to. So this call waits until that one has been tried.
+        NOT_ITS_TURN: An answer a person gave in an earlier run is kept for this node, and another call of the
+            node has to be tried first. Example: in an earlier run, ``clean`` asked a person about two
+            documents with the same text, and the person gave two different answers. This run uses the
+            answers again, in the same order: the first for ``(0,)``, the second for ``(1,)``. If ``(1,)``
+            has its arguments first, it is ``NOT_ITS_TURN`` until ``(0,)`` has been tried.
     """
 
     NOT_READY = "not_ready"
@@ -71,10 +75,10 @@ class Done:
     """The function was called and returned. In the example: ``Done({"result": "C"})`` for ``clean`` at ``(1,)``.
 
     Attributes:
-        out: The node's outputs by name. An output is the value the function returned for it, with three
-            special cases: ``None`` when the function returned ``None``; ``SKIPPED`` when the function chose
-            another branch (every output is ``SKIPPED`` when the function returned ``SKIPPED``); and for an
-            output declared as a ``Series``, a ``StoredSeries``, which wraps the list or table returned.
+        out: The node's outputs by name. An output is usually the value the function returned for it, which
+            may be ``None``. It is the marker ``SKIPPED`` when the function returned ``SKIPPED`` for that
+            output, to say that the branch the output leads to is not chosen. For an output declared as a
+            ``Series`` it is a ``StoredSeries``: an object that wraps the returned list and has ``len()``.
     """
 
     out: dict[str, Any]
@@ -102,9 +106,9 @@ class Skipped:
     Example: a node ``decide`` has the outputs ``yes`` and ``no`` and returns a value for ``yes`` only. A node
     wired to ``decide.no`` is skipped, and so is every node that needs that node's output.
 
-    ``Skipped`` and ``NotCalled`` are read the same way, through ``out``. They are two classes because a run
-    reports them differently: ``run.not_called`` lists the ``NotCalled`` outcomes only, a node whose every
-    outcome is ``Skipped`` gets a ``node_skipped`` event, and a saved run writes down which of the two it was.
+    ``Skipped`` and ``NotCalled`` are read the same way, through ``out``. They are two classes because the
+    caller of the graph is told about them differently: a run lists its ``NotCalled`` outcomes for the
+    caller and not its ``Skipped`` ones, and a saved run records which of the two an outcome was.
 
     Attributes:
         out: The node's outputs by name. Each is ``SKIPPED``.
@@ -146,8 +150,7 @@ class Asking:
     question: Question
 
 
-#: What happened to one node for one item path. An outcome is never changed after it is made: a run and the
-#: copies of it share the same outcome objects.
+#: What happened to one node for one item path. An outcome is never changed after it is made.
 Outcome = Done | Answered | Skipped | NotCalled | Asking
 
 def outputs_when_skipped(outputs: Mapping[str, Field]) -> dict[str, Any]:

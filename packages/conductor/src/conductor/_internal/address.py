@@ -5,9 +5,10 @@ one node). ``e`` is called once per document. Inside it, a node ``ask`` is calle
 
 - A **node path** names a node: ``("e", "ask")``. As text it is ``"e/ask"``.
 - An **item path** says which call of that node: ``(0, 2)`` is the call for document 0, line 2.
-- A **loc** is both in one tuple, each node id followed by the positions in that node's own loops:
-  ``("e", 0, "ask", 2)``. As text it is ``"e@0/ask@2"``. This is the form a host sees, for example in
-  ``run.not_called`` and in the id of a question that waits for an answer.
+- A **loc** is both in one tuple: ``("e", 0, "ask", 2)``. After each node id come the positions that the
+  node adds to the item path: ``e`` is called per document, so one position follows it, and ``ask`` adds one
+  more for the line. As text it is ``"e@0/ask@2"``. A loc is what the application that uses the library is
+  given when it is told about one call, for example a call that waits for a person's answer.
 """
 
 from __future__ import annotations
@@ -21,15 +22,17 @@ NodePath = tuple[str, ...]
 #: ``(0, 2)`` is item 2 of the inner list, for item 0 of the outer list. A node inside no loop has ``()``.
 ItemPath = tuple[int, ...]
 
-#: A node path and an item path in one tuple: each node id, followed by the positions in that node's own
-#: loops. ``("e", 0, "ask", 2)`` is the node path ``("e", "ask")`` with the item path ``(0, 2)``.
+#: A node path and an item path in one tuple: each node id, followed by the positions that node adds to the
+#: item path. ``("e", 0, "ask", 2)`` is the node path ``("e", "ask")`` with the item path ``(0, 2)``. A node
+#: inside two loops of its own graph has two positions after its id: ``("clean", 0, 1)``.
 Loc = tuple[str | int, ...]
 
 
 def loc_text(loc: Loc) -> str:
     """A loc as text: ``@`` before each position and ``/`` between nodes.
 
-    ``loc_text(("e", 0, "ask", 2))`` returns ``"e@0/ask@2"``.
+    ``loc_text(("e", 0, "ask", 2))`` returns ``"e@0/ask@2"``, and ``loc_text(("clean", 0, 1))`` returns
+    ``"clean@0@1"``.
     """
     return "".join(f"@{step}" if isinstance(step, int) else f"/{step}" for step in loc)[1:]
 
@@ -56,7 +59,7 @@ def parse_loc_text(text: str) -> tuple[Loc, NodePath, ItemPath]:
 def node_name(path: NodePath) -> str:
     """A node path as text, joined by ``/``: ``node_name(("e", "ask"))`` returns ``"e/ask"``.
 
-    A run and a saved run use this text as the node's key.
+    Dicts that hold something per node, in a run and in a saved run, have this text as their key.
     """
     return "/".join(path)
 
