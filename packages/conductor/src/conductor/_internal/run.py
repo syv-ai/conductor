@@ -619,7 +619,8 @@ class Run:
         An output made once inside is the inner unit's own: its value, ``SKIPPED`` for a branch not taken, ``None``
         for a blank, so what reads the embedded graph's node is skipped or left uncalled as it would be reading
         the node inside. One made per item inside, at any depth, is every item's in order, and a ``Series`` made
-        per item is a list of lists.
+        per item is a list of lists; where the Series those items are of was never made, for a blank or a branch
+        not taken, it is that blank or that branch not taken, as the nodes drawn in the graph itself hold.
 
         Returns:
             The outputs by address, or ``PENDING`` until every one of them is settled for the instance, and
@@ -627,7 +628,7 @@ class Run:
         """
         units, base = self._units[node.path], len(key)
         out: dict[str, Any] = {}
-        for address, (cell, maps, lists, _series) in node.offers.items():
+        for address, (cell, maps, lists, series) in node.offers.items():
             if len(maps) == base:  # made once inside: the inner unit's own
                 unit = units[cell.node_id].get(key)
                 kind = type(unit)
@@ -638,6 +639,12 @@ class Run:
                 else:
                     return PENDING
             else:
+                made = _cell(units, base, series, key)  # type: ignore[arg-type]  # an output made per item has its Series
+                if made is PENDING:
+                    return PENDING
+                if made is None or made is SKIPPED:  # the Series was never made, so nor was the output: no list of no items
+                    out[address] = made
+                    continue
                 instances, known = self._instances(maps, key)
                 if not known:
                     return PENDING

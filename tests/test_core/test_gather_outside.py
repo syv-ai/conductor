@@ -118,6 +118,11 @@ REGISTRY.node("pair-then-up-or-none", title="Pair then up", description="A pair,
 )
 
 
+REGISTRY.node("items-then-up", title="Items then up", description="Each word of a text, in capitals.")(
+    make_graph(items, up, edges=[("items.result", "up.a")])
+)
+
+
 def ran(nodes: dict[str, str], edges: list[tuple[str, str]], **inputs: str) -> Any:
     graph = REGISTRY.load({"nodes": [{"id": i, "node": n} for i, n in nodes.items()], "edges": [list(edge) for edge in edges]})
     assert not graph.problems, graph.problems
@@ -293,3 +298,13 @@ def test_a_node_in_the_items_whose_series_of_one_takes_a_blank_made_outside_lets
     nodes, edges = {"s": "items", "t": "template", "x": "with-all", "n": "count"}, [("s.result", "x.a"), ("t.result", "x.values"), ("x.result", "n.values")]
     assert came_to(ran(nodes, edges, kind="blank", text="a b"), "n") == "not called"  # with-all takes no blank in its Series of one
     assert came_to(ran({**nodes, "x": "with-all-or-blanks"}, edges, kind="blank", text="a b"), "n") == 2
+
+
+@pytest.mark.parametrize(("kind", "counter", "n"), [
+    ("blank", "count", "not called"), ("blank", "count-or-none", "none"), ("skip", "count", "skipped"), ("skip", "count-or-none", "skipped"),
+    ("a b", "count", 2), ("", "count", 0),
+])
+def test_a_series_made_inside_an_embedded_graph_and_never_made_there_is_gathered_outside_as_the_same_nodes_drawn_flat(kind: str, counter: str, n: Any) -> None:
+    flat = ran({"t": "template", "w": "items", "u": "up", "n": counter}, [("t.result", "w.text"), ("w.result", "u.a"), ("u.result", "n.values")], kind=kind)
+    embedded = ran({"t": "template", "e": "items-then-up", "n": counter}, [("t.result", "e.text"), ("e.up.result", "n.values")], kind=kind)
+    assert (came_to(flat, "n"), came_to(embedded, "n")) == (n, n)
