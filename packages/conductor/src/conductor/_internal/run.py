@@ -427,19 +427,19 @@ class Run:
         if problems:
             raise InvalidCallError(problems)
         run = self._copy(share_units=True)
-        around: dict[GraphAtPath, list[Key]] = {}  # each embedded graph's node around an answered unit, innermost first, and its instances there
+        around: dict[GraphAtPath, dict[Key, None]] = {}  # each embedded graph's node around an answered unit, and its instances there
         for node, key in answered:
             embedding = node.embedding
             while embedding is not None:
-                around.setdefault(embedding, []).append(key[: len(embedding.maps)])
+                around.setdefault(embedding, {})[key[: len(embedding.maps)]] = None
                 embedding = embedding.embedding
         changes: list[NodeAtPath] = [*{node for node, _ in answered}, *around]
         for changed in changes:  # its own units for each node it changes; every other node's are shared
             run._units[changed.inside][changed.placed.id] = dict(self._units[changed.inside][changed.placed.id])
         for (node, key), now in answered.items():
             run._units[node.inside][node.placed.id][key] = now
-        for embedding, instances in around.items():
-            run._settle(embedding, instances)
+        for embedding in sorted(around, key=lambda node: node.position):  # each once, after every embedded graph's node inside it
+            run._settle(embedding, around[embedding])
         return run
 
     def _moved_to(self, nodes: NodePath, fingerprint: str) -> str | None:
@@ -651,9 +651,9 @@ class Run:
         """Gives the embedded graph's node ``node`` its unit in each of ``instances`` where every output of the
         graph inside is settled.
 
-        The unit is what the units inside came to and nothing else, so a run holds it wherever they settle it:
-        a leg makes it as its readers need it and settles the rest when it ends early or hands out a copy, an
-        answer settles it around the units it answers, and a load for every instance.
+        The unit is what the units inside came to and nothing else (``_offered``), so it is made of them and
+        never saved. One an instance already holds is made again, to the same; the node's units stay in
+        instance order.
 
         Args:
             node: The embedded graph's node.

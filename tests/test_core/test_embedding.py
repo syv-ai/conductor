@@ -226,6 +226,9 @@ INNER = {
     "maybe-inner": chain(("m", "maybe"), ("up", "upper")),
     "lines-inner": chain(("w", "words"), ("q", "ask")),  # a question per word of what it is given
     "fetch-words-inner": chain(("w", "words"), ("f", "fetch")),  # a call on a thread per word
+    "upper-fetch-inner": chain(("up", "upper"), ("f", "fetch")),  # its last node is the one on threads
+    "two-asks-inner": {"nodes": [{"id": "f", "node": "asking-inner"}, {"id": "g", "node": "asking-inner"}], "edges": []},
+    "three-asks-inner": {"nodes": [{"id": n, "node": "asking-inner"} for n in ("f", "g", "h")], "edges": []},
     "wrapping": chain(("in", "asking-inner")),  # an embedded graph inside an embedded graph
     "deep-inner": chain(("w", "words"), ("c", "chars"), ("up", "upper")),  # its output sits two maps deep
     "series-per-item-inner": chain(("w", "words"), ("c", "chars")),  # a Series made per word
@@ -769,6 +772,26 @@ def test_a_blank_inside_an_embedded_graph_reads_alike_live_and_loaded():
 
 
 def test_a_checkpoint_mid_leg_reads_alike_loaded_whatever_inside_an_embedded_graph_has_come_back():
-    events = stream(mapped("fetch-inner").with_inputs(text="a b c d"), checkpoint_every=0.01)
+    events = stream(mapped("upper-fetch-inner").with_inputs(text="a b c d"), checkpoint_every=0.01)
     checkpoints = [event.run for event in events if isinstance(event, RunCheckpoint)]
     assert checkpoints and all(reads_alike_loaded(checkpoint) for checkpoint in checkpoints)
+
+
+@pytest.mark.parametrize("inner", ["two-asks-inner", "three-asks-inner"])
+@pytest.mark.parametrize("per_item", [False, True], ids=["once", "per item"])
+def test_several_answers_in_one_call_under_embedded_graphs_side_by_side_inside_another_settle_the_one_around_them(inner: str, per_item: bool):
+    nodes: dict[str, str | dict[str, Any]] = {"w": "words", "e": inner} if per_item else {"e": inner}
+    graph = load(nodes, [("w.result", f"e.{name}") for name in load({"e": inner}).inputs] if per_item else [])
+    assert not graph.problems, graph.problems
+    run = graph.run(dict.fromkeys(graph.inputs, "ab cd"))
+    answered = run.answer({unit.id: "yes" for unit in run.waiting})
+    assert reads_alike_loaded(answered)
+    assert all(value == (["yes", "yes"] if per_item else "yes") for value in answered.results["e"].values())
+    some = run.answer({unit.id: "yes" for unit in run.waiting[1:]})  # all but the first: nothing around it is settled
+    assert reads_alike_loaded(some) and reads_alike_loaded(some.answer(run.waiting[0], "yes"))
+
+
+def test_every_word_answered_in_one_call_inside_one_embedded_graph_settles_it_once():
+    run = load({"e": "lines-inner"}).run(text=" ".join(f"w{i}" for i in range(300)))
+    answered = run.answer({unit.id: "yes" for unit in run.waiting})
+    assert answered.results["e"] == {"q.result": ["yes"] * 300} and reads_alike_loaded(answered)
