@@ -60,7 +60,7 @@ from conductor._internal.node_definition import (
     declared_inputs,
     node,
 )
-from conductor._internal.problem import InvalidCallError, NodeDeclarationError, make_problem
+from conductor._internal.problem import InvalidCallError, NodeDeclarationError
 
 
 def _takes_the_arguments_of[**P, R](
@@ -287,7 +287,7 @@ class NodeRegistry:
         graph = as_record(record)
         placed = next((n for n in graph.nodes if n.id == node_id), None)
         if placed is None:
-            raise InvalidCallError([make_problem("node_not_in_graph", node_id, node_id=node_id, nodes=[n.id for n in graph.nodes])])
+            raise InvalidCallError([problem.node_not_in_graph(node_id, nodes=[n.id for n in graph.nodes])])
         if placed.node not in self._nodes:
             raise InvalidCallError([problem.unknown_node(node_id, node=placed.node, choices=sorted(self._nodes))])
         newest = self._nodes[placed.node]

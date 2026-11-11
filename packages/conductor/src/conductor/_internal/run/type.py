@@ -61,7 +61,7 @@ from conductor._internal.loaded_graph import (
     unit_loc,
 )
 from conductor._internal.node_definition import from_run_values
-from conductor._internal.problem import InvalidCallError, Problem, make_problem, value_free_errors
+from conductor._internal.problem import InvalidCallError, Problem, value_free_errors
 from conductor._internal.run.call_inputs import (
     AsItStandsReader,
     CallInputs,
@@ -302,11 +302,11 @@ class Run:
                 problems.append(problem.answer_stale(*loc, waiting_id=unit_id, current=current, moved_to=self._moved_to(nodes, fingerprint)))
                 continue
             if (node, key) in answered:
-                problems.append(make_problem("invalid_answer", *loc, waiting_id=unit_id, reason="the unit is answered twice in one call"))
+                problems.append(problem.invalid_answer(*loc, waiting_id=unit_id, reason="the unit is answered twice in one call"))
                 continue
             read, faults = answer_outputs(placed, one, found.question.overrides)
             problems.extend(
-                make_problem("invalid_answer", *loc, waiting_id=unit_id, reason=reason, **({"question": q} if q else {})) for q, reason in faults
+                problem.invalid_answer(*loc, waiting_id=unit_id, reason=reason, question=q or None) for q, reason in faults
             )
             answered[(node, key)] = Answered(read, found.question) if not faults else found
         if problems:
@@ -352,7 +352,7 @@ class Run:
         """
         unknown = [n for n in node_ids if n not in self.graph._nodes]
         if unknown:
-            raise InvalidCallError([make_problem("node_not_in_graph", n, node_id=n, nodes=list(self.graph._nodes)) for n in unknown])
+            raise InvalidCallError([problem.node_not_in_graph(n, nodes=list(self.graph._nodes)) for n in unknown])
         fresh = self.with_inputs()
         for path in [path for path in fresh._earlier if path[0] in node_ids]:  # an embedded graph's id forgets every node inside it
             del fresh._earlier[path]
@@ -446,9 +446,9 @@ class Run:
             case Going(status="complete"):
                 pass
             case Going(status=status):
-                raise InvalidCallError([make_problem("run_not_complete", "outputs", status=status, reason="")])
+                raise InvalidCallError([problem.run_not_complete("outputs", status=status, reason="")])
             case EndedEarly(status=status, cause=cause):
-                raise InvalidCallError([make_problem("run_not_complete", "outputs", status=status, reason=cause.msg)])
+                raise InvalidCallError([problem.run_not_complete("outputs", status=status, reason=cause.msg)])
         nodes, reader = self.graph._node_at, self._reader_as_it_stands
         return {address: self._shown(reader, nodes[address.partition(".")[0]], address.partition(".")[2]) for address in self.graph.outputs}
 
@@ -468,7 +468,7 @@ class Run:
             try:
                 written[address] = (output.column if node.maps else output.slot).to_json(value)
             except pydantic_core.PydanticSerializationError:
-                raise InvalidCallError([make_problem("state_unwritable", "outputs", address, at=address, reason="a value has no JSON form")]) from None
+                raise InvalidCallError([problem.state_unwritable("outputs", address, at=address, reason="a value has no JSON form")]) from None
         return pydantic_core.to_json(written).decode()
 
     def _shown(self, reader: AsItStandsReader, node: NodeAtPath, output: str) -> Any:
@@ -516,7 +516,7 @@ class Run:
             return form.serializer.to_json(saved, exclude_defaults=True).decode()
         except pydantic_core.PydanticSerializationError:
             at = _unwritable_at(form.inputs, form.outputs, saved)
-            raise InvalidCallError([make_problem("state_unwritable", "state", at, at=at, reason="a value has no JSON form")]) from None
+            raise InvalidCallError([problem.state_unwritable("state", at, at=at, reason="a value has no JSON form")]) from None
 
     def _saved(self) -> SavedRun[SavedUnits, SavedEarlier[SavedUnits]]:
         """The run as its graph's ``SaveForm`` writes it. A node inside an embedded graph is saved as any node,
@@ -581,13 +581,13 @@ def run_from_json(graph: Graph, saved: str | bytes | Mapping[str, Any]) -> Run:
     try:
         read = graph._save_form.validator.validate_json(saved if isinstance(saved, (str, bytes)) else pydantic_core.to_json(saved, inf_nan_mode="strings"))
     except pydantic_core.PydanticSerializationError:
-        raise InvalidCallError([make_problem("state_unreadable", "state", at="the run", reason="it is not JSON")]) from None
+        raise InvalidCallError([problem.state_unreadable("state", at="the run", reason="it is not JSON")]) from None
     except ValidationError as error:
         first = error.errors(include_url=False, include_input=False)[0]
         if first["type"] == "union_tag_invalid" and not first["loc"]:  # a save is read as one of this graph, which its fingerprint says it is
-            raise InvalidCallError([make_problem("state_of_another_graph", "state", saved=first["ctx"]["tag"], graph=graph.fingerprint)]) from None
+            raise InvalidCallError([problem.state_of_another_graph("state", saved=first["ctx"]["tag"], graph=graph.fingerprint)]) from None
         at = ".".join(str(step) for step in first["loc"][1:]) or "the run"  # a place in the save comes after the fingerprint it was read under
-        raise InvalidCallError([make_problem("state_unreadable", "state", at=at, reason=value_free_errors(error)[0]["msg"])]) from None
+        raise InvalidCallError([problem.state_unreadable("state", at=at, reason=value_free_errors(error)[0]["msg"])]) from None
     return _run_of(graph, read)
 
 
@@ -605,7 +605,7 @@ def _run_of(graph: Graph, saved: SavedRun[list[Unit | None], Earlier]) -> Run:
             made, _ = instances(run._units, node.maps, ())
             if len(slots) != len(made):
                 at, reason = f"units.{node.name}", f"it holds {len(slots)} slots for the {len(made)} instances the saved run made of the node"
-                raise InvalidCallError([make_problem("state_unreadable", "state", at=at, reason=reason)])
+                raise InvalidCallError([problem.state_unreadable("state", at=at, reason=reason)])
             run._units[node.name] = {instance: unit for instance, unit in zip(made, slots, strict=True) if unit is not None}
     functions = graph._functions
     run._ran_as = {path: digest for name, digest in saved.code.items() if digest != functions[path := node_path(name)].reuse_digest}
@@ -618,11 +618,11 @@ def checked_leg(*, max_items: int | None = None, timeout: float | None = None, c
     """A leg's ceiling (at least 1 item) and its seconds (a finite number above 0) are refused at the call."""
     problems = []
     if max_items is not None and max_items < 1:
-        problems.append(make_problem("invalid_max_items", "max_items", max_items=max_items))
+        problems.append(problem.invalid_max_items("max_items", max_items=max_items))
     if timeout is not None and not _seconds(timeout):
-        problems.append(make_problem("invalid_timeout", "timeout", timeout=timeout))
+        problems.append(problem.invalid_timeout("timeout", timeout=timeout))
     if checkpoint_every is not None and not _seconds(checkpoint_every):
-        problems.append(make_problem("invalid_checkpoint_every", "checkpoint_every", checkpoint_every=checkpoint_every))
+        problems.append(problem.invalid_checkpoint_every("checkpoint_every", checkpoint_every=checkpoint_every))
     if problems:
         raise InvalidCallError(problems)
 

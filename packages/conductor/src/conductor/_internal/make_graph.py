@@ -13,7 +13,7 @@ from conductor._internal import problem
 from conductor._internal.fields import REQUIRED
 from conductor._internal.graph_record import GraphRecord, NodeRecord, not_a_record, typed_in
 from conductor._internal.node_definition import FunctionDefinition, NodeDefinition
-from conductor._internal.problem import InvalidCallError, Problem, make_problem
+from conductor._internal.problem import InvalidCallError, Problem
 
 
 def make_graph(
@@ -60,7 +60,7 @@ def make_graph(
         for address, value in given.items():
             node_id, _, name = address.partition(".")
             if node_id not in typed:
-                problems.append(make_problem("node_not_in_graph", node_id, node_id=node_id, nodes=ids))
+                problems.append(problem.node_not_in_graph(node_id, nodes=ids))
             else:
                 by_node.setdefault(node_id, {})[name] = value
         for node_id, named in by_node.items():

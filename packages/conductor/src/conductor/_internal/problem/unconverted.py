@@ -25,17 +25,8 @@ from conductor._internal.problem.type import Problem
 PROBLEM_CATALOGUE: Mapping[str, str] = {
     # -- what loading finds in a graph -----------------------------------------
     # -- what a call is refused for ----------------------------------------------
-    "invalid_answer": "That is not a valid answer: {reason}",
     "input_given_twice": "'{name}' is given twice, by its name and by its address '{address}'; give it once.",
-    "invalid_max_items": "max_items is at least 1; it was {max_items}.",
-    "invalid_checkpoint_every": "checkpoint_every is a number of seconds above 0; it was {checkpoint_every}.",
-    "invalid_timeout": "timeout is a number of seconds above 0; it was {timeout}.",
     "missing_input": "'{name}' is required; give it in the call.",
-    "node_not_in_graph": "'{node_id}' is not a node of this graph; it has {nodes}.",
-    "run_not_complete": "The run is {status}, so it has no outputs yet; run.results has what it did. {reason}",
-    "state_of_another_graph": "The saved run is of another graph ({saved}) than this one ({graph}); an edited graph starts a new run.",
-    "state_unreadable": "The saved run does not fit this graph at '{at}': {reason}. Load it into the graph it was saved from.",
-    "state_unwritable": "The run can't be written as JSON at '{at}': {reason}. Give that field a type pydantic writes as JSON.",
     # -- why a node or a run stopped -------------------------------------------
 }
 

@@ -400,6 +400,30 @@ def from_run_missing(node_id: str, parameter: str, *, needs: str, given: list[st
 
 
 @PROBLEMS.problem()
+def invalid_answer(*loc: str | int, waiting_id: str, reason: str, question: str | None = None) -> str:
+    """An answer is not one the question it is for takes.
+
+    Args:
+        loc: The unit the answer is for.
+        waiting_id: The id the answer was given for.
+        reason: What is wrong with the answer.
+        question: The question the answer is for, when the fault is about it.
+    """
+    return f"That is not a valid answer: {reason.rstrip('.')}"
+
+
+@PROBLEMS.problem()
+def invalid_checkpoint_every(*loc: str | int, checkpoint_every: float) -> str:
+    """A call gives ``checkpoint_every`` as something other than a number of seconds above 0.
+
+    Args:
+        loc: ``"checkpoint_every"``.
+        checkpoint_every: The value given.
+    """
+    return f"checkpoint_every is a number of seconds above 0; it was {checkpoint_every}."
+
+
+@PROBLEMS.problem()
 def invalid_input(*loc: str | int, name: str, reason: str, errors: list[dict[str, Any]] | None = None, column: str | None = None) -> str:
     """A call gives an input a value its type doesn't take.
 
@@ -430,6 +454,17 @@ def invalid_input_make_a_series(*loc: str | int, name: str, expected: str, lengt
 
 
 @PROBLEMS.problem()
+def invalid_max_items(*loc: str | int, max_items: int) -> str:
+    """A call gives ``max_items`` below 1.
+
+    Args:
+        loc: ``"max_items"``.
+        max_items: The value given.
+    """
+    return f"max_items is at least 1; it was {max_items}."
+
+
+@PROBLEMS.problem()
 def invalid_record(*loc: str | int, at: str, reason: str, error: str) -> str:
     """What was given as a graph record is not one.
 
@@ -440,6 +475,28 @@ def invalid_record(*loc: str | int, at: str, reason: str, error: str) -> str:
         error: The type of pydantic's error, such as ``extra_forbidden``.
     """
     return f"The record is not a graph record at '{at}': {reason.rstrip('.')}. Fix the record's JSON."
+
+
+@PROBLEMS.problem()
+def invalid_timeout(*loc: str | int, timeout: float) -> str:
+    """A call gives ``timeout`` as something other than a number of seconds above 0.
+
+    Args:
+        loc: ``"timeout"``.
+        timeout: The value given.
+    """
+    return f"timeout is a number of seconds above 0; it was {timeout}."
+
+
+@PROBLEMS.problem()
+def node_not_in_graph(node_id: str, *, nodes: list[str]) -> str:
+    """A call names a node the graph doesn't have.
+
+    Args:
+        node_id: The id given.
+        nodes: The ids the graph has.
+    """
+    return f"'{node_id}' is not a node of this graph; it has {listed(nodes)}."
 
 
 @PROBLEMS.problem()
@@ -481,6 +538,54 @@ def not_waiting(*loc: str | int, waiting_id: str, status: str, moved_to: str | N
         moved_to: The id the answered question waits under, when it moved.
     """
     return f"Nothing is waiting on an answer as {waiting_id!r} in a run that is {status}; run.waiting lists what is."
+
+
+@PROBLEMS.problem()
+def run_not_complete(*loc: str | int, status: str, reason: str) -> str:
+    """``outputs`` is read of a run that isn't complete.
+
+    Args:
+        loc: ``"outputs"``.
+        status: The run's status.
+        reason: Why the run stopped, empty when it is still going.
+    """
+    return f"The run is {status}, so it has no outputs yet; run.results has what it did. {reason.rstrip('.')}".rstrip()
+
+
+@PROBLEMS.problem()
+def state_of_another_graph(*loc: str | int, saved: str, graph: str) -> str:
+    """A saved run is of another graph than the one it is loaded into.
+
+    Args:
+        loc: ``"state"``.
+        saved: The fingerprint the save names.
+        graph: The fingerprint of the graph.
+    """
+    return f"The saved run is of another graph ({saved}) than this one ({graph}); an edited graph starts a new run."
+
+
+@PROBLEMS.problem()
+def state_unreadable(*loc: str | int, at: str, reason: str) -> str:
+    """A saved run doesn't fit the graph it is loaded into.
+
+    Args:
+        loc: ``"state"``.
+        at: The place in the save, its steps joined by dots; ``the run`` for the save as a whole.
+        reason: What is wrong there.
+    """
+    return f"The saved run does not fit this graph at '{at}': {reason.rstrip('.')}. Load it into the graph it was saved from."
+
+
+@PROBLEMS.problem()
+def state_unwritable(*loc: str | int, at: str, reason: str) -> str:
+    """A run holds a value that can't be written as JSON.
+
+    Args:
+        loc: ``"state"``, or ``"outputs"`` and the output's address.
+        at: Where the value is.
+        reason: Why it can't be written.
+    """
+    return f"The run can't be written as JSON at '{at}': {reason.rstrip('.')}. Give that field a type pydantic writes as JSON."
 
 
 # -- why a node or a run stopped -----------------------------------------------
