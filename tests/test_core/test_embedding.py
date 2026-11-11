@@ -844,3 +844,15 @@ def test_an_embedded_graph_with_no_output_is_done_when_the_nodes_inside_it_are_a
     for run in (waiting, graph.load_run(waiting.to_json())):
         said = _said_of(stream(run.answer(run.waiting[0].id, "y")), "e")
         assert said == [("node_start", ("e",)), ("node_start", ("e", "n")), ("node_complete", ("e", "n")), ("node_complete", ("e",))]
+
+
+def test_an_embedded_graph_of_no_nodes_runs_to_nothing_as_a_graph_of_no_nodes_does():
+    registry = NodeRegistry()
+    registry.add(upper)
+    registry.add(_node("nothing")({"nodes": [], "edges": []}))
+    alone = registry.load({"nodes": [], "edges": []}).run()
+    graph = registry.load({"nodes": [{"id": "u", "node": "upper"}, {"id": "e", "node": "nothing"}], "edges": []})
+    run = graph.run(text="x")
+    assert graph.problems == [] and (alone.status, alone.results) == ("complete", {})
+    assert (run.status, run.results) == ("complete", {"u": {"result": "X"}, "e": {}})
+    assert graph.load_run(run.to_json()).results == run.results

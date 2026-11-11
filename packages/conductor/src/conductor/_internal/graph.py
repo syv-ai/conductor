@@ -801,6 +801,8 @@ class Graph:
         ids: dict[NodePath, list[str]] = {}
         for node in self._tree:
             ids.setdefault(node.inside, []).append(node.placed.id)
+            if type(node) is GraphAtPath:
+                ids.setdefault(node.path, [])  # a graph of no nodes is a graph too
         return ids
 
     @functools.cached_property
