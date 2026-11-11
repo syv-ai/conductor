@@ -188,7 +188,7 @@ class Upgrade:
 class _Version:
     """What every version of a node has, whether it is a function or a stored graph.
 
-    Never made on its own: a version is a ``FunctionDefinition`` or a ``GraphDefinition``, the two kinds of
+    Never made on its own: a version is a ``FunctionDefinition`` or a ``StoredGraphDefinition``, the two kinds of
     ``NodeDefinition``.
 
     Attributes:
@@ -311,11 +311,12 @@ class FunctionDefinition(_Version, Generic[_P, _R]):
 
 
 @dataclass(frozen=True, eq=False, kw_only=True, repr=False)  # the version's own __repr__
-class GraphDefinition(_Version):
-    """A version of a node that is a stored graph, run where a graph using it puts its nodes.
+class StoredGraphDefinition(_Version):
+    """A graph record registered as a node, one version of it: ``@node`` on a record, JSON text or a mapping makes
+    one. Loading a graph that uses it checks its record alone and places it there as an embedded graph, whose
+    nodes run where the node stands.
 
-    ``@node`` on a record, JSON text or a mapping makes one. It has no function, so calling it is a type error; its
-    fields are the graph's, worked out when a graph using it is loaded.
+    It has no function, so calling it is a type error; its fields are the graph's, worked out at that load.
 
     Attributes:
         graph: The stored graph this node is.
@@ -334,7 +335,7 @@ class GraphDefinition(_Version):
         return _version_of(self.lineage, version)
 
 #: One version of a node: a function, or a stored graph.
-type NodeDefinition = FunctionDefinition[..., Any] | GraphDefinition
+type NodeDefinition = FunctionDefinition[..., Any] | StoredGraphDefinition
 
 
 def _version_of(lineage: tuple[NodeDefinition, ...], version: int) -> NodeDefinition:
@@ -412,7 +413,7 @@ class NodeDecorator(Protocol):
     """What ``@node(...)`` returns: it makes a node of a function, or of a stored graph."""
 
     @overload
-    def __call__(self, target: GraphRecord | str | bytes | Mapping[str, Any], /) -> GraphDefinition: ...
+    def __call__(self, target: GraphRecord | str | bytes | Mapping[str, Any], /) -> StoredGraphDefinition: ...
 
     @overload
     def __call__(self, target: NodeFunction[_P, _R], /) -> FunctionDefinition[_P, _R]: ...
@@ -479,7 +480,7 @@ def node(
         raise NodeDeclarationError(f"@node({id!r}) is version {number}, not after the version {replaces.version} it replaces; leave version= out, or give one above {replaces.version}", code="version_not_after")
 
     @overload
-    def make(target: GraphRecord | str | bytes | Mapping[str, Any], /) -> GraphDefinition: ...
+    def make(target: GraphRecord | str | bytes | Mapping[str, Any], /) -> StoredGraphDefinition: ...
     @overload
     def make(target: NodeFunction[_P, _R], /) -> FunctionDefinition[_P, _R]: ...
     def make(target: GraphRecord | str | bytes | Mapping[str, Any] | NodeFunction[..., Any], /) -> NodeDefinition:
@@ -491,7 +492,7 @@ def node(
                     code="not_for_a_graph",
                 )
             record = as_record(target)  # a record, JSON text or a mapping, read as registry.load reads one
-            return GraphDefinition(
+            return StoredGraphDefinition(
                 graph=record, id=id, version=number, title=title, description=description, category=category,
                 tags=tuple(tags), extra=MappingProxyType(dict(extra)), docs=docs, deprecation=deprecation, replaces=replaces,
                 upgrade=upgrade or Upgrade(),
@@ -701,7 +702,7 @@ def declared_inputs(definition: NodeDefinition) -> Mapping[str, Field]:
     match definition:
         case FunctionDefinition():
             return definition.inputs
-        case GraphDefinition():
+        case StoredGraphDefinition():
             return {}
 
 
@@ -758,7 +759,7 @@ def _raise_if_upgrade_is_missing(older: NodeDefinition, newer: FunctionDefinitio
     rename, since the edges out of it are what moves.
     """
     match older:
-        case GraphDefinition():  # its fields are known only when a graph using it loads
+        case StoredGraphDefinition():  # its fields are known only when a graph using it loads
             return
         case FunctionDefinition():
             gone_inputs = set(older.inputs) - set(newer.inputs)

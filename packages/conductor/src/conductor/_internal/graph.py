@@ -1,4 +1,4 @@
-"""``Graph``: a loaded graph as a host holds it, with the verbs that start a run."""
+"""``Graph``: the checked graph a host holds, with the verbs that start a run."""
 
 from __future__ import annotations
 
@@ -11,8 +11,8 @@ from conductor._internal import problem
 from conductor._internal.address import NodePath
 from conductor._internal.fields import REQUIRED, FieldValueError
 from conductor._internal.loaded_graph import (
+    CheckedGraph,
     FunctionAtPath,
-    LoadedGraph,
     NodeAtPath,
     PlacedFunction,
     nodes_at_paths,
@@ -22,8 +22,8 @@ from conductor._internal.run import Run, checked_leg, no_units, run_from_json
 from conductor._internal.saved_run import SaveForm, save_form
 
 
-class Graph(LoadedGraph):
-    """A graph loaded against a registry: ``registry.load(record)`` makes one.
+class Graph(CheckedGraph):
+    """A graph record checked against a registry's nodes, which can start a run: ``registry.load(record)`` makes one.
 
     ``problems`` is everything wrong with it, and a graph with none runs: ``graph.run(**inputs)``.
 

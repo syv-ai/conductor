@@ -37,7 +37,7 @@ shout = node("shout", title="Shout", description="Turns a text into capital lett
 registry.add(shout)
 ```
 
-`shout` is a `GraphDefinition`, the stored-graph kind of `NodeDefinition` (a function makes a `FunctionDefinition`), and it has no function to call. It takes `replaces=`, `version=`, `title=` and the rest, and a newer
+`shout` is a `StoredGraphDefinition`, the stored-graph kind of `NodeDefinition` (a function makes a `FunctionDefinition`), and it has no function to call. It takes `replaces=`, `version=`, `title=` and the rest, and a newer
 version of the stored graph is a newer version of the node. Each version is its own record, so a graph saved against
 version 1 keeps running version 1 until [`registry.upgrade`](writing-nodes.md#a-second-version) moves it on.
 

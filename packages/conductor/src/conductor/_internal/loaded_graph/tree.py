@@ -1,10 +1,10 @@
-"""The nodes of a loaded graph where they stand: what a run holds units of, and how each of their inputs is read.
+"""The nodes of a checked graph where they stand: what a run holds units of, and how each of their inputs is read.
 
 A graph loads once, alone, however many graphs embed it. What a run walks is every function of the graph and of
 each graph embedded in it, each a ``FunctionAtPath``, with its inputs planned where it stands: an output of an
 embedded graph is by definition a cell of a function inside it, so a reader's plan names that cell, and an open
 input inside has the plan the embedded graph's node has for it. A call of an embedded graph therefore costs what
-its functions cost, and its node (a ``GraphAtPath``) holds no unit of its own: it is a name and a boundary.
+its functions cost, and its node (a ``EmbeddedGraphAtPath``) holds no unit of its own: it is a name and a boundary.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ from conductor._internal.loaded_graph.input_plans import (
     Value,
     WholeSeries,
 )
-from conductor._internal.loaded_graph.type import LoadedGraph, PlacedFunction, PlacedGraph
+from conductor._internal.loaded_graph.type import CheckedGraph, PlacedEmbeddedGraph, PlacedFunction
 from conductor._internal.node_definition import Policy
 from conductor._internal.units import ItemPath
 
@@ -42,7 +42,7 @@ from conductor._internal.units import ItemPath
 @dataclass(eq=False, slots=True, kw_only=True)
 class _AtPath:
     """A node where it stands among the graphs a run is of: a node of the graph itself, or of a graph embedded
-    in it, at any depth. Never made on its own: it is a ``FunctionAtPath`` or a ``GraphAtPath``.
+    in it, at any depth. Never made on its own: it is a ``FunctionAtPath`` or a ``EmbeddedGraphAtPath``.
 
     A graph loads once and may be embedded in many places; this is a node of it in one of them. A node inside an
     embedded graph runs once for each item its embedding node runs for, and then once per item of its own scope,
@@ -57,7 +57,7 @@ class _AtPath:
             over what an embedded graph offers is the map inside that makes it.
     """
 
-    embedding: GraphAtPath | None
+    embedding: EmbeddedGraphAtPath | None
     path: NodePath
     name: str
     maps: Maps
@@ -123,8 +123,9 @@ class FunctionAtPath(_AtPath):
 
 @typing.final
 @dataclass(eq=False, slots=True, kw_only=True)
-class GraphAtPath(_AtPath):
-    """An embedded graph's node where it stands. It is a name and a boundary: it is never called and a run
+class EmbeddedGraphAtPath(_AtPath):
+    """A placed embedded graph where it stands among the graphs a run is of, made with the functions inside it
+    when a ``Graph``'s nodes are first walked. It is a name and a boundary: it is never called and a run
     holds no unit of it. Its inputs are handed to the open inputs inside as their plans, and each output it
     offers is the output of a function inside. What a run says of it (its results, that it started, that it is
     complete) is read from the functions inside when asked.
@@ -138,14 +139,14 @@ class GraphAtPath(_AtPath):
             any depth of embedded graphs, and that function's output.
     """
 
-    placed: PlacedGraph
+    placed: PlacedEmbeddedGraph
     inputs: dict[str, InputPlan]
     nodes: list[NodeAtPath] = dataclasses.field(default_factory=list["NodeAtPath"])
     offers: dict[str, tuple[FunctionAtPath, str]] = dataclasses.field(default_factory=dict[str, tuple["FunctionAtPath", str]])
 
 
 #: A node where it stands among the graphs a run is of: a function, or an embedded graph.
-NodeAtPath = FunctionAtPath | GraphAtPath
+NodeAtPath = FunctionAtPath | EmbeddedGraphAtPath
 
 #: The maps a node runs in, outermost first, each as the function and the output of its ``Series``.
 Maps = tuple[tuple["FunctionAtPath", str], ...]
@@ -209,7 +210,7 @@ def host_reads(node: FunctionAtPath, output: str, under: int) -> Read | Gather:
     return plan
 
 
-def nodes_at_paths(graph: LoadedGraph) -> tuple[list[FunctionAtPath], dict[str, NodeAtPath]]:
+def nodes_at_paths(graph: CheckedGraph) -> tuple[list[FunctionAtPath], dict[str, NodeAtPath]]:
     """The nodes of ``graph`` and those of each graph embedded in it, where they stand: the functions in the
     order a leg tries them, each after the functions it reads, and every node by its name."""
     tree: list[FunctionAtPath] = []
@@ -221,11 +222,11 @@ def nodes_at_paths(graph: LoadedGraph) -> tuple[list[FunctionAtPath], dict[str, 
     return tree, node_at
 
 
-def _add_to_tree(graph: LoadedGraph, embedding: GraphAtPath | None, tree: list[FunctionAtPath], node_at: dict[str, NodeAtPath]) -> dict[str, NodeAtPath]:
+def _add_to_tree(graph: CheckedGraph, embedding: EmbeddedGraphAtPath | None, tree: list[FunctionAtPath], node_at: dict[str, NodeAtPath]) -> dict[str, NodeAtPath]:
     """Add the functions of ``graph`` to ``tree``, each after the functions it reads, those of each graph
     embedded in it where that graph's node stands, and every node to ``node_at``.
 
-    A plan of the loaded graph names the nodes of its own graph. Here each is written for where its node stands
+    A plan of the checked graph names the nodes of its own graph. Here each is written for where its node stands
     (``_plan_at_path``): the one place an embedded graph's boundary is crossed, inwards for an open input and
     outwards for an output.
 
@@ -251,14 +252,14 @@ def _add_to_tree(graph: LoadedGraph, embedding: GraphAtPath | None, tree: list[F
                 inputs[name] = _plan_at_path(plan, here, functions)
         maps = (*above, *(series for port in placed.scope for series in _maps_of(port, here)))
         path = (*inside, placed.id)
-        if isinstance(placed, PlacedGraph):
-            embedded = GraphAtPath(placed=placed, embedding=embedding, path=path, name=node_name(path), maps=maps, inputs=inputs)
+        if isinstance(placed, PlacedEmbeddedGraph):
+            embedded = EmbeddedGraphAtPath(placed=placed, embedding=embedding, path=path, name=node_name(path), maps=maps, inputs=inputs)
             within = _add_to_tree(placed.inner, embedded, tree, node_at)
             embedded.nodes = list(within.values())
             for address in placed.inner.outputs:
                 made_by, _, output = address.partition(".")
                 last = within[made_by]
-                embedded.offers[address] = last.offers[output] if isinstance(last, GraphAtPath) else (last, output)
+                embedded.offers[address] = last.offers[output] if isinstance(last, EmbeddedGraphAtPath) else (last, output)
             here[placed.id] = node_at[embedded.name] = embedded
             continue
         call_template: dict[str, Any] = {}
@@ -306,7 +307,7 @@ def _made_by(port: Port, here: Mapping[str, NodeAtPath]) -> tuple[FunctionAtPath
     embedded graph's node the function inside that makes what it offers; with whether that function runs per
     item inside the embedded graph, so what is offered is every item's value."""
     made_by = here[port.node_id]
-    if isinstance(made_by, GraphAtPath):
+    if isinstance(made_by, EmbeddedGraphAtPath):
         last, output = made_by.offers[port.output]
         return last, output, len(last.maps) > len(made_by.maps)
     return made_by, port.output, False
@@ -325,7 +326,7 @@ def _scope_at_path(maps: Maps) -> Scope:
 
 
 def _plan_at_path(plan: InputPlan, here: Mapping[str, NodeAtPath], functions: Mapping[str, FunctionAtPath]) -> InputPlan:
-    """A plan of a loaded graph as the plan of its node where it stands: each cell names the function that
+    """A plan of a checked graph as the plan of its node where it stands: each cell names the function that
     holds it by its ``name``, in the maps that function runs in.
 
     An output of an embedded graph is the output of a function inside it. One made once inside is that cell,

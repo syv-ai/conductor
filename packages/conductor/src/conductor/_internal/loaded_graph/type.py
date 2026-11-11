@@ -1,4 +1,4 @@
-"""``LoadedGraph``: a stored graph checked against the nodes it uses, and its placed nodes.
+"""``CheckedGraph``: a stored graph checked against the nodes it uses, and its placed nodes.
 
 A table is one value. An embedded graph is one node: its inputs are the inner
 graph's inputs, its outputs the inner graph's outputs. It loads once, alone,
@@ -30,14 +30,14 @@ from conductor._internal.loaded_graph.describe import (
     _runs_on,
 )
 from conductor._internal.loaded_graph.input_plans import Fed, InputPlan, Scope
-from conductor._internal.node_definition import FunctionDefinition, GraphDefinition
+from conductor._internal.node_definition import FunctionDefinition, StoredGraphDefinition
 from conductor._internal.problem import Problem
 from conductor._internal.units import Skipped, outputs_not_called, outputs_not_taken
 
 
 @dataclass(frozen=True, kw_only=True)
 class _Placed:
-    """What every node of a loaded graph has, whether it is a function or an embedded graph. Never made on its own.
+    """What every node of a checked graph has, whether it is a function or an embedded graph. Never made on its own.
 
     Attributes:
         id: The node's id in the record.
@@ -65,7 +65,7 @@ class _Placed:
 @typing.final
 @dataclass(frozen=True, kw_only=True)
 class PlacedFunction(_Placed):
-    """A node of a loaded graph that is a function.
+    """A node of a checked graph that is a function.
 
     Attributes:
         definition: The node as its author declared it.
@@ -110,8 +110,9 @@ class PlacedFunction(_Placed):
 
 @typing.final
 @dataclass(frozen=True, kw_only=True)
-class PlacedGraph(_Placed):
-    """A node of a loaded graph that is an embedded graph: the nodes of ``inner`` run where it stands.
+class PlacedEmbeddedGraph(_Placed):
+    """A node of a checked graph that is a stored graph: the loader makes one where a record uses a
+    ``StoredGraphDefinition``, checking that definition's record alone as ``inner``, whose nodes run where it stands.
 
     Its inputs are the inner graph's (``inner.inputs``) by their names there, and its outputs the inner graph's
     (``inner.outputs``) by their addresses there. It has no policy and no unit of it is reused whole: the nodes
@@ -120,15 +121,15 @@ class PlacedGraph(_Placed):
 
     Attributes:
         definition: The node as its author declared it.
-        inner: The embedded graph, loaded.
+        inner: The embedded graph, checked alone; it is never run alone.
     """
 
-    definition: GraphDefinition
-    inner: LoadedGraph
+    definition: StoredGraphDefinition
+    inner: CheckedGraph
 
 
-#: One node of a loaded graph: a function, or an embedded graph.
-PlacedNode = PlacedFunction | PlacedGraph
+#: One node of a checked graph: a function, or an embedded graph.
+PlacedNode = PlacedFunction | PlacedEmbeddedGraph
 
 
 @dataclass(frozen=True, slots=True)
@@ -148,17 +149,12 @@ class InputField:
 
 
 @dataclass(frozen=True, eq=False)
-class LoadedGraph:
-    """A stored graph checked against the nodes it uses: what loading makes, an embedded graph's node holds and a
-    run reads. The ``Graph`` a host holds is one, with the verbs that start a run.
+class CheckedGraph:
+    """A graph record checked against the nodes it uses, made by the loader: its problems, its open inputs and its
+    nodes placed. The ``Graph`` a host holds is a checked graph that can start a run; a stored graph used as a node
+    is checked alone as one (``PlacedEmbeddedGraph.inner``) and never run alone.
 
-    ``problems`` is everything wrong with it, and a graph with none runs.
-
-    Attributes:
-        record: The stored graph it was loaded from.
-        problems: Everything wrong with it; empty for a graph that runs.
-        inputs: The open inputs of its first nodes, by name (``node.input`` where two share a name): what a
-            caller fills.
+    ``record``, ``problems`` and ``inputs`` are what a host reads of one, and ``Graph`` says what each holds.
     """
 
     record: GraphRecord
@@ -176,7 +172,7 @@ class LoadedGraph:
 
     def __repr__(self) -> str:
         state = "runnable" if self.is_runnable else f"{len(self.problems)} problem{'s' if len(self.problems) != 1 else ''}"
-        return f"<Graph of {len(self.record.nodes)} node{'s' if len(self.record.nodes) != 1 else ''}, {state}>"
+        return f"<{type(self).__name__} of {len(self.record.nodes)} node{'s' if len(self.record.nodes) != 1 else ''}, {state}>"
 
     # -- what a host reads ------------------------------------------------------
 
@@ -206,7 +202,7 @@ class LoadedGraph:
         return found
 
     def describe(self) -> GraphDescription:
-        """The loaded graph as an editor draws it: every node of the record, with its fields and where it runs.
+        """The graph as an editor draws it: every node of the record, with its fields and where it runs.
 
         Each node lists its own ``problems``, and ``problems`` beside the nodes lists every one. A node with a
         problem is drawn with its fields all the same, an input whose edge is refused fed ``unset``, and so is a
@@ -241,7 +237,7 @@ class LoadedGraph:
         A saved run names it, and loading a save into a graph whose fingerprint differs is refused.
         """
         own = self.record.model_dump(mode="json", exclude={"nodes": {"__all__": {"display"}}})
-        embedded = {p.id: p.inner.fingerprint for p in self._nodes.values() if isinstance(p, PlacedGraph)}
+        embedded = {p.id: p.inner.fingerprint for p in self._nodes.values() if isinstance(p, PlacedEmbeddedGraph)}
         return hashlib.blake2b(canonical_json([own, embedded]), digest_size=8).hexdigest()
 
 

@@ -53,9 +53,9 @@ from conductor._internal.graph_record import GraphRecord, NodeRecord, as_record,
 from conductor._internal.loaded_graph import load_graph
 from conductor._internal.node_definition import (
     FunctionDefinition,
-    GraphDefinition,
     NodeDefinition,
     NodeDescription,
+    StoredGraphDefinition,
     StoredGraphDescription,
     declared_inputs,
     node,
@@ -244,7 +244,7 @@ class NodeRegistry:
         match definition:
             case FunctionDefinition():
                 return definition.describe()
-            case GraphDefinition():
+            case StoredGraphDefinition():
                 pass
         if definition.id not in self._graph_descriptions:
             placed = self.load(GraphRecord(nodes=[NodeRecord(id="node", node=definition.id, version=definition.version)])).describe().nodes["node"]
@@ -375,7 +375,7 @@ def _where_declared(definition: NodeDefinition) -> str:
     match definition:
         case FunctionDefinition(function=function):
             return f"{function.__module__}.{function.__qualname__}"
-        case GraphDefinition():
+        case StoredGraphDefinition():
             return f"a node that is a graph, titled {definition.title!r} (versions {', '.join(map(str, definition.versions))})"
 
 
@@ -387,7 +387,7 @@ def _types_declared_by(definitions: Iterable[NodeDefinition]) -> list[type]:
             match step:
                 case FunctionDefinition():
                     specs = (*step.inputs.values(), *step.outputs.values())
-                case GraphDefinition():  # a graph declares no classes of its own
+                case StoredGraphDefinition():  # a graph declares no classes of its own
                     continue
             found.extend(cls for spec in specs for cls in spec.whole.classes)
     return list(dict.fromkeys(found))

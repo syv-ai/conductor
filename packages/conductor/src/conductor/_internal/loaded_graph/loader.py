@@ -1,4 +1,4 @@
-"""Loading: a stored graph checked against the nodes it uses, into a ``LoadedGraph``.
+"""Loading: a stored graph checked against the nodes it uses, into a ``CheckedGraph``.
 
 Loading does everything once: every edge and value is checked, and each node
 gets the scope it runs in. What is wrong becomes a ``Problem`` with a place,
@@ -50,17 +50,17 @@ from conductor._internal.loaded_graph.input_plans import (
     Value,
 )
 from conductor._internal.loaded_graph.type import (
+    CheckedGraph,
     InputField,
-    LoadedGraph,
+    PlacedEmbeddedGraph,
     PlacedFunction,
-    PlacedGraph,
     PlacedNode,
 )
 from conductor._internal.node_definition import (
     FunctionDefinition,
-    GraphDefinition,
     HookName,
     NodeDefinition,
+    StoredGraphDefinition,
     is_node_id,
     read_by_hooks,
 )
@@ -73,7 +73,7 @@ from conductor._internal.problem import (
 _logger = logging.getLogger("conductor")
 
 
-def load_graph[GraphT: LoadedGraph](record: GraphRecord, definitions: Mapping[str, NodeDefinition], graph_type: type[GraphT]) -> GraphT:
+def load_graph[GraphT: CheckedGraph](record: GraphRecord, definitions: Mapping[str, NodeDefinition], graph_type: type[GraphT]) -> GraphT:
     """``record`` loaded against ``definitions``, the newest version of each node by id, as a ``graph_type``: the
     ``Graph`` a host holds, which is the one way one is made."""
     return _Loader(definitions, (), {}).load(record, graph_type)
@@ -137,7 +137,7 @@ class _Loader:
         position: Each node's place in the record.
     """
 
-    def __init__(self, definitions: Mapping[str, NodeDefinition], embedded_in: tuple[str, ...], alone: dict[_AloneKey, LoadedGraph]) -> None:
+    def __init__(self, definitions: Mapping[str, NodeDefinition], embedded_in: tuple[str, ...], alone: dict[_AloneKey, CheckedGraph]) -> None:
         self.definitions, self.embedded_in, self.alone = definitions, embedded_in, alone
         self.problems: list[Problem] = []
         self.nodes: dict[str, PlacedNode] = {}
@@ -145,7 +145,7 @@ class _Loader:
         self.opened: list[tuple[GraphInput, Field]] = []
         self.position: dict[str, int] = {}
 
-    def load[GraphT: LoadedGraph](self, record: GraphRecord, graph_type: type[GraphT]) -> GraphT:
+    def load[GraphT: CheckedGraph](self, record: GraphRecord, graph_type: type[GraphT]) -> GraphT:
         """The graph of ``record``, as a ``graph_type``: every node whose fields are known placed, and every
         problem noted."""
         refused = {n.id for n in record.nodes if not is_node_id(n.id)}
@@ -179,7 +179,7 @@ class _Loader:
             match self._resolve(known[node_id]):
                 case FunctionDefinition() as function:
                     self._place_function(known[node_id], function, into[node_id])
-                case GraphDefinition() as graph:
+                case StoredGraphDefinition() as graph:
                     self._place_graph(known[node_id], graph, into[node_id])
                 case None:
                     pass
@@ -197,7 +197,7 @@ class _Loader:
                 case PlacedFunction(definition=function):
                     if function.from_run:
                         needs_from_run.append((placed.id, function))
-                case PlacedGraph(inner=inner):
+                case PlacedEmbeddedGraph(inner=inner):
                     needs_from_run += inner._needs_from_run
             for source_id in placed.reads:
                 readers[source_id].append(placed)
@@ -279,7 +279,7 @@ class _Loader:
                 id=record.id, scope=planned.scope, inputs=planned.inputs, outputs=outputs, definition=definition,
             ), planned.rests_on)
 
-    def _place_graph(self, record: NodeRecord, definition: GraphDefinition, edges: dict[str, list[str]]) -> None:
+    def _place_graph(self, record: NodeRecord, definition: StoredGraphDefinition, edges: dict[str, list[str]]) -> None:
         """Place an embedded graph as one node: the inner graph loaded alone, its inputs and outputs this node's fields.
 
         An input is offered under the name the inner graph gives it (``graph.inputs``), and an output under its
@@ -298,7 +298,7 @@ class _Loader:
         stack = (*self.embedded_in, definition.id)
         key = (definition.id, definition.version, stack)
         if key not in self.alone:
-            self.alone[key] = _Loader(self.definitions, stack, self.alone).load(definition.graph, LoadedGraph)
+            self.alone[key] = _Loader(self.definitions, stack, self.alone).load(definition.graph, CheckedGraph)
         inner = self.alone[key]
         if inner.problems:
             self.problems += [problem.model_copy(update={"loc": (record.id, *problem.loc)}) for problem in inner.problems]
@@ -314,7 +314,7 @@ class _Loader:
                 spec = Field(spec.name, Annotated[spec.hint, Param(exclusive_group=f"{node_id}.{group}")], spec.default)
             outputs[address] = _of_every_item(address, spec) if at.scope else Field(address, spec.hint, spec.default)
         planned = self._planned(record, fields, self._typed(record, fields), frozenset(), edges)
-        self._keep(PlacedGraph(
+        self._keep(PlacedEmbeddedGraph(
             id=record.id, scope=planned.scope, inputs=planned.inputs, outputs=outputs, definition=definition, inner=inner,
         ), planned.rests_on)
 

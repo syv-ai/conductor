@@ -53,9 +53,9 @@ from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.earlier_work import Earlier, fingerprint_of, lineage
 from conductor._internal.leg import Event, Leg, RunCheckpoint, RunEnd, RunStart, _EventBase
 from conductor._internal.loaded_graph import (
+    EmbeddedGraphAtPath,
     FunctionAtPath,
     Gather,
-    GraphAtPath,
     NodeAtPath,
     host_reads,
     unit_loc,
@@ -486,7 +486,7 @@ class Run:
             node: The node, one of the run's own graph.
             output: The output's name.
         """
-        if type(node) is GraphAtPath:
+        if type(node) is EmbeddedGraphAtPath:
             function, output = node.offers[output]
             around = len(node.maps)
         else:

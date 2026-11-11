@@ -12,7 +12,7 @@ the one declaration of what the input reads. A run reads those cells and no
 other (``value``), and the units a node waits for are the units of those
 cells, so the two can't differ.
 
-A loaded graph holds the plans of its own nodes, each cell naming a node of
+A checked graph holds the plans of its own nodes, each cell naming a node of
 that graph by id. Where a node stands among the graphs a run is of, its plans
 are written again with every cell naming a function by the name a run keeps
 its units by (``e/ask``): see ``tree.py``.
@@ -58,7 +58,7 @@ class Cell:
     """An output of a node, in the scope its node runs in: what one unit of the node holds for it.
 
     Attributes:
-        node_id: The node: its id in a loaded graph's plan; where a node stands, the function's name.
+        node_id: The node: its id in a checked graph's plan; where a node stands, the function's name.
         output: The output's name.
         scope: The scope the node runs in.
         depth: How many maps the node runs in, so how many places of an item path name one unit of it.
@@ -233,7 +233,7 @@ class Gather:
             made more than one map deep inside it, which is gathered through every one of those maps.
         through: Where the input's node stands, the functions made per item of the Series that what it
             gathers rests on, each after the ones it reads: what stands between the input and everything
-            outside the items. A loaded graph's own plan names none.
+            outside the items. A checked graph's own plan names none.
     """
 
     spec: Field

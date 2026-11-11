@@ -63,8 +63,8 @@ from conductor._internal.leg.events import (
     _EventBase,
 )
 from conductor._internal.loaded_graph import (
+    EmbeddedGraphAtPath,
     FunctionAtPath,
-    GraphAtPath,
     NodeAtPath,
     unit_loc,
     waits_on,
@@ -670,7 +670,7 @@ def _came_to_no_value(unit: Unit) -> bool:
     return type(unit) is Skipped or ((type(unit) is Done or type(unit) is Answered) and bool(unit.out) and all(value is SKIPPED for value in unit.out.values()))
 
 
-def _around(node: NodeAtPath) -> list[GraphAtPath]:
+def _around(node: NodeAtPath) -> list[EmbeddedGraphAtPath]:
     """The embedded graphs' nodes ``node`` is inside, innermost first."""
     around = []
     while node.embedding is not None:
