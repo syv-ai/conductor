@@ -24,8 +24,8 @@ never makes them twice.
 A unit that gathers (a ``Series`` or ``Table`` input fed one value per item)
 is tried only once nothing it waits on is still working under its instance,
 so it is tried once and not once per item it reads. When nothing is working,
-the leg walks every node once more if any unit was left waiting on another,
-and ends when nothing more can start.
+the leg walks every node once more if a unit was left waiting on another and
+one has been recorded since the last walk, and ends when nothing more can start.
 """
 
 from __future__ import annotations
@@ -268,7 +268,7 @@ class Leg:
         self.next_checkpoint = time.monotonic() + checkpoint_every if checkpoint_every is not None else 0.0
         #: (node position, instance): the units to try, in that order.
         self.ready: list[tuple[int, Key]] = []
-        #: Whether a unit was recorded since the leg last looked over the run.
+        #: Whether a walk ended or a unit was recorded outside one since the leg last looked over the run.
         self.changed = True
         #: (node, an instance above its own): a node that gathers, started in the instances under that one once
         #: nothing it reads still works there.
@@ -286,7 +286,8 @@ class Leg:
         self.pool: ThreadPoolExecutor | None = None
         #: For a node taking a person's earlier answers, how far through its units in order the leg has tried.
         self.turns: dict[FunctionAtPath, _Turn] = {}
-        #: Units recorded since the last walk over every unit; a walk with none to follow would find nothing new.
+        #: Units recorded since the last walk over every unit ended. A walk tries a node after the nodes it reads,
+        #: so it starts whatever its own units make ready, and another with none recorded since would find nothing new.
         self.recorded_since_walk = 1
         #: Whether the last walk left a unit whose inputs weren't there yet, so another walk may start it.
         self.left_pending = True
@@ -566,8 +567,9 @@ class Leg:
         if units and key not in units and key < next(reversed(units)):
             run._unordered.add(node.path)
         units[key] = unit
-        self.recorded_since_walk += 1
-        self.changed = True
+        if not walking:
+            self.recorded_since_walk += 1
+            self.changed = True
         if self.checkpoint_every is not None and time.monotonic() >= self.next_checkpoint:
             self._checkpoint()
         if placed.opens and run.max_items is not None and isinstance(unit, Done):
