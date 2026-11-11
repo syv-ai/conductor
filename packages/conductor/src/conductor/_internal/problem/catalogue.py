@@ -399,7 +399,7 @@ def from_run_missing(node_id: str, parameter: str, *, needs: str, given: list[st
         needs: The name of the class the parameter names.
         given: The names of the classes ``from_run`` has values for.
     """
-    return f"'{node_id}' needs a {needs} for '{parameter}', and from_run gives none (it gives {listed(given)}); pass from_run={{{needs}: ...}}."
+    return f"'{node_id}' needs a {needs} for '{parameter}', and from_run gives none (it gives {listed(given)}); pass from_run with a value for {needs}."
 
 
 @PROBLEMS.problem()
@@ -705,7 +705,7 @@ def item_ceiling(*loc: str | int, series: str, items: int, max_items: int) -> st
         items: How many items it has.
         max_items: The run's ceiling.
     """
-    return f"{series} has {items} items, more than the {max_items} this run may work through; resume it with a larger max_items."
+    return f"{series} has {items} items, more than the {max_items} this run may work through; raise its max_items and resume it."
 
 
 @PROBLEMS.problem()
@@ -746,6 +746,3 @@ def timeout(*loc: str | int, seconds: float) -> str:
     """
     return "The node did not answer in time; its Policy(attempt_timeout=) sets how long it may take."
 
-
-#: Every code a ``Problem`` conductor's core writes can have, for a host that translates by code to cover.
-PROBLEM_CODES: frozenset[str] = PROBLEMS.codes

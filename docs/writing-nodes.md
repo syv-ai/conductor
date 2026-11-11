@@ -13,7 +13,7 @@ Keep your nodes in a registry. Its `category`, `tags` and `extra` are defaults f
 ```python
 from typing import Annotated
 
-from conductor import NodeRegistry, Param, make_graph
+from conductor import GraphRecord, NodeRegistry, Param, make_graph
 from conductor.widgets import NumberInput, TextInput
 
 text_nodes = NodeRegistry(category="text", tags=["acme"])
@@ -50,7 +50,7 @@ A second node under an id the host already has raises. `extra` is your own JSON 
 
 ```python
 drawn = {"nodes": [{"id": "repeat", "node": "repeat", "values": {"times": 20}}]}  # as an editor saves it
-graph = host.load(drawn)
+graph = host.load(GraphRecord.model_validate(drawn))
 
 for problem in graph.problems:
     print(problem.loc, problem.type)
@@ -259,17 +259,17 @@ print(run.outputs)                   # {'count.result': 2}
 
 A table never makes items by itself. Return `Series[R]`, with `R` a `TypedDict`, to give records one at a time; then an edge may name one field of each, `read.result.email`. You may return the records as a list or as the table they are in, which is cheaper for a large one: the nodes after it receive the same plain records either way. A host with `syv-conductor-nodes` has a Split node that does this for any table or list.
 
-A `Series` input gets what its source made for that call. When the node itself runs per item, because another input reads one item, a source that runs per that same item made one value for the call, and the input receives that one, as a list of one. To hand every item's value to each call, gather them once outside the items and wire the list in:
+A `Series` input gets what its source made for that call. When the node itself runs per item, because another input reads one item, a source that runs per that same item made one value for the call, and the input receives that one, as a list of one. To hand every item's value to each call, gather them once outside the items with the Gather node of `syv-conductor-nodes` (`series-gather`) and wire the list in:
 
 ```python
+from conductor_nodes.series import gather
+
+registry.add(gather)
+
+
 @registry.node("shout", title="Shout", description="A line in capitals.")
 def shout(line: str) -> str:
     return line.upper()
-
-
-@registry.node("all-of", title="All of", description="Every text it is given, as one list.")
-def all_of(texts: Series[str]) -> Series[str]:
-    return texts
 
 
 @registry.node("compare", title="Compare", description="Says how many other texts a line is compared with.")
@@ -281,14 +281,14 @@ own = make_graph(open_letter, shout, compare, edges=[("open.lines", "shout.line"
 print(registry.load(own).run(text="Ida\nhello\nsee you").results["compare"]["result"])  # ['hello against 1', 'see you against 1']
 
 every = make_graph(
-    open_letter, shout, all_of, compare,
-    edges=[("open.lines", "shout.line"), ("shout.result", "all-of.texts"), ("open.lines", "compare.line"), ("all-of.result", "compare.others")],
+    open_letter, shout, gather, compare,
+    edges=[("open.lines", "shout.line"), ("shout.result", "series-gather.values"), ("open.lines", "compare.line"), ("series-gather.result", "compare.others")],
 )
 print(registry.load(every).run(text="Ida\nhello\nsee you").results["compare"]["result"])  # ['hello against 2', 'see you against 2']
 ```
 
 - In `own`, `compare` runs once per line for its `line`, and `shout` made one text for that line: `others` is that one text.
-- In `every`, `all-of` runs once, outside the lines, and gathers every shouted line; its list is then there on each call of `compare`. With `syv-conductor-nodes`, Join gathers texts into one text and Collect gathers records into a table the same way.
+- In `every`, `series-gather` runs once, outside the lines, and gathers every shouted line; its list is then there on each call of `compare`. With `syv-conductor-nodes`, Join gathers texts into one text and Collect gathers records into a table the same way.
 
 So a graph that works for one letter means the same when a node in front of it makes it run per letter, and when it is stored and used as a node per letter.
 

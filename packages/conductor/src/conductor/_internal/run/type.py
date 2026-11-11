@@ -34,7 +34,6 @@ from typing import TYPE_CHECKING, Any, cast, overload
 import pydantic_core
 from pydantic import ValidationError
 
-from conductor._internal import problem
 from conductor._internal.address import (
     ItemPath,
     Loc,
@@ -52,8 +51,6 @@ from conductor._internal.ask import (
 from conductor._internal.checked_graph import (
     EmbeddedGraphAtPath,
     FunctionAtPath,
-    InputGathersItems,
-    NodeAtPath,
     host_reads,
     unit_loc,
 )
@@ -62,6 +59,7 @@ from conductor._internal.earlier_work import EarlierWork, fingerprint_of, lineag
 from conductor._internal.leg import Event, EventBase, Leg, RunCheckpoint, RunEnd, RunStart
 from conductor._internal.node_definition import from_run_values
 from conductor._internal.problem import InvalidCallError, Problem, value_free_errors
+from conductor._internal.problem import catalogue as problem
 from conductor._internal.run.call_inputs import (
     AsItStandsReader,
     CallInputs,
@@ -87,6 +85,7 @@ from conductor._internal.units import (
     has_every_unit,
     instances,
 )
+from conductor._internal.value_type import Type
 
 if TYPE_CHECKING:
     from conductor._internal.graph import Graph
@@ -153,21 +152,34 @@ class Run:
 
     # -- going on ---------------------------------------------------------------
 
-    def resume(self, *, max_items: int | None = None, from_run: Mapping[type, Any] = MappingProxyType({}), timeout: float | None = None) -> Run:
+    def with_max_items(self, max_items: int) -> Run:
+        """A copy of this run with ``max_items`` as its item limit. No node is called; ``resume`` goes on.
+
+        A run stops with status ``stopped`` when a list that a node is called
+        per item of has more items than the limit. Example: a run started with
+        ``max_items=30`` that met 40 items goes on with
+        ``run.with_max_items(100).resume()``. The limit is saved by ``to_json()``.
+
+        Raises:
+            InvalidCallError: ``max_items`` is below 1 (``invalid_max_items``).
+        """
+        checked_leg(max_items=max_items)
+        return dataclasses.replace(self, max_items=max_items)
+
+    def resume(self, *, from_run: Mapping[type, Any] = MappingProxyType({}), timeout: float | None = None) -> Run:
         """Go on: start every unit whose inputs exist, until the run is done, waits, fails, reaches its ceiling or its ``timeout``.
 
-        ``max_items`` raises (or sets) the ceiling a stopped run carries on
-        under. ``from_run`` gives each ``FromRun`` type its value. Past its
+        ``from_run`` gives each ``FromRun`` type its value. Past its
         ``timeout`` a leg starts nothing more but waits for the calls already
         on threads, as far as their ``attempt_timeout``, and keeps them; so it
         can end later than ``timeout``, and a call that came back is never made
         again.
         """
-        checked_leg(max_items=max_items, timeout=timeout)
-        return self._leg(max_items, from_run_values(self.graph._needs_from_run, from_run), None, _deadline(timeout))
+        checked_leg(timeout=timeout)
+        return self._leg(from_run_values(self.graph._needs_from_run, from_run), None, _deadline(timeout))
 
     def stream(
-        self, *, max_items: int | None = None, from_run: Mapping[type, Any] = MappingProxyType({}), timeout: float | None = None, cancel: asyncio.Event | None = None,
+        self, *, from_run: Mapping[type, Any] = MappingProxyType({}), timeout: float | None = None, cancel: asyncio.Event | None = None,
         hand_back: asyncio.Event | None = None, checkpoint_every: float | None = None,
     ) -> AsyncGenerator[Event]:
         """``resume``, saying what happens as it happens: ``async for event in run.stream(): ...``.
@@ -189,11 +201,11 @@ class Run:
         its ``run`` loses only the calls in flight if the process dies. A call
         that can't start raises here, before anything is iterated.
         """
-        checked_leg(max_items=max_items, timeout=timeout, checkpoint_every=checkpoint_every)
-        return self._stream(max_items, from_run_values(self.graph._needs_from_run, from_run), timeout, cancel, hand_back, checkpoint_every)
+        checked_leg(timeout=timeout, checkpoint_every=checkpoint_every)
+        return self._stream(from_run_values(self.graph._needs_from_run, from_run), timeout, cancel, hand_back, checkpoint_every)
 
     async def _stream(
-        self, max_items: int | None, from_run: dict[type, Any], timeout: float | None, cancel: asyncio.Event | None, hand_back: asyncio.Event | None,
+        self, from_run: dict[type, Any], timeout: float | None, cancel: asyncio.Event | None, hand_back: asyncio.Event | None,
         checkpoint_every: float | None,
     ) -> AsyncGenerator[Event]:
         loop, events = asyncio.get_running_loop(), asyncio.Queue["Event | None"]()
@@ -211,7 +223,7 @@ class Run:
 
         def leg() -> None:
             try:
-                self._leg(max_items, from_run, lambda event: _hand_over(loop, events, event), stop, checkpoint_every)
+                self._leg(from_run, lambda event: _hand_over(loop, events, event), stop, checkpoint_every)
             except BaseException as error:  # the engine's own defect reaches the caller
                 failed.append(error)
             finally:
@@ -228,7 +240,7 @@ class Run:
             cancelled.set()
 
     def _leg(
-        self, max_items: int | None, from_run: dict[type, Any], emit: Callable[[EventBase], None] | None, stop: Callable[[], RunState | None] | None,
+        self, from_run: dict[type, Any], emit: Callable[[EventBase], None] | None, stop: Callable[[], RunState | None] | None,
         checkpoint_every: float | None = None,
     ) -> Run:
         """One leg over a copy of this run, which is handed back as the leg left it.
@@ -237,7 +249,7 @@ class Run:
         where they stand, and what a node comes to for an item), and says how it ended. What a listener hears of
         the run itself (that it started, a checkpoint of it, how it ended) is said here, where the run is.
         """
-        run = self._copy(max_items=max_items if max_items is not None else self.max_items)
+        run = self._copy()
         checkpoint: Callable[[RunState], None] | None = None
         if emit is not None:
             emit(RunStart(waiting=tuple(run.waiting)))
@@ -436,11 +448,16 @@ class Run:
 
     @property
     def results(self) -> dict[str, dict[str, Any]]:
-        """Each node's outputs as the run stands: one value on a node that runs once; for one that runs per
-        item, a list in item order with ``None`` where an item has none, or ``None`` in place of the list where
-        no item could bring a value or the Series isn't made yet."""
-        nodes, reader = self.graph._node_at, self._reader_as_it_stands
-        return {n: {o: self._shown(reader, nodes[n], o) for o in placed.outputs} for n, placed in self.graph._nodes.items()}
+        """Every node's outputs so far, by node id and output name; it can be read whatever the run's status.
+
+        A node called once shows its return value. A node called per item shows a list with one entry per
+        item, ``None`` for an item with no value yet. A node called per item of a list that is itself made
+        per item shows a list of lists: three documents split into lines, the second empty, give
+        ``[["A", "B"], None, ["C"]]``. ``None`` instead of a list means the list being looped over was never
+        made, or no item of it could have a value.
+        """
+        reader = self._reader_as_it_stands
+        return {n: {o: reader.shown(host_reads(*self._function_of(f"{n}.{o}"))) for o in placed.outputs} for n, placed in self.graph._nodes.items()}
 
     @property
     def outputs(self) -> dict[str, Any]:
@@ -452,8 +469,8 @@ class Run:
                 raise InvalidCallError([problem.run_not_complete("outputs", status=status, reason="")])
             case EndedEarly(status=status, cause=cause):
                 raise InvalidCallError([problem.run_not_complete("outputs", status=status, reason=cause.msg)])
-        nodes, reader = self.graph._node_at, self._reader_as_it_stands
-        return {address: self._shown(reader, nodes[address.partition(".")[0]], address.partition(".")[2]) for address in self.graph.outputs}
+        reader = self._reader_as_it_stands
+        return {address: reader.shown(host_reads(*self._function_of(address))) for address in self.graph.outputs}
 
     def outputs_json(self) -> str:
         """The graph's outputs (``run.outputs``) as JSON, by address, each written by its output's type as a save
@@ -463,40 +480,25 @@ class Run:
             InvalidCallError: The run is not complete (``run_not_complete``), or an output holds a value with no
                 JSON form (``state_unwritable``, naming the output).
         """
-        nodes = self.graph._node_at
         written = {}
         for address, value in self.outputs.items():
-            node = nodes[address.partition(".")[0]]
-            output = node.placed.outputs[address.partition(".")[2]]
+            function, output = self._function_of(address)
+            hint: Any = function.placed.outputs[output].slot.hint
+            for _ in function.maps:  # one list, or None in its place, for each loop the function is called in
+                hint = list[hint] | None
             try:
-                written[address] = (output.column if node.maps else output.slot).to_json(value)
+                written[address] = Type(hint).to_json(value)
             except pydantic_core.PydanticSerializationError:
                 raise InvalidCallError([problem.state_unwritable("outputs", address, at=address, reason="a value has no JSON form")]) from None
         return pydantic_core.to_json(written).decode()
 
-    def _shown(self, reader: AsItStandsReader, node: NodeAtPath, output: str) -> Any:
-        """One output of a node as a host is shown it: what a node reading it would be given (``host_reads``),
-        as the run stands.
-
-        An output made per item is what a ``Series`` input that keeps blanks would gather of it: ``None`` where
-        no item could bring a value, for a blank or a branch not taken outside the items; else every item in
-        its place, ``None`` for one with no value or not settled yet. An embedded graph's node holds no unit:
-        its output is the one of the function inside that makes it, and for one that runs per item, an output
-        made per item inside is a list for each of its items.
-
-        Args:
-            reader: Reads the run's units as they stand.
-            node: The node, one of the run's own graph.
-            output: The output's name.
-        """
-        if type(node) is EmbeddedGraphAtPath:
-            function, output = node.offers[output]
-            around = len(node.maps)
-        else:
-            function, around = node, 0
-        if 0 < around < len(function.maps):  # an embedded graph's node that runs per item, of an output made per item inside
-            return reader.shown_for_each_item(cast("InputGathersItems", host_reads(function, output, 0)), around, host_reads(function, output, around))
-        return reader.shown(host_reads(function, output, 0))
+    def _function_of(self, address: str) -> tuple[FunctionAtPath, str]:
+        """The function node that returns the output at ``address`` (``node.output``), and the output's name on
+        that function. For a stored graph used as a node (``e.upper.result``) it is the function inside the
+        stored graph, since the stored graph's node is never called itself."""
+        node_id, _, output = address.partition(".")
+        node = self.graph._node_at[node_id]
+        return node.offers[output] if type(node) is EmbeddedGraphAtPath else (node, output)
 
     # -- what a leg reads -------------------------------------------------------
 
@@ -544,20 +546,19 @@ class Run:
             return list(units.values())
         return [units.get(instance) for instance in instances(self._units, node.maps, ())[0]]
 
-    def _copy(self, *, share_units: bool = False, max_items: int | None = None) -> Run:
+    def _copy(self, *, share_units: bool = False) -> Run:
         """A copy to change: its own units to record into and its own earlier work to take from; or with
         ``share_units`` this run's units of every node, for a caller that replaces whole nodes and takes nothing.
 
         Args:
             share_units: Whether the copy holds this run's own dict of units for each node.
-            max_items: The copy's item ceiling; this run's when ``None``.
         """
         if share_units:
             units, earlier = dict(self._units), dict(self._earlier_work)
         else:  # its own answers to take, as this run holds them too
             units = {name: dict(held) for name, held in self._units.items()}
             earlier = {path: EarlierWork(of_node.at, of_node.computed, {asked: list(left) for asked, left in of_node.asked.items()}) for path, of_node in self._earlier_work.items()}
-        return dataclasses.replace(self, max_items=max_items if max_items is not None else self.max_items, _units=units, _earlier_work=earlier)
+        return dataclasses.replace(self, _units=units, _earlier_work=earlier)
 
 
 RunEnd.model_rebuild(_types_namespace={"Run": Run})
@@ -570,7 +571,7 @@ def no_units(graph: Graph) -> Units:
     return {node.name: {} for node in graph._tree}
 
 
-def run_from_json(graph: Graph, saved: str | bytes | Mapping[str, Any]) -> Run:
+def run_from_json(graph: Graph, saved: str | bytes) -> Run:
     """A run of ``graph`` from what ``run.to_json()`` wrote; a caller reaches it through ``graph.load_run``.
 
     A graph with problems takes no run, so they are what is refused, before anything of the save is read. The
@@ -584,9 +585,7 @@ def run_from_json(graph: Graph, saved: str | bytes | Mapping[str, Any]) -> Run:
     if graph.problems:
         raise InvalidCallError(graph.problems)
     try:
-        read = graph._save_form.validator.validate_json(saved if isinstance(saved, (str, bytes)) else pydantic_core.to_json(saved, inf_nan_mode="strings"))
-    except pydantic_core.PydanticSerializationError:
-        raise InvalidCallError([problem.state_unreadable("state", at="the run", reason="it is not JSON")]) from None
+        read = graph._save_form.validator.validate_json(saved)
     except ValidationError as error:
         first = error.errors(include_url=False, include_input=False)[0]
         if first["type"] == "union_tag_invalid" and not first["loc"]:  # a save is read as one of this graph, which its fingerprint says it is
@@ -620,7 +619,7 @@ def _run_of(graph: Graph, saved: SavedRun[list[Unit | None], EarlierWork]) -> Ru
 
 
 def checked_leg(*, max_items: int | None = None, timeout: float | None = None, checkpoint_every: float | None = None) -> None:
-    """A leg's ceiling (at least 1 item) and its seconds (a finite number above 0) are refused at the call."""
+    """A run's ceiling (at least 1 item) and a leg's seconds (a finite number above 0) are refused at the call."""
     problems = []
     if max_items is not None and max_items < 1:
         problems.append(problem.invalid_max_items("max_items", max_items=max_items))

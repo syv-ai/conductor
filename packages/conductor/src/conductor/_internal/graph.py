@@ -1,4 +1,4 @@
-"""``Graph``: the checked graph a host holds, with the verbs that start a run."""
+"""``Graph``: the checked graph a host holds, with the calls that make a run of it and how its runs are saved."""
 
 from __future__ import annotations
 
@@ -7,16 +7,9 @@ import types
 from collections.abc import Mapping
 from typing import Any
 
-from conductor._internal import problem
-from conductor._internal.address import NodePath
-from conductor._internal.checked_graph import (
-    CheckedGraph,
-    FunctionAtPath,
-    NodeAtPath,
-    PlacedFunction,
-    nodes_at_paths,
-)
+from conductor._internal.checked_graph import CheckedGraph
 from conductor._internal.problem import InvalidCallError, Problem
+from conductor._internal.problem import catalogue as problem
 from conductor._internal.run import Run, checked_leg, no_units, run_from_json
 from conductor._internal.saved_run import SaveForm, save_form
 from conductor._internal.sentinels import REQUIRED
@@ -34,35 +27,6 @@ class Graph(CheckedGraph):
         inputs: The open inputs of its first nodes, by name (``node.input`` where two share a name): what a
             caller fills.
     """
-
-    @functools.cached_property
-    def _at_paths(self) -> tuple[list[FunctionAtPath], dict[str, NodeAtPath]]:
-        """The graph's nodes and those of each graph embedded in it, where they stand (``nodes_at_paths``),
-        made when a run of the graph is first made."""
-        return nodes_at_paths(self)
-
-    @property
-    def _tree(self) -> list[FunctionAtPath]:
-        """Every function of the graph and of each graph embedded in it, at any depth, each after the
-        functions it reads: the order a leg tries them in."""
-        return self._at_paths[0]
-
-    @property
-    def _node_at(self) -> dict[str, NodeAtPath]:
-        """Each node of the graph and of each graph embedded in it, a function or an embedded graph, by its
-        name (``e/ask``)."""
-        return self._at_paths[1]
-
-    @functools.cached_property
-    def _functions(self) -> dict[NodePath, PlacedFunction]:
-        """Every function node of ``_tree``, by its path."""
-        return {node.path: node.placed for node in self._tree}
-
-    @functools.cached_property
-    def _threads(self) -> int:
-        """How many calls a leg over the graph can have on threads at once: the ``concurrency`` of every node
-        called on a thread, those of each embedded graph with them."""
-        return sum(policy.concurrency for placed in self._functions.values() if (policy := placed.definition.policy).threaded)
 
     def with_inputs(
         self, inputs: Mapping[str, Any] = types.MappingProxyType({}), /, *, max_items: int | None = None, earlier: Run | None = None, **by_name: Any,
@@ -97,11 +61,10 @@ class Graph(CheckedGraph):
         """Run the graph with these inputs until it is done, waits for a person, fails or stops."""
         return self.with_inputs(inputs, max_items=max_items, **by_name).resume(from_run=from_run, timeout=timeout)
 
-    def load_run(self, saved: str | bytes | Mapping[str, Any]) -> Run:
-        """A run of this graph from what ``run.to_json()`` wrote; a graph with problems refuses it with them.
+    def load_run(self, saved: str | bytes) -> Run:
+        """A run of this graph from the JSON text ``run.to_json()`` wrote; a graph with problems refuses it with them.
 
-        A save is read from its JSON text, a mapping written as JSON first, so each value is read as its type
-        reads JSON.
+        Each value in the save is read the way its type reads JSON, a date from its text for example.
         """
         return run_from_json(self, saved)
 
@@ -144,13 +107,13 @@ class Graph(CheckedGraph):
                     problems.append(problem.missing_input("inputs", offered.name, name=offered.name))
                 values[address] = offered.field.default
                 continue
-            value, spec = given[address], offered.field
+            value, field = given[address], offered.field
             try:
-                values[address] = spec.whole.read(value)
+                values[address] = field.whole.read(value)
             except FieldValueError as refused:
                 whole = all(not error["loc"] for error in refused.errors or ())  # the list itself was refused, not an item of it
-                if not spec.many and type(value) is list and whole:  # the one mistake whose fix is in the graph
-                    problems.append(problem.invalid_input_make_a_series("inputs", offered.name, name=offered.name, expected=spec.whole.id, length=len(value)))
+                if not field.many and type(value) is list and whole:  # the one mistake whose fix is in the graph
+                    problems.append(problem.invalid_input_make_a_series("inputs", offered.name, name=offered.name, expected=field.whole.id, length=len(value)))
                 else:
                     problems.append(problem.invalid_input("inputs", offered.name, name=offered.name, reason=refused.reason, errors=refused.errors, column=refused.column))
         if problems:

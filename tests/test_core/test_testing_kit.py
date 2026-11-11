@@ -14,6 +14,7 @@ from conductor import (
     Upgrade,
     make_graph,
     node,
+    stored_graph,
 )
 from conductor.testing import check_registry
 
@@ -31,7 +32,7 @@ def found(registry: NodeRegistry, **options: Any) -> list[tuple[str, tuple[str |
 # -- nodes that keep the contract ------------------------------------------------------------------
 
 
-@node("upper", title="Upper", description="")
+@node("upper", title="Upper", description="For a test.")
 def upper(text: str, times: Annotated[int, Param(ge=1)] = 1) -> str:
     return text.upper() * times
 
@@ -40,22 +41,22 @@ def _columns(names: str) -> dict[str, Any]:
     return {name: str for name in names.split(",")}
 
 
-@node("columns", title="Columns", description="", compute_outputs=_columns)
+@node("columns", title="Columns", description="For a test.", compute_outputs=_columns)
 def columns(text: str, names: str) -> dict[str, Any]:
     return dict.fromkeys(names.split(","), text)
 
 
-@node("count", title="Count v1", description="")
+@node("count", title="Count v1", description="For a test.")
 def count_v1(n: int) -> int:
     return n
 
 
-@node("count", title="Count", description="", replaces=count_v1, upgrade=Upgrade(renamed_inputs={"n": "number"}))
+@node("count", title="Count", description="For a test.", replaces=count_v1, upgrade=Upgrade(renamed_inputs={"n": "number"}))
 def count(number: int) -> int:
     return number
 
 
-@node("approve", title="Approve", description="")
+@node("approve", title="Approve", description="For a test.")
 def approve(text: str) -> bool:
     raise Ask(f"Approve {text}?")
 
@@ -64,12 +65,12 @@ class Session:
     pass
 
 
-@node("who", title="Who", description="")
+@node("who", title="Who", description="For a test.")
 def who(session: FromRun[Session], text: str) -> str:
     return text
 
 
-shout = node("shout", title="Shout", description="")(make_graph(upper))
+shout = stored_graph("shout", title="Shout", description="For a test.")(make_graph(upper))
 
 GOOD_EXAMPLES: dict[Any, list[dict[str, Any]]] = {
     "upper": [{"text": "a", "times": 2}],
@@ -107,7 +108,7 @@ def test_a_from_run_value_is_taken_by_the_class_the_node_names_and_a_subclass_ke
 def test_no_body_is_called_without_an_example_and_each_example_calls_it_once():
     calls: list[str] = []
 
-    @node("noted", title="Noted", description="")
+    @node("noted", title="Noted", description="For a test.")
     def noted(text: str) -> str:
         calls.append(text)
         return text
@@ -123,7 +124,7 @@ def _breaks(names: str) -> dict[str, Any]:
     raise KeyError(names)
 
 
-@node("breaks", title="Breaks", description="", compute_outputs=_breaks)
+@node("breaks", title="Breaks", description="For a test.", compute_outputs=_breaks)
 def breaks(names: str) -> dict[str, Any]:
     return {}
 
@@ -137,7 +138,7 @@ def test_a_hook_reading_an_input_no_value_can_be_made_up_for_needs_an_example():
     def _code(code: str) -> dict[str, Any]:
         return {"x": str}
 
-    @node("coded", title="Coded", description="", compute_outputs=_code)
+    @node("coded", title="Coded", description="For a test.", compute_outputs=_code)
     def coded(code: Annotated[str, Param(pattern=r"^\d{4}$")]) -> dict[str, Any]:
         return {"x": code}
 
@@ -160,19 +161,19 @@ def test_a_hook_reading_a_number_between_two_limits_is_checked_on_a_value_betwee
 
 
 def test_an_upgrade_that_leaves_the_node_broken_or_raises_is_upgrade_broken():
-    @node("size", title="Size v1", description="")
+    @node("size", title="Size v1", description="For a test.")
     def size_v1(n: int) -> int:
         return n
 
-    @node("size", title="Size", description="", replaces=size_v1, upgrade=Upgrade(rewrite=lambda typed: {**typed, "n": "many"}))
+    @node("size", title="Size", description="For a test.", replaces=size_v1, upgrade=Upgrade(rewrite=lambda typed: {**typed, "n": "many"}))
     def size(n: int) -> int:
         return n
 
-    @node("length", title="Length v1", description="")
+    @node("length", title="Length v1", description="For a test.")
     def length_v1(n: int) -> int:
         return n
 
-    @node("length", title="Length", description="", replaces=length_v1, upgrade=Upgrade(rewrite=lambda typed: {"m": typed["missing"]}))
+    @node("length", title="Length", description="For a test.", replaces=length_v1, upgrade=Upgrade(rewrite=lambda typed: {"m": typed["missing"]}))
     def length(m: int) -> int:
         return m
 
@@ -185,7 +186,7 @@ def test_an_upgrade_that_leaves_the_node_broken_or_raises_is_upgrade_broken():
 
 
 def test_a_body_that_changes_a_value_it_was_given_is_changed_its_inputs():
-    @node("appends", title="Appends", description="")
+    @node("appends", title="Appends", description="For a test.")
     def appends(items: Series[int]) -> int:
         items.append(1)
         return len(items)
@@ -195,11 +196,11 @@ def test_a_body_that_changes_a_value_it_was_given_is_changed_its_inputs():
 
 
 def test_an_example_that_does_not_run_to_the_end_or_a_pause_is_run_failed():
-    @node("unsure", title="Unsure", description="")
+    @node("unsure", title="Unsure", description="For a test.")
     def unsure(text: str) -> bool:
         raise Ask("Sure?", default="maybe")  # type: ignore[arg-type]
 
-    @node("offline", title="Offline", description="")
+    @node("offline", title="Offline", description="For a test.")
     def offline(text: str) -> str:
         raise ExternalError("The service is down.")
 
@@ -214,7 +215,7 @@ def test_an_example_that_does_not_run_to_the_end_or_a_pause_is_run_failed():
 
 
 def test_a_run_failed_that_a_body_raised_names_the_error_class():
-    @node("divides", title="Divides", description="")
+    @node("divides", title="Divides", description="For a test.")
     def divides(n: int) -> float:
         return 1 / n
 
@@ -232,7 +233,7 @@ def test_an_example_for_a_node_or_version_not_there_is_example_for_no_node():
 
 
 def test_a_value_unequal_to_its_own_copy_is_never_called_changed():
-    @node("reads", title="Reads", description="")
+    @node("reads", title="Reads", description="For a test.")
     def reads(values: Series[float], thing: Any) -> int:
         return len(values)
 
@@ -244,7 +245,7 @@ def test_an_example_with_no_json_form_is_run_failed_by_its_node_and_input_and_ra
     class Opaque:
         pass
 
-    @node("takes", title="Takes", description="")
+    @node("takes", title="Takes", description="For a test.")
     def takes(thing: Any) -> str:
         return repr(thing)
 
@@ -254,11 +255,11 @@ def test_an_example_with_no_json_form_is_run_failed_by_its_node_and_input_and_ra
 
 
 def test_a_body_returning_what_its_type_refuses_is_run_failed():
-    @node("counts", title="Counts", description="")
+    @node("counts", title="Counts", description="For a test.")
     def counts(text: str) -> int:
         return "many"  # type: ignore[return-value]
 
-    @node("tally", title="Tally", description="")
+    @node("tally", title="Tally", description="For a test.")
     def tally(labels: Series[str]) -> dict[str, int]:
         return {label: "one" for label in labels}  # type: ignore[misc]
 
@@ -274,7 +275,7 @@ def test_a_protocol_from_run_given_under_another_key_is_from_run_missing():
     class Authority(Protocol):
         def may_read(self, document: str) -> bool: ...
 
-    @node("read", title="Read", description="")
+    @node("read", title="Read", description="For a test.")
     def read(x: int, authority: FromRun[Authority]) -> int:
         return x
 

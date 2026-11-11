@@ -33,17 +33,17 @@ class Sale(TypedDict):
     amount: int
 
 
-@registry.node("sales", title="Sales", description="")
+@registry.node("sales", title="Sales", description="For a test.")
 def sales() -> Table[Sale]:
     return pl.DataFrame({"region": ["north", "south"], "amount": [3, 9]})
 
 
-@registry.node("first-row", title="First row", description="")
+@registry.node("first-row", title="First row", description="For a test.")
 def first_row(table: Table[Sale]) -> Table[Sale]:
     return table.head(1)
 
 
-@registry.node("rows", title="Rows", description="")
+@registry.node("rows", title="Rows", description="For a test.")
 def rows(table: Table) -> int:
     return table.height
 
@@ -55,22 +55,22 @@ assert results["rows"]["result"] == 1
 """
 
 _AN_EMBEDDED_GRAPH = """
-from conductor import NodeRegistry, make_graph, node
+from conductor import NodeRegistry, make_graph, node, stored_graph
 
 
-@node("trim", title="Trim", description="")
+@node("trim", title="Trim", description="For a test.")
 def trim(text: str) -> str:
     return text.strip()
 
 
-@node("upper", title="Upper", description="")
+@node("upper", title="Upper", description="For a test.")
 def upper(text: str) -> str:
     return text.upper()
 
 
 base = NodeRegistry()
 base.add(trim, upper)
-clean = node("clean", title="Clean", description="")(make_graph(trim, upper))
+clean = stored_graph("clean", title="Clean", description="For a test.")(make_graph(trim, upper))
 base.add(clean)
 outer = make_graph(clean, upper, edges=[("clean.upper.result", "upper.text")], values={"clean.text": "  hi  "})
 assert base.load(outer).run().outputs == {"upper.result": "HI"}
@@ -89,12 +89,12 @@ class Sale(TypedDict):
     amount: int
 
 
-@node("sales", title="Sales", description="")
+@node("sales", title="Sales", description="For a test.")
 def sales() -> Table[Sale]:
     return pl.DataFrame({"region": ["north", "south"], "amount": [3, 9]})
 
 
-@node("first-row", title="First row", description="")
+@node("first-row", title="First row", description="For a test.")
 def first_row(table: Table[Sale]) -> Table[Sale]:
     assert_type(table, Table[Sale])
     return table.head(1)
@@ -193,13 +193,13 @@ def test_a_checker_keeps_a_tables_row_type(tmp_path: pathlib.Path) -> None:
 
 
 _WRONG_KEYWORDS = """
-from conductor import Ask, Param, node
+from conductor import Ask, GraphRecord, Param, stored_graph
 from conductor.widgets import Textarea
 
 times = Param(gee=1)
 text = Param(widget=Textarea)
 asked = Ask("?", choices="ab")
-called = node("inner", title="Inner", description="A stored graph.")({"nodes": []})("a")
+called = stored_graph("inner", title="Inner", description="A stored graph.")(GraphRecord(nodes=[]))("a")
 """
 
 

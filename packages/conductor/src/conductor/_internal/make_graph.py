@@ -9,10 +9,10 @@ from typing import Any
 
 from pydantic import JsonValue, ValidationError
 
-from conductor._internal import problem
 from conductor._internal.graph_record import GraphRecord, NodeRecord, not_a_record, values_as_json
 from conductor._internal.node_definition import FunctionDefinition, NodeDefinition
 from conductor._internal.problem import InvalidCallError, Problem
+from conductor._internal.problem import catalogue as problem
 from conductor._internal.sentinels import REQUIRED
 
 
@@ -112,7 +112,7 @@ def _chain_edges(
         match before, after:
             case FunctionDefinition(), FunctionDefinition():
                 outputs = list(before.outputs)
-                open_inputs = [name for name, spec in after.inputs.items() if spec.default is REQUIRED and name not in filled]
+                open_inputs = [name for name, field in after.inputs.items() if field.default is REQUIRED and name not in filled]
             case _:  # a stored graph's fields are known only when it loads, so a chain can't be drawn through it
                 outputs, open_inputs = [], []
         if len(outputs) != 1 or len(open_inputs) != 1:

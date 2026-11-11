@@ -39,7 +39,6 @@ import abc
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Final, Literal, cast
 
-from conductor._internal import problem
 from conductor._internal.checked_graph.input_plans import (
     InputGathersItems,
     InputReadsOneValue,
@@ -48,6 +47,7 @@ from conductor._internal.checked_graph.input_plans import (
     SeriesAsList,
 )
 from conductor._internal.problem import UnitFailedError
+from conductor._internal.problem import catalogue as problem
 from conductor._internal.record_field import NoSuchFieldError, field_of
 from conductor._internal.sentinels import SKIPPED
 from conductor._internal.series import places_of_none, without_places
@@ -280,39 +280,58 @@ class ItemReader(Reader):
 class AsItStandsReader(ItemReader):
     """Reads what the units of a run hold as they stand, for a host that reads a run in any state: an output that
     isn't settled reads as a blank, where a call waits for it. So a host is shown the items so far, with a
-    blank in the place of one that hasn't run or waits for a person."""
+    blank in the place of one that hasn't run or waits for a person.
+
+    An edge can name one field of a record (``give.result.name``). When the record has no such field, the
+    node the edge leads to fails and the run ends ``failed`` with that as its cause. Reading the run
+    afterwards must not raise again, so here the missing field is read as ``None``.
+    """
 
     __slots__ = ()
 
     def output(self, at: OutputAtScope, item_path: ItemPath) -> Any:
-        """What the output ``at`` holds for ``item_path``, a blank where it isn't settled."""
-        value = ItemReader.output(self, at, item_path)
+        """The value of the output ``at`` for the item at ``item_path``; ``None`` when the node hasn't
+        returned yet, or when the edge names a field the record doesn't have."""
+        try:
+            value = ItemReader.output(self, at, item_path)
+        except NoSuchFieldError:
+            return None
         return None if value is NOT_SETTLED else value
 
-    def shown(self, plan: InputReadsOneValue | InputGathersItems, item_path: ItemPath = ()) -> Any:
-        """An output as a host is shown it for ``item_path``, read by the plan an input wired to it would have:
-        its value, and ``None`` for a blank or a branch not taken."""
-        value = plan.value(self, item_path)
-        return None if value is SKIPPED else value
+    def gathered(self, plan: InputGathersItems, item_path: ItemPath) -> Any:
+        """The list a ``Series`` input with ``plan`` would be called with for the item at ``item_path``;
+        ``None`` when the edge names a field that a record in the list doesn't have."""
+        try:
+            return ItemReader.gathered(self, plan, item_path)
+        except NoSuchFieldError:
+            return None
 
-    def shown_for_each_item(self, whole: InputGathersItems, around: int, each: InputReadsOneValue | InputGathersItems) -> Any:
-        """An output an embedded graph's node offers of something made per item inside it, where that node
-        itself runs per item: a list for each of its items, as the type it declares says.
+    def shown(self, plans: tuple[InputReadsOneValue | InputGathersItems, ...], item_path: ItemPath = ()) -> Any:
+        """One output of a node as ``run.results`` shows it.
+
+        Example: ``documents -> lines -> shout`` with three documents, the second empty, so ``lines`` was
+        never called for it. ``shout`` is called once per line of each document, and its output is shown as
+        ``[["A", "B"], None, ["C"]]``.
 
         Args:
-            whole: The plan that gathers the output through every map it is made in.
-            around: How many of those maps are the embedded graph's node's own.
-            each: The plan that reads the output from under those maps, for one item of that node.
+            plans: The output's plans from ``host_reads``: one for each loop the node is called in.
+            item_path: The index of the item in each loop already entered; empty for the whole output.
 
         Returns:
-            ``None`` where no item of the node could bring a value, for a blank or a branch not taken outside
-            its items; else what ``each`` gives for each item, ``None`` for a blank or a branch not taken.
+            The return value, for a node called once. For a node called per item, a list with one entry per
+            item, ``None`` for an item that has no value; for a node called in a loop inside another loop, a
+            list of such lists. ``None`` instead of a list when the list being looped over was never made,
+            or when no item of it could have a value because of a skipped branch or a ``None`` outside the
+            loop.
         """
-        series = self._series_gathered(whole, ())
-        if series is None or series is SKIPPED:
+        plan = plans[len(item_path)]
+        if len(item_path) == len(plans) - 1:
+            value = plan.value(self, item_path)
+            return None if value is SKIPPED else value
+        looped_over = self._series_gathered(cast("InputGathersItems", plan), item_path)  # every plan before the last lists one loop
+        if looped_over is None or looped_over is SKIPPED:
             return None
-        item_paths = cast("list[ItemPath]", self._item_paths(series, whole.reads[1:around], ()))  # nothing reads as not settled here
-        return [self.shown(each, under) for under in item_paths]
+        return [self.shown(plans, (*item_path, index)) for index in range(len(looped_over))]
 
 
 class AnyItemReader(Reader):

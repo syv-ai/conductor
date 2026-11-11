@@ -6,7 +6,16 @@ from typing import Any, TypedDict
 
 import polars as pl
 import pytest
-from conductor import GraphRecord, InvalidCallError, NodeRecord, Series, Table, make_graph, node
+from conductor import (
+    GraphRecord,
+    InvalidCallError,
+    NodeRecord,
+    Series,
+    Table,
+    make_graph,
+    node,
+    stored_graph,
+)
 from conductor._internal.table import Records
 
 from tests.test_core.nodes import registry_of
@@ -21,40 +30,40 @@ FRAME = pl.DataFrame({"name": ["ida", "bo"], "email": ["ida@x.dk", None], "age":
 RECEIVED: list[Any] = []
 
 
-@node("contacts", title="Contacts", description="")
+@node("contacts", title="Contacts", description="For a test.")
 def contacts(text: str) -> Series[Contact]:
     return FRAME  # type: ignore[return-value]  a table returned for a Series of records is the Series of its records
 
 
-@node("listed", title="Listed", description="")
+@node("listed", title="Listed", description="For a test.")
 def listed(text: str) -> Series[Contact]:
     return [{"name": "ida", "email": "ida@x.dk"}, {"name": "bo", "email": None}]
 
 
-@node("greet", title="Greet", description="")
+@node("greet", title="Greet", description="For a test.")
 def greet(name: str) -> str:
     return f"hi {name}"
 
 
-@node("one", title="One", description="")
+@node("one", title="One", description="For a test.")
 def one(contact: Contact) -> str:
     RECEIVED.append(contact)
     return contact["name"]
 
 
-@node("every", title="Every", description="")
+@node("every", title="Every", description="For a test.")
 def every(found: Series[Contact]) -> int:
     RECEIVED.append(found)
     return len(found)
 
 
-@node("names", title="Names", description="")
+@node("names", title="Names", description="For a test.")
 def names(found: Series[str]) -> str:
     RECEIVED.append(found)
     return "+".join(found)
 
 
-@node("mails", title="Mails", description="")
+@node("mails", title="Mails", description="For a test.")
 def mails(found: Series[str | None]) -> int:
     RECEIVED.append(found)
     return len(found)
@@ -103,7 +112,7 @@ def test_a_series_returned_as_a_table_is_held_and_saved_as_that_table_with_only_
     (pl.DataFrame({"name": [1, 2], "email": ["a", "b"]}), "column 'name': Input should be a valid string"),
 ])
 def test_a_table_returned_for_a_series_of_records_is_read_by_its_columns_where_it_enters(frame: pl.DataFrame, reason: str) -> None:
-    @node("wrong", title="Wrong", description="")
+    @node("wrong", title="Wrong", description="For a test.")
     def wrong(text: str) -> Series[Contact]:
         return frame  # type: ignore[return-value]
 
@@ -113,7 +122,7 @@ def test_a_table_returned_for_a_series_of_records_is_read_by_its_columns_where_i
 
 
 def test_a_table_is_no_series_of_anything_but_records() -> None:
-    @node("texts", title="Texts", description="")
+    @node("texts", title="Texts", description="For a test.")
     def texts(text: str) -> Series[str]:
         return FRAME  # type: ignore[return-value]
 
@@ -123,11 +132,11 @@ def test_a_table_is_no_series_of_anything_but_records() -> None:
 
 
 def test_a_table_of_any_columns_is_a_series_of_its_records() -> None:
-    @node("anything", title="Anything", description="")
+    @node("anything", title="Anything", description="For a test.")
     def anything(text: str) -> Series[Any]:
         return FRAME  # type: ignore[return-value]
 
-    @node("show", title="Show", description="")
+    @node("show", title="Show", description="For a test.")
     def show(record: Any) -> str:
         return repr(record)
 
@@ -145,18 +154,18 @@ def test_a_series_of_records_held_as_a_table_counts_its_items_against_the_ceilin
 
 
 def test_a_series_of_records_made_per_item_inside_an_embedded_graph_is_offered_as_lists_of_plain_records() -> None:
-    @node("parts", title="Parts", description="")
+    @node("parts", title="Parts", description="For a test.")
     def parts(text: str) -> Series[str]:
         return text.split(",")
 
-    @node("count", title="Count", description="")
+    @node("count", title="Count", description="For a test.")
     def count(found: Series[list[Contact]]) -> list[int]:
         RECEIVED.append(found)
         return [len(records) for records in found]
 
     registry = registry_of(parts, contacts, count)
     inner = GraphRecord(nodes=[NodeRecord(id="p", node="parts"), NodeRecord(id="c", node="contacts")], edges=[("p.result", "c.text")])
-    registry.add(node("inner", title="Inner", description="")(inner))
+    registry.add(stored_graph("inner", title="Inner", description="For a test.")(inner))
     graph = registry.load(GraphRecord(nodes=[NodeRecord(id="e", node="inner"), NodeRecord(id="count", node="count")], edges=[("e.c.result", "count.found")]))
     RECEIVED.clear()
     run = graph.run(text="x,y")
@@ -167,25 +176,25 @@ def test_a_series_of_records_made_per_item_inside_an_embedded_graph_is_offered_a
 
 
 def test_split_returns_the_table_it_was_given_and_the_run_holds_it_by_column() -> None:
-    from conductor_nodes.tables import split
+    from conductor_nodes.series import split
 
-    @node("people", title="People", description="")
+    @node("people", title="People", description="For a test.")
     def people(text: str) -> Table[Contact]:
         return FRAME
 
-    graph = registry_of(people, split, greet).load(make_graph(people, split, greet, edges=[("people.result", "split.value"), ("split.result.name", "greet.name")]))
+    graph = registry_of(people, split, greet).load(make_graph(people, split, greet, edges=[("people.result", "series-split.value"), ("series-split.result.name", "greet.name")]))
     run = graph.run(text="x")
 
     assert run.outputs == {"greet.result": ["hi ida", "hi bo"]}
-    assert type(run._units["split"][()].out["result"]) is Records
-    assert run.results["split"]["result"] == [{"name": "ida", "email": "ida@x.dk"}, {"name": "bo", "email": None}]
+    assert type(run._units["series-split"][()].out["result"]) is Records
+    assert run.results["series-split"]["result"] == [{"name": "ida", "email": "ida@x.dk"}, {"name": "bo", "email": None}]
 
 
 # -- how a run stores a Series, and what reads it ---------------------------------------------------------
 
 
 def test_one_record_of_five_without_the_field_an_edge_reads_fails_only_the_call_for_that_record() -> None:
-    @node("five", title="Five", description="")
+    @node("five", title="Five", description="For a test.")
     def five(text: str) -> Series[dict]:
         return [{"name": "a"}, {"name": "b"}, {"other": "c"}, {"name": "d"}, {"name": "e"}]
 
@@ -211,7 +220,7 @@ def test_the_column_of_a_field_is_made_once_per_stored_series_and_only_for_a_fie
 def test_a_table_input_wired_to_a_series_stored_as_a_table_is_called_with_that_table() -> None:
     got: list[Any] = []
 
-    @node("rows", title="Rows", description="")
+    @node("rows", title="Rows", description="For a test.")
     def rows(table: Table[Contact]) -> int:
         got.append(table)
         return table.height
@@ -226,11 +235,11 @@ def test_a_table_input_wired_to_a_series_stored_as_a_table_is_called_with_that_t
 def test_a_table_input_loses_the_rows_another_input_of_the_same_series_has_no_value_for() -> None:
     got: list[Any] = []
 
-    @node("mail", title="Mail", description="")
+    @node("mail", title="Mail", description="For a test.")
     def mail(email: str) -> str:
         return email.upper()
 
-    @node("both", title="Both", description="")
+    @node("both", title="Both", description="For a test.")
     def both(table: Table[Contact], mails: Series[str]) -> int:
         got.append((table, mails))
         return table.height
@@ -263,20 +272,20 @@ def test_a_table_a_node_received_is_written_once_to_fingerprint_it_however_many_
 # -- a table two outputs share is written once in a save ---------------------------------------------------
 
 
-@node("people", title="People", description="")
+@node("people", title="People", description="For a test.")
 def people(text: str) -> Table[Contact]:
     return FRAME.select("name", "email")
 
 
-@node("copied", title="Copied", description="")
+@node("copied", title="Copied", description="For a test.")
 def copied(table: Table[Contact]) -> Table[Contact]:
     return pl.DataFrame(table.to_dicts(), schema=table.schema)
 
 
 def _read_then_split() -> Any:
-    from conductor_nodes.tables import split
+    from conductor_nodes.series import split
 
-    return registry_of(people, split, greet, copied).load(make_graph(people, split, greet, edges=[("people.result", "split.value"), ("split.result.name", "greet.name")]))
+    return registry_of(people, split, greet, copied).load(make_graph(people, split, greet, edges=[("people.result", "series-split.value"), ("series-split.result.name", "greet.name")]))
 
 
 def test_a_table_read_and_then_split_is_written_once_in_a_save_and_is_one_table_again_when_loaded() -> None:
@@ -284,12 +293,12 @@ def test_a_table_read_and_then_split_is_written_once_in_a_save_and_is_one_table_
     run = graph.run(text="x")
     saved = json.loads(run.to_json())
 
-    assert saved["units"]["split"]["outputs"]["result"] == [None]
-    assert saved["tables_written_once"] == [{"output": ["split", "result", 0], "same_as": ["people", "result", 0]}]
+    assert saved["units"]["series-split"]["outputs"]["result"] == [None]
+    assert saved["tables_written_once"] == [{"output": ["series-split", "result", 0], "same_as": ["people", "result", 0]}]
     assert run.to_json().count('"ida@x.dk"') == 1
 
     loaded = graph.load_run(run.to_json())
-    table, records = loaded._units["people"][()].out["result"], loaded._units["split"][()].out["result"]
+    table, records = loaded._units["people"][()].out["result"], loaded._units["series-split"][()].out["result"]
     assert type(records) is Records and records.frame is table
     assert loaded.to_json() == run.to_json() and loaded.outputs == run.outputs
     assert loaded.forget("greet").resume().outputs == {"greet.result": ["hi ida", "hi bo"]}
@@ -314,16 +323,16 @@ def test_work_carried_from_an_earlier_run_shares_its_table_in_a_save_as_the_firs
     again = graph.run(text="x").again(text="x")
     saved = json.loads(again.to_json())
 
-    assert saved["tables_written_once"] == [{"output": ["split", "result", 0], "same_as": ["people", "result", 0]}]
+    assert saved["tables_written_once"] == [{"output": ["series-split", "result", 0], "same_as": ["people", "result", 0]}]
     assert graph.load_run(again.to_json()).to_json() == again.to_json()
 
 
 def test_a_table_shared_inside_an_embedded_graph_is_written_once_under_the_nodes_names_in_the_save() -> None:
-    from conductor_nodes.tables import split
+    from conductor_nodes.series import split
 
     registry = registry_of(people, split, greet)
     inner = GraphRecord(nodes=[NodeRecord(id="people", node="people"), NodeRecord(id="split", node=split.id)], edges=[("people.result", "split.value")])
-    registry.add(node("inner", title="Inner", description="")(inner))
+    registry.add(stored_graph("inner", title="Inner", description="For a test.")(inner))
     graph = registry.load(GraphRecord(nodes=[NodeRecord(id="e", node="inner"), NodeRecord(id="greet", node="greet")], edges=[("e.split.result.name", "greet.name")]))
     run = graph.run(text="x")
 
@@ -336,7 +345,7 @@ def test_a_table_shared_inside_an_embedded_graph_is_written_once_under_the_nodes
     ["nobody", "result", 0],  # no such node
     ["people", "result", 3],  # no such slot
     ["people", "other", 0],  # no such output
-    ["split", "result", 0],  # itself, which is written as null
+    ["series-split", "result", 0],  # itself, which is written as null
     ["greet", "result", 0],  # an output that is no table
 ], ids=["no such node", "no such slot", "no such output", "itself", "not a table"])
 def test_a_save_whose_tables_written_once_names_an_output_that_is_no_table_written_in_full_is_refused(same_as: list[Any]) -> None:
@@ -347,15 +356,15 @@ def test_a_save_whose_tables_written_once_names_an_output_that_is_no_table_writt
     with pytest.raises(InvalidCallError) as refused:
         graph.load_run(json.dumps(saved))
     (found,) = refused.value.errors()
-    assert found.type == "state_unreadable" and "tables_written_once: 'split.result[0]' can't be read as the table at" in found.msg and "not an output written in full" in found.msg
+    assert found.type == "state_unreadable" and "tables_written_once: 'series-split.result[0]' can't be read as the table at" in found.msg and "not an output written in full" in found.msg
 
 
 def test_a_save_whose_tables_written_once_names_a_table_of_other_columns_is_refused_by_the_outputs_own_type() -> None:
-    @node("any-table", title="Any table", description="")
+    @node("any-table", title="Any table", description="For a test.")
     def any_table(text: str) -> Table:
         return FRAME.select("name", "email")
 
-    @node("as-contacts", title="As contacts", description="")
+    @node("as-contacts", title="As contacts", description="For a test.")
     def as_contacts(table: Table) -> Series[Contact]:
         return table  # type: ignore[return-value]
 

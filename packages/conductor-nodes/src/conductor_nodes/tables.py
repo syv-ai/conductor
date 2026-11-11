@@ -1,20 +1,14 @@
-"""Nodes that take a table or a list apart and put tables back together: ``split``, ``stack`` and ``table-collect``.
+"""``table-collect``: gather records into one table and add columns beside them.
 
-``split`` makes a ``Series`` of a table's records or a list's items, so what
-follows runs once for each. Its type variable is the record or the item: a
-table gives its records typed as its row type, a list gives its items, and
-anything else is a type mismatch on the edge.
+``columns`` names the columns made one value per record, each a ``Series``
+input that keeps a blank where a record got no value, and one that doesn't
+hold a value for each record is refused when the node runs
+(``columns_not_aligned``); ``constant_columns`` names the columns holding one
+value on every record, each an input of one value. Its ``compute_outputs``
+hook types the table by the records and the values arriving.
 
-``stack`` puts the tables made once per item into one table, row after row.
-
-``table-collect`` gathers records into one table and adds columns beside
-them. ``columns`` names the columns made one value per record, each a
-``Series`` input that keeps a blank where a record got no value, and one
-that doesn't hold a value for each record is refused when the node runs
-(``columns_not_aligned``);
-``constant_columns`` names the columns holding one value on every record,
-each an input of one value. Its ``compute_outputs`` hook types the table by
-the records and the values arriving.
+Taking a table apart (``series-split``) and stacking tables (``series-stack``)
+are in ``series.py``.
 """
 
 import typing
@@ -30,18 +24,6 @@ Names = Annotated[list[str], Param(widget=ListInput())]
 
 #: ``Table`` of a row type known only when a graph loads, which a type checker can't follow.
 _Table: Any = Table
-
-
-@registry.node("split", title="Split", description="Takes a table or a list apart, so what follows runs once for each record or item.")
-def split[T](value: Table[T] | list[T]) -> Series[T]:
-    """Gives a table's records, or a list's items, as a Series."""
-    return typing.cast("list[T]", value)  # a table returned for a Series of records is the Series of its records
-
-
-@registry.node("stack", title="Stack", description="Puts the tables made for each item into one table, one under the other.")
-def stack[R](tables: Series[Table[R]]) -> Table[R]:
-    """Gives one table of every table's rows, in the items' order."""
-    return pl.concat(tables, how="vertical_relaxed") if tables else pl.DataFrame()
 
 
 def _column_inputs(columns: list[str], constant_columns: list[str]) -> dict[str, Any]:

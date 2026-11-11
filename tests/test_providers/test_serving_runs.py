@@ -39,7 +39,7 @@ from served_nodes import served
 registry.add_subregistry(served)
 
 
-@registry.node("who", title="Who", description="")
+@registry.node("who", title="Who", description="For a test.")
 def who(caller: FromRun[Caller]) -> str:
     return caller.name
 

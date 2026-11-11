@@ -5,10 +5,10 @@ every graph that needs it, as one node.
 
 ## Make one
 
-`node("id", title=..., description=...)` wraps a function, and it wraps a `GraphRecord` the same way:
+`node("id", title=..., description=...)` wraps a function. `stored_graph("id", title=..., description=...)` wraps a `GraphRecord` (or its JSON text) the same way:
 
 ```python
-from conductor import NodeRegistry, Series, make_graph, node
+from conductor import NodeRegistry, Series, make_graph, node, stored_graph
 
 registry = NodeRegistry()
 
@@ -33,7 +33,7 @@ def join(texts: Series[str]) -> str:
     return " ".join(texts)
 
 
-shout = node("shout", title="Shout", description="Turns a text into capital letters.")(make_graph(upper, exclaim))
+shout = stored_graph("shout", title="Shout", description="Turns a text into capital letters.")(make_graph(upper, exclaim))
 registry.add(shout)
 ```
 
@@ -51,7 +51,7 @@ out: a chain is drawn only between functions:
 graph = registry.load(make_graph(split, shout, join, edges=[("split.result", "shout.text"), ("shout.exclaim.result", "join.texts")]))
 
 print(graph.run(text="hi there").outputs)  # {'join.result': 'HI! THERE!'}
-print(graph.plan["shout"].msg)              # per item of split.result
+print(graph.runs_on["shout"].msg)              # per item of split.result
 ```
 
 The nodes of a stored graph run where its node stands: here once per word. Embedding a graph changes nothing about
@@ -70,12 +70,13 @@ From outside, a stored graph is one node:
 - **Its outputs** are the outputs of the nodes nothing inside reads (`graph.outputs` of the stored graph), under their
   addresses there, `node.output`.
 - An output its graph makes once has the type the inner node gives it. One made per item inside, however deep, is a
-  `Series` of every item's value in order, exactly what `run.outputs` of the stored graph gives; a `Series` made per
-  item is a `Series` of lists, and a table made per item a `Series` of tables.
+  `Series` of every item's value in order to a node that reads it; a `Series` made per item is a `Series` of lists,
+  and a table made per item a `Series` of tables. `run.results` shows it as it shows any node's output: one list for
+  each loop the inner node is called in, so an output made per line of each document is a list of lists.
 - An exclusive group inside is named by the node that decides, `decide.answer`.
 
 ```python
-side_by_side = node("both", title="Both", description="Runs the capital letters and the exclamation mark side by side.")(make_graph(upper, exclaim, edges=[]))
+side_by_side = stored_graph("both", title="Both", description="Runs the capital letters and the exclamation mark side by side.")(make_graph(upper, exclaim, edges=[]))
 registry.add(side_by_side)
 both = registry.load(make_graph(side_by_side))
 
@@ -88,7 +89,7 @@ Outside, a `Series` a stored graph offers is a Series like any other, however it
 one value reads it one item at a time, and a `Series` input beside it receives the whole Series on each call:
 
 ```python
-words = node("words", title="Words", description="The words of a text, in capital letters.")(make_graph(split, upper, edges=[("split.result", "upper.text")]))
+words = stored_graph("words", title="Words", description="The words of a text, in capital letters.")(make_graph(split, upper, edges=[("split.result", "upper.text")]))
 registry.add(words)
 
 
@@ -170,10 +171,10 @@ def known(contacts: Table[Contact]) -> Table[Contact]:
     return contacts
 
 
-untyped = node("shout-names", title="Shout names", description="Writes each name in capitals.")(
+untyped = stored_graph("shout-names", title="Shout names", description="Writes each name in capitals.")(
     make_graph(each, upper, edges=[("each.result.name", "upper.text")])
 )
-typed = node("shout-contacts", title="Shout contacts", description="Writes each contact's name in capitals.")(
+typed = stored_graph("shout-contacts", title="Shout contacts", description="Writes each contact's name in capitals.")(
     make_graph(known, each, upper, edges=[("known.result", "each.value"), ("each.result.name", "upper.text")])
 )
 registry.add(untyped, typed)
@@ -189,7 +190,7 @@ graph that wires the wrong table to it gets a `type_mismatch`. So give a stored 
 
 ## Where something is inside
 
-`run.results`, `graph.plan` and `graph.describe()` show the stored graph as one node. Its results are read from the nodes inside that
+`run.results`, `graph.runs_on` and `graph.describe()` show the stored graph as one node. Its results are read from the nodes inside that
 make them, as the run stands: it holds none of its own. What happens inside it is told with where it is:
 the node and item of each stored graph around it, outermost first.
 
@@ -217,7 +218,7 @@ saved_graphs = {"shout": ("Shout", "Writes the text in capitals and adds an excl
 request_registry = NodeRegistry()
 request_registry.add_subregistry(registry)
 request_registry.add(*(
-    node(name, title=title, description=description)(record)
+    stored_graph(name, title=title, description=description)(record)
     for name, (title, description, record) in saved_graphs.items()
     if name not in request_registry
 ))

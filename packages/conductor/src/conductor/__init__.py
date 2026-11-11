@@ -33,9 +33,9 @@ from conductor._internal.node_definition import (
     StoredGraphDescription,
     Upgrade,
     node,
+    stored_graph,
 )
 from conductor._internal.problem import (
-    PROBLEM_CODES,
     PROBLEMS,
     ExternalError,
     InvalidCallError,
@@ -57,6 +57,7 @@ from conductor._internal.value_type import Choice, Param, host_type
 __all__ = [
     # Writing a node
     "node",
+    "stored_graph",
     "NodeDefinition",
     "FunctionDefinition",
     "StoredGraphDefinition",
@@ -104,7 +105,6 @@ __all__ = [
     "NodeDeclarationError",
     "InvalidCallError",
     "Problem",
-    "PROBLEM_CODES",
     "PROBLEMS",
     "ProblemCatalogue",
     "ProblemKind",

@@ -122,7 +122,7 @@ drawing = """{
 graph = registry.load(drawing)
 print(list(graph.inputs))  # ['csv']
 print(graph.outputs)       # ['summary.result']
-print({node_id: runs.msg for node_id, runs in graph.plan.items()})  # {'read': 'once', 'approve': 'per item of read.result', 'summary': 'once'}
+print({node_id: runs.msg for node_id, runs in graph.runs_on.items()})  # {'read': 'once', 'approve': 'per item of read.result', 'summary': 'once'}
 ```
 
 Nobody declares what the graph takes or returns. Its inputs are the open inputs of its first nodes, and its outputs are the outputs of the nodes no node reads. `approve` takes one name and one amount, so it runs once per invoice. `summary` takes every answer, so it runs once.

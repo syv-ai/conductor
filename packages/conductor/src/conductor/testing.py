@@ -35,7 +35,7 @@ Every problem is a ``Problem``. Its ``loc`` is ``(node_id, version)``, except fo
 
 A node known to fail goes in a test of its own, marked ``pytest.mark.xfail(strict=True)``,
 that checks ``registry.filter(...)`` down to it. These codes are ``check_registry``'s,
-not in ``PROBLEM_CODES``: a developer reads them in a test run, a host never meets them.
+not in ``PROBLEMS.codes``: a developer reads them in a test run, a host never meets them.
 """
 
 from __future__ import annotations
@@ -158,7 +158,7 @@ def _upgrade_problems(older: NodeDefinition, registry: NodeRegistry, given: Sequ
     if given:
         values = dict(given[0])
     else:
-        values = {name: made for name, spec in declared_inputs(older).items() if (made := _made_up(spec)) is not _CANNOT}
+        values = {name: made for name, field in declared_inputs(older).items() if (made := _made_up(field)) is not _CANNOT}
     newest = registry[older.id].version
     try:
         placed = _one_node_graph(older, values)
@@ -243,11 +243,11 @@ def _watched(version: FunctionDefinition[..., Any]) -> tuple[FunctionDefinition[
     return dataclasses.replace(version, function=watched, policy=version.policy.model_copy(update={"retries": 0})), changed
 
 
-def _made_up(spec: Field) -> Any:
+def _made_up(field: Field) -> Any:
     """A value of the field within its limits, checked by the field; ``_CANNOT`` when there is no way to make one."""
-    for item in _candidates(spec.type.options[0] if len(spec.type.options) == 1 else None, spec.param):
+    for item in _candidates(field.type.options[0] if len(field.type.options) == 1 else None, field.param):
         try:
-            return spec.whole.read([item, item] if spec.many else item)
+            return field.whole.read([item, item] if field.many else item)
         except FieldValueError:  # outside a limit, or a pattern it doesn't match: the field says which it takes
             continue
     return _CANNOT

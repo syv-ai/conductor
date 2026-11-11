@@ -30,6 +30,7 @@ from conductor import (
     host_type,
     make_graph,
     node,
+    stored_graph,
 )
 from conductor._internal.value_type import FieldValueError
 from conductor.widgets import Dropdown, FileUpload, ListInput, Textarea, TextInput, Widget
@@ -58,7 +59,7 @@ def codes(graph):
 def declared(function, **options):
     """``function`` as a node ``x``; a declaration fault raises here."""
     title = function.__name__.replace("_", " ").strip().capitalize()
-    return node("x", **{"title": title, "description": "", **options})(function)
+    return node("x", **{"title": title, "description": "For a test.", **options})(function)
 
 
 def field_of(definition, name, side="inputs"):
@@ -97,23 +98,46 @@ def test_a_wrong_declaration_is_a_type_error_with_a_code_naming_the_node_and_fun
 def test_a_node_id_must_have_something_in_it_and_no_mark_an_address_or_waiting_id_uses():
     for wrong in ("", "a.b", "a/b", "a@b", "a~b"):
         with pytest.raises(NodeDeclarationError) as raised:
-            node(wrong, title="Wrong", description="")
+            node(wrong, title="Wrong", description="For a test.")
         assert raised.value.code == "invalid_node_id"
 
     def amount() -> int:
         return 1
 
-    assert node("Beløb i kr", title="Amount", description="")(amount).id == "Beløb i kr"
+    assert node("Beløb i kr", title="Amount", description="For a test.")(amount).id == "Beløb i kr"
+
+
+def test_node_given_a_record_in_place_of_a_function_raises_pythons_own_error_that_it_is_not_callable():
+    with pytest.raises(TypeError, match="is not a callable object"):
+        node("enrich", title="Enrich", description="For a test.")(GraphRecord(nodes=[]))  # type: ignore[arg-type]
+
+
+
+@pytest.mark.parametrize(("title", "description", "empty"), [
+    ("", "Does something.", "title"),
+    ("Something", "", "description"),
+    ("   ", "Does something.", "title"),
+    ("Something", "   ", "description"),
+])
+def test_an_empty_title_or_description_is_refused_where_a_node_or_a_stored_graph_is_declared(title, description, empty):
+    for declaration in (
+        lambda: node("x", title=title, description=description),
+        lambda: stored_graph("x", title=title, description=description),
+    ):
+        with pytest.raises(NodeDeclarationError) as raised:
+            declaration()
+        assert raised.value.code == "empty_title_or_description"
+        assert f"('x') has an empty {empty}" in str(raised.value)
 
 
 def test_a_node_id_in_a_record_with_a_tilde_is_invalid_node_id():
     registry = NodeRegistry()
 
-    @registry.node("upper", title="Upper", description="")
+    @registry.node("upper", title="Upper", description="For a test.")
     def upper(text: str) -> str:
         return text.upper()
 
-    loaded = registry.load({"nodes": [{"id": "a~b", "node": "upper"}]})
+    loaded = registry.load(GraphRecord.model_validate({"nodes": [{"id": "a~b", "node": "upper"}]}))
     assert [(p.type, p.loc) for p in loaded.problems] == [("invalid_node_id", ("a~b",))]
 
 
@@ -214,12 +238,12 @@ def test_a_series_of_tables_is_accepted_as_many_tables():
     def f(x: Series[Table[Invoice]]) -> int:
         return 1
 
-    spec = declared(f).inputs["x"]
-    assert spec.many is True and spec.type.id == "Table[name: str, amount: int]"
+    field = declared(f).inputs["x"]
+    assert field.many is True and field.type.id == "Table[name: str, amount: int]"
 
 
 def test_a_definition_is_frozen():
-    @node("upper", title="Upper", description="")
+    @node("upper", title="Upper", description="For a test.")
     def upper(text: str) -> str:
         return text.upper()
 
@@ -246,11 +270,11 @@ def test_a_node_is_called_like_its_function_and_declares_from_its_signature():
 
 
 def test_describe_is_the_node_as_json_with_no_keys_beyond_its_own():
-    @node("v", title="V1", description="")
+    @node("v", title="V1", description="For a test.")
     def v1(text: str) -> str:
         return text
 
-    @node("v", title="V2", description="", replaces=v1, tags=("words",), policy=Policy(retries=2))
+    @node("v", title="V2", description="For a test.", replaces=v1, tags=("words",), policy=Policy(retries=2))
     def v2(text: Annotated[str, Param(widget=Textarea(rows=2))]) -> Text:
         return Text(text)
 
@@ -268,7 +292,7 @@ def test_describe_is_the_node_as_json_with_no_keys_beyond_its_own():
 def test_a_sink_node_declares_no_outputs_and_runs():
     seen = []
 
-    @node("log", title="Log", description="")
+    @node("log", title="Log", description="For a test.")
     def log(text: str) -> None:
         seen.append(text)
 
@@ -285,7 +309,7 @@ def test_each_of_several_outputs_carries_its_own_type_and_title():
         case_sensitive: bool
         renamed: Annotated[float, Param(title="Score")]
 
-    @node("parts", title="Parts", description="")
+    @node("parts", title="Parts", description="For a test.")
     def parts(text: str) -> Parts:
         return Parts(text, None, True, 1.0)
 
@@ -298,7 +322,7 @@ def test_each_of_several_outputs_carries_its_own_type_and_title():
 
 
 def test_an_untitled_field_reads_as_its_name_in_everyday_words():
-    @node("f", title="F", description="")
+    @node("f", title="F", description="For a test.")
     def f(case_sensitive: bool, texts: Series[str], titled: Annotated[str, Param(title="Given")]) -> str:
         return ""
 
@@ -309,7 +333,7 @@ def test_an_untitled_field_reads_as_its_name_in_everyday_words():
 
 
 def test_the_bare_type_is_what_a_field_is_typed_as_when_it_may_be_blank():
-    @node("f", title="F", description="")
+    @node("f", title="F", description="For a test.")
     def f(many: Series[Text | None], one: Text | None) -> Text | None:
         return None
 
@@ -320,7 +344,7 @@ def test_the_bare_type_is_what_a_field_is_typed_as_when_it_may_be_blank():
 
 
 def test_a_none_default_with_a_blank_hint_is_optional_and_arrives_as_none():
-    @node("f", title="F", description="")
+    @node("f", title="F", description="For a test.")
     def f(x: int | None = None, picked: Annotated[str | None, Param(widget=TextInput())] = None) -> str:
         return f"{x}-{picked}"
 
@@ -329,7 +353,7 @@ def test_a_none_default_with_a_blank_hint_is_optional_and_arrives_as_none():
 
 
 def test_a_series_that_may_be_none_takes_none_given_typed_in_or_left_out_and_its_items_are_never_blank():
-    @node("f", title="F", description="")
+    @node("f", title="F", description="For a test.")
     def f(xs: Series[int] | None = None) -> str:
         return repr(xs)
 
@@ -343,7 +367,7 @@ def test_a_series_that_may_be_none_takes_none_given_typed_in_or_left_out_and_its
 
 
 def test_a_series_that_may_not_be_none_refuses_none_and_a_default_of_none():
-    @node("f", title="F", description="")
+    @node("f", title="F", description="For a test.")
     def f(xs: Series[int]) -> str:
         return repr(xs)
 
@@ -361,7 +385,7 @@ def test_a_series_that_may_not_be_none_refuses_none_and_a_default_of_none():
 
 
 def test_a_blank_on_an_input_that_takes_one_is_held_to_no_bound():
-    @node("f", title="F", description="")
+    @node("f", title="F", description="For a test.")
     def f(x: Annotated[str | None, Param(max_length=2)] = "ab") -> str:
         return repr(x)
 
@@ -371,7 +395,7 @@ def test_a_blank_on_an_input_that_takes_one_is_held_to_no_bound():
 
 
 def test_bounds_are_on_the_field_an_editor_reads():
-    @node("f", title="F", description="")
+    @node("f", title="F", description="For a test.")
     def f(n: Annotated[int, Param(ge=0, le=9)], s: Annotated[str, Param(max_length=3)] = "a") -> int:
         return n
 
@@ -379,7 +403,7 @@ def test_bounds_are_on_the_field_an_editor_reads():
 
 
 def test_a_value_typed_into_a_series_is_checked_item_by_item_at_load_and_arrives_as_a_list():
-    @node("total", title="Total", description="")
+    @node("total", title="Total", description="For a test.")
     def total(xs: Annotated[Series[int], Param(ge=0)]) -> str:
         return f"{type(xs).__name__}:{sum(xs)}"
 
@@ -391,7 +415,7 @@ def test_a_value_typed_into_a_series_is_checked_item_by_item_at_load_and_arrives
 
 
 def test_a_subclass_of_a_builtin_is_checked_as_the_builtin_then_made_one():
-    @node("kind", title="Kind", description="")
+    @node("kind", title="Kind", description="For a test.")
     def kind(t: Text) -> str:
         return type(t).__name__
 
@@ -399,19 +423,19 @@ def test_a_subclass_of_a_builtin_is_checked_as_the_builtin_then_made_one():
 
 
 def test_a_subclass_lands_where_its_parent_is_asked_for_and_not_the_other_way():
-    @node("make", title="Make", description="")
+    @node("make", title="Make", description="For a test.")
     def make(x: str) -> Text:
         return Text(x)
 
-    @node("plain", title="Plain", description="")
+    @node("plain", title="Plain", description="For a test.")
     def plain(x: str) -> str:
         return x
 
-    @node("on_str", title="On str", description="")
+    @node("on_str", title="On str", description="For a test.")
     def on_str(t: str) -> str:
         return type(t).__name__
 
-    @node("on_text", title="On text", description="")
+    @node("on_text", title="On text", description="For a test.")
     def on_text(t: Text) -> str:
         return t
 
@@ -421,15 +445,15 @@ def test_a_subclass_lands_where_its_parent_is_asked_for_and_not_the_other_way():
 
 
 def test_each_plain_type_carries_its_own_value():
-    @node("flags", title="Flags", description="")
+    @node("flags", title="Flags", description="For a test.")
     def flags(on: bool, day: datetime.date) -> bool:
         return on
 
-    @node("flip", title="Flip", description="")
+    @node("flip", title="Flip", description="For a test.")
     def flip(on: bool) -> bool:
         return not on
 
-    @node("when", title="When", description="")
+    @node("when", title="When", description="For a test.")
     def when(day: datetime.date) -> datetime.date:
         return day + datetime.timedelta(days=1)
 
@@ -448,11 +472,11 @@ def test_a_pydantic_model_travels_on_an_edge_and_through_json():
         who: str
         when: datetime.date
 
-    @node("make", title="Make", description="")
+    @node("make", title="Make", description="For a test.")
     def make(who: str) -> Visit:
         return Visit(who=who, when=datetime.date(2026, 1, 2))
 
-    @node("show", title="Show", description="")
+    @node("show", title="Show", description="For a test.")
     def show(visit: Visit) -> str:
         return f"{visit.who} {visit.when.isoformat()}"
 
@@ -464,7 +488,7 @@ def test_a_pydantic_model_travels_on_an_edge_and_through_json():
 
 
 def test_an_any_input_has_a_json_form_before_anything_is_wired():
-    @node("f", title="F", description="")
+    @node("f", title="F", description="For a test.")
     def f(x: Any) -> str:
         return ""
 
@@ -479,7 +503,7 @@ def test_describe_writes_each_default_as_its_type_writes_it_as_json():
     class Point:
         x: int
 
-    @node("f", title="F", description="")
+    @node("f", title="F", description="For a test.")
     def f(b: list[Point] = [Point(1)]) -> str:  # noqa: B006, B008
         return ""
 
@@ -488,7 +512,7 @@ def test_describe_writes_each_default_as_its_type_writes_it_as_json():
 
 
 def test_a_parameter_named_like_a_pydantic_model_attribute_checks_and_runs_without_a_warning():
-    @node("f", title="F", description="")
+    @node("f", title="F", description="For a test.")
     def f(schema: int, copy: int, json: int, model_config: int, json_: int) -> str:
         return f"{schema}{copy}{json}{model_config}{json_}"
 
@@ -502,7 +526,7 @@ def test_a_parameter_named_like_a_pydantic_model_attribute_checks_and_runs_witho
 
 
 def test_a_series_input_takes_many_values_of_its_element_type_and_a_list_is_one_value():
-    @node("f", title="F", description="")
+    @node("f", title="F", description="For a test.")
     def f(texts: Series[Text], numbers: list[float]) -> str:
         return ""
 
@@ -510,11 +534,11 @@ def test_a_series_input_takes_many_values_of_its_element_type_and_a_list_is_one_
 
 
 def test_a_table_declares_its_columns_and_their_types():
-    @node("read", title="Read", description="")
+    @node("read", title="Read", description="For a test.")
     def read(text: str) -> Table[Invoice]:
         return pl.DataFrame({"name": [text], "amount": [1]})
 
-    @node("bare", title="Bare", description="")
+    @node("bare", title="Bare", description="For a test.")
     def bare(text: str) -> Table:
         return pl.DataFrame()
 
@@ -531,7 +555,7 @@ def test_a_table_declares_its_columns_and_their_types():
 def test_a_param_with_a_widget_describes_with_one_title_on_the_field():
     languages = (Choice(id="en", title="English"), Choice(id="da", title="Dansk"))
 
-    @node("f", title="F", description="")
+    @node("f", title="F", description="For a test.")
     def f(lang: Annotated[str, Param(title="Language", description="Which one", choices=languages, widget=Dropdown())] = "en") -> str:
         return lang
 
@@ -541,7 +565,7 @@ def test_a_param_with_a_widget_describes_with_one_title_on_the_field():
 
 
 def test_a_param_with_a_title_alone_is_an_input_with_no_control():
-    @node("f", title="F", description="")
+    @node("f", title="F", description="For a test.")
     def f(x: Annotated[str, Param(title="Text")], y: str) -> str:
         return x
 
@@ -576,7 +600,7 @@ def test_a_host_declares_a_control_of_its_own_and_it_loads_runs_and_describes_wh
         type: Literal["entity-picker"] = "entity-picker"
         entity_kind: str = ""
 
-    @node("greet", title="Greet", description="")
+    @node("greet", title="Greet", description="For a test.")
     def greet(who: Annotated[str, Param(widget=EntityPicker(entity_kind="user"))]) -> str:
         return f"hi {who}"
 
@@ -589,15 +613,15 @@ def test_a_host_declares_a_control_of_its_own_and_it_loads_runs_and_describes_wh
 
 
 def test_a_version_number_is_its_place_in_the_chain_and_each_keeps_its_own_settings():
-    @node("v", title="V1", description="", policy=Policy(retries=1), deprecation=Deprecation(header="Use v3"))
+    @node("v", title="V1", description="For a test.", policy=Policy(retries=1), deprecation=Deprecation(header="Use v3"))
     def v1(x: str) -> str:
         return "one"
 
-    @node("v", title="V2", description="", replaces=v1, policy=Policy(retries=2))
+    @node("v", title="V2", description="For a test.", replaces=v1, policy=Policy(retries=2))
     def v2(x: str) -> str:
         return "two"
 
-    @node("v", title="V3", description="", replaces=v2, policy=Policy(concurrency=3))
+    @node("v", title="V3", description="For a test.", replaces=v2, policy=Policy(concurrency=3))
     def v3(x: str) -> str:
         return "three"
 
@@ -613,7 +637,7 @@ def test_a_version_number_is_its_place_in_the_chain_and_each_keeps_its_own_setti
 
 
 def test_a_version_with_no_policy_gets_the_default_of_one_call_at_a_time():
-    @node("f", title="F", description="")
+    @node("f", title="F", description="For a test.")
     def f(x: str) -> str:
         return x
 
@@ -621,11 +645,11 @@ def test_a_version_with_no_policy_gets_the_default_of_one_call_at_a_time():
 
 
 def test_a_deprecation_is_kept_as_written_and_is_never_a_problem():
-    @node("old", title="Old", description="", deprecation=Deprecation())
+    @node("old", title="Old", description="For a test.", deprecation=Deprecation())
     def old(x: str) -> str:
         return x
 
-    @node("going", title="Going", description="", deprecation=Deprecation(header="Going", alternative="new"))
+    @node("going", title="Going", description="For a test.", deprecation=Deprecation(header="Going", alternative="new"))
     def going(x: str) -> str:
         return x
 
@@ -640,24 +664,24 @@ def test_a_chain_written_wrong_is_refused_where_it_is_written():
     def g(y: int) -> int:
         return y
 
-    other = node("other", title="F", description="")(f)
+    other = node("other", title="F", description="For a test.")(f)
     with pytest.raises(NodeDeclarationError) as raised:
-        node("x", title="F", description="", replaces=other)(f)
+        node("x", title="F", description="For a test.", replaces=other)(f)
     assert raised.value.code == "replaces_another_node"
     with pytest.raises(NodeDeclarationError) as raised:
-        node("x", title="F", description="", upgrade=Upgrade())(f)
+        node("x", title="F", description="For a test.", upgrade=Upgrade())(f)
     assert raised.value.code == "upgrade_without_replaces"
     with pytest.raises(NodeDeclarationError) as raised:
-        node("x", title="G", description="", replaces=node("x", title="F", description="")(f))(g)
+        node("x", title="G", description="For a test.", replaces=node("x", title="F", description="For a test.")(f))(g)
     assert raised.value.code == "upgrade_missing"
 
 
 def test_a_definition_may_hold_a_graph_at_a_version_of_its_own():
-    @node("read", title="Read", description="")
+    @node("read", title="Read", description="For a test.")
     def read(text: str) -> str:
         return text
 
-    inner = node("inner", title="Inner", description="", version=3)(make_graph(read))
+    inner = stored_graph("inner", title="Inner", description="For a test.", version=3)(make_graph(read))
     assert inner.version == 3 and inner.versions == (3,)
     assert next(n for n in registry_of(read, inner).describe().nodes if n.id == "inner").kind == "graph"
     graph = load(read, inner, record=GraphRecord(nodes=[placed("e", "inner", version=3)]))
@@ -702,7 +726,7 @@ def test_a_hook_gets_the_typed_in_value_or_else_the_declared_default():
         seen.append(n)
         return {f"o{i}": int for i in range(n)}
 
-    @node("fan", title="Fan", description="", compute_outputs=outputs)
+    @node("fan", title="Fan", description="For a test.", compute_outputs=outputs)
     def fan(n: int = 2) -> dict:
         return {f"o{i}": i for i in range(n)}
 
@@ -719,7 +743,7 @@ def test_a_hook_is_not_called_when_a_value_it_needs_has_none():
         seen.append(n)
         return {"result": int}
 
-    @node("fan", title="Fan", description="", compute_outputs=outputs)
+    @node("fan", title="Fan", description="For a test.", compute_outputs=outputs)
     def fan(n: int) -> dict:
         return {"result": n}
 
@@ -734,11 +758,11 @@ def test_an_added_inputs_hook_reads_only_what_the_author_typed_never_an_edge():
         seen.append(n)
         return {f"part{i}": str for i in range(n)}
 
-    @node("number", title="Number", description="")
+    @node("number", title="Number", description="For a test.")
     def number(x: int) -> int:
         return x
 
-    @node("joiner", title="Joiner", description="", compute_added_inputs=added)
+    @node("joiner", title="Joiner", description="For a test.", compute_added_inputs=added)
     def joiner(n: int = 2, **parts: Any) -> str:
         return ",".join(parts.values())
 
@@ -747,11 +771,11 @@ def test_an_added_inputs_hook_reads_only_what_the_author_typed_never_an_edge():
 
 
 def test_each_version_has_its_own_hooks():
-    @node("h", title="H1", description="", compute_outputs=lambda: {"first": str})
+    @node("h", title="H1", description="For a test.", compute_outputs=lambda: {"first": str})
     def h1(x: str) -> dict:
         return {"first": x}
 
-    @node("h", title="H2", description="", replaces=h1, compute_outputs=lambda: {"second": str})
+    @node("h", title="H2", description="For a test.", replaces=h1, compute_outputs=lambda: {"second": str})
     def h2(x: str) -> dict:
         return {"second": x}
 
@@ -761,7 +785,7 @@ def test_each_version_has_its_own_hooks():
 
 
 def test_a_field_built_by_a_hook_takes_a_blank_when_its_hint_says_so():
-    @node("maybe", title="Maybe", description="", compute_outputs=lambda: {"result": int | None})
+    @node("maybe", title="Maybe", description="For a test.", compute_outputs=lambda: {"result": int | None})
     def maybe(x: str) -> dict:
         return {"result": None}
 
@@ -775,15 +799,15 @@ def test_a_hook_reads_the_element_type_a_series_input_receives():
     def typed_by(items: type):
         return {"result": items}
 
-    @node("lengths", title="Lengths", description="")
+    @node("lengths", title="Lengths", description="For a test.")
     def lengths(text: str) -> Series[int]:
         return [len(w) for w in text.split()]
 
-    @node("first", title="First", description="", compute_outputs=typed_by)
+    @node("first", title="First", description="For a test.", compute_outputs=typed_by)
     def first(items: Series[Any]) -> dict:
         return {"result": items[0]}
 
-    @node("double", title="Double", description="")
+    @node("double", title="Double", description="For a test.")
     def double(n: int) -> int:
         return n * 2
 
@@ -792,7 +816,7 @@ def test_a_hook_reads_the_element_type_a_series_input_receives():
         edges=[("lengths.result", "first.items"), ("first.result", "double.n")],
     ))
     assert graph.problems == [] and graph.describe().nodes["first"].outputs[0].type == "int"
-    assert graph.plan["first"].msg == "once"
+    assert graph.runs_on["first"].msg == "once"
     assert graph.run(text="ab c").results["double"]["result"] == 4
 
 
@@ -803,7 +827,7 @@ def test_a_hook_reads_any_on_an_input_no_edge_feeds_even_with_a_value_typed_in()
         seen.append(x)
         return {"result": int}
 
-    @node("f", title="F", description="", compute_outputs=outputs)
+    @node("f", title="F", description="For a test.", compute_outputs=outputs)
     def f(x: Any) -> dict:
         return {"result": 1}
 
@@ -813,7 +837,7 @@ def test_a_hook_reads_any_on_an_input_no_edge_feeds_even_with_a_value_typed_in()
 
 
 def test_a_node_whose_hook_gives_no_outputs_yet_leaves_the_graph_runnable():
-    @node("empty", title="Empty", description="", compute_outputs=lambda: {})
+    @node("empty", title="Empty", description="For a test.", compute_outputs=lambda: {})
     def empty(x: str) -> dict:
         return {}
 
@@ -825,17 +849,17 @@ def _refuses():
     raise ValueError("cannot say yet")
 
 
-@node("echo", title="Echo", description="")
+@node("echo", title="Echo", description="For a test.")
 def echo(v: str) -> str:
     return v
 
 
 def test_a_hook_that_raises_is_its_nodes_one_problem_never_an_exception():
-    @node("outs", title="Outs", description="", compute_outputs=_refuses)
+    @node("outs", title="Outs", description="For a test.", compute_outputs=_refuses)
     def outs(x: str) -> dict:
         return {}
 
-    @node("adds", title="Adds", description="", compute_added_inputs=_refuses)
+    @node("adds", title="Adds", description="For a test.", compute_added_inputs=_refuses)
     def adds(**kwargs: Any) -> str:
         return ""
 
@@ -853,7 +877,7 @@ def test_a_hook_is_given_any_for_an_input_whose_edge_is_refused_as_for_one_nothi
         arrived.append(x)
         return {"result": x}
 
-    @node("outs", title="Outs", description="", compute_outputs=of_what_arrives)
+    @node("outs", title="Outs", description="For a test.", compute_outputs=of_what_arrives)
     def outs(x: str) -> dict:
         return {}
 
@@ -866,7 +890,7 @@ def test_a_series_of_tables_from_a_hook_loads_with_no_problems():
     def h(x: str) -> dict:
         return {}
 
-    assert codes(load(node("h", title="H", description="", compute_outputs=lambda: {"result": Series[Table]})(h))) == []
+    assert codes(load(node("h", title="H", description="For a test.", compute_outputs=lambda: {"result": Series[Table]})(h))) == []
 
 
 def test_a_hint_from_a_hook_naming_a_class_that_is_not_declared_is_the_hooks_problem():
@@ -880,7 +904,7 @@ def test_a_hint_from_a_hook_naming_a_class_that_is_not_declared_is_the_hooks_pro
         return lambda: {"result": hint}
 
     for hint in (Sheet, Series[Sheet]):
-        assert codes(load(node("h", title="H", description="", compute_outputs=giving(hint))(h))) == ["compute_hook_failed"], hint
+        assert codes(load(node("h", title="H", description="For a test.", compute_outputs=giving(hint))(h))) == ["compute_hook_failed"], hint
 
 
 def _computing(hook: Any) -> Any:
@@ -888,7 +912,7 @@ def _computing(hook: Any) -> Any:
     def h(x: str = "a") -> dict:
         return {}
 
-    return load(node("h", title="H", description="", compute_outputs=hook)(h))
+    return load(node("h", title="H", description="For a test.", compute_outputs=hook)(h))
 
 
 @pytest.mark.parametrize("returned", [None, ["result"], "result"])
@@ -926,7 +950,7 @@ def test_a_hooks_own_exception_is_logged_with_its_traceback_as_a_nodes_own_failu
 
 
 def test_a_hook_adding_an_input_whose_name_an_address_cannot_carry_is_refused():
-    @node("adds", title="Adds", description="", compute_added_inputs=lambda: {"a.b": int})
+    @node("adds", title="Adds", description="For a test.", compute_added_inputs=lambda: {"a.b": int})
     def adds(**kwargs: Any) -> int:
         return 1
 
@@ -947,7 +971,7 @@ def test_a_none_default_on_an_input_that_takes_no_blank_is_refused():
 
 
 def test_a_default_reaches_the_function_as_its_declared_type():
-    @node("kind", title="Kind", description="")
+    @node("kind", title="Kind", description="For a test.")
     def kind(x: Whole = 3, t: Text = "a") -> str:  # type: ignore[assignment]
         return f"{type(x).__name__} {type(t).__name__}"
 
@@ -975,34 +999,34 @@ def test_params_stacked_on_an_alias_merge_as_pydantics_fields_do_the_later_one_w
     def f(separator: Annotated[line, Param(min_length=1, title="Separator")] = ",") -> int:
         return 1
 
-    spec = declared(f).inputs["separator"]
-    assert (spec.description.title, spec.param.widget, spec.param.limits) == ("Separator", TextInput(), {"min_length": 1})
+    field = declared(f).inputs["separator"]
+    assert (field.description.title, field.param.widget, field.param.limits) == ("Separator", TextInput(), {"min_length": 1})
     with pytest.raises(FieldValueError):
-        spec.whole.read("")
+        field.whole.read("")
 
 
 def test_a_param_on_a_series_item_is_the_fields_own_so_an_int_lands_and_a_bool_does_not():
     count = Annotated[int, Param(ge=0, title="Count")]
     registry = NodeRegistry()
 
-    @registry.node("words", title="Words", description="")
+    @registry.node("words", title="Words", description="For a test.")
     def words(text: str) -> Series[str]:
         return text.split()
 
-    @registry.node("length", title="Length", description="")
+    @registry.node("length", title="Length", description="For a test.")
     def length(text: str) -> int:
         return len(text)
 
-    @registry.node("total", title="Total", description="")
+    @registry.node("total", title="Total", description="For a test.")
     def total(n: Series[count], m: Series[count | None] | None = None) -> int:
         return sum(n)
 
     for name, blank in (("n", False), ("m", True)):
-        spec = total.inputs[name]
-        assert (spec.type.bare, spec.description.title, spec.param.limits) == (int | None if blank else int, "Count", {"ge": 0})
+        field = total.inputs[name]
+        assert (field.type.bare, field.description.title, field.param.limits) == (int | None if blank else int, "Count", {"ge": 0})
         for wrong in ([-1], [True]):
             with pytest.raises(FieldValueError):
-                spec.whole.read(wrong)
+                field.whole.read(wrong)
     graph = registry.load(make_graph(words, length, total, edges=[("words.result", "length.text"), ("length.result", "total.n")]))
     assert graph.problems == []
     assert graph.run(text="ab c").outputs == {"total.result": 3}
@@ -1012,7 +1036,7 @@ def test_a_tables_column_annotated_with_a_param_declares_and_its_limits_hold_on_
     class Row(TypedDict):
         n: Annotated[int, Param(ge=0)]
 
-    @node("rows", title="Rows", description="")
+    @node("rows", title="Rows", description="For a test.")
     def rows(text: str) -> Table[Row]:
         return pl.DataFrame({"n": [-1]})
 
@@ -1033,11 +1057,11 @@ def test_a_params_choices_limit_a_hosts_own_model_as_they_limit_a_nodes_field():
 def test_a_value_an_edge_brings_is_held_to_the_inputs_choices_as_to_its_limits():
     registry = NodeRegistry()
 
-    @registry.node("give", title="Give", description="")
+    @registry.node("give", title="Give", description="For a test.")
     def give(text: str) -> str:
         return text
 
-    @registry.node("pick", title="Pick", description="")
+    @registry.node("pick", title="Pick", description="For a test.")
     def pick(colour: Annotated[str, Param(choices=["red", "blue"])]) -> str:
         return colour
 
@@ -1056,7 +1080,7 @@ def test_a_params_choices_hold_on_a_field_of_a_dataclass_a_node_takes_as_its_lim
 
     registry = NodeRegistry()
 
-    @registry.node("take", title="Take", description="")
+    @registry.node("take", title="Take", description="For a test.")
     def take(order: Order) -> str:
         return order.colour
 
@@ -1078,7 +1102,7 @@ def test_a_series_of_series_does_not_exist():
 
 
 def test_a_bare_series_is_many_values_of_anything():
-    @node("count", title="Count", description="")
+    @node("count", title="Count", description="For a test.")
     def count(xs: Series) -> int:
         return len(xs)
 
@@ -1087,7 +1111,7 @@ def test_a_bare_series_is_many_values_of_anything():
 
 
 def test_a_series_that_may_be_none_is_still_many_values():
-    @node("f", title="F", description="")
+    @node("f", title="F", description="For a test.")
     def f(xs: Series[int] | None = None) -> str:
         return repr(xs)
 
@@ -1119,11 +1143,11 @@ def test_a_hook_reads_a_whole_table_arriving_with_its_columns():
         seen.append(rows)
         return {"result": str}
 
-    @node("read", title="Read", description="")
+    @node("read", title="Read", description="For a test.")
     def read(text: str) -> Table[Invoice]:
         return pl.DataFrame({"name": [text], "amount": [1]})
 
-    @node("look", title="Look", description="", compute_outputs=outputs)
+    @node("look", title="Look", description="For a test.", compute_outputs=outputs)
     def look(rows: Table) -> dict:
         return {"result": ",".join(rows.columns)}
 
@@ -1138,7 +1162,7 @@ def test_from_run_names_a_class() -> None:
 
     with pytest.raises(NodeDeclarationError, match="FromRun names the class") as raised:
 
-        @node("bare", title="Bare", description="")
+        @node("bare", title="Bare", description="For a test.")
         def bare(who: FromRun) -> str:  # type: ignore[type-arg]
             return "x"
 
@@ -1166,13 +1190,13 @@ def _returns_a_session() -> FromRun[_Session]:
 def test_from_run_is_only_a_whole_parameter_so_a_caller_never_fills_it(function: Any) -> None:
     # Anywhere else the value would be an input a caller fills, and a node trusts what the host hands it.
     with pytest.raises(NodeDeclarationError, match="FromRun") as raised:
-        node("who", title="Who", description="")(function)
+        node("who", title="Who", description="For a test.")(function)
 
     assert raised.value.code == "from_run_misplaced"
 
 
 def test_a_bare_series_is_many_values_of_any_type() -> None:
-    @node("count", title="Count", description="")
+    @node("count", title="Count", description="For a test.")
     def count(items: Series) -> int:  # type: ignore[type-arg]
         return len(items)
 
@@ -1180,7 +1204,7 @@ def test_a_bare_series_is_many_values_of_any_type() -> None:
 
 
 def test_a_literal_inputs_choices_are_in_its_record_and_a_widget_draws_them():
-    @node("priority", title="Priority", description="")
+    @node("priority", title="Priority", description="For a test.")
     def priority(level: Annotated[Literal["low", "high"], Param(widget=Dropdown())]) -> str:
         return level
 
@@ -1194,15 +1218,15 @@ def test_a_fields_choices_have_one_home_that_titles_a_literal_and_limits_any_oth
 
     titled = (Choice("low", "Lav"), Choice("high", "Høj"))
 
-    @node("priority", title="Priority", description="")
+    @node("priority", title="Priority", description="For a test.")
     def priority(level: Annotated[Literal["low", "high"], Param(choices=titled, widget=Dropdown())]) -> str:
         return level
 
-    @node("size", title="Size", description="")
+    @node("size", title="Size", description="For a test.")
     def size(name: Annotated[str, Param(choices=["S", "M"])]) -> str:
         return name
 
-    @node("rate", title="Rate", description="")
+    @node("rate", title="Rate", description="For a test.")
     def rate(text: str) -> Annotated[Literal["low", "high"], Param(choices=titled)]:
         raise Ask("How urgent?")
 
@@ -1218,7 +1242,7 @@ def test_a_fields_choices_have_one_home_that_titles_a_literal_and_limits_any_oth
     for wrong in ((Choice("low", "Lav"),), ("low", "low", "high"), (1, 2)):
         with pytest.raises(NodeDeclarationError) as raised:
 
-            @node("bad", title="Bad", description="")
+            @node("bad", title="Bad", description="For a test.")
             def bad(level: Annotated[Literal["low", "high"], Param(choices=wrong)]) -> str:
                 return level
 
@@ -1234,7 +1258,7 @@ def test_an_input_a_hook_adds_may_have_a_default_and_a_hook_may_give_its_own_cod
             raise NodeError("No such column.", code="no_column", ctx={"names": names})
         return {name: (str, "x") for name in names.split(",")}
 
-    @node("glue", title="Glue", description="", compute_added_inputs=added)
+    @node("glue", title="Glue", description="For a test.", compute_added_inputs=added)
     def glue(text: str, names: str = "a,b", **columns: str) -> str:
         return text + "".join(columns.values())
 
@@ -1255,7 +1279,7 @@ def test_a_hooks_own_ctx_is_kept_whole_beside_the_reason_and_the_code(ctx: dict[
     def added(names: str) -> dict[str, Any]:
         raise NodeError("No such column.", code="no_column", ctx=ctx)
 
-    @node("glue", title="Glue", description="", compute_added_inputs=added)
+    @node("glue", title="Glue", description="For a test.", compute_added_inputs=added)
     def glue(names: str, **columns: str) -> str:
         return names
 
@@ -1268,7 +1292,7 @@ def test_a_hooks_error_without_a_code_of_its_own_says_the_code_its_class_gives_e
     def added(names: str) -> dict[str, Any]:
         raise raised
 
-    @node("glue", title="Glue", description="", compute_added_inputs=added)
+    @node("glue", title="Glue", description="For a test.", compute_added_inputs=added)
     def glue(names: str, **columns: str) -> str:
         return names
 
@@ -1277,7 +1301,7 @@ def test_a_hooks_error_without_a_code_of_its_own_says_the_code_its_class_gives_e
 
 
 def test_a_configuration_the_graphs_author_fixes_is_a_value_and_one_left_open_is_the_callers():
-    @node("ask-model", title="Ask model", description="")
+    @node("ask-model", title="Ask model", description="For a test.")
     def ask_model(prompt: str, model: str = "small") -> str:
         return f"{model}:{prompt}"
 
@@ -1301,7 +1325,7 @@ def test_a_configuration_the_graphs_author_fixes_is_a_value_and_one_left_open_is
 def test_a_declared_choice_is_read_strictly_and_held_to_the_fields_limits(choices: list[object], limits: dict[str, int], reason: str) -> None:
     with pytest.raises(NodeDeclarationError) as raised:
 
-        @node("bad", title="Bad", description="")
+        @node("bad", title="Bad", description="For a test.")
         def bad(n: Annotated[int, Param(choices=choices, **limits)]) -> int:  # type: ignore[arg-type]
             return n
 
@@ -1317,15 +1341,15 @@ def test_a_declared_choice_is_read_as_an_answer_is_so_an_enums_value_or_its_memb
         RED = "red"
         BLUE = "blue"
 
-    @node("by-value", title="By value", description="")
+    @node("by-value", title="By value", description="For a test.")
     def by_value(color: Annotated[Color, Param(choices=["red"])]) -> str:
         return color.value
 
-    @node("by-member", title="By member", description="")
+    @node("by-member", title="By member", description="For a test.")
     def by_member(color: Annotated[Color, Param(choices=[Color.RED])]) -> str:
         return color.value
 
-    @node("a-day", title="A day", description="")
+    @node("a-day", title="A day", description="For a test.")
     def a_day(day: Annotated[datetime.date, Param(choices=["2024-01-02"])]) -> str:
         return day.isoformat()
 
@@ -1340,10 +1364,8 @@ def test_a_declared_choice_is_read_as_an_answer_is_so_an_enums_value_or_its_memb
     {"compute_added_inputs": lambda: {"x": int}},
 ])
 def test_a_stored_graph_takes_no_policy_or_hook_since_its_own_nodes_run_by_theirs(given: dict[str, Any]) -> None:
-    record = GraphRecord(nodes=[NodeRecord(id="u", node="upper")])
-    with pytest.raises(NodeDeclarationError) as raised:
-        node("wrapped", title="Wrapped", description="", **given)(record)
-    assert raised.value.code == "not_for_a_graph"
+    with pytest.raises(TypeError, match="unexpected keyword argument"):
+        stored_graph("x", title="X", description="d", **given)
 
 
 def test_a_limit_pydantic_holds_on_a_type_is_taken_and_one_it_cant_is_refused_in_a_model_a_node_takes_too():

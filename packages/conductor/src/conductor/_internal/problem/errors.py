@@ -98,6 +98,7 @@ DeclarationCode = Literal[
     "default_invalid",
     "duplicate_node_id",
     "duplicate_type_id",
+    "empty_title_or_description",
     "exclusive_group_on_input",
     "from_run_misplaced",
     "from_run_not_a_class",
@@ -105,7 +106,6 @@ DeclarationCode = Literal[
     "input_without_type",
     "invalid_node_id",
     "nested_series",
-    "not_for_a_graph",
     "output_without_type",
     "outputs_not_frozen",
     "parameter_not_by_name",
@@ -165,7 +165,8 @@ class UnitFailedError(Exception):
     """A unit's call ends on a problem conductor names itself: what the node was to be given, or what it returned, is refused.
 
     Raised where the fault is met, which knows what is wrong and not which unit it is; the leg gives the problem
-    its place and records it as the unit's failure.
+    its place and records it as the unit's failure. A caller never meets it: a run read afterwards
+    (``run.results``) reads a blank where the fault was.
 
     Attributes:
         problem: The problem, with no ``loc``.

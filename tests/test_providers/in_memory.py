@@ -81,24 +81,24 @@ def asking(items: bool = False) -> tuple[NodeRegistry, GraphRecord, threading.Ev
     ``items``, beside a Series of three items read one at a time too, for a ceiling of 1 to stop."""
     registry, gate = NodeRegistry(), threading.Event()
 
-    @registry.node("busy", title="Busy", description="")
+    @registry.node("busy", title="Busy", description="For a test.")
     def busy(text: str) -> str:
         gate.wait(5)
         return text
 
-    @registry.node("approve", title="Approve", description="")
+    @registry.node("approve", title="Approve", description="For a test.")
     def approve(text: str) -> bool:
         raise Ask("Go on?")
 
-    @registry.node("after", title="After", description="")
+    @registry.node("after", title="After", description="For a test.")
     def after(ok: bool) -> bool:
         return ok
 
-    @registry.node("three", title="Three", description="")
+    @registry.node("three", title="Three", description="For a test.")
     def three(n: int) -> Series[int]:
         return list(range(n))
 
-    @registry.node("each", title="Each", description="")
+    @registry.node("each", title="Each", description="For a test.")
     def each(i: int) -> int:
         return i
 
@@ -116,20 +116,20 @@ def gated() -> tuple[NodeRegistry, GraphRecord, dict[str, threading.Event], list
     on its first item of two; ``held`` is set once that item is called."""
     registry, gates, calls = NodeRegistry(), {name: threading.Event() for name in ("first", "second", "held")}, []
 
-    @registry.node("items", title="Items", description="")
+    @registry.node("items", title="Items", description="For a test.")
     def items(text: str) -> Series[str]:
         return text.split(",")
 
-    @registry.node("busy", title="Busy", description="")
+    @registry.node("busy", title="Busy", description="For a test.")
     def busy(text: str) -> str:
         gates["first"].wait(5)
         return text
 
-    @registry.node("approve", title="Approve", description="")
+    @registry.node("approve", title="Approve", description="For a test.")
     def approve(text: str) -> bool:
         raise Ask("Go on?")
 
-    @registry.node("hold", title="Hold", description="")
+    @registry.node("hold", title="Hold", description="For a test.")
     def hold(item: str, ok: bool) -> str:
         calls.append(item)
         gates["held"].set()

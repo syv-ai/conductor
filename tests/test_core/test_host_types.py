@@ -6,7 +6,7 @@ import ipaddress
 from typing import Any, Generic, TypeVar
 
 import pytest
-from conductor import NodeDeclarationError, NodeRegistry, host_type, node
+from conductor import NodeDeclarationError, NodeRegistry, host_type, make_graph, node
 from pydantic import BaseModel
 from pydantic_core import core_schema
 
@@ -80,15 +80,15 @@ def test_a_class_declared_with_host_type_is_a_fields_type_under_its_id(held: Any
 
 
 def test_a_subclass_of_a_builtin_needs_no_schema_of_its_own_and_its_own_check_runs() -> None:
-    @node("short", title="Short", description="")
+    @node("short", title="Short", description="For a test.")
     def short(text: Text) -> Text:
         return text
 
     registry = NodeRegistry()
     registry.add(short)
-    graph = registry.load({"nodes": [{"id": "s", "node": "short"}], "edges": []})
+    graph = registry.load(make_graph(short))
 
-    assert type(graph.run(text="hello").outputs["s.result"]) is Text
+    assert type(graph.run(text="hello").outputs["short.result"]) is Text
     with pytest.raises(Exception) as refused:
         graph.run(text="x" * 21)
     assert refused.value.errors()[0].type == "invalid_input"
@@ -199,13 +199,13 @@ def test_a_hook_that_returns_a_class_that_is_not_declared_is_the_hooks_failure()
     class Plain:
         x: float
 
-    @node("made", title="Made", description="", compute_outputs=lambda: {"result": Plain})
+    @node("made", title="Made", description="For a test.", compute_outputs=lambda: {"result": Plain})
     def made() -> dict[str, Any]:
         return {}
 
     registry = NodeRegistry()
     registry.add(made)
-    (problem,) = registry.load({"nodes": [{"id": "m", "node": "made"}], "edges": []}).problems
+    (problem,) = registry.load(make_graph(made)).problems
     assert (problem.type, problem.ctx["error"]) == ("compute_hook_failed", "type_not_named")
 
 

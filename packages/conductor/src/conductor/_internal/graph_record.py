@@ -38,9 +38,9 @@ from typing import Annotated, Any
 from pydantic import AfterValidator, ConfigDict, Field, JsonValue, ValidationError, field_validator
 from pydantic_core import PydanticSerializationError, from_json, to_json
 
-from conductor._internal import problem
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.problem import InvalidCallError, Problem
+from conductor._internal.problem import catalogue as problem
 from conductor._internal.series import SET_HAS_NO_ORDER
 from conductor._internal.value_type import kind_of_value
 
@@ -118,21 +118,21 @@ class GraphRecord(ConductorModel):
         return tuple(sorted(edges))
 
 
-def as_record(record: GraphRecord | str | bytes | Mapping[str, Any]) -> GraphRecord:
-    """A record given as itself, as JSON text, or as a mapping read from JSON.
+def as_record(record: GraphRecord | str | bytes) -> GraphRecord:
+    """Return ``record`` when it is a ``GraphRecord``, else read it as a record's JSON text.
 
-    What doesn't have a record's shape (text that isn't JSON, a key a record
-    doesn't have, a field of the wrong type, an address that isn't one) is an
-    ``InvalidCallError`` of ``invalid_record`` problems, one per fault, each at
-    ``("record", *where)``. What has the shape and can't be meant is the
-    loaded graph's problem, never an exception.
+    A host that holds a dict makes the record itself: ``GraphRecord.model_validate(data)``.
+
+    Raises:
+        InvalidCallError: The text isn't JSON, or isn't a record's shape (a key a record doesn't have, a field
+            of the wrong type, an address that isn't one): one ``invalid_record`` problem per fault, each at
+            ``("record", *where)``. A record of the right shape that makes no sense as a graph is not raised
+            here; loading it lists its problems.
     """
     if isinstance(record, GraphRecord):
         return record
     try:
-        if isinstance(record, (str, bytes)):
-            return GraphRecord.model_validate_json(record)
-        return GraphRecord.model_validate(record)
+        return GraphRecord.model_validate_json(record)
     except ValidationError as invalid:
         raise InvalidCallError(not_a_record(invalid)) from None
 

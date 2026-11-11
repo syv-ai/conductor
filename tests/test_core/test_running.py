@@ -8,10 +8,10 @@ at a time, or on threads, with retries and a clock on each attempt.
 """
 
 import asyncio
-import json
 import math
 import threading
 import time
+from collections.abc import Callable
 from typing import Any, TypedDict
 
 import polars as pl
@@ -31,8 +31,9 @@ from conductor import (
     host_type,
     make_graph,
     node,
+    stored_graph,
 )
-from pydantic import BaseModel
+from pydantic import BaseModel, model_serializer
 
 from tests.test_core.nodes import place, registry_of
 
@@ -40,12 +41,12 @@ from tests.test_core.nodes import place, registry_of
 BOUND = 10.0
 
 
-@node("split", title="Split", description="")
+@node("split", title="Split", description="For a test.")
 def split(text: str) -> Series[str]:
     return text.split(",") if text else []
 
 
-@node("join", title="Join", description="")
+@node("join", title="Join", description="For a test.")
 def join(texts: Series[str]) -> str:
     return "+".join(texts)
 
@@ -84,12 +85,12 @@ def _settle(calls: list[Any]) -> tuple[int, int]:
 # -- what the events say ---------------------------------------------------------------------
 
 
-@node("addresses", title="Addresses", description="")
+@node("addresses", title="Addresses", description="For a test.")
 def addresses(text: str) -> Series[str | None]:
     return [part or None for part in text.split(",")]
 
 
-@node("send", title="Send", description="")
+@node("send", title="Send", description="For a test.")
 def send(email: str) -> str:
     return f"sent {email}"
 
@@ -110,22 +111,22 @@ def test_node_complete_counts_the_items_a_blank_kept_the_node_from_and_a_saved_r
 def test_a_diamond_runs_each_branch_once_and_joins_them():
     calls: list[str] = []
 
-    @node("source", title="Source", description="")
+    @node("source", title="Source", description="For a test.")
     def source(text: str) -> str:
         calls.append("source")
         return text
 
-    @node("left", title="Left", description="")
+    @node("left", title="Left", description="For a test.")
     def left(text: str) -> str:
         calls.append("left")
         return text.upper()
 
-    @node("right", title="Right", description="")
+    @node("right", title="Right", description="For a test.")
     def right(text: str) -> str:
         calls.append("right")
         return text[::-1]
 
-    @node("meet", title="Meet", description="")
+    @node("meet", title="Meet", description="For a test.")
     def meet(a: str, b: str) -> str:
         return f"{a}|{b}"
 
@@ -142,7 +143,7 @@ def test_a_diamond_runs_each_branch_once_and_joins_them():
 
 
 def test_a_failed_item_fails_the_node_naming_the_item_and_the_gather_below_never_starts():
-    @node("picky", title="Picky", description="")
+    @node("picky", title="Picky", description="For a test.")
     def picky(text: str) -> str:
         if text == "1":
             raise ValueError("not this one")
@@ -159,11 +160,11 @@ def test_a_failed_item_fails_the_node_naming_the_item_and_the_gather_below_never
 
 
 def test_outputs_leave_out_a_skipped_output_and_a_failed_run_keeps_what_it_made():
-    @node("only-short", title="Only short", description="")
+    @node("only-short", title="Only short", description="For a test.")
     def only_short(text: str) -> str:
         return text if len(text) < 3 else SKIPPED
 
-    @node("fails-on-c", title="Fails on c", description="")
+    @node("fails-on-c", title="Fails on c", description="For a test.")
     def fails_on_c(text: str) -> str:
         if text == "c":
             raise ValueError("no c")
@@ -179,7 +180,7 @@ def test_outputs_leave_out_a_skipped_output_and_a_failed_run_keeps_what_it_made(
 
 
 def test_progress_counts_items_between_start_and_complete_with_the_total_once_the_items_are_known():
-    @node("echo", title="Echo", description="")
+    @node("echo", title="Echo", description="For a test.")
     def echo(text: str) -> str:
         return text
 
@@ -192,7 +193,7 @@ def test_progress_counts_items_between_start_and_complete_with_the_total_once_th
 
 
 def test_a_fast_node_over_many_items_reports_progress_a_few_times_a_second_ending_on_its_last_count():
-    @node("echo", title="Echo", description="")
+    @node("echo", title="Echo", description="For a test.")
     def echo(text: str) -> str:
         return text
 
@@ -209,7 +210,7 @@ def test_a_fast_node_over_many_items_reports_progress_a_few_times_a_second_endin
 
 
 def test_a_leg_that_ends_waiting_reports_the_last_count_of_the_node_still_waiting():
-    @node("maybe", title="Maybe", description="")
+    @node("maybe", title="Maybe", description="For a test.")
     def maybe(text: str) -> str:
         if text == "ask":
             raise Ask("Is this right?")
@@ -225,7 +226,7 @@ def test_a_leg_that_ends_waiting_reports_the_last_count_of_the_node_still_waitin
 
 
 def test_a_node_above_items_that_were_never_made_reports_no_progress():
-    @node("echo", title="Echo", description="")
+    @node("echo", title="Echo", description="For a test.")
     def echo(text: str) -> str:
         return text
 
@@ -241,14 +242,14 @@ def test_a_node_above_items_that_were_never_made_reports_no_progress():
 def test_the_policy_of_the_version_the_graph_is_pinned_at_is_the_one_a_run_obeys():
     calls: list[int] = []
 
-    @node("fetch", title="Fetch one", description="", policy=Policy(retries=2, retry_delay=0.01))
+    @node("fetch", title="Fetch one", description="For a test.", policy=Policy(retries=2, retry_delay=0.01))
     def fetch_one(text: str) -> str:
         calls.append(1)
         if len(calls) < 3:
             raise ExternalError("try again")
         return "one"
 
-    @node("fetch", title="Fetch two", description="", replaces=fetch_one, policy=Policy(retries=0))
+    @node("fetch", title="Fetch two", description="For a test.", replaces=fetch_one, policy=Policy(retries=0))
     def fetch_two(text: str) -> str:
         calls.append(2)
         raise ExternalError("never retried")
@@ -266,7 +267,7 @@ def test_concurrency_one_calls_one_item_at_a_time():
     in_flight, most = 0, 0
     lock = threading.Lock()
 
-    @node("counted", title="Counted", description="")
+    @node("counted", title="Counted", description="For a test.")
     def counted(text: str) -> str:
         nonlocal in_flight, most
         with lock:
@@ -285,7 +286,7 @@ def test_a_leg_of_nodes_at_concurrency_one_makes_no_threads_of_its_own():
     """Called in order on the leg's own thread: a 100-node chain over 20 items runs on one thread."""
     seen: set[int] = set()
 
-    @node("step", title="Step", description="")
+    @node("step", title="Step", description="For a test.")
     def step(text: str) -> str:
         seen.add(threading.get_ident())
         return text
@@ -302,7 +303,7 @@ def test_the_retry_delay_doubles_each_time_and_another_item_takes_the_slot_while
     tries: dict[str, int] = {}
     finished: list[str] = []
 
-    @node("flaky", title="Flaky", description="", policy=Policy(concurrency=1, retries=3, retry_delay=0.02))
+    @node("flaky", title="Flaky", description="For a test.", policy=Policy(concurrency=1, retries=3, retry_delay=0.02))
     def flaky(text: str) -> str:
         tries[text] = tries.get(text, 0) + 1
         if text == "flaky" and tries[text] <= 3:
@@ -322,13 +323,13 @@ def test_an_instant_node_beside_forty_slow_items_does_not_time_out():
     """An attempt's clock starts when its call does, never while it waits for a thread."""
     calls: list[str] = []
 
-    @node("sleeper", title="Sleeper", description="", policy=Policy(concurrency=40))
+    @node("sleeper", title="Sleeper", description="For a test.", policy=Policy(concurrency=40))
     def sleeper(text: str) -> str:
         calls.append(text)
         time.sleep(0.5)
         return text
 
-    @node("instant", title="Instant", description="", policy=Policy(attempt_timeout=0.1))
+    @node("instant", title="Instant", description="For a test.", policy=Policy(attempt_timeout=0.1))
     def instant(texts: Series[str]) -> str:
         return "now"
 
@@ -345,13 +346,13 @@ def test_an_instant_node_beside_forty_slow_items_does_not_time_out():
 def test_units_recorded_as_threads_return_are_read_in_item_order_live_in_a_checkpoint_and_after_a_load():
     """Calls on threads finish when they finish; what a run says of a node's units is in item order all the same."""
 
-    @node("first-is-last", title="First is last", description="", policy=Policy(concurrency=4))
+    @node("first-is-last", title="First is last", description="For a test.", policy=Policy(concurrency=4))
     def first_is_last(text: str) -> str | None:
         if text == "0":
             time.sleep(0.3)  # the first item returns after every other
         return None
 
-    @node("needs-text", title="Needs text", description="")
+    @node("needs-text", title="Needs text", description="For a test.")
     def needs_text(text: str) -> str:
         return text
 
@@ -379,20 +380,20 @@ def test_a_reader_made_ready_by_each_of_two_nodes_it_reads_is_called_once(items:
     """A call that comes back from a thread makes its readers ready; a unit made ready twice is still one unit."""
     calls: list[tuple[str, str]] = []
 
-    @node("from-a-thread", title="From a thread", description="", policy=Policy(concurrency=2))
+    @node("from-a-thread", title="From a thread", description="For a test.", policy=Policy(concurrency=2))
     def from_a_thread(text: str) -> str:
         time.sleep(0.01)
         return text
 
-    @node("left", title="Left", description="")
+    @node("left", title="Left", description="For a test.")
     def left(text: str) -> str:
         return text + "a"
 
-    @node("right", title="Right", description="")
+    @node("right", title="Right", description="For a test.")
     def right(text: str) -> str:
         return text + "b"
 
-    @node("both", title="Both", description="")
+    @node("both", title="Both", description="For a test.")
     def both(left: str, right: str) -> str:
         calls.append((left, right))
         return left + right
@@ -418,17 +419,17 @@ def test_one_leg_starts_everything_its_own_units_make_ready_and_a_further_resume
     the first node is called on the leg's own thread or on others."""
     calls: list[str] = []
 
-    @node("first", title="First", description="", policy=Policy(concurrency=concurrency))
+    @node("first", title="First", description="For a test.", policy=Policy(concurrency=concurrency))
     def first(text: str) -> str:
         calls.append(f"first {text}")
         return text
 
-    @node("then", title="Then", description="")
+    @node("then", title="Then", description="For a test.")
     def then(text: str) -> str:
         calls.append(f"then {text}")
         return text + "!"
 
-    @node("last", title="Last", description="")
+    @node("last", title="Last", description="For a test.")
     def last(texts: Series[str]) -> str:
         calls.append("last")
         return "+".join(texts)
@@ -455,7 +456,7 @@ def test_concurrency_one_with_an_attempt_timeout_never_has_two_calls_in_flight()
     in_flight, most = 0, 0
     lock = threading.Lock()
 
-    @node("slow-items", title="Slow items", description="", policy=Policy(concurrency=1, attempt_timeout=0.2, retries=2, retry_delay=0.01))
+    @node("slow-items", title="Slow items", description="For a test.", policy=Policy(concurrency=1, attempt_timeout=0.2, retries=2, retry_delay=0.01))
     def slow_items(text: str) -> str:
         nonlocal in_flight, most
         with lock:
@@ -477,7 +478,7 @@ def test_concurrency_one_with_an_attempt_timeout_never_has_two_calls_in_flight()
 
 
 def test_a_run_has_no_deadline_by_default_and_a_slow_node_runs_to_the_end():
-    @node("slow-second", title="Slow second", description="")
+    @node("slow-second", title="Slow second", description="For a test.")
     def slow_second(text: str) -> str:
         time.sleep(1.0)
         return "done"
@@ -496,7 +497,7 @@ def test_a_run_has_no_deadline_by_default_and_a_slow_node_runs_to_the_end():
     ids=lambda raised: type(raised).__name__,
 )
 def test_anything_a_node_raises_fails_its_unit_and_the_leg_ends(raised):
-    @node("raises", title="Raises", description="")
+    @node("raises", title="Raises", description="For a test.")
     def raises(text: str) -> str:
         raise raised
 
@@ -512,7 +513,7 @@ def test_anything_a_node_raises_fails_its_unit_and_the_leg_ends(raised):
 def test_a_defect_in_the_engine_reaches_the_caller_rather_than_hanging_the_stream(monkeypatch):
     from conductor._internal.run.call_inputs import ItemReader
 
-    @node("echo", title="Echo", description="")
+    @node("echo", title="Echo", description="For a test.")
     def echo(text: str) -> str:
         return text
 
@@ -535,7 +536,7 @@ def _item_zero_fails_at_once(concurrency: int, **policy: Any) -> tuple[Any, list
     calls: list[str] = []
     release = threading.Event()
 
-    @node("mail", title="Mail", description="", policy=Policy(concurrency=concurrency, **policy))
+    @node("mail", title="Mail", description="For a test.", policy=Policy(concurrency=concurrency, **policy))
     def mail(text: str) -> str:
         calls.append(text)
         if text == "0":
@@ -573,7 +574,7 @@ def test_an_item_failing_at_concurrency_one_starts_no_later_item():
 def test_a_failed_leg_waits_for_a_call_still_running_no_longer_than_its_attempt_timeout():
     release = threading.Event()
 
-    @node("hangs-or-fails", title="Hangs or fails", description="", policy=Policy(concurrency=2, attempt_timeout=0.2))
+    @node("hangs-or-fails", title="Hangs or fails", description="For a test.", policy=Policy(concurrency=2, attempt_timeout=0.2))
     def hangs_or_fails(text: str) -> str:
         if text == "0":
             raise ValueError("no")
@@ -595,7 +596,7 @@ def test_an_ask_or_a_second_failure_while_a_failed_leg_drains_is_kept_or_logged(
     """A person's question is kept like any finished call; a second failure goes to the log, not onto the run."""
     release = threading.Event()
 
-    @node("mixed", title="Mixed", description="", policy=Policy(concurrency=4))
+    @node("mixed", title="Mixed", description="For a test.", policy=Policy(concurrency=4))
     def mixed(text: str) -> str:
         if text == "0":
             raise ValueError("first")
@@ -619,7 +620,7 @@ def test_no_retry_starts_once_the_leg_has_failed():
     release = threading.Event()
     calls: list[str] = []
 
-    @node("flaky-beside-a-failure", title="Flaky", description="", policy=Policy(concurrency=2, retries=3, retry_delay=0.01))
+    @node("flaky-beside-a-failure", title="Flaky", description="For a test.", policy=Policy(concurrency=2, retries=3, retry_delay=0.01))
     def flaky(text: str) -> str:
         calls.append(text)
         if text == "0":
@@ -637,7 +638,7 @@ def test_no_retry_starts_once_the_leg_has_failed():
 
 
 def _sleeper(seconds: float, calls: list[str]) -> Any:
-    @node("sleeper", title="Sleeper", description="")
+    @node("sleeper", title="Sleeper", description="For a test.")
     def sleeper(text: str) -> str:
         calls.append(text)
         time.sleep(seconds)
@@ -706,43 +707,64 @@ def test_a_cancel_set_mid_run_ends_the_leg_cancelled_at_once():
     assert after < 0.3 and len(calls) < 20, (after, len(calls))
 
 
-def test_a_cancel_from_a_coroutine_lands_during_a_leg_that_only_reuses():
-    @node("echo", title="Echo", description="")
-    def echo(text: str) -> str:
-        return text
+def test_a_cancel_set_while_a_leg_reuses_earlier_results_ends_the_leg_before_the_remaining_items():
+    """The second run calls ``echo`` for no item: each one's earlier result is reused, which reads the item to
+    compare it with the earlier one. The test sets the cancel from inside the tenth such read, and holds the
+    leg there until the event loop has set it, so the cancel is set while 90 items are still to go."""
+    reads: list[Callable[[], None]] = []
 
-    @node("source", title="Source", description="")
-    def source(tag: int = 0) -> Series[str]:
-        return [str(n) for n in range(20_000)]
+    @host_type("Line", title="Line")
+    class Line(BaseModel):
+        text: str
+
+        @model_serializer
+        def written(self) -> dict[str, str]:
+            for read in reads:
+                read()
+            return {"text": self.text}
+
+    @node("echo", title="Echo", description="For a test.")
+    def echo(line: Line) -> str:
+        return line.text
+
+    @node("source", title="Source", description="For a test.")
+    def source(tag: int = 0) -> Series[Line]:
+        return [Line(text=str(n)) for n in range(100)]
 
     graph = registry_of(source, echo).load(make_graph(source, echo))
     prepared = graph.run(tag=0).with_inputs(tag=1)
 
     async def go() -> Any:
-        cancel = asyncio.Event()
+        loop, cancel, cancel_is_set = asyncio.get_running_loop(), asyncio.Event(), threading.Event()
+        read_so_far = 0
 
-        async def cancel_after_a_few_turns() -> None:
-            for _ in range(3):
-                await asyncio.sleep(0)
+        def set_the_cancel() -> None:
             cancel.set()
+            cancel_is_set.set()
 
-        beside = asyncio.create_task(cancel_after_a_few_turns())
+        def cancel_at_the_tenth_read() -> None:
+            nonlocal read_so_far
+            read_so_far += 1
+            if read_so_far == 10:
+                loop.call_soon_threadsafe(set_the_cancel)
+                assert cancel_is_set.wait(5)
+
+        reads.append(cancel_at_the_tenth_read)
         last = None
         async for event in prepared.stream(cancel=cancel):
             last = event
-        await beside
         return last
 
     ended = _bounded(go())
 
     assert ended.status == "cancelled"
-    assert len([r for r in ended.run.results["echo"]["result"] if r is not None]) < 20_000
+    assert len([r for r in ended.run.results["echo"]["result"] if r is not None]) == 10  # the item being read, and none after it
 
 
 def test_exactly_one_run_end_comes_last_when_a_call_returns_after_a_cancel():
     release = threading.Event()
 
-    @node("late", title="Late", description="", policy=Policy(concurrency=2))
+    @node("late", title="Late", description="For a test.", policy=Policy(concurrency=2))
     def late(text: str) -> str:
         release.wait(BOUND)
         return text
@@ -771,7 +793,7 @@ def test_exactly_one_run_end_comes_last_when_a_call_returns_after_a_cancel():
 def test_a_cancel_during_a_retry_delay_ends_the_leg_before_every_attempt_has_run():
     calls: list[int] = []
 
-    @node("flaky", title="Flaky", description="", policy=Policy(retries=5, retry_delay=0.2))
+    @node("flaky", title="Flaky", description="For a test.", policy=Policy(retries=5, retry_delay=0.2))
     def flaky(text: str) -> str:
         calls.append(1)
         raise ExternalError("try again")
@@ -798,7 +820,7 @@ def test_a_stream_that_cannot_start_raises_at_the_call_before_any_event():
     class Caller:
         pass
 
-    @node("signed", title="Signed", description="")
+    @node("signed", title="Signed", description="For a test.")
     def signed(text: str, who: FromRun[Caller]) -> str:
         return text
 
@@ -818,7 +840,7 @@ def test_a_type_no_node_needs_from_the_run_is_fine():
     class Unused:
         pass
 
-    @node("signed", title="Signed", description="")
+    @node("signed", title="Signed", description="For a test.")
     def signed(text: str, who: FromRun[Caller]) -> str:
         return text
 
@@ -828,7 +850,7 @@ def test_a_type_no_node_needs_from_the_run_is_fine():
 
 
 def test_running_a_graph_under_a_running_event_loop_ends_as_it_does_outside_one():
-    @node("echo", title="Echo", description="")
+    @node("echo", title="Echo", description="For a test.")
     def echo(text: str) -> str:
         return text
 
@@ -850,15 +872,15 @@ def test_a_float_that_is_not_finite_inside_a_model_survives_a_saved_run_and_the_
         low: float
         high: float
 
-    @node("measure", title="Measure", description="")
+    @node("measure", title="Measure", description="For a test.")
     def measure(text: str) -> Reading:
         return Reading(value=math.nan, low=-math.inf, high=math.inf)
 
-    @node("check", title="Check", description="")
+    @node("check", title="Check", description="For a test.")
     def check(reading: Reading) -> str:
         raise Ask(f"Is {reading.low}..{reading.high} right?")
 
-    @node("width", title="Width", description="")
+    @node("width", title="Width", description="For a test.")
     def width(reading: Reading, checked: str) -> str:
         return f"{reading.low}..{reading.high} {checked}"
 
@@ -868,7 +890,7 @@ def test_a_float_that_is_not_finite_inside_a_model_survives_a_saved_run_and_the_
     ))
     paused = graph.run(text="x")
 
-    loaded = graph.load_run(json.loads(paused.to_json()))
+    loaded = graph.load_run(paused.to_json())
 
     reading = loaded.results["m"]["result"]
     assert math.isnan(reading.value) and (reading.low, reading.high) == (-math.inf, math.inf)
@@ -880,17 +902,17 @@ class Contact(TypedDict):
     email: str
 
 
-@node("contact-records", title="Contact records", description="")
+@node("contact-records", title="Contact records", description="For a test.")
 def contact_records(table: Table[Contact]) -> Series[Contact]:
     return table.to_dicts()
 
 
 def test_a_table_missing_a_declared_column_at_run_time_fails_the_node_that_made_it_naming_the_column():
-    @node("bare", title="Bare", description="")
+    @node("bare", title="Bare", description="For a test.")
     def bare(text: str) -> Table[Contact]:
         return pl.DataFrame({"name": ["ida"]})
 
-    @node("greet", title="Greet", description="")
+    @node("greet", title="Greet", description="For a test.")
     def greet(email: str) -> str:
         return email
 
@@ -910,11 +932,11 @@ def test_a_table_with_a_blank_cell_survives_a_saved_run():
         name: str
         email: str | None
 
-    @node("contacts", title="Contacts", description="")
+    @node("contacts", title="Contacts", description="For a test.")
     def contacts(text: str) -> Table[Reachable]:
         return pl.DataFrame({"name": ["ida", "bo"], "email": ["ida@a.dk", None]})
 
-    @node("records", title="Records", description="")
+    @node("records", title="Records", description="For a test.")
     def records(table: Table[Reachable]) -> Series[Reachable]:
         return table.to_dicts()
 
@@ -933,11 +955,11 @@ def test_a_table_with_a_blank_cell_survives_a_saved_run():
 def test_a_node_starts_before_any_other_event_about_it_when_its_items_are_taken_from_earlier_work():
     """A leg going on from an answered run takes the earlier items before calling the new one; ``node_start`` comes first."""
 
-    @node("read", title="Read", description="")
+    @node("read", title="Read", description="For a test.")
     def read(text: str) -> Series[str]:
         return text.split(",")
 
-    @node("approve", title="Approve", description="")
+    @node("approve", title="Approve", description="For a test.")
     def approve(name: str) -> bool:
         if name == "ida":
             return True
@@ -954,11 +976,11 @@ def test_a_node_starts_before_any_other_event_about_it_when_its_items_are_taken_
 
 
 def test_a_series_over_the_item_ceiling_coming_back_after_a_failure_leaves_the_failure_the_cause():
-    @node("boom", title="Boom", description="", policy=Policy(concurrency=2))
+    @node("boom", title="Boom", description="For a test.", policy=Policy(concurrency=2))
     def boom(text: str) -> str:
         raise ValueError("no")
 
-    @node("many", title="Many", description="", policy=Policy(concurrency=2))
+    @node("many", title="Many", description="For a test.", policy=Policy(concurrency=2))
     def many(text: str) -> Series[str]:
         time.sleep(0.2)
         return ["a", "b", "c", "d"]
@@ -972,13 +994,13 @@ def test_a_series_over_the_item_ceiling_coming_back_after_a_failure_leaves_the_f
 def test_a_call_past_its_timeout_that_comes_back_while_the_leg_drains_is_kept_and_never_called_again():
     effects: list[str] = []
 
-    @node("late", title="Late", description="", policy=Policy(attempt_timeout=0.2, concurrency=2))
+    @node("late", title="Late", description="For a test.", policy=Policy(attempt_timeout=0.2, concurrency=2))
     def late(text: str) -> str:
         time.sleep(0.4)
         effects.append(text)
         return text
 
-    @node("long", title="Long", description="", policy=Policy(concurrency=2))
+    @node("long", title="Long", description="For a test.", policy=Policy(concurrency=2))
     def long(text: str) -> str:
         time.sleep(0.9)
         return text
@@ -992,14 +1014,14 @@ def test_a_call_past_its_timeout_that_comes_back_while_the_leg_drains_is_kept_an
     assert resumed.status == "complete" and resumed.results["l"]["result"] == "mail" and effects == ["mail"]
 
 
-@node("numbers", title="Numbers", description="")
+@node("numbers", title="Numbers", description="For a test.")
 def numbers(n: list[int]) -> Series[int]:
     """The caller's list as a Series, so what reads it runs once per item."""
     return n
 
 
 def _counting_llm(calls: list[int], seconds: float) -> Any:
-    @node("llm", title="Llm", description="", policy=Policy(concurrency=4))
+    @node("llm", title="Llm", description="For a test.", policy=Policy(concurrency=4))
     def llm(n: int) -> int:
         time.sleep(seconds)
         calls.append(n)
@@ -1128,7 +1150,7 @@ def test_each_checkpoint_of_a_leg_that_reuses_earlier_work_resumes_without_a_cal
 
 
 def test_a_failed_leg_with_calls_on_threads_offers_a_checkpoint_saying_it_failed():
-    @node("flaky", title="Flaky", description="", policy=Policy(concurrency=4))
+    @node("flaky", title="Flaky", description="For a test.", policy=Policy(concurrency=4))
     def flaky(n: int) -> int:
         if n == 0:
             raise RuntimeError("boom")
@@ -1147,15 +1169,15 @@ def test_a_failed_leg_with_calls_on_threads_offers_a_checkpoint_saying_it_failed
 
 
 def test_a_blank_into_an_embedding_leaves_the_nodes_inside_uncalled_as_it_would_drawn_flat():
-    @node("words", title="Words", description="")
+    @node("words", title="Words", description="For a test.")
     def words(text: str) -> Series[str | None]:
         return [None if w == "_" else w for w in text.split()]
 
-    @node("upper", title="Upper", description="")
+    @node("upper", title="Upper", description="For a test.")
     def upper(text: str) -> str:
         return text.upper()
 
-    inner = node("twice", title="Twice", description="")(GraphRecord(nodes=[NodeRecord(id="u", node="upper"), NodeRecord(id="v", node="upper")], edges=[("u.result", "v.text")]))
+    inner = stored_graph("twice", title="Twice", description="For a test.")(GraphRecord(nodes=[NodeRecord(id="u", node="upper"), NodeRecord(id="v", node="upper")], edges=[("u.result", "v.text")]))
     graph = registry_of(words, upper, inner).load(GraphRecord(
         nodes=[NodeRecord(id="w", node="words"), NodeRecord(id="emb", node="twice")], edges=[("w.result", "emb.text")],
     ))

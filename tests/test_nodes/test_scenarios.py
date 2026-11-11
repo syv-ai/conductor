@@ -8,9 +8,21 @@ from typing import Annotated, Any, TypedDict
 import conductor_nodes
 import polars as pl
 import pytest
-from conductor import SKIPPED, Ask, NodeRegistry, Param, Series, Table, host_type, make_graph, node
+from conductor import (
+    SKIPPED,
+    Ask,
+    NodeRegistry,
+    Param,
+    Series,
+    Table,
+    host_type,
+    make_graph,
+    node,
+    stored_graph,
+)
 from conductor_nodes.control import decision
-from conductor_nodes.tables import collect, split
+from conductor_nodes.series import split
+from conductor_nodes.tables import collect
 from conductor_nodes.text import split as split_text
 from conductor_nodes.text import text_list
 from pydantic import BaseModel
@@ -179,13 +191,13 @@ def answered(run: Any, yes: set[str]) -> Any:
 
 def test_scenario_1_per_invoice_approval():
     graph = REGISTRY.load(make_graph(read_invoices, split, approve, approved_total, edges=[
-        ("read-invoices.result", "split.value"),
-        ("split.result.number", "approve.number"),
-        ("split.result.amount", "approve.amount"),
-        ("split.result.amount", "approved-total.amounts"),
+        ("read-invoices.result", "series-split.value"),
+        ("series-split.result.number", "approve.number"),
+        ("series-split.result.amount", "approve.amount"),
+        ("series-split.result.amount", "approved-total.amounts"),
         ("approve.result", "approved-total.approved"),
     ]))
-    assert graph.plan["approve"].series == "split.result" and graph.plan["approved-total"].mode == "once"
+    assert graph.runs_on["approve"].series == "series-split.result" and graph.runs_on["approved-total"].mode == "once"
 
     run = graph.run(file=INVOICES)
     assert run.status == "waiting" and [(w.loc[0], w.loc[1:], w.prompt) for w in run.waiting] == [("approve", (1,), "Approve A2 for 900.0?")]
@@ -200,8 +212,8 @@ COMPLAINTS = "id,text,amount\n1,late delivery,10\n2,broken lid,20\n3,wrong colou
 
 def _csv_llm_summary():
     return REGISTRY.load(make_graph(read_csv, split, llm, llm_all, edges=[
-        ("read-csv.result", "split.value"),
-        ("split.result.text", "llm.text"),
+        ("read-csv.result", "series-split.value"),
+        ("series-split.result.text", "llm.text"),
         ("llm.result", "llm-all.texts"),
     ], values={"llm.prompt": "Classify:", "llm-all.prompt": "Summarise"}))
 
@@ -236,7 +248,7 @@ def test_scenario_3_an_excel_per_document_with_the_documents_name_as_a_column():
         ("upload.result.name", "table-collect.document"),
         ("table-collect.result", "excel.table"),
     ], values={"table-collect.constant_columns": ["document"]}))
-    assert {n: graph.plan[n].series for n in ("find-invoices", "table-collect", "excel")} == dict.fromkeys(("find-invoices", "table-collect", "excel"), "upload.result")
+    assert {n: graph.runs_on[n].series for n in ("find-invoices", "table-collect", "excel")} == dict.fromkeys(("find-invoices", "table-collect", "excel"), "upload.result")
     assert [c["properties"]["name"]["const"] for c in graph.describe().nodes["table-collect"].outputs[0].json_schema["properties"]["columns"]["prefixItems"]] == ["number", "vendor", "amount", "document"]
 
     sheets = graph.run(files=[A_PDF, C_PDF]).results["excel"]["result"]
@@ -307,9 +319,9 @@ def test_scenario_6_a_document_with_no_lines_counts_zero():
 @pytest.mark.parametrize("reader", [read_contacts, read_csv], ids=["a table whose email column may be blank", "a table of unknown columns"])
 def test_scenario_7_a_contact_without_an_email_gets_no_mail_and_stays_in_the_excel(reader: Any):
     graph = REGISTRY.load(make_graph(reader, split, send_mail, collect, excel, edges=[
-        (f"{reader.id}.result", "split.value"),
-        ("split.result.email", "send-mail.to"),
-        ("split.result", "table-collect.records"),
+        (f"{reader.id}.result", "series-split.value"),
+        ("series-split.result.email", "send-mail.to"),
+        ("series-split.result", "table-collect.records"),
         ("send-mail.result", "table-collect.sent"),
         ("table-collect.result", "excel.table"),
     ], values={"send-mail.body": "Hello", "table-collect.columns": ["sent"]}))
@@ -327,12 +339,12 @@ def test_scenario_8_an_excel_per_document_of_the_approved_invoices():
         ("upload.result.text", "find-invoices.text"),
         ("find-invoices.result.number", "approve.number"),
         ("find-invoices.result.amount", "approve.amount"),
-        ("find-invoices.result", "decision.value"),
-        ("approve.result", "decision.when"),
-        ("decision.if_true", "excel.table"),
+        ("find-invoices.result", "control-decide.value"),
+        ("approve.result", "control-decide.when"),
+        ("control-decide.if_true", "excel.table"),
         ("upload.result.name", "excel.name"),
     ]))
-    assert graph.plan["decision"].series == "find-invoices.result" and graph.plan["excel"].series == "upload.result"
+    assert graph.runs_on["control-decide"].series == "find-invoices.result" and graph.runs_on["excel"].series == "upload.result"
 
     only_large = File(name="d.pdf", text="D1,Dune,800")
     run = graph.run(files=[A_PDF, C_PDF, only_large])
@@ -351,8 +363,8 @@ def test_scenario_8_an_excel_per_document_of_the_approved_invoices():
 
 def test_scenario_9_a_branch_per_item_and_back_together_in_the_items_order():
     graph = REGISTRY.load(make_graph(read_invoices, split, by_size, review, book, report, edges=[
-        ("read-invoices.result", "split.value"),
-        ("split.result", "by-size.invoice"),
+        ("read-invoices.result", "series-split.value"),
+        ("series-split.result", "by-size.invoice"),
         ("by-size.large", "review.invoice"),
         ("by-size.small", "book.invoice"),
         ("review.result", "report.notes"),
@@ -380,20 +392,20 @@ def test_scenario_10_a_nested_approval_saved_and_resumed_in_another_process():
     resumed = graph.load_run(saved).answer(second.id, False).resume()
     assert resumed.status == "waiting" and [w.loc[1:] for w in resumed.waiting] == [(0, 1)]
     done = graph.load_run(resumed.to_json()).answer(first.id, True).resume()
-    assert done.outputs == {"approve.result": [True, True, True, False, True]}  # every item, in order: two of a.pdf, none of b.pdf, three of c.pdf
+    assert done.outputs == {"approve.result": [[True, True], [], [True, False, True]]}  # a list for each document, in order: two of a.pdf, none of b.pdf, three of c.pdf
 
 
 # -- 11. a sub-graph per item: 3 boxes ------------------------------------------------------------------------
 
 
 def test_scenario_11_a_sub_graph_per_item():
-    enrich = node("enrich", title="Enrich a contact", description="Looks a contact up and writes a greeting.")(
+    enrich = stored_graph("enrich", title="Enrich a contact", description="Looks a contact up and writes a greeting.")(
         make_graph(llm, values={"llm.prompt": "Write a greeting for"})
     )
     graph = registry_with(enrich).load(make_graph(read_contacts, split, enrich, edges=[
-        ("read-contacts.result", "split.value"), ("split.result.name", "enrich.text"),
+        ("read-contacts.result", "series-split.value"), ("series-split.result.name", "enrich.text"),
     ]))
-    assert graph.plan["enrich"].series == "split.result"
+    assert graph.runs_on["enrich"].series == "series-split.result"
     assert graph.run(file=CONTACTS).outputs == {"enrich.llm.result": ["Write a greeting for Ann", "Write a greeting for Bo", "Write a greeting for Cy"]}
 
 
@@ -401,11 +413,11 @@ def test_scenario_11_a_sub_graph_per_item():
 
 
 def test_scenario_12_a_sub_graph_given_the_whole_table():
-    table_report = node("table-report", title="Report on a table", description="Writes a report on a table.")(
+    table_report = stored_graph("table-report", title="Report on a table", description="Writes a report on a table.")(
         make_graph(describe_table, llm, edges=[("describe-table.result", "llm.text")], values={"llm.prompt": "Write a report on"})
     )
     graph = registry_with(table_report).load(make_graph(read_csv, table_report, edges=[("read-csv.result", "table-report.table")]))
-    assert graph.plan["table-report"].mode == "once"
+    assert graph.runs_on["table-report"].mode == "once"
     assert graph.run(file=File(name="complaints.csv", text=COMPLAINTS)).outputs == {"table-report.llm.result": "Write a report on 3 lines of id, text, amount"}
 
 
@@ -416,7 +428,7 @@ def test_scenario_13_two_tables_joined_on_a_key_are_two_values():
     graph = REGISTRY.load(make_graph(read_csv, read_csv, join_tables, edges=[
         ("read-csv-1.result", "join-tables.left"), ("read-csv-2.result", "join-tables.right"),
     ], values={"join-tables.on": "customer_id"}))
-    assert all(runs.mode == "once" for runs in graph.plan.values())
+    assert all(runs.mode == "once" for runs in graph.runs_on.values())
     customers = File(name="customers.csv", text="customer_id,name\n1,Ann\n2,Bo\n")
     orders = File(name="orders.csv", text="customer_id,item\n2,lamp\n1,desk\n1,chair\n")
     joined = graph.run({"read-csv-1.file": customers, "read-csv-2.file": orders}).outputs["join-tables.result"]
@@ -437,17 +449,17 @@ def test_scenario_14_each_document_by_three_typed_questions():
         ("text-list.result", "llm.prompt"),
         ("upload.result.text", "llm.text"),
     ], values={"text-list.items": QUESTIONS}))
-    assert graph.plan["text-list"].series == "upload.result" and graph.plan["llm"].series == "text-list.result"
+    assert graph.runs_on["text-list"].series == "upload.result" and graph.runs_on["llm"].series == "text-list.result"
     feeds = {i.field.name: (i.feed.mode, i.feed.series) for i in graph.describe().nodes["llm"].inputs}
     assert feeds == {"prompt": ("per_item", "text-list.result"), "text": ("outer_value", "upload.result")}
 
     ASKED.clear()
     first = graph.run(files=CONTRACTS)
-    assert len(ASKED) == 33 and first.outputs["llm.result"][12:15] == [f"{question} contract 4" for question in QUESTIONS]
+    assert len(ASKED) == 33 and first.outputs["llm.result"][4] == [f"{question} contract 4" for question in QUESTIONS]
 
     ASKED.clear()
     changed = [*CONTRACTS[:4], File(name="4.pdf", text="contract 4, amended"), *CONTRACTS[5:]]
-    assert first.again(files=changed).outputs["llm.result"][12] == "Who are the parties? contract 4, amended" and len(ASKED) == 3
+    assert first.again(files=changed).outputs["llm.result"][4][0] == "Who are the parties? contract 4, amended" and len(ASKED) == 3
 
 
 def test_scenario_14_without_the_for_each_wire_the_two_series_do_not_nest_and_the_problem_names_the_wire():

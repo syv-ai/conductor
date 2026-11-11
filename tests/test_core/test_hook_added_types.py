@@ -3,7 +3,7 @@
 from typing import Any
 
 import pytest
-from conductor import NodeDeclarationError, NodeRegistry, Series, node
+from conductor import GraphRecord, NodeDeclarationError, NodeRegistry, Series, node
 
 
 def _columns(names: list[str]) -> dict[str, Any]:
@@ -36,7 +36,7 @@ for _definition in (pass_on, number, words):
 
 def _load(edges: list[list[str]], names: list[str], **typed_in: Any):
     nodes = [{"id": "n", "node": "number"}, {"id": "w", "node": "words"}, {"id": "p", "node": "pass-on", "values": {"names": names, **typed_in}}]
-    return REGISTRY.load({"nodes": nodes, "edges": edges})
+    return REGISTRY.load(GraphRecord.model_validate({"nodes": nodes, "edges": edges}))
 
 
 def _output_types(graph) -> dict[str, str | None]:
@@ -60,7 +60,7 @@ def test_a_node_that_adds_no_inputs_has_no_added_types_to_read():
         return {}
 
     with pytest.raises(NodeDeclarationError) as raised:
-        node("plain", title="Plain", description="", compute_outputs=_typed_like_what_arrives)(plain)
+        node("plain", title="Plain", description="For a test.", compute_outputs=_typed_like_what_arrives)(plain)
     assert raised.value.code == "hook_parameter_unknown"
 
 
@@ -75,9 +75,9 @@ def test_var_keyword_on_a_hook_is_only_the_added_types():
         return {}
 
     with pytest.raises(NodeDeclarationError) as untyped:
-        node("a", title="A", description="", compute_added_inputs=_columns, compute_outputs=values)(run)
+        node("a", title="A", description="For a test.", compute_added_inputs=_columns, compute_outputs=values)(run)
     with pytest.raises(NodeDeclarationError) as too_early:
-        node("b", title="B", description="", compute_added_inputs=adding, compute_outputs=_typed_like_what_arrives)(run)
+        node("b", title="B", description="For a test.", compute_added_inputs=adding, compute_outputs=_typed_like_what_arrives)(run)
     assert (untyped.value.code, too_early.value.code) == ("hook_parameter_unknown", "arriving_on_compute_added_inputs")
 
 
@@ -85,7 +85,7 @@ def test_the_definition_says_what_each_hook_parameter_receives():
     def outputs(names: list[str], first: type, **added: type) -> dict[str, Any]:
         return {}
 
-    @node("c", title="C", description="", compute_added_inputs=_columns, compute_outputs=outputs)
+    @node("c", title="C", description="For a test.", compute_added_inputs=_columns, compute_outputs=outputs)
     def c(names: list[str], first: Any, **values: Any) -> dict[str, Any]:
         return {}
 

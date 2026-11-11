@@ -21,6 +21,7 @@ from conductor import (
     Ask,
     ExternalError,
     FromRun,
+    GraphRecord,
     InvalidCallError,
     NodeError,
     NodeRegistry,
@@ -29,6 +30,7 @@ from conductor import (
     Series,
     Table,
     node,
+    stored_graph,
 )
 from conductor.events import (
     NodeComplete,
@@ -264,13 +266,13 @@ REGISTRY = NodeRegistry()
 for _definition in (words, sentences, chars, upper, exclaim, greet, count, ask, fetch, flaky, stuck, boom, maybe, decide, signed, columns, table, stamp, stagger, letters, height, sheets, record, note):
     REGISTRY.add(_definition)
 for _id, _record in INNER.items():
-    REGISTRY.add(_node(_id)(_record))
+    REGISTRY.add(stored_graph(_id, title=_id.capitalize(), description=f"The {_id} node.")(GraphRecord.model_validate(_record)))
 
 
 def load(nodes: dict[str, str | dict[str, Any]], edges: list[tuple[str, str]] = ()):  # type: ignore[assignment]
     """A graph of ``nodes`` (id to node id, or to the rest of its record) and ``edges``."""
     records = [{"id": i, **({"node": n} if isinstance(n, str) else n)} for i, n in nodes.items()]
-    return REGISTRY.load({"nodes": records, "edges": [list(edge) for edge in edges]})
+    return REGISTRY.load(GraphRecord.model_validate({"nodes": records, "edges": [list(edge) for edge in edges]}))
 
 
 def mapped(inner: str, splitter: str = "words"):
@@ -285,7 +287,7 @@ def flat(inner: str, splitter: str = "words"):
     must behave as."""
     record = INNER[inner]
     first = record["nodes"][0]["id"]
-    graph = REGISTRY.load({"nodes": [{"id": "outer", "node": splitter}, *record["nodes"]], "edges": [["outer.result", f"{first}.text"], *record["edges"]]})
+    graph = REGISTRY.load(GraphRecord.model_validate({"nodes": [{"id": "outer", "node": splitter}, *record["nodes"]], "edges": [["outer.result", f"{first}.text"], *record["edges"]]}))
     assert not graph.problems, graph.problems
     return graph
 
@@ -352,7 +354,7 @@ def test_a_graph_that_embeds_itself_is_refused_at_the_node_that_closes_the_circl
 
 def test_an_output_made_per_item_inside_is_a_series_and_a_series_made_per_item_a_series_of_lists():
     deep = load({"e": "deep-inner", "n": "count", "x": "exclaim"}, [("e.up.result", "n.items"), ("e.up.result", "x.text")])
-    assert deep.is_runnable and deep.plan["x"].series == "e.up.result"
+    assert deep.is_runnable and deep.runs_on["x"].series == "e.up.result"
     assert deep.describe().nodes["e"].outputs[0].many
     lists = load({"e": "series-per-item-inner"})._nodes["e"].outputs["c.result"]
     assert (lists.many, lists.type.hint, lists.whole.id) == (True, list[str], "Series[list[str]]")
@@ -377,7 +379,7 @@ def chain_node(node_id: str) -> str:
     """The id of an embedded graph of the one node ``node_id``, registered when first asked for."""
     embedded = f"only-{node_id}"
     if embedded not in REGISTRY:
-        REGISTRY.add(_node(embedded)(chain(("d", node_id))))
+        REGISTRY.add(stored_graph(embedded, title=embedded.capitalize(), description=f"The {embedded} node.")(GraphRecord.model_validate(chain(("d", node_id)))))
     return embedded
 
 
@@ -388,7 +390,7 @@ def test_an_embedded_graph_runs_once_and_per_item_as_its_nodes_would_drawn_flat(
     run = load({"e": "shout-inner"}).run(text="ab")
     assert run.status == "complete" and run.outputs == {"e.ex.result": "AB!"}
     graph = mapped("shout-inner")
-    assert graph.plan["e"].mode == "per_item"
+    assert graph.runs_on["e"].mode == "per_item"
     run = graph.run(text="ab cd")
     assert run.status == "complete" and run.results["e"] == {"ex.result": ["AB!", "CD!"]}
     assert run.results["e"]["ex.result"] == flat("shout-inner").run(text="ab cd").results["ex"]["result"]
@@ -409,12 +411,12 @@ def test_a_value_a_default_and_an_edge_on_the_embedding_are_any_nodes():
 
 
 def test_deep_outputs_are_what_run_outputs_gives_alone_and_embedded():
-    alone = REGISTRY.load(INNER["deep-inner"]).run(text="ab cd").outputs["up.result"]
-    assert alone == ["A", "B", "C", "D"]  # two maps deep, in item order
+    alone = REGISTRY.load(GraphRecord.model_validate(INNER["deep-inner"])).run(text="ab cd").outputs["up.result"]
+    assert alone == [["A", "B"], ["C", "D"]]  # two maps deep, a list for each word, in item order
     graph = load({"e": "deep-inner", "n": "count", "x": "exclaim"}, [("e.up.result", "n.items"), ("e.up.result", "x.text")])
     run = graph.run(text="ab cd")
     assert run.results["e"]["up.result"] == alone and run.results["n"]["result"] == 4
-    assert run.results["x"]["result"] == ["A!", "B!", "C!", "D!"]
+    assert run.results["x"]["result"] == [["A!", "B!"], ["C!", "D!"]]
     assert load({"e": "series-per-item-inner"}).run(text="ab cd").outputs == {"e.c.result": [["a", "b"], ["c", "d"]]}
 
 
@@ -437,7 +439,7 @@ def test_an_item_whose_branch_was_not_taken_outside_skips_the_nodes_inside_for_t
 
 def test_a_series_input_inside_gathers_what_the_embedding_is_wired_to():
     graph = load({"w": "words", "up": "upper", "e": "count-inner"}, [("w.result", "up.text"), ("up.result", "e.items")])
-    assert graph.plan["e"].mode == "once"
+    assert graph.runs_on["e"].mode == "once"
     assert graph.run(text="ab cd ef").outputs == {"e.n.result": 3}
     per_document = load({"s": "sentences", "w": "words", "e": "count-inner"}, [("s.result", "w.text"), ("w.result", "e.items")])
     assert per_document.run(text="a b;c").outputs == {"e.n.result": [2, 1]}
@@ -466,8 +468,8 @@ def test_the_item_ceiling_holds_inside_and_is_raised_by_resume():
     graph = mapped("deep-inner")
     run = graph.run(text="ab cdef", max_items=3)
     assert run.status == "stopped" and run.state.cause.type == "item_ceiling" and run.state.cause.loc == ("e", 1, "c")
-    resumed = graph.load_run(run.to_json()).resume(max_items=10)
-    assert resumed.status == "complete" and resumed.results["e"]["up.result"] == [["A", "B"], ["C", "D", "E", "F"]]
+    resumed = graph.load_run(run.to_json()).with_max_items(10).resume()
+    assert resumed.status == "complete" and resumed.results["e"]["up.result"] == [[["A", "B"]], [["C", "D", "E", "F"]]]
     assert graph.load_run(run.to_json()).resume().status == "stopped"  # the ceiling it was saved under still holds inside
 
 
@@ -671,7 +673,7 @@ def test_two_documents_with_an_identical_inner_line_each_keep_their_own_answer()
     assert swapped.status == "complete" and swapped.results["e"]["q.result"] == [["doc1:a", "doc1:c"], ["doc0:a", "doc0:b"]]
     flat_run = flat("lines-inner", "sentences").run(text="a b;a c")
     flat_run = flat_run.answer({w.id: f"doc{w.loc[1]}:{w.inputs['text']}" for w in flat_run.waiting}).resume()
-    assert flat_run.again(text="a c;a b").results["q"]["result"] == ["doc1:a", "doc1:c", "doc0:a", "doc0:b"]  # the same, drawn flat
+    assert flat_run.again(text="a c;a b").results["q"]["result"] == [["doc1:a", "doc1:c"], ["doc0:a", "doc0:b"]]  # the same, drawn flat
 
 
 def test_identical_items_take_their_answers_in_item_order_whatever_thread_finishes_first():
@@ -724,7 +726,7 @@ def test_tables_made_per_item_reach_a_table_input_one_table_per_item_wherever_th
     graph = load(nodes, edges)
     assert not graph.problems, graph.problems
     run = graph.run(text="ab c")
-    assert (graph.plan["h"].mode, graph.plan["h"].series, run.status, run.results["h"]["result"]) == ("per_item", series, "complete", [2, 1])
+    assert (graph.runs_on["h"].mode, graph.runs_on["h"].series, run.status, run.results["h"]["result"]) == ("per_item", series, "complete", [2, 1])
 
 
 # -- an embedded graph's node reads alike on a run, on its copy and on either saved and loaded ---------------
@@ -821,7 +823,7 @@ def test_values_of_any_type_made_per_item_are_gathered_as_records_by_a_table_inp
     graph = load(nodes, edges)
     assert not graph.problems, graph.problems
     run = graph.run(text="ab c d")
-    assert (graph.plan["h"].mode, run.status, run.results["h"]["result"]) == ("once", "complete", 3)
+    assert (graph.runs_on["h"].mode, run.status, run.results["h"]["result"]) == ("once", "complete", 3)
 
 
 def _said_of(events, node_id: str) -> list[tuple[str, tuple]]:
@@ -849,9 +851,9 @@ def test_an_embedded_graph_with_no_output_is_done_when_the_nodes_inside_it_are_a
 def test_an_embedded_graph_of_no_nodes_runs_to_nothing_as_a_graph_of_no_nodes_does():
     registry = NodeRegistry()
     registry.add(upper)
-    registry.add(_node("nothing")({"nodes": [], "edges": []}))
-    alone = registry.load({"nodes": [], "edges": []}).run()
-    graph = registry.load({"nodes": [{"id": "u", "node": "upper"}, {"id": "e", "node": "nothing"}], "edges": []})
+    registry.add(stored_graph("nothing", title="Nothing", description="The nothing node.")(GraphRecord.model_validate({"nodes": [], "edges": []})))
+    alone = registry.load(GraphRecord.model_validate({"nodes": [], "edges": []})).run()
+    graph = registry.load(GraphRecord.model_validate({"nodes": [{"id": "u", "node": "upper"}, {"id": "e", "node": "nothing"}], "edges": []}))
     run = graph.run(text="x")
     assert graph.problems == [] and (alone.status, alone.results) == ("complete", {})
     assert (run.status, run.results) == ("complete", {"u": {"result": "X"}, "e": {}})

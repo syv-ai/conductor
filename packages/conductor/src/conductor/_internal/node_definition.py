@@ -45,8 +45,8 @@ inputs, which the function takes as ``**kwargs``; ``compute_outputs`` gives
 every output, and the function returns them as a mapping. A hook that raises
 is a problem of the graph, not an exception.
 
-A stored graph is a node too: ``node("enrich", title="Enrich", description="...")(record)``. Loading a graph that
-uses it puts the stored graph's nodes in its place.
+A stored graph is a node too: ``stored_graph("enrich", title="Enrich", description="...")(record)``. Loading a
+graph that uses it puts the stored graph's nodes in its place.
 """
 
 from __future__ import annotations
@@ -56,19 +56,19 @@ import functools
 import inspect
 import typing
 from collections.abc import Callable, Iterable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Annotated, Any, Generic, Literal, ParamSpec, Protocol, TypeVar, overload
+from typing import Annotated, Any, Generic, Literal, ParamSpec, Protocol, TypeVar
 
 from pydantic import ConfigDict, JsonValue
 from pydantic import Field as PydanticField
 
-from conductor._internal import problem
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.field import Field, FieldDescription
 from conductor._internal.from_run import _FromRun
 from conductor._internal.graph_record import GraphRecord, as_record
 from conductor._internal.problem import InvalidCallError, NodeDeclarationError, UnitFailedError
+from conductor._internal.problem import catalogue as problem
 from conductor._internal.sentinels import REQUIRED
 from conductor._internal.value_type import Type
 
@@ -176,8 +176,8 @@ class Upgrade:
     of it.
     """
 
-    renamed_inputs: Mapping[str, str] = field(default_factory=dict[str, str])
-    renamed_outputs: Mapping[str, str] = field(default_factory=dict[str, str])
+    renamed_inputs: Mapping[str, str] = dataclasses.field(default_factory=dict[str, str])
+    renamed_outputs: Mapping[str, str] = dataclasses.field(default_factory=dict[str, str])
     rewrite: Callable[[dict[str, JsonValue]], Mapping[str, Any]] | None = None
 
 
@@ -210,7 +210,7 @@ class _Version:
     description: str
     category: str = ""
     tags: tuple[str, ...] = ()
-    extra: Mapping[str, JsonValue] = field(default_factory=dict[str, JsonValue])
+    extra: Mapping[str, JsonValue] = dataclasses.field(default_factory=dict[str, JsonValue])
     docs: str | None = None
     deprecation: Deprecation | None = None
     replaces: NodeDefinition | None = None
@@ -280,8 +280,8 @@ class FunctionDefinition(_Version, Generic[_P, _R]):
     policy: Policy = Policy()
     compute_added_inputs: Callable[..., Mapping[Any, Any]] | None = None
     compute_outputs: Callable[..., Mapping[Any, Any]] | None = None
-    from_run: Mapping[str, type] = field(default_factory=dict[str, type])
-    hook_parameters: Mapping[HookName, Mapping[str, HookParameter]] = field(default_factory=dict[HookName, Mapping[str, HookParameter]])
+    from_run: Mapping[str, type] = dataclasses.field(default_factory=dict[str, type])
+    hook_parameters: Mapping[HookName, Mapping[str, HookParameter]] = dataclasses.field(default_factory=dict[HookName, Mapping[str, HookParameter]])
     generic: bool = False
 
     def __call__(self, *args: _P.args, **kwargs: _P.kwargs) -> _R:
@@ -302,15 +302,14 @@ class FunctionDefinition(_Version, Generic[_P, _R]):
         """The node as an editor's palette shows it."""
         return self.described_as(
             FunctionNodeDescription, policy=self.policy,
-            inputs=[spec.description for spec in self.inputs.values()], outputs=[spec.description for spec in self.outputs.values()],
+            inputs=[field.description for field in self.inputs.values()], outputs=[field.description for field in self.outputs.values()],
             takes_added_inputs=self.compute_added_inputs is not None, computes_outputs=self.compute_outputs is not None,
         )
 
 
 @dataclass(frozen=True, eq=False, kw_only=True, repr=False)  # the version's own __repr__
 class StoredGraphDefinition(_Version):
-    """A graph record registered as a node, one version of it: ``@node`` on a record, JSON text or a mapping makes
-    one. Loading a graph that uses it checks its record alone and places it there as an embedded graph, whose
+    """A graph record registered as a node, one version of it: ``stored_graph(...)(record)`` makes one. Loading a graph that uses it checks its record alone and places it there as an embedded graph, whose
     nodes run where the node stands.
 
     It has no function, so calling it is a type error; its fields are the graph's, worked out at that load.
@@ -407,15 +406,9 @@ NodeDescription = Annotated[FunctionNodeDescription | StoredGraphDescription, Py
 
 
 class NodeDecorator(Protocol):
-    """What ``@node(...)`` returns: it makes a node of a function, or of a stored graph."""
+    """What ``@node(...)`` returns: a decorator that makes a node of the function under it."""
 
-    @overload
-    def __call__(self, target: GraphRecord | str | bytes | Mapping[str, Any], /) -> StoredGraphDefinition: ...
-
-    @overload
-    def __call__(self, target: NodeFunction[_P, _R], /) -> FunctionDefinition[_P, _R]: ...
-
-    def __call__(self, target: Any, /) -> NodeDefinition: ...
+    def __call__(self, function: NodeFunction[_P, _R], /) -> FunctionDefinition[_P, _R]: ...
 
 
 def node(
@@ -436,7 +429,7 @@ def node(
     replaces: NodeDefinition | None = None,
     upgrade: Upgrade | None = None,
 ) -> NodeDecorator:
-    """Make the function below it, or a stored graph, a node with the id ``id``::
+    """Make the function below it a node with the id ``id``::
 
         @node("upper", title="Uppercase", description="Makes every letter a capital letter.")
         def upper(text: str) -> str:
@@ -459,41 +452,11 @@ def node(
     - ``compute_added_inputs`` and ``compute_outputs`` are hooks run when a
       graph is loaded, which shape the node from what is typed into it.
 
-    A stored graph is a node too: ``node("enrich", title="Enrich", description="...")(record)``, the record given as ``registry.load`` takes one (a
-    ``GraphRecord``, JSON text or a mapping), one of the wrong shape an ``InvalidCallError`` of ``invalid_record``.
+    A stored graph becomes a node with ``stored_graph``.
     """
-    if not is_node_id(id):
-        raise NodeDeclarationError(
-            f"@node takes the node's id first, a non-empty string without '.', '/', '@' or '~', which mean something in an address "
-            f"or a waiting id: @node('upper'); got {id!r}",
-            code="invalid_node_id",
-        )
-    if upgrade is not None and replaces is None:
-        raise NodeDeclarationError(f"@node({id!r}) has an upgrade but replaces nothing; name the version it upgrades with replaces=", code="upgrade_without_replaces")
-    if replaces is not None and replaces.id != id:
-        raise NodeDeclarationError(f"@node({id!r}) replaces {replaces!r}; a node replaces an earlier @node of its own id", code="replaces_another_node")
-    number = version if version is not None else (replaces.version + 1 if replaces is not None else 1)
-    if replaces is not None and number <= replaces.version:
-        raise NodeDeclarationError(f"@node({id!r}) is version {number}, not after the version {replaces.version} it replaces; leave version= out, or give one above {replaces.version}", code="version_not_after")
+    number = _version_number("@node", id, title, description, version, replaces, upgrade)
 
-    @overload
-    def make(target: GraphRecord | str | bytes | Mapping[str, Any], /) -> StoredGraphDefinition: ...
-    @overload
-    def make(target: NodeFunction[_P, _R], /) -> FunctionDefinition[_P, _R]: ...
-    def make(target: GraphRecord | str | bytes | Mapping[str, Any] | NodeFunction[..., Any], /) -> NodeDefinition:
-        if not callable(target):
-            given = ", ".join(name for name, value in (("policy", policy), ("compute_added_inputs", compute_added_inputs), ("compute_outputs", compute_outputs)) if value is not None)
-            if given:
-                raise NodeDeclarationError(
-                    f"@node({id!r}) on a stored graph takes no {given}: its nodes run by their own policies and fields; set them there",
-                    code="not_for_a_graph",
-                )
-            record = as_record(target)  # a record, JSON text or a mapping, read as registry.load reads one
-            return StoredGraphDefinition(
-                graph=record, id=id, version=number, title=title, description=description, category=category,
-                tags=tuple(tags), extra=MappingProxyType(dict(extra)), docs=docs, deprecation=deprecation, replaces=replaces,
-                upgrade=upgrade or Upgrade(),
-            )
+    def make(target: NodeFunction[_P, _R], /) -> FunctionDefinition[_P, _R]:
         try:
             if inspect.iscoroutinefunction(target) or inspect.isasyncgenfunction(target):
                 raise NodeDeclarationError("a node is a plain def; the engine gives a slow one threads with Policy(concurrency=)", code="async_run")
@@ -514,7 +477,7 @@ def node(
                 category=category, tags=tuple(tags), extra=MappingProxyType(dict(extra)), docs=docs, deprecation=deprecation,
                 replaces=replaces, upgrade=upgrade or Upgrade(), policy=policy or Policy(),
                 compute_added_inputs=compute_added_inputs, compute_outputs=compute_outputs, hook_parameters=hook_parameters,
-                generic=any(spec.whole.variables for spec in inputs.values()),
+                generic=any(field.whole.variables for field in inputs.values()),
             )
             if replaces is not None:
                 _raise_if_upgrade_is_missing(replaces, definition)
@@ -523,6 +486,88 @@ def node(
             raise NodeDeclarationError(f"@node({id!r}) on {target.__name__}: {error.message}", code=error.code) from None
 
     return make
+
+
+def stored_graph(
+    id: str,
+    /,
+    *,
+    title: str,
+    description: str,
+    version: int | None = None,
+    category: str = "",
+    tags: list[str] | tuple[str, ...] = (),
+    extra: Mapping[str, JsonValue] = MappingProxyType({}),
+    docs: str | None = None,
+    deprecation: Deprecation | None = None,
+    replaces: NodeDefinition | None = None,
+    upgrade: Upgrade | None = None,
+) -> Callable[[GraphRecord | str | bytes], StoredGraphDefinition]:
+    """Make a stored graph a node with the id ``id``, so other graphs can use it as one node::
+
+        enrich = stored_graph("enrich", title="Enrich", description="Looks up and adds the company's details.")(record)
+
+    The record is given as ``registry.load`` takes one: a ``GraphRecord`` or
+    its JSON text. Text of the wrong shape raises ``InvalidCallError`` with
+    ``invalid_record`` problems. The arguments mean what they mean on
+    ``@node``. There is no ``policy`` and there are no hooks: the nodes inside
+    the stored graph are called by their own. It registers nothing:
+    ``registry.add(enrich)`` offers it, and ``registry.stored_graph`` takes
+    the same arguments and adds the node too.
+    """
+    number = _version_number("stored_graph", id, title, description, version, replaces, upgrade)
+
+    def make(record: GraphRecord | str | bytes, /) -> StoredGraphDefinition:
+        return StoredGraphDefinition(
+            graph=as_record(record), id=id, version=number, title=title, description=description, category=category,
+            tags=tuple(tags), extra=MappingProxyType(dict(extra)), docs=docs, deprecation=deprecation, replaces=replaces,
+            upgrade=upgrade or Upgrade(),
+        )
+
+    return make
+
+
+def _version_number(
+    declared_with: str, id: str, title: str, description: str, version: int | None, replaces: NodeDefinition | None, upgrade: Upgrade | None,
+) -> int:
+    """Check the arguments ``@node`` and ``stored_graph`` share, and return the node's version number.
+
+    Args:
+        declared_with: ``"@node"`` or ``"stored_graph"``, to start each message with.
+        id: The node's id.
+        title: The node's title.
+        description: The node's description.
+        version: The version number given, or ``None``.
+        replaces: The version this one replaces, or ``None``.
+        upgrade: The upgrade given, or ``None``.
+
+    Returns:
+        ``version`` when given; else one more than the version replaced, or 1 for a first version.
+
+    Raises:
+        NodeDeclarationError: The id is not a node id, the title or description is empty, or ``replaces``,
+            ``upgrade`` and ``version`` don't fit together.
+    """
+    if not is_node_id(id):
+        raise NodeDeclarationError(
+            f"{declared_with} takes the node's id first, a non-empty string without '.', '/', '@' or '~', which mean something in an address "
+            f"or a waiting id: {declared_with}('upper'); got {id!r}",
+            code="invalid_node_id",
+        )
+    for name, text in (("title", title), ("description", description)):
+        if not text.strip():
+            raise NodeDeclarationError(
+                f"{declared_with}({id!r}) has an empty {name}; write the words a person reads for the node in a palette",
+                code="empty_title_or_description",
+            )
+    if upgrade is not None and replaces is None:
+        raise NodeDeclarationError(f"{declared_with}({id!r}) has an upgrade but replaces nothing; name the version it upgrades with replaces=", code="upgrade_without_replaces")
+    if replaces is not None and replaces.id != id:
+        raise NodeDeclarationError(f"{declared_with}({id!r}) replaces {replaces!r}; a node replaces an earlier node of its own id", code="replaces_another_node")
+    number = version if version is not None else (replaces.version + 1 if replaces is not None else 1)
+    if replaces is not None and number <= replaces.version:
+        raise NodeDeclarationError(f"{declared_with}({id!r}) is version {number}, not after the version {replaces.version} it replaces; leave version= out, or give one above {replaces.version}", code="version_not_after")
+    return number
 
 
 #: What a node id never holds: each means something in an address (``node.field``, ``embedding/inner``) or a waiting id
@@ -629,10 +674,11 @@ def _read_signature(function: Callable[..., Any], computed_outputs: bool) -> tup
     Raises:
         NodeDeclarationError: A parameter or the return type is declared in a way a node can't have.
     """
+    parameters = inspect.signature(function).parameters  # read first: for what is not a function it raises Python's "is not a callable object"
     hints = typing.get_type_hints(function, include_extras=True)
     inputs: dict[str, Field] = {}
     from_run: dict[str, type] = {}
-    for name, parameter in inspect.signature(function).parameters.items():
+    for name, parameter in parameters.items():
         if parameter.kind is parameter.VAR_KEYWORD:
             continue
         if parameter.kind in (parameter.VAR_POSITIONAL, parameter.POSITIONAL_ONLY):
@@ -669,17 +715,17 @@ def _read_signature(function: Callable[..., Any], computed_outputs: bool) -> tup
         kind = OutputsClass(outputs_class)
     else:
         outputs, kind = {"result": Field("result", returns)}, OneResult()
-    on_inputs = {variable for spec in inputs.values() for variable in spec.whole.variables}
-    for spec in (*inputs.values(), *outputs.values()):
-        for variable in spec.whole.variables:
+    on_inputs = {variable for field in inputs.values() for variable in field.whole.variables}
+    for field in (*inputs.values(), *outputs.values()):
+        for variable in field.whole.variables:
             if variable.__constraints__:
                 raise NodeDeclarationError(
-                    f"{spec.name}: the type variable {variable.__name__} is constrained to a few types; give it a bound, or write the union",
+                    f"{field.name}: the type variable {variable.__name__} is constrained to a few types; give it a bound, or write the union",
                     code="type_variable_constrained",
                 )
             if variable not in on_inputs:
                 raise NodeDeclarationError(
-                    f"{spec.name}: the type variable {variable.__name__} is on no input, so no edge can say what it is; put it on an input",
+                    f"{field.name}: the type variable {variable.__name__} is on no input, so no edge can say what it is; put it on an input",
                     code="type_variable_only_in_return",
                 )
     return inputs, from_run, outputs, kind

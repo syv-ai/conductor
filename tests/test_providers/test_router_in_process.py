@@ -51,7 +51,7 @@ def _doubling() -> tuple[NodeRegistry, NodeRegistry, dict[str, Any]]:
     """A registry with a node, one without it, and a graph of that node."""
     full, bare = NodeRegistry(), NodeRegistry()
 
-    @full.node("double", title="Double", description="")
+    @full.node("double", title="Double", description="For a test.")
     def double(x: int) -> int:
         return 2 * x
 
@@ -104,7 +104,7 @@ class _Member:
 async def test_a_class_as_the_caller_is_kept_as_that_class_so_its_starter_sees_the_run() -> None:
     registry, seen = NodeRegistry(), []
 
-    @registry.node("whoami", title="Whoami", description="")
+    @registry.node("whoami", title="Whoami", description="For a test.")
     def whoami(text: str, who: FromRun[_Member]) -> str:
         seen.append(who)
         return who.x_user
@@ -178,17 +178,17 @@ async def test_a_route_answers_with_what_the_worker_did_and_the_run_reads_as_its
 async def test_an_answer_to_a_question_that_waits_in_a_cancelled_run_starts_its_next_leg() -> None:
     registry, asked, gate = NodeRegistry(), threading.Event(), threading.Event()
 
-    @registry.node("busy", title="Busy", description="")
+    @registry.node("busy", title="Busy", description="For a test.")
     def busy(text: str) -> str:
         gate.wait(5)
         return text
 
-    @registry.node("approve", title="Approve", description="")
+    @registry.node("approve", title="Approve", description="For a test.")
     def approve(text: str) -> bool:
         asked.set()
         raise Ask("Go on?")
 
-    @registry.node("then", title="Then", description="")
+    @registry.node("then", title="Then", description="For a test.")
     def then(text: str) -> str:
         return text.upper()
 

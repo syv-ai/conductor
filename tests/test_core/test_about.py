@@ -103,7 +103,8 @@ def test_cli_help_flag():
     assert "python -m conductor.about" in result.stdout
 
 
-PUBLIC_MODULES = ("conductor", "conductor.widgets", "conductor.events", "conductor.testing", "conductor.about")
+#: The public modules that list names; ``conductor.about`` has none, so it has no section of them.
+PUBLIC_MODULES = ("conductor", "conductor.widgets", "conductor.events", "conductor.testing")
 
 
 @pytest.mark.parametrize("module_name", PUBLIC_MODULES)
@@ -190,7 +191,7 @@ def test_the_reference_has_every_kind_of_problem_with_its_sentence_and_its_ctx_k
         assert f"#### `{kind.code}`" in text and f"> {kind.sentence}" in text
     entry = about.get_section("from-run-missing")
     assert entry is not None
-    assert "> '{node_id}' needs a {needs} for '{parameter}', and from_run gives none (it gives {given}); pass from_run={{needs}: ...}." in entry
+    assert "> '{node_id}' needs a {needs} for '{parameter}', and from_run gives none (it gives {given}); pass from_run with a value for {needs}." in entry
     assert "| `node_id` | `str` | always | The node. |" in entry
     assert "| `given` | `list[str]` | always | The names of the classes `from_run` has values for. |" in entry
 

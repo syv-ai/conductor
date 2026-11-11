@@ -50,24 +50,24 @@ def test_a_node_that_gives_many_values_makes_an_item_of_each_and_a_series_input_
         ("text-split.result", "regex-extract.text"), ("regex-extract.result", "text-join.parts"),
     ], values={"text-split.separator": ",", "regex-extract.pattern": r"\d+"}))
 
-    assert graph.plan["regex-extract"].msg == "per item of text-split.result"
-    assert graph.plan["text-join"].msg == "per item of text-split.result"
+    assert graph.runs_on["regex-extract"].msg == "per item of text-split.result"
+    assert graph.runs_on["text-join"].msg == "per item of text-split.result"
     assert graph.run(text="a1,b2 3,c").outputs == {"text-join.result": ["1", "2, 3", ""]}
 
 
 def test_a_decision_sends_its_value_one_way_and_the_other_way_does_not_run() -> None:
-    graph = conductor_nodes.registry.load(make_graph(control.decision, text.uppercase, edges=[("decision.if_true", "text-uppercase.text")]))
+    graph = conductor_nodes.registry.load(make_graph(control.decision, text.uppercase, edges=[("control-decide.if_true", "text-uppercase.text")]))
 
-    assert graph.exclusive_groups == {"decision": {"when": ["if_true", "if_false"]}}
+    assert graph.exclusive_groups == {"control-decide": {"when": ["if_true", "if_false"]}}
     taken = graph.run(value="hi", when=True)
-    assert taken.outputs == {"text-uppercase.result": "HI"} and taken.results["decision"] == {"if_true": "hi", "if_false": None}
+    assert taken.outputs == {"text-uppercase.result": "HI"} and taken.results["control-decide"] == {"if_true": "hi", "if_false": None}
     assert graph.run(value="hi", when=False).outputs == {"text-uppercase.result": None}
 
 
 def test_a_decisions_outputs_take_the_type_that_arrives_on_its_value() -> None:
-    graph = conductor_nodes.registry.load(make_graph(text.length, control.decision, edges=[("text-length.result", "decision.value")]))
+    graph = conductor_nodes.registry.load(make_graph(text.length, control.decision, edges=[("text-length.result", "control-decide.value")]))
 
-    outputs = graph.describe().nodes["decision"].outputs
+    outputs = graph.describe().nodes["control-decide"].outputs
     assert [(field.name, field.type) for field in outputs] == [("if_true", "int"), ("if_false", "int")]
 
 

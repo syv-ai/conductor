@@ -10,7 +10,17 @@ from dataclasses import dataclass
 from typing import Annotated, Any
 
 import pytest
-from conductor import SKIPPED, Ask, NodeRegistry, Param, Policy, Series, node
+from conductor import (
+    SKIPPED,
+    Ask,
+    GraphRecord,
+    NodeRegistry,
+    Param,
+    Policy,
+    Series,
+    node,
+    stored_graph,
+)
 
 from tests.test_core.nodes import units_missing
 
@@ -119,11 +129,11 @@ def _registry(threaded: frozenset[str]) -> NodeRegistry:
         registry.add(node(name, title=name.capitalize(), description=f"The {name} node.", **policy)(function))
     chain = [["w.result", "u.text"]]
     inner = {"nodes": [{"id": "w", "node": "words"}, {"id": "u", "node": "upper"}], "edges": chain}
-    registry.add(node("shout-words", title="Shout words", description="Each word of a text, in capitals.")(inner))
+    registry.add(stored_graph("shout-words", title="Shout words", description="Each word of a text, in capitals.")(GraphRecord.model_validate(inner)))
     joined = {"nodes": [*inner["nodes"], {"id": "j", "node": "join"}], "edges": [*chain, ["u.result", "j.items"]]}
-    registry.add(node("join-words", title="Join words", description="The words of a text in capitals, joined.")(joined))
+    registry.add(stored_graph("join-words", title="Join words", description="The words of a text in capitals, joined.")(GraphRecord.model_validate(joined)))
     stamped = {"nodes": [{"id": "u", "node": "upper"}, {"id": "k", "node": "upper", "values": {"text": "k"}}], "edges": []}
-    registry.add(node("shout-and-stamp", title="Shout and stamp", description="A text in capitals, and a K.")(stamped))
+    registry.add(stored_graph("shout-and-stamp", title="Shout and stamp", description="A text in capitals, and a K.")(GraphRecord.model_validate(stamped)))
     return registry
 
 
@@ -132,7 +142,7 @@ def _run(name: str, threaded: frozenset[str]) -> Any:
 
 
 def _ran(nodes: dict[str, str], edges: list[tuple[str, str]], text: str, threaded: frozenset[str]) -> Any:
-    graph = _registry(threaded).load({"nodes": [{"id": i, "node": n} for i, n in nodes.items()], "edges": [list(edge) for edge in edges]})
+    graph = _registry(threaded).load(GraphRecord.model_validate({"nodes": [{"id": i, "node": n} for i, n in nodes.items()], "edges": [list(edge) for edge in edges]}))
     assert not graph.problems, graph.problems
     return graph.run(dict.fromkeys(graph.inputs, text))  # every first node is given the text
 
@@ -171,7 +181,7 @@ def test_a_unit_skipped_by_a_branch_decided_outside_its_items_is_skipped_once_th
 
 def test_a_leg_that_ends_with_a_unit_nothing_made_ready_raises_and_hands_on_no_complete_run() -> None:
     nodes, edges, _ = GRAPHS["a gather of a Series with no items"]
-    graph = _registry(frozenset({"words"})).load({"nodes": [{"id": i, "node": n} for i, n in nodes.items()], "edges": [list(edge) for edge in edges]})
+    graph = _registry(frozenset({"words"})).load(GraphRecord.model_validate({"nodes": [{"id": i, "node": n} for i, n in nodes.items()], "edges": [list(edge) for edge in edges]}))
     graph._node_at["w"].readers.clear()  # the engine's own fault, made by hand: the Series readies nothing
     with pytest.raises(RuntimeError, match=r"no unit for every instance of \[\('j',\)\]"):
         graph.run(dict.fromkeys(graph.inputs, ""))

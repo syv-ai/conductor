@@ -46,12 +46,12 @@ run = loaded.run(text="red,green")
 assert run.outputs == {"joined.result": "RED + GREEN"}
 results = run.results                                  # {node_id: {output: value}}; a node run per item gives a list
 assert results["loud"]["result"] == ["RED", "GREEN"]   # ran once per word
-assert loaded.plan["joined"].mode == "once"            # parts is Series[str]: one call
+assert loaded.runs_on["joined"].mode == "once"            # parts is Series[str]: one call
 ```
 
 The same record as JSON is `{"nodes": [{"id": "words", "node": "text-split"}, ...], "edges": [["words.result", "loud.text"], ...]}`, what an editor writes and a host stores. From Python, `make_graph(split, uppercase, join, values={"text-join.separator": " + "})` writes it too: with no `edges` the nodes form a chain, each taking its one required open input from the one output before it; with `edges=[...]` those are every edge, and nothing is matched by name. A node's id there is its own id, `-1`, `-2` when used twice.
 
-An input takes an edge, a value or a default, never two: `values` are fixed, `defaults` stay open for a caller, and an input with none of them takes its declared default. The types decide one or many: a `Series[X]` output wired to an input of one `X` runs that node once per item, and everything after it; a `Series` or `Table` input gathers them again; a value made outside the items is there on every call. A list or a table is one value, so a list given or typed in at an input of one value is refused (`invalid_input`, `invalid_value`): a node that returns a `Series`, such as `split` in `syv-conductor-nodes`, makes the items. An edge may name one field of a record, `split.result.email`. Several edges into one input must be branches of one decision (`several_edges_into_one_input`). A single output is named `result`. A node id is not empty and may not contain `.`, `/`, `@` or `~`.
+An input takes an edge, a value or a default, never two: `values` are fixed, `defaults` stay open for a caller, and an input with none of them takes its declared default. The types decide one or many: a `Series[X]` output wired to an input of one `X` runs that node once per item, and everything after it; a `Series` or `Table` input gathers them again; a value made outside the items is there on every call. A list or a table is one value, so a list given or typed in at an input of one value is refused (`invalid_input`, `invalid_value`): a node that returns a `Series`, such as `series-split` in `syv-conductor-nodes`, makes the items. An edge may name one field of a record, `series-split.result.email`. Several edges into one input must be branches of one decision (`several_edges_into_one_input`). A single output is named `result`. A node id is not empty and may not contain `.`, `/`, `@` or `~`.
 
 ## Quick reference
 
@@ -79,4 +79,4 @@ An input takes an edge, a value or a default, never two: `values` are fixed, `de
 | `except` around `run` for a pause, error or timeout | they are statuses: read `run.status`, and `match run.state` for an `EndedEarly`'s `cause` |
 | `graph.run` in a server's event loop | `async for event in run.stream()`: the leg runs on a thread of its own |
 
-To debug, read `problems`, then print every event of `run.stream()`. A failure is a `Problem`: `type`, `msg`, `ctx`, and `loc` starts with the node. `graph.plan` says how often each node runs.
+To debug, read `problems`, then print every event of `run.stream()`. A failure is a `Problem`: `type`, `msg`, `ctx`, and `loc` starts with the node. `graph.runs_on` says how often each node runs.

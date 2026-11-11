@@ -33,12 +33,15 @@ from conductor._internal.checked_graph.input_plans import (
     Source,
     WholeOutput,
 )
-from conductor._internal.checked_graph.type import CheckedGraph, PlacedEmbeddedGraph, PlacedFunction
+from conductor._internal.checked_graph.placed_node import PlacedEmbeddedGraph, PlacedFunction
 from conductor._internal.field import Field
 from conductor._internal.node_definition import Policy
 from conductor._internal.sentinels import REQUIRED
 from conductor._internal.series import Series
 from conductor._internal.units import ItemPath
+
+if typing.TYPE_CHECKING:
+    from conductor._internal.checked_graph.type import CheckedGraph
 
 
 @dataclass(eq=False, slots=True, kw_only=True)
@@ -104,7 +107,7 @@ class FunctionAtPath(_AtPath):
         readers: Each function whose ``made_from`` holds this one, with the number held there.
         position: Its place in the order a leg tries the functions in.
         waits_on: Every function it waits on, however far up; filled when first asked for.
-        shown_as: How a host reads each output, by its name and the number of maps the host stands under
+        shown_as: The input plans ``run.results`` reads each output with, by the output's name
             (``host_reads``); filled when first asked for.
     """
 
@@ -120,7 +123,7 @@ class FunctionAtPath(_AtPath):
     readers: list[tuple[FunctionAtPath, int]] = dataclasses.field(default_factory=list[tuple["FunctionAtPath", int]])
     position: int = 0
     waits_on: frozenset[FunctionAtPath] | None = None
-    shown_as: dict[tuple[str, int], InputReadsOneValue | InputGathersItems] = dataclasses.field(default_factory=dict[tuple[str, int], InputReadsOneValue | InputGathersItems])
+    shown_as: dict[str, tuple[InputReadsOneValue | InputGathersItems, ...]] = dataclasses.field(default_factory=dict[str, tuple[InputReadsOneValue | InputGathersItems, ...]])
 
 
 @typing.final
@@ -188,28 +191,33 @@ def unit_loc(node: NodeAtPath, key: ItemPath) -> Loc:
 _SHOWN = Field("shown", Series[Any | None], REQUIRED)  # type: ignore[misc]  # mypy takes no union as a type argument here
 
 
-def host_reads(node: FunctionAtPath, output: str, under: int) -> InputReadsOneValue | InputGathersItems:
-    """How a host reads the output ``output`` of ``node`` from ``under`` maps down: the plan an input wired to
-    it there would have. An output made once there is read as the one value it is; one made per item is
-    gathered, through every map the host stands outside, as a ``Series`` input that keeps a blank in its place
-    would gather it. So what a host is shown is what a node reading the output would be given.
+def host_reads(node: FunctionAtPath, output: str) -> tuple[InputReadsOneValue | InputGathersItems, ...]:
+    """The input plans ``run.results`` reads one output of a function node with.
+
+    A host reads an output the way a node wired to it would, so the plans are the ones such a node's input
+    would have. Example: ``documents -> lines -> shout``, where ``lines`` is called once per document and
+    ``shout`` once per line. ``shout`` is called inside two loops, so its output has two plans: the first
+    lists the documents, the second lists one document's lines and reads ``shout``'s return value for each.
+    ``results`` then shows ``[["A", "B"], None, ["C"]]``: a list per document, ``None`` for a document
+    whose lines were never made.
 
     Args:
-        node: The function that makes the output.
+        node: The function node that returns the output.
         output: The output's name.
-        under: How many of the maps the node runs in the host stands inside: none for the run's own results,
-            those of an embedded graph's node for what that node offers for one of its items.
+
+    Returns:
+        For a node called once, one plan that reads the return value. For a node called per item, one plan
+        for each loop it is called in, outermost first; the plan at index ``n`` is used for one item of each
+        of the ``n`` loops outside it.
     """
-    plan = node.shown_as.get((output, under))
-    if plan is None:
-        spec = node.placed.outputs[output]
-        at = (SeriesAsList if spec.many else WholeOutput)(node.name, output, _scope_at_path(node.maps), None, spec.type)
-        if len(node.maps) == under:
-            plan = InputReadsOneValue(_SHOWN, (at,), at.scope)
-        else:
-            plan = _gather_at_path(_SHOWN, node.maps[under:], (at,), {made_by.name: made_by for made_by in (node, *(series for series, _ in node.maps))})
-        node.shown_as[(output, under)] = plan
-    return plan
+    plans = node.shown_as.get(output)
+    if plans is None:
+        made = node.placed.outputs[output]
+        at = (SeriesAsList if made.many else WholeOutput)(node.name, output, _scope_at_path(node.maps), None, made.type)
+        functions = {made_by.name: made_by for made_by in (node, *(series for series, _ in node.maps))}
+        per_loop = [_gather_at_path(_SHOWN, node.maps[inside:], (at,), functions) for inside in range(len(node.maps))]
+        plans = node.shown_as[output] = tuple(per_loop) or (InputReadsOneValue(_SHOWN, (at,), at.scope),)
+    return plans
 
 
 def nodes_at_paths(graph: CheckedGraph) -> tuple[list[FunctionAtPath], dict[str, NodeAtPath]]:
@@ -344,30 +352,30 @@ def _plan_at_path(plan: InputPlan, here: Mapping[str, NodeAtPath], functions: Ma
 
     def at_path(source: Source, opened: bool) -> Source:
         last, output, per_item = _made_by(OutputAddress(source.node_id, source.output), here)
-        spec = last.placed.outputs[output]
-        brought: type[Source] = type(source) if not per_item else SeriesAsList if spec.many else WholeOutput
+        field = last.placed.outputs[output]
+        brought: type[Source] = type(source) if not per_item else SeriesAsList if field.many else WholeOutput
         if opened and brought is ItemOfSeries:
             last.opens.setdefault(output, (here[source.node_id], source.output))
         return brought(last.name, output, _scope_at_path(last.maps), source.record_field, source.type)
 
     match plan:
-        case InputReadsOneValue(field=spec, reads=reads):
+        case InputReadsOneValue(field=field, reads=reads):
             brings = tuple([at_path(source, True) for source in reads])
-            return InputReadsOneValue(spec, brings, max((source.read_in for source in brings), key=len))
-        case InputGathersOneValue(field=spec, reads=reads):
-            return InputGathersOneValue(spec, tuple([typing.cast(WholeOutput, at_path(source, False)) for source in reads]))
-        case InputGathersItems(field=spec, series=series, sources=sources):
-            return _gather_at_path(spec, _maps_of(OutputAddress(series.node_id, series.output), here), tuple([at_path(source, False) for source in sources]), functions)
+            return InputReadsOneValue(field, brings, max((source.read_in for source in brings), key=len))
+        case InputGathersOneValue(field=field, reads=reads):
+            return InputGathersOneValue(field, tuple([typing.cast(WholeOutput, at_path(source, False)) for source in reads]))
+        case InputGathersItems(field=field, series=series, sources=sources):
+            return _gather_at_path(field, _maps_of(OutputAddress(series.node_id, series.output), here), tuple([at_path(source, False) for source in sources]), functions)
         case _:
             return plan
 
 
-def _gather_at_path(spec: Field, gathered: Maps, sources: tuple[Source, ...], functions: Mapping[str, FunctionAtPath]) -> InputGathersItems:
+def _gather_at_path(field: Field, gathered: Maps, sources: tuple[Source, ...], functions: Mapping[str, FunctionAtPath]) -> InputGathersItems:
     """The plan of an input that gathers the items of ``gathered``, where its node stands: the one way such a
     plan is made, for a node's own input and for what a host is shown.
 
     Args:
-        spec: The input's field.
+        field: The input's field.
         gathered: The maps gathered through, outermost first: one, but for an output an embedded graph offers
             of something made several maps deep inside it.
         sources: What each edge brings for an item, each naming a function by its name.
@@ -375,7 +383,7 @@ def _gather_at_path(spec: Field, gathered: Maps, sources: tuple[Source, ...], fu
     """
     levels = [OutputAtScope(made_by.name, output, _scope_at_path(made_by.maps)) for made_by, output in gathered]
     through = _gathered_through(gathered[0], [functions[at.node_id] for at in (*levels[1:], *sources)])
-    return InputGathersItems(spec, (*levels, *sources), len(levels), through)
+    return InputGathersItems(field, (*levels, *sources), len(levels), through)
 
 
 def _gathered_through(series: tuple[FunctionAtPath, str], sources: list[FunctionAtPath]) -> tuple[FunctionAtPath, ...]:
@@ -403,9 +411,9 @@ def _read_before_a_call(plan: InputPlan) -> bool:
     """Whether what edges bring an input is read by the input's type before each call: not when every value they
     bring is already one the field takes as it is, with no limit or choice to hold it to."""
     match plan:
-        case InputReadsOneValue(field=spec, sources=sources):
-            return not all(spec.whole.holds(s.type) for s in sources)
-        case InputGathersItems(field=spec, sources=sources) | InputGathersOneValue(field=spec, sources=sources):
-            return spec.whole.record is not None or not all(spec.type.holds(s.type) for s in sources)
+        case InputReadsOneValue(field=field, sources=sources):
+            return not all(field.whole.holds(s.type) for s in sources)
+        case InputGathersItems(field=field, sources=sources) | InputGathersOneValue(field=field, sources=sources):
+            return field.whole.record is not None or not all(field.type.holds(s.type) for s in sources)
         case _:
             return False

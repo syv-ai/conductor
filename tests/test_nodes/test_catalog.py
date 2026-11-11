@@ -26,8 +26,8 @@ EXAMPLES = {
     "math-min": [{"values": [3, 1, 2]}],
     "math-max": [{"values": [3, 1, 2]}],
     "math-abs": [{"value": -2}],
-    "logic-if-empty": [{"text": ""}, {"text": "x"}],
-    "logic-if-equals": [{"a": "A", "b": "a", "case_sensitive": False}],
+    "control-if-empty": [{"text": ""}, {"text": "x"}],
+    "control-if-equals": [{"a": "A", "b": "a", "case_sensitive": False}],
     "logic-not": [{"value": True}],
     "json-parse": [{"text": '{"a": [1, 2]}'}],
     "json-stringify": [{"value": {"b": 1, "a": 2}, "sort_keys": True}],
@@ -35,9 +35,10 @@ EXAMPLES = {
     "regex-match": [{"text": "a1", "pattern": r"\d"}],
     "regex-replace": [{"text": "a1b2", "pattern": r"\d", "replacement": "-"}],
     "regex-extract": [{"text": "a1b22", "pattern": r"\d+"}],
-    "decision": [{"value": "x", "when": False}],
-    "split": [{"value": ["a", "b"]}],
-    "stack": [{"tables": [[{"name": "Ann"}], [{"name": "Bo"}]]}],
+    "control-decide": [{"value": "x", "when": False}],
+    "series-split": [{"value": ["a", "b"]}],
+    "series-gather": [{"values": ["a", "b"]}],
+    "series-stack": [{"tables": [[{"name": "Ann"}], [{"name": "Bo"}]]}],
     "table-collect": [{"records": [{"name": "Ann"}], "constant_columns": ["team"], "team": "red"}],
 }
 
@@ -53,11 +54,11 @@ def test_every_node_has_an_example_so_no_body_goes_untried() -> None:
 def test_every_node_says_what_it_does_and_where_it_is_listed() -> None:
     for definition in conductor_nodes.registry:
         assert definition.description, definition.id
-        assert definition.category in {"control", "json", "logic", "math", "regex", "table", "text"}, definition.id
+        assert definition.category in {"control", "json", "logic", "math", "regex", "series", "table", "text"}, definition.id
 
 
 def test_each_module_offers_its_own_nodes_and_the_package_all_of_them() -> None:
-    modules = (conductor_nodes.text, conductor_nodes.math, conductor_nodes.logic, conductor_nodes.json_ops, conductor_nodes.regex_ops, conductor_nodes.tables, conductor_nodes.control)
+    modules = (conductor_nodes.text, conductor_nodes.math, conductor_nodes.logic, conductor_nodes.json_ops, conductor_nodes.regex_ops, conductor_nodes.tables, conductor_nodes.series, conductor_nodes.control)
     assert sum(len(module.registry) for module in modules) == len(conductor_nodes.registry)
     for module in modules:
         (category,) = {d.category for d in module.registry}

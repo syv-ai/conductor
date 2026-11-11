@@ -17,6 +17,7 @@ from conductor import (
     Ask,
     FromRun,
     GraphRecord,
+    InvalidCallError,
     NodeError,
     NodeRecord,
     NodeRegistry,
@@ -58,7 +59,7 @@ async def _starts(store: MemoryStore, run_id: str) -> int:
 async def test_an_output_that_isnt_finite_reads_as_its_text() -> None:
     registry, store = NodeRegistry(), MemoryStore()
 
-    @registry.node("edges", title="Edges", description="")
+    @registry.node("edges", title="Edges", description="For a test.")
     def edges(x: int) -> list[float]:
         return [float("inf"), float("-inf"), float("nan"), x]
 
@@ -86,11 +87,11 @@ class Cents:
 async def test_an_output_only_its_own_type_can_write_completes_as_it_does_in_the_engine() -> None:
     registry, store = NodeRegistry(), MemoryStore()
 
-    @registry.node("price", title="Price", description="")
+    @registry.node("price", title="Price", description="For a test.")
     def price(cents: int) -> Cents:
         return Cents(cents)
 
-    @registry.node("prices", title="Prices", description="")
+    @registry.node("prices", title="Prices", description="For a test.")
     def prices(cents: int) -> Series[Cents]:
         return [Cents(cents), Cents(cents + 1)]
 
@@ -108,11 +109,11 @@ class Part(TypedDict):
 async def test_a_table_made_for_each_item_reads_as_its_columns_per_item() -> None:
     registry, store = NodeRegistry(), MemoryStore()
 
-    @registry.node("split", title="Split", description="")
+    @registry.node("split", title="Split", description="For a test.")
     def split(text: str) -> Series[str]:
         return text.split(",")
 
-    @registry.node("as-table", title="As table", description="")
+    @registry.node("as-table", title="As table", description="For a test.")
     def as_table(text: str) -> Table[Part]:
         return pl.DataFrame({"text": [text]})
 
@@ -129,11 +130,11 @@ async def test_a_table_made_for_each_item_reads_as_its_columns_per_item() -> Non
 async def test_a_run_stopped_at_its_ceiling_says_why_and_is_resumed_at_the_same_or_a_higher_ceiling() -> None:
     registry, store = NodeRegistry(), MemoryStore()
 
-    @registry.node("split", title="Split", description="")
+    @registry.node("split", title="Split", description="For a test.")
     def split(text: str) -> Series[str]:
         return text.split(",")
 
-    @registry.node("up", title="Up", description="")
+    @registry.node("up", title="Up", description="For a test.")
     def up(text: str) -> str:
         return text.upper()
 
@@ -159,11 +160,11 @@ async def test_a_run_stopped_at_its_ceiling_says_why_and_is_resumed_at_the_same_
 async def test_a_ceiling_raised_by_a_resume_holds_for_the_legs_after_it() -> None:
     registry, store = NodeRegistry(), MemoryStore()
 
-    @registry.node("split", title="Split", description="")
+    @registry.node("split", title="Split", description="For a test.")
     def split(n: int) -> Series[int]:
         return list(range(n))
 
-    @registry.node("ask", title="Ask", description="")
+    @registry.node("ask", title="Ask", description="For a test.")
     def ask(x: int) -> int:
         raise Ask("ok?")
 
@@ -172,11 +173,34 @@ async def test_a_ceiling_raised_by_a_resume_holds_for_the_legs_after_it() -> Non
     assert (await store.ended(run_id)).status == "stopped"
 
     await worker.resume(await worker.read(run_id), max_items=10)
+    assert json.loads(store.rows[run_id].run)["max_items"] == 10  # written with the claim, so a leg given up before its first checkpoint is gone on with under it
     waiting = (await store.ended(run_id)).waiting
     assert len(waiting) == 5
     assert await worker.answer(await worker.read(run_id), {waiting[0].id: 7}) == "started"
     after = await store.ended(run_id)
     assert (after.status, len(after.waiting)) == ("waiting", 4)
+
+
+async def test_a_resume_with_a_higher_ceiling_of_a_stored_run_that_cant_be_read_is_refused_and_the_row_is_left_alone() -> None:
+    registry, store = NodeRegistry(), MemoryStore()
+
+    @registry.node("split", title="Split", description="For a test.")
+    def split(text: str) -> Series[str]:
+        return text.split(",")
+
+    @registry.node("up", title="Up", description="For a test.")
+    def up(text: str) -> str:
+        return text.upper()
+
+    worker = _worker(store, registry, max_items=1)
+    run_id = await _started(worker, make_graph(split, up), {"text": "a,b"})
+    assert (await store.ended(run_id)).status == "stopped"
+    store.rows[run_id] = unreadable = dataclasses.replace(store.rows[run_id], run="{")
+
+    with pytest.raises(InvalidCallError) as refused:
+        await worker.resume(await worker.read(run_id), max_items=5)
+
+    assert [problem.type for problem in refused.value.errors()] == ["state_unreadable"] and store.rows[run_id] == unreadable
 
 
 @pytest.mark.parametrize("status", ["running", "waiting", "complete"])
@@ -527,11 +551,11 @@ class Fragile:
 async def test_a_queued_answer_whose_check_raises_is_refused_as_not_checked_and_the_leg_ends_once() -> None:
     registry, store, gate = NodeRegistry(), MemoryStore(), threading.Event()
 
-    @registry.node("ask", title="Ask", description="")
+    @registry.node("ask", title="Ask", description="For a test.")
     def ask(text: str) -> Fragile:
         raise Ask("Which?")
 
-    @registry.node("busy", title="Busy", description="")
+    @registry.node("busy", title="Busy", description="For a test.")
     def busy(text: str) -> str:
         gate.wait(5)
         return text
@@ -579,24 +603,24 @@ def _asked_beside_a_chain() -> tuple[NodeRegistry, GraphRecord, dict[str, Any], 
     called."""
     registry, gates, calls = NodeRegistry(), {name: threading.Event() for name in ("first", "in_second", "second")}, []
 
-    @registry.node("approve", title="Approve", description="")
+    @registry.node("approve", title="Approve", description="For a test.")
     def approve(text: str) -> bool:
         raise Ask("Go on?")
 
-    @registry.node("one", title="One", description="")
+    @registry.node("one", title="One", description="For a test.")
     def one(text: str) -> str:
         calls.append("one")
         gates["first"].wait(5)
         return text
 
-    @registry.node("two", title="Two", description="")
+    @registry.node("two", title="Two", description="For a test.")
     def two(text: str) -> str:
         calls.append("two")
         gates["in_second"].set()
         gates["second"].wait(5)
         return text
 
-    @registry.node("three", title="Three", description="")
+    @registry.node("three", title="Three", description="For a test.")
     def three(text: str) -> str:
         calls.append("three")
         return text
@@ -660,11 +684,11 @@ async def test_a_cancel_that_lands_as_a_leg_ends_is_heard_by_the_leg_an_answer_q
 async def test_a_question_that_waits_in_a_failed_run_is_answered_without_a_resume() -> None:
     registry, store = NodeRegistry(), MemoryStore()
 
-    @registry.node("many", title="Many", description="")
+    @registry.node("many", title="Many", description="For a test.")
     def many(n: int) -> Series[int]:
         return list(range(n))
 
-    @registry.node("approve", title="Approve", description="")
+    @registry.node("approve", title="Approve", description="For a test.")
     def approve(x: int) -> bool:
         if x == 2:
             raise NodeError("item 2 fails")
@@ -729,7 +753,7 @@ async def test_a_leg_the_store_raises_in_is_given_up_and_gone_on_with_once_its_l
 def _shout() -> tuple[NodeRegistry, GraphRecord]:
     registry = NodeRegistry()
 
-    @registry.node("shout", title="Shout", description="")
+    @registry.node("shout", title="Shout", description="For a test.")
     def shout(text: str) -> str:
         return text.upper()
 
@@ -762,7 +786,7 @@ class Clock:
 async def test_a_leg_conductor_refuses_to_start_fails_with_the_first_of_its_own_problems_and_the_log_has_them_all(caplog: pytest.LogCaptureFixture) -> None:
     registry, store = NodeRegistry(), MemoryStore()
 
-    @registry.node("stamp", title="Stamp", description="")
+    @registry.node("stamp", title="Stamp", description="For a test.")
     def stamp(text: str, tenant: FromRun[Tenant], clock: FromRun[Clock]) -> str:
         return text
 
@@ -779,16 +803,16 @@ async def test_a_leg_conductor_refuses_to_start_fails_with_the_first_of_its_own_
 async def test_a_run_whose_leg_raised_after_a_checkpoint_lists_what_waits_in_that_checkpoint() -> None:
     registry, store, gate = NodeRegistry(), MemoryStore(), threading.Event()
 
-    @registry.node("approve", title="Approve", description="")
+    @registry.node("approve", title="Approve", description="For a test.")
     def approve(text: str) -> bool:
         raise Ask("Go on?")
 
-    @registry.node("busy", title="Busy", description="")
+    @registry.node("busy", title="Busy", description="For a test.")
     def busy(text: str) -> str:
         gate.wait(5)
         return text
 
-    @registry.node("opaque", title="Opaque", description="")
+    @registry.node("opaque", title="Opaque", description="For a test.")
     def opaque(text: str) -> Opaque:
         return Opaque()
 
@@ -807,11 +831,11 @@ async def test_a_run_whose_leg_raised_after_a_checkpoint_lists_what_waits_in_tha
 async def test_a_run_whose_leg_raised_lists_what_waits_in_the_run_as_stored_and_takes_an_answer_to_it_without_a_resume() -> None:
     registry, store, legs = NodeRegistry(), MemoryStore(), []
 
-    @registry.node("many", title="Many", description="")
+    @registry.node("many", title="Many", description="For a test.")
     def many(n: int) -> Series[int]:
         return list(range(n))
 
-    @registry.node("approve", title="Approve", description="")
+    @registry.node("approve", title="Approve", description="For a test.")
     def approve(x: int) -> bool:
         raise Ask(f"approve {x}?")
 
@@ -884,11 +908,11 @@ class Opaque:
 async def test_a_leg_that_ends_with_a_run_that_cant_be_written_fails_with_that_problem_the_first_time(graph_of: tuple[str, ...], at: str) -> None:
     registry, store = NodeRegistry(), MemoryStore()
 
-    @registry.node("opaque", title="Opaque", description="")
+    @registry.node("opaque", title="Opaque", description="For a test.")
     def opaque(text: str) -> Opaque:
         return Opaque()
 
-    @registry.node("shown", title="Shown", description="")
+    @registry.node("shown", title="Shown", description="For a test.")
     def shown(value: Opaque) -> str:
         return "shown"
 
@@ -1224,11 +1248,11 @@ async def test_a_renewal_that_raises_is_logged_and_the_next_one_keeps_the_lease_
 async def test_a_run_that_stopped_running_holds_no_lease_so_no_sweep_takes_it_again(ends: str) -> None:
     registry = NodeRegistry()
 
-    @registry.node("shout", title="Shout", description="")
+    @registry.node("shout", title="Shout", description="For a test.")
     def shout(text: str) -> str:
         return text.upper()
 
-    @registry.node("approve", title="Approve", description="")
+    @registry.node("approve", title="Approve", description="For a test.")
     def approve(text: str) -> bool:
         raise Ask("Go on?")
 

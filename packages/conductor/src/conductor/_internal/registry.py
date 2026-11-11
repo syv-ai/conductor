@@ -45,7 +45,6 @@ from typing import Any, Concatenate
 
 from pydantic import JsonValue
 
-from conductor._internal import problem
 from conductor._internal.checked_graph import load_graph
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.graph import Graph
@@ -58,8 +57,10 @@ from conductor._internal.node_definition import (
     StoredGraphDescription,
     declared_inputs,
     node,
+    stored_graph,
 )
 from conductor._internal.problem import InvalidCallError, NodeDeclarationError
+from conductor._internal.problem import catalogue as problem
 from conductor._internal.value_type import Type
 
 
@@ -141,12 +142,31 @@ class NodeRegistry:
         """
         declare = node(*args, **kwargs)
 
-        def decorate(target: Callable[..., Any] | GraphRecord | str | bytes | Mapping[str, Any]) -> NodeDefinition:
-            definition = declare(target)
+        def decorate(function: Callable[..., Any]) -> NodeDefinition:
+            definition = declare(function)
             self.add(definition)
             return self._nodes[definition.id]
 
         return decorate
+
+    @_takes_the_arguments_of(stored_graph)
+    def stored_graph(self, *args: Any, **kwargs: Any) -> Any:
+        """Make a stored graph a node as ``stored_graph`` does, with the same arguments, and add it here::
+
+            enrich = registry.stored_graph("enrich", title="Enrich", description="Adds the company's details.")(record)
+
+        An id already held raises, as with ``registry.node``. The definition
+        returned is the one this registry holds, with the registry's defaults
+        applied.
+        """
+        declare = stored_graph(*args, **kwargs)
+
+        def add(record: GraphRecord | str | bytes) -> NodeDefinition:
+            definition = declare(record)
+            self.add(definition)
+            return self._nodes[definition.id]
+
+        return add
 
     def add(self, *definitions: NodeDefinition) -> None:
         """Add these nodes, each under its id; an id already here raises, naming where both were declared."""
@@ -255,8 +275,8 @@ class NodeRegistry:
 
     # -- graphs ------------------------------------------------------------------
 
-    def load(self, record: GraphRecord | str | bytes | Mapping[str, Any]) -> Graph:
-        """Load a stored graph, given as a record, JSON text or a mapping read from JSON.
+    def load(self, record: GraphRecord | str | bytes) -> Graph:
+        """Load a stored graph, given as a ``GraphRecord`` or as its JSON text.
 
         It never raises for a half-finished drawing: what is wrong is in
         ``graph.problems``. The graph keeps its own copy of the definitions
@@ -264,7 +284,7 @@ class NodeRegistry:
         """
         return load_graph(as_record(record), self._nodes, Graph)
 
-    def upgrade(self, record: GraphRecord | str | bytes | Mapping[str, Any], node_id: str, *, to: int | None = None) -> GraphRecord:
+    def upgrade(self, record: GraphRecord | str | bytes, node_id: str, *, to: int | None = None) -> GraphRecord:
         """``record`` with the node ``node_id`` moved from the version it was saved at to ``to``, the newest by default.
 
         Runs each newer version's ``Upgrade`` in order and sets the version.
@@ -386,10 +406,10 @@ def _types_declared_by(definitions: Iterable[NodeDefinition]) -> list[type]:
         for step in definition.lineage:
             match step:
                 case FunctionDefinition():
-                    specs = (*step.inputs.values(), *step.outputs.values())
+                    fields = (*step.inputs.values(), *step.outputs.values())
                 case StoredGraphDefinition():  # a graph declares no classes of its own
                     continue
-            found.extend(cls for spec in specs for cls in spec.whole.classes)
+            found.extend(cls for field in fields for cls in field.whole.classes)
     return list(dict.fromkeys(found))
 
 
