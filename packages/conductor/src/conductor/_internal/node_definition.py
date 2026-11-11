@@ -161,12 +161,15 @@ _DEFAULT_POLICY = Policy()
 
 
 class Deprecation(ConductorModel):
-    """A notice that a version of a node is going away.
+    """A notice that a version of a node is going away, which an editor shows beside the node.
 
-    Every part is optional prose: ``alternative`` names the node to use
-    instead, ``migration`` explains how to move. It is content an editor
-    shows; a graph that uses a deprecated node is not wrong, so this is never
-    a ``Problem``.
+    A graph that uses a deprecated node is not wrong, so this is never a ``Problem``. Every part is optional prose.
+
+    Attributes:
+        header: The notice in one line, as a badge or a title shows it: ``"Use version 2"``.
+        description: Why the version is going away, in a sentence or two.
+        alternative: The id of the node to use instead.
+        migration: How to move a graph off this version.
     """
 
     header: str | None = None

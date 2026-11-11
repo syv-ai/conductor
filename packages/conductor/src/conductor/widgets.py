@@ -48,7 +48,11 @@ class TextInput(Widget):
 
 
 class Textarea(Widget):
-    """Multi-line text."""
+    """Multi-line text.
+
+    Attributes:
+        rows: How many lines of text the box shows before it scrolls.
+    """
 
     type: Literal["textarea"] = "textarea"
     rows: int = 4
@@ -61,14 +65,24 @@ class Dropdown(Widget):
 
 
 class Slider(Widget):
-    """A number picked on a slider, between the ``ge`` and ``le`` of its ``Param``."""
+    """A number picked on a slider, between the ``ge`` and ``le`` of its ``Param``.
+
+    Attributes:
+        step: How far one notch moves the value, as ``1`` for whole numbers; ``None`` leaves it to the editor.
+    """
 
     type: Literal["slider"] = "slider"
     step: float | None = None
 
 
 class FileUpload(Widget):
-    """Files a person uploads: one, or a series of them when the field is a ``Series``."""
+    """Files a person uploads: one, or a series of them when the field is a ``Series``.
+
+    Attributes:
+        accept: The kinds of file offered, as an HTML file input's ``accept`` lists them: extensions (``".pdf"``)
+            or media types (``"image/*"``); ``None`` offers every kind.
+        max_size_mb: The largest file, in megabytes, the editor takes; ``None`` sets no limit of its own.
+    """
 
     type: Literal["file-upload"] = "file-upload"
     accept: tuple[str, ...] | None = None
@@ -76,7 +90,11 @@ class FileUpload(Widget):
 
 
 class NumberInput(Widget):
-    """A number typed in: a whole one when the field is an ``int``."""
+    """A number typed in: a whole one when the field is an ``int``.
+
+    Attributes:
+        step: How far the editor's up and down arrows move the value; ``None`` leaves it to the editor.
+    """
 
     type: Literal["number-input"] = "number-input"
     step: float | None = None
@@ -89,11 +107,14 @@ class Switch(Widget):
 
 
 class DatePicker(Widget):
-    """A date picked from a calendar."""
+    """A date picked from a calendar.
+
+    Attributes:
+        initial: ``"today"`` asks the editor to write today's date into the field when the node is added, a value no
+            default could hold; ``None`` leaves the field as its default has it.
+    """
 
     type: Literal["date-picker"] = "date-picker"
-    #: ``"today"`` asks the editor to write today's date into the field
-    #: when the node is added, a value no default could hold.
     initial: Literal["today"] | None = None
 
 

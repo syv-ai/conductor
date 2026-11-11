@@ -128,9 +128,15 @@ class WaitingUnit(Unit):
 class Run:
     """One run of a graph. Every call returns a new ``Run``; ``to_json`` is all of it.
 
-    ``status`` is ``ready`` before the first leg, then ``complete``,
-    ``waiting``, ``failed``, ``stopped`` (the row ceiling), ``cancelled`` or
-    ``timed_out``; ``cause`` is the ``Problem`` behind any of the last four.
+    Attributes:
+        graph: The graph the run runs on: the one it was started from, or, when a caller gave a list to an input that
+            takes one value per row, that graph compiled for those lists, whose ``plan`` says where each node ran.
+        inputs: The caller's inputs as checked, by address (``"upper.text"``) whether they were given by name or by
+            address.
+        max_rows: The most rows any table may hold before the run stops as ``stopped``; ``None`` for no ceiling.
+        status: ``ready`` before the first leg, then ``complete``, ``waiting``, ``failed``, ``stopped`` (the row
+            ceiling), ``cancelled`` or ``timed_out``.
+        cause: The ``Problem`` behind a ``failed``, ``stopped``, ``cancelled`` or ``timed_out`` run, else ``None``.
     """
 
     graph: Graph
@@ -1029,6 +1035,15 @@ _SAVE_CONFIG = ConfigDict(extra="forbid", ser_json_inf_nan="strings")
 
 
 class _SavedTable(BaseModel):
+    """A table in a save: a table output of one finished unit, or a caller's table input.
+
+    Attributes:
+        rows: How many rows the table has, which a run counts its rows by.
+        columns: Each column as ``(name, values)``, in the table's own order, each value as JSON.
+        types: For a column the row type doesn't name, the plain type its values were written from (``"date"``,
+            ``"decimal"``, ...), so they read back as that type and not as their JSON text.
+    """
+
     model_config = _SAVE_CONFIG
     rows: NonNegativeInt
     columns: list[tuple[str, list[Any]]]
@@ -1036,6 +1051,17 @@ class _SavedTable(BaseModel):
 
 
 class _SavedOutput(BaseModel):
+    """One output of a node across its finished units, as a column.
+
+    Attributes:
+        values: The output's value on each finished unit, in the units' order, as JSON; ``None`` where it was blank
+            or a branch not taken.
+        skipped: The places in ``values`` whose output was a branch not taken (``SKIPPED``), not a blank.
+        skipped_items: For a ``Series`` output, by place in ``values``, the items that were a branch not taken.
+        non_finite: The places, from the place in ``values`` down, of each float that isn't finite where the output's
+            type wouldn't read its text back as a float (an ``Any``, a ``dict``).
+    """
+
     model_config = _SAVE_CONFIG
     values: list[Any]
     skipped: list[NonNegativeInt] = []
@@ -1044,7 +1070,16 @@ class _SavedOutput(BaseModel):
 
 
 class _SavedUnits(BaseModel):
-    """A node's units as columns: their rows (none for carried work), states, the questions of the few that carry one, and a column per output."""
+    """A node's units as columns, one place per unit.
+
+    Attributes:
+        keys: Each unit's row; ``None`` for carried work, which is kept by what it received, not by row.
+        states: What each unit came to: ``done``, ``skipped``, ``blank`` or ``waiting``.
+        questions: By place, the question a waiting unit asks, or a done one was answered on.
+        blank_inputs: By place, for a blank unit, the plain input that got nothing.
+        skipped_from: By place, for a skipped unit, the depth of the row where the branch not taken was decided.
+        outputs: By output name, that output across the done units, in their order.
+    """
 
     model_config = _SAVE_CONFIG
     keys: list[tuple[NonNegativeInt, ...]] | None = None
@@ -1056,11 +1091,31 @@ class _SavedUnits(BaseModel):
 
 
 class _SavedEarlier(_SavedUnits):
+    """Work a run carried from the one before it and hasn't taken yet: the units, and what each received.
+
+    Attributes:
+        fingerprints: By place, the fingerprint of what the unit received, where a row receiving the same takes it.
+    """
+
     fingerprints: list[str]
 
 
 class _SavedRun(BaseModel):
-    """What ``run.to_json()`` writes, read once at ``load_run``: a malformed save is refused here, by where."""
+    """What ``run.to_json()`` writes, read once at ``load_run``: a malformed save is refused here, by where.
+
+    Attributes:
+        graph: The fingerprint of the graph that ran, so another graph's save is refused.
+        status: How the run stood when it was saved.
+        cause: The problem behind a ``failed``, ``stopped``, ``cancelled`` or ``timed_out`` run.
+        max_rows: The row ceiling the run goes on under.
+        inputs: The caller's inputs by address, as JSON; a table as a ``_SavedTable``.
+        non_finite_inputs: By address, the places of each float that isn't finite, as ``_SavedOutput.non_finite``.
+        units: By node id, the units of each node with any.
+        earlier: By node id, the carried work not yet taken.
+        code: By node id, the ``reuse_digest`` of the code that made its saved units, so units made by other code are
+            never carried.
+        complete: The nodes every row of which was finished when the last leg ended.
+    """
 
     model_config = _SAVE_CONFIG
     graph: str

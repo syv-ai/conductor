@@ -290,10 +290,25 @@ def humanised(name: str) -> str:
 
 @dataclass(frozen=True)
 class FieldSpec:
-    """One input or output: its shape, the type of one value, and how a value is checked.
+    """One input or output of a node, as ``@node`` read it from the signature: its shape, the type of one value, and
+    how a value is checked.
 
-    ``optional`` says a blank (``None``) may arrive in place of the field's value: of one value, or of a ``Series``'
-    whole list (``Series[X] | None``). Whether a ``Series``' items may be blank is its item type's own ``| None``.
+    Attributes:
+        name: The parameter's name, or the output's.
+        shape: ``"one"`` for one value, ``"many"`` for a ``Series`` (a list, one item per row), ``"table"`` for a
+            ``Table``.
+        type: The type of one value: the hint without ``Series``, ``Table`` or its ``Param``s, with its ``| None``
+            kept; a ``Series``' item type; a ``polars.DataFrame`` for a table.
+        optional: A blank (``None``) may arrive in place of the field's value: of one value, or of a ``Series``'
+            whole list (``Series[X] | None``). Whether a ``Series``' items may be blank is its item type's own
+            ``| None``.
+        default: The signature's default: ``REQUIRED`` when it has none, ``SKIPPED`` for an output on a branch not
+            taken, ``None`` for a blank, else the value.
+        param: The field's ``Param``, the ``Param``s of its hint merged; an empty one when it has none.
+        columns: A table's columns by name, from its row type; ``None`` for a table of any columns, and for a field
+            that isn't a table.
+        type_id: The id of one value's type, ``| None`` off, as an editor reads it; ``Table`` for a table.
+        column_type_ids: The ids of a table's declared column types, by column.
     """
 
     name: str
@@ -302,11 +317,8 @@ class FieldSpec:
     optional: bool = False
     default: Any = REQUIRED
     param: Param = field(default_factory=Param)
-    #: A table's columns by name, from its row type; ``None`` for a table of any columns.
     columns: dict[str, Any] | None = None
-    #: The id of one value's type, ``| None`` off, as an editor reads it; ``Table`` for a table.
     type_id: str = field(kw_only=True)
-    #: The ids of a table's declared column types, by column.
     column_type_ids: Mapping[str, str] = field(kw_only=True, default_factory=dict[str, str])
     #: The default in its JSON form, written once when the node is declared; ``None`` where the field has no value
     #: to propose (it is required, or its default is ``SKIPPED``).
@@ -314,10 +326,12 @@ class FieldSpec:
 
     @property
     def required(self) -> bool:
+        """Whether the signature gives no default, so a value must come."""
         return self.default is REQUIRED
 
     @property
     def title(self) -> str:
+        """What a person reads as the field's name: ``Param(title=)``, else its name in everyday words."""
         return self.param.title or humanised(self.name)
 
     def json_of(self, value: Any) -> Any:
@@ -431,8 +445,16 @@ class FieldSpec:
 
     def describe(self, record: builtins.type[FieldDescription] | None = None, /, **changed: Any) -> FieldDescription:
         """The field as an editor reads it: its shape, its type's ``id`` and JSON schema, and what a person reads about
-        it; as a ``record`` that adds to it (a graph's input, an input placed in a graph), with what ``changed`` says.
-        Only the keys the field has are set."""
+        it. Only the keys the field has are set.
+
+        Args:
+            record: A ``FieldDescription`` subclass that adds to it, such as a graph's input or an input placed in a
+                graph; ``FieldDescription`` itself when not given.
+            **changed: Keys of the record set or replaced, such as the address a graph knows the field by.
+
+        Returns:
+            The record, validated.
+        """
         out: dict[str, Any] = {"name": self.name, "title": self.title, "shape": self.shape, "required": self.required}
         if self.shape != "table":
             out["type"] = self.type_id
