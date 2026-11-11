@@ -8,6 +8,7 @@ and ``filter`` change or narrow what is offered; looping yields the
 definitions.
 """
 
+import itertools
 from dataclasses import dataclass
 from typing import Annotated, Any, ClassVar, Literal, TypedDict
 
@@ -730,3 +731,13 @@ def test_a_stored_graph_is_described_once_until_the_registry_changes(monkeypatch
     registry.replace(shout_in_words)
     (loud,) = [n for n in registry.describe().nodes if n.id == "loud"]
     assert [field.name for field in loud.inputs] == ["words"] and len(loads) == 2
+
+
+def test_the_modules_own_example_runs():
+    from conductor._internal import registry as module
+
+    after = module.__doc__.split("::\n", 1)[1].splitlines()
+    block = "\n".join(line[4:] for line in itertools.takewhile(lambda line: not line or line.startswith("    "), after))
+    scope: dict[str, Any] = {"NodeRegistry": NodeRegistry, "shout": _node("shout")}
+    exec(block, scope)  # noqa: S102  the docstring's own code, as a reader runs it
+    assert [definition.id for definition in scope["registry"]] == ["upper", "shout"]

@@ -5,7 +5,7 @@ second. Nodes go on one as FastAPI's routes go on a router::
 
     text = NodeRegistry(category="text", tags=["builtin"])
 
-    @text.node("upper")
+    @text.node("upper", title="Upper", description="Upper-cases a text.")
     def upper(value: str) -> str:
         return value.upper()
 
@@ -21,7 +21,7 @@ copied in when it is added, so changing it afterwards changes nothing here.
 
 The registry also holds which value types exist: the ones its nodes
 declare on their inputs and outputs, plus the ``types`` a host names, each
-under its ``id`` (its own ``id`` attribute, else its class name). Nothing
+under the ``type_id`` its class declares. Nothing
 about a type is process-wide, so two registries in one process may each
 hold a ``text`` of their own; one id claimed by two classes in one registry
 raises where the second arrives, naming both. ``describe()`` is what an
