@@ -281,7 +281,8 @@ class Gather:
 
 @dataclass(frozen=True, slots=True)
 class SeriesOfOne:
-    """An input of many fed by a source that runs once: each call receives its one value as a list of one.
+    """An input of many fed by a source that makes one value for each call of the node: the source runs where
+    the node runs, or outside the items the node runs per. Each call receives that one value as a list of one.
 
     Attributes:
         spec: The input's field.
@@ -293,14 +294,14 @@ class SeriesOfOne:
 
     @property
     def reads(self) -> tuple[tuple[Value, int], ...]:
-        """Every cell the input is made from: what each edge brings, read where the graph itself runs. The tree
-        of a graph keeps it for each node where it stands, and a run reads those cells and no other."""
-        return tuple([(source, 0) for source in self.sources])
+        """Every cell the input is made from: what each edge brings, read where its node runs. The tree of a
+        graph keeps it for each node where it stands, and a run reads those cells and no other."""
+        return tuple([(source, len(source.scope)) for source in self.sources])
 
     @property
     def scope(self) -> Scope:
-        """The graph's own scope, where a source that runs once runs."""
-        return ()
+        """The scope the value sits in: the one its source runs in."""
+        return self.sources[0].scope
 
 
 #: An input that edges feed.
@@ -1277,6 +1278,10 @@ class _Loader:
             inputs[name] = Unset(fields[name])
         scopes = [plan.scope for plan in inputs.values() if isinstance(plan, Fed)]
         scope = max(scopes, key=len, default=())
+        for name, plan in inputs.items():
+            if isinstance(plan, Gather) and (made_in := plan.sources[0].read_in) == scope[: len(made_in)] and all(isinstance(s, Value) for s in plan.sources):
+                # its source makes one value where the node runs, for another input's sake: that one, never every item's
+                inputs[name] = SeriesOfOne(plan.spec, typing.cast("tuple[Value, ...]", plan.sources))
         for name, plan in inputs.items():
             if isinstance(plan, Fed) and scope[: len(plan.scope)] != plan.scope:  # items of two Series never pair up
                 series = [scope[-1], plan.scope[-1]]

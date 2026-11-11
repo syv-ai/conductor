@@ -367,3 +367,30 @@ def test_a_series_made_inside_an_embedded_graph_in_the_items_and_never_made_for_
         kind=kind, text="a b",
     )
     assert (came_to(flat, "n"), came_to(embedded, "n")) == (n, n)
+
+
+@_node("both")
+def both(a: Series[str], b: Series[str]) -> str:
+    return f"{'|'.join(a)}:{''.join(b)}"
+
+
+REGISTRY.node("summary-and-letters", title="Summary and letters", description="A text in capitals beside its letters in capitals.")(
+    make_graph(up, chars, maybe, both, edges=[("chars.result", "maybe.a"), ("up.result", "both.a"), ("maybe.result", "both.b")])
+)
+
+
+def test_a_series_input_fed_the_one_value_made_for_the_item_its_node_runs_for_receives_that_value_drawn_in_the_graph_or_inside_an_embedded_one() -> None:
+    """A document's summary beside the document's letters: the node runs per document for the letters it gathers,
+    so the summary its other ``Series`` input is wired to is the one of its own document, never every document's."""
+    flat = REGISTRY.load({
+        "nodes": [{"id": "s", "node": "items"}, {"id": "u", "node": "up"}, {"id": "c", "node": "chars"}, {"id": "x", "node": "maybe"}, {"id": "j", "node": "both"}],
+        "edges": [["s.result", "u.a"], ["s.result", "c.a"], ["c.result", "x.a"], ["u.result", "j.a"], ["x.result", "j.b"]],
+    })
+    embedded = REGISTRY.load({
+        "nodes": [{"id": "s", "node": "items"}, {"id": "e", "node": "summary-and-letters"}],
+        "edges": [["s.result", "e.up.a"], ["s.result", "e.chars.a"]],
+    })
+    assert not flat.problems and not embedded.problems
+    feed = {field.field.name: (field.feed.mode, field.feed.series) for field in flat.describe().nodes["j"].inputs}
+    assert feed == {"a": ("gathered", None), "b": ("gathered", "c.result")}
+    assert flat.run(text="ab c").results["j"]["result"] == embedded.run(text="ab c").results["e"]["both.result"] == ["AB:AB", "C:C"]
