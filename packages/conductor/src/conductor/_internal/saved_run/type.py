@@ -78,6 +78,25 @@ class SavedEarlier[UnitsT]:
 
 
 @dataclass(slots=True, kw_only=True)
+class SameAs:
+    """One output value that a save does not write a second time, because another output has the very same table.
+
+    Example: ``read`` returns a table and ``split`` returns that same table as a Series of records. The save
+    writes the table under ``read`` and ``null`` under ``split``, with
+    ``{"output": ["split", "result", 0], "same_as": ["read", "result", 0]}``. Loading gives both outputs the one
+    table again.
+
+    Attributes:
+        output: The output written as ``null``: the node as a save names it, the output's name, and the slot.
+        same_as: The output that is written in full, in the same three parts.
+    """
+
+    __pydantic_config__: ClassVar[ConfigDict] = _SAVED
+    output: tuple[str, str, NonNegativeInt]
+    same_as: tuple[str, str, NonNegativeInt]
+
+
+@dataclass(slots=True, kw_only=True)
 class SavedRun[UnitsT, EarlierT]:
     """A run as a save holds it. A node is named by its id after the ids of the embedded graphs' nodes it is
     inside, joined by ``/`` (``e/ask``).
@@ -95,6 +114,8 @@ class SavedRun[UnitsT, EarlierT]:
         code: By node, the ``reuse_digest`` of the code that made its units and its earlier work, so work made
             by other code is never taken.
         complete: The nodes every unit of which was finished when the last leg ended.
+        same_as: The outputs in ``units`` written as ``null`` because another output has the same table, each
+            with the output that is written in full; ``None``, which leaves the key out, when there are none.
     """
 
     __pydantic_config__: ClassVar[ConfigDict] = _SAVED
@@ -106,3 +127,4 @@ class SavedRun[UnitsT, EarlierT]:
     earlier: dict[str, EarlierT]
     code: dict[str, str]
     complete: list[str]
+    same_as: list[SameAs] | None = None

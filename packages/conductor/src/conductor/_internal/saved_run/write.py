@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from typing import Any, cast
 
 import pydantic_core
@@ -13,6 +13,7 @@ from conductor._internal.field import Field
 from conductor._internal.saved_run.type import (
     SAVED_DONE,
     SAVED_SKIPPED,
+    SameAs,
     SavedEarlier,
     SavedRun,
     SavedUnits,
@@ -68,6 +69,40 @@ def unit_columns(outputs: Mapping[str, Field], slots: list[Unit | None]) -> Save
         states=list(map(_STATE_WORD.get, map(type, slots))), outputs=columns, questions=questions, blank_inputs=blank_inputs,
         skipped=skipped or None, skipped_items=skipped_items or None,
     )
+
+
+def tables_written_once(outputs: Mapping[str, Mapping[str, Field]], shareable: Iterable[tuple[str, str]], units: Mapping[str, SavedUnits]) -> list[SameAs] | None:
+    """Finds the outputs in ``units`` that have the very same table object as an output before them, replaces each
+    with ``None`` in its column, and returns where each one's table is written.
+
+    Example: ``read.result`` is a frame and ``split.result`` is ``Records`` of that same frame. The column of
+    ``split.result`` becomes ``[None]`` and the result is
+    ``[SameAs(output=("split", "result", 0), same_as=("read", "result", 0))]``.
+
+    Args:
+        outputs: The outputs of each node, by the node's name in a save.
+        shareable: The ``(node, output)`` pairs whose type can have such a table, in the order a save writes them.
+        units: The columns of each node, as ``unit_columns`` made them.
+
+    Returns:
+        The outputs left out, or ``None`` when there are none.
+    """
+    first: dict[int, tuple[Any, tuple[str, str, int]]] = {}  # by id() of a table alive in ``units`` during this call
+    same: list[SameAs] = []
+    for node, output in shareable:
+        of_node = units.get(node)
+        if of_node is None:
+            continue
+        written_once, column = outputs[node][output].whole.written_once, of_node.outputs[output]
+        for slot, stored in enumerate(column):
+            table = None if stored is None else written_once(stored)
+            if table is None:
+                continue
+            before = first.setdefault(id(table), (table, (node, output, slot)))
+            if before[1] != (node, output, slot) and before[0] is table:
+                column[slot] = None
+                same.append(SameAs(output=(node, output, slot), same_as=before[1]))
+    return same or None
 
 
 def earlier_columns(outputs: Mapping[str, Field], earlier: EarlierWork) -> SavedEarlier[SavedUnits]:

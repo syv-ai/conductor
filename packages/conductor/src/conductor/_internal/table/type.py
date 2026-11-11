@@ -106,6 +106,7 @@ class TableType(Type, of=_Table, value_class=pl.DataFrame):
     table of any columns it is."""
 
     keys_in_order: ClassVar[bool] = True  # a table is written by column, in order
+    may_write_once = True
     typed_in_advice: ClassVar[str] = "; give a table as a list of records"
 
     @functools.cached_property
@@ -129,6 +130,10 @@ class TableType(Type, of=_Table, value_class=pl.DataFrame):
         """The type of one record, which is what a table input gathers: the row type, and ``dict`` for a table of
         any columns, whose records are mappings of any keys."""
         return Type(dict if self._row is Any else self._row)
+
+    def written_once(self, stored: Any) -> Any | None:
+        """Returns the frame itself: a table that two outputs both have is written once in a save."""
+        return stored
 
     def _walked(self, step: int | str) -> tuple[Type, bool, str | None] | None:
         """Follows one step of pydantic's ``loc`` into the table: the form it came in is no place, a record's

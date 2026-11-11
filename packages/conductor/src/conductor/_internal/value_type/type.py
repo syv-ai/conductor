@@ -122,12 +122,14 @@ class Type:
         hint: The annotation, with its ``Annotated`` metadata and its type variables as written.
         keys_in_order: Whether the JSON of a value has its keys in one order whatever made it, so it hashes as
             it is written.
+        may_write_once: Whether ``written_once`` can return an object for a stored value of the type.
         typed_in_advice: What to give instead, said after the reason a value of the kind typed into a graph has
             no JSON form; nothing for a plain value.
     """
 
     hint: Any
     keys_in_order: ClassVar[bool] = False
+    may_write_once: bool = False
     typed_in_advice: ClassVar[str] = ""
     _made: ClassVar[weakref.WeakValueDictionary[Any, Type]] = weakref.WeakValueDictionary()
 
@@ -398,6 +400,11 @@ class Type:
             FieldValueError: The type refuses the value.
         """
         return self.read(value, strict=True)
+
+    def written_once(self, stored: Any) -> Any | None:
+        """Returns the object inside ``stored``, a stored value of the type, that a save should write only once
+        when several outputs have that same object (a table); ``None`` when the type has no such object."""
+        return None
 
     def read_answer(self, value: Any) -> Any:
         """Validates a person's answer from its JSON form and returns it as the run stores it.

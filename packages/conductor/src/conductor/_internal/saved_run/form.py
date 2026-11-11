@@ -11,7 +11,7 @@ from pydantic import TypeAdapter
 from pydantic_core import CoreConfig, CoreSchema, SchemaSerializer, SchemaValidator, core_schema
 
 from conductor._internal.field import Field
-from conductor._internal.saved_run.read import earlier_of, units_of
+from conductor._internal.saved_run.read import earlier_of, units_of, with_shared_tables
 from conductor._internal.saved_run.type import (
     SavedEarlier,
     SavedRun,
@@ -39,12 +39,15 @@ class SaveForm(NamedTuple):
         inputs: The type of each input of the graph, by address.
         outputs: The outputs of each function node of the graph and of the graphs embedded in it, by the node's
             name in a save.
+        shareable: The ``(node, output)`` pairs whose stored value may be a table that another output also has,
+            in the order a save writes them. A save looks only at these for a table to write once.
         validator: Reads a save into the ``SavedRun`` that ``_run_of`` makes a run of.
         serializer: Writes the ``SavedRun`` that ``Run._saved`` gives.
     """
 
     inputs: Mapping[str, Type]
     outputs: Mapping[str, Mapping[str, Field]]
+    shareable: tuple[tuple[str, str], ...]
     validator: SchemaValidator
     serializer: SchemaSerializer
 
@@ -96,9 +99,12 @@ def save_form(fingerprint: str, inputs: Mapping[str, Type], outputs: Mapping[str
         code=_closed({}, dict.fromkeys(units, core_schema.str_schema())),
         complete=core_schema.list_schema(core_schema.literal_schema(names)) if (names := list(nodes)) else core_schema.list_schema(max_length=0),
     )
+    shareable = tuple((node, name) for node, of_node in outputs.items() for name, output in of_node.items() if output.whole.may_write_once)
+    if shareable:  # a graph with no such output reads its saves with no step after
+        run = core_schema.no_info_after_validator_function(functools.partial(with_shared_tables, outputs), run)
     schema = core_schema.definitions_schema(core_schema.tagged_union_schema({fingerprint: run}, discriminator=_GRAPH), list(shared.values()))
     config = CoreConfig(ser_json_inf_nan="strings")
-    return SaveForm(inputs, outputs, SchemaValidator(schema, config), SchemaSerializer(schema, config))
+    return SaveForm(inputs, outputs, shareable, SchemaValidator(schema, config), SchemaSerializer(schema, config))
 
 
 def _with_fields(record: Any, **schemas: CoreSchema) -> CoreSchema:

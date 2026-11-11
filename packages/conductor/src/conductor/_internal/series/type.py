@@ -89,6 +89,15 @@ class SeriesType(Type, of=_Series):
         items = self.read(value, strict=True)
         return items if items is None else SeriesItems(items)  # ``Series[T] | None`` may be returned as None
 
+    @functools.cached_property
+    def may_write_once(self) -> bool:  # type: ignore[override]  # decided per item type, where the base has one answer
+        """Whether a Series of this type can be stored as a table: its items are records."""
+        return any(form.stored_hint(self.item) is not None for form in StoredSeries._by_returned_class.values())
+
+    def written_once(self, stored: Any) -> Any | None:
+        """Returns the table a stored Series is kept as, if it is kept as one; else ``None``."""
+        return stored.written_once()
+
     def read_answer(self, value: Any) -> StoredSeries | None:
         """Validates a person's answer for the Series from its JSON form and returns it as the run stores it.
 

@@ -73,6 +73,7 @@ from conductor._internal.saved_run import (
     SavedRun,
     SavedUnits,
     earlier_columns,
+    tables_written_once,
     unit_columns,
     unwritable_at,
 )
@@ -531,7 +532,9 @@ class Run:
         earlier = {node_name(path): earlier_columns(functions[path].outputs, of_node) for path, of_node in self._earlier_work.items() if of_node.computed or of_node.asked}
         code = {name: self._made_by_other_code.get(path) or placed.reuse_digest for path, placed in functions.items() if (name := node_name(path)) in units or name in earlier}
         complete = [node.name for node in self.graph._tree if node.path in self._finished_nodes]
-        return SavedRun(graph=self.graph.fingerprint, state=self.state, max_items=self.max_items, inputs=self.inputs, units=units, earlier=earlier, code=code, complete=complete)
+        form = self.graph._save_form
+        same_as = tables_written_once(form.outputs, form.shareable, units) if form.shareable else None
+        return SavedRun(graph=self.graph.fingerprint, state=self.state, max_items=self.max_items, inputs=self.inputs, units=units, earlier=earlier, code=code, complete=complete, same_as=same_as)
 
     def _slots(self, node: FunctionAtPath) -> list[Unit | None]:
         """A node's units with a slot for each instance of the node, in instance order; ``None`` where the

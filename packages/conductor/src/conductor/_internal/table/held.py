@@ -79,6 +79,9 @@ class Records(StoredSeries, Generic[_T], returned_as=pl.DataFrame):
     def as_table_input(self) -> pl.DataFrame:
         return self.frame
 
+    def written_once(self) -> pl.DataFrame:
+        return self.frame
+
     @staticmethod
     def without_rows(received: pl.DataFrame, places: set[int]) -> pl.DataFrame:
         return received.filter([place not in places for place in range(received.height)])

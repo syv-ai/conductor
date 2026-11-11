@@ -6,7 +6,7 @@ from typing import Any, TypedDict
 
 import polars as pl
 import pytest
-from conductor import GraphRecord, NodeRecord, Series, Table, make_graph, node
+from conductor import GraphRecord, InvalidCallError, NodeRecord, Series, Table, make_graph, node
 from conductor._internal.table import Records
 
 from tests.test_core.nodes import registry_of
@@ -258,3 +258,103 @@ def test_a_table_a_node_received_is_written_once_to_fingerprint_it_however_many_
     assert fingerprint_of("code", {"table": pl.DataFrame({"name": ["ida", "bo"], "age": [41, 52]}), "n": 1}) == first  # by its cells
     assert fingerprint_of("code", {"table": pl.DataFrame({"name": ["ida", "bo"], "age": [41, 53]}), "n": 1}) != first
     assert fingerprint_of("code", {"table": frame.rename({"age": "years"}), "n": 1}) != first
+
+
+# -- a table two outputs share is written once in a save ---------------------------------------------------
+
+
+@node("people", title="People", description="")
+def people(text: str) -> Table[Contact]:
+    return FRAME.select("name", "email")
+
+
+@node("copied", title="Copied", description="")
+def copied(table: Table[Contact]) -> Table[Contact]:
+    return pl.DataFrame(table.to_dicts(), schema=table.schema)
+
+
+def _read_then_split() -> Any:
+    from conductor_nodes.tables import split
+
+    return registry_of(people, split, greet, copied).load(make_graph(people, split, greet, edges=[("people.result", "split.value"), ("split.result.name", "greet.name")]))
+
+
+def test_a_table_read_and_then_split_is_written_once_in_a_save_and_is_one_table_again_when_loaded() -> None:
+    graph = _read_then_split()
+    run = graph.run(text="x")
+    saved = json.loads(run.to_json())
+
+    assert saved["units"]["split"]["outputs"]["result"] == [None]
+    assert saved["same_as"] == [{"output": ["split", "result", 0], "same_as": ["people", "result", 0]}]
+    assert run.to_json().count('"ida@x.dk"') == 1
+
+    loaded = graph.load_run(run.to_json())
+    table, records = loaded._units["people"][()].out["result"], loaded._units["split"][()].out["result"]
+    assert type(records) is Records and records.frame is table
+    assert loaded.to_json() == run.to_json() and loaded.outputs == run.outputs
+    assert loaded.forget("greet").resume().outputs == {"greet.result": ["hi ida", "hi bo"]}
+
+
+def test_a_table_with_equal_cells_that_is_another_object_is_written_in_full_and_loads() -> None:
+    graph = registry_of(people, copied).load(make_graph(people, copied, edges=[("people.result", "copied.table")]))
+    run = graph.run(text="x")
+    saved = json.loads(run.to_json())
+
+    assert "same_as" not in saved and saved["units"]["copied"]["outputs"]["result"] == saved["units"]["people"]["outputs"]["result"]
+    assert graph.load_run(run.to_json()).results["copied"]["result"].equals(run.results["copied"]["result"])
+
+
+def test_a_save_of_a_graph_with_no_table_has_no_same_as_key() -> None:
+    graph = registry_of(listed, greet).load(make_graph(listed, greet, edges=[("listed.result.name", "greet.name")]))
+    assert "same_as" not in json.loads(graph.run(text="x").to_json())
+
+
+def test_work_carried_from_an_earlier_run_shares_its_table_in_a_save_as_the_first_run_did() -> None:
+    graph = _read_then_split()
+    again = graph.run(text="x").again(text="x")
+    saved = json.loads(again.to_json())
+
+    assert saved["same_as"] == [{"output": ["split", "result", 0], "same_as": ["people", "result", 0]}]
+    assert graph.load_run(again.to_json()).to_json() == again.to_json()
+
+
+def test_a_table_shared_inside_an_embedded_graph_is_written_once_under_the_nodes_names_in_the_save() -> None:
+    from conductor_nodes.tables import split
+
+    registry = registry_of(people, split, greet)
+    inner = GraphRecord(nodes=[NodeRecord(id="people", node="people"), NodeRecord(id="split", node=split.id)], edges=[("people.result", "split.value")])
+    registry.add(node("inner", title="Inner", description="")(inner))
+    graph = registry.load(GraphRecord(nodes=[NodeRecord(id="e", node="inner"), NodeRecord(id="greet", node="greet")], edges=[("e.split.result.name", "greet.name")]))
+    run = graph.run(text="x")
+
+    assert json.loads(run.to_json())["same_as"] == [{"output": ["e/split", "result", 0], "same_as": ["e/people", "result", 0]}]
+    loaded = graph.load_run(run.to_json())
+    assert loaded.to_json() == run.to_json() and loaded.outputs == {"greet.result": ["hi ida", "hi bo"]}
+
+
+@pytest.mark.parametrize("same_as", [
+    ["nobody", "result", 0],  # no such node
+    ["people", "result", 3],  # no such slot
+    ["people", "other", 0],  # no such output
+    ["split", "result", 0],  # itself, which is written as null
+    ["greet", "result", 0],  # an output that is no table
+], ids=["no such node", "no such slot", "no such output", "itself", "not a table"])
+def test_a_save_whose_same_as_names_an_output_that_is_no_table_written_in_full_is_refused(same_as: list[Any]) -> None:
+    graph = _read_then_split()
+    saved = json.loads(graph.run(text="x").to_json())
+    saved["same_as"][0]["same_as"] = same_as
+
+    with pytest.raises(InvalidCallError) as refused:
+        graph.load_run(json.dumps(saved))
+    (found,) = refused.value.errors()
+    assert found.type == "state_unreadable" and "same_as: 'split.result[0]' can't be read as the same table" in found.msg
+
+
+def test_a_save_whose_same_as_names_a_table_of_other_columns_is_refused_by_the_outputs_own_type() -> None:
+    graph = _read_then_split()
+    saved = json.loads(graph.run(text="x").to_json())
+    saved["units"]["people"]["outputs"]["result"][0]["columns"][0]["name"] = "nom"
+
+    with pytest.raises(InvalidCallError) as refused:
+        graph.load_run(json.dumps(saved))
+    assert refused.value.errors()[0].type == "state_unreadable"

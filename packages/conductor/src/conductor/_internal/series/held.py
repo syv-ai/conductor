@@ -107,6 +107,11 @@ class StoredSeries:
         writes as ``None`` and lists beside the Series."""
         return self, []
 
+    def written_once(self) -> Any | None:
+        """Returns the object this Series is stored as when a save should write that object only once however
+        many outputs have it (a table); ``None`` for a list."""
+        return None
+
     @staticmethod
     def without_rows(received: Any, places: set[int]) -> Any:
         """Returns ``received``, a value ``as_table_input`` returned that is not a list, without the rows at the
