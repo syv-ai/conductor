@@ -477,16 +477,22 @@ class Leg:
         self._put_in_order()
         if not self.going:  # ended early: the units recorded since made nothing ready, an embedded graph's node included
             run._settle_embedded()
-        # one look at every unit: a node already said complete has no unit waiting
-        waiting = {node for node, units in self.units.items() if node not in self.complete and Asking in {type(unit) for unit in units.values()}}
+        # one look at every node not yet said complete: it waits for a person, or lacks a unit, or is finished
+        waiting: set[NodeAtPath] = set()
+        unfinished: set[NodeAtPath] = set()
+        for node, units in self.units.items():
+            if node in self.complete:
+                continue
+            if Asking in {type(unit) for unit in units.values()}:
+                waiting.add(node)
+            elif not (run._has_every_unit(node) if node.maps else units):
+                unfinished.add(node)
         if self.going and not waiting:  # nothing more can start and nothing waits: every unit of every node is there
-            unfinished = [node.path for node in self.nodes if not run._has_every_unit(node)]
             if unfinished:  # a unit nothing made ready: the engine's own fault, never a run to hand on as complete
-                raise RuntimeError(f"the leg ended with nothing to try and no unit for every instance of {unfinished}")
+                raise RuntimeError(f"the leg ended with nothing to try and no unit for every instance of {sorted(node.path for node in unfinished)}")
             run.state, run._complete, run._earlier = _COMPLETE, frozenset(run.graph._node_at), {}
         else:
-            finished = {node for node in self.nodes if node not in self.complete and node not in waiting and self._finished(node, False)}
-            run._complete = frozenset(node.path for node in self.complete | finished)
+            run._complete = frozenset(node.path for node in self.nodes if node not in waiting and node not in unfinished)
             for path in [path for path in run._earlier if path in run._complete]:  # what a finished node was carried and didn't take, no unit of this run will
                 del run._earlier[path]
             if self.going:

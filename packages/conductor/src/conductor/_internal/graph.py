@@ -236,19 +236,19 @@ class Read:
 
     Attributes:
         spec: The input's field.
-        reads: What each edge brings, each with how many maps deep its node runs. Several are alternatives, on
-            opposite branches of one decision: a call receives the one whose branch was taken.
+        sources: What each edge brings. Several are alternatives, on opposite branches of one decision: a call
+            receives the one whose branch was taken.
         scope: The scope the value sits in.
     """
 
     spec: Field
-    reads: tuple[tuple[Source, int], ...]
+    sources: tuple[Source, ...]
     scope: Scope
 
     @property
-    def sources(self) -> tuple[Source, ...]:
-        """What each edge brings."""
-        return tuple(source for source, _ in self.reads)
+    def reads(self) -> tuple[Reads, ...]:
+        """Every cell the input is made from: what each edge brings, read where its node runs."""
+        return tuple([(source, len(source.scope)) for source in self.sources])
 
 
 @dataclass(frozen=True, slots=True)
@@ -257,23 +257,20 @@ class Gather:
 
     Attributes:
         spec: The input's field.
-        reads: The Series whose items are gathered, where it was made, and then what each edge brings for an
-            item; each with how many maps deep the Series was made, as every item under one unit of the Series
-            is gathered. Several edges are alternatives, as for any input.
+        sources: What each edge brings for an item. Several are alternatives, as for any input.
+        series: The Series whose items are gathered, where it was made.
     """
 
     spec: Field
-    reads: tuple[Reads, *tuple[tuple[Source, int], ...]]
+    sources: tuple[Source, ...]
+    series: Cell
 
     @property
-    def series(self) -> Cell:
-        """The Series whose items are gathered, where it was made."""
-        return self.reads[0][0]
-
-    @property
-    def sources(self) -> tuple[Source, ...]:
-        """What each edge brings for an item."""
-        return tuple(source for source, _ in self.reads[1:])
+    def reads(self) -> tuple[Reads, ...]:
+        """Every cell the input is made from: the Series, and what each edge brings for every item under one
+        unit of the Series, so each is read as deep as the Series was made."""
+        made_in = len(self.series.scope)
+        return ((self.series, made_in), *[(source, made_in) for source in self.sources])
 
     @property
     def scope(self) -> Scope:
@@ -287,17 +284,16 @@ class SeriesOfOne:
 
     Attributes:
         spec: The input's field.
-        reads: What each edge brings, each read where the graph itself runs. Several are alternatives, as for
-            any input.
+        sources: What each edge brings. Several are alternatives, as for any input.
     """
 
     spec: Field
-    reads: tuple[tuple[Value, int], ...]
+    sources: tuple[Value, ...]
 
     @property
-    def sources(self) -> tuple[Value, ...]:
-        """What each edge brings."""
-        return tuple(source for source, _ in self.reads)
+    def reads(self) -> tuple[Reads, ...]:
+        """Every cell the input is made from: what each edge brings, read where the graph itself runs."""
+        return tuple([(source, 0) for source in self.sources])
 
     @property
     def scope(self) -> Scope:
@@ -425,7 +421,7 @@ class _AtPath:
             node inside an embedded graph has the plan that graph's node has for it.
         reads: Every node whose units its own are made from, each with how many places of an instance of this
             node say which of that node's units: the unit at those places, and where that node runs deeper every
-            unit under them. They are the cells its inputs' plans read (``reads`` of each); for a gathering
+            unit under them. They are the cells its inputs' plans are made from (``reads`` of each); for a gathering
             input also what the nodes it gathers through read outside the items, which can settle it for
             every item at once; for an embedded graph's node, the cells it offers and the Series they are made
             per item of; and, for a node that reads anything from outside the innermost map it runs in, or
@@ -873,6 +869,8 @@ def _add_to_tree(graph: Graph, embedding: GraphAtPath | None, tree: list[NodeAtP
         tree: The nodes so far, added to.
         beside: The nodes of each graph placed so far by id, by the path of the node that embeds it, added to.
     """
+    from conductor._internal.outside_the_items import gathered_through
+
     inside = embedding.path if embedding is not None else ()
     above = embedding.maps if embedding is not None else ()
     here = beside[inside] = {}
@@ -913,31 +911,12 @@ def _add_to_tree(graph: Graph, embedding: GraphAtPath | None, tree: list[NodeAtP
                         read = within[cell.node_id]
                         node.reads[read] = min(base + depth, node.reads.get(read, base + depth))
                     if isinstance(plan, Gather):
-                        node.gathered_through[name] = _gathered_through(node, (within[plan.series.node_id], plan.series.output), [within[s.node_id] for s in plan.sources])
+                        node.gathered_through[name] = gathered_through(node, (within[plan.series.node_id], plan.series.output), [within[s.node_id] for s in plan.sources])
         if maps and min(node.reads.values(), default=0) < len(maps):  # what it reads may be there before its instances are
             node.reads.setdefault(maps[-1][0], len(maps) - 1)
         here[placed.id] = node
         node.position = len(tree)
         tree.append(node)
-
-
-def _gathered_through(node: FunctionAtPath, series: tuple[NodeAtPath, str], sources: list[NodeAtPath]) -> tuple[NodeAtPath, ...]:
-    """Finds the nodes made per item of ``series`` that the ``sources`` of a gathering input of ``node`` rest on,
-    in the tree's order, by each one's own ``reads``; and adds to ``node.reads`` what they read outside the
-    items. So the unit that settles the input for every item at once makes the gathering node ready, and what
-    a run asks of the items it asks of these nodes and no other."""
-    through: set[NodeAtPath] = set()
-    stack = sources
-    while stack:
-        inner = stack.pop()
-        if series in inner.maps and inner not in through:
-            through.add(inner)
-            for read, places in inner.reads.items():
-                if series in read.maps:
-                    stack.append(read)
-                else:
-                    node.reads[read] = min(places, node.reads.get(read, places))
-    return tuple(sorted(through, key=lambda inner: inner.position))
 
 
 def load_graph(record: GraphRecord, definitions: Mapping[str, NodeDefinition]) -> Graph:
@@ -1360,13 +1339,12 @@ class _Loader:
                 return Unset(spec)
         deepest = max((s.read_in for s in sources), key=len)
         if not gathers:
-            return Read(spec, tuple((s, len(s.scope)) for s in sources), deepest)
+            return Read(spec, tuple(sources), deepest)
         if not deepest:
-            return SeriesOfOne(spec, tuple((s, 0) for s in sources if isinstance(s, Value)))
+            return SeriesOfOne(spec, tuple(s for s in sources if isinstance(s, Value)))
         made_by, output = deepest[-1]
         series = Cell(made_by, output, deepest[:-1], self.nodes[made_by].outputs[output].param.exclusive_group is not None)
-        made_in = len(series.scope)
-        return Gather(spec, ((series, made_in), *((s, made_in) for s in sources)))
+        return Gather(spec, tuple(sources), series)
 
     def _source(self, address: str, node_id: str, name: str) -> Source | None:
         """What an edge from ``address`` brings: ``node.output``, or ``node.output.field`` for one field of a record.
