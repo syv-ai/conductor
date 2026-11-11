@@ -15,7 +15,6 @@ from typing import Annotated
 
 import regex
 from conductor import NodeError, NodeRegistry, Param, Series
-from conductor.widgets import TextInput
 
 from conductor_nodes._inputs import Flag, Line, LongText
 
@@ -58,7 +57,7 @@ def match(text: LongText, pattern: Line, ignore_case: Flag = False) -> Annotated
 def replace_all(
     text: LongText,
     pattern: Line,
-    replacement: Annotated[str, Param(title="Replace with", widget=TextInput())] = "",
+    replacement: Annotated[Line, Param(title="Replace with")] = "",
     ignore_case: Flag = False,
 ) -> str:
     """Replaces every match of the pattern."""

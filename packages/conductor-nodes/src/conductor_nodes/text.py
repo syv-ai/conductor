@@ -3,7 +3,7 @@
 from typing import Annotated, Any
 
 from conductor import NodeRegistry, Param, Series
-from conductor.widgets import ListInput, TextInput
+from conductor.widgets import ListInput
 
 from conductor_nodes._inputs import Flag, Line, LongText
 
@@ -43,8 +43,8 @@ def concat(a: Line, b: Line, separator: Line = "") -> str:
 @registry.node("text-replace", title="Replace", description="Replaces every place a piece of text appears with another text.")
 def replace(
     text: LongText,
-    needle: Annotated[str, Param(title="Find", widget=TextInput())],
-    replacement: Annotated[str, Param(title="Replace with", widget=TextInput())] = "",
+    needle: Annotated[Line, Param(title="Find")],
+    replacement: Annotated[Line, Param(title="Replace with")] = "",
 ) -> str:
     """Replaces every occurrence of a text with another."""
     return text.replace(needle, replacement)
