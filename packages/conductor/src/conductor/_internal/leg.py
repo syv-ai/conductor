@@ -67,6 +67,7 @@ from conductor._internal.run import (
     Key,
     Path,
     Run,
+    RunState,
     RunStatus,
     Unit,
     _length,
@@ -210,7 +211,8 @@ class RunCheckpoint(_EventBase):
     ``run`` is a copy, its ``status`` ``running``, or once stopped how it stopped (``cancelled``, ``failed``,
     ``stopped``, ``timed_out``) with its ``cause``: ``graph.load_run`` takes its JSON and ``resume()`` calls only
     the units it holds no record of, so a process that dies mid-leg repeats at most the calls that were in
-    flight. Like ``RunEnd``'s, it stays out of what the event writes.
+    flight. Like ``RunEnd``'s, it stays out of what the event writes. A leg handed back (``stream(hand_back=)``)
+    says one last, in place of ``RunEnd``: its ``run`` is ``running`` and holds every call the leg waited for.
     """
 
     type: Literal["run_checkpoint"] = "run_checkpoint"
@@ -251,12 +253,13 @@ class Leg:
     which of their units can start, the threads, each node's slots on them, the timers, ``stop``, the listener
     and the checkpoint clock. Only node functions run on threads; the run is changed on the leg's own thread.
 
-    ``emit`` is None when nobody listens. ``stop`` is asked between units, and says why the leg must end now (a
-    cancel, the deadline), or None.
+    ``emit`` is None when nobody listens. ``stop`` is asked between units, and says how the run stands when the
+    leg must end now: ended early (a cancel, the deadline), or still ``running`` for a leg its host hands back;
+    else None.
     """
 
     def __init__(
-        self, run: Run, emit: Callable[[_EventBase], None] | None, stop: Callable[[], EndedEarly | None] | None, from_run: dict[type, Any],
+        self, run: Run, emit: Callable[[_EventBase], None] | None, stop: Callable[[], RunState | None] | None, from_run: dict[type, Any],
         checkpoint_every: float | None = None,
     ) -> None:
         self.run, self.emit, self.stop, self.from_run = run, emit, stop, from_run
@@ -335,12 +338,16 @@ class Leg:
             if self.pool is not None:
                 self.pool.shutdown(wait=False, cancel_futures=True)
         self._close()
-        if self.emit:
-            self.emit(RunEnd.of(run))
+        if self.emit:  # a leg handed back left its run running: the run didn't end, and the host stores it as it stands
+            self.emit(RunCheckpoint(run=run) if run.state is _RUNNING else RunEnd.of(run))
 
-    def end(self, state: EndedEarly) -> None:
+    def end(self, state: RunState) -> None:
         """End the leg early: nothing more starts. The units waiting for a thread and the retries not yet due are
-        dropped; the calls on threads are waited for and kept."""
+        dropped; the calls on threads are waited for and kept.
+
+        Args:
+            state: How the run stands for it: ended early with its cause, or ``running`` for a leg handed back.
+        """
         self.run.state, self.going = state, False
         for node, waiting in self.slots_waiting.items():
             for key, _, _ in waiting:

@@ -390,7 +390,7 @@ A 1.x `Flow` becomes a `GraphRecord`, `{"nodes": [...], "edges": [[from, to], ..
 
 ### Events
 
-Events are frozen pydantic models in `conductor.events`, told apart by `type`. Two are new: `run_start`, always first, and `run_checkpoint`, the run mid-leg for a host to store, sent when `run.stream(checkpoint_every=)` asks. `run_end` is always last, its `status` one of `complete`, `waiting`, `failed`, `stopped`, `cancelled`, `timed_out`, and its `cause` the run's `Problem` for one that failed, stopped, was cancelled or timed out (`null` otherwise).
+Events are frozen pydantic models in `conductor.events`, told apart by `type`. Two are new: `run_start`, always first, and `run_checkpoint`, the run mid-leg for a host to store, sent when `run.stream(checkpoint_every=)` asks. `run_end` is always last (but for a leg its host hands back with `run.stream(hand_back=event)`, which leaves the run `running` and ends with a `run_checkpoint` of it), its `status` one of `complete`, `waiting`, `failed`, `stopped`, `cancelled`, `timed_out`, and its `cause` the run's `Problem` for one that failed, stopped, was cancelled or timed out (`null` otherwise).
 
 | 1.12.2 `type` | 2.0 |
 |---|---|
