@@ -754,3 +754,13 @@ def test_an_edge_that_is_no_address_is_told_the_two_forms_an_address_has():
     [problem] = refused.value.errors()
     assert problem.type == "invalid_record" and "'node.field'" in problem.msg and "'node.output.field' for one field of a record" in problem.msg
     assert "column" not in problem.msg
+
+
+def test_make_graph_says_an_edge_that_is_no_address_as_loading_the_same_record_says_it():
+    with pytest.raises(InvalidCallError) as written:
+        make_graph(_count, _hello, edges=[("count.result", "hello.name"), ("count", "hello.name")])
+    with pytest.raises(InvalidCallError) as loaded:
+        PLAIN.load({"nodes": [{"id": "count", "node": "count"}, {"id": "hello", "node": "hello"}], "edges": [["count.result", "hello.name"], ["count", "hello.name"]]})
+
+    assert written.value.errors() == loaded.value.errors()
+    assert [(p.loc, p.ctx["at"]) for p in written.value.errors()] == [(("record", "edges", 1, 0), "edges.1.0")]

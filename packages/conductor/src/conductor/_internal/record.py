@@ -145,10 +145,15 @@ def as_record(record: GraphRecord | str | bytes | Mapping[str, Any]) -> GraphRec
             return GraphRecord.model_validate_json(record)
         return GraphRecord.model_validate(record)
     except ValidationError as invalid:
-        raise InvalidCallError([
-            make_problem("invalid_record", "record", *error["loc"], at=".".join(map(str, error["loc"])) or "the record", reason=error["msg"].removeprefix("Value error, "), error=error["type"])
-            for error in invalid.errors(include_url=False, include_input=False)  # a validator's own sentence, without pydantic's prefix
-        ]) from None
+        raise InvalidCallError(_not_a_record(invalid)) from None
+
+
+def _not_a_record(invalid: ValidationError) -> list[Problem]:
+    """Gives an ``invalid_record`` problem for each fault pydantic found reading a record, at ``("record", *where)``."""
+    return [
+        make_problem("invalid_record", "record", *error["loc"], at=".".join(map(str, error["loc"])) or "the record", reason=error["msg"].removeprefix("Value error, "), error=error["type"])
+        for error in invalid.errors(include_url=False, include_input=False)  # a validator's own sentence, without pydantic's prefix
+    ]
 
 
 def typed_in(node_id: str, values: Mapping[str, Any]) -> tuple[dict[str, JsonValue], list[Problem]]:
@@ -216,43 +221,36 @@ def make_graph(
             be drawn (``not_a_chain``).
     """
     ids = _ids_of(nodes)
-    known = dict(zip(ids, nodes, strict=True))
     problems: list[Problem] = []
-    typed: dict[str, dict[str, dict[str, JsonValue]]] = {"values": {}, "defaults": {}}
-    for kind, given in (("values", values), ("defaults", defaults)):
+    typed_values: dict[str, dict[str, JsonValue]] = {node_id: {} for node_id in ids}
+    typed_defaults: dict[str, dict[str, JsonValue]] = {node_id: {} for node_id in ids}
+    for given, typed in ((values, typed_values), (defaults, typed_defaults)):
         by_node: dict[str, dict[str, Any]] = {}
         for address, value in given.items():
             node_id, _, name = address.partition(".")
-            if node_id not in known:
+            if node_id not in typed:
                 problems.append(make_problem("node_not_in_graph", node_id, node_id=node_id, nodes=ids))
             else:
                 by_node.setdefault(node_id, {})[name] = value
         for node_id, named in by_node.items():
-            typed[kind][node_id], faults = typed_in(node_id, named)
+            typed[node_id], faults = typed_in(node_id, named)
             problems += faults
     if edges is None:
-        edges, faults = _chain_edges(ids, nodes, typed)
+        edges, faults = _chain_edges(ids, nodes, typed_values, typed_defaults)
         problems += faults
-    else:
-        drawn: list[tuple[str, str]] = []
-        for source, target in edges:
-            try:
-                drawn.append((_checked_address(source), _checked_address(target)))
-            except ValueError as wrong:
-                problems.append(make_problem("invalid_record", "record", "edges", at=f"{source} -> {target}", reason=str(wrong), error="value_error"))
-        edges = drawn
+    try:
+        record = GraphRecord(
+            nodes=[
+                NodeRecord(id=node_id, node=definition.id, version=definition.version, values=typed_values[node_id], defaults=typed_defaults[node_id])
+                for node_id, definition in zip(ids, nodes, strict=True)
+            ],
+            edges=edges,
+        )
+    except ValidationError as invalid:  # an edge that is no address
+        problems += _not_a_record(invalid)
     if problems:
         raise InvalidCallError(problems)
-    return GraphRecord(
-        nodes=[
-            NodeRecord(
-                id=node_id, node=definition.id, version=definition.version, values=typed["values"].get(node_id, {}),
-                defaults=typed["defaults"].get(node_id, {}),
-            )
-            for node_id, definition in known.items()
-        ],
-        edges=list(edges),
-    )
+    return record
 
 
 def _ids_of(nodes: Sequence[NodeDefinition]) -> list[str]:
@@ -272,7 +270,7 @@ def _ids_of(nodes: Sequence[NodeDefinition]) -> list[str]:
 
 
 def _chain_edges(
-    ids: Sequence[str], nodes: Sequence[NodeDefinition], typed: Mapping[str, Mapping[str, Mapping[str, JsonValue]]],
+    ids: Sequence[str], nodes: Sequence[NodeDefinition], typed_values: Mapping[str, Mapping[str, JsonValue]], typed_defaults: Mapping[str, Mapping[str, JsonValue]],
 ) -> tuple[list[tuple[str, str]], list[Problem]]:
     """The one edge from each node into the next, and ``not_a_chain`` for each pair without exactly one."""
     from conductor._internal.node_definition import FunctionDefinition  # which imports this module
@@ -281,7 +279,7 @@ def _chain_edges(
     problems: list[Problem] = []
     for index in range(1, len(nodes)):
         before_id, before, after_id, after = ids[index - 1], nodes[index - 1], ids[index], nodes[index]
-        filled = {**typed["values"].get(after_id, {}), **typed["defaults"].get(after_id, {})}
+        filled = typed_values[after_id].keys() | typed_defaults[after_id].keys()
         match before, after:
             case FunctionDefinition(), FunctionDefinition():
                 outputs = list(before.outputs)

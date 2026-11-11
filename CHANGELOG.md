@@ -78,7 +78,8 @@ What changes in how you work, before the name-by-name tables:
   `InvalidCallError` with the code `invalid_record`. A value typed in or given that its field refuses
   (`invalid_value`, `invalid_input`) carries pydantic's value-free `errors` in `ctx`. `make_graph(*nodes, edges=, values=, defaults=)`
   writes a record from Python and loads nothing: it raises one error listing what it can't write
-  (a value for a node it wasn't given, a value with no JSON form, an edge that is no address, a
+  (a value for a node it wasn't given, a value with no JSON form, an edge that is no address
+  (`invalid_record` at `("record", "edges", index, end)`, as loading the same record says it), a
   chain it can't draw), and an input a node doesn't have, a value its field refuses, a default no
   caller reaches or an edge whose types don't meet (`type_mismatch`) is in
   `registry.load(record).problems`. A record's `values`, `defaults` and
