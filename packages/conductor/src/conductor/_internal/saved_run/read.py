@@ -13,15 +13,15 @@ from conductor._internal.outcomes import Answered, Asking, Done, NotCalled, Outc
 from conductor._internal.saved_run.type import (
     SAVED_DONE,
     SAVED_SKIPPED,
-    SavedEarlier,
+    SavedOutcomes,
+    SavedReusable,
     SavedRun,
-    SavedUnits,
 )
 from conductor._internal.sentinels import SKIPPED
 from conductor._internal.value_type import FieldValueError
 
 
-def units_of(not_taken: dict[str, Any], not_called: dict[str, Any], saved: SavedUnits) -> list[Outcome | None]:
+def outcomes_of(not_taken: dict[str, Any], not_called: dict[str, Any], saved: SavedOutcomes) -> list[Outcome | None]:
     """Makes the units a node's saved columns hold, in the order of their slots; ``None`` for an instance that
     hasn't run.
 
@@ -106,7 +106,7 @@ def with_shared_tables(outputs: Mapping[str, Mapping[str, Field]], saved: SavedR
     return saved
 
 
-def earlier_of(saved: SavedEarlier[list[Outcome | None]]) -> EarlierWork:
+def reusable_of(saved: SavedReusable[list[Outcome | None]]) -> EarlierWork:
     """Makes the earlier work a node's save holds.
 
     Raises:

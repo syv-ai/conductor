@@ -75,12 +75,12 @@ from conductor._internal.run.arguments import (
 )
 from conductor._internal.run_status import READY, RUNNING, EndedEarly, Going, RunState, RunStatus
 from conductor._internal.saved_run import (
-    SavedEarlier,
+    SavedOutcomes,
+    SavedReusable,
     SavedRun,
-    SavedUnits,
-    earlier_columns,
+    outcome_columns,
+    reusable_columns,
     tables_written_once,
-    unit_columns,
     unwritable_at,
 )
 from conductor._internal.scheduler import (
@@ -529,15 +529,15 @@ class Run:
             at = unwritable_at(form.inputs, form.outputs, saved)
             raise InvalidCallError([problem.state_unwritable("state", at, at=at, reason="a value has no JSON form")]) from None
 
-    def _saved(self) -> SavedRun[SavedUnits, SavedEarlier[SavedUnits]]:
-        """The run as its graph's ``SaveForm`` writes it. A node inside an embedded graph is saved as any node,
+    def _saved(self) -> SavedRun[SavedOutcomes, SavedReusable[SavedOutcomes]]:
+        """The run as its graph's ``RunCodec`` writes it. A node inside an embedded graph is saved as any node,
         under its path. An embedded graph's node holds no unit, so nothing is written of it."""
         functions = self.graph._functions
         units = {
-            node.name: unit_columns(node.placed.outputs, self._slots(node))
+            node.name: outcome_columns(node.placed.outputs, self._slots(node))
             for node in self.graph._tree if self._outcomes[node.name]
         }
-        earlier = {node_name(path): earlier_columns(functions[path].outputs, of_node) for path, of_node in self._earlier_work.items() if of_node.computed or of_node.asked}
+        earlier = {node_name(path): reusable_columns(functions[path].outputs, of_node) for path, of_node in self._earlier_work.items() if of_node.computed or of_node.asked}
         code = {name: self._made_by_other_code.get(path) or placed.reuse_digest for path, placed in functions.items() if (name := node_name(path)) in units or name in earlier}
         complete = [node.name for node in self.graph._tree if node.path in self._finished_nodes]
         form = self.graph._save_form
@@ -581,7 +581,7 @@ def run_from_json(graph: Graph, saved: str | bytes) -> Run:
     """A run of ``graph`` from what ``run.to_json()`` wrote; a caller reaches it through ``graph.load_run``.
 
     A graph with problems takes no run, so they are what is refused, before anything of the save is read. The
-    save is read once, by the graph's ``SaveForm``, from its JSON text, so each value is read as its type reads
+    save is read once, by the graph's ``RunCodec``, from its JSON text, so each value is read as its type reads
     JSON: a date, and a float that isn't finite, from their text.
 
     Raises:
@@ -602,7 +602,7 @@ def run_from_json(graph: Graph, saved: str | bytes) -> Run:
 
 
 def _run_of(graph: Graph, saved: SavedRun[list[Outcome | None], EarlierWork]) -> Run:
-    """A run of ``graph`` from its save as the graph's ``SaveForm`` read it: each node's units in the order of
+    """A run of ``graph`` from its save as the graph's ``RunCodec`` read it: each node's units in the order of
     their slots, its earlier work an ``EarlierWork``.
 
     Raises:

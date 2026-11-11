@@ -15,22 +15,22 @@ from conductor._internal.saved_run.type import (
     SAVED_DONE,
     SAVED_SKIPPED,
     SameAs,
-    SavedEarlier,
+    SavedOutcomes,
+    SavedOutcomeState,
+    SavedReusable,
     SavedRun,
-    SavedUnits,
-    UnitState,
 )
 from conductor._internal.sentinels import SKIPPED
 from conductor._internal.value_type import Type
 
 #: The state a save writes for a unit that holds outputs or is a branch not taken; any other has none.
-_STATE_WORD: Mapping[type, UnitState] = {Done: SAVED_DONE, Answered: SAVED_DONE, Skipped: SAVED_SKIPPED}
+_STATE_WORD: Mapping[type, SavedOutcomeState] = {Done: SAVED_DONE, Answered: SAVED_DONE, Skipped: SAVED_SKIPPED}
 
 #: The kinds of unit that hold outputs.
 _HOLDS_OUTPUTS = frozenset({Done, Answered})
 
 
-def unit_columns(outputs: Mapping[str, Field], slots: list[Outcome | None]) -> SavedUnits:
+def outcome_columns(outputs: Mapping[str, Field], slots: list[Outcome | None]) -> SavedOutcomes:
     """Gives units as the columns a save holds of them.
 
     Args:
@@ -65,13 +65,13 @@ def unit_columns(outputs: Mapping[str, Field], slots: list[Outcome | None]) -> S
         questions = {slot: outcome.question for slot, outcome in enumerate(slots) if type(outcome) is Answered or type(outcome) is Asking}
     if NotCalled in kinds:
         blank_inputs = {slot: outcome.input for slot, outcome in enumerate(slots) if type(outcome) is NotCalled}
-    return SavedUnits(
+    return SavedOutcomes(
         states=list(map(_STATE_WORD.get, map(type, slots))), outputs=columns, questions=questions, blank_inputs=blank_inputs,
         skipped=skipped or None, skipped_items=skipped_items or None,
     )
 
 
-def tables_written_once(outputs: Mapping[str, Mapping[str, Field]], shareable: Iterable[tuple[str, str]], units: Mapping[str, SavedUnits]) -> list[SameAs] | None:
+def tables_written_once(outputs: Mapping[str, Mapping[str, Field]], shareable: Iterable[tuple[str, str]], units: Mapping[str, SavedOutcomes]) -> list[SameAs] | None:
     """Finds the outputs in ``units`` that have the very same table object as an output before them, replaces each
     with ``None`` in its column, and returns where each one's table is written.
 
@@ -82,7 +82,7 @@ def tables_written_once(outputs: Mapping[str, Mapping[str, Field]], shareable: I
     Args:
         outputs: The outputs of each node, by the node's name in a save.
         shareable: The ``(node, output)`` pairs whose type can have such a table, in the order a save writes them.
-        units: The columns of each node, as ``unit_columns`` made them.
+        units: The columns of each node, as ``outcome_columns`` made them.
 
     Returns:
         The outputs left out, or ``None`` when there are none.
@@ -105,7 +105,7 @@ def tables_written_once(outputs: Mapping[str, Mapping[str, Field]], shareable: I
     return same or None
 
 
-def earlier_columns(outputs: Mapping[str, Field], earlier: EarlierWork) -> SavedEarlier[SavedUnits]:
+def reusable_columns(outputs: Mapping[str, Field], earlier: EarlierWork) -> SavedReusable[SavedOutcomes]:
     """Gives what a node may take from an earlier run as a save holds it, each unit once: the computed units by
     the instance they stood in, then the ones only known by what they received, then the answers and the
     questions still waiting.
@@ -129,10 +129,10 @@ def earlier_columns(outputs: Mapping[str, Field], earlier: EarlierWork) -> Saved
                 lineages[len(slots)] = lineage
             slots.append(outcome)
             fingerprints.append(fingerprint)
-    return SavedEarlier(units=unit_columns(outputs, slots), fingerprints=fingerprints, places=places or None, lineages=lineages or None)
+    return SavedReusable(units=outcome_columns(outputs, slots), fingerprints=fingerprints, places=places or None, lineages=lineages or None)
 
 
-def unwritable_at(inputs: Mapping[str, Type], outputs: Mapping[str, Mapping[str, Field]], saved: SavedRun[SavedUnits, SavedEarlier[SavedUnits]]) -> str:
+def unwritable_at(inputs: Mapping[str, Type], outputs: Mapping[str, Mapping[str, Field]], saved: SavedRun[SavedOutcomes, SavedReusable[SavedOutcomes]]) -> str:
     """Says where a run that pydantic refused to write holds a value with no JSON form: the first input, or
     output of a node, that isn't written alone either. It is looked for only once the whole save was refused.
 

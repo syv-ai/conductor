@@ -16,8 +16,8 @@ _SAVED = ConfigDict(extra="forbid", ser_json_inf_nan="strings")
 
 #: What a save says of a unit that holds outputs, and of one that is a branch not taken; a unit with neither
 #: word holds no outputs.
-UnitState = Literal["done", "skipped"]
-SAVED_DONE, SAVED_SKIPPED = get_args(UnitState)
+SavedOutcomeState = Literal["done", "skipped"]
+SAVED_DONE, SAVED_SKIPPED = get_args(SavedOutcomeState)
 
 
 #: The slots of one output whose value is a branch not taken.
@@ -28,7 +28,7 @@ SkippedItems = dict[NonNegativeInt, list[NonNegativeInt]]
 
 
 @dataclass(slots=True, kw_only=True)
-class SavedUnits:
+class SavedOutcomes:
     """Units of one node as a save holds them: columns with a slot for each unit. A node's own units have a slot
     for each instance of the node, in instance order, so an instance is a place in them and is never written.
 
@@ -50,7 +50,7 @@ class SavedUnits:
     """
 
     __pydantic_config__: ClassVar[ConfigDict] = _SAVED
-    states: list[UnitState | None]
+    states: list[SavedOutcomeState | None]
     outputs: dict[str, list[Any]]
     questions: dict[NonNegativeInt, Question] | None = None
     blank_inputs: dict[NonNegativeInt, str] | None = None
@@ -59,11 +59,11 @@ class SavedUnits:
 
 
 @dataclass(slots=True, kw_only=True)
-class SavedEarlier[UnitsT]:
+class SavedReusable[OutcomesT]:
     """The work of one node carried from an earlier run, as a save holds it: each of its units once.
 
     Attributes:
-        units: Its units, a slot for each: a ``SavedUnits`` when written, the units it holds when read.
+        units: Its units, a slot for each: a ``SavedOutcomes`` when written, the units it holds when read.
         fingerprints: For each slot, the fingerprint of what the unit received.
         places: By slot, the instance a computed unit stood in in the earlier run; ``None``, as for ``lineages``,
             when there is none, which leaves the key out of the save.
@@ -71,7 +71,7 @@ class SavedEarlier[UnitsT]:
     """
 
     __pydantic_config__: ClassVar[ConfigDict] = _SAVED
-    units: UnitsT
+    units: OutcomesT
     fingerprints: list[str]
     places: dict[NonNegativeInt, tuple[NonNegativeInt, ...]] | None = None
     lineages: dict[NonNegativeInt, str] | None = None
@@ -97,7 +97,7 @@ class SameAs:
 
 
 @dataclass(slots=True, kw_only=True)
-class SavedRun[UnitsT, EarlierT]:
+class SavedRun[OutcomesT, ReusableT]:
     """A run as a save holds it. A node is named by its id after the ids of the embedded graphs' nodes it is
     inside, joined by ``/`` (``e/ask``).
 
@@ -107,9 +107,9 @@ class SavedRun[UnitsT, EarlierT]:
         state: How the run stands, with its cause when a leg ended early.
         max_items: The item ceiling the run goes on under.
         inputs: The caller's inputs by address, each read and written by its field's type.
-        units: By node, the units of each function node that has any: a ``SavedUnits`` when written, the units
+        units: By node, the units of each function node that has any: a ``SavedOutcomes`` when written, the units
             it holds when read. An embedded graph's node has none of its own.
-        earlier: By node, the work carried from an earlier run and not yet taken: a ``SavedEarlier`` when
+        earlier: By node, the work carried from an earlier run and not yet taken: a ``SavedReusable`` when
             written, an ``EarlierWork`` when read.
         code: By node, the ``reuse_digest`` of the code that made its units and its earlier work, so work made
             by other code is never taken.
@@ -123,8 +123,8 @@ class SavedRun[UnitsT, EarlierT]:
     state: Annotated[Going | EndedEarly, PydanticField(discriminator="status")]
     max_items: PositiveInt | None
     inputs: dict[str, Any]
-    units: dict[str, UnitsT]
-    earlier: dict[str, EarlierT]
+    units: dict[str, OutcomesT]
+    earlier: dict[str, ReusableT]
     code: dict[str, str]
     complete: list[str]
     tables_written_once: list[SameAs] | None = None

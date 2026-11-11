@@ -12,27 +12,27 @@ from pydantic_core import CoreConfig, CoreSchema, SchemaSerializer, SchemaValida
 
 from conductor._internal.field import Field
 from conductor._internal.outcomes import outputs_when_not_called, outputs_when_skipped
-from conductor._internal.saved_run.read import earlier_of, units_of, with_shared_tables
+from conductor._internal.saved_run.read import outcomes_of, reusable_of, with_shared_tables
 from conductor._internal.saved_run.type import (
-    SavedEarlier,
+    SavedOutcomes,
+    SavedReusable,
     SavedRun,
-    SavedUnits,
     SkippedItems,
     SkippedSlots,
 )
 from conductor._internal.value_type import Type
 
 #: Each record's own schema, as pydantic makes it from the record: what a save's schema is composed from.
-_UNITS, _EARLIER, _RUN = (TypeAdapter(record).core_schema for record in (SavedUnits, SavedEarlier, SavedRun))
+_OUTCOMES, _REUSABLE, _RUN = (TypeAdapter(record).core_schema for record in (SavedOutcomes, SavedReusable, SavedRun))
 
-#: The schemas of what ``SavedUnits`` holds for one output beside its column.
+#: The schemas of what ``SavedOutcomes`` holds for one output beside its column.
 _SKIPPED_SLOTS, _SKIPPED_ITEMS = TypeAdapter(SkippedSlots).core_schema, TypeAdapter(SkippedItems).core_schema
 
 #: The key of a save that names its graph, as ``SavedRun`` declares it.
 _GRAPH = SavedRun.__dataclass_fields__["graph"].name  # a KeyError where this is read, should the field be renamed
 
 
-class SaveForm(NamedTuple):
+class RunCodec(NamedTuple):
     """How the runs of one graph are read from JSON and written as it.
 
     Attributes:
@@ -52,10 +52,10 @@ class SaveForm(NamedTuple):
     serializer: SchemaSerializer
 
 
-def save_form(fingerprint: str, inputs: Mapping[str, Type], outputs: Mapping[str, Mapping[str, Field]], nodes: Iterable[str]) -> SaveForm:
+def save_form(fingerprint: str, inputs: Mapping[str, Type], outputs: Mapping[str, Mapping[str, Field]], nodes: Iterable[str]) -> RunCodec:
     """Composes how the runs of one graph are read from JSON and written as it.
 
-    What a save holds is declared once, by ``SavedRun``, ``SavedUnits`` and ``SavedEarlier``, and their own
+    What a save holds is declared once, by ``SavedRun``, ``SavedOutcomes`` and ``SavedReusable``, and their own
     schemas are what is written and read by. Only what depends on the graph is put in here: each input's and
     each output's own type, the nodes a save may name, and the graph's fingerprint. The parts are pydantic's own
     schemas of those types, put together as core schemas, since generating a model of a whole graph costs more
@@ -69,7 +69,7 @@ def save_form(fingerprint: str, inputs: Mapping[str, Type], outputs: Mapping[str
         nodes: Every function node of the graph and of the graphs embedded in it, by its name in a save.
     """
     shared: dict[str, CoreSchema] = {}
-    units_record, earlier_record = _inlined(_UNITS, shared), _inlined(_EARLIER, shared)
+    outcomes_record, reusable_record = _inlined(_OUTCOMES, shared), _inlined(_REUSABLE, shared)
     blocks: dict[tuple[tuple[str, Type, bool, Any], ...], tuple[CoreSchema, CoreSchema]] = {}
     units, earlier = {}, {}
     for node, of_node in outputs.items():
@@ -78,16 +78,16 @@ def save_form(fingerprint: str, inputs: Mapping[str, Type], outputs: Mapping[str
         if columns not in blocks:  # nodes of the same outputs, which hold the same when they aren't called, share one schema
             block = len(blocks)
             of_block = _with_fields(
-                units_record,
+                outcomes_record,
                 outputs=_closed({name: _inlined(column.saved_schema, shared) for name, column, _, _ in columns}),
                 skipped=_closed({}, {name: _SKIPPED_SLOTS for name, _, _, _ in columns}),
                 skipped_items=_closed({}, {name: _SKIPPED_ITEMS for name, _, many, _ in columns if many}),
             )
             shared[f"units:{block}"] = core_schema.no_info_after_validator_function(
-                functools.partial(units_of, not_taken, not_called), of_block, ref=f"units:{block}",
+                functools.partial(outcomes_of, not_taken, not_called), of_block, ref=f"units:{block}",
             )
-            earlier_schema = _with_fields(earlier_record, units=core_schema.definition_reference_schema(f"units:{block}"))
-            shared[f"earlier:{block}"] = core_schema.no_info_after_validator_function(earlier_of, earlier_schema, ref=f"earlier:{block}")
+            reusable_schema = _with_fields(reusable_record, units=core_schema.definition_reference_schema(f"units:{block}"))
+            shared[f"earlier:{block}"] = core_schema.no_info_after_validator_function(reusable_of, reusable_schema, ref=f"earlier:{block}")
             blocks[columns] = core_schema.definition_reference_schema(f"units:{block}"), core_schema.definition_reference_schema(f"earlier:{block}")
         units[node], earlier[node] = blocks[columns]
     run = _with_fields(
@@ -104,7 +104,7 @@ def save_form(fingerprint: str, inputs: Mapping[str, Type], outputs: Mapping[str
         run = core_schema.no_info_after_validator_function(functools.partial(with_shared_tables, outputs), run)
     schema = core_schema.definitions_schema(core_schema.tagged_union_schema({fingerprint: run}, discriminator=_GRAPH), list(shared.values()))
     config = CoreConfig(ser_json_inf_nan="strings")
-    return SaveForm(inputs, outputs, shareable, SchemaValidator(schema, config), SchemaSerializer(schema, config))
+    return RunCodec(inputs, outputs, shareable, SchemaValidator(schema, config), SchemaSerializer(schema, config))
 
 
 def _with_fields(record: Any, **schemas: CoreSchema) -> CoreSchema:
