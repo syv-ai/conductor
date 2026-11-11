@@ -43,7 +43,7 @@ class StoredRun:
     pending: str = "{}"
     #: Queued answers that were refused, by waiting id, as JSON lists of problems.
     refused: str = "{}"
-    #: Why the last leg ended as it did (``failed``, ``stopped``, ``cancelled``, ``timed_out``), as a problem's JSON.
+    #: Why the last leg ended early, as a problem's JSON; ``None`` for a run that runs, waits or is complete.
     cause: str | None = None
 
 

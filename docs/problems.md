@@ -1514,7 +1514,7 @@ A 409 from `POST /runs/{run_id}/answers` on a run whose status is `complete`.
 
 ### `run_not_resumable`
 
-> The run is {status}, and only a run that failed, stopped, was cancelled or timed out is resumed; read the run to see what it needs.
+> The run is {status}, and only a run whose last leg ended early is resumed; read the run to see what it needs.
 
 A 409 from `POST /runs/{run_id}/resume` on a run that is `running`, `waiting` or `complete`. `ctx.status` is the run's status.
 
