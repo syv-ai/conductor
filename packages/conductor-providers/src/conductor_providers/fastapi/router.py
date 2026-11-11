@@ -305,7 +305,7 @@ def run_router(
                         continue
                     if isinstance(event, RunEnd):
                         await finish(run_id, leg, keep_lease, await asyncio.to_thread(_Ended, event))
-                    elif await store.add_event(run_id, worker, event.model_dump_json()) is None:
+                    elif not await store.add_event(run_id, worker, event.model_dump_json()):
                         leg.cancel.set()  # another worker holds the run
         except Exception:
             log.exception("the leg of run %s failed", run_id)
@@ -331,7 +331,8 @@ def run_router(
         or a queued answer costs a read and a write."""
         status = ending.status
         written = ending.written
-        handed_back: RunChanges = {**_standing(Going("running")), "owner": None, "lease_until": 0.0}  # it did not end early
+        # it did not end early, and its lease has run out already, so the next sweep of any worker takes it
+        handed_back: RunChanges = {**_standing(Going("running")), "owner": None, "lease_until": 0.0}
         answered_from: tuple[str, str] | None = None
         answered: tuple[str | None, dict[str, Any]] = (None, {})
         end_stored = False
@@ -347,7 +348,7 @@ def run_router(
                     if not end_stored:  # a later try can't turn into a hand-back: only a resume clears a cancel
                         await store.add_event(run_id, worker, ending.event)
                         end_stored = True
-                    changes = {**written, "status": status, "owner": None, "lease_until": 0.0, "cancel": False}
+                    changes = {**written, "status": status, "owner": None, "lease_until": None, "cancel": False}
                     if row.pending != "{}" and isinstance(ending, _Ended):
                         if answered_from != (row.pending, row.refused):
                             answered_from = (row.pending, row.refused)

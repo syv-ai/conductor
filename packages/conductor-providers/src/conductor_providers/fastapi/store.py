@@ -32,9 +32,11 @@ class StoredRun:
     waiting: str = "[]"
     #: The outputs as JSON once the run is complete, as ``run.outputs_json()`` writes them.
     outputs: str | None = None
-    #: The worker running a leg of it, and until when its lease holds.
+    #: The worker running a leg of it.
     owner: str | None = None
-    lease_until: float = 0.0
+    #: Until when the owner's lease holds, as seconds since the epoch; a time already past for a run handed back
+    #: for any worker to go on with; ``None`` when no leg is wanted (the run waits, is complete or ended early).
+    lease_until: float | None = None
     #: Set when someone asked a running leg to stop.
     cancel: bool = False
     #: Answers that came while a leg ran, by waiting id, as JSON; applied when the leg ends.
@@ -53,7 +55,7 @@ class RunChanges(TypedDict, total=False):
     waiting: str
     outputs: str | None
     owner: str | None
-    lease_until: float
+    lease_until: float | None
     cancel: bool
     pending: str
     refused: str
@@ -74,11 +76,13 @@ class RunStore(Protocol):
         ...
 
     async def expired(self, now: float) -> list[StoredRun]:
-        """The runs whose status is ``running`` and whose ``lease_until`` is before ``now``: their worker died or handed them back."""
+        """The runs whose ``lease_until`` is before ``now``: their worker died or handed them back. A run that wants no
+        leg has no ``lease_until``, so it is never one of them."""
         ...
 
-    async def add_event(self, run_id: str, owner: str, body: str) -> int | None:
-        """Append an event, numbered one past the run's last, only while ``owner`` holds the run; its number, or ``None``."""
+    async def add_event(self, run_id: str, owner: str, body: str) -> bool:
+        """Append an event, numbered one past the run's last, only while ``owner`` holds the run; whether it was appended."""
+        ...
 
     async def events(self, run_id: str, after: int) -> list[tuple[int, str]]:
         """The run's events numbered above ``after``, in order, as ``(number, body)``."""

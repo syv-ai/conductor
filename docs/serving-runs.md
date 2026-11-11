@@ -68,15 +68,15 @@ class SqliteRunStore:
         return bool(changed)
 
     async def expired(self, now: float) -> list[StoredRun]:
-        return [self.row(r) for r in await self.sql("SELECT * FROM runs WHERE status = 'running' AND lease_until < ?", now)]
+        return [self.row(r) for r in await self.sql("SELECT * FROM runs WHERE lease_until < ?", now)]
 
-    async def add_event(self, run_id: str, owner: str, body: str) -> int | None:
+    async def add_event(self, run_id: str, owner: str, body: str) -> bool:
         added = await self.sql(  # numbered after what is there, and only while `owner` holds the run
             "INSERT INTO events SELECT ?, COALESCE((SELECT MAX(seq) + 1 FROM events WHERE run_id = ?), 0), ?"
             " WHERE EXISTS (SELECT 1 FROM runs WHERE id = ? AND owner = ?) RETURNING seq",
             run_id, run_id, body, run_id, owner,
         )
-        return int(added[0][0]) if added else None
+        return bool(added)
 
     async def events(self, run_id: str, after: int) -> list[tuple[int, str]]:
         found = await self.sql("SELECT seq, body FROM events WHERE run_id = ? AND seq > ? ORDER BY seq", run_id, after)
@@ -199,7 +199,7 @@ A connection or session opened on the event loop and passed in either fails or i
 
 **A kill.** A leg saves its run every `checkpoint_every` seconds (5 by default), and its lease runs out `lease` seconds (30) after its worker stops renewing it. Then any worker takes the run and goes on from the checkpoint. Only the calls the checkpoint has no record of are made again: those in flight, and those finished since. A cancel sent while the dead worker held the run stays asked: the worker that takes it over ends it `cancelled` before calling anything, and only `resume` goes on. A worker that lost its lease writes nothing more, and its leg stops at the next renewal.
 
-**A deploy.** On shutdown, the router cancels every leg its worker runs. A cancel waits for the calls already made and keeps them. The run is then handed back, its lease already run out, and any worker goes on with it, repeating no call. A handed-back leg writes no `run_end`: the run did not end, so a follower's stream goes on into the next worker's events. A cancel asked of the run as its worker shuts down is kept: the run ends `cancelled`, not handed back.
+**A deploy.** On shutdown, the router cancels every leg its worker runs. A cancel waits for the calls already made and keeps them. The run is then handed back, its lease already run out, and any worker goes on with it, repeating no call. A run that stopped running for any other reason (it waits, is complete, or ended early) has no `lease_until` at all, so `expired` is the one comparison and never returns it. A handed-back leg writes no `run_end`: the run did not end, so a follower's stream goes on into the next worker's events. A cancel asked of the run as its worker shuts down is kept: the run ends `cancelled`, not handed back.
 
 **Resuming.** A leg can end `timed_out` (past `leg_timeout`, 300 seconds by default), `stopped` (a Series outgrew `max_items`), `cancelled` or `failed`. `POST /runs/{id}/resume` goes on from where it stopped and calls nothing that finished. It takes no body; `{"max_items": ...}`, a whole number of 1 or more (else 422), raises the ceiling for a stopped run, and the raised ceiling holds for every later leg of that run; the router's `max_items` is the ceiling a run starts with. Only `complete` is final. A run that failed, stopped or timed out still takes answers to what waits in it, as `run.answer` does, and they start its next leg: one item that keeps failing doesn't hold back the questions beside it. A cancelled run takes no answers (`run_cancelled`, a 422 from `/answers`), so resume it first. A leg that raised outside any node (the store went away, `from_run` raised) is written `failed` with the cause [`leg_failed`](problems.md#leg_failed), in the row and on its `run_end`, so a run never stays `running` with nobody on it.
 

@@ -53,13 +53,13 @@ class MemoryStore:
         return True
 
     async def expired(self, now: float) -> list[StoredRun]:
-        return [row for row in self.rows.values() if row.status == "running" and row.lease_until < now]
+        return [row for row in self.rows.values() if row.lease_until is not None and row.lease_until < now]
 
-    async def add_event(self, run_id: str, owner: str, body: str) -> int | None:
+    async def add_event(self, run_id: str, owner: str, body: str) -> bool:
         if self.rows[run_id].owner != owner:
-            return None
+            return False
         self.written[run_id].append(body)
-        return len(self.written[run_id]) - 1
+        return True
 
     async def events(self, run_id: str, after: int) -> list[tuple[int, str]]:
         return [(seq, body) for seq, body in enumerate(self.written[run_id]) if seq > after]
@@ -457,7 +457,7 @@ def test_a_leg_whose_run_takes_longer_than_the_lease_to_write_keeps_it_and_write
     monkeypatch.setattr(Run, "to_json", slow_to_json)
 
     class EndIsSlow(MemoryStore):
-        async def add_event(self, run_id: str, owner: str, body: str) -> int | None:
+        async def add_event(self, run_id: str, owner: str, body: str) -> bool:
             if '"run_end"' in body:
                 slow.set()
             return await super().add_event(run_id, owner, body)
@@ -485,7 +485,7 @@ class _FailingEnd(MemoryStore):
 
     failed = False
 
-    async def add_event(self, run_id: str, owner: str, body: str) -> int | None:
+    async def add_event(self, run_id: str, owner: str, body: str) -> bool:
         if not self.failed and '"run_end"' in body:
             self.failed = True
             raise ConnectionError("the store went away")
@@ -632,7 +632,7 @@ def test_a_leg_whose_event_the_store_fails_to_take_calls_no_node_once_the_run_re
     class Flaky(MemoryStore):
         failed_once = False
 
-        async def add_event(self, run_id: str, owner: str, body: str) -> int | None:
+        async def add_event(self, run_id: str, owner: str, body: str) -> bool:
             if '"node_start"' in body and '"slow"' in body and not self.failed_once:
                 self.failed_once = True
                 raise OSError("the store is down for a moment")
@@ -815,3 +815,31 @@ def test_every_refusal_of_the_router_is_a_list_of_problems_with_a_code_of_its_ow
     refused = {"application/json": {"schema": {"$ref": "#/components/schemas/Refused"}}}
     assert [paths["/runs/{run_id}/answers"]["post"]["responses"][code]["content"] for code in ("404", "409")] == [refused, refused]
     assert paths["/runs/{run_id}"]["get"]["responses"]["404"]["content"] == refused
+
+
+@pytest.mark.parametrize("ends", ["complete", "waiting"])
+def test_a_run_that_stopped_running_holds_no_lease_so_no_sweep_takes_it_again(ends: str) -> None:
+    registry = NodeRegistry()
+
+    @registry.node("shout", title="Shout", description="")
+    def shout(text: str) -> str:
+        return text.upper()
+
+    @registry.node("approve", title="Approve", description="")
+    def approve(text: str) -> bool:
+        raise Ask("Go on?")
+
+    store = MemoryStore()
+    app = FastAPI()
+    app.include_router(run_router(store=store, registry=registry, caller=_caller, lease=0.15))
+    graph = make_graph(shout if ends == "complete" else approve).model_dump(mode="json")
+
+    async def scenario() -> None:
+        async with app.router.lifespan_context(app), httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as client:
+            run_id = (await client.post("/runs", json={"graph": graph, "inputs": {"text": "a"}})).json()["id"]
+            ended = await _until_status(store, run_id, ends)
+            await asyncio.sleep(0.3)  # several sweeps
+            assert [json.loads(body)["type"] for body in store.written[run_id]].count("run_start") == 1
+            assert (ended.owner, ended.lease_until) == (None, None) and await store.expired(time.time()) == []
+
+    asyncio.run(scenario())
