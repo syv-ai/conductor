@@ -374,6 +374,82 @@ def test_units_recorded_as_threads_return_are_read_in_item_order_live_in_a_check
     assert any(len(held.not_called) > 1 for held in checkpoints)  # some checkpoint held the later items before the first
 
 
+@pytest.mark.parametrize("items", [None, 3])
+def test_a_reader_made_ready_by_each_of_two_nodes_it_reads_is_called_once(items: int | None):
+    """A call that comes back from a thread makes its readers ready; a unit made ready twice is still one unit."""
+    calls: list[tuple[str, str]] = []
+
+    @node("from-a-thread", title="From a thread", description="", policy=Policy(concurrency=2))
+    def from_a_thread(text: str) -> str:
+        time.sleep(0.01)
+        return text
+
+    @node("left", title="Left", description="")
+    def left(text: str) -> str:
+        return text + "a"
+
+    @node("right", title="Right", description="")
+    def right(text: str) -> str:
+        return text + "b"
+
+    @node("both", title="Both", description="")
+    def both(left: str, right: str) -> str:
+        calls.append((left, right))
+        return left + right
+
+    first = [NodeRecord(id="s", node="from-a-thread", values={"text": "x"})] if items is None else [
+        NodeRecord(id="split", node="split", values={"text": _numbers(items)}), NodeRecord(id="s", node="from-a-thread"),
+    ]
+    graph = registry_of(split, from_a_thread, left, right, both).load(GraphRecord(
+        nodes=[*first, NodeRecord(id="a", node="left"), NodeRecord(id="b", node="right"), NodeRecord(id="r", node="both")],
+        edges=[*([] if items is None else [("split.result", "s.text")]), ("s.result", "a.text"), ("s.result", "b.text"), ("a.result", "r.left"), ("b.result", "r.right")],
+    ))
+
+    run = graph.run()
+
+    assert run.status == "complete"
+    assert sorted(calls) == ([("xa", "xb")] if items is None else [(f"{i}a", f"{i}b") for i in range(items)])
+
+
+@pytest.mark.parametrize("concurrency", [1, 4])
+@pytest.mark.parametrize("shape", ["chain", "per_item_with_a_gather"])
+def test_one_leg_starts_everything_its_own_units_make_ready_and_a_further_resume_calls_nothing(shape: str, concurrency: int):
+    """A leg tries each node after the nodes it reads, so one leg finishes a graph with nobody to ask, whether
+    the first node is called on the leg's own thread or on others."""
+    calls: list[str] = []
+
+    @node("first", title="First", description="", policy=Policy(concurrency=concurrency))
+    def first(text: str) -> str:
+        calls.append(f"first {text}")
+        return text
+
+    @node("then", title="Then", description="")
+    def then(text: str) -> str:
+        calls.append(f"then {text}")
+        return text + "!"
+
+    @node("last", title="Last", description="")
+    def last(texts: Series[str]) -> str:
+        calls.append("last")
+        return "+".join(texts)
+
+    if shape == "chain":
+        nodes = [NodeRecord(id="f", node="first", values={"text": "x"}), *(NodeRecord(id=f"t{i}", node="then") for i in range(5))]
+        edges = [("f.result", "t0.text"), *((f"t{i}.result", f"t{i + 1}.text") for i in range(4))]
+        expected, outputs = 6, {"t4.result": "x!!!!!"}
+    else:
+        nodes = [NodeRecord(id="split", node="split", values={"text": _numbers(4)}), NodeRecord(id="f", node="first"), NodeRecord(id="t", node="then"), NodeRecord(id="l", node="last")]
+        edges = [("split.result", "f.text"), ("f.result", "t.text"), ("t.result", "l.texts")]
+        expected, outputs = 9, {"l.result": "0!+1!+2!+3!"}
+    graph = registry_of(split, first, then, last).load(GraphRecord(nodes=nodes, edges=edges))
+
+    run = graph.run()
+
+    assert run.status == "complete" and run.outputs == outputs and len(calls) == expected
+    assert all(value is not None for values in run.results.values() for value in values.values())
+    assert run.resume().outputs == outputs and graph.load_run(run.to_json()).resume().outputs == outputs and len(calls) == expected
+
+
 def test_concurrency_one_with_an_attempt_timeout_never_has_two_calls_in_flight():
     """A timed-out attempt is final and its thread keeps the node's slot until it returns."""
     in_flight, most = 0, 0
