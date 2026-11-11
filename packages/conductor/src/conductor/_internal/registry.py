@@ -21,12 +21,13 @@ copied in when it is added, so changing it afterwards changes nothing here.
 
 The registry also holds which value types exist: the ones its nodes
 declare on their inputs and outputs, plus the ``types`` a host names, each
-under the ``type_id`` its class declares. Nothing
-about a type is process-wide, so two registries in one process may each
-hold a ``text`` of their own; one id claimed by two classes in one registry
-raises where the second arrives, naming both. ``describe()`` is what an
-editor reads: every node and every type, once, as a ``RegistryDescription``,
-each type with the ids of every type here that admits it (``accepted_as``).
+under its id: conductor's own types from a fixed table, a host's class by
+the ``type_id`` it declares. Nothing about a type is process-wide, so two
+registries in one process may each hold a ``text`` of their own; one id
+claimed by two classes in one registry raises where the second arrives,
+naming both. ``describe()`` is what an editor reads: every node and every
+type, once, as a ``RegistryDescription``, each type with the ids of every
+type here that admits it (``accepted_as``).
 
 ``registry.load(record)`` reads a stored graph into a ``Graph`` that keeps
 its own copy of the definitions it resolved, so a later change to the

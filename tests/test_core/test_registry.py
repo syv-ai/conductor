@@ -9,6 +9,7 @@ definitions.
 """
 
 import itertools
+import textwrap
 from dataclasses import dataclass
 from typing import Annotated, Any, ClassVar, Literal, TypedDict
 
@@ -25,6 +26,7 @@ from conductor import (
     Upgrade,
     node,
 )
+from conductor._internal import registry as registry_module
 from conductor._internal.fields import REQUIRED
 from conductor.widgets import Textarea
 
@@ -768,10 +770,8 @@ def test_a_stored_graph_is_described_once_until_the_registry_changes(monkeypatch
 
 
 def test_the_modules_own_example_runs():
-    from conductor._internal import registry as module
-
-    after = module.__doc__.split("::\n", 1)[1].splitlines()
-    block = "\n".join(line[4:] for line in itertools.takewhile(lambda line: not line or line.startswith("    "), after))
+    after = registry_module.__doc__.split("::\n", 1)[1].splitlines()
+    block = textwrap.dedent("\n".join(itertools.takewhile(lambda line: not line or line.startswith("    "), after)))
     scope: dict[str, Any] = {"NodeRegistry": NodeRegistry, "shout": _node("shout")}
     exec(block, scope)  # noqa: S102  the docstring's own code, as a reader runs it
     assert [definition.id for definition in scope["registry"]] == ["upper", "shout"]
