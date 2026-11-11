@@ -46,7 +46,7 @@ from pydantic_core import (
 from conductor._internal.ask import Question, Waiting, answer_outputs, waiting_questions
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.errors import InvalidCallError, Problem, make_problem, value_free_errors
-from conductor._internal.fields import SKIPPED, Field, FieldValueError, Type, written_table
+from conductor._internal.fields import SKIPPED, Field, FieldValueError, Records, Type, written_table
 from conductor._internal.graph import (
     Cell,
     Fixed,
@@ -173,8 +173,8 @@ class Done:
     """A unit whose node was called and returned.
 
     Attributes:
-        out: Its outputs by name: a value, ``None`` for a blank, ``SKIPPED`` for a branch not taken, a list for a
-            ``Series``.
+        out: Its outputs by name: a value, ``None`` for a blank, ``SKIPPED`` for a branch not taken, and for a
+            ``Series`` a list, or ``Records`` when the node returned a table for a ``Series`` of records.
     """
 
     out: dict[str, Any]
@@ -422,7 +422,7 @@ class Run:
             problems.extend(
                 make_problem("invalid_answer", *loc, waiting_id=unit_id, reason=reason, **({"question": q} if q else {})) for q, reason in faults
             )
-            answered[(node, key)] = Answered(kept_outputs(placed.outputs, read), found.question) if not faults else found
+            answered[(node, key)] = Answered(read, found.question) if not faults else found
         if problems:
             raise InvalidCallError(problems)
         run = self._copy(share_units=True)
@@ -579,7 +579,11 @@ class Run:
         for key in self._instances(node.maps, ())[0]:
             unit = units.get(key)
             value = unit.out[output] if isinstance(unit, Done) else None
-            values.append(None if value is SKIPPED else [None if v is SKIPPED else v for v in value] if isinstance(value, list) else value)
+            if type(value) is list:
+                value = [None if item is SKIPPED else item for item in value]
+            elif type(value) is Records:
+                value = value.records()
+            values.append(None if value is SKIPPED else value)
         return values if node.maps else values[0]
 
     def _offered(self, node: GraphAtPath, key: Key) -> Any:
@@ -615,7 +619,7 @@ class Run:
                     if one is PENDING:
                         return PENDING
                 if lists:
-                    value = [[None if item is SKIPPED else item for item in one] if type(one) is list else one for one in value]
+                    value = [[None if item is SKIPPED else item for item in one] if type(one) is list else one.records() if type(one) is Records else one for one in value]
             out[address] = value
         return out
 
@@ -849,6 +853,9 @@ def _cell(units: _UnitsOfAGraph, base: int, cell: Cell, key: Key) -> Any:
     if value is None or value is SKIPPED or type(cell) is Cell:
         return value
     if type(cell) is Item:
+        if type(value) is Records:  # held by column: the cell an edge names, with no record built
+            wanted = cell.field  # type: ignore[attr-defined]
+            return value[key[depth]] if wanted is None else value.columns[wanted][key[depth]]
         value = value[key[depth]]
     field = cell.field  # type: ignore[attr-defined]
     return value if field is None or value is None or value is SKIPPED else _field_of(value, field)
@@ -886,6 +893,8 @@ def _gathered(units: _UnitsOfAGraph, base: int, plan: Gather, key: Key) -> Any:
         return None
     if len(live) == 1 and type(live[0]) is Item:  # the Series itself: its items, or one field of each
         wanted = live[0].field
+        if type(series) is Records:
+            return series.records() if wanted is None else series.columns[wanted]
         if wanted is None:
             return [None if item is SKIPPED else item for item in series] if any(item is SKIPPED for item in series) else series
         return [None if item is SKIPPED or item is None else _field_of(item, wanted) for item in series]
@@ -1013,7 +1022,7 @@ def _run_of(graph: Graph, saved: dict[str, Any]) -> Run:
             if len(slots) != len(instances):
                 at, reason = f"units.{'/'.join(node.path)}", f"it holds {len(slots)} slots for the {len(instances)} instances the saved run made of the node"
                 raise InvalidCallError([make_problem("state_unreadable", "state", at=at, reason=reason)])
-            units.update((instance, unit) for instance, unit in zip(instances, slots, strict=True) if unit is not None)
+            run._units[node.inside][node.placed.id] = {instance: unit for instance, unit in zip(instances, slots, strict=True) if unit is not None}
     functions = graph._functions
     run._ran_as = {path: digest for name, digest in saved["code"].items() if digest != functions[path := tuple(name.split("/"))].reuse_digest}
     run._earlier = {path: lent for name, lent in saved["earlier"].items() if (path := tuple(name.split("/"))) not in run._ran_as}  # work of other code is never taken
@@ -1039,14 +1048,6 @@ def _seconds(value: float) -> bool:
 
 
 # -- values -------------------------------------------------------------------------------------
-
-
-def kept_outputs(outputs: Mapping[str, Field], spread: dict[str, Any]) -> dict[str, Any]:
-    """A node's checked outputs by name as a run keeps them: a ``Series`` as a list."""
-    for name, spec in outputs.items():
-        if spec.many and spread[name] is not SKIPPED and spread[name] is not None:
-            spread[name] = list(spread[name])  # an item may be SKIPPED: a branch not taken for it
-    return spread
 
 
 def checked_outputs(returns: Returns, outputs: Mapping[str, Field], returned: Any) -> Any:
@@ -1077,19 +1078,20 @@ def checked_outputs(returns: Returns, outputs: Mapping[str, Field], returned: An
             if group in groups:
                 raise FieldValueError(f"'{groups[group]}' and '{name}' are alternatives of '{group}', and both hold a value", code="invalid_output", name=name)
             groups[group] = name
-    return kept_outputs(outputs, spread)
+    return spread
 
 
 def _checked(spec: Field, name: str, value: Any, *, code: str) -> Any:
     if value is SKIPPED:
         return value
+    returned = code == "invalid_output"
     try:
-        read = spec.whole.read(value, strict=code == "invalid_output")
+        read = spec.whole.read_returned(value) if returned else spec.whole.read(value)
     except FieldValueError as refused:
         refused.code, refused.ctx = code, {"name": name, **refused.ctx}
         raise
     exact = spec.whole.exact_classes
-    if code == "invalid_output" and exact and not isinstance(read, exact):
+    if returned and exact and not isinstance(read, exact):
         raise FieldValueError(f"its type's own check gave a {type(read).__name__}, not a {spec.whole.id}", code="invalid_output", name=name)
     return read
 
@@ -1233,6 +1235,9 @@ _STATE = TypeAdapter(Annotated[Going | EndedEarly, PydanticField(discriminator="
 #: The state a save writes for a unit that holds outputs or is a branch not taken; any other has none.
 _STATE_WORD: Mapping[type, str] = {Done: "done", Answered: "done", Skipped: "skipped"}
 
+#: The kinds of unit that hold outputs.
+_HOLDS_OUTPUTS = frozenset({Done, Answered})
+
 
 def _unit_columns(outputs: Mapping[str, Field], slots: list[Unit | None]) -> dict[str, Any]:
     """Gives units as the columns a save holds of them.
@@ -1241,25 +1246,28 @@ def _unit_columns(outputs: Mapping[str, Field], slots: list[Unit | None]) -> dic
         outputs: The outputs of the units' node, by name.
         slots: The units, in the order of their slots; ``None`` for an instance that hasn't run.
     """
-    kinds = [type(unit) for unit in slots]
-    outs = [unit.out if kind is Done or kind is Answered else None for unit, kind in zip(slots, kinds, strict=True)]  # type: ignore[union-attr]
-    saved: dict[str, Any] = {"states": [_STATE_WORD.get(kind) for kind in kinds], "outputs": {}}
-    for name, output in outputs.items():
-        column = saved["outputs"][name] = [out and out[name] for out in outs]
-        skipped = [slot for slot, value in enumerate(column) if value is SKIPPED]
-        if skipped:
-            saved.setdefault("skipped", {})[name] = skipped
-            for slot in skipped:
-                column[slot] = None
-        if output.many:
-            for slot, items in enumerate(column):
-                if type(items) is list and (gaps := [place for place, item in enumerate(items) if item is SKIPPED]):
-                    saved.setdefault("skipped_items", {}).setdefault(name, {})[slot] = gaps
-                    column[slot] = [None if item is SKIPPED else item for item in items]
-    present = set(kinds)
-    if Answered in present or Asking in present:
+    kinds = set(map(type, slots))
+    saved: dict[str, Any] = {"states": list(map(_STATE_WORD.get, map(type, slots))), "outputs": {}}
+    if kinds & _HOLDS_OUTPUTS:
+        every = kinds <= _HOLDS_OUTPUTS  # every unit holds outputs, as those of a node that finished do
+        for name, output in outputs.items():
+            column = [unit.out[name] for unit in slots] if every else [unit.out[name] if type(unit) in _HOLDS_OUTPUTS else None for unit in slots]  # type: ignore[union-attr]
+            saved["outputs"][name] = column
+            skipped = [slot for slot, value in enumerate(column) if value is SKIPPED]
+            if skipped:
+                saved.setdefault("skipped", {})[name] = skipped
+                for slot in skipped:
+                    column[slot] = None
+            if output.many:
+                for slot, items in enumerate(column):
+                    if type(items) is list and (gaps := [place for place, item in enumerate(items) if item is SKIPPED]):
+                        saved.setdefault("skipped_items", {}).setdefault(name, {})[slot] = gaps
+                        column[slot] = [None if item is SKIPPED else item for item in items]
+    else:  # no unit holds outputs yet
+        saved["outputs"] = {name: [None] * len(slots) for name in outputs}
+    if Answered in kinds or Asking in kinds:
         saved["questions"] = {slot: unit.question for slot, unit in enumerate(slots) if type(unit) is Answered or type(unit) is Asking}  # type: ignore[union-attr]
-    if Blank in present:
+    if Blank in kinds:
         saved["blank_inputs"] = {slot: unit.input for slot, unit in enumerate(slots) if type(unit) is Blank}  # type: ignore[union-attr]
     return saved
 
@@ -1283,7 +1291,12 @@ def _units_of(saved: dict[str, Any]) -> list[Unit | None]:
             for slot, places in by_slot.items():
                 for place in places:
                     outputs[name][slot][place] = SKIPPED
-        outs = [dict(zip(outputs, values, strict=True)) for values in zip(*outputs.values(), strict=True)] if outputs else [{} for _ in states]
+        if len(outputs) == 1:  # most nodes have one output
+            ((name, column),) = outputs.items()
+            outs = [{name: value} for value in column]
+        else:
+            names = tuple(outputs)
+            outs = [dict(zip(names, values, strict=True)) for values in zip(*outputs.values(), strict=True)] if outputs else [{} for _ in states]
         units: list[Unit | None] = [Done(out) if state == "done" else SKIPPED_UNIT if state == "skipped" else None for state, out in zip(states, outs, strict=True)]
         for slot, question in saved.get("questions", {}).items():
             units[slot] = Asking(question) if states[slot] is None else Answered(units[slot].out, question)  # type: ignore[union-attr]

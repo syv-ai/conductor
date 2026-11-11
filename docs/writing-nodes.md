@@ -165,7 +165,7 @@ print(run.outputs)                   # {'count.result': 2}
 - `count` takes a `Series`, so it gathers: it runs once and gets every tagged line, in order. A `Table[R]` input gathers records into a table the same way.
 - The sender was made outside the lines, so it is simply there on every call of `tag`.
 
-A table never makes items by itself. Return `Series[R]`, with `R` a `TypedDict`, to give records one at a time; then an edge may name one field of each, `read.result.email`. A host with `syv-conductor-nodes` has a Split node that does this for any table or list.
+A table never makes items by itself. Return `Series[R]`, with `R` a `TypedDict`, to give records one at a time; then an edge may name one field of each, `read.result.email`. You may return the records as a list or as the table they are in, which is cheaper for a large one: the nodes after it receive the same plain records either way. A host with `syv-conductor-nodes` has a Split node that does this for any table or list.
 
 A blank item is left out of a `Series[X]` input, and `Series[X | None]` keeps its place as `None`. No items at all is an empty list, and your node is still called. What a gather does with branches not taken is in the reference (`python -m conductor.about one-or-many`).
 

@@ -33,7 +33,7 @@ _Table: Any = Table
 @registry.node("split", title="Split", description="Takes a table or a list apart, so what follows runs once for each record or item.")
 def split[T](value: Table[T] | list[T]) -> Series[T]:
     """Gives a table's records, or a list's items, as a Series."""
-    return typing.cast("list[T]", value.to_dicts()) if isinstance(value, pl.DataFrame) else value  # a frame's records are its row type's
+    return typing.cast("list[T]", value)  # a table returned for a Series of records is the Series of its records
 
 
 @registry.node("stack", title="Stack", description="Puts the tables made for each item into one table, one under the other.")

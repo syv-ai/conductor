@@ -100,7 +100,7 @@ What changes in how you work, before the name-by-name tables:
   `EndedEarly` with its `cause` (`match run.state`). It pauses for a person (`raise Ask(...)`, then `run.answer(...)` and `run.resume()`), writes
   itself as JSON (`run.to_json()`, `graph.load_run(saved)`, which reads a save from its JSON text; a save that
   doesn't fit is `state_unreadable`, `ctx.at` its place in the save, such as `units.upper.outputs.result.1`; a save holds each node's
-  units as a column per output with a slot per instance, under `e/ask` for a node inside an embedded graph, and how the run stands under `state`;
+  units as a column per output with a slot per instance, a `Series` of records returned as a table as that table, under `e/ask` for a node inside an embedded graph, and how the run stands under `state`;
   a float that isn't finite is saved as its text and read back by its declared type, the float under `float` and the text under `Any`) and runs again on changed inputs,
   calling the nodes only for the items that changed (`run.again(...)`). A leg's `max_items` is a whole number of
   at least 1 and its `timeout` and `checkpoint_every` finite seconds above 0, a `bool` neither,
@@ -110,7 +110,7 @@ What changes in how you work, before the name-by-name tables:
   A node's own exception goes to the `conductor` logger, never to an event.
 - **Two companion packages, rebuilt on this API.** `syv-conductor-nodes` holds 32 nodes that only
   compute, a registry per module (`conductor_nodes.text.registry`) and all of them in
-  `conductor_nodes.registry`. `split` takes a table or a list apart into a `Series`, `table-collect` puts records back into a
+  `conductor_nodes.registry`. `split` takes a table or a list apart into a `Series` (a node may return a table for `Series[R]`, and a run keeps it by column), `table-collect` puts records back into a
   table with new columns, `text-list` gives typed-in texts, and `text-split` is titled "Split text" and splits on a newline.
   `math-round` rounds a half away from zero (2.5 to 3), and
   `regex-replace` fails a replacement that refers to a missing group as `invalid_replacement`. `syv-conductor-providers` holds `run_router`, a FastAPI router that

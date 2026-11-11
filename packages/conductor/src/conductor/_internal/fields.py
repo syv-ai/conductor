@@ -370,10 +370,15 @@ def written_table(frame: Any) -> dict[str, Any]:
     """
     if not isinstance(frame, pl.DataFrame):
         raise TypeError(type(frame).__name__)
+    return _written_columns(frame, frame.to_dict(as_series=False))
+
+
+def _written_columns(frame: pl.DataFrame, cells: Mapping[str, list[Any]]) -> dict[str, Any]:
+    """Gives ``frame`` as conductor writes a table, from the ``cells`` of each of its columns by name."""
     columns = []
-    for (name, cells), dtype in zip(frame.to_dict(as_series=False).items(), frame.dtypes, strict=True):
+    for (name, values), dtype in zip(cells.items(), frame.dtypes, strict=True):
         kind = dtype.to_python()
-        columns.append({"name": name, "type": kind.__name__ if kind in _CELLS else "json", "values": cells})
+        columns.append({"name": name, "type": kind.__name__ if kind in _CELLS else "json", "values": values})
     return {"columns": columns}
 
 
@@ -456,6 +461,47 @@ class _Table(Generic[_T]):
             custom_error_type="not_a_table", custom_error_message="a table is a frame or a list of records, one object per row",
             serialization=core_schema.plain_serializer_function_ser_schema(written_table, when_used="json"),
             metadata={"pydantic_js_functions": [json_schema]},
+        )
+
+
+class Records(Generic[_T]):
+    """A ``Series`` of records held by column: the table a node returned for it, read one record at a time.
+
+    It is internal to a run. A node that takes a record, or the whole ``Series``, receives plain records, and
+    an edge that names a field reads the column's cell with no record built. ``Records[R]`` is the type a saved
+    run reads and writes one by: the table's own JSON form, where a ``Series`` held as a list is an array.
+
+    Attributes:
+        frame: The table whose rows are the records.
+        columns: The cells of each column as a list, by name.
+    """
+
+    __slots__ = ("columns", "frame")
+
+    def __init__(self, frame: pl.DataFrame) -> None:
+        """Holds ``frame``, a table already read as the type of the records' table."""
+        self.frame, self.columns = frame, frame.to_dict(as_series=False)
+
+    def __len__(self) -> int:
+        return self.frame.height
+
+    def __getitem__(self, place: int) -> dict[str, Any]:
+        """Gives the record at ``place``."""
+        return {name: cells[place] for name, cells in self.columns.items()}
+
+    def records(self) -> list[dict[str, Any]]:
+        """Gives every record, in order, as a node receives a ``Series`` of them."""
+        names = list(self.columns)
+        return [dict(zip(names, cells, strict=True)) for cells in zip(*self.columns.values(), strict=True)]
+
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
+        """Gives the schema a saved run reads and writes the records by: their table's."""
+        table: Any = _Table
+        return core_schema.json_or_python_schema(
+            json_schema=core_schema.no_info_after_validator_function(cls, handler.generate_schema(table[get_args(source)[0]])),
+            python_schema=core_schema.is_instance_schema(cls),
+            serialization=core_schema.plain_serializer_function_ser_schema(lambda held: _written_columns(held.frame, held.columns)),
         )
 
 
@@ -890,6 +936,20 @@ class Type:
         return Type((get_args(self.options[0]) or (Any,))[0])
 
     @functools.cached_property
+    def held_as_table(self) -> Type | None:
+        """For a ``Series`` of records, the type of the table a run holds it as when a node returns it as one:
+        ``Table[R]`` for items of a ``TypedDict`` ``R``, a table of any columns for items of ``Any``. ``None``
+        for any other type, a ``Series`` whose items carry a limit included."""
+        series = [option for option in self.options if get_origin(option) is _Series]
+        if len(series) != 1:
+            return None
+        item = Type(get_args(series[0])[0])
+        if item.limited or not (item.bare is Any or typing.is_typeddict(item.bare)):
+            return None
+        table: Any = _Table
+        return Type(table[item.bare])
+
+    @functools.cached_property
     def fields(self) -> Mapping[str, Any]:
         """The hint of each field a record declares, by name: a model's, a dataclass's, a ``TypedDict``'s, and a
         table's columns. None for any other type."""
@@ -914,6 +974,17 @@ class Type:
             return self._validate(value, strict=strict)
         except ValidationError as error:
             raise self._refused(error) from None
+
+    def read_returned(self, value: Any) -> Any:
+        """Reads what a node returned for the type, strictly. A table returned for a ``Series`` of records is read
+        as the table it is, each column by its type, and kept by column as ``Records``.
+
+        Raises:
+            FieldValueError: The type refuses the value.
+        """
+        if isinstance(value, pl.DataFrame) and self.held_as_table is not None:
+            return Records(self.held_as_table.read(value, strict=True))
+        return self.read(value, strict=True)
 
     def read_json(self, value: Any) -> Any:
         """Reads ``value`` strictly from its JSON form, as a person's answer and a declared choice are.
@@ -1142,8 +1213,12 @@ class Field:
     @functools.cached_property
     def column(self) -> Type:
         """The type of the field's values over many units, as a saved run holds them: a list in which a unit that
-        gave none, and a ``Series``' item on a branch not taken, are blank."""
+        gave none, and a ``Series``' item on a branch not taken, are blank. A ``Series`` of records is its items
+        or the table it is held as."""
         one = _list_of(_union((self.type.hint, type(None)))) if self.many else self.whole.hint
+        if (table := self.whole.held_as_table) is not None:
+            held: Any = Records
+            one = _union((one, held[get_args(table.hint)[0]]))
         return Type(_list_of(_union((one, type(None)))))
 
     @functools.cached_property
