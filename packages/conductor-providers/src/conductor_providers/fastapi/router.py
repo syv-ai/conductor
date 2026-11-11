@@ -23,6 +23,7 @@ from typing import Annotated, Any, TypeVar, Unpack, overload
 
 from conductor import (
     EndedEarly,
+    EndedStatus,
     Going,
     GraphDescription,
     GraphRecord,
@@ -47,8 +48,8 @@ C = TypeVar("C")
 
 log = logging.getLogger("conductor_providers.fastapi")
 
-#: The statuses a run can be resumed from; ``complete`` is the only one that is final.
-_RESUMABLE = ("timed_out", "stopped", "cancelled", "failed")
+#: The statuses a run can be resumed from: every one a leg can end early with.
+_RESUMABLE: tuple[RunStatus, ...] = typing.get_args(EndedStatus)
 
 #: The English of each code the router itself writes, beside the codes of the runs it serves.
 _ROUTER_PROBLEMS: dict[str, str] = {
