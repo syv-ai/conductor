@@ -167,8 +167,8 @@ graph that wires the wrong table to it gets a `type_mismatch`. So give a stored 
 
 ## Where something is inside
 
-`run.results`, `graph.plan` and `graph.describe()` show the stored graph as one node: for an item it holds what its
-graph's outputs came to, once every one of them is settled there. What happens inside it is told with where it is:
+`run.results`, `graph.plan` and `graph.describe()` show the stored graph as one node. Its results are read from the nodes inside that
+make them, as the run stands: it holds none of its own. What happens inside it is told with where it is:
 the node and item of each stored graph around it, outermost first.
 
 - A problem's `loc` starts with it. A problem of the stored graph itself is that graph's own problem with the id of

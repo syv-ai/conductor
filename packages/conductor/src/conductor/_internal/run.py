@@ -56,15 +56,16 @@ from pydantic_core import (
 )
 
 from conductor._internal.ask import Question, Waiting, answer_outputs, waiting_questions
-from conductor._internal.call_inputs import CallInputs, ItemReader
+from conductor._internal.call_inputs import AnyItemReader, CallInputs, ItemReader
 from conductor._internal.conductor_model import ConductorModel
-from conductor._internal.fields import SKIPPED, Field, FieldValueError, Records, Type, written_table
+from conductor._internal.fields import SKIPPED, Field, FieldValueError, Type, written_table
 from conductor._internal.graph import (
     FunctionAtPath,
     GraphAtPath,
     NodeAtPath,
     NodePath,
     PlacedFunction,
+    host_reads,
 )
 from conductor._internal.node_definition import Returns, from_run_values
 from conductor._internal.problem import InvalidCallError, Problem, make_problem, value_free_errors
@@ -502,8 +503,8 @@ class Run:
     def results(self) -> dict[str, dict[str, Any]]:
         """Each node's outputs: one value on a node that ran once, else a list in item order, ``None`` where a
         unit has none."""
-        nodes = self.graph._node_at
-        return {n: {o: self._collect(nodes[n], o) for o in placed.outputs} for n, placed in self.graph._nodes.items()}
+        nodes, reader = self.graph._node_at, self._reader_as_it_stands
+        return {n: {o: self._shown(reader, nodes[n], o) for o in placed.outputs} for n, placed in self.graph._nodes.items()}
 
     @property
     def outputs(self) -> dict[str, Any]:
@@ -515,8 +516,8 @@ class Run:
                 raise InvalidCallError([make_problem("run_not_complete", "outputs", status=status, reason="")])
             case EndedEarly(status=status, cause=cause):
                 raise InvalidCallError([make_problem("run_not_complete", "outputs", status=status, reason=cause.msg)])
-        nodes = self.graph._node_at
-        return {address: self._collect(nodes[address.partition(".")[0]], address.partition(".")[2]) for address in self.graph.outputs}
+        nodes, reader = self.graph._node_at, self._reader_as_it_stands
+        return {address: self._shown(reader, nodes[address.partition(".")[0]], address.partition(".")[2]) for address in self.graph.outputs}
 
     def outputs_json(self) -> str:
         """The graph's outputs (``run.outputs``) as JSON, by address, each written by its output's type as a save
@@ -537,58 +538,36 @@ class Run:
                 raise InvalidCallError([make_problem("state_unwritable", "outputs", address, at=address, reason="a value has no JSON form")]) from None
         return pydantic_core.to_json(written).decode()
 
-    def _collect(self, node: NodeAtPath, output: str) -> Any:
-        """One output of a node over its instances, in instance order. An embedded graph's node holds no unit:
-        its output is read from the function inside that makes it."""
-        units = self._units[node.name] if type(node) is FunctionAtPath else {}
-        values = []
-        for key in instances(self._units, node.maps, ())[0]:
-            if type(node) is GraphAtPath:
-                value = self._offered(node, output, key)
-            else:
-                unit = units.get(key)
-                value = NOT_SETTLED if unit is None or type(unit) is Asking else unit.out[output]
-            if type(value) is list:
-                value = [None if item is SKIPPED else item for item in value]
-            elif type(value) is Records:
-                value = value.records()
-            values.append(None if value is SKIPPED or value is NOT_SETTLED else value)
-        return values if node.maps else values[0]
+    def _shown(self, reader: ItemReader, node: NodeAtPath, output: str) -> Any:
+        """One output of a node as a host is shown it: what a node reading it would be given (``host_reads``),
+        as the run stands.
 
-    def _offered(self, node: GraphAtPath, address: str, key: Key) -> Any:
-        """What the embedded graph's node ``node`` offers for its output ``address`` in the instance ``key``,
-        read from the function inside that makes it.
+        An output made per item is what a ``Series`` input that keeps blanks would gather of it: ``None`` where
+        no item could bring a value, for a blank or a branch not taken outside the items; else every item in
+        its place, ``None`` for one with no value or not settled yet. An embedded graph's node holds no unit:
+        its output is the one of the function inside that makes it, and for one that runs per item, an output
+        made per item inside is a list for each of its items.
 
-        An output made once inside is the inner unit's own. One made per item inside, at any depth, is every
-        item's in order, and a ``Series`` made per item is a list of lists; where the Series those items are
-        of was never made, for a blank or a branch not taken, it is that blank or that branch not taken.
-
-        Returns:
-            The value, or ``NOT_SETTLED`` until every unit it is made of is settled.
+        Args:
+            reader: Reads the run's units as they stand, waiting for nothing.
+            node: The node, one of the run's own graph.
+            output: The output's name.
         """
-        last, output = node.offers[address]
-        units, around = self._units[last.name], len(node.maps)
-        if len(last.maps) == around:  # made once inside: the inner unit's own
-            unit = units.get(key)
-            return NOT_SETTLED if unit is None or type(unit) is Asking else unit.out[output]
-        series, of = last.maps[around]
-        made = self._units[series.name].get(key)
-        if made is None or type(made) is Asking:
-            return NOT_SETTLED
-        if made.out[of] is None or made.out[of] is SKIPPED:  # the Series was never made, so nor was the output: no list of no items
-            return made.out[of]
-        inside, known = instances(self._units, last.maps, key)
-        if not known:
-            return NOT_SETTLED
-        values = []
-        for instance in inside:
-            unit = units.get(instance)
-            if unit is None or type(unit) is Asking:
-                return NOT_SETTLED
-            values.append(unit.out[output])
-        if last.placed.outputs[output].many:
-            values = [[None if item is SKIPPED else item for item in one] if type(one) is list else one.records() if type(one) is Records else one for one in values]
-        return values
+        if type(node) is GraphAtPath:
+            function, output = node.offers[output]
+            around = len(node.maps)
+        else:
+            function, around = node, 0
+        if 0 < around < len(function.maps):  # an embedded graph's node that runs per item, of an output made per item inside
+            whole = host_reads(function, output, 0)
+            certain = AnyItemReader(reader, whole.reads[0], ()).could_bring(whole)  # type: ignore[arg-type]  # made per item, so read as a gather
+            if certain is SKIPPED or certain is None:
+                return None
+            each = host_reads(function, output, around)
+            offered = [each.value(reader, at) for at in instances(self._units, function.maps[:around], ())[0]]
+            return [None if value is SKIPPED else value for value in offered]
+        value = host_reads(function, output, 0).value(reader, ())
+        return None if value is SKIPPED or value is NOT_SETTLED else value
 
     # -- what a leg reads -------------------------------------------------------
 
@@ -663,6 +642,11 @@ class Run:
     def _reader(self) -> ItemReader:
         """Reads what this run's units hold for one item: what a call of a node receives there."""
         return ItemReader(self._units, self.inputs, self.graph._node_at)
+
+    @property
+    def _reader_as_it_stands(self) -> ItemReader:
+        """Reads what this run's units hold as they stand, waiting for nothing: what a host is shown."""
+        return ItemReader(self._units, self.inputs, self.graph._node_at, waits=False)
 
     def _has_every_unit(self, node: FunctionAtPath) -> bool:
         """Whether every instance of ``node`` holds a unit, one waiting for a person included, and every Series

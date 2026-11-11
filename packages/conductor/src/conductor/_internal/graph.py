@@ -289,6 +289,8 @@ class FunctionAtPath(_AtPath):
         readers: Each function whose ``made_from`` holds this one, with the number held there.
         position: Its place in the order a leg tries the functions in.
         waits_on: Every function it waits on, however far up; filled when first asked for.
+        shown_as: How a host reads each output, by its name and the number of maps the host stands under
+            (``host_reads``); filled when first asked for.
     """
 
     placed: PlacedFunction
@@ -303,6 +305,7 @@ class FunctionAtPath(_AtPath):
     readers: list[tuple[FunctionAtPath, int]] = dataclasses.field(default_factory=list[tuple["FunctionAtPath", int]])
     position: int = 0
     waits_on: frozenset[FunctionAtPath] | None = None
+    shown_as: dict[tuple[str, int], Read | Gather] = dataclasses.field(default_factory=dict[tuple[str, int], Read | Gather])
 
 
 @typing.final
@@ -347,6 +350,38 @@ def waits_on(node: FunctionAtPath) -> frozenset[FunctionAtPath]:
                     stack.append(read)
         node.waits_on = frozenset(seen)
     return node.waits_on
+
+
+#: What a host is shown of an output made per item is what an input of this type wired to it would be given:
+#: every item in its place, a blank where an item has no value.
+_SHOWN = Field("shown", Series[Any | None], REQUIRED)  # type: ignore[misc]  # mypy takes no union as a type argument here
+
+
+def host_reads(node: FunctionAtPath, output: str, under: int) -> Read | Gather:
+    """How a host reads the output ``output`` of ``node`` from ``under`` maps down: the plan an input wired to
+    it there would have. An output made once there is read as the one value it is; one made per item is
+    gathered, through every map the host stands outside, as a ``Series`` input that keeps a blank in its place
+    would gather it. So what a host is shown is what a node reading the output would be given.
+
+    Args:
+        node: The function that makes the output.
+        output: The output's name.
+        under: How many of the maps the node runs in the host stands inside: none for the run's own results,
+            those of an embedded graph's node for what that node offers for one of its items.
+    """
+    plan = node.shown_as.get((output, under))
+    if plan is None:
+        spec = node.placed.outputs[output]
+        cell = (WholeSeries if spec.many else Value)(node.name, output, _scope_at_path(node.maps), None, spec.type)
+        if len(node.maps) == under:
+            plan = Read(_SHOWN, (cell,), cell.scope)
+        else:
+            levels = [Cell(made_by.name, of, _scope_at_path(made_by.maps)) for made_by, of in node.maps[under:]]
+            series, of = node.maps[under]
+            through, _ = _gathered_through((series, of), [node, *(made_by for made_by, _ in node.maps[under + 1 :])])
+            plan = Gather(_SHOWN, (*levels, cell), len(levels), through)
+        node.shown_as[(output, under)] = plan
+    return plan
 
 
 # -- what a host reads of a loaded graph --------------------------------------------------------

@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Annotated, Any
 
 import pytest
-from conductor import SKIPPED, NodeRegistry, Param, Series, make_graph
+from conductor import SKIPPED, Ask, NodeRegistry, Param, Series, make_graph
 
 REGISTRY = NodeRegistry()
 
@@ -189,7 +189,8 @@ def _nested(joiner: str, kind: str, text: str) -> Any:
 def test_a_gather_in_the_items_below_a_blank_or_a_branch_not_taken_outside_comes_to_the_same_for_every_item_and_so_does_the_gather_above(text: str) -> None:
     blank, skipped = _nested("join", "blank", text), _nested("join", "skip", text)
     assert (came_to(blank, "n"), came_to(skipped, "n")) == ("not called", "skipped")
-    assert blank.results["j"]["result"] == skipped.results["j"]["result"] == [None] * len(text.split())
+    assert blank.results["j"]["result"] == [None] * len(text.split())  # each item's gather is not called: a blank in its place
+    assert skipped.results["j"]["result"] is None  # no item could bring a value, for a branch not taken outside: shown as one
     assert [call.loc[0] for call in skipped.not_called] == []
     assert _nested("join", "x", "ab cd").results["n"]["result"] == 2
 
@@ -238,7 +239,7 @@ def test_a_branch_not_taken_outside_skips_a_gather_whose_series_is_blank_for_an_
     nodes = {"s": "items", "t": "template", "m": "maybe", "c": "chars", "p": "pair", "j": "join-or-none", "n": "count"}
     edges = [("s.result", "m.a"), ("m.result", "c.a"), ("c.result", "p.a"), ("t.result", "p.b"), ("p.result", "j.values"), ("j.result", "n.values")]
     run = ran(nodes, edges, kind="skip", text="ab blank")
-    assert (run.results["j"]["result"], came_to(run, "n"), run.not_called[0].loc) == ([None, None], "skipped", ("c", 1))
+    assert (run.results["j"]["result"], came_to(run, "n"), run.not_called[0].loc) == (None, "skipped", ("c", 1))
     assert [call.loc[0] for call in run.not_called] == ["c"]  # j is skipped for both items, never left uncalled for the blank Series
 
 
@@ -383,3 +384,51 @@ def test_a_series_input_fed_the_one_value_made_for_the_item_its_node_runs_for_re
     assert feed == {"a": ("gathered", None), "b": ("gathered", "c.result")}
     assert flat.run(text="ab c").results["j"]["result"] == embedded.run(text="ab c").results["e"]["both.result"] == ["AB:AB", "C:C"]
 
+
+
+def shown(nodes: dict[str, str], edges: list[tuple[str, str]], node_id: str, output: str = "result", **inputs: str) -> tuple[Any, Any, Any]:
+    """An output in ``run.results``, in ``run.outputs``, and in the results of the run saved and loaded."""
+    run = ran(nodes, edges, **inputs)
+    return run.results[node_id][output], run.outputs.get(f"{node_id}.{output}", "read below"), run.graph.load_run(run.to_json()).results[node_id][output]
+
+
+@pytest.mark.parametrize(("kind", "result"), [("blank", None), ("skip", None), ("", []), ("a b", ["A", "B"])])
+def test_an_output_made_per_item_is_shown_as_a_gather_of_it_would_be_given_drawn_in_the_graph_or_inside_an_embedded_one(kind: str, result: Any) -> None:
+    flat = shown({"t": "template", "w": "items", "u": "up"}, [("t.result", "w.text"), ("w.result", "u.a")], "u", kind=kind)
+    embedded = shown({"t": "template", "e": "items-then-up"}, [("t.result", "e.text")], "e", "up.result", kind=kind)
+    assert flat == embedded == (result, result, result)
+
+
+@pytest.mark.parametrize(("kind", "result"), [("blank", [None, None]), ("skip", None), ("x", ["a+x", "b+x"])])
+def test_an_output_whose_every_item_is_settled_from_outside_keeps_a_blank_in_each_place_and_shows_a_branch_not_taken_as_one(kind: str, result: Any) -> None:
+    nodes, edges = {"s": "items", "t": "template", "p": "pair", "n": "count"}, [("s.result", "p.a"), ("t.result", "p.b"), ("p.result", "n.values")]
+    assert shown(nodes, edges, "p", kind=kind, text="a b") == (result, "read below", result)
+
+
+def test_an_output_made_per_item_of_a_series_inside_another_is_one_list_over_every_item_and_none_where_the_outer_series_was_never_made() -> None:
+    nodes, edges = {"t": "template", "s": "items", "c": "chars", "u": "up"}, [("t.result", "s.text"), ("s.result", "c.a"), ("c.result", "u.a")]
+    assert shown(nodes, edges, "u", kind="ab c")[0] == ["A", "B", "C"]
+    assert shown(nodes, edges, "u", kind="blank") == (None, None, None)
+
+
+@_node("approve")
+def approve(a: str) -> str:
+    raise Ask("ok?")
+
+
+def test_the_results_of_a_run_that_waits_show_the_items_so_far_with_a_blank_where_one_still_waits_live_and_after_a_load() -> None:
+    graph = REGISTRY.load({"nodes": [{"id": "s", "node": "items"}, {"id": "q", "node": "approve"}], "edges": [["s.result", "q.a"]]})
+    waiting = graph.run(text="a b")
+    assert waiting.results["q"]["result"] == [None, None]
+    one = waiting.answer(waiting.waiting[0].id, "yes").resume()
+    assert one.status == "waiting"
+    assert one.results["q"]["result"] == ["yes", None] == graph.load_run(one.to_json()).results["q"]["result"]
+
+
+def test_an_embedded_graph_run_per_item_shows_a_list_for_each_item_and_none_for_one_whose_series_inside_was_never_made() -> None:
+    flat = ran({"s": "items", "m": "maybe", "w": "items", "u": "up"}, [("s.result", "m.a"), ("m.result", "w.text"), ("w.result", "u.a")], text="ab blank cd")
+    embedded = ran({"s": "items", "m": "maybe", "e": "items-then-up"}, [("s.result", "m.a"), ("m.result", "e.text")], text="ab blank cd")
+    assert flat.results["u"]["result"] == ["AB", "CD"]  # one list over every item, as a node two maps deep shows
+    assert embedded.results["e"]["up.result"] == [["AB"], None, ["CD"]] == embedded.outputs["e.up.result"]
+    never = ran({"t": "template", "s": "items", "e": "items-then-up"}, [("t.result", "s.text"), ("s.result", "e.text")], kind="blank")
+    assert never.results["e"]["up.result"] is None and never.outputs["e.up.result"] is None and never.outputs_json() == '{"e.up.result":null}'

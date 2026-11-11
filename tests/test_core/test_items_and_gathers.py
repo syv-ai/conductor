@@ -816,7 +816,7 @@ def test_a_series_never_made_leaves_its_readers_without_results_before_and_after
         (CONTACTS, (("g.yes", "c.text"), SPLIT_CONTACTS, ("r.result.name", "u.text"))),
     ):
         run = ran({"id": "g", "node": "decide"}, *nodes, {"id": "u", "node": "upper"}, edges=edges, text="no")
-        assert run.results["u"]["result"] == [] == through_json(run).results["u"]["result"]
+        assert run.results["u"]["result"] is None and through_json(run).results["u"]["result"] is None
 
 
 def test_a_skip_above_the_items_skips_the_gather_and_no_items_give_it_an_empty_series():
@@ -830,7 +830,7 @@ def test_a_skip_above_the_items_skips_the_gather_and_no_items_give_it_an_empty_s
 def test_a_skipped_node_makes_no_items_so_everything_below_is_skipped():
     run = ran({"id": "g", "node": "decide"}, {"id": "docs", "node": "split"}, {"id": "u", "node": "upper"}, {"id": "j", "node": "join"},
               edges=(("g.no", "docs.text"), ("docs.result", "u.text"), ("u.result", "j.texts")), text="a,b")
-    assert run.results["docs"]["result"] is None and run.results["u"]["result"] == [] and run.results["j"]["result"] is None
+    assert run.results["docs"]["result"] is None and run.results["u"]["result"] is None and run.results["j"]["result"] is None
 
 
 def test_a_branch_not_taken_outside_the_items_skips_the_gather_and_every_item_rejected_calls_it_with_none():
@@ -925,7 +925,7 @@ def test_a_decision_over_a_whole_series_skips_what_hangs_off_the_branch_not_take
               edges=(("docs.result", "d.texts"), ("d.full", "full.texts"), ("d.empty", "up.text"), ("up.result", "after.texts")),
               registry=registry_of(split, decide_list, join, upper), text="a,b")
     assert run.results["full"]["result"] == "a+b"
-    assert run.results["up"]["result"] == [] and run.results["after"]["result"] is None
+    assert run.results["up"]["result"] is None and run.results["after"]["result"] is None
     assert CALLED == ["join ['a', 'b']"]
 
 
