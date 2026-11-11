@@ -114,8 +114,8 @@ class RunView(Outcome):
 
     id: str
     status: RunStatus
-    refused: dict[str, list[Problem]] = {}
-    cause: Problem | None = None
+    refused: dict[str, list[Problem]]
+    cause: Problem | None
 
     @classmethod
     def of(cls, run: RunAsRead) -> "RunView":

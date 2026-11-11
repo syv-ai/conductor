@@ -15,7 +15,6 @@ import polars as pl
 import pytest
 from conductor import (
     Ask,
-    Going,
     GraphRecord,
     NodeError,
     NodeRecord,
@@ -28,12 +27,12 @@ from conductor import (
 from conductor_providers.fastapi import RunChanges, StoredRun
 from conductor_providers.fastapi.router import RunView
 from conductor_providers.fastapi.router_problem import RefusedError
-from conductor_providers.fastapi.stored_run import Outcome, RunAsRead, StoredState
+from conductor_providers.fastapi.stored_run import RunAsRead, StoredState
 from conductor_providers.fastapi.worker import Worker
 from pydantic import GetCoreSchemaHandler
 from pydantic_core import core_schema
 
-from tests.test_providers.in_memory import MemoryStore, asking, gated
+from tests.test_providers.in_memory import MemoryStore, asking, gated, left_running
 
 
 def _worker(store: MemoryStore, registry: NodeRegistry, **settings: Any) -> Worker[str]:
@@ -233,9 +232,7 @@ async def test_a_cancel_sent_while_a_dead_worker_held_the_run_is_kept_when_anoth
     calls.clear()
     store = MemoryStore()
     worker = _worker(store, registry)
-    await store.create(StoredRun(
-        id="taken", graph=graph.model_dump_json(), caller='"anna"', run=answered.to_json(), **StoredState().columns(), outcome=Outcome().model_dump_json(), owner="a-dead-worker", lease_until=0.0,
-    ))
+    await store.create(left_running("taken", graph, answered, owner="a-dead-worker"))
 
     assert await worker.cancel(await worker.read("taken"))
     await worker.sweep()
@@ -711,7 +708,7 @@ async def test_a_follower_that_got_a_run_end_while_the_row_still_reads_running_k
             row = self.rows[run_id]
             if row.status == "complete" and self.lagged < 5:
                 self.lagged += 1
-                return dataclasses.replace(row, **StoredState(run_state=Going("running")).columns())
+                return dataclasses.replace(row, **StoredState.started().columns())
             return row
 
     store = RowLags()
@@ -833,10 +830,7 @@ async def test_a_sweep_that_raises_is_logged_and_the_next_one_takes_the_run(fail
 
     store = SweepFailsOnce()
     worker = _worker(store, registry, lease=0.15)
-    left = StoredRun(
-        id="left", graph=graph.model_dump_json(), caller='"anna"', run=registry.load(graph).with_inputs({"text": "a"}).to_json(),
-        **StoredState().columns(), outcome=Outcome().model_dump_json(), owner=None, lease_until=0.0,
-    )
+    left = left_running("left", graph, registry.load(graph).with_inputs({"text": "a"}), owner=None)
     if fails == "a row that can't be read":
         await store.create(dataclasses.replace(left, id="broken", state="{"))
     await store.create(left)
@@ -905,9 +899,7 @@ async def test_a_run_whose_worker_died_is_taken_by_one_of_two_workers_and_finish
     calls.clear()
     store = MemoryStore()
     one, other = _worker(store, registry), _worker(store, registry)
-    await store.create(StoredRun(
-        id="left", graph=graph.model_dump_json(), caller='"anna"', run=checkpoint.to_json(), **StoredState().columns(), outcome=Outcome().model_dump_json(), owner="a-dead-worker", lease_until=0.0,
-    ))
+    await store.create(left_running("left", graph, checkpoint, owner="a-dead-worker"))
 
     await asyncio.gather(one.sweep(), other.sweep())
 

@@ -43,9 +43,9 @@ class StoredRun:
     status: RunStatus
     state: str
     outcome: str
-    rev: int = 0
-    owner: str | None = None
-    lease_until: float | None = None
+    rev: int
+    owner: str | None
+    lease_until: float | None
 
 
 class RunChanges(TypedDict, total=False):
@@ -71,8 +71,13 @@ class Outcome(BaseModel):
         outputs: The graph's outputs by address once the run is complete; ``None`` until then.
     """
 
-    waiting: list[Waiting] = []
-    outputs: dict[str, Any] | None = None
+    waiting: list[Waiting]
+    outputs: dict[str, Any] | None
+
+    @classmethod
+    def empty(cls) -> Outcome:
+        """The outcome of a run no leg has ended, and of one whose last leg raised: nothing waits, no outputs."""
+        return cls(waiting=[], outputs=None)
 
 
 class StoredState(BaseModel):
@@ -89,10 +94,15 @@ class StoredState(BaseModel):
         cancel_asked: Whether someone asked the running leg to stop; a leg's end clears it.
     """
 
-    run_state: RunState = RUNNING
-    queued_answers: dict[str, Any] = {}
-    refused: dict[str, list[Problem]] = {}
-    cancel_asked: bool = False
+    run_state: RunState
+    queued_answers: dict[str, Any]
+    refused: dict[str, list[Problem]]
+    cancel_asked: bool
+
+    @classmethod
+    def started(cls) -> StoredState:
+        """The state of a run that has just started: a leg is wanted, and nothing is queued, refused or asked."""
+        return cls(run_state=RUNNING, queued_answers={}, refused={}, cancel_asked=False)
 
     @property
     def leg_wanted(self) -> bool:
@@ -119,6 +129,6 @@ class RunAsRead:
     state: StoredState
 
     @classmethod
-    def of(cls, row: StoredRun) -> "RunAsRead":
+    def of(cls, row: StoredRun) -> RunAsRead:
         """``row`` with its state read."""
         return cls(row, StoredState.model_validate_json(row.state))

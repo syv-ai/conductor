@@ -295,9 +295,9 @@ class Worker(Generic[C]):
 
     async def _create(self, graph: str, who: C, saved: str) -> str:
         """Store a run of ``who``'s, held by this worker, and run its first leg."""
-        state = StoredState()
-        written: RunChanges = {"run": saved, **state.columns(), "outcome": Outcome().model_dump_json(), **self._mine()}
-        row = StoredRun(id=uuid.uuid4().hex, graph=graph, caller=self._callers.dump_json(who).decode(), **written)
+        state = StoredState.started()
+        written: RunChanges = {"run": saved, **state.columns(), "outcome": Outcome.empty().model_dump_json(), **self._mine()}
+        row = StoredRun(id=uuid.uuid4().hex, graph=graph, caller=self._callers.dump_json(who).decode(), rev=0, **written)
         await self._store.create(row)
         self._run_legs(row, state)
         return row.id

@@ -9,10 +9,10 @@ import threading
 from collections.abc import Callable
 from typing import Any
 
-from conductor import Ask, GraphRecord, NodeRegistry, Series, make_graph
+from conductor import Ask, GraphRecord, NodeRegistry, Run, Series, make_graph
 from conductor_providers.fastapi import RunChanges, StoredRun
 from conductor_providers.fastapi.router import RunView
-from conductor_providers.fastapi.stored_run import RunAsRead
+from conductor_providers.fastapi.stored_run import Outcome, RunAsRead, StoredState
 
 
 class MemoryStore:
@@ -66,6 +66,14 @@ class MemoryStore:
     async def stored_events(self, run_id: str) -> list[dict[str, Any]]:
         """Every event stored for the run, in order."""
         return [json.loads(body) for _, body in await self.events(run_id, -1)]
+
+
+def left_running(run_id: str, graph: GraphRecord, run: Run, *, owner: str | None) -> StoredRun:
+    """A row of ``anna``'s as a worker that is gone left it mid-leg: running, at ``run``, its lease run out."""
+    return StoredRun(
+        id=run_id, graph=graph.model_dump_json(), caller='"anna"', run=run.to_json(), **StoredState.started().columns(),
+        outcome=Outcome.empty().model_dump_json(), rev=0, owner=owner, lease_until=0.0,
+    )
 
 
 def asking(items: bool = False) -> tuple[NodeRegistry, GraphRecord, threading.Event, dict[str, Any], str]:

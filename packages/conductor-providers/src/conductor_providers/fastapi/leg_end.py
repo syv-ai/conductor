@@ -101,7 +101,7 @@ class Raised(LegEnd):
         """
         after = state.model_copy(update={"run_state": EndedEarly("failed", self.cause), "cancel_asked": False})
         run_end = RunEnd.model_construct(status="failed", cause=self.cause).model_dump_json()
-        return RowAfterALeg(after, {"outcome": Outcome().model_dump_json()}, run_end, leg_wanted=False)
+        return RowAfterALeg(after, {"outcome": Outcome.empty().model_dump_json()}, run_end, leg_wanted=False)
 
 
 class HandedBack(LegEnd):
