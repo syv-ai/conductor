@@ -9,7 +9,9 @@ anything else is a type mismatch on the edge.
 
 ``table-collect`` gathers records into one table and adds columns beside
 them. ``columns`` names the columns made one value per record, each a
-``Series`` input that keeps a blank where a record got no value;
+``Series`` input that keeps a blank where a record got no value, and one
+that doesn't hold a value for each record is refused when the node runs
+(``columns_not_aligned``);
 ``constant_columns`` names the columns holding one value on every record,
 each an input of one value. Its ``compute_outputs`` hook types the table by
 the records and the values arriving.
@@ -70,9 +72,22 @@ def _table(records: type, columns: list[str], **added: type) -> dict[str, Any]:
     compute_added_inputs=_column_inputs, compute_outputs=_table,
 )
 def collect(records: Series[dict], columns: Names = [], constant_columns: Names = [], **values: Any) -> dict[str, Any]:
-    """Gives a table of the records, each with its new columns' values added."""
+    """Gives a table of the records, each with its new columns' values added.
+
+    Raises:
+        NodeError: A column doesn't hold one value for each record (``columns_not_aligned``).
+    """
+    for name in columns:
+        if len(values[name]) != len(records):
+            raise NodeError(
+                f"The column '{name}' holds {len(values[name])} values for {len(records)} record{'s' if len(records) != 1 else ''}; "
+                "wire a column from a node that runs once per record "
+                "of the same Series as 'records'",
+                code="columns_not_aligned", ctx={"column": name, "records": len(records), "values": len(values[name])},
+            )
+    constants = {name: values[name] for name in constant_columns}
     collected = [
-        {**record, **{name: values[name][place] for name in columns}, **{name: values[name] for name in constant_columns}}
-        for place, record in enumerate(records)
+        {**record, **dict(zip(columns, cells, strict=True)), **constants}
+        for record, *cells in zip(records, *(values[name] for name in columns), strict=True)
     ]
     return {"result": pl.DataFrame(collected, infer_schema_length=None)}

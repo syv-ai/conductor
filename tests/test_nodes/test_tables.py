@@ -188,6 +188,25 @@ def test_collect_refuses_a_column_named_twice():
     assert (problem.type, problem.ctx["error"], problem.ctx["error_ctx"]) == ("compute_hook_failed", "column_named_twice", {"column": "team"})
 
 
+@pytest.mark.parametrize(("people", "expected"), [(3, {"column": "word", "records": 3, "values": 2}), (1, {"column": "word", "records": 1, "values": 2})])
+def test_collect_refuses_a_column_wired_from_another_series_than_its_records_naming_it(people: int, expected: dict[str, Any]):
+    """A column holds one value per record only when it is made per record: one from an unrelated Series is refused, longer or shorter."""
+    @_node("people")
+    def people_table() -> Table[Contact]:
+        return pl.DataFrame({"name": [f"p{i}" for i in range(people)], "email": [None] * people}, schema={"name": pl.String, "email": pl.String})
+
+    held = NodeRegistry()
+    held.add_subregistry(REGISTRY)
+    held.add(people_table)
+    graph = held.load(make_graph(people_table, tables.split, words, tables.collect, edges=[
+        ("people.result", "split.value"), ("split.result", "table-collect.records"), ("words.result", "table-collect.word"),
+    ], values={"table-collect.columns": ["word"]}))
+    assert graph.problems == []
+    cause = graph.run().state.cause
+    assert (cause.type, cause.loc, cause.ctx) == ("columns_not_aligned", ("table-collect",), expected)
+    assert "'word' holds 2 values" in cause.msg and f"{people} record" in cause.msg and "once per record" in cause.msg
+
+
 def test_collect_of_no_records_is_a_table_with_every_column_and_no_lines():
     graph = load(nobody, sentence, tables.collect, header, edges=[
         ("nobody.result", "table-collect.records"), ("sentence.result", "table-collect.team"), ("table-collect.result", "header.table"),
