@@ -200,7 +200,8 @@ class Skipped:
 
 @dataclass(frozen=True, slots=True)
 class Blank:
-    """A unit whose node wasn't called because an input that takes no blank got one; its outputs are blank.
+    """A unit whose node wasn't called because an input that takes no blank got one. Its outputs are blank,
+    except those of an exclusive group, which are a branch not taken: no branch was chosen.
 
     Attributes:
         input: The input that got nothing.
@@ -621,7 +622,7 @@ class Run:
                 if kind is Done or kind is Answered:
                     value = unit.out[cell.output]  # type: ignore[union-attr]
                 elif kind is Skipped or kind is Blank:
-                    value = SKIPPED if kind is Skipped else None
+                    value = SKIPPED if kind is Skipped or cell.exclusive else None
                 else:
                     return PENDING
             else:
@@ -850,8 +851,8 @@ def _cell(units: _UnitsOfAGraph, base: int, cell: Cell, key: Key) -> Any:
 
     Returns:
         The value (an ``Item``'s is the item of ``key``, and a field named on the edge is read from it);
-        ``PENDING`` while its unit hasn't run or waits for a person; ``SKIPPED`` for a branch not taken;
-        ``None`` for a blank.
+        ``PENDING`` while its unit hasn't run or waits for a person; ``SKIPPED`` for a branch not taken, which
+        an output of an exclusive group is where its node wasn't called; ``None`` for a blank.
     """
     depth = base + len(cell.scope)
     unit = units[cell.node_id].get(key[:depth])
@@ -860,8 +861,8 @@ def _cell(units: _UnitsOfAGraph, base: int, cell: Cell, key: Key) -> Any:
         value = unit.out[cell.output]  # type: ignore[union-attr]
     elif kind is Skipped:
         return SKIPPED
-    elif kind is Blank:
-        return None
+    elif kind is Blank:  # not called: a blank, and for an output of an exclusive group no branch was chosen
+        return SKIPPED if cell.exclusive else None
     else:
         return PENDING
     if value is None or value is SKIPPED or type(cell) is Cell:

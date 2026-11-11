@@ -117,7 +117,7 @@ A type of your own is shown to people, so it declares the id an editor knows it 
 
 An editor reads a field's type as an id, and the id says what is inside: a `list[Address]` input has the type `list[address]`. So a class of your own inside a list or a dict declares its id and title too.
 
-- `X | None` takes a blank. An input receives a blank only if its type says so, with `| None` or as `Any`. Otherwise the node isn't called where the input is blank, and its outputs are blank there too.
+- `X | None` takes a blank. An input receives a blank only if its type says so, with `| None` or as `Any`. Otherwise the node isn't called where the input is blank, and its outputs are blank there too. Outputs that share an `exclusive_group` are a branch not taken there, since no branch was chosen.
 - `Series[X]` is many values of `X`, a plain list to your function.
 - `Table[R]` is a whole table, one value. The next example shows one.
 - `list[X]` is one value that happens to be a list.

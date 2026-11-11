@@ -124,11 +124,14 @@ class Cell:
         node_id: The node.
         output: The output's name.
         scope: The scope the node runs in.
+        exclusive: Whether the output is one of an exclusive group. Where its node wasn't called for a blank,
+            no branch was chosen, so it is a branch not taken there and not a blank.
     """
 
     node_id: str
     output: str
     scope: Scope
+    exclusive: bool
 
     @property
     def address(self) -> str:
@@ -849,8 +852,9 @@ def _add_to_tree(graph: Graph, embedding: GraphAtPath | None, tree: list[NodeAtP
             _add_to_tree(placed.inner, embedded, tree, beside)
             within = beside[node.path]
             embedded.offers = tuple(
-                (address, Cell(last.placed.id, output, last.placed.scope), last.maps, last.placed.outputs[output].many)
-                for address in placed.inner.outputs for last, output in [(within[address.partition(".")[0]], address.partition(".")[2])]
+                (address, Cell(last.placed.id, output, last.placed.scope, spec.param.exclusive_group is not None), last.maps, spec.many)
+                for address in placed.inner.outputs
+                for last, output in [(within[address.partition(".")[0]], address.partition(".")[2])] for spec in [last.placed.outputs[output]]
             )
             node.reads = tuple(dict.fromkeys(within[cell.node_id] for _, cell, _, _ in embedded.offers))
         else:
@@ -1280,7 +1284,8 @@ class _Loader:
             return Read(spec, tuple(sources), deepest)
         if not deepest:
             return SeriesOfOne(spec, tuple(s for s in sources if isinstance(s, Value)))
-        series = Cell(deepest[-1].node_id, deepest[-1].output, deepest[:-1])
+        made_by, output = deepest[-1]
+        series = Cell(made_by, output, deepest[:-1], self.nodes[made_by].outputs[output].param.exclusive_group is not None)
         return Gather(spec, tuple(sources), tuple(self._gate(s, len(series.scope)) for s in sources), series)
 
     def _source(self, address: str, node_id: str, name: str) -> Source | None:
@@ -1317,7 +1322,7 @@ class _Loader:
             self.problems.append(make_problem("unknown_output", node_id, name, source=address, outputs=fields, field=wanted))
             return None
         brought = Item if spec.many else Value
-        return brought(source_id, output, source.scope, wanted or None, brings)
+        return brought(source_id, output, source.scope, spec.param.exclusive_group is not None, wanted or None, brings)
 
     def _edge_order(self, source: Source) -> tuple[int, int, str]:
         """Where an edge into an input falls among several: its node's place in the record, then the output's in its node."""
@@ -1333,7 +1338,7 @@ class _Loader:
         way; a chain of one edge per input gives one cell per way out.
         """
         if len(source.scope) <= depth:
-            return (frozenset({Cell(source.node_id, source.output, source.scope)}),)
+            return (frozenset({Cell(source.node_id, source.output, source.scope, source.exclusive)}),)
         found = {
             frozenset[Cell]().union(*choice)
             for plan in self.nodes[source.node_id].inputs.values() if isinstance(plan, Fed)

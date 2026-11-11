@@ -327,7 +327,31 @@ def test_choice_outputs_are_skipped_when_not_called():
               edges=(SPLIT_CONTACTS, ("r.result.email", "b.email"), ("b.yes", "u.text")), registry=registry_of(contacts, records, branched, upper), text=CSV)
     assert run.results["b"] == {"yes": ["ida@x", None, "nina@x"], "no": [None, None, None]}
     assert run.results["u"]["result"] == ["IDA@X", None, "NINA@X"]
-    assert [(n.loc[0], n.loc[1:]) for n in run.not_called] == [("b", (1,)), ("u", (1,))]
+    assert [(n.loc[0], n.loc[1:]) for n in run.not_called] == [("b", (1,))]  # no branch was chosen there, so its reader is skipped
+
+
+def test_a_decision_not_called_for_a_blank_item_runs_neither_branch_even_one_that_takes_a_blank():
+    """No branch was chosen for the item, so a reader on each branch is skipped there, whatever its input takes."""
+    run = ran(*CONTACTS, {"id": "d", "node": "decide"}, {"id": "y", "node": "send-or-say"}, {"id": "n", "node": "send-or-say"}, {"id": "j", "node": "join"},
+              edges=(SPLIT_CONTACTS, ("r.result.email", "d.text"), ("d.yes", "y.email"), ("d.no", "n.email"), ("y.result", "j.texts"), ("n.result", "j.texts")), text=CSV)
+    assert run.results["d"] == {"yes": ["ida@x", None, "nina@x"], "no": [None, None, None]}
+    assert run.results["y"]["result"] == ["sent to ida@x", None, "sent to nina@x"] and run.results["n"]["result"] == [None, None, None]
+    assert run.results["j"]["result"] == "sent to ida@x+sent to nina@x"
+    assert run.not_called == [NotCalled(loc=("d", 1), input="text")]
+    again = through_json(run).again()
+    assert (again.results["y"], again.results["n"], again.not_called) == (run.results["y"], run.results["n"], run.not_called)
+
+
+def test_a_decision_made_once_and_not_called_skips_the_readers_of_its_branches():
+    @node("nothing", title="Nothing", description="")
+    def nothing() -> str | None:
+        return None
+
+    said = streamed(graph({"id": "n", "node": "nothing"}, {"id": "d", "node": "decide"}, {"id": "y", "node": "send-or-say"},
+                          edges=(("n.result", "d.text"), ("d.yes", "y.email")), registry=registry_of(nothing, decide, send_or_say)).with_inputs())
+    run = said[-1].run
+    assert run.status == "complete" and run.results["y"]["result"] is None and run.not_called == [NotCalled(loc=("d",), input="text")]
+    assert [e.loc for e in said if e.type == "node_skipped"] == [("y",)]
 
 
 def test_a_series_not_made_for_a_blank_item_is_not_an_empty_one_so_a_count_of_it_is_not_called_either():

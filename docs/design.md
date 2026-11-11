@@ -125,7 +125,7 @@ except InvalidCallError as e:
 
 ## Blanks and outer values
 
-- **A blank keeps the node from being called for that item.** If an input's type lacks `| None`, the node isn't called there, its outputs are blank, and `run.not_called` records the node, the item and the input. Pydantic refuses `None` for a `str`, and failing the whole run after other items' side effects went out is worse.
+- **A blank keeps the node from being called for that item.** If an input's type lacks `| None`, the node isn't called there, its outputs are blank (those of an `exclusive_group` are a branch not taken, as no branch was chosen), and `run.not_called` records the node, the item and the input. Pydantic refuses `None` for a `str`, and failing the whole run after other items' side effects went out is worse.
 - **`Series[X]` drops blanks, `Series[X | None]` keeps them, and `Series[X] | None` is a list that may itself be blank.** Each spelling says one thing. `Table[R] | None` reads the same way: a table never made reaches the input as `None`.
 - **`SKIPPED` is a branch not taken**, not a blank. For one item it leaves a gap, and outside the items it skips the node. A skip wins over a blank: a node with one input skipped and another blank is skipped, whichever comes first in its signature.
 - **A value made outside the items is there on every call.** Nothing is copied, and it adds no items of its own: wiring in a document's name changes nothing about how often a node runs.
