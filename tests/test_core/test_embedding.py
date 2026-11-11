@@ -14,6 +14,7 @@ import time
 from dataclasses import dataclass
 from typing import Annotated, Any
 
+import polars as pl
 import pytest
 from conductor import (
     SKIPPED,
@@ -193,6 +194,21 @@ def table(text: str) -> Table:
     raise NotImplementedError
 
 
+@_node("letters")
+def letters(text: str) -> Table:
+    return pl.DataFrame({"letter": list(text)})
+
+
+@_node("height")
+def height(table: Table) -> int:
+    return table.height
+
+
+@_node("sheets")
+def sheets(text: str) -> Series[Table]:
+    return [pl.DataFrame({"letter": list(word)}) for word in text.split()]
+
+
 def chain(*nodes: tuple[str, str]) -> dict[str, Any]:
     """Nodes in a line, each reading the ``result`` of the one before into its ``text``."""
     return {"nodes": [{"id": i, "node": n} for i, n in nodes], "edges": [[f"{a[0]}.result", f"{b[0]}.text"] for a, b in zip(nodes, nodes[1:], strict=False)]}
@@ -213,6 +229,7 @@ INNER = {
     "deep-inner": chain(("w", "words"), ("c", "chars"), ("up", "upper")),  # its output sits two maps deep
     "series-per-item-inner": chain(("w", "words"), ("c", "chars")),  # a Series made per word
     "table-per-item-inner": chain(("w", "words"), ("t", "table")),
+    "letters-per-word-inner": chain(("w", "words"), ("t", "letters")),
     "columns-inner": chain(("c", "columns")),  # its first node has an input a hook reads
     "broken-inner": chain(("up", "upper"), ("x", "no-such-node")),
     "signed-inner": chain(("s", "signed")),
@@ -228,7 +245,7 @@ INNER = {
 }
 
 REGISTRY = NodeRegistry()
-for _definition in (words, sentences, chars, upper, exclaim, greet, count, ask, fetch, flaky, stuck, boom, maybe, decide, signed, columns, table, stamp, stagger):
+for _definition in (words, sentences, chars, upper, exclaim, greet, count, ask, fetch, flaky, stuck, boom, maybe, decide, signed, columns, table, stamp, stagger, letters, height, sheets):
     REGISTRY.add(_definition)
 for _id, _record in INNER.items():
     REGISTRY.add(_node(_id)(_record))
@@ -676,3 +693,19 @@ def test_work_carried_from_a_run_of_an_earlier_graph_is_taken_inside_where_the_n
     CALLS.clear()
     assert edited.with_inputs(text="ab cd", earlier=run).resume().results["n"]["result"] == 2
     assert CALLS == {}
+
+
+@pytest.mark.parametrize(
+    ("nodes", "edges", "series"),
+    [
+        ({"w": "words", "t": "letters", "h": "height"}, [("w.result", "t.text"), ("t.result", "h.table")], "w.result"),
+        ({"e": "letters-per-word-inner", "h": "height"}, [("e.t.result", "h.table")], "e.t.result"),
+        ({"s": "sheets", "h": "height"}, [("s.result", "h.table")], "s.result"),
+    ],
+    ids=["drawn flat", "made inside an embedded graph", "returned as a Series of tables"],
+)
+def test_tables_made_per_item_reach_a_table_input_one_table_per_item_wherever_they_are_made(nodes: dict[str, str], edges: list[tuple[str, str]], series: str):
+    graph = load(nodes, edges)
+    assert not graph.problems, graph.problems
+    run = graph.run(text="ab c")
+    assert (graph.plan["h"].mode, graph.plan["h"].series, run.status, run.results["h"]["result"]) == ("per_item", series, "complete", [2, 1])

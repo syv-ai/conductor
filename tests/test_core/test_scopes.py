@@ -298,6 +298,23 @@ def test_a_table_input_of_any_columns_refuses_what_is_no_record_as_one_of_declar
     assert (graph.problems[0].ctx["got"], graph.problems[0].ctx["expected"]) == (got, "Table")
 
 
+def test_a_series_of_tables_is_read_one_table_per_item_by_a_table_input_as_any_series_is_by_an_input_of_one_value():
+    graph = load({"s": "sheets", "h": "height", "n": "names"}, [("s.result", "h.table"), ("s.result", "n.table")])
+    assert graph.is_runnable
+    assert {n: (graph.plan[n].mode, graph.plan[n].series, feeds(graph, n)["table"]) for n in ("h", "n")} == {
+        "h": ("per_item", "s.result", ("per_item", "s.result")), "n": ("per_item", "s.result", ("per_item", "s.result")),
+    }
+
+
+def test_a_table_made_per_item_is_read_per_item_and_a_series_of_tables_input_gathers_the_tables():
+    graph = load({"d": "documents", "t": "sheet", "h": "height", "k": "stacked"}, [("d.result", "t.text"), ("t.result", "h.table"), ("t.result", "k.tables")])
+    assert graph.is_runnable
+    assert (graph.plan["h"].mode, graph.plan["h"].series, graph.plan["k"].mode) == ("per_item", "d.result", "once")
+    assert feeds(graph, "k") == {"tables": ("gathered", "d.result")}
+    whole = load({"s": "sheets", "k": "stacked"}, [("s.result", "k.tables")])
+    assert whole.is_runnable and feeds(whole, "k") == {"tables": ("gathered", "s.result")}
+
+
 def test_an_edge_may_name_one_field_of_a_record_and_an_unknown_field_lists_the_ones_there_are():
     graph = load({"c": "contacts", "r": "rows", "s": "send"}, [("c.result", "r.table"), ("r.result.phone", "s.email")])
     assert problems(graph) == [("unknown_output", ("s", "email"))]

@@ -11,7 +11,7 @@ path of maps from the graph's own scope, ``(docs.result, extract.lines)``. Decla
 scope, by three rules:
 
 - an input of one ``T`` fed by a ``Series[T]`` reads one item, inside the map
-  that Series opens;
+  that Series opens; a ``Table`` input fed a ``Series`` of tables is one;
 - an input fed from an enclosing scope captures that scope's one value;
 - an input of ``Series[T]``, or of ``Table[R]`` fed records, gathers: it
   receives every value its source made: the items of the innermost map of
@@ -1302,7 +1302,8 @@ class _Loader:
         """How edges bringing ``sources`` feed one input: one value on each call, or every value its source made.
 
         An input of one value reads, whatever its type: a ``Series`` reaches it one item at a time. A ``Series``
-        input gathers. A ``Table`` input reads when every edge brings a table, and else gathers records.
+        input gathers. A ``Table`` input reads when every edge brings a table, a ``Series`` of tables one table at
+        a time, and else gathers records.
 
         Returns:
             The input's plan; ``Unset``, with the problem, when an edge brings a type the input doesn't take.
@@ -1451,9 +1452,15 @@ class _Loader:
 
 def _taken(spec: Field, sources: list[Source]) -> tuple[bool, Type]:
     """Whether the input ``spec`` gathers what ``sources`` bring, and the type each must fit: the input's whole
-    type when it reads, one item of a ``Series`` or one record of a table when it gathers."""
+    type when it reads, one item of a ``Series`` or one record of a table when it gathers.
+
+    A table input reads when every edge brings a table, as one value or as each item of a ``Series`` of tables.
+    An item of a ``Series[Any]`` says nothing of itself and is taken as a record.
+    """
     record = spec.whole.record
-    gathers = spec.many or (record is not None and not all(isinstance(s, Value) and spec.whole.fits(s.type) is not None for s in sources))
+    gathers = spec.many or (record is not None and not all(
+        spec.whole.fits(s.type) is not None and (isinstance(s, Value) or s.type.bare is not Any) for s in sources
+    ))
     return gathers, spec.whole if not gathers else spec.type if record is None else record
 
 
