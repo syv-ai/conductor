@@ -44,7 +44,6 @@ from conductor._internal.node_definition import (
     stored_graph,
 )
 from conductor._internal.problem import (
-    PROBLEM_CODES,
     PROBLEMS,
     ExternalError,
     InvalidCallError,
@@ -110,7 +109,6 @@ __all__ = [
     "NodeDeclarationError",
     "InvalidCallError",
     "Problem",
-    "PROBLEM_CODES",
     "PROBLEMS",
     "ProblemCatalogue",
     "ProblemKind",

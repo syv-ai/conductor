@@ -5,7 +5,6 @@ Code outside this package imports from here only. ``type.py`` has ``Problem`` an
 """
 
 from conductor._internal.problem.catalogue import (
-    PROBLEM_CODES,
     PROBLEMS,
     alternatives_in_different_series,
     answer_stale,
@@ -83,7 +82,6 @@ __all__ = [
     "NodeDeclarationError",
     "NodeError",
     "PROBLEMS",
-    "PROBLEM_CODES",
     "Problem",
     "ProblemCatalogue",
     "ProblemKind",

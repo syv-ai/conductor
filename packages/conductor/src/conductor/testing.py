@@ -35,7 +35,7 @@ Every problem is a ``Problem``. Its ``loc`` is ``(node_id, version)``, except fo
 
 A node known to fail goes in a test of its own, marked ``pytest.mark.xfail(strict=True)``,
 that checks ``registry.filter(...)`` down to it. These codes are ``check_registry``'s,
-not in ``PROBLEM_CODES``: a developer reads them in a test run, a host never meets them.
+not in ``PROBLEMS.codes``: a developer reads them in a test run, a host never meets them.
 """
 
 from __future__ import annotations

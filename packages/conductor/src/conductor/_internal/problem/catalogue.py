@@ -746,6 +746,3 @@ def timeout(*loc: str | int, seconds: float) -> str:
     """
     return "The node did not answer in time; its Policy(attempt_timeout=) sets how long it may take."
 
-
-#: Every code a ``Problem`` conductor's core writes can have, for a host that translates by code to cover.
-PROBLEM_CODES: frozenset[str] = PROBLEMS.codes

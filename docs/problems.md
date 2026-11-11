@@ -1,6 +1,6 @@
 # Problem codes
 
-Everything conductor reports has a stable code. A `Problem`'s `type` is one, and so is a `NodeDeclarationError`'s `code`. This page has each code: where you meet it, an example that makes it, and the fix. A host that translates messages keys on the code and fills its sentence from `ctx`. `PROBLEM_CODES` holds every code a `Problem` can have that conductor writes itself; a code not in it is a node's own, from `NodeError(code=)`.
+Everything conductor reports has a stable code. A `Problem`'s `type` is one, and so is a `NodeDeclarationError`'s `code`. This page has each code: where you meet it, an example that makes it, and the fix. A host that translates messages keys on the code and fills its sentence from `ctx`. `PROBLEMS.codes` holds every code a `Problem` can have that conductor writes itself; a code not in it is a node's own, from `NodeError(code=)`.
 
 Every example on this page runs after this block. `problems(drawing)` loads a drawing and lists the codes of what is wrong with it, and `told(drawing)` the sentence of each; `refused(call)` makes a call and lists the codes it was refused for, and `said(call)` the sentence of each.
 
@@ -1469,7 +1469,7 @@ except NodeDeclarationError as error:
 
 ## `check_registry`
 
-Returned by `conductor.testing.check_registry`, in a test run. A host never meets these, and they aren't in `PROBLEM_CODES`. What each one's `ctx` holds is in the reference, `python -m conductor.about conductor-testing`.
+Returned by `conductor.testing.check_registry`, in a test run. A host never meets these, and they aren't in `PROBLEMS.codes`. What each one's `ctx` holds is in the reference, `python -m conductor.about conductor-testing`.
 
 ### `changed_its_inputs`
 
@@ -1578,7 +1578,7 @@ print([p.msg for p in check_registry(checked)][0])  # moving to version 2 raised
 
 ## The runs router
 
-Written by `conductor_providers.fastapi.run_router` itself, beside the codes of the runs it serves: the `detail` of a 404 or a 409 is a list of these, `answer_check_failed` is in a run's `refused`, and `leg_failed` is a run's `cause`. `loc` is `()`: each is about the run as a whole. They aren't in `PROBLEM_CODES`: `conductor_providers.fastapi.ROUTER_PROBLEMS` is their catalogue, and each kind in it has its `code`, its `sentence` and the type of its `ctx`, as the kinds of `PROBLEMS` have. The examples below print each kind's sentence from it.
+Written by `conductor_providers.fastapi.run_router` itself, beside the codes of the runs it serves: the `detail` of a 404 or a 409 is a list of these, `answer_check_failed` is in a run's `refused`, and `leg_failed` is a run's `cause`. `loc` is `()`: each is about the run as a whole. They aren't in `PROBLEMS.codes`: `conductor_providers.fastapi.ROUTER_PROBLEMS` is their catalogue, and each kind in it has its `code`, its `sentence` and the type of its `ctx`, as the kinds of `PROBLEMS` have. The examples below print each kind's sentence from it.
 
 ### `no_such_run`
 
