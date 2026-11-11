@@ -608,7 +608,7 @@ def test_a_node_inside_says_its_events_once_by_its_path_as_drawn_flat():
     events = stream(mapped("asking-inner").with_inputs(text="ab cd"))
     starts = [e.loc for e in events if isinstance(e, NodeStart)]
     assert starts == [("w",), ("e",), ("e", "up"), ("e", "q")]  # once per node, whatever the items: the embedding first
-    assert [(e.loc, e.units) for e in events if isinstance(e, NodeComplete)] == [(("w",), 1), (("e", "up"), 2)]
+    assert [(e.loc, e.outcomes) for e in events if isinstance(e, NodeComplete)] == [(("w",), 1), (("e", "up"), 2)]
     flat_events = stream(flat("asking-inner").with_inputs(text="ab cd"))
     assert [e.loc for e in flat_events if isinstance(e, NodeStart)] == [("outer",), ("up",), ("q",)]
     waiting = [e.waiting for e in events if isinstance(e, NodeWaiting)]
@@ -617,7 +617,7 @@ def test_a_node_inside_says_its_events_once_by_its_path_as_drawn_flat():
     answered = events[-1].run.answer({w.id: "yes" for w in waiting})
     later = stream(answered)
     assert not [e for e in later if isinstance(e, NodeStart)]  # every node started on the first leg
-    assert [(e.loc, e.units) for e in later if isinstance(e, NodeComplete)] == [(("e", "q"), 2), (("e",), 2)]
+    assert [(e.loc, e.outcomes) for e in later if isinstance(e, NodeComplete)] == [(("e", "q"), 2), (("e",), 2)]
 
 
 def test_an_embedded_graph_inside_an_embedded_graph_goes_by_path():

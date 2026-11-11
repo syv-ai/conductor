@@ -641,7 +641,7 @@ class Scheduler:
                 emit(NodeSkipped(loc=node.path))
             else:
                 not_called = sum(type(outcome) is NotCalled for outcome in outcomes.values())
-                emit(NodeComplete(loc=node.path, units=len(outcomes), not_called=not_called, reused_units=self.reused[node]))
+                emit(NodeComplete(loc=node.path, outcomes=len(outcomes), not_called=not_called, reused=self.reused[node]))
             self._complete_around(node, say=True)
 
     def _complete_around(self, node: NodeAtPath, say: bool) -> None:
@@ -657,7 +657,7 @@ class Scheduler:
                     self.emit(NodeSkipped(loc=around.path))
                 else:
                     counted, _ = item_paths(self.all_outcomes, around.maps, (), counted=True)
-                    self.emit(NodeComplete(loc=around.path, units=(counted[0][0] if counted else 0) if around.maps else 1))
+                    self.emit(NodeComplete(loc=around.path, outcomes=(counted[0][0] if counted else 0) if around.maps else 1))
             around = around.embedding
 
     def _finished(self, node: FunctionAtPath, may_wait: bool = True) -> bool:

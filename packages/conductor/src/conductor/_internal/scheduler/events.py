@@ -64,15 +64,15 @@ class NodeComplete(_NodeEvent):
     the run holds.
 
     Attributes:
-        units: How many units it has: one, or one per item.
+        outcomes: How many outcomes it has: one, or one per item.
         not_called: How many of them a blank input kept the node from.
-        reused_units: How many of them ``run.again`` took from the earlier run.
+        reused: How many of them ``run.again`` took from the earlier run.
     """
 
     type: Literal["node_complete"] = "node_complete"
-    units: int
+    outcomes: int
     not_called: int = 0
-    reused_units: int = 0
+    reused: int = 0
 
 
 class NodeSkipped(_NodeEvent):

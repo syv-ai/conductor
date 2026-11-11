@@ -427,7 +427,7 @@ Events are frozen pydantic models in `conductor.events`, told apart by `type`. T
 | 1.12.2 `type` | 2.0 |
 |---|---|
 | `node_start` | `node_start` |
-| `node_complete` | `node_complete`: `units`, `not_called`, `reused_units`, counts only; the values are `run.results` |
+| `node_complete` | `node_complete`: `outcomes`, `not_called`, `reused`, counts only; the values are `run.results` |
 | `node_skipped` | `node_skipped` |
 | `node_error` | `node_failed`, `cause` a `Problem` |
 | `node_progress` | `node_progress`: `done`, `total` |

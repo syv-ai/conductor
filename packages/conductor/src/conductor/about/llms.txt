@@ -214,7 +214,7 @@ second = first.again(text="ida@a.dk\nbo@b.dk\neva@c.dk")     # one contact added
 - `again` carries the work the run before it carried and didn't use, while its node still has a question waiting, so an answer survives an edit and its revert; when a node finishes, its leftovers are dropped, so an edit undone two runs later calls the node for that item again.
 - `run.forget("node", ...)` is a run of the same inputs that calls those nodes again (an embedding's id forgets its nodes), and a node below that then receives what it did before is reused: a host checks access again this way.
 - `Policy(reuse_when_inputs_match=False)` is for a node whose result depends on the world, not its inputs (a file read by its path, today's exchange rate): `again` calls it for every item.
-- `node_complete.reused_units` says how many calls were reused.
+- `node_complete.reused` says how many calls were reused.
 
 ### Retries and Timeouts
 
@@ -246,7 +246,7 @@ A failed unit ends the leg `failed`, its problem the `cause` of `run.state`, an 
 |---|---|
 | `node_start`, `node_skipped` | `loc`: the node's id, behind the id of each embedded graph's node it is inside, `("emb", "upper")` |
 | `node_progress` | `loc`, `done`, `total` (`None` until every item exists); at most four a second per node |
-| `node_complete` | `loc`, `units` (how many calls it came to), `not_called` (how many of them a blank kept it from), `reused_units`; the values are in the run (`run.results`) |
+| `node_complete` | `loc`, `outcomes` (how many calls it came to), `not_called` (how many of them a blank kept it from), `reused`; the values are in the run (`run.results`) |
 | `node_retry` | `loc` (the unit's: the node's id, then its item; inside an embedded graph the embedding node and its item first, `("emb", 1, "upper")`), `attempt`, `retries`, `delay`, `cause` |
 | `node_failed` | `loc`, `cause` (a `Problem`, whose `loc` names the unit) |
 | `node_waiting` | `waiting` (a `Waiting`) |

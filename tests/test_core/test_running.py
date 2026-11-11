@@ -101,7 +101,7 @@ def test_node_complete_counts_the_items_a_blank_kept_the_node_from_and_a_saved_r
     events = _events(graph.with_inputs(text="ida@a.dk,,al@a.dk"))
 
     (mail,) = [e for e in events if e.type == "node_complete" and e.loc[0] == "send"]
-    assert (mail.units, mail.not_called, mail.reused_units) == (3, 1, 0)
+    assert (mail.outcomes, mail.not_called, mail.reused) == (3, 1, 0)
     loaded = graph.load_run(events[-1].run.to_json())
     assert loaded.not_called == [NotCalled(loc=("send", 1), input="email")]
     assert loaded.results["send"]["result"] == ["sent ida@a.dk", None, "sent al@a.dk"]
@@ -1183,7 +1183,7 @@ def test_a_blank_into_an_embedding_leaves_the_nodes_inside_uncalled_as_it_would_
     ))
     events = _events(graph.with_inputs(text="a _ b _"))
 
-    complete = {e.loc: (e.units, e.not_called) for e in events if e.type == "node_complete"}
+    complete = {e.loc: (e.outcomes, e.not_called) for e in events if e.type == "node_complete"}
     assert complete == {("w",): (1, 0), ("emb", "u"): (4, 2), ("emb", "v"): (4, 2), ("emb",): (4, 0)}  # the embedding is never called: the nodes inside are
     assert events[-1].run.not_called == [
         NotCalled(loc=("emb", 1, "u"), input="text"), NotCalled(loc=("emb", 3, "u"), input="text"),

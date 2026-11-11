@@ -194,7 +194,7 @@ def test_a_node_with_no_output_that_returns_skipped_was_called_so_it_completes()
         return SKIPPED
 
     said = streamed(graph({"id": "l", "node": "log"}, registry=registry_of(log)).with_inputs(text="x"))
-    assert [(e.type, e.units) for e in said if e.type in ("node_complete", "node_skipped")] == [("node_complete", 1)]
+    assert [(e.type, e.outcomes) for e in said if e.type in ("node_complete", "node_skipped")] == [("node_complete", 1)]
 
 
 def test_a_series_that_may_be_nothing_reads_an_explicit_none_like_leaving_it_out():
@@ -311,7 +311,7 @@ def test_a_node_all_blank_completes_it_is_never_skipped():
     said = streamed(loaded.with_inputs())
     assert not [e for e in said if e.type == "node_skipped"]
     (complete,) = [e for e in said if e.type == "node_complete" and e.loc[0] == "s"]
-    assert (complete.units, complete.not_called) == (1, 1)
+    assert (complete.outcomes, complete.not_called) == (1, 1)
     assert said[-1].status == "complete" and said[-1].run.not_called == [NotCalled(loc=("s",), input="email")]
 
 

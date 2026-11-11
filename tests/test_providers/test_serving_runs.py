@@ -192,7 +192,7 @@ def test_a_run_started_on_one_worker_is_followed_read_and_answered_on_the_other(
 
             assert seen[0]["type"] == "run_start" and seen[-1] == {"type": "run_end", "status": "waiting", "cause": None}
             completed = next(frame for frame in seen if frame["type"] == "node_complete")
-            assert completed == {"type": "node_complete", "loc": ["gate"], "units": 1, "not_called": 0, "reused_units": 0}
+            assert completed == {"type": "node_complete", "loc": ["gate"], "outcomes": 1, "not_called": 0, "reused": 0}
             assert await a.frames(run_id) == seen  # a follower that comes late gets every event
 
             (unit,) = (await b.read(run_id))["waiting"]

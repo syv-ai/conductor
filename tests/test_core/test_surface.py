@@ -266,7 +266,7 @@ SHAPES = {
     "run_start": ["type", "waiting"],
     "node_start": ["loc", "type"],
     "node_progress": ["done", "loc", "total", "type"],
-    "node_complete": ["loc", "not_called", "reused_units", "type", "units"],
+    "node_complete": ["loc", "not_called", "outcomes", "reused", "type"],
     "node_skipped": ["loc", "type"],
     "node_failed": ["cause", "loc", "type"],
     "node_retry": ["attempt", "cause", "delay", "loc", "retries", "type"],
@@ -348,7 +348,7 @@ def _every_event() -> list[Any]:
 def test_a_node_complete_of_a_frame_holding_floats_that_are_not_finite_is_a_small_summary_in_strict_json():
     by_node = {event.loc[0]: event for event in _streamed_events() if isinstance(event, NodeComplete)}
 
-    assert _strict(by_node["f"].model_dump_json()) == {"type": "node_complete", "loc": ["f"], "units": 1, "not_called": 0, "reused_units": 0}
+    assert _strict(by_node["f"].model_dump_json()) == {"type": "node_complete", "loc": ["f"], "outcomes": 1, "not_called": 0, "reused": 0}
 
 
 @pytest.mark.parametrize("event", _every_event(), ids=lambda event: event.type)

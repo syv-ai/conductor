@@ -400,7 +400,7 @@ def test_a_run_with_changed_inputs_streams_and_a_node_entirely_reused_says_how_m
 
     events = _events(first.with_inputs(items=["ida", "bo", "al"]))
 
-    completed = {e.loc[0]: e.reused_units for e in events if e.type == "node_complete"}
+    completed = {e.loc[0]: e.reused for e in events if e.type == "node_complete"}
     assert sent == ["al", "confirm sent al"] and completed == {"each": 0, "mail": 2, "confirm": 2}
     assert events[-1].run.results["confirm"]["result"] == ["SENT IDA", "SENT BO", "SENT AL"]
 
@@ -931,7 +931,7 @@ def test_a_call_that_returned_skipped_is_a_result_and_is_not_made_again_live_or_
     loaded_again = graph.load_run(first.to_json()).again()
 
     assert calls == ["a", "abc", "b"]
-    assert [(e.units, e.reused_units) for e in events if e.type == "node_complete" and e.loc == ("o",)] == [(3, 3)]
+    assert [(e.outcomes, e.reused) for e in events if e.type == "node_complete" and e.loc == ("o",)] == [(3, 3)]
     assert again.results == first.results == loaded_again.results and first.not_called == []
     nothing_long = _events(graph.with_inputs(items=["a", "b"]))
     assert [e.loc for e in nothing_long if e.type == "node_skipped"] == [("o",), ("s",)]  # every unit came to no value, called or not
@@ -942,7 +942,7 @@ def test_a_first_run_reports_no_reuse():
 
     events = _events(graph.with_inputs(items=["ida", "bo"]))
 
-    assert {e.loc[0]: e.reused_units for e in events if e.type == "node_complete"} == {"each": 0, "mail": 0, "confirm": 0}
+    assert {e.loc[0]: e.reused for e in events if e.type == "node_complete"} == {"each": 0, "mail": 0, "confirm": 0}
 
 
 def test_a_run_with_changed_inputs_not_yet_started_shows_no_results():
