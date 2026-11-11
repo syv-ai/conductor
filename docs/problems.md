@@ -505,6 +505,8 @@ print(said(lambda: registry.upgrade(record, "upper", to=3))[0])  # 'upper' canno
 
 **Fix.** Move it to a version `ctx.versions` lists, or leave `to` out for the newest.
 
+Its `ctx` keys are in the reference: `python -m conductor.about cannot-move-to-version`.
+
 ### `from_run_missing`
 
 ```python
@@ -513,6 +515,8 @@ print(said(lambda: asking_who.run())[0])  # 'who' needs a Caller for 'caller', a
 ```
 
 **Fix.** Pass the value by its type: `graph.run(from_run={Caller: Caller("Ida")})`. It is never saved with the run, so pass it again on each `resume`.
+
+Its `ctx` keys are in the reference: `python -m conductor.about from-run-missing`.
 
 ### `input_given_twice`
 
@@ -587,6 +591,8 @@ print(said(lambda: registry.load({"nodes": [{"id": "u", "type": "upper"}]}))[0])
 
 **Fix.** Fix the record's JSON: `ctx.at` says where it stopped being a graph record. A drawing that is well formed but unfinished loads, with its problems in `graph.problems`.
 
+Its `ctx` keys are in the reference: `python -m conductor.about invalid-record`.
+
 ### `missing_input`
 
 > '{name}' is required; give it in the call.
@@ -616,6 +622,8 @@ print(said(lambda: make_graph(upper, greet))[0])  # 'greet' can't follow 'upper'
 ```
 
 **Fix.** Pass `edges=[("upper.result", "greet.name")]`. `make_graph` chains nodes only when each takes one required open input from the one output before it. A chain reads the fields each node declares; a stored graph, or a node whose fields a hook works out, takes `edges=`.
+
+Its `ctx` keys are in the reference: `python -m conductor.about not-a-chain`.
 
 ### `not_offered`
 
