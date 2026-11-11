@@ -862,10 +862,12 @@ class _Loader:
         and so is every node that reads it."""
         fields = dict(definition.inputs)
         typed = self._typed(record, fields)
+        added: dict[str, FieldSpec] = {}
         if definition.compute_added_inputs is not None:
-            added = self._hook(record, definition, "compute_added_inputs", definition.compute_added_inputs, typed, {})
-            if added is None:
+            made = self._hook(record, definition, "compute_added_inputs", definition.compute_added_inputs, typed, {}, ())
+            if made is None:
                 return
+            added = made
             taken = sorted(added.keys() & (fields.keys() | definition.from_run.keys()))
             if taken:
                 self.problems.append(make_problem("compute_hook_failed", record.id, reason=f"it adds {taken[0]!r}, which the node already declares", error="added_input_taken"))
@@ -878,7 +880,7 @@ class _Loader:
         outputs: dict[str, FieldSpec] | None = dict(definition.outputs)
         if definition.compute_outputs is not None:
             arriving = {name: plan.sources[0].type for name, plan in planned.inputs.items() if isinstance(plan, Fed)}
-            outputs = self._hook(record, definition, "compute_outputs", definition.compute_outputs, typed, arriving)
+            outputs = self._hook(record, definition, "compute_outputs", definition.compute_outputs, typed, arriving, tuple(added))
         if outputs is not None:
             self._keep(PlacedFunction(
                 id=record.id, scope=planned.scope, inputs=planned.inputs, outputs=outputs, definition=definition,
@@ -1025,22 +1027,34 @@ class _Loader:
 
     def _hook(
         self, record: NodeRecord, definition: FunctionDefinition[..., Any], kind: HookName, hook: Callable[..., Mapping[Any, Any]],
-        typed: Mapping[str, Any], arriving: Mapping[str, Any],
+        typed: Mapping[str, Any], arriving: Mapping[str, Any], added: tuple[str, ...],
     ) -> dict[str, FieldSpec] | None:
-        """Call a hook with the node's typed values and the types arriving on its inputs (``Any`` where nothing
-        arrives): its answer read as fields, or ``None`` with the problem."""
+        """Call a hook with what its parameters read: its answer read as fields, or ``None`` with the problem.
+
+        Args:
+            record: The node in the record.
+            definition: The node's definition.
+            kind: Which hook it is.
+            hook: The hook.
+            typed: Each value and default typed into the record, as its field read it, by input.
+            arriving: The type arriving on each input edges feed, by input; ``Any`` arrives on any other.
+            added: The inputs ``compute_added_inputs`` added, which ``**added: type`` reads the arriving types of.
+        """
         kwargs: dict[str, Any] = {}
-        for name, reads_arriving in definition.hook_parameters[kind].items():
-            if reads_arriving:  # only compute_outputs reads one
-                kwargs[name] = arriving.get(name, Any)
-                continue
-            value = typed.get(name, definition.inputs[name].default)  # @node checked the parameter names a declared input
-            if value is REQUIRED:
-                self.problems.append(make_problem("hook_needs_value", record.id, name))
-                return None
-            if value is _REFUSED:
-                return None  # its own invalid_value says why
-            kwargs[name] = value
+        for name, receives in definition.hook_parameters[kind].items():
+            match receives:
+                case "arriving_type":
+                    kwargs[name] = arriving.get(name, Any)
+                case "added_arriving_types":
+                    kwargs.update({input_name: arriving.get(input_name, Any) for input_name in added})
+                case "value":
+                    value = typed.get(name, definition.inputs[name].default)  # @node checked the parameter names a declared input
+                    if value is REQUIRED:
+                        self.problems.append(make_problem("hook_needs_value", record.id, name))
+                        return None
+                    if value is _REFUSED:
+                        return None  # its own invalid_value says why
+                    kwargs[name] = value
         try:
             returned = hook(**kwargs)
         except NodeError as error:  # the hook's own account, with its own code and its ctx kept whole
