@@ -61,7 +61,7 @@ from conductor._internal.node_definition import (
 )
 from conductor._internal.record import GraphRecord, NodeRecord, typed_in
 from conductor._internal.registry import NodeRegistry
-from conductor._internal.run import EndedEarly, Going
+from conductor._internal.run import EndedEarly
 
 #: One call's inputs, by name.
 _Example = Mapping[str, Any]
@@ -220,8 +220,6 @@ def _run_problems(version: NodeDefinition, registry: NodeRegistry, example: _Exa
             # a body's own exception reaches the problem as its class only; the message says which
             said = f"the node raised {cause.ctx['error']}" if cause.type == "execution_failed" else cause.msg
             found.append(_problem("run_failed", (version.id, version.version), f"the example ended {status}: {said}", **_causes([cause])))
-        case Going():
-            pass
     return found
 
 
