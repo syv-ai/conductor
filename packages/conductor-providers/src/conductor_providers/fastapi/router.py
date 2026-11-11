@@ -299,7 +299,7 @@ def run_router(
         or a queued answer costs a read and a write."""
         status = ending.status
         written = ending.written
-        handed_back: RunChanges = {"status": "running", "owner": None, "lease_until": 0.0}
+        handed_back: RunChanges = {"status": "running", "owner": None, "lease_until": 0.0, "cause": None}
         answered_from: tuple[str, str] | None = None
         answered: tuple[str | None, dict[str, Any]] = (None, {})
         try:
@@ -319,7 +319,7 @@ def run_router(
                         saved, refused = answered
                         changes.update({"pending": "{}", "refused": to_json(refused).decode()})
                     if saved is not None:  # a worker shutting down hands the next leg back rather than start it
-                        changes.update({"run": saved, **(handed_back if stopping else held()), "cause": None})
+                        changes.update({"run": saved, **(handed_back if stopping else held())})
                 if saved is None:
                     changes.update(await asyncio.to_thread(lambda: ending.as_saved))
                 async with leg.lock:  # no renewal lands between this write and the lease's last renewal

@@ -566,3 +566,30 @@ def test_a_class_as_the_caller_is_kept_as_that_class_so_its_starter_sees_the_run
 def test_a_caller_with_no_return_annotation_is_refused_when_the_router_is_made() -> None:
     with pytest.raises(TypeError, match="return annotation"):
         run_router(store=MemoryStore(), registry=NodeRegistry(), caller=lambda: "anna")
+
+
+def test_a_run_handed_back_by_a_worker_shutting_down_reads_as_running_with_no_cause() -> None:
+    registry = NodeRegistry()
+
+    @registry.node("many", title="Many", description="Gives several rows.")
+    def many(n: int) -> Series[int]:
+        return list(range(n))
+
+    @registry.node("slow", title="Slow", description="Waits before it answers.")
+    def slow(x: int) -> int:
+        time.sleep(0.05)
+        return x
+
+    graph = make_graph(registry["many"], registry["slow"], edges=[("many.result", "slow.x")]).model_dump(mode="json")
+    store = MemoryStore()
+    app = FastAPI()
+    app.include_router(run_router(store=store, registry=registry, caller=_caller))
+
+    async def scenario() -> None:
+        async with app.router.lifespan_context(app), httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as client:
+            run_id = (await client.post("/runs", json={"graph": graph, "inputs": {"n": 40}})).json()["id"]
+            await asyncio.sleep(0.2)
+        row = store.rows[run_id]
+        assert (row.status, row.owner, row.cause) == ("running", None, None)
+
+    asyncio.run(scenario())
