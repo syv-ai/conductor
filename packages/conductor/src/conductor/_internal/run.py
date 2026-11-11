@@ -742,46 +742,51 @@ class Run:
         Returns:
             The keyword arguments of the call; ``PENDING`` while something it reads hasn't run; or the unit it
             comes to uncalled: ``Skipped`` when an input comes only from branches not taken, else ``Blank`` when
-            an input that takes no blank got one. Every input is read before a blank is the answer.
+            an input that takes no blank got one. Every input is read before a blank is the answer. When an
+            edge names a field the record it brings doesn't have, the ``Problem`` the unit fails with
+            (``invalid_edge_value``).
         """
         kwargs: dict[str, Any] = {}
         blank: Blank | None = None
         gathered: dict[str, tuple[Gather, _UnitsOfAGraph, list[Any]]] = {}
         own, own_base = self._units[node.inside], node.base
-        for name, (plan, giver) in node.inputs.items():
-            kind = type(plan)
-            if kind is Fixed:
-                kwargs[name] = plan.value  # type: ignore[union-attr]
-                continue
-            if kind is Open:  # a first node of the graph itself, or of a graph embedded in one: the caller gives it
-                kwargs[name] = self.inputs[plan.address]  # type: ignore[union-attr]
-                continue
-            if giver is None:
-                units, base = own, own_base
-            else:
-                units, base = self._units[giver.inside], giver.base
-            if kind is Gather:
-                value = _gathered(units, base, plan, key)  # type: ignore[arg-type]
-            else:  # one value: the first edge whose branch was taken
-                value = SKIPPED
-                for source in plan.sources:  # type: ignore[union-attr]
-                    value = _cell(units, base, source, key)
-                    if value is not SKIPPED:
-                        break
-                if kind is SeriesOfOne and value is not None and value is not SKIPPED and value is not PENDING:
-                    value = [value]
-            if value is PENDING:
-                return PENDING
-            if value is SKIPPED:
-                return SKIPPED_UNIT
-            if value is None:
-                if not plan.spec.whole.optional and blank is None:
-                    blank = Blank(name)
-                kwargs[name] = None
-            elif kind is Gather:
-                gathered[name] = (plan, units, value)  # type: ignore[assignment]
-            else:
-                kwargs[name] = value
+        try:
+            for name, (plan, giver) in node.inputs.items():
+                kind = type(plan)
+                if kind is Fixed:
+                    kwargs[name] = plan.value  # type: ignore[union-attr]
+                    continue
+                if kind is Open:  # a first node of the graph itself, or of a graph embedded in one: the caller gives it
+                    kwargs[name] = self.inputs[plan.address]  # type: ignore[union-attr]
+                    continue
+                if giver is None:
+                    units, base = own, own_base
+                else:
+                    units, base = self._units[giver.inside], giver.base
+                if kind is Gather:
+                    value = _gathered(units, base, plan, key)  # type: ignore[arg-type]
+                else:  # one value: the first edge whose branch was taken
+                    value = SKIPPED
+                    for source in plan.sources:  # type: ignore[union-attr]
+                        value = _cell(units, base, source, key)
+                        if value is not SKIPPED:
+                            break
+                    if kind is SeriesOfOne and value is not None and value is not SKIPPED and value is not PENDING:
+                        value = [value]
+                if value is PENDING:
+                    return PENDING
+                if value is SKIPPED:
+                    return SKIPPED_UNIT
+                if value is None:
+                    if not plan.spec.whole.optional and blank is None:
+                        blank = Blank(name)
+                    kwargs[name] = None
+                elif kind is Gather:
+                    gathered[name] = (plan, units, value)  # type: ignore[assignment]
+                else:
+                    kwargs[name] = value
+        except FieldValueError as missing:  # raised reading the input ``name``
+            return make_problem(missing.code, *unit_loc(node, key), name=name, reason=missing.reason, **missing.ctx)
         if blank is not None:
             return blank
         for name, (plan, units, items) in gathered.items():
@@ -870,7 +875,12 @@ def _cell(units: _UnitsOfAGraph, base: int, cell: Cell, key: Key) -> Any:
     if type(cell) is Item:
         if type(value) is Records:  # held by column: the cell an edge names, with no record built
             wanted = cell.field  # type: ignore[attr-defined]
-            return value[key[depth]] if wanted is None else value.columns[wanted][key[depth]]
+            if wanted is None:
+                return value[key[depth]]
+            try:
+                return value.columns[wanted][key[depth]]
+            except KeyError:
+                raise _no_such_field(wanted) from None
         value = value[key[depth]]
     field = cell.field  # type: ignore[attr-defined]
     return value if field is None or value is None or value is SKIPPED else _field_of(value, field)
@@ -909,7 +919,7 @@ def _gathered(units: _UnitsOfAGraph, base: int, plan: Gather, key: Key) -> Any:
     if len(live) == 1 and type(live[0]) is Item:  # the Series itself: its items, or one field of each
         wanted = live[0].field
         if type(series) is Records:
-            return series.records() if wanted is None else series.columns[wanted]
+            return series.records() if wanted is None else _field_of(series.columns, wanted)
         if wanted is None:
             return [None if item is SKIPPED else item for item in series] if any(item is SKIPPED for item in series) else series
         return [None if item is SKIPPED or item is None else _field_of(item, wanted) for item in series]
@@ -984,8 +994,21 @@ def _aligned(plan: Gather, units: _UnitsOfAGraph, items: list[Any], gathered: Ma
 
 
 def _field_of(value: Any, name: str) -> Any:
-    """One field of a record: a mapping's key, else an attribute."""
-    return value[name] if type(value) is dict or isinstance(value, Mapping) else getattr(value, name)
+    """One field of a record: a mapping's key, else an attribute; of records held by column, that column.
+
+    Raises:
+        FieldValueError: The record has no such field (``invalid_edge_value``). Only a record whose type
+            declares no fields can lack one: a field a type declares is checked when the graph loads.
+    """
+    try:
+        return value[name] if type(value) is dict or isinstance(value, Mapping) else getattr(value, name)
+    except (KeyError, AttributeError):
+        raise _no_such_field(name) from None
+
+
+def _no_such_field(name: str) -> FieldValueError:
+    """The refusal of an edge that names the field ``name`` of a record that has none."""
+    return FieldValueError(f"it has no field '{name}'", code="invalid_edge_value", field=name)
 
 
 def run_from_json(graph: Graph, saved: str | bytes | Mapping[str, Any]) -> Run:

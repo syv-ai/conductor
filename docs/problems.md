@@ -799,7 +799,7 @@ match too_big.state:
         print(cause.type)  # invalid_edge_value
 ```
 
-**Fix.** Make the node upstream give what the input takes, or put a node between that converts it. Loading lets through what a type alone can't settle: a limit or a choice on the input, a host type's own check, a table whose columns are known only once it is made. `ctx.name` names the input, a table's `ctx.column` its column.
+**Fix.** Make the node upstream give what the input takes, or put a node between that converts it. Loading lets through what a type alone can't settle: a limit or a choice on the input, a host type's own check, a table whose columns are known only once it is made. `ctx.name` names the input, a table's `ctx.column` its column. An edge that names a field of a record whose type declares none (a `dict`, `Any`, a record split from a table of unknown columns) is trusted when the graph loads; if the record has no such field, the reader fails here, and `ctx.field` names the field.
 
 ### `invalid_output`
 

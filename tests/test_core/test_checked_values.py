@@ -529,3 +529,52 @@ def test_a_yes_or_no_returned_for_a_literal_of_numbers_is_refused_as_for_a_numbe
     for return_type in (int, float, Literal[1, 2]):
         run = _returning(True, return_type)
         assert (run.status, run.state.cause.type) == ("failed", "invalid_output"), return_type
+
+
+@node("anything-in", title="Anything in", description="")
+def _anything_in(x: Any) -> Any:
+    return x
+
+
+@node("all-of", title="All of", description="")
+def _all_of(values: Series[Any]) -> int:
+    return len(values)
+
+
+def _giving(returned: Any, return_type: Any) -> Any:
+    """A node ``give`` returning ``returned`` from ``-> return_type``."""
+
+    def give() -> return_type:  # type: ignore[valid-type]
+        return returned
+
+    return node("give", title="Give", description="")(give)
+
+
+def _fails_with(graph: Any) -> tuple[Any, ...]:
+    """How a run of ``graph`` ended: its status, and its cause's code, place, input and field."""
+    run = graph.run()
+    cause = run.state.cause
+    return run.status, cause.type, cause.loc, cause.ctx["name"], cause.ctx["field"]
+
+
+@pytest.mark.parametrize(("declared", "returned"), [(dict, {"other": 1}), (Any, 5), (Any, {"other": 1})])
+def test_a_field_named_on_an_edge_that_the_value_at_run_time_lacks_fails_the_reader_naming_the_field(declared: Any, returned: Any):
+    """A record whose type declares no fields is wired by field on trust, so a missing one is the reader's ``invalid_edge_value``."""
+    give = _giving(returned, declared)
+    graph = registry_of(give, _anything_in).load(make_graph(give, _anything_in, edges=[("give.result.name", "anything-in.x")]))
+    assert graph.is_runnable
+    assert _fails_with(graph) == ("failed", "invalid_edge_value", ("anything-in",), "x", "name")
+    assert SECRET not in graph.run().state.cause.msg and "no field 'name'" in graph.run().state.cause.msg
+
+
+def test_a_field_an_item_or_a_column_of_unknown_columns_lacks_fails_the_reader_at_that_item_and_a_gather_whole():
+    items = _giving([{"name": "a"}, {"other": "b"}], Series[dict])
+    per_item = registry_of(items, _anything_in).load(make_graph(items, _anything_in, edges=[("give.result.name", "anything-in.x")]))
+    assert _fails_with(per_item) == ("failed", "invalid_edge_value", ("anything-in", 1), "x", "name")
+    gathered = registry_of(items, _all_of).load(make_graph(items, _all_of, edges=[("give.result.name", "all-of.values")]))
+    assert _fails_with(gathered) == ("failed", "invalid_edge_value", ("all-of",), "values", "name")
+    by_column = _giving(pl.DataFrame({"other": ["a", "b"]}), Series[Any])
+    column_read = registry_of(by_column, _anything_in).load(make_graph(by_column, _anything_in, edges=[("give.result.name", "anything-in.x")]))
+    assert _fails_with(column_read) == ("failed", "invalid_edge_value", ("anything-in", 0), "x", "name")
+    column_gathered = registry_of(by_column, _all_of).load(make_graph(by_column, _all_of, edges=[("give.result.name", "all-of.values")]))
+    assert _fails_with(column_gathered) == ("failed", "invalid_edge_value", ("all-of",), "values", "name")
