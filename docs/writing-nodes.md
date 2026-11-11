@@ -383,7 +383,7 @@ graph = registry.load(make_graph(address_book, each, greet_contact, edges=[("add
 print(graph.run(csv="name,email\nIda,ida@a.dk\nBo,\n").outputs)  # {'greet-contact.result': ['Hello Ida', 'Hello Bo']}
 ```
 
-A `Table[Contact]` arrived, so `T` is `Contact` and the edge may name its field, `each.result.name`. InputFedByEdges a `list[int]`, the same node gives a `Series[int]`.
+A `Table[Contact]` arrived, so `T` is `Contact` and the edge may name its field, `each.result.name`. Fed a `list[int]`, the same node gives a `Series[int]`.
 
 A dataclass of outputs can be generic too. Each output takes the type that arrives:
 

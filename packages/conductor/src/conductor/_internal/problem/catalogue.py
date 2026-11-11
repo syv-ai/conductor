@@ -629,14 +629,14 @@ def execution_failed(*loc: str | int, error: str) -> str:
 
 
 @PROBLEMS.problem()
-def external_failed(*loc: str | int, error: str) -> str:
+def external_failed(*loc: str | int, error: str | None = None) -> str:
     """A node raised an exception its ``Policy(retry_on=)`` names, and no attempt is left.
 
     An ``ExternalError`` a node raises itself has this code too, with the node's own message and ``ctx``.
 
     Args:
         loc: The unit that failed.
-        error: The exception's class name.
+        error: The exception's class name; absent for an ``ExternalError`` the node raised, whose ``ctx`` is its own.
     """
     return "An outside service did not answer."
 

@@ -4,7 +4,7 @@ A graph loads once, alone, however many graphs embed it. What a run walks is eve
 each graph embedded in it, each a ``FunctionAtPath``, with its inputs planned where it stands: an output of an
 embedded graph is by definition an output of a function inside it, so a reader's plan names that output, and an open
 input inside has the plan the embedded graph's node has for it. A call of an embedded graph therefore costs what
-its functions cost, and its node (a ``EmbeddedGraphAtPath``) holds no unit of its own: it is a name and a boundary.
+its functions cost, and its node (an ``EmbeddedGraphAtPath``) holds no unit of its own: it is a name and a boundary.
 """
 
 from __future__ import annotations
@@ -42,7 +42,7 @@ from conductor._internal.units import ItemPath
 @dataclass(eq=False, slots=True, kw_only=True)
 class _AtPath:
     """A node where it stands among the graphs a run is of: a node of the graph itself, or of a graph embedded
-    in it, at any depth. Never made on its own: it is a ``FunctionAtPath`` or a ``EmbeddedGraphAtPath``.
+    in it, at any depth. Never made on its own: it is a ``FunctionAtPath`` or an ``EmbeddedGraphAtPath``.
 
     A graph loads once and may be embedded in many places; this is a node of it in one of them. A node inside an
     embedded graph runs once for each item its embedding node runs for, and then once per item of its own scope,
@@ -365,7 +365,7 @@ def _gather_at_path(spec: Field, gathered: Maps, sources: tuple[Source, ...], fu
     plan is made, for a node's own input and for what a host is shown.
 
     Args:
-        field: The input's field.
+        spec: The input's field.
         gathered: The maps gathered through, outermost first: one, but for an output an embedded graph offers
             of something made several maps deep inside it.
         sources: What each edge brings for an item, each naming a function by its name.

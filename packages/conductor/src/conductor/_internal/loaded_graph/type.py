@@ -84,7 +84,8 @@ class PlacedFunction(_Placed):
         specs = (*(plan.field for plan in self.inputs.values()), *self.outputs.values())
         fields = [(spec.name, spec.whole.reads_as) for spec in specs]
         definition = self.definition
-        written = repr((definition.id, definition.version, _code_text(inspect.unwrap(definition.function).__code__), fields, self.scope))
+        scope = tuple([str(series) for series in self.scope])  # as addresses: a waiting id and a save hold the digest, so no class's repr is in it
+        written = repr((definition.id, definition.version, _code_text(inspect.unwrap(definition.function).__code__), fields, scope))
         return hashlib.blake2b(written.encode(), digest_size=8).hexdigest()
 
     @functools.cached_property

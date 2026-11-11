@@ -156,7 +156,7 @@ class InputHoldsValue:
     """An input that holds one value on every call: typed into the node, or its default.
 
     Attributes:
-        field: The input's field.
+        field: The input, as its node declares it.
         value: The value, as the field's type read it.
     """
 
@@ -172,7 +172,7 @@ class InputNotFed:
     known). The graph holds the problem, so it never runs; the node is still drawn, with this input to fill.
 
     Attributes:
-        field: The input's field.
+        field: The input, as its node declares it.
     """
 
     field: Field
@@ -184,7 +184,7 @@ class InputFromCaller:
     """An input of a first node that nothing fills: the graph's input, which the caller gives.
 
     Attributes:
-        field: The input's field.
+        field: The input, as its node declares it.
         address: Where a run keeps the caller's value, ``node.input``.
     """
 
@@ -198,7 +198,7 @@ class InputReadsOneValue:
     """An input that edges bring one value on each call.
 
     Attributes:
-        field: The input's field.
+        field: The input, as its node declares it.
         reads: Every output the input is made from: what each edge brings. Several are alternatives, on opposite
             branches of one decision: a call receives the one whose branch was taken.
         scope: The scope the value sits in.
@@ -225,7 +225,7 @@ class InputGathersItems:
     """An input of many (a ``Series``, or a ``Table`` fed records) that receives the items of one map as a list.
 
     Attributes:
-        field: The input's field.
+        field: The input, as its node declares it.
         reads: Every output the input is made from: the Series whose items are gathered, where it was made; where
             the items sit more than one map under it, each Series on the way down; then what each edge brings
             for an item. Several edges are alternatives, as for any input.
@@ -269,7 +269,7 @@ class InputGathersOneValue:
     the node runs, or outside the items the node runs per. Each call receives that one value as a list of one.
 
     Attributes:
-        field: The input's field.
+        field: The input, as its node declares it.
         reads: Every output the input is made from: what each edge brings. Several are alternatives, as for any
             input.
     """

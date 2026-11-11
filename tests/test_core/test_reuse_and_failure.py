@@ -62,6 +62,28 @@ def _events(run: Any, **kwargs: Any) -> list[Any]:
 # -- failures ---------------------------------------------------------------------
 
 
+def test_what_a_units_result_rests_on_names_its_scope_by_address_not_by_how_a_class_prints(monkeypatch: pytest.MonkeyPatch):
+    """A waiting id and a saved run hold the digest, so it is made of the scope's addresses as an author writes
+    them (``words.result``), whatever the engine's class for an address is called or prints as."""
+    from conductor._internal.loaded_graph.input_plans import OutputAddress
+
+    @node("words", title="Words", description="")
+    def words(text: str) -> Series[str]:
+        return text.split()
+
+    @node("upper", title="Upper", description="")
+    def upper(text: str) -> str:
+        return text.upper()
+
+    def digest() -> str:
+        graph = registry_of(words, upper).load(make_graph(words, upper))
+        return graph._functions[("upper",)].reuse_digest
+
+    before = digest()
+    monkeypatch.setattr(OutputAddress, "__repr__", lambda self: f"Renamed({self.node_id}, {self.output})")
+    assert digest() == before
+
+
 def test_a_foreign_exception_runs_once_and_is_execution_failed_and_quotes_nothing(caplog):
     """``{}['missing']`` under ``Policy(retries=3)`` is a bug, not weather: one call, no retry, and the problem says only that the node failed."""
     calls: list[int] = []

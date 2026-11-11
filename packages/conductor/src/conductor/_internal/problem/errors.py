@@ -163,7 +163,7 @@ class UnitFailedError(Exception):
     """A unit's call ends on a problem conductor names itself: what the node was to be given, or what it returned, is refused.
 
     Raised where the fault is met, which knows what is wrong and not which unit it is; the leg gives the problem
-    its place. Never met by a caller: the leg records it as the unit's failure.
+    its place and records it as the unit's failure.
 
     Attributes:
         problem: The problem, with no ``loc``.
