@@ -139,6 +139,11 @@ REGISTRY.node("items-then-up", title="Items then up", description="Each word of 
 )
 
 
+REGISTRY.node("pair-then-items-then-up", title="Pair then items then up", description="Each word of a pair, in capitals.")(
+    make_graph(pair, items, up, edges=[("pair.result", "items.text"), ("items.result", "up.a")])
+)
+
+
 def ran(nodes: dict[str, str], edges: list[tuple[str, str]], **inputs: str) -> Any:
     graph = REGISTRY.load({"nodes": [{"id": i, "node": n} for i, n in nodes.items()], "edges": [list(edge) for edge in edges]})
     assert not graph.problems, graph.problems
@@ -347,3 +352,18 @@ def test_a_gather_asks_nothing_when_only_the_series_has_a_say_and_asks_when_a_no
     run = ran(nodes, edges, kind="blank", text=text)
     assert (came_to(run, "m"), came_to(run, "n")) == (len(text.split()), "not called")
     assert came_to(ran(nodes, edges, kind="x", text=text), "n") == len(text.split())
+
+
+@pytest.mark.parametrize(("kind", "n"), [("blank", "not called"), ("skip", "skipped"), ("v", 2)])
+def test_a_series_made_inside_an_embedded_graph_in_the_items_and_never_made_for_what_is_outside_them_decides_the_gather_above(kind: str, n: Any) -> None:
+    flat = ran(
+        {"s": "items", "t": "template", "p": "pair", "w": "items", "u": "up", "j": "join", "n": "count"},
+        [("s.result", "p.a"), ("t.result", "p.b"), ("p.result", "w.text"), ("w.result", "u.a"), ("u.result", "j.values"), ("j.result", "n.values")],
+        kind=kind, text="a b",
+    )
+    embedded = ran(
+        {"s": "items", "t": "template", "e": "pair-then-items-then-up", "j": "join", "n": "count"},
+        [("s.result", "e.a"), ("t.result", "e.b"), ("e.up.result", "j.values"), ("j.result", "n.values")],
+        kind=kind, text="a b",
+    )
+    assert (came_to(flat, "n"), came_to(embedded, "n")) == (n, n)
