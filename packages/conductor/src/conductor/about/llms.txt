@@ -279,7 +279,7 @@ Five public modules: `conductor`, `conductor.widgets`, `conductor.events`, `cond
 - Registry: `NodeRegistry(*, category="", tags=(), extra={}, types=())` (`@registry.node`, `add(*definitions)`, `replace(definition)`, `remove(node_id)`, `add_subregistry(registry)`, `filter(predicate)`, `load(record)`, `upgrade(record, node_id, to=None)`, `in`, `[]`, `len`, iteration over the definitions, `types`, `describe`). A node entering a registry takes its defaults: tags add up, outermost first; the node's own `category` and `extra` keys win. A second node under one id raises; a subregistry is copied in when added.
 - Graph: `GraphRecord`, `NodeRecord`, `make_graph`, `Graph`
 - A run: `Run`, `Waiting`, `NotCalled`, `RunState` (`Going | EndedEarly`), `Going`, `EndedEarly`, `RunStatus` (every status a run can have)
-- What an editor reads: `FieldDescription`, `NodeDescription` (`FunctionNodeDescription | StoredGraphDescription`), `FunctionNodeDescription`, `StoredGraphDescription`, `RegistryDescription`, `GraphDescription`, `GraphInput`, `RunsOn`, `Feed`
+- What an editor reads: `FieldDescription`, `NodeDescription` (`FunctionNodeDescription | StoredGraphDescription`), `FunctionNodeDescription`, `StoredGraphDescription`, `RegistryDescription`, `TypeDescription`, `GraphDescription`, `GraphInput`, `RunsOn`, `Feed`
 - Errors: `NodeDeclarationError`, `InvalidCallError`, `Problem`, `PROBLEM_CODES`
 
 ### Running

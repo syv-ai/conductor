@@ -48,7 +48,7 @@ from conductor._internal.node_definition import (
     node,
 )
 from conductor._internal.record import GraphRecord, NodeRecord, make_graph
-from conductor._internal.registry import NodeRegistry, RegistryDescription
+from conductor._internal.registry import NodeRegistry, RegistryDescription, TypeDescription
 from conductor._internal.run import EndedEarly, Going, NotCalled, Run, RunState, RunStatus
 
 __all__ = [
@@ -90,6 +90,7 @@ __all__ = [
     "RunsOn",
     "Series",
     "Table",
+    "TypeDescription",
     "Upgrade",
     "Waiting",
     "make_graph",
