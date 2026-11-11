@@ -217,10 +217,8 @@ def run_router(
     # -- legs -------------------------------------------------------------------------------------
 
     async def claim(row: StoredRun, ceiling: int | None = None, **changes: Unpack[RunChanges]) -> bool:
-        """Take ``row`` for this worker if nobody holds it and it is still at the ``rev`` read, writing ``changes`` too,
-        and run its next leg. Of two workers, one wins. A cancel asked of the run stays asked: only a resume clears it."""
-        if row.lease_until >= time.time():
-            return False
+        """Take ``row`` for this worker if it is still at the ``rev`` read, writing ``changes`` too, and run its next
+        leg. Of two workers, one wins. A cancel asked of the run stays asked: only a resume clears it."""
         written: RunChanges = {**held(), **changes}
         if not await store.update(row.id, row.rev, written):
             return False
