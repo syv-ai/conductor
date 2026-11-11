@@ -785,14 +785,16 @@ class Run:
         that node's plan, in the graph that node is in.
 
         Returns:
-            The keyword arguments of the call; ``PENDING`` while something it reads hasn't run; or the unit it
-            comes to uncalled: ``Skipped`` when an input comes only from branches not taken, else ``Blank`` when
-            an input that takes no blank got one. Every input is read before a blank is the answer. When an
+            The keyword arguments of the call; or the unit it comes to uncalled: ``Skipped`` when an input comes
+            only from branches not taken, whatever the others hold; else ``PENDING`` while something it reads
+            hasn't run; else ``Blank`` when an input that takes no blank got one. Every input is read before
+            pending or a blank is the answer, so the order of a node's parameters decides nothing. When an
             edge names a field the record it brings doesn't have, the ``Problem`` the unit fails with
             (``invalid_edge_value``).
         """
         kwargs: dict[str, Any] = {}
         blank: Blank | None = None
+        pending = False
         gathered: dict[str, tuple[Gather, _UnitsOfAGraph, list[Any]]] = {}
         own, own_base = self._units[node.inside], node.base
         try:
@@ -818,11 +820,11 @@ class Run:
                             break
                     if kind is SeriesOfOne and value is not None and value is not SKIPPED and value is not PENDING:
                         value = [value]
-                if value is PENDING:
-                    return PENDING
                 if value is SKIPPED:
                     return SKIPPED_UNIT
-                if value is None:
+                if value is PENDING:  # a later input may be skipped, which settles the unit whatever this one comes to
+                    pending = True
+                elif value is None:
                     if not plan.spec.whole.optional and blank is None:
                         blank = Blank(name)
                     kwargs[name] = None
@@ -832,6 +834,8 @@ class Run:
                     kwargs[name] = value
         except FieldValueError as missing:  # raised reading the input ``name``
             return make_problem(missing.code, *unit_loc(node, key), name=name, reason=missing.reason, **missing.ctx)
+        if pending:
+            return PENDING
         if blank is not None:
             return blank
         for name, (plan, units, items) in gathered.items():
