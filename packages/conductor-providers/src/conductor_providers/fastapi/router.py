@@ -443,6 +443,29 @@ def run_router(
             raise _refused(404, _router_problem("no_such_run"))
         return row
 
+    async def write_while_running(row: StoredRun, changes: Callable[[StoredRun], RunChanges]) -> StoredRun | None:
+        """Write a route's changes to a run for as long as a leg runs it, reading the run again each time another
+        writer moved its ``rev`` on first.
+
+        Args:
+            row: The run as the route read it.
+            changes: What to write, made from the run as read for each try.
+
+        Returns:
+            ``None`` once the changes are written; else the run as last read, which no leg runs.
+
+        Raises:
+            HTTPException: The run is gone when it is read again (404, ``no_such_run``).
+        """
+        while row.status == "running":
+            if await store.update(row.id, row.rev, changes(row)):
+                return None
+            read_again = await store.get(row.id)
+            if read_again is None:
+                raise _refused(404, _router_problem("no_such_run"))
+            row = read_again
+        return row
+
     @router.get("/nodes")
     def list_nodes(who: Annotated[C, Depends(caller)]) -> RegistryDescription:
         """The nodes the caller may use, as an editor's palette reads them."""
@@ -515,17 +538,16 @@ def run_router(
         has nothing to answer and is a 409. While a leg runs, the answers wait for it to end, and a question
         answered once meanwhile is refused a second answer.
         """
-        while row.status == "running":
-            queued = json.loads(row.pending)
+        def queued_with_these(running: StoredRun) -> RunChanges:
+            queued = json.loads(running.pending)
             if twice := queued.keys() & answers.keys():
                 raise _refused(409, *(_router_problem("already_answered", waiting_id=waiting_id) for waiting_id in sorted(twice)))
-            queued.update(answers)
-            if await store.update(row.id, row.rev, {"pending": to_json(queued).decode()}):
-                return Answered(answers="queued")  # the leg's end, written after this, reads them
-            read_again = await store.get(row.id)
-            if read_again is None:
-                raise _refused(404, _router_problem("no_such_run"))
-            row = read_again
+            return {"pending": to_json({**queued, **answers}).decode()}
+
+        not_running = await write_while_running(row, queued_with_these)
+        if not_running is None:
+            return Answered(answers="queued")  # the leg's end, written after this, reads them
+        row = not_running
         if row.status == "complete":
             raise _refused(409, _router_problem("run_complete"))
         try:  # every answer the run refuses is refused at once
@@ -563,16 +585,11 @@ def run_router(
     @router.post("/runs/{run_id}/cancel", responses=_NOT_FOUND)
     async def cancel_run(row: Annotated[StoredRun, Depends(stored)]) -> Cancelled:
         """Stop a running leg before its next unit; the calls already made are kept, and ``resume`` goes on."""
-        while row.status == "running":
-            if await store.update(row.id, row.rev, {"cancel": True}):
-                if row.id in legs:  # on this worker at once; on another at its next renewal
-                    legs[row.id].cancel.set()
-                return Cancelled(cancelled=True)
-            read_again = await store.get(row.id)
-            if read_again is None:
-                break
-            row = read_again
-        return Cancelled(cancelled=False)
+        if await write_while_running(row, lambda running: {"cancel": True}) is not None:
+            return Cancelled(cancelled=False)
+        if row.id in legs:  # on this worker at once; on another at its next renewal
+            legs[row.id].cancel.set()
+        return Cancelled(cancelled=True)
 
     return router
 

@@ -1035,3 +1035,29 @@ def test_the_problems_page_quotes_the_sentence_of_each_of_the_routers_codes() ->
     parts = re.split(r"^### `([a-z_]+)`$", section, flags=re.M)
     quoted = {code: body.split("\n\n")[1] for code, body in zip(parts[1::2], parts[2::2])}
     assert quoted == {code: f"> {sentence}" for code, sentence in _ROUTER_PROBLEMS.items()}
+
+
+@pytest.mark.parametrize(("route", "body"), [("answers", {"anything": True}), ("cancel", None)])
+def test_a_run_that_is_gone_when_a_write_to_it_is_tried_again_is_a_404(route: str, body: dict[str, Any] | None) -> None:
+    registry, graph, gate, inputs, _ = _asking()
+
+    class GoneAtTheWrite(MemoryStore):
+        """Loses a route's write to a run and has no run to read again, as when the host deleted it meanwhile."""
+
+        async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
+            if changes.keys() & {"pending", "cancel"}:
+                del self.rows[run_id]
+                return False
+            return await super().update(run_id, rev, changes)
+
+    app = FastAPI()
+    app.include_router(run_router(store=GoneAtTheWrite(), registry=registry, caller=_caller))
+
+    async def scenario() -> None:
+        async with app.router.lifespan_context(app), httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as client:
+            run_id = (await client.post("/runs", json={"graph": graph.model_dump(mode="json"), "inputs": inputs})).json()["id"]
+            gone = await client.post(f"/runs/{run_id}/{route}", json=body)
+            assert (gone.status_code, [problem["type"] for problem in gone.json()["detail"]]) == (404, ["no_such_run"])
+            gate.set()
+
+    asyncio.run(scenario())
