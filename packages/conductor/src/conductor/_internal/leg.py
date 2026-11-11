@@ -366,7 +366,7 @@ class Leg:
     def _attempt(self, placed: PlacedNode, key: Key, kwargs: dict[str, Any], attempt: int, walking: bool = False) -> None:
         if not placed.definition.policy.threaded:
             out, error = self.run._call(placed, kwargs, self.from_run)
-            if error is None or isinstance(error, Ask) or not self._retry(placed, key, kwargs, attempt, error):
+            if not self._retry(placed, key, kwargs, attempt, error):
                 if attempt:
                     self.running.pop((placed.id, key), None)
                 self._record(placed, key, self._outcome(placed, key, kwargs, out, error), walking)
