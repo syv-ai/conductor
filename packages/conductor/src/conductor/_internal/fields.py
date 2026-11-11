@@ -929,11 +929,13 @@ class Type:
 
     @functools.cached_property
     def record(self) -> Type | None:
-        """The type of one record of a table (``| None`` aside), which is what a table input gathers; ``Any`` for a
-        table of any columns, and ``None`` for a type that is no table."""
+        """The type of one record of a table (``| None`` aside), which is what a table input gathers: its row
+        type, and ``dict`` for a table of any columns, whose records are mappings of any keys. ``None`` for a
+        type that is no table."""
         if len(self.options) != 1 or (get_origin(self.options[0]) or self.options[0]) is not _Table:
             return None
-        return Type((get_args(self.options[0]) or (Any,))[0])
+        row = (get_args(self.options[0]) or (Any,))[0]
+        return Type(dict if row is Any else row)
 
     @functools.cached_property
     def held_as_table(self) -> Type | None:

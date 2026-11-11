@@ -14,6 +14,7 @@ import time
 from dataclasses import dataclass
 from typing import Annotated, Any
 
+import polars as pl
 import pytest
 from conductor import (
     SKIPPED,
@@ -193,6 +194,26 @@ def table(text: str) -> Table:
     raise NotImplementedError
 
 
+@_node("letters")
+def letters(text: str) -> Table:
+    return pl.DataFrame({"letter": list(text)})
+
+
+@_node("height")
+def height(table: Table) -> int:
+    return table.height
+
+
+@_node("record")
+def record(text: str) -> Any:
+    return {"letter": text}
+
+
+@_node("sheets")
+def sheets(text: str) -> Series[Table]:
+    return [pl.DataFrame({"letter": list(word)}) for word in text.split()]
+
+
 def chain(*nodes: tuple[str, str]) -> dict[str, Any]:
     """Nodes in a line, each reading the ``result`` of the one before into its ``text``."""
     return {"nodes": [{"id": i, "node": n} for i, n in nodes], "edges": [[f"{a[0]}.result", f"{b[0]}.text"] for a, b in zip(nodes, nodes[1:], strict=False)]}
@@ -209,10 +230,16 @@ INNER = {
     "boom-inner": chain(("up", "upper"), ("b", "boom")),
     "maybe-inner": chain(("m", "maybe"), ("up", "upper")),
     "lines-inner": chain(("w", "words"), ("q", "ask")),  # a question per word of what it is given
+    "fetch-words-inner": chain(("w", "words"), ("f", "fetch")),  # a call on a thread per word
+    "upper-fetch-inner": chain(("up", "upper"), ("f", "fetch")),  # its last node is the one on threads
+    "two-asks-inner": {"nodes": [{"id": "f", "node": "asking-inner"}, {"id": "g", "node": "asking-inner"}], "edges": []},
+    "three-asks-inner": {"nodes": [{"id": n, "node": "asking-inner"} for n in ("f", "g", "h")], "edges": []},
     "wrapping": chain(("in", "asking-inner")),  # an embedded graph inside an embedded graph
     "deep-inner": chain(("w", "words"), ("c", "chars"), ("up", "upper")),  # its output sits two maps deep
     "series-per-item-inner": chain(("w", "words"), ("c", "chars")),  # a Series made per word
     "table-per-item-inner": chain(("w", "words"), ("t", "table")),
+    "letters-per-word-inner": chain(("w", "words"), ("t", "letters")),
+    "record-per-word-inner": chain(("w", "words"), ("r", "record")),  # each word's value is declared Any
     "columns-inner": chain(("c", "columns")),  # its first node has an input a hook reads
     "broken-inner": chain(("up", "upper"), ("x", "no-such-node")),
     "signed-inner": chain(("s", "signed")),
@@ -228,7 +255,7 @@ INNER = {
 }
 
 REGISTRY = NodeRegistry()
-for _definition in (words, sentences, chars, upper, exclaim, greet, count, ask, fetch, flaky, stuck, boom, maybe, decide, signed, columns, table, stamp, stagger):
+for _definition in (words, sentences, chars, upper, exclaim, greet, count, ask, fetch, flaky, stuck, boom, maybe, decide, signed, columns, table, stamp, stagger, letters, height, sheets, record):
     REGISTRY.add(_definition)
 for _id, _record in INNER.items():
     REGISTRY.add(_node(_id)(_record))
@@ -676,3 +703,116 @@ def test_work_carried_from_a_run_of_an_earlier_graph_is_taken_inside_where_the_n
     CALLS.clear()
     assert edited.with_inputs(text="ab cd", earlier=run).resume().results["n"]["result"] == 2
     assert CALLS == {}
+
+
+@pytest.mark.parametrize(
+    ("nodes", "edges", "series"),
+    [
+        ({"w": "words", "t": "letters", "h": "height"}, [("w.result", "t.text"), ("t.result", "h.table")], "w.result"),
+        ({"e": "letters-per-word-inner", "h": "height"}, [("e.t.result", "h.table")], "e.t.result"),
+        ({"s": "sheets", "h": "height"}, [("s.result", "h.table")], "s.result"),
+    ],
+    ids=["drawn flat", "made inside an embedded graph", "returned as a Series of tables"],
+)
+def test_tables_made_per_item_reach_a_table_input_one_table_per_item_wherever_they_are_made(nodes: dict[str, str], edges: list[tuple[str, str]], series: str):
+    graph = load(nodes, edges)
+    assert not graph.problems, graph.problems
+    run = graph.run(text="ab c")
+    assert (graph.plan["h"].mode, graph.plan["h"].series, run.status, run.results["h"]["result"]) == ("per_item", series, "complete", [2, 1])
+
+
+# -- an embedded graph's node reads alike on a run, on its copy and on either saved and loaded ---------------
+
+
+def read(run) -> tuple[Any, ...]:
+    """Everything a host reads of ``run``."""
+    waiting = [unit.model_dump() for unit in run.waiting]
+    not_called = [call.model_dump() for call in run.not_called]
+    return run.status, run.results, waiting, not_called, run.outputs if run.status == "complete" else None
+
+
+def reads_alike_loaded(run) -> bool:
+    assert read(run) == read(run.graph.load_run(run.to_json()))
+    return True
+
+
+@pytest.mark.parametrize("inner", ["asking-inner", "lines-inner", "wrapping", "staggered-inner"])
+@pytest.mark.parametrize("per_item", [False, True], ids=["once", "per item"])
+def test_an_embedded_graph_reads_alike_live_and_loaded_at_every_pause_and_after_every_answer(inner: str, per_item: bool):
+    graph = mapped(inner, "sentences") if per_item else load({"e": inner})
+    run = graph.run(text="ab cd;ef")
+    assert run.status == "waiting" and reads_alike_loaded(run)
+    while run.status == "waiting":
+        first, *rest = run.waiting
+        one = run.answer(first, "yes")  # one answer, not resumed: what it settles reads as it will loaded
+        assert reads_alike_loaded(one) and read(run) == read(run.graph.load_run(run.to_json()))  # and the run it was given to is as it was
+        answered = one.answer({unit.id: "yes" for unit in rest})
+        assert reads_alike_loaded(answered)
+        run = answered.resume()
+        assert reads_alike_loaded(run)
+    assert run.status == "complete"
+
+
+def test_an_answer_inside_an_embedded_graph_shows_in_its_results_before_the_run_goes_on_as_a_flat_nodes_does():
+    embedded, drawn = load({"e": "asking-inner"}).run(text="a"), load({"up": "upper", "q": "ask"}, [("up.result", "q.text")]).run(text="a")
+    assert embedded.answer(embedded.waiting[0], "yes").results == {"e": {"q.result": "yes"}}
+    assert drawn.answer(drawn.waiting[0], "yes").results == {"up": {"result": "A"}, "q": {"result": "yes"}}
+    assert embedded.results == {"e": {"q.result": None}}  # the run the answer was given to holds none
+
+
+def test_a_leg_stopped_at_the_ceiling_keeps_the_calls_on_threads_inside_an_embedded_graph_and_the_embedded_graph_reads_them():
+    graph = load({"e": "fetch-words-inner", "many": "words", "each": "upper"}, [("many.result", "each.text")])
+    stopped = graph.run({"e.text": "a b", "many.text": "x y z"}, max_items=2)
+    assert stopped.status == "stopped" and stopped.state.cause.loc == ("many",)
+    assert stopped.results["e"] == {"f.result": ["a?", "b?"]} and reads_alike_loaded(stopped)
+
+
+def test_a_failure_in_one_item_leaves_the_embedded_graph_of_the_items_before_it_read_alike_live_and_loaded():
+    failed = mapped("boom-inner").run(text="ab bad cd")
+    assert failed.status == "failed" and failed.results["e"] == {"b.result": ["AB", None, None]} and reads_alike_loaded(failed)
+
+
+def test_a_blank_inside_an_embedded_graph_reads_alike_live_and_loaded():
+    run = mapped("maybe-inner").run(text="ab none cd")
+    assert run.status == "complete" and [call.loc for call in run.not_called] == [("e", 1, "up")] and reads_alike_loaded(run)
+
+
+def test_a_checkpoint_mid_leg_reads_alike_loaded_whatever_inside_an_embedded_graph_has_come_back():
+    events = stream(mapped("upper-fetch-inner").with_inputs(text="a b c d"), checkpoint_every=0.01)
+    checkpoints = [event.run for event in events if isinstance(event, RunCheckpoint)]
+    assert checkpoints and all(reads_alike_loaded(checkpoint) for checkpoint in checkpoints)
+
+
+@pytest.mark.parametrize("inner", ["two-asks-inner", "three-asks-inner"])
+@pytest.mark.parametrize("per_item", [False, True], ids=["once", "per item"])
+def test_several_answers_in_one_call_under_embedded_graphs_side_by_side_inside_another_settle_the_one_around_them(inner: str, per_item: bool):
+    nodes: dict[str, str | dict[str, Any]] = {"w": "words", "e": inner} if per_item else {"e": inner}
+    graph = load(nodes, [("w.result", f"e.{name}") for name in load({"e": inner}).inputs] if per_item else [])
+    assert not graph.problems, graph.problems
+    run = graph.run(dict.fromkeys(graph.inputs, "ab cd"))
+    answered = run.answer({unit.id: "yes" for unit in run.waiting})
+    assert reads_alike_loaded(answered)
+    assert all(value == (["yes", "yes"] if per_item else "yes") for value in answered.results["e"].values())
+    some = run.answer({unit.id: "yes" for unit in run.waiting[1:]})  # all but the first: nothing around it is settled
+    assert reads_alike_loaded(some) and reads_alike_loaded(some.answer(run.waiting[0], "yes"))
+
+
+def test_every_word_answered_in_one_call_inside_one_embedded_graph_settles_it_once():
+    run = load({"e": "lines-inner"}).run(text=" ".join(f"w{i}" for i in range(300)))
+    answered = run.answer({unit.id: "yes" for unit in run.waiting})
+    assert answered.results["e"] == {"q.result": ["yes"] * 300} and reads_alike_loaded(answered)
+
+
+@pytest.mark.parametrize(
+    ("nodes", "edges"),
+    [
+        ({"w": "words", "r": "record", "h": "height"}, [("w.result", "r.text"), ("r.result", "h.table")]),
+        ({"e": "record-per-word-inner", "h": "height"}, [("e.r.result", "h.table")]),
+    ],
+    ids=["drawn flat", "made inside an embedded graph"],
+)
+def test_values_of_any_type_made_per_item_are_gathered_as_records_by_a_table_input_wherever_they_are_made(nodes: dict[str, str], edges: list[tuple[str, str]]):
+    graph = load(nodes, edges)
+    assert not graph.problems, graph.problems
+    run = graph.run(text="ab c d")
+    assert (graph.plan["h"].mode, run.status, run.results["h"]["result"]) == ("once", "complete", 3)

@@ -3,7 +3,7 @@ captured, a ``Series`` or ``Table`` input gathers, and declared types alone deci
 
 import time
 from dataclasses import dataclass
-from typing import Annotated, Any, TypedDict
+from typing import Annotated, Any, ClassVar, TypedDict
 
 import pytest
 from conductor import SKIPPED, InvalidCallError, NodeRegistry, Param, Series, Table, node
@@ -107,8 +107,46 @@ def measure(text: str) -> Size: ...
 def anything(value: Any) -> Any: ...
 
 
+@_node("height")
+def height(table: Table) -> int: ...
+
+
+@_node("sheets")
+def sheets(folder: str) -> Series[Table[Contact]]: ...
+
+
+@_node("sheet")
+def sheet(text: str) -> Table[Contact]: ...
+
+
+@_node("stacked")
+def stacked(tables: Series[Table[Contact]]) -> Table[Contact]: ...
+
+
+@_node("mappings")
+def mappings(folder: str) -> Series[dict[str, int]]: ...
+
+
+@_node("unknowns")
+def unknowns(folder: str) -> Series[Any]: ...
+
+
+@dataclass(frozen=True)
+class Person:
+    type_id: ClassVar[str] = "person"
+    type_title: ClassVar[str] = "Person"
+    name: str
+
+
+@_node("people")
+def people(folder: str) -> Series[Person]: ...
+
+
 REGISTRY = NodeRegistry()
-for _definition in (contacts, rows, send, collect, names, ages, documents, lines, count, total, pair, pair_or_alone, upper, both, decide, measure, anything):
+for _definition in (
+    contacts, rows, send, collect, names, ages, documents, lines, count, total, pair, pair_or_alone, upper, both, decide, measure, anything,
+    height, sheets, sheet, stacked, mappings, unknowns, people,
+):
     REGISTRY.add(_definition)
 
 
@@ -236,6 +274,54 @@ def test_a_table_input_gathers_records_and_lines_up_with_a_series_input_on_the_s
     assert graph.is_runnable
     assert graph.plan["s"].series == "r.result" and graph.plan["k"].mode == "once"
     assert feeds(graph, "k") == {"records": ("gathered", "r.result"), "sent": ("gathered", "r.result")}
+
+
+@pytest.mark.parametrize("source", ["rows", "mappings", "unknowns"], ids=["records of declared columns", "mappings", "items of any type"])
+def test_a_table_input_of_any_columns_gathers_what_can_be_a_record(source: str):
+    graph = load({"c": "contacts", "s": source, "h": "height"}, [*([("c.result", "s.table")] if source == "rows" else []), ("s.result", "h.table")])
+    assert graph.is_runnable and graph.plan["h"].mode == "once" and feeds(graph, "h") == {"table": ("gathered", "s.result")}
+
+
+@pytest.mark.parametrize(
+    ("nodes", "edges", "got"),
+    [
+        ({"s": "upper"}, [("s.result", "h.table")], "str"),
+        ({"s": "documents"}, [("s.result", "h.table")], "Series[str]"),
+        ({"d": "documents", "s": "upper"}, [("d.result", "s.text"), ("s.result", "h.table")], "str"),
+        ({"s": "people"}, [("s.result", "h.table")], "Series[person]"),
+    ],
+    ids=["one text", "a series of texts", "a text made per item", "a series of a dataclass, which no table input gathers"],
+)
+def test_a_table_input_of_any_columns_refuses_what_is_no_record_as_one_of_declared_columns_does(nodes: dict, edges: list, got: str):
+    graph = load({**nodes, "h": "height"}, edges)
+    assert problems(graph) == [("type_mismatch", ("h", "table"))]
+    assert (graph.problems[0].ctx["got"], graph.problems[0].ctx["expected"]) == (got, "Table")
+
+
+def test_a_series_of_tables_is_read_one_table_per_item_by_a_table_input_as_any_series_is_by_an_input_of_one_value():
+    graph = load({"s": "sheets", "h": "height", "n": "names"}, [("s.result", "h.table"), ("s.result", "n.table")])
+    assert graph.is_runnable
+    assert {n: (graph.plan[n].mode, graph.plan[n].series, feeds(graph, n)["table"]) for n in ("h", "n")} == {
+        "h": ("per_item", "s.result", ("per_item", "s.result")), "n": ("per_item", "s.result", ("per_item", "s.result")),
+    }
+
+
+def test_a_table_made_per_item_is_read_per_item_and_a_series_of_tables_input_gathers_the_tables():
+    graph = load({"d": "documents", "t": "sheet", "h": "height", "k": "stacked"}, [("d.result", "t.text"), ("t.result", "h.table"), ("t.result", "k.tables")])
+    assert graph.is_runnable
+    assert (graph.plan["h"].mode, graph.plan["h"].series, graph.plan["k"].mode) == ("per_item", "d.result", "once")
+    assert feeds(graph, "k") == {"tables": ("gathered", "d.result")}
+    whole = load({"s": "sheets", "k": "stacked"}, [("s.result", "k.tables")])
+    assert whole.is_runnable and feeds(whole, "k") == {"tables": ("gathered", "s.result")}
+
+
+def test_a_value_of_any_type_is_read_as_a_table_only_where_there_is_nothing_to_gather():
+    once = load({"a": "anything", "h": "height"}, [("a.result", "h.table")])
+    assert once.is_runnable and feeds(once, "h") == {"table": ("one_value", None)}
+    per_item = load({"d": "documents", "a": "anything", "h": "height"}, [("d.result", "a.value"), ("a.result", "h.table")])
+    assert per_item.is_runnable and per_item.plan["h"].mode == "once" and feeds(per_item, "h") == {"table": ("gathered", "d.result")}
+    items = load({"u": "unknowns", "h": "height"}, [("u.result", "h.table")])
+    assert items.is_runnable and feeds(items, "h") == {"table": ("gathered", "u.result")}
 
 
 def test_an_edge_may_name_one_field_of_a_record_and_an_unknown_field_lists_the_ones_there_are():

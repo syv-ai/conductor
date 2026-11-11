@@ -8,6 +8,7 @@ it returns a ``Series`` of its records. A blank keeps a node from being called f
 """
 import asyncio
 import datetime
+import json
 import threading
 import time
 from dataclasses import dataclass
@@ -316,6 +317,25 @@ def test_a_node_with_a_skipped_input_is_skipped_whichever_of_its_inputs_is_blank
               registry=registry_of(decide, nothing, pair, upper), **{"d.text": "ok", "n.text": "z"})
     assert run.results["u"]["result"] == "OK"
     assert run.not_called == []
+
+
+@pytest.mark.parametrize("waiting_into", ["a", "b"])
+def test_a_node_with_a_skipped_input_is_skipped_at_once_whichever_of_its_inputs_waits_for_a_person(waiting_into):
+    """A skip wins over an input that isn't there yet too, whatever the order of the parameters: what reads the
+    node goes on while the question waits."""
+    @node("asking", title="Asking", description="")
+    def asking(text: str) -> str:
+        raise Ask(f"What about {text}?")
+
+    branch_into = "b" if waiting_into == "a" else "a"
+    loaded = graph({"id": "d", "node": "decide"}, {"id": "q", "node": "asking"}, {"id": "p", "node": "pair"}, {"id": "u", "node": "upper"},
+                   edges=(("d.no", f"p.{branch_into}"), ("q.result", f"p.{waiting_into}"), ("p.result", "u.text"), ("d.yes", "u.text")),
+                   registry=registry_of(decide, asking, pair, upper))
+    run = loaded.run({"d.text": "ok", "q.text": "z"})
+    assert run.status == "waiting" and run.results["u"]["result"] == "OK"
+    assert json.loads(run.to_json())["units"]["p"]["states"] == ["skipped"]  # settled on this leg, before the answer
+    done = run.answer(run.waiting[0], "yes").resume()
+    assert done.status == "complete" and done.results["p"]["result"] is None and done.results["u"]["result"] == "OK"
 
 
 def test_choice_outputs_are_skipped_when_not_called():
