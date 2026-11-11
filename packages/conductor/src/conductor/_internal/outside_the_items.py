@@ -132,9 +132,9 @@ def _could_hold(inside: NodePath, depth: int, cell: Cell, asking: _Asking) -> An
             cell = asking.series  # an item of the Series itself is what the Series is: one never made has none
         return asking.outside.cell(inside, depth, cell)
     if type(made_by) is GraphAtPath:  # an output of an embedded graph: the cell inside that holds it
-        offered, maps, _, _ = made_by.offers[cell.output]
-        if len(maps) > len(made_by.maps):
-            return COULD  # made per item inside: a Series, whatever its items come to
+        offered, maps, _, series = made_by.offers[cell.output]
+        if series is not None:  # made per item inside: a Series, there whenever the Series its items are of is
+            return _could_hold(made_by.path, len(made_by.maps), series, asking)
         return _could_hold(made_by.path, len(maps), offered, asking)
     answer = asking.asked[made_by]
     if answer is None and made_by.placed.outputs[cell.output].param.exclusive_group is not None:
