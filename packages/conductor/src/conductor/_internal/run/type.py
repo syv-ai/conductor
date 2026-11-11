@@ -568,7 +568,7 @@ def no_units(graph: Graph) -> Units:
     return {node.name: {} for node in graph._tree}
 
 
-def run_from_json(graph: Graph, saved: str | bytes | Mapping[str, Any]) -> Run:
+def run_from_json(graph: Graph, saved: str | bytes) -> Run:
     """A run of ``graph`` from what ``run.to_json()`` wrote; a caller reaches it through ``graph.load_run``.
 
     A graph with problems takes no run, so they are what is refused, before anything of the save is read. The
@@ -582,9 +582,7 @@ def run_from_json(graph: Graph, saved: str | bytes | Mapping[str, Any]) -> Run:
     if graph.problems:
         raise InvalidCallError(graph.problems)
     try:
-        read = graph._save_form.validator.validate_json(saved if isinstance(saved, (str, bytes)) else pydantic_core.to_json(saved, inf_nan_mode="strings"))
-    except pydantic_core.PydanticSerializationError:
-        raise InvalidCallError([problem.state_unreadable("state", at="the run", reason="it is not JSON")]) from None
+        read = graph._save_form.validator.validate_json(saved)
     except ValidationError as error:
         first = error.errors(include_url=False, include_input=False)[0]
         if first["type"] == "union_tag_invalid" and not first["loc"]:  # a save is read as one of this graph, which its fingerprint says it is

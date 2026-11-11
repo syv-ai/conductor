@@ -1039,7 +1039,7 @@ def test_a_saved_run_that_does_not_fit_is_refused_naming_where_and_never_with_a_
         copy = json.loads(json.dumps(saved))
         tamper(copy)
         with pytest.raises(InvalidCallError) as refused:
-            graph.load_run(copy)
+            graph.load_run(json.dumps(copy))
         (problem,) = refused.value.errors()
         assert (problem.type, problem.ctx["at"]) == ("state_unreadable", at), problem
 

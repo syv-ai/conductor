@@ -172,7 +172,7 @@ def test_a_run_reads_back_as_itself_and_goes_on_to_the_same_result(text: str) ->
     run = graph.run(_inputs(text))
     saved = run.to_json()
 
-    for written in (saved, saved.encode(), _jsonb(saved), json.loads(saved)):
+    for written in (saved, saved.encode(), _jsonb(saved)):
         loaded = graph.load_run(written)
         assert loaded.status == run.status and [w.id for w in loaded.waiting] == [w.id for w in run.waiting]
         for node_id, results in run.results.items():
@@ -432,11 +432,11 @@ def test_only_a_series_output_can_be_saved_with_items_on_a_branch_not_taken() ->
     run = graph.run({"listed.text": "ax", "letters.text": "ax"})
     saved = json.loads(run.to_json())
     assert saved["units"]["letters"]["skipped_items"] == {"result": {"0": [1]}} and "skipped_items" not in saved["units"]["listed"]
-    assert graph.load_run(saved).to_json() == run.to_json()
+    assert graph.load_run(json.dumps(saved)).to_json() == run.to_json()
 
     saved["units"]["listed"]["skipped_items"] = {"result": {"0": [1]}}
     with pytest.raises(InvalidCallError) as refused:
-        graph.load_run(saved)
+        graph.load_run(json.dumps(saved))
 
     (problem,) = refused.value.errors()
     assert (problem.type, problem.ctx["at"]) == ("state_unreadable", "units.listed.skipped_items.result")

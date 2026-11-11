@@ -715,7 +715,7 @@ def test_a_saved_waiting_unit_the_graph_never_made_is_refused_on_load():
     asked["states"].append(None)
     asked["outputs"]["result"].append(None)
     asked["questions"]["2"] = asked["questions"]["1"]
-    (fault,) = _refused(lambda: graph.load_run(saved))
+    (fault,) = _refused(lambda: graph.load_run(json.dumps(saved)))
     assert (fault.type, fault.ctx["at"]) == ("state_unreadable", "units.q")
 
 
@@ -726,7 +726,7 @@ def test_a_save_cannot_hold_a_waiting_unit_without_its_question():
     saved = json.loads(run.to_json())
     assert saved["units"]["q"]["states"] == ["done", None] and list(saved["units"]["q"]["questions"]) == ["1"]
     del saved["units"]["q"]["questions"]
-    loaded = graph.load_run(saved)
+    loaded = graph.load_run(json.dumps(saved))
     assert loaded.waiting == []
     assert [place(w) for w in loaded.resume().waiting] == ["q@1"]  # the node is called for it, and asks again
 

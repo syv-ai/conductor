@@ -892,7 +892,7 @@ def test_a_float_that_is_not_finite_inside_a_model_survives_a_saved_run_and_the_
     ))
     paused = graph.run(text="x")
 
-    loaded = graph.load_run(json.loads(paused.to_json()))
+    loaded = graph.load_run(paused.to_json())
 
     reading = loaded.results["m"]["result"]
     assert math.isnan(reading.value) and (reading.low, reading.high) == (-math.inf, math.inf)

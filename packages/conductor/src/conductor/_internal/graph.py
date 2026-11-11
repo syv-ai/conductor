@@ -60,11 +60,10 @@ class Graph(CheckedGraph):
         """Run the graph with these inputs until it is done, waits for a person, fails or stops."""
         return self.with_inputs(inputs, max_items=max_items, **by_name).resume(from_run=from_run, timeout=timeout)
 
-    def load_run(self, saved: str | bytes | Mapping[str, Any]) -> Run:
-        """A run of this graph from what ``run.to_json()`` wrote; a graph with problems refuses it with them.
+    def load_run(self, saved: str | bytes) -> Run:
+        """A run of this graph from the JSON text ``run.to_json()`` wrote; a graph with problems refuses it with them.
 
-        A save is read from its JSON text, a mapping written as JSON first, so each value is read as its type
-        reads JSON.
+        Each value in the save is read the way its type reads JSON, a date from its text for example.
         """
         return run_from_json(self, saved)
 

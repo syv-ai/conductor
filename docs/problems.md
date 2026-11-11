@@ -731,8 +731,8 @@ import json
 
 tampered = json.loads(uppering.run(text="a").to_json())
 tampered["units"] = {"upper": "not units"}
-print(refused(lambda: uppering.load_run(tampered)))  # ['state_unreadable']
-print(said(lambda: uppering.load_run(tampered))[0])  # The saved run does not fit this graph at 'units.upper': Input should be an object. Load it into the graph it was saved from.
+print(refused(lambda: uppering.load_run(json.dumps(tampered))))  # ['state_unreadable']
+print(said(lambda: uppering.load_run(json.dumps(tampered)))[0])  # The saved run does not fit this graph at 'units.upper': Input should be an object. Load it into the graph it was saved from.
 ```
 
 **Fix.** Load what `run.to_json()` wrote, unchanged. `ctx.at` says where it stopped fitting.
