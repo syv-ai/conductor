@@ -55,7 +55,6 @@ class Problem(ConductorModel):
 
 
 _Said = ParamSpec("_Said")
-_typed_dict: Any = TypedDict  # called with fields read off a signature, which a type checker takes only as a literal
 
 
 @final
@@ -89,7 +88,7 @@ class ProblemKind(Generic[_Said]):
         keys = [p for p in parameters if p.kind is not p.VAR_POSITIONAL]
         slots = {p.name: ["{" + p.name + "}"] if typing.get_origin(p.annotation) is list else "{" + p.name + "}" for p in keys if p.default is not None}
         self.sentence = typing.cast("Callable[..., str]", say)(**slots)
-        self.ctx_type: Any = _typed_dict(code, {
+        self.ctx_type: Any = typing.cast("Any", TypedDict)(code, {  # the fields are read off a signature, which a type checker takes only as a literal
             **{p.name: NotRequired[_without_none(p.annotation)] if p.default is None else p.annotation for p in keys},
             **({"hint": Literal[hint]} if hint else {}),
         })

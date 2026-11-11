@@ -69,7 +69,6 @@ from conductor._internal.problem import InvalidCallError, Problem, value_free_er
 from conductor._internal.problem import catalogue as problem
 from conductor._internal.reusable_results import ReusableResults, fingerprint_of, lineage
 from conductor._internal.run.arguments import (
-    CallInputs,
     DisplayReader,
     ResultReader,
 )
@@ -397,7 +396,7 @@ class Run:
             for key, outcome in self._outcomes[node.name].items():
                 if type(outcome) is Skipped or type(outcome) is outcomes.NotCalled:
                     continue
-                received = cast("CallInputs", reader.arguments_for(node, key))  # the unit was called, so what it reads is settled and it received a call's arguments
+                received = cast("dict[str, Any]", reader.arguments_for(node, key))  # the unit was called, so what it reads is settled and it received a call's arguments
                 fingerprint = fingerprint_of(placed.reuse_digest, received, plain=placed.plain_inputs)
                 if fingerprint is None:
                     continue

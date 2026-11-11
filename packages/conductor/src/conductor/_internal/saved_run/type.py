@@ -20,11 +20,6 @@ SavedOutcomeState = Literal["done", "skipped"]
 SAVED_DONE, SAVED_SKIPPED = get_args(SavedOutcomeState)
 
 
-#: The slots of one output whose value is a branch not taken.
-SkippedSlots = list[NonNegativeInt]
-
-#: By slot, the items of a ``Series`` output there that are a branch not taken.
-SkippedItems = dict[NonNegativeInt, list[NonNegativeInt]]
 
 
 @dataclass(slots=True, kw_only=True)
@@ -54,8 +49,8 @@ class SavedOutcomes:
     outputs: dict[str, list[Any]]
     questions: dict[NonNegativeInt, Question] | None = None
     blank_inputs: dict[NonNegativeInt, str] | None = None
-    skipped: dict[str, SkippedSlots] | None = None
-    skipped_items: dict[str, SkippedItems] | None = None
+    skipped: dict[str, list[NonNegativeInt]] | None = None
+    skipped_items: dict[str, dict[NonNegativeInt, list[NonNegativeInt]]] | None = None
 
 
 @dataclass(slots=True, kw_only=True)

@@ -7,7 +7,7 @@ from collections.abc import Iterable, Mapping
 from types import MappingProxyType
 from typing import Any, NamedTuple
 
-from pydantic import TypeAdapter
+from pydantic import NonNegativeInt, TypeAdapter
 from pydantic_core import CoreConfig, CoreSchema, SchemaSerializer, SchemaValidator, core_schema
 
 from conductor._internal.field import Field
@@ -17,8 +17,6 @@ from conductor._internal.saved_run.type import (
     SavedOutcomes,
     SavedReusable,
     SavedRun,
-    SkippedItems,
-    SkippedSlots,
 )
 from conductor._internal.value_type import Type
 
@@ -26,7 +24,7 @@ from conductor._internal.value_type import Type
 _OUTCOMES, _REUSABLE, _RUN = (TypeAdapter(record).core_schema for record in (SavedOutcomes, SavedReusable, SavedRun))
 
 #: The schemas of what ``SavedOutcomes`` holds for one output beside its column.
-_SKIPPED_SLOTS, _SKIPPED_ITEMS = TypeAdapter(SkippedSlots).core_schema, TypeAdapter(SkippedItems).core_schema
+_SKIPPED_SLOTS, _SKIPPED_ITEMS = TypeAdapter(list[NonNegativeInt]).core_schema, TypeAdapter(dict[NonNegativeInt, list[NonNegativeInt]]).core_schema
 
 #: The key of a save that names its graph, as ``SavedRun`` declares it.
 _GRAPH = SavedRun.__dataclass_fields__["graph"].name  # a KeyError where this is read, should the field be renamed

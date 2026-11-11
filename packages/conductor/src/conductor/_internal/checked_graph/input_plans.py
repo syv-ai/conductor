@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import dataclasses
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, NamedTuple, Protocol, final
+from typing import TYPE_CHECKING, Any, NamedTuple, final
 
 from conductor._internal.field import Field
 from conductor._internal.outcomes import NOT_READY, ItemPath
@@ -31,6 +31,7 @@ from conductor._internal.value_type import Type
 
 if TYPE_CHECKING:
     from conductor._internal.checked_graph.tree import FunctionAtPath
+    from conductor._internal.run.arguments import Reader
 
 
 class OutputAddress(NamedTuple):
@@ -138,20 +139,6 @@ Source = WholeOutput | ItemOfSeries | SeriesAsList
 # -- how an input gets its value ----------------------------------------------------------------
 
 
-class ReadsOutputs(Protocol):
-    """What a plan asks of what reads for it: a way to read one output, for one item or for an item nobody
-    knows. Each answer is a value, ``None`` for a blank, ``SKIPPED`` for a branch not taken, or ``NOT_READY``."""
-
-    def read_output(self, at: OutputAtScope, item_path: ItemPath) -> Any:
-        """What the output ``at`` holds for ``item_path``, as an edge brings it."""
-
-    def read_alternatives(self, reads: tuple[OutputAtScope, ...], item_path: ItemPath) -> Any:
-        """What alternative edges bring one input: the best of what each brings."""
-
-    def collect(self, plan: InputGathersItems, item_path: ItemPath) -> Any:
-        """What the gathering input of ``plan`` holds: its items, or what is outside them when that decides."""
-
-
 @final
 @dataclass(frozen=True, slots=True)
 class InputHoldsValue:
@@ -215,7 +202,7 @@ class InputReadsOneValue:
         """What each edge brings."""
         return self.reads
 
-    def value(self, reader: ReadsOutputs, item_path: ItemPath) -> Any:
+    def value(self, reader: Reader, item_path: ItemPath) -> Any:
         """What the input holds for ``item_path``: what its edge brings, or the best of alternative edges."""
         reads = self.reads
         return reader.read_output(reads[0], item_path) if len(reads) == 1 else reader.read_alternatives(reads, item_path)
@@ -249,7 +236,7 @@ class InputGathersItems:
         """What each edge brings for an item."""
         return self.reads[1:]  # type: ignore[return-value]  # every output after the Series is what an edge brings
 
-    def value(self, reader: ReadsOutputs, item_path: ItemPath) -> Any:
+    def value(self, reader: Reader, item_path: ItemPath) -> Any:
         """What the input holds for ``item_path``: the items of its Series, or what is outside them when that
         decides."""
         return reader.collect(self, item_path)
@@ -280,7 +267,7 @@ class InputGathersOneValue:
         """What each edge brings."""
         return self.reads
 
-    def value(self, reader: ReadsOutputs, item_path: ItemPath) -> Any:
+    def value(self, reader: Reader, item_path: ItemPath) -> Any:
         """What the input holds for ``item_path``: the one value its edge brings, as a list of one; where the
         items take a blank, a blank is its one item."""
         reads = self.reads

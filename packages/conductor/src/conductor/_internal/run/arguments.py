@@ -64,9 +64,6 @@ from conductor._internal.series import places_of_none, without_places
 if TYPE_CHECKING:
     from conductor._internal.checked_graph.tree import FunctionAtPath
 
-#: The arguments of one call of a node, by input name.
-CallInputs = dict[str, Any]
-
 
 class _MayHaveValue:
     def __repr__(self) -> str:
@@ -101,10 +98,10 @@ class Reader(abc.ABC):
         ``SKIPPED`` for a branch not taken, or ``NOT_READY``."""
 
     @abc.abstractmethod
-    def align_lists(self, node: FunctionAtPath, arguments: CallInputs) -> CallInputs:
+    def align_lists(self, node: FunctionAtPath, arguments: dict[str, Any]) -> dict[str, Any]:
         """``arguments`` with the gathering inputs of ``node`` that gather one Series holding the same items."""
 
-    def arguments_for(self, node: FunctionAtPath, item_path: ItemPath) -> CallInputs | Skipped | NotCalled | Literal[NotReady.NOT_READY]:
+    def arguments_for(self, node: FunctionAtPath, item_path: ItemPath) -> dict[str, Any] | Skipped | NotCalled | Literal[NotReady.NOT_READY]:
         """What ``node`` comes to for ``item_path``: the node rule.
 
         Every input is read before not settled or a blank is the answer, so the order of a node's parameters
@@ -244,7 +241,7 @@ class ResultReader(Reader):
         brought = LoopDryRun(self, made, item_path).result_for_every_item(plan)
         return brought if brought is not MAY_HAVE_VALUE else self.read_output(made, item_path)
 
-    def align_lists(self, node: FunctionAtPath, arguments: CallInputs) -> CallInputs:
+    def align_lists(self, node: FunctionAtPath, arguments: dict[str, Any]) -> dict[str, Any]:
         """``arguments`` with each gathering input holding the items that have a value in every input of the
         node that gathers the same Series, so those inputs stay in step; an input whose items may be blank
         keeps a blank in its place."""
@@ -332,7 +329,7 @@ class LoopDryRun(Reader):
 
     def __init__(self, items: ResultReader, series: OutputAtScope, item_path: ItemPath) -> None:
         self.items, self.series, self.item_path, self.graph_inputs = items, series, item_path, items.graph_inputs
-        self.dry_outcomes: dict[str, CallInputs | Skipped | NotCalled | Literal[NotReady.NOT_READY]] = {}
+        self.dry_outcomes: dict[str, dict[str, Any] | Skipped | NotCalled | Literal[NotReady.NOT_READY]] = {}
 
     def result_for_every_item(self, plan: InputGathersItems) -> Any:
         """Whether any item of the Series could bring the gathering input of ``plan`` a value, going by what
@@ -370,7 +367,7 @@ class LoopDryRun(Reader):
         value = self.items.collect(plan, self.item_path)
         return value if value is NOT_READY or value is SKIPPED or value is None else MAY_HAVE_VALUE
 
-    def align_lists(self, node: FunctionAtPath, arguments: CallInputs) -> CallInputs:
+    def align_lists(self, node: FunctionAtPath, arguments: dict[str, Any]) -> dict[str, Any]:
         """``arguments`` as it is: nothing is known of the items to keep in step."""
         return arguments
 
