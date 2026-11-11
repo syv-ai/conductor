@@ -72,7 +72,7 @@ base = NodeRegistry()
 base.add(trim, upper)
 clean = node("clean", title="Clean", description="")(make_graph(trim, upper))
 base.add(clean)
-outer = make_graph(clean, upper, edges=[("clean.result", "upper.text")], values={"clean.text": "  hi  "})
+outer = make_graph(clean, upper, edges=[("clean.upper.result", "upper.text")], values={"clean.text": "  hi  "})
 assert base.load(outer).run().outputs == {"upper.result": "HI"}
 """
 
@@ -145,12 +145,7 @@ def programs(tmp_path_factory: pytest.TempPathFactory) -> list[pathlib.Path]:
     return written
 
 
-_HELD_BACK = {
-    "an_embedded_graph.py": pytest.mark.skip(reason="embedding: nested run not built"),
-}
-
-
-@pytest.mark.parametrize("program", [pytest.param(name, marks=_HELD_BACK.get(name, ())) for name in _programs()])
+@pytest.mark.parametrize("program", list(_programs()))
 def test_a_first_hour_program_runs(program: str) -> None:
     namespace: dict[str, object] = {"__name__": "not_main"}
     exec(compile(_programs()[program], program, "exec"), namespace)

@@ -207,7 +207,6 @@ def test_a_run_that_waits_per_item_saves_and_loads_back_onto_the_same_items():
 # -- an embedded graph, per outer item -----------------------------------------------------------------------------
 
 
-@pytest.mark.skip(reason="embedding: nested run not built")
 def test_an_embedded_graph_fed_one_file_per_outer_item_runs_per_item_whether_it_reviews_each_or_all():
     reg = NodeRegistry()
     reg.add_subregistry(registry)
@@ -217,7 +216,7 @@ def test_an_embedded_graph_fed_one_file_per_outer_item_runs_per_item_whether_it_
     for inner, results in (("per", ["rev(X)", "rev(Y)", "rev(Z)"]), ("together", ["overall(1)", "overall(1)", "overall(1)"])):
         outer = drawn(("s", "split"), ("e", inner), edges=(("s.result", "e.file"),))
         assert list(ran(outer, reg, text="x,y,z").outputs.values()) == [results]
-    assert ran(drawn(("e", "per")), reg, file="a").outputs == {"e.result": "rev(A)"}
+    assert ran(drawn(("e", "per")), reg, file="a").outputs == {"e.review.result": "rev(A)"}
 
 
 # -- what a yes or no, and a limit, land on ------------------------------------------------------------------------

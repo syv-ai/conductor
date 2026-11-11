@@ -582,7 +582,6 @@ def test_a_save_names_its_graph_and_an_edited_graph_refuses_it_while_display_alo
     assert registry_of(shout).load(drawn).load_run(saved).results == {"s": {"result": "A"}}
 
 
-@pytest.mark.skip(reason="embedding: nested run not built")
 def test_a_save_names_the_graphs_embedded_in_its_graph_too():
     @node("shout", title="Shout", description="")
     def shout(text: str) -> str:

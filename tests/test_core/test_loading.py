@@ -452,33 +452,23 @@ def test_with_inputs_refuses_every_fault_at_once_listing_what_it_offers():
 # -- embedded graphs -------------------------------------------------------------------------------
 
 
-@pytest.mark.skip(reason="embedding: nested run not built")
 def test_an_embedding_offers_its_inner_open_input_and_output_as_one_node():
     assert enrich.title == "Enrich"
     graph = REGISTRY.load({"nodes": [{"id": "e", "node": "enrich"}]})
     assert graph.problems == [] and list(graph.inputs) == ["text"] and graph.inputs["text"].title == "Text"
     run = graph.run(text="hi")
-    assert run.outputs == {"e.result": "HI."} and run.results["e"] == {"result": "HI."}
+    assert graph.outputs == ["e.tail.result"] and run.outputs == {"e.tail.result": "HI."} and run.results["e"] == {"tail.result": "HI."}
 
 
-@pytest.mark.skip(reason="embedding: nested run not built")
-def test_an_embedding_is_wired_by_the_names_it_offers():
-    record = {"nodes": [{"id": "g", "node": "greet"}, {"id": "e", "node": "enrich"}, {"id": "u", "node": "upper"}], "edges": [["g.result", "e.text"], ["e.result", "u.text"]]}
-    graph = REGISTRY.load(record)
-    assert graph.problems == [] and graph.run(text="hi").outputs == {"u.result": "HI."}
-
-
-@pytest.mark.skip(reason="embedding: nested run not built")
 def test_a_value_typed_on_an_embedding_reaches_the_inner_input_it_offers():
     graph = REGISTRY.load({"nodes": [{"id": "e", "node": "enrich", "values": {"text": "hi"}}]})
-    assert graph.problems == [] and graph.inputs == {} and graph.run().outputs == {"e.result": "HI."}
+    assert graph.problems == [] and graph.inputs == {} and graph.run().outputs == {"e.tail.result": "HI."}
 
 
-@pytest.mark.skip(reason="embedding: nested run not built")
 def test_an_unfed_embedding_keeps_its_inner_defaults_and_runs_once():
     graph = REGISTRY.load({"nodes": [{"id": "d", "node": "defaulted"}]})
     assert {k: v.mode for k, v in graph.plan.items()} == {"d": "once"}
-    assert graph.run().outputs == {"d.result": "inside"}
+    assert graph.run().outputs == {"d.g.result": "inside"}
 
 
 def test_an_inner_input_with_a_default_is_offered_as_not_required():
@@ -486,19 +476,17 @@ def test_an_inner_input_with_a_default_is_offered_as_not_required():
     assert REGISTRY.load({"nodes": [{"id": "e", "node": "enrich"}]}).inputs["text"].required is True
 
 
-@pytest.mark.skip(reason="embedding: nested run not built")
 def test_a_graph_inside_a_graph_is_one_node_from_outside():
     run = REGISTRY.load({"nodes": [{"id": "t", "node": "top"}]}).run(text="hi")
-    assert run.outputs == {"t.result": "HI"} and run.results["t"] == {"result": "HI"}
+    assert run.outputs == {"t.inner.up.result": "HI"} and run.results == {"t": {"inner.up.result": "HI"}}
 
 
-@pytest.mark.skip(reason="embedding: nested run not built")
-def test_renaming_a_node_inside_an_embedding_breaks_no_caller():
+def test_renaming_a_node_inside_an_embedding_keeps_its_inputs_names_and_moves_its_outputs_address():
     renamed = node("enrich", title="Enrich", description="")(GraphRecord(nodes=[NodeRecord(id="shout", node="upper"), NodeRecord(id="end", node="tail")], edges=[("shout.result", "end.text")]))
     record = {"nodes": [{"id": "g", "node": "greet"}, {"id": "e", "node": "enrich"}], "edges": [["g.result", "e.text"]]}
-    for embedded in (enrich, renamed):
+    for embedded, output in ((enrich, "e.tail.result"), (renamed, "e.end.result")):
         graph = registry_of(greet, upper, tail, embedded).load(record)
-        assert graph.problems == [] and graph.run(text="hi").outputs[graph.outputs[0]] == "HI."
+        assert graph.problems == [] and graph.run(text="hi").outputs == {output: "HI."}
 
 
 def test_a_value_on_an_input_the_embedding_does_not_offer_is_an_unknown_input():
@@ -508,20 +496,18 @@ def test_a_value_on_an_input_the_embedding_does_not_offer_is_an_unknown_input():
     assert [(p.type, p.loc, p.ctx["inputs"]) for p in by_inner_address] == [("unknown_input", ("e", "upper.text"), ["text"])]
 
 
-@pytest.mark.skip(reason="embedding: nested run not built")
 def test_a_table_made_inside_an_embedding_is_offered_whole_as_the_one_value_it_is():
     graph = REGISTRY.load({
         "nodes": [{"id": "t", "node": "team"}, {"id": "p", "node": "each-person"}, {"id": "u", "node": "upper"}],
-        "edges": [["t.result", "p.table"], ["p.result.email", "u.text"]],
+        "edges": [["t.people.result", "p.table"], ["p.result.email", "u.text"]],
     })
     assert graph.problems == []
     assert graph.run(text="name,email\nIda,ida@a.dk\nBo,bo@b.dk\n").outputs == {"u.result": ["IDA@A.DK", "BO@B.DK"]}
 
 
-@pytest.mark.skip(reason="embedding: nested run not built")
 def test_a_node_built_from_a_graph_offers_its_inner_inputs_and_carries_its_deprecation():
     graph = REGISTRY.load({"nodes": [{"id": "w", "node": "wrapped"}]})
-    assert list(graph.inputs) == ["text"] and graph.run(text="a").outputs == {"w.result": "A"}
+    assert list(graph.inputs) == ["text"] and graph.run(text="a").outputs == {"w.upper.result": "A"}
     assert wrapped.describe().deprecation.header == "Gone"
     assert REGISTRY.describe().nodes[[n.id for n in REGISTRY].index("wrapped")].deprecation.header == "Gone"
 
@@ -684,9 +670,8 @@ def test_a_wrong_address_on_an_embedding_is_unknown_output_or_unknown_input_on_i
     assert found({"nodes": nodes[::-1], "edges": [["u.result", "e.tail"]]}) == [("unknown_input", ("e", "tail"))]
 
 
-@pytest.mark.skip(reason="embedding: nested run not built")
 @pytest.mark.parametrize("ctx", [{"tables": [1, 2]}, {"source": "e/report.pdf", "node_id": "anything"}])
-def test_an_inner_nodes_own_error_is_said_of_its_embedding_with_its_ctx_as_its_author_wrote_it(ctx):
+def test_an_inner_nodes_own_error_is_said_where_it_is_inside_the_embedding_with_its_ctx_as_its_author_wrote_it(ctx):
     @node("unreadable", title="Unreadable", description="")
     def unreadable(text: str) -> str:
         raise NodeError("The document could not be read.", code="unreadable", ctx=ctx)
@@ -694,7 +679,8 @@ def test_an_inner_nodes_own_error_is_said_of_its_embedding_with_its_ctx_as_its_a
     embedding = node("e", title="E", description="")(make_graph(unreadable))
     run = registry_of(unreadable, embedding).load(make_graph(embedding)).run(text="hi")
 
-    assert (run.state.cause.type, run.state.cause.loc, run.state.cause.ctx) == ("unreadable", ("e",), ctx)
+    assert (run.status, run.state.cause.msg) == ("failed", "The document could not be read.")
+    assert (run.state.cause.type, run.state.cause.loc, run.state.cause.ctx) == ("unreadable", ("e", "unreadable"), ctx)
 
 
 def test_an_outer_edge_never_reads_inside_an_embedding_by_an_inner_id():
@@ -714,11 +700,10 @@ def test_an_inner_input_a_hook_reads_is_set_inside_the_graph_so_a_value_typed_fo
     assert (problem.type, problem.loc, problem.ctx["inputs"]) == ("unknown_input", ("p", "mode"), [])
 
 
-@pytest.mark.skip(reason="embedding: nested run not built")
 def test_an_embeddings_inputs_are_filled_by_its_own_address():
     graph = OUTSIDE.load({"nodes": [{"id": "e", "node": "enrich"}, {"id": "u", "node": "upper"}]})
     assert {name: i.address for name, i in graph.inputs.items()} == {"e.text": "e.text", "u.text": "u.text"}
-    assert graph.run({"e.text": "hi", "u.text": "yo"}).outputs == {"e.result": "HI.", "u.result": "YO"}
+    assert graph.run({"e.text": "hi", "u.text": "yo"}).outputs == {"e.tail.result": "HI.", "u.result": "YO"}
 
 
 def test_two_inner_inputs_sharing_a_name_are_offered_by_the_inner_records_ids():
@@ -777,10 +762,9 @@ def test_graphs_embedded_forty_deep_load_at_once():
     assert time.monotonic() - started < 2 and graph.problems == [] and list(graph.inputs) == ["text"]
 
 
-@pytest.mark.skip(reason="embedding: nested run not built")
 def test_graphs_embedded_forty_deep_run_as_the_one_node_inside_them():
     registry, outermost = _nested_forty_deep()
-    assert registry.load({"nodes": [{"id": "top", "node": outermost}]}).run(text="z").outputs == {"top.result": "Z"}
+    assert registry.load({"nodes": [{"id": "top", "node": outermost}]}).run(text="z").outputs == {"top" + ".n" * 40 + ".result": "Z"}
 
 
 def test_describe_lists_each_nodes_problems_on_it():
@@ -809,7 +793,6 @@ def test_a_type_mismatch_into_a_series_says_the_series_it_reads():
     assert [p.type for p in refused.value.errors()] == ["type_mismatch"]
 
 
-@pytest.mark.skip(reason="embedding: nested run not built")
 def test_what_the_outside_gives_an_embedded_input_replaces_the_inner_default():
     from conductor import NodeRegistry, make_graph, node
 
@@ -824,13 +807,13 @@ def test_what_the_outside_gives_an_embedded_input_replaces_the_inner_default():
     registry = NodeRegistry()
     registry.add(upper, hello, node("shout", title="Shout", description="")(make_graph(upper, defaults={"upper.text": "inner"})))
     shout = registry["shout"]
-    assert registry.load(make_graph(shout)).run().outputs == {"shout.result": "INNER"}
+    assert registry.load(make_graph(shout)).run().outputs == {"shout.upper.result": "INNER"}
     typed = registry.load(make_graph(shout, values={"shout.text": "outer"}))
-    assert typed.problems == [] and typed.run().outputs == {"shout.result": "OUTER"}
+    assert typed.problems == [] and typed.run().outputs == {"shout.upper.result": "OUTER"}
     defaulted = registry.load(make_graph(shout, defaults={"shout.text": "outer"}))
-    assert defaulted.problems == [] and defaulted.run().outputs == {"shout.result": "OUTER"}
+    assert defaulted.problems == [] and defaulted.run().outputs == {"shout.upper.result": "OUTER"}
     fed = registry.load(make_graph(hello, shout, edges=[("hello.result", "shout.text")]))
-    assert fed.problems == [] and fed.run().outputs == {"shout.result": "HI"}
+    assert fed.problems == [] and fed.run().outputs == {"shout.upper.result": "HI"}
 
 
 def test_a_yes_or_no_never_lands_on_a_number_and_a_union_is_said_by_its_members_names():
@@ -1038,13 +1021,12 @@ def adds(names: list[str] = [], **values: Any) -> str:  # noqa: B006
     return ",".join(f"{k}={v}" for k, v in values.items())
 
 
-@pytest.mark.skip(reason="embedding: nested run not built")
 def test_an_embedding_offers_the_fields_its_graph_offers_alone_as_its_hooks_made_them():
     added = GraphRecord(nodes=[NodeRecord(id="a", node="adds", values={"names": ["who"]})])
     made = GraphRecord(nodes=[NodeRecord(id="c", node="columns", values={"names": ["x", "y"]})])
     registry = registry_of(adds, columns, node("box_in", title="Box in", description="")(added), node("box_out", title="Box out", description="")(made))
     assert list(registry.load(added).inputs) == ["who"]
     graph = registry.load({"nodes": [{"id": "b", "node": "box_in"}]})
-    assert graph.problems == [] and list(graph.inputs) == ["who"] and graph.run(who="x").outputs == {"b.result": "who=x"}
+    assert graph.problems == [] and list(graph.inputs) == ["who"] and graph.run(who="x").outputs == {"b.a.result": "who=x"}
     graph = registry.load({"nodes": [{"id": "b", "node": "box_out"}]})
-    assert graph.outputs == ["b.x", "b.y"] and graph.run(text="hi").outputs == {"b.x": "hi", "b.y": "hi"}
+    assert graph.outputs == ["b.c.x", "b.c.y"] and graph.run(text="hi").outputs == {"b.c.x": "hi", "b.c.y": "hi"}

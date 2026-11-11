@@ -83,7 +83,6 @@ def test_nodes_that_keep_the_contract_give_no_problem():
     assert found(registry_of(upper, columns, count, approve, who), examples=GOOD_EXAMPLES, from_run={Session: Session()}) == []
 
 
-@pytest.mark.skip(reason="embedding: nested run not built")
 def test_a_node_built_from_a_graph_runs_its_example_as_any_node_does():
     assert found(registry_of(upper, shout), examples={"shout": [{"text": "hi"}]}) == []
 

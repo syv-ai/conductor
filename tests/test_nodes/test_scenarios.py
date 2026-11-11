@@ -387,7 +387,6 @@ def test_scenario_10_a_nested_approval_saved_and_resumed_in_another_process():
 # -- 11. a sub-graph per item: 3 boxes ------------------------------------------------------------------------
 
 
-@pytest.mark.skip(reason="embedding: nested run not built")
 def test_scenario_11_a_sub_graph_per_item():
     enrich = node("enrich", title="Enrich a contact", description="Looks a contact up and writes a greeting.")(
         make_graph(llm, values={"llm.prompt": "Write a greeting for"})
@@ -396,20 +395,19 @@ def test_scenario_11_a_sub_graph_per_item():
         ("read-contacts.result", "split.value"), ("split.result.name", "enrich.text"),
     ]))
     assert graph.plan["enrich"].series == "split.result"
-    assert graph.run(file=CONTACTS).outputs == {"enrich.result": ["Write a greeting for Ann", "Write a greeting for Bo", "Write a greeting for Cy"]}
+    assert graph.run(file=CONTACTS).outputs == {"enrich.llm.result": ["Write a greeting for Ann", "Write a greeting for Bo", "Write a greeting for Cy"]}
 
 
 # -- 12. a sub-graph given the whole table: 2 boxes -----------------------------------------------------------
 
 
-@pytest.mark.skip(reason="embedding: nested run not built")
 def test_scenario_12_a_sub_graph_given_the_whole_table():
     table_report = node("table-report", title="Report on a table", description="Writes a report on a table.")(
         make_graph(describe_table, llm, edges=[("describe-table.result", "llm.text")], values={"llm.prompt": "Write a report on"})
     )
     graph = registry_with(table_report).load(make_graph(read_csv, table_report, edges=[("read-csv.result", "table-report.table")]))
     assert graph.plan["table-report"].mode == "once"
-    assert graph.run(file=File(name="complaints.csv", text=COMPLAINTS)).outputs == {"table-report.result": "Write a report on 3 lines of id, text, amount"}
+    assert graph.run(file=File(name="complaints.csv", text=COMPLAINTS)).outputs == {"table-report.llm.result": "Write a report on 3 lines of id, text, amount"}
 
 
 # -- 13. contacts and orders joined on a key: 3 boxes ---------------------------------------------------------

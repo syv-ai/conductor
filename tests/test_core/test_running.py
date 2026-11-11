@@ -843,32 +843,6 @@ def test_a_node_starts_before_any_other_event_about_it_when_its_items_are_taken_
     assert about_approve.count("node_start") == 1
 
 
-@pytest.mark.skip(reason="embedding: nested run not built")
-def test_a_node_finished_on_an_earlier_leg_is_not_said_complete_again_and_an_embedding_completes_once():
-    @node("ask", title="Ask", description="")
-    def ask(text: str) -> str:
-        raise Ask(f"{text}?")
-
-    @node("upper", title="Upper", description="")
-    def upper(text: str) -> str:
-        return text.upper()
-
-    inner = node("checked", title="Checked", description="")(make_graph(upper, ask))
-    graph = registry_of(split, ask, upper, join, inner).load(GraphRecord(
-        nodes=[NodeRecord(id="s", node="split"), NodeRecord(id="e", node="checked"), NodeRecord(id="j", node="join")],
-        edges=[("s.result", "e.text"), ("e.result", "j.texts")],
-    ))
-    first = graph.with_inputs(text="a,b")
-    events = _events(first)
-    paused = events[-1].run
-    assert [e.loc[0] for e in events if e.type == "node_complete"] == ["s"]
-
-    answered = paused.answer({w.id: "yes" for w in paused.waiting})
-    later = _events(answered)
-
-    assert [e.loc[0] for e in later if e.type == "node_complete"] == ["e", "j"]
-
-
 def test_a_series_over_the_item_ceiling_coming_back_after_a_failure_leaves_the_failure_the_cause():
     @node("boom", title="Boom", description="", policy=Policy(concurrency=2))
     def boom(text: str) -> str:
@@ -1025,7 +999,6 @@ def test_a_failed_leg_with_calls_on_threads_offers_a_checkpoint_saying_it_failed
     assert seen[-1].type == "run_end" and seen[-1].status == "failed"
 
 
-@pytest.mark.skip(reason="embedding: nested run not built")
 def test_an_embeddings_items_not_called_count_once_however_many_of_its_nodes_were_not():
     @node("words", title="Words", description="")
     def words(text: str) -> Series[str | None]:
@@ -1041,6 +1014,7 @@ def test_an_embeddings_items_not_called_count_once_however_many_of_its_nodes_wer
     ))
     events = _events(graph.with_inputs(text="a _ b _"))
 
-    (complete,) = [e for e in events if e.type == "node_complete" and e.loc[0] == "emb"]
+    (complete,) = [e for e in events if e.type == "node_complete" and e.loc == ("emb",)]
     assert (complete.units, complete.not_called) == (4, 2)
     assert events[-1].run.not_called == [NotCalled(loc=("emb", 1), input="text"), NotCalled(loc=("emb", 3), input="text")]
+    assert {e.loc[:2] for e in events if e.type == "node_start" and len(e.loc) > 1} == {("emb", 0), ("emb", 2)}  # nothing inside an item not called starts

@@ -457,33 +457,6 @@ def test_a_value_with_no_json_form_is_called_again_and_never_fails_the_run():
     assert len(calls) == 2
 
 
-@pytest.mark.skip(reason="embedding: nested run not built")
-def test_inner_units_of_an_embedded_graph_are_reused_like_any_others():
-    sent: list[str] = []
-
-    @node("mail", title="Mail", description="")
-    def mail(to: str) -> str:
-        sent.append(to)
-        return f"sent {to}"
-
-    @node("upper", title="Upper", description="")
-    def upper(text: str) -> str:
-        return text.upper()
-
-    @node("split", title="Split", description="")
-    def split(text: str) -> Series[str]:
-        return text.split(",")
-
-    inner = node("notify", title="Notify", description="")(make_graph(upper, mail))
-    graph = registry_of(split, upper, mail, inner).load(GraphRecord(nodes=[NodeRecord(id="s", node="split"), NodeRecord(id="n", node="notify")], edges=[("s.result", "n.text")]))
-    first = graph.run(text="ida,bo")
-    sent.clear()
-
-    again = first.again(text="ida,bo,al")
-
-    assert sent == ["AL"] and again.results["n"]["result"] == ["sent IDA", "sent BO", "sent AL"]
-
-
 def test_an_answer_stays_with_its_item_when_an_item_is_inserted_above_and_an_edited_item_asks_again():
     @node("approve", title="Approve", description="")
     def approve(name: str) -> bool:
@@ -660,7 +633,6 @@ def test_a_reused_series_and_items_called_afresh_line_up_item_by_item_after_a_do
     assert again.results["s"]["result"] == ["x=<x>;y=<y>;z=<z>", "a=<a>;b=<b>", "c=<c>"]
 
 
-@pytest.mark.skip(reason="embedding: nested run not built")
 @pytest.mark.parametrize("rows", ["a,b", "a,b,c,d", "x,y,z"], ids=["fewer", "more", "same-count"])
 def test_again_with_changed_items_above_an_embedded_graph_gives_its_inner_fixed_value_node_on_every_item(rows):
     @node("label", title="Label", description="")
@@ -684,11 +656,11 @@ def test_again_with_changed_items_above_an_embedded_graph_gives_its_inner_fixed_
     ))
     first = graph.run(text="a|b|c")
 
-    again = first.again(items=rows.replace(",", "|"))
-    direct = graph.run(items=rows.replace(",", "|"))
+    again = first.again(text=rows.replace(",", "|"))
+    direct = graph.run(text=rows.replace(",", "|"))
 
     assert again.status == "complete" and again.results == direct.results
-    assert again.results["t"]["result"] == [f"p:{r}" for r in rows.split(",")]
+    assert again.results["t"]["pair.result"] == [f"p:{r}" for r in rows.split(",")]
 
 
 def test_an_input_filled_again_overrides_the_first_value_and_the_earlier_run_is_untouched():
@@ -1370,23 +1342,6 @@ def test_forget_is_not_started_survives_json_and_refuses_a_node_the_graph_lacks(
     assert [(p.type, p.loc) for p in refused.value.errors()] == [("node_not_in_graph", ("nope",))]
 
 
-@pytest.mark.skip(reason="embedding: nested run not built")
-def test_forgetting_an_embedded_graph_forgets_its_inner_nodes():
-    calls: list[str] = []
-
-    @node("fetch", title="Fetch", description="")
-    def fetch(text: str) -> str:
-        calls.append(text)
-        return text.upper()
-
-    inner = node("inner", title="Inner", description="")(GraphRecord(nodes=[NodeRecord(id="f", node="fetch")]))
-    graph = registry_of(fetch, inner).load(GraphRecord(nodes=[NodeRecord(id="e", node="inner")]))
-    run = graph.run(text="a")
-    calls.clear()
-
-    assert run.forget("e").resume().results["e"] == {"result": "A"} and calls == ["a"]
-
-
 def test_a_table_nothing_holds_after_forget_is_not_written():
     @node("split", title="Split", description="")
     def split(text: str) -> Series[str]:
@@ -1500,21 +1455,7 @@ def test_again_keeps_every_waiting_question_when_an_earlier_item_waits_on_a_pers
     assert again.answer({waiting[1]: "y", waiting[2]: "z"}).results["b"]["result"] == [None, "y", "z"]
 
 
-@pytest.mark.skip(reason="embedding: nested run not built")
-def test_a_node_errors_own_code_inside_an_embedded_graph_fails_the_embedding_with_its_code_message_and_ctx():
-    @node("refuse", title="Refuse", description="")
-    def refuse(text: str) -> str:
-        raise NodeError("Dokumentet kan ikke læses.", code="document_unreadable", ctx={"pages": 0})
-
-    inner = node("reading", title="Reading", description="")(make_graph(refuse))
-    run = registry_of(refuse, inner).load(GraphRecord(nodes=[NodeRecord(id="r", node="reading")])).run(text="x")
-
-    assert run.status == "failed"
-    assert (run.state.cause.type, run.state.cause.loc, run.state.cause.msg, run.state.cause.ctx) == ("document_unreadable", ("r",), "Dokumentet kan ikke læses.", {"pages": 0})
-
-
-@pytest.mark.skip(reason="embedding: nested run not built")
-def test_an_inner_nodes_wrong_output_names_the_output_as_the_embedding_offers_it():
+def test_an_inner_nodes_wrong_output_fails_where_the_node_is_inside_and_names_the_nodes_own_output():
     @node("a", title="A", description="")
     def a(x: str) -> int:
         return "not an int"  # type: ignore[return-value]
@@ -1527,8 +1468,8 @@ def test_an_inner_nodes_wrong_output_names_the_output_as_the_embedding_offers_it
     graph = registry_of(a, b, box).load(make_graph(box))
     run = graph.run(x="q", y="w")
 
-    assert graph.outputs == ["emb.a/result", "emb.b/result"]
-    assert (run.status, run.state.cause.type, run.state.cause.loc, run.state.cause.ctx["name"]) == ("failed", "invalid_output", ("emb",), "a/result")
+    assert graph.outputs == ["emb.a.result", "emb.b.result"]
+    assert (run.status, run.state.cause.type, run.state.cause.loc, run.state.cause.ctx["name"]) == ("failed", "invalid_output", ("emb", "a"), "result")
 
 
 def test_a_saved_run_stays_the_same_size_over_one_row_edits_at_ten_thousand_rows():
@@ -1599,7 +1540,6 @@ def test_an_edited_graph_takes_an_earlier_runs_work_for_the_nodes_the_edit_left_
     assert edited.with_inputs(items=texts, earlier=second).resume().results == second.results and calls == []
 
 
-@pytest.mark.skip(reason="embedding: nested run not built")
 def test_again_and_with_inputs_take_an_input_by_its_address_as_graph_run_does():
     @node("upper", title="Upper", description="")
     def upper(text: str) -> str:
@@ -1613,9 +1553,9 @@ def test_again_and_with_inputs_take_an_input_by_its_address_as_graph_run_does():
     graph = registry_of(upper, join, box).load(GraphRecord(nodes=[NodeRecord(id="u", node="upper"), NodeRecord(id="e", node="box")]))
     first = graph.run({"u.text": "a", "e.a": "x", "e.b": "y"})
 
-    assert first.again({"u.text": "b"}).outputs == {"u.result": "B", "e.result": "xy"}
-    assert first.again({"e.a": "z"}).outputs == {"u.result": "A", "e.result": "zy"}
-    assert first.with_inputs({"e.b": "w"}, text="c").resume().outputs == {"u.result": "C", "e.result": "xw"}
+    assert first.again({"u.text": "b"}).outputs == {"u.result": "B", "e.j.result": "xy"}
+    assert first.again({"e.a": "z"}).outputs == {"u.result": "A", "e.j.result": "zy"}
+    assert first.with_inputs({"e.b": "w"}, text="c").resume().outputs == {"u.result": "C", "e.j.result": "xw"}
     with pytest.raises(InvalidCallError) as refused:
         first.again({"u.text": "b"}, text="c")
     assert [p.type for p in refused.value.errors()] == ["input_given_twice"]

@@ -1277,9 +1277,6 @@ def test_the_ceiling_stops_a_leg_whose_items_wait_for_a_thread_and_resuming_call
 
 # -- an embedded graph is one node -------------------------------------------------------------
 
-EMBEDDING_DOES_NOT_RUN = pytest.mark.skip(reason="embedding: nested run not built")
-
-
 def embedded(node_id: str, *nodes: dict[str, Any], edges: tuple[tuple[str, str], ...] = ()) -> Any:
     """A graph of ``nodes`` as one node ``node_id``: its inputs are the open inputs of its first nodes."""
     return node(node_id, title=node_id.replace("-", " ").replace("_", " ").strip().capitalize(), description="")(GraphRecord.model_validate({"nodes": [{"node": n["id"], **n} for n in nodes], "edges": [list(e) for e in edges]}))
@@ -1340,12 +1337,11 @@ def test_two_decisions_inside_one_embedding_are_two_exclusive_groups():
     assert [f.exclusive_group for f in loaded.describe().nodes["e"].outputs] == ["d1.answer", "d1.answer", "d2.answer", "d2.answer"]
 
 
-@EMBEDDING_DOES_NOT_RUN
 def test_two_decisions_inside_one_embedding_each_take_their_own_branch():
     inner = embedded("two", {"id": "d1", "node": "decide"}, {"id": "d2", "node": "decide"})
     loaded = graph({"id": "e", "node": "two"}, registry=registry_of(decide, inner))
 
-    assert loaded.run({"e.d1/text": "yes", "e.d2/text": "yes"}).outputs == {"e.d1/yes": "yes", "e.d1/no": None, "e.d2/yes": "yes", "e.d2/no": None}
+    assert loaded.run({"d1.text": "yes", "d2.text": "no"}).outputs == {"e.d1.yes": "yes", "e.d1.no": None, "e.d2.yes": None, "e.d2.no": "no"}
 
 
 def test_an_embedding_fed_from_outside_is_a_later_node_so_its_other_inputs_must_be_fed_too():
@@ -1365,42 +1361,38 @@ def test_a_nested_embedding_names_its_fields_as_each_record_says_them():
     assert [o.name for o in loaded.describe().nodes["o"].outputs] == ["f.x.result", "f.y.result", "z.result"]
 
 
-@EMBEDDING_DOES_NOT_RUN
 def test_a_nested_embedding_runs_with_its_fields_named_as_each_record_says_them():
     two = embedded("two", {"id": "x", "node": "upper"}, {"id": "y", "node": "upper"})
     outer = embedded("outer", {"id": "f", "node": "two"}, {"id": "z", "node": "upper"})
     loaded = graph({"id": "o", "node": "outer"}, registry=registry_of(upper, two, outer))
 
-    assert loaded.run({"x/text": "a", "y/text": "b", "text": "c"}).results["o"] == {"x/result": "A", "y/result": "B", "result": "C"}
+    assert loaded.run({"x.text": "a", "y.text": "b", "text": "c"}).results["o"] == {"f.x.result": "A", "f.y.result": "B", "z.result": "C"}
 
 
-@EMBEDDING_DOES_NOT_RUN
 def test_a_series_made_inside_an_embedding_that_runs_per_item_is_made_for_each_item_fed_or_not():
     fed = embedded("splitter", {"id": "lines", "node": "split", "values": {"sep": "/"}}, {"id": "join", "node": "join"}, edges=(("lines.result", "join.texts"),))
     run = ran({"id": "docs", "node": "split"}, {"id": "emb", "node": "splitter"}, edges=(("docs.result", "emb.text"),),
               registry=registry_of(split, join, fed), text="a/b,c")
     assert run.graph.plan["emb"].msg == "per item of docs.result"
-    assert run.results["emb"]["result"] == ["a+b", "c"]
+    assert run.results["emb"]["join.result"] == ["a+b", "c"]
 
     unfed = embedded("splitter-unfed", {"id": "entered", "node": "upper"}, {"id": "lines", "node": "split", "values": {"text": "x/y", "sep": "/"}},
                      {"id": "join", "node": "join"}, {"id": "p", "node": "pair"},
                      edges=(("lines.result", "join.texts"), ("entered.result", "p.a"), ("join.result", "p.b")))
     run = ran({"id": "docs", "node": "split"}, {"id": "emb", "node": "splitter-unfed"}, edges=(("docs.result", "emb.text"),),
               registry=registry_of(split, join, upper, pair, unfed), text="a,b")
-    assert run.results["emb"]["result"] == ["A:x+y", "B:x+y"]
+    assert run.results["emb"]["p.result"] == ["A:x+y", "B:x+y"]
 
 
-@EMBEDDING_DOES_NOT_RUN
 def test_an_inner_output_made_per_item_inside_is_a_series_for_each_item_the_embedding_runs_per():
     """Inside, ``p`` reads the entering value and each item of ``lines``: the embedding gives a Series per outer item."""
     inner = embedded("letters", {"id": "entered", "node": "upper"}, {"id": "lines", "node": "split", "values": {"text": "x/y", "sep": "/"}},
                      {"id": "p", "node": "pair"}, edges=(("entered.result", "p.a"), ("lines.result", "p.b")))
     run = ran({"id": "docs", "node": "split"}, {"id": "emb", "node": "letters"}, edges=(("docs.result", "emb.text"),),
               registry=registry_of(split, upper, pair, inner), text="a,b")
-    assert run.results["emb"]["result"] == [["A:x", "A:y"], ["B:x", "B:y"]]
+    assert run.results["emb"]["p.result"] == [["A:x", "A:y"], ["B:x", "B:y"]]
 
 
-@EMBEDDING_DOES_NOT_RUN
 def test_inputs_from_a_document_and_from_its_lines_run_the_embedding_per_line():
     @node("shout", title="Shout", description="")
     def shout(word: str) -> str:
@@ -1412,27 +1404,24 @@ def test_inputs_from_a_document_and_from_its_lines_run_the_embedding_per_line():
               edges=(("docs.result", "lines.text"), ("docs.result", "emb.word"), ("lines.result", "emb.text")),
               registry=registry_of(split, upper, pair, shout, inner), text="a,b|c")
     assert run.graph.plan["emb"].msg == "per item of lines.result"
-    assert run.results["emb"]["result"] == ["A,B:A", "A,B:B", "C:C"]
+    assert run.results["emb"]["p.result"] == ["A,B:A", "A,B:B", "C:C"]
 
 
-@EMBEDDING_DOES_NOT_RUN
 def test_a_series_into_an_embedded_series_input_is_gathered_and_the_embedding_runs_once():
     inner = embedded("joiner", {"id": "join", "node": "join"})
     run = ran({"id": "docs", "node": "split"}, {"id": "emb", "node": "joiner"}, edges=(("docs.result", "emb.texts"),),
               registry=registry_of(split, join, inner), text="a,b")
-    assert run.graph.plan["emb"].msg == "once" and run.results["emb"]["result"] == "a+b"
+    assert run.graph.plan["emb"].msg == "once" and run.results["emb"]["join.result"] == "a+b"
 
 
-@EMBEDDING_DOES_NOT_RUN
 def test_an_embedding_reading_a_series_whole_and_per_item_gets_the_whole_series_on_each_call():
     inner = embedded("mixed", {"id": "u", "node": "upper"}, {"id": "j", "node": "join"})
     run = ran({"id": "docs", "node": "split"}, {"id": "emb", "node": "mixed"}, edges=(("docs.result", "emb.text"), ("docs.result", "emb.texts")),
               registry=registry_of(split, upper, join, inner), text="a,b")
     assert set(run.graph.plan) == {"docs", "emb"} and run.graph.plan["emb"].msg == "per item of docs.result"
-    assert run.results["emb"] == {"u/result": ["A", "B"], "j/result": ["a+b", "a+b"]}
+    assert run.results["emb"] == {"u.result": ["A", "B"], "j.result": ["a+b", "a+b"]}
 
 
-@EMBEDDING_DOES_NOT_RUN
 def test_a_graph_embedded_under_an_item_gives_what_the_same_nodes_drawn_flat_give_for_that_item():
     nodes = ({"id": "i", "node": "split", "values": {"sep": ";"}}, {"id": "c", "node": "split", "values": {"sep": "/"}}, {"id": "p", "node": "pair"})
     edges = (("i.result", "c.text"), ("c.result", "p.a"), ("i.result", "p.b"))
@@ -1440,28 +1429,25 @@ def test_a_graph_embedded_under_an_item_gives_what_the_same_nodes_drawn_flat_giv
     reg = registry_of(split, pair, inner)
     embedded_run = ran({"id": "s", "node": "split"}, {"id": "e", "node": "deep"}, edges=(("s.result", "e.text"),), registry=reg, text="a/b;c,d")
     flat_run = ran({"id": "s", "node": "split"}, *nodes, edges=(("s.result", "i.text"), *edges), registry=reg, text="a/b;c,d")
-    assert [value for item in embedded_run.results["e"]["result"] for value in item] == flat_run.results["p"]["result"]
+    assert [value for item in embedded_run.results["e"]["p.result"] for value in item] == flat_run.results["p"]["result"]
     assert embedded_run.graph.plan["e"].msg == "per item of s.result"  # the items it is fed; its own Series are inside it
 
 
-@EMBEDDING_DOES_NOT_RUN
 def test_an_inner_gather_of_the_entering_value_is_a_series_of_one_for_each_item_the_embedding_runs_per():
     inner = embedded("inner", {"id": "holder", "node": "upper"}, {"id": "gather", "node": "join"}, edges=(("holder.result", "gather.texts"),))
     run = ran({"id": "docs", "node": "split"}, {"id": "emb", "node": "inner"}, {"id": "after", "node": "join"},
-              edges=(("docs.result", "emb.text"), ("emb.result", "after.texts")), registry=registry_of(split, upper, join, inner), text="a,b,c")
+              edges=(("docs.result", "emb.text"), ("emb.gather.result", "after.texts")), registry=registry_of(split, upper, join, inner), text="a,b,c")
     assert run.graph.plan["emb"].msg == "per item of docs.result"
-    assert run.results["emb"]["result"] == ["A", "B", "C"]  # a gather of one per item, never all three once
+    assert run.results["emb"]["gather.result"] == ["A", "B", "C"]  # a gather of one per item, never all three once
     assert run.results["after"]["result"] == "A+B+C"
 
 
-@EMBEDDING_DOES_NOT_RUN
 def test_a_branch_not_taken_inside_an_embedding_skips_its_inner_gather_for_each_item_the_embedding_runs_per():
     inner = embedded("skips", {"id": "b", "node": "decide"}, {"id": "j", "node": "join"}, edges=(("b.no", "j.texts"),))
     run = ran({"id": "s", "node": "split"}, {"id": "e", "node": "skips"}, edges=(("s.result", "e.text"),), registry=registry_of(split, decide, join, inner), text="p,q")
-    assert run.results["e"]["result"] == [None, None]
+    assert run.results["e"]["j.result"] == [None, None]
 
 
-@EMBEDDING_DOES_NOT_RUN
 def test_an_embedding_with_one_output_per_inner_item_and_one_per_run_runs_per_item_it_is_fed():
     @node("names", title="Names", description="")
     def names(text: str) -> Series[str]:
@@ -1492,18 +1478,7 @@ def test_an_embedding_with_one_output_per_inner_item_and_one_per_run_runs_per_it
     registry.add(node("inner", title="Inner", description="")(inner))
     graph = registry.load(make_graph(split, registry["inner"], edges=[("split.result", "inner.value")], values={"split.text": "A-1,B-2"}))
     assert graph.plan["inner"].series == "split.result"
-    assert graph.run().results["inner"]["count/result"] == [2, 2]
-
-
-@EMBEDDING_DOES_NOT_RUN
-def test_an_embedded_graph_fed_one_value_per_item_runs_per_item():
-    @node("read", title="Read", description="")
-    def read(file: str) -> str:
-        return file.upper()
-
-    inner = node("each", title="Each", description="")(GraphRecord(nodes=[NodeRecord(id="r", node="read")]))
-    wired = ran({"id": "s", "node": "split"}, {"id": "e", "node": "each"}, edges=(("s.result", "e.file"),), registry=registry_of(split, read, inner), text="x,y")
-    assert wired.results["e"]["result"] == ["X", "Y"]
+    assert graph.run().results["inner"] == {"count.result": [2, 2], "shout.result": [["IDA A-1", "BO A-1"], ["IDA B-2", "BO B-2"]]}
 
 
 @node("each", title="Each", description="")
@@ -1511,7 +1486,6 @@ def each(texts: Series[str]) -> Series[str]:
     return texts
 
 
-@EMBEDDING_DOES_NOT_RUN
 def test_an_embedded_node_gathering_a_series_made_inside_and_one_entering_gathers_the_same_in_either_drawing_order():
     """``c`` gathers the lines made inside and the texts the embedding is fed; which of them the record lists first
     changes nothing about what each gather receives."""
@@ -1528,10 +1502,9 @@ def test_an_embedded_node_gathering_a_series_made_inside_and_one_entering_gather
         )
         assert loaded.problems == []
         found.append(loaded.run(text="a,b").outputs)
-    assert found[0] == found[1] == {"emb.result": "x,y+a,b"}
+    assert found[0] == found[1] == {"emb.c.result": "x,y+a,b"}
 
 
-@EMBEDDING_DOES_NOT_RUN
 def test_an_embedding_fed_by_a_series_drawn_after_it_loads_and_runs_as_one_drawn_before_it():
     """The node feeding an embedding may come after it in the record."""
     inner = embedded(

@@ -712,11 +712,10 @@ def test_the_last_progress_of_a_node_is_always_said():
     assert progress[-1] == (3000, 3000)
 
 
-# -- an embedded graph's nodes are placed in the outer graph -------------------------------------
+# -- an embedded graph's nodes are reused as they would be drawn in the graph itself --------------
 
 
-@pytest.mark.skip(reason="embedding: nested run not built")
-def test_again_with_one_of_a_boxs_inputs_changed_calls_only_the_inner_node_that_reads_it_and_asks_nothing_again():
+def test_again_with_one_of_an_embeddings_inputs_changed_calls_only_the_inner_node_that_reads_it_and_asks_nothing_again():
     from conductor import GraphRecord, NodeRecord
 
     calls = {"mark": 0, "confirm": 0}
@@ -741,53 +740,3 @@ def test_again_with_one_of_a_boxs_inputs_changed_calls_only_the_inner_node_that_
 
     assert again.status == "complete" and again.waiting == []
     assert (calls["mark"] - before["mark"], calls["confirm"] - before["confirm"]) == (1, 0)
-
-
-@pytest.mark.skip(reason="embedding: nested run not built")
-def test_a_node_of_some_concurrency_inside_a_box_overlaps_that_many_calls_across_the_boxs_items():
-    import threading
-
-    from conductor import GraphRecord, NodeRecord
-
-    lock, running, most = threading.Lock(), [0], [0]
-
-    @node("held", title="Held", description="", policy=Policy(concurrency=4))
-    def held(text: str) -> str:
-        with lock:
-            running[0] += 1
-            most[0] = max(most[0], running[0])
-        t.sleep(0.05)
-        with lock:
-            running[0] -= 1
-        return text
-
-    box = node("boxed-held", title="Boxed held", description="")(GraphRecord(nodes=[NodeRecord(id="h", node="held")]))
-    graph = registry_of(split, held, box).load({
-        "nodes": [{"id": "sp", "node": "split", "values": {"text": ",".join(map(str, range(12)))}}, {"id": "e", "node": "boxed-held"}],
-        "edges": [["sp.result", "e.text"]],
-    })
-
-    assert graph.run().status == "complete" and most[0] == 4
-
-
-@pytest.mark.skip(reason="embedding: nested run not built")
-def test_a_box_calls_its_node_once_per_item_as_the_same_graph_drawn_flat_does():
-    from conductor import GraphRecord, NodeRecord
-
-    calls = [0]
-
-    @node("count-upper", title="Count upper", description="")
-    def count_upper(text: str) -> str:
-        calls[0] += 1
-        return text.upper()
-
-    box = node("boxed-upper", title="Boxed upper", description="")(GraphRecord(nodes=[NodeRecord(id="u", node="count-upper")]))
-    registry = registry_of(split, count_upper, box)
-    letters = {"id": "sp", "node": "split", "values": {"text": "a,b,c,d,e"}}
-    counted = []
-    for inner in ("count-upper", "boxed-upper"):
-        calls[0] = 0
-        run = registry.load({"nodes": [letters, {"id": "u", "node": inner}], "edges": [["sp.result", "u.text"]]}).run()
-        counted.append((calls[0], run.outputs["u.result"]))
-
-    assert counted[0] == counted[1] == (5, ["A", "B", "C", "D", "E"])

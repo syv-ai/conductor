@@ -788,8 +788,7 @@ async def test_a_cancelled_run_with_questions_waiting_takes_no_answer_until_it_i
     assert resumed.status == "waiting" and resumed.answer("q@0", "B1").status == "waiting"
 
 
-@pytest.mark.skip(reason="embedding: nested run not built")
-def test_an_embeddings_questions_are_named_by_the_outputs_it_offers():
+def test_a_question_inside_an_embedding_is_the_inner_nodes_own_and_its_waiting_unit_says_where_it_is():
     from conductor import GraphRecord, NodeRecord, NodeRegistry, make_graph, node
 
     @node("ask", title="Ask", description="")
@@ -802,14 +801,13 @@ def test_an_embeddings_questions_are_named_by_the_outputs_it_offers():
 
     registry = NodeRegistry()
     registry.add(ask, ask2, node("both", title="Both", description="")(GraphRecord(nodes=[NodeRecord(id="q", node="ask"), NodeRecord(id="q2", node="ask2")])))
-    run = registry.load(make_graph(registry["both"], values={"both.q/text": "a", "both.q2/text": "b"})).run()
-    assert sorted(q.name for w in run.waiting for q in w.questions) == ["q/result", "q2/result"]
+    run = registry.load(make_graph(registry["both"], values={"both.q.text": "a", "both.q2.text": "b"})).run()
+    assert [(w.id.partition("~")[0], w.loc, [q.name for q in w.questions]) for w in run.waiting] == [("both/q", ("both", "q"), ["result"]), ("both/q2", ("both", "q2"), ["result"])]
     done = run.answer({w.id: "yes" for w in run.waiting}).resume()
-    assert done.outputs == {"both.q/result": "yes", "both.q2/result": "yes"}
+    assert done.outputs == {"both.q.result": "yes", "both.q2.result": "yes"}
 
 
-@pytest.mark.skip(reason="embedding: nested run not built")
-def test_a_form_inside_an_embedding_is_answered_by_the_names_the_embedding_offers():
+def test_a_form_inside_an_embedding_is_answered_by_the_inner_nodes_own_field_names():
     from dataclasses import dataclass
 
     from conductor import GraphRecord, NodeRecord, NodeRegistry, node
@@ -825,12 +823,12 @@ def test_a_form_inside_an_embedding_is_answered_by_the_names_the_embedding_offer
 
     registry = NodeRegistry()
     registry.add(form, node("both", title="Both", description="")(GraphRecord(nodes=[NodeRecord(id="z1", node="form"), NodeRecord(id="z2", node="form")])))
-    run = registry.load(GraphRecord(nodes=[NodeRecord(id="e", node="both")])).run({"z1/t": "1", "z2/t": "2"})
-    answers = {w.id: {q.name: "A" if q.name.endswith("a") else 5 for q in w.questions} for w in run.waiting}
-    assert sorted(name for given in answers.values() for name in given) == ["z1/a", "z1/b", "z2/a", "z2/b"]
-    assert run.answer(answers).resume().results == {"e": {"z1/a": "A", "z1/b": 5, "z2/a": "A", "z2/b": 5}}
-    (wrong,) = _refused(lambda: run.answer({run.waiting[0].id: {"z1/a": 3}}))
-    assert wrong.ctx["question"] == "z1/a"
+    run = registry.load(GraphRecord(nodes=[NodeRecord(id="e", node="both")])).run({"z1.t": "1", "z2.t": "2"})
+    answers = {w.id: {q.name: "A" if q.name == "a" else 5 for q in w.questions} for w in run.waiting}
+    assert {w.loc: sorted(answers[w.id]) for w in run.waiting} == {("e", "z1"): ["a", "b"], ("e", "z2"): ["a", "b"]}
+    assert run.answer(answers).resume().results == {"e": {"z1.a": "A", "z1.b": 5, "z2.a": "A", "z2.b": 5}}
+    (wrong,) = _refused(lambda: run.answer({run.waiting[0].id: {"a": 3}}))
+    assert (wrong.type, wrong.loc, wrong.ctx["question"]) == ("invalid_answer", ("e", "z1"), "a")
 
 
 def test_an_answer_to_a_run_with_nothing_waiting_says_how_the_run_stands():

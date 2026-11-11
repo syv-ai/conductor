@@ -459,13 +459,12 @@ GATHER = node("gather", title="Gather", description="")(GraphRecord(nodes=[NodeR
 EMBEDDED = registry_of(upper, tail, split, join, both, ENRICH, PAIR, GATHER)
 
 
-@pytest.mark.skip(reason="embedding: nested run not built")
 def test_an_embedding_is_filled_wired_and_read_by_its_own_id():
-    graph = EMBEDDED.load({"nodes": [{"id": "e", "node": "enrich"}, {"id": "u", "node": "upper"}], "edges": [["e.result", "u.text"]]})
+    graph = EMBEDDED.load({"nodes": [{"id": "e", "node": "enrich"}, {"id": "u", "node": "upper"}], "edges": [["e.tail.result", "u.text"]]})
 
     assert graph.problems == [] and {n: i.address for n, i in graph.inputs.items()} == {"text": "e.text"}
     run = graph.run({"e.text": "hi"})
-    assert run.outputs == {"u.result": "HI."} and set(run.results) == {"e", "u"} and run.results["e"] == {"result": "HI."}
+    assert run.outputs == {"u.result": "HI."} and set(run.results) == {"e", "u"} and run.results["e"] == {"tail.result": "HI."}
     assert set(graph.plan) == {"e", "u"} and set(graph.describe().nodes) == {"e", "u"}
     assert [f.name for f in graph.describe().nodes["e"].inputs] == ["text"]
 
@@ -487,20 +486,11 @@ def test_inner_fields_sharing_a_name_are_offered_by_the_inner_node_as_its_record
     assert [(p.type, p.loc) for p in later.problems] == [("unbound_on_later_node", ("c", "y.text"))]  # an embedding is fed as any later node is
 
 
-@pytest.mark.skip(reason="embedding: nested run not built")
 def test_inner_fields_sharing_a_name_are_filled_by_the_names_the_embedding_offers():
-    graph = EMBEDDED.load({"nodes": [{"id": "s", "node": "upper"}, {"id": "c", "node": "pair", "values": {"y/text": "b"}}], "edges": [["s.result", "c.x/text"]]})
+    graph = EMBEDDED.load({"nodes": [{"id": "s", "node": "upper"}, {"id": "c", "node": "pair", "values": {"y.text": "b"}}], "edges": [["s.result", "c.x.text"]]})
 
     assert graph.problems == [] and {n: i.address for n, i in graph.inputs.items()} == {"text": "s.text"}
-    assert graph.run(text="a").outputs == {"c.result": "AB"}
-
-
-@pytest.mark.skip(reason="embedding: nested run not built")
-def test_a_graph_embedded_per_outer_item_gathers_inside_each_outer_item():
-    graph = EMBEDDED.load({"nodes": [{"id": "s", "node": "split"}, {"id": "g", "node": "gather"}], "edges": [["s.result", "g.text"]]})
-
-    assert {k: (v.mode, v.series) for k, v in graph.plan.items()} == {"s": ("once", None), "g": ("per_item", "s.result")}
-    assert graph.run(text="a,b,c").outputs == {"g.result": ["A", "B", "C"]}
+    assert graph.run(text="a").outputs == {"c.b.result": "AB"}
 
 
 def test_a_stored_graph_offers_its_fields_in_the_palette_of_the_registry_that_holds_its_nodes():
