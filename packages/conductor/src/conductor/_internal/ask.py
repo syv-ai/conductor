@@ -123,13 +123,6 @@ class Question:
     inputs: dict[str, Any]
     overrides: Mapping[str, QuestionOverrides] = field(default_factory=dict)
 
-    def as_json(self) -> dict[str, Any]:
-        """The record as a save writes it, leaving ``overrides`` out when the ``Ask`` set nothing."""
-        written: dict[str, Any] = {"prompt": self.prompt, "inputs": self.inputs}
-        if self.overrides:
-            written["overrides"] = self.overrides
-        return written
-
 
 class Waiting(ConductorModel):
     """A call of a node waiting for a person, as a host shows it.
