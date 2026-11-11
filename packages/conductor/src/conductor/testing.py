@@ -30,9 +30,6 @@ Every problem is a ``Problem``. Its ``loc`` is ``(node_id, version)``, except fo
     the body changed a value it was given; several calls of a run can be given one.
 ``run_failed``
     an example didn't run to the end or to a pause.
-``pause_untested``
-    the body raises ``Ask``, itself or through a function it calls, and no
-    example made it pause.
 ``example_for_no_node``
     an example names a node or a version that isn't there.
 
@@ -48,12 +45,11 @@ import dataclasses
 import datetime
 import types
 import typing
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any, Literal
 
 import polars as pl
 
-from conductor._internal.ask import Ask
 from conductor._internal.errors import InvalidCallError, Problem
 from conductor._internal.fields import REQUIRED, Field, FieldValueError, Param
 from conductor._internal.graph import load_graph
@@ -65,7 +61,7 @@ from conductor._internal.node_definition import (
 )
 from conductor._internal.record import GraphRecord, NodeRecord, typed_in
 from conductor._internal.registry import NodeRegistry
-from conductor._internal.run import EndedEarly, Going
+from conductor._internal.run import EndedEarly
 
 #: One call's inputs, by name.
 _Example = Mapping[str, Any]
@@ -113,31 +109,19 @@ def check_registry(
 def _problems_of(
     definition: NodeDefinition, registry: NodeRegistry, examples: Mapping[tuple[str, int], Sequence[_Example]], from_run: Mapping[type, Any],
 ) -> list[Problem]:
-    found, paused = _version_problems(definition, registry, examples.get((definition.id, definition.version), ()), from_run)
+    found = _version_problems(definition, registry, examples.get((definition.id, definition.version), ()), from_run)
     for older in definition.lineage[1:]:
         given = examples.get((older.id, older.version), ())
         found += _upgrade_problems(older, registry, given)
-        found += _version_problems(older, registry, given, from_run)[0]
-    match definition:
-        case FunctionDefinition(function=function):
-            if not paused and _may_ask(function):
-                found.append(_problem("pause_untested", (definition.id, definition.version), "the body raises Ask, and no example made it pause; add an example that makes it ask"))
-        case GraphDefinition():  # its nodes are checked as the registry's own
-            pass
+        found += _version_problems(older, registry, given, from_run)
     return found
 
 
-def _version_problems(version: NodeDefinition, registry: NodeRegistry, given: Sequence[_Example], from_run: Mapping[type, Any]) -> tuple[list[Problem], bool]:
-    """The hooks checked when there is no example, else each example run: what went wrong, and whether one paused."""
+def _version_problems(version: NodeDefinition, registry: NodeRegistry, given: Sequence[_Example], from_run: Mapping[type, Any]) -> list[Problem]:
+    """The hooks checked when there is no example, else each example run: what went wrong."""
     if not given:
-        return _hook_problems(version, registry), False
-    found: list[Problem] = []
-    paused = False
-    for example in given:
-        problems, asked = _run_problems(version, registry, example, from_run)
-        found += problems
-        paused = paused or asked
-    return found, paused
+        return _hook_problems(version, registry)
+    return [problem for example in given for problem in _run_problems(version, registry, example, from_run)]
 
 
 def _problem(code: str, loc: tuple[str] | tuple[str, int], message: str, **ctx: Any) -> Problem:
@@ -206,8 +190,8 @@ def _inputs_of(version: NodeDefinition) -> Mapping[str, Field]:
             return {}
 
 
-def _run_problems(version: NodeDefinition, registry: NodeRegistry, example: _Example, from_run: Mapping[type, Any]) -> tuple[list[Problem], bool]:
-    """Run one example through the engine: what went wrong, and whether it paused for a person."""
+def _run_problems(version: NodeDefinition, registry: NodeRegistry, example: _Example, from_run: Mapping[type, Any]) -> list[Problem]:
+    """Run one example through the engine: what went wrong."""
     definitions: dict[str, NodeDefinition]
     match version:
         case GraphDefinition():  # a stored graph runs on the nodes of the registry
@@ -219,29 +203,23 @@ def _run_problems(version: NodeDefinition, registry: NodeRegistry, example: _Exa
     try:
         placed = _placed(version, dict(example))
     except InvalidCallError as refused:
-        return _not_loaded(version, refused.errors()), False
+        return _not_loaded(version, refused.errors())
     graph = load_graph(placed, definitions)
     if graph.problems:
-        return _not_loaded(version, graph.problems), False
+        return _not_loaded(version, graph.problems)
     try:
         run = graph.run(from_run=from_run)
     except InvalidCallError as refused:
-        return [_problem("run_failed", (version.id, version.version), "the example was refused: " + "; ".join(p.msg for p in refused.errors()), **_causes(refused.errors()))], False
+        return [_problem("run_failed", (version.id, version.version), "the example was refused: " + "; ".join(p.msg for p in refused.errors()), **_causes(refused.errors()))]
     found = [
         _problem("changed_its_inputs", (version.id, version.version), f"the body changed {name!r}, a value it was given; several calls of a run can be given it, so copy the value before changing it", input=name)
         for name in changed
     ]
-    match run.state:
-        case Going(status="waiting"):
-            return found, True
-        case Going():
-            return found, False
-        case EndedEarly(status=status, cause=cause):
-            # a body's own exception reaches the problem as its class only; the message says which
-            said = f"the node raised {cause.ctx['error']}" if cause.type == "execution_failed" else cause.msg
-            found.append(_problem("run_failed", (version.id, version.version), f"the example ended {status}: {said}", **_causes([cause])))
-            # an Ask the run refused was reached all the same; run_failed says what was wrong with it
-            return found, cause.type == "invalid_ask"
+    if isinstance(state := run.state, EndedEarly):
+        # a body's own exception reaches the problem as its class only; the message says which
+        said = f"the node raised {state.cause.ctx['error']}" if state.cause.type == "execution_failed" else state.cause.msg
+        found.append(_problem("run_failed", (version.id, version.version), f"the example ended {state.status}: {said}", **_causes([state.cause])))
+    return found
 
 
 def _not_loaded(version: NodeDefinition, problems: Sequence[Problem]) -> list[Problem]:
@@ -304,46 +282,6 @@ def _candidates(hint: Any, param: Param) -> list[Any]:
     if issubclass(hint, datetime.date):
         return [datetime.date(2026, 1, 1)]
     return []
-
-
-def _may_ask(function: Callable[..., Any]) -> bool:
-    """Whether ``function`` names ``Ask``, itself or through a function of its globals or closure it calls.
-
-    A node's function is a plain function or a bound method; any other callable (a ``staticmethod`` object, say) has no
-    code to read, so it is taken not to ask.
-    """
-    if isinstance(function, types.MethodType):
-        function = function.__func__
-    if not isinstance(function, types.FunctionType):
-        return False
-    seen: set[types.CodeType] = set()
-
-    def asks(function: types.FunctionType) -> bool:
-        if function.__code__ in seen:
-            return False
-        seen.add(function.__code__)
-        names: Mapping[str, Any] = function.__globals__
-        helpers = [cell.cell_contents for cell in function.__closure__ or () if _filled(cell)]
-
-        def names_ask(code: types.CodeType) -> bool:
-            for name in code.co_names:
-                if name == "Ask" or names.get(name) is Ask:
-                    return True
-                if isinstance(names.get(name), types.FunctionType):
-                    helpers.append(names[name])
-            return any(names_ask(inner) for inner in code.co_consts if isinstance(inner, types.CodeType))
-
-        return names_ask(function.__code__) or any(isinstance(h, types.FunctionType) and asks(h) for h in helpers)
-
-    return asks(function)
-
-
-def _filled(cell: types.CellType) -> bool:
-    try:
-        cell.cell_contents  # noqa: B018
-    except ValueError:  # a cell not filled yet
-        return False
-    return True
 
 
 def _same(one: Any, other: Any) -> bool:

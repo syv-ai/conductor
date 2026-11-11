@@ -223,35 +223,6 @@ def test_a_run_failed_that_a_body_raised_names_the_error_class():
     assert problem.msg.endswith("raised ZeroDivisionError")
 
 
-# -- pauses ----------------------------------------------------------------------------------------
-
-
-def _confirm(text: str) -> str:
-    raise Ask(f"Is {text} right?")
-
-
-@node("confirmed", title="Confirmed", description="")
-def confirmed(text: str) -> str:
-    return _confirm(text)
-
-
-def test_a_body_that_raises_ask_itself_or_through_a_helper_needs_an_example_that_pauses():
-    assert found(registry_of(approve, confirmed, upper)) == [("pause_untested", ("approve", 1)), ("pause_untested", ("confirmed", 1))]
-    assert found(registry_of(approve, confirmed), examples={"approve": [{"text": "a"}], "confirmed": [{"text": "b"}]}) == []
-
-
-def test_an_older_versions_pause_does_not_test_the_newest():
-    @node("gate", title="Gate v1", description="")
-    def gate_v1(text: str) -> bool:
-        raise Ask("Old?")
-
-    @node("gate", title="Gate", description="", replaces=gate_v1)
-    def gate(text: str) -> bool:
-        raise Ask("New?")
-
-    assert found(registry_of(gate), examples={("gate", 1): [{"text": "a"}]}) == [("pause_untested", ("gate", 2))]
-
-
 # -- the kit's own inputs --------------------------------------------------------------------------
 
 

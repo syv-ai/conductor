@@ -1461,16 +1461,6 @@ print([p.type for p in check_registry(checked)])  # ['needs_example']
 
 **Fix.** Give the node an example, `examples={"coded": [{"code": "1234"}]}`.
 
-### `pause_untested`
-
-```python
-checked = NodeRegistry()
-checked.add(approve)
-print([p.type for p in check_registry(checked)])  # ['pause_untested']
-```
-
-**Fix.** Give an example that makes the node ask, `examples={"approve": [{"amount": 5000}]}`.
-
 ### `run_failed`
 
 ```python
