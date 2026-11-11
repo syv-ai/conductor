@@ -32,6 +32,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, NamedTuple, Protocol
 
+from conductor._internal.address import NodePath
 from conductor._internal.fields import SKIPPED
 from conductor._internal.graph import (
     Cell,
@@ -42,7 +43,6 @@ from conductor._internal.graph import (
     GraphAtPath,
     Item,
     NodeAtPath,
-    NodePath,
     Open,
     SeriesOfOne,
 )

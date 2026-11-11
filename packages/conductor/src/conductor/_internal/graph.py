@@ -46,6 +46,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal, NamedTuple, TypeVar
 
 import pydantic
 
+from conductor._internal.address import NodePath
 from conductor._internal.ask import output_questions
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.fields import (
@@ -78,6 +79,7 @@ from conductor._internal.problem import (
 
 if TYPE_CHECKING:
     from conductor._internal.run import Run, SaveForm
+
 
 _logger = logging.getLogger("conductor")
 
@@ -396,10 +398,6 @@ class PlacedGraph(_Placed):
 
 #: One node of a loaded graph: a function, or an embedded graph.
 PlacedNode = PlacedFunction | PlacedGraph
-
-#: A node whatever item it runs for: its id, after the id of each embedded graph's node it is inside, outermost
-#: first, ``("e", "ask")``.
-NodePath = tuple[str, ...]
 
 
 @dataclass(eq=False, slots=True, kw_only=True)

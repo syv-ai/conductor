@@ -45,6 +45,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from conductor._internal.address import Key
 from conductor._internal.ask import Ask, InvalidAskError, question_asked
 from conductor._internal.fields import SKIPPED, FieldValueError
 from conductor._internal.graph import FunctionAtPath, GraphAtPath, NodeAtPath, waits_on
@@ -72,7 +73,6 @@ from conductor._internal.run import (
     Blank,
     Done,
     EndedEarly,
-    Key,
     Run,
     RunState,
     Unit,

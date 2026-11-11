@@ -7,16 +7,11 @@ from typing import Annotated, Literal
 from pydantic import ConfigDict, Field
 from pydantic.json_schema import SkipJsonSchema
 
+from conductor._internal.address import Path
 from conductor._internal.ask import Waiting
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.problem import Problem
-from conductor._internal.run import (
-    EndedEarly,
-    Going,
-    Path,
-    Run,
-    RunStatus,
-)
+from conductor._internal.run import EndedEarly, Going, Run, RunStatus
 
 
 class _EventBase(ConductorModel):

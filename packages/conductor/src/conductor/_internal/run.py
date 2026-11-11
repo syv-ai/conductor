@@ -43,6 +43,7 @@ from pydantic_core import (
     core_schema,
 )
 
+from conductor._internal.address import Key, NodePath, Path, _parse_place, path_text
 from conductor._internal.ask import Question, Waiting, answer_outputs, waiting_questions
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.fields import SKIPPED, Field, FieldValueError, Records, Type, written_table
@@ -56,7 +57,6 @@ from conductor._internal.graph import (
     Item,
     Maps,
     NodeAtPath,
-    NodePath,
     Open,
     PlacedFunction,
     SeriesOfOne,
@@ -69,13 +69,6 @@ if TYPE_CHECKING:
     from conductor._internal.graph import Graph
     from conductor._internal.leg import Event, _EventBase
 
-#: An instance of a node: the place of its item in each map the node runs in, outermost first; ``()`` for a node
-#: that runs once.
-Key = tuple[int, ...]
-
-#: Where something is in a run: a node's id, then the place of its item in each of its scope's maps; for what is
-#: inside an embedded graph, the embedding node and its item first, ``("e", 0, "ask", 2)``.
-Path = tuple[str | int, ...]
 
 #: Each node's units by instance, for the nodes of one graph of the tree by id.
 _UnitsOfAGraph = dict[str, dict[Key, "Unit"]]
@@ -94,12 +87,6 @@ def unit_loc(node: NodeAtPath, key: Key) -> Path:
         return (node.placed.id, *key)
     base = node.base
     return (*unit_loc(node.embedding, key[:base]), node.placed.id, *key[base:])
-
-
-def path_text(path: Path) -> str:
-    """A path as a waiting id writes it: each node id, ``@`` before each place of its item, and ``/`` between
-    nodes, ``e@0/ask@2``."""
-    return "".join(f"@{step}" if isinstance(step, int) else f"/{step}" for step in path)[1:]
 
 #: How a run stands while nothing has ended it early: not started, in a leg, waiting for a person, or done.
 GoingStatus = Literal["ready", "running", "complete", "waiting"]
@@ -1651,27 +1638,8 @@ def _question_fingerprint(placed: PlacedFunction, unit: Asking) -> str:
     return hashlib.blake2b(written, digest_size=4).hexdigest()
 
 
-def _parse_place(place: str) -> tuple[Path, NodePath, Key]:
-    """The place a waiting id names, ``e@0/ask@2``: as a path, then the ids of its nodes and the places of its
-    items apart, which name the node and its instance.
-
-    Raises:
-        ValueError: A place in it isn't a number.
-    """
-    loc: list[str | int] = []
-    nodes: list[str] = []
-    key: list[int] = []
-    for step in place.split("/"):
-        node_id, *places = step.split("@")
-        nodes.append(node_id)
-        key += [int(i) for i in places]
-        loc += [node_id, *key[len(key) - len(places):]]
-    return tuple(loc), tuple(nodes), tuple(key)
-
-
 def _deadline(timeout: float | None) -> Callable[[], EndedEarly | None] | None:
     if timeout is None:
         return None
     end = time.monotonic() + timeout
     return lambda: EndedEarly("timed_out", make_problem("run_timed_out", timeout=timeout)) if time.monotonic() > end else None
-
