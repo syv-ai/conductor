@@ -255,7 +255,6 @@ def test_embedded_graph_and_versions():
     assert set(graph._nodes) == {"e", "u"}
 
 
-@pytest.mark.xfail(reason="engine fault: registry.upgrade reads an embedding's output name up to its first dot, so renamed_outputs never moves an edge that reads it", strict=True)
 def test_an_upgrade_moves_an_edge_reading_an_embeddings_output_to_the_address_the_newer_version_gives_it():
     v1 = node("enrich", description="", title="Enrich")(make_graph(upper, tail))
     v2 = node("enrich", title="Enrich", description="", replaces=v1, upgrade=Upgrade(renamed_outputs={"tail.result": "tail-2.result"}))(make_graph(lower, tail, tail))
