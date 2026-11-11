@@ -334,7 +334,7 @@ def answer_outputs(placed: PlacedFunction, value: Any, overrides: Mapping[str, Q
             elif spec.default is SKIPPED and "default" not in override:
                 read[name] = SKIPPED  # left out, a field whose default is SKIPPED is a branch not taken
             elif not _required(spec, override, limited=offered is not None):
-                read[name] = spec.whole.read_json(override.get("default", question.default))  # a default, or a blank where the type takes one
+                read[name] = spec.whole.read_answer(override.get("default", question.default))  # a default, or a blank where the type takes one
             else:
                 faults.append((name, f"'{name}' was not answered"))
         except FieldValueError as refused:
@@ -354,7 +354,7 @@ def _checked_answer(spec: Field, value: Any, offered: list[dict[str, Any]] | Non
         FieldValueError: The answer is not a value of the output's type, not one of the choices, or, for a pick of several,
             picks a choice twice.
     """
-    read = spec.whole.read_json(value)
+    read = spec.whole.read_answer(value)
     if offered is not None:
         picked: Any = spec.whole.to_json(read)
         picks = picked if spec.many else [picked]

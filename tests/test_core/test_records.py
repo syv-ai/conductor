@@ -179,3 +179,66 @@ def test_split_returns_the_table_it_was_given_and_the_run_holds_it_by_column() -
     assert run.outputs == {"greet.result": ["hi ida", "hi bo"]}
     assert type(run._units["split"][()].out["result"]) is Records
     assert run.results["split"]["result"] == [{"name": "ida", "email": "ida@x.dk"}, {"name": "bo", "email": None}]
+
+
+# -- how a run stores a Series, and what reads it ---------------------------------------------------------
+
+
+def test_one_record_of_five_without_the_field_an_edge_reads_fails_only_the_call_for_that_record() -> None:
+    @node("five", title="Five", description="")
+    def five(text: str) -> Series[dict]:
+        return [{"name": "a"}, {"name": "b"}, {"other": "c"}, {"name": "d"}, {"name": "e"}]
+
+    graph = registry_of(five, greet).load(make_graph(five, greet, edges=[("five.result.name", "greet.name")]))
+    run = graph.run(text="x")
+
+    cause = run.state.cause
+    assert (run.status, cause.type, cause.loc, cause.ctx["record_field"]) == ("failed", "invalid_edge_value", ("greet", 2), "name")
+    assert run.results["greet"]["result"][:3] == ["hi a", "hi b", None]  # the two records before it were read and called
+
+
+@pytest.mark.parametrize("source", [contacts, listed], ids=["returned as a table", "returned as a list"])
+def test_the_column_of_a_field_is_made_once_per_stored_series_and_only_for_a_field_an_edge_reads(source: Any) -> None:
+    graph = registry_of(source, greet).load(make_graph(source, greet, edges=[(f"{source.id}.result.name", "greet.name")]))
+    run = graph.run(text="x")
+
+    stored = run._units[source.id][()].out["result"]
+    assert dict(stored.columns) == {"name": ["ida", "bo"]}  # "email" was never read, so no list was made of it
+    assert stored.columns["name"] is stored.columns["name"]
+    assert (len(stored), stored[1], stored.as_list()) == (2, {"name": "bo", "email": None}, [{"name": "ida", "email": "ida@x.dk"}, {"name": "bo", "email": None}])
+
+
+def test_a_table_input_wired_to_a_series_stored_as_a_table_is_called_with_that_table() -> None:
+    got: list[Any] = []
+
+    @node("rows", title="Rows", description="")
+    def rows(table: Table[Contact]) -> int:
+        got.append(table)
+        return table.height
+
+    graph = registry_of(contacts, rows).load(make_graph(contacts, rows, edges=[("contacts.result", "rows.table")]))
+    run = graph.run(text="x")
+
+    stored = run._units["contacts"][()].out["result"]
+    assert run.outputs == {"rows.result": 2} and got[0] is stored.frame and dict(stored.columns) == {}
+
+
+def test_a_table_input_loses_the_rows_another_input_of_the_same_series_has_no_value_for() -> None:
+    got: list[Any] = []
+
+    @node("mail", title="Mail", description="")
+    def mail(email: str) -> str:
+        return email.upper()
+
+    @node("both", title="Both", description="")
+    def both(table: Table[Contact], mails: Series[str]) -> int:
+        got.append((table, mails))
+        return table.height
+
+    graph = registry_of(contacts, mail, both).load(make_graph(contacts, mail, both, edges=[
+        ("contacts.result.email", "mail.email"), ("contacts.result", "both.table"), ("mail.result", "both.mails"),
+    ]))
+    run = graph.run(text="x")
+
+    assert run.outputs["both.result"] == 1  # bo has no email, so mail was not called for him
+    assert got[0][0].to_dicts() == [{"name": "ida", "email": "ida@x.dk"}] and got[0][1] == ["IDA@X.DK"]

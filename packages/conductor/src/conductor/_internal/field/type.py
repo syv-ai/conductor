@@ -102,7 +102,7 @@ class Field:
     def slot(self) -> Type:
         """The type of the field's value on one unit, as a saved run and a run's written outputs hold it: blank
         where the unit gave none, and otherwise as its type says a unit holds one."""
-        return Type(union_of((self.whole.held_hint, type(None))))
+        return Type(union_of((self.whole.stored_hint, type(None))))
 
     @functools.cached_property
     def column(self) -> Type:

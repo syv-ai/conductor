@@ -54,9 +54,10 @@ def unit_columns(outputs: Mapping[str, Field], slots: list[Unit | None]) -> Save
                     column[slot] = None
             if output.many:
                 for slot, items in enumerate(column):
-                    if type(items) is list and (gaps := [place for place, item in enumerate(items) if item is SKIPPED]):
-                        skipped_items.setdefault(name, {})[slot] = gaps
-                        column[slot] = [None if item is SKIPPED else item for item in items]
+                    if items is not None:
+                        column[slot], gaps = items.for_saving()
+                        if gaps:
+                            skipped_items.setdefault(name, {})[slot] = gaps
     else:  # no unit holds outputs yet
         columns = {name: [None] * len(slots) for name in outputs}
     if Answered in kinds or Asking in kinds:

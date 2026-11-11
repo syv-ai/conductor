@@ -10,9 +10,9 @@ from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema, PydanticCustomError, core_schema
 
 from conductor._internal.sentinels import SKIPPED
-from conductor._internal.series.held import HeldSeries
+from conductor._internal.series.held import SeriesItems, StoredSeries
 from conductor._internal.series.read import _AS_LIST, SET_HAS_NO_ORDER
-from conductor._internal.value_type import Type, list_of, union_of
+from conductor._internal.value_type import Type, union_of
 
 _T = TypeVar("_T")
 
@@ -69,20 +69,31 @@ class SeriesType(Type, of=_Series):
         return ("Series" if self.item.hint is Any else f"Series[{self.item.text}]"), "Series", self.item.classes
 
     @functools.cached_property
-    def held_hint(self) -> Any:
-        """The hint of a Series as a unit holds it: a list whose item on a branch not taken is blank, or one of
-        the other ways a Series of its items may be held."""
-        other_ways = [hint for holder in HeldSeries._by_class_returned.values() if (hint := holder.hint_of(self.item)) is not None]
-        return union_of((list_of(union_of((self.item.hint, type(None)))), *other_ways))
+    def stored_hint(self) -> Any:
+        """The type hint a saved run reads and writes a stored Series of this type by: ``SeriesItems[T | None]``,
+        or the hint of another class its items can be stored as (``Records[R]`` for records)."""
+        items: Any = SeriesItems
+        other_forms = [hint for form in StoredSeries._by_returned_class.values() if (hint := form.stored_hint(self.item)) is not None]
+        return union_of((items[union_of((self.item.hint, type(None)))], *other_forms))
 
-    def read_returned(self, value: Any) -> Any:
-        """Reads what a node returned for the Series, strictly: a list of its items, or, for a value of a class
-        held another way, what holds it.
+    def read_returned(self, value: Any) -> StoredSeries | None:
+        """Validates what a node returned for the Series, strictly, and returns it as the run stores it: a
+        ``SeriesItems``, or, for a value of a class registered with ``returned_as`` (a frame), that class's form.
 
         Raises:
-            FieldValueError: The type refuses the value.
+            FieldValueError: ``value`` is not valid for the type.
         """
-        for returned_as, holder in HeldSeries._by_class_returned.items():
-            if isinstance(value, returned_as) and holder.hint_of(self.item) is not None:
-                return holder.holding(value, self.item)
-        return self.read(value, strict=True)
+        for returned_as, form in StoredSeries._by_returned_class.items():
+            if isinstance(value, returned_as) and form.stored_hint(self.item) is not None:
+                return form.store(value, self.item)
+        items = self.read(value, strict=True)
+        return items if items is None else SeriesItems(items)  # ``Series[T] | None`` may be returned as None
+
+    def read_answer(self, value: Any) -> StoredSeries | None:
+        """Validates a person's answer for the Series from its JSON form and returns it as the run stores it.
+
+        Raises:
+            FieldValueError: ``value`` is not valid for the type.
+        """
+        items = self.read_json(value)
+        return items if items is None else SeriesItems(items)

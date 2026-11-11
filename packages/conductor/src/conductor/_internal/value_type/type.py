@@ -362,8 +362,9 @@ class Type:
         return None
 
     @property
-    def held_hint(self) -> Any:
-        """The hint of a value of the type as a unit holds it, which a saved run reads and writes it by."""
+    def stored_hint(self) -> Any:
+        """The type hint a saved run reads and writes a stored value of the type by: the hint itself, unless a
+        subclass stores its values in a form of its own."""
         return self.hint
 
     @functools.cached_property
@@ -397,6 +398,14 @@ class Type:
             FieldValueError: The type refuses the value.
         """
         return self.read(value, strict=True)
+
+    def read_answer(self, value: Any) -> Any:
+        """Validates a person's answer from its JSON form and returns it as the run stores it.
+
+        Raises:
+            FieldValueError: ``value`` has no JSON form, or is not valid for the type.
+        """
+        return self.read_json(value)
 
     def read_json(self, value: Any) -> Any:
         """Reads ``value`` strictly from its JSON form, as a person's answer and a declared choice are.

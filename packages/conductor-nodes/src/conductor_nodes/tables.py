@@ -71,25 +71,22 @@ def _table(records: type, columns: list[str], **added: type) -> dict[str, Any]:
     "table-collect", title="Collect into a table", description="Puts records back into one table, with a new column for each result made beside them.",
     compute_added_inputs=_column_inputs, compute_outputs=_table,
 )
-def collect(records: Series[dict], columns: Names = [], constant_columns: Names = [], **values: Any) -> dict[str, Any]:
-    """Gives a table of the records, each with its new columns' values added.
+def collect(records: Table, columns: Names = [], constant_columns: Names = [], **values: Any) -> dict[str, Any]:
+    """Returns the records' table with each new column added after its own columns.
 
     Raises:
         NodeError: A column doesn't hold one value for each record (``columns_not_aligned``).
     """
     for name in columns:
         held = len(values[name])
-        if held != len(records):
+        if held != records.height:
             made_once = "; if it is one value for every record, name it in 'constant_columns', which writes it on each" if held == 1 else ""
             raise NodeError(
-                f"The column '{name}' holds {held} value{'s' if held != 1 else ''} for {len(records)} record{'s' if len(records) != 1 else ''}; "
+                f"The column '{name}' holds {held} value{'s' if held != 1 else ''} for {records.height} record{'s' if records.height != 1 else ''}; "
                 "wire a column from a node that runs once per record "
                 f"of the same Series as 'records'{made_once}",
-                code="columns_not_aligned", ctx={"column": name, "records": len(records), "values": held},
+                code="columns_not_aligned", ctx={"column": name, "records": records.height, "values": held},
             )
-    constants = {name: values[name] for name in constant_columns}
-    collected = [
-        {**record, **dict(zip(columns, cells, strict=True)), **constants}
-        for record, *cells in zip(records, *(values[name] for name in columns), strict=True)
-    ]
-    return {"result": pl.DataFrame(collected, infer_schema_length=None)}
+    made = [pl.Series(name, values[name], strict=False) for name in columns]
+    constant = [pl.Series(name, [values[name]] * records.height, strict=False) for name in constant_columns]
+    return {"result": records.with_columns(*made, *constant)}

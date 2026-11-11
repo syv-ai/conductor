@@ -57,8 +57,8 @@ class Done:
 
     Attributes:
         out: Its outputs by name: a value, ``None`` for a blank, ``SKIPPED`` for a branch not taken (every one
-            of them, when the node returned ``SKIPPED``), and for a ``Series`` a list, or ``Records`` when the
-            node returned a table for a ``Series`` of records.
+            of them, when the node returned ``SKIPPED``), and for a ``Series`` a ``StoredSeries`` (the
+            list the node returned, or the table it returned for a ``Series`` of records).
     """
 
     out: dict[str, Any]
