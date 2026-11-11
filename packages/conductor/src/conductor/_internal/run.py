@@ -35,18 +35,18 @@ import pydantic_core
 from pydantic import (
     BaseModel,
     ConfigDict,
-    Field,
     NonNegativeInt,
     PlainSerializer,
     PositiveInt,
     TypeAdapter,
     ValidationError,
 )
+from pydantic import Field as PydanticField
 
 from conductor._internal.ask import Question, Waiting, answer_outputs, waiting_questions
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.errors import InvalidCallError, Problem, make_problem, value_free_errors
-from conductor._internal.fields import SKIPPED, FieldSpec, FieldValueError, written_table
+from conductor._internal.fields import SKIPPED, Field, FieldValueError, written_table
 from conductor._internal.graph import (
     Cell,
     Fixed,
@@ -1083,7 +1083,7 @@ def _seconds(value: float) -> bool:
 # -- values -------------------------------------------------------------------------------------
 
 
-def kept_outputs(outputs: Mapping[str, FieldSpec], spread: dict[str, Any]) -> dict[str, Any]:
+def kept_outputs(outputs: Mapping[str, Field], spread: dict[str, Any]) -> dict[str, Any]:
     """A node's checked outputs by name as a run keeps them: a ``Series`` as a list."""
     for name, spec in outputs.items():
         if spec.many and spread[name] is not SKIPPED and spread[name] is not None:
@@ -1091,7 +1091,7 @@ def kept_outputs(outputs: Mapping[str, FieldSpec], spread: dict[str, Any]) -> di
     return spread
 
 
-def checked_outputs(returns: Returns, outputs: Mapping[str, FieldSpec], returned: Any) -> Any:
+def checked_outputs(returns: Returns, outputs: Mapping[str, Field], returned: Any) -> Any:
     """What a node returned, as its outputs by name as a run keeps them; ``SKIPPED`` for a whole branch not taken.
 
     Each is read strictly by its declared type (a value already of its class as it is, a model from a dict, never
@@ -1122,7 +1122,7 @@ def checked_outputs(returns: Returns, outputs: Mapping[str, FieldSpec], returned
     return kept_outputs(outputs, spread)
 
 
-def _checked(spec: FieldSpec, name: str, value: Any, *, code: str) -> Any:
+def _checked(spec: Field, name: str, value: Any, *, code: str) -> Any:
     if value is SKIPPED:
         return value
     try:
@@ -1326,7 +1326,7 @@ class _SavedEndedRun(_SavedRunBase):
 
 
 #: A save, told apart by its ``status``: a status and a cause that disagree are refused at the parse.
-_SavedRun = Annotated[_SavedGoingRun | _SavedEndedRun, Field(discriminator="status")]
+_SavedRun = Annotated[_SavedGoingRun | _SavedEndedRun, PydanticField(discriminator="status")]
 _SAVED: TypeAdapter[_SavedRun] = TypeAdapter(_SavedRun)
 
 

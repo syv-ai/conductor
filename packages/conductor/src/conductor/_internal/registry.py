@@ -46,12 +46,13 @@ from pydantic import JsonValue
 
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.errors import InvalidCallError, NodeDeclarationError, make_problem
-from conductor._internal.fields import FieldDescription, NamedType, Type
+from conductor._internal.fields import NamedType, Type
 from conductor._internal.node_definition import (
     FunctionDefinition,
     GraphDefinition,
     NodeDefinition,
     NodeDescription,
+    StoredGraphDescription,
     node,
 )
 from conductor._internal.record import GraphRecord, NodeRecord, as_record, typed_in
@@ -101,7 +102,7 @@ class NodeRegistry:
         #: Every type, by id: the ones the nodes declare, then the named ones.
         self._types: dict[str, type] = _by_id(self._named_types, {})
         #: Each stored graph's description, by id, as these nodes make it; emptied whenever what is held changes.
-        self._graph_descriptions: dict[str, NodeDescription] = {}
+        self._graph_descriptions: dict[str, StoredGraphDescription] = {}
 
     def __repr__(self) -> str:
         """How many nodes it holds, then each as its own repr, one per line."""
@@ -249,8 +250,9 @@ class NodeRegistry:
                 pass
         if definition.id not in self._graph_descriptions:
             placed = self.load(GraphRecord(nodes=[NodeRecord(id="node", node=definition.id, version=definition.version)])).describe().nodes["node"]
-            inputs = [FieldDescription.model_validate(field.model_dump(exclude={"feed"})) for field in placed.inputs]
-            self._graph_descriptions[definition.id] = definition.describe().model_copy(update={"inputs": inputs, "outputs": placed.outputs})
+            self._graph_descriptions[definition.id] = definition.described_as(
+                StoredGraphDescription, inputs=[placed_input.field for placed_input in placed.inputs], outputs=placed.outputs,
+            )
         return self._graph_descriptions[definition.id]
 
     # -- graphs ------------------------------------------------------------------

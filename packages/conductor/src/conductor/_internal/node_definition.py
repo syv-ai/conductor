@@ -54,21 +54,21 @@ from __future__ import annotations
 import dataclasses
 import functools
 import inspect
-import math
 import typing
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Annotated, Any, Generic, Literal, ParamSpec, Protocol, TypeVar, overload
 
+from pydantic import Field as PydanticField
 from pydantic import JsonValue
 
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.errors import InvalidCallError, NodeDeclarationError, Problem, make_problem
 from conductor._internal.fields import (
     REQUIRED,
+    Field,
     FieldDescription,
-    FieldSpec,
     FieldValueError,
     Type,
     _FromRun,
@@ -100,8 +100,7 @@ HookName = Literal["compute_added_inputs", "compute_outputs"]
 HookParameter = Literal["value", "arriving_type", "added_arriving_types"]
 
 
-@dataclass(frozen=True)
-class Policy:
+class Policy(ConductorModel):
     """How the engine calls a node, set by its author: ``@node("fetch", policy=Policy(retries=3))``.
 
     ``concurrency`` calls are made at once, on threads; with 1 and no
@@ -116,54 +115,30 @@ class Policy:
     thread can't be stopped, and a second call beside it would repeat its
     effect. ``reuse_when_inputs_match=False`` is for a node that reads the
     world, not only its inputs: ``run.again`` calls it for every item.
+
+    It is also what an editor reads of a node's policy: as JSON it leaves ``retry_on`` out, since a class has no
+    JSON form.
+
+    Attributes:
+        concurrency: How many calls are made at once; at least 1.
+        retries: How many more times a call that failed outside the node's control is tried; at least 0.
+        retry_delay: The seconds the first retry waits; finite and at least 0.
+        attempt_timeout: The seconds one attempt may take; finite and above 0, or ``None`` for no clock.
+        retry_on: The exception classes of the node's own client that are tried again like an ``ExternalError``.
+        reuse_when_inputs_match: Whether ``run.again`` reuses a result when a call receives what it received before.
     """
 
-    concurrency: int = 1
-    retries: int = 0
-    retry_delay: float = 1.0
-    attempt_timeout: float | None = None
-    retry_on: tuple[type[BaseException], ...] = ()
+    concurrency: int = PydanticField(default=1, ge=1)
+    retries: int = PydanticField(default=0, ge=0)
+    retry_delay: float = PydanticField(default=1.0, ge=0, allow_inf_nan=False)
+    attempt_timeout: float | None = PydanticField(default=None, gt=0, allow_inf_nan=False)
+    retry_on: tuple[type[BaseException], ...] = PydanticField(default=(), exclude=True)
     reuse_when_inputs_match: bool = True
-    #: Whether a call goes to a thread: several at once, or a clock on each attempt.
-    threaded: bool = field(default=False, init=False, repr=False, compare=False)
 
-    def __post_init__(self) -> None:
-        counted = self.concurrency >= 1 and self.retries >= 0
-        timed = math.isfinite(self.retry_delay) and self.retry_delay >= 0 and (
-            self.attempt_timeout is None or (math.isfinite(self.attempt_timeout) and self.attempt_timeout > 0)
-        )
-        if not (counted and timed):
-            raise NodeDeclarationError(
-                f"{self}: concurrency is at least 1, retries at least 0, retry_delay finite seconds of at least 0, attempt_timeout finite seconds above 0",
-                code="policy_invalid",
-            )
-        object.__setattr__(self, "threaded", self.concurrency > 1 or self.attempt_timeout is not None)
-
-    def __repr__(self) -> str:
-        """The call that makes it, with only what differs from the defaults: ``Policy(retries=2)``."""
-        fields = ("concurrency", "retries", "retry_delay", "attempt_timeout", "retry_on", "reuse_when_inputs_match")
-        changed = [f"{name}={getattr(self, name)!r}" for name in fields if getattr(self, name) != getattr(_DEFAULT_POLICY, name)]
-        return f"Policy({', '.join(changed)})"
-
-    def describe(self) -> PolicyDescription:
-        """The policy as an editor reads it; ``retry_on`` is classes, which have no JSON form, so it is left out."""
-        return PolicyDescription(
-            concurrency=self.concurrency, retries=self.retries, retry_delay=self.retry_delay,
-            attempt_timeout=self.attempt_timeout, reuse_when_inputs_match=self.reuse_when_inputs_match,
-        )
-
-
-class PolicyDescription(ConductorModel):
-    """A node's ``Policy`` as an editor reads it, ``retry_on`` left out."""
-
-    concurrency: int
-    retries: int
-    retry_delay: float
-    attempt_timeout: float | None
-    reuse_when_inputs_match: bool
-
-
-_DEFAULT_POLICY = Policy()
+    @functools.cached_property
+    def threaded(self) -> bool:
+        """Whether a call goes to a thread: several at once, or a clock on each attempt."""
+        return self.concurrency > 1 or self.attempt_timeout is not None
 
 
 class Deprecation(ConductorModel):
@@ -260,13 +235,16 @@ class _Version:
         """Every version number, newest first."""
         return (self.version, *(step.version for step in self._replaced))
 
-    def _described(self, *, is_graph: bool, policy: Policy, inputs: Iterable[FieldSpec], outputs: Iterable[FieldSpec], hooks: tuple[bool, bool]) -> NodeDescription:
-        return NodeDescription(
+    def described_as[D: FunctionNodeDescription | StoredGraphDescription](self, record: type[D], **more: Any) -> D:
+        """Describes this version as an editor's palette shows it.
+
+        Args:
+            record: The kind of description to make.
+            **more: What that kind holds beside what every version has: its fields, and a function's policy.
+        """
+        return record(
             id=self.id, version=self.version, versions=list(self.versions), title=self.title, description=self.description,
-            category=self.category, tags=list(self.tags), extra=dict(self.extra), docs=self.docs, deprecation=self.deprecation,
-            is_graph=is_graph, policy=policy.describe(),
-            inputs=[f.describe() for f in inputs], outputs=[f.describe() for f in outputs],
-            takes_added_inputs=hooks[0], computes_outputs=hooks[1],
+            category=self.category, tags=list(self.tags), extra=dict(self.extra), docs=self.docs, deprecation=self.deprecation, **more,
         )
 
 
@@ -297,8 +275,8 @@ class FunctionDefinition(_Version, Generic[_P, _R]):
     """
 
     function: NodeFunction[_P, _R]
-    inputs: Mapping[str, FieldSpec]
-    outputs: Mapping[str, FieldSpec]
+    inputs: Mapping[str, Field]
+    outputs: Mapping[str, Field]
     returns: Returns
     policy: Policy = Policy()
     compute_added_inputs: Callable[..., Mapping[Any, Any]] | None = None
@@ -321,11 +299,12 @@ class FunctionDefinition(_Version, Generic[_P, _R]):
         there are when it has none. ``version in definition.versions`` asks first."""
         return _version_of(self.lineage, version)
 
-    def describe(self) -> NodeDescription:
+    def describe(self) -> FunctionNodeDescription:
         """The node as an editor's palette shows it."""
-        return self._described(
-            is_graph=False, policy=self.policy, inputs=self.inputs.values(), outputs=self.outputs.values(),
-            hooks=(self.compute_added_inputs is not None, self.compute_outputs is not None),
+        return self.described_as(
+            FunctionNodeDescription, policy=self.policy,
+            inputs=[spec.description for spec in self.inputs.values()], outputs=[spec.description for spec in self.outputs.values()],
+            takes_added_inputs=self.compute_added_inputs is not None, computes_outputs=self.compute_outputs is not None,
         )
 
 
@@ -352,12 +331,6 @@ class GraphDefinition(_Version):
         there are when it has none. ``version in definition.versions`` asks first."""
         return _version_of(self.lineage, version)
 
-    def describe(self) -> NodeDescription:
-        """The node as an editor's palette shows it, with no fields: only ``registry.describe()``, which holds the nodes
-        the graph uses, lists them."""
-        return self._described(is_graph=True, policy=_DEFAULT_POLICY, inputs=(), outputs=(), hooks=(False, False))
-
-
 #: One version of a node: a function, or a stored graph.
 type NodeDefinition = FunctionDefinition[..., Any] | GraphDefinition
 
@@ -369,12 +342,23 @@ def _version_of(lineage: tuple[NodeDefinition, ...], version: int) -> NodeDefini
     raise KeyError(f"{lineage[0].id!r} has no version {version!r}; it has {', '.join(str(step.version) for step in lineage)}")
 
 
-class NodeDescription(ConductorModel):
-    """A node as an editor's palette shows it: what it is, its versions, its policy and its fields.
+class _NodeDescription(ConductorModel):
+    """What an editor's palette shows of every node. Never made on its own: a node is described as a function or as a
+    stored graph.
 
-    A node that is a stored graph (``is_graph``) offers the fields of the nodes its graph uses, which only a registry
-    holds: ``registry.describe()`` lists them, worked out as loading works them out, and the definition's own
-    ``describe()`` lists none. ``takes_added_inputs`` and ``computes_outputs`` say its fields depend on what is typed into it.
+    Attributes:
+        id: The id a graph names the node by.
+        version: The version described, the newest.
+        versions: Every version there is, newest first.
+        title: What a person reads as its name.
+        description: What it does, for a person who is no developer.
+        category: The group a palette lists it under.
+        tags: Words a palette filters by.
+        extra: What the host stored on the node, which conductor never reads.
+        docs: A longer text or a link about the node.
+        deprecation: The notice that this version is going away, when it is.
+        inputs: Its inputs.
+        outputs: Its outputs.
     """
 
     id: str
@@ -387,12 +371,39 @@ class NodeDescription(ConductorModel):
     extra: dict[str, JsonValue]
     docs: str | None
     deprecation: Deprecation | None
-    is_graph: bool
-    policy: PolicyDescription
     inputs: list[FieldDescription]
     outputs: list[FieldDescription]
+
+
+class FunctionNodeDescription(_NodeDescription):
+    """A node that is a function, as an editor's palette shows it.
+
+    Attributes:
+        kind: ``"function"``.
+        policy: How the engine calls it.
+        takes_added_inputs: Whether what is typed into it adds inputs.
+        computes_outputs: Whether its outputs depend on what is typed into it and on what arrives.
+    """
+
+    kind: Literal["function"] = "function"
+    policy: Policy
     takes_added_inputs: bool
     computes_outputs: bool
+
+
+class StoredGraphDescription(_NodeDescription):
+    """A node that is a stored graph, as an editor's palette shows it: its fields are the ones its graph offers,
+    which only a registry holding the nodes that graph uses can work out.
+
+    Attributes:
+        kind: ``"graph"``.
+    """
+
+    kind: Literal["graph"] = "graph"
+
+
+#: A node as an editor's palette shows it, one of two kinds told apart by ``kind``.
+NodeDescription = Annotated[FunctionNodeDescription | StoredGraphDescription, PydanticField(discriminator="kind")]
 
 
 class NodeDecorator(Protocol):
@@ -565,7 +576,7 @@ def _fits(needed: type, key: type, value: Any) -> bool:
 class OneResult:
     """The function returns one value, its output ``result``."""
 
-    def spread(self, returned: Any, outputs: Mapping[str, FieldSpec]) -> tuple[dict[str, Any], bool]:
+    def spread(self, returned: Any, outputs: Mapping[str, Field]) -> tuple[dict[str, Any], bool]:
         """The value as the output ``result``, and whether it needs no checking: one value already of a plain class."""
         return {"result": returned}, type(returned) in outputs["result"].whole.exact_classes
 
@@ -580,7 +591,7 @@ class OutputsClass:
 
     cls: type
 
-    def spread(self, returned: Any, outputs: Mapping[str, FieldSpec]) -> tuple[dict[str, Any], bool]:
+    def spread(self, returned: Any, outputs: Mapping[str, Field]) -> tuple[dict[str, Any], bool]:
         """Each field of the dataclass returned as its output, to be checked."""
         if not isinstance(returned, self.cls):
             raise FieldValueError(f"the node returns a {self.cls.__name__}, not a {type(returned).__name__}", code="invalid_output")
@@ -591,7 +602,7 @@ class OutputsClass:
 class HookOutputs:
     """The function returns a mapping of the outputs its ``compute_outputs`` hook gave when the graph loaded."""
 
-    def spread(self, returned: Any, outputs: Mapping[str, FieldSpec]) -> tuple[dict[str, Any], bool]:
+    def spread(self, returned: Any, outputs: Mapping[str, Field]) -> tuple[dict[str, Any], bool]:
         """Each output of the mapping returned, to be checked; one missing or not an output is refused."""
         if not isinstance(returned, Mapping):
             raise FieldValueError(f"the node returns its outputs as a mapping of {', '.join(outputs) or 'nothing'}, not a {type(returned).__name__}", code="invalid_output")
@@ -607,7 +618,7 @@ class HookOutputs:
 class NoOutputs:
     """The function returns ``None``: the node has no outputs."""
 
-    def spread(self, returned: Any, outputs: Mapping[str, FieldSpec]) -> tuple[dict[str, Any], bool]:
+    def spread(self, returned: Any, outputs: Mapping[str, Field]) -> tuple[dict[str, Any], bool]:
         """No outputs; anything but ``None`` returned is refused."""
         if returned is not None:
             raise FieldValueError(f"the node declares no outputs, but returned a {type(returned).__name__}", code="invalid_output")
@@ -618,7 +629,7 @@ class NoOutputs:
 Returns = OneResult | OutputsClass | HookOutputs | NoOutputs
 
 
-def _read_signature(function: Callable[..., Any], computed_outputs: bool) -> tuple[dict[str, FieldSpec], dict[str, type], dict[str, FieldSpec], Returns]:
+def _read_signature(function: Callable[..., Any], computed_outputs: bool) -> tuple[dict[str, Field], dict[str, type], dict[str, Field], Returns]:
     """Reads a function's signature.
 
     A type variable in it (``def keep[T](value: T) -> T``) stays in the field's hint, to be bound when a graph loads.
@@ -631,7 +642,7 @@ def _read_signature(function: Callable[..., Any], computed_outputs: bool) -> tup
         NodeDeclarationError: A parameter or the return type is declared in a way a node can't have.
     """
     hints = typing.get_type_hints(function, include_extras=True)
-    inputs: dict[str, FieldSpec] = {}
+    inputs: dict[str, Field] = {}
     from_run: dict[str, type] = {}
     for name, parameter in inspect.signature(function).parameters.items():
         if parameter.kind is parameter.VAR_KEYWORD:
@@ -648,13 +659,13 @@ def _read_signature(function: Callable[..., Any], computed_outputs: bool) -> tup
                 raise NodeDeclarationError(f"{name}: FromRun names the class of the value the run is given, FromRun[Session]", code="from_run_not_a_class")
             from_run[name] = needed
             continue
-        inputs[name] = FieldSpec(name, hint, default)
+        inputs[name] = Field(name, hint, default)
         if inputs[name].param.exclusive_group is not None:
             raise NodeDeclarationError(f"{name}: exclusive_group is for outputs; put it on an output's Param", code="exclusive_group_on_input")
     if "return" not in hints:
         raise NodeDeclarationError("a node needs a return type; write one, or -> None for no outputs", code="output_without_type")
     returns = hints["return"]
-    outputs: dict[str, FieldSpec] = {}
+    outputs: dict[str, Field] = {}
     kind: Returns
     outputs_class = typing.get_origin(returns) or returns  # a generic dataclass of outputs is written with its arguments
     if computed_outputs:
@@ -666,10 +677,10 @@ def _read_signature(function: Callable[..., Any], computed_outputs: bool) -> tup
             raise NodeDeclarationError("a dataclass of outputs is frozen; write @dataclass(frozen=True)", code="outputs_not_frozen")
         given = dict(zip(getattr(outputs_class, "__parameters__", ()), typing.get_args(returns), strict=True))  # the class's variables as the signature names them
         own = typing.get_type_hints(outputs_class, include_extras=True)
-        outputs = {f.name: FieldSpec(f.name, Type(own[f.name]).bind(given).hint if given else own[f.name], _declared_default(f)) for f in dataclasses.fields(outputs_class)}
+        outputs = {f.name: Field(f.name, Type(own[f.name]).bind(given).hint if given else own[f.name], _declared_default(f)) for f in dataclasses.fields(outputs_class)}
         kind = OutputsClass(outputs_class)
     else:
-        outputs, kind = {"result": FieldSpec("result", returns)}, OneResult()
+        outputs, kind = {"result": Field("result", returns)}, OneResult()
     on_inputs = {variable for spec in inputs.values() for variable in spec.whole.variables}
     for spec in (*inputs.values(), *outputs.values()):
         for variable in spec.whole.variables:
@@ -700,7 +711,7 @@ def read_by_hooks(definition: FunctionDefinition[..., Any]) -> frozenset[str]:
     return frozenset(name for parameters in definition.hook_parameters.values() for name, receives in parameters.items() if receives == "value")
 
 
-def _check_hook(hook: Callable[..., Any], kind: HookName, inputs: Mapping[str, FieldSpec], *, adds_inputs: bool) -> dict[str, HookParameter]:
+def _check_hook(hook: Callable[..., Any], kind: HookName, inputs: Mapping[str, Field], *, adds_inputs: bool) -> dict[str, HookParameter]:
     """Reads a hook's parameters: each is passed by name and names an input of the node, but for ``**added: type``.
 
     Args:

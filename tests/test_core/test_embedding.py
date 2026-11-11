@@ -281,7 +281,7 @@ def test_an_embedded_graph_offers_the_inner_graphs_inputs_by_name_and_outputs_by
     assert list(graph.inputs) == ["text"] and graph.inputs["text"].address == "e.text"
     assert graph.outputs == ["e.ex.result"]
     described = graph.describe().nodes["e"]
-    assert [i.name for i in described.inputs] == ["text"] and [o.name for o in described.outputs] == ["ex.result"]
+    assert [i.field.name for i in described.inputs] == ["text"] and [o.name for o in described.outputs] == ["ex.result"]
     two = load({"a": "shout-inner", "b": "shout-inner"}, [("a.ex.result", "b.text")])
     assert two.is_runnable and two._nodes["a"].inner is two._nodes["b"].inner  # loaded once, alone
 
@@ -320,7 +320,7 @@ def test_a_graph_that_embeds_itself_is_refused_at_the_node_that_closes_the_circl
 def test_an_output_made_per_item_inside_is_a_series_and_a_series_made_per_item_a_series_of_lists():
     deep = load({"e": "deep-inner", "n": "count", "x": "exclaim"}, [("e.up.result", "n.items"), ("e.up.result", "x.text")])
     assert deep.is_runnable and deep.plan["x"].series == "e.up.result"
-    assert deep.describe().nodes["e"].outputs[0].shape == "many"
+    assert deep.describe().nodes["e"].outputs[0].many
     lists = load({"e": "series-per-item-inner"})._nodes["e"].outputs["c.result"]
     assert (lists.many, lists.type.hint, lists.whole.id) == (True, list[str], "Series[list[str]]")
 
@@ -367,7 +367,7 @@ def test_a_value_a_default_and_an_edge_on_the_embedding_are_any_nodes():
     graph = load({"w": "words", "e": {"node": "greet-inner", "values": {"greeting": "hej"}}}, [("w.result", "e.text")])
     assert graph.run(text="ab cd").results["e"]["g.result"] == ["hej ab", "hej cd"]
     first = load({"e": {"node": "greet-inner", "defaults": {"greeting": "hi"}}})
-    assert first.inputs["greeting"].default == "hi"
+    assert first.inputs["greeting"].field.default == "hi"
     assert first.run(text="ab").outputs == {"e.g.result": "hi ab"}  # the embedding's default, proposed to the caller
     assert first.run(text="ab", greeting="yo").outputs == {"e.g.result": "yo ab"}
     assert mapped("greet-inner").run(text="ab").results["e"]["g.result"] == ["hello ab"]  # the inner node's own default

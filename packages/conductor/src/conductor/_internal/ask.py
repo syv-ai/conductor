@@ -28,8 +28,8 @@ from conductor._internal.fields import (
     REQUIRED,
     SKIPPED,
     Choice,
+    Field,
     FieldDescription,
-    FieldSpec,
     FieldValueError,
 )
 
@@ -162,7 +162,7 @@ class Waiting(ConductorModel):
     inputs: dict[str, Any]
 
 
-def question_asked(ask: Ask, outputs: Mapping[str, FieldSpec], inputs: dict[str, Any]) -> Question:
+def question_asked(ask: Ask, outputs: Mapping[str, Field], inputs: dict[str, Any]) -> Question:
     """Checks an ``Ask`` against the node's outputs and keeps it, with what the node received, as the unit's question.
 
     Each choice and the default are read as an answer is, so a choice or a
@@ -191,7 +191,7 @@ def question_asked(ask: Ask, outputs: Mapping[str, FieldSpec], inputs: dict[str,
     return Question(ask.prompt, inputs, overrides)
 
 
-def _by_output(given: Any, outputs: Mapping[str, FieldSpec], argument: str) -> dict[str, Any]:
+def _by_output(given: Any, outputs: Mapping[str, Field], argument: str) -> dict[str, Any]:
     """One ``Ask`` argument by output name: a lone output's as itself, several outputs' from the mapping given.
 
     Raises:
@@ -209,7 +209,7 @@ def _by_output(given: Any, outputs: Mapping[str, FieldSpec], argument: str) -> d
     return dict(given)
 
 
-def _offered(spec: FieldSpec, choices: list[Any]) -> list[dict[str, Any]]:
+def _offered(spec: Field, choices: list[Any]) -> list[dict[str, Any]]:
     """The choices an ``Ask`` offers for one output, as records with their ids in JSON form.
 
     A choice is what an answer picks, so its id is read as an answer is; a ``Series``' ids as one pick of them all.
@@ -233,7 +233,7 @@ def _offered(spec: FieldSpec, choices: list[Any]) -> list[dict[str, Any]]:
     return shown
 
 
-def _proposed(spec: FieldSpec, default: Any, offered: list[dict[str, Any]] | None) -> JsonValue:
+def _proposed(spec: Field, default: Any, offered: list[dict[str, Any]] | None) -> JsonValue:
     """The default an ``Ask`` proposes for one output, in JSON form, held to the rules an answer is.
 
     Args:
@@ -251,7 +251,7 @@ def _proposed(spec: FieldSpec, default: Any, offered: list[dict[str, Any]] | Non
     return proposed
 
 
-def output_questions(outputs: Mapping[str, FieldSpec]) -> dict[str, FieldDescription]:
+def output_questions(outputs: Mapping[str, Field]) -> dict[str, FieldDescription]:
     """Each output's question as the node's types set it, before an ``Ask`` sets anything.
 
     Args:
@@ -264,9 +264,9 @@ def output_questions(outputs: Mapping[str, FieldSpec]) -> dict[str, FieldDescrip
     return {name: _question(spec) for name, spec in outputs.items()}
 
 
-def _question(spec: FieldSpec) -> FieldDescription:
+def _question(spec: Field) -> FieldDescription:
     """One output's question as its type sets it."""
-    question = spec.describe()
+    question = spec.description
     return question.model_copy(update={"required": _required(spec, {}, limited=question.choices is not None)})
 
 
@@ -287,13 +287,13 @@ def waiting_questions(placed: PlacedFunction, overrides: Mapping[str, QuestionOv
     ]
 
 
-def _overridden(spec: FieldSpec, question: FieldDescription, overrides: QuestionOverrides) -> FieldDescription:
+def _overridden(spec: Field, question: FieldDescription, overrides: QuestionOverrides) -> FieldDescription:
     """One output's question with what its ``Ask`` set, and whether it is ``required`` worked out again from that."""
     choices = overrides.get("choices", question.choices)
     return question.model_copy(update={**overrides, "required": _required(spec, overrides, limited=choices is not None)})
 
 
-def _required(spec: FieldSpec, overrides: QuestionOverrides, *, limited: bool) -> bool:
+def _required(spec: Field, overrides: QuestionOverrides, *, limited: bool) -> bool:
     """Whether an answer must give the question.
 
     It needn't when the question has a default (its field's, ``SKIPPED`` too, or one its ``Ask`` set), is one of an
@@ -354,7 +354,7 @@ def answer_outputs(placed: PlacedFunction, value: Any, overrides: Mapping[str, Q
     return read, faults
 
 
-def _checked_answer(spec: FieldSpec, value: Any, offered: list[dict[str, Any]] | None) -> Any:
+def _checked_answer(spec: Field, value: Any, offered: list[dict[str, Any]] | None) -> Any:
     """Reads one question's answer into the node's own form, held to the choices ``offered``.
 
     Raises:

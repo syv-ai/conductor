@@ -649,7 +649,7 @@ def test_each_input_in_describe_says_how_it_receives_on_each_call_of_its_node():
     nodes = loaded.describe().nodes
 
     def fed(node_id: str) -> dict[str, str]:
-        return {i.name: i.feed.msg for i in nodes[node_id].inputs}
+        return {i.field.name: i.feed.msg for i in nodes[node_id].inputs}
 
     assert nodes["k"].inputs[0].feed.model_dump() == {"mode": "outer_value", "series": None, "msg": "the value of the graph"}
     assert nodes["j"].runs == RunsOn(mode="once", msg="once")
@@ -920,12 +920,12 @@ def test_a_table_made_per_document_is_described_as_a_table_with_its_columns():
     loaded = graph(DOCS, READ, LINES, {"id": "check", "node": "check"}, edges=(*READ_EDGES, ("lines.result.vendor", "check.vendor")))
     assert loaded.problems == []
     (result,) = loaded.describe().nodes["read"].outputs
-    assert result.shape == "table" and result.columns["amount"] == {"type": "number"}
+    assert not result.many and result.type.startswith("Table") and {c["properties"]["name"]["const"]: c["properties"]["values"]["items"] for c in result.json_schema["properties"]["columns"]["prefixItems"]}["amount"] == {"type": "number"}
 
 
 def test_a_bare_table_offers_no_columns():
     (result,) = graph({"id": "s", "node": "show"}).describe().nodes["s"].outputs
-    assert (result.shape, result.columns) == ("table", {})
+    assert (result.many, result.type) == (False, "Table")
 
 
 def test_a_typed_in_list_of_records_is_one_table_not_many():

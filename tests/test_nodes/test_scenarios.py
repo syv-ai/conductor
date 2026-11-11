@@ -238,7 +238,7 @@ def test_scenario_3_an_excel_per_document_with_the_documents_name_as_a_column():
         ("table-collect.result", "excel.table"),
     ], values={"table-collect.constant_columns": ["document"]}))
     assert {n: graph.plan[n].series for n in ("find-invoices", "table-collect", "excel")} == dict.fromkeys(("find-invoices", "table-collect", "excel"), "upload.result")
-    assert list(graph.describe().nodes["table-collect"].outputs[0].columns) == ["number", "vendor", "amount", "document"]
+    assert [c["properties"]["name"]["const"] for c in graph.describe().nodes["table-collect"].outputs[0].json_schema["properties"]["columns"]["prefixItems"]] == ["number", "vendor", "amount", "document"]
 
     sheets = graph.run(files=[A_PDF, C_PDF]).results["excel"]["result"]
     assert [sheet.text for sheet in sheets] == [
@@ -439,7 +439,7 @@ def test_scenario_14_each_document_by_three_typed_questions():
         ("upload.result.text", "llm.text"),
     ], values={"text-list.items": QUESTIONS}))
     assert graph.plan["text-list"].series == "upload.result" and graph.plan["llm"].series == "text-list.result"
-    feeds = {i.name: (i.feed.mode, i.feed.series) for i in graph.describe().nodes["llm"].inputs}
+    feeds = {i.field.name: (i.feed.mode, i.feed.series) for i in graph.describe().nodes["llm"].inputs}
     assert feeds == {"prompt": ("per_item", "text-list.result"), "text": ("outer_value", "upload.result")}
 
     ASKED.clear()

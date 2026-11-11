@@ -23,6 +23,13 @@ What changes in how you work, before the name-by-name tables:
   of a builtin carries its own pydantic schema. A table's one JSON form is
   `{"columns": [{"name", "type", "values"}]}`. `syv-conductor-nodes` gains `stack`.
 
+- **A field's description is one flat record.** It has `many`, `type`, `schema` (always set) and
+  `type_variables`; there is no `shape` and no `columns`, a table's columns are in its type and its
+  schema. A placed input and a graph input hold the field as `field`. A node's description is a
+  `FunctionNodeDescription` or a `StoredGraphDescription`, told apart by `kind`, and a stored graph's
+  fields are listed by `registry.describe()` only. `Policy` is a pydantic model, a policy out of bounds
+  raises pydantic's validation error, and `PolicyDescription` is gone.
+
 - **Five modules.** Import from `conductor`, `conductor.widgets`, `conductor.events`,
   `conductor.testing` and `conductor.about`, the reference. Everything else is `conductor._internal`.
   A type's `accepted_as` is read from `registry.describe().types`.

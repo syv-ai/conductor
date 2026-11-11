@@ -88,13 +88,18 @@ def output(graph, node_id: str):
     return described
 
 
+def columns_of(field) -> dict[str, Any]:
+    """A table field's columns, each column's name to its cell's JSON schema, read from the field's schema."""
+    return {c["properties"]["name"]["const"]: c["properties"]["values"]["items"] for c in field.json_schema["properties"]["columns"]["prefixItems"]}
+
+
 # -- split ---------------------------------------------------------------------------------------------
 
 
 def test_split_gives_a_tables_records_typed_as_its_row_type_declares_them():
     graph = load(contacts, tables.split, edges=[("contacts.result", "split.value")])
     described = output(graph, "split")
-    assert graph.problems == [] and (described.shape, described.type) == ("many", "record")
+    assert graph.problems == [] and (described.many, described.type) == (True, "record")
     assert described.json_schema["properties"] == {
         "name": {"title": "Name", "type": "string"}, "email": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Email"},
     }
@@ -127,7 +132,7 @@ def test_split_gives_records_of_unknown_columns_for_a_table_of_any_and_a_field_o
 
 def test_split_gives_a_lists_items_of_the_lists_own_type():
     graph = load(tags, tables.split, shout, edges=[("tags.result", "split.value"), ("split.result", "shout.text")])
-    assert graph.problems == [] and (output(graph, "split").shape, output(graph, "split").type) == ("many", "str")
+    assert graph.problems == [] and (output(graph, "split").many, output(graph, "split").type) == (True, "str")
     assert graph.plan["shout"].series == "split.result" and graph.run().results["shout"]["result"] == ["RED", "BLUE"]
 
 
@@ -147,7 +152,7 @@ def test_stack_puts_the_tables_made_per_item_into_one_table_of_their_row_type():
     graph = load(contacts, tables.split, one_row, tables.stack, edges=[
         ("contacts.result", "split.value"), ("split.result", "one-row.contact"), ("one-row.result", "stack.tables"),
     ])
-    assert graph.problems == [] and output(graph, "stack").shape == "table" and set(output(graph, "stack").columns) == {"name", "email"}
+    assert graph.problems == [] and not output(graph, "stack").many and output(graph, "stack").type.startswith("Table") and set(columns_of(output(graph, "stack"))) == {"name", "email"}
     stacked = graph.run().results["stack"]["result"]
     assert stacked.to_dicts() == graph.run().results["contacts"]["result"].to_dicts()
 
@@ -161,10 +166,10 @@ def test_collect_types_its_table_by_the_records_and_what_arrives_on_each_new_col
         ("send.result", "table-collect.sent"), ("sentence.result", "table-collect.team"),
     ], values={"table-collect.columns": ["sent"], "table-collect.constant_columns": ["team"]})
     assert graph.problems == []
-    columns = output(graph, "table-collect").columns
+    columns = columns_of(output(graph, "table-collect"))
     assert list(columns) == ["name", "email", "sent", "team"] and columns["name"] == {"type": "string"}
     assert columns["sent"] == {"anyOf": [{"type": "string"}, {"type": "null"}]} and columns["team"] == {"type": "string"}
-    feeds = {i.name: i.feed.mode for i in graph.describe().nodes["table-collect"].inputs}
+    feeds = {i.field.name: i.feed.mode for i in graph.describe().nodes["table-collect"].inputs}
     assert (feeds["records"], feeds["sent"], feeds["team"]) == ("gathered", "gathered", "one_value")
     assert graph.run().results["table-collect"]["result"]["team"].to_list() == ["one two"] * 3
 
@@ -197,7 +202,7 @@ def test_collect_of_records_of_unknown_columns_is_a_table_of_any_columns():
         ("csv.result", "split.value"), ("split.result.name", "shout.text"), ("split.result", "table-collect.records"),
         ("shout.result", "table-collect.loud"),
     ], values={"table-collect.columns": ["loud"]})
-    assert graph.problems == [] and output(graph, "table-collect").columns == {}
+    assert graph.problems == [] and output(graph, "table-collect").type == "Table"
     assert graph.run().results["table-collect"]["result"].to_dicts() == [{"name": "Ann", "age": 31, "loud": "ANN"}, {"name": "Bo", "age": 47, "loud": "BO"}]
 
 

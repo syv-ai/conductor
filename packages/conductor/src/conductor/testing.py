@@ -56,7 +56,7 @@ import polars as pl
 
 from conductor._internal.ask import Ask
 from conductor._internal.errors import InvalidCallError, Problem
-from conductor._internal.fields import REQUIRED, FieldSpec, FieldValueError, Param
+from conductor._internal.fields import REQUIRED, Field, FieldValueError, Param
 from conductor._internal.graph import load_graph
 from conductor._internal.node_definition import (
     FunctionDefinition,
@@ -199,7 +199,7 @@ def _upgrade_problems(older: NodeDefinition, registry: NodeRegistry, given: Sequ
     return [_problem("upgrade_broken", (older.id, older.version), f"after moving to version {newest}: {said}", **_causes(problems))]
 
 
-def _inputs_of(version: NodeDefinition) -> Mapping[str, FieldSpec]:
+def _inputs_of(version: NodeDefinition) -> Mapping[str, Field]:
     """The inputs a version declares; a stored graph's are known only when a graph using it loads."""
     match version:
         case FunctionDefinition():
@@ -270,10 +270,10 @@ def _watched(version: FunctionDefinition[..., Any]) -> tuple[FunctionDefinition[
         finally:
             changed.extend(name for name, value in before.items() if name not in changed and not _same(value, kwargs[name]))
 
-    return dataclasses.replace(version, function=watched, policy=dataclasses.replace(version.policy, retries=0)), changed
+    return dataclasses.replace(version, function=watched, policy=version.policy.model_copy(update={"retries": 0})), changed
 
 
-def _made_up(spec: FieldSpec) -> Any:
+def _made_up(spec: Field) -> Any:
     """A value of the field within its limits, checked by the field; ``_CANNOT`` when there is no way to make one."""
     for item in _candidates(spec.type.options[0] if len(spec.type.options) == 1 else None, spec.param):
         try:

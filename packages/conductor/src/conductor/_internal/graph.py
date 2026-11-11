@@ -58,8 +58,8 @@ from conductor._internal.errors import (
 )
 from conductor._internal.fields import (
     REQUIRED,
+    Field,
     FieldDescription,
-    FieldSpec,
     FieldValueError,
     Param,
     Series,
@@ -194,7 +194,7 @@ class Fixed:
         value: The value, as the field's type read it.
     """
 
-    spec: FieldSpec
+    spec: Field
     value: Any
 
 
@@ -207,7 +207,7 @@ class Unset:
         spec: The input's field.
     """
 
-    spec: FieldSpec
+    spec: Field
 
 
 @dataclass(frozen=True, slots=True)
@@ -219,7 +219,7 @@ class Open:
         address: Where a run keeps the caller's value, ``node.input``.
     """
 
-    spec: FieldSpec
+    spec: Field
     address: str
 
 
@@ -234,7 +234,7 @@ class Read:
         scope: The scope the value sits in.
     """
 
-    spec: FieldSpec
+    spec: Field
     sources: tuple[Source, ...]
     scope: Scope
 
@@ -250,7 +250,7 @@ class Gather:
         series: The Series whose items are gathered, where it was made.
     """
 
-    spec: FieldSpec
+    spec: Field
     sources: tuple[Source, ...]
     gates: tuple[Gate, ...]
     series: Cell
@@ -270,7 +270,7 @@ class SeriesOfOne:
         sources: What each edge brings. Several are alternatives, as for any input.
     """
 
-    spec: FieldSpec
+    spec: Field
     sources: tuple[Value, ...]
 
     @property
@@ -305,7 +305,7 @@ class _Placed:
     id: str
     scope: Scope
     inputs: dict[str, InputPlan]
-    outputs: dict[str, FieldSpec]
+    outputs: dict[str, Field]
     opens: set[str] = dataclasses.field(default_factory=set[str])
 
     @functools.cached_property
@@ -510,13 +510,15 @@ class Feed(ConductorModel):
     msg: str
 
 
-class PlacedFieldDescription(FieldDescription):
+class PlacedFieldDescription(ConductorModel):
     """An input of a node in a loaded graph.
 
     Attributes:
+        field: The input as its node's hooks and edges made it.
         feed: How it is fed on each call of its node.
     """
 
+    field: FieldDescription
     feed: Feed
 
 
@@ -542,19 +544,19 @@ class GraphNodeDescription(ConductorModel):
     outputs: list[FieldDescription] = []
 
 
-class GraphInput(FieldDescription):
+class GraphInput(ConductorModel):
     """An open input of a first node, a value of ``graph.inputs``: what a caller fills.
-
-    It is its node's field record; ``default`` is what it holds when the caller gives nothing (the record's
-    default, else the node's), as JSON, and ``None`` when it is ``required``.
 
     Attributes:
         address: Where the caller's value goes, ``node.input``.
         node_id: The node whose input it is.
+        field: The input. Its ``default`` is what it holds when the caller gives nothing (the record's default,
+            else the node's), as JSON, and it is ``required`` when there is none.
     """
 
     address: str
     node_id: str
+    field: FieldDescription
 
 
 class GraphDescription(ConductorModel):
@@ -580,14 +582,13 @@ class InputField:
     Attributes:
         name: Its name in ``graph.inputs``: the input's own, or its address where two inputs share a name.
         address: Where the caller's value is kept, ``node.input``.
-        spec: Its field.
-        default: What it holds when the caller gives nothing; ``REQUIRED`` when the caller must.
+        spec: Its field, whose default is what it holds when the caller gives nothing: the record's default, else
+            the node's, and ``REQUIRED`` when the caller must give one.
     """
 
     name: str
     address: str
-    spec: FieldSpec
-    default: Any
+    spec: Field
 
 
 @dataclass(frozen=True, eq=False)
@@ -662,8 +663,8 @@ class Graph:
                 continue
             nodes[record.id] = GraphNodeDescription(
                 node=record.node, version=record.version, loaded=True, problems=own, runs=_runs_on(placed.scope),
-                inputs=[plan.spec.describe(PlacedFieldDescription, feed=_feed(placed.scope, plan)) for plan in placed.inputs.values()],
-                outputs=[spec.describe() for spec in placed.outputs.values()],
+                inputs=[PlacedFieldDescription(field=plan.spec.description, feed=_feed(placed.scope, plan)) for plan in placed.inputs.values()],
+                outputs=[spec.description for spec in placed.outputs.values()],
             )
         return GraphDescription(nodes=nodes, inputs=dict(self.inputs), outputs=self.outputs, problems=list(self.problems))
 
@@ -794,9 +795,9 @@ class Graph:
         problems, values = list(problems), dict[str, Any]()
         for address, offered in self._input_fields.items():
             if address not in given:
-                if offered.default is REQUIRED:
+                if offered.spec.default is REQUIRED:
                     problems.append(make_problem("missing_input", "inputs", offered.name, name=offered.name))
-                values[address] = offered.default
+                values[address] = offered.spec.default
                 continue
             value, spec = given[address], offered.spec
             try:
@@ -918,7 +919,7 @@ class _Loader:
         self.problems: list[Problem] = []
         self.nodes: dict[str, PlacedNode] = {}
         self.branches: dict[str, frozenset[Branch]] = {}
-        self.opened: list[tuple[GraphInput, FieldSpec, Any]] = []
+        self.opened: list[tuple[GraphInput, Field]] = []
         self.position: dict[str, int] = {}
 
     def load(self, record: GraphRecord) -> Graph:
@@ -958,13 +959,13 @@ class _Loader:
                     self._place_graph(known[node_id], graph, into[node_id])
                 case None:
                     pass
-        names = [graph_input.name for graph_input, _, _ in self.opened]
+        names = [spec.name for _, spec in self.opened]
         inputs: dict[str, GraphInput] = {}
         input_fields: dict[str, InputField] = {}
-        for graph_input, spec, default in self.opened:
-            name = graph_input.name if names.count(graph_input.name) == 1 else graph_input.address
+        for graph_input, spec in self.opened:
+            name = spec.name if names.count(spec.name) == 1 else graph_input.address
             inputs[name] = graph_input
-            input_fields[graph_input.address] = InputField(name, graph_input.address, spec, default)
+            input_fields[graph_input.address] = InputField(name, graph_input.address, spec)
         readers: dict[str, list[PlacedNode]] = {node_id: [] for node_id in self.nodes}
         needs_from_run: list[tuple[str, FunctionDefinition[..., Any]]] = []
         for placed in self.nodes.values():
@@ -1022,7 +1023,7 @@ class _Loader:
         and so is every node that reads it."""
         fields = dict(definition.inputs)
         typed = self._typed(record, fields)
-        added: dict[str, FieldSpec] = {}
+        added: dict[str, Field] = {}
         if definition.compute_added_inputs is not None:
             made = self._hook(record, definition, "compute_added_inputs", definition.compute_added_inputs, typed, {}, ())
             if made is None:
@@ -1038,7 +1039,7 @@ class _Loader:
         if planned is None:
             return
         bound = planned.bound
-        outputs: dict[str, FieldSpec] | None = dict(definition.outputs) if bound is None else {name: spec.bind(bound) for name, spec in definition.outputs.items()}
+        outputs: dict[str, Field] | None = dict(definition.outputs) if bound is None else {name: spec.bind(bound) for name, spec in definition.outputs.items()}
         if definition.compute_outputs is not None:
             arriving = {name: plan.sources[0].type.bare for name, plan in planned.inputs.items() if isinstance(plan, Fed)}
             outputs = self._hook(record, definition, "compute_outputs", definition.compute_outputs, typed, arriving, tuple(added))
@@ -1070,16 +1071,16 @@ class _Loader:
         if inner.problems:
             self.problems += [problem.model_copy(update={"loc": (record.id, *problem.loc)}) for problem in inner.problems]
             return
-        fields = {offered.name: FieldSpec(offered.name, offered.spec.hint, offered.default) for offered in inner._input_fields.values()}
-        outputs: dict[str, FieldSpec] = {}
+        fields = {offered.name: Field(offered.name, offered.spec.hint, offered.spec.default) for offered in inner._input_fields.values()}
+        outputs: dict[str, Field] = {}
         for address in inner.outputs:
             node_id, _, output = address.partition(".")
             at = inner._nodes[node_id]
             spec = at.outputs[output]
             group = spec.param.exclusive_group
             if group:  # a decision inside is this node's, named by where it is made
-                spec = FieldSpec(spec.name, Annotated[spec.hint, Param(exclusive_group=f"{node_id}.{group}")], spec.default)
-            outputs[address] = _of_every_item(address, spec) if at.scope else FieldSpec(address, spec.hint, spec.default)
+                spec = Field(spec.name, Annotated[spec.hint, Param(exclusive_group=f"{node_id}.{group}")], spec.default)
+            outputs[address] = _of_every_item(address, spec) if at.scope else Field(address, spec.hint, spec.default)
         planned = self._planned(record, fields, self._typed(record, fields), frozenset(), edges)
         if planned is not None:
             self._keep(PlacedGraph(
@@ -1097,7 +1098,7 @@ class _Loader:
         self.branches[placed.id] = rests_on
 
     def _planned(
-        self, record: NodeRecord, fields: Mapping[str, FieldSpec], typed: Mapping[str, Any], fixed_at_load: frozenset[str],
+        self, record: NodeRecord, fields: Mapping[str, Field], typed: Mapping[str, Any], fixed_at_load: frozenset[str],
         edges: dict[str, list[str]], *, generic: bool = False,
     ) -> _Planned | None:
         """Plan every input of a node, and settle the scope it runs in.
@@ -1143,10 +1144,9 @@ class _Loader:
                 if default is _REFUSED:
                     inputs[name] = Unset(spec)
                     continue
-                required = default is REQUIRED
                 address = f"{record.id}.{name}"
-                described = spec.describe(GraphInput, address=address, node_id=record.id, required=required, default=None if required else spec.whole.to_json(default))
-                self.opened.append((described, spec, default))
+                opened = spec if default is spec.default else Field(name, spec.hint, default)  # the record's default is the caller's
+                self.opened.append((GraphInput(address=address, node_id=record.id, field=opened.description), opened))
                 inputs[name] = Open(spec, address)
             elif name in record.defaults:
                 self.problems.append(make_problem("default_on_later_node", record.id, name))
@@ -1174,7 +1174,7 @@ class _Loader:
             return None
         return _Planned(inputs, scope, self._rests_on(inputs), bound)
 
-    def _typed(self, record: NodeRecord, fields: Mapping[str, FieldSpec]) -> dict[str, Any]:
+    def _typed(self, record: NodeRecord, fields: Mapping[str, Field]) -> dict[str, Any]:
         """Each value typed into the record for one of ``fields``, and else each default, as the field reads it;
         ``_REFUSED``, with the problem, where it can't."""
         typed: dict[str, Any] = {}
@@ -1191,7 +1191,7 @@ class _Loader:
     def _hook(
         self, record: NodeRecord, definition: FunctionDefinition[..., Any], kind: HookName, hook: Callable[..., Mapping[Any, Any]],
         typed: Mapping[str, Any], arriving: Mapping[str, Any], added: tuple[str, ...],
-    ) -> dict[str, FieldSpec] | None:
+    ) -> dict[str, Field] | None:
         """Call a hook with what its parameters read: its answer read as fields, or ``None`` with the problem.
 
         Args:
@@ -1233,7 +1233,7 @@ class _Loader:
             self.problems.extend(make_problem("parameter_name_invalid", record.id, str(error["loc"][0])) for error in invalid.errors())
             return None
         try:
-            return {name: FieldSpec(name, *_hint_and_default(hint)) for name, hint in hints.items()}
+            return {name: Field(name, *_hint_and_default(hint)) for name, hint in hints.items()}
         except NodeDeclarationError as error:  # a hint conductor can't carry is the hook's failure
             self.problems.append(make_problem("compute_hook_failed", record.id, reason=error.message, error=error.code))
             return None
@@ -1259,7 +1259,7 @@ class _Loader:
             sources.sort(key=self._edge_order)
         return sources
 
-    def _fed(self, node_id: str, spec: FieldSpec, sources: list[Source]) -> Fed | None:
+    def _fed(self, node_id: str, spec: Field, sources: list[Source]) -> Fed | None:
         """How edges bringing ``sources`` feed one input: one value on each call, or every value its source made.
 
         An input of one value reads, whatever its type: a ``Series`` reaches it one item at a time. A ``Series``
@@ -1395,7 +1395,7 @@ class _Loader:
         return frozenset(rests_on)
 
 
-def _taken(spec: FieldSpec, sources: list[Source]) -> tuple[bool, Type]:
+def _taken(spec: Field, sources: list[Source]) -> tuple[bool, Type]:
     """Whether the input ``spec`` gathers what ``sources`` bring, and the type each must fit: the input's whole
     type when it reads, one item of a ``Series`` or one record of a table when it gathers."""
     record = spec.whole.record
@@ -1403,7 +1403,7 @@ def _taken(spec: FieldSpec, sources: list[Source]) -> tuple[bool, Type]:
     return gathers, spec.whole if not gathers else spec.type if record is None else record
 
 
-def _bound(fields: Mapping[str, FieldSpec], sources: Mapping[str, list[Source] | None]) -> dict[TypeVar, Any]:
+def _bound(fields: Mapping[str, Field], sources: Mapping[str, list[Source] | None]) -> dict[TypeVar, Any]:
     """What a node's type variables are bound to by what arrives on its edges; two places sharing a variable join.
 
     Only an edge binds: a typed-in value, a default and an open input bind nothing, and a variable nothing binds
@@ -1436,7 +1436,7 @@ def _split_gives(whole: Type) -> tuple[Literal["table", "list"], list[str]] | No
     return None
 
 
-def _mismatch(node_id: str, spec: FieldSpec, source: Source) -> Problem:
+def _mismatch(node_id: str, spec: Field, source: Source) -> Problem:
     """The ``type_mismatch`` of an edge from ``source`` into the input ``spec``.
 
     It says the fix where one mistake explains it: a whole table or list wired to an input of one value wants a
@@ -1458,16 +1458,16 @@ def _mismatch(node_id: str, spec: FieldSpec, source: Source) -> Problem:
     return make_problem("type_mismatch", node_id, spec.name, **said)
 
 
-def _fixed(spec: FieldSpec, typed: Any) -> Fixed | Unset:
+def _fixed(spec: Field, typed: Any) -> Fixed | Unset:
     """The plan of an input holding a typed-in value, as its field read it."""
     return Unset(spec) if typed is _REFUSED else Fixed(spec, typed)
 
 
-def _of_every_item(name: str, spec: FieldSpec) -> FieldSpec:
+def _of_every_item(name: str, spec: Field) -> Field:
     """The field ``name`` of an output made once per item, as the ``Series`` of every item's value: of each list, for
     an output that is itself a ``Series``."""
     series: Any = Series
-    return FieldSpec(name, series[types.GenericAlias(list, (spec.type.hint,)) if spec.many else spec.hint])
+    return Field(name, series[types.GenericAlias(list, (spec.type.hint,)) if spec.many else spec.hint])
 
 
 def _runs_on(scope: Scope) -> RunsOn:

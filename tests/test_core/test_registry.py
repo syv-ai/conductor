@@ -369,12 +369,12 @@ def test_extra_is_json_kept_and_described_but_never_read():
 def test_inputs_extracted_from_signature():
     older = echo.replaces
     assert older is not None and list(older.inputs) == ["text"]
-    assert older.inputs["text"].describe().title == "Input"
+    assert older.inputs["text"].description.title == "Input"
 
 
 def test_outputs_extracted_from_return_type():
     assert list(echo.outputs) == ["result"]
-    assert echo.outputs["result"].describe().title == "Output"
+    assert echo.outputs["result"].description.title == "Output"
 
 
 def test_multi_input_node():
@@ -511,7 +511,7 @@ def test_adding_a_node_adds_the_types_it_declares_a_series_giving_its_item_and_a
 
 def test_every_type_a_field_is_described_by_is_one_the_registry_holds():
     """A union names each member, a ``Literal`` its values' types and a generic its class; ``None`` names no class a
-    value is made of, and a table is described by its columns."""
+    value is made of, and a table by the columns in its type."""
 
     class Cash(ReadAsItsBuiltin, float):
         type_id: ClassVar[str] = "cash"
@@ -529,7 +529,7 @@ def test_every_type_a_field_is_described_by_is_one_the_registry_holds():
 
     [described] = registry.describe().nodes
     shown = {named for field in (*described.inputs, *described.outputs) if field.type for named in field.type.split(" | ")}
-    assert shown == {"cash", "text", "str", "number", "list[str]"}
+    assert shown == {"cash", "text", "str", "number", "list[str]", "Table[weight: number]"}
     assert dict(registry.types) == {"cash": Cash, "text": Text, "str": str, "number": Number, "list": list}
 
 
@@ -669,9 +669,8 @@ def test_a_stored_graphs_fields_are_listed_by_the_registry_that_holds_its_nodes_
     shout = node("shout", title="Shout", description="")(make_graph(upper))
     registry = NodeRegistry()
     registry.add(upper, shout)
-    alone = shout.describe()
-    assert alone.is_graph and alone.inputs == [] and alone.outputs == []
     listed = next(n for n in registry.describe().nodes if n.id == "shout")
+    assert listed.kind == "graph" and not hasattr(shout, "describe")
     assert [f.name for f in listed.inputs] == ["text"] and [f.name for f in listed.outputs] == ["upper.result"]
 
 

@@ -1262,19 +1262,6 @@ except NodeDeclarationError as error:
 
 **Fix.** Drop the `/` and `*args`: the engine passes every input by its name.
 
-### `policy_invalid`
-
-> {self}: concurrency is at least 1, retries at least 0, retry_delay finite seconds of at least 0, attempt_timeout finite seconds above 0
-
-```python
-try:
-    Policy(concurrency=0)
-except NodeDeclarationError as error:
-    print(error.code)  # policy_invalid
-```
-
-**Fix.** Give `concurrency` 1 or more, `retries` 0 or more, `retry_delay` a finite number of 0 or more, and `attempt_timeout` a finite number above 0 or `None`. The types (`int`, `int`, `float`, `float | None`) are the type checker's to hold.
-
 ### `replaces_another_node`
 
 > @node({id}) replaces {replaces}; a node replaces an earlier @node of its own id

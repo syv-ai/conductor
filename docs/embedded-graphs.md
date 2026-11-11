@@ -102,7 +102,7 @@ the node and item of each stored graph around it, outermost first.
 - A saved run holds a node inside as it holds any node, under `shout/upper`.
 
 A stored graph's palette entry lists the fields it offers in `registry.describe()`, which holds the nodes its
-graph uses. The definition's own `describe()` lists none, because its fields depend on that registry.
+graph uses. A stored graph's definition has no `describe()` of its own, because its fields depend on that registry.
 
 ## Graphs saved per request
 

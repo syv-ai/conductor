@@ -1,7 +1,7 @@
 """A type, a field, and the record an editor reads of a field.
 
 A ``Type`` is one annotation as conductor reads it, one object per hint: it names itself, reads a value, writes
-it as JSON, and says which types may land on it and what that binds its type variables to. A ``FieldSpec`` is
+it as JSON, and says which types may land on it and what that binds its type variables to. A ``Field`` is
 one input or output of a node: a name, a hint and a default. Both are plain objects the engine reads on every
 call. What an editor reads is a ``FieldDescription``, the one pydantic record here.
 
@@ -12,7 +12,6 @@ pydantic doesn't answer is whether a value of one type may land on another, whic
 
 from __future__ import annotations
 
-import builtins
 import dataclasses
 import datetime
 import decimal
@@ -37,7 +36,6 @@ from typing import (
     Union,
     get_args,
     get_origin,
-    overload,
 )
 
 import polars as pl
@@ -254,7 +252,6 @@ class Param:
 
 _NO_PARAM = Param()
 _T = TypeVar("_T")
-_Record = TypeVar("_Record", bound="FieldDescription")
 
 
 class _FromRun:
@@ -635,7 +632,9 @@ def _substituted(hint: Any, bound: Mapping[TypeVar, Any]) -> Any:
     """Gives ``hint`` with each type variable replaced by what it is bound to, else its own bound, else ``Any``."""
     if isinstance(hint, TypeVar):
         return bound[hint] if hint in bound else Any if hint.__bound__ is None else hint.__bound__
-    variables = () if isinstance(hint, type) else getattr(hint, "__parameters__", ())  # typing's own, on every generic hint
+    if isinstance(hint, type):
+        return hint
+    variables = getattr(hint, "__parameters__", ())  # typing's own, on every generic hint
     return hint[tuple(_substituted(variable, bound) for variable in variables)] if variables else hint
 
 
@@ -957,9 +956,9 @@ class Type:
             if column is not None:
                 columns.append(column)
                 said["msg"] = f"the column '{column}' its row type declares is missing" if raw["type"] == "missing" else f"column '{column}': {said['msg']}"
-            elif "column" in raw.get("ctx", {}):  # a fault of a whole column of a frame
-                columns.append(raw["ctx"]["column"])
-                said["loc"] = (raw["ctx"]["column"],)
+            elif whole := raw.get("ctx", {}).get("column"):  # a fault of a whole column of a frame
+                columns.append(whole)
+                said["loc"] = (whole,)
         return FieldValueError(errors[0]["msg"], errors=errors, **({"column": columns[0]} if columns else {}))
 
 
@@ -980,12 +979,23 @@ class FieldValueError(Exception):
 
 
 class FieldDescription(ConductorModel):
-    """An input or output as an editor reads it, and a question a waiting call asks.
+    """An input or output as an editor reads it, and a question a waiting call asks. It reads back what it wrote.
 
-    ``type`` is its type's id and ``schema`` its JSON schema, for one value or a ``Series`` item; a table has
-    ``columns`` instead, each column's schema. ``default`` is what it holds when it is not ``required``.
-    ``choices`` are ``{"id", "title"}`` records, from a ``Literal`` or, on a question, the ``Ask`` (a host's
-    ``Choice`` subclass adds its own keys). The rest is the ``Param``'s.
+    Attributes:
+        name: The parameter's name, or the output's.
+        title: What a person reads as its name.
+        description: A longer text for its help.
+        many: Whether it is a ``Series``: an output that makes items, an input that gathers them.
+        type: The id of one value's type, a ``Series``' item's; a table's names its columns.
+        type_variables: The names of the type variables its hint leaves open, which an edge binds; two fields that
+            share a name have the same type once it is bound.
+        json_schema: The JSON schema of one value, written as ``schema``; a table's columns are in it.
+        required: Whether nothing defaults it.
+        default: The default as JSON; ``None`` when ``required``.
+        choices: The values it takes when it names them, each ``{"id", "title"}`` with whatever a host's ``Choice``
+            subclass adds: from a ``Literal``, ``Param(choices=)`` or, on a question, the ``Ask``.
+        widget: The control a person edits it with, as JSON.
+        exclusive_group: The group of alternative outputs it belongs to.
     """
 
     model_config = ConfigDict(
@@ -994,24 +1004,24 @@ class FieldDescription(ConductorModel):
 
     name: str
     title: str
-    shape: Literal["one", "many", "table"]
-    required: bool
-    type: str | None = None
-    json_schema: dict[str, Any] | None = PydanticField(default=None, alias="schema")
-    columns: dict[str, dict[str, Any]] | None = None
-    default: Any = None
-    choices: list[dict[str, Any]] | None = None
     description: str | None = None
+    many: bool
+    type: str
+    type_variables: list[str] = []
+    json_schema: dict[str, Any] = PydanticField(alias="schema")
+    required: bool
+    default: JsonValue = None
+    choices: list[dict[str, Any]] | None = None
     widget: dict[str, Any] | None = None
     exclusive_group: str | None = None
 
 
 @dataclass(frozen=True)
-class FieldSpec:
-    """One input or output of a node: ``FieldSpec("times", Annotated[int, Param(ge=0)], 1)``.
+class Field:
+    """One input or output of a node: ``Field("times", Annotated[int, Param(ge=0)], 1)``.
 
     The constructor is the only way to a field: one renamed, given another default or bound to a type variable
-    is a new ``FieldSpec`` of the changed ``name``, ``default`` or ``hint``, so nothing it holds can go stale.
+    is a new ``Field`` of the changed ``name``, ``default`` or ``hint``, so nothing it holds can go stale.
     What the hint costs to read is kept per hint, so a second field of it is cheap.
 
     Attributes:
@@ -1065,12 +1075,12 @@ class FieldSpec:
         except NodeDeclarationError as error:
             raise NodeDeclarationError(f"{self.name}: {error.message}", code=error.code) from None
         if self.param.widget is not None:
-            self._described  # noqa: B018  a widget with no JSON form fails here
+            self.description  # noqa: B018  a widget with no JSON form fails here
 
-    def bind(self, bound: Mapping[TypeVar, Any]) -> FieldSpec:
+    def bind(self, bound: Mapping[TypeVar, Any]) -> Field:
         """Gives this field with its type variables replaced by what ``bound`` binds them to, one nothing binds by
         its bound, else ``Any``; the field itself when its hint holds none."""
-        return FieldSpec(self.name, Type(self.hint).bind(bound).hint, self.default) if self.whole.variables else self
+        return Field(self.name, Type(self.hint).bind(bound).hint, self.default) if self.whole.variables else self
 
     @functools.cached_property
     def keeps_blanks(self) -> bool:
@@ -1085,47 +1095,17 @@ class FieldSpec:
         one = _list_of(_union((self.type.hint, type(None)))) if self.many else self.whole.hint
         return Type(_list_of(_union((one, type(None)))))
 
-    @overload
-    def describe(self, record: None = None, /, **changed: Any) -> FieldDescription: ...
-
-    @overload
-    def describe(self, record: builtins.type[_Record], /, **changed: Any) -> _Record: ...  # the field named type hides the builtin
-
-    def describe(self, record: builtins.type[FieldDescription] | None = None, /, **changed: Any) -> FieldDescription:
-        """Gives the field as an editor reads it.
-
-        Args:
-            record: A ``FieldDescription`` subclass that adds to it, such as a graph's input or an input placed in a
-                graph; ``FieldDescription`` itself when not given.
-            **changed: Keys of the record set or replaced, such as the address a graph knows the field by.
-
-        Returns:
-            The record, validated.
-        """
-        return (record or FieldDescription).model_validate({**self._described, **changed})
-
     @functools.cached_property
-    def _described(self) -> dict[str, Any]:
-        """The keys of the field's description that it has, made once."""
-        out: dict[str, Any] = {
-            "name": self.name, "title": self.param.title or self.name.replace("-", " ").replace("_", " ").strip().capitalize(),
-            "required": self.default is REQUIRED,
-        }
-        if self.whole.record is not None:
-            out.update(shape="table", columns={column: Type(hint).json_schema for column, hint in self.whole.fields.items()})
-        else:
-            out.update(shape="many" if self.many else "one", type=self.type.id, schema=self.type.json_schema)
-            if self.type.choices is not None:
-                out["choices"] = [choice.model_dump(mode="json") for choice in self.type.choices]
-        if self.default is not REQUIRED:
-            out["default"] = self.default_json
-        if self.param.description is not None:
-            out["description"] = self.param.description
-        if self.param.widget is not None:
-            out["widget"] = self.param.widget.model_dump(mode="json")
-        if self.param.exclusive_group is not None:
-            out["exclusive_group"] = self.param.exclusive_group
-        return out
+    def description(self) -> FieldDescription:
+        """The field as an editor reads it, made once."""
+        choices, widget = self.type.choices, self.param.widget
+        return FieldDescription(
+            name=self.name, title=self.param.title or self.name.replace("-", " ").replace("_", " ").strip().capitalize(),
+            description=self.param.description, many=self.many, type=self.type.id, type_variables=[variable.__name__ for variable in self.whole.variables],
+            schema=self.type.json_schema, required=self.default is REQUIRED, default=self.default_json,
+            choices=None if choices is None else [choice.model_dump(mode="json") for choice in choices],
+            widget=None if widget is None else widget.model_dump(mode="json"), exclusive_group=self.param.exclusive_group,
+        )
 
 
 def _field_parts(hint: Any) -> tuple[Param, Type, Type]:
@@ -1137,8 +1117,8 @@ def _field_parts(hint: Any) -> tuple[Param, Type, Type]:
     """
     bare, param, others = _split(hint)
     series = [option for option in _options(bare) if (get_origin(option) or option) is _Series]
+    optional = type(None) in _options(bare)  # of the whole Series, when it is one
     if series:
-        optional = type(None) in _options(bare)
         bare, of_item, others = _split((get_args(series[0]) or (Any,))[0])
         if any((get_origin(option) or option) is _Series for option in _options(bare)):
             raise NodeDeclarationError("a Series of Series; a field holds one level of items, so return one Series", code="nested_series")

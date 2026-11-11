@@ -356,7 +356,7 @@ def _streamed_events() -> list[Any]:
 
 def _every_event() -> list[Any]:
     streamed = _streamed_events()
-    waiting = Waiting(id="n", loc=("n",), prompt="Q?", questions=[{"name": "result", "title": "Result", "shape": "one", "required": False, "default": 1.5}], inputs={"x": "a"})
+    waiting = Waiting(id="n", loc=("n",), prompt="Q?", questions=[{"name": "result", "title": "Result", "many": False, "type": "float", "schema": {"type": "number"}, "required": False, "default": 1.5}], inputs={"x": "a"})
     cause = Problem(type="external_failed", msg="e", loc=("n",), ctx={"error": "OSError"})
     built = [
         RunStart(waiting=(waiting,)),
@@ -552,10 +552,11 @@ def test_a_problems_ctx_holds_lists_as_lists_and_its_message_writes_them():
 def test_every_description_is_a_typed_record_a_host_publishes_as_its_schema():
     from conductor import (
         FieldDescription,
+        FunctionNodeDescription,
         GraphDescription,
-        NodeDescription,
         NodeRegistry,
         RegistryDescription,
+        StoredGraphDescription,
         node,
     )
 
@@ -566,7 +567,7 @@ def test_every_description_is_a_typed_record_a_host_publishes_as_its_schema():
     registry = NodeRegistry()
     registry.add(upper)
     described = registry.describe()
-    assert isinstance(described, RegistryDescription) and isinstance(described.nodes[0], NodeDescription)
+    assert isinstance(described, RegistryDescription) and isinstance(described.nodes[0], (FunctionNodeDescription, StoredGraphDescription))
     assert isinstance(described.nodes[0].inputs[0], FieldDescription) and described.nodes[0].inputs[0].json_schema == {"type": "string"}
     assert isinstance(registry.load({"nodes": [{"id": "u", "node": "upper"}]}).describe(), GraphDescription)
     for record in (RegistryDescription, GraphDescription):

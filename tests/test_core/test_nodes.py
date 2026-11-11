@@ -261,11 +261,11 @@ def test_describe_is_the_node_as_json_with_no_keys_beyond_its_own():
 
     described = json.loads(v2.describe().model_dump_json())
     assert set(described) == {
-        "id", "version", "versions", "title", "description", "category", "tags", "extra", "docs", "deprecation", "is_graph",
+        "id", "version", "versions", "title", "description", "category", "tags", "extra", "docs", "deprecation", "kind",
         "policy", "inputs", "outputs", "takes_added_inputs", "computes_outputs",
     }
     assert (described["id"], described["version"], described["versions"], described["tags"]) == ("v", 2, [2, 1], ["words"])
-    assert described["policy"]["retries"] == 2
+    assert described["kind"] == "function" and described["policy"]["retries"] == 2
     assert described["inputs"][0]["widget"] == {"type": "textarea", "rows": 2}
     assert described["outputs"][0]["type"] == "Text"
 
@@ -318,7 +318,7 @@ def test_the_bare_type_is_what_a_field_is_typed_as_when_it_may_be_blank():
     def f(many: Series[Text | None], one: Text | None) -> Text | None:
         return None
 
-    assert [(i.name, i.type, i.shape) for i in f.describe().inputs] == [("many", "Text", "many"), ("one", "Text", "one")]
+    assert [(i.name, i.type, i.many) for i in f.describe().inputs] == [("many", "Text", True), ("one", "Text", False)]
     output = field_of(f, "result", "outputs")
     assert output.type == "Text" and {"type": "null"} in output.json_schema["anyOf"]
     assert load(f, record=GraphRecord(nodes=[placed("f", "f", values={"many": [None], "one": None})])).run().results["f"] == {"result": None}
@@ -475,7 +475,7 @@ def test_an_any_input_has_a_json_form_before_anything_is_wired():
         return ""
 
     assert json.loads(f.describe().model_dump_json(exclude_none=True))["inputs"][0] == {
-        "name": "x", "title": "X", "shape": "one", "required": True, "type": "Any", "schema": {},
+        "name": "x", "title": "X", "many": False, "required": True, "type": "Any", "type_variables": [], "schema": {},
     }
 
 
@@ -513,7 +513,7 @@ def test_a_series_input_takes_many_values_of_its_element_type_and_a_list_is_one_
     def f(texts: Series[Text], numbers: list[float]) -> str:
         return ""
 
-    assert [(i.shape, i.type) for i in f.describe().inputs] == [("many", "Text"), ("one", "list[float]")]
+    assert [(i.many, i.type) for i in f.describe().inputs] == [(True, "Text"), (False, "list[float]")]
 
 
 def test_a_table_declares_its_columns_and_their_types():
@@ -526,8 +526,9 @@ def test_a_table_declares_its_columns_and_their_types():
         return pl.DataFrame()
 
     output = field_of(read, "result", "outputs")
-    assert output.shape == "table" and output.columns == {"name": {"type": "string"}, "amount": {"type": "integer"}}
-    assert field_of(bare, "result", "outputs").columns == {}
+    columns = {c["properties"]["name"]["const"]: c["properties"]["values"]["items"] for c in output.json_schema["properties"]["columns"]["prefixItems"]}
+    assert not output.many and output.type == "Table[name: str, amount: int]" and columns == {"name": {"type": "string"}, "amount": {"type": "integer"}}
+    assert (field_of(bare, "result", "outputs").many, field_of(bare, "result", "outputs").type) == (False, "Table")
 
 
 # -- Param and widgets -------------------------------------------------------------------------
@@ -656,7 +657,8 @@ def test_a_definition_may_hold_a_graph_at_a_version_of_its_own():
         return text
 
     inner = node("inner", title="Inner", description="", version=3)(make_graph(read))
-    assert inner.version == 3 and inner.versions == (3,) and inner.describe().is_graph is True
+    assert inner.version == 3 and inner.versions == (3,)
+    assert next(n for n in registry_of(read, inner).describe().nodes if n.id == "inner").kind == "graph"
     graph = load(read, inner, record=GraphRecord(nodes=[placed("e", "inner", version=3)]))
     assert graph.problems == [] and list(graph.inputs) == ["text"]
 
@@ -923,7 +925,7 @@ def test_params_stacked_on_an_alias_merge_as_pydantics_fields_do_the_later_one_w
         return 1
 
     spec = declared(f).inputs["separator"]
-    assert (spec.describe().title, spec.param.widget, spec.param.limits) == ("Separator", TextInput(), {"min_length": 1})
+    assert (spec.description.title, spec.param.widget, spec.param.limits) == ("Separator", TextInput(), {"min_length": 1})
     with pytest.raises(FieldValueError):
         spec.whole.read("")
 
@@ -946,7 +948,7 @@ def test_a_param_on_a_series_item_is_the_fields_own_so_an_int_lands_and_a_bool_d
 
     for name, blank in (("n", False), ("m", True)):
         spec = total.inputs[name]
-        assert (spec.type.bare, spec.describe().title, spec.param.limits) == (int | None if blank else int, "Count", {"ge": 0})
+        assert (spec.type.bare, spec.description.title, spec.param.limits) == (int | None if blank else int, "Count", {"ge": 0})
         for wrong in ([-1], [True]):
             with pytest.raises(FieldValueError):
                 spec.whole.read(wrong)
@@ -1030,7 +1032,7 @@ def test_a_bare_series_is_many_values_of_anything():
     def count(xs: Series) -> int:
         return len(xs)
 
-    assert [(i.shape, i.type) for i in count.describe().inputs] == [("many", "Any")]
+    assert [(i.many, i.type) for i in count.describe().inputs] == [(True, "Any")]
     assert load(count, record=GraphRecord(nodes=[placed("c", "count", values={"xs": [1, "a"]})])).run().results["c"]["result"] == 2
 
 
@@ -1039,7 +1041,7 @@ def test_a_series_that_may_be_none_is_still_many_values():
     def f(xs: Series[int] | None = None) -> str:
         return repr(xs)
 
-    assert [(i.shape, i.type) for i in f.describe().inputs] == [("many", "int")]
+    assert [(i.many, i.type) for i in f.describe().inputs] == [(True, "int")]
 
 
 def test_a_wrongly_typed_limit_is_refused_as_a_bound():
@@ -1359,7 +1361,7 @@ def test_a_default_is_described_and_offered_by_a_loaded_graph_as_its_json():
         return len(rows)
 
     described = {field.name: field.default for field in t.describe().inputs}
-    offered = {name: given.default for name, given in registry_of(t).load(make_graph(t)).inputs.items()}
+    offered = {name: given.field.default for name, given in registry_of(t).load(make_graph(t)).inputs.items()}
 
     table = {"columns": [{"name": "n", "type": "int", "values": [1, 2]}]}
     assert described == {"rows": table, "when": "2026-01-02"}

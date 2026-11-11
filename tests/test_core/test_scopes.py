@@ -114,7 +114,7 @@ def load(nodes: dict[str, str | dict], edges: list[tuple[str, str]], registry: N
 
 
 def feeds(graph, node_id: str) -> dict[str, tuple[str, str | None]]:
-    return {i.name: (i.feed.mode, i.feed.series) for i in graph.describe().nodes[node_id].inputs}
+    return {i.field.name: (i.feed.mode, i.feed.series) for i in graph.describe().nodes[node_id].inputs}
 
 
 def problems(graph) -> list[tuple[str, tuple]]:
@@ -302,7 +302,7 @@ def test_a_first_nodes_open_inputs_are_the_graphs_and_a_later_nodes_must_be_fed(
 
 def test_a_graph_input_of_a_series_is_given_whole_and_opens_no_map():
     graph = load({"c": "count"}, [])
-    assert graph.is_runnable and graph.inputs["items"].shape == "many" and graph.plan["c"].mode == "once"
+    assert graph.is_runnable and graph.inputs["items"].field.many and graph.plan["c"].mode == "once"
     assert feeds(graph, "c") == {"items": ("one_value", None)}
 
 
@@ -333,14 +333,14 @@ def test_an_embedded_graph_is_one_node_with_the_inner_graphs_inputs_and_outputs(
     graph = load({"d": "documents", "e": "inner", "c": "count"}, [("d.result", "e.text"), ("e.v.result", "c.items")], registry)
     assert graph.is_runnable and list(graph._nodes) == ["d", "e", "c"]
     described = graph.describe().nodes["e"]
-    assert [i.name for i in described.inputs] == ["text"] and [o.name for o in described.outputs] == ["v.result"]
+    assert [i.field.name for i in described.inputs] == ["text"] and [o.name for o in described.outputs] == ["v.result"]
     assert graph.plan["e"].series == "d.result" and feeds(graph, "c") == {"items": ("gathered", "d.result")}
 
 
 def test_an_output_made_per_item_inside_an_embedded_graph_is_offered_as_a_series():
     registry = _embedding({"d": "documents", "u": "upper"}, [("d.result", "u.text")])
     graph = load({"e": "inner", "c": "count"}, [("e.u.result", "c.items")], registry)
-    assert graph.is_runnable and graph.describe().nodes["e"].outputs[0].shape == "many"
+    assert graph.is_runnable and graph.describe().nodes["e"].outputs[0].many
     assert feeds(graph, "c") == {"items": ("gathered", "e.u.result")}
 
 

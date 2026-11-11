@@ -90,21 +90,22 @@ def _loaded(*definitions: Any, edges: list[list[str]], values: dict[str, dict[st
     return registry_of(*definitions).load({"nodes": nodes, "edges": edges})
 
 
-def _types(graph: Any, node_id: str) -> dict[str, tuple[str, str | None]]:
+def _types(graph: Any, node_id: str) -> dict[str, tuple[bool, str]]:
     described = graph.describe().nodes[node_id]
-    return {field.name: (field.shape, field.type) for field in (*described.inputs, *described.outputs)}
+    fields = [*(placed.field for placed in described.inputs), *described.outputs]
+    return {field.name: (field.many, field.type) for field in fields}
 
 
 def test_a_type_variable_is_what_arrives_on_the_edge_in_every_input_and_in_the_return() -> None:
     graph = _loaded(text, decision, upper, edges=[["text.result", "decision.value"], ["decision.if_true", "upper.text"]])
     assert graph.problems == []
-    assert _types(graph, "decision") == {"value": ("one", "str"), "when": ("one", "bool"), "if_true": ("one", "str"), "if_false": ("one", "str")}
+    assert _types(graph, "decision") == {"value": (False, "str"), "when": (False, "bool"), "if_true": (False, "str"), "if_false": (False, "str")}
     assert graph.run().outputs == {"upper.result": "A"}
 
 
 def test_only_an_edge_binds_so_a_typed_in_value_and_an_open_input_read_as_any() -> None:
     typed = _loaded(keep, edges=[], values={"keep": {"value": 3}})
-    assert _types(typed, "keep") == {"value": ("one", "Any"), "result": ("one", "Any")}
+    assert _types(typed, "keep") == {"value": (False, "Any"), "result": (False, "Any")}
     assert typed.run().outputs == {"keep.result": 3}
     assert registry_of(keep).load({"nodes": [{"id": "keep", "node": "keep"}]}).run(value="x").outputs == {"keep.result": "x"}
 
@@ -120,33 +121,33 @@ def test_an_output_is_checked_against_the_type_the_edge_bound() -> None:
 
 def test_one_or_many_is_decided_first_so_a_series_at_a_variable_runs_per_item() -> None:
     graph = _loaded(texts, keep, edges=[["texts.result", "keep.value"]])
-    assert _types(graph, "keep")["value"] == ("one", "str")
+    assert _types(graph, "keep")["value"] == (False, "str")
     assert graph.plan["keep"].series == "texts.result" and graph.run().outputs == {"keep.result": ["a", "b"]}
 
 
 def test_in_a_union_the_option_shaped_like_the_arriving_type_binds() -> None:
     from_table = _loaded(rows, split, edges=[["rows.result", "split.value"]])
-    assert _types(from_table, "split")["result"] == ("many", "record") and from_table.run().outputs["split.result"] == [{"name": "a", "age": 1}, {"name": "b", "age": 2}]
+    assert _types(from_table, "split")["result"] == (True, "record") and from_table.run().outputs["split.result"] == [{"name": "a", "age": 1}, {"name": "b", "age": 2}]
     from_list = _loaded(keep, split, edges=[["keep.result", "split.value"]], values={"keep": {"value": [1, 2]}})
-    assert _types(from_list, "split")["result"] == ("many", "Any")
+    assert _types(from_list, "split")["result"] == (True, "Any")
     graph = _loaded(text, split, edges=[["text.result", "split.value"]])
     assert [(p.type, p.loc, p.ctx["got"], p.ctx["expected"]) for p in graph.problems] == [("type_mismatch", ("split", "value"), "str", "Table | list")]
 
 
 def test_a_table_of_unknown_columns_binds_any() -> None:
     graph = _loaded(anything, split, upper, edges=[["anything.result", "split.value"], ["split.result.name", "upper.text"]])
-    assert graph.problems == [] and _types(graph, "split")["result"] == ("many", "Any")
+    assert graph.problems == [] and _types(graph, "split")["result"] == (True, "Any")
     assert graph.run().outputs == {"upper.result": ["A"]}
 
 
 def test_a_variable_beside_none_is_what_arrives_without_its_blank() -> None:
     graph = _loaded(blank, maybe, edges=[["blank.result", "maybe.value"]])
-    assert graph.problems == [] and _types(graph, "maybe")["result"] == ("one", "str")
+    assert graph.problems == [] and _types(graph, "maybe")["result"] == (False, "str")
 
 
 def test_two_places_for_one_variable_join() -> None:
     graph = _loaded(number, text, either, edges=[["number.result", "either.a"], ["text.result", "either.b"]])
-    assert graph.problems == [] and _types(graph, "either")["result"] == ("one", "int | str")
+    assert graph.problems == [] and _types(graph, "either")["result"] == (False, "int | str")
 
 
 def test_what_arrives_outside_a_variables_bound_is_a_type_mismatch() -> None:
@@ -154,9 +155,9 @@ def test_what_arrives_outside_a_variables_bound_is_a_type_mismatch() -> None:
     def count[N: (int | float)](value: N) -> N:
         return value
 
-    assert _types(_loaded(count, edges=[]), "count")["value"] == ("one", "int | float")
+    assert _types(_loaded(count, edges=[]), "count")["value"] == (False, "int | float")
     assert [p.type for p in _loaded(text, count, edges=[["text.result", "count.value"]]).problems] == ["type_mismatch"]
-    assert _types(_loaded(number, count, edges=[["number.result", "count.value"]]), "count")["result"] == ("one", "int")
+    assert _types(_loaded(number, count, edges=[["number.result", "count.value"]]), "count")["result"] == (False, "int")
 
 
 def test_a_variable_on_no_input_and_a_constrained_one_are_refused_where_the_node_is_declared() -> None:
@@ -184,3 +185,6 @@ def test_a_generic_dataclass_of_outputs_holds_one_alternative_at_run_time() -> N
 def test_a_generic_node_in_the_palette_shows_any() -> None:
     assert [(field.name, field.type) for field in decision.describe().inputs] == [("value", "Any"), ("when", "bool")]
     assert [(field.name, field.type) for field in decision.describe().outputs] == [("if_true", "Any"), ("if_false", "Any")]
+    assert decision.describe().inputs[0].type_variables == ["T"]
+    placed = _loaded(text, decision, edges=[["text.result", "decision.value"]]).describe().nodes["decision"]
+    assert [placed_input.field.type_variables for placed_input in placed.inputs] == [[], []] and placed.outputs[0].type_variables == []

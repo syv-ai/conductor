@@ -580,7 +580,7 @@ def test_a_drawing_describes_the_added_inputs_of_a_node_one_of_which_nothing_fee
     reg7 = registry_of(count, formula)
     drawing = reg7.load({"nodes": [{"id": "c", "node": "count"}, {"id": "f", "node": "formula", "values": {"formula": "{a}+{b}"}}], "edges": [["c.result", "f.a"]]})
     placed = json.loads(drawing.describe().model_dump_json())["nodes"]
-    assert [f["name"] for f in placed["f"]["inputs"]] == ["formula", "a", "b"], placed["f"]
+    assert [f["field"]["name"] for f in placed["f"]["inputs"]] == ["formula", "a", "b"], placed["f"]
 
 
 def test_a_hook_reading_a_value_nobody_typed_in_is_a_problem_and_its_node_does_not_vanish():
@@ -663,8 +663,8 @@ def test_a_field_reads_as_its_author_wrote_it():
         return type(whole).__name__
 
     fields = {f.name: f for f in kinds.describe().inputs}
-    assert fields["maybe"].title == "Maybe" and fields["maybe"].shape == "one"
-    assert fields["many"].shape == "many" and fields["some"].shape == "many"
+    assert fields["maybe"].title == "Maybe" and not fields["maybe"].many
+    assert fields["many"].many and fields["some"].many
     graph = registry_of(kinds).load({"nodes": [{"id": "k", "node": "kinds"}]})
     assert graph.run().outputs == {"k.result": "Whole"}
     assert Table is not None
