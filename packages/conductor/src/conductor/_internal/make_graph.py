@@ -11,7 +11,7 @@ from pydantic import JsonValue, ValidationError
 
 from conductor._internal import problem
 from conductor._internal.fields import REQUIRED
-from conductor._internal.graph_record import GraphRecord, NodeRecord, not_a_record, typed_in
+from conductor._internal.graph_record import GraphRecord, NodeRecord, not_a_record, values_as_json
 from conductor._internal.node_definition import FunctionDefinition, NodeDefinition
 from conductor._internal.problem import InvalidCallError, Problem
 
@@ -64,7 +64,7 @@ def make_graph(
             else:
                 by_node.setdefault(node_id, {})[name] = value
         for node_id, named in by_node.items():
-            typed[node_id], faults = typed_in(node_id, named)
+            typed[node_id], faults = values_as_json(node_id, named)
             problems += faults
     if edges is None:
         edges, faults = _chain_edges(ids, nodes, typed_values, typed_defaults)

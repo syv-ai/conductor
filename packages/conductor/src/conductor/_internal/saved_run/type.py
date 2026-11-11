@@ -17,7 +17,7 @@ _SAVED = ConfigDict(extra="forbid", ser_json_inf_nan="strings")
 #: What a save says of a unit that holds outputs, and of one that is a branch not taken; a unit with neither
 #: word holds no outputs.
 UnitState = Literal["done", "skipped"]
-_DONE, _SKIPPED = get_args(UnitState)
+SAVED_DONE, SAVED_SKIPPED = get_args(UnitState)
 
 
 #: The slots of one output whose value is a branch not taken.

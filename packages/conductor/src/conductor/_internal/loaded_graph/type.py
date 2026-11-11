@@ -26,8 +26,8 @@ from conductor._internal.loaded_graph.describe import (
     GraphNodeDescription,
     PlacedFieldDescription,
     RunsOn,
-    _feed,
-    _runs_on,
+    feed_of,
+    runs_on,
 )
 from conductor._internal.loaded_graph.input_plans import InputFedByEdges, InputPlan, Scope
 from conductor._internal.node_definition import FunctionDefinition, StoredGraphDefinition
@@ -189,7 +189,7 @@ class CheckedGraph:
     @property
     def plan(self) -> dict[str, RunsOn]:
         """Where each node runs: ``once``, or ``per_item`` of the innermost Series of its scope."""
-        return {placed.id: _runs_on(placed.scope) for placed in self._nodes.values()}
+        return {placed.id: runs_on(placed.scope) for placed in self._nodes.values()}
 
     @property
     def exclusive_groups(self) -> dict[str, dict[str, list[str]]]:
@@ -222,8 +222,8 @@ class CheckedGraph:
                 nodes[record.id] = GraphNodeDescription(node=record.node, version=record.version, loaded=False, problems=own)
                 continue
             nodes[record.id] = GraphNodeDescription(
-                node=record.node, version=record.version, loaded=True, problems=own, runs=_runs_on(placed.scope),
-                inputs=[PlacedFieldDescription(field=plan.field.description, feed=_feed(placed.scope, plan)) for plan in placed.inputs.values()],
+                node=record.node, version=record.version, loaded=True, problems=own, runs=runs_on(placed.scope),
+                inputs=[PlacedFieldDescription(field=plan.field.description, feed=feed_of(placed.scope, plan)) for plan in placed.inputs.values()],
                 outputs=[spec.description for spec in placed.outputs.values()],
             )
         return GraphDescription(nodes=nodes, inputs=dict(self.inputs), outputs=self.outputs, problems=list(self.problems))

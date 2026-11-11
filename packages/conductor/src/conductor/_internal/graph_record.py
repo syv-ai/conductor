@@ -155,7 +155,7 @@ def not_a_record(invalid: ValidationError) -> list[Problem]:
     ]
 
 
-def typed_in(node_id: str, values: Mapping[str, Any]) -> tuple[dict[str, JsonValue], list[Problem]]:
+def values_as_json(node_id: str, values: Mapping[str, Any]) -> tuple[dict[str, JsonValue], list[Problem]]:
     """``values`` typed into the node ``node_id`` as its record keeps them, each as its JSON reads back (a date as its ISO
     text, a float that isn't finite as ``"NaN"`` or ``"Infinity"``); and an ``invalid_value`` for each with no JSON form,
     or holding a set, whose JSON would list it in another order in another process (``set_has_no_order``)."""

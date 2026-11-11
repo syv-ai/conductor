@@ -336,7 +336,7 @@ class AnyItemReader(Reader):
             ``COULD``; ``SKIPPED`` when none could for a branch not taken; ``None`` when none could for a
             blank; ``NOT_SETTLED`` while something outside the items isn't settled.
         """
-        for node in plan.through:
+        for node in plan.asked_for_any_item:
             self.came_to[node.name] = self.comes_to(node, self.item_path)
         return self._brought(plan)
 

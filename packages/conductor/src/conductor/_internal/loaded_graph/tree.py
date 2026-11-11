@@ -82,7 +82,7 @@ class FunctionAtPath(_AtPath):
         fed: What the node needs that edges bring, in the order declared: the input's name, a plan, and
             whether the input takes a blank. A gathering input is two of them, as it needs two things: its
             Series, read as the one value it is, and then what its edges bring for the items (the plan
-            itself, which names the functions it gathers through, ``InputGathersItems.through``).
+            itself, which names the functions it gathers through, ``InputGathersItems.asked_for_any_item``).
         gathered_in_step: The gathering inputs that gather one Series, for each such Series: each input's name
             and whether its items may be blank. They receive the same items.
         checked: The inputs whose value is read by the input's type before a call, as the types the edges bring
@@ -282,7 +282,7 @@ def _add_to_tree(graph: CheckedGraph, embedding: EmbeddedGraphAtPath | None, tre
             if isinstance(plan, InputGathersItems):
                 series = plan.series
                 items_of = (functions[series.node_id], series.output)  # what the functions it gathers through read outside the items can settle it too
-                read_at += [(read, places) for inner in plan.through for read, places in inner.made_from.items() if items_of not in read.maps]
+                read_at += [(read, places) for inner in plan.asked_for_any_item for read, places in inner.made_from.items() if items_of not in read.maps]
                 gathering.setdefault(plan.reads[: plan.levels], []).append((name, plan.field.keeps_blanks))
                 whole = WholeOutput(series.node_id, series.output, series.scope, None, functions[series.node_id].placed.outputs[series.output].whole)
                 fed.append((name, InputReadsOneValue(plan.field, (whole,), series.scope), plan.field.whole.optional))  # it needs its Series, and then its items

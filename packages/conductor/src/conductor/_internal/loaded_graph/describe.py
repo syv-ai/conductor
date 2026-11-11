@@ -117,12 +117,12 @@ class GraphDescription(ConductorModel):
     problems: list[Problem]
 
 
-def _runs_on(scope: Scope) -> RunsOn:
+def runs_on(scope: Scope) -> RunsOn:
     """Where a node of ``scope`` runs."""
     return RunsOn(mode="per_item", series=str(scope[-1]), msg=f"per item of {scope[-1]}") if scope else RunsOn(mode="once", msg="once")
 
 
-def _feed(scope: Scope, plan: InputPlan) -> Feed:
+def feed_of(scope: Scope, plan: InputPlan) -> Feed:
     """How ``plan`` feeds its input on each call of a node that runs in ``scope``."""
     match plan:
         case InputGathersItems(series=series):

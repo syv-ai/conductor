@@ -53,6 +53,7 @@ from conductor._internal.earlier_work import EarlierWork, taken
 from conductor._internal.fields import SKIPPED
 from conductor._internal.leg.call import call, jsonable
 from conductor._internal.leg.events import (
+    EventBase,
     NodeComplete,
     NodeFailed,
     NodeProgress,
@@ -60,7 +61,6 @@ from conductor._internal.leg.events import (
     NodeSkipped,
     NodeStart,
     UnitWaiting,
-    _EventBase,
 )
 from conductor._internal.loaded_graph import (
     EmbeddedGraphAtPath,
@@ -70,7 +70,7 @@ from conductor._internal.loaded_graph import (
     waits_on,
 )
 from conductor._internal.problem import ExternalError, NodeError, Problem, UnitFailedError
-from conductor._internal.run_status import _COMPLETE, _RUNNING, _WAITING, EndedEarly, RunState
+from conductor._internal.run_status import COMPLETE, RUNNING, WAITING, EndedEarly, RunState
 from conductor._internal.units import (
     NOT_ITS_TURN,
     NOT_SETTLED,
@@ -132,13 +132,13 @@ class Leg:
     def __init__(
         self, nodes: list[FunctionAtPath], threads: int, units: Units, earlier_work: dict[NodePath, EarlierWork], finished: frozenset[NodePath],
         max_items: int | None, comes_to: Callable[[FunctionAtPath, ItemPath], dict[str, Any] | Skipped | Blank | Literal[NotReady.NOT_SETTLED]],
-        emit: Callable[[_EventBase], None] | None, stop: Callable[[], RunState | None] | None, from_run: dict[type, Any],
+        emit: Callable[[EventBase], None] | None, stop: Callable[[], RunState | None] | None, from_run: dict[type, Any],
         checkpoint: Callable[[RunState], None] | None = None, checkpoint_every: float | None = None,
     ) -> None:
         self.nodes, self.threads, self.all_units, self.max_items, self.comes_to = nodes, threads, units, max_items, comes_to
         self.emit, self.stop, self.from_run, self.checkpoint = emit, stop, from_run, checkpoint
         #: How the run stands for this leg: running, until the leg ends it early or closes.
-        self.state: RunState = _RUNNING
+        self.state: RunState = RUNNING
         #: The nodes every unit of which is finished: those the run came with, then as the leg leaves them.
         self.finished = finished
         #: Each node's units by instance: the run's own, recorded into.
@@ -380,14 +380,14 @@ class Leg:
         if self.going and not waiting:  # nothing more can start and nothing waits: every unit of every node is there
             if unfinished:  # a unit nothing made ready: the engine's own fault, never a run to hand on as complete
                 raise RuntimeError(f"the leg ended with nothing to try and no unit for every instance of {sorted(node.path for node in unfinished)}")
-            self.state, self.finished = _COMPLETE, frozenset(node.path for node in self.nodes)
+            self.state, self.finished = COMPLETE, frozenset(node.path for node in self.nodes)
             self.earlier_work.clear()
         else:
             self.finished = frozenset(node.path for node in self.nodes if node not in waiting and node not in unfinished)
             for path in [path for path in self.earlier_work if path in self.finished]:  # the earlier work a finished node didn't take, no unit of this run will
                 del self.earlier_work[path]
             if self.going:
-                self.state = _WAITING
+                self.state = WAITING
         if self.emit:
             self.touched.update(self.nodes)
             self._completions()

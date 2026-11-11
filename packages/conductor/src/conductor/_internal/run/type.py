@@ -51,7 +51,7 @@ from conductor._internal.ask import (
 )
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.earlier_work import EarlierWork, fingerprint_of, lineage
-from conductor._internal.leg import Event, Leg, RunCheckpoint, RunEnd, RunStart, _EventBase
+from conductor._internal.leg import Event, EventBase, Leg, RunCheckpoint, RunEnd, RunStart
 from conductor._internal.loaded_graph import (
     EmbeddedGraphAtPath,
     FunctionAtPath,
@@ -67,14 +67,14 @@ from conductor._internal.run.call_inputs import (
     CallInputs,
     ItemReader,
 )
-from conductor._internal.run_status import _READY, _RUNNING, EndedEarly, Going, RunState, RunStatus
+from conductor._internal.run_status import READY, RUNNING, EndedEarly, Going, RunState, RunStatus
 from conductor._internal.saved_run import (
     SavedEarlier,
     SavedRun,
     SavedUnits,
-    _earlier_columns,
-    _unit_columns,
-    _unwritable_at,
+    earlier_columns,
+    unit_columns,
+    unwritable_at,
 )
 from conductor._internal.units import (
     Answered,
@@ -136,11 +136,11 @@ class Run:
     _units: Units
     #: What each node may take from the run this one went on from.
     _earlier_work: dict[NodePath, EarlierWork]
-    state: RunState = _READY
+    state: RunState = READY
     #: For a node whose units a saved run made with other code or another signature, what that code was; they are never earlier work for a later run.
-    _ran_as: dict[NodePath, str] = field(default_factory=dict[NodePath, str])
+    _made_by_other_code: dict[NodePath, str] = field(default_factory=dict[NodePath, str])
     #: The nodes every unit of which was finished when the last leg ended, so a later leg doesn't say them complete again.
-    _complete: frozenset[NodePath] = frozenset()
+    _finished_nodes: frozenset[NodePath] = frozenset()
 
     def __repr__(self) -> str:
         return f"<Run {self.status}: {sum(len(units) for units in self._units.values())} units>"
@@ -203,7 +203,7 @@ class Run:
             if cancelled.is_set() or (cancel is not None and cancel.is_set()):
                 return EndedEarly("cancelled", problem.run_cancelled())
             if hand_back is not None and hand_back.is_set():
-                return _RUNNING  # the leg stops and the run goes on elsewhere
+                return RUNNING  # the leg stops and the run goes on elsewhere
             return deadline() if deadline is not None else None
 
         failed: list[BaseException] = []
@@ -227,7 +227,7 @@ class Run:
             cancelled.set()
 
     def _leg(
-        self, max_items: int | None, from_run: dict[type, Any], emit: Callable[[_EventBase], None] | None, stop: Callable[[], RunState | None] | None,
+        self, max_items: int | None, from_run: dict[type, Any], emit: Callable[[EventBase], None] | None, stop: Callable[[], RunState | None] | None,
         checkpoint_every: float | None = None,
     ) -> Run:
         """One leg over a copy of this run, which is handed back as the leg left it.
@@ -247,11 +247,11 @@ class Run:
                     listener(RunCheckpoint(run=dataclasses.replace(run._copy(), state=state)))
 
         graph = self.graph
-        leg = Leg(graph._tree, graph._threads, run._units, run._earlier_work, run._complete, run.max_items, run._reader.comes_to, emit, stop, from_run, checkpoint, checkpoint_every)
+        leg = Leg(graph._tree, graph._threads, run._units, run._earlier_work, run._finished_nodes, run.max_items, run._reader.comes_to, emit, stop, from_run, checkpoint, checkpoint_every)
         leg.go()
-        run.state, run._complete = leg.state, leg.finished
+        run.state, run._finished_nodes = leg.state, leg.finished
         if emit is not None:  # a leg handed back left its run running: the run didn't end, and the host stores it as it stands
-            emit(RunCheckpoint(run=run) if run.state is _RUNNING else RunEnd.of(run))
+            emit(RunCheckpoint(run=run) if run.state is RUNNING else RunEnd.of(run))
         return run
 
     @overload
@@ -369,7 +369,7 @@ class Run:
         work: dict[NodePath, EarlierWork] = {}
         reader = self._reader
         for node in self.graph._tree:
-            if not node.policy.reuse_when_inputs_match or node.path in self._ran_as:
+            if not node.policy.reuse_when_inputs_match or node.path in self._made_by_other_code:
                 continue
             placed = node.placed
             of_node = work[node.path] = EarlierWork()
@@ -515,7 +515,7 @@ class Run:
         try:
             return form.serializer.to_json(saved, exclude_defaults=True).decode()
         except pydantic_core.PydanticSerializationError:
-            at = _unwritable_at(form.inputs, form.outputs, saved)
+            at = unwritable_at(form.inputs, form.outputs, saved)
             raise InvalidCallError([problem.state_unwritable("state", at, at=at, reason="a value has no JSON form")]) from None
 
     def _saved(self) -> SavedRun[SavedUnits, SavedEarlier[SavedUnits]]:
@@ -523,12 +523,12 @@ class Run:
         under its path. An embedded graph's node holds no unit, so nothing is written of it."""
         functions = self.graph._functions
         units = {
-            node.name: _unit_columns(node.placed.outputs, self._slots(node))
+            node.name: unit_columns(node.placed.outputs, self._slots(node))
             for node in self.graph._tree if self._units[node.name]
         }
-        earlier = {node_name(path): _earlier_columns(functions[path].outputs, of_node) for path, of_node in self._earlier_work.items() if of_node.computed or of_node.asked}
-        code = {name: self._ran_as.get(path) or placed.reuse_digest for path, placed in functions.items() if (name := node_name(path)) in units or name in earlier}
-        complete = [node.name for node in self.graph._tree if node.path in self._complete]
+        earlier = {node_name(path): earlier_columns(functions[path].outputs, of_node) for path, of_node in self._earlier_work.items() if of_node.computed or of_node.asked}
+        code = {name: self._made_by_other_code.get(path) or placed.reuse_digest for path, placed in functions.items() if (name := node_name(path)) in units or name in earlier}
+        complete = [node.name for node in self.graph._tree if node.path in self._finished_nodes]
         return SavedRun(graph=self.graph.fingerprint, state=self.state, max_items=self.max_items, inputs=self.inputs, units=units, earlier=earlier, code=code, complete=complete)
 
     def _slots(self, node: FunctionAtPath) -> list[Unit | None]:
@@ -608,9 +608,9 @@ def _run_of(graph: Graph, saved: SavedRun[list[Unit | None], EarlierWork]) -> Ru
                 raise InvalidCallError([problem.state_unreadable("state", at=at, reason=reason)])
             run._units[node.name] = {instance: unit for instance, unit in zip(made, slots, strict=True) if unit is not None}
     functions = graph._functions
-    run._ran_as = {path: digest for name, digest in saved.code.items() if digest != functions[path := node_path(name)].reuse_digest}
-    run._earlier_work = {path: of_node for name, of_node in saved.earlier.items() if (path := node_path(name)) not in run._ran_as}  # work of other code is never taken
-    run._complete = frozenset(node_path(name) for name in saved.complete)
+    run._made_by_other_code = {path: digest for name, digest in saved.code.items() if digest != functions[path := node_path(name)].reuse_digest}
+    run._earlier_work = {path: of_node for name, of_node in saved.earlier.items() if (path := node_path(name)) not in run._made_by_other_code}  # work of other code is never taken
+    run._finished_nodes = frozenset(node_path(name) for name in saved.complete)
     return run
 
 

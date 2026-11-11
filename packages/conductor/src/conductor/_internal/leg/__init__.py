@@ -5,6 +5,7 @@
 
 from conductor._internal.leg.events import (
     Event,
+    EventBase,
     NodeComplete,
     NodeFailed,
     NodeProgress,
@@ -15,6 +16,5 @@ from conductor._internal.leg.events import (
     RunEnd,
     RunStart,
     UnitWaiting,
-    _EventBase,
 )
 from conductor._internal.leg.walk import Leg

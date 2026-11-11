@@ -47,4 +47,4 @@ class EndedEarly:
 #: How a run stands: going on, or ended early with a cause.
 RunState = Going | EndedEarly
 
-_READY, _RUNNING, _WAITING, _COMPLETE = Going("ready"), Going("running"), Going("waiting"), Going("complete")
+READY, RUNNING, WAITING, COMPLETE = Going("ready"), Going("running"), Going("waiting"), Going("complete")

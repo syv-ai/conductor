@@ -53,7 +53,7 @@ import polars as pl
 from conductor._internal import kit_problem
 from conductor._internal.fields import REQUIRED, Field, FieldValueError, Param
 from conductor._internal.graph import Graph
-from conductor._internal.graph_record import GraphRecord, NodeRecord, typed_in
+from conductor._internal.graph_record import GraphRecord, NodeRecord, values_as_json
 from conductor._internal.loaded_graph import load_graph
 from conductor._internal.node_definition import (
     FunctionDefinition,
@@ -131,7 +131,7 @@ def _one_node_graph(version: NodeDefinition, values: Mapping[str, Any]) -> Graph
 
     A value with no JSON form can't be typed into a graph: ``InvalidCallError``, ``invalid_value`` at the node and input.
     """
-    typed, problems = typed_in(version.id, values)
+    typed, problems = values_as_json(version.id, values)
     if problems:
         raise InvalidCallError(problems)
     return GraphRecord(nodes=[NodeRecord(id=version.id, node=version.id, version=version.version, values=typed)])

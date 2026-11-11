@@ -49,7 +49,7 @@ from conductor._internal import problem
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.fields import NamedType, Type
 from conductor._internal.graph import Graph
-from conductor._internal.graph_record import GraphRecord, NodeRecord, as_record, typed_in
+from conductor._internal.graph_record import GraphRecord, NodeRecord, as_record, values_as_json
 from conductor._internal.loaded_graph import load_graph
 from conductor._internal.node_definition import (
     FunctionDefinition,
@@ -306,7 +306,7 @@ class NodeRegistry:
             upgrade = step.upgrade
             values, defaults = _with_keys_renamed(values, upgrade.renamed_inputs), _with_keys_renamed(defaults, upgrade.renamed_inputs)
             if upgrade.rewrite is not None:
-                rewritten, faults = typed_in(node_id, upgrade.rewrite({**defaults, **values}))
+                rewritten, faults = values_as_json(node_id, upgrade.rewrite({**defaults, **values}))
                 if faults:
                     raise InvalidCallError(faults)
                 defaults = {name: value for name, value in rewritten.items() if name in defaults and name not in values}

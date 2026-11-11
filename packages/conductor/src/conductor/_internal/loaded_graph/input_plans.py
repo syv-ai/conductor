@@ -231,7 +231,7 @@ class InputGathersItems:
             for an item. Several edges are alternatives, as for any input.
         levels: How many of ``reads`` are a Series: one, but for what an embedded graph offers of an output
             made more than one map deep inside it, which is gathered through every one of those maps.
-        through: Where the input's node stands, the functions made per item of the Series that what it
+        asked_for_any_item: Where the input's node stands, the functions made per item of the Series that what it
             gathers rests on, each after the ones it reads: what stands between the input and everything
             outside the items. A checked graph's own plan names none.
     """
@@ -239,7 +239,7 @@ class InputGathersItems:
     field: Field
     reads: tuple[OutputAtScope, ...]
     levels: int = 1
-    through: tuple[FunctionAtPath, ...] = ()
+    asked_for_any_item: tuple[FunctionAtPath, ...] = ()
 
     @property
     def series(self) -> OutputAtScope:

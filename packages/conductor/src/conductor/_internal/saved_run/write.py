@@ -11,8 +11,8 @@ from conductor._internal.ask import Question
 from conductor._internal.earlier_work import EarlierWork
 from conductor._internal.fields import SKIPPED, Field, Type
 from conductor._internal.saved_run.type import (
-    _DONE,
-    _SKIPPED,
+    SAVED_DONE,
+    SAVED_SKIPPED,
     SavedEarlier,
     SavedRun,
     SavedUnits,
@@ -21,13 +21,13 @@ from conductor._internal.saved_run.type import (
 from conductor._internal.units import Answered, Asking, Blank, Done, Skipped, Unit
 
 #: The state a save writes for a unit that holds outputs or is a branch not taken; any other has none.
-_STATE_WORD: Mapping[type, UnitState] = {Done: _DONE, Answered: _DONE, Skipped: _SKIPPED}
+_STATE_WORD: Mapping[type, UnitState] = {Done: SAVED_DONE, Answered: SAVED_DONE, Skipped: SAVED_SKIPPED}
 
 #: The kinds of unit that hold outputs.
 _HOLDS_OUTPUTS = frozenset({Done, Answered})
 
 
-def _unit_columns(outputs: Mapping[str, Field], slots: list[Unit | None]) -> SavedUnits:
+def unit_columns(outputs: Mapping[str, Field], slots: list[Unit | None]) -> SavedUnits:
     """Gives units as the columns a save holds of them.
 
     Args:
@@ -67,7 +67,7 @@ def _unit_columns(outputs: Mapping[str, Field], slots: list[Unit | None]) -> Sav
     )
 
 
-def _earlier_columns(outputs: Mapping[str, Field], earlier: EarlierWork) -> SavedEarlier[SavedUnits]:
+def earlier_columns(outputs: Mapping[str, Field], earlier: EarlierWork) -> SavedEarlier[SavedUnits]:
     """Gives what a node may take from an earlier run as a save holds it, each unit once: the computed units by
     the instance they stood in, then the ones only known by what they received, then the answers and the
     questions still waiting.
@@ -91,10 +91,10 @@ def _earlier_columns(outputs: Mapping[str, Field], earlier: EarlierWork) -> Save
                 lineages[len(slots)] = lineage
             slots.append(unit)
             fingerprints.append(fingerprint)
-    return SavedEarlier(units=_unit_columns(outputs, slots), fingerprints=fingerprints, places=places or None, lineages=lineages or None)
+    return SavedEarlier(units=unit_columns(outputs, slots), fingerprints=fingerprints, places=places or None, lineages=lineages or None)
 
 
-def _unwritable_at(inputs: Mapping[str, Type], outputs: Mapping[str, Mapping[str, Field]], saved: SavedRun[SavedUnits, SavedEarlier[SavedUnits]]) -> str:
+def unwritable_at(inputs: Mapping[str, Type], outputs: Mapping[str, Mapping[str, Field]], saved: SavedRun[SavedUnits, SavedEarlier[SavedUnits]]) -> str:
     """Says where a run that pydantic refused to write holds a value with no JSON form: the first input, or
     output of a node, that isn't written alone either. It is looked for only once the whole save was refused.
 

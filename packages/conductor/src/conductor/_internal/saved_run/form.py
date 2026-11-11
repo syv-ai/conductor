@@ -11,7 +11,7 @@ from pydantic import TypeAdapter
 from pydantic_core import CoreConfig, CoreSchema, SchemaSerializer, SchemaValidator, core_schema
 
 from conductor._internal.fields import Field, Type
-from conductor._internal.saved_run.read import _earlier_of, _units_of
+from conductor._internal.saved_run.read import earlier_of, units_of
 from conductor._internal.saved_run.type import (
     SavedEarlier,
     SavedRun,
@@ -80,10 +80,10 @@ def save_form(fingerprint: str, inputs: Mapping[str, Type], outputs: Mapping[str
                 skipped_items=_closed({}, {name: _SKIPPED_ITEMS for name, _, many, _ in columns if many}),
             )
             shared[f"units:{block}"] = core_schema.no_info_after_validator_function(
-                functools.partial(_units_of, not_taken, not_called), of_block, ref=f"units:{block}",
+                functools.partial(units_of, not_taken, not_called), of_block, ref=f"units:{block}",
             )
             earlier_schema = _with_fields(earlier_record, units=core_schema.definition_reference_schema(f"units:{block}"))
-            shared[f"earlier:{block}"] = core_schema.no_info_after_validator_function(_earlier_of, earlier_schema, ref=f"earlier:{block}")
+            shared[f"earlier:{block}"] = core_schema.no_info_after_validator_function(earlier_of, earlier_schema, ref=f"earlier:{block}")
             blocks[columns] = core_schema.definition_reference_schema(f"units:{block}"), core_schema.definition_reference_schema(f"earlier:{block}")
         units[node], earlier[node] = blocks[columns]
     run = _with_fields(

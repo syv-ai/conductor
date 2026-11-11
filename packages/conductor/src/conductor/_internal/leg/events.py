@@ -17,13 +17,13 @@ if TYPE_CHECKING:
     from conductor._internal.run import Run
 
 
-class _EventBase(ConductorModel):
+class EventBase(ConductorModel):
     """Every event: its schema marks ``type`` and every field a dump always writes as required, so a generated client can rely on them."""
 
     model_config = ConfigDict(json_schema_serialization_defaults_required=True, arbitrary_types_allowed=True, ser_json_inf_nan="strings")
 
 
-class _NodeEvent(_EventBase):
+class _NodeEvent(EventBase):
     """Every event about one node, or one unit of it. Never made on its own.
 
     Attributes:
@@ -35,7 +35,7 @@ class _NodeEvent(_EventBase):
     loc: Loc
 
 
-class RunStart(_EventBase):
+class RunStart(EventBase):
     """A leg began; ``waiting`` is the units already waiting for a person."""
 
     type: Literal["run_start"] = "run_start"
@@ -102,14 +102,14 @@ class NodeRetry(_NodeEvent):
     cause: Problem
 
 
-class UnitWaiting(_EventBase):
+class UnitWaiting(EventBase):
     """A unit started waiting for a person. It waits, whatever reads it waits, and the rest of the graph runs on."""
 
     type: Literal["unit_waiting"] = "unit_waiting"
     unit: Waiting
 
 
-class RunEnd(_EventBase):
+class RunEnd(EventBase):
     """The leg ended, with ``status`` and, for a run that ``failed``, ``stopped``, was ``cancelled`` or ``timed_out``, its ``cause``.
 
     ``run`` is the run as the leg left it, every value in it; it stays out of what the event writes, for the host to store.
@@ -130,7 +130,7 @@ class RunEnd(_EventBase):
                 return cls(status=status, cause=cause, run=run)
 
 
-class RunCheckpoint(_EventBase):
+class RunCheckpoint(EventBase):
     """The run as it stands mid-leg, for a host to store, every ``checkpoint_every`` seconds and once when the leg is stopped.
 
     ``run`` is a copy, its ``status`` ``running``, or once stopped how it stopped (``cancelled``, ``failed``,

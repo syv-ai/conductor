@@ -8,11 +8,11 @@ from pydantic_core import PydanticCustomError
 
 from conductor._internal.earlier_work import EarlierWork
 from conductor._internal.fields import SKIPPED
-from conductor._internal.saved_run.type import _DONE, _SKIPPED, SavedEarlier, SavedUnits
+from conductor._internal.saved_run.type import SAVED_DONE, SAVED_SKIPPED, SavedEarlier, SavedUnits
 from conductor._internal.units import Answered, Asking, Blank, Done, Skipped, Unit
 
 
-def _units_of(not_taken: dict[str, Any], not_called: dict[str, Any], saved: SavedUnits) -> list[Unit | None]:
+def units_of(not_taken: dict[str, Any], not_called: dict[str, Any], saved: SavedUnits) -> list[Unit | None]:
     """Makes the units a node's saved columns hold, in the order of their slots; ``None`` for an instance that
     hasn't run.
 
@@ -42,7 +42,7 @@ def _units_of(not_taken: dict[str, Any], not_called: dict[str, Any], saved: Save
         else:
             names = tuple(outputs)
             outs = [dict(zip(names, values, strict=True)) for values in zip(*outputs.values(), strict=True)] if outputs else [{} for _ in states]
-        done, skipped = _DONE, _SKIPPED
+        done, skipped = SAVED_DONE, SAVED_SKIPPED
         not_taken_unit = Skipped(not_taken)
         units: list[Unit | None] = [Done(out) if state == done else not_taken_unit if state == skipped else None for state, out in zip(states, outs, strict=True)]
         for slot, question in (saved.questions or {}).items():
@@ -62,7 +62,7 @@ def _units_of(not_taken: dict[str, Any], not_called: dict[str, Any], saved: Save
     return units
 
 
-def _earlier_of(saved: SavedEarlier[list[Unit | None]]) -> EarlierWork:
+def earlier_of(saved: SavedEarlier[list[Unit | None]]) -> EarlierWork:
     """Makes the earlier work a node's save holds.
 
     Raises:
