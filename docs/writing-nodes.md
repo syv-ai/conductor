@@ -115,11 +115,117 @@ print(city(Address(street="Nørregade 1", city="Aarhus")))  # Aarhus
 
 A type of your own is shown to people, so it declares the id an editor knows it by and the title a person reads as class attributes, `type_id` and `type_title`, as `Address` does. They are read when the node is declared, so a type missing one fails at import. A `TypedDict` is a record of plain fields and declares nothing. Conductor's own types (`str`, `int`, `date` and the rest) take theirs from conductor's table. A class pydantic can't check, such as a plain class with only an `__init__`, is refused when the node is declared, as `type_not_carried`.
 
+An editor reads a field's type as an id, and the id says what is inside: a `list[Address]` input has the type `list[address]`. So a class of your own inside a list or a dict declares its id and title too.
 
-- `X | None` takes a blank. If an input's type has no `| None`, the node isn't called where it is blank, and its outputs are blank there too.
+- `X | None` takes a blank. An input receives a blank only if its type says so, with `| None` or as `Any`, and that holds for a type variable too: `value: T` gets none, `value: T | None` does. Otherwise the node isn't called where the input is blank, and its outputs are blank there too.
 - `Series[X]` is many values of `X`, a plain list to your function.
-- `Table[R]` is a whole table, a `polars.DataFrame` whose columns the `TypedDict` `R` names, each by its bare type: a column's limits are the node's to check, and an `Annotated` column is refused. A column may be blank only if its type says `| None`.
-- `list[X]` is one value that happens to be a list. So is a table.
+- `Table[R]` is a whole table, one value. The next example shows one.
+- `list[X]` is one value that happens to be a list.
+
+### A table
+
+A `TypedDict` names a table's columns. To your function the table is a `polars.DataFrame`:
+
+```python
+import io
+from typing import TypedDict
+
+import polars as pl
+
+from conductor import Table
+
+tables = NodeRegistry()
+
+
+class Contact(TypedDict):
+    name: str
+    email: str | None
+
+
+@tables.node("contacts", title="Contacts", description="Reads contacts from a CSV text.")
+def contacts(csv: str) -> Table[Contact]:
+    return pl.read_csv(io.StringIO(csv))
+
+
+@tables.node("reachable", title="Reachable", description="Keeps the contacts that have an email.")
+def reachable(contacts: Table[Contact]) -> Table[Contact]:
+    return contacts.filter(pl.col("email").is_not_null())
+
+
+run = tables.load(make_graph(contacts, reachable)).run(csv="name,email,phone\nIda,ida@a.dk,1234\nBo,,5678\n")
+print(run.outputs["reachable.result"].to_dicts())  # [{'name': 'Ida', 'email': 'ida@a.dk'}]
+```
+
+The CSV had a `phone` column, and `Contact` doesn't name one, so it was cut: a `Table[Contact]` holds exactly the columns `Contact` names, whoever brings the table. A column that is missing is refused, and a column holds a blank only if its type says `| None`, as `email` does. A node that passes on columns it doesn't know declares a bare `Table`.
+
+A node may also return a table as a list of records, `[{"name": "Ida", "email": None}]`. And a table is a type like any other: `Table[Contact] | None` takes a blank, and `Series[Table[Contact]]` is a table per item.
+
+### A text or a number of your own
+
+A subclass of `str`, `int` or another builtin says how pydantic reads it. Three lines do it: read a `str`, then make it an `Email`:
+
+```python
+from typing import Any
+
+from pydantic import GetCoreSchemaHandler
+from pydantic_core import core_schema
+
+
+class Email(str):
+    type_id: ClassVar[str] = "email"
+    type_title: ClassVar[str] = "Email"
+
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source: Any, handler: GetCoreSchemaHandler) -> core_schema.CoreSchema:
+        return core_schema.no_info_after_validator_function(cls, handler(str))
+
+
+@node("domain", title="Domain", description="Gives the part of an email after the @.")
+def domain(email: Annotated[Email, Param(max_length=254)]) -> str:
+    return email.partition("@")[2]
+
+
+print(domain.describe().inputs[0].type)  # email
+```
+
+Without the method, `Email` is refused as `type_not_carried`.
+
+### A type that takes another
+
+An output wires to an input of its own class, or of a parent class. A `Celsius` is no `Temperature`, so that edge is a `type_mismatch` until `Temperature` lists `Celsius` in `type_accepts`:
+
+```python
+from pydantic import ConfigDict
+
+
+class Celsius(BaseModel):
+    type_id: ClassVar[str] = "celsius"
+    type_title: ClassVar[str] = "Celsius"
+    degrees: float
+
+
+class Temperature(BaseModel):
+    model_config = ConfigDict(from_attributes=True)  # how it reads a Celsius: by its attributes
+    type_id: ClassVar[str] = "temperature"
+    type_title: ClassVar[str] = "Temperature"
+    type_accepts: ClassVar[tuple[type, ...]] = (Celsius,)
+    degrees: float
+
+
+@tables.node("measure", title="Measure", description="Measures the temperature.")
+def measure() -> Celsius:
+    return Celsius(degrees=21.5)
+
+
+@tables.node("report", title="Report", description="Says how warm it is.")
+def report(temperature: Temperature) -> str:
+    return f"{temperature.degrees} degrees"
+
+
+print(tables.load(make_graph(measure, report)).run().outputs)  # {'report.result': '21.5 degrees'}
+```
+
+`type_accepts` only lets the edge be drawn. Your class reads the value itself, so it has to be able to: here `from_attributes` does it.
 
 ## One or many
 
@@ -202,6 +308,89 @@ print(graph.run(amount=5).results["notify"])     # {'result': None}
 
 A branch not taken reads as `None` in `run.results` and `run.outputs`.
 
+## A node for any type
+
+A node that passes a value on doesn't care what the value is. Write its type as a type variable, and the node takes the type that arrives on its edge:
+
+```python
+@registry.node("keep", title="Keep", description="Passes a value on as it is.")
+def keep[T](value: T) -> T:
+    return value
+
+
+graph = registry.load(make_graph(route, keep, notify, edges=[("route.large", "keep.value"), ("keep.result", "notify.amount")]))
+print(graph.describe().nodes["keep"].outputs[0].type)  # int
+print(graph.run(amount=5000).outputs)                  # {'notify.result': 'told the manager about 5000'}
+```
+
+`route.large` gives an `int`, so in this graph `keep` takes an `int` and gives one, and `notify.amount` may read it. In a graph where a text arrives, `keep` gives a text. What the node returns is checked against the type that arrived.
+
+A variable can stand inside another type. This node takes a table or a list apart, and what it gives are the table's records or the list's items:
+
+```python
+from typing import cast
+
+
+@registry.node("each", title="Each", description="Gives the records of a table, or the items of a list, one at a time.")
+def each[T](value: Table[T] | list[T]) -> Series[T]:
+    return cast("list[T]", value)  # a table returned for a Series is read as its records
+
+
+@registry.node("address-book", title="Address book", description="Reads contacts from a CSV text.")
+def address_book(csv: str) -> Table[Contact]:
+    return pl.read_csv(io.StringIO(csv))
+
+
+@registry.node("greet-contact", title="Greet", description="Greets a person by name.")
+def greet_contact(name: str) -> str:
+    return f"Hello {name}"
+
+
+graph = registry.load(make_graph(address_book, each, greet_contact, edges=[("address-book.result", "each.value"), ("each.result.name", "greet-contact.name")]))
+print(graph.run(csv="name,email\nIda,ida@a.dk\nBo,\n").outputs)  # {'greet-contact.result': ['Hello Ida', 'Hello Bo']}
+```
+
+A `Table[Contact]` arrived, so `T` is `Contact` and the edge may name its field, `each.result.name`. Fed a `list[int]`, the same node gives a `Series[int]`.
+
+A dataclass of outputs can be generic too. Each output takes the type that arrives:
+
+```python
+@dataclass(frozen=True)
+class Checked[T]:
+    passed: Annotated[T, Param(exclusive_group="check")]
+    failed: Annotated[T, Param(exclusive_group="check")]
+
+
+@registry.node("check", title="Check", description="Sends a value one way if it passed and the other if it failed.")
+def check[T](value: T, ok: bool) -> Checked[T]:
+    return Checked(passed=value, failed=SKIPPED) if ok else Checked(passed=SKIPPED, failed=value)
+```
+
+Only an edge says what `T` is. With nothing wired to it, a value typed in or given by a caller is taken as it is, as `Any`.
+
+## Fields that a setting decides
+
+Some fields can't be written in a signature, because the graph's author decides them: one output per column name they type in. A hook says what those fields are. It is a plain function whose parameters name the inputs it reads, and it returns each field's name and type:
+
+```python
+def outputs_by_name(names: list[str]) -> dict[str, type]:
+    return {name: str for name in names}
+
+
+@registry.node("cells", title="Cells", description="Gives each cell of a CSV line under a name of its own.", compute_outputs=outputs_by_name)
+def cells(line: str, names: list[str]) -> dict[str, str]:
+    return dict(zip(names, line.split(",")))
+
+
+graph = registry.load(make_graph(cells, values={"cells.names": ["name", "city"]}))
+print(graph.outputs)                           # ['cells.name', 'cells.city']
+print(graph.run(line="Ida,Aarhus").outputs)    # {'cells.name': 'Ida', 'cells.city': 'Aarhus'}
+```
+
+The hook runs when a graph is loaded, on what is typed into `names` there, so that input is set in the graph and no edge or caller fills it. The node returns its outputs as a mapping by name. `compute_added_inputs=` adds inputs the same way, and the function takes them as `**values`. A hook that raises is a problem on the node, `compute_hook_failed`, with your message if you raise a `NodeError`.
+
+Reach for a hook only for names a setting decides. A type that follows what arrives is a type variable.
+
 ## Asking a person
 
 `raise Ask(prompt)` stops that call of the node and asks a person. Your return type says what they answer: `-> bool` asks a yes or no, and a frozen dataclass asks a form, one question per field, each field's default offered. What every type asks is in the reference (`python -m conductor.about`, "Legs and Asking").
@@ -242,7 +431,11 @@ def review(proposal: str) -> Review:
     raise Ask(f"Review: {proposal}", choices={"owner": [Choice("ida", "Ida B."), Choice("bo", "Bo K.")]})
 
 
-run = registry.load(make_graph(review)).run(proposal="Move the server")
+graph = registry.load(make_graph(review))
+run = graph.run(proposal="Move the server")
+stored = run.to_json()  # a waiting run is JSON: store it, and the person may answer next week
+
+run = graph.load_run(stored)  # in another process, on the same graph
 (waiting,) = run.waiting
 print([question.name for question in waiting.questions])  # ['approved', 'owner', 'note']
 
@@ -367,6 +560,7 @@ problems = check_registry(registry, examples={
     "open": [{"text": "Ida\nhello"}],
     "tag": [{"line": "hello", "sender": "Ida"}],
     "count": [{"texts": ["hello"]}],
+    "cells": [{"line": "Ida,Aarhus", "names": ["name", "city"]}],
 }, from_run={Caller: Caller("Ida")})
 print(problems)  # []
 ```
