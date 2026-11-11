@@ -11,11 +11,12 @@ its JSON in another process.
 
 A node inside an embedded graph has units as any node has: one for each item
 its embedding node runs for, and under it for each item of its own scope. Its
-open inputs read what the embedding node is given, and the embedding node's
-own unit is what the inner graph's outputs came to for that item, there once
-every one of them is settled. Where something is, at any depth of embedded
-graphs, is one path of node ids and item positions: ``("e", 0, "ask", 2)`` is
-``ask``'s third item inside ``e``'s first.
+open inputs read what the embedding node is given, and what reads the
+embedding node reads the unit inside that holds the output. The embedding
+node itself holds no unit: what a run says of it is read from the units
+inside. Where something is, at any depth of embedded graphs, is one path of
+node ids and item positions: ``("e", 0, "ask", 2)`` is ``ask``'s third item
+inside ``e``'s first.
 """
 
 from __future__ import annotations
@@ -27,7 +28,7 @@ import json
 import math
 import threading
 import time
-from collections.abc import AsyncGenerator, Callable, Iterable, Iterator, Mapping
+from collections.abc import AsyncGenerator, Callable, Iterator, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Literal, NamedTuple, get_args, overload
@@ -48,19 +49,21 @@ from conductor._internal.ask import Question, Waiting, answer_outputs, waiting_q
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.fields import SKIPPED, Field, FieldValueError, Records, Type, written_table
 from conductor._internal.graph import (
-    Cell,
-    CellRead,
-    Fixed,
     FunctionAtPath,
-    Gather,
     GraphAtPath,
-    Item,
     Maps,
     NodeAtPath,
     NodePath,
-    Open,
     PlacedFunction,
+)
+from conductor._internal.input_plans import (
+    Cell,
+    Fixed,
+    Gather,
+    Item,
+    Open,
     SeriesOfOne,
+    WholeSeries,
 )
 from conductor._internal.node_definition import Returns, from_run_values
 from conductor._internal.outside_the_items import COULD, could_bring
@@ -89,8 +92,8 @@ Key = tuple[int, ...]
 #: inside an embedded graph, the embedding node and its item first, ``("e", 0, "ask", 2)``.
 Path = tuple[str | int, ...]
 
-#: Each node's units by instance, for the nodes of one graph of the tree by id.
-_UnitsOfAGraph = dict[str, dict[Key, "Unit"]]
+#: Each function's units by instance, by the function's name (``e/ask``).
+_Units = dict[str, dict[Key, Unit]]
 
 
 def unit_loc(node: NodeAtPath, key: Key) -> Path:
@@ -104,8 +107,8 @@ def unit_loc(node: NodeAtPath, key: Key) -> Path:
     """
     if node.embedding is None:
         return (node.placed.id, *key)
-    base = node.base
-    return (*unit_loc(node.embedding, key[:base]), node.placed.id, *key[base:])
+    around = len(node.embedding.maps)  # the places of the embedded graph's node's own item
+    return (*unit_loc(node.embedding, key[:around]), node.placed.id, *key[around:])
 
 
 def path_text(path: Path) -> str:
@@ -209,10 +212,10 @@ class Run:
     inputs: dict[str, Any]
     max_items: int | None
     state: RunState
-    #: Each node's units by instance, in instance order, by the node's id, for each graph of the tree by the path of
-    #: the node that embeds it: ``_units[()]["w"]`` for a node of the graph itself, ``_units[("e",)]["ask"]`` for one
-    #: inside ``e``. Only a leg records out of that order, and it puts the units back in it before it hands the run on.
-    _units: dict[NodePath, _UnitsOfAGraph]
+    #: Each function's units by instance, in instance order, by the function's name: ``_units["w"]`` for a node of
+    #: the graph itself, ``_units["e/ask"]`` for one inside ``e``. Only a leg records out of that order, and it puts
+    #: the units back in it before it hands the run on.
+    _units: _Units
     #: What each node may take from the run this one went on from.
     _earlier: dict[NodePath, Earlier]
     #: For a node whose units a saved run made with other code or another signature, what that code was; they are never carried.
@@ -224,7 +227,7 @@ class Run:
         raise TypeError("a run is made with graph.with_inputs(...), graph.run(...) or graph.load_run(saved)")
 
     def __repr__(self) -> str:
-        return f"<Run {self.status}: {sum(len(units) for graph in self._units.values() for units in graph.values())} units>"
+        return f"<Run {self.status}: {sum(len(units) for units in self._units.values())} units>"
 
     @property
     def status(self) -> RunStatus:
@@ -353,9 +356,9 @@ class Run:
             except ValueError:  # a place in it isn't a number
                 problems.append(make_problem("not_waiting", unit_id.partition("@")[0], waiting_id=unit_id, status=self.status))
                 continue
-            node = self.graph._node_at.get(nodes)
-            found = self._units[node.inside][node.placed.id].get(key) if node is not None else None
-            if not isinstance(node, FunctionAtPath) or not isinstance(found, Asking):
+            node = self.graph._node_at.get("/".join(nodes))
+            found = self._units[node.name].get(key) if type(node) is FunctionAtPath else None
+            if type(node) is not FunctionAtPath or type(found) is not Asking:
                 moved = {"moved_to": went} if fingerprint and (went := self._moved_to(nodes, fingerprint)) else {}
                 problems.append(make_problem("not_waiting", *loc, waiting_id=unit_id, status=self.status, **moved))
                 continue
@@ -375,19 +378,10 @@ class Run:
         if problems:
             raise InvalidCallError(problems)
         run = self._copy(share_units=True)
-        around: dict[GraphAtPath, dict[Key, None]] = {}  # each embedded graph's node around an answered unit, and its instances there
-        for node, key in answered:
-            embedding = node.embedding
-            while embedding is not None:
-                around.setdefault(embedding, {})[key[: len(embedding.maps)]] = None
-                embedding = embedding.embedding
-        changes: list[NodeAtPath] = [*{node for node, _ in answered}, *around]
-        for changed in changes:  # its own units for each node it changes; every other node's are shared
-            run._units[changed.inside][changed.placed.id] = dict(self._units[changed.inside][changed.placed.id])
+        for changed in {node for node, _ in answered}:  # its own units for each node it changes; every other node's are shared
+            run._units[changed.name] = dict(self._units[changed.name])
         for (node, key), now in answered.items():
-            run._units[node.inside][node.placed.id][key] = now
-        for embedding in sorted(around, key=lambda node: node.position):  # each once, after every embedded graph's node inside it
-            run._settle(embedding, around[embedding])
+            run._units[node.name][key] = now
         return run
 
     def _moved_to(self, nodes: NodePath, fingerprint: str) -> str | None:
@@ -436,18 +430,17 @@ class Run:
         """What a run going on from this one may take, by node: each node's finished and waiting units, in
         instance order, then what this run carried and didn't take.
 
-        An embedded graph's own unit is never carried: the units of the nodes inside it are, so a later run
-        takes them node by node. ``into`` another graph keeps only the nodes it holds as they are here (by
+        ``into`` another graph keeps only the nodes it holds as they are here (by
         ``reuse_digest``): the others' units could never be taken there, and carried they would only make its
         save larger.
         """
         carried: dict[NodePath, Earlier] = {}
         for node in self.graph._tree:
-            if isinstance(node, GraphAtPath) or not node.policy.reuse_when_inputs_match or node.path in self._ran_as:
+            if not node.policy.reuse_when_inputs_match or node.path in self._ran_as:
                 continue
             placed = node.placed
             earlier = carried[node.path] = Earlier()
-            for key, unit in self._units[node.inside][placed.id].items():
+            for key, unit in self._units[node.name].items():
                 if type(unit) is Skipped or type(unit) is Blank:
                     continue
                 received = self._inputs(node, key)
@@ -493,10 +486,9 @@ class Run:
     def _asking(self) -> Iterator[tuple[FunctionAtPath, Key, Asking]]:
         """Every unit waiting for a person, with its node and instance, in node then instance order."""
         for node in self.graph._tree:
-            if isinstance(node, FunctionAtPath):
-                for key, unit in self._units[node.inside][node.placed.id].items():
-                    if isinstance(unit, Asking):
-                        yield node, key, unit
+            for key, unit in self._units[node.name].items():
+                if type(unit) is Asking:
+                    yield node, key, unit
 
     @property
     def not_called(self) -> list[NotCalled]:
@@ -504,7 +496,7 @@ class Run:
         inside an embedded graph where its node stands."""
         return [
             NotCalled(loc=unit_loc(node, key), input=unit.input)
-            for node in self.graph._tree for key, unit in self._units[node.inside][node.placed.id].items() if isinstance(unit, Blank)
+            for node in self.graph._tree for key, unit in self._units[node.name].items() if type(unit) is Blank
         ]
 
     @property
@@ -512,7 +504,7 @@ class Run:
         """Each node's outputs: one value on a node that ran once, else a list in item order, ``None`` where a
         unit has none."""
         nodes = self.graph._node_at
-        return {n: {o: self._collect(nodes[(n,)], o) for o in placed.outputs} for n, placed in self.graph._nodes.items()}
+        return {n: {o: self._collect(nodes[n], o) for o in placed.outputs} for n, placed in self.graph._nodes.items()}
 
     @property
     def outputs(self) -> dict[str, Any]:
@@ -525,7 +517,7 @@ class Run:
             case EndedEarly(status=status, cause=cause):
                 raise InvalidCallError([make_problem("run_not_complete", "outputs", status=status, reason=cause.msg)])
         nodes = self.graph._node_at
-        return {address: self._collect(nodes[(address.partition(".")[0],)], address.partition(".")[2]) for address in self.graph.outputs}
+        return {address: self._collect(nodes[address.partition(".")[0]], address.partition(".")[2]) for address in self.graph.outputs}
 
     def outputs_json(self) -> str:
         """The graph's outputs (``run.outputs``) as JSON, by address, each written by its output's type as a save
@@ -538,7 +530,7 @@ class Run:
         nodes = self.graph._node_at
         written = {}
         for address, value in self.outputs.items():
-            node = nodes[(address.partition(".")[0],)]
+            node = nodes[address.partition(".")[0]]
             output = node.placed.outputs[address.partition(".")[2]]
             try:
                 written[address] = (output.column if node.maps else output.slot).to_json(value)
@@ -547,104 +539,57 @@ class Run:
         return pydantic_core.to_json(written).decode()
 
     def _collect(self, node: NodeAtPath, output: str) -> Any:
-        """One output of a node over its units, in instance order."""
-        units = self._units[node.inside][node.placed.id]
+        """One output of a node over its instances, in instance order. An embedded graph's node holds no unit:
+        its output is read from the function inside that makes it."""
+        units = self._units[node.name] if type(node) is FunctionAtPath else {}
         values = []
         for key in self._instances(node.maps, ())[0]:
-            unit = units.get(key)
-            value = None if unit is None or type(unit) is Asking else unit.out[output]
+            if type(node) is GraphAtPath:
+                value = self._offered(node, output, key)
+            else:
+                unit = units.get(key)
+                value = NOT_SETTLED if unit is None or type(unit) is Asking else unit.out[output]
             if type(value) is list:
                 value = [None if item is SKIPPED else item for item in value]
             elif type(value) is Records:
                 value = value.records()
-            values.append(None if value is SKIPPED else value)
+            values.append(None if value is SKIPPED or value is NOT_SETTLED else value)
         return values if node.maps else values[0]
 
-    def _offered(self, node: GraphAtPath, key: Key) -> Any:
-        """What the embedded graph's node ``node`` offers in the instance ``key``: each output of its inner graph
-        (``graph.outputs``), by address, as a unit keeps it.
+    def _offered(self, node: GraphAtPath, address: str, key: Key) -> Any:
+        """What the embedded graph's node ``node`` offers for its output ``address`` in the instance ``key``,
+        read from the function inside that makes it.
 
-        An output made once inside is the inner unit's own: its value, ``SKIPPED`` for a branch not taken, ``None``
-        for a blank, so what reads the embedded graph's node is skipped or left uncalled as it would be reading
-        the node inside. One made per item inside, at any depth, is every item's in order, and a ``Series`` made
-        per item is a list of lists; where the Series those items are of was never made, for a blank or a branch
-        not taken, it is that blank or that branch not taken, as the nodes drawn in the graph itself hold.
+        An output made once inside is the inner unit's own. One made per item inside, at any depth, is every
+        item's in order, and a ``Series`` made per item is a list of lists; where the Series those items are
+        of was never made, for a blank or a branch not taken, it is that blank or that branch not taken.
 
         Returns:
-            The outputs by address, or ``NOT_SETTLED`` until every one of them is settled for the instance, and
-            every node inside that ends the graph with no output.
+            The value, or ``NOT_SETTLED`` until every unit it is made of is settled.
         """
-        units, base = self._units[node.path], len(key)
-        out: dict[str, Any] = {}
-        for address, (cell, maps, lists, series) in node.offers.items():
-            if len(maps) == base:  # made once inside: the inner unit's own
-                unit = units[cell.node_id].get(key)
-                if unit is None or type(unit) is Asking:
-                    return NOT_SETTLED
-                value = unit.out[cell.output]
-            else:
-                made = _cell(units, base, series, key)  # type: ignore[arg-type]  # an output made per item has its Series
-                if made is NOT_SETTLED:
-                    return NOT_SETTLED
-                if made is None or made is SKIPPED:  # the Series was never made, so nor was the output: no list of no items
-                    out[address] = made
-                    continue
-                instances, known = self._instances(maps, key)
-                if not known:
-                    return NOT_SETTLED
-                value = [_cell(units, len(maps), cell, instance) for instance in instances]
-                for one in value:
-                    if one is NOT_SETTLED:
-                        return NOT_SETTLED
-                if lists:
-                    value = [[None if item is SKIPPED else item for item in one] if type(one) is list else one.records() if type(one) is Records else one for one in value]
-            out[address] = value
-        for last in node.ends_silently:  # nothing to offer, and still what the graph inside came to
-            instances, known = self._instances(last.maps, key)
-            if not known:
+        last, output = node.offers[address]
+        units, around = self._units[last.name], len(node.maps)
+        if len(last.maps) == around:  # made once inside: the inner unit's own
+            unit = units.get(key)
+            return NOT_SETTLED if unit is None or type(unit) is Asking else unit.out[output]
+        series, of = last.maps[around]
+        made = self._units[series.name].get(key)
+        if made is None or type(made) is Asking:
+            return NOT_SETTLED
+        if made.out[of] is None or made.out[of] is SKIPPED:  # the Series was never made, so nor was the output: no list of no items
+            return made.out[of]
+        instances, known = self._instances(last.maps, key)
+        if not known:
+            return NOT_SETTLED
+        values = []
+        for instance in instances:
+            unit = units.get(instance)
+            if unit is None or type(unit) is Asking:
                 return NOT_SETTLED
-            held = units[last.placed.id]
-            for instance in instances:
-                unit = held.get(instance)
-                if unit is None or type(unit) is Asking:
-                    return NOT_SETTLED
-        return out
-
-    def _settle(self, node: GraphAtPath, instances: Iterable[Key]) -> None:
-        """Gives the embedded graph's node ``node`` its unit in each of ``instances`` where every output of the
-        graph inside is settled.
-
-        The unit is what the units inside came to and nothing else (``_offered``), so it is made of them and
-        never saved. One an instance already holds is made again, to the same; the node's units stay in
-        instance order.
-
-        Args:
-            node: The embedded graph's node.
-            instances: The instances of it to look at.
-        """
-        units = self._units[node.inside][node.placed.id]
-        last = next(reversed(units), None)
-        in_order = True
-        for key in instances:
-            offered = self._offered(node, key)
-            if offered is not NOT_SETTLED:
-                if last is None or key > last:
-                    last = key
-                elif key not in units:
-                    in_order = False
-                units[key] = Done(offered)
-        if not in_order:  # a run holds every node's units in instance order
-            held = sorted(units.items())
-            units.clear()
-            units.update(held)
-
-    def _settle_embedded(self) -> None:
-        """Settles every embedded graph's node in every instance that holds no unit (``_settle``), each after the
-        nodes inside it."""
-        for node in self.graph._tree:
-            if type(node) is GraphAtPath:
-                units = self._units[node.inside][node.placed.id]
-                self._settle(node, [key for key in self._instances(node.maps, ())[0] if key not in units])
+            values.append(unit.out[output])
+        if last.placed.outputs[output].many:
+            values = [[None if item is SKIPPED else item for item in one] if type(one) is list else one.records() if type(one) is Records else one for one in values]
+        return values
 
     # -- what a leg reads -------------------------------------------------------
 
@@ -687,7 +632,7 @@ class Run:
         in, those of the embedded graphs' nodes around it included. A unit's innermost item is in what it
         received."""
         above = [
-            self._units[series.inside][series.placed.id][key[:depth]].out[output][key[depth]]  # type: ignore[union-attr]
+            self._units[series.name][key[:depth]].out[output][key[depth]]  # type: ignore[union-attr]  # a unit under an item of a Series holds that Series
             for depth, (series, output) in enumerate(node.maps[:-1])
         ]
         return (_fingerprint("", {"items": above}) or "") if above else ""
@@ -728,7 +673,7 @@ class Run:
         keys, complete = [under], True
         for depth in range(start, deepest):
             series, output = maps[depth]
-            units = self._units[series.inside][series.placed.id]
+            units = self._units[series.name]
             below: list[Key] = []
             for parent in keys:
                 unit = units.get(parent)
@@ -743,10 +688,10 @@ class Run:
             keys = below
         return keys, complete
 
-    def _has_every_unit(self, node: NodeAtPath) -> bool:
+    def _has_every_unit(self, node: FunctionAtPath) -> bool:
         """Whether every instance of ``node`` holds a unit, one waiting for a person included, and every Series
         it runs per item of is made, so no instance is still to come."""
-        units = self._units[node.inside][node.placed.id]
+        units = self._units[node.name]
         if not node.maps:
             return bool(units)
         counted, known = self._instances(node.maps, (), counted=True)
@@ -755,23 +700,20 @@ class Run:
     def _inputs(self, node: FunctionAtPath, key: Key) -> dict[str, Any] | Skipped | Blank | Literal[NotReady.NOT_SETTLED] | Problem:
         """What ``node`` receives in the instance ``key``.
 
-        An open input of a node inside an embedded graph is read as the embedded graph's node is given it: by
-        that node's plan, in the graph that node is in.
-
         Returns:
             The keyword arguments of the call; or the unit it comes to uncalled: ``Skipped`` when an input comes
             only from branches not taken, whatever the others hold; else ``NOT_SETTLED`` while something it reads
             hasn't run; else ``Blank`` when an input that takes no blank got one. Every input is read before
-            pending or a blank is the answer, so the order of a node's parameters decides nothing. When an
+            not settled or a blank is the answer, so the order of a node's parameters decides nothing. When an
             edge names a field the record it brings doesn't have, the ``Problem`` the unit fails with
             (``invalid_edge_value``).
         """
         kwargs: dict[str, Any] = {}
         blank: str | None = None
-        pending = False
-        gathered: dict[str, tuple[Gather, _UnitsOfAGraph, CellRead, list[Any]]] = {}
-        own = self._units[node.inside]
-        for name, (plan, giver, cells) in node.inputs.items():
+        not_settled = False
+        gathered: dict[str, tuple[Gather, list[Any]]] = {}
+        units = self._units
+        for name, plan in node.inputs.items():
             kind = type(plan)
             if kind is Fixed:
                 kwargs[name] = plan.value  # type: ignore[union-attr]
@@ -779,14 +721,13 @@ class Run:
             if kind is Open:  # a first node of the graph itself, or of a graph embedded in one: the caller gives it
                 kwargs[name] = self.inputs[plan.address]  # type: ignore[union-attr]
                 continue
-            units = own if giver is None else self._units[giver.inside]
             try:
                 if kind is Gather:
-                    value = self._gathered(node.inside if giver is None else giver.inside, plan, cells, node.gathered_through[name], key)  # type: ignore[arg-type]
+                    value = self._gathered(plan, node.gathered_through[name], key)  # type: ignore[arg-type]
                 else:  # one value: the first edge whose branch was taken
                     value = SKIPPED
-                    for source, depth in cells:
-                        value = _cell(units, depth, source, key)
+                    for source in plan.reads:  # type: ignore[union-attr]
+                        value = _cell(units, source, key)
                         if value is not SKIPPED:
                             break
                     if kind is SeriesOfOne and value is not SKIPPED and value is not NOT_SETTLED and (value is not None or plan.spec.keeps_blanks):
@@ -796,24 +737,24 @@ class Run:
             if value is SKIPPED:
                 return node.placed.skipped
             if value is NOT_SETTLED:  # a later input may be skipped, which settles the unit whatever this one comes to
-                pending = True
+                not_settled = True
             elif value is None:
                 if not plan.spec.whole.optional and blank is None:
                     blank = name
                 kwargs[name] = None
             elif kind is Gather:
-                gathered[name] = (plan, units, cells[0], value)  # type: ignore[assignment]
+                gathered[name] = (plan, value)  # type: ignore[assignment]
             else:
                 kwargs[name] = value
-        if pending:
+        if not_settled:
             return NOT_SETTLED
         if blank is not None:
             return Blank(node.placed.outputs_not_called, blank)
-        for name, (plan, units, series, items) in gathered.items():
-            kwargs[name] = _aligned(plan, units, series, items, gathered)
+        for name, (plan, items) in gathered.items():
+            kwargs[name] = _aligned(plan, items, gathered)
         return kwargs
 
-    def _gathered(self, inside: NodePath, plan: Gather, cells: tuple[CellRead, ...], through: tuple[NodeAtPath, ...], key: Key) -> Any:
+    def _gathered(self, plan: Gather, through: tuple[FunctionAtPath, ...], key: Key) -> Any:
         """The items a gathering input gets in the instance ``key``, with ``None`` for an item that has no value.
 
         What is outside the items is asked first whether any item could bring a value (``could_bring``). When
@@ -821,11 +762,8 @@ class Run:
         answers for itself: one with no value, for a blank or a branch not taken, holds ``None``.
 
         Args:
-            inside: The path of the embedded graph's node the plan was made in the graph of; ``()`` for the
-                run's own graph.
-            plan: The input's plan.
-            cells: The cells the input reads where its node stands: the Series, then what each edge brings.
-            through: The nodes the input gathers through, as the tree keeps them; none when nothing outside
+            plan: The input's plan, where its node stands.
+            through: The functions the input gathers through, as the tree keeps them; none when nothing outside
                 the items but the Series itself has a say.
             key: The instance of the node that gathers.
 
@@ -834,29 +772,34 @@ class Run:
             settled; ``SKIPPED`` when no item could bring a value for a branch not taken outside the items;
             ``None`` when none could for a blank there.
         """
-        (series_made, gathered_in), *edges = cells
-        key = key[:gathered_in]
-        units = self._units[inside]
-        series = _cell(units, gathered_in, series_made, key)
+        series_made, edges = plan.series, plan.sources
+        key = key[: series_made.depth]
+        units = self._units
+        series = _cell(units, series_made, key)
         if through:
-            certain = could_bring(plan, cells, through, inside, self.graph._node_at, _AsItStands(self, key))
+            certain = could_bring(plan, through, self.graph._node_at, _AsItStands(self, key))
             if certain is not COULD:
                 return certain
         elif series is NOT_SETTLED or series is SKIPPED or series is None:  # nothing outside but the Series has a say
             return series
-        if len(edges) == 1 and type(edges[0][0]) is Item:  # the Series itself: its items, or one field of each
-            wanted = edges[0][0].field
+        if len(edges) == 1 and type(edges[0]) is Item:  # the Series itself: its items, or one field of each
+            wanted = edges[0].field
             if type(series) is Records:
                 return series.records() if wanted is None else _field_of(series.columns, wanted)
             if wanted is None:
                 return [None if item is SKIPPED else item for item in series] if any(item is SKIPPED for item in series) else series
             return [None if item is SKIPPED or item is None else _field_of(item, wanted) for item in series]
+        if plan.levels == 1:
+            instances = [(*key, place) for place in range(len(series))]
+        else:  # what an embedded graph offers of an output made several maps deep inside it: every item of every one
+            instances, known = self._instances(self.graph._node_at[edges[0].node_id].maps, key)
+            if not known:
+                return NOT_SETTLED
         items = []
-        per_item = [(source, gathered_in if type(source) is Item else gathered_in + 1) for source, _ in edges]  # an item of the Series' unit, or a unit made for the item
-        for place in range(len(series)):
+        for instance in instances:
             value = SKIPPED
-            for source, depth in per_item:
-                value = _cell(units, depth, source, (*key, place))
+            for source in edges:
+                value = _cell(units, source, instance)
                 if value is NOT_SETTLED:
                     return NOT_SETTLED
                 if value is not SKIPPED:
@@ -877,12 +820,11 @@ class Run:
 
     def _saved(self) -> SavedRun[SavedUnits, SavedEarlier[SavedUnits]]:
         """The run as its graph's ``SaveForm`` writes it. A node inside an embedded graph is saved as any node,
-        under its path. The unit of an embedded graph's node is not written: it is what the units inside came
-        to, and is read from them."""
+        under its path. An embedded graph's node holds no unit, so nothing is written of it."""
         functions = self.graph._functions
         units = {
-            "/".join(node.path): _unit_columns(node.placed.outputs, self._slots(node))
-            for node in self.graph._tree if isinstance(node, FunctionAtPath) and self._units[node.inside][node.placed.id]
+            node.name: _unit_columns(node.placed.outputs, self._slots(node))
+            for node in self.graph._tree if self._units[node.name]
         }
         earlier = {"/".join(path): _earlier_columns(functions[path].outputs, lent) for path, lent in self._earlier.items() if lent.computed or lent.asked}
         code = {name: self._ran_as.get(path) or placed.reuse_digest for path, placed in functions.items() if (name := "/".join(path)) in units or name in earlier}
@@ -892,7 +834,7 @@ class Run:
     def _slots(self, node: FunctionAtPath) -> list[Unit | None]:
         """A node's units with a slot for each instance of the node, in instance order; ``None`` where the
         instance hasn't run."""
-        units = self._units[node.inside][node.placed.id]
+        units = self._units[node.name]
         if self._has_every_unit(node):  # the units as they stand
             return list(units.values())
         return [units.get(instance) for instance in self._instances(node.maps, ())[0]]
@@ -900,10 +842,7 @@ class Run:
     def _copy(self, *, share_units: bool = False, **changes: Any) -> Run:
         """A copy to change: its own units to record into and its own carried answers to take from; or with
         ``share_units`` this run's units of every node, for a caller that replaces whole nodes and takes nothing."""
-        if share_units:
-            units = {inside: dict(nodes) for inside, nodes in self._units.items()}
-        else:
-            units = {inside: {n: dict(held) for n, held in nodes.items()} for inside, nodes in self._units.items()}
+        units = dict(self._units) if share_units else {name: dict(held) for name, held in self._units.items()}
         copy = start_run(self.graph, self.inputs, changes.get("max_items", self.max_items), dict(self._earlier), units)
         if not share_units:
             for path, earlier in self._earlier.items():  # its own answers to take, as this run holds them too
@@ -927,33 +866,32 @@ class _AsItStands:
     def __init__(self, run: Run, key: Key) -> None:
         self.run, self.key = run, key
 
-    def cell(self, inside: NodePath, depth: int, cell: Cell) -> Any:
+    def cell(self, cell: Cell) -> Any:
         """What ``cell`` holds there: ``COULD`` for a value, else ``SKIPPED``, ``None`` or ``NOT_SETTLED``."""
-        value = _cell(self.run._units[inside], depth, cell, self.key)
+        value = _cell(self.run._units, cell, self.key)
         return value if value is NOT_SETTLED or value is SKIPPED or value is None else COULD
 
-    def gathered(self, inside: NodePath, plan: Gather, cells: tuple[CellRead, ...], through: tuple[NodeAtPath, ...]) -> Any:
+    def gathered(self, plan: Gather, through: tuple[FunctionAtPath, ...]) -> Any:
         """What the gathering input of ``plan`` gathers there: ``COULD`` for a list, else ``SKIPPED``, ``None``
         or ``NOT_SETTLED``."""
-        value = self.run._gathered(inside, plan, cells, through, self.key)
+        value = self.run._gathered(plan, through, self.key)
         return value if value is NOT_SETTLED or value is SKIPPED or value is None else COULD
 
 
-def _cell(units: _UnitsOfAGraph, depth: int, cell: Cell, key: Key) -> Any:
+def _cell(units: _Units, cell: Cell, key: Key) -> Any:
     """What ``cell`` holds for the instance ``key`` or one under it, as an edge brings it.
 
     Args:
-        units: The units of the graph the cell's node is in.
-        depth: How many places of ``key`` say which unit of the cell's node holds it, as the reading node's
-            ``inputs`` give it.
+        units: Each function's units.
         cell: The cell.
         key: The instance of the node that reads.
 
     Returns:
         The value (an ``Item``'s is the item of ``key``, and a field named on the edge is read from it);
-        ``NOT_SETTLED`` while its unit hasn't run or waits for a person; ``SKIPPED`` for a branch not taken, which
-        an output of an exclusive group is where its node wasn't called; ``None`` for a blank.
+        ``NOT_SETTLED`` while its unit hasn't run or waits for a person; ``SKIPPED`` for a branch not taken;
+        ``None`` for a blank.
     """
+    depth = cell.depth
     unit = units[cell.node_id].get(key[:depth])
     if unit is None or type(unit) is Asking:
         return NOT_SETTLED
@@ -962,20 +900,22 @@ def _cell(units: _UnitsOfAGraph, depth: int, cell: Cell, key: Key) -> Any:
         return value
     if type(cell) is Item:
         if type(value) is Records:  # held by column: the cell an edge names, with no record built
-            wanted = cell.field  # type: ignore[attr-defined]
+            wanted = cell.field
             return value[key[depth]] if wanted is None else _field_of(value.columns, wanted)[key[depth]]
         value = value[key[depth]]
-    field = cell.field  # type: ignore[attr-defined]
+    elif type(cell) is WholeSeries:  # the list as a reader receives one: no mark of a branch not taken in it
+        return value.records() if type(value) is Records else [None if item is SKIPPED else item for item in value]
+    field = cell.field  # type: ignore[attr-defined]  # an edge brings a Value, an Item or a WholeSeries, each with its field
     return value if field is None or value is None or value is SKIPPED else _field_of(value, field)
 
 
-def no_units(graph: Graph) -> dict[NodePath, _UnitsOfAGraph]:
-    """The units of a run of ``graph`` that hasn't started: none, for every node of the graph and of each graph
-    embedded in it."""
-    return {inside: {node_id: {} for node_id in ids} for inside, ids in graph._ids_inside.items()}
+def no_units(graph: Graph) -> _Units:
+    """The units of a run of ``graph`` that hasn't started: none, for every function of the graph and of each
+    graph embedded in it."""
+    return {node.name: {} for node in graph._tree}
 
 
-def start_run(graph: Graph, inputs: dict[str, Any], max_items: int | None, earlier: dict[NodePath, Earlier], units: dict[NodePath, _UnitsOfAGraph]) -> Run:
+def start_run(graph: Graph, inputs: dict[str, Any], max_items: int | None, earlier: dict[NodePath, Earlier], units: _Units) -> Run:
     """A run of ``graph`` not started; the one way a ``Run`` is made.
 
     Args:
@@ -1010,19 +950,17 @@ def waiting_unit(node: FunctionAtPath, key: Key, unit: Asking) -> Waiting:
     )
 
 
-def _aligned(plan: Gather, units: _UnitsOfAGraph, series: CellRead, items: list[Any], gathered: Mapping[str, tuple[Gather, _UnitsOfAGraph, CellRead, list[Any]]]) -> list[Any]:
+def _aligned(plan: Gather, items: list[Any], gathered: Mapping[str, tuple[Gather, list[Any]]]) -> list[Any]:
     """The items one gathering input receives: those that have a value in every input of the node that gathers
     the same Series, so those inputs stay in step; an input whose items may be blank keeps a blank in its place.
 
     Args:
         plan: The input's plan.
-        units: The units of the graph the plan was made in, which with ``series`` says which Series it is.
-        series: The Series the input gathers, as the node's ``inputs`` give it.
         items: What the input gathered, one place per item of the Series.
-        gathered: Every gathering input of the node, by name: its plan, the units of its plan's graph, its
-            Series, its items.
+        gathered: Every gathering input of the node, by name: its plan and its items.
     """
-    together = [(others, other.spec.keeps_blanks) for other, theirs, of, others in gathered.values() if of == series and theirs is units]
+    series = plan.series
+    together = [(others, other.spec.keeps_blanks) for other, others in gathered.values() if other.series == series]
     if len(together) == 1:
         return items if together[0][1] else [item for item in items if item is not None]  # by identity: an item may be a frame, which has no plain ==
     return [item for place, item in enumerate(items) if all(keeps or others[place] is not None for others, keeps in together)]
@@ -1083,14 +1021,12 @@ def _run_of(graph: Graph, saved: SavedRun[list[Unit | None], Earlier]) -> Run:
     run = start_run(graph, saved.inputs, saved.max_items, {}, no_units(graph))
     run.state = saved.state
     for node in graph._tree:  # each after the nodes it reads, so the Series its instances are of are in place
-        instances, _ = run._instances(node.maps, ())
-        if isinstance(node, GraphAtPath):  # its units are what the units inside it came to
-            run._settle(node, instances)
-        elif (slots := saved.units.get("/".join(node.path))) is not None:
+        if (slots := saved.units.get(node.name)) is not None:
+            instances, _ = run._instances(node.maps, ())
             if len(slots) != len(instances):
-                at, reason = f"units.{'/'.join(node.path)}", f"it holds {len(slots)} slots for the {len(instances)} instances the saved run made of the node"
+                at, reason = f"units.{node.name}", f"it holds {len(slots)} slots for the {len(instances)} instances the saved run made of the node"
                 raise InvalidCallError([make_problem("state_unreadable", "state", at=at, reason=reason)])
-            run._units[node.inside][node.placed.id] = {instance: unit for instance, unit in zip(instances, slots, strict=True) if unit is not None}
+            run._units[node.name] = {instance: unit for instance, unit in zip(instances, slots, strict=True) if unit is not None}
     functions = graph._functions
     run._ran_as = {path: digest for name, digest in saved.code.items() if digest != functions[path := tuple(name.split("/"))].reuse_digest}
     run._earlier = {path: lent for name, lent in saved.earlier.items() if (path := tuple(name.split("/"))) not in run._ran_as}  # work of other code is never taken
@@ -1327,7 +1263,7 @@ def save_form(graph: Graph) -> SaveForm:
         units=_closed({}, units),
         earlier=_closed({}, earlier),
         code=_closed({}, dict.fromkeys(units, core_schema.str_schema())),
-        complete=core_schema.list_schema(core_schema.literal_schema(["/".join(node.path) for node in graph._tree])),
+        complete=core_schema.list_schema(core_schema.literal_schema([node.name for node in graph._tree])) if graph._tree else core_schema.list_schema(max_length=0),
     )
     schema = core_schema.definitions_schema(core_schema.tagged_union_schema({graph.fingerprint: run}, discriminator=_GRAPH), list(shared.values()))
     config = CoreConfig(ser_json_inf_nan="strings")

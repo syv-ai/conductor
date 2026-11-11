@@ -159,7 +159,7 @@ def test_failure_keeps_calls_already_made():
     graph = reg.load(chain("split", "boom"))
     run = graph.run(text="a,b,c,d")
     assert run.status == "failed" and run.state.cause.loc == ("boom", 2), run.state.cause
-    assert all(run._units[()]["boom"].get((i,)) is not None for i in (0, 1, 3))  # d finished on its thread after c failed
+    assert all(run._units["boom"].get((i,)) is not None for i in (0, 1, 3))  # d finished on its thread after c failed
     seen = []
 
     @node("boom", title="Fixed", description="", policy=Policy(concurrency=4))
@@ -187,7 +187,7 @@ def test_cancel_and_timeout():
 
     events = asyncio.run(go())
     assert events[-1].status == "cancelled", events[-1].status
-    assert len(events[-1].run._units[()]["slow"]) < 24
+    assert len(events[-1].run._units["slow"]) < 24
 
 
 def test_gather_per_document_while_items_run():

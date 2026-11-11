@@ -81,7 +81,7 @@ def test_a_node_receives_plain_records_whichever_way_the_series_was_returned(sou
 def test_a_series_returned_as_a_table_is_held_and_saved_as_that_table_with_only_its_declared_columns() -> None:
     graph = _graph()
     run = graph.run(text="x")
-    held = run._units[()]["c"][()].out["result"]
+    held = run._units["c"][()].out["result"]
     assert type(held) is Records and held.frame.columns == ["name", "email"] and len(held) == 2
 
     saved = json.loads(run.to_json())
@@ -91,7 +91,7 @@ def test_a_series_returned_as_a_table_is_held_and_saved_as_that_table_with_only_
     assert json.loads(_graph(listed).run(text="x").to_json())["units"]["c"]["outputs"]["result"] == [[{"name": "ida", "email": "ida@x.dk"}, {"name": "bo", "email": None}]]
 
     loaded = graph.load_run(run.to_json())
-    assert type(loaded._units[()]["c"][()].out["result"]) is Records
+    assert type(loaded._units["c"][()].out["result"]) is Records
     assert loaded.to_json() == run.to_json() and loaded.results == run.results
     RECEIVED.clear()
     assert loaded.forget("one").resume().outputs == run.outputs and RECEIVED == [{"name": "ida", "email": "ida@x.dk"}, {"name": "bo", "email": None}]
@@ -177,5 +177,5 @@ def test_split_returns_the_table_it_was_given_and_the_run_holds_it_by_column() -
     run = graph.run(text="x")
 
     assert run.outputs == {"greet.result": ["hi ida", "hi bo"]}
-    assert type(run._units[()]["split"][()].out["result"]) is Records
+    assert type(run._units["split"][()].out["result"]) is Records
     assert run.results["split"]["result"] == [{"name": "ida", "email": "ida@x.dk"}, {"name": "bo", "email": None}]

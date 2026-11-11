@@ -126,6 +126,6 @@ def units_missing(run):
     missing = []
     for node in run.graph._tree:
         instances, known = run._instances(node.maps, ())
-        units = run._units[node.inside][node.placed.id]
+        units = run._units[node.name]
         missing += [(node.path, key) for key in instances if key not in units] + ([] if known else [node.path])
     return missing
