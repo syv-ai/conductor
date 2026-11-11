@@ -13,7 +13,7 @@ Keep your nodes in a registry. Its `category`, `tags` and `extra` are defaults f
 ```python
 from typing import Annotated
 
-from conductor import NodeRegistry, Param, make_graph
+from conductor import GraphRecord, NodeRegistry, Param, make_graph
 from conductor.widgets import NumberInput, TextInput
 
 text_nodes = NodeRegistry(category="text", tags=["acme"])
@@ -50,7 +50,7 @@ A second node under an id the host already has raises. `extra` is your own JSON 
 
 ```python
 drawn = {"nodes": [{"id": "repeat", "node": "repeat", "values": {"times": 20}}]}  # as an editor saves it
-graph = host.load(drawn)
+graph = host.load(GraphRecord.model_validate(drawn))
 
 for problem in graph.problems:
     print(problem.loc, problem.type)

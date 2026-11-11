@@ -31,6 +31,7 @@ from conductor import (
     Table,
     make_graph,
     node,
+    stored_graph,
 )
 from conductor._internal.run import Run
 from conductor._internal.units import Asking, Blank, Done, Skipped
@@ -73,7 +74,7 @@ def _strict(text: str) -> Any:
     return json.loads(text, parse_constant=refuse)
 
 
-@node("split", title="Split", description="")
+@node("split", title="Split", description="For a test.")
 def split(text: str) -> Series[str]:
     return text.split(",")
 
@@ -84,7 +85,7 @@ def split(text: str) -> Series[str]:
 def test_a_float_comes_back_to_the_last_bit():
     floats = [0.1 + 0.2, 5e-324, -0.0, 1e308, 1 / 3]
 
-    @node("floats", title="Make floats", description="")
+    @node("floats", title="Make floats", description="For a test.")
     def make_floats(text: str) -> Series[float]:
         return floats
 
@@ -96,7 +97,7 @@ def test_a_float_comes_back_to_the_last_bit():
 
 
 def test_a_text_that_spells_a_skip_marker_stays_text():
-    @node("marker", title="Marker", description="")
+    @node("marker", title="Marker", description="For a test.")
     def marker(text: str) -> Series[str]:
         return ["__skipped__", "SKIPPED", ""]
 
@@ -109,11 +110,11 @@ def _paused_after(definition: Any, *, per_item: bool = False) -> Any:
     """``definition`` as node ``m``, its ``result`` read by a node that asks and by ``seen``, which takes the answer and what ``m`` made."""
     seen: list[Any] = []
 
-    @node("check", title="Check", description="")
+    @node("check", title="Check", description="For a test.")
     def check(value: Any) -> str:
         raise Ask("Right?")
 
-    @node("seen", title="See", description="")
+    @node("seen", title="See", description="For a test.")
     def see(value: Any, checked: str) -> str:
         seen.append(value)
         return checked
@@ -132,7 +133,7 @@ def _is_nan_inf_minus_inf(values: list[float]) -> bool:
 
 
 def test_a_float_that_is_not_finite_comes_back_a_float_and_its_reader_receives_it():
-    @node("ratio", title="Ratio", description="")
+    @node("ratio", title="Ratio", description="For a test.")
     def ratio(text: str) -> float:
         return {"nan": math.nan, "inf": math.inf, "-inf": -math.inf}[text]
 
@@ -151,7 +152,7 @@ def test_a_float_that_is_not_finite_comes_back_a_float_and_its_reader_receives_i
 
 
 def test_a_series_of_floats_keeps_the_ones_that_are_not_finite():
-    @node("readings", title="Readings", description="")
+    @node("readings", title="Readings", description="For a test.")
     def readings(text: str) -> Series[float]:
         return [math.nan, math.inf, -math.inf]
 
@@ -161,7 +162,7 @@ def test_a_series_of_floats_keeps_the_ones_that_are_not_finite():
 
 
 def test_a_float_per_item_keeps_the_ones_that_are_not_finite():
-    @node("per-item", title="Per item", description="")
+    @node("per-item", title="Per item", description="For a test.")
     def per_item(text: str) -> float:
         return float(text)
 
@@ -176,7 +177,7 @@ class Reading(TypedDict):
 
 
 def test_a_float_column_keeps_nan_infinity_and_a_blank():
-    @node("table", title="Table", description="")
+    @node("table", title="Table", description="For a test.")
     def table(text: str) -> Table[Reading]:
         return pl.DataFrame({"value": [math.nan, math.inf, -math.inf, None]})
 
@@ -188,7 +189,7 @@ def test_a_float_column_keeps_nan_infinity_and_a_blank():
 
 
 def test_a_saved_run_is_strict_json_when_a_number_is_not_finite():
-    @node("odd", title="Odd", description="")
+    @node("odd", title="Odd", description="For a test.")
     def odd(text: str) -> Series[float]:
         return [math.nan, math.inf]
 
@@ -198,7 +199,7 @@ def test_a_saved_run_is_strict_json_when_a_number_is_not_finite():
 
 
 def test_a_blank_returned_for_a_blank_taking_series_is_saved_and_read_back_as_a_blank():
-    @node("maybe-readings", title="Maybe readings", description="")
+    @node("maybe-readings", title="Maybe readings", description="For a test.")
     def maybe_readings(text: str) -> Series[int] | None:
         return None
 
@@ -217,11 +218,11 @@ def test_a_float_that_is_not_finite_in_a_tuple_reads_back_by_the_type_of_its_pla
         type_title: ClassVar[str] = "Point"
         xy: tuple[float, Any]
 
-    @node("pair", title="Pair", description="")
+    @node("pair", title="Pair", description="For a test.")
     def pair(text: str) -> dict[str, tuple[float, ...]]:
         return {"a": (math.nan, 1.5)}
 
-    @node("point", title="Point", description="")
+    @node("point", title="Point", description="For a test.")
     def point(text: str) -> Point:
         return Point(xy=(math.inf, math.inf))
 
@@ -242,19 +243,19 @@ def test_a_float_that_is_not_finite_where_its_type_does_not_say_float_reads_back
         type_title: ClassVar[str] = "Loose"
         data: Any
 
-    @node("loose", title="Loose", description="")
+    @node("loose", title="Loose", description="For a test.")
     def loose(text: str) -> Loose:
         return Loose(data={"a": math.nan, "b": [math.inf, -math.inf]})
 
-    @node("mapping", title="Mapping", description="")
+    @node("mapping", title="Mapping", description="For a test.")
     def mapping(text: str) -> dict:
         return {"v": math.nan, "w": [{"x": math.inf}], "s": "NaN", "d": dt.date(2026, 1, 1)}
 
-    @node("anything", title="Anything", description="")
+    @node("anything", title="Anything", description="For a test.")
     def anything(text: str) -> Series[Any]:
         return [math.nan, "Infinity", {"z": -math.inf}]
 
-    @node("maybe-mapping", title="Maybe mapping", description="")
+    @node("maybe-mapping", title="Maybe mapping", description="For a test.")
     def maybe_mapping(text: str) -> dict[str, Any] | None:
         return {"v": math.nan}
 
@@ -272,11 +273,11 @@ def test_a_float_that_is_not_finite_where_its_type_does_not_say_float_reads_back
 
 
 def test_a_float_or_text_field_reads_a_float_that_is_not_finite_back_as_the_text_it_takes():
-    @node("up", title="Up", description="")
+    @node("up", title="Up", description="For a test.")
     def up(k: int) -> Series[float | str]:
         return [math.nan, "NaN", 1.5]
 
-    @node("down", title="Down", description="")
+    @node("down", title="Down", description="For a test.")
     def down(x: float | str) -> str:
         return type(x).__name__
 
@@ -324,15 +325,15 @@ _EVERYTHING = {
 def test_every_column_type_comes_back_exactly_and_a_reader_receives_the_same():
     received: list[pl.DataFrame] = []
 
-    @node("everything", title="Everything", description="")
+    @node("everything", title="Everything", description="For a test.")
     def everything(text: str) -> Table[Everything]:
         return pl.DataFrame(_EVERYTHING)
 
-    @node("check-table", title="Check table", description="")
+    @node("check-table", title="Check table", description="For a test.")
     def check_table(rows: pl.DataFrame) -> str:
         raise Ask("Right?")
 
-    @node("take", title="Take", description="")
+    @node("take", title="Take", description="For a test.")
     def take(rows: pl.DataFrame, checked: str) -> str:
         received.append(rows)
         return checked
@@ -359,7 +360,7 @@ def test_a_table_with_no_row_type_keeps_its_list_struct_time_and_decimal_columns
         "amount": [Decimal("1.10"), Decimal("2.25")],
     }
 
-    @node("bare", title="Bare", description="")
+    @node("bare", title="Bare", description="For a test.")
     def bare(text: str) -> pl.DataFrame:
         return pl.DataFrame(columns)
 
@@ -377,11 +378,11 @@ def test_tables_of_two_nodes_read_back_each_as_itself():
     class Age(TypedDict):
         age: int
 
-    @node("names", title="Names", description="")
+    @node("names", title="Names", description="For a test.")
     def names(text: str) -> Table[Name]:
         return pl.DataFrame({"name": ["ida", "bo"]})
 
-    @node("ages", title="Ages", description="")
+    @node("ages", title="Ages", description="For a test.")
     def ages(text: str) -> Table[Age]:
         return pl.DataFrame({"age": [30, 40, 50]})
 
@@ -396,7 +397,7 @@ def test_tables_of_two_nodes_read_back_each_as_itself():
 
 
 def test_two_identical_runs_save_byte_identical_json():
-    @node("mixed", title="Mixed", description="")
+    @node("mixed", title="Mixed", description="For a test.")
     def mixed(text: str) -> Series[float]:
         return [1.5, math.nan, 2.0]
 
@@ -421,7 +422,7 @@ class _Opaque:
 
 
 def test_saving_a_run_that_holds_a_value_with_no_json_form_raises_naming_the_output():
-    @node("opaque", title="Opaque", description="")
+    @node("opaque", title="Opaque", description="For a test.")
     def opaque(text: str) -> _Opaque:
         return _Opaque()
 
@@ -435,7 +436,7 @@ def test_saving_a_run_that_holds_a_value_with_no_json_form_raises_naming_the_out
 
 
 def test_saving_a_run_given_an_input_with_no_json_form_raises_naming_the_input():
-    @node("take", title="Take", description="")
+    @node("take", title="Take", description="For a test.")
     def take(value: Any) -> str:
         return "ok"
 
@@ -452,7 +453,7 @@ def test_a_column_json_cannot_keep_makes_the_save_raise_naming_the_output():
     class Blob(TypedDict):
         data: bytes
 
-    @node("blob", title="Blob", description="")
+    @node("blob", title="Blob", description="For a test.")
     def blob(text: str) -> Table[Blob]:
         return pl.DataFrame({"data": [b"\xff\xfe"]})
 
@@ -472,7 +473,7 @@ def test_a_column_json_cannot_keep_makes_the_save_raise_naming_the_output():
 def _saved_mails() -> tuple[Any, dict[str, Any]]:
     """``split`` making three items read by ``echo``, run to the end, and its save."""
 
-    @node("echo", title="Echo", description="")
+    @node("echo", title="Echo", description="For a test.")
     def echo(text: str) -> str:
         return text
 
@@ -544,11 +545,11 @@ def _saved_table() -> tuple[Any, dict[str, Any]]:
     class Name(TypedDict):
         name: str
 
-    @node("names", title="Names", description="")
+    @node("names", title="Names", description="For a test.")
     def names(text: str) -> Table[Name]:
         return pl.DataFrame({"name": text.split(",")})
 
-    @node("count", title="Count", description="")
+    @node("count", title="Count", description="For a test.")
     def count(table: Table[Name]) -> int:
         return table.height
 
@@ -568,7 +569,7 @@ def test_a_malformed_table_is_refused():
 def test_a_save_names_its_graph_and_an_edited_graph_refuses_it_while_display_alone_changes_nothing():
     from conductor import NodeRecord as _Node
 
-    @node("shout", title="Shout", description="")
+    @node("shout", title="Shout", description="For a test.")
     def shout(text: str) -> str:
         return text.upper()
 
@@ -585,16 +586,16 @@ def test_a_save_names_its_graph_and_an_edited_graph_refuses_it_while_display_alo
 
 
 def test_a_save_names_the_graphs_embedded_in_its_graph_too():
-    @node("shout", title="Shout", description="")
+    @node("shout", title="Shout", description="For a test.")
     def shout(text: str) -> str:
         return text.upper()
 
-    @node("quiet", title="Quiet", description="")
+    @node("quiet", title="Quiet", description="For a test.")
     def quiet(text: str) -> str:
         return text.lower()
 
     def with_inner(*nodes: NodeRecord) -> Any:
-        return registry_of(shout, quiet, node("inner", title="Inner", description="")(GraphRecord(nodes=list(nodes))))
+        return registry_of(shout, quiet, stored_graph("inner", title="Inner", description="For a test.")(GraphRecord(nodes=list(nodes))))
 
     outer = GraphRecord(nodes=[NodeRecord(id="e", node="inner")])
     saved = with_inner(NodeRecord(id="x", node="shout")).load(outer).run(text="a").to_json()
@@ -634,7 +635,7 @@ def _shuffled(text: str, seed: int) -> str:
 _CALLS: list[str] = []
 
 
-@node("sheet", title="Sheet", description="")
+@node("sheet", title="Sheet", description="For a test.")
 def sheet(text: str, options: dict[str, int]) -> Table:
     _CALLS.append("sheet")
     names = text.split(",")
@@ -647,18 +648,18 @@ class SheetRow(TypedDict):
     mid: int
 
 
-@node("sheet_rows", title="Sheet rows", description="")
+@node("sheet_rows", title="Sheet rows", description="For a test.")
 def sheet_rows(sheet: Table) -> Series[SheetRow]:
     return sheet.to_dicts()
 
 
-@node("ok_row", title="Ok row", description="")
+@node("ok_row", title="Ok row", description="For a test.")
 def ok_row(zeta: str, alpha: int) -> str:
     _CALLS.append(f"ok {zeta}")
     raise Ask(f"{zeta} for {alpha}?")
 
 
-@node("column_order", title="Column order", description="")
+@node("column_order", title="Column order", description="For a test.")
 def column_order(sheet: Table, answers: Series[str]) -> str:
     _CALLS.append("order")
     return ",".join(sheet.columns) + "|" + ",".join(answers)
@@ -676,7 +677,7 @@ def test_a_record_and_a_save_whose_keys_a_store_reordered_still_load_answer_and_
         ],
         "edges": [["s.result", "r.sheet"], ["r.result.zeta", "q.zeta"], ["r.result.alpha", "q.alpha"], ["s.result", "o.sheet"], ["q.result", "o.answers"]],
     }
-    graph = registry.load(record)
+    graph = registry.load(GraphRecord.model_validate(record))
     first = graph.run(text="ccc,a,bb")
     ids = [w.id for w in first.waiting]  # what a host stored when the run paused
     answers = {unit_id: f"yes {i}" for i, unit_id in enumerate(ids)}
@@ -699,15 +700,15 @@ def test_a_record_and_a_save_whose_keys_a_store_reordered_still_load_answer_and_
 
 @pytest.mark.parametrize("gone", ["first", "middle", "ask"])
 def test_a_save_loaded_into_a_graph_that_lost_a_node_is_refused_with_the_graphs_own_problems(gone: str) -> None:
-    @node("first", title="First", description="")
+    @node("first", title="First", description="For a test.")
     def first(x: int) -> int:
         return x
 
-    @node("middle", title="Middle", description="")
+    @node("middle", title="Middle", description="For a test.")
     def middle(x: int) -> int:
         return x
 
-    @node("ask", title="Ask", description="")
+    @node("ask", title="Ask", description="For a test.")
     def ask(x: int) -> bool:
         raise Ask("ok?")
 
@@ -730,11 +731,11 @@ def test_a_float_that_is_not_finite_in_a_model_reads_back_by_the_type_of_its_fie
         note: Any
         d: dict
 
-    @node("reading", title="Reading", description="")
+    @node("reading", title="Reading", description="For a test.")
     def reading(x: int) -> Reading:
         return Reading(value=math.nan, note=math.nan, d={"w": math.inf})
 
-    @node("readings", title="Readings", description="")
+    @node("readings", title="Readings", description="For a test.")
     def readings(x: int) -> Series[Reading]:
         return [Reading(value=-math.inf, note=-math.inf, d={}), Reading(value=1, note=1, d={"s": "NaN"})]
 
@@ -751,7 +752,7 @@ def test_a_float_that_is_not_finite_in_a_model_reads_back_by_the_type_of_its_fie
 
 
 def test_a_float_that_is_not_finite_given_by_a_caller_reads_back_by_the_type_of_its_input():
-    @node("given", title="Given", description="")
+    @node("given", title="Given", description="For a test.")
     def given(options: dict, level: Any, ratio: float) -> str:
         return repr((options, level, ratio))
 
@@ -764,7 +765,7 @@ def test_a_float_that_is_not_finite_given_by_a_caller_reads_back_by_the_type_of_
 
 
 def test_a_save_missing_a_key_says_which_key_not_a_python_error():
-    @node("same", title="Same", description="")
+    @node("same", title="Same", description="For a test.")
     def same(text: str) -> str:
         return text
 
@@ -798,12 +799,12 @@ def test_a_save_damaged_in_shape_is_refused_by_where(where: str, damaged: Any) -
     assert _refused(graph, saved).ctx["at"] == where
 
 
-@node("upper_word", title="Upper word", description="")
+@node("upper_word", title="Upper word", description="For a test.")
 def upper_word(word: str) -> str:
     return word.upper()
 
 
-@node("ok_word", title="Ok word", description="")
+@node("ok_word", title="Ok word", description="For a test.")
 def ok_word(word: str) -> bool:
     raise Ask("ok?")
 
@@ -841,10 +842,10 @@ def ok_word(word: str) -> bool:
 )
 def test_a_save_of_a_waiting_run_damaged_in_shape_is_refused_by_where(where: str, damaged: Any) -> None:
     graph = registry_of(split, upper_word, ok_word).load(
-        {
+        GraphRecord.model_validate({
             "nodes": [{"id": "split", "node": "split"}, {"id": "upper", "node": "upper_word"}, {"id": "ok", "node": "ok_word"}],
             "edges": [["split.result", "upper.word"], ["upper.result", "ok.word"]],
-        }
+        })
     )
     run = graph.run(text="a,b")
     assert run.status == "waiting"
@@ -853,27 +854,27 @@ def test_a_save_of_a_waiting_run_damaged_in_shape_is_refused_by_where(where: str
     assert _refused(graph, saved).ctx["at"] == where
 
 
-@node("addresses", title="Addresses", description="")
+@node("addresses", title="Addresses", description="For a test.")
 def addresses(text: str) -> Series[str | None]:
     return [part or None for part in text.split(",")]
 
 
-@node("short_or_skipped", title="Short or skipped", description="")
+@node("short_or_skipped", title="Short or skipped", description="For a test.")
 def short_or_skipped(email: str) -> str:
     return email if len(email) < 3 else SKIPPED
 
 
-@node("confirm", title="Confirm", description="")
+@node("confirm", title="Confirm", description="For a test.")
 def confirm(email: str) -> bool:
     raise Ask(f"Send to {email}?")
 
 
 def test_a_blank_and_a_skipped_unit_come_back_from_a_save_and_a_resumed_run_names_the_same_blanks():
     graph = registry_of(addresses, short_or_skipped, confirm).load(
-        {
+        GraphRecord.model_validate({
             "nodes": [{"id": "a", "node": "addresses"}, {"id": "s", "node": "short_or_skipped"}, {"id": "c", "node": "confirm"}],
             "edges": [["a.result", "s.email"], ["s.result", "c.email"]],
-        }
+        })
     )
     run = graph.run(text="ab,,long,cd")
     assert run.status == "waiting"
@@ -891,7 +892,7 @@ def test_a_blank_and_a_skipped_unit_come_back_from_a_save_and_a_resumed_run_name
 _SAVED_IN_ANOTHER_PROCESS = """
 from conductor import Ask, NodeRegistry, make_graph, node
 
-@node("check", title="Check", description="")
+@node("check", title="Check", description="For a test.")
 def check(kind: str) -> str:
     if kind in {"invoice", "receipt", "order", "bill"}:
         raise Ask("ok?")
@@ -915,19 +916,19 @@ def test_a_waiting_unit_has_one_id_in_every_process_though_its_node_tests_a_set(
 _WRITTEN_IN_ANOTHER_PROCESS = """
 from conductor import NodeRegistry, make_graph, node
 
-@node("a", title="A", description="")
+@node("a", title="A", description="For a test.")
 def a(text: str) -> str:
     return text
 
-@node("b", title="B", description="")
+@node("b", title="B", description="For a test.")
 def b(text: str) -> str:
     return text + "!"
 
-@node("c", title="C", description="")
+@node("c", title="C", description="For a test.")
 def c(text: str) -> str:
     return text + "?"
 
-@node("d", title="D", description="")
+@node("d", title="D", description="For a test.")
 def d(text: str) -> str:
     return text + "."
 

@@ -5,7 +5,17 @@ from dataclasses import dataclass
 from typing import Annotated, Any, ClassVar, TypedDict
 
 import pytest
-from conductor import SKIPPED, InvalidCallError, NodeRegistry, Param, Series, Table, node
+from conductor import (
+    SKIPPED,
+    GraphRecord,
+    InvalidCallError,
+    NodeRegistry,
+    Param,
+    Series,
+    Table,
+    node,
+    stored_graph,
+)
 
 
 class Contact(TypedDict):
@@ -152,7 +162,7 @@ for _definition in (
 def load(nodes: dict[str, str | dict], edges: list[tuple[str, str]], registry: NodeRegistry = REGISTRY):
     """A graph of ``nodes`` (id to node id, or to the rest of its record) and ``edges``."""
     records = [{"id": i, **({"node": n} if isinstance(n, str) else n)} for i, n in nodes.items()]
-    return registry.load({"nodes": records, "edges": [list(edge) for edge in edges]})
+    return registry.load(GraphRecord.model_validate({"nodes": records, "edges": [list(edge) for edge in edges]}))
 
 
 def feeds(graph, node_id: str) -> dict[str, tuple[str, str | None]]:
@@ -382,8 +392,8 @@ def test_a_list_given_at_an_input_of_one_value_is_refused_saying_what_makes_a_gr
 def _embedding(inner_nodes: dict[str, str], inner_edges: list[tuple[str, str]]) -> NodeRegistry:
     registry = NodeRegistry()
     registry.add_subregistry(REGISTRY)
-    record = {"nodes": [{"id": i, "node": n} for i, n in inner_nodes.items()], "edges": [list(edge) for edge in inner_edges]}
-    registry.add(node("inner", title="Inner", description="An embedded graph.")(record))
+    record = GraphRecord.model_validate({"nodes": [{"id": i, "node": n} for i, n in inner_nodes.items()], "edges": [list(edge) for edge in inner_edges]})
+    registry.add(stored_graph("inner", title="Inner", description="An embedded graph.")(record))
     return registry
 
 

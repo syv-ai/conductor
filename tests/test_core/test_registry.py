@@ -9,6 +9,7 @@ definitions.
 """
 
 import itertools
+import json
 import textwrap
 from dataclasses import dataclass
 from typing import Annotated, Any, ClassVar, Literal, TypedDict
@@ -25,6 +26,7 @@ from conductor import (
     Table,
     Upgrade,
     node,
+    stored_graph,
 )
 from conductor._internal import registry as registry_module
 from conductor._internal.fields import REQUIRED
@@ -45,7 +47,7 @@ def echo_v1(text: Annotated[Txt, Param(title="Input", widget=Textarea())]) -> Ou
     return text
 
 
-@node("echo", title="Echo", description="Returns input unchanged", category="test", replaces=node("echo", title="Echo v1", description="")(echo_v1), upgrade=Upgrade())
+@node("echo", title="Echo", description="Returns input unchanged", category="test", replaces=node("echo", title="Echo v1", description="For a test.")(echo_v1), upgrade=Upgrade())
 def echo(
     text: Annotated[Txt, Param(title="Input", widget=Textarea())],
     prefix: Annotated[Txt, Param(title="Prefix", widget=Textarea())] = Txt(""),
@@ -65,7 +67,7 @@ def _registry_with(*definitions: Any) -> NodeRegistry:
 
 
 def _node(node_id: str, **declared: Any) -> Any:
-    @node(node_id, **{"title": "Made", "description": "", **declared})
+    @node(node_id, **{"title": "Made", "description": "For a test.", **declared})
     def made(x: str = "") -> str:
         return x
 
@@ -99,7 +101,7 @@ def test_an_unknown_id_is_a_key_error_naming_the_ids_there_are():
 def test_the_decorator_declares_as_node_does_and_adds_the_node():
     registry = NodeRegistry()
 
-    @registry.node("shout", description="", title="Shout")
+    @registry.node("shout", description="For a test.", title="Shout")
     def shout(text: str) -> str:
         return text.upper()
 
@@ -111,7 +113,7 @@ def test_the_decorator_declares_as_node_does_and_adds_the_node():
 def test_a_plain_node_registers_nothing():
     registry = NodeRegistry()
 
-    @node("alone", title="Alone", description="")
+    @node("alone", title="Alone", description="For a test.")
     def alone(text: str) -> str:
         return text
 
@@ -129,7 +131,7 @@ def test_replaces_naming_a_node_the_registry_does_not_hold_is_still_a_duplicate(
 
     with pytest.raises(NodeDeclarationError, match="two nodes have the id 'upper'"):
 
-        @registry.node("upper", title="Other", description="", replaces=_node("upper"), upgrade=Upgrade())
+        @registry.node("upper", title="Other", description="For a test.", replaces=_node("upper"), upgrade=Upgrade())
         def other(x: str = "") -> str:
             return x
 
@@ -139,10 +141,10 @@ def test_replaces_naming_a_node_the_registry_does_not_hold_is_still_a_duplicate(
 def test_two_nodes_built_from_graphs_under_one_id_are_told_apart_by_title():
     inner = GraphRecord(nodes=[NodeRecord(id="a", node="upper")])
     registry = NodeRegistry()
-    registry.add(node("g", description="", title="First")(inner))
+    registry.add(stored_graph("g", description="For a test.", title="First")(inner))
 
     with pytest.raises(NodeDeclarationError, match="titled 'First'.*titled 'Second'"):
-        registry.add(node("g", description="", title="Second")(inner))
+        registry.add(stored_graph("g", description="For a test.", title="Second")(inner))
 
 
 def test_a_second_node_under_one_id_is_refused_naming_where_both_were_written():
@@ -221,11 +223,11 @@ def test_a_deprecation_may_name_an_alternative_the_registry_does_not_hold():
 def test_a_node_takes_the_registrys_defaults_its_own_winning():
     registry = NodeRegistry(category="text", tags=["builtin"], extra={"tier": "free", "icon": "a"})
 
-    @registry.node("own", title="Own", description="", category="mine", tags=["fast"], extra={"icon": "b"})
+    @registry.node("own", title="Own", description="For a test.", category="mine", tags=["fast"], extra={"icon": "b"})
     def own(text: str) -> str:
         return text
 
-    @registry.node("bare", title="Bare", description="")
+    @registry.node("bare", title="Bare", description="For a test.")
     def bare(text: str) -> str:
         return text
 
@@ -244,11 +246,11 @@ def test_add_applies_the_defaults_to_a_plain_node_and_leaves_the_plain_one_as_it
 
 
 def test_every_version_of_a_node_takes_the_registrys_defaults():
-    @node("split", title="Split", description="")
+    @node("split", title="Split", description="For a test.")
     def split_v1(text: str) -> str:
         return text
 
-    @node("split", title="Split", description="", replaces=split_v1)
+    @node("split", title="Split", description="For a test.", replaces=split_v1)
     def split(text: str) -> str:
         return text
 
@@ -264,13 +266,13 @@ def test_every_version_of_a_node_takes_the_registrys_defaults():
 def test_declaring_a_node_on_a_registry_that_holds_its_id_is_a_duplicate_whatever_it_replaces(defaults: dict[str, Any]):
     registry = NodeRegistry(**defaults)
 
-    @registry.node("up", title="Up", description="")
+    @registry.node("up", title="Up", description="For a test.")
     def up_v1(text: str) -> str:
         return text
 
     with pytest.raises(NodeDeclarationError) as from_the_decorator:
 
-        @registry.node("up", title="Up", description="", replaces=up_v1)
+        @registry.node("up", title="Up", description="For a test.", replaces=up_v1)
         def up(text: str) -> str:
             return text
 
@@ -278,7 +280,7 @@ def test_declaring_a_node_on_a_registry_that_holds_its_id_is_a_duplicate_whateve
     registry.add(plain)
     with pytest.raises(NodeDeclarationError) as from_add:
 
-        @registry.node("plain", title="Plain", description="", replaces=plain)
+        @registry.node("plain", title="Plain", description="For a test.", replaces=plain)
         def newer(x: str = "") -> str:
             return x
 
@@ -287,13 +289,13 @@ def test_declaring_a_node_on_a_registry_that_holds_its_id_is_a_duplicate_whateve
 
 @pytest.mark.parametrize("defaults", [{}, {"category": "text"}])
 def test_a_chain_is_a_plain_older_version_and_the_newest_declared_on_the_registry(defaults: dict[str, Any]):
-    @node("up", title="Up", description="")
+    @node("up", title="Up", description="For a test.")
     def up_v1(text: str) -> str:
         return text
 
     registry = NodeRegistry(**defaults)
 
-    @registry.node("up", title="Up", description="", replaces=up_v1)
+    @registry.node("up", title="Up", description="For a test.", replaces=up_v1)
     def up(text: str) -> str:
         return text
 
@@ -302,14 +304,14 @@ def test_a_chain_is_a_plain_older_version_and_the_newest_declared_on_the_registr
 
 
 def test_replace_swaps_a_held_version_for_its_successor():
-    @node("up", title="Up", description="")
+    @node("up", title="Up", description="For a test.")
     def up_v1(text: str) -> str:
         return text
 
     registry = NodeRegistry()
     registry.add(up_v1)
 
-    @node("up", title="Up", description="", replaces=up_v1)
+    @node("up", title="Up", description="For a test.", replaces=up_v1)
     def up(text: str) -> str:
         return text
 
@@ -332,7 +334,7 @@ def test_a_node_with_nothing_to_take_is_held_as_it_is():
 def test_a_subregistry_is_copied_in_with_both_registries_defaults_outermost_first():
     text = NodeRegistry(category="text", tags=["text"])
 
-    @text.node("upper", title="Upper", description="")
+    @text.node("upper", title="Upper", description="For a test.")
     def upper(value: str) -> str:
         return value.upper()
 
@@ -418,7 +420,7 @@ def test_a_filtered_registry_compiles_only_what_it_kept():
 
 
 def test_extra_is_json_kept_and_described_but_never_read():
-    @node("tagged", title="Tagged", description="", extra={"icon": "star", "order": [1, 2], "beta": None})
+    @node("tagged", title="Tagged", description="For a test.", extra={"icon": "star", "order": [1, 2], "beta": None})
     def tagged(text: str) -> str:
         return text
 
@@ -455,14 +457,14 @@ def test_var_keyword_is_where_added_inputs_arrive_and_needs_the_hook():
     """``**values`` is where the inputs a ``compute_added_inputs`` hook adds arrive;
     the hook declares them, so without one it is refused."""
 
-    @node("varkw", title="Var kw", description="", compute_added_inputs=lambda: {"extra_one": str})
+    @node("varkw", title="Var kw", description="For a test.", compute_added_inputs=lambda: {"extra_one": str})
     def var_kw(text: Annotated[Txt, Param(title="Text", widget=Textarea())], **values: Any) -> Out:
         return text
 
     assert list(var_kw.inputs) == ["text"]
     with pytest.raises(NodeDeclarationError) as raised:
 
-        @node("varkw", title="No hook", description="")
+        @node("varkw", title="No hook", description="For a test.")
         def no_hook(text: str, **values: Any) -> str:
             return text
 
@@ -508,7 +510,7 @@ def _declare_text() -> type:
     return Text
 
 
-@node("weigh", title="Weigh", description="")
+@node("weigh", title="Weigh", description="For a test.")
 def weigh(text: Text, weights: Series[Number], tags: list[str] = []) -> Text:  # noqa: B006
     return text
 
@@ -528,7 +530,7 @@ def test_a_hosts_type_is_described_by_the_id_and_title_it_declares_and_conductor
         type_id: ClassVar[str] = "money"
         type_title: ClassVar[str] = "Beløb"
 
-    @node("price", title="Price", description="")
+    @node("price", title="Price", description="For a test.")
     def price(text: str) -> Money:
         return Money(1)
 
@@ -554,7 +556,7 @@ class Money:
 
 
 def test_fields_named_id_and_title_are_the_records_own():
-    @node("bill", title="Bill", description="")
+    @node("bill", title="Bill", description="For a test.")
     def bill(customer: Customer, price: Money) -> None:
         pass
 
@@ -583,7 +585,7 @@ def test_every_class_a_fields_type_names_is_one_the_registry_holds_and_a_table_n
     class Row(TypedDict):
         weight: Number
 
-    @node("mix", title="Mix", description="")
+    @node("mix", title="Mix", description="For a test.")
     def mix(either: Cash | Text | None, level: Literal["low", "high"], weights: Series[Number], rows: Table[Row], tags: list[str] = []) -> Text:  # noqa: B006
         return Text("")
 
@@ -597,7 +599,7 @@ def test_every_class_a_fields_type_names_is_one_the_registry_holds_and_a_table_n
 
 
 def test_an_any_input_adds_no_type():
-    @node("pass", title="Passes", description="")
+    @node("pass", title="Passes", description="For a test.")
     def passes(value: Any) -> Text:
         return Text(value)
 
@@ -630,7 +632,7 @@ def test_one_id_from_two_classes_is_refused_naming_both_and_one_class_twice_is_n
 
 
 def test_one_node_declaring_two_classes_under_one_id_is_refused():
-    @node("copy", title="Copy", description="")
+    @node("copy", title="Copy", description="For a test.")
     def copy(text: Text) -> AnotherText:
         return AnotherText(text)
 
@@ -639,7 +641,7 @@ def test_one_node_declaring_two_classes_under_one_id_is_refused():
 
 
 def test_a_type_clash_on_add_names_both_classes_and_adds_nothing():
-    @node("whisper", title="Whisper", description="")
+    @node("whisper", title="Whisper", description="For a test.")
     def whisper(text: AnotherText) -> AnotherText:
         return AnotherText(text.lower())
 
@@ -660,7 +662,7 @@ def test_a_subclass_without_its_own_id_cannot_sit_beside_its_parent():
     class Short(Text):
         type_title: ClassVar[str] = "Short"
 
-    @node("cut", title="Cut", description="")
+    @node("cut", title="Cut", description="For a test.")
     def cut(text: Short) -> Short:
         return text
 
@@ -702,12 +704,12 @@ def test_a_registry_is_a_container_and_not_a_mapping():
 
 
 def test_a_stored_graph_made_a_node_is_read_as_load_reads_a_record():
-    from conductor import InvalidCallError, node
+    from conductor import InvalidCallError, stored_graph
 
     with pytest.raises(InvalidCallError) as refused:
-        node("e", title="E", description="")({"nodes": [{"id": "a", "node": "x", "vaules": {}}]})
+        stored_graph("e", title="E", description="For a test.")(json.dumps({"nodes": [{"id": "a", "node": "x", "vaules": {}}]}))
     assert [(p.type, p.loc) for p in refused.value.errors()] == [("invalid_record", ("record", "nodes", 0, "vaules"))]
-    assert node("e", title="E", description="")('{"nodes": [{"id": "a", "node": "x"}]}').graph == GraphRecord(nodes=[NodeRecord(id="a", node="x")])
+    assert stored_graph("e", title="E", description="For a test.")('{"nodes": [{"id": "a", "node": "x"}]}').graph == GraphRecord(nodes=[NodeRecord(id="a", node="x")])
 
 
 def test_an_infinite_default_writes_as_text():
@@ -715,7 +717,7 @@ def test_an_infinite_default_writes_as_text():
 
     from conductor import node
 
-    @node("far", title="Far", description="")
+    @node("far", title="Far", description="For a test.")
     def far(limit: float = float("inf")) -> float:
         return limit
 
@@ -725,11 +727,11 @@ def test_an_infinite_default_writes_as_text():
 def test_a_stored_graphs_fields_are_listed_by_the_registry_that_holds_its_nodes_not_by_its_definition():
     from conductor import make_graph, node
 
-    @node("upper", title="Upper", description="")
+    @node("upper", title="Upper", description="For a test.")
     def upper(text: str) -> str:
         return text.upper()
 
-    shout = node("shout", title="Shout", description="")(make_graph(upper))
+    shout = stored_graph("shout", title="Shout", description="For a test.")(make_graph(upper))
     registry = NodeRegistry()
     registry.add(upper, shout)
     listed = next(n for n in registry.describe().nodes if n.id == "shout")
@@ -742,11 +744,11 @@ def test_a_stored_graph_is_described_once_until_the_registry_changes(monkeypatch
     """``describe()`` is what an editor's palette asks on every open, so a stored graph's fields are worked out once."""
     registry = NodeRegistry()
 
-    @registry.node("shout", title="Shout", description="")
+    @registry.node("shout", title="Shout", description="For a test.")
     def shout(text: str) -> str:
         return text.upper()
 
-    registry.add(node("loud", title="Loud", description="")(GraphRecord(nodes=[NodeRecord(id="s", node="shout")])))
+    registry.add(stored_graph("loud", title="Loud", description="For a test.")(GraphRecord(nodes=[NodeRecord(id="s", node="shout")])))
     loads = []
     load = NodeRegistry.load
     monkeypatch.setattr(NodeRegistry, "load", lambda self, record: loads.append(record) or load(self, record))
@@ -754,7 +756,7 @@ def test_a_stored_graph_is_described_once_until_the_registry_changes(monkeypatch
     first, second = registry.describe(), registry.describe()
     assert first == second and len(loads) == 1
 
-    @node("shout", title="Shout in words", description="")
+    @node("shout", title="Shout in words", description="For a test.")
     def shout_in_words(words: str) -> str:
         return words.upper()
 

@@ -12,7 +12,7 @@ from typing import Annotated, ClassVar
 
 from conductor import (
     Ask, EndedEarly, ExternalError, FromRun, GraphRecord, InvalidCallError, NodeDeclarationError,
-    NodeError, NodeRegistry, Param, Policy, Series, Upgrade, make_graph, node,
+    NodeError, NodeRegistry, Param, Policy, Series, Upgrade, make_graph, node, stored_graph,
 )
 from conductor.testing import check_registry
 
@@ -75,12 +75,12 @@ asking_who = registry.load(make_graph(who))
 
 def problems(drawing: dict) -> list[str]:
     """The codes of what loading ``drawing`` finds."""
-    return [problem.type for problem in registry.load(drawing).problems]
+    return [problem.type for problem in registry.load(GraphRecord.model_validate(drawing)).problems]
 
 
 def told(drawing: dict) -> list[str]:
     """What loading ``drawing`` tells a person, a sentence for each problem."""
-    return [problem.msg for problem in registry.load(drawing).problems]
+    return [problem.msg for problem in registry.load(GraphRecord.model_validate(drawing)).problems]
 
 
 def refused(call) -> list[str]:
@@ -209,10 +209,10 @@ Its `ctx` keys are in the reference: `python -m conductor.about edge-names-missi
 
 ```python
 inner_record = GraphRecord.model_validate({"nodes": [{"id": "again", "node": "itself"}]})
-itself = node("itself", title="Itself", description="A graph that contains itself.")(inner_record)
+itself = stored_graph("itself", title="Itself", description="A graph that contains itself.")(inner_record)
 looping = NodeRegistry()
 looping.add(itself)
-broken = looping.load({"nodes": [{"id": "i", "node": "itself"}]}).problems[0]
+broken = looping.load(GraphRecord.model_validate({"nodes": [{"id": "i", "node": "itself"}]})).problems[0]
 print(broken.type, broken.loc)  # embeds_itself ('i', 'again')
 print(broken.msg)  # The node 'itself' is a graph that contains itself; embed a graph that does not contain this one.
 ```
@@ -320,10 +320,10 @@ Its `ctx` keys are in the reference: `python -m conductor.about series-inputs-ne
 ### `series_not_nested`
 
 ```python
-unpaired = registry.load({
+unpaired = registry.load(GraphRecord.model_validate({
     "nodes": [{"id": "names", "node": "words"}, {"id": "greetings", "node": "words"}, {"id": "g", "node": "greet"}],
     "edges": [["names.result", "g.name"], ["greetings.result", "g.greeting"]],
-}).problems[0]
+})).problems[0]
 print(unpaired.type, unpaired.ctx["wire_from"], unpaired.ctx["wire_into"])  # series_not_nested names.result greetings
 print(unpaired.msg)  # 'g' reads items of names.result, greetings.result, and neither is made inside the other, so nothing says which item goes with which. Make one inside the other (wire 'names.result' into 'greetings', the node that makes the other), or give one of them whole to a Series input.
 ```
@@ -388,10 +388,10 @@ def contacts(text: str) -> Table[Contact]:
     return pl.DataFrame([dict(zip(("name", "email"), line.split(), strict=True)) for line in text.splitlines()])
 
 
-whole = registry.load({
+whole = registry.load(GraphRecord.model_validate({
     "nodes": [{"id": "c", "node": "contacts"}, {"id": "u", "node": "upper"}],
     "edges": [["c.result", "u.text"]],
-}).problems[0]
+})).problems[0]
 print(whole.type, whole.ctx["hint"], whole.ctx["fields"])  # type_mismatch split_first ['name', 'email']
 print(whole.msg)  # 'c.result' is a whole table and 'u.text' takes one str. To run 'u' once for each record or item in it, put a Split between them and wire Split's result, or one field of it.
 ```
@@ -406,10 +406,10 @@ def total(invoices: Table[Invoice]) -> int:
     return int(invoices["amount"].sum())
 
 
-lacking = registry.load({
+lacking = registry.load(GraphRecord.model_validate({
     "nodes": [{"id": "c", "node": "contacts"}, {"id": "t", "node": "total"}],
     "edges": [["c.result", "t.invoices"]],
-}).problems[0]
+})).problems[0]
 print(lacking.type, lacking.ctx["hint"], lacking.ctx["column"])  # type_mismatch add_column amount
 print(lacking.msg)  # 't.invoices' needs the column 'amount' (int); 'c.result' has name, email. Add the column in a node between, or connect a table that has it.
 ```
@@ -473,10 +473,10 @@ print(told(drawing)[0])  # 'a.text' is not something that node gives; it gives a
 A field named on a whole table or list has a sentence of its own, with `ctx.hint` set to `split_first`:
 
 ```python
-column = registry.load({
+column = registry.load(GraphRecord.model_validate({
     "nodes": [{"id": "c", "node": "contacts"}, {"id": "u", "node": "upper"}],
     "edges": [["c.result.email", "u.text"]],
-}).problems[0]
+})).problems[0]
 print(column.type, column.ctx["hint"])  # unknown_output split_first
 print(column.msg)  # 'c.result.email' names a field of a whole table, which has no field to wire. Split it first: put a Split after it and wire the field from Split's result.
 ```
@@ -531,7 +531,7 @@ Its `ctx` keys are in the reference: `python -m conductor.about value-and-edge`.
 ### `answer_stale`
 
 ```python
-approving = registry.load({"nodes": [{"id": "approve", "node": "approve"}]})
+approving = registry.load(GraphRecord.model_validate({"nodes": [{"id": "approve", "node": "approve"}]}))
 asked = approving.run(amount=5000)
 asked_again = asked.again(amount=5500)
 print(refused(lambda: asked_again.answer(asked.waiting[0].id, True)))  # ['answer_stale']
@@ -580,7 +580,7 @@ Its `ctx` keys are in the reference: `python -m conductor.about input-given-twic
 ### `invalid_answer`
 
 ```python
-waiting = registry.load({"nodes": [{"id": "approve", "node": "approve"}]}).run(amount=5000)
+waiting = registry.load(GraphRecord.model_validate({"nodes": [{"id": "approve", "node": "approve"}]})).run(amount=5000)
 print(refused(lambda: waiting.answer(waiting.waiting[0], "yes")))  # ['invalid_answer']
 print(said(lambda: waiting.answer(waiting.waiting[0], "yes"))[0])  # That is not a valid answer: Input should be a valid boolean
 ```
@@ -638,8 +638,8 @@ Its `ctx` keys are in the reference: `python -m conductor.about invalid-timeout`
 ### `invalid_record`
 
 ```python
-print(refused(lambda: registry.load({"nodes": [{"id": "u", "type": "upper"}]})))  # ['invalid_record', 'invalid_record']: 1.x's 'type', and no 'node'
-print(said(lambda: registry.load({"nodes": [{"id": "u", "type": "upper"}]}))[0])  # The record is not a graph record at 'nodes.0.node': Field required. Fix the record's JSON.
+print(refused(lambda: registry.load('{"nodes": [{"id": "u", "type": "upper"}]}')))  # ['invalid_record', 'invalid_record']: 1.x's 'type', and no 'node'
+print(said(lambda: registry.load('{"nodes": [{"id": "u", "type": "upper"}]}'))[0])  # The record is not a graph record at 'nodes.0.node': Field required. Fix the record's JSON.
 ```
 
 **Fix.** Fix the record's JSON: `ctx.at` says where it stopped being a graph record. A drawing that is well formed but unfinished loads, with its problems in `graph.problems`.
@@ -1138,6 +1138,21 @@ except NodeDeclarationError as error:
 
 **Fix.** Give one of the classes another `type_id`.
 
+### `empty_title_or_description`
+
+> @node({id}) has an empty {name}; write the words a person reads for the node in a palette
+
+```python
+try:
+    @node("shout", title="Shout", description="")
+    def shout(text: str) -> str:
+        return text.upper()
+except NodeDeclarationError as error:
+    print(error.code)  # empty_title_or_description
+```
+
+**Fix.** Give the node a title and a description: they are what a person reads for it in a palette.
+
 ### `exclusive_group_on_input`
 
 > {name}: exclusive_group is for outputs; put it on an output's Param
@@ -1254,19 +1269,6 @@ except NodeDeclarationError as error:
 
 **Fix.** Return one `Series`. A node after it that runs once per item and returns a `Series` of its own makes the next level.
 
-### `not_for_a_graph`
-
-> @node({id}) on a stored graph takes no {given}: its nodes run by their own policies and fields; set them there
-
-```python
-try:
-    node("wrapped", title="Wrapped", description="Turns a text into capital letters, as a saved graph.", policy=Policy(concurrency=4))(make_graph(upper))
-except NodeDeclarationError as error:
-    print(error.code)  # not_for_a_graph
-```
-
-**Fix.** Set the policy, or the hook, on the nodes inside the graph.
-
 ### `output_without_type`
 
 > a node needs a return type; write one, or -> None for no outputs
@@ -1320,7 +1322,7 @@ except NodeDeclarationError as error:
 
 ### `replaces_another_node`
 
-> @node({id}) replaces {replaces}; a node replaces an earlier @node of its own id
+> @node({id}) replaces {replaces}; a node replaces an earlier node of its own id
 
 ```python
 try:

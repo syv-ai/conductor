@@ -8,7 +8,16 @@ from typing import Annotated, Any, ClassVar, Literal, TypedDict
 
 import polars as pl
 import pytest
-from conductor import Ask, NodeDeclarationError, NodeRegistry, Param, Series, Table, node
+from conductor import (
+    Ask,
+    GraphRecord,
+    NodeDeclarationError,
+    NodeRegistry,
+    Param,
+    Series,
+    Table,
+    node,
+)
 from conductor.widgets import Widget
 from pydantic import BaseModel, GetCoreSchemaHandler, JsonValue, model_validator
 from pydantic_core import CoreSchema, PydanticSerializationError, core_schema
@@ -38,13 +47,13 @@ class Money(BaseModel):
 def _run(definition: Any, *more: Any, edges: list[list[str]] | None = None, **values: Any) -> Any:
     """``definition`` as node ``q`` with ``values`` typed in, and each of ``more`` as a node named by its id; the run, resumed."""
     nodes = [{"id": "q", "node": definition.id, "values": values}, *({"id": other.id, "node": other.id} for other in more)]
-    graph = registry_of(definition, *more).load({"nodes": nodes, "edges": edges or []})
+    graph = registry_of(definition, *more).load(GraphRecord.model_validate({"nodes": nodes, "edges": edges or []}))
     assert not graph.problems, graph.problems
     return graph.run().resume()
 
 
 def test_an_answer_to_a_series_of_dates_is_read_from_its_json() -> None:
-    @node("days", title="Days", description="")
+    @node("days", title="Days", description="For a test.")
     def days() -> Series[datetime.date]:
         raise Ask("Which days?")
 
@@ -53,16 +62,16 @@ def test_an_answer_to_a_series_of_dates_is_read_from_its_json() -> None:
 
 
 def test_a_limit_on_a_hosts_text_is_held() -> None:
-    @node("short", title="Short", description="")
+    @node("short", title="Short", description="For a test.")
     def short(text: Annotated[Text, Param(max_length=3)]) -> str:
         return text
 
-    graph = registry_of(short).load({"nodes": [{"id": "q", "node": "short", "values": {"text": "too long"}}]})
+    graph = registry_of(short).load(GraphRecord.model_validate({"nodes": [{"id": "q", "node": "short", "values": {"text": "too long"}}]}))
     assert [problem.type for problem in graph.problems] == ["invalid_value"]
 
 
 def test_a_list_of_a_hosts_text_is_a_type_like_any_other() -> None:
-    @node("texts", title="Texts", description="")
+    @node("texts", title="Texts", description="For a test.")
     def texts(items: list[Text]) -> int:
         return sum(type(item) is Text for item in items)
 
@@ -70,18 +79,18 @@ def test_a_list_of_a_hosts_text_is_a_type_like_any_other() -> None:
 
 
 def test_a_model_does_not_land_on_a_json_value() -> None:
-    @node("money", title="Money", description="")
+    @node("money", title="Money", description="For a test.")
     def money() -> Money:
         return Money()
 
-    @node("json", title="JSON", description="")
+    @node("json", title="JSON", description="For a test.")
     def json(value: JsonValue) -> str:
         return str(value)
 
-    graph = registry_of(money, json).load({
+    graph = registry_of(money, json).load(GraphRecord.model_validate({
         "nodes": [{"id": "m", "node": "money"}, {"id": "j", "node": "json"}],
         "edges": [["m.result", "j.value"]],
-    })
+    }))
     assert [problem.type for problem in graph.problems] == ["type_mismatch"]
 
 
@@ -94,18 +103,18 @@ def test_a_hosts_own_method_named_accepts_is_nothing_to_conductor() -> None:
         def accepts(self, counter: float) -> bool:
             return counter >= self.price
 
-    @node("money", title="Money", description="")
+    @node("money", title="Money", description="For a test.")
     def money() -> Money:
         return Money()
 
-    @node("take", title="Take", description="")
+    @node("take", title="Take", description="For a test.")
     def take(offer: Offer) -> Offer:
         return offer
 
     registry = NodeRegistry()
     registry.add(money, take)
     registry.describe()
-    graph = registry.load({"nodes": [{"id": "m", "node": "money"}, {"id": "t", "node": "take"}], "edges": [["m.result", "t.offer"]]})
+    graph = registry.load(GraphRecord.model_validate({"nodes": [{"id": "m", "node": "money"}, {"id": "t", "node": "take"}], "edges": [["m.result", "t.offer"]]}))
     assert [problem.type for problem in graph.problems] == ["type_mismatch"]
 
 
@@ -120,7 +129,7 @@ def test_a_bug_in_a_hosts_schema_hook_is_raised_as_itself() -> None:
 
     with pytest.raises(AttributeError, match="no_such_helper"):
 
-        @node("buggy", title="Buggy", description="")
+        @node("buggy", title="Buggy", description="For a test.")
         def buggy(value: Buggy) -> str:
             return ""
 
@@ -135,49 +144,49 @@ def test_a_widget_with_no_json_form_fails_where_the_node_is_declared() -> None:
 
     with pytest.raises(PydanticSerializationError):
 
-        @node("pick", title="Pick", description="")
+        @node("pick", title="Pick", description="For a test.")
         def pick(value: Annotated[str, Param(widget=Picker(source=Catalogue()))]) -> str:
             return value
 
 
 def test_a_yes_or_no_is_no_number_inside_a_list_either() -> None:
-    @node("total", title="Total", description="")
+    @node("total", title="Total", description="For a test.")
     def total(numbers: list[int]) -> int:
         return sum(numbers)
 
-    graph = registry_of(total).load({"nodes": [{"id": "q", "node": "total", "values": {"numbers": [True]}}]})
+    graph = registry_of(total).load(GraphRecord.model_validate({"nodes": [{"id": "q", "node": "total", "values": {"numbers": [True]}}]}))
     assert [problem.type for problem in graph.problems] == ["invalid_value"]
 
 
 def test_a_list_of_whole_numbers_lands_on_a_list_of_numbers_and_never_on_a_list_of_texts() -> None:
-    @node("ints", title="Ints", description="")
+    @node("ints", title="Ints", description="For a test.")
     def ints() -> list[int]:
         return [1, 2]
 
-    @node("mean", title="Mean", description="")
+    @node("mean", title="Mean", description="For a test.")
     def mean(numbers: list[float]) -> float:
         return sum(numbers) / len(numbers)
 
-    @node("words", title="Words", description="")
+    @node("words", title="Words", description="For a test.")
     def words(texts: list[str]) -> int:
         return len(texts)
 
     assert _run(mean, ints, edges=[["ints.result", "q.numbers"]]).outputs == {"q.result": 1.5}
-    graph = registry_of(ints, words).load({
+    graph = registry_of(ints, words).load(GraphRecord.model_validate({
         "nodes": [{"id": "i", "node": "ints"}, {"id": "w", "node": "words"}],
         "edges": [["i.result", "w.texts"]],
-    })
+    }))
     assert [problem.type for problem in graph.problems] == ["type_mismatch"]
 
 
 def test_a_limit_spelled_as_pydantic_spells_it_is_carried() -> None:
     from pydantic import Field, PositiveInt
 
-    @node("count", title="Count", description="")
+    @node("count", title="Count", description="For a test.")
     def count(times: PositiveInt, least: Annotated[int, Field(ge=2)] = 2) -> int:
         return times * least
 
-    graph = registry_of(count).load({"nodes": [{"id": "q", "node": "count", "values": {"times": 0}}]})
+    graph = registry_of(count).load(GraphRecord.model_validate({"nodes": [{"id": "q", "node": "count", "values": {"times": 0}}]}))
     assert [problem.type for problem in graph.problems] == ["invalid_value"]
     assert _run(count, times=3).outputs == {"q.result": 6}
 
@@ -189,7 +198,7 @@ def test_a_subclass_of_a_builtin_with_no_schema_of_its_own_is_not_carried() -> N
 
     with pytest.raises(NodeDeclarationError) as raised:
 
-        @node("bare", title="Bare", description="")
+        @node("bare", title="Bare", description="For a test.")
         def bare(text: Bare) -> str:
             return text
 
@@ -210,11 +219,11 @@ class Dated(TypedDict):
 
 
 def test_a_table_read_as_its_row_type_holds_exactly_its_columns_a_nodes_own_return_included() -> None:
-    @node("people", title="People", description="")
+    @node("people", title="People", description="For a test.")
     def people() -> Table[Named]:
         return pl.DataFrame({"name": ["Ann"], "email": ["ann@x.dk"]})
 
-    @node("all", title="All", description="")
+    @node("all", title="All", description="For a test.")
     def everything() -> Table:
         return pl.DataFrame({"name": ["Ann"], "email": ["ann@x.dk"]})
 
@@ -223,11 +232,11 @@ def test_a_table_read_as_its_row_type_holds_exactly_its_columns_a_nodes_own_retu
 
 
 def test_a_table_of_no_rows_holds_every_declared_column_of_its_declared_type() -> None:
-    @node("nobody", title="Nobody", description="")
+    @node("nobody", title="Nobody", description="For a test.")
     def nobody() -> Table[Dated]:
         return pl.DataFrame()
 
-    @node("gathered", title="Gathered", description="")
+    @node("gathered", title="Gathered", description="For a test.")
     def gathered(people: Table[Dated]) -> int:
         assert people.schema == pl.Schema({"name": pl.String, "born": pl.Date})
         return people.height
@@ -237,11 +246,11 @@ def test_a_table_of_no_rows_holds_every_declared_column_of_its_declared_type() -
 
 
 def test_records_gathered_into_a_table_are_read_once_each_cell_by_its_columns_type() -> None:
-    @node("person", title="Person", description="")
+    @node("person", title="Person", description="For a test.")
     def person() -> Series[Dated]:
         return [{"name": "Ann", "born": datetime.date(1990, 1, 2)}, {"name": "Bo", "born": datetime.date(1991, 3, 4)}]
 
-    @node("oldest", title="Oldest", description="")
+    @node("oldest", title="Oldest", description="For a test.")
     def oldest(people: Table[Dated]) -> datetime.date:
         return people["born"].min()
 
@@ -250,11 +259,11 @@ def test_records_gathered_into_a_table_are_read_once_each_cell_by_its_columns_ty
 
 
 def test_a_table_stands_in_a_union_and_in_a_series() -> None:
-    @node("size", title="Size", description="")
+    @node("size", title="Size", description="For a test.")
     def size(value: Table[Named] | list[str]) -> int:
         return len(value)
 
-    @node("each", title="Each", description="")
+    @node("each", title="Each", description="For a test.")
     def each() -> Series[Table[Named]]:
         return [pl.DataFrame({"name": ["Ann"]}), pl.DataFrame({"name": ["Bo", "Cy"]})]
 
@@ -267,20 +276,20 @@ def test_a_table_stands_in_a_union_and_in_a_series() -> None:
 
 
 def test_a_record_with_a_date_is_no_json_value() -> None:
-    @node("dated", title="Dated", description="")
+    @node("dated", title="Dated", description="For a test.")
     def dated() -> Dated:
         return {"name": "Ann", "born": datetime.date(1990, 1, 2)}
 
-    @node("named", title="Named", description="")
+    @node("named", title="Named", description="For a test.")
     def named() -> Named:
         return {"name": "Ann"}
 
-    @node("json", title="JSON", description="")
+    @node("json", title="JSON", description="For a test.")
     def json(value: JsonValue) -> str:
         return str(value)
 
     def problems(source: Any) -> list[str]:
-        graph = registry_of(source, json).load({"nodes": [{"id": "s", "node": source.id}, {"id": "j", "node": "json"}], "edges": [["s.result", "j.value"]]})
+        graph = registry_of(source, json).load(GraphRecord.model_validate({"nodes": [{"id": "s", "node": source.id}, {"id": "j", "node": "json"}], "edges": [["s.result", "j.value"]]}))
         return [problem.type for problem in graph.problems]
 
     assert problems(dated) == ["type_mismatch"] and problems(named) == []
@@ -292,16 +301,16 @@ def test_a_models_class_variables_are_not_its_fields() -> None:
         type_title: ClassVar[str] = "Address"
         city: str = "Aarhus"
 
-    @node("address", title="Address", description="")
+    @node("address", title="Address", description="For a test.")
     def address() -> Address:
         return Address()
 
-    @node("shout", title="Shout", description="")
+    @node("shout", title="Shout", description="For a test.")
     def shout(text: str) -> str:
         return text.upper()
 
     def loaded(field: str) -> Any:
-        return registry_of(address, shout).load({"nodes": [{"id": "a", "node": "address"}, {"id": "s", "node": "shout"}], "edges": [[f"a.result.{field}", "s.text"]]})
+        return registry_of(address, shout).load(GraphRecord.model_validate({"nodes": [{"id": "a", "node": "address"}, {"id": "s", "node": "shout"}], "edges": [[f"a.result.{field}", "s.text"]]}))
 
     assert loaded("city").run().outputs == {"s.result": "AARHUS"}
     for wrong in ("town", "type_id"):
@@ -326,15 +335,15 @@ def test_a_host_type_names_the_other_classes_it_takes() -> None:
         def _from_celsius(cls, value: Any) -> Any:
             return {"degrees": value.degrees + 273.15} if isinstance(value, Celsius) else value
 
-    @node("outside", title="Outside", description="")
+    @node("outside", title="Outside", description="For a test.")
     def outside() -> Celsius:
         return Celsius(degrees=20)
 
-    @node("absolute", title="Absolute", description="")
+    @node("absolute", title="Absolute", description="For a test.")
     def absolute(temperature: Kelvin) -> float:
         return temperature.degrees
 
-    @node("warm", title="Warm", description="")
+    @node("warm", title="Warm", description="For a test.")
     def warm(temperature: Celsius) -> bool:
         return temperature.degrees > 15
 
@@ -355,10 +364,10 @@ def test_a_widget_in_annotated_outside_param_is_refused_saying_where_it_goes() -
 
     for hint in (Annotated[str, Textarea()], Series[Annotated[str, Textarea()]], Annotated[str, Textarea()] | None):
         with pytest.raises(NodeDeclarationError, match=r"Param\(widget=") as raised:
-            node("note", title="Note", description="")(_returning_its_input(hint))
+            node("note", title="Note", description="For a test.")(_returning_its_input(hint))
         assert raised.value.code == "widget_outside_param"
 
-    @node("note", title="Note", description="")
+    @node("note", title="Note", description="For a test.")
     def note(text: Annotated[str, Param(widget=Textarea())]) -> str:
         return text
 

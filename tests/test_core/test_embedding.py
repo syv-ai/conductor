@@ -21,6 +21,7 @@ from conductor import (
     Ask,
     ExternalError,
     FromRun,
+    GraphRecord,
     InvalidCallError,
     NodeError,
     NodeRegistry,
@@ -29,6 +30,7 @@ from conductor import (
     Series,
     Table,
     node,
+    stored_graph,
 )
 from conductor.events import (
     NodeComplete,
@@ -264,13 +266,13 @@ REGISTRY = NodeRegistry()
 for _definition in (words, sentences, chars, upper, exclaim, greet, count, ask, fetch, flaky, stuck, boom, maybe, decide, signed, columns, table, stamp, stagger, letters, height, sheets, record, note):
     REGISTRY.add(_definition)
 for _id, _record in INNER.items():
-    REGISTRY.add(_node(_id)(_record))
+    REGISTRY.add(stored_graph(_id, title=_id.capitalize(), description=f"The {_id} node.")(GraphRecord.model_validate(_record)))
 
 
 def load(nodes: dict[str, str | dict[str, Any]], edges: list[tuple[str, str]] = ()):  # type: ignore[assignment]
     """A graph of ``nodes`` (id to node id, or to the rest of its record) and ``edges``."""
     records = [{"id": i, **({"node": n} if isinstance(n, str) else n)} for i, n in nodes.items()]
-    return REGISTRY.load({"nodes": records, "edges": [list(edge) for edge in edges]})
+    return REGISTRY.load(GraphRecord.model_validate({"nodes": records, "edges": [list(edge) for edge in edges]}))
 
 
 def mapped(inner: str, splitter: str = "words"):
@@ -285,7 +287,7 @@ def flat(inner: str, splitter: str = "words"):
     must behave as."""
     record = INNER[inner]
     first = record["nodes"][0]["id"]
-    graph = REGISTRY.load({"nodes": [{"id": "outer", "node": splitter}, *record["nodes"]], "edges": [["outer.result", f"{first}.text"], *record["edges"]]})
+    graph = REGISTRY.load(GraphRecord.model_validate({"nodes": [{"id": "outer", "node": splitter}, *record["nodes"]], "edges": [["outer.result", f"{first}.text"], *record["edges"]]}))
     assert not graph.problems, graph.problems
     return graph
 
@@ -377,7 +379,7 @@ def chain_node(node_id: str) -> str:
     """The id of an embedded graph of the one node ``node_id``, registered when first asked for."""
     embedded = f"only-{node_id}"
     if embedded not in REGISTRY:
-        REGISTRY.add(_node(embedded)(chain(("d", node_id))))
+        REGISTRY.add(stored_graph(embedded, title=embedded.capitalize(), description=f"The {embedded} node.")(GraphRecord.model_validate(chain(("d", node_id)))))
     return embedded
 
 
@@ -409,7 +411,7 @@ def test_a_value_a_default_and_an_edge_on_the_embedding_are_any_nodes():
 
 
 def test_deep_outputs_are_what_run_outputs_gives_alone_and_embedded():
-    alone = REGISTRY.load(INNER["deep-inner"]).run(text="ab cd").outputs["up.result"]
+    alone = REGISTRY.load(GraphRecord.model_validate(INNER["deep-inner"])).run(text="ab cd").outputs["up.result"]
     assert alone == [["A", "B"], ["C", "D"]]  # two maps deep, a list for each word, in item order
     graph = load({"e": "deep-inner", "n": "count", "x": "exclaim"}, [("e.up.result", "n.items"), ("e.up.result", "x.text")])
     run = graph.run(text="ab cd")
@@ -849,9 +851,9 @@ def test_an_embedded_graph_with_no_output_is_done_when_the_nodes_inside_it_are_a
 def test_an_embedded_graph_of_no_nodes_runs_to_nothing_as_a_graph_of_no_nodes_does():
     registry = NodeRegistry()
     registry.add(upper)
-    registry.add(_node("nothing")({"nodes": [], "edges": []}))
-    alone = registry.load({"nodes": [], "edges": []}).run()
-    graph = registry.load({"nodes": [{"id": "u", "node": "upper"}, {"id": "e", "node": "nothing"}], "edges": []})
+    registry.add(stored_graph("nothing", title="Nothing", description="The nothing node.")(GraphRecord.model_validate({"nodes": [], "edges": []})))
+    alone = registry.load(GraphRecord.model_validate({"nodes": [], "edges": []})).run()
+    graph = registry.load(GraphRecord.model_validate({"nodes": [{"id": "u", "node": "upper"}, {"id": "e", "node": "nothing"}], "edges": []}))
     run = graph.run(text="x")
     assert graph.problems == [] and (alone.status, alone.results) == ("complete", {})
     assert (run.status, run.results) == ("complete", {"u": {"result": "X"}, "e": {}})

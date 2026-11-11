@@ -5,6 +5,7 @@ reads it into a ``Graph``; what the record says that can't be meant is a
 problem of that graph, never an exception.
 """
 
+import json
 from dataclasses import dataclass
 from typing import Annotated, ClassVar
 
@@ -21,23 +22,24 @@ from conductor import (
     Upgrade,
     make_graph,
     node,
+    stored_graph,
 )
 from pydantic import ValidationError
 
 from tests.test_core.nodes import registry_of
 
 
-@node("text", title="Text in", description="")
+@node("text", title="Text in", description="For a test.")
 def text_in(value: str = "") -> str:
     return value
 
 
-@node("upper", title="Upper", description="")
+@node("upper", title="Upper", description="For a test.")
 def upper(text: str) -> str:
     return text.upper()
 
 
-@node("join", title="Join", description="")
+@node("join", title="Join", description="For a test.")
 def join(texts: Series[str]) -> str:
     return "+".join(texts)
 
@@ -48,12 +50,12 @@ class YesNo:
     no: Annotated[str, Param(exclusive_group="answer")]
 
 
-@node("decide", title="Decide", description="")
+@node("decide", title="Decide", description="For a test.")
 def decide(text: str) -> YesNo:
     return YesNo(text, SKIPPED) if text.startswith("y") else YesNo(SKIPPED, text)
 
 
-@node("both", title="Both", description="")
+@node("both", title="Both", description="For a test.")
 def both(yes: str, no: str) -> str:
     return yes + no
 
@@ -64,7 +66,7 @@ class Two:
     alpha: str
 
 
-@node("two", title="Two", description="")
+@node("two", title="Two", description="For a test.")
 def two(text: str) -> Two:
     return Two(f"zed {text}", f"alpha {text}")
 
@@ -205,22 +207,22 @@ def test_two_open_inputs_of_one_name_are_called_by_address():
 # -- a graph written from Python: make_graph -----------------------------------------------
 
 
-@node("hello", title="Hello", description="")
+@node("hello", title="Hello", description="For a test.")
 def _hello(name: str) -> str:
     return f"hello {name}"
 
 
-@node("shout", title="Shout", description="")
+@node("shout", title="Shout", description="For a test.")
 def _shout(text: str, times: int = 1) -> str:
     return text.upper() + "!" * times
 
 
-@node("email", title="Email", description="")
+@node("email", title="Email", description="For a test.")
 def _email() -> str:
     return "ida@x"
 
 
-@node("count", title="Count", description="")
+@node("count", title="Count", description="For a test.")
 def _count() -> int:
     return 3
 
@@ -247,7 +249,7 @@ def test_make_graph_numbers_a_node_used_twice():
 
 
 def test_make_graph_skips_an_id_another_node_already_has():
-    @node("hello-1", title="Other", description="")
+    @node("hello-1", title="Other", description="For a test.")
     def _other(name: str) -> str:
         return name
 
@@ -301,7 +303,7 @@ def test_make_graph_refuses_a_set_typed_in_as_set_has_no_order(value: object):
 
 
 def test_make_graph_writes_a_type_mismatch_and_a_field_a_hook_does_not_give_and_loading_reports_them():
-    @node("fan", title="Fan", description="", compute_outputs=lambda n: {f"o{i}": int for i in range(n)})
+    @node("fan", title="Fan", description="For a test.", compute_outputs=lambda n: {f"o{i}": int for i in range(n)})
     def fan(n: int = 2) -> dict:
         return {f"o{i}": i for i in range(n)}
 
@@ -324,7 +326,7 @@ def test_make_graph_writes_each_node_at_its_version():
     def older(name: str) -> str:
         return name
 
-    @node("v", title="Newer", description="", replaces=node("v", title="Older", description="")(older), upgrade=Upgrade())
+    @node("v", title="Newer", description="For a test.", replaces=node("v", title="Older", description="For a test.")(older), upgrade=Upgrade())
     def _newer(name: str) -> str:
         return name
 
@@ -379,7 +381,7 @@ def test_an_input_given_by_name_and_by_address_and_a_ceiling_below_one_are_refus
 
 
 def test_a_stored_graph_with_problems_of_its_own_is_one_problem_where_it_is_used():
-    broken = node("broken", title="Broken", description="")(GraphRecord(nodes=[NodeRecord(id="x", node="gone")]))
+    broken = stored_graph("broken", title="Broken", description="For a test.")(GraphRecord(nodes=[NodeRecord(id="x", node="gone")]))
     graph = registry_of(upper, broken).load(GraphRecord(nodes=[NodeRecord(id="b", node="broken"), NodeRecord(id="u", node="upper")], edges=[("b.result", "u.text")]))
 
     assert [(problem.type, problem.loc) for problem in graph.problems] == [("unknown_node", ("b", "x"))]
@@ -394,7 +396,7 @@ def _a_table_read_by_one_text(source: str) -> Problem:
     class Row(TypedDict):
         name: str
 
-    @node("rows", title="Rows", description="")
+    @node("rows", title="Rows", description="For a test.")
     def rows() -> Table[Row]:
         return pl.DataFrame({"name": ["a"]})
 
@@ -418,7 +420,7 @@ def test_a_series_of_tables_is_accepted_where_it_is_declared():
     import polars as pl
     from conductor import Table
 
-    @node("tables", title="Tables", description="")
+    @node("tables", title="Tables", description="For a test.")
     def tables(text: str) -> Series[Table]:
         return [pl.DataFrame()]
 
@@ -429,25 +431,25 @@ def test_a_series_of_tables_is_accepted_where_it_is_declared():
 # -- an embedded graph is one node from outside -------------------------------------
 
 
-@node("tail", title="Tail", description="")
+@node("tail", title="Tail", description="For a test.")
 def tail(text: str) -> str:
     return text + "."
 
 
-@node("split", title="Split", description="")
+@node("split", title="Split", description="For a test.")
 def split(text: str) -> Series[str]:
     return text.split(",")
 
 
-ENRICH = node("enrich", title="Enrich", description="")(make_graph(upper, tail))
-PAIR = node("pair", title="Pair", description="")(GraphRecord(nodes=[NodeRecord(id="x", node="upper"), NodeRecord(id="y", node="upper"), NodeRecord(id="b", node="both")],
+ENRICH = stored_graph("enrich", title="Enrich", description="For a test.")(make_graph(upper, tail))
+PAIR = stored_graph("pair", title="Pair", description="For a test.")(GraphRecord(nodes=[NodeRecord(id="x", node="upper"), NodeRecord(id="y", node="upper"), NodeRecord(id="b", node="both")],
                                 edges=[("x.result", "b.yes"), ("y.result", "b.no")]))
-GATHER = node("gather", title="Gather", description="")(GraphRecord(nodes=[NodeRecord(id="hold", node="upper"), NodeRecord(id="all", node="join")], edges=[("hold.result", "all.texts")]))
+GATHER = stored_graph("gather", title="Gather", description="For a test.")(GraphRecord(nodes=[NodeRecord(id="hold", node="upper"), NodeRecord(id="all", node="join")], edges=[("hold.result", "all.texts")]))
 EMBEDDED = registry_of(upper, tail, split, join, both, ENRICH, PAIR, GATHER)
 
 
 def test_an_embedding_is_filled_wired_and_read_by_its_own_id():
-    graph = EMBEDDED.load({"nodes": [{"id": "e", "node": "enrich"}, {"id": "u", "node": "upper"}], "edges": [["e.tail.result", "u.text"]]})
+    graph = EMBEDDED.load(GraphRecord.model_validate({"nodes": [{"id": "e", "node": "enrich"}, {"id": "u", "node": "upper"}], "edges": [["e.tail.result", "u.text"]]}))
 
     assert graph.problems == [] and {n: i.address for n, i in graph.inputs.items()} == {"text": "e.text"}
     run = graph.run({"e.text": "hi"})
@@ -457,8 +459,8 @@ def test_an_embedding_is_filled_wired_and_read_by_its_own_id():
 
 
 def test_a_wrong_address_on_an_embedding_is_a_problem_on_it_and_never_names_an_inner_node():
-    graph = EMBEDDED.load({"nodes": [{"id": "e", "node": "enrich"}, {"id": "u", "node": "upper"}, {"id": "v", "node": "upper"}],
-                           "edges": [["e.nope", "u.text"], ["v.result", "e.tail"], ["e/upper.result", "v.text"]]})
+    graph = EMBEDDED.load(GraphRecord.model_validate({"nodes": [{"id": "e", "node": "enrich"}, {"id": "u", "node": "upper"}, {"id": "v", "node": "upper"}],
+                           "edges": [["e.nope", "u.text"], ["v.result", "e.tail"], ["e/upper.result", "v.text"]]}))
 
     found = sorted((p.type, p.loc) for p in graph.problems)
     assert found == [("edge_names_missing_node", ("v", "text")), ("unknown_input", ("e", "tail")), ("unknown_output", ("u", "text"))]
@@ -466,15 +468,15 @@ def test_a_wrong_address_on_an_embedding_is_a_problem_on_it_and_never_names_an_i
 
 
 def test_inner_fields_sharing_a_name_are_offered_by_the_inner_node_as_its_record_says_it():
-    first = EMBEDDED.load({"nodes": [{"id": "c", "node": "pair"}]})
-    later = EMBEDDED.load({"nodes": [{"id": "s", "node": "upper"}, {"id": "c", "node": "pair"}], "edges": [["s.result", "c.x.text"]]})
+    first = EMBEDDED.load(GraphRecord.model_validate({"nodes": [{"id": "c", "node": "pair"}]}))
+    later = EMBEDDED.load(GraphRecord.model_validate({"nodes": [{"id": "s", "node": "upper"}, {"id": "c", "node": "pair"}], "edges": [["s.result", "c.x.text"]]}))
 
     assert first.problems == [] and {n: i.address for n, i in first.inputs.items()} == {"x.text": "c.x.text", "y.text": "c.y.text"}
     assert [(p.type, p.loc) for p in later.problems] == [("unbound_on_later_node", ("c", "y.text"))]  # an embedding is fed as any later node is
 
 
 def test_inner_fields_sharing_a_name_are_filled_by_the_names_the_embedding_offers():
-    graph = EMBEDDED.load({"nodes": [{"id": "s", "node": "upper"}, {"id": "c", "node": "pair", "values": {"y.text": "b"}}], "edges": [["s.result", "c.x.text"]]})
+    graph = EMBEDDED.load(GraphRecord.model_validate({"nodes": [{"id": "s", "node": "upper"}, {"id": "c", "node": "pair", "values": {"y.text": "b"}}], "edges": [["s.result", "c.x.text"]]}))
 
     assert graph.problems == [] and {n: i.address for n, i in graph.inputs.items()} == {"text": "s.text"}
     assert graph.run(text="a").outputs == {"c.b.result": "AB"}
@@ -489,24 +491,24 @@ def test_a_stored_graph_offers_its_fields_in_the_palette_of_the_registry_that_ho
 def test_a_gather_of_a_series_a_branch_never_made_is_skipped_not_called_on_nothing():
     calls: list[list[str]] = []
 
-    @node("gate", title="Gate", description="")
+    @node("gate", title="Gate", description="For a test.")
     def gate(text: str) -> YesNo:
         return YesNo(text, SKIPPED) if text.startswith("y") else YesNo(SKIPPED, text)
 
-    @node("count-all", title="Count all", description="")
+    @node("count-all", title="Count all", description="For a test.")
     def count_all(texts: Series[str]) -> str:
         calls.append(list(texts))
         return str(len(texts))
 
-    graph = registry_of(gate, split, count_all).load({"nodes": [{"id": "g", "node": "gate"}, {"id": "s", "node": "split"}, {"id": "c", "node": "count-all"}],
-                                                      "edges": [["g.no", "s.text"], ["s.result", "c.texts"]]})
+    graph = registry_of(gate, split, count_all).load(GraphRecord.model_validate({"nodes": [{"id": "g", "node": "gate"}, {"id": "s", "node": "split"}, {"id": "c", "node": "count-all"}],
+                                                      "edges": [["g.no", "s.text"], ["s.result", "c.texts"]]}))
 
     assert graph.run(text="yes").results["c"]["result"] is None and calls == []
     assert graph.run(text="a,b").outputs == {"c.result": "2"}
 
 
 def test_a_skipped_item_of_a_series_output_is_a_gap_that_reads_back_from_json():
-    @node("some", title="Some", description="")
+    @node("some", title="Some", description="For a test.")
     def some(text: str) -> Series[str]:
         return ["a", SKIPPED, "c"]
 
@@ -530,42 +532,42 @@ def test_a_table_input_gets_its_declared_columns():
         name: str
         email: str
 
-    @node("contacts", title="Contacts", description="")
+    @node("contacts", title="Contacts", description="For a test.")
     def contacts() -> Table[Contacts]:
         return pl.DataFrame({"name": ["a"], "email": ["a@x"]})
 
-    @node("columns", title="Columns", description="")
+    @node("columns", title="Columns", description="For a test.")
     def columns(table: Table[Names]) -> str:
         return ",".join(table.columns)
 
     registry = registry_of(contacts, columns)
-    narrowed = registry.load({"nodes": [{"id": "c", "node": "contacts"}, {"id": "n", "node": "columns"}], "edges": [["c.result", "n.table"]]})
+    narrowed = registry.load(GraphRecord.model_validate({"nodes": [{"id": "c", "node": "contacts"}, {"id": "n", "node": "columns"}], "edges": [["c.result", "n.table"]]}))
 
-    assert registry.load({"nodes": [{"id": "n", "node": "columns"}]}).run(table=pl.DataFrame({"name": ["a"], "email": ["a@x"]})).outputs == {"n.result": "name"}
+    assert registry.load(GraphRecord.model_validate({"nodes": [{"id": "n", "node": "columns"}]})).run(table=pl.DataFrame({"name": ["a"], "email": ["a@x"]})).outputs == {"n.result": "name"}
     assert narrowed.run().outputs == {"n.result": "name"}
 
 
 def test_a_node_gathering_two_series_of_different_depths_runs_per_item_of_the_shallower_and_reads_it_whole_there():
-    @node("parts", title="Parts", description="")
+    @node("parts", title="Parts", description="For a test.")
     def parts(text: str) -> Series[str]:
         return text.split("|")
 
-    @node("pair-lists", title="Pair lists", description="")
+    @node("pair-lists", title="Pair lists", description="For a test.")
     def pair_lists(a: Series[str], b: Series[str]) -> str:
         return f"{len(a)}/{len(b)}"
 
-    graph = registry_of(parts, split, pair_lists).load({
+    graph = registry_of(parts, split, pair_lists).load(GraphRecord.model_validate({
         "nodes": [{"id": "p", "node": "parts"}, {"id": "s", "node": "split"}, {"id": "x", "node": "pair-lists"}],
         "edges": [["p.result", "s.text"], ["p.result", "x.a"], ["s.result", "x.b"]],
-    })
+    }))
 
     assert (graph.plan["x"].mode, graph.plan["x"].series) == ("per_item", "p.result")  # a gather goes up one level
     assert graph.run(text="a,b|c").outputs == {"x.result": ["2/2", "2/1"]}
 
 
 def test_an_authored_id_with_a_slash_beside_an_embedding_is_its_own_problem_and_an_edge_into_an_embedding_says_its_outer_address():
-    beside = EMBEDDED.load({"nodes": [{"id": "e", "node": "enrich"}, {"id": "e/upper", "node": "upper"}]})
-    ghost = EMBEDDED.load({"nodes": [{"id": "e", "node": "enrich"}], "edges": [["ghost.result", "e.text"]]})
+    beside = EMBEDDED.load(GraphRecord.model_validate({"nodes": [{"id": "e", "node": "enrich"}, {"id": "e/upper", "node": "upper"}]}))
+    ghost = EMBEDDED.load(GraphRecord.model_validate({"nodes": [{"id": "e", "node": "enrich"}], "edges": [["ghost.result", "e.text"]]}))
 
     assert [(p.type, p.loc) for p in beside.problems] == [("invalid_node_id", ("e/upper",))]
     assert [(p.type, p.loc, p.ctx["target"]) for p in ghost.problems] == [("edge_names_missing_node", ("e", "text"), "e.text")]
@@ -574,22 +576,22 @@ def test_an_authored_id_with_a_slash_beside_an_embedding_is_its_own_problem_and_
 def test_a_gather_whose_items_were_all_skipped_by_a_decision_above_them_is_skipped():
     """A per-document decision read by every line of the document skips each of them, so the per-document join is skipped too."""
 
-    @node("pair-two", title="Pair two", description="")
+    @node("pair-two", title="Pair two", description="For a test.")
     def pair_two(a: str, b: str) -> str:
         return f"{a}:{b}"
 
-    @node("decide-doc", title="Decide doc", description="")
+    @node("decide-doc", title="Decide doc", description="For a test.")
     def decide_doc(text: str) -> YesNo:
         return YesNo(text, SKIPPED) if text.startswith("x") else YesNo(SKIPPED, text)
 
-    @node("docs", title="Docs", description="")
+    @node("docs", title="Docs", description="For a test.")
     def docs(text: str) -> Series[str]:
         return text.split("|")
 
-    graph = registry_of(docs, decide_doc, split, pair_two, join).load({
+    graph = registry_of(docs, decide_doc, split, pair_two, join).load(GraphRecord.model_validate({
         "nodes": [{"id": "d", "node": "docs"}, {"id": "g", "node": "decide-doc"}, {"id": "l", "node": "split"}, {"id": "p", "node": "pair-two"}, {"id": "j", "node": "join"}],
         "edges": [["d.result", "g.text"], ["d.result", "l.text"], ["l.result", "p.a"], ["g.yes", "p.b"], ["p.result", "j.texts"]],
-    })
+    }))
 
     assert graph.run(text="x|y,no").results["j"]["result"] == ["x:x", None]
 
@@ -600,14 +602,14 @@ def test_a_gather_below_a_series_output_skipped_whole_is_skipped():
         full: Annotated[Series[str], Param(exclusive_group="size")]
         empty: Annotated[Series[str], Param(exclusive_group="size")]
 
-    @node("decide-list", title="Decide list", description="")
+    @node("decide-list", title="Decide list", description="For a test.")
     def decide_list(text: str) -> FullOrEmpty:
         return FullOrEmpty(text.split(","), SKIPPED) if text else FullOrEmpty(SKIPPED, [])
 
-    graph = registry_of(decide_list, upper, join).load({
+    graph = registry_of(decide_list, upper, join).load(GraphRecord.model_validate({
         "nodes": [{"id": "d", "node": "decide-list"}, {"id": "up", "node": "upper"}, {"id": "after", "node": "join"}],
         "edges": [["d.empty", "up.text"], ["up.result", "after.texts"]],
-    })
+    }))
 
     assert graph.run(text="a,b").results["after"]["result"] is None
 
@@ -620,15 +622,15 @@ def test_a_records_field_whose_name_has_a_dot_is_wired_by_its_address():
 
     Amount = TypedDict("Amount", {"Amount in USD.": int})  # noqa: UP013
 
-    @node("sheet", title="Sheet", description="")
+    @node("sheet", title="Sheet", description="For a test.")
     def sheet() -> Table[Amount]:  # type: ignore[valid-type]
         return pl.DataFrame({"Amount in USD.": [3, 4]})
 
-    @node("each", title="Each", description="")
+    @node("each", title="Each", description="For a test.")
     def each(table: Table[Amount]) -> Series[Amount]:  # type: ignore[valid-type]
         return table.to_dicts()
 
-    @node("double", title="Double", description="")
+    @node("double", title="Double", description="For a test.")
     def double(amount: int) -> int:
         return amount * 2
 
@@ -675,7 +677,7 @@ def test_a_value_typed_in_from_python_is_its_json_so_the_record_equals_its_own_r
     class Color(Named, enum.Enum):
         RED = "red"
 
-    @node("typed", title="Typed", description="")
+    @node("typed", title="Typed", description="For a test.")
     def typed(when: datetime.date, color: Color, pair: tuple[int, int]) -> str:
         return f"{when} {color.value} {pair[0]}"
 
@@ -691,7 +693,7 @@ def test_a_value_typed_in_from_python_is_its_json_so_the_record_equals_its_own_r
 def test_a_table_typed_in_is_refused_at_the_call_and_said_to_be_given_as_rows():
     import polars as pl
 
-    @node("count", title="Count", description="")
+    @node("count", title="Count", description="For a test.")
     def count(rows: Table) -> int:
         return rows.height
 
@@ -712,11 +714,11 @@ def test_a_record_holds_only_json_in_its_values_and_display():
 def test_a_float_that_isnt_finite_typed_in_is_written_as_its_text_so_a_record_equals_its_json():
     from conductor import Ask
 
-    @node("half", title="Half", description="")
+    @node("half", title="Half", description="For a test.")
     def half(n: float) -> float:
         return n / 2
 
-    @node("ask", title="Ask", description="")
+    @node("ask", title="Ask", description="For a test.")
     def ask(x: float) -> str:
         raise Ask("ok?")
 
@@ -742,11 +744,11 @@ def test_make_graph_raises_every_fault_of_its_own_and_none_that_loading_finds():
 
 
 def test_make_graph_writes_each_node_by_the_id_and_version_of_the_definition_given_and_loads_none_of_them():
-    @node("v", title="V1", description="")
+    @node("v", title="V1", description="For a test.")
     def v1(text: str) -> str:
         return text
 
-    @node("v", title="V2", description="", replaces=v1)
+    @node("v", title="V2", description="For a test.", replaces=v1)
     def v2(text: str) -> str:
         return text
 
@@ -754,7 +756,7 @@ def test_make_graph_writes_each_node_by_the_id_and_version_of_the_definition_giv
     assert [(n.id, n.node, n.version) for n in record.nodes] == [("v-1", "v", 2), ("v-2", "v", 1)]
     assert [(p.type, p.loc) for p in registry_of(v2).load(record).problems] == [("unknown_input", ("v-1", "nope"))]
 
-    @node("v", title="Other", description="")
+    @node("v", title="Other", description="For a test.")
     def other(n: int) -> int:
         return n
 
@@ -775,7 +777,7 @@ def test_make_graph_says_an_edge_that_is_no_address_as_loading_the_same_record_s
     with pytest.raises(InvalidCallError) as written:
         make_graph(_count, _hello, edges=[("count.result", "hello.name"), ("count", "hello.name")])
     with pytest.raises(InvalidCallError) as loaded:
-        PLAIN.load({"nodes": [{"id": "count", "node": "count"}, {"id": "hello", "node": "hello"}], "edges": [["count.result", "hello.name"], ["count", "hello.name"]]})
+        PLAIN.load(json.dumps({"nodes": [{"id": "count", "node": "count"}, {"id": "hello", "node": "hello"}], "edges": [["count.result", "hello.name"], ["count", "hello.name"]]}))
 
     assert written.value.errors() == loaded.value.errors()
     assert [(p.loc, p.ctx["at"]) for p in written.value.errors()] == [(("record", "edges", 1, 0), "edges.1.0")]

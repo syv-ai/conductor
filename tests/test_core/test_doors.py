@@ -22,7 +22,7 @@ DOORS: dict[str, list[str]] = {
     "conductor": [
         "Ask", "Choice", "Deprecation", "EndedEarly", "ExternalError", "Feed", "FieldDescription", "FromRun", "FunctionDefinition", "FunctionNodeDescription", "Going", "Graph", "GraphDescription", "GraphInput", "GraphRecord", "InvalidCallError", "NamedType", "NodeDeclarationError",
         "NodeDefinition", "NodeDescription", "NodeError", "NodeRecord", "NodeRegistry", "NotCalled", "PROBLEMS", "PROBLEM_CODES", "Param", "Policy", "Problem", "ProblemCatalogue", "ProblemKind", "RegistryDescription", "Run", "RunState", "RunStatus", "RunsOn",
-        "SKIPPED", "Series", "StoredGraphDefinition", "StoredGraphDescription", "Table", "TypeDescription", "Upgrade", "Waiting", "make_graph", "node",
+        "SKIPPED", "Series", "StoredGraphDefinition", "StoredGraphDescription", "Table", "TypeDescription", "Upgrade", "Waiting", "make_graph", "node", "stored_graph",
     ],
     "conductor.widgets": [
         "DatePicker", "Dropdown", "FileUpload", "ListInput", "NumberInput", "Slider", "Switch",
@@ -33,6 +33,7 @@ DOORS: dict[str, list[str]] = {
         "RunEnd", "RunStart", "UnitWaiting",
     ],
     "conductor.testing": ["check_registry"],
+    "conductor.about": [],
 }
 
 
@@ -52,7 +53,7 @@ def test_a_door_exports_exactly_its_pinned_names(door):
 
 def test_a_type_checker_accepts_every_name_of_every_door(tmp_path):
     probe = tmp_path / "probe.py"
-    probe.write_text("".join(f"from {door} import {', '.join(names)}\n" for door, names in DOORS.items()))
+    probe.write_text("".join(f"from {door} import {', '.join(names)}\n" for door, names in DOORS.items() if names))
     stdout, _, status = mypy_api.run(["--strict", "--no-incremental", "--follow-imports=silent", str(probe)])
     assert "explicitly export" not in stdout, stdout
     assert status == 0, stdout
@@ -60,7 +61,7 @@ def test_a_type_checker_accepts_every_name_of_every_door(tmp_path):
 
 def test_pyright_accepts_every_name_of_every_door(tmp_path):
     probe = tmp_path / "probe.py"
-    probe.write_text("".join(f"from {door} import {', '.join(names)}\n" for door, names in DOORS.items()))
+    probe.write_text("".join(f"from {door} import {', '.join(names)}\n" for door, names in DOORS.items() if names))
     pyright = Path(sys.executable).with_name("pyright")
     found = subprocess.run(
         [str(pyright), "--outputjson", "--pythonpath", sys.executable, str(probe)],

@@ -43,7 +43,7 @@ def _returning(returned: Any, return_type: Any) -> Any:
     def give() -> return_type:  # type: ignore[valid-type]
         return returned
 
-    made = node("give", title="Give", description="")(give)
+    made = node("give", title="Give", description="For a test.")(give)
     return registry_of(made).load(GraphRecord(nodes=[NodeRecord(id="g", node="give")])).run()
 
 
@@ -53,7 +53,7 @@ def _feeding(returned: Any, return_type: Any, sink: Any) -> Any:
     def give() -> return_type:  # type: ignore[valid-type]
         return returned
 
-    made = node("give", title="Give", description="")(give)
+    made = node("give", title="Give", description="For a test.")(give)
     (name,) = sink.inputs
     return registry_of(made, sink).load(GraphRecord(
         nodes=[NodeRecord(id="a", node="give"), NodeRecord(id="b", node=sink.id)], edges=[("a.result", f"b.{name}")],
@@ -162,7 +162,7 @@ def test_a_unit_whose_second_output_is_invalid_writes_none_of_its_outputs():
 
 
 def _computed(returned: Any) -> Any:
-    @node("computed", title="Computed", description="", compute_outputs=lambda: {"name": str, "age": int})
+    @node("computed", title="Computed", description="For a test.", compute_outputs=lambda: {"name": str, "age": int})
     def computed() -> Any:
         return returned
 
@@ -220,7 +220,7 @@ def test_a_column_of_yes_or_no_is_never_an_int_column_returned_brought_or_given(
     yes_no = pl.DataFrame({"item": ["a", "b"], "amount": [True, False]})
     assert (_returning(yes_no, Table[Line]).state.cause.type, _returning(yes_no, Table[Line]).state.cause.ctx["column"]) == ("invalid_output", "amount")
 
-    @node("total", title="Total", description="")
+    @node("total", title="Total", description="For a test.")
     def total(lines: Table[Line]) -> int:
         return int(lines["amount"].sum())
 
@@ -241,7 +241,7 @@ def test_a_column_refuses_a_yes_or_no_wherever_a_field_of_its_type_does(column):
     """A column of a ``Literal`` of numbers or of a union holding a number and no ``bool`` refuses ``True``, as a field
     of that type does: Python counts ``True`` as 1, and both the field and the column read one rule."""
 
-    @node("count_rows", title="Count rows", description="")
+    @node("count_rows", title="Count rows", description="For a test.")
     def count_rows(rows: Table[Graded]) -> int:
         return rows.height
 
@@ -283,7 +283,7 @@ class PickyId(ReadAsItsBuiltin, str):
 
 
 def test_a_value_an_edge_brings_that_the_input_refuses_fails_the_node_it_reached_quoting_nothing():
-    @node("sink", title="Sink", description="")
+    @node("sink", title="Sink", description="For a test.")
     def sink(identifier: PickyId) -> str:
         return identifier
 
@@ -295,11 +295,11 @@ def test_a_value_an_edge_brings_that_the_input_refuses_fails_the_node_it_reached
 
 
 def test_a_value_on_an_edge_outside_its_bounds_fails_the_node_for_that_item():
-    @node("numbers", title="Numbers", description="")
+    @node("numbers", title="Numbers", description="For a test.")
     def numbers() -> Series[int]:
         return [5, 1, 7]
 
-    @node("at_least_five", title="At least five", description="")
+    @node("at_least_five", title="At least five", description="For a test.")
     def at_least_five(n: Annotated[int, Param(ge=5)]) -> int:
         return n
 
@@ -312,7 +312,7 @@ def test_a_value_on_an_edge_outside_its_bounds_fails_the_node_for_that_item():
 
 
 def test_an_int_arriving_on_a_float_input_arrives_a_float():
-    @node("half", title="Half", description="")
+    @node("half", title="Half", description="For a test.")
     def half(x: float) -> str:
         return type(x).__name__
 
@@ -325,7 +325,7 @@ class Contacts(TypedDict):
 
 
 def test_a_table_input_given_a_table_without_a_column_it_declares_fails_naming_the_column():
-    @node("needs_email", title="Needs email", description="")
+    @node("needs_email", title="Needs email", description="For a test.")
     def needs_email(contacts: Table[Contacts]) -> int:
         return contacts.height
 
@@ -353,11 +353,11 @@ def test_a_table_whose_column_is_of_a_type_its_input_wont_take_is_a_type_mismatc
     class Texts(TypedDict):
         result: str
 
-    @node("texts", title="Texts", description="")
+    @node("texts", title="Texts", description="For a test.")
     def texts() -> Table[Texts]:
         return pl.DataFrame({"result": ["1", "two"]})
 
-    @node("total", title="Total", description="")
+    @node("total", title="Total", description="For a test.")
     def total(rows: Table[Amounts]) -> int:
         return int(rows["result"].sum())
 
@@ -373,7 +373,7 @@ def test_a_column_of_a_table_of_unknown_columns_its_input_wont_take_fails_that_n
     class Amounts(TypedDict):
         result: int
 
-    @node("total", title="Total", description="")
+    @node("total", title="Total", description="For a test.")
     def total(rows: Table[Amounts]) -> int:
         return int(rows["result"].sum())
 
@@ -449,7 +449,7 @@ def test_a_record_field_is_named_in_the_failure_of_an_output():
 
 
 def test_a_key_of_a_dict_given_is_never_in_the_errors_and_a_declared_field_or_an_index_is():
-    @node("tally", title="Tally", description="")
+    @node("tally", title="Tally", description="For a test.")
     def tally(scores: dict[str, int], people: list[ByPerson]) -> str:
         return "ok"
 
@@ -486,11 +486,11 @@ class _SlowOutput(ReadAsItsBuiltin, str):
 def test_a_slow_output_check_runs_on_its_nodes_thread_and_holds_up_no_other_unit():
     """The other node finishes only after the check began, and the check passes only once the stream reported it."""
 
-    @node("slow", title="Slow", description="", policy=Policy(concurrency=2))
+    @node("slow", title="Slow", description="For a test.", policy=Policy(concurrency=2))
     def slow() -> _SlowOutput:
         return "x"  # type: ignore[return-value]  # not yet the type, so its check runs
 
-    @node("other", title="Other", description="", policy=Policy(concurrency=2))
+    @node("other", title="Other", description="For a test.", policy=Policy(concurrency=2))
     def other() -> int:
         assert _SlowOutput.check_began.wait(timeout=10)
         return 1
@@ -516,7 +516,7 @@ def test_a_value_already_of_its_type_is_kept_as_returned():
 @pytest.mark.parametrize("return_type", [Any, int | Any, Any | None])
 @pytest.mark.parametrize("returned", [1.5, "s", {"k": [1]}, None, 3])
 def test_a_node_typed_any_returns_anything_and_a_node_taking_any_receives_it(return_type: Any, returned: Any) -> None:
-    @node("take_any", title="Take any", description="")
+    @node("take_any", title="Take any", description="For a test.")
     def take_any(value: Any) -> Any:
         return value
 
@@ -531,12 +531,12 @@ def test_a_yes_or_no_returned_for_a_literal_of_numbers_is_refused_as_for_a_numbe
         assert (run.status, run.state.cause.type) == ("failed", "invalid_output"), return_type
 
 
-@node("anything-in", title="Anything in", description="")
+@node("anything-in", title="Anything in", description="For a test.")
 def _anything_in(x: Any) -> Any:
     return x
 
 
-@node("all-of", title="All of", description="")
+@node("all-of", title="All of", description="For a test.")
 def _all_of(values: Series[Any]) -> int:
     return len(values)
 
@@ -547,7 +547,7 @@ def _giving(returned: Any, return_type: Any) -> Any:
     def give() -> return_type:  # type: ignore[valid-type]
         return returned
 
-    return node("give", title="Give", description="")(give)
+    return node("give", title="Give", description="For a test.")(give)
 
 
 def _fails_with(graph: Any) -> tuple[Any, ...]:
@@ -580,17 +580,17 @@ def test_a_field_an_item_or_a_column_of_unknown_columns_lacks_fails_the_reader_a
     assert _fails_with(column_gathered) == ("failed", "invalid_edge_value", ("all-of",), "values", "name")
 
 
-@node("words", title="Words", description="")
+@node("words", title="Words", description="For a test.")
 def _words(text: str) -> Series[str]:
     return text.split()
 
 
-@node("with-it", title="With it", description="")
+@node("with-it", title="With it", description="For a test.")
 def _with_it(word: str, x: Any) -> str:
     return word
 
 
-@node("with-them", title="With them", description="")
+@node("with-them", title="With them", description="For a test.")
 def _with_them(word: str, values: Series[Any]) -> str:
     return word
 

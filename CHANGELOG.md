@@ -33,6 +33,8 @@ What changes in how you work, before the name-by-name tables:
 - **Five modules.** Import from `conductor`, `conductor.widgets`, `conductor.events`,
   `conductor.testing` and `conductor.about`, the reference. Everything else is `conductor._internal`.
   A type's `accepted_as` is read from `registry.describe().types`.
+- **`conductor.about` has no names.** Its `__all__` is empty. `get_content`, `list_sections` and `get_section`
+  are what `python -m conductor.about` calls, and are not part of the public API.
 - **What a person sees for a type is declared.** Each entry of `registry.describe().types` has the
   `id` and `title` its owner declared: conductor's own types from one fixed table (`str` is `Text`,
   `int` `Whole number`), a host's class from its `type_id` and `type_title` class attributes
@@ -41,7 +43,7 @@ What changes in how you work, before the name-by-name tables:
   every class a field's type id names: each member of a union, a `Literal`'s value types and a
   generic's class (`list[str]` names `list`); `Any`, `None`, a type alias and a table name none.
 - **A node is a typed function.** `@node("id", title=, description=)` (registers nothing) or
-  `@registry.node(...)` returns a frozen, callable `FunctionDefinition` (a `StoredGraphDefinition` for a stored graph,
+  `@registry.node(...)` returns a frozen, callable `FunctionDefinition` (`stored_graph(...)(record)` returns a `StoredGraphDefinition`,
   with no function to call; `NodeDefinition` is either). Its title and description are
   required, and the docstring never reaches a person. The signature is the interface:
   `Annotated[str, Param(title=, widget=, ge=, ...)]` for what a person sees and the limits a value
@@ -59,6 +61,14 @@ What changes in how you work, before the name-by-name tables:
   holding one fails as its class is made. Limits are pydantic's own: bounds on numbers, a `Decimal`,
   dates, times and durations, lengths on texts, bytes and collections. `Param` is a frozen dataclass whose limits
   are its fields, so an argument it doesn't have is Python's own `TypeError`.
+- **A stored graph becomes a node with `stored_graph`.** `stored_graph("id", title=, description=)(record)`
+  and `registry.stored_graph(...)` take a `GraphRecord` or its JSON text and return a
+  `StoredGraphDefinition`. `node(...)` and `@registry.node(...)` take only a function. `stored_graph` has no
+  `policy`, `compute_added_inputs` or `compute_outputs` argument, so passing one is Python's own `TypeError`,
+  and the declaration code `not_for_a_graph` is gone.
+- **A node's title and description are not empty.** `@node`, `@registry.node`, `stored_graph` and
+  `registry.stored_graph` raise `NodeDeclarationError` with the code `empty_title_or_description` for a
+  `title` or `description` that is empty or only spaces; the message names the node and which one.
 - **The types decide one or many.** A `Series[X]` output wired to an input typed for one `X` runs
   that node once per item, and everything after it; the node never sees the difference. A
   `Series[X]` input gathers every item in one call, and a `Table[R]` input gathers records into a
@@ -90,8 +100,7 @@ What changes in how you work, before the name-by-name tables:
   finite as `"NaN"` or `"Infinity"`, so a record equals its JSON, and an `upgrade` rewrite is written
   the same way (`invalid_value` where it has no JSON form). A stored graph used as a node offers
   its graph's inputs by their names there and its outputs by their addresses there
-  (`e.upper.result`), and `@node` on a stored graph refuses a `policy` or a hook as
-  `not_for_a_graph`. Its nodes run where it stands, each with a unit per item of the node that
+  (`e.upper.result`), and `stored_graph` takes no `policy` or hook. Its nodes run where it stands, each with a unit per item of the node that
   embeds it, so they are called, retried, timed out, cancelled and reused by `run.again` as the
   same nodes drawn in the graph itself, and say their events once, under `("e", "upper")`. A blank
   arriving at the embedding leaves the inner nodes that read it uncalled, and `run.not_called`
@@ -100,6 +109,9 @@ What changes in how you work, before the name-by-name tables:
   of its `loc`; there is no `embedded_graph_broken`. Every node event, a `Waiting` and a
   `NotCalled` say where they are with one `loc` in place of `node_id` and an item: a unit's is a
   problem's (`("e", 0, "ask")`), a node's its id behind the embedding's (`("e", "ask")`); a waiting id inside reads `e@0/ask~3fa2c0d1`.
+- **`registry.load` and `registry.upgrade` take a `GraphRecord` or its JSON text.** A dict is not taken: a
+  host that holds one writes `GraphRecord.model_validate(data)`. `InvalidCallError` with `invalid_record`
+  problems is what JSON text of the wrong shape raises.
 - **A run is one value.** `graph.run(**inputs)` returns a `Run` whose `status` says how the leg
   ended, and whose `state` is `Going` or, for a leg that failed, stopped, was cancelled or timed out,
   `EndedEarly` with its `cause` (`match run.state`). It pauses for a person (`raise Ask(...)`, then `run.answer(...)` and `run.resume()`), writes
@@ -182,7 +194,7 @@ Every public name of 1.12.2, by the module it was imported from. A name not list
 | `conductor.registry.dynamic_outputs.ComputeOutputsFn` | `compute_outputs=`, a plain function returning `{name: type hint}` |
 | `conductor.registry.dynamic_outputs.IncomingBinding` | gone: a hook parameter annotated `type` receives the type arriving on that input |
 | `conductor.registry.dynamic_outputs.strip_sub_output_prefix` | gone: an output is named by its field |
-| `conductor.registry.NodeDefinition` | `NodeDefinition`, the union of `FunctionDefinition` (frozen and callable, returned by `@node` on a function) and `StoredGraphDefinition` (on a stored graph) |
+| `conductor.registry.NodeDefinition` | `NodeDefinition`, the union of `FunctionDefinition` (frozen and callable, returned by `@node`) and `StoredGraphDefinition` (returned by `stored_graph`) |
 | `conductor.types.Base64Str` | gone: any type pydantic carries travels; `bytes` is one |
 | `conductor.types.Date` | `datetime.date` |
 | `conductor.types.MultiNamedFile` | gone: `Series[YourFile]` |
@@ -237,12 +249,12 @@ Every public name of 1.12.2, by the module it was imported from. A name not list
 | `conductor.flow_format.load_flow` | `registry.load(json_text)` or `GraphRecord.model_validate_json` |
 | `conductor.flow_format.yaml_to_flow` | gone: YAML isn't read |
 | `conductor.graph.compiler.DecisionGuard` | gone with CEL guards: outputs of one `exclusive_group` are the branches |
-| `conductor.graph.compiler.ExtensionResolver` | gone: a stored graph is a node, `node("id", title=, description=)(record)`, added to a registry |
+| `conductor.graph.compiler.ExtensionResolver` | gone: a stored graph is a node, `stored_graph("id", title=, description=)(record)`, added to a registry |
 | `conductor.graph.dynamic_inputs.resolve_node_inputs` | `registry.load(record).describe()`, a `GraphDescription` with each node's fields as its hooks made them |
 | `DefinitionSource` | gone with `RegistryView` |
 | `expr` | gone with CEL guards on edges |
 | `Flow` | `GraphRecord`; see "Converting a stored 1.x graph" |
-| `FlowDependency` | gone: a graph embeds another as a node, `node("id", title=, description=)(record)` |
+| `FlowDependency` | gone: a graph embeds another as a node, `stored_graph("id", title=, description=)(record)` |
 | `FlowTrigger` | gone: the host decides when a graph runs |
 | `GraphEdge` | a pair `("a.result", "b.text")` in `GraphRecord.edges` |
 | `GraphNode` | `NodeRecord`; see "Converting a stored 1.x graph" |
@@ -291,7 +303,7 @@ Every public name of 1.12.2, by the module it was imported from. A name not list
 | `resume_sync` | `run.resume()` |
 | `resume` | `run.answer(...)`, then `run.resume()` |
 | `SUBPROCESS` | gone with the subprocess node |
-| `SubprocessNode` | a stored graph is a node, `node("id", title=, description=)(record)` |
+| `SubprocessNode` | a stored graph is a node, `stored_graph("id", title=, description=)(record)` |
 | `SubprocessRegistry` | gone: an embedded graph's node goes in a registry like any other |
 | `WHILE` | gone with the while node |
 | `WhileNode` | gone: a graph has no cycles |

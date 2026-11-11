@@ -21,6 +21,7 @@ from conductor import (
     Series,
     Table,
     node,
+    stored_graph,
 )
 from pydantic import BaseModel
 
@@ -43,34 +44,34 @@ class Reading(BaseModel):
     note: Any = None
 
 
-@node("lines", title="Lines", description="")
+@node("lines", title="Lines", description="For a test.")
 def lines(text: str) -> Series[Line]:
     return [{"text": part, "size": float(len(part))} for part in text.split(",") if part]
 
 
-@node("gate", title="Gate", description="")
+@node("gate", title="Gate", description="For a test.")
 def gate(text: str) -> Length:
     return Length(text, SKIPPED) if len(text) > 2 else Length(SKIPPED, text)
 
 
-@node("maybe", title="Maybe", description="")
+@node("maybe", title="Maybe", description="For a test.")
 def maybe(text: str) -> str | None:
     return None if text.startswith("b") else text.upper()
 
 
-@node("letters", title="Letters", description="")
+@node("letters", title="Letters", description="For a test.")
 def letters(text: str) -> Series[str]:
     return [SKIPPED if letter == "x" else letter for letter in text]
 
 
-@node("ask", title="Ask", description="")
+@node("ask", title="Ask", description="For a test.")
 def ask(text: str) -> str:
     if text.startswith("a"):
         raise Ask(f"What of {text}?")
     return text
 
 
-@node("frame", title="Frame", description="")
+@node("frame", title="Frame", description="For a test.")
 def frame(text: str) -> Table:
     parts = text.split(",")
     return pl.DataFrame({
@@ -79,27 +80,27 @@ def frame(text: str) -> Table:
     })
 
 
-@node("typed-frame", title="Typed frame", description="")
+@node("typed-frame", title="Typed frame", description="For a test.")
 def typed_frame(text: str) -> Table[Line]:
     return pl.DataFrame({"size": [1.5, math.inf], "text": ["a", "b"], "extra": [datetime.time(1, 2), None]})
 
 
-@node("reading", title="Reading", description="")
+@node("reading", title="Reading", description="For a test.")
 def reading(text: str) -> Reading:
     return Reading(value=math.nan, note=math.inf if text == "inf" else text)
 
 
-@node("join", title="Join", description="")
+@node("join", title="Join", description="For a test.")
 def join(texts: Series[str]) -> str:
     return "+".join(texts)
 
 
-@node("loose", title="Loose", description="")
+@node("loose", title="Loose", description="For a test.")
 def loose(text: str) -> dict[str, Any]:
     return {"nan": math.nan, "when": datetime.date(2026, 1, 1), "text": text}
 
 
-@node("float-or-text", title="Float or text", description="")
+@node("float-or-text", title="Float or text", description="For a test.")
 def float_or_text(text: str) -> float | str:
     return math.inf
 
@@ -108,7 +109,7 @@ def _registry() -> NodeRegistry:
     registry = NodeRegistry()
     registry.add(lines, gate, maybe, letters, ask, frame, typed_frame, reading, join, loose, float_or_text)
     inner = GraphRecord(nodes=[NodeRecord(id="q", node="ask"), NodeRecord(id="m", node="maybe")], edges=[("q.result", "m.text")])
-    registry.add(node("inner", title="Inner", description="")(inner))
+    registry.add(stored_graph("inner", title="Inner", description="For a test.")(inner))
     return registry
 
 
@@ -308,7 +309,7 @@ def test_a_damaged_save_is_refused_at_the_place_pydantic_names(damage: Any, at: 
 
 
 def test_a_value_with_no_json_form_is_refused_at_the_save_naming_its_output() -> None:
-    @node("odd", title="Odd", description="")
+    @node("odd", title="Odd", description="For a test.")
     def odd(text: str) -> Any:
         return object()
 
@@ -324,7 +325,7 @@ def test_a_value_with_no_json_form_is_refused_at_the_save_naming_its_output() ->
 
 
 def test_a_run_writes_its_outputs_as_json_by_their_types() -> None:
-    @node("rows", title="Rows", description="")
+    @node("rows", title="Rows", description="For a test.")
     def rows(text: str) -> Series[Line]:
         return pl.DataFrame({"text": ["a"], "size": [math.inf]})  # type: ignore[return-value]
 
@@ -352,7 +353,7 @@ def test_outputs_as_json_are_of_a_complete_run_and_a_value_with_no_json_form_nam
         graph.run(_inputs("a")).outputs_json()
     assert [problem.type for problem in refused.value.errors()] == ["run_not_complete"]
 
-    @node("odd", title="Odd", description="")
+    @node("odd", title="Odd", description="For a test.")
     def odd(text: str) -> Any:
         return object()
 
@@ -421,7 +422,7 @@ def test_every_field_a_run_sets_in_its_save_is_a_key_of_the_json_and_reads_back(
 def test_only_a_series_output_can_be_saved_with_items_on_a_branch_not_taken() -> None:
     """A one-value output's saved form has no ``skipped_items``, even when its value is a list; a Series' has."""
 
-    @node("listed", title="Listed", description="")
+    @node("listed", title="Listed", description="For a test.")
     def listed(text: str) -> list[str]:
         return list(text)
 

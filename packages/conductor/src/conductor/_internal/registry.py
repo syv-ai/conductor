@@ -59,6 +59,7 @@ from conductor._internal.node_definition import (
     StoredGraphDescription,
     declared_inputs,
     node,
+    stored_graph,
 )
 from conductor._internal.problem import InvalidCallError, NodeDeclarationError
 
@@ -141,12 +142,31 @@ class NodeRegistry:
         """
         declare = node(*args, **kwargs)
 
-        def decorate(target: Callable[..., Any] | GraphRecord | str | bytes | Mapping[str, Any]) -> NodeDefinition:
-            definition = declare(target)
+        def decorate(function: Callable[..., Any]) -> NodeDefinition:
+            definition = declare(function)
             self.add(definition)
             return self._nodes[definition.id]
 
         return decorate
+
+    @_takes_the_arguments_of(stored_graph)
+    def stored_graph(self, *args: Any, **kwargs: Any) -> Any:
+        """Make a stored graph a node as ``stored_graph`` does, with the same arguments, and add it here::
+
+            enrich = registry.stored_graph("enrich", title="Enrich", description="Adds the company's details.")(record)
+
+        An id already held raises, as with ``registry.node``. The definition
+        returned is the one this registry holds, with the registry's defaults
+        applied.
+        """
+        declare = stored_graph(*args, **kwargs)
+
+        def add(record: GraphRecord | str | bytes) -> NodeDefinition:
+            definition = declare(record)
+            self.add(definition)
+            return self._nodes[definition.id]
+
+        return add
 
     def add(self, *definitions: NodeDefinition) -> None:
         """Add these nodes, each under its id; an id already here raises, naming where both were declared."""
@@ -255,8 +275,8 @@ class NodeRegistry:
 
     # -- graphs ------------------------------------------------------------------
 
-    def load(self, record: GraphRecord | str | bytes | Mapping[str, Any]) -> Graph:
-        """Load a stored graph, given as a record, JSON text or a mapping read from JSON.
+    def load(self, record: GraphRecord | str | bytes) -> Graph:
+        """Load a stored graph, given as a ``GraphRecord`` or as its JSON text.
 
         It never raises for a half-finished drawing: what is wrong is in
         ``graph.problems``. The graph keeps its own copy of the definitions
@@ -264,7 +284,7 @@ class NodeRegistry:
         """
         return load_graph(as_record(record), self._nodes, Graph)
 
-    def upgrade(self, record: GraphRecord | str | bytes | Mapping[str, Any], node_id: str, *, to: int | None = None) -> GraphRecord:
+    def upgrade(self, record: GraphRecord | str | bytes, node_id: str, *, to: int | None = None) -> GraphRecord:
         """``record`` with the node ``node_id`` moved from the version it was saved at to ``to``, the newest by default.
 
         Runs each newer version's ``Upgrade`` in order and sets the version.

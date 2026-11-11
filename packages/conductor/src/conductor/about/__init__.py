@@ -13,9 +13,7 @@ From a shell::
     python -m conductor.about sections         # the section slugs
     python -m conductor.about one-or-many      # one section, by slug or a part of one
 
-From Python::
-
-    from conductor.about import get_content, list_sections, get_section
+The functions here are what that command calls; the module has no public names.
 """
 
 from __future__ import annotations
@@ -147,4 +145,4 @@ def get_section(name: str) -> str | None:
     return None
 
 
-__all__ = ["get_content", "list_sections", "get_section"]
+__all__: list[str] = []

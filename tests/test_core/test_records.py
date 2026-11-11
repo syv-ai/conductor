@@ -6,7 +6,7 @@ from typing import Any, TypedDict
 
 import polars as pl
 import pytest
-from conductor import GraphRecord, NodeRecord, Series, Table, make_graph, node
+from conductor import GraphRecord, NodeRecord, Series, Table, make_graph, node, stored_graph
 from conductor._internal.fields import Records
 
 from tests.test_core.nodes import registry_of
@@ -21,40 +21,40 @@ FRAME = pl.DataFrame({"name": ["ida", "bo"], "email": ["ida@x.dk", None], "age":
 RECEIVED: list[Any] = []
 
 
-@node("contacts", title="Contacts", description="")
+@node("contacts", title="Contacts", description="For a test.")
 def contacts(text: str) -> Series[Contact]:
     return FRAME  # type: ignore[return-value]  a table returned for a Series of records is the Series of its records
 
 
-@node("listed", title="Listed", description="")
+@node("listed", title="Listed", description="For a test.")
 def listed(text: str) -> Series[Contact]:
     return [{"name": "ida", "email": "ida@x.dk"}, {"name": "bo", "email": None}]
 
 
-@node("greet", title="Greet", description="")
+@node("greet", title="Greet", description="For a test.")
 def greet(name: str) -> str:
     return f"hi {name}"
 
 
-@node("one", title="One", description="")
+@node("one", title="One", description="For a test.")
 def one(contact: Contact) -> str:
     RECEIVED.append(contact)
     return contact["name"]
 
 
-@node("every", title="Every", description="")
+@node("every", title="Every", description="For a test.")
 def every(found: Series[Contact]) -> int:
     RECEIVED.append(found)
     return len(found)
 
 
-@node("names", title="Names", description="")
+@node("names", title="Names", description="For a test.")
 def names(found: Series[str]) -> str:
     RECEIVED.append(found)
     return "+".join(found)
 
 
-@node("mails", title="Mails", description="")
+@node("mails", title="Mails", description="For a test.")
 def mails(found: Series[str | None]) -> int:
     RECEIVED.append(found)
     return len(found)
@@ -103,7 +103,7 @@ def test_a_series_returned_as_a_table_is_held_and_saved_as_that_table_with_only_
     (pl.DataFrame({"name": [1, 2], "email": ["a", "b"]}), "column 'name': Input should be a valid string"),
 ])
 def test_a_table_returned_for_a_series_of_records_is_read_by_its_columns_where_it_enters(frame: pl.DataFrame, reason: str) -> None:
-    @node("wrong", title="Wrong", description="")
+    @node("wrong", title="Wrong", description="For a test.")
     def wrong(text: str) -> Series[Contact]:
         return frame  # type: ignore[return-value]
 
@@ -113,7 +113,7 @@ def test_a_table_returned_for_a_series_of_records_is_read_by_its_columns_where_i
 
 
 def test_a_table_is_no_series_of_anything_but_records() -> None:
-    @node("texts", title="Texts", description="")
+    @node("texts", title="Texts", description="For a test.")
     def texts(text: str) -> Series[str]:
         return FRAME  # type: ignore[return-value]
 
@@ -123,11 +123,11 @@ def test_a_table_is_no_series_of_anything_but_records() -> None:
 
 
 def test_a_table_of_any_columns_is_a_series_of_its_records() -> None:
-    @node("anything", title="Anything", description="")
+    @node("anything", title="Anything", description="For a test.")
     def anything(text: str) -> Series[Any]:
         return FRAME  # type: ignore[return-value]
 
-    @node("show", title="Show", description="")
+    @node("show", title="Show", description="For a test.")
     def show(record: Any) -> str:
         return repr(record)
 
@@ -145,18 +145,18 @@ def test_a_series_of_records_held_as_a_table_counts_its_items_against_the_ceilin
 
 
 def test_a_series_of_records_made_per_item_inside_an_embedded_graph_is_offered_as_lists_of_plain_records() -> None:
-    @node("parts", title="Parts", description="")
+    @node("parts", title="Parts", description="For a test.")
     def parts(text: str) -> Series[str]:
         return text.split(",")
 
-    @node("count", title="Count", description="")
+    @node("count", title="Count", description="For a test.")
     def count(found: Series[list[Contact]]) -> list[int]:
         RECEIVED.append(found)
         return [len(records) for records in found]
 
     registry = registry_of(parts, contacts, count)
     inner = GraphRecord(nodes=[NodeRecord(id="p", node="parts"), NodeRecord(id="c", node="contacts")], edges=[("p.result", "c.text")])
-    registry.add(node("inner", title="Inner", description="")(inner))
+    registry.add(stored_graph("inner", title="Inner", description="For a test.")(inner))
     graph = registry.load(GraphRecord(nodes=[NodeRecord(id="e", node="inner"), NodeRecord(id="count", node="count")], edges=[("e.c.result", "count.found")]))
     RECEIVED.clear()
     run = graph.run(text="x,y")
@@ -169,7 +169,7 @@ def test_a_series_of_records_made_per_item_inside_an_embedded_graph_is_offered_a
 def test_split_returns_the_table_it_was_given_and_the_run_holds_it_by_column() -> None:
     from conductor_nodes.tables import split
 
-    @node("people", title="People", description="")
+    @node("people", title="People", description="For a test.")
     def people(text: str) -> Table[Contact]:
         return FRAME
 

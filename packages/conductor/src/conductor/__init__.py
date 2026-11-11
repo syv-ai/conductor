@@ -41,6 +41,7 @@ from conductor._internal.node_definition import (
     StoredGraphDescription,
     Upgrade,
     node,
+    stored_graph,
 )
 from conductor._internal.problem import (
     PROBLEM_CODES,
@@ -61,6 +62,7 @@ from conductor._internal.run_status import EndedEarly, Going, RunState, RunStatu
 __all__ = [
     # Writing a node
     "node",
+    "stored_graph",
     "NodeDefinition",
     "FunctionDefinition",
     "StoredGraphDefinition",

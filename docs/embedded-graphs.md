@@ -5,10 +5,10 @@ every graph that needs it, as one node.
 
 ## Make one
 
-`node("id", title=..., description=...)` wraps a function, and it wraps a `GraphRecord` the same way:
+`node("id", title=..., description=...)` wraps a function. `stored_graph("id", title=..., description=...)` wraps a `GraphRecord` (or its JSON text) the same way:
 
 ```python
-from conductor import NodeRegistry, Series, make_graph, node
+from conductor import NodeRegistry, Series, make_graph, node, stored_graph
 
 registry = NodeRegistry()
 
@@ -33,7 +33,7 @@ def join(texts: Series[str]) -> str:
     return " ".join(texts)
 
 
-shout = node("shout", title="Shout", description="Turns a text into capital letters.")(make_graph(upper, exclaim))
+shout = stored_graph("shout", title="Shout", description="Turns a text into capital letters.")(make_graph(upper, exclaim))
 registry.add(shout)
 ```
 
@@ -76,7 +76,7 @@ From outside, a stored graph is one node:
 - An exclusive group inside is named by the node that decides, `decide.answer`.
 
 ```python
-side_by_side = node("both", title="Both", description="Runs the capital letters and the exclamation mark side by side.")(make_graph(upper, exclaim, edges=[]))
+side_by_side = stored_graph("both", title="Both", description="Runs the capital letters and the exclamation mark side by side.")(make_graph(upper, exclaim, edges=[]))
 registry.add(side_by_side)
 both = registry.load(make_graph(side_by_side))
 
@@ -89,7 +89,7 @@ Outside, a `Series` a stored graph offers is a Series like any other, however it
 one value reads it one item at a time, and a `Series` input beside it receives the whole Series on each call:
 
 ```python
-words = node("words", title="Words", description="The words of a text, in capital letters.")(make_graph(split, upper, edges=[("split.result", "upper.text")]))
+words = stored_graph("words", title="Words", description="The words of a text, in capital letters.")(make_graph(split, upper, edges=[("split.result", "upper.text")]))
 registry.add(words)
 
 
@@ -171,10 +171,10 @@ def known(contacts: Table[Contact]) -> Table[Contact]:
     return contacts
 
 
-untyped = node("shout-names", title="Shout names", description="Writes each name in capitals.")(
+untyped = stored_graph("shout-names", title="Shout names", description="Writes each name in capitals.")(
     make_graph(each, upper, edges=[("each.result.name", "upper.text")])
 )
-typed = node("shout-contacts", title="Shout contacts", description="Writes each contact's name in capitals.")(
+typed = stored_graph("shout-contacts", title="Shout contacts", description="Writes each contact's name in capitals.")(
     make_graph(known, each, upper, edges=[("known.result", "each.value"), ("each.result.name", "upper.text")])
 )
 registry.add(untyped, typed)
@@ -218,7 +218,7 @@ saved_graphs = {"shout": ("Shout", "Writes the text in capitals and adds an excl
 request_registry = NodeRegistry()
 request_registry.add_subregistry(registry)
 request_registry.add(*(
-    node(name, title=title, description=description)(record)
+    stored_graph(name, title=title, description=description)(record)
     for name, (title, description, record) in saved_graphs.items()
     if name not in request_registry
 ))

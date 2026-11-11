@@ -30,10 +30,10 @@ def join(texts: Series[str]) -> str:
 
 assert upper("a") == "A"  # a node is called like its function
 
-graph = registry.load({            # a graph is data: JSON text, a mapping, or a GraphRecord
+graph = registry.load(GraphRecord.model_validate({            # a graph is data: a GraphRecord, or its JSON text
     "nodes": [{"id": "lines", "node": "lines"}, {"id": "upper", "node": "upper"}, {"id": "join", "node": "join"}],
     "edges": [["lines.result", "upper.text"], ["upper.result", "join.texts"]],
-})
+}))
 assert graph.is_runnable, graph.problems
 
 run = graph.run(text="a\nb\nc")    # by address: graph.run({"lines.text": ...})
@@ -48,7 +48,7 @@ run.results["join"]["result"]      # "A+B+C": Series[str] received every value, 
 
 ### The Node Contract
 
-`@node("id", version=, title=, description=, category=, tags=, extra=, docs=, policy=, deprecation=, compute_added_inputs=, compute_outputs=, replaces=, upgrade=)` wraps a plain function and returns a frozen, callable `FunctionDefinition`; it registers nothing. On a stored graph it returns a `StoredGraphDefinition`, which has no function, so calling it is a type error; `NodeDefinition` is the union of the two, and a reader tells them apart with `match`. `@registry.node(...)` takes the same arguments and adds the node to that registry. The id, `title` and `description` are required: the title and description are what a person reads for the node, and the docstring is the developer's, never shown. A field's label is its name made readable (`case_sensitive` is "Case sensitive") unless its `Param(title=)` says otherwise. `extra` is the host's own JSON about the node, kept and described, never read by conductor.
+`@node("id", version=, title=, description=, category=, tags=, extra=, docs=, policy=, deprecation=, compute_added_inputs=, compute_outputs=, replaces=, upgrade=)` wraps a plain function and returns a frozen, callable `FunctionDefinition`; it registers nothing. `stored_graph("id", title=, description=, ...)(record)` makes a `StoredGraphDefinition`, which has no function, so calling it is a type error; `NodeDefinition` is the union of the two, and a reader tells them apart with `match`. `@registry.node(...)` takes the same arguments and adds the node to that registry. The id, `title` and `description` are required, and an empty `title` or `description` (or one of only spaces) is a `NodeDeclarationError` of `empty_title_or_description`: the title and description are what a person reads for the node, and the docstring is the developer's, never shown. A field's label is its name made readable (`case_sensitive` is "Case sensitive") unless its `Param(title=)` says otherwise. `extra` is the host's own JSON about the node, kept and described, never read by conductor.
 
 - Input: `text: str`, or `Annotated[str, Param(title=, description=, widget=, ge=, le=, max_length=, ...)]`. Without a widget an editor shows no control for it: an edge fills it, or a value set in code. A default makes it optional, and is checked against the type and written as JSON once, where it is written; one that isn't of its type, or that its type can't write as JSON, is `default_invalid`. A limit that can't apply to its type (`ge` on a `str`) is refused where it is written (`bound_invalid`). Stacked `Param`s (an alias such as `Annotated[str, Param(widget=TextInput())]` wrapped again with `Param(min_length=1)`) merge as pydantic stacks its fields, the later winning per argument and per limit; a `Param` on a `Series` item is the field's.
 - Choices: `Param(choices=[...])`, each a value or a `Choice(id, title)` (from `conductor`), is the one home of a field's choices, carried in its record as `choices`: on a `Literal` field they title its values, one each; on any other they limit what it takes (`not_a_choice`). Each is read as an answer is, strictly from its JSON form and held to the field's limits, so an enum's value or a date's ISO text is a choice. With none, a `Literal` field's choices are its values. An `Ask` gives a question choices the run knows; else a question has its output's. Errors: `choices_invalid`.
@@ -83,7 +83,7 @@ assert greet.versions == (2, 1) and greet.version_of(1) is greet_v1
 - `version=` is one past the version replaced, or 1; a host whose stored graphs have their own numbers names them. `Upgrade(renamed_inputs={old: new}, renamed_outputs={old: new}, rewrite=fn)` goes beside `replaces=`; an input rename carries its value, default and edges in, an output rename the edges out of it and out of a field of it, and `fn` takes and returns what is typed into the node, values and defaults as one map (a default stays one, anything new is a value); an edge into an input the new version neither keeps nor renames is dropped. It is required only when a field name of the replaced version is gone: a gone input needs a rename or `fn`, a gone output a rename (`upgrade_missing` at the declaration).
 - `registry.upgrade(record, node_id, to=None)` moves one node to a version and returns a `GraphRecord`; what it can't do is `InvalidCallError`. Loading never upgrades: a graph saved at an old version runs it.
 - `Deprecation(header=, description=, alternative=, migration=)` marks a version going away (`deprecation=` on its `@node`). The `alternative` is an id for a person to read.
-- A stored graph is a node too: `node("enrich", title="Enrich")(record)`, with `replaces=` and `version=` as any node, and no `policy` or hook (`not_for_a_graph`), since its nodes run by their own. Its nodes run where it stands; from outside it is one node (see "The graph record"), whose inputs are the open inputs of its first nodes, by their names there (`text`, `t.text` on a clash), and whose outputs are the outputs nothing inside reads, by their addresses there (`t.result`).
+- A stored graph is a node too: `stored_graph("enrich", title="Enrich", description="...")(record)`, with `replaces=` and `version=` as any node, and no `policy` or hook, since its nodes run by their own; `registry.stored_graph(...)` takes the same arguments and adds the node. Its nodes run where it stands; from outside it is one node (see "The graph record"), whose inputs are the open inputs of its first nodes, by their names there (`text`, `t.text` on a clash), and whose outputs are the outputs nothing inside reads, by their addresses there (`t.result`).
 
 ### Field Hooks
 
@@ -125,7 +125,7 @@ Any type pydantic can check and write as JSON travels on edges: `str`, `int`, `f
 
 ### Loading
 
-`registry.load(record)` takes a `GraphRecord`, JSON text or a mapping. It never raises for a fault in the graph: each fault is a `Problem` (`type`, `loc`, `msg`, `ctx`) in `graph.problems`, and `graph.is_runnable` says whether there are none.
+`registry.load(record)` takes a `GraphRecord` or its JSON text; a host that holds a dict writes `GraphRecord.model_validate(data)`. JSON text that isn't a record's shape raises `InvalidCallError` of `invalid_record` problems. It never raises for a fault in the graph: each fault is a `Problem` (`type`, `loc`, `msg`, `ctx`) in `graph.problems`, and `graph.is_runnable` says whether there are none.
 
 - The rule: the shape is the call's, what the shape says is the graph's. What doesn't have a record's shape raises `InvalidCallError`, one `invalid_record` problem per fault, at `("record", *where)`, with pydantic's code in `ctx.error`. That covers text that isn't JSON, a key a record doesn't have (`vaules`, or `type` for `node`), a field of the wrong type, and an edge that isn't a pair of addresses.
 - The graph keeps its own copy of the definitions it resolved, so a later change to the registry doesn't reach it.
@@ -270,7 +270,7 @@ A function node's `describe()` is a `FunctionNodeDescription`, a pydantic record
 
 ## API Reference
 
-Five public modules: `conductor`, `conductor.widgets`, `conductor.events`, `conductor.testing` and `conductor.about` (this reference). Each lists its names in `__all__`, and the list under each module below is written from it when this reference is read; import from nothing else.
+Five public modules: `conductor`, `conductor.widgets`, `conductor.events`, `conductor.testing` and `conductor.about` (this reference, read with `python -m conductor.about`). Each but the last lists its names in `__all__`, and the list under each module below is written from it when this reference is read; import from nothing else.
 
 ### conductor
 
@@ -324,10 +324,6 @@ Every event record, and `Event`, their union on `type`:
 
 <!-- names: conductor.events -->
 
-### conductor.about
-
-<!-- names: conductor.about -->
-
 ## Serving Runs
 
 The core has no HTTP in it. `syv-conductor-providers` has `conductor_providers.fastapi.run_router(store=, registry=, caller=, may_see=)`, a FastAPI router mounted with `app.include_router(...)`: `GET /nodes`, `POST /load`, and a run you start, follow, read, answer, resume, run again and cancel by id, from any worker; `docs/serving-runs.md` is its guide. The host writes the `conductor_providers.fastapi.RunStore`, six async methods over one row per run (`conductor_providers.fastapi.StoredRun`: ten columns, of which a store acts on `id`, `rev`, `owner` and `lease_until`, a host queries `status` and `caller`, and `graph`, `run`, `state` and `outcome` are the router's JSON, kept as text) whose every change is a compare-and-set on `rev`, and a FastAPI dependency for the caller, a class or a function with a return annotation, whose type is kept on each run. With a `caller`, `may_see(caller, started_by)` is required and says who may read and act on a run; there is no default, and the caller should hold what identifies them and nothing that changes, since a run keeps its caller as they were when it started. `registry=` may be a function of the caller, for a registry per tenant. A node is given a way to connect, never a connection, because it runs on another thread. An answer claims the run at the revision it read. A lease, renewed while a leg runs, lets another worker resume a dead worker's run from its last `run_checkpoint`. A deploy hands its legs back (`stream(hand_back=)`), each run stored as it stands, still `running`. Answers sent while a leg runs wait on the run and are applied when it ends. Every refusal the router makes is `{"detail": [problem, ...]}`: a 422 holds the codes of the graph or the run, a 404 and a 409 the router's own (`no_such_run`, `already_answered`, `run_complete`, `run_not_resumable`, `run_changed`); a leg that raised outside a node ends `failed`, with conductor's own problem as the cause where conductor refused the leg (`from_run_missing`, `state_unreadable`, `state_unwritable`) and `leg_failed` otherwise, and the run lists what waits in its last checkpoint; a raise from the store fails no run, the lease brings the run back; a queued answer whose type's check raises is refused as `answer_check_failed`; `conductor_providers.fastapi.ROUTER_PROBLEMS` is the catalogue of the router's seven codes, read as `PROBLEMS` is.
@@ -348,5 +344,3 @@ python -m conductor.about                 # full text
 python -m conductor.about sections        # section slugs
 python -m conductor.about one-or-many     # one section (prefix or substring)
 ```
-
-From Python, import the same from `conductor.about`.

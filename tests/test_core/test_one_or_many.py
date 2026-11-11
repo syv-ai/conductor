@@ -12,7 +12,15 @@ from collections import Counter
 from typing import Annotated, Any, Literal, TypeAliasType
 
 import pytest
-from conductor import Ask, GraphRecord, InvalidCallError, NodeRegistry, Param, Series, node
+from conductor import (
+    Ask,
+    GraphRecord,
+    InvalidCallError,
+    NodeRegistry,
+    Param,
+    Series,
+    stored_graph,
+)
 from pydantic import BaseModel, ValidationError
 
 CALLS: Counter[str] = Counter()
@@ -45,34 +53,34 @@ def overall(texts: Series[str]) -> str:
     return f"overall({len(texts)})"
 
 
-@registry.node("compare", title="Compare", description="")
+@registry.node("compare", title="Compare", description="For a test.")
 def compare(contract: str, appendix: str) -> str:
     CALLS["compare"] += 1
     return f"{contract}~{appendix}"
 
 
-@registry.node("with_appendices", title="With appendices", description="")
+@registry.node("with_appendices", title="With appendices", description="For a test.")
 def with_appendices(contract: str, appendices: Series[str]) -> str:
     CALLS["with_appendices"] += 1
     return f"{contract}+{len(appendices)}"
 
 
-@registry.node("tags", title="Tags", description="")
+@registry.node("tags", title="Tags", description="For a test.")
 def tags(tags: list[str]) -> int:
     return len(tags)
 
 
-@registry.node("anything", title="Anything", description="")
+@registry.node("anything", title="Anything", description="For a test.")
 def anything(value: Any) -> str:
     return type(value).__name__
 
 
-@registry.node("split", title="Split", description="")
+@registry.node("split", title="Split", description="For a test.")
 def split(text: str) -> Series[str]:
     return text.split(",")
 
 
-@registry.node("approve", title="Approve", description="")
+@registry.node("approve", title="Approve", description="For a test.")
 def approve(text: str) -> bool:
     raise Ask(f"approve {text}?")
 
@@ -88,7 +96,7 @@ def drawn(*nodes: tuple[str, str] | dict[str, Any], edges: tuple[tuple[str, str]
 def ran(record: dict[str, Any], reg: NodeRegistry = registry, max_items: int | None = None, **inputs: Any) -> Any:
     """The run of a record that loads clean, its calls counted afresh in ``CALLS``."""
     CALLS.clear()
-    graph = reg.load(record)
+    graph = reg.load(GraphRecord.model_validate(record))
     assert graph.problems == [], graph.problems
     return graph.run(inputs, max_items=max_items)
 
@@ -129,7 +137,7 @@ def test_both_in_one_graph_review_each_contract_and_then_all_of_them_once():
 
 
 def test_a_graph_is_the_one_graph_that_was_loaded_however_many_files_a_run_is_given():
-    graph = registry.load(PER)
+    graph = registry.load(GraphRecord.model_validate(PER))
     fingerprint = graph.fingerprint
     for files in ([], ["a"], ["a", "b"]):
         run = graph.run(json.loads(json.dumps({"files": files})))
@@ -147,7 +155,7 @@ GATHERED = drawn(("c", "upload"), ("a", "upload"), ("w", "with_appendices"), edg
 
 def test_two_uploads_meeting_at_a_node_are_refused_at_load_and_one_contract_is_there_beside_each_appendix():
     """Which contract goes with which appendix is the author's to draw, never guessed."""
-    (problem,) = registry.load(TWO).problems
+    (problem,) = registry.load(GraphRecord.model_validate(TWO)).problems
     assert (problem.type, problem.loc, problem.ctx["series"]) == ("series_not_nested", ("cmp",), ["c.result", "a.result"])
     assert ran(ONE_CONTRACT, file="c", files=["a1", "a2"]).outputs == {"cmp.result": ["C~a1", "C~a2"]}
     assert CALLS == {"read": 1, "compare": 2}
@@ -177,25 +185,25 @@ def _refused(call: Any) -> list[tuple[str, tuple[str, ...]]]:
 
 
 def test_a_list_given_or_typed_at_an_input_of_one_value_is_refused_and_makes_no_items():
-    graph = registry.load(drawn(("r", "review")))
+    graph = registry.load(GraphRecord.model_validate(drawn(("r", "review"))))
     assert _refused(lambda: graph.run(text=["a", "b"])) == [("invalid_input", ("inputs", "text"))]
     assert _refused(lambda: graph.run(text=["a"])) == [("invalid_input", ("inputs", "text"))]
     assert graph.run(text="a").outputs == {"r.result": "rev(a)"}
 
-    typed = registry.load(drawn({"id": "cmp", "node": "compare", "values": {"contract": ["c1", "c2"], "appendix": "a"}}))
+    typed = registry.load(GraphRecord.model_validate(drawn({"id": "cmp", "node": "compare", "values": {"contract": ["c1", "c2"], "appendix": "a"}})))
     assert [(p.type, p.loc) for p in typed.problems] == [("invalid_value", ("cmp", "contract"))]
 
 
 def test_an_input_whose_type_takes_a_list_takes_it_as_one_value_and_a_series_input_takes_only_a_list():
     assert ran(drawn(("t", "tags")), tags=["x", "y"]).outputs == {"t.result": 2}
     assert ran(drawn(("v", "anything")), value=["x", "y"]).outputs == {"v.result": "list"}
-    overall_alone = registry.load(drawn(("o", "overall")))
+    overall_alone = registry.load(GraphRecord.model_validate(drawn(("o", "overall"))))
     assert overall_alone.run(texts=["one"]).outputs == {"o.result": "overall(1)"}
     assert _refused(lambda: overall_alone.run(texts="one")) == [("invalid_input", ("inputs", "texts"))]
 
 
 def test_a_run_that_waits_per_item_saves_and_loads_back_onto_the_same_items():
-    graph = registry.load(drawn(("s", "split"), ("q", "approve"), edges=(("s.result", "q.text"),)))
+    graph = registry.load(GraphRecord.model_validate(drawn(("s", "split"), ("q", "approve"), edges=(("s.result", "q.text"),))))
     run = graph.run(text="a,b")
     assert [w.loc[1:] for w in run.waiting] == [(0,), (1,)]
     saved = graph.load_run(run.to_json())
@@ -212,7 +220,7 @@ def test_an_embedded_graph_fed_one_file_per_outer_item_runs_per_item_whether_it_
     reg.add_subregistry(registry)
     per = drawn(("read", "read"), ("review", "review"), edges=(("read.result", "review.text"),))
     together = drawn(("read", "read"), ("overall", "overall"), edges=(("read.result", "overall.texts"),))
-    reg.add(node("per", title="Per", description="")(GraphRecord.model_validate(per)), node("together", title="Together", description="")(GraphRecord.model_validate(together)))
+    reg.add(stored_graph("per", title="Per", description="For a test.")(GraphRecord.model_validate(per)), stored_graph("together", title="Together", description="For a test.")(GraphRecord.model_validate(together)))
     for inner, results in (("per", ["rev(X)", "rev(Y)", "rev(Z)"]), ("together", ["overall(1)", "overall(1)", "overall(1)"])):
         outer = drawn(("s", "split"), ("e", inner), edges=(("s.result", "e.file"),))
         assert list(ran(outer, reg, text="x,y,z").outputs.values()) == [results]
@@ -225,7 +233,7 @@ def test_an_embedded_graph_fed_one_file_per_outer_item_runs_per_item_whether_it_
 def _checked_registry() -> NodeRegistry:
     held = NodeRegistry()
 
-    @held.node("level", title="Level", description="")
+    @held.node("level", title="Level", description="For a test.")
     def level(n: Literal[1, 2, 3]) -> int:
         return n
 
@@ -248,19 +256,19 @@ def test_a_yes_or_no_never_lands_on_a_literal_of_numbers():
 def test_a_yes_or_no_never_lands_on_a_union_a_number_is_in_and_a_yes_or_no_is_not():
     held = NodeRegistry()
 
-    @held.node("either", title="Either", description="")
+    @held.node("either", title="Either", description="For a test.")
     def either(n: int | float) -> str:
         return repr(n)
 
-    @held.node("or-text", title="Or text", description="")
+    @held.node("or-text", title="Or text", description="For a test.")
     def or_text(n: int | str | None = None) -> str:
         return repr(n)
 
-    @held.node("or-flag", title="Or flag", description="")
+    @held.node("or-flag", title="Or flag", description="For a test.")
     def or_flag(n: int | bool) -> str:
         return repr(n)
 
-    @held.node("returns-yes", title="Returns yes", description="")
+    @held.node("returns-yes", title="Returns yes", description="For a test.")
     def returns_yes(n: int) -> Literal[1, 2] | float:
         return True  # type: ignore[return-value]
 
@@ -289,7 +297,7 @@ Tree = TypeAliasType("Tree", "dict[str, Tree] | list[Tree] | int")
 def test_a_list_given_to_a_type_alias_whose_values_may_be_lists_is_one_value():
     held = NodeRegistry()
 
-    @held.node("depth", title="Depth", description="")
+    @held.node("depth", title="Depth", description="For a test.")
     def depth(tree: Tree) -> str:
         return repr(tree)
 

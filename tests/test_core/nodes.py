@@ -43,12 +43,12 @@ def registry_of(*definitions):
 invoices = NodeRegistry(category="invoices", tags=("finance",))
 
 
-@invoices.node("read-csv", title="Read csv", description="")
+@invoices.node("read-csv", title="Read csv", description="For a test.")
 def read_csv(text: str) -> Table[Invoice]:
     return pl.read_csv(io.StringIO(text))
 
 
-@invoices.node("approve", title="Approve", description="")
+@invoices.node("approve", title="Approve", description="For a test.")
 def approve(name: str, amount: int) -> Literal["yes", "no", "auto"]:
     note_call(f"approve {name}")
     if amount < 1000:
@@ -56,12 +56,12 @@ def approve(name: str, amount: int) -> Literal["yes", "no", "auto"]:
     raise Ask(f"Approve {name} for {amount}?")
 
 
-@invoices.node("summary", title="Summary", description="")
+@invoices.node("summary", title="Summary", description="For a test.")
 def summary(decisions: Series[str]) -> str:
     return " | ".join(decisions)
 
 
-@invoices.node("mail", title="Mail", description="")
+@invoices.node("mail", title="Mail", description="For a test.")
 def mail(email: str) -> str:
     note_call(f"mail {email}")
     return f"sent to {email}"
@@ -70,32 +70,32 @@ def mail(email: str) -> str:
 text = NodeRegistry(category="text")
 
 
-@text.node("upper", title="Upper", description="")
+@text.node("upper", title="Upper", description="For a test.")
 def upper(text: str) -> str:
     return text.upper()
 
 
-@text.node("lower", title="Lower", description="")
+@text.node("lower", title="Lower", description="For a test.")
 def lower(text: str) -> str:
     return text.lower()
 
 
-@text.node("tail", title="Tail", description="")
+@text.node("tail", title="Tail", description="For a test.")
 def tail(text: str) -> str:
     return text + "."
 
 
-@text.node("repeat", title="Repeat", description="")
+@text.node("repeat", title="Repeat", description="For a test.")
 def repeat(text: str, times: Annotated[int, Param(title="Times", ge=0)] = 1) -> str:
     return text * times
 
 
-@text.node("split", title="Split", description="")
+@text.node("split", title="Split", description="For a test.")
 def split(text: str, sep: str = ",") -> Series[str]:
     return text.split(sep)
 
 
-@text.node("join", title="Join", description="")
+@text.node("join", title="Join", description="For a test.")
 def join(texts: Series[str]) -> str:
     return "+".join(texts)
 
@@ -106,7 +106,7 @@ class Length:
     short: str
 
 
-@text.node("route", title="Route", description="")
+@text.node("route", title="Route", description="For a test.")
 def route(text: str) -> Length:
     return Length(text, SKIPPED) if len(text) > 3 else Length(SKIPPED, text)
 

@@ -103,7 +103,8 @@ def test_cli_help_flag():
     assert "python -m conductor.about" in result.stdout
 
 
-PUBLIC_MODULES = ("conductor", "conductor.widgets", "conductor.events", "conductor.testing", "conductor.about")
+#: The public modules that list names; ``conductor.about`` has none, so it has no section of them.
+PUBLIC_MODULES = ("conductor", "conductor.widgets", "conductor.events", "conductor.testing")
 
 
 @pytest.mark.parametrize("module_name", PUBLIC_MODULES)
