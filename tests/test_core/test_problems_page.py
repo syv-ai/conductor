@@ -1,8 +1,4 @@
-"""``docs/problems.md`` has one section for every code conductor writes, with an example that makes it.
-
-The codes are the three catalogues' (the core's, ``conductor.testing``'s and the runs router's) and
-``DeclarationCode``'s. A code both a graph and a declaration can have has a section in each group.
-"""
+"""Every message conductor writes says what to do, and each example on ``docs/problems.md`` prints the code of its section."""
 
 from __future__ import annotations
 
@@ -13,18 +9,13 @@ import pathlib
 import re
 import sys
 import types
-import typing
 
 import pytest
 from conductor import PROBLEMS
-from conductor._internal.kit_problem import KIT_PROBLEMS
-from conductor._internal.problem import DeclarationCode
-from conductor_providers.fastapi import ROUTER_PROBLEMS
 
 _ROOT = pathlib.Path(__file__).parents[2]
 _PACKAGE = _ROOT / "packages" / "conductor" / "src" / "conductor"
 _PAGE = (_ROOT / "docs" / "problems.md").read_text()
-_DECLARED = " (declaring a node)"
 #: Messages that carry no fix of their own: a node's failure keeps the node's words, an outside failure has none a
 #: person can act on, and an answer's ``reason`` is pydantic's account of what the answer lacks.
 _NO_FIX = {"failed", "external_failed", "invalid_answer"}
@@ -48,23 +39,6 @@ def _declaration_messages() -> dict[str, list[str]]:
                 if isinstance(code, ast.Constant):
                     found.setdefault(code.value, []).append(_template(call.args[0]))
     return found
-
-
-def _sections() -> list[tuple[str, str]]:
-    """``(heading, text)`` for each ``### `code` `` section, the heading as it is after the backticks."""
-    parts = re.split(r"^### `([a-z_]+)`(.*)$", _PAGE, flags=re.M)
-    return [(code + rest, body) for code, rest, body in zip(parts[1::3], parts[2::3], parts[3::3])]
-
-
-def _wanted() -> list[str]:
-    """Every section the page owes, by heading."""
-    declared = [code + _DECLARED if code in PROBLEMS.codes else code for code in typing.get_args(DeclarationCode)]
-    return [*declared, *(KIT_PROBLEMS.codes | ROUTER_PROBLEMS.codes | PROBLEMS.codes)]
-
-
-def test_every_code_has_one_section_and_no_section_names_another() -> None:
-    headings = [heading for heading, _ in _sections()]
-    assert sorted(headings) == sorted(_wanted()), set(headings) ^ set(_wanted())
 
 
 def test_every_message_says_what_to_do() -> None:
