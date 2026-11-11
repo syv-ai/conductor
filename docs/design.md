@@ -134,7 +134,7 @@ def send(middle: str) -> str:
 
 
 sent = registry.load(make_graph(middle_name, send)).run(name=["Ida", "Bo"])
-print(sent.status, sent.not_called)  # complete [{'node_id': 'send', 'row': (1,), 'input': 'middle'}]
+print(sent.status, sent.not_called)  # complete [NotCalled(node_id='send', row=(1,), input='middle')]
 ```
 
 **Worth questioning:** the run ends `complete` with a row not sent. This holds because the run records which row and which input, so a host can say "Bo's row was not sent: middle name blank" instead of failing everyone.

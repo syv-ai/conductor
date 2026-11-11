@@ -26,6 +26,7 @@ from conductor import (
     GraphRecord,
     InvalidCallError,
     NodeRecord,
+    NotCalled,
     Series,
     Table,
     make_graph,
@@ -845,8 +846,8 @@ def test_a_blank_and_a_skipped_unit_come_back_from_a_save_and_a_resumed_run_name
     loaded = graph.load_run(run.to_json())
     assert loaded._units == run._units
     assert loaded.resume().not_called == run.not_called == [
-        {"node_id": "s", "row": (1,), "input": "email"},
-        {"node_id": "c", "row": (1,), "input": "email"},
+        NotCalled(node_id="s", row=(1,), input="email"),
+        NotCalled(node_id="c", row=(1,), input="email"),
     ]
 
 

@@ -24,6 +24,7 @@ from conductor import (
     GraphRecord,
     InvalidCallError,
     NodeRecord,
+    NotCalled,
     Policy,
     Run,
     Series,
@@ -101,7 +102,7 @@ def test_node_complete_counts_the_rows_a_blank_kept_the_node_from_and_a_saved_ru
     (mail,) = [e for e in events if e.type == "node_complete" and e.node_id == "send"]
     assert (mail.rows, mail.not_called, mail.reused_units) == (3, 1, 0)
     loaded = graph.load_run(events[-1].run.to_json())
-    assert loaded.not_called == [{"node_id": "send", "row": (1,), "input": "email"}]
+    assert loaded.not_called == [NotCalled(node_id="send", row=(1,), input="email")]
     assert loaded.results["send"]["result"] == ["sent ida@a.dk", None, "sent al@a.dk"]
     assert loaded.status == "complete"
 
@@ -799,7 +800,7 @@ def test_a_table_with_a_blank_cell_survives_a_saved_run():
     loaded = graph.load_run(run.to_json())
 
     assert loaded.results["c"]["result"].to_dicts() == [{"name": "ida", "email": "ida@a.dk"}, {"name": "bo", "email": None}]
-    assert loaded.not_called == [{"node_id": "m", "row": (1,), "input": "email"}]
+    assert loaded.not_called == [NotCalled(node_id="m", row=(1,), input="email")]
 
 
 def test_a_node_starts_before_any_other_event_about_it_when_its_rows_are_taken_from_earlier_work():
@@ -1017,4 +1018,4 @@ def test_an_embeddings_rows_not_called_count_once_however_many_of_its_nodes_were
 
     (complete,) = [e for e in events if e.type == "node_complete" and e.node_id == "emb"]
     assert (complete.rows, complete.not_called) == (4, 2)
-    assert events[-1].run.not_called == [{"node_id": "emb", "row": (1,), "input": "text"}, {"node_id": "emb", "row": (3,), "input": "text"}]
+    assert events[-1].run.not_called == [NotCalled(node_id="emb", row=(1,), input="text"), NotCalled(node_id="emb", row=(3,), input="text")]

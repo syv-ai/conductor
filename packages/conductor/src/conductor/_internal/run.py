@@ -36,6 +36,7 @@ from pydantic import (
 )
 
 from conductor._internal.ask import RowQuestion, Waiting, answer_outputs, waiting_questions
+from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.errors import InvalidCallError, Problem, make_problem, value_free_errors
 from conductor._internal.fields import (
     SKIPPED,
@@ -69,6 +70,20 @@ PENDING: Any = _Pending()
 
 #: ``run.answer``'s second argument when it is given a mapping of answers instead.
 _ONE_ANSWER: Any = object()
+
+
+class NotCalled(ConductorModel):
+    """A row a node wasn't called on, because a plain input got a blank there.
+
+    Attributes:
+        node_id: The node, as the graph's caller names it.
+        row: The row's place under each table above the node.
+        input: The input that got nothing, as the node's caller names it.
+    """
+
+    node_id: str
+    row: tuple[int, ...]
+    input: str
 
 
 @dataclass(frozen=True)
@@ -395,14 +410,15 @@ class Run:
         )
 
     @property
-    def not_called(self) -> list[dict[str, Any]]:
+    def not_called(self) -> list[NotCalled]:
         """Rows a node wasn't called on because a plain input was blank: which node, row and input."""
-        found, seen = [], set()
+        found: list[NotCalled] = []
+        seen = set()
         for n, units in self._units.items():
             for k, u in units.items():
                 if u.blank_input is not None and (place := (self.graph._outward(n), k)) not in seen:  # an embedding's row once, by its first node
                     seen.add(place)
-                    found.append({"node_id": place[0], "row": k, "input": self.graph._outward(f"{n}.{u.blank_input}").partition(".")[2] or u.blank_input})
+                    found.append(NotCalled(node_id=place[0], row=k, input=self.graph._outward(f"{n}.{u.blank_input}").partition(".")[2] or u.blank_input))
         return found
 
     @property

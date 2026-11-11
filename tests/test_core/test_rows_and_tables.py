@@ -19,6 +19,7 @@ from conductor import (
     GraphRecord,
     InvalidCallError,
     NodeRecord,
+    NotCalled,
     Param,
     Policy,
     RunsOn,
@@ -263,7 +264,7 @@ def test_a_default_is_for_an_input_nothing_is_wired_to_not_for_a_blank():
     run = ran({"id": "c", "node": "contacts"}, {"id": "d", "node": "defaulted"}, edges=(("c.result.email", "d.email"),),
               registry=registry_of(contacts, defaulted), text=CSV)
     assert run.results["d"]["result"] == ["ida@x", None, "nina@x"]
-    assert run.not_called == [{"node_id": "d", "row": (1,), "input": "email"}]
+    assert run.not_called == [NotCalled(node_id="d", row=(1,), input="email")]
 
 
 def test_a_node_all_blank_completes_it_is_never_skipped():
@@ -282,7 +283,7 @@ def test_a_node_all_blank_completes_it_is_never_skipped():
     assert not [e for e in said if e.type == "node_skipped"]
     (complete,) = [e for e in said if e.type == "node_complete" and e.node_id == "s"]
     assert (complete.rows, complete.not_called) == (1, 1)
-    assert said[-1].status == "complete" and said[-1].run.not_called == [{"node_id": "s", "row": (), "input": "email"}]
+    assert said[-1].status == "complete" and said[-1].run.not_called == [NotCalled(node_id="s", row=(), input="email")]
 
 
 @pytest.mark.parametrize("blank_into", ["a", "b"])
@@ -309,14 +310,14 @@ def test_choice_outputs_are_skipped_when_not_called():
               edges=(("c.result.email", "b.email"), ("b.yes", "u.text")), registry=registry_of(contacts, branched, upper), text=CSV)
     assert run.results["b"] == {"yes": ["ida@x", None, "nina@x"], "no": [None, None, None]}
     assert run.results["u"]["result"] == ["IDA@X", None, "NINA@X"]
-    assert [(n["node_id"], n["row"]) for n in run.not_called] == [("b", (1,)), ("u", (1,))]
+    assert [(n.node_id, n.row) for n in run.not_called] == [("b", (1,)), ("u", (1,))]
 
 
 def test_a_row_making_output_not_called_makes_no_rows_so_a_count_of_them_is_not_called_either():
     run = ran({"id": "c", "node": "contacts"}, {"id": "s", "node": "split"}, {"id": "n", "node": "count"},
               edges=(("c.result.email", "s.text"), ("s.result", "n.values")), text=CSV)
     assert run.results["n"]["result"] == [1, None, 1]
-    assert {"node_id": "n", "row": (1,), "input": "values"} in run.not_called
+    assert NotCalled(node_id="n", row=(1,), input="values") in run.not_called
 
 
 def test_a_table_output_not_called_makes_no_rows_so_a_count_of_them_is_not_called_either():
@@ -358,7 +359,7 @@ def test_a_reader_of_a_blank_chain_is_not_called_either():
               edges=(("c.result.email", "u.text"), ("u.result", "v.text")), text=CSV)
     assert run.results["v"]["result"] == ["IDA@X", None, "NINA@X"]
     assert len(CALLED) == 4
-    assert [(n["node_id"], n["row"]) for n in run.not_called] == [("u", (1,)), ("v", (1,))]
+    assert [(n.node_id, n.row) for n in run.not_called] == [("u", (1,)), ("v", (1,))]
 
 
 def test_a_blank_row_leaves_every_series_on_its_index_so_a_zip_stays_paired():
@@ -1360,7 +1361,7 @@ def test_a_table_never_made_on_the_branch_that_ran_is_a_blank_as_it_is_from_one_
 
     for run in (one_maker, alternatives):
         assert run.results["w"] == {"result": None}
-        assert {"node_id": "w", "row": (), "input": "table"} in run.not_called
+        assert NotCalled(node_id="w", row=(), input="table") in run.not_called
 
 
 def test_whole_tables_that_can_both_hold_rows_into_one_table_input_are_still_rows_of_different_tables():
@@ -1787,7 +1788,7 @@ def test_a_gather_over_rows_a_blank_kept_from_being_made_is_not_called_and_is_no
     assert run.results["c"]["result"] == [2, None, 1, 0]  # the last document is empty: 0 lines, made
     assert run.results["w"]["result"] == [1, None, 1, 1]
     assert run.results["t"]["result"] == 3
-    assert {(n["node_id"], n["row"], n["input"]) for n in run.not_called} >= {("c", (1,), "items"), ("w", (1,), "table")}
+    assert {(n.node_id, n.row, n.input) for n in run.not_called} >= {("c", (1,), "items"), ("w", (1,), "table")}
 
 
 

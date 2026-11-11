@@ -17,6 +17,7 @@ from conductor import (
     Ask,
     InvalidCallError,
     NodeDeclarationError,
+    NotCalled,
     Policy,
     Series,
     Table,
@@ -197,7 +198,7 @@ def test_branches_and_blanks():
     blank = registry_of(read_csv, mail).load({"nodes": [{"id": "read", "node": "read-csv"}, {"id": "mail", "node": "mail"}], "edges": [["read.result.email", "mail.email"]]})
     run = blank.run(text="name,email,amount\nIda,ida@a.dk,1\nBo,,2\n")
     assert run.status == "complete" and run.results["mail"]["result"] == ["sent to ida@a.dk", None]
-    assert run.not_called == [{"node_id": "mail", "row": (1,), "input": "email"}]
+    assert run.not_called == [NotCalled(node_id="mail", row=(1,), input="email")]
 
 
 def test_a_list_on_an_open_input_is_rows_and_one_value_gathers_as_a_list_of_one():
