@@ -41,6 +41,41 @@ CI runs ruff and pytest on every PR. Tests marked `slow` time the wall clock and
 - **Notebook outputs are stripped on commit.** Run the cells to see values.
 - **Keep the docs true.** A change to public API updates `README.md`, `docs/`, `llms.txt` and the skills in the same change, and adds a `CHANGELOG.md` line under `[Unreleased]`. Keep every Python block in the docs runnable. Docs describe what the code does; where a commit message and the code disagree, trust the code.
 
+## Rules for the 2.0 rethink (temporary)
+
+This section holds while the 2.0 rethink is under review, and goes when it's merged. It adds to the rules above.
+
+- **Trace types from the doorway.** For each function, method and class, start where outside code or data comes in
+  and work inward. At each layer, ask what has to change earlier so the types here are certain, and change it there.
+  Then delete the check that's no longer needed, instead of keeping it as a safety net.
+- **A Python argument is typed, not checked.** A `NodeDefinition` given to a registry, `extra=`, `Param(...)`, a
+  policy, a widget, or `make_graph`'s nodes is enforced by its declared type and the type checker. It is never
+  re-checked at runtime: no `isinstance` guard, no `_raise_unless_...`, no `checked_...` helper.
+- **Validate only where untyped data arrives:**
+  - JSON being loaded, such as a graph record or a saved run;
+  - values a caller gives to a run;
+  - what a node returns.
+
+  Each is validated once, by pydantic, where it arrives. Inside that boundary, trust the types.
+- **Make invalid states unrepresentable.** A record whose fields hide an either/or becomes two types, and the code
+  dispatches on the type. A field that must hold JSON is typed as JSON. A union in a field usually means a split
+  further up, so trace it and fix it there.
+- **No container kept only to be passed through.** Use typed fields, not a dict, on an object that is built once.
+- **What a person sees is declared, never guessed.**
+  - A node's `title` and `description` are required on `@node`, and a docstring never reaches a user.
+  - A field's label is its name, made readable, unless `Param(title=...)` says otherwise.
+  - A type shown to people declares `type_id` and `type_title`. Nothing falls back, inspects a class or derives text
+    from code.
+- **No helper without a job.** A helper with one caller and no real work of its own is folded into its caller.
+  Every helper that stays has a purpose a reader can see, and a test.
+- **Errors end in `Error`.** A name says what went wrong. `Ask` is the one exception that isn't an error.
+- **Google-style docstrings.**
+  - Every public and internal function, method and class says what it does.
+  - Use `Args`, `Returns`, `Raises` and `Attributes`, and say what each field holds.
+  - No plan references, no wording about time, no coined metaphors.
+- **No host decides conductor's shape.** A finding that comes from one host changes conductor only if it holds as a
+  general library need.
+
 ## Public API
 
 The public API is what the five public modules list in `__all__`. Everything in `conductor._internal`, including anything with a leading underscore, is internal. A breaking change to the public API needs a major version.
