@@ -1,38 +1,32 @@
 """``Graph``: a stored graph checked against the nodes it uses, ready to run.
 
-Loading does everything once: embedded graphs are spliced in as plain nodes,
-every edge and value is checked, and each node gets the rows it runs on. What
-is wrong becomes a ``Problem`` with a place, never an exception.
+Loading does everything once: every edge and value is checked, and each node
+gets the scope it runs in. What is wrong becomes a ``Problem`` with a place,
+never an exception.
 
-Rows. Every value sits on a row of a table. The graph's own table has one
-row, ``()``. An output of many values (``Series`` or ``Table``) makes a new
-table under the row its node ran on; a row of it is its parent's key plus a
-number, ``(0, 3)``. A table is named by the output that makes it,
-``"split.result"``, and a level is the path of table names from the graph's
-own row, so a level and a key always have the same length.
+Scopes. A node at the graph's own scope, ``()``, runs once. A ``Series[T]``
+output read by an input that takes one ``T`` opens a map: the reader runs once
+per item. A map is named by the address of its Series (``split.result``), and
+a scope is the path of maps from the graph's own scope,
+``("docs.result", "extract.lines")``. Declared types alone decide every
+scope, by three rules:
 
-A node runs once per row of its level:
+- an input of one ``T`` fed by a ``Series[T]`` reads one item, inside the map
+  that Series opens;
+- an input fed from an enclosing scope captures that scope's one value;
+- an input of ``Series[T]``, or of ``Table[R]`` fed records, gathers: it
+  receives every value its source made: the items of the innermost map of
+  what feeds it, in order, and it sits in the scope that map's Series was
+  made in; or, from a source that runs once, that one value as a Series of
+  one.
 
-- an input of ``one`` value fed from deeper rows runs the node on those rows,
-  and a value from rows above is copied down;
-- a ``Series`` or ``Table`` input gathers the rows under the node's row, or
-  under the row it shares with a sibling table; it chooses the level, one up
-  from its source, only when no ``one`` input does. Several sources on one
-  table are read in that table's row order;
-- ``one``-value sources must lie on one path of the row tree. Rows of two
-  different tables meet only through a join the author draws. Several edges
-  into one ``one`` input must be alternatives: on opposite branches of one
-  decision, so a row holds at most one of them.
+A node runs in the deepest of its inputs' scopes, and every input's scope
+lies on the path to it: items of two Series never pair up
+(``lists_not_collected``). Readers of one Series read one map.
 
-A list given to an input that takes one value (``FieldSpec.per_item``), by
-the caller or typed in, is a table of its items, and the node runs once per
-item. A caller's list is a table of its own, so two of them meeting at one
-node are rows of different tables (``lists_not_collected``) until a node
-collects one; a ``Series`` input collects a caller's list whole, wherever its
-node runs. A typed-in list is a table under each row its node runs on, a row
-a node made, never another list's.
-Which inputs a caller gives lists decides the rows, so a graph compiles once
-for each such set, on first use.
+A table is one value. An embedded graph is one node: its inputs are the inner
+graph's inputs, its outputs the inner graph's outputs, and a call of it runs
+the inner graph.
 """
 
 from __future__ import annotations
@@ -41,23 +35,17 @@ import dataclasses
 import functools
 import hashlib
 import heapq
+import inspect
+import itertools
 import types
 import typing
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal
-
-import polars as pl
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple
 
 from conductor._internal.ask import output_questions
 from conductor._internal.conductor_model import ConductorModel
-from conductor._internal.errors import (
-    PROBLEM_CATALOGUE,
-    InvalidCallError,
-    NodeError,
-    Problem,
-    make_problem,
-)
+from conductor._internal.errors import InvalidCallError, NodeError, Problem, make_problem
 from conductor._internal.fields import (
     REQUIRED,
     FieldDescription,
@@ -65,17 +53,19 @@ from conductor._internal.fields import (
     FieldValueError,
     accepts,
     already,
-    given_as_items,
     read_field,
     read_given,
+    record_fields,
     takes_a_blank,
     type_id,
+    without_none,
 )
 from conductor._internal.node_definition import (
     FunctionDefinition,
     GraphDefinition,
     HookName,
     NodeDefinition,
+    Policy,
     is_node_id,
     read_by_hooks,
 )
@@ -84,137 +74,327 @@ from conductor._internal.record import GraphRecord, NodeRecord
 if TYPE_CHECKING:
     from conductor._internal.run import Run
 
-#: A path of table names from the graph's own row.
-Level = tuple[str, ...]
-#: What an embedded graph offers where it is embedded: its problems, its inputs and its outputs.
-Offer = tuple[list[Problem], dict[str, tuple[str, str]], dict[str, str]]
-#: An embedded graph loaded alone: its definition's id and version, and the graphs it sits in.
-AloneKey = tuple[str, int, tuple[str, ...]]
-#: Whether an open input at an address, of a field, holding a value, takes a list of items in a compile.
-ListsRule = Callable[[str, FieldSpec, Any], bool]
+#: A path of maps from the graph's own scope, each named by the address of the Series it works through.
+Scope = tuple[str, ...]
 
 
-
-@dataclass(frozen=True)
-class Source:
-    """Where one input reads a value from: a node's output, or a graph input, at the rows of ``level``.
+class Branch(NamedTuple):
+    """One way a decision must go for a node to hold a value.
 
     Attributes:
-        node_id: The node whose output it reads; ``None`` for a graph input or a list typed in.
-        output: The output's name, or for a graph input its address.
-        column: The column of a table output it reads; ``None`` when it reads the output whole.
-        level: The tables whose rows its values come in, from the graph's own row down.
-        made: Whether each value is one item of a list or table the output makes at ``level``. Its unit then sits on
-            the row above, and the item is picked by the last place of the row.
-        type: The type of each value it brings.
-        whole_table: Whether it brings a whole table, not its rows one by one.
-        name: The column it becomes in a table input.
-        columns: For a whole table, the columns its row type names; ``None`` when they are known only when it
-            arrives.
-        anchor: For a gather, how many places of the node's row its rows are gathered under: the row both share.
+        node_id: The node that decides.
+        group: Its exclusive group.
+        output: The output of the group that must hold the value.
     """
 
-    node_id: str | None
+    node_id: str
+    group: str
     output: str
-    column: str | None
-    level: Level
-    made: bool
+
+
+# -- what an edge brings ------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class Value:
+    """An output read as the one value it is, where its node runs or in a scope under it.
+
+    Attributes:
+        node_id: The node whose output it is.
+        output: The output's name.
+        field: The field of the value an edge names (``read.result.email``); ``None`` for the value itself.
+        scope: The scope the node runs in.
+        type: The type of what it brings.
+    """
+
+    node_id: str
+    output: str
+    field: str | None
+    scope: Scope
     type: Any
-    whole_table: bool = False
-    name: str = ""
-    columns: Mapping[str, Any] | None = None
-    anchor: int = 0
+
+    @property
+    def address(self) -> str:
+        """The address an edge names it by."""
+        return f"{self.node_id}.{self.output}.{self.field}" if self.field else f"{self.node_id}.{self.output}"
 
 
-@dataclass
-class InputPlan:
-    """How one input of a placed node gets its value: its sources, or a value typed in."""
+@dataclass(frozen=True, slots=True)
+class Item:
+    """One item of a ``Series`` output, read inside the map the Series opens.
+
+    Attributes:
+        node_id: The node whose output the Series is.
+        output: The output's name.
+        field: The field of each item an edge names (``split.result.email``); ``None`` for the item itself.
+        scope: The map's scope: the scope the node runs in, then the Series.
+        type: The type of what it brings.
+    """
+
+    node_id: str
+    output: str
+    field: str | None
+    scope: Scope
+    type: Any
+
+    @property
+    def address(self) -> str:
+        """The address an edge names it by."""
+        return f"{self.node_id}.{self.output}.{self.field}" if self.field else f"{self.node_id}.{self.output}"
+
+
+#: What an edge brings its input.
+Source = Value | Item
+
+#: What can skip one edge of a gather for every item at once: sets of outputs made where the gathering node runs
+#: or above it. The edge brings nothing when every output of any one set is a branch not taken.
+Gate = tuple[frozenset[Value], ...]
+
+
+# -- how an input gets its value ----------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class Fixed:
+    """An input that holds one value on every call: typed into the node, or its default.
+
+    Attributes:
+        spec: The input's field.
+        value: The value, as the field's type read it.
+    """
 
     spec: FieldSpec
-    sources: list[Source] = field(default_factory=list[Source])
-    value: Any = REQUIRED
-    #: For a table input, the level whose rows it gathers.
-    table_level: Level = ()
-    #: How many places of the node's row the table's rows are gathered under: the row both share.
-    table_anchor: int = 0
-    #: For a table input fed several whole tables on opposite branches: it takes the one whose branch ran.
-    alternatives: bool = False
+    value: Any
 
 
-@dataclass
-class PlacedNode:
-    """One node of a loaded graph: its definition as its hooks made it, and where it runs."""
+@dataclass(frozen=True, slots=True)
+class Open:
+    """An input of a first node that nothing fills: the graph's input, which the caller gives.
+
+    Attributes:
+        spec: The input's field.
+        address: Where a run keeps the caller's value, ``node.input``.
+    """
+
+    spec: FieldSpec
+    address: str
+
+
+@dataclass(frozen=True, slots=True)
+class Read:
+    """An input that edges bring one value on each call.
+
+    Attributes:
+        spec: The input's field.
+        sources: What each edge brings. Several are alternatives, on opposite branches of one decision: a call
+            receives the one whose branch was taken.
+        scope: The scope the value sits in.
+    """
+
+    spec: FieldSpec
+    sources: tuple[Source, ...]
+    scope: Scope
+
+
+@dataclass(frozen=True, slots=True)
+class Gather:
+    """An input of many (a ``Series``, or a ``Table`` fed records) that receives the items of one map as a list.
+
+    Attributes:
+        spec: The input's field.
+        sources: What each edge brings for an item. Several are alternatives, as for any input.
+        gates: For each of ``sources``, what skips it for every item at once.
+        series: The Series whose items are gathered, read whole where it was made.
+        scope: The scope the list sits in: where ``series`` was made.
+    """
+
+    spec: FieldSpec
+    sources: tuple[Source, ...]
+    gates: tuple[Gate, ...]
+    series: Value
+    scope: Scope
+
+
+@dataclass(frozen=True, slots=True)
+class SeriesOfOne:
+    """An input of many fed by a source that runs once: each call receives its one value as a list of one.
+
+    Attributes:
+        spec: The input's field.
+        sources: What each edge brings. Several are alternatives, as for any input.
+        scope: The graph's own scope, where such a source runs.
+    """
+
+    spec: FieldSpec
+    sources: tuple[Value, ...]
+    scope: Scope
+
+
+#: An input that edges feed.
+Fed = Read | Gather | SeriesOfOne
+
+#: How one input of a placed node gets its value.
+InputPlan = Fixed | Open | Fed
+
+
+# -- a node of a loaded graph -------------------------------------------------------------------
+
+
+@dataclass(frozen=True, kw_only=True)
+class _Placed:
+    """What every node of a loaded graph has, whether it is a function or an embedded graph. Never made on its own.
+
+    Attributes:
+        id: The node's id in the record.
+        scope: The scope it runs in.
+        inputs: How each input gets its value, by name; the fields are the node's as its hooks made them.
+        outputs: Each output's field, by name, as its hooks made them.
+        reads: The nodes its edges read.
+        checked: The inputs whose value is read by the input's type before a call, as the types its edges bring
+            don't settle it.
+        opens: The ``Series`` outputs some reader works through one item at a time, which a run holds to
+            ``max_items``. A reader placed after this node adds to it.
+    """
 
     id: str
-    definition: FunctionDefinition[..., Any]
-    record: NodeRecord
-    level: Level = ()
-    inputs: dict[str, InputPlan] = field(default_factory=dict[str, "InputPlan"])
-    #: Each output of many values, and the level its rows are.
-    makes: dict[str, Level] = field(default_factory=dict[str, Level])
-    #: The inputs whose value an edge brings is read by the input's type before a call, as its sources' types don't settle it.
-    checked: tuple[str, ...] = ()
-    #: The placed nodes its edges read.
-    reads: frozenset[str] = frozenset()
-
-    @functools.cached_property
-    def reuse_digest(self) -> str:
-        """What a unit's result rests on besides what it received: the node's version, its code, its fields and its rows.
-
-        So a node redeclared under the same id and version, with other code or a signature that takes a blank or
-        runs on other rows, is new work on ``run.again``. Code is read from the function's own bytecode and
-        constants, not from what it calls.
-        """
-        definition = self.definition
-        fields = [(name, spec.shape, spec.optional, _type_text(spec.type)) for name, spec in (*definition.inputs.items(), *definition.outputs.items())]
-        code = getattr(definition.function, "__code__", None)
-        written = repr((definition.id, definition.version, _code_text(code) if code is not None else "", fields, self.level))
-        return hashlib.blake2b(written.encode(), digest_size=8).hexdigest()
+    scope: Scope
+    inputs: dict[str, InputPlan]
+    outputs: dict[str, FieldSpec]
+    reads: frozenset[str]
+    checked: tuple[str, ...]
+    opens: set[str] = dataclasses.field(default_factory=set[str])
 
     @functools.cached_property
     def plain_inputs(self) -> bool:
-        """Whether no input can hold a mapping (each is a table, or of plain classes), so what a unit received needs no key sorting to hash."""
-        return all(
-            spec.shape == "table" or spec.plain for spec in self.definition.inputs.values()
-        )
+        """Whether no input can hold a mapping, so what a unit received needs no key sorting to hash."""
+        return all(plan.spec.shape == "table" or plan.spec.plain for plan in self.inputs.values())
+
+
+@dataclass(frozen=True, kw_only=True)
+class PlacedFunction(_Placed):
+    """A node of a loaded graph that is a function.
+
+    Attributes:
+        definition: The node as its author declared it.
+    """
+
+    definition: FunctionDefinition[..., Any]
+
+    @property
+    def policy(self) -> Policy:
+        """How the engine calls it."""
+        return self.definition.policy
+
+    @functools.cached_property
+    def reuse_digest(self) -> str:
+        """What a unit's result rests on besides what it received: the node's version, its code, its fields and its scope.
+
+        So a node redeclared under the same id and version, with other code or a signature that takes a blank or
+        runs in another scope, is called again by ``run.again``. Code is read from the function's own bytecode and
+        constants, not from what it calls.
+        """
+        specs = (*(plan.spec for plan in self.inputs.values()), *self.outputs.values())
+        fields = [(spec.name, spec.shape, spec.optional, _type_text(spec.type)) for spec in specs]
+        definition = self.definition
+        written = repr((definition.id, definition.version, _code_text(inspect.unwrap(definition.function).__code__), fields, self.scope))
+        return hashlib.blake2b(written.encode(), digest_size=8).hexdigest()
 
     @functools.cached_property
     def questions(self) -> dict[str, FieldDescription]:
         """What a person is asked for each output when the node raises ``Ask``, before the ``Ask`` adds to it."""
-        return output_questions(self.definition)
+        return output_questions(self.outputs)
+
+
+@dataclass(frozen=True, kw_only=True)
+class PlacedGraph(_Placed):
+    """A node of a loaded graph that is an embedded graph: a call of it runs ``inner``.
+
+    Attributes:
+        definition: The node as its author declared it.
+        inner: The embedded graph, loaded.
+        inner_inputs: The address in ``inner`` of each input this node offers, by the name it offers it under.
+        inner_outputs: The address in ``inner`` of each output this node offers, by the name it offers it under.
+    """
+
+    definition: GraphDefinition
+    inner: Graph
+    inner_inputs: dict[str, str]
+    inner_outputs: dict[str, str]
+
+    @property
+    def policy(self) -> Policy:
+        """How the engine calls it: on the leg's own thread, as the nodes inside carry their own policies."""
+        return _INLINE
+
+    @functools.cached_property
+    def reuse_digest(self) -> str:
+        """What a unit's result rests on besides what it received: the node's version, the inner graph and its scope."""
+        written = repr((self.definition.id, self.definition.version, self.inner.fingerprint, self.scope))
+        return hashlib.blake2b(written.encode(), digest_size=8).hexdigest()
+
+
+#: One node of a loaded graph: a function, or an embedded graph.
+PlacedNode = PlacedFunction | PlacedGraph
+
+#: The policy of a node called on the leg's own thread.
+_INLINE = Policy()
+
+
+# -- what a host reads of a loaded graph --------------------------------------------------------
 
 
 class RunsOn(ConductorModel):
-    """Where a node runs: ``once``, or ``per_row`` of the ``table`` named; ``msg`` says it in English."""
+    """Where a node runs.
 
-    mode: Literal["once", "per_row"]
-    table: str | None = None
+    Attributes:
+        mode: ``once``, or ``per_item`` of a Series.
+        series: The address of the Series it runs per item of; ``None`` for a node that runs once.
+        msg: The same, in English.
+    """
+
+    mode: Literal["once", "per_item"]
+    series: str | None = None
     msg: str
 
 
 class Feed(ConductorModel):
-    """How an input is fed on each row its node runs on; ``msg`` says it in English.
+    """How an input is fed on each call of its node.
 
-    A ``single`` value; ``per_row`` of its ``tables``, a value per row; ``copied_down`` from a table above the node's
-    rows; or the ``whole_column`` of its ``tables`` under each of the node's rows, ``under`` each row of the table a
-    sibling table shares with the node. In ``tables``, ``None`` is the graph's own row.
+    Attributes:
+        mode: ``single`` for one value; ``per_item`` for one item of ``series``; ``captured`` for the value of a
+            scope that encloses the node's; ``gathered`` for every item of ``series`` as one list.
+        series: The address of the Series the mode names; ``None`` for ``single``, for a value ``captured`` from
+            the graph's own scope, and for the one value of a source that runs once, ``gathered`` as a Series of one.
+        msg: The same, in English.
     """
 
-    mode: Literal["single", "per_row", "copied_down", "whole_column"]
-    tables: list[str | None] = []
-    under: str | None = None
+    mode: Literal["single", "per_item", "captured", "gathered"]
+    series: str | None = None
     msg: str
 
 
 class PlacedFieldDescription(FieldDescription):
-    """An input of a node in a loaded graph: its field, and how it is fed (``feed``) on each row its node runs on."""
+    """An input of a node in a loaded graph.
+
+    Attributes:
+        feed: How it is fed on each call of its node.
+    """
 
     feed: Feed
 
 
 class GraphNodeDescription(ConductorModel):
-    """One node of a loaded graph as an editor draws it: the definition it uses, whether it ``loaded``, its own
-    ``problems``, and once loaded where it ``runs`` and its fields as its hooks made them."""
+    """One node of a loaded graph as an editor draws it.
+
+    Attributes:
+        node: The id of the definition it uses.
+        version: The version of that definition.
+        loaded: Whether it loaded; ``problems`` says why when it didn't.
+        problems: The problems placed on it.
+        runs: Where it runs, once loaded.
+        inputs: Its inputs as its hooks made them, once loaded.
+        outputs: Its outputs as its hooks made them, once loaded.
+    """
 
     node: str
     version: int
@@ -225,8 +405,30 @@ class GraphNodeDescription(ConductorModel):
     outputs: list[FieldDescription] = []
 
 
+class GraphInput(FieldDescription):
+    """An open input of a first node, a value of ``graph.inputs``: what a caller fills.
+
+    It is its node's field record; ``default`` is what it holds when the caller gives nothing (the record's
+    default, else the node's), as JSON, and ``None`` when it is ``required``.
+
+    Attributes:
+        address: Where the caller's value goes, ``node.input``.
+        node_id: The node whose input it is.
+    """
+
+    address: str
+    node_id: str
+
+
 class GraphDescription(ConductorModel):
-    """A loaded graph as an editor draws it: each node of the record by id, the graph's inputs and outputs, and every problem."""
+    """A loaded graph as an editor draws it.
+
+    Attributes:
+        nodes: Each node of the record, by id.
+        inputs: The graph's inputs, by name.
+        outputs: The graph's outputs, as addresses.
+        problems: Every problem of the graph.
+    """
 
     nodes: dict[str, GraphNodeDescription]
     inputs: dict[str, GraphInput]
@@ -234,33 +436,21 @@ class GraphDescription(ConductorModel):
     problems: list[Problem]
 
 
-class GraphInput(FieldDescription):
-    """An open input of a first node, a value of ``graph.inputs``: what a caller fills, at ``address`` (``node.input``).
-
-    It is its node's field record, with the ``address`` and ``node_id`` a caller fills; ``name`` is the input's own.
-    ``per_item`` says a list given here is many values, run a row per item, as the input takes one value of a type
-    that takes no list; anything else given is one value. For an embedded graph's input, ``node_id`` is the node that
-    embeds it and ``name`` the name it offers. ``default`` is what it holds when the caller gives nothing (the
-    record's default, else the node's), as JSON, and ``None`` when it is ``required``.
-    """
-
-    address: str
-    node_id: str
-    per_item: bool
-
-
 @dataclass(frozen=True, slots=True)
 class InputField:
-    """What a run keeps of a graph input: where it keeps the caller's value (the placed node's address), its name in
-    ``graph.inputs`` and its address there, its field, its Python default, and whether this compile takes a list of
-    items at it."""
+    """What a run keeps of a graph input.
 
-    key: str
+    Attributes:
+        name: Its name in ``graph.inputs``: the input's own, or its address where two inputs share a name.
+        address: Where the caller's value is kept, ``node.input``.
+        spec: Its field.
+        default: What it holds when the caller gives nothing; ``REQUIRED`` when the caller must.
+    """
+
     name: str
     address: str
     spec: FieldSpec
     default: Any
-    listed: bool
 
 
 class Graph:
@@ -272,83 +462,19 @@ class Graph:
     outputs of the nodes nothing reads.
     """
 
+    record: GraphRecord
+    problems: list[Problem]
+    inputs: dict[str, GraphInput]
+    #: Each node that loaded, by id, each after the nodes it reads.
+    _nodes: dict[str, PlacedNode]
+    #: Each graph input as a run keeps it, by address.
+    _input_fields: dict[str, InputField]
+    #: The ways decisions must go for each node to hold a value, as far as load can tell: what every edge into one
+    #: of its inputs rests on. It only says which edges into one input are alternatives.
+    _branches: dict[str, frozenset[Branch]]
+
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         raise TypeError("a graph is loaded with registry.load(record)")
-
-    @classmethod
-    def _loaded(
-        cls, record: GraphRecord, definitions: Mapping[str, NodeDefinition], embedded_in: tuple[str, ...], alone: dict[AloneKey, Offer],
-        is_listed: ListsRule,
-    ) -> Graph:
-        graph = cls.__new__(cls)
-        graph._load(record, definitions, embedded_in, alone, is_listed)
-        return graph
-
-    def _load(
-        self, record: GraphRecord, definitions: Mapping[str, NodeDefinition], embedded_in: tuple[str, ...], alone: dict[AloneKey, Offer],
-        is_listed: ListsRule,
-    ) -> None:
-        self.record = record
-        self._embedded_in = embedded_in
-        #: Whether an open input, by the placed node's address, takes a list of items in this compile.
-        self._is_listed = is_listed
-        #: The open inputs a caller gives a list of items at in a run of this compile, set once compiled.
-        self._listed: frozenset[str] = frozenset()
-        #: The compiles this graph made for other lists, by the inputs given lists. Each holds its own, never this
-        #: one, so no compile holds a cycle.
-        self._compiles: dict[frozenset[str], Graph] = {}
-        #: What each embedded graph loaded alone found, by its definition and the graphs it sits in, shared by every graph
-        #: this load makes, so each is loaded alone once however deep it nests.
-        self._alone = alone
-        self.problems: list[Problem] = []
-        self._definitions = dict(definitions)
-        #: What each embedding drawn in this record offers.
-        self._offers: dict[str, tuple[dict[str, tuple[str, str]], dict[str, str]]] = {}
-        #: Each embedding at any depth, by its spliced id: the record of the graph it embeds.
-        self._embedded: dict[str, GraphRecord] = {}
-        #: A placed field inside an embedding as the record holding that embedding names it: ``o/f/x.text`` -> ``o/f.x.text``.
-        self._seen_as: dict[str, str] = {}
-        placed_records, edges = self._splice(record, "", embedded_in)
-        #: Each embedding's edges from outside it into it, which set the rows its nodes run on.
-        self._entering = {e: [(a, b) for a, b in edges if b.startswith(e + "/") and not a.startswith(e + "/")] for e in self._embedded}
-        #: An inner address as seen from outside: ``e/upper.text`` -> ``e.text``.
-        self._outer: dict[str, str] = {}
-        for e, (ins, outs) in self._offers.items():
-            self._outer.update({f"{n}.{i}": f"{e}.{name}" for name, (n, i) in ins.items()})
-            self._outer.update({address: f"{e}.{name}" for name, address in outs.items()})
-        self._nodes: dict[str, PlacedNode] = {}
-        self.inputs: dict[str, GraphInput] = {}
-        #: Each table, by name, and the node and output that make it (``None`` for a graph input).
-        self._makers: dict[str, tuple[str | None, str]] = {}
-        #: Each list typed into an input, by its address, which names the table of its items.
-        self._typed_lists: dict[str, list[Any]] = {}
-        #: The given lists whose items go under each row of a table: a caller's under the graph's own row, by that table (``""`` for the graph's own row).
-        self._lists_under: dict[str, list[str]] = {}
-        self._graph_inputs: list[tuple[GraphInput, str, FieldSpec, Any, bool]] = []
-        #: Each graph input as the run keeps it, by the address of the placed node's input.
-        self._input_fields: dict[str, InputField] = {}
-        #: Each first node's input a hook reads and nothing fills, by its placed address: a caller never fills it, and
-        #: a record embedding this graph may type a value into it.
-        self._fixed_open: list[str] = []
-        self._position = {r.id: n for n, (r, _) in enumerate(placed_records)}
-        self._readers: dict[str, list[PlacedNode]] = {r.id: [] for r, _ in placed_records}
-        self._above: dict[str, frozenset[str]] = {}
-        self._placed: dict[str, list[str]] = {}
-        #: The placed nodes an embedding put in its place, at any depth.
-        self._spliced: frozenset[str] = frozenset()
-        #: Each node's branches: the ways decisions must go for it to hold a value, ``(node, group, output)``.
-        self._branches: dict[str, frozenset[tuple[str, str, str]]] = {}
-        self._compile(placed_records, edges)
-        #: What a reader of this graph's results sees: each drawn node, an embedding as one, and the placed node behind each output it gives.
-        self._readable: dict[str, dict[str, tuple[str, str]]] = {}
-        for drawn in record.nodes:
-            if drawn.id in self._offers:
-                outs = self._offers[drawn.id][1]
-                self._readable[drawn.id] = {name: (a.partition(".")[0], a.partition(".")[2]) for name, a in outs.items() if a.partition(".")[0] in self._nodes}
-            elif drawn.id in self._nodes:
-                self._readable[drawn.id] = {o: (drawn.id, o) for o in self._nodes[drawn.id].definition.outputs}
-        if not embedded_in:
-            self.problems = [self._seen_from_outside(p) for p in self.problems]
 
     def __repr__(self) -> str:
         state = "runnable" if self.is_runnable else f"{len(self.problems)} problem{'s' if len(self.problems) != 1 else ''}"
@@ -358,146 +484,55 @@ class Graph:
 
     @property
     def is_runnable(self) -> bool:
+        """Whether the graph has no problems, so it runs."""
         return not self.problems
 
-    @property
+    @functools.cached_property
     def outputs(self) -> list[str]:
         """The outputs of the nodes nothing reads, as addresses."""
-        return [address for address, _ in self._last_outputs]
-
-    @functools.cached_property
-    def _last_outputs(self) -> list[tuple[str, str]]:
-        """Each output of the nodes nothing reads: its address in ``outputs``, beside the placed node's address."""
-        read = {s.node_id for p in self._nodes.values() for i in p.inputs.values() for s in i.sources}
-        return [(self._outward(f"{p.id}.{o}"), f"{p.id}.{o}") for p in self._nodes.values() if p.id not in read for o in p.definition.outputs]
-
-    @functools.cached_property
-    def _tables_seen(self) -> dict[str, str]:
-        """Each table made inside an embedding that an output it offers sits on, by the first such output: how a reader
-        outside names the rows it receives that output on."""
-        seen: dict[str, str] = {}
-        for e, (_, outs) in self._offers.items():
-            for name, address in outs.items():
-                placed = self._nodes.get(address.partition(".")[0])
-                if placed is not None and placed.level and placed.level[-1].startswith(e + "/"):
-                    seen.setdefault(placed.level[-1], f"{e}.{name}")
-        return seen
+        read = {node_id for placed in self._nodes.values() for node_id in placed.reads}
+        return [f"{p.id}.{o}" for p in self._nodes.values() if p.id not in read for o in p.outputs]
 
     @property
     def plan(self) -> dict[str, RunsOn]:
-        """Where each node runs: ``once``, or ``per_row`` of a table; an embedded graph where the outermost of the nodes
-        behind its outputs runs, the rows it is fed on, as a table of its own is no table of this graph."""
-        return dict(self._plan)
-
-    @functools.cached_property
-    def _plan(self) -> dict[str, RunsOn]:
-        """``plan``, made once per load."""
-        levels: dict[str, tuple[bool, Level]] = {}
-        for p in self._nodes.values():
-            node_id = self._outward(p.id)
-            # inside an embedding, a node behind an output it offers decides over one behind none
-            behind = node_id == p.id or any(self._outward(f"{p.id}.{o}") != node_id for o in p.definition.outputs)
-            # an embedding runs on the rows it is fed on: a table made inside it, not a list given at an input it offers, is its own
-            level = p.level if node_id == p.id else tuple(t for t in p.level if not t.startswith(node_id + "/") or t in self._outer)
-            if node_id not in levels or (behind, -len(level)) > (levels[node_id][0], -len(levels[node_id][1])):
-                levels[node_id] = (behind, level)
-        plan: dict[str, RunsOn] = {}
-        for node_id, (_, level) in levels.items():
-            table = self._outward(level[-1], table=True) if level else None
-            plan[node_id] = RunsOn(mode="per_row", table=table, msg=f"per row of {table}") if table else RunsOn(mode="once", msg="once")
-        return plan
+        """Where each node runs: ``once``, or ``per_item`` of the innermost Series of its scope."""
+        return {placed.id: _runs_on(placed.scope) for placed in self._nodes.values()}
 
     @property
     def exclusive_groups(self) -> dict[str, dict[str, list[str]]]:
         """Each node's exclusive groups and their outputs, for a host to say which way a run went."""
         found: dict[str, dict[str, list[str]]] = {}
-        for drawn, fields in self._readable.items():  # an embedding's by the outputs it offers
-            shown = self._groups_shown[drawn]
-            for name, (node_id, output) in fields.items():
-                group = self._nodes[node_id].definition.outputs[output].param.exclusive_group
-                if group:
-                    found.setdefault(drawn, {}).setdefault(shown[node_id, group], []).append(name)
+        for placed in self._nodes.values():
+            for name, spec in placed.outputs.items():
+                if spec.param.exclusive_group:
+                    found.setdefault(placed.id, {}).setdefault(spec.param.exclusive_group, []).append(name)
         return found
 
-    @functools.cached_property
-    def _groups_shown(self) -> dict[str, dict[tuple[str, str], str]]:
-        """Each exclusive group behind a drawn node's outputs, by drawn node, then by its placed node and name, as a
-        reader of the drawn node names it: by its own name, or, where two nodes inside an embedding hold a group of one
-        name, by its node's place inside (``d1/answer``), as each is a decision of its own."""
-        shown: dict[str, dict[tuple[str, str], str]] = {}
-        for drawn, fields in self._readable.items():
-            groups = {
-                (node_id, group) for node_id, output in fields.values()
-                if (group := self._nodes[node_id].definition.outputs[output].param.exclusive_group)
-            }
-            names = [group for _, group in groups]
-            shown[drawn] = {(n, g): g if names.count(g) == 1 else f"{n[len(drawn) + 1:]}/{g}" for n, g in groups}
-        return shown
-
     def describe(self) -> GraphDescription:
-        """The loaded graph as an editor draws it: every node of the record, with its fields as its hooks made them and where it runs.
+        """The loaded graph as an editor draws it: every node of the record, with its fields and where it runs.
 
         Each node lists its own ``problems``, and ``problems`` beside the nodes lists every one. A node that didn't
-        load (an unknown node, a broken edge, or one below it) is there with ``loaded`` false, its problems saying why;
-        an embedded graph is one node, with the fields it offers.
+        load (an unknown node, a broken edge, or one below it) is there with ``loaded`` false, its problems saying
+        why. An embedded graph is one node, with the fields it offers.
         """
         nodes: dict[str, GraphNodeDescription] = {}
-        plan = self.plan
         for record in self.record.nodes:
             own = [p for p in self.problems if p.loc[:1] == (record.id,)]
-            if record.id in self._nodes:
-                placed = self._nodes[record.id]
-                nodes[record.id] = GraphNodeDescription(
-                    node=record.node, version=record.version, loaded=True, problems=own, runs=plan[record.id],
-                    inputs=[f.describe(PlacedFieldDescription, feed=self._feed(placed, n)) for n, f in placed.definition.inputs.items()],
-                    outputs=[f.describe() for f in placed.definition.outputs.values()],
-                )
-            elif record.id in self._offers and record.id in plan:
-                ins = self._offers[record.id][0]
-                shown = self._groups_shown[record.id]
-                nodes[record.id] = GraphNodeDescription(
-                    node=record.node, version=record.version, loaded=True, problems=own, runs=plan[record.id],
-                    inputs=[
-                        self._nodes[n].definition.inputs[i].describe(PlacedFieldDescription, name=name, feed=self._feed(self._nodes[n], i))
-                        for name, (n, i) in ins.items() if n in self._nodes
-                    ],
-                    outputs=[
-                        self._nodes[n].definition.outputs[o].describe(name=name, exclusive_group=shown.get((n, self._nodes[n].definition.outputs[o].param.exclusive_group or "")))
-                        for name, (n, o) in self._readable[record.id].items()
-                    ],
-                )
-            else:
-                nodes[record.id] = GraphNodeDescription(node=record.node, version=record.version, loaded=record.id in plan, problems=own)
-        return GraphDescription(
-            nodes=nodes,
-            inputs=dict(self.inputs),
-            outputs=self.outputs,
-            problems=list(self.problems),
-        )
-
-    def _feed(self, placed: PlacedNode, name: str) -> Feed:
-        """How one input is fed on each row its node runs on: a ``single`` value, ``copied_down`` from a table above,
-        ``per_row`` of a table, or the ``whole_column`` of its tables, ``under`` a row of the table both share for a sibling table."""
-        plan = placed.inputs[name]
-        if not plan.sources:
-            return Feed(mode="single", msg="one value")
-        tables = list(dict.fromkeys(self._outward(s.level[-1], table=True) if s.level else None for s in plan.sources))
-        named = ", ".join("the graph's own row" if t is None else t for t in tables)
-        if plan.spec.shape != "one":
-            beside = [s for s in plan.sources if 0 < s.anchor < len(placed.level) and s.anchor < len(s.level)]
-            if beside:  # a sibling table, gathered under the row the two share
-                under = self._outward(placed.level[beside[0].anchor - 1], table=True)
-                return Feed(mode="whole_column", tables=tables, under=under, msg=f"whole column of {named} under each row of {under}")
-            return Feed(mode="whole_column", tables=tables, msg=f"whole column of {named}")
-        level = plan.sources[0].level
-        if len(level) == len(placed.level):
-            return Feed(mode="per_row", tables=tables, msg=f"per row of {named}") if level else Feed(mode="single", msg="one value")
-        return Feed(mode="copied_down", tables=tables, msg=f"copied down from {named}")
+            placed = self._nodes.get(record.id)
+            if placed is None:
+                nodes[record.id] = GraphNodeDescription(node=record.node, version=record.version, loaded=False, problems=own)
+                continue
+            nodes[record.id] = GraphNodeDescription(
+                node=record.node, version=record.version, loaded=True, problems=own, runs=_runs_on(placed.scope),
+                inputs=[plan.spec.describe(PlacedFieldDescription, feed=_feed(placed.scope, plan)) for plan in placed.inputs.values()],
+                outputs=[spec.describe() for spec in placed.outputs.values()],
+            )
+        return GraphDescription(nodes=nodes, inputs=dict(self.inputs), outputs=self.outputs, problems=list(self.problems))
 
     @functools.cached_property
     def fingerprint(self) -> str:
-        """A short hash of what a run of this graph rests on: each node's id, node, version, values, defaults
-        and the edges, of this record and of every graph embedded in it, however deep.
+        """A short hash of what a run of this graph rests on: each node's id, node, version, values and defaults,
+        the edges, and the fingerprint of every graph embedded in it.
 
         Keys are sorted first, so a record a JSON store gives back in another key order has the same fingerprint.
         ``display`` is left out, as conductor never reads it. A saved run names it, and loading a save into a graph
@@ -505,92 +540,85 @@ class Graph:
         """
         from conductor._internal.run import canonical_json
 
-        records = [self.record, *(self._embedded[node_id] for node_id in sorted(self._embedded))]
-        written = canonical_json([sorted(self._embedded), *(record.model_dump(mode="json", include={"nodes": {"__all__": {"id", "node", "version", "values", "defaults"}}, "edges": True}) for record in records)])
-        return hashlib.blake2b(written, digest_size=8).hexdigest()
+        own = self.record.model_dump(mode="json", include={"nodes": {"__all__": {"id", "node", "version", "values", "defaults"}}, "edges": True})
+        embedded = {p.id: p.inner.fingerprint for p in self._nodes.values() if isinstance(p, PlacedGraph)}
+        return hashlib.blake2b(canonical_json([own, embedded]), digest_size=8).hexdigest()
 
     # -- running ----------------------------------------------------------------
 
     def with_inputs(
-        self, inputs: Mapping[str, Any] = types.MappingProxyType({}), /, *, max_rows: int | None = None, earlier: Run | None = None, **by_name: Any,
+        self, inputs: Mapping[str, Any] = types.MappingProxyType({}), /, *, max_items: int | None = None, earlier: Run | None = None, **by_name: Any,
     ) -> Run:
         """A run with the caller's inputs checked, not started; ``run.resume()`` starts it.
 
-        Inputs are given by name (``graph.inputs``) or by address
-        (``node.input``), as keywords or as one mapping for names Python can't
-        take as keywords (``{"a.text": ...}``). ``max_rows`` is a ceiling on
-        the rows any one table of the run may have. ``earlier``, a run of this
-        graph or of an earlier version of it, lends its work as ``run.again``
-        does: a node with the same id, version, code, fields and rows is not
-        called on a row that receives what it received there, so after an
-        edit only the nodes it changes, and what they feed, run again.
+        Args:
+            inputs: The inputs by name (``graph.inputs``) or by address (``node.input``), for names Python can't
+                take as keywords (``{"a.text": ...}``).
+            max_items: The most items any one Series a node works through may hold before the run stops.
+            earlier: A run of this graph, or of an earlier version of it, that lends its work as ``run.again``
+                does: a node with the same id, version, code, fields and scope is not called where it receives
+                what it received there, so after an edit only the nodes it changes, and what they feed, run again.
+            **by_name: The inputs, as keywords.
 
-        A list given to an input with ``per_item`` is many values, a row per
-        item, and the run's ``graph`` is this graph compiled for the lists
-        given, so its ``plan`` says where each node ran.
+        Returns:
+            The run, ``ready``.
+
+        Raises:
+            InvalidCallError: The graph has problems, or an input is missing, unknown or not of its type.
         """
         from conductor._internal.run import checked_leg, start_run
 
         if self.problems:
             raise InvalidCallError(self.problems)
-        checked_leg(max_rows=max_rows)
-        by_key, problems = self._given_by_key({**inputs, **by_name})
-        graph = self._compiled_for(frozenset(  # each open input given a list, or given nothing and its default a list
-            key for key, f in self._input_fields.items() if given_as_items(f.spec, by_key[key] if key in by_key else f.default)
-        ))
-        if graph.problems:
-            raise InvalidCallError(graph.problems)
-        run = start_run(graph, graph._checked_inputs(by_key, problems), max_rows)
+        checked_leg(max_items=max_items)
+        run = start_run(self, self._checked_inputs(*self._given_by_address({**inputs, **by_name})), max_items)
         if earlier is not None:
-            run._earlier = earlier._carried(into=graph)
+            run._earlier = earlier._carried(into=self)
         return run
 
-    def calls_for(self, lengths: Mapping[str, int] = types.MappingProxyType({}), /, **by_name: int) -> dict[str, int | None]:
-        """How many times each node is called in a run given lists of these lengths, before any run: ``graph.calls_for(file=11)``.
+    def calls_for(self, lengths: Mapping[str, int] = types.MappingProxyType({}), /) -> dict[str, int | None]:
+        """How many times each node is called at most, before any run, given how many items some Series will hold.
 
-        Lengths are given by input name or address, as ``with_inputs`` takes
-        values; an input not named gets one value, or its default. Each count
-        is a most: a branch not taken calls nothing. A node that runs on rows
-        another node makes counts ``None``, as how many is known only once that
-        node has run. An embedded graph counts the calls of every node in it.
+        ``graph.calls_for({"upload.files": 11})`` counts 11 calls for a node that runs per item of
+        ``upload.files``. A branch not taken calls nothing, so each count is a most.
+
+        Args:
+            lengths: The number of items of a Series, by its address.
+
+        Returns:
+            Each node's count, by id; ``None`` for a node that runs per item of a Series ``lengths`` doesn't name,
+            as how many it holds is known only once its node has run. An embedded graph counts the calls of every
+            node in it.
+
+        Raises:
+            InvalidCallError: The graph has problems, a length is below 0, or one names a Series no node works
+                through.
         """
-        given = {**lengths, **by_name}
-        bad = [name for name, n in given.items() if n < 0]
+        if self.problems:
+            raise InvalidCallError(self.problems)
+        series = {name for placed in self._nodes.values() for name in placed.scope}
+        bad = {name: "a length is 0 or more" for name, n in lengths.items() if n < 0}
+        bad.update({name: "no node of the graph runs per item of it" for name in lengths if name not in series})
         if bad:
-            raise InvalidCallError([make_problem("invalid_input", "inputs", name, name=name, reason="a length is 0 or more") for name in bad])
-        by_key, problems = self._given_by_key(given)
-        if problems:
-            raise InvalidCallError(problems)
-        graph = self._compiled_for(frozenset(  # a length named is a list given; any other input lists as its default does
-            key for key, f in self._input_fields.items() if (f.spec.per_item if key in by_key else given_as_items(f.spec, f.default))
-        ))
-        if graph.problems:
-            raise InvalidCallError(graph.problems)
-        # how many items each list has, by its address: each typed in, each length named, and each default list not named
-        sizes = {address: len(items) for address, items in graph._typed_lists.items()}
-        for key, f in graph._input_fields.items():
-            if f.listed:
-                sizes[key] = by_key[key] if key in by_key else len(f.default)
+            raise InvalidCallError([make_problem("invalid_input", "lengths", name, name=name, reason=reason) for name, reason in bad.items()])
         counts: dict[str, int | None] = {}
-        for placed in graph._nodes.values():
-            calls: int | None = 1
-            for table in placed.level:  # a table a node makes has no size before the run
-                size = sizes.get(table)
-                calls = None if calls is None or size is None else calls * size
-            drawn = graph._outward(placed.id)
-            so_far = counts.get(drawn, 0)
-            counts[drawn] = None if so_far is None or calls is None else so_far + calls
+        for placed in self._nodes.values():
+            factors = [lengths.get(name) for name in placed.scope]
+            if isinstance(placed, PlacedGraph):
+                inside = list(placed.inner.calls_for().values())
+                factors.append(None if None in inside else sum(n for n in inside if n is not None))
+            counts[placed.id] = None if None in factors else functools.reduce(lambda a, b: a * b, (n for n in factors if n is not None), 1)
         return counts
 
     def run(
-        self, inputs: Mapping[str, Any] = types.MappingProxyType({}), /, *, max_rows: int | None = None, from_run: Mapping[type, Any] = types.MappingProxyType({}),
-        timeout: float | None = None, **by_name: Any,
+        self, inputs: Mapping[str, Any] = types.MappingProxyType({}), /, *, max_items: int | None = None,
+        from_run: Mapping[type, Any] = types.MappingProxyType({}), timeout: float | None = None, **by_name: Any,
     ) -> Run:
         """Run the graph with these inputs until it is done, waits for a person, fails or stops."""
-        return self.with_inputs(inputs, max_rows=max_rows, **by_name).resume(from_run=from_run, timeout=timeout)
+        return self.with_inputs(inputs, max_items=max_items, **by_name).resume(from_run=from_run, timeout=timeout)
 
     def load_run(self, saved: str | bytes | Mapping[str, Any]) -> Run:
-        """A run of this graph from what ``run.to_json()`` wrote, compiled for the lists it was given; a graph with problems refuses it with them.
+        """A run of this graph from what ``run.to_json()`` wrote; a graph with problems refuses it with them.
 
         A save is read from its JSON text, a mapping written as JSON first, so a float marked as not finite is in
         place before each value's type reads it.
@@ -598,35 +626,6 @@ class Graph:
         from conductor._internal.run import run_from_json
 
         return run_from_json(self, saved)
-
-    def _offered(self) -> Offer:
-        """What this graph offers where it is embedded: its problems, and its inputs and outputs by the name an
-        embedding offers them under, beside the placed address behind each.
-
-        They are this graph's own ``inputs`` and ``outputs``, as its hooks made them, and the open inputs its hooks
-        read, which take a value typed on the embedding; each named by its field where that is unique and else
-        ``node/field``, as a name holds no dot.
-        """
-        keys = [*((f.address, f.key) for f in self._input_fields.values()), *((self._outward(k), k) for k in self._fixed_open)]
-        ins = [(address, (key.rpartition(".")[0], key.rpartition(".")[2])) for address, key in keys]
-        outs = self._last_outputs
-
-        def names(fields: list[tuple[str, Any]]) -> list[str]:
-            fields_only = [address.partition(".")[2] for address, _ in fields]
-            return [f if fields_only.count(f) == 1 else address.replace(".", "/", 1) for f, (address, _) in zip(fields_only, fields, strict=True)]
-
-        return (
-            self.problems,
-            dict(zip(names(ins), (placed for _, placed in ins), strict=True)),
-            dict(zip(names(outs), (placed for _, placed in outs), strict=True)),
-        )
-
-    def _placed_as(self, node_id: str) -> list[str]:
-        """The placed nodes an id of this record names: the node itself, or every node an embedding put in its place."""
-        found = self._placed.get(node_id)
-        if found is None:
-            found = self._placed[node_id] = [p for p in self._nodes if p == node_id or (p.startswith(node_id + "/") and node_id in self._offers)]
-        return found
 
     def _above_of(self, node_id: str) -> frozenset[str]:
         """Every node ``node_id`` waits on, however far up; worked out when first asked, as most nodes never are."""
@@ -641,160 +640,76 @@ class Graph:
             found = self._above[node_id] = frozenset(seen)
         return found
 
-    def _compiled_for(self, listed: frozenset[str]) -> Graph:
-        """This record compiled for a run given lists of items at ``listed``, by the placed node's address, and one value elsewhere."""
-        if listed == self._listed:
-            return self
-        graph = self._compiles.get(listed)
-        if graph is None:
-            graph = self._compiles[listed] = Graph._loaded(self.record, self._definitions, self._embedded_in, self._alone, _listed_at(listed))
-        return graph
-
-    def _given_by_key(self, given: Mapping[str, Any]) -> tuple[dict[str, Any], list[Problem]]:
-        """What ``given`` names by name or address, by the placed node's address; and each name the graph doesn't
-        offer, and each input given by both its name and its address, as a problem."""
+    def _given_by_address(self, given: Mapping[str, Any]) -> tuple[dict[str, Any], list[Problem]]:
+        """What a caller gave by name or by address, by address; with a problem for each name the graph doesn't
+        offer and each input given by both its name and its address."""
         fields = {**{f.address: f for f in self._input_fields.values()}, **{f.name: f for f in self._input_fields.values()}}
-        by_key: dict[str, Any] = {}
+        by_address: dict[str, Any] = {}
         problems: list[Problem] = []
         for name, value in given.items():
             offered = fields.get(name)
             if offered is None:
                 problems.append(make_problem("not_offered", "inputs", name, name=name, inputs=list(self.inputs)))
-            elif offered.key in by_key:
+            elif offered.address in by_address:
                 problems.append(make_problem("input_given_twice", "inputs", offered.name, name=offered.name, address=offered.address))
             else:
-                by_key[offered.key] = value
-        return by_key, problems
+                by_address[offered.address] = value
+        return by_address, problems
 
-    def _checked_inputs(self, by_key: Mapping[str, Any], problems: list[Problem]) -> dict[str, Any]:
-        """The caller's inputs by address, each checked against its field, a list of items where this compile takes one;
-        every fault at once, after the ``problems`` naming them found."""
+    def _checked_inputs(self, given: Mapping[str, Any], problems: list[Problem]) -> dict[str, Any]:
+        """The value of every graph input, by address: the caller's, read by the input's field, else its default.
+
+        Raises:
+            InvalidCallError: With ``problems`` and then every input that is missing or not of its type.
+        """
         problems, values = list(problems), dict[str, Any]()
-        for key, offered in self._input_fields.items():
-            name, spec = offered.name, offered.spec
-            if key not in by_key:
+        for address, offered in self._input_fields.items():
+            if address not in given:
                 if offered.default is REQUIRED:
-                    problems.append(make_problem("missing_input", "inputs", name, name=name))
-                values[key] = offered.default
+                    problems.append(make_problem("missing_input", "inputs", offered.name, name=offered.name))
+                values[address] = offered.default
                 continue
-            value = by_key[key]
-            if spec.shape == "many" and value is not None and not isinstance(value, (list, tuple, set, frozenset, range, pl.Series)):
-                value = [value]  # one value where many are taken is a list of one
             try:
-                values[key] = read_given(spec, value, items=offered.listed)
+                values[address] = read_given(offered.spec, given[address])
             except FieldValueError as refused:
-                problems.append(make_problem("invalid_input", "inputs", name, name=name, reason=refused.reason, **refused.ctx))
+                problems.append(make_problem("invalid_input", "inputs", offered.name, name=offered.name, reason=refused.reason, **refused.ctx))
         if problems:
             raise InvalidCallError(problems)
         return values
 
-    # -- embedding --------------------------------------------------------------
+    # -- loading ----------------------------------------------------------------
 
-    def _splice(self, record: GraphRecord, prefix: str, stack: tuple[str, ...]) -> tuple[list[tuple[NodeRecord, FunctionDefinition[..., Any] | None]], list[tuple[str, str]]]:
-        """Resolve each node; an embedded graph's nodes take its place under ``<node>/`` ids."""
-        out: list[tuple[NodeRecord, FunctionDefinition[..., Any] | None]] = []
-        edges: list[tuple[str, str]] = []
+    def _load(self, record: GraphRecord, definitions: Mapping[str, NodeDefinition], embedded_in: tuple[str, ...], alone: dict[_AloneKey, Graph]) -> None:
+        """Check ``record`` against ``definitions`` and place each of its nodes, each after the nodes it reads."""
+        self.record = record
+        self.problems = []
+        self.inputs = {}
+        self._definitions = dict(definitions)
+        self._embedded_in = embedded_in
+        self._alone = alone
+        self._nodes = {}
+        self._input_fields = {}
+        self._branches = {}
+        self._above: dict[str, frozenset[str]] = {}
+        #: Each first node's open input, with its default, in the order placed; made the graph's inputs below.
+        self._opened: list[tuple[GraphInput, FieldSpec, Any]] = []
         refused = {n.id for n in record.nodes if not is_node_id(n.id)}
-        for a, b in record.edges:
-            if refused and (a.partition(".")[0] in refused or b.partition(".")[0] in refused):
-                continue  # its own invalid_node_id says why
-            inside = [address.partition(".")[0] for address in (a, b) if "/" in address.partition(".")[0]] if "/" in a or "/" in b else None
-            if inside:  # no node of a record has a '/', so this names a node inside an embedded graph
-                node_id, _, field = b.partition(".")
-                self.problems.append(make_problem("edge_names_missing_node", prefix + node_id, field, node_id=inside[0], source=a, target=b))
-                continue
-            edges.append((prefix + a, prefix + b))
-        renamed: dict[str, str] = {}  # "node.field" -> the inner node's "node.field"
-        offered_here: dict[str, tuple[dict[str, tuple[str, str]], dict[str, str]]] = {}
+        self.problems += [make_problem("invalid_node_id", node_id) for node_id in dict.fromkeys(n.id for n in record.nodes) if node_id in refused]
+        known: dict[str, NodeRecord] = {}
+        twice: set[str] = set()
         for node_record in record.nodes:
-            if node_record.id in refused:
-                self.problems.append(make_problem("invalid_node_id", prefix + node_record.id))
-                continue  # never placed, so it can't stand in for a node an embedded graph puts there
-            if prefix:  # an embedded graph's node, under its embedding's id
-                node_record = node_record.model_copy(update={"id": prefix + node_record.id})
-            definition = self._resolve(node_record)
-            match definition:
-                case None | FunctionDefinition():  # None: a record whose problem is already noted
-                    out.append((node_record, definition))
-                    continue
-                case GraphDefinition(graph=graph):
-                    pass
-            if definition.id in stack:
-                self.problems.append(make_problem("embeds_itself", node_record.id, node=definition.id))
-                out.append((node_record, None))
-                continue
-            loaded_alone = (definition.id, definition.version, (*stack, definition.id))
-            if loaded_alone not in self._alone:
-                self._alone[loaded_alone] = Graph._loaded(graph, self._definitions, loaded_alone[2], self._alone, _listed_at(frozenset()))._offered()
-            alone_problems, offered_ins, offered_outs = self._alone[loaded_alone]
-            if alone_problems:
-                inner_problems = [p.model_dump(mode="json") for p in alone_problems]
-                self.problems.append(make_problem("embedded_graph_broken", node_record.id, graph=definition.id, count=len(inner_problems), problems=inner_problems))
-                out.append((node_record, None))
-                continue
-            self._embedded[node_record.id] = graph
-            inner, inner_edges = self._splice(graph, node_record.id + "/", (*stack, definition.id))
-            ins = {name: (node_record.id + "/" + n, i) for name, (n, i) in offered_ins.items()}
-            outs = {name: node_record.id + "/" + address for name, address in offered_outs.items()}
-            for name, (inner_node, inner_input) in ins.items():
-                self._seen_as[f"{inner_node}.{inner_input}"] = f"{node_record.id}.{name}"
-            for name, address in outs.items():
-                self._seen_as[address] = f"{node_record.id}.{name}"
-            offered_here[node_record.id] = (ins, outs)
-            if not prefix:
-                self._offers[node_record.id] = (ins, outs)
-            for name, (inner_node, inner_input) in ins.items():
-                renamed[f"{node_record.id}.{name}"] = f"{inner_node}.{inner_input}"
-            for name, address in outs.items():
-                renamed[f"{node_record.id}.{name}"] = address
-            for name in sorted({*node_record.values, *node_record.defaults} - ins.keys()):
-                self.problems.append(make_problem("unknown_input", node_record.id, name, inputs=list(ins)))
-            drawn_id = node_record.id[len(prefix):]
-            fed = {target.partition(".")[2] for _, target in record.edges if target.partition(".")[0] == drawn_id}
-            by_node: dict[str, dict[str, str]] = {}
-            for name, (node_id, inner_input) in ins.items():
-                by_node.setdefault(node_id, {})[name] = inner_input
-            inner = [(_given_from_outside(r, node_record, by_node[r.id], fed) if r.id in by_node else r, d) for r, d in inner]
-            out.extend(inner)
-            edges.extend(inner_edges)
-        followed: list[tuple[str, str]] = []
-        for a, b in edges:
-            fa, fb = _follow(a, renamed), _follow(b, renamed)
-            to_node, _, to_field = b.partition(".")
-            if a.partition(".")[0] in offered_here and fa == a:
-                outs = offered_here[a.partition(".")[0]][1]
-                source_id = a.partition(".")[0]
-                self.problems.append(make_problem("unknown_output", to_node, to_field, source=a, outputs=[f"{source_id}.{o}" for o in outs]))
-                continue
-            if to_node in offered_here and fb == b:
-                ins = offered_here[to_node][0]
-                self.problems.append(make_problem("unknown_input", to_node, to_field, inputs=list(ins)))
-                continue
-            followed.append((fa, fb))
-        return out, followed
-
-    def _resolve(self, node_record: NodeRecord) -> NodeDefinition | None:
-        newest = self._definitions.get(node_record.node)
-        if newest is None:
-            self.problems.append(make_problem("unknown_node", node_record.id, node=node_record.node, choices=sorted(self._definitions)))
-            return None
-        if node_record.version != newest.version and node_record.version not in newest.versions:
-            self.problems.append(make_problem("unknown_version", node_record.id, node=node_record.node, version=node_record.version, newest=newest.version))
-            return None
-        return newest.version_of(node_record.version)
-
-    # -- compile ----------------------------------------------------------------
-
-    def _compile(self, placed_records: list[tuple[NodeRecord, FunctionDefinition[..., Any] | None]], edges: list[tuple[str, str]]) -> None:
-        order = [r.id for r, _ in placed_records]
-        known = {r.id: (r, d) for r, d in placed_records}
-        if len(known) != len(placed_records):
-            for node_id in sorted({i for i in order if order.count(i) > 1}):
-                self.problems.append(make_problem("duplicate_node_id", node_id))
-        into: dict[str, dict[str, list[str]]] = {i: {} for i in known}
+            if node_record.id in known:
+                twice.add(node_record.id)
+            elif node_record.id not in refused:
+                known[node_record.id] = node_record
+        self.problems += [make_problem("duplicate_node_id", node_id) for node_id in sorted(twice)]
+        self._position = {node_id: i for i, node_id in enumerate(known)}
+        into: dict[str, dict[str, list[str]]] = {node_id: {} for node_id in known}
         seen: set[tuple[str, str]] = set()
-        for source, target in edges:
+        for source, target in record.edges:
             node_id, _, name = target.partition(".")
+            if source.partition(".")[0] in refused or node_id in refused:
+                continue  # its own invalid_node_id says why
             if (source, target) in seen:
                 self.problems.append(make_problem("repeated_edge", node_id, name, source=source))
                 continue
@@ -804,55 +719,52 @@ class Graph:
                 self.problems.append(make_problem("edge_names_missing_node", node_id, name, node_id=missing[0], source=source, target=target))
             if node_id in known:  # the input is drawn as fed, whether or not its source exists
                 into[node_id].setdefault(name, []).append(source)
-        #: Each node's readers by the record's edges, before any is placed; only an embedded node's floor reads them, while compiling.
-        self._fed: dict[str, list[str]] = {i: [] for i in known} if self._embedded else {}
-        for node_id, fed in into.items() if self._embedded else ():
-            for sources in fed.values():
-                for source in sources:
-                    if source.partition(".")[0] in self._fed:
-                        self._fed[source.partition(".")[0]].append(node_id)
-        #: For each embedded node, the entering edges its floor reads, worked out from the record's edges alone.
-        self._known = known
-        self._floor_reads: dict[str, list[tuple[str, str]]] = {
-            n: self._entering_read(n, d, into) for n, (_, d) in known.items() if d is not None and "/" in n
-        }
-        extra = {n: {a.partition(".")[0] for a, _ in reads} for n, reads in self._floor_reads.items()}
-        ordered, reads = self._order(order, into, extra)
+        ordered, reads = self._order(list(known), into)
         for node_id in ordered:
-            node_record, definition = known[node_id]
+            definition = self._resolve(known[node_id])
             if definition is not None:
-                self._compile_node(node_record, definition, into[node_id], reads[node_id])
-        self._fed = {}
-        offered = [(self._outside(p, key), key, spec, default, listed) for p, key, spec, default, listed in self._graph_inputs]
-        self._graph_inputs = []
-        bare = [p.name for p, *_ in offered]
-        self.inputs = {}
-        for p, key, spec, default, listed in offered:
-            name = p.name if bare.count(p.name) == 1 else p.address
-            self.inputs[name] = p
-            self._input_fields[key] = InputField(key, name, p.address, spec, default, listed)
-        self._listed = frozenset(key for key, f in self._input_fields.items() if f.listed)
-        self._spliced = frozenset(n for n in self._nodes if "/" in n)
-        #: The nodes with a ``FromRun`` parameter, as ``from_run_values`` reads them.
-        self._needs_from_run = [(p.id, p.definition) for p in self._nodes.values() if p.definition.from_run]
+                self._place(known[node_id], definition, into[node_id], reads[node_id])
+        names = [graph_input.name for graph_input, _, _ in self._opened]
+        for graph_input, spec, default in self._opened:
+            name = graph_input.name if names.count(graph_input.name) == 1 else graph_input.address
+            self.inputs[name] = graph_input
+            self._input_fields[graph_input.address] = InputField(name, graph_input.address, spec, default)
+        del self._opened
+        #: The nodes with a ``FromRun`` parameter, an embedded graph's too, as ``from_run_values`` reads them.
+        self._needs_from_run: list[tuple[str, FunctionDefinition[..., Any]]] = []
+        #: The nodes that read each node.
+        self._readers: dict[str, list[PlacedNode]] = {node_id: [] for node_id in self._nodes}
         for placed in self._nodes.values():
+            match placed:
+                case PlacedFunction(definition=function):
+                    if function.from_run:
+                        self._needs_from_run.append((placed.id, function))
+                case PlacedGraph(inner=inner):
+                    self._needs_from_run += inner._needs_from_run
             for source_id in placed.reads:
                 self._readers[source_id].append(placed)
 
-    def _order(self, order: list[str], into: dict[str, dict[str, list[str]]], extra: dict[str, set[str]]) -> tuple[list[str], dict[str, frozenset[str]]]:
-        """The nodes with each after what it reads, ties in drawing order, and the nodes each one's edges read; a node
-        on a cycle is a problem."""
-        position = {n: i for i, n in enumerate(order)}
-        needs = {n: {s.partition(".")[0] for ss in into[n].values() for s in ss} & position.keys() for n in order}
-        reads = {n: frozenset(sources) for n, sources in needs.items()}
-        for n, more in extra.items():
-            if n in needs:
-                needs[n] |= more & position.keys()
+    def _resolve(self, record: NodeRecord) -> NodeDefinition | None:
+        """The definition a node of the record names, at its version; ``None`` with the problem when there is none."""
+        newest = self._definitions.get(record.node)
+        if newest is None:
+            self.problems.append(make_problem("unknown_node", record.id, node=record.node, choices=sorted(self._definitions)))
+            return None
+        if record.version not in newest.versions:
+            self.problems.append(make_problem("unknown_version", record.id, node=record.node, version=record.version, newest=newest.version))
+            return None
+        return newest.version_of(record.version)
+
+    def _order(self, order: list[str], into: dict[str, dict[str, list[str]]]) -> tuple[list[str], dict[str, frozenset[str]]]:
+        """The nodes with each after what it reads, ties in the record's order, and the nodes each one's edges read;
+        a node on a cycle is a problem."""
+        position = self._position
+        reads = {n: frozenset({s.partition(".")[0] for sources in into[n].values() for s in sources} & position.keys()) for n in order}
         readers: dict[str, list[str]] = {n: [] for n in order}
-        for n, sources in needs.items():
+        for n, sources in reads.items():
             for source in sources:
                 readers[source].append(n)
-        waiting = {n: len(sources) for n, sources in needs.items()}
+        waiting = {n: len(sources) for n, sources in reads.items()}
         ready = [position[n] for n in order if not waiting[n]]
         heapq.heapify(ready)
         done: list[str] = []
@@ -869,115 +781,119 @@ class Graph:
                 self.problems.append(make_problem("cycle", n))
         return done, reads
 
-    def _compile_node(self, record: NodeRecord, definition: FunctionDefinition[..., Any], edges: dict[str, list[str]], reads: frozenset[str]) -> None:
-        if definition.compute_added_inputs is not None:
-            added = self._hook(record, definition, "compute_added_inputs", definition.compute_added_inputs, {})
-            if added is None:
-                return
-            taken = sorted(added.keys() & (definition.inputs.keys() | definition.from_run.keys()))
-            if taken:
-                self.problems.append(make_problem("compute_hook_failed", record.id, reason=f"it adds {taken[0]!r}, which the node already declares", error="added_input_taken"))
-                return
-            definition = dataclasses.replace(definition, inputs={**definition.inputs, **added})
-        placed = PlacedNode(record.id, definition, record)
-        broken = False
-        checked: list[str] = []
-        inputs = list(definition.inputs)
-        for name in sorted({*record.values, *record.defaults, *edges} - definition.inputs.keys()):
-            self.problems.append(make_problem("unknown_input", placed.id, name, inputs=inputs))
-        first_node = not any(name in definition.inputs for name in edges)
-        read_at_load = read_by_hooks(definition)
-        for name, spec in definition.inputs.items():
-            # an input an embedded graph offers is open to the caller whether or not edges from outside feed the others
-            first = first_node or f"{record.id}.{name}" in self._seen_as
-            plan = placed.inputs[name] = InputPlan(spec)
+    def _place(self, record: NodeRecord, definition: NodeDefinition, edges: dict[str, list[str]], reads: frozenset[str]) -> None:
+        """Place one node: plan each input, settle its scope, and keep it in ``_nodes``. A node with a problem of
+        its own is left out, and so is every node that reads it."""
+        match definition:
+            case FunctionDefinition():
+                embedded = None
+                fields = self._declared_inputs(record, definition)
+                fixed_at_load = read_by_hooks(definition)
+            case GraphDefinition():
+                embedded = self._embedded(record, definition)
+                fields = embedded.inputs if embedded is not None else None
+                fixed_at_load = frozenset[str]()
+        if fields is None:
+            return
+        for name in sorted({*record.values, *record.defaults, *edges} - fields.keys()):
+            self.problems.append(make_problem("unknown_input", record.id, name, inputs=list(fields)))
+        first = not any(name in fields for name in edges)  # a first node: nothing is wired into it, so the caller fills it
+        inputs: dict[str, InputPlan] = {}
+        for name, spec in fields.items():
             if name in record.values and name in record.defaults:
-                self.problems.append(make_problem("value_and_default", placed.id, name))
+                self.problems.append(make_problem("value_and_default", record.id, name))
             if name in edges:
                 if name in record.values or name in record.defaults:
-                    self.problems.append(make_problem("value_and_edge", placed.id, name))
-                found: list[tuple[str, Source]] = []
-                for address in edges[name]:
-                    source = self._source(address, placed.id, name)
-                    if source is None:
-                        broken = True
-                    else:
-                        found.append((address, source))
-                if len(found) > 1:
-                    found.sort(key=self._gather_order)
-                for address, source in found:
-                    if self._fits(spec, source, address, placed.id, name):
-                        plan.sources.append(source)
-                if any(not _settled(spec, s) for s in plan.sources):
-                    checked.append(name)
-            elif name in record.values and given_as_items(spec, record.values[name]):
-                self._typed_list(placed, name, plan, record.values[name])
+                    self.problems.append(make_problem("value_and_edge", record.id, name))
+                fed = self._fed(record.id, name, spec, edges[name])
+                if fed is None:
+                    return
+                inputs[name] = fed
             elif name in record.values:
-                plan.value = self._typed(placed.id, name, spec, record.values[name])
-            elif first and name not in read_at_load:
-                if name in record.defaults:
-                    default = record.defaults[name]
-                    plan.value = self._typed(placed.id, name, spec, default, items=given_as_items(spec, default))
-                else:
-                    plan.value = spec.default
-                self._open(placed, name, plan)
+                inputs[name] = Fixed(spec, self._typed(record.id, name, spec, record.values[name]))
+            elif first and name not in fixed_at_load:
+                default = self._typed(record.id, name, spec, record.defaults[name]) if name in record.defaults else spec.default
+                required = default is REQUIRED
+                address = f"{record.id}.{name}"
+                described = spec.describe(GraphInput, address=address, node_id=record.id, required=required, default=None if required else spec.json_of(default))
+                self._opened.append((described, spec, default))
+                inputs[name] = Open(spec, address)
             elif name in record.defaults:
-                self.problems.append(make_problem("default_on_later_node", placed.id, name))
-                plan.value = self._typed(placed.id, name, spec, record.defaults[name])
-            elif spec.required and name not in read_at_load:  # a hook reading it says so, as hook_needs_value
-                self.problems.append(make_problem("unbound_on_later_node", placed.id, name))
-            else:
-                plan.value = spec.default
-                if first and name in read_at_load:
-                    self._fixed_open.append(f"{placed.id}.{name}")
-        if broken or not self._place(placed):
-            return
-        placed.reads = reads
-        placed.checked = tuple(checked)
-        if definition.compute_outputs is not None:
-            arriving = {name: _arriving(plan) for name, plan in placed.inputs.items() if plan.sources}
-            outputs = self._hook(record, definition, "compute_outputs", definition.compute_outputs, arriving)
-            if outputs is None:
+                self.problems.append(make_problem("default_on_later_node", record.id, name))
+                inputs[name] = Fixed(spec, self._typed(record.id, name, spec, record.defaults[name]))
+            elif spec.required and name not in fixed_at_load:  # a hook that reads it says so itself, as hook_needs_value
+                self.problems.append(make_problem("unbound_on_later_node", record.id, name))
                 return
-            placed.definition = dataclasses.replace(definition, outputs=outputs)
-        for name, spec in placed.definition.outputs.items():
-            if spec.shape != "one":
-                table = f"{placed.id}.{name}"
-                placed.makes[name] = (*placed.level, table)
-                self._makers[table] = (placed.id, name)
-        if self._on_opposite_branches(placed):
+            else:
+                inputs[name] = Fixed(spec, spec.default)
+        scope = self._scope(record.id, inputs)
+        if scope is None or not self._branches_meet(record.id, inputs):
             return
-        self._nodes[placed.id] = placed
+        checked = tuple(name for name, plan in inputs.items() if _read_before_a_call(plan))
+        match definition:
+            case FunctionDefinition():
+                outputs = self._declared_outputs(record, definition, inputs)
+                if outputs is None:
+                    return
+                placed: PlacedNode = PlacedFunction(
+                    id=record.id, scope=scope, inputs=inputs, outputs=outputs, reads=reads, checked=checked, definition=definition,
+                )
+            case GraphDefinition():
+                assert embedded is not None  # the fields above are its inputs
+                placed = PlacedGraph(
+                    id=record.id, scope=scope, inputs=inputs, outputs=embedded.outputs, reads=reads, checked=checked, definition=definition,
+                    inner=embedded.inner, inner_inputs=embedded.inner_inputs, inner_outputs=embedded.inner_outputs,
+                )
+        for plan in inputs.values():  # a Series read one item at a time is held to max_items by the node that makes it
+            for source in plan.sources if isinstance(plan, Read) else ():
+                if isinstance(source, Item):
+                    self._nodes[source.node_id].opens.add(source.output)
+        self._nodes[record.id] = placed
 
-    def _gather_order(self, edge: tuple[str, Source]) -> tuple[int, int, str]:
-        """Where an edge into an input falls among several: its node's place in the record, then the output's in its node."""
-        address, source = edge
-        node_id = address.partition(".")[0]
-        return self._position[node_id], list(self._nodes[node_id].definition.outputs).index(source.output), address
+    # -- a function's fields ----------------------------------------------------
+
+    def _declared_inputs(self, record: NodeRecord, definition: FunctionDefinition[..., Any]) -> dict[str, FieldSpec] | None:
+        """A function node's inputs: the ones it declares, then the ones its ``compute_added_inputs`` hook adds;
+        ``None`` with the problem when the hook fails."""
+        if definition.compute_added_inputs is None:
+            return dict(definition.inputs)
+        added = self._hook(record, definition, "compute_added_inputs", definition.compute_added_inputs, {})
+        if added is None:
+            return None
+        taken = sorted(added.keys() & (definition.inputs.keys() | definition.from_run.keys()))
+        if taken:
+            self.problems.append(make_problem("compute_hook_failed", record.id, reason=f"it adds {taken[0]!r}, which the node already declares", error="added_input_taken"))
+            return None
+        return {**definition.inputs, **added}
+
+    def _declared_outputs(self, record: NodeRecord, definition: FunctionDefinition[..., Any], inputs: Mapping[str, InputPlan]) -> dict[str, FieldSpec] | None:
+        """A function node's outputs: the ones it declares, or the ones its ``compute_outputs`` hook makes of the
+        type arriving on each input an edge feeds; ``None`` with the problem when the hook fails."""
+        if definition.compute_outputs is None:
+            return dict(definition.outputs)
+        arriving = {name: plan.sources[0].type for name, plan in inputs.items() if isinstance(plan, Fed)}
+        return self._hook(record, definition, "compute_outputs", definition.compute_outputs, arriving)
 
     def _hook(
         self, record: NodeRecord, definition: FunctionDefinition[..., Any], kind: HookName, hook: Callable[..., Mapping[Any, Any]],
         arriving: Mapping[str, Any],
     ) -> dict[str, FieldSpec] | None:
         """Call a hook with the node's typed values and the types arriving on its inputs (``Any`` where nothing
-        arrives): its answer read as fields, or a problem."""
+        arrives): its answer read as fields, or ``None`` with the problem."""
         kwargs: dict[str, Any] = {}
         for name, reads_arriving in definition.hook_parameters[kind].items():
             if reads_arriving:  # only compute_outputs reads one
                 kwargs[name] = arriving.get(name, Any)
-            else:  # @node checked it names a declared input
-                spec = definition.inputs[name]
-                raw = record.values.get(name, record.defaults.get(name, REQUIRED))
-                if raw is REQUIRED and spec.default is REQUIRED:
-                    self.problems.append(make_problem("hook_needs_value", record.id, name))
-                    return None
-                if raw is not REQUIRED and given_as_items(spec, raw):  # the input would take it as rows; the hook can't
-                    self.problems.append(make_problem("invalid_value", record.id, name, reason="a hook works out this node's fields from one value; a list can't be typed in here"))
-                    return None
-                value = spec.default if raw is REQUIRED else self._typed(record.id, name, spec, raw)
-                if value is REQUIRED:
-                    return None  # a value with its own problem
-                kwargs[name] = value
+                continue
+            spec = definition.inputs[name]  # @node checked the parameter names a declared input
+            raw = record.values.get(name, record.defaults.get(name, REQUIRED))
+            if raw is REQUIRED and spec.default is REQUIRED:
+                self.problems.append(make_problem("hook_needs_value", record.id, name))
+                return None
+            value = spec.default if raw is REQUIRED else self._typed(record.id, name, spec, raw)
+            if value is REQUIRED:
+                return None  # a value with its own problem
+            kwargs[name] = value
         try:
             fields = dict(hook(**kwargs))
         except NodeError as error:  # the hook's own account, with its own code and its ctx kept whole
@@ -997,362 +913,299 @@ class Graph:
             self.problems.append(make_problem("compute_hook_failed", record.id, reason=str(error), error=type(error).__name__))
             return None
 
-    def _branch(self, source: Source) -> frozenset[tuple[str, str, str]]:
-        """The ways decisions must go for ``source`` to hold a value: ``(node, exclusive_group, output)``."""
-        if source.node_id is None:
-            return frozenset()
-        spec = self._nodes[source.node_id].definition.outputs[source.output]
-        own: set[tuple[str, str, str]] = {(source.node_id, spec.param.exclusive_group, source.output)} if spec.param.exclusive_group else set()
-        return self._branches[source.node_id] | own
-
-    def _on_opposite_branches(self, placed: PlacedNode) -> bool:
-        """Note the branches ``placed`` holds a value on, and refuse what never meets on a row.
-
-        Several edges into one value must be alternatives, each on its own branch of one decision, or a row would
-        have two values for it; and on rows of one table, or one's rows would have no place for the other's value. Two ``Series`` inputs whose sources never both have a value on a row would drop every row.
-        """
-        taken: set[tuple[str, str, str]] = set()
-        for name, plan in placed.inputs.items():  # a skip on any one input skips the row
-            if plan.spec.shape == "one" and plan.sources:
-                branches = [self._branch(s) for s in plan.sources]
-                if not all(_opposed(a, b) for i, a in enumerate(branches) for b in branches[i + 1:]):
-                    self.problems.append(make_problem(
-                        "several_edges_into_one_value", placed.id, name, sources=[_address(s) for s in plan.sources],
-                    ))
-                    return True
-                levels = list(dict.fromkeys(s.level for s in plan.sources))
-                if len(levels) > 1:  # the rows of the deeper one would have no place for the other's value
-                    self.problems.append(make_problem(
-                        "alternatives_on_different_rows", placed.id, name, tables=[_table(levels[0]), _table(levels[1])],
-                    ))
-                    return True
-                taken |= branches[0] if len(branches) == 1 else branches[0].intersection(*branches[1:])
-        self._branches[placed.id] = frozenset(taken)
-        series = [(n, [self._branch(s) for s in p.sources]) for n, p in placed.inputs.items() if p.spec.shape == "many" and p.sources and not takes_a_blank(p.spec.type)]
-        for i, (a, on_a) in enumerate(series):
-            for b, on_b in series[i + 1:]:
-                if all(_opposed(x, y) for x in on_a for y in on_b):
-                    self.problems.append(make_problem("series_inputs_never_share_a_row", placed.id, inputs=[a, b]))
-                    return True
-        return False
-
-    def _typed(self, node_id: str, name: str, spec: FieldSpec, value: Any, *, items: bool = False) -> Any:
-        """``value`` as ``spec`` reads it (a list of them with ``items``), or ``REQUIRED`` with the problem noted."""
+    def _typed(self, node_id: str, name: str, spec: FieldSpec, value: Any) -> Any:
+        """A value typed into the record, as ``spec`` reads it; ``REQUIRED`` with the problem when it can't."""
         try:
-            return read_given(spec, value, items=items)
+            return read_given(spec, value)
         except FieldValueError as refused:
             problem = make_problem("invalid_value", node_id, name, reason=refused.reason, **refused.ctx)
             if problem not in self.problems:  # a hook reads the value its node's input reads, and is told once
                 self.problems.append(problem)
             return REQUIRED
 
-    def _typed_list(self, placed: PlacedNode, name: str, plan: InputPlan, value: Any) -> None:
-        """A list typed into an input that takes one value: a table of its items under each row the node runs on, which the node runs over."""
-        items = self._typed(placed.id, name, plan.spec, value, items=True)
-        if items is REQUIRED:
-            return
-        address = f"{placed.id}.{name}"
-        self._typed_lists[address] = items
-        self._makers[address] = (None, address)
-        plan.sources.append(Source(None, address, None, (), True, plan.spec.type, name=name))
+    # -- an embedded graph's fields ---------------------------------------------
 
-    def _open(self, placed: PlacedNode, name: str, plan: InputPlan) -> None:
-        """An open input of a first node is the graph's: the caller fills it, by its address ``node.input``.
+    def _embedded(self, record: NodeRecord, definition: GraphDefinition) -> _Embedded | None:
+        """An embedded graph as a node: the inner graph loaded, and its inputs and outputs as this node's fields.
 
-        Given a list of items in this compile, its rows are the list's own table.
+        An inner input or output is offered under its own name where no other shares it, else as ``node/field``,
+        as a name holds no dot. An output made per item inside is offered as a ``Series`` of them.
+
+        Returns:
+            ``None`` with the problem when the graph embeds itself, has problems of its own, or makes a ``Series``
+            or a table per item, which no one output can carry.
         """
-        address = f"{placed.id}.{name}"
-        listed = self._is_listed(address, plan.spec, plan.value)
-        level: Level = (address,) if listed else ()
-        if listed:
-            self._makers[address] = (None, address)
-            self._lists_under.setdefault("", []).append(address)
-        table = plan.spec.shape == "table"  # a caller's table, read to the input's columns at the call
-        plan.sources.append(Source(None, address, None, level, listed, plan.spec.type, whole_table=table, name=name, columns=plan.spec.columns if table else None))
-        required = plan.value is REQUIRED
-        items = not required and given_as_items(plan.spec, plan.value)
-        graph_input = plan.spec.describe(
-            GraphInput, address=address, node_id=placed.id, per_item=plan.spec.per_item, required=required,
-            default=None if required else plan.spec.list_adapter.dump_python(plan.value, mode="json") if items else plan.spec.json_of(plan.value),
-        )
-        self._graph_inputs.append((graph_input, address, plan.spec, plan.value, listed))
+        if definition.id in self._embedded_in:
+            self.problems.append(make_problem("embeds_itself", record.id, node=definition.id))
+            return None
+        stack = (*self._embedded_in, definition.id)
+        key = (definition.id, definition.version, stack)
+        inner = self._alone.get(key)
+        if inner is None:
+            inner = self._alone[key] = _loaded(definition.graph, self._definitions, stack, self._alone)
+        if inner.problems:
+            problems = [p.model_dump(mode="json") for p in inner.problems]
+            self.problems.append(make_problem("embedded_graph_broken", record.id, graph=definition.id, count=len(problems), problems=problems))
+            return None
+        inputs: dict[str, FieldSpec] = {}
+        inner_inputs: dict[str, str] = {}
+        for offered in inner._input_fields.values():
+            name = offered.name.replace(".", "/")
+            inputs[name] = dataclasses.replace(offered.spec, name=name, default=offered.default, default_json=inner.inputs[offered.name].default)
+            inner_inputs[name] = offered.address
+        last = [(address, inner._nodes[address.partition(".")[0]]) for address in inner.outputs]
+        names = [address.partition(".")[2] for address, _ in last]
+        deciding = {(at.id, spec.param.exclusive_group) for _, at in last for spec in at.outputs.values()}
+        outputs: dict[str, FieldSpec] = {}
+        inner_outputs: dict[str, str] = {}
+        for address, at in last:
+            output = address.partition(".")[2]
+            spec = at.outputs[output]
+            if at.scope and spec.shape != "one":
+                self.problems.append(make_problem("lists_not_collected", record.id, series=[at.scope[-1], address]))
+                return None
+            name = output if names.count(output) == 1 else address.replace(".", "/")
+            group = spec.param.exclusive_group
+            if group and sum(held == group for _, held in deciding) > 1:  # two decisions inside, each its own here
+                spec = dataclasses.replace(spec, param=dataclasses.replace(spec.param, exclusive_group=f"{at.id}/{group}"))
+            outputs[name] = dataclasses.replace(spec, name=name, shape="many", optional=False, item=spec.type) if at.scope else dataclasses.replace(spec, name=name)
+            inner_outputs[name] = address
+        return _Embedded(inner, inputs, outputs, inner_inputs, inner_outputs)
+
+    # -- edges ------------------------------------------------------------------
+
+    def _fed(self, node_id: str, name: str, spec: FieldSpec, addresses: list[str]) -> Fed | None:
+        """How edges from ``addresses`` feed one input: one value on each call, or every value its source made.
+
+        An input of one value reads, whatever its type: a ``Series`` reaches it one item at a time. A ``Series``
+        input gathers. A ``Table`` input reads when every edge brings a table, and else gathers records.
+
+        Returns:
+            ``None`` when an edge names nothing a node gives or brings a type the input doesn't take, with the
+            problem, and ``None`` when its node didn't load.
+        """
+        sources: list[Source] = []
+        for address in addresses:
+            source = self._source(address, node_id, name)
+            if source is None:
+                return None
+            sources.append(source)
+        sources.sort(key=self._edge_order)
+        gathers = spec.shape == "many" or (spec.shape == "table" and not all(isinstance(s, Value) and accepts(spec.type, s.type) for s in sources))
+        wanted = spec.item if gathers else spec.type
+        for source in sources:
+            if not accepts(wanted, source.type):
+                made, taken = type_id(source.type), type_id(wanted)
+                got = f"Series[{made}]" if isinstance(source, Item) else made
+                expected = f"Series[{taken}]" if spec.shape == "many" else spec.type_id
+                self.problems.append(make_problem("type_mismatch", node_id, name, source=source.address, got=got, expected=expected))
+                return None
+        deepest = max((s.scope for s in sources), key=len)
+        if not gathers:
+            return Read(spec, tuple(sources), deepest)
+        if not deepest:
+            return SeriesOfOne(spec, tuple(s for s in sources if isinstance(s, Value)), ())
+        made_by, _, made_as = deepest[-1].partition(".")
+        series = Value(made_by, made_as, None, deepest[:-1], list)
+        return Gather(spec, tuple(sources), tuple(self._gate(s, len(series.scope)) for s in sources), series, series.scope)
 
     def _source(self, address: str, node_id: str, name: str) -> Source | None:
+        """What an edge from ``address`` brings: ``node.output``, or ``node.output.field`` for one field of a record.
+
+        Returns:
+            An item of a ``Series`` output, or an output's one value; ``None`` with the problem when the address
+            names nothing its node gives, and ``None`` when its node didn't load.
+        """
         source_id, _, rest = address.partition(".")
-        output, _, column = rest.partition(".")
+        output, _, wanted = rest.partition(".")
         source = self._nodes.get(source_id)
-        if source is None:  # a node that failed to load, or none; its own problem says why
+        if source is None:  # a node that failed to load, or none: its own problem says why
             return None
-        spec = source.definition.outputs.get(output)
-        if spec is None or (column and spec.shape != "table") or (column and spec.columns is not None and column not in spec.columns):
-            # What the edge could have named instead: the table's columns when it named a column of one, else the outputs.
-            if column and spec is not None and spec.columns is not None:
-                could = [f"{source_id}.{output}.{c}" for c in spec.columns]
-            else:
-                could = [f"{source_id}.{o}" for o in source.definition.outputs]
-            self.problems.append(make_problem(
-                "unknown_output", node_id, name, source=address, outputs=could, **({"column": column} if column else {}),
-            ))
+        spec = source.outputs.get(output)
+        hint = _NO_FIELD if spec is None else spec.type if not wanted else _field_type(spec.type, wanted)
+        if spec is None or hint is _NO_FIELD:
+            if spec is None:
+                self.problems.append(make_problem("unknown_output", node_id, name, source=address, outputs=[f"{source_id}.{o}" for o in source.outputs]))
+            else:  # the output is there, and has no such field
+                fields = [f"{source_id}.{output}.{f}" for f in record_fields(without_none(spec.type))]
+                self.problems.append(make_problem("unknown_output", node_id, name, source=address, outputs=fields, field=wanted))
             return None
-        if spec.shape == "one":
-            return Source(source_id, output, None, source.level, False, spec.type, name=output)
         if spec.shape == "many":
-            return Source(source_id, output, None, source.makes[output], True, spec.type, name=output)
-        if column:
-            return Source(source_id, output, column, source.makes[output], True, (spec.columns or {}).get(column, Any), name=column)
-        return Source(source_id, output, None, source.makes[output], True, pl.DataFrame, whole_table=True, columns=spec.columns)
+            return Item(source_id, output, wanted or None, (*source.scope, f"{source_id}.{output}"), hint)
+        return Value(source_id, output, wanted or None, source.scope, hint)
 
-    def _fits(self, spec: FieldSpec, source: Source, address: str, node_id: str, name: str) -> bool:
-        """Whether ``source`` may feed the input, or a ``type_mismatch``: a table input by each column it declares whose
-        type the source knows, a table of unknown columns checked when it arrives."""
-        if spec.shape == "table":
-            given = (source.columns if source.whole_table else {source.name: source.type}) or {}
-            for column, hint in (spec.columns or {}).items():
-                if column in given and not accepts(hint, given[column]):
-                    self.problems.append(make_problem(
-                        "type_mismatch", node_id, name, source=address, got=type_id(given[column]), expected=spec.column_type_ids[column], column=column,
-                    ))
-                    return False
-            return True
-        if source.whole_table or not accepts(spec.type, source.type):
-            got = "Table" if source.whole_table else type_id(source.type)
-            expected = type_id(spec.type)
-            if spec.shape == "many":  # a gather: its items are checked, and it is said as the Series it reads
-                got, expected = got if source.whole_table else f"Series[{got}]", f"Series[{expected}]"
-            self.problems.append(make_problem("type_mismatch", node_id, name, source=address, got=got, expected=expected))
-            return False
-        return True
+    def _edge_order(self, source: Source) -> tuple[int, int, str]:
+        """Where an edge into an input falls among several: its node's place in the record, then the output's in its node."""
+        return self._position[source.node_id], list(self._nodes[source.node_id].outputs).index(source.output), source.address
 
-    def _place(self, placed: PlacedNode) -> bool:
-        """Decide the rows ``placed`` runs on, or report one-value sources on rows of different tables.
+    def _gate(self, source: Source, depth: int) -> Gate:
+        """What skips ``source`` for every item of a gather at once: the outputs ``depth`` maps deep or shallower
+        that it rests on, found by following it up through the nodes inside the map.
 
-        A ``Series`` or ``Table`` input gathers the rows of its source under the deepest row it shares with the
-        node's, so a reduction of a sibling table (every keyword of a document, beside each of its invoices)
-        gathers under their common parent.
+        A node is skipped when any one of its inputs is, and an input when every edge into it is. So each set is
+        one choice of an edge for some input on the way up, and a set that holds a smaller one adds nothing.
         """
-        typed = [(n, p) for n, p in placed.inputs.items() if p.sources and p.sources[0].output in self._typed_lists]
-        ones = [s.level for p in placed.inputs.values() if p.spec.shape == "one" for s in p.sources if s.output not in self._typed_lists]
-        # With no one-value input, a node runs one level above what its Series and Table inputs gather: each input
-        # gathers at its deepest source (parents copied down), and the node sits above the shallowest input, so no
-        # input receives a list of one.
-        gathered = [_deepest([s.level for s in p.sources]) for p in placed.inputs.values() if p.spec.shape != "one" and p.sources]
-        placed.level = _deepest(ones) if ones else min((level[:-1] for level in gathered), key=len, default=())
-        floor = self._floor(placed)
-        if not _under(floor, placed.level):  # an embedded graph runs on each row its embedding runs on
-            if not _under(placed.level, floor):
-                self._unrelated(placed, placed.level, floor)
-                return False
-            placed.level = floor
-        for level in ones:
-            if not (_under(placed.level, level) or _under(level, placed.level)):
-                self._unrelated(placed, placed.level, level)
-                return False
-        for _, plan in typed:
-            if not self._typed_list_placed(placed, plan.sources[0].output):
-                return False
-            plan.sources = [dataclasses.replace(plan.sources[0], level=placed.level)]
-        for plan in placed.inputs.values():
-            if plan.spec.shape != "one":
-                plan.sources = [dataclasses.replace(s, anchor=shared_depth(placed.level, s.level)) for s in plan.sources]
-                for s in plan.sources:
-                    # a caller's or typed list is collected whole wherever the node runs; a node's table only where it relates:
-                    # one level under the other, or the two sharing a table above both
-                    if not (_under(placed.level, s.level) or _under(s.level, placed.level) or s.anchor) and self._makers[s.level[0]][0] is not None:
-                        self._unrelated(placed, placed.level, s.level)
-                        return False
-            if plan.spec.shape == "table" and plan.sources and not self._table_fits(placed, plan):
-                return False
-        return True
+        made_in = source.scope[:-1] if isinstance(source, Item) else source.scope
+        if len(made_in) <= depth:
+            return (frozenset({Value(source.node_id, source.output, None, made_in, Any)}),)
+        found = {
+            frozenset[Value]().union(*choice)
+            for plan in self._nodes[source.node_id].inputs.values() if isinstance(plan, Fed)
+            for choice in itertools.product(*(self._gate(s, depth) for s in plan.sources))
+        }
+        return tuple(cells for cells in found if not any(fewer < cells for fewer in found))
 
-    def _typed_list_placed(self, placed: PlacedNode, address: str) -> bool:
-        """Put the items of a list typed into ``placed`` on rows: a table under each row the node would run on, which it
-        runs over. Under the rows of another given list, typed in or the caller's, the two would meet uncollected,
-        which is a problem: rows a node makes take a typed list under each of them, and a list never does."""
-        given = [t for t in placed.level if self._makers[t][0] is None]
-        if given:
-            self._unrelated(placed, (given[-1],), (address,))
-            return False
-        self._lists_under.setdefault(placed.level[-1] if placed.level else "", []).append(address)
-        placed.level = (*placed.level, address)
-        return True
+    def _scope(self, node_id: str, inputs: Mapping[str, InputPlan]) -> Scope | None:
+        """The scope a node runs in: the deepest of its inputs', each of which lies on the path to it; ``None``
+        with the problem when two inputs sit in maps of different Series."""
+        scopes = [plan.scope for plan in inputs.values() if isinstance(plan, Fed)]
+        scope = max(scopes, key=len, default=())
+        for other in scopes:
+            if scope[: len(other)] != other:
+                self.problems.append(make_problem("lists_not_collected", node_id, series=[scope[-1], other[-1]]))
+                return None
+        return scope
 
-    def _table_fits(self, placed: PlacedNode, plan: InputPlan) -> bool:
-        """Settle the rows a ``Table`` input combines its sources on; sources on two paths of the row tree are a problem."""
-        plan.table_level = _deepest([s.level for s in plan.sources])
-        plan.table_anchor = shared_depth(placed.level, plan.table_level)
-        branches = [self._branch(s) for s in plan.sources]
-        plan.alternatives = len(plan.sources) > 1 and all(s.whole_table for s in plan.sources) and all(
-            _opposed(a, b) for i, a in enumerate(branches) for b in branches[i + 1:]
-        )
-        for s in plan.sources:
-            if not plan.alternatives and not _under(s.level, plan.table_level):
-                self._unrelated(placed, s.level, plan.table_level)
-                return False
-        names: list[str] = []
-        for i, s in enumerate(plan.sources):
-            if not s.whole_table and s.name in names:
-                plan.sources[i] = dataclasses.replace(s, name=f"{s.name}_{s.node_id}")
-            names.append(plan.sources[i].name)
-        if plan.spec.columns is not None:
-            each = [[s] for s in plan.sources] if plan.alternatives else [plan.sources]
-            for sources in each:
-                if any(s.whole_table and s.columns is None for s in sources):
-                    continue
-                given = {c for s in sources for c in ((s.columns or {}) if s.whole_table else (s.name,))}
-                missing = sorted(plan.spec.columns.keys() - given)
-                if missing:
-                    name = next(n for n, p in placed.inputs.items() if p is plan)
-                    self.problems.append(make_problem("columns_missing", placed.id, name, missing=missing, sources=[_address(s) for s in sources]))
-                    return False
-        return True
+    # -- branches ---------------------------------------------------------------
 
-    def _floor(self, placed: PlacedNode) -> Level:
-        """The rows an embedded node runs on at least: the rows its embedding enters on, by the entering edges it reads from.
+    def _branch(self, source: Source) -> frozenset[Branch]:
+        """The ways decisions must go for ``source`` to hold a value."""
+        group = self._nodes[source.node_id].outputs[source.output].param.exclusive_group
+        own = {Branch(source.node_id, group, source.output)} if group else set[Branch]()
+        return self._branches[source.node_id] | own
 
-        A node reads an entering edge when the edge lands on it or on a node above it inside the embedding. A node
-        that reads none and makes rows takes the entering edges a node below it reads, so a table made inside lies
-        under the outer row its reader receives the entering value on.
+    def _branches_meet(self, node_id: str, inputs: Mapping[str, InputPlan]) -> bool:
+        """Keep the branches a node rests on, and refuse edges that can never bring it a value together.
+
+        Several edges into one input are alternatives: each on its own branch of one decision, so a call never has
+        two values for it, and all in one scope, so each call has a place for the one it gets. Two ``Series``
+        inputs that keep no blanks, fed only from opposite branches, would lose every item.
+
+        Returns:
+            False, with the problem, when an input's edges don't meet these.
         """
-        levels: list[Level] = []
-        for address, target in self._floor_reads[placed.id] if "/" in placed.id else ():
-            source = self._nodes.get(address.partition(".")[0])
-            if source is None:
+        rests_on: set[Branch] = set()
+        for name, plan in inputs.items():
+            if not isinstance(plan, Fed):
                 continue
-            level = source.makes.get(address.partition(".")[2].partition(".")[0], source.level)  # its node's rows, or the table its output makes
-            target_id, _, target_input = target.partition(".")
-            holder = placed.definition if target_id == placed.id else (self._nodes[target_id].definition if target_id in self._nodes else self._known[target_id][1])
-            spec = holder.inputs.get(target_input) if holder is not None else None
-            levels.append(level[:-1] if spec is not None and spec.shape != "one" and level else level)
-        return _deepest(levels)
+            behind = [self._branch(s) for s in plan.sources]
+            if not all(_opposed(a, b) for i, a in enumerate(behind) for b in behind[i + 1:]):
+                self.problems.append(make_problem("several_edges_into_one_input", node_id, name, sources=[s.address for s in plan.sources]))
+                return False
+            scopes = list(dict.fromkeys(s.scope for s in plan.sources))
+            if len(scopes) > 1:
+                self.problems.append(make_problem(
+                    "alternatives_on_different_items", node_id, name, series=[scope[-1] if scope else None for scope in scopes[:2]],
+                ))
+                return False
+            shared = behind[0].intersection(*behind[1:])  # what every edge into it rests on, the input does
+            if isinstance(plan, Gather):  # a gather is skipped only by what is decided where it runs, or above
+                shared = frozenset(b for b in shared if len(self._nodes[b.node_id].scope) <= len(plan.scope))
+            rests_on |= shared
+        self._branches[node_id] = frozenset(rests_on)
+        aligned = [
+            (name, [self._branch(s) for s in plan.sources]) for name, plan in inputs.items()
+            if isinstance(plan, Gather) and not takes_a_blank(plan.spec.item)
+        ]
+        for i, (a, behind_a) in enumerate(aligned):
+            for b, behind_b in aligned[i + 1:]:
+                if all(_opposed(x, y) for x in behind_a for y in behind_b):
+                    self.problems.append(make_problem("series_inputs_never_share_an_item", node_id, inputs=[a, b]))
+                    return False
+        return True
 
-    def _entering_read(self, node_id: str, definition: FunctionDefinition[..., Any], into: dict[str, dict[str, list[str]]]) -> list[tuple[str, str]]:
-        above: set[str] = set()
-        stack = [node_id]
-        while stack:
-            n = stack.pop()
-            if n not in above:
-                above.add(n)
-                stack.extend(src.partition(".")[0] for ss in into.get(n, {}).values() for src in ss)
-        picked: list[tuple[str, str]] = []
-        for e in self._embedded:
-            if node_id.startswith(e + "/"):
-                entering = [(a, t) for a, t in self._entering[e] if t.partition(".")[0] in above]
-                if not entering and any(spec.shape != "one" for spec in definition.outputs.values()):
-                    below = self._below(node_id)
-                    entering = [(a, t) for a, t in self._entering[e] if below & {t.partition(".")[0], *self._below(t.partition(".")[0])}]
-                picked += entering
-        return picked
 
-    def _below(self, node_id: str) -> set[str]:
-        """Every node the record's edges feed from ``node_id``, however far down."""
-        found: set[str] = set()
-        stack = list(self._fed[node_id])
-        while stack:
-            n = stack.pop()
-            if n not in found:
-                found.add(n)
-                stack.extend(self._fed[n])
-        return found
+#: An embedded graph loaded alone, by its definition's id and version and the graphs it sits in.
+_AloneKey = tuple[str, int, tuple[str, ...]]
 
-    def _outside(self, graph_input: GraphInput, key: str) -> GraphInput:
-        """An input as a caller of this graph sees it: an embedded graph's by the node that embeds it."""
-        outer = self._outward(key)
-        if outer == key:
-            return graph_input
-        node_id, _, name = outer.partition(".")
-        return graph_input.model_copy(update={"address": outer, "node_id": node_id, "name": name})
 
-    def _shown_outputs(self, node_id: str) -> dict[str, str]:
-        """Each output of a placed node an embedding offers under another name, by its own name: the name a person is asked by."""
-        shown: dict[str, str] = {}
-        for output in self._nodes[node_id].definition.outputs:
-            outer = self._outward(f"{node_id}.{output}")
-            if outer != f"{node_id}.{output}" and outer.partition(".")[2] != output:
-                shown[output] = outer.partition(".")[2]
-        return shown
+@dataclass(frozen=True, slots=True)
+class _Embedded:
+    """An embedded graph as the node that embeds it reads it.
 
-    def _outward(self, name: str, *, table: bool = False) -> str:
-        """A node id, address or table name the engine uses, as the author of this record reads it.
+    Attributes:
+        inner: The embedded graph, loaded.
+        inputs: The fields of the inputs it offers, by the name it offers each under.
+        outputs: The fields of the outputs it offers, by the name it offers each under.
+        inner_inputs: The address in ``inner`` of each input, by offered name.
+        inner_outputs: The address in ``inner`` of each output, by offered name.
+    """
 
-        A name that lies inside an embedded graph is said of the node that embeds it: an address the embedded
-        graph offers by the embedding's address, any other name by the embedding's id, or with ``table`` by the
-        table's own name. Every other name is as it is.
-        """
-        if name in self._outer:
-            return self._outer[name]
-        top, slash, _ = name.partition("/")
-        if not slash or top not in self._offers:
-            return name
-        if table:
-            return self._tables_seen.get(name) or name.rpartition("/")[2]
-        return top
-
-    def _seen_from_outside(self, problem: Problem) -> Problem:
-        """A problem as the author of this record reads it: inside an embedded graph, on the node that embeds it."""
-        if problem.type == "invalid_node_id" or not problem.loc or not isinstance(problem.loc[0], str) or problem.loc[0].split("/", 1)[0] not in self._embedded or "/" not in problem.loc[0]:
-            return problem
-        inner = problem.loc[0]
-        field = problem.loc[1] if len(problem.loc) > 1 and isinstance(problem.loc[1], str) else None
-        outer = self._outward(f"{inner}.{field}") if field else self._outward(inner)
-        loc: tuple[str | int, ...] = tuple(outer.split(".", 1)) if "." in outer else (outer, *(problem.loc[1:] if field is None else ()))
-        if problem.type not in PROBLEM_CATALOGUE:  # a node's own code: its message and ctx are its author's, and name no node
-            return problem.model_copy(update={"loc": loc})
-        ctx = dict(problem.ctx)
-        for key in ("node_id", "source", "target"):
-            if isinstance(ctx.get(key), str):
-                ctx[key] = self._outward(ctx[key])
-        if isinstance(ctx.get("sources"), list):
-            ctx["sources"] = [self._outward(source) for source in ctx["sources"]]
-        if isinstance(ctx.get("tables"), list):
-            ctx["tables"] = [table if table is None else self._outward(table, table=True) for table in ctx["tables"]]
-        if problem.type == "invalid_output" and isinstance(ctx.get("name"), str) and inner in self._nodes:  # the output as the embedding offers it
-            ctx["name"] = self._shown_outputs(inner).get(ctx["name"], ctx["name"])
-        return make_problem(problem.type, *loc, **ctx)
-
-    def _unrelated(self, placed: PlacedNode, a: Level, b: Level) -> None:
-        """Rows of two tables meet at ``placed``: ``lists_not_collected`` where one is a given list, which a node
-        collects, else ``rows_not_related``, which a join brings together."""
-        tables = [_table(a), _table(b)]
-        given = any(t is not None and self._makers.get(t, ("",))[0] is None for t in tables)
-        self.problems.append(make_problem("lists_not_collected" if given else "rows_not_related", placed.id, tables=tables))
+    inner: Graph
+    inputs: dict[str, FieldSpec]
+    outputs: dict[str, FieldSpec]
+    inner_inputs: dict[str, str]
+    inner_outputs: dict[str, str]
 
 
 def load_graph(record: GraphRecord, definitions: Mapping[str, NodeDefinition]) -> Graph:
-    """``record`` loaded against ``definitions``, the one way a ``Graph`` is made, compiled as a run given nothing
-    runs: with the lists its defaults hold, in one pass."""
-    return Graph._loaded(record, definitions, (), {}, _listed_by_default)
+    """``record`` loaded against ``definitions``: the one way a host's ``Graph`` is made."""
+    return _loaded(record, definitions, (), {})
 
 
-def _listed_by_default(address: str, spec: FieldSpec, value: Any) -> bool:
-    return given_as_items(spec, value)
-
-
-def _listed_at(listed: frozenset[str]) -> ListsRule:
-    return lambda address, spec, value: address in listed
-
-
-def _given_from_outside(record: NodeRecord, embedding: NodeRecord, offered: Mapping[str, str], fed: set[str]) -> NodeRecord:
-    """An embedded graph's node with what the record embedding it gives the inputs it offers.
+def _loaded(record: GraphRecord, definitions: Mapping[str, NodeDefinition], embedded_in: tuple[str, ...], alone: dict[_AloneKey, Graph]) -> Graph:
+    """A graph of ``record``.
 
     Args:
-        record: The inner node, under its spliced id.
-        embedding: The node of the outer record that embeds the graph; its values and defaults are by offered name.
-        offered: Each input the embedding offers onto ``record``, by its name there: the input of ``record`` behind it.
-        fed: The offered names an edge of the outer record feeds.
+        record: The stored graph.
+        definitions: The newest version of each node, by id.
+        embedded_in: The ids of the graph nodes this one sits in, outermost first, so one that embeds itself is found.
+        alone: Each embedded graph already loaded, shared by every graph one load makes, so each loads once.
+    """
+    graph = Graph.__new__(Graph)
+    graph._load(record, definitions, embedded_in, alone)
+    return graph
+
+
+def _runs_on(scope: Scope) -> RunsOn:
+    """Where a node of ``scope`` runs."""
+    return RunsOn(mode="per_item", series=scope[-1], msg=f"per item of {scope[-1]}") if scope else RunsOn(mode="once", msg="once")
+
+
+def _feed(scope: Scope, plan: InputPlan) -> Feed:
+    """How ``plan`` feeds its input on each call of a node that runs in ``scope``."""
+    match plan:
+        case Gather(series=series):
+            return Feed(mode="gathered", series=series.address, msg=f"every item of {series.address}")
+        case SeriesOfOne():
+            return Feed(mode="gathered", msg="the one value, as a Series of one")
+        case Read(scope=fed_in) if fed_in != scope:
+            return Feed(mode="captured", series=fed_in[-1] if fed_in else None, msg=f"captured from {f'the item of {fed_in[-1]}' if fed_in else 'the graph'}")
+        case Read(scope=fed_in) if fed_in:
+            return Feed(mode="per_item", series=fed_in[-1], msg=f"per item of {fed_in[-1]}")
+        case _:
+            return Feed(mode="single", msg="one value")
+
+
+def _read_before_a_call(plan: InputPlan) -> bool:
+    """Whether what edges bring an input is read by the input's type before each call: not when every value they
+    bring is already one the field takes as it is, with no limit or choice to hold it to."""
+    match plan:
+        case Read(spec=spec, sources=sources):
+            return spec.param.holds_a_value or not all(already(spec.type, s.type) for s in sources)
+        case Gather(spec=spec, sources=sources) | SeriesOfOne(spec=spec, sources=sources):
+            return spec.shape == "table" or spec.param.holds_a_value or not all(already(spec.item, s.type) for s in sources)
+        case _:
+            return False
+
+
+#: What ``_field_type`` gives for a field a record doesn't have.
+_NO_FIELD: Any = object()
+
+
+def _field_type(hint: Any, name: str) -> Any:
+    """The type of the field ``name`` of a record of type ``hint``.
 
     Returns:
-        ``record`` with each value and default typed on the embedding moved onto its input, and the inner default
-        of every input the outside gives anything (a value, a default or an edge) dropped.
+        A ``TypedDict``'s, dataclass's or pydantic model's declared type for it; a mapping's value type; ``Any``
+        for a value of any type; ``_NO_FIELD`` for a record without the field, and for a type that is no record.
     """
-    values = {offered[name]: value for name, value in embedding.values.items() if name in offered}
-    defaults = {offered[name]: value for name, value in embedding.defaults.items() if name in offered}
-    replaced = {*values, *defaults, *(inner_input for name, inner_input in offered.items() if name in fed)}
-    if not replaced:
-        return record
-    return record.model_copy(update={
-        "values": {**record.values, **values},
-        "defaults": {**{k: v for k, v in record.defaults.items() if k not in replaced}, **defaults},
-    })
+    hint = without_none(hint)
+    if hint is Any:
+        return Any
+    if typing.get_origin(hint) in (dict, Mapping):
+        return typing.get_args(hint)[1]
+    return record_fields(hint).get(name, _NO_FIELD)
 
 
 def _hint_and_default(given: Any) -> tuple[Any, Any]:
@@ -1360,28 +1213,6 @@ def _hint_and_default(given: Any) -> tuple[Any, Any]:
     if isinstance(given, tuple) and len(given) == 2:
         return given[0], given[1]
     return given, REQUIRED
-
-
-def _follow(address: str, renamed: Mapping[str, str]) -> str:
-    """Rewrite ``node.field[.column]`` to the inner node an embedded graph spliced in for it."""
-    node_id, _, rest = address.partition(".")
-    for cut in (rest, rest.partition(".")[0]):
-        if cut and f"{node_id}.{cut}" in renamed:
-            return renamed[f"{node_id}.{cut}"] + rest[len(cut):]
-    return address
-
-
-def _arriving(plan: InputPlan) -> Any:
-    """The type a hook reads for what arrives on an input: a whole table as ``Table[R]`` with its columns, columns
-    gathered into a ``Table`` input as ``Table[R]`` of those columns, else the value's type."""
-    from conductor._internal.fields import Table
-
-    source = plan.sources[0]
-    if source.whole_table and source.columns is not None:
-        return Table.__class_getitem__(typing.TypedDict("Arriving", dict(source.columns)))  # type: ignore[operator]
-    if plan.spec.shape == "table" and not any(s.whole_table for s in plan.sources):
-        return Table.__class_getitem__(typing.TypedDict("Arriving", {s.name: s.type for s in plan.sources}))  # type: ignore[operator]
-    return source.type
 
 
 def _type_text(hint: Any) -> str:
@@ -1419,25 +1250,9 @@ def _constant_text(constant: Any) -> str:
     return repr(constant)
 
 
-def _opposed(a: frozenset[tuple[str, str, str]], b: frozenset[tuple[str, str, str]]) -> bool:
+def _opposed(a: frozenset[Branch], b: frozenset[Branch]) -> bool:
     """Whether two sets of branches never hold together: one decision goes one way for ``a`` and another for ``b``."""
-    return any(x[:2] == y[:2] and x[2] != y[2] for x in a for y in b)
-
-
-def _address(source: Source) -> str:
-    return source.output if source.node_id is None else ".".join(p for p in (source.node_id, source.output, source.column) if p)
-
-
-def _settled(spec: FieldSpec, source: Source) -> bool:
-    """Whether every value ``source`` brings is already one ``spec`` takes as it is, with no limit or choice to hold it to."""
-    if spec.param.holds_a_value:
-        return False
-    if spec.shape == "table":
-        if spec.columns is None:
-            return True
-        given = source.columns if source.whole_table else {source.name: source.type}
-        return given is not None and all(c not in given or already(hint, given[c]) for c, hint in spec.columns.items())
-    return already(spec.type, source.type)
+    return any(x[:2] == y[:2] and x.output != y.output for x in a for y in b)
 
 
 def _reaches(start: str, goal: str, readers: Mapping[str, list[str]], within: set[str]) -> bool:
@@ -1454,24 +1269,9 @@ def _reaches(start: str, goal: str, readers: Mapping[str, list[str]], within: se
     return False
 
 
-def _under(prefix: Level, level: Level) -> bool:
-    return level[: len(prefix)] == prefix
-
-
-def shared_depth(a: Level, b: Level) -> int:
-    """How many tables two levels share from the graph's own row down."""
+def shared_depth(a: Scope, b: Scope) -> int:
+    """How many maps two scopes share from the graph's own scope down."""
     n = 0
     while n < min(len(a), len(b)) and a[n] == b[n]:
         n += 1
     return n
-
-
-def _deepest(levels: list[Level]) -> Level:
-    return max(levels, key=len, default=())
-
-
-def _table(level: Level) -> str | None:
-    """The table a level's rows are, ``None`` for the graph's own row."""
-    return level[-1] if level else None
-
-

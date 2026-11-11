@@ -37,7 +37,6 @@ from conductor._internal.fields import (
 
 if TYPE_CHECKING:
     from conductor._internal.graph import PlacedNode
-    from conductor._internal.node_definition import FunctionDefinition
 
 
 class Ask(BaseException):
@@ -249,17 +248,17 @@ def _proposed(spec: FieldSpec, default: Any, offered: list[dict[str, Any]] | Non
     return proposed
 
 
-def output_questions(definition: FunctionDefinition[..., Any]) -> dict[str, FieldDescription]:
+def output_questions(outputs: Mapping[str, FieldSpec]) -> dict[str, FieldDescription]:
     """Each output's question as the node's types set it, before an ``Ask`` sets anything.
 
     Args:
-        definition: The node.
+        outputs: The node's outputs, by name.
 
     Returns:
         A question per output, by name, under the output's own label, and a field of a returned dataclass with a
         default proposes it.
     """
-    return {name: _question(spec) for name, spec in definition.outputs.items()}
+    return {name: _question(spec) for name, spec in outputs.items()}
 
 
 def _question(spec: FieldSpec) -> FieldDescription:

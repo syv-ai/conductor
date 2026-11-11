@@ -75,25 +75,23 @@ PROBLEM_CATALOGUE: Mapping[str, str] = {
     "invalid_value": "The value typed into '{field}' is not valid: {reason}. Type a value of the field's type.",
     "parameter_name_invalid": "'{field}' cannot be a field name: '.', '/' and '@' each mean something in an address, and a name can't be empty; rename the field.",
     "repeated_edge": "The edge from '{source}' into '{field}' is drawn twice; remove one.",
-    "rows_not_related": "{tables} are rows of different tables; join them on a key in a node, and wire the join.",
-    "alternatives_on_different_rows": (
-        "'{field}' takes alternatives from rows of different tables, {tables}, so a row of one has no place for the other's value. "
-        "Bring them onto rows of one table first."
+    "alternatives_on_different_items": (
+        "'{field}' takes alternatives that run per item of different Series, {series}, so a call for an item of one has no place "
+        "for the other's value. Bring them to items of one Series first."
     ),
-    "several_edges_into_one_value": (
-        "'{field}' takes one value, and more than one of the edges into it from {sources} can hold one on a row. "
-        "Feed it from opposite branches of one decision, or take them through a Series or Table input."
+    "several_edges_into_one_input": (
+        "More than one of the edges into '{field}', from {sources}, can hold a value on the same call. "
+        "Feed it from opposite branches of one decision, or join them in a node with an input for each."
     ),
-    "series_inputs_never_share_a_row": (
-        "{inputs} read branches that never both have a value on a row, so no row would reach the node. "
-        "Write Series[X | None] on them to keep every row, or take the branches through one input."
+    "series_inputs_never_share_an_item": (
+        "{inputs} read branches that never both have a value for an item, so no item would reach the node. "
+        "Write Series[X | None] on them to keep every item, or take the branches through one input."
     ),
     "lists_not_collected": (
-        "{tables} are lists, each a row per item, and they meet at '{node_id}', which can't tell which item goes with which; "
-        "collect one of them first, with a node that takes it as a Series, so it arrives as one value."
+        "'{node_id}' reads items of {series}, and items of two Series never pair up; "
+        "gather one of them first, with a node that takes it as a Series, so it arrives as one value."
     ),
     "type_mismatch": "'{source}' gives {got}, but '{node_id}.{field}' takes {expected}; connect an output that gives {expected}, or convert it in a node between.",
-    "columns_missing": "'{node_id}.{field}' takes the columns {missing}, which nothing wired into it from {sources} gives; wire them in, or take a Table of any columns.",
     "unbound_on_later_node": "Nothing feeds '{field}', and only a first node takes inputs from the caller; draw an edge into it or type a value in.",
     "unknown_input": "'{node_id}' has no input '{field}'; it has {inputs}.",
     "unknown_node": "There is no node '{node}'; the nodes are {choices}.",
@@ -111,7 +109,7 @@ PROBLEM_CATALOGUE: Mapping[str, str] = {
     "input_given_twice": "'{name}' is given twice, by its name and by its address '{address}'; give it once.",
     "invalid_edge_value": "The value an edge brought to '{name}' is not one it takes: {reason}. Fix the node that made it, or connect an output of the type the input takes.",
     "invalid_input": "The value given for '{name}' is not valid: {reason}. Give a value of the type the input takes.",
-    "invalid_max_rows": "max_rows is at least 1; it was {max_rows}.",
+    "invalid_max_items": "max_items is at least 1; it was {max_items}.",
     "invalid_checkpoint_every": "checkpoint_every is a number of seconds above 0; it was {checkpoint_every}.",
     "invalid_timeout": "timeout is a number of seconds above 0; it was {timeout}.",
     "missing_input": "'{name}' is required; give it in the call.",
@@ -133,7 +131,7 @@ PROBLEM_CATALOGUE: Mapping[str, str] = {
     "invalid_output": "The node returned a value that is not what it declares: {reason}. Fix what the node returns.",
     "question_unwritable": "The node asked a person, but what it received at '{input}' has no JSON form to show them: {reason}. Give that input a type pydantic writes as JSON.",
     "invalid_ask": "The node asked a question its outputs can't be answered with: {reason}. Fix the node's Ask.",
-    "row_ceiling": "{table} has {rows} rows, more than the {max_rows} this run may make; resume it with a larger max_rows.",
+    "item_ceiling": "{series} has {items} items, more than the {max_items} this run may work through; resume it with a larger max_items.",
     "run_cancelled": "The run was cancelled. Resume it to carry on, or start a new run.",
     "run_timed_out": "The run took too long and was stopped; run.resume() carries on.",
     "timeout": "The node did not answer in time; its Policy(attempt_timeout=) sets how long it may take.",

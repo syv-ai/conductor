@@ -9,9 +9,10 @@ builtin, then made one.
 
 A field has one of three shapes: ``one`` value, ``many`` values
 (``Series[X]``, a plain list to the node), or a ``table`` (``Table[R]``, a
-``polars.DataFrame``). The shape decides how the field is wired and where its
-node runs; the type decides what an edge may carry and how a value is
-checked and written as JSON.
+``polars.DataFrame``). ``many`` is the one shape a graph reads: an output of
+many values is worked through one item at a time by an input that takes one,
+and an input of many gathers them back. A table is one value, like any other;
+its shape only says how a frame is checked and written as JSON.
 """
 
 from __future__ import annotations
@@ -25,7 +26,7 @@ import functools
 import types
 import typing
 import uuid
-from collections.abc import Collection, Iterable, Mapping
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import (
@@ -257,6 +258,9 @@ class _FromRunMarker:
     pass
 
 
+#: The mark of a table of any columns.
+_ANY_TABLE = _TableMarker(Any)
+
 _T = TypeVar("_T")
 _Record = TypeVar("_Record", bound="FieldDescription")
 
@@ -265,7 +269,8 @@ _Record = TypeVar("_Record", bound="FieldDescription")
 #: with ``from_run={X: value}``. To a type checker the parameter is an ``X``.
 FromRun = Annotated[_T, _FromRunMarker()]
 
-#: ``Series[X]``: many values of ``X``, one per row; a plain ``list[X]`` to the node and to a type checker.
+#: ``Series[X]``: many values of ``X``, which a graph works through one at a time; a plain ``list[X]`` to the node and
+#: to a type checker.
 Series = Annotated[list[_T], _ManyMarker()]
 
 
@@ -295,10 +300,9 @@ class FieldSpec:
 
     Attributes:
         name: The parameter's name, or the output's.
-        shape: ``"one"`` for one value, ``"many"`` for a ``Series`` (a list, one item per row), ``"table"`` for a
-            ``Table``.
-        type: The type of one value: the hint without ``Series``, ``Table`` or its ``Param``s, with its ``| None``
-            kept; a ``Series``' item type; a ``polars.DataFrame`` for a table.
+        shape: ``"one"`` for one value, ``"many"`` for a ``Series`` (a list of items), ``"table"`` for a ``Table``.
+        type: The type of one value: the hint without ``Series`` or its ``Param``s, with its ``| None`` kept; a
+            ``Series``' item type; ``Table[R]`` for a table of ``R``'s columns, ``polars.DataFrame`` for one of any.
         optional: A blank (``None``) may arrive in place of the field's value: of one value, or of a ``Series``'
             whole list (``Series[X] | None``). Whether a ``Series``' items may be blank is its item type's own
             ``| None``.
@@ -307,10 +311,12 @@ class FieldSpec:
         param: The field's ``Param``, the ``Param``s of its hint merged; an empty one when it has none.
         columns: A table's columns by name, from its row type; ``None`` for a table of any columns, and for a field
             that isn't a table.
-        type_id: The id of one value's type, ``| None`` off, as an editor reads it; ``Table`` for a table.
+        type_id: The id of one value's type, ``| None`` off, as an editor reads it; a table's names its columns.
         classes: The classes ``type_id`` names, each once: what a registry holding the node offers by id. A table
             names none.
         column_type_ids: The ids of a table's declared column types, by column.
+        item: The type of each value a field of many gathers: a ``Series``' item, a table's row (``Any`` for a table
+            of any columns). ``None`` for a field of one value.
     """
 
     name: str
@@ -323,6 +329,7 @@ class FieldSpec:
     type_id: str = field(kw_only=True)
     classes: tuple[type, ...] = field(kw_only=True)
     column_type_ids: Mapping[str, str] = field(kw_only=True, default_factory=dict[str, str])
+    item: Any = field(kw_only=True, default=None)
     #: The default in its JSON form, written once when the node is declared; ``None`` where the field has no value
     #: to propose (it is required, or its default is ``SKIPPED``).
     default_json: JsonValue = field(kw_only=True, default=None)
@@ -384,11 +391,6 @@ class FieldSpec:
         return self._of_field(self._lax_one)
 
     @functools.cached_property
-    def list_adapter(self) -> TypeAdapter[Any]:
-        """Checks a list given for a field that takes one value, each run as its own row, and writes it as JSON."""
-        return TypeAdapter(_list_of(self._lax_one), config=_FLOATS_AS_TEXT)
-
-    @functools.cached_property
     def plain(self) -> bool:
         """Whether its values are of plain classes (``SCALARS``): JSON with no keys to order, read back by the type as they were.
 
@@ -397,11 +399,6 @@ class FieldSpec:
         """
         classes = set(self.plain_classes)
         return bool(classes) and classes <= SCALARS and not {float, str} <= classes
-
-    @functools.cached_property
-    def per_item(self) -> bool:
-        """Whether a list given here is many values, a row per item: the field takes one value, of a type that takes no list as one."""
-        return self.shape == "one" and not _takes_a_list(self.type)
 
     @functools.cached_property
     def takes_a_number(self) -> bool:
@@ -570,14 +567,16 @@ def read_field(name: str, hint: Any, default: Any = REQUIRED, where: str = "") -
             if marked(item, _ManyMarker):
                 raise NodeDeclarationError(f"{where}{name}: a Series of Series; rows are never nested in a field, so return one Series", code="nested_series")
             item_id, classes = named_by(without_none(item))
-            return _checked(FieldSpec(name, "many", item, or_none, default, param, type_id=item_id, classes=classes), where)
+            return _checked(FieldSpec(name, "many", item, or_none, default, param, type_id=item_id, classes=classes, item=item), where)
         if markers and isinstance(markers[0], _TableMarker):
             columns = _columns_of(markers[0].row, name, where)
             column_type_ids = {column: type_id(hint) for column, hint in columns.items()} if columns is not None else {}
-            return _checked(FieldSpec(name, "table", pl.DataFrame, or_none, default, param, columns, type_id="Table", classes=(), column_type_ids=column_type_ids), where)
+            table: Any = Annotated[pl.DataFrame, markers[0]] if columns is not None else pl.DataFrame
+            row = markers[0].row if columns is not None else Any
+            return _checked(FieldSpec(name, "table", table, or_none, default, param, columns, type_id=type_id(table), classes=(), column_type_ids=column_type_ids, item=row), where)
         hint = base
     if hint is pl.DataFrame or hint is Table:
-        return _checked(FieldSpec(name, "table", pl.DataFrame, or_none, default, param, None, type_id="Table", classes=()), where)
+        return _checked(FieldSpec(name, "table", pl.DataFrame, or_none, default, param, None, type_id="Table", classes=(), item=Any), where)
     if or_none:
         hint = Union[hint, None]  # noqa: UP007
     one_id, classes = named_by(without_none(hint))
@@ -732,7 +731,7 @@ def _column_of(item: Any) -> Any:
 
 
 #: Why a set is refused wherever a list is read or written: its order differs between processes.
-SET_HAS_NO_ORDER = "a set has no order, so its rows would come in another order in another process; give a list"
+SET_HAS_NO_ORDER = "a set has no order, so its items would come in another order in another process; give a list"
 
 
 def _not_a_set(value: Any) -> Any:
@@ -757,34 +756,6 @@ def _columns_of(row: Any, name: str, where: str) -> dict[str, Any] | None:
 
 def _holds_annotated(hint: Any) -> bool:
     return get_origin(hint) is Annotated or any(_holds_annotated(arg) for arg in get_args(hint))
-
-
-def given_as_items(spec: FieldSpec, value: Any) -> bool:
-    """Whether ``value``, given or typed into ``spec``, is many values, each run as its own row: a list on a ``per_item`` field.
-
-    A set counts as one too, so it is refused for having no order rather than read as one value.
-    """
-    return spec.per_item and isinstance(value, (list, tuple, set, frozenset))
-
-
-def _takes_a_list(hint: Any) -> bool:
-    """Whether a list is one value of ``hint``: a list's, a tuple's, a set's or a sequence's, ``Any``'s, a union
-    holding one, or any type whose JSON form may be an array (a pydantic ``RootModel`` of a tuple, a type alias such as
-    pydantic's ``JsonValue``)."""
-    if hint is Any or hint is object or isinstance(hint, TypeVar):
-        return True
-    origin = get_origin(hint)
-    if origin in (Union, types.UnionType):
-        return any(_takes_a_list(a) for a in get_args(hint))
-    if origin is Annotated:
-        return _takes_a_list(get_args(hint)[0])
-    kind = origin or hint
-    if isinstance(kind, type) and issubclass(kind, (str, bytes, bytearray, Mapping, *_BUILTINS)):
-        return False
-    if isinstance(kind, type) and (issubclass(kind, (list, tuple, set, frozenset)) or (kind.__module__ == "collections.abc" and issubclass(kind, Iterable))):
-        return True
-    kinds = _json_kinds(hint)
-    return kinds is None or "array" in kinds
 
 
 def _json_kinds(hint: Any) -> frozenset[str] | None:
@@ -843,9 +814,16 @@ def without_none(hint: Any) -> Any:
 
 
 def accepts(target: Any, source: Any) -> bool:
-    """Whether a value of type ``source`` may land on an input of type ``target``."""
+    """Whether a value of type ``source`` may land on an input of type ``target``.
+
+    A table lands on a table that names no column the source is known to lack or to hold as another type; a table
+    of any columns lands on every table, and is checked when it arrives.
+    """
     if target is Any or source is Any or target == source:
         return True
+    wanted, held = _table_marker(target), _table_marker(source)
+    if wanted is not None or held is not None:
+        return wanted is not None and held is not None and _columns_fit(wanted, held, accepts, unknown=True)
     targets = _options(target)
     return all(any(_one_accepts(t, s) for t in targets) for s in _options(source) if s is not type(None))
 
@@ -909,6 +887,27 @@ def _one_accepts(target: Any, source: Any) -> bool:
             return False  # a yes or no is never a number, a host's own included
         return lands_as_it_is(target, source) or (target is float and issubclass(source, int)) or (callable(own) and bool(own(source)))
     return False
+
+
+def _table_marker(hint: Any) -> _TableMarker | None:
+    """The mark of a table type, holding its row type: ``Table[R]``'s own, one of any columns for a bare
+    ``polars.DataFrame``, and ``None`` for a type that is no table."""
+    if hint is pl.DataFrame:
+        return _ANY_TABLE
+    if get_origin(hint) is Annotated and get_args(hint)[0] is pl.DataFrame:
+        return next(m for m in get_args(hint)[1:] if isinstance(m, _TableMarker))
+    return None
+
+
+def _columns_fit(wanted: _TableMarker, held: _TableMarker, fits: Callable[[Any, Any], bool], *, unknown: bool) -> bool:
+    """Whether a table of ``held``'s columns holds every column ``wanted`` names, each of a type that ``fits``;
+    ``unknown`` is the answer for a source of any columns, known only when it arrives."""
+    if wanted.row is Any or wanted.row is None:
+        return True
+    if held.row is Any or held.row is None:
+        return unknown
+    columns, given = typing.get_type_hints(wanted.row), typing.get_type_hints(held.row)
+    return all(column in given and fits(hint, given[column]) for column, hint in columns.items())
 
 
 class NamedType(Protocol):
@@ -983,9 +982,16 @@ def named_by(hint: Any) -> tuple[str, tuple[type, ...]]:
 
     A class is known by its ``type_name``. A ``Literal`` is known by the types of its values (``Literal["low",
     "high"]`` is ``str``), a union by its members (``Money | None`` is ``money | None``, naming ``Money``), a generic
-    by its class (``dict[str, int]`` is ``dict``), and a type alias by the name it is declared under, which names no
-    class. ``Any`` and ``None`` name no class either.
+    by its class (``dict[str, int]`` is ``dict``), a ``TypedDict`` as the ``dict`` it is, and a type alias by the name
+    it is declared under, which names no class. ``Any`` and ``None`` name no class either. A table is known by its
+    columns.
     """
+    table = _table_marker(hint)
+    if table is not None:  # a table is known by its columns, and names no class
+        if table.row is Any or table.row is None:
+            return "Table", ()
+        columns = typing.get_type_hints(table.row)
+        return f"Table[{', '.join(f'{column}: {type_id(of)}' for column, of in columns.items())}]", ()
     match get_origin(hint):
         case typing.Literal:
             values: tuple[object, ...] = get_args(hint)
@@ -996,6 +1002,8 @@ def named_by(hint: Any) -> tuple[str, tuple[type, ...]]:
             return named_by(get_args(hint)[0])
         case None if _is_alias(hint):
             return hint.__name__, ()
+        case None if typing.is_typeddict(hint):  # a record: a dict whose keys its schema names, with no title of its own
+            return CONDUCTOR_TYPES[dict].id, ()
         case None:
             return type_name(hint).id, () if hint in _NAMES_NO_CLASS else (hint,)
         case generic:
@@ -1024,6 +1032,9 @@ def already(target: Any, source: Any) -> bool:
     """Whether every value of type ``source`` already is one ``target`` takes as it is, with nothing to read."""
     if target is Any or target == source:
         return True
+    wanted, held = _table_marker(target), _table_marker(source)
+    if wanted is not None and held is not None:
+        return _columns_fit(wanted, held, already, unknown=False)
     targets = [t for t in _options(target) if isinstance(t, type) and not typing.is_typeddict(t)]
     sources = [s for s in _options(source) if s is not type(None)]
     return all(isinstance(s, type) and not typing.is_typeddict(s) and any(lands_as_it_is(t, s) for t in targets) for s in sources)
@@ -1083,17 +1094,15 @@ def _not_a_bool(value: Any) -> Any:
     return value
 
 
-def read_given(spec: FieldSpec, value: Any, *, items: bool) -> Any:
-    """``value`` typed into ``spec`` or given for it by a caller, a list of its values with ``items``; ``FieldValueError`` if
-    it can't be. A table may be a list of records."""
+def read_given(spec: FieldSpec, value: Any) -> Any:
+    """``value`` typed into ``spec`` or given for it by a caller; ``FieldValueError`` if it can't be. A table may be
+    a list of records."""
     try:
-        if items:
-            return spec.list_adapter.validate_python(value)
         if spec.shape == "table":
             return None if value is None and spec.optional else read_table(spec, value, strict=False, given=True)
         return spec.lax_adapter.validate_python(value)
     except ValidationError as error:
-        raise _refused(error, _list_of(spec.type) if items or spec.shape == "many" else spec.type) from None
+        raise _refused(error, _list_of(spec.type) if spec.shape == "many" else spec.type) from None
 
 
 def read_value(spec: FieldSpec, value: Any, *, strict: bool) -> Any:
@@ -1197,7 +1206,7 @@ def _declared_loc(hint: Any, loc: tuple[int | str, ...]) -> tuple[int | str, ...
         if isinstance(step, int) and isinstance(origin, type) and issubclass(origin, (list, tuple, set, frozenset)):
             args = [a for a in get_args(hint) if a is not Ellipsis]
             hint = args[min(step, len(args) - 1)] if args else Any
-        elif isinstance(step, str) and step in (fields := _fields_of(hint)):
+        elif isinstance(step, str) and step in (fields := record_fields(hint)):
             hint = fields[step]
         else:
             break
@@ -1215,7 +1224,7 @@ def _unannotated(hint: Any) -> Any:
         hint = bare
 
 
-def _fields_of(hint: Any) -> Mapping[str, Any]:
+def record_fields(hint: Any) -> Mapping[str, Any]:
     """The fields a model, dataclass or ``TypedDict`` declares, by name; none for any other type."""
     if not isinstance(hint, type) or not (issubclass(hint, BaseModel) or dataclasses.is_dataclass(hint) or typing.is_typeddict(hint)):
         return {}
