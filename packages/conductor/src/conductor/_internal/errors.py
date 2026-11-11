@@ -52,7 +52,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from types import MappingProxyType
 from typing import Any, TypeAlias, final
 
-from pydantic import ConfigDict, Field, ValidationError
+from pydantic import Field, ValidationError
 
 from conductor._internal.conductor_model import ConductorModel
 
@@ -207,8 +207,6 @@ class Problem(ConductorModel):
     A graph problem's field need not exist: several are about a value for a
     removed input or an edge to an unknown output.
     """
-
-    model_config = ConfigDict(frozen=True, extra="ignore")
 
     type: str
     loc: tuple[str | int, ...] = ()
