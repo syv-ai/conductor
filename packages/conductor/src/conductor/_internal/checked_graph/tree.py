@@ -276,7 +276,7 @@ def _add_to_tree(graph: CheckedGraph, embedding: EmbeddedGraphAtPath | None, tre
         from_caller: list[tuple[str, str]] = []
         fed: list[tuple[str, InputFedByEdges, bool]] = []
         made_from: dict[FunctionAtPath, int] = {}
-        gathering: dict[tuple[OutputAtScope, ...], list[tuple[str, bool]]] = {}
+        gathering: dict[OutputAtScope, list[tuple[str, bool]]] = {}
         for name, plan in inputs.items():
             call_template[name] = None
             match plan:
@@ -293,7 +293,7 @@ def _add_to_tree(graph: CheckedGraph, embedding: EmbeddedGraphAtPath | None, tre
                 series = plan.series
                 items_of = (functions[series.node_id], series.output)  # what the functions it gathers through read outside the items can settle it too
                 read_at += [(read, places) for inner in plan.asked_for_any_item for read, places in inner.made_from.items() if items_of not in read.maps]
-                gathering.setdefault(plan.reads[: plan.levels], []).append((name, plan.field.keeps_blanks))
+                gathering.setdefault(series, []).append((name, plan.field.keeps_blanks))
                 whole = WholeOutput(series.node_id, series.output, series.scope, None, functions[series.node_id].placed.outputs[series.output].whole)
                 fed.append((name, InputReadsOneValue(plan.field, (whole,), series.scope), plan.field.whole.optional))  # it needs its Series, and then its items
             fed.append((name, plan, plan.field.whole.optional))
