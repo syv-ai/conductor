@@ -314,12 +314,6 @@ class _Placed:
         return frozenset(source.node_id for plan in self.inputs.values() if isinstance(plan, Fed) for source in plan.sources)
 
     @functools.cached_property
-    def checked(self) -> tuple[str, ...]:
-        """The inputs whose value is read by the input's type before a call, as the types its edges bring don't
-        settle it."""
-        return tuple(name for name, plan in self.inputs.items() if _read_before_a_call(plan))
-
-    @functools.cached_property
     def plain_inputs(self) -> bool:
         """Whether no input can hold a mapping, so what a unit received needs no key sorting to hash."""
         return all(plan.spec.type.hashes_plainly for plan in self.inputs.values())
