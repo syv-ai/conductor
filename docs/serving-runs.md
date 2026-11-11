@@ -121,6 +121,7 @@ app.include_router(run_router(
     store=SqliteRunStore(database.path),
     registry=registry,
     caller=current_caller,
+    may_see=lambda caller, started_by: caller.name == started_by.name,
     from_run=lambda caller: {Caller: caller, Database: database},
     published=published,
 ))
@@ -147,7 +148,9 @@ Every refusal the router makes has one body, `{"detail": [problem, ...]}`, each 
 
 **Who can reach `POST /runs`.** That route takes any graph, so whoever reaches it runs any node on any value. It is an author's route: guard it, and `/nodes` and `/load`, with your own check, `app.include_router(router, dependencies=[Depends(...)])`. For an end user, offer saved graphs with `published=`: the body fills a graph's inputs and nothing else.
 
-**Who may see a run.** By default only the caller who started a run may read it or act on it. Anyone else gets 404, `no_such_run`, as for an id that names no run. `may_see=lambda caller, started_by: caller.team == started_by.team` widens that.
+**Who may see a run.** You say: `may_see(caller, started_by)` is asked on every route under `/runs/{id}`, and a caller it turns away gets 404, `no_such_run`, as for an id that names no run. Above, only the caller who started a run may read it or act on it; `may_see=lambda caller, started_by: caller.team == started_by.team` lets a team in. There is no default when you name a `caller`, because the obvious one, the same caller, compares everything your `caller` returns: a record with a `last_login` would lock Anna out of her own run the next time she logs in.
+
+**What `caller` returns.** What identifies the caller and nothing that changes: an id, a tenant. It is kept on the run as JSON when the run starts, and each leg's `from_run` and registry are made from it as it was then, whichever worker runs the leg.
 
 **A registry per tenant.** `registry=` takes a function of the caller instead of a registry. `registry.filter` gives each tenant the nodes it may use. The function is called for every request and every leg, so it builds each tenant's registry once:
 

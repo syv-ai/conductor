@@ -27,9 +27,13 @@ def _caller(x_user: Annotated[str, Header()] = "anna") -> str:
     return x_user
 
 
+def _starter_only(caller: object, started_by: object) -> bool:
+    return caller == started_by
+
+
 def _app(**settings: Any) -> FastAPI:
     app = FastAPI()
-    app.include_router(run_router(**{"caller": _caller, **settings}))
+    app.include_router(run_router(**{"caller": _caller, "may_see": _starter_only, **settings}))
     return app
 
 
@@ -118,7 +122,24 @@ async def test_a_class_as_the_caller_is_kept_as_that_class_so_its_starter_sees_t
 
 def test_a_caller_with_no_return_annotation_is_refused_when_the_router_is_made() -> None:
     with pytest.raises(TypeError, match="return annotation"):
-        run_router(store=MemoryStore(), registry=NodeRegistry(), caller=lambda: "anna")
+        run_router(store=MemoryStore(), registry=NodeRegistry(), caller=lambda: "anna", may_see=_starter_only)
+
+
+def test_a_router_given_a_caller_says_who_may_see_a_run_and_is_refused_when_it_is_made_without() -> None:
+    with pytest.raises(TypeError, match="may_see"):
+        run_router(store=MemoryStore(), registry=NodeRegistry(), caller=_caller)  # type: ignore[call-overload]
+
+
+async def test_a_router_with_no_caller_lets_every_request_see_every_run() -> None:
+    registry, _, graph = _doubling()
+    store = MemoryStore()
+    app = FastAPI()
+    app.include_router(run_router(store=store, registry=registry))
+
+    async with _serving(app) as client:
+        run_id = (await client.post("/runs", json={"graph": graph, "inputs": {"x": 2}})).json()["id"]
+        assert (await store.ended(run_id)).outputs == {"d.result": 4}
+        assert (await client.get(f"/runs/{run_id}", headers={"x-user": "bo"})).status_code == 200
 
 
 # -- what each route answers ----------------------------------------------------------------------

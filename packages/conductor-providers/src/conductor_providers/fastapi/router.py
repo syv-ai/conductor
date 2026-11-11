@@ -130,9 +130,9 @@ def _nobody() -> None:
     return None
 
 
-def _same(caller: object, started_by: object) -> bool:
-    """Whether a caller is the one who started a run: who may see it when the host says nothing else."""
-    return caller == started_by
+def _everyone(caller: None, started_by: None) -> bool:
+    """Who may see a run when the host names no caller: every request, since each is the same caller, nobody."""
+    return True
 
 
 def _no_values(caller: object) -> Mapping[type, Any]:
@@ -146,8 +146,8 @@ def run_router(
     store: RunStore,
     registry: NodeRegistry | Callable[[C], NodeRegistry],
     caller: Callable[..., C],
+    may_see: Callable[[C, C], bool],
     from_run: Callable[[C], Mapping[type, Any]] = ...,
-    may_see: Callable[[C, C], bool] = ...,
     published: Callable[..., GraphRecord] | None = None,
     max_items: int | None = None,
     lease: float = 30.0,
@@ -163,7 +163,6 @@ def run_router(
     store: RunStore,
     registry: NodeRegistry | Callable[[None], NodeRegistry],
     from_run: Callable[[None], Mapping[type, Any]] = ...,
-    may_see: Callable[[None, None], bool] = ...,
     published: Callable[..., GraphRecord] | None = None,
     max_items: int | None = None,
     lease: float = 30.0,
@@ -178,8 +177,8 @@ def run_router(
     store: RunStore,
     registry: NodeRegistry | Callable[[C], NodeRegistry],
     caller: Callable[..., Any] = _nobody,
+    may_see: Callable[[Any, Any], bool] = _everyone,
     from_run: Callable[[C], Mapping[type, Any]] = _no_values,
-    may_see: Callable[[C, C], bool] = _same,
     published: Callable[..., GraphRecord] | None = None,
     max_items: int | None = None,
     lease: float = 30.0,
@@ -194,11 +193,12 @@ def run_router(
       It is called again for every request and every leg, so a function caches what it builds.
     - ``caller`` is a FastAPI dependency giving who is calling: your login. The type it gives (a class used as the
       dependency, or a function's return annotation, which it must have) is kept on the run as JSON, so a run is
-      built again on any worker.
+      built again on any worker. Let it hold what identifies the caller and nothing that changes: a run keeps its
+      caller as they were when it started.
+    - ``may_see(caller, started_by)`` says whether a caller may read and act on a run, and is given whenever
+      ``caller`` is: ``lambda caller, started_by: caller.id == started_by.id`` for the starter alone.
     - ``from_run`` gives a leg its ``FromRun`` values from the caller who started it. A leg runs on threads of its
       own, so a value is a way to connect, never an open connection.
-    - ``may_see(caller, started_by)`` says whether a caller may read and act on a run; by default only the caller
-      who started it may.
     - ``published`` is a FastAPI dependency taking the path's ``name`` and giving a ``GraphRecord``, raising
       ``HTTPException(404)`` for one it doesn't offer; with it, ``POST /graphs/{name}/runs`` starts that graph on
       inputs alone.
@@ -207,6 +207,8 @@ def run_router(
       renewals; ``checkpoint_every`` the seconds between saves of a running leg; ``leg_timeout`` the seconds one leg
       may run; ``poll`` the seconds between a follower's reads of new events.
     """
+    if caller is not _nobody and may_see is _everyone:
+        raise TypeError("run_router(caller=...) needs may_see=: say who may see a run, as lambda caller, started_by: caller.id == started_by.id")
     nodes_for: Callable[[C], NodeRegistry] = (lambda who: registry) if isinstance(registry, NodeRegistry) else registry
     worker: Worker[C] = Worker(
         store=store, nodes_for=nodes_for, caller_type=_caller_type(caller), from_run=from_run,

@@ -65,7 +65,7 @@ An input takes an edge, a value or a default, never two: `values` are fixed, `de
 | To save | `record.model_dump_json()`; a run: `run.to_json()`, `graph.load_run(saved)` |
 | A record an editor draws from | `graph.describe()`, and `registry.describe()` for the palette |
 | A registry for one request | `per_request = NodeRegistry()`, `per_request.add_subregistry(registry)`, `per_request.add(*definitions)` |
-| HTTP routes | `app.include_router(run_router(store=, registry=, caller=))` from `conductor_providers.fastapi`; `docs/serving-runs.md` |
+| HTTP routes | `app.include_router(run_router(store=, registry=, caller=, may_see=))` from `conductor_providers.fastapi`; `docs/serving-runs.md` |
 
 ## Common mistakes
 
