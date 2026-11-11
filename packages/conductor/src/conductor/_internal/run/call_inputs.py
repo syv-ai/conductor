@@ -47,9 +47,9 @@ from conductor._internal.checked_graph.input_plans import (
     OutputAtScope,
     SeriesAsList,
 )
-from conductor._internal.fields import Records
 from conductor._internal.problem import UnitFailedError
 from conductor._internal.sentinels import SKIPPED
+from conductor._internal.table import Records
 from conductor._internal.units import (
     NOT_SETTLED,
     Asking,

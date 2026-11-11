@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 
 from conductor._internal.ask import Ask, Waiting
 from conductor._internal.checked_graph import Feed, GraphDescription, GraphInput, RunsOn
-from conductor._internal.fields import FieldDescription, Table
+from conductor._internal.fields import FieldDescription
 from conductor._internal.from_run import FromRun
 from conductor._internal.graph import Graph
 from conductor._internal.graph_record import GraphRecord, NodeRecord
@@ -50,6 +50,7 @@ from conductor._internal.run import NotCalled, Run
 from conductor._internal.run_status import EndedEarly, Going, RunState, RunStatus
 from conductor._internal.sentinels import SKIPPED
 from conductor._internal.series import Series
+from conductor._internal.table import Table
 from conductor._internal.value_type import Choice, NamedType, Param
 
 # The reference lists these names in this order, so they are kept by subject.

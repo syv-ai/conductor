@@ -7,7 +7,7 @@ from typing import Any, TypedDict
 import polars as pl
 import pytest
 from conductor import GraphRecord, NodeRecord, Series, Table, make_graph, node
-from conductor._internal.fields import Records
+from conductor._internal.table import Records
 
 from tests.test_core.nodes import registry_of
 
