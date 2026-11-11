@@ -181,7 +181,7 @@ def _holds_a_set(value: Any) -> bool:
 
 
 def make_graph(
-    *nodes: NodeDefinition[..., Any],
+    *nodes: NodeDefinition,
     edges: Sequence[tuple[str, str]] | None = None,
     values: Mapping[str, Any] = MappingProxyType({}),
     defaults: Mapping[str, Any] = MappingProxyType({}),
@@ -257,10 +257,10 @@ def make_graph(
     return record
 
 
-def _one_per_id(nodes: Sequence[NodeDefinition[..., Any]]) -> dict[str, NodeDefinition[..., Any]]:
+def _one_per_id(nodes: Sequence[NodeDefinition]) -> dict[str, NodeDefinition]:
     """The definitions to load the record against: the newest given of each id, which holds the older ones given as its
     versions. Two definitions of one id that aren't versions of one node raise, as a registry does."""
-    newest: dict[str, NodeDefinition[..., Any]] = {}
+    newest: dict[str, NodeDefinition] = {}
     for definition in nodes:
         held = newest.setdefault(definition.id, definition)
         newer, older = (definition, held) if definition.version > held.version else (held, definition)
@@ -282,7 +282,7 @@ SAID_AT_THE_CALL = frozenset({
 })
 
 
-def _ids_of(nodes: Sequence[NodeDefinition[..., Any]]) -> list[str]:
+def _ids_of(nodes: Sequence[NodeDefinition]) -> list[str]:
     """Each node's id in the graph: its definition's, numbered ``-1``, ``-2`` for one used more than once."""
     used = Counter(definition.id for definition in nodes)
     taken = {definition.id for definition in nodes if used[definition.id] == 1}
@@ -299,16 +299,22 @@ def _ids_of(nodes: Sequence[NodeDefinition[..., Any]]) -> list[str]:
 
 
 def _chain_edges(
-    ids: Sequence[str], nodes: Sequence[NodeDefinition[..., Any]], typed: Mapping[str, Mapping[str, Mapping[str, JsonValue]]],
+    ids: Sequence[str], nodes: Sequence[NodeDefinition], typed: Mapping[str, Mapping[str, Mapping[str, JsonValue]]],
 ) -> tuple[list[tuple[str, str]], list[Problem]]:
     """The one edge from each node into the next, and ``not_a_chain`` for each pair without exactly one."""
+    from conductor._internal.node_definition import FunctionDefinition  # which imports this module
+
     edges: list[tuple[str, str]] = []
     problems: list[Problem] = []
     for index in range(1, len(nodes)):
         before_id, before, after_id, after = ids[index - 1], nodes[index - 1], ids[index], nodes[index]
         filled = {**typed["values"].get(after_id, {}), **typed["defaults"].get(after_id, {})}
-        outputs = list(before.outputs)
-        open_inputs = [name for name, spec in after.inputs.items() if spec.required and name not in filled]
+        match before, after:
+            case FunctionDefinition(), FunctionDefinition():
+                outputs = list(before.outputs)
+                open_inputs = [name for name, spec in after.inputs.items() if spec.required and name not in filled]
+            case _:  # a stored graph's fields are known only when it loads, so a chain can't be drawn through it
+                outputs, open_inputs = [], []
         if len(outputs) != 1 or len(open_inputs) != 1:
             problems.append(make_problem("not_a_chain", after_id, before=before_id, inputs=open_inputs, outputs=outputs))
         else:

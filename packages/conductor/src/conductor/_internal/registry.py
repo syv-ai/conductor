@@ -54,7 +54,13 @@ from conductor._internal.fields import (
     type_name,
     without_none,
 )
-from conductor._internal.node_definition import NodeDefinition, NodeDescription, node
+from conductor._internal.node_definition import (
+    FunctionDefinition,
+    GraphDefinition,
+    NodeDefinition,
+    NodeDescription,
+    node,
+)
 from conductor._internal.record import GraphRecord, NodeRecord, as_record, typed_in
 
 if TYPE_CHECKING:
@@ -96,7 +102,7 @@ class NodeRegistry:
         #: The types a host names, whether or not a node declares them.
         self._named_types = tuple(types)
         #: The definitions, by id, in the order they arrived.
-        self._nodes: dict[str, NodeDefinition[..., Any]] = {}
+        self._nodes: dict[str, NodeDefinition] = {}
         #: The types the nodes declare, by id, in the order the nodes arrived.
         self._declared: dict[str, type] = {}
         #: Every type, by id: the ones the nodes declare, then the named ones.
@@ -114,7 +120,7 @@ class NodeRegistry:
     def __contains__(self, node_id: object) -> bool:
         return node_id in self._nodes
 
-    def __getitem__(self, node_id: str) -> NodeDefinition[..., Any]:
+    def __getitem__(self, node_id: str) -> NodeDefinition:
         """The definition registered under ``node_id``; an unknown id is a ``KeyError`` naming the ids there are."""
         if node_id not in self._nodes:
             raise self._not_here(node_id)
@@ -123,7 +129,7 @@ class NodeRegistry:
     def __len__(self) -> int:
         return len(self._nodes)
 
-    def __iter__(self) -> Iterator[NodeDefinition[..., Any]]:
+    def __iter__(self) -> Iterator[NodeDefinition]:
         """The definitions, in the order they arrived."""
         return iter(tuple(self._nodes.values()))
 
@@ -140,7 +146,7 @@ class NodeRegistry:
         """
         declare = node(*args, **kwargs)
 
-        def decorate(target: Callable[..., Any] | GraphRecord | str | bytes | Mapping[str, Any]) -> NodeDefinition[..., Any]:
+        def decorate(target: Callable[..., Any] | GraphRecord | str | bytes | Mapping[str, Any]) -> NodeDefinition:
             definition = declare(target)
             if definition.replaces is not None and _same_version(self._nodes.get(definition.id), definition.replaces):
                 self.replace(definition)
@@ -150,11 +156,11 @@ class NodeRegistry:
 
         return decorate
 
-    def add(self, *definitions: NodeDefinition[..., Any]) -> None:
+    def add(self, *definitions: NodeDefinition) -> None:
         """Add these nodes, each under its id; an id already here raises, naming where both were declared."""
         self._hold(self._nodes_with(definitions), self._named_types, _by_id(_types_declared_by(definitions), self._declared))
 
-    def replace(self, definition: NodeDefinition[..., Any]) -> None:
+    def replace(self, definition: NodeDefinition) -> None:
         """Put ``definition`` in place of the node registered under its id; an id not here is a ``KeyError``."""
         if definition.id not in self._nodes:
             raise self._not_here(definition.id)
@@ -179,14 +185,14 @@ class NodeRegistry:
         added = tuple(subregistry)
         self._hold(self._nodes_with(added), named, _by_id(_types_declared_by(added), self._declared))
 
-    def filter(self, predicate: Callable[[NodeDefinition[..., Any]], bool]) -> NodeRegistry:
+    def filter(self, predicate: Callable[[NodeDefinition], bool]) -> NodeRegistry:
         """A new registry with this one's defaults and named types, holding the nodes ``predicate`` keeps."""
         kept = copy.copy(self)
         nodes = {definition.id: definition for definition in self._nodes.values() if predicate(definition)}
         kept._hold(nodes, self._named_types, _by_id(_types_declared_by(nodes.values())))
         return kept
 
-    def _nodes_with(self, definitions: Iterable[NodeDefinition[..., Any]]) -> dict[str, NodeDefinition[..., Any]]:
+    def _nodes_with(self, definitions: Iterable[NodeDefinition]) -> dict[str, NodeDefinition]:
         """What this registry holds plus ``definitions``, each under this registry's defaults; a repeated id raises."""
         nodes = dict(self._nodes)
         for definition in definitions:
@@ -200,7 +206,7 @@ class NodeRegistry:
             nodes[definition.id] = self._with_defaults(definition)
         return nodes
 
-    def _with_defaults(self, definition: NodeDefinition[..., Any]) -> NodeDefinition[..., Any]:
+    def _with_defaults(self, definition: NodeDefinition) -> NodeDefinition:
         """``definition`` under this registry's defaults: tags after the registry's, the node's own category and extra keys winning."""
         tags = tuple(dict.fromkeys((*self._tags, *definition.tags)))
         category = definition.category or self._category
@@ -209,7 +215,7 @@ class NodeRegistry:
             return definition
         return dataclasses.replace(definition, tags=tags, category=category, extra=MappingProxyType(extra))
 
-    def _hold(self, nodes: dict[str, NodeDefinition[..., Any]], named_types: tuple[type, ...], declared: dict[str, type]) -> None:
+    def _hold(self, nodes: dict[str, NodeDefinition], named_types: tuple[type, ...], declared: dict[str, type]) -> None:
         """Hold exactly ``nodes``, ``named_types`` and ``declared``, the types the nodes declare by id, once the named
         types give one class per id beside them. A caller adding nodes reads only theirs, on top of what is held."""
         self._types = _by_id(named_types, declared)
@@ -241,10 +247,13 @@ class NodeRegistry:
             ],
         )
 
-    def _described(self, definition: NodeDefinition[..., Any]) -> NodeDescription:
+    def _described(self, definition: NodeDefinition) -> NodeDescription:
         """A node as the palette shows it; a stored graph with the fields it offers, worked out against this registry once."""
-        if definition.graph is None:
-            return definition.describe()
+        match definition:
+            case FunctionDefinition():
+                return definition.describe()
+            case GraphDefinition():
+                pass
         if definition.id not in self._graph_descriptions:
             placed = self.load(GraphRecord(nodes=[NodeRecord(id="node", node=definition.id, version=definition.version)])).describe().nodes["node"]
             inputs = [FieldDescription.model_validate(field.model_dump(exclude={"feed"})) for field in placed.inputs]
@@ -311,7 +320,7 @@ class NodeRegistry:
                     raise InvalidCallError(faults)
                 defaults = {name: value for name, value in rewritten.items() if name in defaults and name not in values}
                 values = {name: value for name, value in rewritten.items() if name not in defaults}
-            gone = {f"{node_id}.{name}" for name in older.inputs.keys() - step.inputs.keys() - upgrade.renamed_inputs.keys()}
+            gone = {f"{node_id}.{name}" for name in _input_names(older) - _input_names(step) - upgrade.renamed_inputs.keys()}
             edges = [
                 (_renamed_on(source, node_id, upgrade.renamed_outputs), _renamed_on(target_, node_id, upgrade.renamed_inputs))
                 for source, target_ in edges
@@ -362,26 +371,50 @@ def _by_id(types: Iterable[type], start: Mapping[str, type] = MappingProxyType({
     return by_id
 
 
-def _same_version(held: NodeDefinition[..., Any] | None, replaced: NodeDefinition[..., Any]) -> bool:
+def _same_version(held: NodeDefinition | None, replaced: NodeDefinition) -> bool:
     """Whether ``held`` is ``replaced``, possibly with a registry's defaults applied."""
-    return held is not None and (held is replaced or (
-        held.version == replaced.version and held.function is replaced.function and held.graph is replaced.graph and held.replaces is replaced.replaces
-    ))
+    if held is None or held is replaced:
+        return held is not None
+    if held.version != replaced.version or held.replaces is not replaced.replaces:
+        return False
+    match held, replaced:
+        case FunctionDefinition(), FunctionDefinition():
+            return held.function is replaced.function
+        case GraphDefinition(), GraphDefinition():
+            return held.graph is replaced.graph
+        case _:  # one is a function and the other a graph
+            return False
 
 
-def _where_declared(definition: NodeDefinition[..., Any]) -> str:
+def _where_declared(definition: NodeDefinition) -> str:
     """Where a node was written: its function's module and name, or the graph it is."""
-    if definition.function is None:
-        return f"a node that is a graph, titled {definition.title!r} (versions {', '.join(map(str, definition.versions))})"
-    return f"{definition.function.__module__}.{definition.function.__qualname__}"
+    match definition:
+        case FunctionDefinition(function=function):
+            return f"{function.__module__}.{function.__qualname__}"
+        case GraphDefinition():
+            return f"a node that is a graph, titled {definition.title!r} (versions {', '.join(map(str, definition.versions))})"
 
 
-def _types_declared_by(definitions: Iterable[NodeDefinition[..., Any]]) -> list[type]:
+def _input_names(definition: NodeDefinition) -> frozenset[str]:
+    """The inputs a version declares by name; a stored graph declares none of its own."""
+    match definition:
+        case FunctionDefinition():
+            return frozenset(definition.inputs)
+        case GraphDefinition():
+            return frozenset()
+
+
+def _types_declared_by(definitions: Iterable[NodeDefinition]) -> list[type]:
     """Every class the versions of ``definitions`` declare on their inputs and outputs, each once, node by node in declaration order."""
     found: list[type] = []
     for definition in definitions:
         for step in definition.lineage:
-            for spec in (*step.inputs.values(), *step.outputs.values()):
+            match step:
+                case FunctionDefinition():
+                    specs = (*step.inputs.values(), *step.outputs.values())
+                case GraphDefinition():  # a graph declares no classes of its own
+                    continue
+            for spec in specs:
                 held = without_none(spec.type)
                 if spec.shape != "table" and isinstance(held, type) and held is not Any and held not in found:
                     found.append(held)

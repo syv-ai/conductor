@@ -23,7 +23,8 @@ What changes in how you work, before the name-by-name tables:
   (`NamedType`); nothing falls back to the class's name. `NodeRegistry(types=)` takes only
   `NamedType`s, so a type checker refuses a class without them there.
 - **A node is a typed function.** `@node("id", title=, description=)` (registers nothing) or
-  `@registry.node(...)` returns a frozen, callable `NodeDefinition`. Its title and description are
+  `@registry.node(...)` returns a frozen, callable `FunctionDefinition` (a `GraphDefinition` for a stored graph,
+  with no function to call; `NodeDefinition` is either). Its title and description are
   required, and the docstring never reaches a person. The signature is the interface:
   `Annotated[str, Param(title=, widget=, ge=, ...)]` for what a person sees and the limits a value
   keeps (pydantic metadata, so its limits and choices hold inside your own `BaseModel` or dataclass
@@ -108,7 +109,7 @@ Every public name of 1.12.2, by the module it was imported from. A name not list
 | `conductor.registry.dynamic_outputs.ComputeOutputsFn` | `compute_outputs=`, a plain function returning `{name: type hint}` |
 | `conductor.registry.dynamic_outputs.IncomingBinding` | gone: a hook parameter annotated `type` receives the type arriving on that input |
 | `conductor.registry.dynamic_outputs.strip_sub_output_prefix` | gone: an output is named by its field |
-| `conductor.registry.NodeDefinition` | `NodeDefinition`, frozen and callable, returned by `@node` |
+| `conductor.registry.NodeDefinition` | `NodeDefinition`, the union of `FunctionDefinition` (frozen and callable, returned by `@node` on a function) and `GraphDefinition` (on a stored graph) |
 | `conductor.types.Base64Str` | gone: any type pydantic carries travels; `bytes` is one |
 | `conductor.types.Date` | `datetime.date` |
 | `conductor.types.MultiNamedFile` | gone: `Series[YourFile]` |

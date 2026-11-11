@@ -198,23 +198,17 @@ class Upgrade:
     rewrite: Callable[[dict[str, JsonValue]], Mapping[str, Any]] | None = None
 
 
-@dataclass(frozen=True, eq=False)
-class NodeDefinition(Generic[_P, _R]):
-    """One version of a node: what it takes, what it gives, and how to call it.
+@dataclass(frozen=True, eq=False, kw_only=True)
+class _Version:
+    """What every version of a node has, whether it is a function or a stored graph.
 
-    Frozen, and callable with the function's own signature, so a node is tested by calling it. ``@node`` makes one;
-    a host reads it from ``registry[id]`` or by looping over a registry.
+    Never made on its own: a version is a ``FunctionDefinition`` or a ``GraphDefinition``, the two kinds of
+    ``NodeDefinition``.
 
     Attributes:
         id: The id a graph names it by. Stored in every graph that uses it, so changing it is a data migration, not
             a rename.
         version: Which version of the node this is, counted from 1; a graph pins it.
-        function: What runs on each row; ``None`` for a node that is a stored graph.
-        inputs: Each input by name, as its signature declares it. A ``FromRun`` parameter is not an input: it is in
-            ``from_run``. An input a hook adds is not here either; a loaded graph's node holds it.
-        outputs: Each output by name: ``result`` for one value, a field each for a frozen dataclass returned.
-        outputs_class: The frozen dataclass the function returns when it has one output per field; ``None`` for any
-            other return type.
         title: What a person reads for the node, as its author declared it.
         description: What it does, in a sentence for a person, as its author declared it; never the docstring.
         category: Where an editor lists it; a plain string whose titles the host keeps.
@@ -222,10 +216,65 @@ class NodeDefinition(Generic[_P, _R]):
         extra: The host's own JSON about the node: kept and described, never read here.
         docs: Long-form markdown for the node's help, when the description isn't all there is to say.
         deprecation: Set when the node is on its way out: what to tell a person, and what to use instead.
-        replaces: The version before this one, under the same id; ``None`` for a first version.
+        replaces: The version before this one, under the same id; ``None`` for a first version. It may be of the
+            other kind.
         upgrade: How a node saved at ``replaces`` moves to this version; read only when ``replaces`` names one.
-        graph: The stored graph this node is, set instead of ``function``; its fields are the graph's, worked out
-            when a graph using it is loaded.
+    """
+
+    id: str
+    version: int
+    title: str
+    description: str
+    category: str = ""
+    tags: tuple[str, ...] = ()
+    extra: Mapping[str, JsonValue] = field(default_factory=dict[str, JsonValue])
+    docs: str | None = None
+    deprecation: Deprecation | None = None
+    replaces: NodeDefinition | None = None
+    upgrade: Upgrade = Upgrade()
+
+    def __repr__(self) -> str:
+        parts = [f"id={self.id!r}", f"version={self.version}", f"title={self.title!r}"]
+        if self.category:
+            parts.append(f"category={self.category!r}")
+        if self.tags:
+            parts.append(f"tags={self.tags!r}")
+        return f"{type(self).__name__}({', '.join(parts)})"
+
+    @functools.cached_property
+    def _replaced(self) -> tuple[NodeDefinition, ...]:
+        """Each version this one replaces, newest first."""
+        return () if self.replaces is None else self.replaces.lineage
+
+    @property
+    def versions(self) -> tuple[int, ...]:
+        """Every version number, newest first."""
+        return (self.version, *(step.version for step in self._replaced))
+
+    def _described(self, *, is_graph: bool, policy: Policy, inputs: Iterable[FieldSpec], outputs: Iterable[FieldSpec], hooks: tuple[bool, bool]) -> NodeDescription:
+        return NodeDescription(
+            id=self.id, version=self.version, versions=list(self.versions), title=self.title, description=self.description,
+            category=self.category, tags=list(self.tags), extra=dict(self.extra), docs=self.docs, deprecation=self.deprecation,
+            is_graph=is_graph, policy=policy.describe(),
+            inputs=[f.describe() for f in inputs], outputs=[f.describe() for f in outputs],
+            takes_added_inputs=hooks[0], computes_outputs=hooks[1],
+        )
+
+
+@dataclass(frozen=True, eq=False, kw_only=True, repr=False)  # the version's own __repr__
+class FunctionDefinition(_Version, Generic[_P, _R]):
+    """A version of a node that is a function: what it takes, what it gives, and how to call it.
+
+    Frozen, and callable with the function's own signature, so a node is tested by calling it. ``@node`` on a
+    ``def`` makes one; a host reads it from ``registry[id]`` or by looping over a registry.
+
+    Attributes:
+        function: What runs on each row.
+        inputs: Each input by name, as its signature declares it. A ``FromRun`` parameter is not an input: it is in
+            ``from_run``. An input a hook adds is not here either; a loaded graph's node holds it.
+        outputs: Each output by name: ``result`` for one value, a field each for a frozen dataclass returned.
+        outputs_class: The frozen dataclass the function returns when it has one output per field; ``None`` for any
+            other return type.
         policy: How it runs: how many rows at once, its retries and time limit, whether it reuses earlier work.
         compute_added_inputs: A hook run at load that adds inputs from the values typed into it; the function takes
             them as ``**kwargs``.
@@ -238,22 +287,10 @@ class NodeDefinition(Generic[_P, _R]):
             signatures once, at ``@node``.
     """
 
-    id: str
-    version: int
-    function: NodeFunction[..., Any] | None
+    function: NodeFunction[_P, _R]
     inputs: Mapping[str, FieldSpec]
     outputs: Mapping[str, FieldSpec]
     outputs_class: type | None = None
-    title: str = field(kw_only=True)
-    description: str = field(kw_only=True)
-    category: str = ""
-    tags: tuple[str, ...] = ()
-    extra: Mapping[str, JsonValue] = field(default_factory=dict[str, JsonValue])
-    docs: str | None = None
-    deprecation: Deprecation | None = None
-    replaces: NodeDefinition[..., Any] | None = None
-    upgrade: Upgrade = Upgrade()
-    graph: GraphRecord | None = None
     policy: Policy = Policy()
     compute_added_inputs: Callable[..., Mapping[Any, Any]] | None = None
     compute_outputs: Callable[..., Mapping[Any, Any]] | None = None
@@ -262,45 +299,64 @@ class NodeDefinition(Generic[_P, _R]):
 
     def __call__(self, *args: _P.args, **kwargs: _P.kwargs) -> _R:
         """Call the function, as a test or a host would."""
-        if self.function is None:
-            raise TypeError(f"{self.id!r} is a graph, so it has no function to call; load a graph that uses it")
-        return typing.cast(_R, self.function(*args, **kwargs))
-
-    def __repr__(self) -> str:
-        parts = [f"id={self.id!r}", f"version={self.version}", f"title={self.title!r}"]
-        if self.category:
-            parts.append(f"category={self.category!r}")
-        if self.tags:
-            parts.append(f"tags={self.tags!r}")
-        return f"NodeDefinition({', '.join(parts)})"
-
-    def version_of(self, version: int) -> NodeDefinition[..., Any]:
-        """This node at ``version``, walking back through what each version replaces; a ``KeyError`` naming the versions
-        there are when it has none. ``version in definition.versions`` asks first."""
-        for found in self.lineage:
-            if found.version == version:
-                return found
-        raise KeyError(f"{self.id!r} has no version {version!r}; it has {', '.join(map(str, self.versions))}")
-
-    @functools.cached_property
-    def lineage(self) -> tuple[NodeDefinition[..., Any], ...]:
-        """This version, then each version it replaces, newest first."""
-        return (self,) if self.replaces is None else (self, *self.replaces.lineage)
+        return self.function(*args, **kwargs)
 
     @property
-    def versions(self) -> tuple[int, ...]:
-        """Every version number, newest first."""
-        return tuple(step.version for step in self.lineage)
+    def lineage(self) -> tuple[NodeDefinition, ...]:
+        """This version, then each version it replaces, newest first."""
+        return (self, *self._replaced)
+
+    def version_of(self, version: int) -> NodeDefinition:
+        """This node at ``version``, walking back through what each version replaces; a ``KeyError`` naming the versions
+        there are when it has none. ``version in definition.versions`` asks first."""
+        return _version_of(self.lineage, version)
 
     def describe(self) -> NodeDescription:
-        """The node as an editor's palette shows it; a stored graph's fields only through ``registry.describe()``, which holds the nodes it uses."""
-        return NodeDescription(
-            id=self.id, version=self.version, versions=list(self.versions), title=self.title, description=self.description,
-            category=self.category, tags=list(self.tags), extra=dict(self.extra), docs=self.docs, deprecation=self.deprecation,
-            is_graph=self.graph is not None, policy=self.policy.describe(),
-            inputs=[f.describe() for f in self.inputs.values()], outputs=[f.describe() for f in self.outputs.values()],
-            takes_added_inputs=self.compute_added_inputs is not None, computes_outputs=self.compute_outputs is not None,
+        """The node as an editor's palette shows it."""
+        return self._described(
+            is_graph=False, policy=self.policy, inputs=self.inputs.values(), outputs=self.outputs.values(),
+            hooks=(self.compute_added_inputs is not None, self.compute_outputs is not None),
         )
+
+
+@dataclass(frozen=True, eq=False, kw_only=True, repr=False)  # the version's own __repr__
+class GraphDefinition(_Version):
+    """A version of a node that is a stored graph, run where a graph using it puts its nodes.
+
+    ``@node`` on a record, JSON text or a mapping makes one. It has no function, so calling it is a type error; its
+    fields are the graph's, worked out when a graph using it is loaded.
+
+    Attributes:
+        graph: The stored graph this node is.
+    """
+
+    graph: GraphRecord
+
+    @property
+    def lineage(self) -> tuple[NodeDefinition, ...]:
+        """This version, then each version it replaces, newest first."""
+        return (self, *self._replaced)
+
+    def version_of(self, version: int) -> NodeDefinition:
+        """This node at ``version``, walking back through what each version replaces; a ``KeyError`` naming the versions
+        there are when it has none. ``version in definition.versions`` asks first."""
+        return _version_of(self.lineage, version)
+
+    def describe(self) -> NodeDescription:
+        """The node as an editor's palette shows it, with no fields: only ``registry.describe()``, which holds the nodes
+        the graph uses, lists them."""
+        return self._described(is_graph=True, policy=_DEFAULT_POLICY, inputs=(), outputs=(), hooks=(False, False))
+
+
+#: One version of a node: a function, or a stored graph.
+type NodeDefinition = FunctionDefinition[..., Any] | GraphDefinition
+
+
+def _version_of(lineage: tuple[NodeDefinition, ...], version: int) -> NodeDefinition:
+    for found in lineage:
+        if found.version == version:
+            return found
+    raise KeyError(f"{lineage[0].id!r} has no version {version!r}; it has {', '.join(str(step.version) for step in lineage)}")
 
 
 class NodeDescription(ConductorModel):
@@ -333,12 +389,12 @@ class NodeDecorator(Protocol):
     """What ``@node(...)`` returns: it makes a node of a function, or of a stored graph."""
 
     @overload
-    def __call__(self, target: GraphRecord | str | bytes | Mapping[str, Any], /) -> NodeDefinition[..., Any]: ...
+    def __call__(self, target: GraphRecord | str | bytes | Mapping[str, Any], /) -> GraphDefinition: ...
 
     @overload
-    def __call__(self, target: NodeFunction[_P, _R], /) -> NodeDefinition[_P, _R]: ...
+    def __call__(self, target: NodeFunction[_P, _R], /) -> FunctionDefinition[_P, _R]: ...
 
-    def __call__(self, target: Any, /) -> NodeDefinition[..., Any]: ...
+    def __call__(self, target: Any, /) -> NodeDefinition: ...
 
 
 def node(
@@ -356,7 +412,7 @@ def node(
     deprecation: Deprecation | None = None,
     compute_added_inputs: Callable[..., Mapping[Any, Any]] | None = None,
     compute_outputs: Callable[..., Mapping[Any, Any]] | None = None,
-    replaces: NodeDefinition[..., Any] | None = None,
+    replaces: NodeDefinition | None = None,
     upgrade: Upgrade | None = None,
 ) -> NodeDecorator:
     """Make the function below it, or a stored graph, a node with the id ``id``::
@@ -400,14 +456,10 @@ def node(
         raise NodeDeclarationError(f"@node({id!r}) is version {number}, not after the version {replaces.version} it replaces; leave version= out, or give one above {replaces.version}", code="version_not_after")
 
     @overload
-    def make(target: GraphRecord | str | bytes | Mapping[str, Any], /) -> NodeDefinition[..., Any]: ...
+    def make(target: GraphRecord | str | bytes | Mapping[str, Any], /) -> GraphDefinition: ...
     @overload
-    def make(target: NodeFunction[_P, _R], /) -> NodeDefinition[_P, _R]: ...
-    def make(target: GraphRecord | str | bytes | Mapping[str, Any] | NodeFunction[..., Any], /) -> NodeDefinition[..., Any]:
-        common: dict[str, Any] = {
-            "id": id, "version": number, "category": category, "tags": tuple(tags), "extra": MappingProxyType(dict(extra)), "docs": docs,
-            "deprecation": deprecation, "replaces": replaces, "upgrade": upgrade or Upgrade(), "policy": policy or Policy(),
-        }
+    def make(target: NodeFunction[_P, _R], /) -> FunctionDefinition[_P, _R]: ...
+    def make(target: GraphRecord | str | bytes | Mapping[str, Any] | NodeFunction[..., Any], /) -> NodeDefinition:
         if not callable(target):
             given = ", ".join(name for name, value in (("policy", policy), ("compute_added_inputs", compute_added_inputs), ("compute_outputs", compute_outputs)) if value is not None)
             if given:
@@ -416,7 +468,11 @@ def node(
                     code="not_for_a_graph",
                 )
             record = as_record(target)  # a record, JSON text or a mapping, read as registry.load reads one
-            return NodeDefinition(function=None, inputs={}, outputs={}, graph=record, title=title, description=description, **common)
+            return GraphDefinition(
+                graph=record, id=id, version=number, title=title, description=description, category=category,
+                tags=tuple(tags), extra=MappingProxyType(dict(extra)), docs=docs, deprecation=deprecation, replaces=replaces,
+                upgrade=upgrade or Upgrade(),
+            )
         where = f"@node({id!r}) on {target.__name__}: "
         if inspect.iscoroutinefunction(target) or inspect.isasyncgenfunction(target):
             raise NodeDeclarationError(f"{where}a node is a plain def; the engine gives a slow one threads with Policy(concurrency=)", code="async_run")
@@ -428,10 +484,12 @@ def node(
             raise NodeDeclarationError(f"{where}**kwargs takes the inputs compute_added_inputs adds; the node has no such hook, so remove **kwargs or add compute_added_inputs=", code="var_keyword_without_hook")
         hooks: dict[HookName, Callable[..., Any] | None] = {"compute_added_inputs": compute_added_inputs, "compute_outputs": compute_outputs}
         hook_parameters = {kind: _check_hook(where, hook, kind, inputs) for kind, hook in hooks.items() if hook is not None}
-        definition: NodeDefinition[..., Any] = NodeDefinition(
+        definition = FunctionDefinition(
             function=target, inputs=inputs, outputs=outputs, outputs_class=outputs_class, from_run=from_run,
-            title=title, description=description,
-            compute_added_inputs=compute_added_inputs, compute_outputs=compute_outputs, hook_parameters=hook_parameters, **common,
+            id=id, version=number, title=title, description=description,
+            category=category, tags=tuple(tags), extra=MappingProxyType(dict(extra)), docs=docs, deprecation=deprecation,
+            replaces=replaces, upgrade=upgrade or Upgrade(), policy=policy or Policy(),
+            compute_added_inputs=compute_added_inputs, compute_outputs=compute_outputs, hook_parameters=hook_parameters,
         )
         if replaces is not None:
             _raise_if_upgrade_is_missing(where, replaces, definition)
@@ -450,7 +508,7 @@ def is_node_id(value: str) -> bool:
     return bool(value) and not _MARKS & set(value)
 
 
-def from_run_values(definitions: Iterable[tuple[str, NodeDefinition[..., Any]]], from_run: Mapping[type, Any] | None) -> dict[type, Any]:
+def from_run_values(definitions: Iterable[tuple[str, FunctionDefinition[..., Any]]], from_run: Mapping[type, Any] | None) -> dict[type, Any]:
     """The value each ``FromRun`` parameter of these placed nodes takes, by the class it names; ``InvalidCallError`` listing
     every parameter it can't fill.
 
@@ -536,7 +594,7 @@ def _declared_default(declared: dataclasses.Field[Any]) -> Any:
     return REQUIRED
 
 
-def read_by_hooks(definition: NodeDefinition[..., Any]) -> frozenset[str]:
+def read_by_hooks(definition: FunctionDefinition[..., Any]) -> frozenset[str]:
     """The inputs a node's hooks read as values: fixed when the graph loads, so never open to a caller."""
     return frozenset(name for parameters in definition.hook_parameters.values() for name, arriving in parameters.items() if not arriving)
 
@@ -564,16 +622,18 @@ def _check_hook(where: str, hook: Callable[..., Any], kind: HookName, inputs: Ma
     return parameters
 
 
-def _raise_if_upgrade_is_missing(where: str, older: NodeDefinition[..., Any], newer: NodeDefinition[..., Any]) -> None:
+def _raise_if_upgrade_is_missing(where: str, older: NodeDefinition, newer: FunctionDefinition[..., Any]) -> None:
     """A field name of the replaced version that is gone from the newer one needs an upgrade to say where it went.
 
     A gone input is explained by a rename or a ``rewrite``, which rewrites what is typed in; a gone output only by a
     rename, since the edges out of it are what moves.
     """
-    if older.graph is not None or newer.graph is not None:
-        return
-    gone_inputs = set(older.inputs) - set(newer.inputs)
-    gone_outputs = set(older.outputs) - set(newer.outputs)
+    match older:
+        case GraphDefinition():  # its fields are known only when a graph using it loads
+            return
+        case FunctionDefinition():
+            gone_inputs = set(older.inputs) - set(newer.inputs)
+            gone_outputs = set(older.outputs) - set(newer.outputs)
     upgrade = newer.upgrade
     unexplained = gone_outputs - set(upgrade.renamed_outputs)
     if upgrade.rewrite is None:

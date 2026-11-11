@@ -36,6 +36,8 @@ from conductor._internal.fields import (
 from conductor._internal.graph import Feed, Graph, GraphDescription, GraphInput, RunsOn
 from conductor._internal.node_definition import (
     Deprecation,
+    FunctionDefinition,
+    GraphDefinition,
     NodeDefinition,
     NodeDescription,
     Policy,
@@ -62,7 +64,9 @@ __all__ = [
     "Feed",
     "FieldDescription",
     "FromRun",
+    "FunctionDefinition",
     "Graph",
+    "GraphDefinition",
     "GraphDescription",
     "GraphInput",
     "GraphRecord",

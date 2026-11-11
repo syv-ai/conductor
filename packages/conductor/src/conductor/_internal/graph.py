@@ -71,7 +71,14 @@ from conductor._internal.fields import (
     takes_a_blank,
     type_id,
 )
-from conductor._internal.node_definition import HookName, NodeDefinition, is_node_id, read_by_hooks
+from conductor._internal.node_definition import (
+    FunctionDefinition,
+    GraphDefinition,
+    HookName,
+    NodeDefinition,
+    is_node_id,
+    read_by_hooks,
+)
 from conductor._internal.record import GraphRecord, NodeRecord
 
 if TYPE_CHECKING:
@@ -139,7 +146,7 @@ class PlacedNode:
     """One node of a loaded graph: its definition as its hooks made it, and where it runs."""
 
     id: str
-    definition: NodeDefinition[..., Any]
+    definition: FunctionDefinition[..., Any]
     record: NodeRecord
     level: Level = ()
     inputs: dict[str, InputPlan] = field(default_factory=dict[str, "InputPlan"])
@@ -270,7 +277,7 @@ class Graph:
 
     @classmethod
     def _loaded(
-        cls, record: GraphRecord, definitions: Mapping[str, NodeDefinition[..., Any]], embedded_in: tuple[str, ...], alone: dict[AloneKey, Offer],
+        cls, record: GraphRecord, definitions: Mapping[str, NodeDefinition], embedded_in: tuple[str, ...], alone: dict[AloneKey, Offer],
         is_listed: ListsRule,
     ) -> Graph:
         graph = cls.__new__(cls)
@@ -278,7 +285,7 @@ class Graph:
         return graph
 
     def _load(
-        self, record: GraphRecord, definitions: Mapping[str, NodeDefinition[..., Any]], embedded_in: tuple[str, ...], alone: dict[AloneKey, Offer],
+        self, record: GraphRecord, definitions: Mapping[str, NodeDefinition], embedded_in: tuple[str, ...], alone: dict[AloneKey, Offer],
         is_listed: ListsRule,
     ) -> None:
         self.record = record
@@ -683,9 +690,9 @@ class Graph:
 
     # -- embedding --------------------------------------------------------------
 
-    def _splice(self, record: GraphRecord, prefix: str, stack: tuple[str, ...]) -> tuple[list[tuple[NodeRecord, NodeDefinition[..., Any] | None]], list[tuple[str, str]]]:
+    def _splice(self, record: GraphRecord, prefix: str, stack: tuple[str, ...]) -> tuple[list[tuple[NodeRecord, FunctionDefinition[..., Any] | None]], list[tuple[str, str]]]:
         """Resolve each node; an embedded graph's nodes take its place under ``<node>/`` ids."""
-        out: list[tuple[NodeRecord, NodeDefinition[..., Any] | None]] = []
+        out: list[tuple[NodeRecord, FunctionDefinition[..., Any] | None]] = []
         edges: list[tuple[str, str]] = []
         refused = {n.id for n in record.nodes if not is_node_id(n.id)}
         for a, b in record.edges:
@@ -706,24 +713,27 @@ class Graph:
             if prefix:  # an embedded graph's node, under its embedding's id
                 node_record = node_record.model_copy(update={"id": prefix + node_record.id})
             definition = self._resolve(node_record)
-            if definition is None or definition.graph is None:
-                out.append((node_record, definition))
-                continue
+            match definition:
+                case None | FunctionDefinition():  # None: a record whose problem is already noted
+                    out.append((node_record, definition))
+                    continue
+                case GraphDefinition(graph=graph):
+                    pass
             if definition.id in stack:
                 self.problems.append(make_problem("embeds_itself", node_record.id, node=definition.id))
                 out.append((node_record, None))
                 continue
             loaded_alone = (definition.id, definition.version, (*stack, definition.id))
             if loaded_alone not in self._alone:
-                self._alone[loaded_alone] = Graph._loaded(definition.graph, self._definitions, loaded_alone[2], self._alone, _listed_at(frozenset()))._offered()
+                self._alone[loaded_alone] = Graph._loaded(graph, self._definitions, loaded_alone[2], self._alone, _listed_at(frozenset()))._offered()
             alone_problems, offered_ins, offered_outs = self._alone[loaded_alone]
             if alone_problems:
                 inner_problems = [p.model_dump(mode="json") for p in alone_problems]
                 self.problems.append(make_problem("embedded_graph_broken", node_record.id, graph=definition.id, count=len(inner_problems), problems=inner_problems))
                 out.append((node_record, None))
                 continue
-            self._embedded[node_record.id] = definition.graph
-            inner, inner_edges = self._splice(definition.graph, node_record.id + "/", (*stack, definition.id))
+            self._embedded[node_record.id] = graph
+            inner, inner_edges = self._splice(graph, node_record.id + "/", (*stack, definition.id))
             ins = {name: (node_record.id + "/" + n, i) for name, (n, i) in offered_ins.items()}
             outs = {name: node_record.id + "/" + address for name, address in offered_outs.items()}
             for name, (inner_node, inner_input) in ins.items():
@@ -763,7 +773,7 @@ class Graph:
             followed.append((fa, fb))
         return out, followed
 
-    def _resolve(self, node_record: NodeRecord) -> NodeDefinition[..., Any] | None:
+    def _resolve(self, node_record: NodeRecord) -> NodeDefinition | None:
         newest = self._definitions.get(node_record.node)
         if newest is None:
             self.problems.append(make_problem("unknown_node", node_record.id, node=node_record.node, choices=sorted(self._definitions)))
@@ -775,7 +785,7 @@ class Graph:
 
     # -- compile ----------------------------------------------------------------
 
-    def _compile(self, placed_records: list[tuple[NodeRecord, NodeDefinition[..., Any] | None]], edges: list[tuple[str, str]]) -> None:
+    def _compile(self, placed_records: list[tuple[NodeRecord, FunctionDefinition[..., Any] | None]], edges: list[tuple[str, str]]) -> None:
         order = [r.id for r, _ in placed_records]
         known = {r.id: (r, d) for r, d in placed_records}
         if len(known) != len(placed_records):
@@ -859,7 +869,7 @@ class Graph:
                 self.problems.append(make_problem("cycle", n))
         return done, reads
 
-    def _compile_node(self, record: NodeRecord, definition: NodeDefinition[..., Any], edges: dict[str, list[str]], reads: frozenset[str]) -> None:
+    def _compile_node(self, record: NodeRecord, definition: FunctionDefinition[..., Any], edges: dict[str, list[str]], reads: frozenset[str]) -> None:
         if definition.compute_added_inputs is not None:
             added = self._hook(record, definition, "compute_added_inputs", definition.compute_added_inputs, {})
             if added is None:
@@ -946,7 +956,7 @@ class Graph:
         return self._position[node_id], list(self._nodes[node_id].definition.outputs).index(source.output), address
 
     def _hook(
-        self, record: NodeRecord, definition: NodeDefinition[..., Any], kind: HookName, hook: Callable[..., Mapping[Any, Any]],
+        self, record: NodeRecord, definition: FunctionDefinition[..., Any], kind: HookName, hook: Callable[..., Mapping[Any, Any]],
         arriving: Mapping[str, Any],
     ) -> dict[str, FieldSpec] | None:
         """Call a hook with the node's typed values and the types arriving on its inputs (``Any`` where nothing
@@ -1215,7 +1225,7 @@ class Graph:
             levels.append(level[:-1] if spec is not None and spec.shape != "one" and level else level)
         return _deepest(levels)
 
-    def _entering_read(self, node_id: str, definition: NodeDefinition[..., Any], into: dict[str, dict[str, list[str]]]) -> list[tuple[str, str]]:
+    def _entering_read(self, node_id: str, definition: FunctionDefinition[..., Any], into: dict[str, dict[str, list[str]]]) -> list[tuple[str, str]]:
         above: set[str] = set()
         stack = [node_id]
         while stack:
@@ -1307,7 +1317,7 @@ class Graph:
         self.problems.append(make_problem("lists_not_collected" if given else "rows_not_related", placed.id, tables=tables))
 
 
-def load_graph(record: GraphRecord, definitions: Mapping[str, NodeDefinition[..., Any]]) -> Graph:
+def load_graph(record: GraphRecord, definitions: Mapping[str, NodeDefinition]) -> Graph:
     """``record`` loaded against ``definitions``, the one way a ``Graph`` is made, compiled as a run given nothing
     runs: with the lists its defaults hold, in one pass."""
     return Graph._loaded(record, definitions, (), {}, _listed_by_default)

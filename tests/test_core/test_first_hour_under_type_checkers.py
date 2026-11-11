@@ -193,18 +193,20 @@ def test_a_checker_keeps_a_tables_row_type(tmp_path: pathlib.Path) -> None:
 
 
 _WRONG_KEYWORDS = """
-from conductor import Ask, Param
+from conductor import Ask, Param, node
 from conductor.widgets import Textarea
 
 times = Param(gee=1)
 text = Param(widget=Textarea)
 asked = Ask("?", choices="ab")
+called = node("inner", title="Inner", description="A stored graph.")({"nodes": []})("a")
 """
 
 
-def test_a_checker_refuses_an_unknown_limit_a_widget_class_passed_bare_and_choices_spelt_as_text(tmp_path: pathlib.Path) -> None:
-    """mypy reads a ``Param`` written outside ``Annotated`` and an ``Ask``'s keywords: what conductor no longer checks when they run."""
+def test_a_checker_refuses_an_unknown_limit_a_widget_class_passed_bare_choices_spelt_as_text_and_a_graph_called(tmp_path: pathlib.Path) -> None:
+    """mypy reads a ``Param`` written outside ``Annotated``, an ``Ask``'s keywords, and a call of a node that is a stored
+    graph, which has no function: what conductor doesn't check when they run."""
     program = tmp_path / "wrong_keywords.py"
     program.write_text(_WRONG_KEYWORDS)
     done = subprocess.run([sys.executable, "-m", "mypy", "--cache-dir", str(tmp_path / "cache"), str(program)], capture_output=True, text=True, cwd=tmp_path)
-    assert [line.split(": error: ")[0].rsplit(":", 1)[1] for line in done.stdout.splitlines() if ": error: " in line] == ["5", "6", "7"], done.stdout
+    assert [line.split(": error: ")[0].rsplit(":", 1)[1] for line in done.stdout.splitlines() if ": error: " in line] == ["5", "6", "7", "8"], done.stdout

@@ -78,7 +78,7 @@ def test_a_node_prints_what_it_declares():
     def greet(name: str) -> str:
         return name
 
-    assert repr(greet) == "NodeDefinition(id='greet', version=1, title='Greeting', category='text')"
+    assert repr(greet) == "FunctionDefinition(id='greet', version=1, title='Greeting', category='text')"
 
 
 def test_a_node_prints_its_tags_only_when_it_has_them():
@@ -90,7 +90,7 @@ def test_a_node_prints_its_tags_only_when_it_has_them():
     def plain(name: str) -> str:
         return name
 
-    assert repr(old) == "NodeDefinition(id='old', version=1, title='Old', tags=('legacy',))"
+    assert repr(old) == "FunctionDefinition(id='old', version=1, title='Old', tags=('legacy',))"
     assert "tags" not in repr(plain)
 
 

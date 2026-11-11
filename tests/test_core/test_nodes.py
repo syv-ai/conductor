@@ -650,8 +650,6 @@ def test_a_definition_may_hold_a_graph_at_a_version_of_its_own():
 
     inner = node("inner", title="Inner", description="", version=3)(make_graph(read))
     assert inner.version == 3 and inner.versions == (3,) and inner.describe().is_graph is True
-    with pytest.raises(TypeError):
-        inner("a")
     graph = load(read, inner, record=GraphRecord(nodes=[placed("e", "inner", version=3)]))
     assert graph.problems == [] and list(graph.inputs) == ["text"]
 

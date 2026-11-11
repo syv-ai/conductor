@@ -50,7 +50,7 @@ from conductor._internal.node_definition import from_run_values
 if TYPE_CHECKING:
     from conductor._internal.graph import Graph, InputPlan, Level, PlacedNode, Source
     from conductor._internal.leg import Event, _EventBase
-    from conductor._internal.node_definition import NodeDefinition
+    from conductor._internal.node_definition import FunctionDefinition
 
 #: A row: the parent's key plus a number, ``()`` for the graph's own row.
 Key = tuple[int, ...]
@@ -496,7 +496,7 @@ class Run:
                 kwargs = {**kwargs, name: _checked(placed.definition.inputs[name], name, kwargs[name], code="invalid_edge_value")}
             if placed.definition.from_run:
                 kwargs = {**kwargs, **{name: from_run[needed] for name, needed in placed.definition.from_run.items()}}
-            returned = placed.definition.function(**kwargs)  # type: ignore[misc]
+            returned = placed.definition.function(**kwargs)
         except BaseException as error:  # noqa: BLE001  a node's own failure, or its Ask, is the run's to record
             if isinstance(error, (KeyboardInterrupt, SystemExit)):
                 raise
@@ -912,7 +912,7 @@ def kept_outputs(outputs: Mapping[str, FieldSpec], spread: dict[str, Any]) -> di
     return spread
 
 
-def checked_outputs(definition: NodeDefinition[..., Any], returned: Any) -> Any:
+def checked_outputs(definition: FunctionDefinition[..., Any], returned: Any) -> Any:
     """What a node returned, as its outputs by name as a run keeps them; ``SKIPPED`` for a whole branch not taken.
 
     Each is read strictly by its declared type (a value already of its class as it is, a model from a dict, never
