@@ -47,9 +47,9 @@ from pydantic.json_schema import SkipJsonSchema
 
 from conductor._internal.ask import Ask, InvalidAskError, Waiting, question_asked
 from conductor._internal.conductor_model import ConductorModel
-from conductor._internal.errors import ExternalError, NodeError, Problem, make_problem
 from conductor._internal.fields import SKIPPED, FieldValueError
 from conductor._internal.graph import FunctionAtPath, GraphAtPath, NodeAtPath, waits_on
+from conductor._internal.problem import ExternalError, NodeError, Problem, make_problem
 from conductor._internal.run import (
     _COMPLETE,
     _RUNNING,

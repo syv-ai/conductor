@@ -37,7 +37,7 @@ from conductor import (
     Waiting,
     node,
 )
-from conductor._internal.errors import PROBLEM_CATALOGUE
+from conductor._internal.problem import PROBLEM_CATALOGUE
 from conductor.events import (
     Event,
     NodeComplete,

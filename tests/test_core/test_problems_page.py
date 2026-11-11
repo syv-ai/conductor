@@ -18,8 +18,7 @@ import typing
 
 import pytest
 from conductor import PROBLEMS
-from conductor._internal.errors import PROBLEM_CATALOGUE, DeclarationCode
-from conductor._internal.kit_problems import KIT_PROBLEMS
+from conductor._internal.problem import KIT_PROBLEMS, PROBLEM_CATALOGUE, DeclarationCode
 from conductor_providers.fastapi import ROUTER_PROBLEM_CODES
 
 _ROOT = pathlib.Path(__file__).parents[2]

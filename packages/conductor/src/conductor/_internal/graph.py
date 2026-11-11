@@ -49,14 +49,6 @@ import pydantic
 
 from conductor._internal.ask import output_questions
 from conductor._internal.conductor_model import ConductorModel
-from conductor._internal.errors import (
-    CtxValue,
-    InvalidCallError,
-    NodeDeclarationError,
-    NodeError,
-    Problem,
-    make_problem,
-)
 from conductor._internal.fields import (
     REQUIRED,
     Field,
@@ -74,6 +66,14 @@ from conductor._internal.node_definition import (
     Policy,
     is_node_id,
     read_by_hooks,
+)
+from conductor._internal.problem import (
+    CtxValue,
+    InvalidCallError,
+    NodeDeclarationError,
+    NodeError,
+    Problem,
+    make_problem,
 )
 from conductor._internal.record import GraphRecord, NodeRecord
 
