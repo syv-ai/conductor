@@ -125,9 +125,9 @@ class ItemOfSeries(_Brought):
 class SeriesAsList(_Brought):
     """A ``Series`` output read as the one list it is.
 
-    Only a plan written where a node stands holds one. An embedded graph offers an output made per item inside
-    it as the ``Series`` of every item's value, so where that output is itself a ``Series``, an item of what is
-    offered is the whole of what one unit inside holds.
+    Only the plans ``run.results`` reads an output with hold one (``host_reads``). Example: ``lines`` is called
+    once per document and returns that document's lines as a ``Series``. ``results`` shows a list per
+    document, each the whole list one call returned.
     """
 
 

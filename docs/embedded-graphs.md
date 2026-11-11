@@ -69,10 +69,11 @@ From outside, a stored graph is one node:
   edge on it works as on any node. An inner input a hook reads is set inside the stored graph and is not offered.
 - **Its outputs** are the outputs of the nodes nothing inside reads (`graph.outputs` of the stored graph), under their
   addresses there, `node.output`.
-- An output its graph makes once has the type the inner node gives it. One made per item inside, however deep, is a
-  `Series` of every item's value in order to a node that reads it; a `Series` made per item is a `Series` of lists,
-  and a table made per item a `Series` of tables. `run.results` shows it as it shows any node's output: one list for
-  each loop the inner node is called in, so an output made per line of each document is a list of lists.
+- An output its graph returns once has the type the inner node gives it. One returned inside loops is one `Series`
+  for each loop: an output returned per line of each document is `Series[Series[str]]`, a list of lines per
+  document. That is the shape `run.results` shows, and the shape a node wired to it works with, as
+  [below](#an-output-returned-inside-two-loops). A `Series` returned once per document is `Series[Series[str]]` the
+  same way, and a table returned once per document a `Series` of tables.
 - An exclusive group inside is named by the node that decides, `decide.answer`.
 
 ```python
@@ -106,6 +107,45 @@ print(placed.run(text="a b").results["place"]["result"])  # ['A of 2', 'B of 2']
 The same four nodes drawn in one graph mean something else: there `place` would read `upper` where `upper` runs,
 once per word, and `among` would be that word's one text. A stored graph's boundary is where its per-item
 outputs become a Series; what the nodes inside do to each other is as drawn in the graph itself.
+
+Each `Series` a stored graph offers is a Series of its own. A node that takes one item of each of two of them
+is refused with `series_not_nested`, even when both are returned in the same loop inside, because nothing outside
+says the two lists have the same items.
+
+### An output returned inside two loops
+
+`lines` below is called once per document, and `upper` once per line. Stored as one graph, `upper.result` is a list
+of lines for each document, `Series[Series[str]]`:
+
+```python
+@registry.node("documents", title="Documents", description="Splits a text into documents at each semicolon.")
+def documents(text: str) -> Series[str]:
+    return text.split(";")
+
+
+@registry.node("lines", title="Lines", description="Splits a document into lines at each comma.")
+def lines(document: str) -> Series[str]:
+    return document.split(",")
+
+
+per_line = stored_graph("per-line", title="Per line", description="Every line of every document, in capital letters.")(
+    make_graph(documents, lines, upper, edges=[("documents.result", "lines.document"), ("lines.result", "upper.text")])
+)
+registry.add(per_line)
+
+graph = registry.load(make_graph(per_line, join, edges=[("per-line.upper.result", "join.texts")]))
+run = graph.run(text="a,b;c")
+
+print(run.results["per-line"]["upper.result"])  # [['A', 'B'], ['C']]
+print(run.results["join"]["result"])            # ['A B', 'C']
+print(graph.runs_on["join"].msg)                # per item of per-line.documents.result
+print(graph.describe().nodes["per-line"].outputs[0].type)  # Series[str]
+```
+
+`join` takes a `Series[str]`, so it collects one loop: it is called once per document, with that document's lines.
+A node that takes one `str` would be called once per line. Both are what the same four nodes do drawn in one
+graph, and both see the list per document that `run.results` shows. The description says `many` with the type
+`Series[str]`: the items of the offered `Series` are themselves a `Series[str]`.
 
 ## A blank or a skip coming in
 
