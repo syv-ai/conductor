@@ -48,8 +48,9 @@ from pydantic import JsonValue
 from conductor._internal import problem
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.fields import NamedType, Type
-from conductor._internal.graph import Graph, load_graph
+from conductor._internal.graph import Graph
 from conductor._internal.graph_record import GraphRecord, NodeRecord, as_record, typed_in
+from conductor._internal.loaded_graph import load_graph
 from conductor._internal.node_definition import (
     FunctionDefinition,
     GraphDefinition,
@@ -59,11 +60,7 @@ from conductor._internal.node_definition import (
     declared_inputs,
     node,
 )
-from conductor._internal.problem import (
-    InvalidCallError,
-    NodeDeclarationError,
-    make_problem,
-)
+from conductor._internal.problem import InvalidCallError, NodeDeclarationError, make_problem
 
 
 def _takes_the_arguments_of[**P, R](
@@ -265,7 +262,7 @@ class NodeRegistry:
         ``graph.problems``. The graph keeps its own copy of the definitions
         as they are when it loads.
         """
-        return load_graph(as_record(record), self._nodes)
+        return load_graph(as_record(record), self._nodes, Graph)
 
     def upgrade(self, record: GraphRecord | str | bytes | Mapping[str, Any], node_id: str, *, to: int | None = None) -> GraphRecord:
         """``record`` with the node ``node_id`` moved from the version it was saved at to ``to``, the newest by default.

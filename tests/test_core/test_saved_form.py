@@ -366,7 +366,8 @@ def test_outputs_as_json_are_of_a_complete_run_and_a_value_with_no_json_form_nam
 
 def test_a_field_added_to_a_saved_record_is_written_and_read_with_no_other_edit() -> None:
     """A save's keys are the fields of its records: one more field on a record is one more key, written and read."""
-    from conductor._internal.run import SavedUnits, _inlined, _with_fields
+    from conductor._internal.saved_run import SavedUnits
+    from conductor._internal.saved_run.form import _inlined, _with_fields
     from pydantic import TypeAdapter
     from pydantic_core import SchemaSerializer, SchemaValidator, core_schema
 
