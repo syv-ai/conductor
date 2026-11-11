@@ -22,13 +22,14 @@ inside ``e``'s first.
 from __future__ import annotations
 
 import asyncio
-import hashlib
+import dataclasses
 import math
 import threading
 import time
 from collections.abc import AsyncGenerator, Callable, Iterator, Mapping
+from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Literal, cast, overload
+from typing import TYPE_CHECKING, Any, cast, overload
 
 import pydantic_core
 from pydantic import ValidationError
@@ -38,22 +39,26 @@ from conductor._internal.address import (
     NodePath,
     Path,
     _parse_place,
-    path_text,
 )
-from conductor._internal.ask import Waiting, answer_outputs, waiting_questions
-from conductor._internal.canonical_json import canonical_json
+from conductor._internal.ask import (
+    Waiting,
+    answer_outputs,
+    question_fingerprint,
+    waiting_unit,
+)
 from conductor._internal.conductor_model import ConductorModel
-from conductor._internal.earlier_work import Earlier
-from conductor._internal.fields import SKIPPED, Field, FieldValueError, written_table
+from conductor._internal.earlier_work import Earlier, fingerprint_of, lineage
+from conductor._internal.fields import SKIPPED
+from conductor._internal.leg import Event, Leg, RunCheckpoint, RunEnd, RunStart, _EventBase
 from conductor._internal.loaded_graph import (
     FunctionAtPath,
     Gather,
     GraphAtPath,
     NodeAtPath,
-    PlacedFunction,
     host_reads,
+    unit_loc,
 )
-from conductor._internal.node_definition import Returns, from_run_values
+from conductor._internal.node_definition import from_run_values
 from conductor._internal.problem import InvalidCallError, Problem, make_problem, value_free_errors
 from conductor._internal.run.call_inputs import (
     COULD,
@@ -72,38 +77,19 @@ from conductor._internal.saved_run import (
     _unwritable_at,
 )
 from conductor._internal.units import (
-    NOT_ITS_TURN,
     NOT_SETTLED,
     Answered,
     Asking,
     Blank,
-    Done,
-    NotReady,
     Skipped,
     Unit,
     Units,
+    has_every_unit,
     instances,
 )
 
 if TYPE_CHECKING:
     from conductor._internal.graph import Graph
-    from conductor._internal.leg import Event, _EventBase
-
-
-
-def unit_loc(node: NodeAtPath, key: Key) -> Path:
-    """Where the instance ``key`` of ``node`` is: the node's id, then the places of its own scope's items, after
-    the same for each embedded graph's node it is inside, ``("e", 0, "ask", 2)``.
-
-    Args:
-        node: The node.
-        key: The instance; one cut off after the places of the embedded graph's node gives the node's id alone
-            at the end, ``("e", 0, "ask")``.
-    """
-    if node.embedding is None:
-        return (node.placed.id, *key)
-    around = len(node.embedding.maps)  # the places of the embedded graph's node's own item
-    return (*unit_loc(node.embedding, key[:around]), node.placed.id, *key[around:])
 
 
 
@@ -124,8 +110,12 @@ class NotCalled(ConductorModel):
     input: str
 
 
+@dataclass(eq=False, repr=False)
 class Run:
     """One run of a graph. Every call returns a new ``Run``; ``to_json`` is all of it.
+
+    A run is made by ``graph.with_inputs(...)``, ``graph.run(...)`` or ``graph.load_run(saved)``, which check
+    what it is made of.
 
     Attributes:
         graph: The graph the run runs on.
@@ -141,20 +131,17 @@ class Run:
     graph: Graph
     inputs: dict[str, Any]
     max_items: int | None
-    state: RunState
     #: Each function's units by instance, in instance order, by the function's name: ``_units["w"]`` for a node of
     #: the graph itself, ``_units["e/ask"]`` for one inside ``e``. Only a leg records out of that order, and it puts
     #: the units back in it before it hands the run on.
     _units: Units
     #: What each node may take from the run this one went on from.
     _earlier: dict[NodePath, Earlier]
+    state: RunState = _READY
     #: For a node whose units a saved run made with other code or another signature, what that code was; they are never carried.
-    _ran_as: dict[NodePath, str]
+    _ran_as: dict[NodePath, str] = field(default_factory=dict[NodePath, str])
     #: The nodes every unit of which was finished when the last leg ended, so a later leg doesn't say them complete again.
-    _complete: frozenset[NodePath]
-
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        raise TypeError("a run is made with graph.with_inputs(...), graph.run(...) or graph.load_run(saved)")
+    _complete: frozenset[NodePath] = frozenset()
 
     def __repr__(self) -> str:
         return f"<Run {self.status}: {sum(len(units) for units in self._units.values())} units>"
@@ -244,10 +231,28 @@ class Run:
         self, max_items: int | None, from_run: dict[type, Any], emit: Callable[[_EventBase], None] | None, stop: Callable[[], RunState | None] | None,
         checkpoint_every: float | None = None,
     ) -> Run:
-        from conductor._internal.leg import Leg
+        """One leg over a copy of this run, which is handed back as the leg left it.
 
+        The leg is given what it changes and reads (the copy's units and earlier work, the graph's functions
+        where they stand, and what a node comes to for an item), and says how it ended. What a listener hears of
+        the run itself (that it started, a checkpoint of it, how it ended) is said here, where the run is.
+        """
         run = self._copy(max_items=max_items if max_items is not None else self.max_items)
-        Leg(run, emit, stop, from_run, checkpoint_every).go()
+        checkpoint: Callable[[RunState], None] | None = None
+        if emit is not None:
+            emit(RunStart(waiting=tuple(run.waiting)))
+            if checkpoint_every is not None:
+                listener = emit
+
+                def checkpoint(state: RunState) -> None:
+                    listener(RunCheckpoint(run=dataclasses.replace(run._copy(), state=state)))
+
+        graph = self.graph
+        leg = Leg(graph._tree, graph._threads, run._units, run._earlier, run._complete, run.max_items, run._reader.comes_to, emit, stop, from_run, checkpoint, checkpoint_every)
+        leg.go()
+        run.state, run._complete = leg.state, leg.finished
+        if emit is not None:  # a leg handed back left its run running: the run didn't end, and the host stores it as it stands
+            emit(RunCheckpoint(run=run) if run.state is _RUNNING else RunEnd.of(run))
         return run
 
     @overload
@@ -293,9 +298,9 @@ class Run:
                 problems.append(make_problem("not_waiting", *loc, waiting_id=unit_id, status=self.status, **moved))
                 continue
             placed = node.placed
-            if fingerprint and _question_fingerprint(placed, found) != fingerprint:
+            if fingerprint and question_fingerprint(placed, found) != fingerprint:
                 moved = {"moved_to": went} if (went := self._moved_to(nodes, fingerprint)) else {}
-                problems.append(make_problem("answer_stale", *loc, waiting_id=unit_id, current=waiting_unit(node, key, found).id, **moved))
+                problems.append(make_problem("answer_stale", *loc, waiting_id=unit_id, current=waiting_unit(placed, unit_loc(node, key), found).id, **moved))
                 continue
             if (node, key) in answered:
                 problems.append(make_problem("invalid_answer", *loc, waiting_id=unit_id, reason="the unit is answered twice in one call"))
@@ -318,8 +323,8 @@ class Run:
         """The id of the unit where the question a stale id names now waits, if it waits elsewhere on the node at
         the path ``nodes``."""
         for node, key, unit in self._asking():
-            if node.path == nodes and _question_fingerprint(node.placed, unit) == fingerprint:
-                return waiting_unit(node, key, unit).id
+            if node.path == nodes and question_fingerprint(node.placed, unit) == fingerprint:
+                return waiting_unit(node.placed, unit_loc(node, key), unit).id
         return None
 
     def with_inputs(self, inputs: Mapping[str, Any] = MappingProxyType({}), /, *, max_items: int | None = None, **by_name: Any) -> Run:
@@ -336,9 +341,7 @@ class Run:
         changed = {**inputs, **by_name}
         named = self.graph._given_by_address(changed)[0]
         given = {offered.name: self.inputs[address] for address, offered in self.graph._input_fields.items() if address not in named}
-        fresh = self.graph.with_inputs({**given, **changed}, max_items=max_items if max_items is not None else self.max_items)
-        fresh._earlier = self._carried()
-        return fresh
+        return self.graph.with_inputs({**given, **changed}, max_items=max_items if max_items is not None else self.max_items, earlier=self)
 
     def forget(self, *node_ids: str) -> Run:
         """A run of the same inputs that has forgotten these nodes' work, ready to ``resume`` or ``stream``.
@@ -375,11 +378,11 @@ class Run:
                 if type(unit) is Skipped or type(unit) is Blank:
                     continue
                 received = cast("CallInputs", reader.comes_to(node, key))  # the unit was called, so what it reads is settled and it received a call's arguments
-                fingerprint = _fingerprint(placed.reuse_digest, received, plain=placed.plain_inputs)
+                fingerprint = fingerprint_of(placed.reuse_digest, received, plain=placed.plain_inputs)
                 if fingerprint is None:
                     continue
                 if type(unit) is Answered or type(unit) is Asking:
-                    earlier.asked.setdefault((fingerprint, self._lineage(node, key)), []).append(unit)
+                    earlier.asked.setdefault((fingerprint, lineage(self._units, node, key)), []).append(unit)
                 else:
                     earlier.at[key] = (fingerprint, unit)
                     earlier.computed.setdefault(fingerprint, unit)
@@ -411,7 +414,7 @@ class Run:
     def waiting(self) -> list[Waiting]:
         """Every unit waiting for a person, in node then item order; those inside an embedded graph where its
         node stands."""
-        return [waiting_unit(node, key, unit) for node, key, unit in self._asking()]
+        return [waiting_unit(node.placed, unit_loc(node, key), unit) for node, key, unit in self._asking()]
 
     def _asking(self) -> Iterator[tuple[FunctionAtPath, Key, Asking]]:
         """Every unit waiting for a person, with its node and instance, in node then instance order."""
@@ -500,73 +503,6 @@ class Run:
 
     # -- what a leg reads -------------------------------------------------------
 
-    def _reused(
-        self, earlier: Earlier, node: FunctionAtPath, key: Key, kwargs: dict[str, Any], in_turn: Callable[[], bool],
-    ) -> Done | Answered | Asking | Literal[NotReady.NOT_ITS_TURN] | None:
-        """The unit of ``earlier`` that ``node`` takes in ``key`` in place of a call on ``kwargs``; ``None`` when
-        there is none.
-
-        A person's answer, or a question still waiting, is taken once, in order: when one is there to take and
-        ``in_turn`` says a unit before this one hasn't been tried yet, this is ``NOT_ITS_TURN``, tried again once it
-        has. It is taken only under the same items above, so two documents' identical lines keep each document's
-        answers when the documents move. A node's own result is the one of the unit at the same place, when that
-        received the same, and else one any earlier unit computed from the same.
-
-        Args:
-            earlier: What the node may take: this run's own to take from.
-            node: The node.
-            key: The instance.
-            kwargs: What the unit received.
-            in_turn: Whether every unit of the node before this one has been tried.
-        """
-        placed = node.placed
-        fingerprint = _fingerprint(placed.reuse_digest, kwargs, plain=placed.plain_inputs)
-        if fingerprint is None:
-            return None
-        if earlier.asked:
-            answers = earlier.asked.get((fingerprint, self._lineage(node, key)))
-            if answers:
-                if not in_turn():
-                    return NOT_ITS_TURN
-                return answers.pop(0)
-        there = earlier.at.get(key)
-        if there is not None and there[0] == fingerprint:
-            return there[1]
-        return earlier.computed.get(fingerprint)
-
-    def _lineage(self, node: NodeAtPath, key: Key) -> str:
-        """A fingerprint of the item of each map above the innermost that the instance ``key`` of ``node`` sits
-        in, those of the embedded graphs' nodes around it included. A unit's innermost item is in what it
-        received."""
-        above = [
-            self._units[series.name][key[:depth]].out[output][key[depth]]  # type: ignore[union-attr]  # a unit under an item of a Series holds that Series
-            for depth, (series, output) in enumerate(node.maps[:-1])
-        ]
-        return (_fingerprint("", {"items": above}) or "") if above else ""
-
-    def _call(self, node: FunctionAtPath, kwargs: dict[str, Any], from_run: Mapping[type, Any]) -> tuple[Any, BaseException | None]:
-        """Call ``node`` on what a unit received: its outputs as a run keeps them, or what went wrong.
-
-        A value an edge brings is checked against the input first where its source's type doesn't settle it, and what
-        the node returns against its declared outputs; either refusal is a ``FieldValueError``, which quotes no value.
-        """
-        placed = node.placed
-        definition = placed.definition
-        try:
-            for name in node.checked:
-                kwargs = {**kwargs, name: _checked(placed.inputs[name].spec, name, kwargs[name], code="invalid_edge_value")}
-            if definition.from_run:
-                kwargs = {**kwargs, **{name: from_run[needed] for name, needed in definition.from_run.items()}}
-            returned = definition.function(**kwargs)
-        except BaseException as error:  # noqa: BLE001  a node's own failure, or its Ask, is the run's to record
-            if isinstance(error, (KeyboardInterrupt, SystemExit)):
-                raise
-            return None, error
-        try:
-            return checked_outputs(definition.returns, placed.outputs, returned), None
-        except FieldValueError as wrong:
-            return None, wrong
-
     @property
     def _reader(self) -> ItemReader:
         """Reads what this run's units hold for one item: what a call of a node receives there."""
@@ -576,15 +512,6 @@ class Run:
     def _reader_as_it_stands(self) -> AsItStandsReader:
         """Reads what this run's units hold as they stand, waiting for nothing: what a host is shown."""
         return AsItStandsReader(self._units, self.inputs)
-
-    def _has_every_unit(self, node: FunctionAtPath) -> bool:
-        """Whether every instance of ``node`` holds a unit, one waiting for a person included, and every Series
-        it runs per item of is made, so no instance is still to come."""
-        units = self._units[node.name]
-        if not node.maps:
-            return bool(units)
-        counted, known = instances(self._units, node.maps, (), counted=True)
-        return known and len(units) == (counted[0][0] if counted else 0)
 
     # -- JSON -------------------------------------------------------------------
 
@@ -614,62 +541,34 @@ class Run:
         """A node's units with a slot for each instance of the node, in instance order; ``None`` where the
         instance hasn't run."""
         units = self._units[node.name]
-        if self._has_every_unit(node):  # the units as they stand
+        if has_every_unit(self._units, node):  # the units as they stand
             return list(units.values())
         return [units.get(instance) for instance in instances(self._units, node.maps, ())[0]]
 
-    def _copy(self, *, share_units: bool = False, **changes: Any) -> Run:
+    def _copy(self, *, share_units: bool = False, max_items: int | None = None) -> Run:
         """A copy to change: its own units to record into and its own carried answers to take from; or with
-        ``share_units`` this run's units of every node, for a caller that replaces whole nodes and takes nothing."""
-        units = dict(self._units) if share_units else {name: dict(held) for name, held in self._units.items()}
-        copy = start_run(self.graph, self.inputs, changes.get("max_items", self.max_items), dict(self._earlier), units)
-        if not share_units:
-            for path, earlier in self._earlier.items():  # its own answers to take, as this run holds them too
-                copy._earlier[path] = Earlier(earlier.at, earlier.computed, {asked: list(units) for asked, units in earlier.asked.items()})
-        copy.state = self.state
-        copy._ran_as, copy._complete = self._ran_as, self._complete
-        return copy
+        ``share_units`` this run's units of every node, for a caller that replaces whole nodes and takes nothing.
+
+        Args:
+            share_units: Whether the copy holds this run's own dict of units for each node.
+            max_items: The copy's item ceiling; this run's when ``None``.
+        """
+        if share_units:
+            units, earlier = dict(self._units), dict(self._earlier)
+        else:  # its own answers to take, as this run holds them too
+            units = {name: dict(held) for name, held in self._units.items()}
+            earlier = {path: Earlier(lent.at, lent.computed, {asked: list(left) for asked, left in lent.asked.items()}) for path, lent in self._earlier.items()}
+        return dataclasses.replace(self, max_items=max_items if max_items is not None else self.max_items, _units=units, _earlier=earlier)
+
+
+RunEnd.model_rebuild(_types_namespace={"Run": Run})
+RunCheckpoint.model_rebuild(_types_namespace={"Run": Run})
 
 
 def no_units(graph: Graph) -> Units:
     """The units of a run of ``graph`` that hasn't started: none, for every function of the graph and of each
     graph embedded in it."""
     return {node.name: {} for node in graph._tree}
-
-
-def start_run(graph: Graph, inputs: dict[str, Any], max_items: int | None, earlier: dict[NodePath, Earlier], units: Units) -> Run:
-    """A run of ``graph`` not started; the one way a ``Run`` is made.
-
-    Args:
-        graph: The graph.
-        inputs: The caller's inputs, already checked, by address.
-        max_items: The item ceiling, or ``None``.
-        earlier: What each node may take from an earlier run, by node.
-        units: Each node's units, as ``Run._units`` holds them.
-    """
-    run = Run.__new__(Run)
-    run.graph, run.inputs, run.max_items, run._units = graph, inputs, max_items, units
-    run.state = _READY
-    run._earlier = earlier
-    run._ran_as = {}
-    run._complete = frozenset()
-    return run
-
-
-def waiting_unit(node: FunctionAtPath, key: Key, unit: Asking) -> Waiting:
-    """A waiting unit as a host shows it. Its id is where it is as text, then ``~`` and the fingerprint of the
-    question asked there, as ``run.answer`` reads it.
-
-    Args:
-        node: The node that asks.
-        key: The instance it asks in.
-        unit: The unit.
-    """
-    question, loc, placed = unit.question, unit_loc(node, key), node.placed
-    return Waiting(
-        id=f"{path_text(loc)}~{_question_fingerprint(placed, unit)}", loc=loc, prompt=question.prompt,
-        questions=waiting_questions(placed, question.overrides), inputs=question.inputs,
-    )
 
 
 def run_from_json(graph: Graph, saved: str | bytes | Mapping[str, Any]) -> Run:
@@ -706,8 +605,7 @@ def _run_of(graph: Graph, saved: SavedRun[list[Unit | None], Earlier]) -> Run:
         InvalidCallError: A node doesn't hold one slot for each instance the saved run made of it
             (``state_unreadable``).
     """
-    run = start_run(graph, saved.inputs, saved.max_items, {}, no_units(graph))
-    run.state = saved.state
+    run = Run(graph, saved.inputs, saved.max_items, no_units(graph), {}, state=saved.state)
     for node in graph._tree:  # each after the nodes it reads, so the Series its instances are of are in place
         if (slots := saved.units.get(node.name)) is not None:
             made, _ = instances(run._units, node.maps, ())
@@ -742,97 +640,12 @@ def _seconds(value: float) -> bool:
 # -- values -------------------------------------------------------------------------------------
 
 
-def checked_outputs(returns: Returns, outputs: Mapping[str, Field], returned: Any) -> dict[str, Any]:
-    """What a node returned, as its outputs by name as a run keeps them; ``SKIPPED`` returned for the whole node
-    is ``SKIPPED`` on every output.
-
-    Each is read strictly by its declared type (a value already of its class as it is, a model from a dict, never
-    ``"12"`` for an ``int``), and of an ``exclusive_group`` at most one output holds a value.
-
-    Args:
-        returns: How the node's function returns its outputs.
-        outputs: The node's outputs, by name.
-        returned: What the function returned.
-
-    Raises:
-        FieldValueError: An output is not of its type, or two of one group hold a value; its code is
-            ``invalid_output``.
-    """
-    if returned is SKIPPED:
-        return dict.fromkeys(outputs, SKIPPED)
-    spread, settled = returns.spread(returned, outputs)
-    if settled:
-        return spread
-    groups: dict[str, str] = {}
-    for name, spec in outputs.items():
-        spread[name] = _checked(spec, name, spread[name], code="invalid_output")
-        group = spec.param.exclusive_group
-        if group is not None and spread[name] is not SKIPPED:
-            if group in groups:
-                raise FieldValueError(f"'{groups[group]}' and '{name}' are alternatives of '{group}', and both hold a value", code="invalid_output", name=name)
-            groups[group] = name
-    return spread
-
-
-def _checked(spec: Field, name: str, value: Any, *, code: str) -> Any:
-    if value is SKIPPED:
-        return value
-    returned = code == "invalid_output"
-    try:
-        read = spec.whole.read_returned(value) if returned else spec.whole.read(value)
-    except FieldValueError as refused:
-        refused.code, refused.ctx = code, {"name": name, **refused.ctx}
-        raise
-    exact = spec.whole.exact_classes
-    if returned and exact and not isinstance(read, exact):
-        raise FieldValueError(f"its type's own check gave a {type(read).__name__}, not a {spec.whole.id}", code="invalid_output", name=name)
-    return read
-
-
-
-
-def jsonable(kwargs: dict[str, Any]) -> Any:
-    """What a unit received, as JSON; a float that isn't finite as text. ``FieldValueError`` as ``question_unwritable`` names
-    the first input with no JSON form."""
-    try:
-        return pydantic_core.from_json(pydantic_core.to_json(kwargs, fallback=written_table, inf_nan_mode="strings"))
-    except (TypeError, ValueError, pydantic_core.PydanticSerializationError) as error:
-        for name, value in kwargs.items():
-            try:
-                pydantic_core.to_json(value, fallback=written_table, inf_nan_mode="strings")
-            except (TypeError, ValueError, pydantic_core.PydanticSerializationError) as unwritable:
-                raise FieldValueError(str(unwritable), code="question_unwritable", input=name) from None
-        raise error
-
-
 def _hand_over(loop: asyncio.AbstractEventLoop, events: asyncio.Queue[Any], event: Any) -> None:
     """Put an event on the listener's queue from the leg's thread; a listener whose loop has closed is gone, and hears nothing."""
     try:
         loop.call_soon_threadsafe(events.put_nowait, event)
     except RuntimeError:
         pass
-
-
-def _fingerprint(digest: str, kwargs: dict[str, Any], *, plain: bool = False) -> str | None:
-    """What a unit of a node (its ``reuse_digest``) received, as a short hash; ``None`` for a value with no JSON form, which is never reused.
-
-    ``plain`` says no input holds a mapping, so no key came from a store: the inputs' own order is the node's.
-    """
-    try:
-        # No key of a plain node's inputs came from a store, so they need no canonical form: its inputs' order is the node's.
-        written = pydantic_core.to_json([digest, kwargs], fallback=written_table) if plain else canonical_json([digest, kwargs], fallback=written_table)
-    except (TypeError, ValueError, pydantic_core.PydanticSerializationError):
-        return None
-    return hashlib.blake2b(written, digest_size=12).hexdigest()
-
-
-def _question_fingerprint(placed: PlacedFunction, unit: Asking) -> str:
-    """Eight hex digits of which node asks, as which code, and what it received, so a waiting id stops matching when its place holds another question."""
-    inputs = unit.question.inputs
-    values = [inputs[name] for name in sorted(inputs)]  # saved, so the names may come back from a store in any order
-    hashed = [placed.id, placed.reuse_digest, values]
-    written = canonical_json(hashed) if {type(v) for v in values} & {dict, list} else pydantic_core.to_json(hashed)  # plain values have no keys to sort
-    return hashlib.blake2b(written, digest_size=4).hexdigest()
 
 
 def _deadline(timeout: float | None) -> Callable[[], EndedEarly | None] | None:

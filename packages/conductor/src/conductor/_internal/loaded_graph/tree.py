@@ -15,7 +15,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from conductor._internal.address import NodePath, node_name
+from conductor._internal.address import NodePath, Path, node_name
 from conductor._internal.fields import REQUIRED, Field, Series
 from conductor._internal.loaded_graph.input_plans import (
     Cell,
@@ -36,6 +36,7 @@ from conductor._internal.loaded_graph.input_plans import (
 )
 from conductor._internal.loaded_graph.type import LoadedGraph, PlacedFunction, PlacedGraph
 from conductor._internal.node_definition import Policy
+from conductor._internal.units import ItemPath
 
 
 @dataclass(eq=False, slots=True, kw_only=True)
@@ -161,6 +162,21 @@ def waits_on(node: FunctionAtPath) -> frozenset[FunctionAtPath]:
                     stack.append(read)
         node.waits_on = frozenset(seen)
     return node.waits_on
+
+
+def unit_loc(node: NodeAtPath, key: ItemPath) -> Path:
+    """Where the instance ``key`` of ``node`` is: the node's id, then the places of its own scope's items, after
+    the same for each embedded graph's node it is inside, ``("e", 0, "ask", 2)``.
+
+    Args:
+        node: The node.
+        key: The instance; one cut off after the places of the embedded graph's node gives the node's id alone
+            at the end, ``("e", 0, "ask")``.
+    """
+    if node.embedding is None:
+        return (node.placed.id, *key)
+    around = len(node.embedding.maps)  # the places of the embedded graph's node's own item
+    return (*unit_loc(node.embedding, key[:around]), node.placed.id, *key[around:])
 
 
 #: What a host is shown of an output made per item is what an input of this type wired to it would be given:

@@ -1,0 +1,100 @@
+"""One call of a node: what it receives checked where its edges don't settle it, and what it returns checked
+against its declared outputs."""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from typing import Any
+
+import pydantic_core
+
+from conductor._internal.fields import SKIPPED, Field, FieldValueError, written_table
+from conductor._internal.loaded_graph import FunctionAtPath
+from conductor._internal.node_definition import Returns
+
+
+def call(node: FunctionAtPath, kwargs: dict[str, Any], from_run: Mapping[type, Any]) -> tuple[Any, BaseException | None]:
+    """Call ``node`` on what a unit received: its outputs as a run keeps them, or what went wrong.
+
+    A value an edge brings is checked against the input first where its source's type doesn't settle it, and what
+    the node returns against its declared outputs; either refusal is a ``FieldValueError``, which quotes no value.
+    """
+    placed = node.placed
+    definition = placed.definition
+    try:
+        for name in node.checked:
+            kwargs = {**kwargs, name: _checked(placed.inputs[name].spec, name, kwargs[name], code="invalid_edge_value")}
+        if definition.from_run:
+            kwargs = {**kwargs, **{name: from_run[needed] for name, needed in definition.from_run.items()}}
+        returned = definition.function(**kwargs)
+    except BaseException as error:  # noqa: BLE001  a node's own failure, or its Ask, is the run's to record
+        if isinstance(error, (KeyboardInterrupt, SystemExit)):
+            raise
+        return None, error
+    try:
+        return checked_outputs(definition.returns, placed.outputs, returned), None
+    except FieldValueError as wrong:
+        return None, wrong
+
+
+def checked_outputs(returns: Returns, outputs: Mapping[str, Field], returned: Any) -> dict[str, Any]:
+    """What a node returned, as its outputs by name as a run keeps them; ``SKIPPED`` returned for the whole node
+    is ``SKIPPED`` on every output.
+
+    Each is read strictly by its declared type (a value already of its class as it is, a model from a dict, never
+    ``"12"`` for an ``int``), and of an ``exclusive_group`` at most one output holds a value.
+
+    Args:
+        returns: How the node's function returns its outputs.
+        outputs: The node's outputs, by name.
+        returned: What the function returned.
+
+    Raises:
+        FieldValueError: An output is not of its type, or two of one group hold a value; its code is
+            ``invalid_output``.
+    """
+    if returned is SKIPPED:
+        return dict.fromkeys(outputs, SKIPPED)
+    spread, settled = returns.spread(returned, outputs)
+    if settled:
+        return spread
+    groups: dict[str, str] = {}
+    for name, spec in outputs.items():
+        spread[name] = _checked(spec, name, spread[name], code="invalid_output")
+        group = spec.param.exclusive_group
+        if group is not None and spread[name] is not SKIPPED:
+            if group in groups:
+                raise FieldValueError(f"'{groups[group]}' and '{name}' are alternatives of '{group}', and both hold a value", code="invalid_output", name=name)
+            groups[group] = name
+    return spread
+
+
+def _checked(spec: Field, name: str, value: Any, *, code: str) -> Any:
+    if value is SKIPPED:
+        return value
+    returned = code == "invalid_output"
+    try:
+        read = spec.whole.read_returned(value) if returned else spec.whole.read(value)
+    except FieldValueError as refused:
+        refused.code, refused.ctx = code, {"name": name, **refused.ctx}
+        raise
+    exact = spec.whole.exact_classes
+    if returned and exact and not isinstance(read, exact):
+        raise FieldValueError(f"its type's own check gave a {type(read).__name__}, not a {spec.whole.id}", code="invalid_output", name=name)
+    return read
+
+
+
+
+def jsonable(kwargs: dict[str, Any]) -> Any:
+    """What a unit received, as JSON; a float that isn't finite as text. ``FieldValueError`` as ``question_unwritable`` names
+    the first input with no JSON form."""
+    try:
+        return pydantic_core.from_json(pydantic_core.to_json(kwargs, fallback=written_table, inf_nan_mode="strings"))
+    except (TypeError, ValueError, pydantic_core.PydanticSerializationError) as error:
+        for name, value in kwargs.items():
+            try:
+                pydantic_core.to_json(value, fallback=written_table, inf_nan_mode="strings")
+            except (TypeError, ValueError, pydantic_core.PydanticSerializationError) as unwritable:
+                raise FieldValueError(str(unwritable), code="question_unwritable", input=name) from None
+        raise error

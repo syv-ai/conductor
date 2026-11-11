@@ -967,14 +967,6 @@ def test_a_table_column_its_row_type_doesnt_name_reads_back_from_json_as_written
     assert math.isnan(frame["x"][0])
 
 
-def test_a_run_has_one_way_in():
-    from conductor import Run
-
-    graph = registry_of(_alone_node()).load(GraphRecord(nodes=[NodeRecord(id="n", node="n")]))
-    with pytest.raises(TypeError, match="graph.with_inputs"):
-        Run(graph, {})
-
-
 def _alone_node() -> Any:
     @node("n", title="N", description="")
     def n(text: str = "") -> str:

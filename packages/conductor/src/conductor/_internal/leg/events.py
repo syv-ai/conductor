@@ -2,17 +2,19 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import TYPE_CHECKING, Annotated, Literal
 
-from pydantic import ConfigDict, Field
+from pydantic import ConfigDict, Field, InstanceOf
 from pydantic.json_schema import SkipJsonSchema
 
 from conductor._internal.address import Path
 from conductor._internal.ask import Waiting
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.problem import Problem
-from conductor._internal.run import Run
 from conductor._internal.run_status import EndedEarly, Going, RunStatus
+
+if TYPE_CHECKING:
+    from conductor._internal.run import Run
 
 
 class _EventBase(ConductorModel):
@@ -116,7 +118,7 @@ class RunEnd(_EventBase):
     type: Literal["run_end"] = "run_end"
     status: RunStatus
     cause: Problem | None = None
-    run: SkipJsonSchema[Run] = Field(exclude=True)
+    run: SkipJsonSchema[InstanceOf[Run]] = Field(exclude=True)
 
     @classmethod
     def of(cls, run: Run) -> RunEnd:
@@ -139,7 +141,7 @@ class RunCheckpoint(_EventBase):
     """
 
     type: Literal["run_checkpoint"] = "run_checkpoint"
-    run: SkipJsonSchema[Run] = Field(exclude=True)
+    run: SkipJsonSchema[InstanceOf[Run]] = Field(exclude=True)
 
 
 Event = Annotated[

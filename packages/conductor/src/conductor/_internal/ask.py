@@ -16,13 +16,17 @@ against that record and the node's types before anything runs.
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, TypedDict
 
+import pydantic_core
 from pydantic import JsonValue
 
+from conductor._internal.address import Path, path_text
+from conductor._internal.canonical_json import canonical_json
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.fields import (
     REQUIRED,
@@ -35,6 +39,7 @@ from conductor._internal.fields import (
 
 if TYPE_CHECKING:
     from conductor._internal.loaded_graph import PlacedFunction
+    from conductor._internal.units import Asking
 
 
 class Ask(BaseException):
@@ -364,3 +369,28 @@ def _checked_answer(spec: Field, value: Any, offered: list[dict[str, Any]] | Non
         if len({repr(item) for item in picks}) != len(picks):
             raise FieldValueError("a choice is picked twice")
     return read
+
+
+def waiting_unit(placed: PlacedFunction, loc: Path, unit: Asking) -> Waiting:
+    """A waiting unit as a host shows it. Its id is where it is as text, then ``~`` and the fingerprint of the
+    question asked there, as ``run.answer`` reads it.
+
+    Args:
+        placed: The node that asks.
+        loc: Where the unit is: the node and its item, behind those of each embedded graph's node around it.
+        unit: The unit.
+    """
+    question = unit.question
+    return Waiting(
+        id=f"{path_text(loc)}~{question_fingerprint(placed, unit)}", loc=loc, prompt=question.prompt,
+        questions=waiting_questions(placed, question.overrides), inputs=question.inputs,
+    )
+
+
+def question_fingerprint(placed: PlacedFunction, unit: Asking) -> str:
+    """Eight hex digits of which node asks, as which code, and what it received, so a waiting id stops matching when its place holds another question."""
+    inputs = unit.question.inputs
+    values = [inputs[name] for name in sorted(inputs)]  # saved, so the names may come back from a store in any order
+    hashed = [placed.id, placed.reuse_digest, values]
+    written = canonical_json(hashed) if {type(v) for v in values} & {dict, list} else pydantic_core.to_json(hashed)  # plain values have no keys to sort
+    return hashlib.blake2b(written, digest_size=4).hexdigest()

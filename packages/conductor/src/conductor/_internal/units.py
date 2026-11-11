@@ -27,7 +27,7 @@ from conductor._internal.ask import Question
 from conductor._internal.fields import SKIPPED, Field
 
 if TYPE_CHECKING:
-    from conductor._internal.loaded_graph.tree import Maps
+    from conductor._internal.loaded_graph.tree import FunctionAtPath, Maps
 
 #: The place of an item in each map a node runs in, outermost first; ``()`` for a node that runs once.
 ItemPath = tuple[int, ...]
@@ -171,6 +171,16 @@ def instances(units: Units, maps: Maps, under: ItemPath, *, counted: bool = Fals
                 below.extend((*parent, i) for i in range(count))
         paths = below
     return paths, complete
+
+
+def has_every_unit(units: Units, node: FunctionAtPath) -> bool:
+    """Whether every instance of ``node`` holds a unit, one waiting for a person included, and every Series
+    it runs per item of is made, so no instance is still to come."""
+    held = units[node.name]
+    if not node.maps:
+        return bool(held)
+    counted, known = instances(units, node.maps, (), counted=True)
+    return known and len(held) == (counted[0][0] if counted else 0)
 
 
 def length(value: Any) -> int:

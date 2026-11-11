@@ -17,7 +17,7 @@ from conductor._internal.loaded_graph import (
     nodes_at_paths,
 )
 from conductor._internal.problem import InvalidCallError, Problem, make_problem
-from conductor._internal.run import Run, checked_leg, no_units, run_from_json, start_run
+from conductor._internal.run import Run, checked_leg, no_units, run_from_json
 from conductor._internal.saved_run import SaveForm, save_form
 
 
@@ -86,7 +86,7 @@ class Graph(LoadedGraph):
             raise InvalidCallError(self.problems)
         checked_leg(max_items=max_items)
         checked = self._checked_inputs(*self._given_by_address({**inputs, **by_name}))
-        return start_run(self, checked, max_items, earlier._carried(into=self) if earlier is not None else {}, no_units(self))
+        return Run(self, checked, max_items, no_units(self), earlier._carried(into=self) if earlier is not None else {})
 
     def run(
         self, inputs: Mapping[str, Any] = types.MappingProxyType({}), /, *, max_items: int | None = None,
