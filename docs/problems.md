@@ -1394,7 +1394,7 @@ except NodeDeclarationError as error:
 
 ## `check_registry`
 
-Returned by `conductor.testing.check_registry`, in a test run. A host never meets these, and they aren't in `PROBLEM_CODES`.
+Returned by `conductor.testing.check_registry`, in a test run. A host never meets these, and they aren't in `PROBLEM_CODES`. What each one's `ctx` holds is in the reference, `python -m conductor.about conductor-testing`.
 
 ### `changed_its_inputs`
 
@@ -1408,6 +1408,7 @@ def sort_in_place(texts: list[str]) -> list[str]:
 checked = NodeRegistry()
 checked.add(sort_in_place)
 print([p.type for p in check_registry(checked, examples={"sort_in_place": [{"texts": ["b", "a"]}]})])  # ['changed_its_inputs']
+print([p.msg for p in check_registry(checked, examples={"sort_in_place": [{"texts": ["b", "a"]}]})][0])  # the body changed 'texts', a value it was given; several calls of a run can be given it, so copy the value before changing it
 ```
 
 **Fix.** Copy the value before changing it, `sorted(texts)`. Several calls in a run can be given the same value.
@@ -1418,6 +1419,7 @@ print([p.type for p in check_registry(checked, examples={"sort_in_place": [{"tex
 checked = NodeRegistry()
 checked.add(upper)
 print([p.type for p in check_registry(checked, examples={"uper": [{"text": "a"}]})])  # ['example_for_no_node']
+print([p.msg for p in check_registry(checked, examples={"uper": [{"text": "a"}]})][0])  # 'uper' names no node of the registry; check the id, or remove the example
 ```
 
 **Fix.** Check the id in `examples`, or remove the example.
@@ -1437,6 +1439,7 @@ def unnamed(names: str) -> dict[str, str]:
 checked = NodeRegistry()
 checked.add(unnamed)
 print([p.type for p in check_registry(checked)])  # ['hook_failed']
+print([p.msg for p in check_registry(checked)][0])  # a hook failed on the node's defaults and made-up values: The node could not work out its fields from what it was given: 'x'. Check what is typed into the node and what is wired to it.
 ```
 
 **Fix.** Make the hook work on the node's defaults and made-up values, or give an example it works on.
@@ -1456,6 +1459,7 @@ def coded(code: Annotated[str, Param(pattern=r"^\d{4}$")]) -> dict[str, str]:
 checked = NodeRegistry()
 checked.add(coded)
 print([p.type for p in check_registry(checked)])  # ['needs_example']
+print([p.msg for p in check_registry(checked)][0])  # its hooks read ['code'], and no value could be made up; give an example
 ```
 
 **Fix.** Give the node an example, `examples={"coded": [{"code": "1234"}]}`.
@@ -1467,6 +1471,7 @@ import pytest
 
 only_divide = registry.filter(lambda definition: definition.id == "divide")
 print([p.type for p in check_registry(only_divide, examples={"divide": [{"n": 0}]})])  # ['run_failed']
+print([p.msg for p in check_registry(only_divide, examples={"divide": [{"n": 0}]})][0])  # the example ended failed: the node raised ZeroDivisionError
 
 
 @pytest.mark.xfail(strict=True, reason="divide by zero is not handled yet")
@@ -1491,6 +1496,7 @@ def hello_v2(first: str) -> str:
 checked = NodeRegistry()
 checked.add(hello_v2)
 print([p.type for p in check_registry(checked)])  # ['upgrade_broken']
+print([p.msg for p in check_registry(checked)][0])  # moving to version 2 raised KeyError: 'first'
 ```
 
 **Fix.** Fix the `Upgrade`, so a node saved at the older version loads cleanly at the newer one.

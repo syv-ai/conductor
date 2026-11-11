@@ -282,3 +282,20 @@ def test_a_protocol_from_run_given_under_another_key_is_from_run_missing():
     with pytest.raises(InvalidCallError) as refused:
         graph.run(from_run={str: "a session"})
     assert [p.type for p in refused.value.errors()] == ["from_run_missing"]
+
+
+def test_what_a_check_says_is_made_from_its_ctx_alone():
+    @node("halve", title="Halve", description="Halves a number.")
+    def halve(n: int) -> float:
+        return 1 / (n - n)
+
+    registry = NodeRegistry()
+    registry.add(halve)
+
+    (found,) = check_registry(registry, examples={"halve": [{"n": 2}], "halv": [{"n": 2}]})[1:]
+    (missing,) = check_registry(registry, examples={"halv": [{"n": 2}]})
+
+    assert (found.type, found.loc, found.ctx["status"], found.ctx["reason"], found.ctx["cause"]) == ("run_failed", ("halve", 1), "failed", "the node raised ZeroDivisionError", ["execution_failed"])
+    assert (missing.type, missing.loc, missing.ctx) == ("example_for_no_node", ("halv",), {"named": "'halv'"})
+    assert found.msg == "the example ended {status}: {reason}".format(**found.ctx)
+    assert missing.msg == "{named} names no node of the registry; check the id, or remove the example".format(**missing.ctx)

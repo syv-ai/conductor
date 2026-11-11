@@ -313,6 +313,10 @@ Frozen models with a `type`, and a host subclasses `Widget` for a control of its
 - The checks are `hook_failed`, `needs_example`, `upgrade_broken`, `changed_its_inputs`, `run_failed` and `example_for_no_node`; `docs/problems.md` says what each means and how to fix it. These codes are `check_registry`'s, not in `PROBLEM_CODES`.
 - A node known to fail goes in a test of its own marked `pytest.mark.xfail(strict=True)`, checking `registry.filter(...)` down to it (`docs/problems.md` shows one).
 
+Each kind of problem it returns, with what its `ctx` holds:
+
+<!-- problems: conductor._internal.kit_problems.KIT_PROBLEMS -->
+
 ### conductor.events
 
 Every event record, and `Event`, their union on `type`:
