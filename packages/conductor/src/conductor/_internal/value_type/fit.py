@@ -7,13 +7,13 @@ from __future__ import annotations
 import typing
 from typing import Any, Literal, TypeVar, get_args, get_origin
 
-from conductor._internal.value_type.hint import _aliased, _is_alias, union_members
+from conductor._internal.value_type.hint import aliased, is_alias, union_members
 from conductor._internal.value_type.host_type import accepted_classes
-from conductor._internal.value_type.not_a_bool import _a_number
+from conductor._internal.value_type.not_a_bool import a_number
 from conductor._internal.value_type.param import split_hint
 
 
-def _fit(target: Any, source: Any, bound: dict[TypeVar, Any], exact: bool) -> bool:
+def fit(target: Any, source: Any, bound: dict[TypeVar, Any], exact: bool) -> bool:
     """Says whether a value of ``source`` may land on ``target``, binding ``target``'s type variables as it walks.
 
     Args:
@@ -25,10 +25,10 @@ def _fit(target: Any, source: Any, bound: dict[TypeVar, Any], exact: bool) -> bo
     target, source = split_hint(target)[0], split_hint(source)[0]
     if target == source:
         return True
-    if _is_alias(target) or _is_alias(source):  # an alias is read as what it stands for
-        return _fit(_aliased(target) if _is_alias(target) else target, _aliased(source) if _is_alias(source) else source, bound, exact)
+    if is_alias(target) or is_alias(source):  # an alias is read as what it stands for
+        return fit(aliased(target) if is_alias(target) else target, aliased(source) if is_alias(source) else source, bound, exact)
     if isinstance(target, TypeVar):
-        if target.__bound__ is not None and not _fit(target.__bound__, source, {}, exact):
+        if target.__bound__ is not None and not fit(target.__bound__, source, {}, exact):
             return False
         bound[target] = bound[target] | source if target in bound else source
         return True
@@ -40,7 +40,7 @@ def _fit(target: Any, source: Any, bound: dict[TypeVar, Any], exact: bool) -> bo
     if len(targets) > 1 or len(sources) != len(union_members(source)):
         for one in sources:
             for option in targets:
-                if _fit(option, one, trial := dict(bound), exact):
+                if fit(option, one, trial := dict(bound), exact):
                     bound.update(trial)
                     break
             else:
@@ -49,21 +49,21 @@ def _fit(target: Any, source: Any, bound: dict[TypeVar, Any], exact: bool) -> bo
     if get_origin(source) is Literal:
         if get_origin(target) is Literal:  # a narrower Literal lands on one holding every value it may be
             return {(type(v), v) for v in get_args(source)} <= {(type(v), v) for v in get_args(target)}
-        return all(_fit(target, type(value), bound, exact) for value in get_args(source))
+        return all(fit(target, type(value), bound, exact) for value in get_args(source))
     target_class, source_class = get_origin(target) or target, get_origin(source) or source
     if typing.is_typeddict(source):
         held = typing.get_type_hints(source)
         if typing.is_typeddict(target):  # read by its keys: every key the target names, each of a type that fits
             wanted = typing.get_type_hints(target)
             same = not exact or wanted.keys() == held.keys()  # a read drops the keys the target doesn't name
-            return same and target.__required_keys__ <= source.__required_keys__ and all(key in held and _fit(hint, held[key], bound, exact) for key, hint in wanted.items())
+            return same and target.__required_keys__ <= source.__required_keys__ and all(key in held and fit(hint, held[key], bound, exact) for key, hint in wanted.items())
         if target_class is not dict:
             return False
         key, value = get_args(target) or (Any, Any)
-        return _fit(key, str, bound, exact) and all(_fit(value, hint, bound, exact) for hint in held.values())
+        return fit(key, str, bound, exact) and all(fit(value, hint, bound, exact) for hint in held.values())
     if typing.is_typeddict(target) or not (isinstance(target_class, type) and isinstance(source_class, type)):
         return False
-    if issubclass(source_class, bool) and _a_number(target_class):
+    if issubclass(source_class, bool) and a_number(target_class):
         return False
     widened = not exact and ((target_class is float and issubclass(source_class, int)) or issubclass(source_class, accepted_classes(target_class)))
     if not (issubclass(source_class, target_class) or widened):
@@ -71,4 +71,4 @@ def _fit(target: Any, source: Any, bound: dict[TypeVar, Any], exact: bool) -> bo
     wanted_args, held_args = get_args(target), get_args(source)
     if not held_args:  # a bare generic arriving says nothing of its items
         return not (exact and wanted_args)
-    return len(wanted_args) != len(held_args) or all(_fit(a, b, bound, exact) for a, b in zip(wanted_args, held_args, strict=True))
+    return len(wanted_args) != len(held_args) or all(fit(a, b, bound, exact) for a, b in zip(wanted_args, held_args, strict=True))

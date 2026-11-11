@@ -28,13 +28,13 @@ from pydantic_core import (
 
 from conductor._internal.problem import NodeDeclarationError, value_free_errors
 from conductor._internal.value_type.choice import Choice
-from conductor._internal.value_type.fit import _fit
+from conductor._internal.value_type.fit import fit
 from conductor._internal.value_type.hint import (
-    _READ_AS,
-    _aliased,
-    _is_alias,
-    _is_record,
-    _substituted,
+    READ_AS,
+    aliased,
+    is_alias,
+    is_record,
+    substituted,
     union_members,
     union_of,
 )
@@ -67,7 +67,7 @@ def _written(hint: Any) -> str:
         return Type(hint).reads_as
     if origin is Literal:
         return f"Literal{[repr(value) for value in args]}"
-    if _is_alias(hint):
+    if is_alias(hint):
         return f"{hint.__module__}.{hint.__name__}"
     if args:
         name = "Union" if origin in (Union, types.UnionType) else _written(origin)
@@ -115,7 +115,7 @@ class Type:
         _KINDS[of] = cls
         OWN_IDS.add(of.__qualname__)  # the generic class is named as a host imports it, which is its id
         if value_class is not None:
-            _READ_AS[value_class] = of
+            READ_AS[value_class] = of
 
     def __new__(cls, hint: Any) -> Type:
         """Gives the ``Type`` of ``hint``: the one in use for an equal hint, else a new one of its kind."""
@@ -134,7 +134,7 @@ class Type:
     @functools.cached_property
     def closed(self) -> Any:
         """The hint with each type variable read as its bound, else ``Any``."""
-        return _substituted(self.hint, {})
+        return substituted(self.hint, {})
 
     @functools.cached_property
     def _parts(self) -> tuple[Any, Param, tuple[Any, ...]]:
@@ -155,7 +155,7 @@ class Type:
     def optional(self) -> bool:
         """Whether a blank (``None``) may arrive: ``X | None``, ``Any``, or a type alias that stands for either."""
         options = union_members(self.bare)
-        return Any in options or type(None) in options or any(_is_alias(option) and Type(_aliased(option)).optional for option in options)
+        return Any in options or type(None) in options or any(is_alias(option) and Type(aliased(option)).optional for option in options)
 
     @functools.cached_property
     def limited(self) -> bool:
@@ -220,7 +220,7 @@ class Type:
             return " | ".join(n[0] for n in named), " | ".join(n[1] for n in named), tuple(dict.fromkeys(c for n in named for c in n[2]))
         (one,) = members
         origin, args = get_origin(one) or one, get_args(one)
-        if _is_alias(one):
+        if is_alias(one):
             return one.__name__, one.__name__, ()
         if origin is Literal:
             return Type(union_of(dict.fromkeys(type(value) for value in args)))._named
@@ -256,7 +256,7 @@ class Type:
             read = Annotated[(read, *metadata)]
         marked = Annotated[read, NUMBERS_REFUSE_BOOLS]
         try:  # a record is written by its own config; any other type writes a float that isn't finite as its text
-            adapter = TypeAdapter(marked) if len(options) == 1 and _is_record(options[0]) else TypeAdapter(marked, config=ConfigDict(ser_json_inf_nan="strings"))
+            adapter = TypeAdapter(marked) if len(options) == 1 and is_record(options[0]) else TypeAdapter(marked, config=ConfigDict(ser_json_inf_nan="strings"))
         except SchemaError as error:  # a limit of the wrong kind for the type, such as ge="a" on an int
             raise NodeDeclarationError(f"the limits {param.limits!r} don't fit {self.id}, so change one: {error}", code="bound_invalid") from None
         except PydanticSchemaGenerationError:
@@ -342,7 +342,7 @@ class Type:
         """The hint of each field a record declares, by name: a model's, a dataclass's, a ``TypedDict``'s. None
         for any other type."""
         one = self.options[0] if len(self.options) == 1 else None
-        return {name: hint for name, hint in typing.get_type_hints(one).items() if get_origin(hint) is not ClassVar} if _is_record(one) else {}
+        return {name: hint for name, hint in typing.get_type_hints(one).items() if get_origin(hint) is not ClassVar} if is_record(one) else {}
 
     def read(self, value: Any, *, strict: bool = False) -> Any:
         """Reads ``value`` as the type holds it: as it is when exactly of a plain class, else by pydantic.
@@ -439,15 +439,15 @@ class Type:
         bound: dict[TypeVar, Any] = {}
         lands_without_blank = isinstance(split_hint(self.hint)[0], TypeVar) and source.options
         arriving = union_of(source.options) if lands_without_blank else source.closed
-        return bound if _fit(self.hint, arriving, bound, False) else None
+        return bound if fit(self.hint, arriving, bound, False) else None
 
     def holds(self, source: Type) -> bool:
         """Says whether every value of ``source`` already is one of this type as it is, so nothing is read per call."""
-        return not self.limited and _fit(self.closed, source.closed, {}, True)
+        return not self.limited and fit(self.closed, source.closed, {}, True)
 
     def bind(self, bound: Mapping[TypeVar, Any]) -> Type:
         """Gives this type with its variables replaced by what ``bound`` binds them to."""
-        return Type(_substituted(self.hint, bound))
+        return Type(substituted(self.hint, bound))
 
     def _refused(self, error: ValidationError) -> FieldValueError:
         """Makes pydantic's ``error`` one that quotes nothing of the value.
@@ -546,9 +546,9 @@ def _host_name(cls: type) -> tuple[str, str]:
 def _kind_of(hint: Any) -> type[Type]:
     """Gives the class of ``Type`` that answers for ``hint``: a kind's own where the hint is its generic class,
     with or without ``| None``."""
-    if type(hint) is type and hint not in _READ_AS and hint not in _KINDS:
+    if type(hint) is type and hint not in READ_AS and hint not in _KINDS:
         return Type
-    options = [option for option in union_members(split_hint(_substituted(hint, {}))[0]) if option is not type(None)]
+    options = [option for option in union_members(split_hint(substituted(hint, {}))[0]) if option is not type(None)]
     if len(options) != 1:
         return Type
     origin = get_origin(options[0]) or options[0]
@@ -558,7 +558,7 @@ def _kind_of(hint: Any) -> type[Type]:
 def kind_of_value(value: Any) -> type[Type]:
     """Gives the class of ``Type`` that answers for a value met with no declared type: the kind that declared
     the value's class as its own, else ``Type``."""
-    return _KINDS.get(_READ_AS.get(type(value)), Type)
+    return _KINDS.get(READ_AS.get(type(value)), Type)
 
 
 def untyped_as_json(value: Any) -> Any:

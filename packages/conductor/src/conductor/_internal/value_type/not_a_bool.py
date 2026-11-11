@@ -66,7 +66,7 @@ def numbers_refuse_bools(schema: Any, resolve: Callable[[Any], Any], seen: set[s
         return schema
     if kind in ("int", "float"):
         return _refusing_a_bool(schema)
-    if kind == "literal" and all(_a_number(type(value)) for value in schema["expected"]):
+    if kind == "literal" and all(a_number(type(value)) for value in schema["expected"]):
         return _refusing_a_bool(schema)
     if kind == "enum" and schema.get("sub_type") in ("int", "float"):
         return _refusing_a_bool(schema)
@@ -94,7 +94,7 @@ class _NumbersRefuseBools:
 NUMBERS_REFUSE_BOOLS = _NumbersRefuseBools()
 
 
-def _a_number(cls: type) -> bool:
+def a_number(cls: type) -> bool:
     """Says whether ``cls`` is a class of number that a yes or no must not be read as: ``int`` or ``float`` or a
     class of theirs, never ``bool``, though Python counts ``True`` as 1."""
     return issubclass(cls, (int, float)) and not issubclass(cls, bool)

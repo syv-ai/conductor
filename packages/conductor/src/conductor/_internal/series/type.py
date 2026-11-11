@@ -53,7 +53,7 @@ class SeriesType(Type, of=_Series):
         """The type hint a saved run reads and writes a stored Series of this type by: ``SeriesItems[T | None]``,
         or the hint of another class its items can be stored as (``Records[R]`` for records)."""
         items: Any = SeriesItems
-        other_forms = [hint for form in StoredSeries._by_returned_class.values() if (hint := form.stored_hint(self.item)) is not None]
+        other_forms = [hint for form in StoredSeries.by_returned_class.values() if (hint := form.stored_hint(self.item)) is not None]
         return union_of((items[union_of((self.item.hint, type(None)))], *other_forms))
 
     def read_returned(self, value: Any) -> StoredSeries | None:
@@ -63,7 +63,7 @@ class SeriesType(Type, of=_Series):
         Raises:
             FieldValueError: ``value`` is not valid for the type.
         """
-        for returned_as, form in StoredSeries._by_returned_class.items():
+        for returned_as, form in StoredSeries.by_returned_class.items():
             if isinstance(value, returned_as) and form.stored_hint(self.item) is not None:
                 return form.store(value, self.item)
         items = self.read(value, strict=True)
@@ -72,7 +72,7 @@ class SeriesType(Type, of=_Series):
     @functools.cached_property
     def may_write_once(self) -> bool:  # type: ignore[override]  # decided per item type, where the base has one answer
         """Whether a Series of this type can be stored as a table: its items are records."""
-        return any(form.stored_hint(self.item) is not None for form in StoredSeries._by_returned_class.values())
+        return any(form.stored_hint(self.item) is not None for form in StoredSeries.by_returned_class.values())
 
     def written_once(self, stored: Any) -> Any | None:
         """Returns the table a stored Series is kept as, if it is kept as one; else ``None``."""

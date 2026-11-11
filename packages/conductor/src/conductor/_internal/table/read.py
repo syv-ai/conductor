@@ -13,7 +13,7 @@ from pydantic import GetCoreSchemaHandler, GetJsonSchemaHandler
 from pydantic.json_schema import JsonSchemaValue
 from pydantic_core import CoreSchema, PydanticCustomError, core_schema
 
-from conductor._internal.table.write import _CELLS, _DTYPES, _WRITTEN_TABLE, written_table
+from conductor._internal.table.write import CELLS, DTYPES, WRITTEN_TABLE, written_table
 from conductor._internal.value_type import Type
 
 
@@ -48,7 +48,7 @@ def table_schema(source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
     declared = typing.is_typeddict(row)
     columns = {name: Type(hint) for name, hint in typing.get_type_hints(row, include_extras=True).items()} if declared else {}
     cells = {name: handler.generate_schema(column.carried) for name, column in columns.items()}
-    dtypes = {name: _CELLS[column.options[0]][0] if column.options[0] in _CELLS and len(column.options) == 1 else None for name, column in columns.items()}
+    dtypes = {name: CELLS[column.options[0]][0] if column.options[0] in CELLS and len(column.options) == 1 else None for name, column in columns.items()}
 
     def from_records(records: list[dict[str, Any]]) -> pl.DataFrame:
         names = columns if declared else dict.fromkeys(key for record in records for key in record)
@@ -79,7 +79,7 @@ def table_schema(source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
     record = core_schema.typed_dict_schema({name: core_schema.typed_dict_field(cell) for name, cell in cells.items()}) if declared else core_schema.dict_schema(core_schema.str_schema())
     by_column = core_schema.typed_dict_schema({name: core_schema.typed_dict_field(core_schema.list_schema(cell), required=False) for name, cell in cells.items()})
     as_frame = core_schema.no_info_wrap_validator_function(from_frame, by_column) if declared else core_schema.is_instance_schema(pl.DataFrame)
-    written = core_schema.no_info_after_validator_function(lambda table: _frame_of((c["name"], c["values"], _DTYPES.get(c["type"])) for c in table["columns"]), _WRITTEN_TABLE)
+    written = core_schema.no_info_after_validator_function(lambda table: _frame_of((c["name"], c["values"], DTYPES.get(c["type"])) for c in table["columns"]), WRITTEN_TABLE)
     return core_schema.tagged_union_schema(
         {
             "frame": as_frame,

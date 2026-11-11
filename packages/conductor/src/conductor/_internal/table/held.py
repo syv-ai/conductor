@@ -12,7 +12,7 @@ from pydantic_core import CoreSchema, core_schema
 from conductor._internal.record_field import NoSuchFieldError
 from conductor._internal.series import ColumnsOnDemand, StoredSeries
 from conductor._internal.table.type import _Table
-from conductor._internal.table.write import _written_columns
+from conductor._internal.table.write import written_columns
 from conductor._internal.value_type import Type
 
 _T = TypeVar("_T")
@@ -88,7 +88,7 @@ class Records(StoredSeries, Generic[_T], returned_as=pl.DataFrame):
 
     def _as_json(self) -> dict[str, Any]:
         # Read through ``columns``, so a run saved at every checkpoint reads each column out of the frame once.
-        return _written_columns(self.frame, {name: self.columns[name] for name in self.frame.columns})
+        return written_columns(self.frame, {name: self.columns[name] for name in self.frame.columns})
 
     @classmethod
     def __get_pydantic_core_schema__(cls, source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:

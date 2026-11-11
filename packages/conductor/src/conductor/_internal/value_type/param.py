@@ -24,7 +24,7 @@ from pydantic_core import (
 
 from conductor._internal.problem import NodeDeclarationError, value_free_errors
 from conductor._internal.value_type.choice import Choice
-from conductor._internal.value_type.hint import _READ_AS, union_members, union_of
+from conductor._internal.value_type.hint import READ_AS, union_members, union_of
 from conductor.widgets import Widget
 
 #: The limits ``Param`` takes, by the words pydantic's ``Field`` uses.
@@ -167,7 +167,7 @@ def split_hint(hint: Any) -> tuple[Any, Param, tuple[Any, ...]]:
         The hint with every ``Annotated`` taken off its members, the ``Param``s as one (an empty one for none),
         and whatever else ``Annotated`` held, which pydantic reads.
     """
-    if type(hint) is type and hint not in _READ_AS:  # a plain class has nothing to take off, and most hints are one
+    if type(hint) is type and hint not in READ_AS:  # a plain class has nothing to take off, and most hints are one
         return hint, _NO_PARAM, ()
     options, params, others = [], list[Param](), list[Any]()
     for option in union_members(hint):
@@ -177,6 +177,6 @@ def split_hint(hint: Any) -> tuple[Any, Param, tuple[Any, ...]]:
             others += [m for m in metadata if not isinstance(m, Param)]
             inner, inner_param, inner_others = split_hint(option)
             option, params, others = inner, [inner_param, *params], [*inner_others, *others]
-        options.append(_READ_AS.get(option, option) if type(option) is type else option)
+        options.append(READ_AS.get(option, option) if type(option) is type else option)
     merged = {f.name: value for param in params for f in dataclasses.fields(param) if (value := getattr(param, f.name)) is not None}
     return union_of(options), Param(**merged) if merged else _NO_PARAM, tuple(others)

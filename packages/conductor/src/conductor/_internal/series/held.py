@@ -56,12 +56,12 @@ class StoredSeries:
     __slots__ = ()
 
     columns: ColumnsOnDemand
-    _by_returned_class: ClassVar[dict[type, type[StoredSeries]]] = {}
+    by_returned_class: ClassVar[dict[type, type[StoredSeries]]] = {}
 
     def __init_subclass__(cls, *, returned_as: type | None = None) -> None:
         super().__init_subclass__()
         if returned_as is not None:
-            StoredSeries._by_returned_class[returned_as] = cls
+            StoredSeries.by_returned_class[returned_as] = cls
 
     @classmethod
     def stored_hint(cls, item: Type) -> Any | None:
@@ -170,4 +170,4 @@ def without_places(received: Any, places: set[int]) -> Any:
     cut by the ``StoredSeries`` subclass registered for its class."""
     if type(received) is list:
         return [item for place, item in enumerate(received) if place not in places]
-    return StoredSeries._by_returned_class[type(received)].without_rows(received, places)
+    return StoredSeries.by_returned_class[type(received)].without_rows(received, places)
