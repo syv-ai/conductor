@@ -705,7 +705,7 @@ def item_ceiling(*loc: str | int, series: str, items: int, max_items: int) -> st
         items: How many items it has.
         max_items: The run's ceiling.
     """
-    return f"{series} has {items} items, more than the {max_items} this run may work through; resume it with a larger max_items."
+    return f"{series} has {items} items, more than the {max_items} this run may work through; raise its max_items and resume it."
 
 
 @PROBLEMS.problem()

@@ -375,7 +375,7 @@ def test_an_input_given_by_name_and_by_address_and_a_ceiling_below_one_are_refus
     assert sorted(p.type for p in both.value.errors()) == ["input_given_twice", "not_offered"]
     assert [p.type for p in ceiling.value.errors()] == ["invalid_max_items"]
     with pytest.raises(InvalidCallError):
-        graph.with_inputs(text="a").resume(max_items=-1)
+        graph.with_inputs(text="a").with_max_items(-1)
 
 
 def test_a_stored_graph_with_problems_of_its_own_is_one_problem_where_it_is_used():

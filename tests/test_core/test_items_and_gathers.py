@@ -1364,7 +1364,26 @@ def test_a_series_longer_than_the_ceiling_stops_the_run_before_any_call_per_item
 
     assert (stopped.status, stopped.state.cause.type, stopped.state.cause.loc) == ("stopped", "item_ceiling", ("s",))
     assert stopped.state.cause.ctx == {"series": "s.result", "items": 3, "max_items": 2} and CALLED == []
-    assert stopped.resume(max_items=3).results["u"]["result"] == ["A", "B", "C"]
+    assert stopped.with_max_items(3).resume().results["u"]["result"] == ["A", "B", "C"]
+
+
+def test_with_max_items_is_the_same_run_with_its_ceiling_raised_and_starts_nothing():
+    CALLED.clear()
+    loaded = graph({"id": "s", "node": "split"}, {"id": "u", "node": "upper"}, edges=(("s.result", "u.text"),))
+    stopped = loaded.run(text="a,b,c", max_items=2)
+
+    raised = stopped.with_max_items(3)
+
+    assert (raised.max_items, stopped.max_items) == (3, 2) and CALLED == []
+    assert raised.state == stopped.state and raised.results == stopped.results and raised.inputs == stopped.inputs
+    assert json.loads(raised.to_json()) == {**json.loads(stopped.to_json()), "max_items": 3}
+    assert loaded.load_run(raised.to_json()).resume().status == "complete"
+    with pytest.raises(InvalidCallError) as refused:
+        stopped.with_max_items(0)
+    assert [(p.type, p.loc) for p in refused.value.errors()] == [("invalid_max_items", ("max_items",))]
+    for leg in (stopped.resume, stopped.stream):  # a ceiling is the run's, never a leg's
+        with pytest.raises(TypeError):
+            leg(max_items=3)
 
 
 def test_the_ceiling_is_on_each_series_made_never_on_the_items_of_all_of_them_together():
@@ -1391,7 +1410,7 @@ def test_the_ceiling_stops_a_leg_whose_items_wait_for_a_thread_and_resuming_call
     stopped = loaded.run(text=",".join("abcdefghij"), max_items=10)
 
     assert (stopped.status, stopped.state.cause.type) == ("stopped", "item_ceiling") and len(calls) < 10
-    assert stopped.resume(max_items=100).status == "complete" and sorted(calls) == list("abcdefghij")
+    assert stopped.with_max_items(100).resume().status == "complete" and sorted(calls) == list("abcdefghij")
 
 
 # -- an embedded graph is one node -------------------------------------------------------------

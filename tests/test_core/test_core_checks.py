@@ -236,7 +236,7 @@ def test_max_items():
     assert run.status == "stopped" and run.state.cause.type == "item_ceiling" and called == []
     assert run.state.cause.ctx == {"series": "s.result", "items": 50, "max_items": 10}
     saved = graph.load_run(run.to_json())
-    (done, called) = calls(lambda: saved.resume(max_items=100))
+    (done, called) = calls(lambda: saved.with_max_items(100).resume())
     assert done.status == "complete" and len(called) == 50
 
 

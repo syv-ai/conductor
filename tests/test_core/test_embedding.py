@@ -466,7 +466,7 @@ def test_the_item_ceiling_holds_inside_and_is_raised_by_resume():
     graph = mapped("deep-inner")
     run = graph.run(text="ab cdef", max_items=3)
     assert run.status == "stopped" and run.state.cause.type == "item_ceiling" and run.state.cause.loc == ("e", 1, "c")
-    resumed = graph.load_run(run.to_json()).resume(max_items=10)
+    resumed = graph.load_run(run.to_json()).with_max_items(10).resume()
     assert resumed.status == "complete" and resumed.results["e"]["up.result"] == [["A", "B"], ["C", "D", "E", "F"]]
     assert graph.load_run(run.to_json()).resume().status == "stopped"  # the ceiling it was saved under still holds inside
 

@@ -220,7 +220,7 @@ class Worker(Generic[C]):
         row, nodes = run.row, self._nodes_for(self.started_by(run.row))
         answered = await asyncio.to_thread(lambda: _loaded(row, nodes).answer(answers).to_json())
         state = run.state.answered(answers.keys()).model_copy(update={"run_state": RUNNING})
-        if not await self._claim(run, state, answered=answered):
+        if not await self._claim(run, state, changed=answered):
             raise RefusedError(router_problem.run_changed())
         return "started"
 
@@ -229,16 +229,22 @@ class Worker(Generic[C]):
 
         Args:
             run: The run as read.
-            max_items: A higher ceiling on the items of any one Series, for a run that stopped at its ceiling.
+            max_items: A higher ceiling on the items of any one Series, for a run that stopped at its ceiling. The
+                run is stored with it as the run is claimed, so every later leg goes on under it.
 
         Raises:
             RefusedError: The run's last leg did not end early (``run_not_resumable``), or another call claimed
                 the run first (``run_changed``).
+            InvalidCallError: With ``max_items``, the stored run can't be loaded to raise its ceiling.
         """
         if run.state.cause is None:
             raise RefusedError(router_problem.run_not_resumable(status=run.state.run_state.status))
         state = run.state.model_copy(update={"run_state": RUNNING})
-        if not await self._claim(run, state, max_items=max_items):
+        raised = None
+        if max_items is not None:
+            row, nodes = run.row, self._nodes_for(self.started_by(run.row))
+            raised = await asyncio.to_thread(lambda: _loaded(row, nodes).with_max_items(max_items).to_json())
+        if not await self._claim(run, state, changed=raised):
             raise RefusedError(router_problem.run_changed())
 
     async def cancel(self, run: RunAsRead) -> bool:
@@ -356,45 +362,43 @@ class Worker(Generic[C]):
         self._run_legs(row, state)
         return row.id
 
-    async def _claim(self, run: RunAsRead, state: StoredState, *, answered: str | None = None, max_items: int | None = None) -> bool:
+    async def _claim(self, run: RunAsRead, state: StoredState, *, changed: str | None = None) -> bool:
         """Take a run for this worker if it is still at the ``rev`` read, and run its next leg. Of two workers, one
         wins.
 
         Args:
             run: The run as read.
             state: The state the row takes with the claim; its ``status`` and ``state`` are written from it.
-            answered: The run with a caller's answers given, as JSON, for a claim that an answer makes; the row's
-                ``run`` then. Left out, the row keeps the run it has.
-            max_items: A ceiling on the items of any one Series for the leg, where the run's own is to be raised.
+            changed: The run as the call that claims it changed it, as JSON (a caller's answers given, or its
+                ceiling raised); the row's ``run`` then. Left out, the row keeps the run it has.
 
         Returns:
             Whether this worker took the run.
         """
         written: RunChanges = {**state.columns(), **self._mine()}
-        if answered is not None:
-            written["run"] = answered
+        if changed is not None:
+            written["run"] = changed
         if not await self._store.update(run.row.id, run.row.rev, written):
             return False
-        self._run_legs(replace(run.row, **written, rev=run.row.rev + 1), state, max_items)
+        self._run_legs(replace(run.row, **written, rev=run.row.rev + 1), state)
         return True
 
-    def _run_legs(self, row: StoredRun, state: StoredState, max_items: int | None = None) -> None:
+    def _run_legs(self, row: StoredRun, state: StoredState) -> None:
         """Run the legs of a run this worker has just written, in the background; a cancel asked of it the first leg
         hears before its first unit.
 
         Args:
             row: The row as written.
             state: The row's state.
-            max_items: A ceiling on the items of any one Series for the first leg, where the run's own is to be raised.
         """
         hold = _Hold(row.id, row.rev, state)
         if state.cancel_asked:
             hold.stop.set()
-        self._holds[hold] = asyncio.get_running_loop().create_task(self._legs(hold, row, max_items))
+        self._holds[hold] = asyncio.get_running_loop().create_task(self._legs(hold, row))
 
     # -- a held run -------------------------------------------------------------------------------
 
-    async def _legs(self, hold: _Hold, row: StoredRun, max_items: int | None) -> None:
+    async def _legs(self, hold: _Hold, row: StoredRun) -> None:
         """Run legs of a held run, renewing its lease, until the end of one gives the run up.
 
         What a host's code raises and what conductor refuses are dealt with where they are met (``_leg_steps``,
@@ -406,13 +410,11 @@ class Worker(Generic[C]):
         Args:
             hold: The hold on the run.
             row: The row as this worker wrote it.
-            max_items: A ceiling on the items of any one Series for the first leg, where the run's own is to be raised.
         """
         renewing = asyncio.create_task(self._renew(hold))
         try:
             while not hold.released:
-                end = await self._leg(hold, row, max_items)
-                row, max_items = await self._finish(hold, row, end), None
+                row = await self._finish(hold, row, await self._leg(hold, row))
         except Exception:
             log.exception("the store raised while a leg of run %s ran; a worker goes on with the run once its lease runs out", row.id)
         finally:
@@ -444,7 +446,7 @@ class Worker(Generic[C]):
             except Exception:
                 log.exception("the lease of run %s was not renewed; the next renewal tries again", hold.run_id)
 
-    async def _leg(self, hold: _Hold, row: StoredRun, max_items: int | None) -> LegEnd:
+    async def _leg(self, hold: _Hold, row: StoredRun) -> LegEnd:
         """Run one leg of a held run and store its events and checkpoints.
 
         The leg's own work is done in ``_leg_steps``, and every call to the store is made here. So a raise that
@@ -453,14 +455,13 @@ class Worker(Generic[C]):
         Args:
             hold: The hold on the run.
             row: The row, whose ``run`` the leg starts from.
-            max_items: A ceiling on the items of any one Series, where the run's own is to be raised.
 
         Returns:
             How the leg ended: with the run of its ``run_end``; handed back, when the worker shuts down and no
             cancel was asked, its run stored as the leg's last checkpoint; or as a leg that raised.
         """
         end: LegEnd = HandedBack()
-        async with contextlib.aclosing(self._leg_steps(hold, row, max_items)) as steps:  # a raise in this loop ends the leg before its next unit
+        async with contextlib.aclosing(self._leg_steps(hold, row)) as steps:  # a raise in this loop ends the leg before its next unit
             async for step in steps:
                 match step:
                     case LegEnd():
@@ -472,13 +473,12 @@ class Worker(Generic[C]):
                         await self._write(hold, step)
         return end
 
-    async def _leg_steps(self, hold: _Hold, row: StoredRun, max_items: int | None) -> AsyncGenerator[str | RunChanges | LegEnd]:
+    async def _leg_steps(self, hold: _Hold, row: StoredRun) -> AsyncGenerator[str | RunChanges | LegEnd]:
         """Run one leg of a held run, and say what the store is to take of it. Nothing here calls the store.
 
         Args:
             hold: The hold on the run.
             row: The row, whose ``run`` the leg starts from.
-            max_items: A ceiling on the items of any one Series, where the run's own is to be raised.
 
         Yields:
             Each event to store, as JSON; each checkpoint, as the row's ``run`` to write; and last, unless the leg
@@ -494,7 +494,7 @@ class Worker(Generic[C]):
             run = await asyncio.to_thread(_loaded, row, self._nodes_for(who))
             waiting = run.waiting
             stream = run.stream(
-                from_run=self._from_run(who), max_items=max_items, timeout=self._leg_timeout,
+                from_run=self._from_run(who), timeout=self._leg_timeout,
                 cancel=hold.stop, hand_back=self._handing_back, checkpoint_every=self._checkpoint_every,
             )
             async with contextlib.aclosing(stream):

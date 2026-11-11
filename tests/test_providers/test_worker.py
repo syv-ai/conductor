@@ -172,6 +172,7 @@ async def test_a_ceiling_raised_by_a_resume_holds_for_the_legs_after_it() -> Non
     assert (await store.ended(run_id)).status == "stopped"
 
     await worker.resume(await worker.read(run_id), max_items=10)
+    assert json.loads(store.rows[run_id].run)["max_items"] == 10  # written with the claim, so a leg given up before its first checkpoint is gone on with under it
     waiting = (await store.ended(run_id)).waiting
     assert len(waiting) == 5
     assert await worker.answer(await worker.read(run_id), {waiting[0].id: 7}) == "started"

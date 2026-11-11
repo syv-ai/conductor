@@ -99,7 +99,7 @@ print(graph.run(text="a b").outputs)  # {'join.result': 'A+B'}
 - **A table is one value.** It never makes items by itself, and a column of it is no address. A Split node takes it apart, drawn where the author wants it. Tables that made items by themselves were rejected: how often a node ran then followed from which columns happened to be wired to it, which an author can't see in the drawing.
 - **Items of two Series never pair up.** Ten documents and three questions are refused as `series_not_nested` until one is made inside the other, or one is given whole. Crossing them and pairing them by position were both rejected. Crossing multiplies paid calls silently, and which item goes with which is the author's to draw.
 - **A gather goes up one level, and has three rules.** It gets the items that have a value; one never made is treated as for any node; it waits for every item. No items is an empty `Series`, and the node is called: "0 approved" is an answer.
-- **A ceiling before spending.** `max_items=` is an optional ceiling on any one `Series` a node runs per item of, checked when the `Series` is made, before any call on its items.
+- **A ceiling before spending.** `max_items=` is an optional ceiling on any one `Series` a node runs per item of, checked when the `Series` is made, before any call on its items. Over it the run is `stopped`, and `run.with_max_items(100).resume()` goes on under a higher one, calling nothing again.
 
 ```python
 print({node_id: runs.msg for node_id, runs in graph.plan.items()})  # {'words': 'once', 'upper': 'per item of words.result', 'join': 'once'}

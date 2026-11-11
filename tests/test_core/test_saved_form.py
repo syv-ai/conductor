@@ -208,7 +208,7 @@ def test_a_run_stopped_part_way_holds_a_slot_for_each_instance_and_goes_on() -> 
     loaded = graph.load_run(stopped.to_json())
 
     assert _same(loaded.results, stopped.results)
-    assert _same(loaded.resume(max_items=100).outputs, graph.run(_inputs("bb,ccc,dd,e")).outputs)
+    assert _same(loaded.with_max_items(100).resume().outputs, graph.run(_inputs("bb,ccc,dd,e")).outputs)
 
 
 def test_a_run_again_after_a_save_takes_the_work_it_carried() -> None:

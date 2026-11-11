@@ -888,12 +888,12 @@ capped = per_word.run(text="a b c", max_items=2)
 match capped.state:
     case EndedEarly(cause=cause):
         print(cause.type, cause.ctx["items"])  # item_ceiling 3
-        print(cause.msg)  # words.result has 3 items, more than the 2 this run may work through; resume it with a larger max_items.
+        print(cause.msg)  # words.result has 3 items, more than the 2 this run may work through; raise its max_items and resume it.
 ```
 
 `upper` would run once per word, and there are three. The ceiling counts only a Series some node runs per item of: one that is only gathered or passed on whole costs no calls.
 
-**Fix.** `capped.resume(max_items=...)` with a higher ceiling carries on, calling nothing again.
+**Fix.** `capped.with_max_items(...).resume()` with a higher ceiling carries on, calling nothing again.
 
 Its `ctx` keys are in the reference: `python -m conductor.about item-ceiling`.
 

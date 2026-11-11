@@ -152,21 +152,33 @@ class Run:
 
     # -- going on ---------------------------------------------------------------
 
-    def resume(self, *, max_items: int | None = None, from_run: Mapping[type, Any] = MappingProxyType({}), timeout: float | None = None) -> Run:
+    def with_max_items(self, max_items: int) -> Run:
+        """The same run under another item ceiling; nothing runs until ``resume``.
+
+        A run that stopped at its ceiling goes on under a higher one:
+        ``run.with_max_items(100).resume()``. A host that saves the run this
+        gives has the ceiling in the save.
+
+        Raises:
+            InvalidCallError: ``max_items`` is below 1 (``invalid_max_items``).
+        """
+        checked_leg(max_items=max_items)
+        return dataclasses.replace(self, max_items=max_items)
+
+    def resume(self, *, from_run: Mapping[type, Any] = MappingProxyType({}), timeout: float | None = None) -> Run:
         """Go on: start every unit whose inputs exist, until the run is done, waits, fails, reaches its ceiling or its ``timeout``.
 
-        ``max_items`` raises (or sets) the ceiling a stopped run carries on
-        under. ``from_run`` gives each ``FromRun`` type its value. Past its
+        ``from_run`` gives each ``FromRun`` type its value. Past its
         ``timeout`` a leg starts nothing more but waits for the calls already
         on threads, as far as their ``attempt_timeout``, and keeps them; so it
         can end later than ``timeout``, and a call that came back is never made
         again.
         """
-        checked_leg(max_items=max_items, timeout=timeout)
-        return self._leg(max_items, from_run_values(self.graph._needs_from_run, from_run), None, _deadline(timeout))
+        checked_leg(timeout=timeout)
+        return self._leg(from_run_values(self.graph._needs_from_run, from_run), None, _deadline(timeout))
 
     def stream(
-        self, *, max_items: int | None = None, from_run: Mapping[type, Any] = MappingProxyType({}), timeout: float | None = None, cancel: asyncio.Event | None = None,
+        self, *, from_run: Mapping[type, Any] = MappingProxyType({}), timeout: float | None = None, cancel: asyncio.Event | None = None,
         hand_back: asyncio.Event | None = None, checkpoint_every: float | None = None,
     ) -> AsyncGenerator[Event]:
         """``resume``, saying what happens as it happens: ``async for event in run.stream(): ...``.
@@ -188,11 +200,11 @@ class Run:
         its ``run`` loses only the calls in flight if the process dies. A call
         that can't start raises here, before anything is iterated.
         """
-        checked_leg(max_items=max_items, timeout=timeout, checkpoint_every=checkpoint_every)
-        return self._stream(max_items, from_run_values(self.graph._needs_from_run, from_run), timeout, cancel, hand_back, checkpoint_every)
+        checked_leg(timeout=timeout, checkpoint_every=checkpoint_every)
+        return self._stream(from_run_values(self.graph._needs_from_run, from_run), timeout, cancel, hand_back, checkpoint_every)
 
     async def _stream(
-        self, max_items: int | None, from_run: dict[type, Any], timeout: float | None, cancel: asyncio.Event | None, hand_back: asyncio.Event | None,
+        self, from_run: dict[type, Any], timeout: float | None, cancel: asyncio.Event | None, hand_back: asyncio.Event | None,
         checkpoint_every: float | None,
     ) -> AsyncGenerator[Event]:
         loop, events = asyncio.get_running_loop(), asyncio.Queue["Event | None"]()
@@ -210,7 +222,7 @@ class Run:
 
         def leg() -> None:
             try:
-                self._leg(max_items, from_run, lambda event: _hand_over(loop, events, event), stop, checkpoint_every)
+                self._leg(from_run, lambda event: _hand_over(loop, events, event), stop, checkpoint_every)
             except BaseException as error:  # the engine's own defect reaches the caller
                 failed.append(error)
             finally:
@@ -227,7 +239,7 @@ class Run:
             cancelled.set()
 
     def _leg(
-        self, max_items: int | None, from_run: dict[type, Any], emit: Callable[[EventBase], None] | None, stop: Callable[[], RunState | None] | None,
+        self, from_run: dict[type, Any], emit: Callable[[EventBase], None] | None, stop: Callable[[], RunState | None] | None,
         checkpoint_every: float | None = None,
     ) -> Run:
         """One leg over a copy of this run, which is handed back as the leg left it.
@@ -236,7 +248,7 @@ class Run:
         where they stand, and what a node comes to for an item), and says how it ended. What a listener hears of
         the run itself (that it started, a checkpoint of it, how it ended) is said here, where the run is.
         """
-        run = self._copy(max_items=max_items if max_items is not None else self.max_items)
+        run = self._copy()
         checkpoint: Callable[[RunState], None] | None = None
         if emit is not None:
             emit(RunStart(waiting=tuple(run.waiting)))
@@ -541,20 +553,19 @@ class Run:
             return list(units.values())
         return [units.get(instance) for instance in instances(self._units, node.maps, ())[0]]
 
-    def _copy(self, *, share_units: bool = False, max_items: int | None = None) -> Run:
+    def _copy(self, *, share_units: bool = False) -> Run:
         """A copy to change: its own units to record into and its own earlier work to take from; or with
         ``share_units`` this run's units of every node, for a caller that replaces whole nodes and takes nothing.
 
         Args:
             share_units: Whether the copy holds this run's own dict of units for each node.
-            max_items: The copy's item ceiling; this run's when ``None``.
         """
         if share_units:
             units, earlier = dict(self._units), dict(self._earlier_work)
         else:  # its own answers to take, as this run holds them too
             units = {name: dict(held) for name, held in self._units.items()}
             earlier = {path: EarlierWork(of_node.at, of_node.computed, {asked: list(left) for asked, left in of_node.asked.items()}) for path, of_node in self._earlier_work.items()}
-        return dataclasses.replace(self, max_items=max_items if max_items is not None else self.max_items, _units=units, _earlier_work=earlier)
+        return dataclasses.replace(self, _units=units, _earlier_work=earlier)
 
 
 RunEnd.model_rebuild(_types_namespace={"Run": Run})
@@ -617,7 +628,7 @@ def _run_of(graph: Graph, saved: SavedRun[list[Unit | None], EarlierWork]) -> Ru
 
 
 def checked_leg(*, max_items: int | None = None, timeout: float | None = None, checkpoint_every: float | None = None) -> None:
-    """A leg's ceiling (at least 1 item) and its seconds (a finite number above 0) are refused at the call."""
+    """A run's ceiling (at least 1 item) and a leg's seconds (a finite number above 0) are refused at the call."""
     problems = []
     if max_items is not None and max_items < 1:
         problems.append(problem.invalid_max_items("max_items", max_items=max_items))
