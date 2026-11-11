@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from conductor._internal.problem.type import ProblemCatalogue
+from conductor._internal.problem import ProblemCatalogue
 
 #: The kinds of problem ``check_registry`` returns.
 KIT_PROBLEMS = ProblemCatalogue()
