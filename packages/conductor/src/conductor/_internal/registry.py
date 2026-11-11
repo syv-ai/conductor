@@ -201,13 +201,11 @@ class NodeRegistry:
         return nodes
 
     def _with_defaults(self, definition: NodeDefinition) -> NodeDefinition:
-        """``definition`` and each version it replaces under this registry's defaults: tags after the registry's, the node's own category and extra keys winning."""
+        """A copy of ``definition`` and of each version it replaces, under this registry's defaults: tags after the registry's, the node's own category and extra keys winning."""
         tags = tuple(dict.fromkeys((*self._tags, *definition.tags)))
         category = definition.category or self._category
         extra = {**self._extra, **definition.extra}
         replaces = None if definition.replaces is None else self._with_defaults(definition.replaces)
-        if (tags, category, extra, replaces) == (definition.tags, definition.category, dict(definition.extra), definition.replaces):
-            return definition
         return dataclasses.replace(definition, tags=tags, category=category, extra=MappingProxyType(extra), replaces=replaces)
 
     def _hold(self, nodes: dict[str, NodeDefinition], named_types: tuple[type, ...], declared: dict[str, type]) -> None:

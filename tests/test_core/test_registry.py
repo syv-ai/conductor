@@ -77,9 +77,9 @@ def test_a_node_is_looked_up_by_its_id_and_looping_yields_the_definitions_in_ord
     registry = NodeRegistry()
     registry.add(echo, upper_node)
 
-    assert registry["echo"] is echo
+    assert registry["echo"].function is echo.function
     assert "upper" in registry and "nonexistent" not in registry
-    assert list(registry) == [echo, upper_node]
+    assert [d.function for d in registry] == [echo.function, upper_node.function]
     assert len(registry) == 2
 
 
@@ -147,7 +147,7 @@ def test_replaces_naming_a_node_the_registry_does_not_hold_is_still_a_duplicate(
         def other(x: str = "") -> str:
             return x
 
-    assert registry["upper"] is held
+    assert registry["upper"].function is held.function
 
 
 def test_two_nodes_built_from_graphs_under_one_id_are_told_apart_by_title():
@@ -169,7 +169,7 @@ def test_a_second_node_under_one_id_is_refused_naming_where_both_were_written():
 
     assert raised.value.code == "duplicate_node_id"
     assert str(raised.value).count("made") == 2
-    assert registry["dup"] is first
+    assert registry["dup"].function is first.function
 
 
 def test_the_same_node_added_twice_is_a_duplicate_too():
@@ -197,7 +197,7 @@ def test_replace_puts_a_node_in_place_of_the_one_under_its_id():
 
     registry.replace(newer)
 
-    assert registry["a"] is newer
+    assert registry["a"].function is newer.function and registry["a"].title == "Newer"
     assert [definition.id for definition in registry] == ["a", "b"]
 
 
@@ -286,14 +286,48 @@ def test_a_newer_version_declared_on_the_registry_replaces_the_one_it_holds():
         return text
 
     assert registry["up"] is up
-    assert registry["up"].version_of(1) is up_v1
+    assert registry["up"].version_of(1).function is up_v1.function
 
 
-def test_a_node_with_nothing_to_take_is_held_as_it_is():
+@pytest.mark.parametrize("defaults", [{}, {"category": "text"}])
+def test_a_plain_added_version_is_never_the_one_held_so_declaring_its_successor_is_a_duplicate(defaults: dict[str, Any]):
+    @node("up", title="Up", description="")
+    def up_v1(text: str) -> str:
+        return text
+
+    registry = NodeRegistry(**defaults)
+    registry.add(up_v1)
+
+    with pytest.raises(NodeDeclarationError) as refused:
+        @registry.node("up", title="Up", description="", replaces=up_v1)
+        def up(text: str) -> str:
+            return text
+
+    assert refused.value.code == "duplicate_node_id"
+
+
+@pytest.mark.parametrize("defaults", [{}, {"category": "text"}])
+def test_the_version_a_decorator_returned_is_replaced_by_its_successor(defaults: dict[str, Any]):
+    registry = NodeRegistry(**defaults)
+
+    @registry.node("up", title="Up", description="")
+    def up_v1(text: str) -> str:
+        return text
+
+    @registry.node("up", title="Up", description="", replaces=up_v1)
+    def up(text: str) -> str:
+        return text
+
+    assert registry["up"] is up
+    assert registry["up"].version_of(1).function is up_v1.function
+
+
+def test_a_registry_holds_its_own_copy_of_a_node_it_is_given():
     registry = NodeRegistry()
     registry.add(echo)
 
-    assert registry["echo"] is echo
+    assert registry["echo"] is not echo
+    assert registry["echo"].function is echo.function
 
 
 # --- subregistries ----------------------------------------------------------
