@@ -70,8 +70,9 @@ From outside, a stored graph is one node:
 - **Its outputs** are the outputs of the nodes nothing inside reads (`graph.outputs` of the stored graph), under their
   addresses there, `node.output`.
 - An output its graph makes once has the type the inner node gives it. One made per item inside, however deep, is a
-  `Series` of every item's value in order, exactly what `run.outputs` of the stored graph gives; a `Series` made per
-  item is a `Series` of lists, and a table made per item a `Series` of tables.
+  `Series` of every item's value in order to a node that reads it; a `Series` made per item is a `Series` of lists,
+  and a table made per item a `Series` of tables. `run.results` shows it as it shows any node's output: one list for
+  each loop the inner node is called in, so an output made per line of each document is a list of lists.
 - An exclusive group inside is named by the node that decides, `decide.answer`.
 
 ```python

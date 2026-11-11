@@ -102,7 +102,7 @@ class FunctionAtPath(_AtPath):
         readers: Each function whose ``made_from`` holds this one, with the number held there.
         position: Its place in the order a leg tries the functions in.
         waits_on: Every function it waits on, however far up; filled when first asked for.
-        shown_as: How a host reads each output, by its name and the number of maps the host stands under
+        shown_as: The input plans ``run.results`` reads each output with, by the output's name
             (``host_reads``); filled when first asked for.
     """
 
@@ -118,7 +118,7 @@ class FunctionAtPath(_AtPath):
     readers: list[tuple[FunctionAtPath, int]] = dataclasses.field(default_factory=list[tuple["FunctionAtPath", int]])
     position: int = 0
     waits_on: frozenset[FunctionAtPath] | None = None
-    shown_as: dict[tuple[str, int], InputReadsOneValue | InputGathersItems] = dataclasses.field(default_factory=dict[tuple[str, int], InputReadsOneValue | InputGathersItems])
+    shown_as: dict[str, tuple[InputReadsOneValue | InputGathersItems, ...]] = dataclasses.field(default_factory=dict[str, tuple[InputReadsOneValue | InputGathersItems, ...]])
 
 
 @typing.final
@@ -186,28 +186,33 @@ def unit_loc(node: NodeAtPath, key: ItemPath) -> Loc:
 _SHOWN = Field("shown", Series[Any | None], REQUIRED)  # type: ignore[misc]  # mypy takes no union as a type argument here
 
 
-def host_reads(node: FunctionAtPath, output: str, under: int) -> InputReadsOneValue | InputGathersItems:
-    """How a host reads the output ``output`` of ``node`` from ``under`` maps down: the plan an input wired to
-    it there would have. An output made once there is read as the one value it is; one made per item is
-    gathered, through every map the host stands outside, as a ``Series`` input that keeps a blank in its place
-    would gather it. So what a host is shown is what a node reading the output would be given.
+def host_reads(node: FunctionAtPath, output: str) -> tuple[InputReadsOneValue | InputGathersItems, ...]:
+    """The input plans ``run.results`` reads one output of a function node with.
+
+    A host reads an output the way a node wired to it would, so the plans are the ones such a node's input
+    would have. Example: ``documents -> lines -> shout``, where ``lines`` is called once per document and
+    ``shout`` once per line. ``shout`` is called inside two loops, so its output has two plans: the first
+    lists the documents, the second lists one document's lines and reads ``shout``'s return value for each.
+    ``results`` then shows ``[["A", "B"], None, ["C"]]``: a list per document, ``None`` for a document
+    whose lines were never made.
 
     Args:
-        node: The function that makes the output.
+        node: The function node that returns the output.
         output: The output's name.
-        under: How many of the maps the node runs in the host stands inside: none for the run's own results,
-            those of an embedded graph's node for what that node offers for one of its items.
+
+    Returns:
+        For a node called once, one plan that reads the return value. For a node called per item, one plan
+        for each loop it is called in, outermost first; the plan at index ``n`` is used for one item of each
+        of the ``n`` loops outside it.
     """
-    plan = node.shown_as.get((output, under))
-    if plan is None:
-        spec = node.placed.outputs[output]
-        at = (SeriesAsList if spec.many else WholeOutput)(node.name, output, _scope_at_path(node.maps), None, spec.type)
-        if len(node.maps) == under:
-            plan = InputReadsOneValue(_SHOWN, (at,), at.scope)
-        else:
-            plan = _gather_at_path(_SHOWN, node.maps[under:], (at,), {made_by.name: made_by for made_by in (node, *(series for series, _ in node.maps))})
-        node.shown_as[(output, under)] = plan
-    return plan
+    plans = node.shown_as.get(output)
+    if plans is None:
+        made = node.placed.outputs[output]
+        at = (SeriesAsList if made.many else WholeOutput)(node.name, output, _scope_at_path(node.maps), None, made.type)
+        functions = {made_by.name: made_by for made_by in (node, *(series for series, _ in node.maps))}
+        per_loop = [_gather_at_path(_SHOWN, node.maps[inside:], (at,), functions) for inside in range(len(node.maps))]
+        plans = node.shown_as[output] = tuple(per_loop) or (InputReadsOneValue(_SHOWN, (at,), at.scope),)
+    return plans
 
 
 def nodes_at_paths(graph: CheckedGraph) -> tuple[list[FunctionAtPath], dict[str, NodeAtPath]]:

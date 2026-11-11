@@ -391,7 +391,7 @@ def test_a_series_of_a_literal_is_a_pick_of_several_run_end_to_end_through_json(
     faults = _refused(lambda: run.answer({"q@0": ["red", "red"], "q@1": ["pink"]}))
     assert [f.msg for f in faults] == ["That is not a valid answer: a choice is picked twice", "That is not a valid answer: Input should be 'red', 'green' or 'blue'"]
     answered = graph.load_run(run.answer({"q@0": ["red", "blue"], "q@1": []}).to_json())
-    assert answered.results["u"]["result"] == [None, None]  # the picks are items; nothing read them yet
+    assert answered.results["u"]["result"] == [[None, None], []]  # the picks are items, a list for each name; nothing read them yet
     done = answered.resume()
     assert done.status == "complete" and done.results["q"]["result"] == [["red", "blue"], []] and done.results["j"]["result"] == ["RED+BLUE", ""]
 

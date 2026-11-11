@@ -381,7 +381,7 @@ def test_scenario_10_a_nested_approval_saved_and_resumed_in_another_process():
     resumed = graph.load_run(saved).answer(second.id, False).resume()
     assert resumed.status == "waiting" and [w.loc[1:] for w in resumed.waiting] == [(0, 1)]
     done = graph.load_run(resumed.to_json()).answer(first.id, True).resume()
-    assert done.outputs == {"approve.result": [True, True, True, False, True]}  # every item, in order: two of a.pdf, none of b.pdf, three of c.pdf
+    assert done.outputs == {"approve.result": [[True, True], [], [True, False, True]]}  # a list for each document, in order: two of a.pdf, none of b.pdf, three of c.pdf
 
 
 # -- 11. a sub-graph per item: 3 boxes ------------------------------------------------------------------------
@@ -444,11 +444,11 @@ def test_scenario_14_each_document_by_three_typed_questions():
 
     ASKED.clear()
     first = graph.run(files=CONTRACTS)
-    assert len(ASKED) == 33 and first.outputs["llm.result"][12:15] == [f"{question} contract 4" for question in QUESTIONS]
+    assert len(ASKED) == 33 and first.outputs["llm.result"][4] == [f"{question} contract 4" for question in QUESTIONS]
 
     ASKED.clear()
     changed = [*CONTRACTS[:4], File(name="4.pdf", text="contract 4, amended"), *CONTRACTS[5:]]
-    assert first.again(files=changed).outputs["llm.result"][12] == "Who are the parties? contract 4, amended" and len(ASKED) == 3
+    assert first.again(files=changed).outputs["llm.result"][4][0] == "Who are the parties? contract 4, amended" and len(ASKED) == 3
 
 
 def test_scenario_14_without_the_for_each_wire_the_two_series_do_not_nest_and_the_problem_names_the_wire():

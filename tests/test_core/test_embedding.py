@@ -410,11 +410,11 @@ def test_a_value_a_default_and_an_edge_on_the_embedding_are_any_nodes():
 
 def test_deep_outputs_are_what_run_outputs_gives_alone_and_embedded():
     alone = REGISTRY.load(INNER["deep-inner"]).run(text="ab cd").outputs["up.result"]
-    assert alone == ["A", "B", "C", "D"]  # two maps deep, in item order
+    assert alone == [["A", "B"], ["C", "D"]]  # two maps deep, a list for each word, in item order
     graph = load({"e": "deep-inner", "n": "count", "x": "exclaim"}, [("e.up.result", "n.items"), ("e.up.result", "x.text")])
     run = graph.run(text="ab cd")
     assert run.results["e"]["up.result"] == alone and run.results["n"]["result"] == 4
-    assert run.results["x"]["result"] == ["A!", "B!", "C!", "D!"]
+    assert run.results["x"]["result"] == [["A!", "B!"], ["C!", "D!"]]
     assert load({"e": "series-per-item-inner"}).run(text="ab cd").outputs == {"e.c.result": [["a", "b"], ["c", "d"]]}
 
 
@@ -467,7 +467,7 @@ def test_the_item_ceiling_holds_inside_and_is_raised_by_resume():
     run = graph.run(text="ab cdef", max_items=3)
     assert run.status == "stopped" and run.state.cause.type == "item_ceiling" and run.state.cause.loc == ("e", 1, "c")
     resumed = graph.load_run(run.to_json()).with_max_items(10).resume()
-    assert resumed.status == "complete" and resumed.results["e"]["up.result"] == [["A", "B"], ["C", "D", "E", "F"]]
+    assert resumed.status == "complete" and resumed.results["e"]["up.result"] == [[["A", "B"]], [["C", "D", "E", "F"]]]
     assert graph.load_run(run.to_json()).resume().status == "stopped"  # the ceiling it was saved under still holds inside
 
 
@@ -671,7 +671,7 @@ def test_two_documents_with_an_identical_inner_line_each_keep_their_own_answer()
     assert swapped.status == "complete" and swapped.results["e"]["q.result"] == [["doc1:a", "doc1:c"], ["doc0:a", "doc0:b"]]
     flat_run = flat("lines-inner", "sentences").run(text="a b;a c")
     flat_run = flat_run.answer({w.id: f"doc{w.loc[1]}:{w.inputs['text']}" for w in flat_run.waiting}).resume()
-    assert flat_run.again(text="a c;a b").results["q"]["result"] == ["doc1:a", "doc1:c", "doc0:a", "doc0:b"]  # the same, drawn flat
+    assert flat_run.again(text="a c;a b").results["q"]["result"] == [["doc1:a", "doc1:c"], ["doc0:a", "doc0:b"]]  # the same, drawn flat
 
 
 def test_identical_items_take_their_answers_in_item_order_whatever_thread_finishes_first():

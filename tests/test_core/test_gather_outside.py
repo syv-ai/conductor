@@ -253,7 +253,7 @@ OTHER_SERIES = (
 def test_a_node_in_the_items_that_gathers_another_series_reads_it_as_one_value_made_outside(other: str) -> None:
     run = ran(*OTHER_SERIES, **{"r.text": "ab cd", "z.text": other})
     gathered = "".join(word.upper() for word in other.split() if word not in ("blank", "skip"))
-    assert run.results["j"]["result"] == [f"{char}{gathered}" for char in "abcd"]
+    assert run.results["j"]["result"] == [[f"{char}{gathered}" for char in word] for word in ("ab", "cd")]
     assert run.results["n"]["result"] == [2, 2]
 
 
@@ -405,9 +405,9 @@ def test_an_output_whose_every_item_is_settled_from_outside_keeps_a_blank_in_eac
     assert shown(nodes, edges, "p", kind=kind, text="a b") == (result, "read below", result)
 
 
-def test_an_output_made_per_item_of_a_series_inside_another_is_one_list_over_every_item_and_none_where_the_outer_series_was_never_made() -> None:
+def test_an_output_made_per_item_of_a_series_inside_another_is_a_list_for_each_outer_item_and_none_where_the_outer_series_was_never_made() -> None:
     nodes, edges = {"t": "template", "s": "items", "c": "chars", "u": "up"}, [("t.result", "s.text"), ("s.result", "c.a"), ("c.result", "u.a")]
-    assert shown(nodes, edges, "u", kind="ab c")[0] == ["A", "B", "C"]
+    assert shown(nodes, edges, "u", kind="ab c")[0] == [["A", "B"], ["C"]]
     assert shown(nodes, edges, "u", kind="blank") == (None, None, None)
 
 
@@ -428,7 +428,7 @@ def test_the_results_of_a_run_that_waits_show_the_items_so_far_with_a_blank_wher
 def test_an_embedded_graph_run_per_item_shows_a_list_for_each_item_and_none_for_one_whose_series_inside_was_never_made() -> None:
     flat = ran({"s": "items", "m": "maybe", "w": "items", "u": "up"}, [("s.result", "m.a"), ("m.result", "w.text"), ("w.result", "u.a")], text="ab blank cd")
     embedded = ran({"s": "items", "m": "maybe", "e": "items-then-up"}, [("s.result", "m.a"), ("m.result", "e.text")], text="ab blank cd")
-    assert flat.results["u"]["result"] == ["AB", "CD"]  # one list over every item, as a node two maps deep shows
+    assert flat.results["u"]["result"] == [["AB"], None, ["CD"]]  # a list for each item and none for the blank, as an embedded graph shows
     assert embedded.results["e"]["up.result"] == [["AB"], None, ["CD"]] == embedded.outputs["e.up.result"]
     never = ran({"t": "template", "s": "items", "e": "items-then-up"}, [("t.result", "s.text"), ("s.result", "e.text")], kind="blank")
     assert never.results["e"]["up.result"] is None and never.outputs["e.up.result"] is None and never.outputs_json() == '{"e.up.result":null}'

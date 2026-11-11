@@ -637,7 +637,7 @@ def test_a_document_is_there_on_each_call_for_a_line_of_it():
     run = ran({"id": "docs", "node": "split", "values": {"sep": "|"}}, {"id": "lines", "node": "split", "values": {"sep": "/"}}, {"id": "p", "node": "pair"},
               edges=(("docs.result", "lines.text"), ("lines.result", "p.a"), ("docs.result", "p.b")), text="a/b|c")
     assert run.graph.plan["p"].msg == "per item of lines.result"
-    assert run.results["p"]["result"] == ["a:a/b", "b:a/b", "c:c"]
+    assert run.results["p"]["result"] == [["a:a/b", "b:a/b"], ["c:c"]]
 
 
 def test_one_value_into_a_series_input_is_a_series_of_one():
@@ -682,13 +682,13 @@ def test_a_gather_goes_up_one_level_so_a_node_reading_a_document_and_a_series_of
     run = ran(*THREE_LEVELS, {"id": "d", "node": "deep"}, edges=(*THREE_EDGES, ("docs.result", "d.doc"), ("lines.result", "d.lines")),
               registry=registry_of(split, deep), text="a,b;c|d")
     assert run.graph.plan["d"].msg == "per item of paras.result"
-    assert run.results["d"]["result"] == ["a,b;c:2", "a,b;c:1", "d:1"]
+    assert run.results["d"]["result"] == [["a,b;c:2", "a,b;c:1"], ["d:1"]]
 
 
 def test_a_value_on_a_paragraph_keeps_a_series_of_lines_to_that_paragraph():
     run = ran(*THREE_LEVELS, {"id": "n", "node": "labelled"}, edges=(*THREE_EDGES, ("paras.result", "n.label"), ("lines.result", "n.texts")),
               registry=DEEP, text="a,b;c|d")
-    assert run.results["n"]["result"] == ["a,b=a,b", "c=c", "d=d"]
+    assert run.results["n"]["result"] == [["a,b=a,b", "c=c"], ["d=d"]]
 
 
 def test_two_gathers_one_level_apart_run_the_node_where_the_deeper_one_lands_with_the_other_as_an_outer_value():
@@ -696,7 +696,7 @@ def test_two_gathers_one_level_apart_run_the_node_where_the_deeper_one_lands_wit
     run = ran(*THREE_LEVELS, {"id": "n", "node": "two-series"}, edges=(*THREE_EDGES, ("paras.result", "n.a"), ("lines.result", "n.b")),
               registry=DEEP, text="a,b;c|d")
     assert run.graph.plan["n"].msg == "per item of paras.result"
-    assert run.results["n"]["result"] == ["a,b,c+a,b", "a,b,c+c", "d+d"]
+    assert run.results["n"]["result"] == [["a,b,c+a,b", "a,b,c+c"], ["d+d"]]
 
 
 def test_a_document_with_no_lines_is_called_with_an_empty_series():
@@ -740,7 +740,7 @@ def test_a_series_read_whole_lands_beside_each_item_of_another_series_of_the_sam
     edges = (("docs.result", "p.text"), ("p.invoices", "b.invoice"), ("p.keywords", "b.keywords"))
     run = ran(*nodes, edges=edges, registry=reg, text="i1,i2:k1,k2|i3:k3")
 
-    assert run.results["b"]["result"] == ["i1[k1/k2]", "i2[k1/k2]", "i3[k3]"]
+    assert run.results["b"]["result"] == [["i1[k1/k2]", "i2[k1/k2]"], ["i3[k3]"]]
     assert through_json(run).results == run.results
     assert run.graph.plan["b"].msg == "per item of p.invoices"
 
@@ -849,7 +849,7 @@ def test_a_skip_on_a_document_reaches_a_reader_on_its_lines_and_the_other_docume
               {"id": "t", "node": "pair"}, {"id": "u", "node": "upper"},
               edges=(("d.result", "g.text"), ("d.result", "l.text"), ("l.result", "t.a"), ("g.yes", "t.b"), ("t.result", "u.text")), text="a,b|c,no")
     assert run.graph.plan["u"].msg == "per item of l.result"
-    assert run.results["u"]["result"] == ["A:A,B", "B:A,B", None, None]
+    assert run.results["u"]["result"] == [["A:A,B", "B:A,B"], None]
 
 
 def test_a_skip_on_a_document_skips_the_gather_over_its_lines_and_survives_json():
@@ -866,7 +866,7 @@ def test_a_skip_above_an_empty_series_hides_what_the_gather_returned():
               edges=(("d.result", "g.text"), ("d.result", "l.text"), ("l.result", "t.a"), ("g.yes", "t.b"), ("l.result", "m.text"),
                      ("t.result", "x.a"), ("m.result", "x.b"), ("x.result", "j.texts")), text="p,no")
     assert run.graph.plan["j"].msg == "per item of l.result"
-    assert run.results["j"]["result"] == [None, None]
+    assert run.results["j"]["result"] == [None]
 
 
 def test_a_document_whose_branch_is_not_taken_makes_no_lines_and_the_gather_over_them_is_skipped():
@@ -1002,7 +1002,7 @@ def test_invoices_per_document_get_their_check_and_a_skipped_check_is_a_gap_for_
         "docs": "once", "read": "per item of docs.result", "lines": "per item of docs.result", "check": "per item of lines.result",
         "total": "per item of docs.result",
     }
-    assert run.results["check"]["result"] == ["acme ok", None, "beta ok"]
+    assert run.results["check"]["result"] == [["acme ok", None], ["beta ok"]]
     assert run.results["total"]["result"] == [15.0, 7.0]
 
 
@@ -1335,7 +1335,7 @@ def test_questions_listed_per_document_are_asked_of_each_document_and_each_answe
     assert [w.loc[1:] for w in run.waiting] == [(0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2)]
     saved = loaded.load_run(run.to_json())
     done = saved.answer({w.id: w.loc[1:] == (1, 2) for w in saved.waiting}).resume()
-    assert done.results["q"]["result"] == [False, False, False, False, False, True]
+    assert done.results["q"]["result"] == [[False, False, False], [False, False, True]]
 
 
 def test_questions_listed_once_beside_documents_are_two_series_that_never_pair_up():
@@ -1351,6 +1351,53 @@ def test_no_documents_ask_no_questions_and_a_document_skipped_above_asks_none_of
     skipped = graph({"id": "d", "node": "split"}, {"id": "y", "node": "decide"}, QUESTIONS, {"id": "q", "node": "answer"},
                     edges=(("d.result", "y.text"), ("y.yes", "l.for_each"), ("y.yes", "q.doc"), ("l.result", "q.question")), registry=ASKING).run(text="ok,no")
     assert [w.prompt for w in skipped.waiting] == ["ok: a", "ok: b", "ok: c"]
+
+
+# -- the output of a node called inside two loops ------------------------------------------------
+
+
+@node("documents", title="Documents", description="")
+def _documents(text: str) -> Series[str | None]:
+    return [document or None for document in text.split("|")]
+
+
+@node("lines", title="Lines", description="")
+def _lines(document: str) -> Series[str]:
+    return document.split(",") if document != "-" else []
+
+
+@node("shout", title="Shout", description="")
+def _shout(line: str) -> str:
+    return line.upper()
+
+
+@node("words-of", title="Words of", description="")
+def _words_of(line: str) -> Series[str]:
+    return line.split()
+
+
+_PER_LINE = make_graph(_documents, _lines, _shout, edges=[("documents.result", "lines.document"), ("lines.result", "shout.line")])
+
+
+def test_the_output_of_a_node_called_inside_two_loops_is_a_list_per_outer_item_and_none_where_the_inner_list_was_never_made():
+    """Three documents split into lines, the second empty: ``None`` for it, where a document with no lines shows ``[]``."""
+    registry = registry_of(_documents, _lines, _shout, _words_of)
+    flat = registry.load(_PER_LINE).run(text="a,b||c")
+
+    assert flat.results["shout"] == {"result": [["A", "B"], None, ["C"]]}
+    assert flat.outputs == {"shout.result": [["A", "B"], None, ["C"]]} and json.loads(flat.outputs_json()) == {"shout.result": [["A", "B"], None, ["C"]]}
+    assert registry.load(_PER_LINE).run(text="a,b|-|c").results["shout"] == {"result": [["A", "B"], [], ["C"]]}
+    assert registry.load(_PER_LINE).with_inputs(text="a,b||c").results["shout"] == {"result": None}
+    assert through_json(flat).results == flat.results
+
+    per_line = node("per-line", title="Per line", description="")(make_graph(_lines, _shout, edges=[("lines.result", "shout.line")]))
+    embedding = registry_of(_documents, _lines, _shout, per_line).load(make_graph(_documents, per_line, edges=[("documents.result", "per-line.document")]))
+    embedded = embedding.run(text="a,b||c")
+    assert embedded.results["per-line"] == {"shout.result": [["A", "B"], None, ["C"]]}
+    assert json.loads(embedded.outputs_json()) == {"per-line.shout.result": [["A", "B"], None, ["C"]]}
+
+    per_word = make_graph(_documents, _lines, _words_of, _shout, edges=[("documents.result", "lines.document"), ("lines.result", "words-of.line"), ("words-of.result", "shout.line")])
+    assert registry.load(per_word).run(text="a b,c||d").results["shout"] == {"result": [[["A", "B"], ["C"]], None, [["D"]]]}
 
 
 # -- the ceiling on a Series' items ------------------------------------------------------------
@@ -1542,7 +1589,7 @@ def test_inputs_from_a_document_and_from_its_lines_run_the_embedding_per_line():
               edges=(("docs.result", "lines.text"), ("docs.result", "emb.word"), ("lines.result", "emb.text")),
               registry=registry_of(split, upper, pair, shout, inner), text="a,b|c")
     assert run.graph.plan["emb"].msg == "per item of lines.result"
-    assert run.results["emb"]["p.result"] == ["A,B:A", "A,B:B", "C:C"]
+    assert run.results["emb"]["p.result"] == [["A,B:A", "A,B:B"], ["C:C"]]
 
 
 def test_a_series_into_an_embedded_series_input_is_gathered_and_the_embedding_runs_once():
@@ -1567,7 +1614,7 @@ def test_a_graph_embedded_under_an_item_gives_what_the_same_nodes_drawn_flat_giv
     reg = registry_of(split, pair, inner)
     embedded_run = ran({"id": "s", "node": "split"}, {"id": "e", "node": "deep"}, edges=(("s.result", "e.text"),), registry=reg, text="a/b;c,d")
     flat_run = ran({"id": "s", "node": "split"}, *nodes, edges=(("s.result", "i.text"), *edges), registry=reg, text="a/b;c,d")
-    assert [value for item in embedded_run.results["e"]["p.result"] for value in item] == flat_run.results["p"]["result"]
+    assert embedded_run.results["e"]["p.result"] == flat_run.results["p"]["result"]
     assert embedded_run.graph.plan["e"].msg == "per item of s.result"  # the items it is fed; its own Series are inside it
 
 
@@ -1753,7 +1800,7 @@ def test_an_approval_per_line_of_each_document_pauses_saves_resumes_and_a_new_do
     saved = loaded.load_run(paused.to_json())
     assert [w.id for w in saved.waiting] == [w.id for w in paused.waiting]
     done = saved.answer({w.id: "no" if w.prompt == "approve a2?" else "yes" for w in saved.waiting}).resume()
-    assert done.status == "complete" and done.results["a"]["result"] == ["yes", "no", "yes"]
+    assert done.status == "complete" and done.results["a"]["result"] == [["yes", "no"], ["yes"]]
     assert done.outputs == {"n.result": [1, 1]}
 
     asked.clear()
@@ -1761,5 +1808,5 @@ def test_an_approval_per_line_of_each_document_pauses_saves_resumes_and_a_new_do
     assert again.status == "waiting" and asked == ["new1", "new2"]
     assert [(w.loc[1:], w.prompt) for w in again.waiting] == [((1, 0), "approve new1?"), ((1, 1), "approve new2?")]
     finished = again.answer({w.id: "yes" for w in again.waiting}).resume()
-    assert finished.results["a"]["result"] == ["yes", "no", "yes", "yes", "yes"]
+    assert finished.results["a"]["result"] == [["yes", "no"], ["yes", "yes"], ["yes"]]
     assert finished.outputs == {"n.result": [1, 2, 1]}

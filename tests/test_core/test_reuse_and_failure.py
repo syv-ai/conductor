@@ -592,7 +592,7 @@ def test_a_document_inserted_at_the_top_reads_only_the_new_document_and_its_line
     again = first.again(text="x|a,b|c")
 
     assert read == ["x"] and upper_calls == ["x"]
-    assert again.results["s"]["result"] == ["X", "A", "B", "C"]
+    assert again.results["s"]["result"] == [["X"], ["A", "B"], ["C"]]
 
 
 def _filtered(threshold_default: int = 2) -> tuple[Any, list[str], list[str]]:
@@ -786,7 +786,7 @@ def test_a_document_inserted_above_items_split_from_items_calls_only_the_new_ite
     again = first.again(text="x,y|a,b|c")
 
     assert calls == ["x", "y"]
-    assert again.results["shout"]["result"] == ["X", "Y", "A", "B", "C"]
+    assert again.results["shout"]["result"] == [["X", "Y"], ["A", "B"], ["C"]]
 
 
 def _approvals() -> Any:
@@ -1100,8 +1100,8 @@ def test_identical_lines_answered_differently_under_documents_keep_their_documen
 
     swapped = done.again(items=["d2", "d1"])
 
-    assert done.results["a"]["result"] == [True, False, False, True]
-    assert swapped.results["a"]["result"] == [False, True, True, False] and swapped.waiting == []  # d2's lines, then d1's
+    assert done.results["a"]["result"] == [[True, False], [False, True]]
+    assert swapped.results["a"]["result"] == [[False, True], [True, False]] and swapped.waiting == []  # d2's lines, then d1's
 
 
 def test_identical_items_share_an_earlier_result_and_a_third_takes_it_without_a_call():
@@ -1363,7 +1363,7 @@ def test_an_item_that_comes_back_before_an_identical_earlier_item_takes_its_earl
 
     again = first.forget("a", "c").resume()
 
-    assert again.status == "complete" and again.results["b"] == {"result": ["xc", "xc"]} and calls == []
+    assert again.status == "complete" and again.results["b"] == {"result": [["xc"], ["xc"]]} and calls == []
 
 
 def _counted() -> tuple[Any, list[str]]:

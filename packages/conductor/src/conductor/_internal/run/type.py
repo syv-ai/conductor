@@ -52,13 +52,12 @@ from conductor._internal.ask import (
 from conductor._internal.checked_graph import (
     EmbeddedGraphAtPath,
     FunctionAtPath,
-    InputGathersItems,
-    NodeAtPath,
     host_reads,
     unit_loc,
 )
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.earlier_work import EarlierWork, fingerprint_of, lineage
+from conductor._internal.fields import Type
 from conductor._internal.leg import Event, EventBase, Leg, RunCheckpoint, RunEnd, RunStart
 from conductor._internal.node_definition import from_run_values
 from conductor._internal.problem import InvalidCallError, Problem, value_free_errors
@@ -153,11 +152,12 @@ class Run:
     # -- going on ---------------------------------------------------------------
 
     def with_max_items(self, max_items: int) -> Run:
-        """The same run under another item ceiling; nothing runs until ``resume``.
+        """A copy of this run with ``max_items`` as its item limit. No node is called; ``resume`` goes on.
 
-        A run that stopped at its ceiling goes on under a higher one:
-        ``run.with_max_items(100).resume()``. A host that saves the run this
-        gives has the ceiling in the save.
+        A run stops with status ``stopped`` when a list that a node is called
+        per item of has more items than the limit. Example: a run started with
+        ``max_items=30`` that met 40 items goes on with
+        ``run.with_max_items(100).resume()``. The limit is saved by ``to_json()``.
 
         Raises:
             InvalidCallError: ``max_items`` is below 1 (``invalid_max_items``).
@@ -447,11 +447,16 @@ class Run:
 
     @property
     def results(self) -> dict[str, dict[str, Any]]:
-        """Each node's outputs as the run stands: one value on a node that runs once; for one that runs per
-        item, a list in item order with ``None`` where an item has none, or ``None`` in place of the list where
-        no item could bring a value or the Series isn't made yet."""
-        nodes, reader = self.graph._node_at, self._reader_as_it_stands
-        return {n: {o: self._shown(reader, nodes[n], o) for o in placed.outputs} for n, placed in self.graph._nodes.items()}
+        """Every node's outputs so far, by node id and output name; it can be read whatever the run's status.
+
+        A node called once shows its return value. A node called per item shows a list with one entry per
+        item, ``None`` for an item with no value yet. A node called per item of a list that is itself made
+        per item shows a list of lists: three documents split into lines, the second empty, give
+        ``[["A", "B"], None, ["C"]]``. ``None`` instead of a list means the list being looped over was never
+        made, or no item of it could have a value.
+        """
+        reader = self._reader_as_it_stands
+        return {n: {o: reader.shown(host_reads(*self._function_of(f"{n}.{o}"))) for o in placed.outputs} for n, placed in self.graph._nodes.items()}
 
     @property
     def outputs(self) -> dict[str, Any]:
@@ -463,8 +468,8 @@ class Run:
                 raise InvalidCallError([problem.run_not_complete("outputs", status=status, reason="")])
             case EndedEarly(status=status, cause=cause):
                 raise InvalidCallError([problem.run_not_complete("outputs", status=status, reason=cause.msg)])
-        nodes, reader = self.graph._node_at, self._reader_as_it_stands
-        return {address: self._shown(reader, nodes[address.partition(".")[0]], address.partition(".")[2]) for address in self.graph.outputs}
+        reader = self._reader_as_it_stands
+        return {address: reader.shown(host_reads(*self._function_of(address))) for address in self.graph.outputs}
 
     def outputs_json(self) -> str:
         """The graph's outputs (``run.outputs``) as JSON, by address, each written by its output's type as a save
@@ -474,40 +479,25 @@ class Run:
             InvalidCallError: The run is not complete (``run_not_complete``), or an output holds a value with no
                 JSON form (``state_unwritable``, naming the output).
         """
-        nodes = self.graph._node_at
         written = {}
         for address, value in self.outputs.items():
-            node = nodes[address.partition(".")[0]]
-            output = node.placed.outputs[address.partition(".")[2]]
+            function, output = self._function_of(address)
+            hint: Any = function.placed.outputs[output].slot.hint
+            for _ in function.maps:  # one list, or None in its place, for each loop the function is called in
+                hint = list[hint] | None
             try:
-                written[address] = (output.column if node.maps else output.slot).to_json(value)
+                written[address] = Type(hint).to_json(value)
             except pydantic_core.PydanticSerializationError:
                 raise InvalidCallError([problem.state_unwritable("outputs", address, at=address, reason="a value has no JSON form")]) from None
         return pydantic_core.to_json(written).decode()
 
-    def _shown(self, reader: AsItStandsReader, node: NodeAtPath, output: str) -> Any:
-        """One output of a node as a host is shown it: what a node reading it would be given (``host_reads``),
-        as the run stands.
-
-        An output made per item is what a ``Series`` input that keeps blanks would gather of it: ``None`` where
-        no item could bring a value, for a blank or a branch not taken outside the items; else every item in
-        its place, ``None`` for one with no value or not settled yet. An embedded graph's node holds no unit:
-        its output is the one of the function inside that makes it, and for one that runs per item, an output
-        made per item inside is a list for each of its items.
-
-        Args:
-            reader: Reads the run's units as they stand.
-            node: The node, one of the run's own graph.
-            output: The output's name.
-        """
-        if type(node) is EmbeddedGraphAtPath:
-            function, output = node.offers[output]
-            around = len(node.maps)
-        else:
-            function, around = node, 0
-        if 0 < around < len(function.maps):  # an embedded graph's node that runs per item, of an output made per item inside
-            return reader.shown_for_each_item(cast("InputGathersItems", host_reads(function, output, 0)), around, host_reads(function, output, around))
-        return reader.shown(host_reads(function, output, 0))
+    def _function_of(self, address: str) -> tuple[FunctionAtPath, str]:
+        """The function node that returns the output at ``address`` (``node.output``), and the output's name on
+        that function. For a stored graph used as a node (``e.upper.result``) it is the function inside the
+        stored graph, since the stored graph's node is never called itself."""
+        node_id, _, output = address.partition(".")
+        node = self.graph._node_at[node_id]
+        return node.offers[output] if type(node) is EmbeddedGraphAtPath else (node, output)
 
     # -- what a leg reads -------------------------------------------------------
 
