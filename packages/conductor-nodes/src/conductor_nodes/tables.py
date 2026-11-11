@@ -80,7 +80,7 @@ def collect(records: Series[dict], columns: Names = [], constant_columns: Names 
     for name in columns:
         held = len(values[name])
         if held != len(records):
-            made_once = "; a value made once goes in 'constant_columns', which writes it on every record" if held == 1 else ""
+            made_once = "; if it is one value for every record, name it in 'constant_columns', which writes it on each" if held == 1 else ""
             raise NodeError(
                 f"The column '{name}' holds {held} value{'s' if held != 1 else ''} for {len(records)} record{'s' if len(records) != 1 else ''}; "
                 "wire a column from a node that runs once per record "

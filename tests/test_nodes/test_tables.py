@@ -221,7 +221,7 @@ def test_collect_says_where_a_value_made_once_goes_when_it_is_wired_as_a_column_
     assert graph.problems == []
     cause = graph.run().state.cause
     assert (cause.type, cause.ctx["values"]) == ("columns_not_aligned", 1)
-    assert "holds 1 value for" in cause.msg and "a value made once goes in 'constant_columns'" in cause.msg
+    assert "holds 1 value for" in cause.msg and "if it is one value for every record, name it in 'constant_columns'" in cause.msg
 
 
 def test_collect_of_no_records_is_a_table_with_every_column_and_no_lines():

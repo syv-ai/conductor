@@ -65,7 +65,7 @@ print(contacts.run(csv="name\nIda\nBo\n").outputs["table-collect.result"].to_dic
 - `split.result.name` is one field of each record. `greet` takes one name, so it runs once per contact.
 - `table-collect` gathers: it runs once, with every record and every greeting. Each name in `columns` is an input taking one value per record, blank where a record got none.
 - Each name in `constant_columns` is an input taking one value made outside the records, written on every one of them: the file's name on each line.
-- The two are a pair. A value made per record goes in `columns`; a value made once goes in `constant_columns`. A node that runs once wired into a name in `columns` holds one value for all the records, and the run fails with `columns_not_aligned`, which says so.
+- The two are a pair. A value made per record goes in `columns`; a value made once goes in `constant_columns`. A node that runs once wired into a name in `columns` holds one value for all the records, and the run fails with `columns_not_aligned`, which names `constant_columns` for a column that holds one value.
 
 `split` takes the type that arrives: a table of contacts gives contacts, a list of numbers gives numbers, and anything else is a `type_mismatch` on the edge. `stack` goes the other way for tables: where a node makes a table per item, say the lines of each invoice, it puts them into one table, one under the other.
 
