@@ -346,7 +346,7 @@ def test_a_loaded_graph_keeps_its_own_definitions_whatever_the_registry_does_lat
 def test_the_type_decides_one_or_many_so_a_list_given_for_an_input_of_one_value_is_refused():
     graph = REGISTRY.load(GraphRecord(nodes=[NodeRecord(id="u", node="upper"), NodeRecord(id="j", node="join")], edges=[("u.result", "j.texts")]))
 
-    assert graph.plan["u"].mode == "once" and graph.run(text="a").outputs == {"j.result": "A"}
+    assert graph.runs_on["u"].mode == "once" and graph.run(text="a").outputs == {"j.result": "A"}
     with pytest.raises(InvalidCallError) as refused:
         graph.run(text=["a"])
     assert [(p.type, p.loc) for p in refused.value.errors()] == [("invalid_input", ("inputs", "text"))]
@@ -454,7 +454,7 @@ def test_an_embedding_is_filled_wired_and_read_by_its_own_id():
     assert graph.problems == [] and {n: i.address for n, i in graph.inputs.items()} == {"text": "e.text"}
     run = graph.run({"e.text": "hi"})
     assert run.outputs == {"u.result": "HI."} and set(run.results) == {"e", "u"} and run.results["e"] == {"tail.result": "HI."}
-    assert set(graph.plan) == {"e", "u"} and set(graph.describe().nodes) == {"e", "u"}
+    assert set(graph.runs_on) == {"e", "u"} and set(graph.describe().nodes) == {"e", "u"}
     assert [f.field.name for f in graph.describe().nodes["e"].inputs] == ["text"]
 
 
@@ -561,7 +561,7 @@ def test_a_node_gathering_two_series_of_different_depths_runs_per_item_of_the_sh
         "edges": [["p.result", "s.text"], ["p.result", "x.a"], ["s.result", "x.b"]],
     }))
 
-    assert (graph.plan["x"].mode, graph.plan["x"].series) == ("per_item", "p.result")  # a gather goes up one level
+    assert (graph.runs_on["x"].mode, graph.runs_on["x"].series) == ("per_item", "p.result")  # a gather goes up one level
     assert graph.run(text="a,b|c").outputs == {"x.result": ["2/2", "2/1"]}
 
 

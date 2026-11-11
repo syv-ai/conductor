@@ -51,7 +51,7 @@ out: a chain is drawn only between functions:
 graph = registry.load(make_graph(split, shout, join, edges=[("split.result", "shout.text"), ("shout.exclaim.result", "join.texts")]))
 
 print(graph.run(text="hi there").outputs)  # {'join.result': 'HI! THERE!'}
-print(graph.plan["shout"].msg)              # per item of split.result
+print(graph.runs_on["shout"].msg)              # per item of split.result
 ```
 
 The nodes of a stored graph run where its node stands: here once per word. Embedding a graph changes nothing about
@@ -190,7 +190,7 @@ graph that wires the wrong table to it gets a `type_mismatch`. So give a stored 
 
 ## Where something is inside
 
-`run.results`, `graph.plan` and `graph.describe()` show the stored graph as one node. Its results are read from the nodes inside that
+`run.results`, `graph.runs_on` and `graph.describe()` show the stored graph as one node. Its results are read from the nodes inside that
 make them, as the run stands: it holds none of its own. What happens inside it is told with where it is:
 the node and item of each stored graph around it, outermost first.
 

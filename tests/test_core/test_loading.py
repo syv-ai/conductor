@@ -255,7 +255,7 @@ def test_loading_one_record_twice_gives_the_same_graph():
     assert first.problems == second.problems and first.describe() == second.describe()
     good = {"nodes": [{"id": "u", "node": "upper"}, {"id": "t", "node": "tail"}], "edges": [["u.result", "t.text"]]}
     first, second = REGISTRY.load(GraphRecord.model_validate(good)), REGISTRY.load(GraphRecord.model_validate(good))
-    assert first.plan == second.plan and list(first.inputs) == list(second.inputs) and first.outputs == second.outputs
+    assert first.runs_on == second.runs_on and list(first.inputs) == list(second.inputs) and first.outputs == second.outputs
 
 
 # -- typed-in values ---------------------------------------------------------------------------
@@ -484,7 +484,7 @@ def test_a_value_typed_on_an_embedding_reaches_the_inner_input_it_offers():
 
 def test_an_unfed_embedding_keeps_its_inner_defaults_and_runs_once():
     graph = REGISTRY.load(GraphRecord.model_validate({"nodes": [{"id": "d", "node": "defaulted"}]}))
-    assert {k: v.mode for k, v in graph.plan.items()} == {"d": "once"}
+    assert {k: v.mode for k, v in graph.runs_on.items()} == {"d": "once"}
     assert graph.run().outputs == {"d.g.result": "inside"}
 
 
@@ -690,7 +690,7 @@ def test_a_node_with_a_refused_edge_is_drawn_with_its_fields_and_so_is_a_sound_n
     assert _drawn(graph, "u") == (True, "once", {"text": "unset"}, ["result"], ["type_mismatch"])
     assert _drawn(graph, "t") == (True, "once", {"text": "one_value"}, ["result"], [])
     assert _drawn(graph, "j") == (True, "once", {"texts": "gathered"}, ["result"], [])
-    assert list(graph.plan) == ["f", "u", "t", "j"] and not graph.is_runnable
+    assert list(graph.runs_on) == ["f", "u", "t", "j"] and not graph.is_runnable
     with pytest.raises(InvalidCallError) as refused:
         graph.run()
     assert [p.type for p in refused.value.errors()] == ["type_mismatch"]

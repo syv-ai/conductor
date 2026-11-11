@@ -102,7 +102,7 @@ print(graph.run(text="a b").outputs)  # {'join.result': 'A+B'}
 - **A ceiling before spending.** `max_items=` is an optional ceiling on any one `Series` a node runs per item of, checked when the `Series` is made, before any call on its items. Over it the run is `stopped`, and `run.with_max_items(100).resume()` goes on under a higher one, calling nothing again.
 
 ```python
-print({node_id: runs.msg for node_id, runs in graph.plan.items()})  # {'words': 'once', 'upper': 'per item of words.result', 'join': 'once'}
+print({node_id: runs.msg for node_id, runs in graph.runs_on.items()})  # {'words': 'once', 'upper': 'per item of words.result', 'join': 'once'}
 
 
 @registry.node("greet", title="Greet", description="Greets a person by name.")

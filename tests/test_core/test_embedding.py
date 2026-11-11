@@ -354,7 +354,7 @@ def test_a_graph_that_embeds_itself_is_refused_at_the_node_that_closes_the_circl
 
 def test_an_output_made_per_item_inside_is_a_series_and_a_series_made_per_item_a_series_of_lists():
     deep = load({"e": "deep-inner", "n": "count", "x": "exclaim"}, [("e.up.result", "n.items"), ("e.up.result", "x.text")])
-    assert deep.is_runnable and deep.plan["x"].series == "e.up.result"
+    assert deep.is_runnable and deep.runs_on["x"].series == "e.up.result"
     assert deep.describe().nodes["e"].outputs[0].many
     lists = load({"e": "series-per-item-inner"})._nodes["e"].outputs["c.result"]
     assert (lists.many, lists.type.hint, lists.whole.id) == (True, list[str], "Series[list[str]]")
@@ -390,7 +390,7 @@ def test_an_embedded_graph_runs_once_and_per_item_as_its_nodes_would_drawn_flat(
     run = load({"e": "shout-inner"}).run(text="ab")
     assert run.status == "complete" and run.outputs == {"e.ex.result": "AB!"}
     graph = mapped("shout-inner")
-    assert graph.plan["e"].mode == "per_item"
+    assert graph.runs_on["e"].mode == "per_item"
     run = graph.run(text="ab cd")
     assert run.status == "complete" and run.results["e"] == {"ex.result": ["AB!", "CD!"]}
     assert run.results["e"]["ex.result"] == flat("shout-inner").run(text="ab cd").results["ex"]["result"]
@@ -439,7 +439,7 @@ def test_an_item_whose_branch_was_not_taken_outside_skips_the_nodes_inside_for_t
 
 def test_a_series_input_inside_gathers_what_the_embedding_is_wired_to():
     graph = load({"w": "words", "up": "upper", "e": "count-inner"}, [("w.result", "up.text"), ("up.result", "e.items")])
-    assert graph.plan["e"].mode == "once"
+    assert graph.runs_on["e"].mode == "once"
     assert graph.run(text="ab cd ef").outputs == {"e.n.result": 3}
     per_document = load({"s": "sentences", "w": "words", "e": "count-inner"}, [("s.result", "w.text"), ("w.result", "e.items")])
     assert per_document.run(text="a b;c").outputs == {"e.n.result": [2, 1]}
@@ -726,7 +726,7 @@ def test_tables_made_per_item_reach_a_table_input_one_table_per_item_wherever_th
     graph = load(nodes, edges)
     assert not graph.problems, graph.problems
     run = graph.run(text="ab c")
-    assert (graph.plan["h"].mode, graph.plan["h"].series, run.status, run.results["h"]["result"]) == ("per_item", series, "complete", [2, 1])
+    assert (graph.runs_on["h"].mode, graph.runs_on["h"].series, run.status, run.results["h"]["result"]) == ("per_item", series, "complete", [2, 1])
 
 
 # -- an embedded graph's node reads alike on a run, on its copy and on either saved and loaded ---------------
@@ -823,7 +823,7 @@ def test_values_of_any_type_made_per_item_are_gathered_as_records_by_a_table_inp
     graph = load(nodes, edges)
     assert not graph.problems, graph.problems
     run = graph.run(text="ab c d")
-    assert (graph.plan["h"].mode, run.status, run.results["h"]["result"]) == ("once", "complete", 3)
+    assert (graph.runs_on["h"].mode, run.status, run.results["h"]["result"]) == ("once", "complete", 3)
 
 
 def _said_of(events, node_id: str) -> list[tuple[str, tuple]]:

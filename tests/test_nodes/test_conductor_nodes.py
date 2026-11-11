@@ -50,8 +50,8 @@ def test_a_node_that_gives_many_values_makes_an_item_of_each_and_a_series_input_
         ("text-split.result", "regex-extract.text"), ("regex-extract.result", "text-join.parts"),
     ], values={"text-split.separator": ",", "regex-extract.pattern": r"\d+"}))
 
-    assert graph.plan["regex-extract"].msg == "per item of text-split.result"
-    assert graph.plan["text-join"].msg == "per item of text-split.result"
+    assert graph.runs_on["regex-extract"].msg == "per item of text-split.result"
+    assert graph.runs_on["text-join"].msg == "per item of text-split.result"
     assert graph.run(text="a1,b2 3,c").outputs == {"text-join.result": ["1", "2, 3", ""]}
 
 

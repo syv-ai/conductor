@@ -180,7 +180,7 @@ def test_nested_series_gather_one_level_at_a_time():
                         {"id": "up", "node": "upper"}, {"id": "per_doc", "node": "join"}, {"id": "all", "node": "join"}],
               "edges": [["docs.result", "lines.text"], ["lines.result", "up.text"], ["up.result", "per_doc.texts"], ["lines.result", "all.texts"]]}
     graph = registry.load(GraphRecord.model_validate(record))
-    assert {k: (v.mode, v.series) for k, v in graph.plan.items()} == {
+    assert {k: (v.mode, v.series) for k, v in graph.runs_on.items()} == {
         "docs": ("once", None), "lines": ("per_item", "docs.result"), "up": ("per_item", "lines.result"),
         "per_doc": ("per_item", "docs.result"), "all": ("per_item", "docs.result"),
     }

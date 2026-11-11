@@ -93,7 +93,7 @@ class CheckedGraph:
         return [f"{p.id}.{o}" for p in self._nodes.values() if not self._readers[p.id] for o in p.outputs]
 
     @property
-    def plan(self) -> dict[str, RunsOn]:
+    def runs_on(self) -> dict[str, RunsOn]:
         """Where each node runs: ``once``, or ``per_item`` of the innermost Series of its scope."""
         return {placed.id: runs_on(placed.scope) for placed in self._nodes.values()}
 

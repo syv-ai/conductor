@@ -138,7 +138,7 @@ def test_split_gives_records_of_unknown_columns_for_a_table_of_any_and_a_field_o
 def test_split_gives_a_lists_items_of_the_lists_own_type():
     graph = load(tags, series.split, shout, edges=[("tags.result", "series-split.value"), ("series-split.result", "shout.text")])
     assert graph.problems == [] and (output(graph, "series-split").many, output(graph, "series-split").type) == (True, "str")
-    assert graph.plan["shout"].series == "series-split.result" and graph.run().results["shout"]["result"] == ["RED", "BLUE"]
+    assert graph.runs_on["shout"].series == "series-split.result" and graph.run().results["shout"]["result"] == ["RED", "BLUE"]
 
 
 def test_a_list_typed_into_split_is_items_of_any_type():
@@ -268,9 +268,9 @@ def test_collect_takes_records_only():
 
 def test_text_list_gives_its_texts_once_and_once_per_item_of_what_is_wired_to_for_each():
     alone = load(text.text_list, shout, edges=[("text-list.result", "shout.text")], values={"text-list.items": ["a", "b"]})
-    assert alone.plan["text-list"].mode == "once" and alone.run().results["shout"]["result"] == ["A", "B"]
+    assert alone.runs_on["text-list"].mode == "once" and alone.run().results["shout"]["result"] == ["A", "B"]
     inside = load(words, text.text_list, edges=[("words.result", "text-list.for_each")], values={"text-list.items": ["x", "y", "z"]})
-    assert inside.plan["text-list"].series == "words.result"
+    assert inside.runs_on["text-list"].series == "words.result"
     assert inside.run().results["text-list"]["result"] == [["x", "y", "z"], ["x", "y", "z"]]
 
 

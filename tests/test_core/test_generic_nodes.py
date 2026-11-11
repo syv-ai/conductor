@@ -123,7 +123,7 @@ def test_an_output_is_checked_against_the_type_the_edge_bound() -> None:
 def test_one_or_many_is_decided_first_so_a_series_at_a_variable_runs_per_item() -> None:
     graph = _loaded(texts, keep, edges=[["texts.result", "keep.value"]])
     assert _types(graph, "keep")["value"] == (False, "str")
-    assert graph.plan["keep"].series == "texts.result" and graph.run().outputs == {"keep.result": ["a", "b"]}
+    assert graph.runs_on["keep"].series == "texts.result" and graph.run().outputs == {"keep.result": ["a", "b"]}
 
 
 def test_in_a_union_the_option_shaped_like_the_arriving_type_binds() -> None:

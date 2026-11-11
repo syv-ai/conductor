@@ -116,11 +116,11 @@ def test_eleven_contracts_reviewed_one_by_one_make_eleven_reviews_and_one_file_m
     run = ran(PER, files=FILES)
     assert CALLS == {"read": 11, "review": 11}
     assert run.outputs == {"review.result": [f"rev(K{i})" for i in range(11)]}
-    assert run.graph.plan["review"].series == "upload.result"
+    assert run.graph.runs_on["review"].series == "upload.result"
 
     run = ran(PER, files=FILES[:1])
     assert CALLS == {"read": 1, "review": 1} and run.outputs == {"review.result": ["rev(K0)"]}  # a Series of one
-    assert run.graph.plan["review"].series == "upload.result"
+    assert run.graph.runs_on["review"].series == "upload.result"
     assert ran(PER, files=[]).outputs == {"review.result": []} and CALLS == {}
 
 
@@ -207,7 +207,7 @@ def test_a_run_that_waits_per_item_saves_and_loads_back_onto_the_same_items():
     run = graph.run(text="a,b")
     assert [w.loc[1:] for w in run.waiting] == [(0,), (1,)]
     saved = graph.load_run(run.to_json())
-    assert saved.graph is graph and saved.graph.plan["q"].mode == "per_item"
+    assert saved.graph is graph and saved.graph.runs_on["q"].mode == "per_item"
     done = saved.answer({w.id: w.loc[1:] == (1,) for w in saved.waiting}).resume()
     assert done.outputs == {"q.result": [False, True]}
 

@@ -131,7 +131,7 @@ def test_a_field_of_a_record_of_unknown_columns_is_any_value_read_when_it_arrive
     registry.add_subregistry(REGISTRY)
     registry.add(lines)
     graph = registry.load(GraphRecord.model_validate({"nodes": [{"id": "read", "node": "csv"}, {"id": "lines", "node": "lines"}, {"id": "send", "node": "send"}], "edges": [["read.result", "lines.table"], ["lines.result.email", "send.to"]]}))
-    assert graph.is_runnable and graph.plan["send"].series == "lines.result"
+    assert graph.is_runnable and graph.runs_on["send"].series == "lines.result"
 
 
 # -- a column is missing ---------------------------------------------------------------------------------
@@ -181,7 +181,7 @@ def test_the_wire_it_names_nests_them():
         "nodes": [{"id": "upload", "node": "documents"}, {"id": "list", "node": "questions"}, {"id": "ask", "node": "ask"}],
         "edges": [["list.result", "ask.question"], ["upload.result", "ask.document"], ["upload.result", "list.about"]],
     }))
-    assert graph.is_runnable and graph.plan["ask"].series == "list.result" and graph.plan["list"].series == "upload.result"
+    assert graph.is_runnable and graph.runs_on["ask"].series == "list.result" and graph.runs_on["list"].series == "upload.result"
 
 
 # -- the row type of a table type ---------------------------------------------------------------------------

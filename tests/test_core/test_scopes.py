@@ -179,19 +179,19 @@ def problems(graph) -> list[tuple[str, tuple]]:
 def test_a_series_read_by_an_input_of_one_value_opens_a_map_and_what_reads_the_reader_runs_in_it_too():
     graph = load({"d": "documents", "u": "upper", "v": "upper"}, [("d.result", "u.text"), ("u.result", "v.text")])
     assert graph.is_runnable
-    assert {n: (r.mode, r.series) for n, r in graph.plan.items()} == {"d": ("once", None), "u": ("per_item", "d.result"), "v": ("per_item", "d.result")}
+    assert {n: (r.mode, r.series) for n, r in graph.runs_on.items()} == {"d": ("once", None), "u": ("per_item", "d.result"), "v": ("per_item", "d.result")}
     assert feeds(graph, "u") == {"text": ("per_item", "d.result")}
 
 
 def test_a_value_from_an_enclosing_scope_is_captured():
     graph = load({"d": "documents", "u": "upper", "p": "pair"}, [("d.result", "p.a"), ("u.result", "p.b")])
-    assert graph.plan["p"].series == "d.result"
+    assert graph.runs_on["p"].series == "d.result"
     assert feeds(graph, "p") == {"a": ("per_item", "d.result"), "b": ("outer_value", None)}
 
 
 def test_a_series_input_gathers_one_map_and_sits_where_its_series_was_made():
     graph = load({"d": "documents", "u": "upper", "c": "count"}, [("d.result", "u.text"), ("u.result", "c.items")])
-    assert graph.plan["c"].mode == "once"
+    assert graph.runs_on["c"].mode == "once"
     assert feeds(graph, "c") == {"items": ("gathered", "d.result")}
 
 
@@ -201,13 +201,13 @@ def test_nested_maps_gather_one_level_at_a_time():
         [("d.result", "l.document"), ("l.result", "u.text"), ("u.result", "c.items"), ("c.result", "t.counts")],
     )
     assert graph.is_runnable
-    assert {n: r.series for n, r in graph.plan.items()} == {"d": None, "l": "d.result", "u": "l.result", "c": "d.result", "t": None}
+    assert {n: r.series for n, r in graph.runs_on.items()} == {"d": None, "l": "d.result", "u": "l.result", "c": "d.result", "t": None}
     assert feeds(graph, "c") == {"items": ("gathered", "l.result")} and feeds(graph, "t") == {"counts": ("gathered", "d.result")}
 
 
 def test_a_series_read_whole_is_the_gather_of_its_own_map():
     graph = load({"d": "documents", "u": "upper", "b": "both"}, [("d.result", "u.text"), ("d.result", "b.first"), ("u.result", "b.second")])
-    assert graph.is_runnable and graph.plan["b"].mode == "once"
+    assert graph.is_runnable and graph.runs_on["b"].mode == "once"
     assert feeds(graph, "b") == {"first": ("gathered", "d.result"), "second": ("gathered", "d.result")}
 
 
@@ -231,12 +231,12 @@ def test_items_of_two_series_never_pair_up():
 
 def test_two_readers_of_one_series_read_one_map():
     graph = load({"d": "documents", "u": "upper", "v": "upper", "p": "pair"}, [("d.result", "u.text"), ("d.result", "v.text"), ("u.result", "p.a"), ("v.result", "p.b")])
-    assert graph.is_runnable and graph.plan["p"].series == "d.result"
+    assert graph.is_runnable and graph.runs_on["p"].series == "d.result"
 
 
 def test_a_series_input_gets_the_one_value_of_a_source_that_runs_once_as_a_series_of_one():
     graph = load({"u": "upper", "c": "count"}, [("u.result", "c.items")])
-    assert graph.is_runnable and graph.plan["c"].mode == "once"
+    assert graph.is_runnable and graph.runs_on["c"].mode == "once"
     assert feeds(graph, "c") == {"items": ("gathered", None)}
 
 
@@ -255,7 +255,7 @@ def test_an_item_of_the_wrong_type_is_a_mismatch_said_as_the_series():
 
 def test_a_table_passes_whole_and_never_makes_items():
     graph = load({"c": "contacts", "n": "names"}, [("c.result", "n.table")])
-    assert graph.is_runnable and graph.plan["n"].mode == "once" and feeds(graph, "n") == {"table": ("one_value", None)}
+    assert graph.is_runnable and graph.runs_on["n"].mode == "once" and feeds(graph, "n") == {"table": ("one_value", None)}
 
 
 def test_a_table_fits_a_table_input_by_its_columns_and_the_mismatch_names_both():
@@ -272,7 +272,7 @@ def test_a_table_on_an_input_of_one_text_is_a_type_mismatch():
 
 def test_an_input_of_any_type_takes_a_table_as_the_one_value_it_is():
     graph = load({"c": "contacts", "a": "anything"}, [("c.result", "a.value")])
-    assert graph.is_runnable and graph.plan["a"].mode == "once"
+    assert graph.is_runnable and graph.runs_on["a"].mode == "once"
 
 
 def test_a_table_input_gathers_records_and_lines_up_with_a_series_input_on_the_same_map():
@@ -281,14 +281,14 @@ def test_a_table_input_gathers_records_and_lines_up_with_a_series_input_on_the_s
         [("c.result", "r.table"), ("r.result.email", "s.email"), ("r.result", "k.records"), ("s.result", "k.sent")],
     )
     assert graph.is_runnable
-    assert graph.plan["s"].series == "r.result" and graph.plan["k"].mode == "once"
+    assert graph.runs_on["s"].series == "r.result" and graph.runs_on["k"].mode == "once"
     assert feeds(graph, "k") == {"records": ("gathered", "r.result"), "sent": ("gathered", "r.result")}
 
 
 @pytest.mark.parametrize("source", ["rows", "mappings", "unknowns"], ids=["records of declared columns", "mappings", "items of any type"])
 def test_a_table_input_of_any_columns_gathers_what_can_be_a_record(source: str):
     graph = load({"c": "contacts", "s": source, "h": "height"}, [*([("c.result", "s.table")] if source == "rows" else []), ("s.result", "h.table")])
-    assert graph.is_runnable and graph.plan["h"].mode == "once" and feeds(graph, "h") == {"table": ("gathered", "s.result")}
+    assert graph.is_runnable and graph.runs_on["h"].mode == "once" and feeds(graph, "h") == {"table": ("gathered", "s.result")}
 
 
 @pytest.mark.parametrize(
@@ -310,7 +310,7 @@ def test_a_table_input_of_any_columns_refuses_what_is_no_record_as_one_of_declar
 def test_a_series_of_tables_is_read_one_table_per_item_by_a_table_input_as_any_series_is_by_an_input_of_one_value():
     graph = load({"s": "sheets", "h": "height", "n": "names"}, [("s.result", "h.table"), ("s.result", "n.table")])
     assert graph.is_runnable
-    assert {n: (graph.plan[n].mode, graph.plan[n].series, feeds(graph, n)["table"]) for n in ("h", "n")} == {
+    assert {n: (graph.runs_on[n].mode, graph.runs_on[n].series, feeds(graph, n)["table"]) for n in ("h", "n")} == {
         "h": ("per_item", "s.result", ("per_item", "s.result")), "n": ("per_item", "s.result", ("per_item", "s.result")),
     }
 
@@ -318,7 +318,7 @@ def test_a_series_of_tables_is_read_one_table_per_item_by_a_table_input_as_any_s
 def test_a_table_made_per_item_is_read_per_item_and_a_series_of_tables_input_gathers_the_tables():
     graph = load({"d": "documents", "t": "sheet", "h": "height", "k": "stacked"}, [("d.result", "t.text"), ("t.result", "h.table"), ("t.result", "k.tables")])
     assert graph.is_runnable
-    assert (graph.plan["h"].mode, graph.plan["h"].series, graph.plan["k"].mode) == ("per_item", "d.result", "once")
+    assert (graph.runs_on["h"].mode, graph.runs_on["h"].series, graph.runs_on["k"].mode) == ("per_item", "d.result", "once")
     assert feeds(graph, "k") == {"tables": ("gathered", "d.result")}
     whole = load({"s": "sheets", "k": "stacked"}, [("s.result", "k.tables")])
     assert whole.is_runnable and feeds(whole, "k") == {"tables": ("gathered", "s.result")}
@@ -328,7 +328,7 @@ def test_a_value_of_any_type_is_read_as_a_table_only_where_there_is_nothing_to_g
     once = load({"a": "anything", "h": "height"}, [("a.result", "h.table")])
     assert once.is_runnable and feeds(once, "h") == {"table": ("one_value", None)}
     per_item = load({"d": "documents", "a": "anything", "h": "height"}, [("d.result", "a.value"), ("a.result", "h.table")])
-    assert per_item.is_runnable and per_item.plan["h"].mode == "once" and feeds(per_item, "h") == {"table": ("gathered", "d.result")}
+    assert per_item.is_runnable and per_item.runs_on["h"].mode == "once" and feeds(per_item, "h") == {"table": ("gathered", "d.result")}
     items = load({"u": "unknowns", "h": "height"}, [("u.result", "h.table")])
     assert items.is_runnable and feeds(items, "h") == {"table": ("gathered", "u.result")}
 
@@ -371,7 +371,7 @@ def test_a_first_nodes_open_inputs_are_the_graphs_and_a_later_nodes_must_be_fed(
 
 def test_a_graph_input_of_a_series_is_given_whole_and_opens_no_map():
     graph = load({"c": "count"}, [])
-    assert graph.is_runnable and graph.inputs["items"].field.many and graph.plan["c"].mode == "once"
+    assert graph.is_runnable and graph.inputs["items"].field.many and graph.runs_on["c"].mode == "once"
     assert feeds(graph, "c") == {"items": ("one_value", None)}
 
 
@@ -403,7 +403,7 @@ def test_an_embedded_graph_is_one_node_with_the_inner_graphs_inputs_and_outputs(
     assert graph.is_runnable and list(graph._nodes) == ["d", "e", "c"]
     described = graph.describe().nodes["e"]
     assert [i.field.name for i in described.inputs] == ["text"] and [o.name for o in described.outputs] == ["v.result"]
-    assert graph.plan["e"].series == "d.result" and feeds(graph, "c") == {"items": ("gathered", "d.result")}
+    assert graph.runs_on["e"].series == "d.result" and feeds(graph, "c") == {"items": ("gathered", "d.result")}
 
 
 def test_an_output_made_per_item_inside_an_embedded_graph_is_offered_as_a_series():

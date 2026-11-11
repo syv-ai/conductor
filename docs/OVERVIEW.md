@@ -10,7 +10,7 @@ A node's signature is read once, when `@node` decorates it, into one field per i
 
 ## Load, then run
 
-`registry.load(record)` finds each node's definition at the version the record names, loads each [embedded graph](embedded-graphs.md) once on its own, checks every edge and value, gives a node written for any type the type that arrives on its edge, and runs the field hooks. Everything wrong goes in `graph.problems` ([problem codes](problems.md)), and `graph.plan` says how often each node runs.
+`registry.load(record)` finds each node's definition at the version the record names, loads each [embedded graph](embedded-graphs.md) once on its own, checks every edge and value, gives a node written for any type the type that arrives on its edge, and runs the field hooks. Everything wrong goes in `graph.problems` ([problem codes](problems.md)), and `graph.runs_on` says how often each node runs.
 
 `graph.run(**inputs)` runs one leg. A leg goes until the run is complete, waits for a person, fails or is stopped, and it returns a `Run`. `run.stream()` runs the same leg and yields events as it goes. `run.to_json()` is all of the run, so the next leg can start in another process.
 
