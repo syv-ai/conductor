@@ -457,7 +457,7 @@ async def test_an_answer_queued_for_a_question_a_timed_out_leg_never_asked_is_re
     assert await _starts(store, run_id) == 1
 
 
-async def test_an_answer_queued_during_a_leg_that_ends_cancelled_is_refused_as_run_cancelled_and_starts_nothing() -> None:
+async def test_an_answer_queued_during_a_leg_that_ends_cancelled_before_its_question_is_asked_is_refused_as_not_waiting_and_starts_nothing() -> None:
     registry, graph, gate, inputs, waiting_id = asking()
     store = MemoryStore()
     worker = _worker(store, registry)
@@ -469,7 +469,7 @@ async def test_an_answer_queued_during_a_leg_that_ends_cancelled_is_refused_as_r
     ended = await store.ended(run_id)
 
     assert ended.status == "cancelled"
-    assert [problem.type for problem in ended.refused[waiting_id]] == ["run_cancelled"]
+    assert [(problem.type, problem.ctx["status"]) for problem in ended.refused[waiting_id]] == [("not_waiting", "cancelled")]
     assert await _starts(store, run_id) == 1
 
 

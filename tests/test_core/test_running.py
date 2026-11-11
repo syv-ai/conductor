@@ -1054,6 +1054,43 @@ def test_a_stopped_leg_with_calls_on_threads_offers_a_checkpoint_before_it_drain
     assert 0 < sum(v is not None for v in seen[-1].run.results["llm"]["result"]) == len(calls) < 6
 
 
+def test_a_leg_handed_back_keeps_the_calls_in_flight_and_ends_with_a_checkpoint_of_a_running_run_and_no_run_end():
+    calls: list[int] = []
+    llm = _counting_llm(calls, 0.3)
+    graph = registry_of(numbers, llm).load(make_graph(numbers, llm))
+
+    async def handed_back() -> list[Any]:
+        hand_back, seen = asyncio.Event(), []
+        async for event in graph.with_inputs(n=[1, 2, 3, 4, 5, 6]).stream(hand_back=hand_back):
+            seen.append(event)
+            if event.type == "node_start" and event.loc[0] == "llm":
+                hand_back.set()
+        return seen
+
+    seen = _bounded(handed_back())
+    assert "run_end" not in [e.type for e in seen] and seen[-1].type == "run_checkpoint"
+    left = seen[-1].run
+    assert left.status == "running" and 0 < sum(v is not None for v in left.results["llm"]["result"]) == len(calls) < 6  # the calls in flight came back and are kept
+
+    calls.clear()
+    resumed = graph.load_run(left.to_json()).resume()  # another process goes on, repeating no call
+    assert resumed.status == "complete" and resumed.results["llm"]["result"] == [2, 4, 6, 8, 10, 12]
+    assert len(calls) == 6 - sum(v is not None for v in left.results["llm"]["result"])
+
+
+def test_a_cancel_set_with_a_hand_back_ends_the_run_cancelled():
+    graph = registry_of(numbers).load(make_graph(numbers))
+
+    async def both() -> Any:
+        cancel, hand_back = asyncio.Event(), asyncio.Event()
+        cancel.set()
+        hand_back.set()
+        return [event async for event in graph.with_inputs(n=[1]).stream(cancel=cancel, hand_back=hand_back)][-1]
+
+    last = _bounded(both())
+    assert last.type == "run_end" and last.run.status == "cancelled"
+
+
 @pytest.mark.parametrize("every", [0, -1])
 def test_checkpoint_every_is_a_number_of_seconds_above_zero(every: Any) -> None:
     graph = registry_of(split).load(make_graph(split))

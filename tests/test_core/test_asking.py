@@ -776,7 +776,7 @@ def test_an_id_whose_place_is_no_place_answers_nothing_not_even_a_node_that_runs
     assert run.answer("once", "y").status == "waiting"  # answered, not yet resumed
 
 
-async def test_a_cancelled_run_with_questions_waiting_takes_no_answer_until_it_is_resumed():
+async def test_a_cancelled_run_takes_an_answer_to_what_waits_in_it_as_every_run_that_ended_early_does():
     import asyncio
 
     gate, called = _counted()
@@ -788,11 +788,10 @@ async def test_a_cancelled_run_with_questions_waiting_takes_no_answer_until_it_i
             cancelled = event.run
     assert cancelled.status == "cancelled" and [place(w) for w in cancelled.waiting] == ["q@0", "q@1"]
 
-    (problem,) = _refused(lambda: cancelled.answer("q@0", "B1"))
-    assert problem.type == "run_cancelled"
-
-    resumed = cancelled.resume()
-    assert resumed.status == "waiting" and resumed.answer("q@0", "B1").status == "waiting"
+    answered = cancelled.answer("q@0", "B1")
+    assert answered.status == "cancelled" and answered.state.cause.type == "run_cancelled"  # answered, not yet resumed
+    resumed = answered.resume()
+    assert resumed.status == "waiting" and [place(w) for w in resumed.waiting] == ["q@1"]
 
 
 def test_a_question_inside_an_embedding_is_the_inner_nodes_own_and_its_waiting_unit_says_where_it_is():

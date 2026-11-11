@@ -307,7 +307,7 @@ class Run:
 
     def stream(
         self, *, max_items: int | None = None, from_run: Mapping[type, Any] = MappingProxyType({}), timeout: float | None = None, cancel: asyncio.Event | None = None,
-        checkpoint_every: float | None = None,
+        hand_back: asyncio.Event | None = None, checkpoint_every: float | None = None,
     ) -> AsyncGenerator[Event]:
         """``resume``, saying what happens as it happens: ``async for event in run.stream(): ...``.
 
@@ -317,25 +317,33 @@ class Run:
         does leaving the loop early once the stream is closed, which Python
         does for an async generator only when it is collected: hold it with
         ``async with contextlib.aclosing(run.stream()) as events:`` and loop
-        over ``events``. With ``checkpoint_every`` (seconds), a
+        over ``events``. Setting ``hand_back`` stops the leg the same way and
+        leaves the run going, for a host that shuts down and lets another
+        process go on: the calls on threads are waited for and kept, and the
+        last event is a ``RunCheckpoint`` whose ``run`` is ``running``, with
+        no ``RunEnd``, since the run didn't end. A ``cancel`` set as well
+        wins. With ``checkpoint_every`` (seconds), a
         ``RunCheckpoint`` comes at most that often while units finish, and once
         when the leg is stopped with calls still on threads: a host that stores
         its ``run`` loses only the calls in flight if the process dies. A call
         that can't start raises here, before anything is iterated.
         """
         checked_leg(max_items=max_items, timeout=timeout, checkpoint_every=checkpoint_every)
-        return self._stream(max_items, from_run_values(self.graph._needs_from_run, from_run), timeout, cancel, checkpoint_every)
+        return self._stream(max_items, from_run_values(self.graph._needs_from_run, from_run), timeout, cancel, hand_back, checkpoint_every)
 
     async def _stream(
-        self, max_items: int | None, from_run: dict[type, Any], timeout: float | None, cancel: asyncio.Event | None, checkpoint_every: float | None,
+        self, max_items: int | None, from_run: dict[type, Any], timeout: float | None, cancel: asyncio.Event | None, hand_back: asyncio.Event | None,
+        checkpoint_every: float | None,
     ) -> AsyncGenerator[Event]:
         loop, events = asyncio.get_running_loop(), asyncio.Queue["Event | None"]()
         cancelled = threading.Event()
         deadline = _deadline(timeout)
 
-        def stop() -> EndedEarly | None:
+        def stop() -> RunState | None:
             if cancelled.is_set() or (cancel is not None and cancel.is_set()):
                 return EndedEarly("cancelled", make_problem("run_cancelled"))
+            if hand_back is not None and hand_back.is_set():
+                return _RUNNING  # the leg stops and the run goes on elsewhere
             return deadline() if deadline is not None else None
 
         failed: list[BaseException] = []
@@ -359,7 +367,7 @@ class Run:
             cancelled.set()
 
     def _leg(
-        self, max_items: int | None, from_run: dict[type, Any], emit: Callable[[_EventBase], None] | None, stop: Callable[[], EndedEarly | None] | None,
+        self, max_items: int | None, from_run: dict[type, Any], emit: Callable[[_EventBase], None] | None, stop: Callable[[], RunState | None] | None,
         checkpoint_every: float | None = None,
     ) -> Run:
         from conductor._internal.leg import Leg
@@ -386,12 +394,9 @@ class Run:
         once and the run is left as it was: a unit answered twice in one call,
         an id that names nothing waiting (``not_waiting``), or one whose place
         now holds another question (``answer_stale``, with ``ctx.moved_to``
-        when that question waits elsewhere). A cancelled run takes no answers
-        (``run_cancelled``): ``resume`` it, and it carries on and waits again,
-        or start a new run.
+        when that question waits elsewhere). A run that ended early takes
+        answers as a waiting one does, a cancelled one included.
         """
-        if self.status == "cancelled":
-            raise InvalidCallError([make_problem("run_cancelled", "status")])
         if value is not _ONE_ANSWER:
             given: Mapping[str, Any] = {unit.id if isinstance(unit, Waiting) else str(unit): value}
         elif isinstance(unit, Mapping):

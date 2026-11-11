@@ -61,7 +61,7 @@ An input takes an edge, a value or a default, never two: `values` are fixed, `de
 | Events as they happen | `async for event in graph.with_inputs(...).stream(): ...` |
 | To answer a node that asked | `run = run.answer(run.waiting[0], answer)`, or `run.answer({unit.id: answer, ...})` for several, then `run.resume()` |
 | A service or the caller inside a node | `graph.run(from_run={Caller: caller})` |
-| A bound on the leg | `run.resume(timeout=60)`, `run.stream(cancel=asyncio.Event())`, `graph.run(max_items=1000)` |
+| A bound on the leg | `run.resume(timeout=60)`, `run.stream(cancel=asyncio.Event())`, `run.stream(hand_back=asyncio.Event())` to stop a leg and leave the run going, `graph.run(max_items=1000)` |
 | To save | `record.model_dump_json()`; a run: `run.to_json()`, `graph.load_run(saved)` |
 | A record an editor draws from | `graph.describe()`, and `registry.describe()` for the palette |
 | A registry for one request | `per_request = NodeRegistry()`, `per_request.add_subregistry(registry)`, `per_request.add(*definitions)` |
