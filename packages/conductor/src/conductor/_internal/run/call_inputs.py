@@ -320,7 +320,7 @@ class AsItStandsReader(ItemReader):
             loop.
         """
         plan = plans[len(item_path)]
-        if plan is plans[-1]:
+        if len(item_path) == len(plans) - 1:
             value = plan.value(self, item_path)
             return None if value is SKIPPED else value
         looped_over = self._series_gathered(cast("InputGathersItems", plan), item_path)  # every plan before the last lists one loop

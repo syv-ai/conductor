@@ -17,6 +17,7 @@ from conductor import (
     Ask,
     FromRun,
     GraphRecord,
+    InvalidCallError,
     NodeError,
     NodeRecord,
     NodeRegistry,
@@ -178,6 +179,28 @@ async def test_a_ceiling_raised_by_a_resume_holds_for_the_legs_after_it() -> Non
     assert await worker.answer(await worker.read(run_id), {waiting[0].id: 7}) == "started"
     after = await store.ended(run_id)
     assert (after.status, len(after.waiting)) == ("waiting", 4)
+
+
+async def test_a_resume_with_a_higher_ceiling_of_a_stored_run_that_cant_be_read_is_refused_and_the_row_is_left_alone() -> None:
+    registry, store = NodeRegistry(), MemoryStore()
+
+    @registry.node("split", title="Split", description="For a test.")
+    def split(text: str) -> Series[str]:
+        return text.split(",")
+
+    @registry.node("up", title="Up", description="For a test.")
+    def up(text: str) -> str:
+        return text.upper()
+
+    worker = _worker(store, registry, max_items=1)
+    run_id = await _started(worker, make_graph(split, up), {"text": "a,b"})
+    assert (await store.ended(run_id)).status == "stopped"
+    store.rows[run_id] = unreadable = dataclasses.replace(store.rows[run_id], run="{")
+
+    with pytest.raises(InvalidCallError) as refused:
+        await worker.resume(await worker.read(run_id), max_items=5)
+
+    assert [problem.type for problem in refused.value.errors()] == ["state_unreadable"] and store.rows[run_id] == unreadable
 
 
 @pytest.mark.parametrize("status", ["running", "waiting", "complete"])

@@ -45,8 +45,8 @@ inputs, which the function takes as ``**kwargs``; ``compute_outputs`` gives
 every output, and the function returns them as a mapping. A hook that raises
 is a problem of the graph, not an exception.
 
-A stored graph is a node too: ``node("enrich", title="Enrich", description="...")(record)``. Loading a graph that
-uses it puts the stored graph's nodes in its place.
+A stored graph is a node too: ``stored_graph("enrich", title="Enrich", description="...")(record)``. Loading a
+graph that uses it puts the stored graph's nodes in its place.
 """
 
 from __future__ import annotations
