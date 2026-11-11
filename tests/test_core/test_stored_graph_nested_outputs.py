@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
 from conductor import NodeRegistry, Series, make_graph
 
 REGISTRY = NodeRegistry()
@@ -149,13 +150,38 @@ def test_a_stored_graph_inside_a_stored_graph_offers_the_same_series_of_series()
     assert stored == ["A+B", None, "C"]
 
 
-def test_one_item_of_each_of_two_outputs_of_a_stored_graph_is_refused_as_items_of_two_series() -> None:
-    """Outside a stored graph each output it offers is a Series of its own, however the two are made inside."""
-    reads = [("shout-and-whisper.shout.result", "pair.a"), ("shout-and-whisper.whisper.result", "pair.b")]
+@_node("title")
+def title(document: str) -> str:
+    return "T:" + document
 
-    @_node("pair")
-    def pair(a: str, b: str) -> str:
-        return a + b
 
-    graph = REGISTRY.load(make_graph(REGISTRY["shout-and-whisper"], pair, edges=reads))
-    assert [problem.type for problem in graph.problems] == ["series_not_nested"]
+@_node("pair")
+def pair(a: str, b: str) -> str:
+    return a + b
+
+
+@_node("label")
+def label(heading: str, values: Series[str]) -> str:
+    return f"{heading}={'+'.join(values)}"
+
+
+TITLE_EDGES = [*WHISPER_EDGES, ("documents.result", "title.document")]
+REGISTRY.stored_graph("titled", title="Titled", description="Each document's title, and every line in capitals and in small letters.")(
+    make_graph(documents, lines, shout, whisper, title, edges=TITLE_EDGES)
+)
+
+
+@pytest.mark.xfail(strict=True, reason="each Series a stored graph offers is a list of its own outside")
+def test_one_item_of_each_of_two_outputs_returned_in_the_same_loop_inside_reach_one_call_together() -> None:
+    reads = [("shout.result", "pair.a"), ("whisper.result", "pair.b")]
+    drawn = results([documents, lines, shout, whisper, title, pair], [*TITLE_EDGES, *reads], "pair", "A,b;;c")
+    stored = results([REGISTRY["titled"], pair], [(f"titled.{source}", target) for source, target in reads], "pair", "A,b;;c")
+    assert drawn == stored == [["Aa", "Bb"], None, ["Cc"]]
+
+
+@pytest.mark.xfail(strict=True, reason="each Series a stored graph offers is a list of its own outside")
+def test_one_value_per_document_beside_the_list_of_that_documents_lines_reach_one_call_together() -> None:
+    reads = [("title.result", "label.heading"), ("shout.result", "label.values")]
+    drawn = results([documents, lines, shout, whisper, title, label], [*TITLE_EDGES, *reads], "label", "a,b;;c")
+    stored = results([REGISTRY["titled"], label], [(f"titled.{source}", target) for source, target in reads], "label", "a,b;;c")
+    assert drawn == stored == ["T:a,b=A+B", None, "T:c=C"]
