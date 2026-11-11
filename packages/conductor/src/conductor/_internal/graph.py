@@ -241,20 +241,30 @@ class Open:
     address: str
 
 
+#: One cell an input is made from, and how many of the maps its node runs in say which unit of the cell's node
+#: holds it: the unit at those places of an instance of the reading node, and for a gather every unit under them.
+Reads = tuple[Cell, int]
+
+
 @dataclass(frozen=True, slots=True)
 class Read:
     """An input that edges bring one value on each call.
 
     Attributes:
         spec: The input's field.
-        sources: What each edge brings. Several are alternatives, on opposite branches of one decision: a call
-            receives the one whose branch was taken.
+        reads: What each edge brings, each with how many maps deep its node runs. Several are alternatives, on
+            opposite branches of one decision: a call receives the one whose branch was taken.
         scope: The scope the value sits in.
     """
 
     spec: Field
-    sources: tuple[Source, ...]
+    reads: tuple[tuple[Source, int], ...]
     scope: Scope
+
+    @property
+    def sources(self) -> tuple[Source, ...]:
+        """What each edge brings."""
+        return tuple(source for source, _ in self.reads)
 
 
 @dataclass(frozen=True, slots=True)
@@ -263,15 +273,28 @@ class Gather:
 
     Attributes:
         spec: The input's field.
-        sources: What each edge brings for an item. Several are alternatives, as for any input.
-        gates: For each of ``sources``, what settles it for every item at once.
-        series: The Series whose items are gathered, where it was made.
+        reads: The Series whose items are gathered, where it was made, then what each edge brings for an
+            item, then the cells of ``gates``; the Series and the edges each with how many maps deep the Series
+            was made, as every item under one unit of the Series is gathered. Several edges are alternatives, as
+            for any input.
+        edges: How many edges feed the input.
+        gates: For each edge, what settles it for every item at once.
     """
 
     spec: Field
-    sources: tuple[Source, ...]
+    reads: tuple[Reads, ...]
+    edges: int
     gates: tuple[Gate, ...]
-    series: Cell
+
+    @property
+    def series(self) -> Cell:
+        """The Series whose items are gathered, where it was made."""
+        return self.reads[0][0]
+
+    @property
+    def sources(self) -> tuple[Source, ...]:
+        """What each edge brings for an item."""
+        return tuple(source for source, _ in self.reads[1 : 1 + self.edges])  # type: ignore[misc]
 
     @property
     def scope(self) -> Scope:
@@ -285,11 +308,17 @@ class SeriesOfOne:
 
     Attributes:
         spec: The input's field.
-        sources: What each edge brings. Several are alternatives, as for any input.
+        reads: What each edge brings, each read where the graph itself runs. Several are alternatives, as for
+            any input.
     """
 
     spec: Field
-    sources: tuple[Value, ...]
+    reads: tuple[tuple[Value, int], ...]
+
+    @property
+    def sources(self) -> tuple[Value, ...]:
+        """What each edge brings."""
+        return tuple(source for source, _ in self.reads)
 
     @property
     def scope(self) -> Scope:
@@ -415,9 +444,13 @@ class _AtPath:
         inputs: How each input gets its value where the node stands, by name: its plan, and the embedded
             graph's node in whose graph that plan reads, ``None`` for the node's own graph. An open input of a
             node inside an embedded graph has the plan that graph's node has for it.
-        reads: The nodes whose units its own are made from: the ones its inputs read, and for an embedded
-            graph's node the last nodes inside it.
-        readers: Each node that reads it, with how many maps the two share from the outermost down.
+        reads: Every node whose units its own are made from, each with how many places of an instance of this
+            node say which of that node's units: the unit at those places, and where that node runs deeper every
+            unit under them. They are the cells its inputs' plans read (``reads`` of each); for an embedded
+            graph's node, the cells it offers and the Series they are made per item of; and, for a node that
+            reads anything from outside the innermost map it runs in, or reads nothing, the Series of that map,
+            since what it reads may be there before its instances are.
+        readers: Each node whose ``reads`` holds this one, with the number held there.
         position: Its place in the order a leg tries the nodes of the tree in.
         waits_on: Every node it waits on, however far up; filled when first asked for.
     """
@@ -428,7 +461,7 @@ class _AtPath:
     maps: Maps
     base: int
     inputs: dict[str, tuple[InputPlan, GraphAtPath | None]]
-    reads: tuple[NodeAtPath, ...] = ()
+    reads: dict[NodeAtPath, int] = dataclasses.field(default_factory=dict["NodeAtPath", int])
     readers: list[tuple[NodeAtPath, int]] = dataclasses.field(default_factory=list[tuple["NodeAtPath", int]])
     position: int = 0
     waits_on: frozenset[NodeAtPath] | None = None
@@ -764,11 +797,8 @@ class Graph:
         _add_to_tree(self, None, tree, {})
         for position, node in enumerate(tree):
             node.position = position
-            for read in node.reads:
-                shared = 0
-                while shared < min(len(read.maps), len(node.maps)) and read.maps[shared] == node.maps[shared]:
-                    shared += 1
-                read.readers.append((node, shared))
+            for read, places in node.reads.items():
+                read.readers.append((node, places))
         return tree
 
     @functools.cached_property
@@ -877,16 +907,22 @@ def _add_to_tree(graph: Graph, embedding: GraphAtPath | None, tree: list[NodeAtP
                 for address in placed.inner.outputs
                 for last, output in [(within[address.partition(".")[0]], address.partition(".")[2])] for spec in [last.placed.outputs[output]]
             )
-            node.reads = tuple(dict.fromkeys(within[cell.node_id] for _, cell, _, _ in embedded.offers))
+            for _, cell, made_in, _ in embedded.offers:  # each unit of it is made from every unit inside, under its instance
+                for read in (within[cell.node_id], *(series for series, _ in made_in[len(maps):])):
+                    node.reads[read] = len(maps)
         else:
             node = FunctionAtPath(
                 placed=placed, embedding=embedding, inside=inside, path=(*inside, placed.id), maps=maps, base=len(above), inputs=inputs,
                 policy=placed.definition.policy, checked=tuple(name for name, (plan, _) in inputs.items() if _read_before_a_call(plan)),
             )
-            node.reads = tuple(dict.fromkeys(
-                beside[giver.inside if giver is not None else inside][source.node_id]
-                for plan, giver in inputs.values() if isinstance(plan, Fed) for source in plan.sources
-            ))
+            for plan, giver in inputs.values():
+                if isinstance(plan, Fed):
+                    within, base = (here, len(above)) if giver is None else (beside[giver.inside], giver.base)
+                    for cell, depth in plan.reads:
+                        read = within[cell.node_id]
+                        node.reads[read] = min(base + depth, node.reads.get(read, base + depth))
+        if maps and min(node.reads.values(), default=0) < len(maps):  # what it reads may be there before its instances are
+            node.reads.setdefault(maps[-1][0], len(maps) - 1)
         here[placed.id] = node
         tree.append(node)
 
@@ -1315,12 +1351,16 @@ class _Loader:
                 return Unset(spec)
         deepest = max((s.read_in for s in sources), key=len)
         if not gathers:
-            return Read(spec, tuple(sources), deepest)
+            return Read(spec, tuple((s, len(s.scope)) for s in sources), deepest)
         if not deepest:
-            return SeriesOfOne(spec, tuple(s for s in sources if isinstance(s, Value)))
+            return SeriesOfOne(spec, tuple((s, 0) for s in sources if isinstance(s, Value)))
         made_by, output = deepest[-1]
         series = Cell(made_by, output, deepest[:-1], self.nodes[made_by].outputs[output].param.exclusive_group is not None)
-        return Gather(spec, tuple(sources), tuple(self._gate(s, len(series.scope)) for s in sources), series)
+        gates = tuple(self._gate(s, len(series.scope)) for s in sources)
+        settling = dict.fromkeys(cell for gate in gates for cell in (*(cell for cells in gate.skips for cell in cells), *gate.blanks))
+        made_in = len(series.scope)
+        reads = ((series, made_in), *((s, made_in) for s in sources), *((cell, len(cell.scope)) for cell in settling))
+        return Gather(spec, reads, len(sources), gates)
 
     def _source(self, address: str, node_id: str, name: str) -> Source | None:
         """What an edge from ``address`` brings: ``node.output``, or ``node.output.field`` for one field of a record.

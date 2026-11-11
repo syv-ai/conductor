@@ -13,7 +13,10 @@ timeout is called on the spot; any other is handed to threads, at most
 ``concurrency`` of its units at once, and the walk goes on. When a call comes
 back, the units that read it are tried at once: the reader's units under,
 at, or above the unit's instance. So item 1 can finish the chain while item
-10 is still being made.
+10 is still being made. What reads a unit is every node whose units are made
+from it (a node's ``reads``, which is what its inputs' plans read): a node
+that gathers reads the Series as well as what fills its items, so a Series
+of no items makes its gather ready as the last item of a long one does.
 
 A failure the node's ``Policy`` may retry waits its delay on a timer, and the
 leg goes on meanwhile; so does an attempt with a timeout, whose clock starts
@@ -608,9 +611,9 @@ class Leg:
         if walking or not self.going or type(unit) is Asking:  # nothing reads a unit that waits for a person
             return
         depth = len(key)
-        for reader, shared in node.readers:
-            if shared < depth:  # a reader above this instance: tried once nothing it reads works under the one they share
-                self.gathers.add((reader, key[:shared]))
+        for reader, places in node.readers:
+            if places < depth:  # it is made from every unit under those places: tried once nothing it reads works under them
+                self.gathers.add((reader, key[:places]))
             elif len(reader.maps) == depth:
                 heapq.heappush(self.ready, (reader.position, key))
             else:

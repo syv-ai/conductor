@@ -626,13 +626,8 @@ class Run:
         out: dict[str, Any] = {}
         for address, cell, maps, lists in node.offers:
             if len(maps) == base:  # made once inside: the inner unit's own
-                unit = units[cell.node_id].get(key)
-                kind = type(unit)
-                if kind is Done or kind is Answered:
-                    value = unit.out[cell.output]  # type: ignore[union-attr]
-                elif kind is Skipped or kind is Blank:
-                    value = SKIPPED if kind is Skipped or cell.exclusive else None
-                else:
+                value = _cell(units, base, cell, key)
+                if value is PENDING:
                     return PENDING
             else:
                 instances, known = self._instances(maps, key)
@@ -814,7 +809,7 @@ class Run:
                     value = _gathered(units, base, plan, key)  # type: ignore[arg-type]
                 else:  # one value: the first edge whose branch was taken
                     value = SKIPPED
-                    for source in plan.sources:  # type: ignore[union-attr]
+                    for source, _ in plan.reads:  # type: ignore[union-attr]
                         value = _cell(units, base, source, key)
                         if value is not SKIPPED:
                             break
@@ -947,10 +942,11 @@ def _gathered(units: _UnitsOfAGraph, base: int, plan: Gather, key: Key) -> Any:
         every edge is skipped where the node runs or above; ``None`` when the Series is blank, or an edge whose
         branch was taken is blank where the node runs or above.
     """
-    key = key[: base + len(plan.series.scope)]
+    (series_made, made_in), *edges = plan.reads
+    key = key[: base + made_in]
     live = []
     blank = False
-    for source, gate in zip(plan.sources, plan.gates, strict=True):
+    for (source, _), gate in zip(edges, plan.gates, strict=False):  # the edges, then the gates' cells: an edge with its gate
         taken = True
         for cells in gate.skips:
             held = [_cell(units, base, cell, key) for cell in cells]
@@ -970,7 +966,7 @@ def _gathered(units: _UnitsOfAGraph, base: int, plan: Gather, key: Key) -> Any:
         return SKIPPED
     if blank:
         return None
-    series = _cell(units, base, plan.series, key)
+    series = _cell(units, base, series_made, key)
     if series is None:
         return None
     if len(live) == 1 and type(live[0]) is Item:  # the Series itself: its items, or one field of each
@@ -1044,7 +1040,7 @@ def _aligned(plan: Gather, units: _UnitsOfAGraph, items: list[Any], gathered: Ma
         items: What the input gathered, one place per item of the Series.
         gathered: Every gathering input of the node, by name: its plan, the units of its plan's graph, its items.
     """
-    together = [(others, other.spec.keeps_blanks) for other, theirs, others in gathered.values() if other.series == plan.series and theirs is units]
+    together = [(others, other.spec.keeps_blanks) for other, theirs, others in gathered.values() if other.reads[0] == plan.reads[0] and theirs is units]
     if len(together) == 1:
         return items if together[0][1] else [item for item in items if item is not None]  # by identity: an item may be a frame, which has no plain ==
     return [item for place, item in enumerate(items) if all(keeps or others[place] is not None for others, keeps in together)]
