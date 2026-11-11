@@ -44,7 +44,8 @@ version 1 keeps running version 1 until [`registry.upgrade`](writing-nodes.md#a-
 ## Use one
 
 Wire it like any node. Its inputs are its graph's inputs, by their names there, and its outputs are its graph's
-outputs, by their addresses there, so an edge reads `shout.exclaim.result`:
+outputs, by their addresses there, so an edge reads `shout.exclaim.result`. `make_graph` wants its `edges=` written
+out: a chain is drawn only between functions:
 
 ```python
 graph = registry.load(make_graph(split, shout, join, edges=[("split.result", "shout.text"), ("shout.exclaim.result", "join.texts")]))
@@ -57,9 +58,7 @@ The nodes of a stored graph run where its node stands: here once per word. Embed
 how its nodes behave. Each is called by its own `Policy`, so a node with `concurrency=2` has two calls at once however many items
 the graph around it runs for; its retries and its `attempt_timeout` are its own; a cancel and a leg's `timeout` stop
 the nodes inside as they stop any node; and `run.again(...)` calls inside only the nodes it would call with the same
-nodes drawn in the graph itself. A stored graph takes no `Policy` of its own, and it is never called itself: a blank
-or a branch not taken that arrives at one of its inputs leaves uncalled, or skips, the inner nodes that read it, and
-`run.not_called` lists those nodes.
+nodes drawn in the graph itself. A stored graph takes no `Policy` of its own, because it is never called itself.
 
 ## What it offers
 
@@ -85,6 +84,43 @@ print(both.run({"upper.text": "a", "exclaim.text": "b"}).outputs)
 # {'both.upper.result': 'A', 'both.exclaim.result': 'b!'}
 ```
 
+## A blank or a skip coming in
+
+Nothing is special about a blank that arrives at a stored graph. It reaches the nodes inside that read it, and they
+behave as they would drawn in the graph itself:
+
+```python
+@registry.node("maybe", title="Maybe", description="Gives a word, or a blank for the word 'none'.")
+def maybe(text: str) -> str | None:
+    return None if text == "none" else text
+
+
+graph = registry.load(make_graph(split, maybe, shout, edges=[("split.result", "maybe.text"), ("maybe.result", "shout.text")]))
+run = graph.run(text="hi none")
+
+print(run.results["shout"])  # {'exclaim.result': ['HI!', None]}
+for not_called in run.not_called:
+    print(not_called.loc, not_called.input)
+# ('shout', 1, 'upper') text
+# ('shout', 1, 'exclaim') text
+```
+
+The second word is blank. `upper` inside `shout` takes a text and no blank, so it isn't called for that word, and
+neither is `exclaim`, which reads `upper`. `run.not_called` names those two nodes. It never names `shout`: a stored
+graph is never blank or skipped itself. A branch not taken works the same way and skips the nodes inside that read it.
+
+A node inside that doesn't read the blank runs. `both`, from above, has two inputs. Here only `upper` inside it
+gets the blank:
+
+```python
+graph = registry.load(make_graph(split, maybe, side_by_side, edges=[
+    ("split.result", "maybe.text"),
+    ("maybe.result", "both.upper.text"),
+    ("split.result", "both.exclaim.text"),
+]))
+print(graph.run(text="hi none").results["both"])  # {'upper.result': ['HI', None], 'exclaim.result': ['hi!', 'none!']}
+```
+
 ## Where something is inside
 
 `run.results`, `graph.plan` and `graph.describe()` show the stored graph as one node: for an item it holds what its
@@ -99,7 +135,6 @@ the node and item of each stored graph around it, outermost first.
 - A waiting id spells it out: `shout@1/ask~3fa2c0d1` is `ask` inside `shout`, for the second word.
 - A node inside says its events once, for every word together, as any node that runs per item does. Their `loc` is
   the node's id behind the id of each stored graph's node around it, `("shout", "upper")`.
-- A saved run holds a node inside as it holds any node, under `shout/upper`.
 
 A stored graph's palette entry lists the fields it offers in `registry.describe()`, which holds the nodes its
 graph uses. A stored graph's definition has no `describe()` of its own, because its fields depend on that registry.
