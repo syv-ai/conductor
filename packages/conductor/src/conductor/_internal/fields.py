@@ -960,6 +960,10 @@ CONDUCTOR_TYPES: Final[Mapping[object, TypeName]] = MappingProxyType({
 })
 
 
+#: The id and title of every ``TypedDict``: a record, shown by its fields.
+RECORD: Final = TypeName("record", "Record")
+
+
 def type_name(cls: Any) -> TypeName:
     """A class's id and title: its entry in ``CONDUCTOR_TYPES`` for conductor's own, else the ``type_id`` and
     ``type_title`` it declares as a ``NamedType``."""
@@ -982,7 +986,7 @@ def named_by(hint: Any) -> tuple[str, tuple[type, ...]]:
 
     A class is known by its ``type_name``. A ``Literal`` is known by the types of its values (``Literal["low",
     "high"]`` is ``str``), a union by its members (``Money | None`` is ``money | None``, naming ``Money``), a generic
-    by its class (``dict[str, int]`` is ``dict``), a ``TypedDict`` as the ``dict`` it is, and a type alias by the name
+    by its class (``dict[str, int]`` is ``dict``), a ``TypedDict`` as ``record``, and a type alias by the name
     it is declared under, which names no class. ``Any`` and ``None`` name no class either. A table is known by its
     columns.
     """
@@ -1002,8 +1006,8 @@ def named_by(hint: Any) -> tuple[str, tuple[type, ...]]:
             return named_by(get_args(hint)[0])
         case None if _is_alias(hint):
             return hint.__name__, ()
-        case None if typing.is_typeddict(hint):  # a record: a dict whose keys its schema names, with no title of its own
-            return CONDUCTOR_TYPES[dict].id, ()
+        case None if typing.is_typeddict(hint):  # a record declares no name of its own
+            return RECORD.id, ()
         case None:
             return type_name(hint).id, () if hint in _NAMES_NO_CLASS else (hint,)
         case generic:

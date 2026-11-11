@@ -133,7 +133,7 @@ def test_a_series_read_by_an_input_of_one_value_opens_a_map_and_what_reads_the_r
 def test_a_value_from_an_enclosing_scope_is_captured():
     graph = load({"d": "documents", "u": "upper", "p": "pair"}, [("d.result", "p.a"), ("u.result", "p.b")])
     assert graph.plan["p"].series == "d.result"
-    assert feeds(graph, "p") == {"a": ("per_item", "d.result"), "b": ("captured", None)}
+    assert feeds(graph, "p") == {"a": ("per_item", "d.result"), "b": ("outer_value", None)}
 
 
 def test_a_series_input_gathers_one_map_and_sits_where_its_series_was_made():
@@ -164,7 +164,7 @@ def test_a_gather_inside_a_map_captured_from_deeper_in_the_same_map_is_on_one_pa
         [("d.result", "l.document"), ("l.result", "c.items"), ("l.result", "p.a"), ("d.result", "p.b")],
     )
     assert graph.is_runnable
-    assert feeds(graph, "p") == {"a": ("per_item", "l.result"), "b": ("captured", "d.result")}
+    assert feeds(graph, "p") == {"a": ("per_item", "l.result"), "b": ("outer_value", "d.result")}
 
 
 # -- what is refused ----------------------------------------------------------------------------------
@@ -172,7 +172,7 @@ def test_a_gather_inside_a_map_captured_from_deeper_in_the_same_map_is_on_one_pa
 
 def test_items_of_two_series_never_pair_up():
     graph = load({"a": "documents", "b": "documents", "p": "pair"}, [("a.result", "p.a"), ("b.result", "p.b")])
-    assert problems(graph) == [("lists_not_collected", ("p",))]
+    assert problems(graph) == [("series_not_nested", ("p",))]
     assert graph.problems[0].ctx["series"] == ["a.result", "b.result"]
 
 
@@ -202,7 +202,7 @@ def test_an_item_of_the_wrong_type_is_a_mismatch_said_as_the_series():
 
 def test_a_table_passes_whole_and_never_makes_items():
     graph = load({"c": "contacts", "n": "names"}, [("c.result", "n.table")])
-    assert graph.is_runnable and graph.plan["n"].mode == "once" and feeds(graph, "n") == {"table": ("single", None)}
+    assert graph.is_runnable and graph.plan["n"].mode == "once" and feeds(graph, "n") == {"table": ("one_value", None)}
 
 
 def test_a_table_fits_a_table_input_by_its_columns_and_the_mismatch_names_both():
@@ -256,7 +256,7 @@ def test_alternatives_per_item_of_one_decision_are_gathered_as_one_map():
 def test_alternatives_that_run_per_item_of_different_series_are_refused():
     edges = [("w.yes", "a.folder"), ("w.no", "b.folder"), ("a.result", "u.text"), ("b.result", "u.text")]
     graph = load({"w": "decide", "a": "documents", "b": "documents", "u": "upper"}, edges)
-    assert problems(graph) == [("alternatives_on_different_items", ("u", "text"))]
+    assert problems(graph) == [("alternatives_in_different_series", ("u", "text"))]
     assert graph.problems[0].ctx["series"] == ["a.result", "b.result"]
 
 
@@ -302,7 +302,7 @@ def test_a_first_nodes_open_inputs_are_the_graphs_and_a_later_nodes_must_be_fed(
 def test_a_graph_input_of_a_series_is_given_whole_and_opens_no_map():
     graph = load({"c": "count"}, [])
     assert graph.is_runnable and graph.inputs["items"].shape == "many" and graph.plan["c"].mode == "once"
-    assert feeds(graph, "c") == {"items": ("single", None)}
+    assert feeds(graph, "c") == {"items": ("one_value", None)}
 
 
 # -- an embedded graph is one node -----------------------------------------------------------------------
@@ -347,16 +347,3 @@ def test_the_fingerprint_follows_the_graphs_embedded_in_it():
     one = load({"e": "inner"}, [], _embedding({"u": "upper"}, []))
     other = load({"e": "inner"}, [], _embedding({"u": "upper", "v": "upper"}, [("u.result", "v.text")]))
     assert one.fingerprint != other.fingerprint
-
-
-# -- how many calls ----------------------------------------------------------------------------------------
-
-
-def test_calls_for_counts_a_node_per_item_of_the_series_it_is_told_the_length_of():
-    graph = load(
-        {"d": "documents", "l": "lines", "u": "upper", "c": "count"},
-        [("d.result", "l.document"), ("l.result", "u.text"), ("u.result", "c.items")],
-    )
-    assert graph.calls_for() == {"d": 1, "l": None, "u": None, "c": None}
-    assert graph.calls_for({"d.result": 3}) == {"d": 1, "l": 3, "u": None, "c": 3}
-    assert graph.calls_for({"d.result": 3, "l.result": 4}) == {"d": 1, "l": 3, "u": 12, "c": 3}

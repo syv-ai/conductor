@@ -75,7 +75,7 @@ PROBLEM_CATALOGUE: Mapping[str, str] = {
     "invalid_value": "The value typed into '{field}' is not valid: {reason}. Type a value of the field's type.",
     "parameter_name_invalid": "'{field}' cannot be a field name: '.', '/' and '@' each mean something in an address, and a name can't be empty; rename the field.",
     "repeated_edge": "The edge from '{source}' into '{field}' is drawn twice; remove one.",
-    "alternatives_on_different_items": (
+    "alternatives_in_different_series": (
         "'{field}' takes alternatives that run per item of different Series, {series}, so a call for an item of one has no place "
         "for the other's value. Bring them to items of one Series first."
     ),
@@ -87,7 +87,7 @@ PROBLEM_CATALOGUE: Mapping[str, str] = {
         "{inputs} read branches that never both have a value for an item, so no item would reach the node. "
         "Write Series[X | None] on them to keep every item, or take the branches through one input."
     ),
-    "lists_not_collected": (
+    "series_not_nested": (
         "'{node_id}' reads items of {series}, and items of two Series never pair up; "
         "gather one of them first, with a node that takes it as a Series, so it arrives as one value."
     ),
