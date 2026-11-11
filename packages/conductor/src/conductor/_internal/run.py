@@ -45,7 +45,6 @@ from pydantic_core import (
 
 from conductor._internal.ask import Question, Waiting, answer_outputs, waiting_questions
 from conductor._internal.conductor_model import ConductorModel
-from conductor._internal.errors import InvalidCallError, Problem, make_problem, value_free_errors
 from conductor._internal.fields import SKIPPED, Field, FieldValueError, Records, Type, written_table
 from conductor._internal.graph import (
     Cell,
@@ -62,6 +61,7 @@ from conductor._internal.graph import (
     SeriesOfOne,
 )
 from conductor._internal.node_definition import Returns, from_run_values
+from conductor._internal.problem import InvalidCallError, Problem, make_problem, value_free_errors
 
 if TYPE_CHECKING:
     from conductor._internal.graph import Graph

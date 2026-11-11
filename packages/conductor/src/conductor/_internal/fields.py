@@ -62,7 +62,7 @@ from pydantic_core import (
 )
 
 from conductor._internal.conductor_model import ConductorModel
-from conductor._internal.errors import NodeDeclarationError, value_free_errors
+from conductor._internal.problem import NodeDeclarationError, value_free_errors
 from conductor.widgets import Widget
 
 
