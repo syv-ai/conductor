@@ -824,8 +824,8 @@ def ok_word(word: str) -> bool:
         ("units.upper.blank_inputs.0", lambda s: s["units"]["upper"].__setitem__("blank_inputs", {"0": 1})),
         ("units.upper.undeclared", lambda s: s["units"]["upper"].__setitem__("undeclared", {"0": -1})),  # a save holds only what it declares
         ("units.upper", lambda s: s["units"]["upper"].__setitem__("skipped", {"result": [7]})),
-        ("units.upper.skipped.other", lambda s: s["units"]["upper"].__setitem__("skipped", {"other": [0]})),
-        ("units.upper.skipped_items.result", lambda s: s["units"]["upper"].__setitem__("skipped_items", {"result": {"0": [0]}})),  # only a Series has items
+        ("units.upper", lambda s: s["units"]["upper"].__setitem__("skipped", {"other": [0]})),  # no such output
+        ("units.upper", lambda s: s["units"]["upper"].__setitem__("skipped_items", {"result": {"0": [0]}})),  # the value there holds no items
         ("units.ok", lambda s: s["units"]["ok"]["questions"].__setitem__("7", {"prompt": "?", "inputs": {}})),
         ("units.upper", lambda s: s["units"]["upper"].__setitem__("blank_inputs", {"0": "word"})),  # a blank input on a unit that is done
         ("units.ok", lambda s: s["units"]["ok"].__setitem__("blank_inputs", {"0": "word"})),  # a blank input on a unit that asks
@@ -834,8 +834,8 @@ def ok_word(word: str) -> bool:
         ("inputs.nowhere.text", lambda s: s["inputs"].__setitem__("nowhere.text", "a")),
         ("code.nowhere", lambda s: s["code"].__setitem__("nowhere", "0")),
         ("complete.0", lambda s: s.__setitem__("complete", ["nowhere"])),
-        ("earlier.ok", lambda s: s["earlier"].__setitem__("ok", {"states": [None], "outputs": {"result": [None]}, "fingerprints": ["f"]})),  # a unit never called
-        ("earlier.ok", lambda s: s["earlier"].__setitem__("ok", {"states": ["done"], "outputs": {"result": [True]}, "fingerprints": []})),
+        ("earlier.ok", lambda s: s["earlier"].__setitem__("ok", {"units": {"states": [None], "outputs": {"result": [None]}}, "fingerprints": ["f"]})),  # a unit never called
+        ("earlier.ok", lambda s: s["earlier"].__setitem__("ok", {"units": {"states": ["done"], "outputs": {"result": [True]}}, "fingerprints": []})),
     ],
 )
 def test_a_save_of_a_waiting_run_damaged_in_shape_is_refused_by_where(where: str, damaged: Any) -> None:

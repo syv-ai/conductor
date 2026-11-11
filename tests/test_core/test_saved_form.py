@@ -1,6 +1,7 @@
 """The saved form: a run reads back as itself and goes on to the same result, a float that isn't finite follows
 its declared type, and a damaged save is refused at the place pydantic names."""
 
+import dataclasses
 import datetime
 import json
 import math
@@ -361,3 +362,56 @@ def test_outputs_as_json_are_of_a_complete_run_and_a_value_with_no_json_form_nam
         registry.load(GraphRecord(nodes=[NodeRecord(id="o", node="odd")])).run(text="x").outputs_json()
     (problem,) = refused.value.errors()
     assert (problem.type, problem.loc, problem.ctx["at"]) == ("state_unwritable", ("outputs", "o.result"), "o.result")
+
+
+def test_a_field_added_to_a_saved_record_is_written_and_read_with_no_other_edit() -> None:
+    """A save's keys are the fields of its records: one more field on a record is one more key, written and read."""
+    from conductor._internal.run import SavedUnits, _inlined, _with_fields
+    from pydantic import TypeAdapter
+    from pydantic_core import SchemaSerializer, SchemaValidator, core_schema
+
+    @dataclasses.dataclass(slots=True, kw_only=True)
+    class Noted(SavedUnits):
+        note: str = ""
+
+    column = core_schema.list_schema(core_schema.nullable_schema(core_schema.str_schema()))
+    shared: dict[str, Any] = {}
+    record = _inlined(TypeAdapter(Noted).core_schema, shared)  # the record's schema, as pydantic makes it from the record
+    composed = _with_fields(record, outputs=core_schema.typed_dict_schema({"result": core_schema.typed_dict_field(column)}))
+    schema = core_schema.definitions_schema(composed, list(shared.values()))
+    noted = Noted(states=["done", None], outputs={"result": ["a", None]}, blank_inputs={1: "text"}, note="kept")
+
+    written = SchemaSerializer(schema).to_json(noted, exclude_defaults=True)
+
+    assert json.loads(written) == {"states": ["done", None], "outputs": {"result": ["a", None]}, "blank_inputs": {"1": "text"}, "note": "kept"}
+    assert SchemaValidator(schema).validate_json(written) == noted
+    with pytest.raises(KeyError):
+        _with_fields(record, undeclared=column)  # composing for a field the record doesn't declare
+
+
+def test_a_key_a_saved_record_does_not_declare_cannot_be_written() -> None:
+    """Nothing reaches a save beside its records' fields, so a key can't be written that the reader doesn't know."""
+    saved = _everything().run(_inputs("a,bb"))._saved()
+    for record in (saved, saved.units["ask"]):
+        with pytest.raises(AttributeError):
+            record.undeclared = {0: "x"}
+        with pytest.raises(TypeError):
+            type(record)(**{declared.name: getattr(record, declared.name) for declared in dataclasses.fields(record)}, undeclared={0: "x"})
+
+
+def test_every_field_a_run_sets_in_its_save_is_a_key_of_the_json_and_reads_back() -> None:
+    graph = _everything()
+    first = _finished(graph.run(_inputs("a,bb,ccc,xax,b")))
+    waiting = first.with_inputs({"lines.text": "a,ccc,ab,xax"}).resume()
+    saved = waiting._saved()
+    written = json.loads(waiting.to_json())
+
+    def set_fields(record: Any) -> set[str]:
+        return {declared.name for declared in dataclasses.fields(record) if declared.default is dataclasses.MISSING or getattr(record, declared.name) is not None}
+
+    assert set(written) == set_fields(saved)
+    for name, units in saved.units.items():
+        assert set(written["units"][name]) == set_fields(units), name
+    for name, carried in saved.earlier.items():
+        assert set(written["earlier"][name]) == set_fields(carried) and set(written["earlier"][name]["units"]) == set_fields(carried.units), name
+    assert graph.load_run(waiting.to_json()).to_json() == waiting.to_json()
