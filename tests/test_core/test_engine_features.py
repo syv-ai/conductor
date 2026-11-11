@@ -21,7 +21,7 @@ from conductor import (
     Series,
     node,
 )
-from pydantic import GetCoreSchemaHandler, JsonValue
+from pydantic import AfterValidator, GetCoreSchemaHandler, JsonValue
 from pydantic_core import core_schema
 
 from tests.test_core.nodes import ReadAsItsBuiltin, place, registry_of
@@ -235,6 +235,31 @@ def test_a_leg_waiting_on_a_timer_looks_at_its_queue_without_waiting_before_it_w
     assert "timed" in looks
     assert all(looks[i - 1] == "no wait" for i, look in enumerate(looks) if look == "timed")
     assert looks[0] == "no wait"
+
+
+@pytest.mark.timeout(10)
+@pytest.mark.parametrize("policy", [Policy(), Policy(concurrency=2)], ids=["on the leg's thread", "on a pool thread"])
+def test_an_exit_a_node_raises_ends_the_run_with_it_wherever_the_node_is_called(policy: Policy):
+    @node("leave", title="Leave", description="", policy=policy)
+    def leave(text: str) -> str:
+        raise SystemExit(3)
+
+    with pytest.raises(SystemExit):
+        registry_of(leave).load(chain("leave")).run(text="a")
+
+
+@pytest.mark.timeout(10)
+@pytest.mark.parametrize("policy", [Policy(), Policy(concurrency=2)], ids=["on the leg's thread", "on a pool thread"])
+def test_a_defect_in_an_output_types_own_check_ends_the_run_with_it_wherever_the_node_is_called(policy: Policy):
+    def explode(value: str) -> str:
+        raise RuntimeError("the type's own check has a bug")
+
+    @node("work", title="Work", description="", policy=policy)
+    def work(text: str) -> Annotated[str, AfterValidator(explode)]:
+        return text
+
+    with pytest.raises(RuntimeError, match="has a bug"):
+        registry_of(work).load(chain("work")).run(text="a")
 
 
 def test_retries_external_failures_then_succeeds():

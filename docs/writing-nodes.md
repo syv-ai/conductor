@@ -527,7 +527,7 @@ run = registry.load(make_graph(fetch)).run(url="https://example.com")
 print(run.status, len(attempts))  # complete 3
 ```
 
-`Policy` also sets `attempt_timeout`, `retry_on` (exception classes of your client to treat as external) and `concurrency`, how many calls run at once on threads. By default a node is called for one item at a time.
+`Policy` also sets `attempt_timeout`, `retry_on` (exception classes of your client to treat as external) and `concurrency`, how many calls run at once on threads. By default a node is called for one item at a time. A call given up at its `attempt_timeout` isn't stopped: it keeps running on its thread, the run goes on without it, and the process waits for it when it exits, so give a slow client its own timeout as well.
 
 ## What the host gives the run
 

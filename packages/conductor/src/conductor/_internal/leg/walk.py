@@ -164,7 +164,8 @@ class Leg:
         self.slots_waiting: defaultdict[FunctionAtPath, deque[tuple[ItemPath, dict[str, Any], int]]] = defaultdict(deque)
         #: How many of each node's calls are on threads, which its ``concurrency`` bounds.
         self.on_threads: defaultdict[FunctionAtPath, int] = defaultdict(int)
-        self.returned: queue.SimpleQueue[tuple[FunctionAtPath, ItemPath, int, Any, BaseException | None]] = queue.SimpleQueue()
+        #: What came back from threads: a call's (node, instance, attempt, outputs, what went wrong), or what ``call`` itself raised.
+        self.returned: queue.SimpleQueue[tuple[FunctionAtPath, ItemPath, int, Any, BaseException | None] | BaseException] = queue.SimpleQueue()
         #: (when, order, what is due, node, instance, attempt): a retry of the attempt, or the deadline of the attempt on a thread.
         self.timers: list[tuple[float, int, Literal["retry", "deadline"], FunctionAtPath, ItemPath, int, float]] = []
         self.timer_order = itertools.count()
@@ -251,6 +252,8 @@ class Leg:
                     if timeout <= 0:
                         raise
                     came = self.returned.get(timeout=timeout)
+            if isinstance(came, BaseException):
+                raise came
             self._returned(*came)
         except queue.Empty:
             pass
@@ -405,7 +408,14 @@ class Leg:
         self._fill_slots(node)
 
     def _on_thread(self, node: FunctionAtPath, key: ItemPath, kwargs: dict[str, Any], attempt: int) -> None:
-        self.returned.put((node, key, attempt, *call(node, kwargs, self.from_run)))
+        """Make the call and hand what it came to back to the leg. What ``call`` lets out (an exit, a defect in a
+        type's own check) goes back too and is raised on the leg's thread, as it is for a node called there."""
+        try:
+            out, error = call(node, kwargs, self.from_run)
+        except BaseException as raised:  # noqa: BLE001  a pool thread would keep it, and the leg would wait for the call for ever
+            self.returned.put(raised)
+        else:
+            self.returned.put((node, key, attempt, out, error))
 
     def _due(self, due: Literal["retry", "deadline"], node: FunctionAtPath, key: ItemPath, attempt: int, seconds: float) -> None:
         """A timer set for ``seconds`` fired: the retry of an attempt, or the deadline of the attempt on a thread."""
