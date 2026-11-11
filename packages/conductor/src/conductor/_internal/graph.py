@@ -201,8 +201,9 @@ class Fixed:
 
 
 @dataclass(frozen=True, slots=True)
-class Refused:
-    """An input whose typed-in value its type refused. The graph holds the problem, so it never runs.
+class Unset:
+    """An input with no value to give: its typed-in value was refused by its type, or it must be fed and nothing
+    feeds it. The graph holds the problem, so it never runs; the node is still drawn, with this input to fill.
 
     Attributes:
         spec: The input's field.
@@ -284,7 +285,7 @@ class SeriesOfOne:
 Fed = Read | Gather | SeriesOfOne
 
 #: How one input of a placed node gets its value.
-InputPlan = Fixed | Refused | Open | Fed
+InputPlan = Fixed | Unset | Open | Fed
 
 
 # -- a node of a loaded graph -------------------------------------------------------------------
@@ -956,8 +957,8 @@ class _Loader:
             edges: The addresses wired into each input, by name.
 
         Returns:
-            ``None``, with the problem, when an input has nothing to feed it, an edge into it brings nothing it
-            takes, or its inputs can't meet in one scope.
+            ``None``, with the problem, when an edge into an input brings nothing it takes, or its inputs can't
+            meet in one scope.
         """
         for name in sorted({*record.values, *record.defaults, *edges} - fields.keys()):
             self.problems.append(make_problem("unknown_input", record.id, name, inputs=list(fields)))
@@ -978,7 +979,7 @@ class _Loader:
             elif first and name not in fixed_at_load:
                 default = typed.get(name, spec.default)
                 if default is _REFUSED:
-                    inputs[name] = Refused(spec)
+                    inputs[name] = Unset(spec)
                     continue
                 required = default is REQUIRED
                 address = f"{record.id}.{name}"
@@ -990,7 +991,7 @@ class _Loader:
                 inputs[name] = _fixed(spec, typed[name])
             elif spec.required and name not in fixed_at_load:  # a hook that reads it says so itself, as hook_needs_value
                 self.problems.append(make_problem("unbound_on_later_node", record.id, name))
-                return None
+                inputs[name] = Unset(spec)
             else:
                 inputs[name] = Fixed(spec, spec.default)
         scopes = [plan.scope for plan in inputs.values() if isinstance(plan, Fed)]
@@ -1193,9 +1194,9 @@ class _Loader:
         return frozenset(rests_on)
 
 
-def _fixed(spec: FieldSpec, typed: Any) -> Fixed | Refused:
+def _fixed(spec: FieldSpec, typed: Any) -> Fixed | Unset:
     """The plan of an input holding a typed-in value, as its field read it."""
-    return Refused(spec) if typed is _REFUSED else Fixed(spec, typed)
+    return Unset(spec) if typed is _REFUSED else Fixed(spec, typed)
 
 
 def _runs_on(scope: Scope) -> RunsOn:

@@ -578,7 +578,6 @@ def test_describe_for_a_palette_and_a_drawing():
     assert "number" in types["integer"] and "integer" not in types["number"], types
 
 
-@pytest.mark.xfail(reason="engine fault: a later node with a required input nothing feeds yet is described as not loaded, with no inputs to draw an edge into", strict=True)
 def test_a_drawing_describes_the_added_inputs_of_a_node_one_of_which_nothing_feeds_yet():
     reg7 = registry_of(count, formula)
     drawing = reg7.load({"nodes": [{"id": "c", "node": "count"}, {"id": "f", "node": "formula", "values": {"formula": "{a}+{b}"}}], "edges": [["c.result", "f.a"]]})
