@@ -533,6 +533,16 @@ class Type:
         """
         raise TypeError(type(value).__name__)
 
+    @classmethod
+    def untyped_to_hash(cls, value: Any) -> Any:
+        """Returns what is hashed for a value of this kind found in what a call received: its JSON, unless a
+        subclass has a shorter stand-in for it.
+
+        Raises:
+            TypeError: The value has no JSON form.
+        """
+        return cls.untyped_as_json(value)
+
     @staticmethod
     def untyped_equal(one: Any, other: Any) -> bool:
         """Says whether two values met with no declared type are equal; one with no plain ``==`` only when they
@@ -569,3 +579,14 @@ def untyped_as_json(value: Any) -> Any:
         TypeError: No kind declared the value's class.
     """
     return kind_of_value(value).untyped_as_json(value)
+
+
+def untyped_to_hash(value: Any) -> Any:
+    """Returns what to hash for a value pydantic has no JSON form for, found in what a call received. It is the
+    ``fallback`` given to ``to_json`` when a call's arguments are fingerprinted: a frame becomes
+    ``{"table": "<digest>"}``.
+
+    Raises:
+        TypeError: No ``Type`` subclass is registered for the value's class.
+    """
+    return kind_of_value(value).untyped_to_hash(value)

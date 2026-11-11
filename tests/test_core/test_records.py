@@ -242,3 +242,19 @@ def test_a_table_input_loses_the_rows_another_input_of_the_same_series_has_no_va
 
     assert run.outputs["both.result"] == 1  # bo has no email, so mail was not called for him
     assert got[0][0].to_dicts() == [{"name": "ida", "email": "ida@x.dk"}] and got[0][1] == ["IDA@X.DK"]
+
+
+def test_a_table_a_node_received_is_written_once_to_fingerprint_it_however_many_times_it_is_asked(monkeypatch: pytest.MonkeyPatch) -> None:
+    from conductor._internal.earlier_work import fingerprint_of
+    from conductor._internal.table import write
+
+    written: list[int] = []
+    as_written = write.written_table
+    monkeypatch.setattr(write, "written_table", lambda frame: written.append(1) or as_written(frame))
+    frame = pl.DataFrame({"name": ["ida", "bo"], "age": [41, 52]})
+
+    first = fingerprint_of("code", {"table": frame, "n": 1})
+    assert fingerprint_of("code", {"table": frame, "n": 1}) == first and len(written) == 1
+    assert fingerprint_of("code", {"table": pl.DataFrame({"name": ["ida", "bo"], "age": [41, 52]}), "n": 1}) == first  # by its cells
+    assert fingerprint_of("code", {"table": pl.DataFrame({"name": ["ida", "bo"], "age": [41, 53]}), "n": 1}) != first
+    assert fingerprint_of("code", {"table": frame.rename({"age": "years"}), "n": 1}) != first

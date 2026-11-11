@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import datetime
 import decimal
+import hashlib
+import weakref
 from collections.abc import Mapping
 from typing import Any
 
 import polars as pl
-from pydantic_core import CoreSchema, core_schema
+from pydantic_core import CoreSchema, core_schema, to_json
 
 #: The classes a table's column may be declared or written as, each with the polars dtype that holds it and how
 #: its cells are read back from JSON. A column of any other kind (a list, a struct) is written under the word
@@ -54,3 +56,26 @@ def _written_columns(frame: pl.DataFrame, cells: Mapping[str, list[Any]]) -> dic
         kind = dtype.to_python()
         columns.append({"name": name, "type": kind.__name__ if kind in _CELLS else "json", "values": values})
     return {"columns": columns}
+
+
+#: The digest of each frame ``table_digest`` was asked for, by ``id(frame)``, with a weak reference that removes the
+#: entry when the frame is freed. A frame can't be a dict key, as it has no hash.
+_DIGESTS: dict[int, tuple[weakref.ref[pl.DataFrame], str]] = {}
+
+
+def table_digest(frame: pl.DataFrame) -> str:
+    """Returns a hash of the table's JSON (column names, cell types and cells), computed the first time it is
+    asked for a frame and reused for that same frame object after that.
+
+    Example: a 2,000-row table that 2,000 calls each received is written as JSON once, not 2,000 times, when
+    ``run.again`` works out which calls it can reuse. Two frames with equal cells have equal digests. A frame
+    changed in place after its digest was computed keeps the old digest, so a node must not change a table it
+    was given.
+    """
+    kept = _DIGESTS.get(id(frame))
+    if kept is not None and kept[0]() is frame:
+        return kept[1]
+    digest = hashlib.blake2b(to_json(written_table(frame)), digest_size=16).hexdigest()
+    key = id(frame)
+    _DIGESTS[key] = (weakref.ref(frame, lambda _: _DIGESTS.pop(key, None)), digest)
+    return digest

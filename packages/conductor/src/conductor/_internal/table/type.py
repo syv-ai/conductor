@@ -14,7 +14,13 @@ from pydantic_core import CoreSchema, PydanticCustomError, core_schema
 
 from conductor._internal.series import read_as_list
 from conductor._internal.table.read import _frame_of, _table_form
-from conductor._internal.table.write import _CELLS, _DTYPES, _WRITTEN_TABLE, written_table
+from conductor._internal.table.write import (
+    _CELLS,
+    _DTYPES,
+    _WRITTEN_TABLE,
+    table_digest,
+    written_table,
+)
 from conductor._internal.value_type import Type
 
 _T = TypeVar("_T")
@@ -141,6 +147,12 @@ class TableType(Type, of=_Table, value_class=pl.DataFrame):
     def untyped_as_json(value: Any) -> Any:
         """Gives a frame met among values of no declared type as conductor writes a table."""
         return written_table(value)
+
+    @staticmethod
+    def untyped_to_hash(value: Any) -> Any:
+        """Returns ``{"table": digest}`` for a frame in what a call received, where the digest is computed once
+        per frame."""
+        return {"table": table_digest(value)}
 
     @staticmethod
     def untyped_equal(one: Any, other: Any) -> bool:
