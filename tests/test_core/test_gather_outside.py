@@ -113,6 +113,22 @@ def with_all_or_blanks(a: str, values: Series[str | None]) -> str:
     return a + "".join("-" if value is None else value for value in values)
 
 
+@dataclass(frozen=True)
+class Listed:
+    items: Series[str]
+    note: str | None
+
+
+@_node("say")
+def say(text: str) -> str:
+    return text
+
+
+@_node("items-and-note")
+def items_and_note(text: str, note: str | None) -> Listed:
+    return Listed(text.split(), note)
+
+
 REGISTRY.node("pair-then-up-or-none", title="Pair then up", description="A pair, in capitals, or none.")(
     make_graph(pair, up_or_none, edges=[("pair.result", "up-or-none.a")])
 )
@@ -308,3 +324,26 @@ def test_a_series_made_inside_an_embedded_graph_and_never_made_there_is_gathered
     flat = ran({"t": "template", "w": "items", "u": "up", "n": counter}, [("t.result", "w.text"), ("w.result", "u.a"), ("u.result", "n.values")], kind=kind)
     embedded = ran({"t": "template", "e": "items-then-up", "n": counter}, [("t.result", "e.text"), ("e.up.result", "n.values")], kind=kind)
     assert (came_to(flat, "n"), came_to(embedded, "n")) == (n, n)
+
+
+def test_asking_an_embedded_graph_for_an_output_it_does_not_offer_fails_at_once() -> None:
+    """No loaded graph has such an edge; the question reads the embedded graph's offers by address and nothing else."""
+    from conductor._internal.graph import Cell
+    from conductor._internal.outside_the_items import _Asking, _could_hold
+
+    graph = REGISTRY.load({"nodes": [{"id": "s", "node": "items"}, {"id": "e", "node": "pair-then-up-or-none"}], "edges": [["s.result", "e.a"]]})
+    node_at = graph._node_at
+    asking = _Asking(node_at[("s",)], Cell("s", "result", (), False), {node_at[("e",)]: None}, node_at, None)  # type: ignore[arg-type]
+    with pytest.raises(KeyError, match="no-such-output"):
+        _could_hold((), 1, Cell("e", "no-such-output", (), False), asking)
+
+
+@pytest.mark.parametrize("text", ["a b", ""])
+def test_a_gather_asks_nothing_when_only_the_series_has_a_say_and_asks_when_a_node_per_item_reads_anything_else(text: str) -> None:
+    """Where all the nodes per item read outside the items is the Series, the gather comes to what the Series is.
+    A second output of the node that makes the Series is something else: blank, it leaves the gather not called."""
+    nodes = {"x": "say", "t": "template", "l": "items-and-note", "p": "pair", "u": "up", "n": "count", "m": "count"}
+    edges = [("x.result", "l.text"), ("t.result", "l.note"), ("l.items", "u.a"), ("u.result", "m.values"), ("l.items", "p.a"), ("l.note", "p.b"), ("p.result", "n.values")]
+    run = ran(nodes, edges, kind="blank", text=text)
+    assert (came_to(run, "m"), came_to(run, "n")) == (len(text.split()), "not called")
+    assert came_to(ran(nodes, edges, kind="x", text=text), "n") == len(text.split())
