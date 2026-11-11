@@ -15,7 +15,7 @@ timeout is called on the spot; any other is handed to threads, at most
 back, the units that read it are tried at once: the reader's units under,
 at, or above the unit's instance. So item 1 can finish the chain while item
 10 is still being made. What reads a unit is every node whose units are made
-from it (a node's ``reads_from``, which is what its inputs' plans read): a node
+from it (a node's ``upstream``, which is what its inputs' plans read): a node
 that gathers reads the Series as well as what fills its items, so a Series
 of no items makes its gather ready as the last item of a long one does.
 
@@ -52,8 +52,8 @@ from conductor._internal.compiled import (
     FlatFunctionNode,
     FlatNode,
     FlatSubgraph,
+    all_upstream,
     outcome_loc,
-    waits_on,
 )
 from conductor._internal.outcomes import (
     Answered,
@@ -178,7 +178,7 @@ class Scheduler:
         self.started: set[FlatNode] = with_outcomes | {around for node in with_outcomes for around in _around(node)}
         #: The nodes said complete, on this leg or on an earlier one; a node an answer finished between legs is said on
         #: this one. A subgraph's node is complete when every node inside it is.
-        self.complete: set[FlatNode] = {node for node in self.nodes if node.path in finished} if finished else set()
+        self.complete: set[FlatNode] = {node for node in self.nodes if node.node_path in finished} if finished else set()
         if self.complete and emit is not None:
             for node in list(self.complete):
                 self._complete_around(node, say=False)
@@ -302,9 +302,9 @@ class Scheduler:
         """With nothing ready to try: start the gathering units nothing works under any more and say which nodes
         are complete. Once nothing is working, walk every unit again if one was left out of its turn.
 
-        A unit is made ready by the units it is made from (a node's ``reads_from``), so nothing else needs a walk
+        A unit is made ready by the units it is made from (a node's ``upstream``), so nothing else needs a walk
         after the first. A unit that takes a person's earlier answer waits for the units of its node before it,
-        which no ``reads_from`` holds: it is tried again by a walk, once a unit was recorded since the last one or
+        which no ``upstream`` holds: it is tried again by a walk, once a unit was recorded since the last one or
         the units that can't be tried in this leg are counted as tried.
 
         Returns:
@@ -350,7 +350,7 @@ class Scheduler:
         if not isinstance(arguments, dict):  # skipped or blank: it comes to that uncalled
             self._record(node, key, arguments, walking)
         elif (
-            (reusable_results := self.reusable_results) and policy.reuse_when_inputs_match and (of_node := reusable_results.get(node.path)) is not None
+            (reusable_results := self.reusable_results) and policy.reuse_when_inputs_match and (of_node := reusable_results.get(node.node_path)) is not None
             and (earlier := reused_outcome(of_node, node, key, arguments, self.all_outcomes, lambda: self._in_turn(node, key))) is not None
         ):
             if earlier is NotReady.NOT_ITS_TURN:
@@ -381,11 +381,11 @@ class Scheduler:
                 unfinished.add(node)
         if self.going and not waiting:  # nothing more can start and nothing waits: every unit of every node is there
             if unfinished:  # a unit nothing made ready: the engine's own fault, never a run to hand on as complete
-                raise RuntimeError(f"the leg ended with nothing to try and no unit for every instance of {sorted(node.path for node in unfinished)}")
-            self.state, self.finished = COMPLETE, frozenset(node.path for node in self.nodes)
+                raise RuntimeError(f"the leg ended with nothing to try and no unit for every instance of {sorted(node.node_path for node in unfinished)}")
+            self.state, self.finished = COMPLETE, frozenset(node.node_path for node in self.nodes)
             self.reusable_results.clear()
         else:
-            self.finished = frozenset(node.path for node in self.nodes if node not in waiting and node not in unfinished)
+            self.finished = frozenset(node.node_path for node in self.nodes if node not in waiting and node not in unfinished)
             for path in [path for path in self.reusable_results if path in self.finished]:  # the earlier work a finished node didn't take, no unit of this run will
                 del self.reusable_results[path]
             if self.going:
@@ -493,7 +493,7 @@ class Scheduler:
             if self.going:  # the first failure is the cause; a later one changes nothing
                 self.end(EndedEarly("failed", outcome))
                 if self.emit:
-                    self.emit(NodeFailed(loc=node.path, cause=outcome))
+                    self.emit(NodeFailed(loc=node.node_path, cause=outcome))
             return
         outcomes = self.outcomes[node]
         if outcomes and key not in outcomes and key < next(reversed(outcomes)):
@@ -521,7 +521,7 @@ class Scheduler:
         if walking or not self.going or type(outcome) is Asking:  # nothing reads a unit that waits for a person
             return
         depth = len(key)
-        for reader, places in node.readers:
+        for reader, places in node.downstream:
             if places < depth:  # it is made from every unit under those places: tried once nothing it reads works under them
                 self.collectors.add((reader, key[:places]))
             elif len(reader.loops) == depth:
@@ -566,7 +566,7 @@ class Scheduler:
         working = list(self.running)
         released = False
         for node, key in list(self.collectors):
-            above = waits_on(node)
+            above = all_upstream(node)
             if not any(n in above and k[: len(key)] == key for n, k in working):
                 self.collectors.discard((node, key))
                 released = True
@@ -592,9 +592,9 @@ class Scheduler:
         stays the cause. The cause names the Series as the graph of the reader that works through it does,
         inside the item of each subgraph's node around that."""
         if self.going:
-            named, offered = node.looped_outputs[output]
+            named, series_output = node.looped_outputs[output]
             loc = outcome_loc(named, key[: len(named.parent.loops) if named.parent is not None else 0])
-            self.end(EndedEarly("stopped", problem.item_ceiling(*loc, series=f"{named.compiled_node.id}.{offered}", items=items, max_items=ceiling)))
+            self.end(EndedEarly("stopped", problem.item_ceiling(*loc, series=f"{named.compiled_node.id}.{series_output}", items=items, max_items=ceiling)))
 
     # -- what the leg says --------------------------------------------------------------------
 
@@ -605,7 +605,7 @@ class Scheduler:
                 self._announce(node.parent)
             self.started.add(node)
             if self.emit:
-                self.emit(NodeStart(loc=node.path))
+                self.emit(NodeStart(loc=node.node_path))
 
     def _progress(self, node: FlatFunctionNode, last: bool = False) -> None:
         """Say how far a node running per item has got, at most four times a second; ``last`` says its final count, unless already said."""
@@ -617,7 +617,7 @@ class Scheduler:
         if self.progress_said.get(node) != done:
             self.progress_at[node], self.progress_said[node] = now, done
             keys, known = item_paths(self.all_outcomes, node.loops, ())
-            emit(NodeProgress(loc=node.path, done=done, total=len(keys) if known else None))
+            emit(NodeProgress(loc=node.node_path, done=done, total=len(keys) if known else None))
 
     def _completions(self) -> None:
         """Say which touched nodes are complete: nothing they wait on is working, and every unit is done."""
@@ -625,7 +625,7 @@ class Scheduler:
         assert emit is not None
         working = {node for node, _ in self.running}
         for node in sorted(self.touched, key=_POSITION):
-            if node in working or working & waits_on(node):
+            if node in working or working & all_upstream(node):
                 continue
             self.touched.discard(node)
             outcomes = self.outcomes[node]
@@ -636,10 +636,10 @@ class Scheduler:
                 self._progress(node, last=True)
             if outcomes and all(_has_no_value(outcome) for outcome in outcomes.values()):
                 self.skipped.add(node)
-                emit(NodeSkipped(loc=node.path))
+                emit(NodeSkipped(loc=node.node_path))
             else:
                 not_called = sum(type(outcome) is NotCalled for outcome in outcomes.values())
-                emit(NodeComplete(loc=node.path, outcomes=len(outcomes), not_called=not_called, reused=self.reused[node]))
+                emit(NodeComplete(loc=node.node_path, outcomes=len(outcomes), not_called=not_called, reused=self.reused[node]))
             self._complete_around(node, say=True)
 
     def _complete_around(self, node: FlatNode, say: bool) -> None:
@@ -652,10 +652,10 @@ class Scheduler:
             if say and self.emit is not None:
                 if all(inner in self.skipped for inner in around.nodes):
                     self.skipped.add(around)
-                    self.emit(NodeSkipped(loc=around.path))
+                    self.emit(NodeSkipped(loc=around.node_path))
                 else:
                     counted, _ = item_paths(self.all_outcomes, around.loops, (), counted=True)
-                    self.emit(NodeComplete(loc=around.path, outcomes=(counted[0][0] if counted else 0) if around.loops else 1))
+                    self.emit(NodeComplete(loc=around.node_path, outcomes=(counted[0][0] if counted else 0) if around.loops else 1))
             around = around.parent
 
     def _finished(self, node: FlatFunctionNode, may_wait: bool = True) -> bool:

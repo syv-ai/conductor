@@ -56,14 +56,14 @@ def parse_loc_text(text: str) -> tuple[Loc, NodePath, ItemPath]:
     return tuple(loc), tuple(node_ids), tuple(item_path)
 
 
-def node_name(path: NodePath) -> str:
-    """A node path as text, joined by ``/``: ``node_name(("e", "ask"))`` returns ``"e/ask"``.
+def node_path_text(path: NodePath) -> str:
+    """A node path as text, joined by ``/``: ``node_path_text(("e", "ask"))`` returns ``"e/ask"``.
 
     Dicts that hold something per node, in a run and in a saved run, have this text as their key.
     """
     return "/".join(path)
 
 
-def node_path(name: str) -> NodePath:
-    """The node path that ``node_name`` wrote as ``name``: ``node_path("e/ask")`` returns ``("e", "ask")``."""
+def parse_node_path(name: str) -> NodePath:
+    """The node path that ``node_path_text`` wrote as ``name``: ``parse_node_path("e/ask")`` returns ``("e", "ask")``."""
     return tuple(name.split("/"))

@@ -227,19 +227,19 @@ def _offered(field: Field, choices: list[Any]) -> list[dict[str, Any]]:
     return shown
 
 
-def _proposed(field: Field, default: Any, offered: list[dict[str, Any]] | None) -> JsonValue:
+def _proposed(field: Field, default: Any, choices: list[dict[str, Any]] | None) -> JsonValue:
     """The default an ``Ask`` proposes for one output, in JSON form, held to the rules an answer is.
 
     Args:
         field: The output.
         default: The proposed answer as given.
-        offered: The choices the same ``Ask`` offers for the output, if any.
+        choices: The choices the same ``Ask`` offers for the output, if any.
 
     Raises:
         InvalidAskError: An answer could not be the default.
     """
     try:
-        proposed: JsonValue = field.whole.to_json(_checked_answer(field, default, offered))
+        proposed: JsonValue = field.whole.to_json(_checked_answer(field, default, choices))
     except FieldValueError as refused:
         raise InvalidAskError(f"the default for '{field.name}' is not an answer it takes: {refused.reason}") from None
     return proposed
@@ -326,15 +326,15 @@ def answer_outputs(compiled_node: CompiledFunctionNode, value: Any, overrides: M
     groups: dict[str, list[str]] = {}
     for name, field in outputs.items():
         question, override, group = compiled_node.questions[name], overrides.get(name, {}), field.param.exclusive_group
-        offered = override.get("choices", question.choices)
+        choices = override.get("choices", question.choices)
         try:
             if name in value:
-                read[name] = _checked_answer(field, value[name], offered)
+                read[name] = _checked_answer(field, value[name], choices)
             elif group is not None:
                 read[name] = SKIPPED
             elif field.default is SKIPPED and "default" not in override:
                 read[name] = SKIPPED  # left out, a field whose default is SKIPPED is a branch not taken
-            elif not _required(field, override, limited=offered is not None):
+            elif not _required(field, override, limited=choices is not None):
                 read[name] = field.whole.read_answer(override.get("default", question.default))  # a default, or a blank where the type takes one
             else:
                 faults.append((name, f"'{name}' was not answered"))
@@ -348,18 +348,18 @@ def answer_outputs(compiled_node: CompiledFunctionNode, value: Any, overrides: M
     return read, faults
 
 
-def _checked_answer(field: Field, value: Any, offered: list[dict[str, Any]] | None) -> Any:
-    """Reads one question's answer into the node's own form, held to the choices ``offered``.
+def _checked_answer(field: Field, value: Any, choices: list[dict[str, Any]] | None) -> Any:
+    """Reads one question's answer into the node's own form, held to ``choices``.
 
     Raises:
         FieldValueError: The answer is not a value of the output's type, not one of the choices, or, for a pick of several,
             picks a choice twice.
     """
     read = field.whole.read_answer(value)
-    if offered is not None:
+    if choices is not None:
         picked: Any = field.whole.to_json(read)
         picks = picked if field.many else [picked]
-        ids = [choice["id"] for choice in offered]
+        ids = [choice["id"] for choice in choices]
         if any(item not in ids for item in picks):
             raise FieldValueError("the answer is not one of the choices")
         if len({repr(item) for item in picks}) != len(picks):

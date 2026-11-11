@@ -118,5 +118,5 @@ def units_missing(run):
     for node in run.graph._flat_function_nodes:
         made, known = item_paths(run._outcomes, node.loops, ())
         units = run._outcomes[node.name]
-        missing += [(node.path, key) for key in made if key not in units] + ([] if known else [node.path])
+        missing += [(node.node_path, key) for key in made if key not in units] + ([] if known else [node.node_path])
     return missing

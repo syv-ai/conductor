@@ -11,9 +11,9 @@ from conductor._internal.compiled.flat_nodes import (
     FlatFunctionNode,
     FlatNode,
     FlatSubgraph,
-    host_reads,
+    all_upstream,
+    display_plans_of,
     outcome_loc,
-    waits_on,
 )
 from conductor._internal.compiled.input_plans import (
     InputCollectsLoopResults,

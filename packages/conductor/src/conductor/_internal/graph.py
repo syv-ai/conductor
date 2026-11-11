@@ -73,7 +73,7 @@ class Graph(CompiledGraph):
         """How this graph's runs are read from JSON and written as it, made when the first one is."""
         return save_form(
             self.fingerprint,
-            inputs={address: offered.field.whole for address, offered in self._input_fields.items()},
+            inputs={address: graph_input.field.whole for address, graph_input in self._input_fields.items()},
             outputs={node.name: node.compiled_node.outputs for node in self._flat_function_nodes},
             nodes=[node.name for node in self._flat_function_nodes],
         )
@@ -85,13 +85,13 @@ class Graph(CompiledGraph):
         by_address: dict[str, Any] = {}
         problems: list[Problem] = []
         for name, value in given.items():
-            offered = fields.get(name)
-            if offered is None:
+            graph_input = fields.get(name)
+            if graph_input is None:
                 problems.append(problem.not_offered("inputs", name, name=name, inputs=list(self.inputs)))
-            elif offered.address in by_address:
-                problems.append(problem.input_given_twice("inputs", offered.name, name=offered.name, address=offered.address))
+            elif graph_input.address in by_address:
+                problems.append(problem.input_given_twice("inputs", graph_input.name, name=graph_input.name, address=graph_input.address))
             else:
-                by_address[offered.address] = value
+                by_address[graph_input.address] = value
         return by_address, problems
 
     def _checked_inputs(self, given: Mapping[str, Any], problems: list[Problem]) -> dict[str, Any]:
@@ -101,21 +101,21 @@ class Graph(CompiledGraph):
             InvalidCallError: With ``problems`` and then every input that is missing or not of its type.
         """
         problems, values = list(problems), dict[str, Any]()
-        for address, offered in self._input_fields.items():
+        for address, graph_input in self._input_fields.items():
             if address not in given:
-                if offered.field.default is REQUIRED:
-                    problems.append(problem.missing_input("inputs", offered.name, name=offered.name))
-                values[address] = offered.field.default
+                if graph_input.field.default is REQUIRED:
+                    problems.append(problem.missing_input("inputs", graph_input.name, name=graph_input.name))
+                values[address] = graph_input.field.default
                 continue
-            value, field = given[address], offered.field
+            value, field = given[address], graph_input.field
             try:
                 values[address] = field.whole.read(value)
             except FieldValueError as refused:
                 whole = all(not error["loc"] for error in refused.errors or ())  # the list itself was refused, not an item of it
                 if not field.many and type(value) is list and whole:  # the one mistake whose fix is in the graph
-                    problems.append(problem.invalid_input_make_a_series("inputs", offered.name, name=offered.name, expected=field.whole.id, length=len(value)))
+                    problems.append(problem.invalid_input_make_a_series("inputs", graph_input.name, name=graph_input.name, expected=field.whole.id, length=len(value)))
                 else:
-                    problems.append(problem.invalid_input("inputs", offered.name, name=offered.name, reason=refused.reason, errors=refused.errors, column=refused.column))
+                    problems.append(problem.invalid_input("inputs", graph_input.name, name=graph_input.name, reason=refused.reason, errors=refused.errors, column=refused.column))
         if problems:
             raise InvalidCallError(problems)
         return values

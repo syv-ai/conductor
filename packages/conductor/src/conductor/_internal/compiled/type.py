@@ -149,7 +149,7 @@ class CompiledGraph:
         return self._flat_nodes[0]
 
     @property
-    def _node_at(self) -> dict[str, FlatNode]:
+    def _nodes_by_name(self) -> dict[str, FlatNode]:
         """Each node of the graph and of each graph embedded in it, a function or a subgraph, by its
         name (``e/ask``)."""
         return self._flat_nodes[1]
@@ -157,7 +157,7 @@ class CompiledGraph:
     @functools.cached_property
     def _functions(self) -> dict[NodePath, CompiledFunctionNode]:
         """Every function node of ``_flat_function_nodes``, by its path."""
-        return {node.path: node.compiled_node for node in self._flat_function_nodes}
+        return {node.node_path: node.compiled_node for node in self._flat_function_nodes}
 
     @functools.cached_property
     def _threads(self) -> int:

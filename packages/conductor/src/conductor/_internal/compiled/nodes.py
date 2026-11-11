@@ -165,8 +165,8 @@ class CompiledSubgraphNode(_CompiledNodeBase):
             for _ in loops[1:]:
                 item = series_of[item]
             item_type = Type(item)
-            offered = field if field.many else Field(name, series_of[field.hint])
-            described.append(offered.description.model_copy(update={"type": item_type.id, "json_schema": item_type.json_schema, "loops": loops}))
+            series_field = field if field.many else Field(name, series_of[field.hint])
+            described.append(series_field.description.model_copy(update={"type": item_type.id, "json_schema": item_type.json_schema, "loops": loops}))
         return described
 
 

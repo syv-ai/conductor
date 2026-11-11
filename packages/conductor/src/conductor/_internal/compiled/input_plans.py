@@ -97,7 +97,7 @@ class _EdgeSourceBase(OutputInLoops):
         return f"{self.node_id}.{self.output}.{self.record_field}" if self.record_field else f"{self.node_id}.{self.output}"
 
     @property
-    def read_in(self) -> tuple[OutputAddress, ...]:
+    def loops_of_value(self) -> tuple[OutputAddress, ...]:
         """The scope its values sit in: the one its node runs in."""
         return self.loops
 
@@ -114,7 +114,7 @@ class ItemOfSeries(_EdgeSourceBase):
     """One item of a ``Series`` output, read inside the map that Series opens."""
 
     @property
-    def read_in(self) -> tuple[OutputAddress, ...]:
+    def loops_of_value(self) -> tuple[OutputAddress, ...]:
         """The scope its values sit in: the map of the Series, under the scope its node runs in."""
         return (*self.loops, OutputAddress(self.node_id, self.output))
 
@@ -124,7 +124,7 @@ class ItemOfSeries(_EdgeSourceBase):
 class SeriesAsList(_EdgeSourceBase):
     """A ``Series`` output read as the one list it is.
 
-    Only the plans ``run.results`` reads an output with hold one (``host_reads``). Example: ``lines`` is called
+    Only the plans ``run.results`` reads an output with hold one (``display_plans_of``). Example: ``lines`` is called
     once per document and returns that document's lines as a ``Series``. ``results`` shows a list per
     document, each the whole list one call returned.
     """

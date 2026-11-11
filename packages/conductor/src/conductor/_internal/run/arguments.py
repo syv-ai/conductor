@@ -179,12 +179,12 @@ class ResultReader(Reader):
         if value is None or value is SKIPPED or type(at) is OutputInLoops:
             return value
         if type(at) is ItemOfSeries:  # ``value`` is a stored Series: one item of it, or one field of that item
-            wanted = at.record_field
-            if wanted is None:
+            record_field = at.record_field
+            if record_field is None:
                 return value[item_path[depth]]
-            cell = value.columns[wanted][item_path[depth]]
+            cell = value.columns[record_field][item_path[depth]]
             if type(cell) is NoSuchFieldError:
-                raise NoSuchFieldError(wanted)
+                raise NoSuchFieldError(record_field)
             return cell
         if type(at) is SeriesAsList:
             return value.as_list()
@@ -211,9 +211,9 @@ class ResultReader(Reader):
             return series
         edges = plan.sources
         if len(edges) == 1 and type(edges[0]) is ItemOfSeries:  # the Series itself: its items, or one field of each
-            wanted = edges[0].record_field
-            if wanted is not None:
-                return series.field_as_list(wanted)
+            record_field = edges[0].record_field
+            if record_field is not None:
+                return series.field_as_list(record_field)
             return series.as_table_input() if plan.field.whole.record is not None else series.as_list()
         items = []
         one_edge = edges[0] if len(edges) == 1 else None
@@ -286,7 +286,7 @@ class DisplayReader(ResultReader):
         ``[["A", "B"], None, ["C"]]``.
 
         Args:
-            plans: The output's plans from ``host_reads``: one for each loop the node is called in.
+            plans: The output's plans from ``display_plans_of``: one for each loop the node is called in.
             item_path: The index of the item in each loop already entered; empty for the whole output.
 
         Returns:

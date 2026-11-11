@@ -26,7 +26,7 @@ def call(node: FlatFunctionNode, arguments: dict[str, Any], from_run: Mapping[ty
     compiled_node = node.compiled_node
     definition = compiled_node.definition
     try:
-        for name in node.checked:
+        for name in node.validated_inputs:
             arguments = {**arguments, name: _checked(compiled_node.inputs[name].field, name, arguments[name], returned=False)}
         if definition.from_run:
             arguments = {**arguments, **{name: from_run[needed] for name, needed in definition.from_run.items()}}

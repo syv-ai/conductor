@@ -52,15 +52,15 @@ def fit(target: Any, source: Any, bound: dict[TypeVar, Any], exact: bool) -> boo
         return all(fit(target, type(value), bound, exact) for value in get_args(source))
     target_class, source_class = get_origin(target) or target, get_origin(source) or source
     if typing.is_typeddict(source):
-        held = typing.get_type_hints(source)
+        source_fields = typing.get_type_hints(source)
         if typing.is_typeddict(target):  # read by its keys: every key the target names, each of a type that fits
-            wanted = typing.get_type_hints(target)
-            same = not exact or wanted.keys() == held.keys()  # a read drops the keys the target doesn't name
-            return same and target.__required_keys__ <= source.__required_keys__ and all(key in held and fit(hint, held[key], bound, exact) for key, hint in wanted.items())
+            expected = typing.get_type_hints(target)
+            same = not exact or expected.keys() == source_fields.keys()  # a read drops the keys the target doesn't name
+            return same and target.__required_keys__ <= source.__required_keys__ and all(key in source_fields and fit(hint, source_fields[key], bound, exact) for key, hint in expected.items())
         if target_class is not dict:
             return False
         key, value = get_args(target) or (Any, Any)
-        return fit(key, str, bound, exact) and all(fit(value, hint, bound, exact) for hint in held.values())
+        return fit(key, str, bound, exact) and all(fit(value, hint, bound, exact) for hint in source_fields.values())
     if typing.is_typeddict(target) or not (isinstance(target_class, type) and isinstance(source_class, type)):
         return False
     if issubclass(source_class, bool) and a_number(target_class):

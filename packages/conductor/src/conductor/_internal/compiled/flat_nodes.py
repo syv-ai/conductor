@@ -15,7 +15,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from conductor._internal.address import Loc, NodePath, node_name
+from conductor._internal.address import Loc, NodePath, node_path_text
 from conductor._internal.compiled.input_plans import (
     EdgeSource,
     InputCollectsLoopResults,
@@ -57,7 +57,7 @@ class _FlatNodeBase:
 
     Attributes:
         parent: The subgraph's node it is directly inside; ``None`` for a node of the graph itself.
-        path: The ids of the subgraphs' nodes it is inside, outermost first, then its own id.
+        node_path: The ids of the subgraphs' nodes it is inside, outermost first, then its own id.
         name: The path as a run and a save name the node, ``e/ask``.
         loops: Every map it runs in, outermost first, each as the function whose ``Series`` output it is and
             that output: those of the subgraph's node it is inside, then those of its own scope. A loop
@@ -65,7 +65,7 @@ class _FlatNodeBase:
     """
 
     parent: FlatSubgraph | None
-    path: NodePath
+    node_path: NodePath
     name: str
     loops: tuple[tuple[FlatFunctionNode, str], ...]
 
@@ -97,25 +97,25 @@ class FlatFunctionNode(_FlatNodeBase):
             itself, which names the functions it gathers through, ``InputCollectsLoopResults.loop_body``).
         lists_from_same_loop: The gathering inputs that gather one Series, for each such Series: each input's name
             and whether its items may be blank. They receive the same items.
-        checked: The inputs whose value is read by the input's type before a call, as the types the edges bring
+        validated_inputs: The inputs whose value is read by the input's type before a call, as the types the edges bring
             don't settle it.
         looped_outputs: The ``Series`` outputs some reader works through one item at a time where the node stands,
             which a run holds to ``max_items``, each with the node and the output its reader's graph names it
             by: its own, for a reader in its graph; for a reader of a subgraph's node around it, that
             node and the output it offers, so the ceiling is said of what that graph's author drew. A reader
-            placed after the node adds to it, as its plan is written (``_plan_at_path``).
-        reads_from: Every function whose units its own are made from, each with how many places of an item
+            placed after the node adds to it, as its plan is written (``_flat_plan``).
+        upstream: Every function whose units its own are made from, each with how many places of an item
             path of this node say which of that function's units: the unit at those places, and where that
             function runs deeper every unit under them. They are the outputs its inputs' plans read (``reads``
             of each), no deeper than the input sits; for a gathering input also what the functions it gathers
             through read outside the items, which can settle it for every item at once; and, for a node that
             reads anything from outside the innermost map it runs in, or reads nothing, the Series of that
             map, since what it reads may be there before its items are.
-        readers: Each function whose ``reads_from`` holds this one, with the number held there.
+        downstream: Each function whose ``upstream`` holds this one, with the number held there.
         position: Its place in the order a leg tries the functions in.
-        waits_on: Every function it waits on, however far up; filled when first asked for.
+        all_upstream: Every function it waits on, however far up; filled when first asked for.
         display_plans: The input plans ``run.results`` reads each output with, by the output's name
-            (``host_reads``); filled when first asked for.
+            (``display_plans_of``); filled when first asked for.
     """
 
     compiled_node: CompiledFunctionNode
@@ -124,12 +124,12 @@ class FlatFunctionNode(_FlatNodeBase):
     graph_inputs: tuple[tuple[str, str], ...]
     edge_inputs: tuple[tuple[str, InputFromEdges, bool], ...]
     lists_from_same_loop: tuple[tuple[tuple[str, bool], ...], ...]
-    checked: tuple[str, ...]
+    validated_inputs: tuple[str, ...]
     looped_outputs: dict[str, tuple[FlatNode, str]] = dataclasses.field(default_factory=dict[str, tuple["FlatNode", str]])
-    reads_from: dict[FlatFunctionNode, int] = dataclasses.field(default_factory=dict["FlatFunctionNode", int])
-    readers: list[tuple[FlatFunctionNode, int]] = dataclasses.field(default_factory=list[tuple["FlatFunctionNode", int]])
+    upstream: dict[FlatFunctionNode, int] = dataclasses.field(default_factory=dict["FlatFunctionNode", int])
+    downstream: list[tuple[FlatFunctionNode, int]] = dataclasses.field(default_factory=list[tuple["FlatFunctionNode", int]])
     position: int = 0
-    waits_on: frozenset[FlatFunctionNode] | None = None
+    all_upstream: frozenset[FlatFunctionNode] | None = None
     display_plans: dict[str, tuple[InputReadsOneValue | InputCollectsLoopResults, ...]] = dataclasses.field(default_factory=dict[str, tuple[InputReadsOneValue | InputCollectsLoopResults, ...]])
 
 
@@ -162,18 +162,18 @@ FlatNode = FlatFunctionNode | FlatSubgraph
 
 
 
-def waits_on(node: FlatFunctionNode) -> frozenset[FlatFunctionNode]:
+def all_upstream(node: FlatFunctionNode) -> frozenset[FlatFunctionNode]:
     """Every function ``node`` waits on, however far up; worked out when first asked, as most nodes never are."""
-    if node.waits_on is None:
+    if node.all_upstream is None:
         seen: set[FlatFunctionNode] = set()
         stack = [node]
         while stack:
-            for read in stack.pop().reads_from:
+            for read in stack.pop().upstream:
                 if read not in seen:
                     seen.add(read)
                     stack.append(read)
-        node.waits_on = frozenset(seen)
-    return node.waits_on
+        node.all_upstream = frozenset(seen)
+    return node.all_upstream
 
 
 def outcome_loc(node: FlatNode, key: ItemPath) -> Loc:
@@ -196,7 +196,7 @@ def outcome_loc(node: FlatNode, key: ItemPath) -> Loc:
 _DISPLAY_FIELD = Field("shown", Series[Any | None], REQUIRED)  # type: ignore[misc]  # mypy takes no union as a type argument here
 
 
-def host_reads(node: FlatFunctionNode, output: str) -> tuple[InputReadsOneValue | InputCollectsLoopResults, ...]:
+def display_plans_of(node: FlatFunctionNode, output: str) -> tuple[InputReadsOneValue | InputCollectsLoopResults, ...]:
     """The input plans ``run.results`` reads one output of a function node with.
 
     A host reads an output the way a node wired to it would, so the plans are the ones such a node's input
@@ -219,8 +219,8 @@ def host_reads(node: FlatFunctionNode, output: str) -> tuple[InputReadsOneValue 
     if plans is None:
         made = node.compiled_node.outputs[output]
         at = (SeriesAsList if made.many else WholeOutput)(node.name, output, _loops_by_name(node.loops), None, made.type)
-        functions = {made_by.name: made_by for made_by in (node, *(series for series, _ in node.loops))}
-        per_loop = [_gather_at_path(_DISPLAY_FIELD, looped_over, (at,), functions) for looped_over in node.loops]
+        functions = {source_node.name: source_node for source_node in (node, *(series for series, _ in node.loops))}
+        per_loop = [_collect_plan(_DISPLAY_FIELD, looped_over, (at,), functions) for looped_over in node.loops]
         plans = node.display_plans[output] = tuple(per_loop) or (InputReadsOneValue(_DISPLAY_FIELD, (at,), at.loops),)
     return plans
 
@@ -228,59 +228,59 @@ def host_reads(node: FlatFunctionNode, output: str) -> tuple[InputReadsOneValue 
 def flat_nodes(graph: CompiledGraph) -> tuple[list[FlatFunctionNode], dict[str, FlatNode]]:
     """The nodes of ``graph`` and those of each graph embedded in it, where they stand: the functions in the
     order a leg tries them, each after the functions it reads, and every node by its name."""
-    tree: list[FlatFunctionNode] = []
-    node_at: dict[str, FlatNode] = {}
-    _add_to_tree(graph, None, tree, node_at)
-    for node in tree:
-        for read, places in node.reads_from.items():
-            read.readers.append((node, places))
-    return tree, node_at
+    function_nodes: list[FlatFunctionNode] = []
+    nodes_by_name: dict[str, FlatNode] = {}
+    _add_flat_nodes(graph, None, function_nodes, nodes_by_name)
+    for node in function_nodes:
+        for read, places in node.upstream.items():
+            read.downstream.append((node, places))
+    return function_nodes, nodes_by_name
 
 
-def _add_to_tree(graph: CompiledGraph, parent: FlatSubgraph | None, tree: list[FlatFunctionNode], node_at: dict[str, FlatNode]) -> dict[str, FlatNode]:
-    """Add the functions of ``graph`` to ``tree``, each after the functions it reads, those of each graph
-    embedded in it where that graph's node stands, and every node to ``node_at``.
+def _add_flat_nodes(graph: CompiledGraph, parent: FlatSubgraph | None, function_nodes: list[FlatFunctionNode], nodes_by_name: dict[str, FlatNode]) -> dict[str, FlatNode]:
+    """Add the functions of ``graph`` to ``function_nodes``, each after the functions it reads, those of each graph
+    embedded in it where that graph's node stands, and every node to ``nodes_by_name``.
 
     A plan of the compiled graph names the nodes of its own graph. Here each is written for where its node stands
-    (``_plan_at_path``): the one place a subgraph's boundary is crossed, inwards for an open input and
+    (``_flat_plan``): the one place a subgraph's boundary is crossed, inwards for an open input and
     outwards for an output.
 
     Args:
         graph: The graph: the one a run is of, or one embedded in it.
         parent: The subgraph's node that ``graph`` is the inner graph of; ``None`` for the run's own.
-        tree: The functions so far, added to.
-        node_at: Every node so far by its name, added to.
+        function_nodes: The functions so far, added to.
+        nodes_by_name: Every node so far by its name, added to.
 
     Returns:
         The nodes of ``graph`` where they stand, by id.
     """
-    inside = parent.path if parent is not None else ()
-    above = parent.loops if parent is not None else ()
-    here: dict[str, FlatNode] = {}
-    functions = typing.cast("dict[str, FlatFunctionNode]", node_at)  # an output of a plan at a path names a function
+    parent_path = parent.node_path if parent is not None else ()
+    outer_loops = parent.loops if parent is not None else ()
+    nodes_by_id: dict[str, FlatNode] = {}
+    functions = typing.cast("dict[str, FlatFunctionNode]", nodes_by_name)  # an output of a plan at a path names a function
     for compiled_node in graph._nodes.values():
         inputs: dict[str, InputPlan] = {}
         for name, plan in compiled_node.inputs.items():
             if parent is not None and isinstance(plan, InputFromGraphInput):  # the subgraph's node is given it, as a caller would give it
                 inputs[name] = parent.inputs[graph._input_fields[plan.address].name]
             else:
-                inputs[name] = _plan_at_path(plan, here, inside, functions)
-        loops = (*above, *[_series_looped_over(loop, inside, node_at) for loop in compiled_node.loops])
-        path = (*inside, compiled_node.id)
+                inputs[name] = _flat_plan(plan, nodes_by_id, parent_path, functions)
+        loops = (*outer_loops, *[_series_looped_over(loop, parent_path, nodes_by_name) for loop in compiled_node.loops])
+        node_path = (*parent_path, compiled_node.id)
         if isinstance(compiled_node, CompiledSubgraphNode):
-            subgraph = FlatSubgraph(compiled_node=compiled_node, parent=parent, path=path, name=node_name(path), loops=loops, inputs=inputs)
-            within = _add_to_tree(compiled_node.inner, subgraph, tree, node_at)
+            subgraph = FlatSubgraph(compiled_node=compiled_node, parent=parent, node_path=node_path, name=node_path_text(node_path), loops=loops, inputs=inputs)
+            within = _add_flat_nodes(compiled_node.inner, subgraph, function_nodes, nodes_by_name)
             subgraph.nodes = list(within.values())
             for address in compiled_node.inner.outputs:
-                made_by, _, output = address.partition(".")
-                last = within[made_by]
+                source_node, _, output = address.partition(".")
+                last = within[source_node]
                 subgraph.output_sources[address] = last.output_sources[output] if isinstance(last, FlatSubgraph) else (last, output)
-            here[compiled_node.id] = node_at[subgraph.name] = subgraph
+            nodes_by_id[compiled_node.id] = nodes_by_name[subgraph.name] = subgraph
             continue
         constants: dict[str, Any] = {}
         graph_inputs: list[tuple[str, str]] = []
         edge_inputs: list[tuple[str, InputFromEdges, bool]] = []
-        reads_from: dict[FlatFunctionNode, int] = {}
+        upstream: dict[FlatFunctionNode, int] = {}
         gathering: dict[OutputInLoops, list[tuple[str, bool]]] = {}
         for name, plan in inputs.items():
             constants[name] = None
@@ -292,39 +292,39 @@ def _add_to_tree(graph: CompiledGraph, parent: FlatSubgraph | None, tree: list[F
                     graph_inputs.append((name, address))
                     continue
                 case InputMissing():
-                    raise RuntimeError(f"'{node_name(path)}' has an input with no value to give: a graph with problems is never walked")
+                    raise RuntimeError(f"'{node_path_text(node_path)}' has an input with no value to give: a graph with problems is never walked")
             read_at = [(functions[at.node_id], min(at.depth, len(plan.loops))) for at in plan.reads]  # no deeper than the input sits
             if isinstance(plan, InputCollectsLoopResults):
                 series = plan.series
                 items_of = (functions[series.node_id], series.output)  # what the functions it gathers through read outside the items can settle it too
-                read_at += [(read, places) for inner in plan.loop_body for read, places in inner.reads_from.items() if items_of not in read.loops]
+                read_at += [(read, places) for inner in plan.loop_body for read, places in inner.upstream.items() if items_of not in read.loops]
                 gathering.setdefault(series, []).append((name, plan.field.accepts_none_items))
                 whole = WholeOutput(series.node_id, series.output, series.loops, None, functions[series.node_id].compiled_node.outputs[series.output].whole)
                 edge_inputs.append((name, InputReadsOneValue(plan.field, (whole,), series.loops), plan.field.whole.optional))  # it needs its Series, and then its items
             edge_inputs.append((name, plan, plan.field.whole.optional))
             for read, places in read_at:
-                reads_from[read] = min(places, reads_from.get(read, places))
+                upstream[read] = min(places, upstream.get(read, places))
         node = FlatFunctionNode(
-            compiled_node=compiled_node, parent=parent, path=path, name=node_name(path), loops=loops, policy=compiled_node.definition.policy,
+            compiled_node=compiled_node, parent=parent, node_path=node_path, name=node_path_text(node_path), loops=loops, policy=compiled_node.definition.policy,
             constants=constants, graph_inputs=tuple(graph_inputs), edge_inputs=tuple(edge_inputs), lists_from_same_loop=tuple(map(tuple, gathering.values())),
-            checked=tuple(name for name, plan in inputs.items() if _read_before_a_call(plan)), reads_from=reads_from,
+            validated_inputs=tuple(name for name, plan in inputs.items() if _needs_validation(plan)), upstream=upstream,
         )
-        if loops and min(node.reads_from.values(), default=0) < len(loops):  # what it reads may be there before its items are
-            node.reads_from.setdefault(loops[-1][0], len(loops) - 1)
-        here[compiled_node.id] = node_at[node.name] = node
-        node.position = len(tree)
-        tree.append(node)
-    return here
+        if loops and min(node.upstream.values(), default=0) < len(loops):  # what it reads may be there before its items are
+            node.upstream.setdefault(loops[-1][0], len(loops) - 1)
+        nodes_by_id[compiled_node.id] = nodes_by_name[node.name] = node
+        node.position = len(function_nodes)
+        function_nodes.append(node)
+    return nodes_by_id
 
 
-def _made_by(port: OutputAddress, here: Mapping[str, FlatNode]) -> tuple[FlatFunctionNode, str]:
+def _source_function(port: OutputAddress, nodes_by_id: Mapping[str, FlatNode]) -> tuple[FlatFunctionNode, str]:
     """The function that returns the output ``port`` names, and the output's name there: the node itself, or
     for a stored graph's node the function inside it that returns what the node offers."""
-    made_by = here[port.node_id]
-    return made_by.output_sources[port.output] if isinstance(made_by, FlatSubgraph) else (made_by, port.output)
+    source_node = nodes_by_id[port.node_id]
+    return source_node.output_sources[port.output] if isinstance(source_node, FlatSubgraph) else (source_node, port.output)
 
 
-def _series_looped_over(loop: OutputAddress, inside: NodePath, node_at: Mapping[str, FlatNode]) -> tuple[FlatFunctionNode, str]:
+def _series_looped_over(loop: OutputAddress, parent_path: NodePath, nodes_by_name: Mapping[str, FlatNode]) -> tuple[FlatFunctionNode, str]:
     """The list one loop of a node's scope goes through, as the function that returns it and the output's name.
 
     A loop over a function's ``Series`` output is that output. A loop a stored graph's node names is a loop
@@ -333,14 +333,14 @@ def _series_looped_over(loop: OutputAddress, inside: NodePath, node_at: Mapping[
 
     Args:
         loop: The loop, as a graph's scope names it.
-        inside: The path of the stored graph's node that graph is inside; empty for the run's own graph.
-        node_at: Every node placed so far, by its name.
+        parent_path: The path of the stored graph's node that graph is inside; empty for the run's own graph.
+        nodes_by_name: Every node placed so far, by its name.
     """
-    made_by = node_at[node_name((*inside, loop.node_id))]
-    if isinstance(made_by, FlatSubgraph):
+    source_node = nodes_by_name[node_path_text((*parent_path, loop.node_id))]
+    if isinstance(source_node, FlatSubgraph):
         inner_id, _, inner_output = loop.output.partition(".")
-        return _series_looped_over(OutputAddress(inner_id, inner_output), made_by.path, node_at)
-    return made_by, loop.output
+        return _series_looped_over(OutputAddress(inner_id, inner_output), source_node.node_path, nodes_by_name)
+    return source_node, loop.output
 
 
 def _loops_by_name(loops: tuple[tuple[FlatFunctionNode, str], ...]) -> tuple[OutputAddress, ...]:
@@ -348,7 +348,7 @@ def _loops_by_name(loops: tuple[tuple[FlatFunctionNode, str], ...]) -> tuple[Out
     return tuple([OutputAddress(series.name, output) for series, output in loops])
 
 
-def _plan_at_path(plan: InputPlan, here: Mapping[str, FlatNode], inside: NodePath, functions: Mapping[str, FlatFunctionNode]) -> InputPlan:
+def _flat_plan(plan: InputPlan, nodes_by_id: Mapping[str, FlatNode], parent_path: NodePath, functions: Mapping[str, FlatFunctionNode]) -> InputPlan:
     """A plan of a compiled graph as the plan of its node where it stands: each output names the function that
     returns it by its ``name``, in the loops that function is called in.
 
@@ -357,32 +357,32 @@ def _plan_at_path(plan: InputPlan, here: Mapping[str, FlatNode], inside: NodePat
 
     Args:
         plan: The plan, as its graph loaded it.
-        here: The nodes of that graph placed so far, where they stand, by id.
-        inside: The path of the stored graph's node that graph is inside; empty for the run's own graph.
+        nodes_by_id: The nodes of that graph placed so far, where they stand, by id.
+        parent_path: The path of the stored graph's node that graph is inside; empty for the run's own graph.
         functions: Every function placed so far, by its name.
     """
 
-    def at_path(source: EdgeSource, opened: bool) -> EdgeSource:
-        made_by, output = _made_by(OutputAddress(source.node_id, source.output), here)
-        brought = ItemOfSeries if made_by.compiled_node.outputs[output].many else WholeOutput
-        if opened and brought is ItemOfSeries:
-            made_by.looped_outputs.setdefault(output, (here[source.node_id], source.output))
-        return brought(made_by.name, output, _loops_by_name(made_by.loops), source.record_field, source.type)
+    def flat_source(source: EdgeSource, opened: bool) -> EdgeSource:
+        source_node, output = _source_function(OutputAddress(source.node_id, source.output), nodes_by_id)
+        source_kind = ItemOfSeries if source_node.compiled_node.outputs[output].many else WholeOutput
+        if opened and source_kind is ItemOfSeries:
+            source_node.looped_outputs.setdefault(output, (nodes_by_id[source.node_id], source.output))
+        return source_kind(source_node.name, output, _loops_by_name(source_node.loops), source.record_field, source.type)
 
     match plan:
         case InputReadsOneValue(field=field, reads=reads):
-            brings = tuple([at_path(source, True) for source in reads])
-            return InputReadsOneValue(field, brings, max((source.read_in for source in brings), key=len))
+            sources = tuple([flat_source(source, True) for source in reads])
+            return InputReadsOneValue(field, sources, max((source.loops_of_value for source in sources), key=len))
         case InputWrapsOneValue(field=field, reads=reads):
-            return InputWrapsOneValue(field, tuple([typing.cast(WholeOutput, at_path(source, False)) for source in reads]))
+            return InputWrapsOneValue(field, tuple([typing.cast(WholeOutput, flat_source(source, False)) for source in reads]))
         case InputCollectsLoopResults(field=field, series=series, sources=sources):
-            looped_over = _series_looped_over(OutputAddress(series.node_id, series.output), inside, functions)
-            return _gather_at_path(field, looped_over, tuple([at_path(source, False) for source in sources]), functions)
+            looped_over = _series_looped_over(OutputAddress(series.node_id, series.output), parent_path, functions)
+            return _collect_plan(field, looped_over, tuple([flat_source(source, False) for source in sources]), functions)
         case _:
             return plan
 
 
-def _gather_at_path(field: Field, looped_over: tuple[FlatFunctionNode, str], sources: tuple[EdgeSource, ...], functions: Mapping[str, FlatFunctionNode]) -> InputCollectsLoopResults:
+def _collect_plan(field: Field, looped_over: tuple[FlatFunctionNode, str], sources: tuple[EdgeSource, ...], functions: Mapping[str, FlatFunctionNode]) -> InputCollectsLoopResults:
     """The plan of an input that collects one value per item of the list ``looped_over``, where its node
     stands: the one way such a plan is made, for a node's own input and for what a host is shown.
 
@@ -392,15 +392,15 @@ def _gather_at_path(field: Field, looped_over: tuple[FlatFunctionNode, str], sou
         sources: What each edge brings for an item, each naming a function by its name.
         functions: The functions the plan's outputs name, by name.
     """
-    made_by, output = looped_over
-    series = OutputInLoops(made_by.name, output, _loops_by_name(made_by.loops))
-    through = _gathered_through(looped_over, [functions[at.node_id] for at in sources])
-    return InputCollectsLoopResults(field, (series, *sources), through)
+    source_node, output = looped_over
+    series = OutputInLoops(source_node.name, output, _loops_by_name(source_node.loops))
+    loop_body = _loop_body_of(looped_over, [functions[at.node_id] for at in sources])
+    return InputCollectsLoopResults(field, (series, *sources), loop_body)
 
 
-def _gathered_through(series: tuple[FlatFunctionNode, str], sources: list[FlatFunctionNode]) -> tuple[FlatFunctionNode, ...]:
+def _loop_body_of(series: tuple[FlatFunctionNode, str], sources: list[FlatFunctionNode]) -> tuple[FlatFunctionNode, ...]:
     """Finds the functions made per item of ``series`` that a gathering input rests on, by what each one's
-    units are made from (``reads_from``).
+    units are made from (``upstream``).
 
     Args:
         series: The Series the input gathers: the function that makes it, and its output.
@@ -409,17 +409,17 @@ def _gathered_through(series: tuple[FlatFunctionNode, str], sources: list[FlatFu
     Returns:
         The functions, in the order a leg tries them, each after the ones it reads.
     """
-    through: set[FlatFunctionNode] = set()
+    loop_body: set[FlatFunctionNode] = set()
     stack = sources
     while stack:
         inner = stack.pop()
-        if series in inner.loops and inner not in through:
-            through.add(inner)
-            stack.extend(inner.reads_from)
-    return tuple(sorted(through, key=lambda inner: inner.position))
+        if series in inner.loops and inner not in loop_body:
+            loop_body.add(inner)
+            stack.extend(inner.upstream)
+    return tuple(sorted(loop_body, key=lambda inner: inner.position))
 
 
-def _read_before_a_call(plan: InputPlan) -> bool:
+def _needs_validation(plan: InputPlan) -> bool:
     """Whether what edges bring an input is read by the input's type before each call: not when every value they
     bring is already one the field takes as it is, with no limit or choice to hold it to."""
     match plan:

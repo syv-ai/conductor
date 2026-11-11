@@ -39,9 +39,9 @@ from conductor._internal.address import (
     ItemPath,
     Loc,
     NodePath,
-    node_name,
-    node_path,
+    node_path_text,
     parse_loc_text,
+    parse_node_path,
 )
 from conductor._internal.ask import (
     Waiting,
@@ -52,7 +52,7 @@ from conductor._internal.ask import (
 from conductor._internal.compiled import (
     FlatFunctionNode,
     FlatSubgraph,
-    host_reads,
+    display_plans_of,
     outcome_loc,
 )
 from conductor._internal.conductor_model import ConductorModel
@@ -310,7 +310,7 @@ class Run:
             except ValueError:  # a place in it isn't a number
                 problems.append(problem.not_waiting(unit_id.partition("@")[0], waiting_id=unit_id, status=self.status))
                 continue
-            node = self.graph._node_at.get(node_name(nodes))
+            node = self.graph._nodes_by_name.get(node_path_text(nodes))
             found = self._outcomes[node.name].get(key) if type(node) is FlatFunctionNode else None
             if type(node) is not FlatFunctionNode or type(found) is not Asking:
                 moved_to = self._moved_to(nodes, fingerprint) if fingerprint else None
@@ -342,7 +342,7 @@ class Run:
         """The id of the unit where the question a stale id names now waits, if it waits elsewhere on the node at
         the path ``nodes``."""
         for node, key, outcome in self._asking():
-            if node.path == nodes and question_fingerprint(node.compiled_node, outcome) == fingerprint:
+            if node.node_path == nodes and question_fingerprint(node.compiled_node, outcome) == fingerprint:
                 return waiting_record(node.compiled_node, outcome_loc(node, key), outcome).id
         return None
 
@@ -359,7 +359,7 @@ class Run:
         """
         changed = {**inputs, **by_name}
         named = self.graph._given_by_address(changed)[0]
-        given = {offered.name: self.inputs[address] for address, offered in self.graph._input_fields.items() if address not in named}
+        given = {graph_input.name: self.inputs[address] for address, graph_input in self.graph._input_fields.items() if address not in named}
         return self.graph.with_inputs({**given, **changed}, max_items=max_items if max_items is not None else self.max_items, earlier=self)
 
     def forget(self, *node_ids: str) -> Run:
@@ -389,10 +389,10 @@ class Run:
         work: dict[NodePath, ReusableResults] = {}
         reader = self._reader
         for node in self.graph._flat_function_nodes:
-            if not node.policy.reuse_when_inputs_match or node.path in self._made_by_other_code:
+            if not node.policy.reuse_when_inputs_match or node.node_path in self._made_by_other_code:
                 continue
             compiled_node = node.compiled_node
-            of_node = work[node.path] = ReusableResults()
+            of_node = work[node.node_path] = ReusableResults()
             for key, outcome in self._outcomes[node.name].items():
                 if type(outcome) is Skipped or type(outcome) is outcomes.NotCalled:
                     continue
@@ -462,7 +462,7 @@ class Run:
         made, or no item of it could have a value.
         """
         reader = self._display_reader
-        return {n: {o: reader.display_value(host_reads(*self._function_of(f"{n}.{o}"))) for o in compiled_node.outputs} for n, compiled_node in self.graph._nodes.items()}
+        return {n: {o: reader.display_value(display_plans_of(*self._function_of(f"{n}.{o}"))) for o in compiled_node.outputs} for n, compiled_node in self.graph._nodes.items()}
 
     @property
     def outputs(self) -> dict[str, Any]:
@@ -475,7 +475,7 @@ class Run:
             case EndedEarly(status=status, cause=cause):
                 raise InvalidCallError([problem.run_not_complete("outputs", status=status, reason=cause.msg)])
         reader = self._display_reader
-        return {address: reader.display_value(host_reads(*self._function_of(address))) for address in self.graph.outputs}
+        return {address: reader.display_value(display_plans_of(*self._function_of(address))) for address in self.graph.outputs}
 
     def outputs_json(self) -> str:
         """The graph's outputs (``run.outputs``) as JSON, by address, each written by its output's type as a save
@@ -502,7 +502,7 @@ class Run:
         that function. For a stored graph used as a node (``e.upper.result``) it is the function inside the
         stored graph, since the stored graph's node is never called itself."""
         node_id, _, output = address.partition(".")
-        node = self.graph._node_at[node_id]
+        node = self.graph._nodes_by_name[node_id]
         return node.output_sources[output] if type(node) is FlatSubgraph else (node, output)
 
     # -- what a leg reads -------------------------------------------------------
@@ -536,9 +536,9 @@ class Run:
             node.name: outcome_columns(node.compiled_node.outputs, self._slots(node))
             for node in self.graph._flat_function_nodes if self._outcomes[node.name]
         }
-        earlier = {node_name(path): reusable_columns(functions[path].outputs, of_node) for path, of_node in self._reusable_results.items() if of_node.computed or of_node.asked}
-        code = {name: self._made_by_other_code.get(path) or compiled_node.reuse_digest for path, compiled_node in functions.items() if (name := node_name(path)) in outcomes or name in earlier}
-        complete = [node.name for node in self.graph._flat_function_nodes if node.path in self._finished_nodes]
+        earlier = {node_path_text(path): reusable_columns(functions[path].outputs, of_node) for path, of_node in self._reusable_results.items() if of_node.computed or of_node.asked}
+        code = {name: self._made_by_other_code.get(path) or compiled_node.reuse_digest for path, compiled_node in functions.items() if (name := node_path_text(path)) in outcomes or name in earlier}
+        complete = [node.name for node in self.graph._flat_function_nodes if node.node_path in self._finished_nodes]
         form = self.graph._save_form
         written_once = tables_written_once(form.outputs, form.shareable, outcomes) if form.shareable else None
         return SavedRun(graph=self.graph.fingerprint, state=self.state, max_items=self.max_items, inputs=self.inputs, outcomes=outcomes, reusable_results=earlier, code=code, complete=complete, tables_written_once=written_once)
@@ -617,9 +617,9 @@ def _run_of(graph: Graph, saved: SavedRun[list[Outcome | None], ReusableResults]
                 raise InvalidCallError([problem.state_unreadable("state", at=at, reason=reason)])
             run._outcomes[node.name] = {instance: outcome for instance, outcome in zip(made, slots, strict=True) if outcome is not None}
     functions = graph._functions
-    run._made_by_other_code = {path: digest for name, digest in saved.code.items() if digest != functions[path := node_path(name)].reuse_digest}
-    run._reusable_results = {path: of_node for name, of_node in saved.reusable_results.items() if (path := node_path(name)) not in run._made_by_other_code}  # work of other code is never taken
-    run._finished_nodes = frozenset(node_path(name) for name in saved.complete)
+    run._made_by_other_code = {path: digest for name, digest in saved.code.items() if digest != functions[path := parse_node_path(name)].reuse_digest}
+    run._reusable_results = {path: of_node for name, of_node in saved.reusable_results.items() if (path := parse_node_path(name)) not in run._made_by_other_code}  # work of other code is never taken
+    run._finished_nodes = frozenset(parse_node_path(name) for name in saved.complete)
     return run
 
 

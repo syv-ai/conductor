@@ -184,7 +184,7 @@ class _Compiler:
             name = field.name if names.count(field.name) == 1 else graph_input.address
             inputs[name] = graph_input
             input_fields[graph_input.address] = InputField(name, graph_input.address, field)
-        readers: dict[str, list[CompiledNode]] = {node_id: [] for node_id in self.nodes}
+        downstream: dict[str, list[CompiledNode]] = {node_id: [] for node_id in self.nodes}
         needs_from_run: list[tuple[str, FunctionDefinition[..., Any]]] = []
         for compiled_node in self.nodes.values():
             match compiled_node:
@@ -194,8 +194,8 @@ class _Compiler:
                 case CompiledSubgraphNode(inner=inner):
                     needs_from_run += inner._needs_from_run
             for source_id in compiled_node.reads:
-                readers[source_id].append(compiled_node)
-        return graph_type(record, self.problems, inputs, self.nodes, input_fields, readers, needs_from_run)
+                downstream[source_id].append(compiled_node)
+        return graph_type(record, self.problems, inputs, self.nodes, input_fields, downstream, needs_from_run)
 
     def _resolve(self, record: NodeRecord) -> NodeDefinition | None:
         """The definition a node of the record names, at its version; ``None`` with the problem when there is none."""
@@ -216,10 +216,10 @@ class _Compiler:
         """
         position = self.position
         reads = {n: frozenset({s.partition(".")[0] for sources in into[n].values() for s in sources} & position.keys()) for n in order}
-        readers: dict[str, list[str]] = {n: [] for n in order}
+        downstream: dict[str, list[str]] = {n: [] for n in order}
         for n, sources in reads.items():
             for source in sources:
-                readers[source].append(n)
+                downstream[source].append(n)
         waiting = {n: len(sources) for n, sources in reads.items()}
         ready = [position[n] for n in order if not waiting[n]]
         heapq.heapify(ready)
@@ -229,14 +229,14 @@ class _Compiler:
             if not ready:  # every node left waits on a cycle
                 if on_cycles is None:
                     stuck = {n for n in order if waiting[n]}
-                    on_cycles = [n for n in order if n in stuck and _reaches(n, n, readers, stuck)]  # on a cycle, not only below one
+                    on_cycles = [n for n in order if n in stuck and _reaches(n, n, downstream, stuck)]  # on a cycle, not only below one
                     self.problems += [problem.cycle(n) for n in on_cycles]
                 first = next(n for n in on_cycles if waiting[n] > 0)
                 waiting[first] = 0
                 ready.append(position[first])
             n = order[heapq.heappop(ready)]
             done.append(n)
-            for reader in readers[n]:
+            for reader in downstream[n]:
                 waiting[reader] -= 1
                 if not waiting[reader]:
                     heapq.heappush(ready, position[reader])
@@ -296,7 +296,7 @@ class _Compiler:
         if inner.problems:
             self.problems += [problem.model_copy(update={"loc": (record.id, *problem.loc)}) for problem in inner.problems]
             return
-        fields = {offered.name: Field(offered.name, offered.field.hint, offered.field.default) for offered in inner._input_fields.values()}
+        fields = {graph_input.name: Field(graph_input.name, graph_input.field.hint, graph_input.field.default) for graph_input in inner._input_fields.values()}
         outputs: dict[str, Field] = {}
         for address in inner.outputs:
             node_id, _, output = address.partition(".")
@@ -348,8 +348,8 @@ class _Compiler:
             if name in edges:
                 if name in record.values or name in record.defaults:
                     self.problems.append(problem.value_and_edge(record.id, name))
-                brought = sources[name]
-                inputs[name] = InputMissing(field) if brought is None else self._fed(record.id, field, brought)
+                source_kind = sources[name]
+                inputs[name] = InputMissing(field) if source_kind is None else self._plan_from_edges(record.id, field, source_kind)
             elif name in record.values:
                 inputs[name] = _constant_plan(field, constants[name])
             elif first and name not in constant_at_compile:
@@ -374,7 +374,7 @@ class _Compiler:
         loops_of_inputs = [plan.loops for plan in inputs.values() if isinstance(plan, InputFromEdges)]
         loops = max(loops_of_inputs, key=len, default=())
         for name, plan in inputs.items():
-            if isinstance(plan, InputCollectsLoopResults) and (made_in := plan.sources[0].read_in) == loops[: len(made_in)] and all(isinstance(s, WholeOutput) for s in plan.sources):
+            if isinstance(plan, InputCollectsLoopResults) and (made_in := plan.sources[0].loops_of_value) == loops[: len(made_in)] and all(isinstance(s, WholeOutput) for s in plan.sources):
                 # its source makes one value where the node runs, for another input's sake: that one, never every item's
                 inputs[name] = InputWrapsOneValue(plan.field, typing.cast("tuple[WholeOutput, ...]", plan.sources))
         for name, plan in inputs.items():
@@ -483,7 +483,7 @@ class _Compiler:
             sources.sort(key=self._edge_order)
         return sources
 
-    def _fed(self, node_id: str, field: Field, sources: list[EdgeSource]) -> InputFromEdges | InputMissing:
+    def _plan_from_edges(self, node_id: str, field: Field, sources: list[EdgeSource]) -> InputFromEdges | InputMissing:
         """How edges bringing ``sources`` feed one input: one value on each call, or every value its source made.
 
         An input of one value reads, whatever its type: a ``Series`` reaches it one item at a time. A ``Series``
@@ -493,18 +493,18 @@ class _Compiler:
         Returns:
             The input's plan; ``InputMissing``, with the problem, when an edge brings a type the input doesn't take.
         """
-        gathers, wanted = _taken(field, sources)
+        gathers, expected = _collects_and_expected_type(field, sources)
         for source in sources:
-            if wanted is not source.type and wanted.fits(source.type) is None:  # the same type, which most edges join, fits
+            if expected is not source.type and expected.fits(source.type) is None:  # the same type, which most edges join, fits
                 self.problems.append(_mismatch(node_id, field, source))
                 return InputMissing(field)
-        deepest = max((s.read_in for s in sources), key=len)
+        deepest = max((s.loops_of_value for s in sources), key=len)
         if not gathers:
             return InputReadsOneValue(field, tuple(sources), deepest)
         if not deepest:
             return InputWrapsOneValue(field, tuple(s for s in sources if isinstance(s, WholeOutput)))
-        made_by, output = deepest[-1]
-        series = OutputInLoops(made_by, output, deepest[:-1])
+        source_node, output = deepest[-1]
+        series = OutputInLoops(source_node, output, deepest[:-1])
         return InputCollectsLoopResults(field, (series, *sources))
 
     def _source(self, address: str, node_id: str, name: str) -> EdgeSource | None:
@@ -521,27 +521,27 @@ class _Compiler:
         source = self.nodes.get(source_id)
         if source is None:  # a node whose fields aren't known, one placed later on a cycle, or none: its own problem says why
             return None
-        output, _, wanted = rest.partition(".")
+        output, _, expected = rest.partition(".")
         if output not in source.outputs:  # a subgraph's output: the longest part of the address that names one
             output = next((declared for declared in source.outputs if rest == declared or rest.startswith(f"{declared}.")), "")
-            wanted = rest[len(output) + 1 :]
+            expected = rest[len(output) + 1 :]
         field = source.outputs.get(output)
         if field is None:
             self.problems.append(problem.unknown_output(node_id, name, source=address, outputs=[f"{source_id}.{o}" for o in source.outputs]))
             return None
-        if wanted and (split := _split_gives(field.type)):  # a table or a list is one value: only an item of a Series has a field to wire
+        if expected and (split := _split_gives(field.type)):  # a table or a list is one value: only an item of a Series has a field to wire
             self.problems.append(problem.unknown_output_split_first(
-                node_id, name, source=address, outputs=[f"{source_id}.{o}" for o in source.outputs], record_field=wanted,
+                node_id, name, source=address, outputs=[f"{source_id}.{o}" for o in source.outputs], record_field=expected,
                 whole=split[0], fields=split[1],
             ))
             return None
-        brings = _field_type(field.type, wanted) if wanted else field.type
-        if brings is None:
+        sources = _field_type(field.type, expected) if expected else field.type
+        if sources is None:
             fields = [f"{source_id}.{output}.{f}" for f in field.type.fields]
-            self.problems.append(problem.unknown_output(node_id, name, source=address, outputs=fields, record_field=wanted or None))
+            self.problems.append(problem.unknown_output(node_id, name, source=address, outputs=fields, record_field=expected or None))
             return None
-        brought = ItemOfSeries if field.many else WholeOutput
-        return brought(source_id, output, source.loops_around(output), wanted or None, brings)
+        source_kind = ItemOfSeries if field.many else WholeOutput
+        return source_kind(source_id, output, source.loops_around(output), expected or None, sources)
 
     def _edge_order(self, source: EdgeSource) -> tuple[int, int, str]:
         """Where an edge into an input falls among several: its node's place in the record, then the output's in its node."""
@@ -570,7 +570,7 @@ class _Compiler:
             if not isinstance(plan, InputFromEdges):
                 continue
             behind = [self._branch(s) for s in plan.sources]
-            loops_of_inputs = list(dict.fromkeys(s.read_in for s in plan.sources))
+            loops_of_inputs = list(dict.fromkeys(s.loops_of_value for s in plan.sources))
             if not all(_opposed(a, b) for i, a in enumerate(behind) for b in behind[i + 1:]):
                 self.problems.append(problem.several_edges_into_one_input(node_id, name, sources=[s.address for s in plan.sources]))
                 refused.add(name)
@@ -604,7 +604,7 @@ class _Compiler:
         return frozenset(required_branches)
 
 
-def _taken(field: Field, sources: list[EdgeSource]) -> tuple[bool, Type]:
+def _collects_and_expected_type(field: Field, sources: list[EdgeSource]) -> tuple[bool, Type]:
     """Whether the input ``field`` gathers what ``sources`` bring, and the type each must fit: the input's whole
     type when it reads, one item of a ``Series`` or one record of a table when it gathers.
 
@@ -614,7 +614,7 @@ def _taken(field: Field, sources: list[EdgeSource]) -> tuple[bool, Type]:
     """
     record = field.whole.record
     gathers = field.many or (record is not None and not all(
-        field.whole.fits(s.type) is not None and (s.type.bare is not Any or not s.read_in) for s in sources
+        field.whole.fits(s.type) is not None and (s.type.bare is not Any or not s.loops_of_value) for s in sources
     ))
     return gathers, field.whole if not gathers else field.type if record is None else record
 
@@ -627,12 +627,12 @@ def _bound(fields: Mapping[str, Field], sources: Mapping[str, list[EdgeSource] |
     """
     bound: dict[TypeVar, Any] = {}
     for name, field in fields.items():
-        brought = sources.get(name)
-        if not field.whole.variables or not brought:
+        source_kind = sources.get(name)
+        if not field.whole.variables or not source_kind:
             continue
-        wanted = _taken(field, brought)[1]
-        for source in brought:
-            for variable, hint in (wanted.fits(source.type) or {}).items():
+        expected = _collects_and_expected_type(field, source_kind)[1]
+        for source in source_kind:
+            for variable, hint in (expected.fits(source.type) or {}).items():
                 bound[variable] = bound[variable] | hint if variable in bound else hint
     return bound
 
@@ -705,15 +705,15 @@ def _opposed(a: frozenset[RequiredBranch], b: frozenset[RequiredBranch]) -> bool
     return any(x[:2] == y[:2] and x.output != y.output for x in a for y in b)
 
 
-def _reaches(start: str, goal: str, readers: Mapping[str, list[str]], within: set[str]) -> bool:
+def _reaches(start: str, goal: str, downstream: Mapping[str, list[str]], within: set[str]) -> bool:
     """Whether ``goal`` is read, however far down, by what ``start`` feeds, staying ``within`` those nodes."""
     seen: set[str] = set()
-    stack = list(readers[start])
+    stack = list(downstream[start])
     while stack:
         n = stack.pop()
         if n == goal:
             return True
         if n in within and n not in seen:
             seen.add(n)
-            stack.extend(readers[n])
+            stack.extend(downstream[n])
     return False
