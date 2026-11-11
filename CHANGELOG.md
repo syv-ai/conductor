@@ -68,7 +68,9 @@ What changes in how you work, before the name-by-name tables:
   so is one typed in (`invalid_value`). Items of two Series meeting at one node are refused
   (`series_not_nested`) until one is made inside the other. `graph.plan` says how often each node
   runs, before any run. A blank keeps the node from being called for that item unless its input
-  says `| None`. Each item
+  says `| None`. A node that gathers leaves out only what was decided per item: when no item
+  could bring a value, for a branch not taken or a blank outside the items, it is skipped or not
+  called, with two items as with none, and `Series[X | None]` receives a blank in each item's place. Each item
   of a list given there is held to the input's limits and choices, as one value is. A choice is
   read as its answer would be: strictly from its JSON form, held to the field's limits, so an enum's
   value or a date's ISO text is a choice. A value an edge brings is held to the input's limits and choices

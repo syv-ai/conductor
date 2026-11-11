@@ -148,6 +148,11 @@ class _Pending:
 #: What a unit's inputs are while something above it hasn't run yet.
 PENDING: Any = _Pending()
 
+#: Whether any item could bring a gathering input a value, going by what is outside the items: it could, so each
+#: item decides. The other answers are ``SKIPPED`` (none could, for a branch not taken), ``None`` (none could, for a
+#: blank) and ``PENDING``.
+COULD: Any = object()
+
 #: ``run.answer``'s second argument when it is given a mapping of answers instead.
 _ONE_ANSWER: Any = object()
 
@@ -815,7 +820,7 @@ class Run:
                 else:
                     units, base = self._units[giver.inside], giver.base
                 if kind is Gather:
-                    value = _gathered(units, base, plan, key)  # type: ignore[arg-type]
+                    value = self._gathered(node.inside if giver is None else giver.inside, base, plan, node.gathered_through[name], key)  # type: ignore[arg-type]
                 else:  # one value: the first edge whose branch was taken
                     value = SKIPPED
                     for source, _ in plan.reads:  # type: ignore[union-attr]
@@ -845,6 +850,144 @@ class Run:
         for name, (plan, units, items) in gathered.items():
             kwargs[name] = _aligned(plan, units, items, gathered)
         return kwargs
+
+    def _gathered(self, inside: NodePath, base: int, plan: Gather, through: tuple[NodeAtPath, ...], key: Key) -> Any:
+        """The items a gathering input gets in the instance ``key``, with ``None`` for an item that has no value.
+
+        What is outside the items is asked first whether any item could bring a value (``_could_bring``). When
+        none could, that is the answer for any number of items, none included. When one could, each item
+        answers for itself: one with no value, for a blank or a branch not taken, holds ``None``.
+
+        Args:
+            inside: The path of the embedded graph's node the plan was made in the graph of; ``()`` for the
+                run's own graph.
+            base: How many places of ``key`` are of the items of that embedded graph's node.
+            plan: The input's plan.
+            through: The nodes the input gathers through (``gathered_through``).
+            key: The instance of the node that gathers.
+
+        Returns:
+            The list, one place per item of the Series; ``PENDING`` until what is outside and every item is
+            settled; ``SKIPPED`` when no item could bring a value for a branch not taken outside the items;
+            ``None`` when none could for a blank there.
+        """
+        (series_made, made_in), *edges = plan.reads
+        key = key[: base + made_in]
+        asked: dict[NodeAtPath, Any] = {}
+        for inner in through:
+            asked[inner] = self._could_come_to(inner, plan, key, asked) if type(inner) is FunctionAtPath else COULD
+        certain = self._could_bring(inside, base, plan, plan, key, asked)
+        if certain is not COULD:
+            return certain
+        units = self._units[inside]
+        series = _cell(units, base, series_made, key)
+        if len(edges) == 1 and type(edges[0][0]) is Item:  # the Series itself: its items, or one field of each
+            wanted = edges[0][0].field
+            if type(series) is Records:
+                return series.records() if wanted is None else _field_of(series.columns, wanted)
+            if wanted is None:
+                return [None if item is SKIPPED else item for item in series] if any(item is SKIPPED for item in series) else series
+            return [None if item is SKIPPED or item is None else _field_of(item, wanted) for item in series]
+        items = []
+        for place in range(len(series)):
+            value = SKIPPED
+            for source, _ in edges:
+                value = _cell(units, base, source, (*key, place))
+                if value is PENDING:
+                    return PENDING
+                if value is not SKIPPED:
+                    break
+            items.append(None if value is SKIPPED else value)
+        return items
+
+    def _could_bring(self, inside: NodePath, base: int, plan: Gather, gathered: Gather, key: Key, asked: dict[NodeAtPath, Any]) -> Any:
+        """Whether any item could bring the gathering input of ``plan`` a value, going by what is outside the
+        items ``gathered`` gathers: the worst of its Series and the best of its edges, as the input needs the
+        Series and one of the edges. An input whose items take a blank receives the blank an edge brings.
+
+        Args:
+            inside: The path of the embedded graph's node the plan was made in the graph of.
+            base: How many places of ``key`` are of the items of that embedded graph's node.
+            plan: The plan asked about: ``gathered``, or one of an input made per item of its Series.
+            gathered: The plan whose items nobody knows.
+            key: The instance ``gathered`` gathers in.
+            asked: What each node ``gathered`` gathers through could come to.
+
+        Returns:
+            ``COULD``; ``SKIPPED`` when none could for a branch not taken; ``None`` when none could for a
+            blank; ``PENDING`` while what is outside isn't settled.
+        """
+        (series_made, _), *edges = plan.reads
+        series = self._could_hold(inside, base, series_made, gathered, key, asked)
+        brought = _best([self._could_hold(inside, base, source, gathered, key, asked) for source, _ in edges])
+        if brought is None and plan.spec.keeps_blanks:
+            brought = COULD
+        return _worst([series, brought])
+
+    def _could_hold(self, inside: NodePath, base: int, cell: Cell, gathered: Gather, key: Key, asked: dict[NodeAtPath, Any]) -> Any:
+        """What ``cell`` could hold for an item of the Series ``gathered`` gathers: as it stands when it is made
+        outside the items, and what its node could come to when it is made per item.
+
+        Args:
+            inside: The path of the embedded graph's node the cell's node is in the graph of.
+            base: How many places of ``key`` are of the items of that embedded graph's node.
+            cell: The cell.
+            gathered: The plan whose items nobody knows.
+            key: The instance ``gathered`` gathers in.
+            asked: What each node ``gathered`` gathers through could come to.
+
+        Returns:
+            ``COULD``, ``SKIPPED``, ``None`` for a blank, or ``PENDING``.
+        """
+        made_by = self.graph._node_at[(*inside, cell.node_id)]
+        if made_by not in asked:  # made outside the items
+            if type(cell) is Item and cell.node_id == gathered.reads[0][0].node_id and cell.output == gathered.reads[0][0].output:
+                return COULD  # an item of the Series itself
+            value = _cell(self._units[inside], base, cell, key)
+            return value if value is PENDING or value is SKIPPED or value is None else COULD
+        if type(made_by) is GraphAtPath:  # an output of an embedded graph: the cell inside that holds it
+            for address, offered, maps, _ in made_by.offers:
+                if address == cell.output:
+                    if len(maps) == len(made_by.maps):
+                        return self._could_hold(made_by.path, len(maps), offered, gathered, key, asked)
+                    return COULD  # made per item inside: a Series, whatever its items come to
+        answer = asked[made_by]
+        if answer is None and made_by.placed.outputs[cell.output].param.exclusive_group is not None:
+            return SKIPPED  # its node isn't called, so no branch is chosen
+        return answer
+
+    def _could_come_to(self, node: FunctionAtPath, gathered: Gather, key: Key, asked: dict[NodeAtPath, Any]) -> Any:
+        """What a node made per item could come to for an item nobody knows, by the rules a unit comes to
+        anything: the worst of its inputs, an input that takes a blank receiving it. An input of it that gathers
+        is asked the same of the same items when it is made per item too; one made outside them is read as it
+        stands, gathered whole.
+
+        Args:
+            node: The node, one the input of ``gathered`` gathers through.
+            gathered: The plan whose items nobody knows.
+            key: The instance ``gathered`` gathers in.
+            asked: What each node before it could come to; a node not in it is made outside the items.
+
+        Returns:
+            ``COULD`` when it could be called; ``SKIPPED`` when an input comes only from branches not taken;
+            ``None`` when an input that takes no blank gets one; ``PENDING`` while what is outside isn't settled.
+        """
+        answers = []
+        for name, (plan, giver) in node.inputs.items():
+            kind = type(plan)
+            if kind is Fixed or kind is Open:
+                continue
+            inside, base = (node.inside, node.base) if giver is None else (giver.inside, giver.base)
+            if kind is not Gather:
+                answer = _best([self._could_hold(inside, base, source, gathered, key, asked) for source, _ in plan.reads])  # type: ignore[union-attr]
+            elif self.graph._node_at[(*inside, plan.reads[0][0].node_id)] in asked:  # type: ignore[union-attr]
+                answer = self._could_bring(inside, base, plan, gathered, key, asked)  # type: ignore[arg-type]
+            else:
+                answer = self._gathered(inside, base, plan, node.gathered_through[name], key)  # type: ignore[arg-type]
+                if answer is not PENDING and answer is not SKIPPED and answer is not None:
+                    answer = COULD
+            answers.append(COULD if answer is None and plan.spec.whole.optional else answer)
+        return _worst(answers)
 
     # -- JSON -------------------------------------------------------------------
 
@@ -936,65 +1079,31 @@ def _cell(units: _UnitsOfAGraph, base: int, cell: Cell, key: Key) -> Any:
     return value if field is None or value is None or value is SKIPPED else _field_of(value, field)
 
 
-def _gathered(units: _UnitsOfAGraph, base: int, plan: Gather, key: Key) -> Any:
-    """The items a gathering input gets in the instance ``key``, with ``None`` for an item that has no value.
+def _worst(answers: list[Any]) -> Any:
+    """What comes of things that are all needed, each ``SKIPPED``, ``PENDING``, ``None`` for a blank or ``COULD``:
+    a branch not taken whatever else is there, then what isn't settled, then a blank."""
+    for answer in answers:
+        if answer is SKIPPED:
+            return SKIPPED
+    for answer in answers:
+        if answer is PENDING:
+            return PENDING
+    for answer in answers:
+        if answer is None:
+            return None
+    return COULD
 
-    Args:
-        units: The units of the graph the plan was made in.
-        base: How many places of ``key`` are of the items of the embedded graph's node that graph is inside.
-        plan: The input's plan.
-        key: The instance of the node that gathers.
 
-    Returns:
-        The list, one place per item of the Series; ``PENDING`` until every item is settled; ``SKIPPED`` when
-        every edge is skipped where the node runs or above; ``None`` when the Series is blank, or an edge whose
-        branch was taken is blank where the node runs or above.
-    """
-    (series_made, made_in), *edges = plan.reads
-    key = key[: base + made_in]
-    live = []
-    blank = False
-    for (source, _), gate in zip(edges, plan.gates, strict=False):  # the edges, then the gates' cells: an edge with its gate
-        taken = True
-        for cells in gate.skips:
-            held = [_cell(units, base, cell, key) for cell in cells]
-            if any(value is PENDING for value in held):  # asked by identity: a cell may hold a table, which has no plain ==
-                return PENDING
-            if all(value is SKIPPED for value in held):
-                taken = False
-        if taken:
-            live.append(source)
-            for cell in gate.blanks:
-                value = _cell(units, base, cell, key)
-                if value is PENDING:
-                    return PENDING
-                if value is None:
-                    blank = True
-    if not live:
-        return SKIPPED
-    if blank:
-        return None
-    series = _cell(units, base, series_made, key)
-    if series is None:
-        return None
-    if len(live) == 1 and type(live[0]) is Item:  # the Series itself: its items, or one field of each
-        wanted = live[0].field
-        if type(series) is Records:
-            return series.records() if wanted is None else _field_of(series.columns, wanted)
-        if wanted is None:
-            return [None if item is SKIPPED else item for item in series] if any(item is SKIPPED for item in series) else series
-        return [None if item is SKIPPED or item is None else _field_of(item, wanted) for item in series]
-    items = []
-    for place in range(len(series)):
-        value = SKIPPED
-        for source in live:
-            value = _cell(units, base, source, (*key, place))
-            if value is PENDING:
-                return PENDING
-            if value is not SKIPPED:
-                break
-        items.append(None if value is SKIPPED else value)
-    return items
+def _best(answers: list[Any]) -> Any:
+    """What comes of edges that are alternatives into one input, each ``SKIPPED``, ``PENDING``, ``None`` for a
+    blank or ``COULD``: one that could bring a value is enough, then a blank; skipped when every one is."""
+    best = SKIPPED
+    for answer in answers:
+        if answer is PENDING:
+            return PENDING
+        if answer is COULD or best is SKIPPED:
+            best = answer
+    return best
 
 
 def no_units(graph: Graph) -> dict[NodePath, _UnitsOfAGraph]:
