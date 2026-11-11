@@ -145,11 +145,7 @@ def programs(tmp_path_factory: pytest.TempPathFactory) -> list[pathlib.Path]:
     return written
 
 
-#: The README still reads ``Waiting.row``; its program runs and type-checks again once the docs follow the engine.
-_README_IS_STALE = pytest.mark.xfail(reason="docs: README.md reads Waiting.row, which is Waiting.item; the docs pass rewrites it", strict=True)
-
 _HELD_BACK = {
-    "readme.py": _README_IS_STALE,
     "an_embedded_graph.py": pytest.mark.skip(reason="embedding: nested run not built"),
 }
 
@@ -160,7 +156,6 @@ def test_a_first_hour_program_runs(program: str) -> None:
     exec(compile(_programs()[program], program, "exec"), namespace)
 
 
-@_README_IS_STALE
 def test_the_first_hour_programs_pass_mypy_strict(programs: list[pathlib.Path], tmp_path: pathlib.Path) -> None:
     done = subprocess.run(
         [sys.executable, "-m", "mypy", "--strict", "--cache-dir", str(tmp_path), *map(str, programs)],
@@ -185,7 +180,6 @@ def _pyright_strict(programs: list[pathlib.Path]) -> dict[str, Any]:
     return report
 
 
-@_README_IS_STALE
 def test_the_first_hour_programs_pass_pyright_strict(programs: list[pathlib.Path]) -> None:
     report = _pyright_strict(programs)
     assert report["summary"]["errorCount"] == 0, json.dumps([d for d in report["generalDiagnostics"] if d["severity"] == "error"], indent=1)
