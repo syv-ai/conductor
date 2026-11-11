@@ -316,15 +316,15 @@ class Run:
                 moved_to = self._moved_to(nodes, fingerprint) if fingerprint else None
                 problems.append(problem.not_waiting(*loc, waiting_id=unit_id, status=self.status, moved_to=moved_to))
                 continue
-            placed = node.placed
-            if fingerprint and question_fingerprint(placed, found) != fingerprint:
-                current = waiting_record(placed, outcome_loc(node, key), found).id
+            checked_node = node.checked_node
+            if fingerprint and question_fingerprint(checked_node, found) != fingerprint:
+                current = waiting_record(checked_node, outcome_loc(node, key), found).id
                 problems.append(problem.answer_stale(*loc, waiting_id=unit_id, current=current, moved_to=self._moved_to(nodes, fingerprint)))
                 continue
             if (node, key) in answered:
                 problems.append(problem.invalid_answer(*loc, waiting_id=unit_id, reason="the unit is answered twice in one call"))
                 continue
-            read, faults = answer_outputs(placed, one, found.question.overrides)
+            read, faults = answer_outputs(checked_node, one, found.question.overrides)
             problems.extend(
                 problem.invalid_answer(*loc, waiting_id=unit_id, reason=reason, question=q or None) for q, reason in faults
             )
@@ -342,8 +342,8 @@ class Run:
         """The id of the unit where the question a stale id names now waits, if it waits elsewhere on the node at
         the path ``nodes``."""
         for node, key, outcome in self._asking():
-            if node.path == nodes and question_fingerprint(node.placed, outcome) == fingerprint:
-                return waiting_record(node.placed, outcome_loc(node, key), outcome).id
+            if node.path == nodes and question_fingerprint(node.checked_node, outcome) == fingerprint:
+                return waiting_record(node.checked_node, outcome_loc(node, key), outcome).id
         return None
 
     def with_inputs(self, inputs: Mapping[str, Any] = MappingProxyType({}), /, *, max_items: int | None = None, **by_name: Any) -> Run:
@@ -391,13 +391,13 @@ class Run:
         for node in self.graph._tree:
             if not node.policy.reuse_when_inputs_match or node.path in self._made_by_other_code:
                 continue
-            placed = node.placed
+            checked_node = node.checked_node
             of_node = work[node.path] = ReusableResults()
             for key, outcome in self._outcomes[node.name].items():
                 if type(outcome) is Skipped or type(outcome) is outcomes.NotCalled:
                     continue
                 received = cast("dict[str, Any]", reader.arguments_for(node, key))  # the unit was called, so what it reads is settled and it received a call's arguments
-                fingerprint = fingerprint_of(placed.reuse_digest, received, plain=placed.plain_inputs)
+                fingerprint = fingerprint_of(checked_node.reuse_digest, received, plain=checked_node.plain_inputs)
                 if fingerprint is None:
                     continue
                 if type(outcome) is Answered or type(outcome) is Asking:
@@ -433,7 +433,7 @@ class Run:
     def waiting(self) -> list[Waiting]:
         """Every unit waiting for a person, in node then item order; those inside an embedded graph where its
         node stands."""
-        return [waiting_record(node.placed, outcome_loc(node, key), outcome) for node, key, outcome in self._asking()]
+        return [waiting_record(node.checked_node, outcome_loc(node, key), outcome) for node, key, outcome in self._asking()]
 
     def _asking(self) -> Iterator[tuple[FunctionAtPath, ItemPath, Asking]]:
         """Every unit waiting for a person, with its node and instance, in node then instance order."""
@@ -462,7 +462,7 @@ class Run:
         made, or no item of it could have a value.
         """
         reader = self._display_reader
-        return {n: {o: reader.display_value(host_reads(*self._function_of(f"{n}.{o}"))) for o in placed.outputs} for n, placed in self.graph._nodes.items()}
+        return {n: {o: reader.display_value(host_reads(*self._function_of(f"{n}.{o}"))) for o in checked_node.outputs} for n, checked_node in self.graph._nodes.items()}
 
     @property
     def outputs(self) -> dict[str, Any]:
@@ -488,7 +488,7 @@ class Run:
         written = {}
         for address, value in self.outputs.items():
             function, output = self._function_of(address)
-            hint: Any = function.placed.outputs[output].slot.hint
+            hint: Any = function.checked_node.outputs[output].slot.hint
             for _ in function.maps:  # one list, or None in its place, for each loop the function is called in
                 hint = list[hint] | None
             try:
@@ -533,11 +533,11 @@ class Run:
         under its path. An embedded graph's node holds no unit, so nothing is written of it."""
         functions = self.graph._functions
         outcomes = {
-            node.name: outcome_columns(node.placed.outputs, self._slots(node))
+            node.name: outcome_columns(node.checked_node.outputs, self._slots(node))
             for node in self.graph._tree if self._outcomes[node.name]
         }
         earlier = {node_name(path): reusable_columns(functions[path].outputs, of_node) for path, of_node in self._reusable_results.items() if of_node.computed or of_node.asked}
-        code = {name: self._made_by_other_code.get(path) or placed.reuse_digest for path, placed in functions.items() if (name := node_name(path)) in outcomes or name in earlier}
+        code = {name: self._made_by_other_code.get(path) or checked_node.reuse_digest for path, checked_node in functions.items() if (name := node_name(path)) in outcomes or name in earlier}
         complete = [node.name for node in self.graph._tree if node.path in self._finished_nodes]
         form = self.graph._save_form
         written_once = tables_written_once(form.outputs, form.shareable, outcomes) if form.shareable else None

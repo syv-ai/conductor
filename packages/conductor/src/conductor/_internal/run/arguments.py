@@ -128,7 +128,7 @@ class Reader(abc.ABC):
                 reason = f"it has no field '{missing.field}'"
                 raise CallRejectedError(problem.invalid_edge_value(name=name, reason=reason, record_field=missing.field)) from None
             if value is SKIPPED:
-                return node.placed.skipped
+                return node.checked_node.skipped
             if value is NOT_READY:  # a later input may be skipped, which settles the node whatever this one comes to
                 settled = False
             elif value is None and blank is None and not accepts_none:
@@ -137,7 +137,7 @@ class Reader(abc.ABC):
         if not settled:
             return NOT_READY
         if blank is not None:
-            return NotCalled(node.placed.outputs_when_not_called, blank)
+            return NotCalled(node.checked_node.outputs_when_not_called, blank)
         return self.align_lists(node, arguments) if node.lists_from_same_loop else arguments
 
     def read_alternatives(self, reads: tuple[OutputInLoops, ...], item_path: ItemPath) -> Any:

@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 
 
 @dataclass(frozen=True, kw_only=True)
-class _Placed:
+class _CheckedNodeBase:
     """What every node of a checked graph has, whether it is a function or an embedded graph. Never made on its own.
 
     Attributes:
@@ -63,7 +63,7 @@ class _Placed:
 
 @typing.final
 @dataclass(frozen=True, kw_only=True)
-class PlacedFunction(_Placed):
+class CheckedFunctionNode(_CheckedNodeBase):
     """A node of a checked graph that is a function.
 
     Attributes:
@@ -110,7 +110,7 @@ class PlacedFunction(_Placed):
 
 @typing.final
 @dataclass(frozen=True, kw_only=True)
-class PlacedEmbeddedGraph(_Placed):
+class CheckedEmbeddedGraphNode(_CheckedNodeBase):
     """A node of a checked graph that is a stored graph: the loader makes one where a record uses a
     ``StoredGraphDefinition``, checking that definition's record alone as ``inner``, whose nodes run where it stands.
 
@@ -172,7 +172,7 @@ class PlacedEmbeddedGraph(_Placed):
 
 
 #: One node of a checked graph: a function, or an embedded graph.
-PlacedNode = PlacedFunction | PlacedEmbeddedGraph
+CheckedNode = CheckedFunctionNode | CheckedEmbeddedGraphNode
 
 
 def _code_text(code: Any) -> str:

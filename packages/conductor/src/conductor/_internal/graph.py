@@ -74,7 +74,7 @@ class Graph(CheckedGraph):
         return save_form(
             self.fingerprint,
             inputs={address: offered.field.whole for address, offered in self._input_fields.items()},
-            outputs={node.name: node.placed.outputs for node in self._tree},
+            outputs={node.name: node.checked_node.outputs for node in self._tree},
             nodes=[node.name for node in self._tree],
         )
 

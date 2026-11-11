@@ -472,7 +472,7 @@ class Scheduler:
             except CallRejectedError as unwritable:  # a person can't be shown what the node received
                 return self._failure(node, key, unwritable)
             try:
-                return Asking(question_asked(error, node.placed.outputs, inputs))
+                return Asking(question_asked(error, node.checked_node.outputs, inputs))
             except InvalidAskError as invalid:
                 return problem.invalid_ask(*outcome_loc(node, key), reason=str(invalid))
         return self._failure(node, key, error)
@@ -517,7 +517,7 @@ class Scheduler:
             if type(outcome) is not Skipped:
                 self._announce(node)  # a unit taken from earlier work, or a blank one, starts its node as a call does
             if type(outcome) is Asking:
-                self.emit(NodeWaiting(waiting=waiting_record(node.placed, outcome_loc(node, key), outcome)))
+                self.emit(NodeWaiting(waiting=waiting_record(node.checked_node, outcome_loc(node, key), outcome)))
             if node.maps:
                 self._progress(node)
         if walking or not self.going or type(outcome) is Asking:  # nothing reads a unit that waits for a person
@@ -596,7 +596,7 @@ class Scheduler:
         if self.going:
             named, offered = node.opens[output]
             loc = outcome_loc(named, key[: len(named.embedding.maps) if named.embedding is not None else 0])
-            self.end(EndedEarly("stopped", problem.item_ceiling(*loc, series=f"{named.placed.id}.{offered}", items=items, max_items=ceiling)))
+            self.end(EndedEarly("stopped", problem.item_ceiling(*loc, series=f"{named.checked_node.id}.{offered}", items=items, max_items=ceiling)))
 
     # -- what the leg says --------------------------------------------------------------------
 

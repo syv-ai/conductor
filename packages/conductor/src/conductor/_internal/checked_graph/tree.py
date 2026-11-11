@@ -16,6 +16,10 @@ from dataclasses import dataclass
 from typing import Any
 
 from conductor._internal.address import Loc, NodePath, node_name
+from conductor._internal.checked_graph.checked_node import (
+    CheckedEmbeddedGraphNode,
+    CheckedFunctionNode,
+)
 from conductor._internal.checked_graph.input_plans import (
     EdgeSource,
     InputCollectsLoopResults,
@@ -33,7 +37,6 @@ from conductor._internal.checked_graph.input_plans import (
     SeriesAsList,
     WholeOutput,
 )
-from conductor._internal.checked_graph.placed_node import PlacedEmbeddedGraph, PlacedFunction
 from conductor._internal.field import Field
 from conductor._internal.node_definition import Policy
 from conductor._internal.outcomes import ItemPath
@@ -79,7 +82,7 @@ class FunctionAtPath(_AtPath):
     the output inside that holds it.
 
     Attributes:
-        placed: The node, as its graph loaded it.
+        checked_node: The node, as its graph loaded it.
         policy: The node's policy, as its definition declares it.
         constant_arguments: What the arguments of every call start as: each input by name, in the order declared,
             one that holds the same value on every call already holding it.
@@ -111,7 +114,7 @@ class FunctionAtPath(_AtPath):
             (``host_reads``); filled when first asked for.
     """
 
-    placed: PlacedFunction
+    checked_node: CheckedFunctionNode
     policy: Policy
     constant_arguments: dict[str, Any]
     parameters_from_graph_inputs: tuple[tuple[str, str], ...]
@@ -136,7 +139,7 @@ class EmbeddedGraphAtPath(_AtPath):
     complete) is read from the functions inside when asked.
 
     Attributes:
-        placed: The node, as its graph loaded it.
+        checked_node: The node, as its graph loaded it.
         inputs: How each input gets its value where the node stands, by name: the plan an open input inside
             is given for its own.
         nodes: The nodes of the graph inside, where they stand.
@@ -144,7 +147,7 @@ class EmbeddedGraphAtPath(_AtPath):
             any depth of embedded graphs, and that function's output.
     """
 
-    placed: PlacedEmbeddedGraph
+    checked_node: CheckedEmbeddedGraphNode
     inputs: dict[str, InputPlan]
     nodes: list[NodeAtPath] = dataclasses.field(default_factory=list["NodeAtPath"])
     offers: dict[str, tuple[FunctionAtPath, str]] = dataclasses.field(default_factory=dict[str, tuple["FunctionAtPath", str]])
@@ -181,9 +184,9 @@ def outcome_loc(node: NodeAtPath, key: ItemPath) -> Loc:
             at the end, ``("e", 0, "ask")``.
     """
     if node.embedding is None:
-        return (node.placed.id, *key)
+        return (node.checked_node.id, *key)
     around = len(node.embedding.maps)  # the places of the embedded graph's node's own item
-    return (*outcome_loc(node.embedding, key[:around]), node.placed.id, *key[around:])
+    return (*outcome_loc(node.embedding, key[:around]), node.checked_node.id, *key[around:])
 
 
 #: What a host is shown of an output made per item is what an input of this type wired to it would be given:
@@ -212,7 +215,7 @@ def host_reads(node: FunctionAtPath, output: str) -> tuple[InputReadsOneValue | 
     """
     plans = node.shown_as.get(output)
     if plans is None:
-        made = node.placed.outputs[output]
+        made = node.checked_node.outputs[output]
         at = (SeriesAsList if made.many else WholeOutput)(node.name, output, _scope_at_path(node.maps), None, made.type)
         functions = {made_by.name: made_by for made_by in (node, *(series for series, _ in node.maps))}
         per_loop = [_gather_at_path(_SHOWN, looped_over, (at,), functions) for looped_over in node.maps]
@@ -253,24 +256,24 @@ def _add_to_tree(graph: CheckedGraph, embedding: EmbeddedGraphAtPath | None, tre
     above = embedding.maps if embedding is not None else ()
     here: dict[str, NodeAtPath] = {}
     functions = typing.cast("dict[str, FunctionAtPath]", node_at)  # an output of a plan at a path names a function
-    for placed in graph._nodes.values():
+    for checked_node in graph._nodes.values():
         inputs: dict[str, InputPlan] = {}
-        for name, plan in placed.inputs.items():
+        for name, plan in checked_node.inputs.items():
             if embedding is not None and isinstance(plan, InputFromGraphInput):  # the embedded graph's node is given it, as a caller would give it
                 inputs[name] = embedding.inputs[graph._input_fields[plan.address].name]
             else:
                 inputs[name] = _plan_at_path(plan, here, inside, functions)
-        maps = (*above, *[_series_looped_over(loop, inside, node_at) for loop in placed.scope])
-        path = (*inside, placed.id)
-        if isinstance(placed, PlacedEmbeddedGraph):
-            embedded = EmbeddedGraphAtPath(placed=placed, embedding=embedding, path=path, name=node_name(path), maps=maps, inputs=inputs)
-            within = _add_to_tree(placed.inner, embedded, tree, node_at)
+        maps = (*above, *[_series_looped_over(loop, inside, node_at) for loop in checked_node.scope])
+        path = (*inside, checked_node.id)
+        if isinstance(checked_node, CheckedEmbeddedGraphNode):
+            embedded = EmbeddedGraphAtPath(checked_node=checked_node, embedding=embedding, path=path, name=node_name(path), maps=maps, inputs=inputs)
+            within = _add_to_tree(checked_node.inner, embedded, tree, node_at)
             embedded.nodes = list(within.values())
-            for address in placed.inner.outputs:
+            for address in checked_node.inner.outputs:
                 made_by, _, output = address.partition(".")
                 last = within[made_by]
                 embedded.offers[address] = last.offers[output] if isinstance(last, EmbeddedGraphAtPath) else (last, output)
-            here[placed.id] = node_at[embedded.name] = embedded
+            here[checked_node.id] = node_at[embedded.name] = embedded
             continue
         constant_arguments: dict[str, Any] = {}
         parameters_from_graph_inputs: list[tuple[str, str]] = []
@@ -294,19 +297,19 @@ def _add_to_tree(graph: CheckedGraph, embedding: EmbeddedGraphAtPath | None, tre
                 items_of = (functions[series.node_id], series.output)  # what the functions it gathers through read outside the items can settle it too
                 read_at += [(read, places) for inner in plan.loop_body for read, places in inner.made_from.items() if items_of not in read.maps]
                 gathering.setdefault(series, []).append((name, plan.field.accepts_none_items))
-                whole = WholeOutput(series.node_id, series.output, series.scope, None, functions[series.node_id].placed.outputs[series.output].whole)
+                whole = WholeOutput(series.node_id, series.output, series.scope, None, functions[series.node_id].checked_node.outputs[series.output].whole)
                 wired_inputs.append((name, InputReadsOneValue(plan.field, (whole,), series.scope), plan.field.whole.optional))  # it needs its Series, and then its items
             wired_inputs.append((name, plan, plan.field.whole.optional))
             for read, places in read_at:
                 made_from[read] = min(places, made_from.get(read, places))
         node = FunctionAtPath(
-            placed=placed, embedding=embedding, path=path, name=node_name(path), maps=maps, policy=placed.definition.policy,
+            checked_node=checked_node, embedding=embedding, path=path, name=node_name(path), maps=maps, policy=checked_node.definition.policy,
             constant_arguments=constant_arguments, parameters_from_graph_inputs=tuple(parameters_from_graph_inputs), wired_inputs=tuple(wired_inputs), lists_from_same_loop=tuple(map(tuple, gathering.values())),
             checked=tuple(name for name, plan in inputs.items() if _read_before_a_call(plan)), made_from=made_from,
         )
         if maps and min(node.made_from.values(), default=0) < len(maps):  # what it reads may be there before its items are
             node.made_from.setdefault(maps[-1][0], len(maps) - 1)
-        here[placed.id] = node_at[node.name] = node
+        here[checked_node.id] = node_at[node.name] = node
         node.position = len(tree)
         tree.append(node)
     return here
@@ -359,7 +362,7 @@ def _plan_at_path(plan: InputPlan, here: Mapping[str, NodeAtPath], inside: NodeP
 
     def at_path(source: EdgeSource, opened: bool) -> EdgeSource:
         made_by, output = _made_by(OutputAddress(source.node_id, source.output), here)
-        brought = ItemOfSeries if made_by.placed.outputs[output].many else WholeOutput
+        brought = ItemOfSeries if made_by.checked_node.outputs[output].many else WholeOutput
         if opened and brought is ItemOfSeries:
             made_by.opens.setdefault(output, (here[source.node_id], source.output))
         return brought(made_by.name, output, _scope_at_path(made_by.maps), source.record_field, source.type)

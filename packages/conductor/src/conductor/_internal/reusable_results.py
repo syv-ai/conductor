@@ -62,8 +62,8 @@ def reused_outcome(
         units: Each function's units, for the items above this one.
         in_turn: Whether every unit of the node before this one has been tried.
     """
-    placed = node.placed
-    fingerprint = fingerprint_of(placed.reuse_digest, kwargs, plain=placed.plain_inputs)
+    checked_node = node.checked_node
+    fingerprint = fingerprint_of(checked_node.reuse_digest, kwargs, plain=checked_node.plain_inputs)
     if fingerprint is None:
         return None
     if earlier.asked:

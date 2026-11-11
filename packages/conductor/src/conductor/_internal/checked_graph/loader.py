@@ -29,6 +29,11 @@ from typing import Annotated, Any, Literal, TypeVar
 
 import pydantic
 
+from conductor._internal.checked_graph.checked_node import (
+    CheckedEmbeddedGraphNode,
+    CheckedFunctionNode,
+    CheckedNode,
+)
 from conductor._internal.checked_graph.describe import GraphInput
 from conductor._internal.checked_graph.input_plans import (
     EdgeSource,
@@ -44,11 +49,6 @@ from conductor._internal.checked_graph.input_plans import (
     OutputInLoops,
     Scope,
     WholeOutput,
-)
-from conductor._internal.checked_graph.placed_node import (
-    PlacedEmbeddedGraph,
-    PlacedFunction,
-    PlacedNode,
 )
 from conductor._internal.checked_graph.type import CheckedGraph, InputField
 from conductor._internal.field import Field
@@ -136,7 +136,7 @@ class _Loader:
     def __init__(self, definitions: Mapping[str, NodeDefinition], embedded_in: tuple[str, ...], alone: dict[_AloneKey, CheckedGraph]) -> None:
         self.definitions, self.embedded_in, self.alone = definitions, embedded_in, alone
         self.problems: list[Problem] = []
-        self.nodes: dict[str, PlacedNode] = {}
+        self.nodes: dict[str, CheckedNode] = {}
         self.branches: dict[str, frozenset[Branch]] = {}
         self.opened: list[tuple[GraphInput, Field]] = []
         self.position: dict[str, int] = {}
@@ -186,17 +186,17 @@ class _Loader:
             name = field.name if names.count(field.name) == 1 else graph_input.address
             inputs[name] = graph_input
             input_fields[graph_input.address] = InputField(name, graph_input.address, field)
-        readers: dict[str, list[PlacedNode]] = {node_id: [] for node_id in self.nodes}
+        readers: dict[str, list[CheckedNode]] = {node_id: [] for node_id in self.nodes}
         needs_from_run: list[tuple[str, FunctionDefinition[..., Any]]] = []
-        for placed in self.nodes.values():
-            match placed:
-                case PlacedFunction(definition=function):
+        for checked_node in self.nodes.values():
+            match checked_node:
+                case CheckedFunctionNode(definition=function):
                     if function.from_run:
-                        needs_from_run.append((placed.id, function))
-                case PlacedEmbeddedGraph(inner=inner):
+                        needs_from_run.append((checked_node.id, function))
+                case CheckedEmbeddedGraphNode(inner=inner):
                     needs_from_run += inner._needs_from_run
-            for source_id in placed.reads:
-                readers[source_id].append(placed)
+            for source_id in checked_node.reads:
+                readers[source_id].append(checked_node)
         return graph_type(record, self.problems, inputs, self.nodes, input_fields, readers, needs_from_run)
 
     def _resolve(self, record: NodeRecord) -> NodeDefinition | None:
@@ -271,7 +271,7 @@ class _Loader:
             arriving = {name: plan.sources[0].type.bare for name, plan in planned.inputs.items() if isinstance(plan, InputFromEdges)}
             outputs = self._hook(record, definition, "compute_outputs", definition.compute_outputs, typed, arriving, tuple(added))
         if outputs is not None:
-            self._keep(PlacedFunction(
+            self._keep(CheckedFunctionNode(
                 id=record.id, scope=planned.scope, inputs=planned.inputs, outputs=outputs, definition=definition,
             ), planned.rests_on)
 
@@ -281,7 +281,7 @@ class _Loader:
         An input is offered under the name the inner graph gives it (``graph.inputs``), and an output under its
         address in the inner graph (``graph.outputs``), so an edge reads ``e.upper.result``. An output keeps the
         field its node inside declares, and is read outside as it would be with the same nodes drawn in this
-        graph: ``PlacedEmbeddedGraph.loops_around`` names the loops inside it is returned in.
+        graph: ``CheckedEmbeddedGraphNode.loops_around`` names the loops inside it is returned in.
 
         A graph that embeds itself is a problem here. The inner graph's own problems are this graph's, each with
         this node's id in front of its place. Either way the node is left out: what a graph with problems offers
@@ -309,14 +309,14 @@ class _Loader:
                 field = Field(field.name, Annotated[field.hint, Param(exclusive_group=f"{node_id}.{group}")], field.default)
             outputs[address] = Field(address, field.hint, field.default)
         planned = self._planned(record, fields, self._typed(record, fields), frozenset(), edges)
-        self._keep(PlacedEmbeddedGraph(
+        self._keep(CheckedEmbeddedGraphNode(
             id=record.id, scope=planned.scope, inputs=planned.inputs, outputs=outputs, definition=definition, inner=inner,
         ), planned.rests_on)
 
-    def _keep(self, placed: PlacedNode, rests_on: frozenset[Branch]) -> None:
+    def _keep(self, checked_node: CheckedNode, rests_on: frozenset[Branch]) -> None:
         """Keep a node that placed."""
-        self.nodes[placed.id] = placed
-        self.branches[placed.id] = rests_on
+        self.nodes[checked_node.id] = checked_node
+        self.branches[checked_node.id] = rests_on
 
     def _planned(
         self, record: NodeRecord, fields: Mapping[str, Field], typed: Mapping[str, Any], fixed_at_load: frozenset[str],
@@ -384,7 +384,7 @@ class _Loader:
                 series = [scope[-1], plan.scope[-1]]
                 outer, inner = sorted(series, key=lambda port: list(self.nodes).index(port.node_id))  # the one placed later can read the other with no cycle
                 reading = next(n for n, p in inputs.items() if isinstance(p, InputFromEdges) and p.scope == scope)
-                stored_graphs = list(dict.fromkeys(port.node_id for port in series if isinstance(self.nodes[port.node_id], PlacedEmbeddedGraph)))
+                stored_graphs = list(dict.fromkeys(port.node_id for port in series if isinstance(self.nodes[port.node_id], CheckedEmbeddedGraphNode)))
                 if stored_graphs:  # an edge of this graph can't move a list inside a stored graph
                     self.problems.append(problem.series_not_nested_inside_stored_graph(
                         record.id, series=[str(s) for s in series], inputs=[reading, name], stored_graphs=stored_graphs,

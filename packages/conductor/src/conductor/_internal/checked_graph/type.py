@@ -5,7 +5,7 @@ graph's inputs, its outputs the inner graph's outputs. It loads once, alone,
 however many graphs embed it, and nothing of it is copied into the graph
 around it. An author and a host see that one node, and an edge names its
 output, never a node inside it. Its nodes as the loader places them are in
-``placed_node.py``, and what a run walks of it is in ``tree.py``.
+``checked_node.py``, and what a run walks of it is in ``tree.py``.
 """
 
 from __future__ import annotations
@@ -17,6 +17,11 @@ from typing import Any
 
 from conductor._internal.address import NodePath
 from conductor._internal.canonical_json import canonical_json
+from conductor._internal.checked_graph.checked_node import (
+    CheckedEmbeddedGraphNode,
+    CheckedFunctionNode,
+    CheckedNode,
+)
 from conductor._internal.checked_graph.describe import (
     GraphDescription,
     GraphInput,
@@ -25,11 +30,6 @@ from conductor._internal.checked_graph.describe import (
     RunsOn,
     feed_of,
     runs_on,
-)
-from conductor._internal.checked_graph.placed_node import (
-    PlacedEmbeddedGraph,
-    PlacedFunction,
-    PlacedNode,
 )
 from conductor._internal.checked_graph.tree import FunctionAtPath, NodeAtPath, nodes_at_paths
 from conductor._internal.field import Field
@@ -58,7 +58,7 @@ class InputField:
 class CheckedGraph:
     """A graph record checked against the nodes it uses, made by the loader: its problems, its open inputs and its
     nodes placed. The ``Graph`` a host holds is a checked graph that can start a run; a stored graph used as a node
-    is checked alone as one (``PlacedEmbeddedGraph.inner``) and never run alone.
+    is checked alone as one (``CheckedEmbeddedGraphNode.inner``) and never run alone.
 
     ``record``, ``problems`` and ``inputs`` are what a host reads of one, and ``Graph`` says what each holds.
     """
@@ -68,11 +68,11 @@ class CheckedGraph:
     inputs: dict[str, GraphInput]
     #: Each node whose fields are known, by id, each after the nodes its inputs read. A graph with problems holds
     #: the nodes they are on too, with ``InputMissing`` for an input that gets nothing, and never runs.
-    _nodes: dict[str, PlacedNode]
+    _nodes: dict[str, CheckedNode]
     #: Each graph input as a run keeps it, by address.
     _input_fields: dict[str, InputField]
     #: The nodes that read each node.
-    _readers: dict[str, list[PlacedNode]]
+    _readers: dict[str, list[CheckedNode]]
     #: The nodes with a ``FromRun`` parameter, an embedded graph's too, as ``from_run_values`` reads them.
     _needs_from_run: list[tuple[str, FunctionDefinition[..., Any]]]
 
@@ -95,16 +95,16 @@ class CheckedGraph:
     @property
     def runs_on(self) -> dict[str, RunsOn]:
         """Where each node runs: ``once``, or ``per_item`` of the innermost Series of its scope."""
-        return {placed.id: runs_on(placed.scope) for placed in self._nodes.values()}
+        return {checked_node.id: runs_on(checked_node.scope) for checked_node in self._nodes.values()}
 
     @property
     def exclusive_groups(self) -> dict[str, dict[str, list[str]]]:
         """Each node's exclusive groups and their outputs, for a host to say which way a run went."""
         found: dict[str, dict[str, list[str]]] = {}
-        for placed in self._nodes.values():
-            for name, field in placed.outputs.items():
+        for checked_node in self._nodes.values():
+            for name, field in checked_node.outputs.items():
                 if field.param.exclusive_group:
-                    found.setdefault(placed.id, {}).setdefault(field.param.exclusive_group, []).append(name)
+                    found.setdefault(checked_node.id, {}).setdefault(field.param.exclusive_group, []).append(name)
         return found
 
     def describe(self) -> GraphDescription:
@@ -123,14 +123,14 @@ class CheckedGraph:
         nodes: dict[str, GraphNodeDescription] = {}
         for record in self.record.nodes:
             own = [p for p in self.problems if p.loc[:1] == (record.id,)]
-            placed = self._nodes.get(record.id)
-            if placed is None:
+            checked_node = self._nodes.get(record.id)
+            if checked_node is None:
                 nodes[record.id] = GraphNodeDescription(node=record.node, version=record.version, loaded=False, problems=own)
                 continue
             nodes[record.id] = GraphNodeDescription(
-                node=record.node, version=record.version, loaded=True, problems=own, runs=runs_on(placed.scope),
-                inputs=[NodeInputDescription(field=plan.field.description, feed=feed_of(placed.scope, plan)) for plan in placed.inputs.values()],
-                outputs=placed.described_outputs(),
+                node=record.node, version=record.version, loaded=True, problems=own, runs=runs_on(checked_node.scope),
+                inputs=[NodeInputDescription(field=plan.field.description, feed=feed_of(checked_node.scope, plan)) for plan in checked_node.inputs.values()],
+                outputs=checked_node.described_outputs(),
             )
         return GraphDescription(nodes=nodes, inputs=dict(self.inputs), outputs=self.outputs, problems=list(self.problems))
 
@@ -155,15 +155,15 @@ class CheckedGraph:
         return self._at_paths[1]
 
     @functools.cached_property
-    def _functions(self) -> dict[NodePath, PlacedFunction]:
+    def _functions(self) -> dict[NodePath, CheckedFunctionNode]:
         """Every function node of ``_tree``, by its path."""
-        return {node.path: node.placed for node in self._tree}
+        return {node.path: node.checked_node for node in self._tree}
 
     @functools.cached_property
     def _threads(self) -> int:
         """How many calls a leg over the graph can have on threads at once: the ``concurrency`` of every node
         called on a thread, those of each embedded graph with them."""
-        return sum(policy.concurrency for placed in self._functions.values() if (policy := placed.definition.policy).threaded)
+        return sum(policy.concurrency for checked_node in self._functions.values() if (policy := checked_node.definition.policy).threaded)
 
     @functools.cached_property
     def fingerprint(self) -> str:
@@ -174,5 +174,5 @@ class CheckedGraph:
         A saved run names it, and loading a save into a graph whose fingerprint differs is refused.
         """
         own = self.record.model_dump(mode="json", exclude={"nodes": {"__all__": {"display"}}})
-        embedded = {p.id: p.inner.fingerprint for p in self._nodes.values() if isinstance(p, PlacedEmbeddedGraph)}
+        embedded = {p.id: p.inner.fingerprint for p in self._nodes.values() if isinstance(p, CheckedEmbeddedGraphNode)}
         return hashlib.blake2b(canonical_json([own, embedded]), digest_size=8).hexdigest()

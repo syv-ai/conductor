@@ -23,11 +23,11 @@ def call(node: FunctionAtPath, kwargs: dict[str, Any], from_run: Mapping[type, A
     A value an edge brings is checked against the input first where its source's type doesn't settle it, and what
     the node returns against its declared outputs; either refusal is a ``CallRejectedError``, whose problem quotes no value.
     """
-    placed = node.placed
-    definition = placed.definition
+    checked_node = node.checked_node
+    definition = checked_node.definition
     try:
         for name in node.checked:
-            kwargs = {**kwargs, name: _checked(placed.inputs[name].field, name, kwargs[name], returned=False)}
+            kwargs = {**kwargs, name: _checked(checked_node.inputs[name].field, name, kwargs[name], returned=False)}
         if definition.from_run:
             kwargs = {**kwargs, **{name: from_run[needed] for name, needed in definition.from_run.items()}}
         returned = definition.function(**kwargs)
@@ -36,7 +36,7 @@ def call(node: FunctionAtPath, kwargs: dict[str, Any], from_run: Mapping[type, A
             raise
         return None, error
     try:
-        return checked_outputs(definition.returns, placed.outputs, returned), None
+        return checked_outputs(definition.returns, checked_node.outputs, returned), None
     except CallRejectedError as wrong:
         return None, wrong
 
