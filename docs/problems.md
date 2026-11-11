@@ -1016,10 +1016,6 @@ except NodeDeclarationError as error:
 
 ### `bound_invalid`
 
-> {unheld} can't apply to {Type(source).id}, as pydantic holds no such limit on it; take them off, or check the value in the node
-
-> the limits {param.limits} don't fit {self.id}, so change one: {error}
-
 ```python
 try:
     @node("short", title="Short", description="Passes the text on as it is.")
@@ -1027,19 +1023,19 @@ try:
         return text
 except NodeDeclarationError as error:
     print(error.code)  # bound_invalid
+    print(error)  # @node('short') on short: text: ['ge'] can't apply to str, as pydantic holds no such limit on it; take them off, or check the value in the node
+
+try:
+    @node("narrow", title="Narrow", description="Passes the number on as it is.")
+    def narrow(number: Annotated[int, Param(ge="a")]) -> int:  # type: ignore[arg-type]
+        return number
+except NodeDeclarationError as error:
+    print(str(error).splitlines()[0])  # @node('narrow') on narrow: number: the limits {'ge': 'a'} don't fit int, so change one: Error building "lax-or-strict" validator:
 ```
 
 **Fix.** Use limits pydantic holds on the type: `ge`, `gt`, `le`, `lt` and `multiple_of` on numbers (a `Decimal` too), dates, times and durations; `min_length` and `max_length` on texts, bytes, lists, tuples, sets and dicts; `pattern` on texts. A table takes none. The same holds for a `Param` on a field of a model a node takes.
 
 ### `choices_invalid`
-
-> the choices hold an id twice, or none; give each choice once, as a value of the field's type
-
-> on a Literal the choices title its values, one each: {literal}; give each choice once, as a value of the field's type
-
-> a choice has no JSON form; give each choice once, as a value of the field's type
-
-> a choice is not a value of the field's type: {value_free_errors(refused)[0]['msg']}; give each choice once, as a value of the field's type
 
 ```python
 from typing import Literal
@@ -1052,6 +1048,28 @@ try:
         return pick
 except NodeDeclarationError as error:
     print(error.code)  # choices_invalid
+    print(error)  # @node('size') on size: pick: on a Literal the choices title its values, one each: ['s', 'm']; give each choice once, as a value of the field's type
+
+try:
+    @node("doubled", title="Doubled", description="Hands back the chosen size.")
+    def doubled(pick: Annotated[str, Param(choices=[Choice("s", "Small"), Choice("s", "Short")])]) -> str:
+        return pick
+except NodeDeclarationError as error:
+    print(error)  # @node('doubled') on doubled: pick: the choices hold an id twice, or none; give each choice once, as a value of the field's type
+
+try:
+    @node("number_size", title="Number size", description="Hands back the chosen size.")
+    def number_size(pick: Annotated[int, Param(choices=[Choice("s", "Small")])]) -> int:
+        return pick
+except NodeDeclarationError as error:
+    print(error)  # @node('number_size') on number_size: pick: a choice is not a value of the field's type: Input should be a valid integer; give each choice once, as a value of the field's type
+
+try:
+    @node("object_size", title="Object size", description="Hands back the chosen size.")
+    def object_size(pick: Annotated[str, Param(choices=[Choice(object(), "Small")])]) -> str:
+        return pick
+except NodeDeclarationError as error:
+    print(error)  # @node('object_size') on object_size: pick: a choice has no JSON form; give each choice once, as a value of the field's type
 ```
 
 **Fix.** Give each choice once, each a value of the field's type. On a `Literal`, the choices title its values, one each: `[Choice("s", "Small"), Choice("m", "Medium")]`.
@@ -1076,10 +1094,6 @@ except NodeDeclarationError as error:
 
 ### `default_invalid`
 
-> the default None is a blank; write its type with | None
-
-> the default {self.default} is not a value of {whole.id} that it writes as JSON, so give one that is: {error}
-
 ```python
 try:
     @node("maybe", title="Maybe", description="Passes the text on as it is.")
@@ -1087,6 +1101,14 @@ try:
         return text
 except NodeDeclarationError as error:
     print(error.code)  # default_invalid
+    print(error)  # @node('maybe') on maybe: text: the default None is a blank; write its type with | None
+
+try:
+    @node("counted", title="Counted", description="Passes the number on as it is.")
+    def counted(number: int = "many") -> int:  # type: ignore[assignment]
+        return number
+except NodeDeclarationError as error:
+    print(error)  # @node('counted') on counted: number: the default 'many' is not a value of int that it writes as JSON, so give one that is: Input should be a valid integer, unable to parse string as an integer
 ```
 
 **Fix.** Write `text: str | None = None` for an input that takes a blank, or give a default of the input's type that it writes as JSON: an editor shows it, and a saved graph stores it.
@@ -1194,12 +1216,6 @@ except NodeDeclarationError as error:
 
 ### `hook_parameter_unknown`
 
-> {kind} parameter {name}: a hook's parameters are passed by name; name each after an input of the node
-
-> {kind} parameter {name} names no input of the node; it has {sorted(inputs)}
-
-> {kind} parameter **{name}: a hook takes ** only as **{name}: type on compute_outputs, for the types arriving on the inputs compute_added_inputs added; annotate it type and give the node that hook, or name each parameter after an input
-
 ```python
 def from_names(names: str) -> dict[str, type]:
     return {name: str for name in names.split(",")}
@@ -1211,6 +1227,31 @@ try:
         return {}
 except NodeDeclarationError as error:
     print(error.code)  # hook_parameter_unknown
+    print(error)  # @node('named') on named: compute_outputs parameter 'names' names no input of the node; it has ['labels']
+
+
+def from_any(*names: str) -> dict[str, type]:
+    return {}
+
+
+try:
+    @node("starred", title="Starred", description="Gives one answer per label.", compute_outputs=from_any)
+    def starred(labels: str) -> dict[str, str]:
+        return {}
+except NodeDeclarationError as error:
+    print(error)  # @node('starred') on starred: compute_outputs parameter 'names': a hook's parameters are passed by name; name each after an input of the node
+
+
+def from_keywords(**names: str) -> dict[str, type]:
+    return {}
+
+
+try:
+    @node("keyed", title="Keyed", description="Gives one answer per label.", compute_outputs=from_keywords)
+    def keyed(labels: str) -> dict[str, str]:
+        return {}
+except NodeDeclarationError as error:
+    print(error)  # @node('keyed') on keyed: compute_outputs parameter **names: a hook takes ** only as **names: type on compute_outputs, for the types arriving on the inputs compute_added_inputs added; annotate it type and give the node that hook, or name each parameter after an input
 ```
 
 **Fix.** Name the hook's parameters after the node's inputs, and take them by name.
