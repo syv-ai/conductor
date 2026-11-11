@@ -333,7 +333,7 @@ def test_a_series_made_inside_an_embedded_graph_and_never_made_there_is_gathered
 
 def test_asking_an_embedded_graph_for_an_output_it_does_not_offer_fails_at_once() -> None:
     """No loaded graph has such an edge; the question reads the embedded graph's offers by address and nothing else."""
-    from conductor._internal.graph import Cell
+    from conductor._internal.loaded_graph import Cell
     from conductor._internal.outside_the_items import _Asking, _could_hold
 
     graph = REGISTRY.load({"nodes": [{"id": "s", "node": "items"}, {"id": "e", "node": "pair-then-up-or-none"}], "edges": [["s.result", "e.a"]]})

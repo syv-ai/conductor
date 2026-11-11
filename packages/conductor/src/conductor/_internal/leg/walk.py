@@ -48,7 +48,6 @@ from typing import Any, Literal
 from conductor._internal.address import Key
 from conductor._internal.ask import Ask, InvalidAskError, question_asked
 from conductor._internal.fields import SKIPPED, FieldValueError
-from conductor._internal.graph import FunctionAtPath, GraphAtPath, NodeAtPath, waits_on
 from conductor._internal.leg.events import (
     NodeComplete,
     NodeFailed,
@@ -62,6 +61,7 @@ from conductor._internal.leg.events import (
     UnitWaiting,
     _EventBase,
 )
+from conductor._internal.loaded_graph import FunctionAtPath, GraphAtPath, NodeAtPath, waits_on
 from conductor._internal.problem import ExternalError, NodeError, Problem, make_problem
 from conductor._internal.run import PENDING, Run, _length, jsonable, unit_loc, waiting_unit
 from conductor._internal.run_status import _COMPLETE, _RUNNING, _WAITING, EndedEarly, RunState

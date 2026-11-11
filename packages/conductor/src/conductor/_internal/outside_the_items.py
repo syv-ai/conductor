@@ -34,7 +34,7 @@ from typing import Any, NamedTuple, Protocol
 
 from conductor._internal.address import NodePath
 from conductor._internal.fields import SKIPPED
-from conductor._internal.graph import (
+from conductor._internal.loaded_graph import (
     Cell,
     CellRead,
     Fixed,
