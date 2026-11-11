@@ -153,8 +153,8 @@ def test_waiting_and_skipped_events():
                       "edges": [["split.result", "gate.text"], ["split.result", "never.text"]]}))
     events = collect(graph.with_inputs(text="a,b,c"))
     kinds = [e.type for e in events]
-    assert "unit_waiting" in kinds and "node_skipped" in kinds and events[-1].status == "waiting", kinds
-    waiting = [e.unit for e in events if e.type == "unit_waiting"]
+    assert "node_waiting" in kinds and "node_skipped" in kinds and events[-1].status == "waiting", kinds
+    waiting = [e.waiting for e in events if e.type == "node_waiting"]
     assert [place(w) for w in waiting] == ["gate@1"]
     assert not any(e.type == "node_complete" and e.loc[0] == "gate" for e in events)
 

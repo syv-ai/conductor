@@ -249,7 +249,7 @@ A failed unit ends the leg `failed`, its problem the `cause` of `run.state`, an 
 | `node_complete` | `loc`, `units` (how many calls it came to), `not_called` (how many of them a blank kept it from), `reused_units`; the values are in the run (`run.results`) |
 | `node_retry` | `loc` (the unit's: the node's id, then its item; inside an embedded graph the embedding node and its item first, `("emb", 1, "upper")`), `attempt`, `retries`, `delay`, `cause` |
 | `node_failed` | `loc`, `cause` (a `Problem`, whose `loc` names the unit) |
-| `unit_waiting` | `unit` (a `Waiting`) |
+| `node_waiting` | `waiting` (a `Waiting`) |
 | `run_start` | `waiting` |
 | `run_checkpoint` | `run` (status `running`, or how a stopped leg stopped), which it does not write; only with `stream(checkpoint_every=seconds)`, at most that often and once when a leg is stopped with calls on threads; and as the last event of a leg handed back (`stream(hand_back=)`), `running`, in place of `run_end` |
 | `run_end` | `status`, `cause`, and `run`, which it does not write |

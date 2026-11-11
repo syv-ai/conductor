@@ -282,7 +282,7 @@ Every public name of 1.12.2, by the module it was imported from. A name not list
 | `conductor.execution.events.FlowCancelledEvent` | `RunEnd` with `status` `cancelled` |
 | `conductor.execution.events.FlowCompleteEvent` | `RunEnd` with `status` `complete` |
 | `conductor.execution.events.FlowErrorEvent` | `RunEnd` with `status` `failed` |
-| `conductor.execution.events.FlowPausedEvent` | `UnitWaiting` per waiting call, then `RunEnd` with `status` `waiting` |
+| `conductor.execution.events.FlowPausedEvent` | `NodeWaiting` per waiting call, then `RunEnd` with `status` `waiting` |
 | `conductor.execution.events.FlowTimeoutEvent` | `RunEnd` with `status` `timed_out` |
 | `conductor.execution.events.NodeCompleteEvent` | `NodeComplete` |
 | `conductor.execution.events.NodeErrorEvent` | `NodeFailed`, its `cause` a `Problem` |
@@ -291,7 +291,7 @@ Every public name of 1.12.2, by the module it was imported from. A name not list
 | `conductor.execution.events.NodeSkippedEvent` | `NodeSkipped` |
 | `conductor.execution.events.NodeStartEvent` | `NodeStart` |
 | `conductor.execution.events.RuntimeWarningEvent` | gone: a type fault is a load problem, `graph.problems` |
-| `conductor.execution.events.SignalWaitingEvent` | `UnitWaiting` |
+| `conductor.execution.events.SignalWaitingEvent` | `NodeWaiting` |
 | `conductor.execution.resolver.finalize_connection_labels` | gone with connection labels: an input is named by its field |
 | `conductor.execution.resolver.InputResolver` | gone: the graph reads its inputs, `graph.with_inputs(...)` |
 | `conductor.execution.resolver.MULTI_VALUE_SEPARATOR` | gone: several edges into a `Series` input arrive as a list, never joined |
@@ -436,12 +436,12 @@ Events are frozen pydantic models in `conductor.events`, told apart by `type`. T
 | `flow_error` | `run_end`, `status` `failed` |
 | `flow_cancelled` | `run_end`, `status` `cancelled` |
 | `flow_timeout` | `run_end`, `status` `timed_out` |
-| `flow_paused` | `unit_waiting` per waiting call, then `run_end`, `status` `waiting` |
+| `flow_paused` | `node_waiting` per waiting call, then `run_end`, `status` `waiting` |
 | `node_retry` | `node_retry`: `loc`, `attempt`, `retries`, `delay`, `cause` |
 | `compensation_start` | gone with compensation |
 | `compensation_complete` | gone with compensation |
 | `compensation_failed` | gone with compensation |
-| `signal_waiting` | `unit_waiting` |
+| `signal_waiting` | `node_waiting` |
 
 ## [1.12.2]
 

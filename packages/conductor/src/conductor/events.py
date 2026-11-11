@@ -14,10 +14,10 @@ from conductor._internal.scheduler import (
     NodeRetry,
     NodeSkipped,
     NodeStart,
+    NodeWaiting,
     RunCheckpoint,
     RunEnd,
     RunStart,
-    UnitWaiting,
 )
 
 # The order the reference lists them in: as a leg says them.
@@ -30,7 +30,7 @@ __all__ = [
     "NodeSkipped",
     "NodeFailed",
     "NodeRetry",
-    "UnitWaiting",
+    "NodeWaiting",
     "RunCheckpoint",
     "RunEnd",
 ]

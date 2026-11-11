@@ -46,10 +46,10 @@ from conductor.events import (
     NodeRetry,
     NodeSkipped,
     NodeStart,
+    NodeWaiting,
     RunCheckpoint,
     RunEnd,
     RunStart,
-    UnitWaiting,
 )
 from pydantic import TypeAdapter, ValidationError
 
@@ -270,7 +270,7 @@ SHAPES = {
     "node_skipped": ["loc", "type"],
     "node_failed": ["cause", "loc", "type"],
     "node_retry": ["attempt", "cause", "delay", "loc", "retries", "type"],
-    "unit_waiting": ["type", "unit"],
+    "node_waiting": ["type", "waiting"],
     "run_checkpoint": ["type"],
     "run_end": ["cause", "status", "type"],
 }
@@ -339,7 +339,7 @@ def _every_event() -> list[Any]:
         NodeSkipped(loc=("n",)),
         NodeFailed(loc=("n",), cause=cause),
         NodeRetry(loc=("n",), attempt=1, retries=2, delay=0.5, cause=cause),
-        UnitWaiting(unit=waiting),
+        NodeWaiting(waiting=waiting),
         RunCheckpoint(run=streamed[-1].run),
     ]
     return [*streamed, *built]

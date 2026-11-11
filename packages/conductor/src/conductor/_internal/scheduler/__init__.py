@@ -12,9 +12,9 @@ from conductor._internal.scheduler.events import (
     NodeRetry,
     NodeSkipped,
     NodeStart,
+    NodeWaiting,
     RunCheckpoint,
     RunEnd,
     RunStart,
-    UnitWaiting,
 )
 from conductor._internal.scheduler.type import Scheduler

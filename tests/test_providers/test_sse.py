@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Annotated, Any
 
 from conductor import SKIPPED, Ask, GraphRecord, NodeRecord, Param, Problem, Waiting, node
-from conductor.events import NodeComplete, NodeFailed, RunEnd, UnitWaiting
+from conductor.events import NodeComplete, NodeFailed, NodeWaiting, RunEnd
 from conductor.widgets import Textarea
 
 from tests.test_core.nodes import registry_of
@@ -44,10 +44,10 @@ def test_a_waiting_units_question_and_a_failures_cause_are_records():
     def ask(text: str) -> Annotated[str, Param(title="Svar", widget=Textarea())]:
         raise Ask("Hvad?", default="forslag")
 
-    (waiting,) = [e for e in _events(GraphRecord(nodes=[NodeRecord(id="ask", node="ask", values={"text": "x"})]), ask) if isinstance(e, UnitWaiting)]
+    (waiting,) = [e for e in _events(GraphRecord(nodes=[NodeRecord(id="ask", node="ask", values={"text": "x"})]), ask) if isinstance(e, NodeWaiting)]
     failed = _payload(NodeFailed(loc=("n",), cause=Problem(type="boom", msg="Boom.", loc=("n", 2))))
 
-    unit = _payload(waiting)["unit"]
+    unit = _payload(waiting)["waiting"]
     (question,) = unit["questions"]
     assert (unit["id"].partition("~")[0], unit["prompt"], question["title"], question["default"], question["widget"]["type"], question["schema"]["type"]) == ("ask", "Hvad?", "Svar", "forslag", "textarea", "string")
     assert unit["inputs"] == {"text": "x"}
@@ -56,8 +56,8 @@ def test_a_waiting_units_question_and_a_failures_cause_are_records():
 
 def test_a_completion_is_counts_and_a_float_that_isnt_finite_in_a_question_is_text():
     assert _payload(NodeComplete(loc=("n",), units=3, not_called=1)) == {"type": "node_complete", "loc": ["n"], "units": 3, "not_called": 1, "reused_units": 0}
-    waiting = UnitWaiting(unit=Waiting(id="n", loc=("n",), prompt="?", questions=[], inputs={"x": float("nan")}))
-    assert _payload(waiting)["unit"]["inputs"] == {"x": "NaN"}
+    waiting = NodeWaiting(waiting=Waiting(id="n", loc=("n",), prompt="?", questions=[], inputs={"x": float("nan")}))
+    assert _payload(waiting)["waiting"]["inputs"] == {"x": "NaN"}
 
 
 @dataclass(frozen=True)

@@ -37,9 +37,9 @@ from conductor.events import (
     NodeFailed,
     NodeRetry,
     NodeStart,
+    NodeWaiting,
     RunCheckpoint,
     RunEnd,
-    UnitWaiting,
 )
 
 CALLS: collections.Counter[str] = collections.Counter()
@@ -611,7 +611,7 @@ def test_a_node_inside_says_its_events_once_by_its_path_as_drawn_flat():
     assert [(e.loc, e.units) for e in events if isinstance(e, NodeComplete)] == [(("w",), 1), (("e", "up"), 2)]
     flat_events = stream(flat("asking-inner").with_inputs(text="ab cd"))
     assert [e.loc for e in flat_events if isinstance(e, NodeStart)] == [("outer",), ("up",), ("q",)]
-    waiting = [e.unit for e in events if isinstance(e, UnitWaiting)]
+    waiting = [e.waiting for e in events if isinstance(e, NodeWaiting)]
     assert [w.id for w in waiting] == [w.id for w in events[-1].run.waiting] and waiting[1].loc == ("e", 1, "q")
     assert isinstance(events[-1], RunEnd) and events[-1].status == "waiting"
     answered = events[-1].run.answer({w.id: "yes" for w in waiting})

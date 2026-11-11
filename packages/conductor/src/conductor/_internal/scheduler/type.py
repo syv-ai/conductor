@@ -82,7 +82,7 @@ from conductor._internal.scheduler.events import (
     NodeRetry,
     NodeSkipped,
     NodeStart,
-    UnitWaiting,
+    NodeWaiting,
 )
 from conductor._internal.sentinels import SKIPPED
 
@@ -517,7 +517,7 @@ class Scheduler:
             if type(outcome) is not Skipped:
                 self._announce(node)  # a unit taken from earlier work, or a blank one, starts its node as a call does
             if type(outcome) is Asking:
-                self.emit(UnitWaiting(unit=waiting_record(node.placed, outcome_loc(node, key), outcome)))
+                self.emit(NodeWaiting(waiting=waiting_record(node.placed, outcome_loc(node, key), outcome)))
             if node.maps:
                 self._progress(node)
         if walking or not self.going or type(outcome) is Asking:  # nothing reads a unit that waits for a person

@@ -803,7 +803,7 @@ def test_each_item_still_waiting_after_again_is_announced_on_the_stream():
 
     events = _events(run.with_inputs(items=["eva", "ida", "bo"]))
 
-    assert [place(e.unit) for e in events if e.type == "unit_waiting"] == ["a@0", "a@1", "a@2"]
+    assert [place(e.waiting) for e in events if e.type == "node_waiting"] == ["a@0", "a@1", "a@2"]
     assert events[-1].status == "waiting"
 
 

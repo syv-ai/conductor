@@ -102,11 +102,11 @@ class NodeRetry(_NodeEvent):
     cause: Problem
 
 
-class UnitWaiting(EventBase):
+class NodeWaiting(EventBase):
     """A unit started waiting for a person. It waits, whatever reads it waits, and the rest of the graph runs on."""
 
-    type: Literal["unit_waiting"] = "unit_waiting"
-    unit: Waiting
+    type: Literal["node_waiting"] = "node_waiting"
+    waiting: Waiting
 
 
 class RunEnd(EventBase):
@@ -145,7 +145,7 @@ class RunCheckpoint(EventBase):
 
 
 Event = Annotated[
-    RunStart | NodeStart | NodeProgress | NodeComplete | NodeSkipped | NodeFailed | NodeRetry | UnitWaiting | RunCheckpoint | RunEnd,
+    RunStart | NodeStart | NodeProgress | NodeComplete | NodeSkipped | NodeFailed | NodeRetry | NodeWaiting | RunCheckpoint | RunEnd,
     Field(discriminator="type"),
 ]
 Event.__doc__ = "Any event ``run.stream()`` yields, told apart by ``type``: ``TypeAdapter(Event)`` reads one back from JSON."
