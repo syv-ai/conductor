@@ -431,7 +431,7 @@ IMPORTS = {
 DISTRIBUTIONS = {
     "conductor": {"pydantic", "polars", "syv-conductor-nodes", "syv-conductor-providers"},
     "conductor-nodes": {"syv-conductor", "pydantic", "polars", "regex"},
-    "conductor-providers": {"syv-conductor", "fastapi", "pydantic", "polars"},
+    "conductor-providers": {"syv-conductor", "fastapi", "pydantic"},
 }
 
 SOURCES = sorted(p for p in PACKAGES.glob("*/src/**/*") if p.is_file() and p.suffix in {".py", ".pyi", ".txt", ".md"}) + sorted(

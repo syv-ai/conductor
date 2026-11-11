@@ -30,7 +30,7 @@ class StoredRun:
     rev: int = 0
     #: What waits for a person as of the last leg's end, as JSON, so reading a run doesn't load it.
     waiting: str = "[]"
-    #: The outputs as JSON once the run is complete, a table as its records.
+    #: The outputs as JSON once the run is complete, as ``run.outputs_json()`` writes them.
     outputs: str | None = None
     #: The worker running a leg of it, and until when its lease holds.
     owner: str | None = None

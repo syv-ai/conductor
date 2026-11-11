@@ -572,6 +572,25 @@ class Run:
         nodes = self.graph._node_at
         return {address: self._collect(nodes[(address.partition(".")[0],)], address.partition(".")[2]) for address in self.graph.outputs}
 
+    def outputs_json(self) -> str:
+        """The graph's outputs (``run.outputs``) as JSON, by address, each written by its output's type as a save
+        writes it: a table as its columns, a float that isn't finite as its text, a host's type by its own schema.
+
+        Raises:
+            InvalidCallError: The run is not complete (``run_not_complete``), or an output holds a value with no
+                JSON form (``state_unwritable``, naming the output).
+        """
+        nodes = self.graph._node_at
+        written = {}
+        for address, value in self.outputs.items():
+            node = nodes[(address.partition(".")[0],)]
+            output = node.placed.outputs[address.partition(".")[2]]
+            try:
+                written[address] = (output.column if node.maps else output.slot).to_json(value)
+            except pydantic_core.PydanticSerializationError:
+                raise InvalidCallError([make_problem("state_unwritable", "outputs", address, at=address, reason="a value has no JSON form")]) from None
+        return pydantic_core.to_json(written).decode()
+
     def _collect(self, node: NodeAtPath, output: str) -> Any:
         """One output of a node over its units, in instance order."""
         units = self._units[node.inside][node.placed.id]

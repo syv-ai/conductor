@@ -21,7 +21,6 @@ from dataclasses import dataclass, field, replace
 from functools import cached_property
 from typing import Annotated, Any, TypeVar, Unpack, overload
 
-import polars as pl
 from conductor import (
     EndedEarly,
     Going,
@@ -74,7 +73,8 @@ class RunView(BaseModel):
             ``timed_out``, ``stopped``, ``cancelled`` or ``failed``, which ``POST /runs/{id}/resume`` goes on from.
         waiting: What waits for a person, as of the last leg's end; each ``id`` is what
             ``POST /runs/{id}/answers`` takes.
-        outputs: The graph's outputs by name once the run is complete, a table as a list of records; ``None`` until then.
+        outputs: The graph's outputs by address once the run is complete, each as its type writes it (a table as its
+            columns); ``None`` until then.
         refused: Answers sent while a leg ran that were refused when it ended, by waiting id, each with its problems.
         cause: Why the run failed, stopped, was cancelled or timed out; ``None`` while it runs, waits or once complete.
     """
@@ -502,8 +502,8 @@ def _always(registry: NodeRegistry) -> Callable[[object], NodeRegistry]:
 
 class _Ended:
     """A leg that ended with ``run``: its status, and what its end writes of it beside the run itself (what waits
-    for a person, its outputs once complete, a table as records wherever it sits, a float that isn't finite as text, as every
-    JSON conductor writes, and its status and cause)."""
+    for a person, its outputs once complete, each written by its type as the run writes it, and its status and
+    cause)."""
 
     def __init__(self, run: Run) -> None:
         self.run = run
@@ -513,7 +513,7 @@ class _Ended:
             **_standing(run.state),
         }
         if run.status == "complete":
-            self.written["outputs"] = to_json(run.outputs, fallback=_records, inf_nan_mode="strings").decode()
+            self.written["outputs"] = run.outputs_json()
 
     @cached_property
     def as_saved(self) -> RunChanges:
@@ -573,12 +573,6 @@ def _not_waiting(status: RunStatus) -> Problem:
     """Why a run that isn't ``waiting`` takes no answers: a leg starts only on a run that waits for them. The code and
     its message are in ``PROBLEM_CODES`` and conductor's catalogue, as every code conductor writes."""
     return Problem(type="run_not_waiting", msg=f"The run is {status}, so it takes no answers; resume it first, then answer.", ctx={"status": status})
-
-
-def _records(value: Any) -> Any:
-    if isinstance(value, pl.DataFrame):
-        return value.to_dicts()
-    raise TypeError(type(value).__name__)
 
 
 def _caller_type(caller: Callable[..., Any]) -> Any:

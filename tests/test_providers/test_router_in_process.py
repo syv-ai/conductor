@@ -8,7 +8,7 @@ import dataclasses
 import json
 import threading
 import time
-from typing import Annotated, Any, TypedDict
+from typing import Annotated, Any, ClassVar, TypedDict
 
 import pytest
 
@@ -19,6 +19,8 @@ from conductor import Ask, FromRun, GraphRecord, NodeRecord, NodeRegistry, Serie
 from conductor._internal.errors import PROBLEM_CATALOGUE  # noqa: E402
 from conductor_providers.fastapi import RunChanges, StoredRun, run_router  # noqa: E402
 from fastapi import FastAPI, Header  # noqa: E402
+from pydantic import GetCoreSchemaHandler  # noqa: E402
+from pydantic_core import core_schema  # noqa: E402
 
 
 class MemoryStore:
@@ -212,11 +214,52 @@ def test_a_ceiling_raised_by_a_resume_holds_for_the_legs_after_it() -> None:
     asyncio.run(scenario())
 
 
+class Cents:
+    """A host's type that only its own schema writes as JSON."""
+
+    type_id: ClassVar[str] = "cents"
+    type_title: ClassVar[str] = "Cents"
+
+    def __init__(self, cents: int) -> None:
+        self.cents = cents
+
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source: Any, handler: GetCoreSchemaHandler) -> core_schema.CoreSchema:
+        return core_schema.no_info_plain_validator_function(
+            lambda value: value if isinstance(value, cls) else cls(int(value)),
+            serialization=core_schema.plain_serializer_function_ser_schema(lambda held: held.cents),
+        )
+
+
+def test_an_output_only_its_own_type_can_write_completes_over_http_as_it_does_in_the_engine() -> None:
+    registry = NodeRegistry()
+
+    @registry.node("price", title="Price", description="")
+    def price(cents: int) -> Cents:
+        return Cents(cents)
+
+    @registry.node("prices", title="Prices", description="")
+    def prices(cents: int) -> Series[Cents]:
+        return [Cents(cents), Cents(cents + 1)]
+
+    graph = GraphRecord(nodes=[NodeRecord(id="price", node="price"), NodeRecord(id="prices", node="prices")]).model_dump(mode="json")
+    app = FastAPI()
+    app.include_router(run_router(store=MemoryStore(), registry=registry, caller=_caller))
+
+    async def scenario() -> None:
+        async with app.router.lifespan_context(app), httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as client:
+            run_id = (await client.post("/runs", json={"graph": graph, "inputs": {"price.cents": 5, "prices.cents": 7}})).json()["id"]
+            ended = await _until_ended(client, run_id, "anna")
+            assert (ended["status"], ended["outputs"], ended["cause"]) == ("complete", {"price.result": 5, "prices.result": [7, 8]}, None)
+
+    asyncio.run(scenario())
+
+
 class Part(TypedDict):
     text: str
 
 
-def test_a_table_made_for_each_item_reads_as_a_list_of_records_per_item() -> None:
+def test_a_table_made_for_each_item_reads_as_its_columns_per_item() -> None:
     registry = NodeRegistry()
 
     @registry.node("split", title="Split", description="")
@@ -235,7 +278,8 @@ def test_a_table_made_for_each_item_reads_as_a_list_of_records_per_item() -> Non
         async with app.router.lifespan_context(app), httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as client:
             run_id = (await client.post("/runs", json={"graph": graph, "inputs": {"text": "a,b"}})).json()["id"]
             ended = await _until_ended(client, run_id, "anna")
-            assert (ended["status"], ended["outputs"]) == ("complete", {"as-table.result": [[{"text": "a"}], [{"text": "b"}]]})
+            columns = [{"columns": [{"name": "text", "type": "str", "values": [text]}]} for text in ("a", "b")]
+            assert (ended["status"], ended["outputs"]) == ("complete", {"as-table.result": columns})
 
     asyncio.run(scenario())
 

@@ -120,7 +120,9 @@ What changes in how you work, before the name-by-name tables:
   the caller who asks; a `caller` dependency's type is a class's own or a function's return
   annotation, which it must have; `resume` takes no body, and a ceiling it raises holds for the run's later legs; a leg whose event
   the store fails to take ends before its next unit, so no node is called once the run reads `failed`; `GET /runs/{id}` says the `cause` of a run that
-  didn't complete; a float that isn't finite in a run's outputs reads as `"Infinity"` or `"NaN"`.
+  didn't complete; a run's `outputs` there are what `run.outputs_json()` writes, each by its output's type, so a host's type that only its own
+  schema can write completes over HTTP as it does in the engine, a table reads as its columns and a float that isn't finite as `"Infinity"` or `"NaN"`;
+  `syv-conductor-providers` no longer depends on polars.
   There is no canvas package.
 - **A declared choice's `id` is the field type's JSON form.** `Decimal` choices show `"1"` and a `datetime` its seconds, so the id a question shows is an answer it takes.
 - **A table answer and a caller's records have one reader.** Extra columns are dropped for every table from outside, and a missing column is refused. An answer's cells are read strictly from their JSON form; a caller's records are read cell by cell, laxly, never from polars' dtype, so a bool among ints or a number among texts is `invalid_input`. A value that is neither a frame nor a list of records is refused as `invalid_answer` or `invalid_input` with the reason "a table is a frame or a list of records, one object per row".

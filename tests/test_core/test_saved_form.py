@@ -320,3 +320,44 @@ def test_a_value_with_no_json_form_is_refused_at_the_save_naming_its_output() ->
 
     (problem,) = refused.value.errors()
     assert (problem.type, problem.ctx["at"]) == ("state_unwritable", "o.result")
+
+
+def test_a_run_writes_its_outputs_as_json_by_their_types() -> None:
+    @node("rows", title="Rows", description="")
+    def rows(text: str) -> Series[Line]:
+        return pl.DataFrame({"text": ["a"], "size": [math.inf]})  # type: ignore[return-value]
+
+    registry = _registry()
+    registry.add(rows)
+    graph = registry.load(GraphRecord(
+        nodes=[NodeRecord(id=n, node=n) for n in ("lines", "letters", "reading", "loose", "typed-frame", "rows")], edges=[("lines.result.text", "letters.text")],
+    ))
+    run = graph.run({"lines.text": "ab,xa", "reading.text": "inf", "loose.text": "x", "typed-frame.text": "x", "rows.text": "x"})
+
+    written = run.outputs_json()
+
+    assert json.loads(written, parse_constant=lambda constant: pytest.fail(f"not strict JSON: {constant}")) == {
+        "letters.result": [["a", "b"], [None, "a"]],  # a branch not taken for an item is a blank
+        "reading.result": {"value": "NaN", "note": "Infinity"},  # a model writes a float that isn't finite as the run does
+        "loose.result": {"nan": "NaN", "when": "2026-01-01", "text": "x"},
+        "typed-frame.result": {"columns": [{"name": "text", "type": "str", "values": ["a", "b"]}, {"name": "size", "type": "float", "values": [1.5, "Infinity"]}]},
+        "rows.result": [{"text": "a", "size": "Infinity"}],  # a Series of records is its records, however the run holds it
+    }
+
+
+def test_outputs_as_json_are_of_a_complete_run_and_a_value_with_no_json_form_names_its_output() -> None:
+    graph = _everything()
+    with pytest.raises(InvalidCallError) as refused:
+        graph.run(_inputs("a")).outputs_json()
+    assert [problem.type for problem in refused.value.errors()] == ["run_not_complete"]
+
+    @node("odd", title="Odd", description="")
+    def odd(text: str) -> Any:
+        return object()
+
+    registry = NodeRegistry()
+    registry.add(odd)
+    with pytest.raises(InvalidCallError) as refused:
+        registry.load(GraphRecord(nodes=[NodeRecord(id="o", node="odd")])).run(text="x").outputs_json()
+    (problem,) = refused.value.errors()
+    assert (problem.type, problem.loc, problem.ctx["at"]) == ("state_unwritable", ("outputs", "o.result"), "o.result")

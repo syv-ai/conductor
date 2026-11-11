@@ -1211,15 +1211,20 @@ class Field:
         return self.many and self.type.optional
 
     @functools.cached_property
-    def column(self) -> Type:
-        """The type of the field's values over many units, as a saved run holds them: a list in which a unit that
-        gave none, and a ``Series``' item on a branch not taken, are blank. A ``Series`` of records is its items
-        or the table it is held as."""
+    def slot(self) -> Type:
+        """The type of the field's value on one unit, as a saved run and a run's written outputs hold it: blank
+        where the unit gave none, and a ``Series``' item on a branch not taken blank. A ``Series`` of records
+        is its items or the table it is held as."""
         one = _list_of(_union((self.type.hint, type(None)))) if self.many else self.whole.hint
         if (table := self.whole.held_as_table) is not None:
             held: Any = Records
             one = _union((one, held[get_args(table.hint)[0]]))
-        return Type(_list_of(_union((one, type(None)))))
+        return Type(_union((one, type(None))))
+
+    @functools.cached_property
+    def column(self) -> Type:
+        """The type of the field's values over many units: a list of what ``slot`` is the type of."""
+        return Type(_list_of(self.slot.hint))
 
     @functools.cached_property
     def description(self) -> FieldDescription:
