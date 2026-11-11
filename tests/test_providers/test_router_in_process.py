@@ -6,8 +6,6 @@ from __future__ import annotations
 
 import dataclasses
 import json
-import pathlib
-import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Annotated, Any
@@ -17,7 +15,7 @@ import pytest
 httpx = pytest.importorskip("httpx")
 
 from conductor import FromRun, GraphRecord, NodeRecord, NodeRegistry, Problem, make_graph  # noqa: E402
-from conductor_providers.fastapi import ROUTER_PROBLEM_CODES, RunChanges, run_router  # noqa: E402
+from conductor_providers.fastapi import ROUTER_PROBLEMS, RunChanges, run_router  # noqa: E402
 from fastapi import FastAPI, Header  # noqa: E402
 
 from tests.test_providers.in_memory import MemoryStore, asking  # noqa: E402
@@ -168,7 +166,7 @@ async def test_every_refusal_of_the_router_is_a_list_of_problems_with_a_code_of_
 
     def refusal(response: Any) -> tuple[int, list[tuple[str, dict[str, Any]]]]:
         problems = [Problem.model_validate(problem) for problem in response.json()["detail"]]
-        assert all(problem.type in ROUTER_PROBLEM_CODES and problem.msg for problem in problems)
+        assert all(problem.type in ROUTER_PROBLEMS.codes and problem.msg for problem in problems)
         return response.status_code, [(problem.type, dict(problem.ctx)) for problem in problems]
 
     async with _serving(app) as client:
@@ -252,14 +250,4 @@ def test_the_schema_names_each_operation_and_body_as_a_generated_client_reads_th
 def test_the_package_exports_what_a_host_writes_and_calls() -> None:
     import conductor_providers.fastapi as provider
 
-    assert sorted(provider.__all__) == ["ROUTER_PROBLEM_CODES", "RunChanges", "RunStore", "StoredRun", "run_router"]
-
-
-def test_the_problems_page_quotes_the_sentence_of_each_of_the_routers_codes() -> None:
-    from conductor_providers.fastapi.worker import _ROUTER_PROBLEMS
-
-    page = (pathlib.Path(__file__).parents[2] / "docs" / "problems.md").read_text()
-    section = page[page.index("## The runs router"):]
-    parts = re.split(r"^### `([a-z_]+)`$", section, flags=re.M)
-    quoted = {code: body.split("\n\n")[1] for code, body in zip(parts[1::2], parts[2::2])}
-    assert quoted == {code: f"> {sentence}" for code, sentence in _ROUTER_PROBLEMS.items()}
+    assert sorted(provider.__all__) == ["ROUTER_PROBLEMS", "RunChanges", "RunStore", "StoredRun", "run_router"]

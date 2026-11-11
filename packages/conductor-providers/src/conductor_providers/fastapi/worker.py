@@ -38,33 +38,12 @@ from conductor.events import RunCheckpoint, RunEnd
 from pydantic import BaseModel, TypeAdapter
 from pydantic_core import from_json
 
+from conductor_providers.fastapi import router_problem
 from conductor_providers.fastapi.store import RunChanges, RunStore, StoredRun
 
 C = TypeVar("C")
 
 log = logging.getLogger("conductor_providers.fastapi")
-
-#: A code the router itself writes, beside the codes of the runs it serves.
-_RouterCode = Literal["no_such_run", "already_answered", "run_complete", "run_not_resumable", "run_changed", "leg_failed"]
-
-#: The English of each of the router's codes.
-_ROUTER_PROBLEMS: dict[_RouterCode, str] = {
-    "no_such_run": "There is no run by that id that the caller may see; check the id and who is calling.",
-    "already_answered": "An answer to {waiting_id!r} already waits for the running leg to end; read the run once it has, and answer what still waits.",
-    "run_complete": "The run is complete, so nothing in it waits for an answer; start a new run to ask again.",
-    "run_not_resumable": "The run is {status}, and only a run whose last leg ended early is resumed; read the run to see what it needs.",
-    "run_changed": "The run changed since it was read, so nothing was done; read it again and repeat the call if it still applies.",
-    "leg_failed": "The run's worker failed before the leg could end; its operator finds why in the server log. Resume it to carry on.",
-}
-
-#: The codes the router itself writes, for a host translating by code to cover beside conductor's ``PROBLEM_CODES``.
-ROUTER_PROBLEM_CODES: frozenset[str] = frozenset(_ROUTER_PROBLEMS)
-
-
-def _problem(code: _RouterCode, **ctx: Any) -> Problem:
-    """The problem ``code`` of the router's own, about the run as a whole, its message made from ``ctx``."""
-    return Problem(type=code, msg=_ROUTER_PROBLEMS[code].format(**ctx), ctx=ctx)
-
 
 class RefusedError(Exception):
     """A call the worker refused because of how the run stands.
@@ -82,7 +61,7 @@ class NoSuchRunError(RefusedError):
     """No run has the id, or the caller may not see the one that has."""
 
     def __init__(self) -> None:
-        super().__init__(_problem("no_such_run"))
+        super().__init__(router_problem.no_such_run())
 
 
 #: The state of a run a leg is wanted for.
@@ -273,7 +252,7 @@ class _Raised(_LegEnd):
         return _RowAfterALeg(after, {"outcome": self.outcome}, run_ended=True, leg_wanted=False)
 
 
-_LEG_FAILED = _problem("leg_failed")
+_LEG_FAILED = router_problem.leg_failed()
 
 #: The end of a leg that raised: ``failed`` with the cause ``leg_failed``, nothing waiting and no outputs. Its event
 #: is made without validation: a ``RunEnd`` requires the run it ended with, which it never writes, and a leg that
@@ -416,19 +395,19 @@ class Worker(Generic[C]):
         """
         def queued_with_these(state: StoredState) -> StoredState:
             if twice := state.queued_answers.keys() & answers.keys():
-                raise RefusedError(*(_problem("already_answered", waiting_id=waiting_id) for waiting_id in sorted(twice)))
+                raise RefusedError(*(router_problem.already_answered(waiting_id=waiting_id) for waiting_id in sorted(twice)))
             return state.model_copy(update={"queued_answers": {**state.queued_answers, **answers}})
 
         run = await self._ask_of_a_running_leg(run, queued_with_these)
         if run.state.leg_wanted:
             return "queued"
         if run.state.run_state.status == "complete":
-            raise RefusedError(_problem("run_complete"))
+            raise RefusedError(router_problem.run_complete())
         row, nodes = run.row, self._nodes_for(self.started_by(run.row))
         answered = await asyncio.to_thread(lambda: _loaded(row, nodes).answer(answers).to_json())
         state = run.state.model_copy(update={"run_state": _RUNNING})
         if not await self._claim(run, state, answered=answered):
-            raise RefusedError(_problem("run_changed"))
+            raise RefusedError(router_problem.run_changed())
         return "started"
 
     async def resume(self, run: RunAsRead, max_items: int | None = None) -> None:
@@ -443,10 +422,10 @@ class Worker(Generic[C]):
                 the run first (``run_changed``).
         """
         if not isinstance(run.state.run_state, EndedEarly):
-            raise RefusedError(_problem("run_not_resumable", status=run.state.run_state.status))
+            raise RefusedError(router_problem.run_not_resumable(status=run.state.run_state.status))
         state = run.state.model_copy(update={"run_state": _RUNNING})
         if not await self._claim(run, state, ceiling=max_items):
-            raise RefusedError(_problem("run_changed"))
+            raise RefusedError(router_problem.run_changed())
 
     async def cancel(self, run: RunAsRead) -> bool:
         """Ask the running leg of a run to stop before its next unit: at once when this worker runs it, at its next

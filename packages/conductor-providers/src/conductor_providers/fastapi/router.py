@@ -49,7 +49,7 @@ class Refused(BaseModel):
     """The body of a 404 or a 409: a call the router itself refused.
 
     Attributes:
-        detail: Every problem with the call, each with one of the router's own codes (``ROUTER_PROBLEM_CODES``).
+        detail: Every problem with the call, each with one of the router's own codes (``ROUTER_PROBLEMS``).
     """
 
     detail: list[Problem]

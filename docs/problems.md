@@ -1503,11 +1503,16 @@ print([p.msg for p in check_registry(checked)][0])  # moving to version 2 raised
 
 ## The runs router
 
-Written by `conductor_providers.fastapi.run_router` itself, beside the codes of the runs it serves: the `detail` of a 404 or a 409 is a list of these, and `leg_failed` is a run's `cause`. `loc` is `()`: each is about the run as a whole. They aren't in `PROBLEM_CODES`; `conductor_providers.fastapi.ROUTER_PROBLEM_CODES` holds them.
+Written by `conductor_providers.fastapi.run_router` itself, beside the codes of the runs it serves: the `detail` of a 404 or a 409 is a list of these, and `leg_failed` is a run's `cause`. `loc` is `()`: each is about the run as a whole. They aren't in `PROBLEM_CODES`: `conductor_providers.fastapi.ROUTER_PROBLEMS` is their catalogue, and each kind in it has its `code`, its `sentence` and the type of its `ctx`, as the kinds of `PROBLEMS` have. The examples below print each kind's sentence from it.
 
 ### `no_such_run`
 
-> There is no run by that id that the caller may see; check the id and who is calling.
+```python
+from conductor_providers.fastapi import ROUTER_PROBLEMS
+
+router_sentence = {kind.code: kind.sentence for kind in ROUTER_PROBLEMS}
+print("no_such_run:", router_sentence["no_such_run"])  # no_such_run: There is no run by that id that the caller may see; check the id and who is calling.
+```
 
 A 404 from every route under `/runs/{run_id}`: no run has the id, or `may_see` says the caller may not see it. The two read the same, so a caller learns nothing about a run that isn't theirs.
 
@@ -1515,7 +1520,9 @@ A 404 from every route under `/runs/{run_id}`: no run has the id, or `may_see` s
 
 ### `already_answered`
 
-> An answer to {waiting_id!r} already waits for the running leg to end; read the run once it has, and answer what still waits.
+```python
+print("already_answered:", router_sentence["already_answered"])  # already_answered: An answer to '{waiting_id}' already waits for the running leg to end; read the run once it has, and answer what still waits.
+```
 
 A 409 from `POST /runs/{run_id}/answers` while a leg runs: an earlier call queued an answer for the same waiting id, and nothing of this call was queued. `ctx.waiting_id` is the id; there is one problem for each id sent twice.
 
@@ -1523,7 +1530,9 @@ A 409 from `POST /runs/{run_id}/answers` while a leg runs: an earlier call queue
 
 ### `run_complete`
 
-> The run is complete, so nothing in it waits for an answer; start a new run to ask again.
+```python
+print("run_complete:", router_sentence["run_complete"])  # run_complete: The run is complete, so nothing in it waits for an answer; start a new run to ask again.
+```
 
 A 409 from `POST /runs/{run_id}/answers` on a run whose status is `complete`.
 
@@ -1531,7 +1540,9 @@ A 409 from `POST /runs/{run_id}/answers` on a run whose status is `complete`.
 
 ### `run_not_resumable`
 
-> The run is {status}, and only a run whose last leg ended early is resumed; read the run to see what it needs.
+```python
+print("run_not_resumable:", router_sentence["run_not_resumable"])  # run_not_resumable: The run is {status}, and only a run whose last leg ended early is resumed; read the run to see what it needs.
+```
 
 A 409 from `POST /runs/{run_id}/resume` on a run that is `running`, `waiting` or `complete`. `ctx.status` is the run's status.
 
@@ -1539,7 +1550,9 @@ A 409 from `POST /runs/{run_id}/resume` on a run that is `running`, `waiting` or
 
 ### `run_changed`
 
-> The run changed since it was read, so nothing was done; read it again and repeat the call if it still applies.
+```python
+print("run_changed:", router_sentence["run_changed"])  # run_changed: The run changed since it was read, so nothing was done; read it again and repeat the call if it still applies.
+```
 
 A 409 from `POST /runs/{run_id}/answers` or `/resume`: between the read of the run and the write that claims it, another call (an answer, a resume, on any worker) changed the run. One of the two calls wins and the other is told so; no node is called twice.
 
@@ -1547,7 +1560,9 @@ A 409 from `POST /runs/{run_id}/answers` or `/resume`: between the read of the r
 
 ### `leg_failed`
 
-> The run's worker failed before the leg could end; its operator finds why in the server log. Resume it to carry on.
+```python
+print("leg_failed:", router_sentence["leg_failed"])  # leg_failed: The run's worker failed before the leg could end; its operator finds why in the server log. Resume it to carry on.
+```
 
 The `cause` of a run that reads `failed` because its worker raised outside any node: the store went away, `from_run` raised, the run could not be loaded. It is in `GET /runs/{run_id}` and on the leg's `run_end` event. The run is kept as its last checkpoint, and answers queued during the leg stay queued. The leg ended with no run to ask, so `waiting` is empty until a resume's leg ends.
 
