@@ -50,11 +50,12 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from types import MappingProxyType
-from typing import Any, Literal, TypeAlias, final
+from typing import Any, Literal, TypeAlias
 
-from pydantic import Field, JsonValue, TypeAdapter, ValidationError
+from pydantic import JsonValue, TypeAdapter, ValidationError
 
-from conductor._internal.conductor_model import ConductorModel
+from conductor._internal.core_problems import PROBLEMS
+from conductor._internal.problem import Problem
 
 #: Every code conductor itself writes, one entry each: its English, with
 #: the ``ctx`` keys as slots. A compile problem's slots also take
@@ -157,7 +158,7 @@ HINTED_CATALOGUE: Mapping[tuple[str, str], str] = {
 }
 
 #: The codes a host translating by code has to cover.
-PROBLEM_CODES: frozenset[str] = frozenset(PROBLEM_CATALOGUE)
+PROBLEM_CODES: frozenset[str] = frozenset(PROBLEM_CATALOGUE) | PROBLEMS.codes
 
 
 _SAID_OF_A_VALIDATOR = "The value did not pass its type's own check."
@@ -179,41 +180,6 @@ def value_free_errors(invalid: ValidationError) -> list[dict[str, Any]]:
 
 #: Reads the ``ctx`` a node gives its error: JSON values only, since a problem is saved and streamed as JSON.
 _CTX = TypeAdapter(dict[str, JsonValue])
-
-
-@final
-class Problem(ConductorModel):
-    """One thing wrong, in pydantic's shape: ``type``, ``loc``, ``msg`` and ``ctx``.
-
-    ``type`` is the stable code a host keys on. ``msg`` is for a person,
-    never parsed; a host with its own wording translates by ``type`` and fills
-    its sentence from ``ctx``, the values the message was made from under
-    stable keys. ``loc`` says what it is about, and how to read it depends on
-    who reported it, as it does between pydantic's body and query:
-
-    ========================  ==================================================
-    a problem of a graph      ``(node_id)`` or ``(node_id, field)``; of a graph
-                              embedded in it, the same with the id of the node
-                              that embeds it in front: ``("e", "upper", "text")``
-    a node's failure          ``(node_id, *item)``: ``("b", 2, 0)`` is the first
-                              item inside the third of what ``b`` runs per.
-                              Inside an embedded graph, each embedding node and
-                              its item come first: ``("e", 1, "b", 2)``
-    a run stopped as a whole  ``()``
-    a refused call            ``("inputs", name)``, ``(node_id, *item)`` for an
-                              answer, ``("state",)``, ``("record", *where)``
-                              for a record that isn't one; a graph that can't
-                              run is refused with its own problems
-    ========================  ==================================================
-
-    A graph problem's field need not exist: several are about a value for a
-    removed input or an edge to an unknown output.
-    """
-
-    type: str
-    loc: tuple[str | int, ...] = ()
-    msg: str
-    ctx: Mapping[str, JsonValue] = Field(default_factory=dict)
 
 
 #: A value ``make_problem`` is given for a problem's ``ctx``: JSON, written by the code that made the problem. Read-only
