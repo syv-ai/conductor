@@ -47,6 +47,7 @@ import pydantic
 from conductor._internal.ask import output_questions
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.errors import (
+    CtxValue,
     InvalidCallError,
     NodeDeclarationError,
     NodeError,
@@ -63,6 +64,7 @@ from conductor._internal.fields import (
     read_field,
     read_given,
     record_fields,
+    record_type,
     type_id,
     without_none,
 )
@@ -1003,9 +1005,15 @@ class _Loader:
             return None
         scopes = [plan.scope for plan in inputs.values() if isinstance(plan, Fed)]
         scope = max(scopes, key=len, default=())
-        for other in scopes:
-            if scope[: len(other)] != other:  # items of two Series never pair up
-                self.problems.append(make_problem("series_not_nested", record.id, series=[str(scope[-1]), str(other[-1])]))
+        for name, plan in inputs.items():
+            if isinstance(plan, Fed) and scope[: len(plan.scope)] != plan.scope:  # items of two Series never pair up
+                series = [scope[-1], plan.scope[-1]]
+                outer, inner = sorted(series, key=lambda port: list(self.nodes).index(port.node_id))  # placed later, so it can read the other
+                reading = next(n for n, p in inputs.items() if isinstance(p, Fed) and p.scope == scope)
+                self.problems.append(make_problem(
+                    "series_not_nested", record.id, series=[str(s) for s in series], inputs=[reading, name],
+                    wire_from=str(outer), wire_into=inner.node_id,
+                ))
                 return None
         if not self._edges_meet(record.id, inputs):
             return None
@@ -1101,10 +1109,7 @@ class _Loader:
         wanted = spec.item if gathers else spec.type
         for source in sources:
             if not accepts(wanted, source.type):
-                made, taken = type_id(source.type), type_id(wanted)
-                got = f"Series[{made}]" if isinstance(source, Item) else made
-                expected = f"Series[{taken}]" if spec.shape == "many" else spec.type_id
-                self.problems.append(make_problem("type_mismatch", node_id, name, source=source.address, got=got, expected=expected))
+                self.problems.append(_mismatch(node_id, spec, source, wanted))
                 return None
         deepest = max((s.read_in for s in sources), key=len)
         if not gathers:
@@ -1129,6 +1134,13 @@ class _Loader:
         spec = source.outputs.get(output)
         if spec is None:
             self.problems.append(make_problem("unknown_output", node_id, name, source=address, outputs=[f"{source_id}.{o}" for o in source.outputs]))
+            return None
+        split = _split_gives(spec.type)
+        if wanted and split:  # a table or a list is one value: only an item of a Series has a field to wire
+            self.problems.append(make_problem(
+                "unknown_output", node_id, name, source=address, outputs=[f"{source_id}.{o}" for o in source.outputs], field=wanted,
+                hint="split_first", whole=split[0], fields=split[1],
+            ))
             return None
         hint = _field_type(spec.type, wanted) if wanted else spec.type
         if hint is _NO_FIELD:
@@ -1216,6 +1228,45 @@ class _Loader:
         return frozenset(rests_on)
 
 
+def _split_gives(hint: Any) -> tuple[Literal["table", "list"], list[str]] | None:
+    """What a Split would make of a value of type ``hint``.
+
+    Returns:
+        Which whole value it takes apart, and the fields of each record or item it gives (none for one of unknown
+        columns, and for an item that is no record); ``None`` for a type that is neither a table nor a list.
+    """
+    hint = without_none(hint)
+    record = record_type(hint)
+    if record is not None:
+        return "table", list(record_fields(record))
+    if hint is list or typing.get_origin(hint) is list:
+        return "list", list(record_fields(next(iter(typing.get_args(hint)), Any)))
+    return None
+
+
+def _mismatch(node_id: str, spec: FieldSpec, source: Source, wanted: Any) -> Problem:
+    """The ``type_mismatch`` of an edge from ``source`` into the input ``spec``, which takes ``wanted`` from it.
+
+    It says the fix where one mistake explains it: a whole table or list wired to an input of one value wants a
+    Split first, and a table input fed records without a column it names wants that column.
+    """
+    made, taken = type_id(source.type), type_id(wanted)
+    said: dict[str, CtxValue] = {
+        "source": source.address,
+        "got": f"Series[{made}]" if isinstance(source, Item) else made,
+        "expected": f"Series[{taken}]" if spec.shape == "many" else spec.type_id,
+    }
+    split = _split_gives(source.type)
+    if split and spec.shape == "one":
+        said.update(hint="split_first", whole=split[0], fields=split[1])
+    elif spec.shape == "table":
+        has = record_fields(record_type(source.type) or source.type)
+        missing = [column for column in spec.columns or {} if column not in has]
+        if has and missing:
+            said.update(hint="add_column", column=missing[0], column_type=spec.column_type_ids[missing[0]], has=list(has))
+    return make_problem("type_mismatch", node_id, spec.name, **said)
+
+
 def _fixed(spec: FieldSpec, typed: Any) -> Fixed | Unset:
     """The plan of an input holding a typed-in value, as its field read it."""
     return Unset(spec) if typed is _REFUSED else Fixed(spec, typed)
@@ -1261,11 +1312,13 @@ def _field_type(hint: Any, name: str) -> Any:
     """The type of the field ``name`` of a record of type ``hint``.
 
     Returns:
-        A ``TypedDict``'s, dataclass's or pydantic model's declared type for it; a mapping's value type; ``Any``
-        for a value of any type; ``_NO_FIELD`` for a record without the field, and for a type that is no record.
+        A ``TypedDict``'s, dataclass's or pydantic model's declared type for it; a mapping's value type, ``Any``
+        for a bare ``dict``; ``Any`` for a value of any type; ``_NO_FIELD`` for a record without the field, and for a type that is no record.
     """
     hint = without_none(hint)
     if hint is Any:
+        return Any
+    if hint is dict:
         return Any
     if typing.get_origin(hint) in (dict, Mapping):
         return typing.get_args(hint)[1]

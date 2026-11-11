@@ -906,6 +906,31 @@ def _table_marker(hint: Any) -> _TableMarker | None:
     return None
 
 
+def record_type(table: Any) -> Any:
+    """The type of one record of a table type: what a hook gives a node that takes a table apart.
+
+    A table's cell may be blank whatever its column's type, so a record's fields each take a blank.
+
+    Args:
+        table: A type, as a hook's parameter annotated ``type`` receives one.
+
+    Returns:
+        For ``Table[R]``, a ``TypedDict`` of ``R``'s columns, each ``| None``, the same one for every table of
+        ``R``; ``dict`` for a table of any columns; ``None`` for a type that is no table.
+    """
+    marker = _table_marker(table)
+    if marker is None:
+        return None
+    return dict if marker.row is Any or marker.row is None else _record_of(marker.row)
+
+
+@functools.cache
+def _record_of(row: Any) -> Any:
+    """``row``, a table's row type, as the ``TypedDict`` of one record: every column allowed blank."""
+    columns = {column: Union[hint, None] for column, hint in typing.get_type_hints(row).items()}  # noqa: UP007
+    return typing.TypedDict(row.__name__, columns)  # type: ignore[operator]  # columns known only at run time
+
+
 def _columns_fit(wanted: _TableMarker, held: _TableMarker, fits: Callable[[Any, Any], bool], *, unknown: bool) -> bool:
     """Whether a table of ``held``'s columns holds every column ``wanted`` names, each of a type that ``fits``;
     ``unknown`` is the answer for a source of any columns, known only when it arrives."""

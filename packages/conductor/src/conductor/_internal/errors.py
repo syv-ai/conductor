@@ -63,7 +63,7 @@ from conductor._internal.conductor_model import ConductorModel
 #: translates by code covers ``PROBLEM_CODES``.
 PROBLEM_CATALOGUE: Mapping[str, str] = {
     # -- what loading finds in a graph -----------------------------------------
-    "compute_hook_failed": "The node could not work out its fields from what it was given: {reason}. Check what is typed into the node.",
+    "compute_hook_failed": "The node could not work out its fields from what it was given: {reason}. Check what is typed into the node and what is wired to it.",
     "cycle": "The node is part of a cycle, so the graph cannot run; remove one of the edges that close it.",
     "duplicate_node_id": "Two nodes have the id '{node_id}'; rename one.",
     "edge_names_missing_node": "The edge from '{source}' to '{target}' names '{node_id}', which is not a node of the graph; add that node or remove the edge.",
@@ -88,8 +88,8 @@ PROBLEM_CATALOGUE: Mapping[str, str] = {
         "Write Series[X | None] on them to keep every item, or take the branches through one input."
     ),
     "series_not_nested": (
-        "'{node_id}' reads items of {series}, and items of two Series never pair up; "
-        "gather one of them first, with a node that takes it as a Series, so it arrives as one value."
+        "'{node_id}' reads items of {series}, and neither is made inside the other, so nothing says which item goes with which. "
+        "Make one inside the other (wire '{wire_from}' into '{wire_into}', the node that makes the other), or give one of them whole to a Series input."
     ),
     "type_mismatch": "'{source}' gives {got}, but '{node_id}.{field}' takes {expected}; connect an output that gives {expected}, or convert it in a node between.",
     "unbound_on_later_node": "Nothing feeds '{field}', and only a first node takes inputs from the caller; draw an edge into it or type a value in.",
@@ -137,6 +137,23 @@ PROBLEM_CATALOGUE: Mapping[str, str] = {
     "timeout": "The node did not answer in time; its Policy(attempt_timeout=) sets how long it may take.",
     # -- what the runs router refuses ------------------------------------------
     "run_not_waiting": "The run is {status}, so it takes no answers; resume it first, then answer.",
+}
+
+#: The English of a problem whose ``ctx.hint`` names the fix, by its code and that hint, in place of the code's own
+#: row: the same code, said for the one mistake the hint is for.
+HINTED_CATALOGUE: Mapping[tuple[str, str], str] = {
+    ("type_mismatch", "split_first"): (
+        "'{source}' is a whole {whole} and '{node_id}.{field}' takes one {expected}. To run '{node_id}' once for each record or item "
+        "in it, put a Split between them and wire Split's result, or one field of it."
+    ),
+    ("type_mismatch", "add_column"): (
+        "'{node_id}.{field}' needs the column '{column}' ({column_type}); '{source}' has {has}. "
+        "Add the column in a node between, or connect a table that has it."
+    ),
+    ("unknown_output", "split_first"): (
+        "'{source}' names a field of a whole {whole}, which has no field to wire. Split it first: put a Split after it and wire "
+        "the field from Split's result."
+    ),
 }
 
 #: The codes a host translating by code has to cover.
@@ -201,7 +218,8 @@ def make_problem(code: str, /, *loc: str | int, **ctx: CtxValue) -> Problem:
 
     A list in ``ctx`` stays a list, and the message writes it joined by
     commas (``none`` when empty); in a list of tables, ``None`` is the graph's
-    own row. A code not in ``PROBLEM_CATALOGUE``, or a slot its row
+    own row. A ``hint`` in ``ctx`` picks the code's row in ``HINTED_CATALOGUE``.
+    A code not in ``PROBLEM_CATALOGUE``, or a slot its row
     names that ``ctx`` does not fill, is a programming error and raises; only
     ``reason`` may be left out, the sentence a type's own constructor raised,
     which not every one gives.
@@ -211,7 +229,8 @@ def make_problem(code: str, /, *loc: str | int, **ctx: CtxValue) -> Problem:
     if isinstance(reason, str):
         said["reason"] = reason.rstrip(".")  # the row's own sentence goes on after it
     slots = {"reason": "", "node_id": loc[0] if loc else None, "field": loc[1] if len(loc) > 1 else None, **said}
-    return Problem(type=code, loc=loc, msg=PROBLEM_CATALOGUE[code].format_map(slots).rstrip(), ctx=ctx)
+    row = HINTED_CATALOGUE[code, str(ctx["hint"])] if "hint" in ctx else PROBLEM_CATALOGUE[code]
+    return Problem(type=code, loc=loc, msg=row.format_map(slots).rstrip(), ctx=ctx)
 
 
 def _said(value: CtxValue) -> CtxValue:
