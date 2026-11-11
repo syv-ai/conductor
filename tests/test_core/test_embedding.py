@@ -352,12 +352,11 @@ def test_a_graph_that_embeds_itself_is_refused_at_the_node_that_closes_the_circl
     assert problems(load({"e": "self-a"})) == [("embeds_itself", ("e", "x", "y"))]
 
 
-def test_an_output_made_per_item_inside_is_a_series_and_a_series_made_per_item_a_series_of_lists():
+def test_an_output_returned_inside_loops_is_offered_as_one_series_per_loop():
     deep = load({"e": "deep-inner", "n": "count", "x": "exclaim"}, [("e.up.result", "n.items"), ("e.up.result", "x.text")])
-    assert deep.is_runnable and deep.runs_on["x"].series == "e.up.result"
-    assert deep.describe().nodes["e"].outputs[0].many
-    lists = load({"e": "series-per-item-inner"})._nodes["e"].outputs["c.result"]
-    assert (lists.many, lists.type.hint, lists.whole.id) == (True, list[str], "Series[list[str]]")
+    assert deep.is_runnable and (deep.runs_on["n"].series, deep.runs_on["x"].series) == ("e.w.result", "e.up.result")
+    described = {inner: load({"e": inner}).describe().nodes["e"].outputs[0] for inner in ("lines-inner", "deep-inner", "series-per-item-inner")}
+    assert [(output.many, output.type) for output in described.values()] == [(True, "str"), (True, "Series[str]"), (True, "Series[str]")]
 
 
 def test_a_table_made_per_item_inside_is_a_series_of_tables():
@@ -415,7 +414,7 @@ def test_deep_outputs_are_what_run_outputs_gives_alone_and_embedded():
     assert alone == [["A", "B"], ["C", "D"]]  # two maps deep, a list for each word, in item order
     graph = load({"e": "deep-inner", "n": "count", "x": "exclaim"}, [("e.up.result", "n.items"), ("e.up.result", "x.text")])
     run = graph.run(text="ab cd")
-    assert run.results["e"]["up.result"] == alone and run.results["n"]["result"] == 4
+    assert run.results["e"]["up.result"] == alone and run.results["n"]["result"] == [2, 2]  # count is called once per word
     assert run.results["x"]["result"] == [["A!", "B!"], ["C!", "D!"]]
     assert load({"e": "series-per-item-inner"}).run(text="ab cd").outputs == {"e.c.result": [["a", "b"], ["c", "d"]]}
 

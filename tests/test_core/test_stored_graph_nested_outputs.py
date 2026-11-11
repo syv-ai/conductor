@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from typing import Any
 
-import pytest
 from conductor import NodeRegistry, Series, make_graph
 
 REGISTRY = NodeRegistry()
@@ -87,14 +86,12 @@ def results(nodes: list[Any], edges: list[tuple[str, str]], node_id: str, text: 
     return run.results[node_id]["result"]
 
 
-@pytest.mark.xfail(strict=True, reason="a stored graph offers an output made two loops deep as one flat Series")
 def test_a_series_input_outside_gets_one_documents_lines_per_call_as_it_does_with_the_nodes_drawn_in_its_graph() -> None:
     drawn = results([documents, lines, shout, show], [*SHOUT_EDGES, ("shout.result", "show.values")], "show", "a,b;;c")
     stored = results([REGISTRY["shout-lines"], show], [("shout-lines.shout.result", "show.values")], "show", "a,b;;c")
     assert drawn == stored == ["A+B", None, "C"]  # the second document is None, so show is not called for it
 
 
-@pytest.mark.xfail(strict=True, reason="a stored graph offers an output made two loops deep as one flat Series")
 def test_a_node_outside_and_a_host_see_the_same_list_per_document() -> None:
     @_node("as-given")
     def as_given(values: Series[str]) -> list[str]:
@@ -105,7 +102,6 @@ def test_a_node_outside_and_a_host_see_the_same_list_per_document() -> None:
     assert run.results["shout-lines"]["shout.result"] == run.results["as-given"]["result"] == [["A", "B"], None, ["C"]]
 
 
-@pytest.mark.xfail(strict=True, reason="a stored graph describes an output made two loops deep as Series[str]")
 def test_the_output_is_described_as_a_series_of_series() -> None:
     graph = REGISTRY.load(make_graph(REGISTRY["shout-lines"], show, edges=[("shout-lines.shout.result", "show.values")]))
     described = graph.describe().nodes["shout-lines"].outputs[0]
@@ -121,7 +117,6 @@ def test_an_input_of_one_value_outside_is_called_once_per_line_of_each_document(
     assert drawn == stored == [["A!", "B!"], None, ["C!"]]
 
 
-@pytest.mark.xfail(strict=True, reason="a stored graph offers an output made two loops deep as one flat Series")
 def test_a_stored_graph_used_once_per_item_of_an_outer_list_gives_a_node_outside_one_documents_lines_per_call() -> None:
     per_text = [("texts.result", "documents.text")]
     drawn = results([texts, documents, lines, shout, show], [*per_text, *SHOUT_EDGES, ("shout.result", "show.values")], "show", "a,b;;c|d;e,f")
@@ -130,7 +125,6 @@ def test_a_stored_graph_used_once_per_item_of_an_outer_list_gives_a_node_outside
     assert drawn == stored == [["A+B", None, "C"], ["D", "E+F"]]
 
 
-@pytest.mark.xfail(strict=True, reason="a stored graph offers a Series made per item as a Series of whole lists")
 def test_a_series_returned_once_per_document_is_offered_as_a_series_of_series_too() -> None:
     drawn_edges = SHOUT_EDGES[:1]
     for reader, port, expected in ((show, "values", ["a+b", None, "c"]), (mark, "value", [["a!", "b!"], None, ["c!"]])):
@@ -142,7 +136,6 @@ def test_a_series_returned_once_per_document_is_offered_as_a_series_of_series_to
     assert (described.many, described.type) == (True, "Series[str]")
 
 
-@pytest.mark.xfail(strict=True, reason="a stored graph offers an output made two loops deep as one flat Series")
 def test_two_outputs_made_per_line_are_collected_per_document_by_one_node() -> None:
     reads = [("shout.result", "side-by-side.loud"), ("whisper.result", "side-by-side.quiet")]
     drawn = results([documents, lines, shout, whisper, side_by_side], [*WHISPER_EDGES, *reads], "side-by-side", "A,b;;c")
@@ -151,7 +144,6 @@ def test_two_outputs_made_per_line_are_collected_per_document_by_one_node() -> N
     assert drawn == stored == ["A+B=a+b", None, "C=c"]
 
 
-@pytest.mark.xfail(strict=True, reason="a stored graph offers an output made two loops deep as one flat Series")
 def test_a_stored_graph_inside_a_stored_graph_offers_the_same_series_of_series() -> None:
     stored = results([REGISTRY["wrapped"], show], [("wrapped.shout-lines.shout.result", "show.values")], "show", "a,b;;c")
     assert stored == ["A+B", None, "C"]

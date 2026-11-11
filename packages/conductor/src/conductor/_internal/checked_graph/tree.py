@@ -56,8 +56,8 @@ class _AtPath:
         path: The ids of the embedded graphs' nodes it is inside, outermost first, then its own id.
         name: The path as a run and a save name the node, ``e/ask``.
         maps: Every map it runs in, outermost first, each as the function whose ``Series`` output it is and
-            that output: those of the embedded graph's node it is inside, then those of its own scope. A map
-            over what an embedded graph offers is the map inside that makes it.
+            that output: those of the embedded graph's node it is inside, then those of its own scope. A loop
+            over a ``Series`` a stored graph offers is the loop inside that graph (``_series_looped_over``).
     """
 
     embedding: EmbeddedGraphAtPath | None
@@ -213,7 +213,7 @@ def host_reads(node: FunctionAtPath, output: str) -> tuple[InputReadsOneValue | 
         made = node.placed.outputs[output]
         at = (SeriesAsList if made.many else WholeOutput)(node.name, output, _scope_at_path(node.maps), None, made.type)
         functions = {made_by.name: made_by for made_by in (node, *(series for series, _ in node.maps))}
-        per_loop = [_gather_at_path(_SHOWN, node.maps[inside:], (at,), functions) for inside in range(len(node.maps))]
+        per_loop = [_gather_at_path(_SHOWN, looped_over, (at,), functions) for looped_over in node.maps]
         plans = node.shown_as[output] = tuple(per_loop) or (InputReadsOneValue(_SHOWN, (at,), at.scope),)
     return plans
 
@@ -257,8 +257,8 @@ def _add_to_tree(graph: CheckedGraph, embedding: EmbeddedGraphAtPath | None, tre
             if embedding is not None and isinstance(plan, InputFromCaller):  # the embedded graph's node is given it, as a caller would give it
                 inputs[name] = embedding.inputs[graph._input_fields[plan.address].name]
             else:
-                inputs[name] = _plan_at_path(plan, here, functions)
-        maps = (*above, *(series for port in placed.scope for series in _maps_of(port, here)))
+                inputs[name] = _plan_at_path(plan, here, inside, functions)
+        maps = (*above, *[_series_looped_over(loop, inside, node_at) for loop in placed.scope])
         path = (*inside, placed.id)
         if isinstance(placed, PlacedEmbeddedGraph):
             embedded = EmbeddedGraphAtPath(placed=placed, embedding=embedding, path=path, name=node_name(path), maps=maps, inputs=inputs)
@@ -310,22 +310,34 @@ def _add_to_tree(graph: CheckedGraph, embedding: EmbeddedGraphAtPath | None, tre
     return here
 
 
-def _made_by(port: OutputAddress, here: Mapping[str, NodeAtPath]) -> tuple[FunctionAtPath, str, bool]:
-    """The function that makes the output ``port`` names, and its output there: the node's own, or for an
-    embedded graph's node the function inside that makes what it offers; with whether that function runs per
-    item inside the embedded graph, so what is offered is every item's value."""
+def _made_by(port: OutputAddress, here: Mapping[str, NodeAtPath]) -> tuple[FunctionAtPath, str]:
+    """The function that returns the output ``port`` names, and the output's name there: the node itself, or
+    for a stored graph's node the function inside it that returns what the node offers."""
     made_by = here[port.node_id]
+    return made_by.offers[port.output] if isinstance(made_by, EmbeddedGraphAtPath) else (made_by, port.output)
+
+
+def _series_looped_over(loop: OutputAddress, inside: NodePath, node_at: Mapping[str, NodeAtPath]) -> tuple[FunctionAtPath, str]:
+    """The list one loop of a node's scope goes through, as the function that returns it and the output's name.
+
+    A loop over a function's ``Series`` output is that output. A loop a stored graph's node names is a loop
+    inside the stored graph. Example: ``e`` is the stored graph ``documents -> lines -> shout``, where
+    ``shout`` is called once per line of each document.
+
+    - ``e.documents.result`` is the list ``documents`` returns inside ``e``.
+    - ``e.shout.result`` is what ``e`` offers: ``shout`` returns one value per line, so the loop over them is
+      the loop ``shout`` is called in, over ``lines.result``.
+
+    Args:
+        loop: The loop, as a graph's scope names it.
+        inside: The path of the stored graph's node that graph is inside; empty for the run's own graph.
+        node_at: Every node placed so far, by its name.
+    """
+    made_by = node_at[node_name((*inside, loop.node_id))]
     if isinstance(made_by, EmbeddedGraphAtPath):
-        last, output = made_by.offers[port.output]
-        return last, output, len(last.maps) > len(made_by.maps)
-    return made_by, port.output, False
-
-
-def _maps_of(port: OutputAddress, here: Mapping[str, NodeAtPath]) -> Maps:
-    """The maps the Series ``port`` names opens for what reads it per item: the Series itself; for one an
-    embedded graph offers of an output made per item inside, the maps inside that it is made in."""
-    last, output, per_item = _made_by(port, here)
-    return last.maps[len(here[port.node_id].maps) :] if per_item else ((last, output),)
+        inner_id, _, inner_output = loop.output.partition(".")
+        return _series_looped_over(OutputAddress(inner_id, inner_output), made_by.path, node_at)
+    return (made_by, loop.output) if made_by.placed.outputs[loop.output].many else made_by.maps[-1]
 
 
 def _scope_at_path(maps: Maps) -> Scope:
@@ -333,28 +345,28 @@ def _scope_at_path(maps: Maps) -> Scope:
     return tuple([OutputAddress(series.name, output) for series, output in maps])
 
 
-def _plan_at_path(plan: InputPlan, here: Mapping[str, NodeAtPath], functions: Mapping[str, FunctionAtPath]) -> InputPlan:
+def _plan_at_path(plan: InputPlan, here: Mapping[str, NodeAtPath], inside: NodePath, functions: Mapping[str, FunctionAtPath]) -> InputPlan:
     """A plan of a checked graph as the plan of its node where it stands: each output names the function that
-    holds it by its ``name``, in the maps that function runs in.
+    returns it by its ``name``, in the loops that function is called in.
 
-    An output of an embedded graph is the output of a function inside it. One made once inside is that output,
-    read as the edge reads it. One made per item inside is offered as the ``Series`` of every item's value, so
-    an item of it is the inner unit's own value (a ``Series`` there read as the list it is), and an input that
-    gathers it gathers every map inside that it is made in.
+    An output of a stored graph's node is the output of a function inside it. Example: ``e`` is the stored
+    graph ``documents -> lines -> shout``. An edge from ``e.shout.result`` reads one item of the ``Series``
+    that ``e`` offers, and that item is what one call of ``shout`` returned, so the plan reads ``e/shout``'s
+    ``result`` whole.
 
     Args:
         plan: The plan, as its graph loaded it.
         here: The nodes of that graph placed so far, where they stand, by id.
+        inside: The path of the stored graph's node that graph is inside; empty for the run's own graph.
         functions: Every function placed so far, by its name.
     """
 
     def at_path(source: Source, opened: bool) -> Source:
-        last, output, per_item = _made_by(OutputAddress(source.node_id, source.output), here)
-        field = last.placed.outputs[output]
-        brought: type[Source] = type(source) if not per_item else SeriesAsList if field.many else WholeOutput
+        made_by, output = _made_by(OutputAddress(source.node_id, source.output), here)
+        brought = ItemOfSeries if made_by.placed.outputs[output].many else WholeOutput
         if opened and brought is ItemOfSeries:
-            last.opens.setdefault(output, (here[source.node_id], source.output))
-        return brought(last.name, output, _scope_at_path(last.maps), source.record_field, source.type)
+            made_by.opens.setdefault(output, (here[source.node_id], source.output))
+        return brought(made_by.name, output, _scope_at_path(made_by.maps), source.record_field, source.type)
 
     match plan:
         case InputReadsOneValue(field=field, reads=reads):
@@ -363,25 +375,26 @@ def _plan_at_path(plan: InputPlan, here: Mapping[str, NodeAtPath], functions: Ma
         case InputGathersOneValue(field=field, reads=reads):
             return InputGathersOneValue(field, tuple([typing.cast(WholeOutput, at_path(source, False)) for source in reads]))
         case InputGathersItems(field=field, series=series, sources=sources):
-            return _gather_at_path(field, _maps_of(OutputAddress(series.node_id, series.output), here), tuple([at_path(source, False) for source in sources]), functions)
+            looped_over = _series_looped_over(OutputAddress(series.node_id, series.output), inside, functions)
+            return _gather_at_path(field, looped_over, tuple([at_path(source, False) for source in sources]), functions)
         case _:
             return plan
 
 
-def _gather_at_path(field: Field, gathered: Maps, sources: tuple[Source, ...], functions: Mapping[str, FunctionAtPath]) -> InputGathersItems:
-    """The plan of an input that gathers the items of ``gathered``, where its node stands: the one way such a
-    plan is made, for a node's own input and for what a host is shown.
+def _gather_at_path(field: Field, looped_over: tuple[FunctionAtPath, str], sources: tuple[Source, ...], functions: Mapping[str, FunctionAtPath]) -> InputGathersItems:
+    """The plan of an input that collects one value per item of the list ``looped_over``, where its node
+    stands: the one way such a plan is made, for a node's own input and for what a host is shown.
 
     Args:
         field: The input's field.
-        gathered: The maps gathered through, outermost first: one, but for an output an embedded graph offers
-            of something made several maps deep inside it.
+        looped_over: The list, as the function that returns it and the output's name.
         sources: What each edge brings for an item, each naming a function by its name.
         functions: The functions the plan's outputs name, by name.
     """
-    levels = [OutputAtScope(made_by.name, output, _scope_at_path(made_by.maps)) for made_by, output in gathered]
-    through = _gathered_through(gathered[0], [functions[at.node_id] for at in (*levels[1:], *sources)])
-    return InputGathersItems(field, (*levels, *sources), len(levels), through)
+    made_by, output = looped_over
+    series = OutputAtScope(made_by.name, output, _scope_at_path(made_by.maps))
+    through = _gathered_through(looped_over, [functions[at.node_id] for at in sources])
+    return InputGathersItems(field, (series, *sources), asked_for_any_item=through)
 
 
 def _gathered_through(series: tuple[FunctionAtPath, str], sources: list[FunctionAtPath]) -> tuple[FunctionAtPath, ...]:

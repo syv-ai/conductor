@@ -10,8 +10,13 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from conductor._internal.ask import output_questions
-from conductor._internal.checked_graph.input_plans import InputFedByEdges, InputPlan, Scope
-from conductor._internal.fields import Field, FieldDescription
+from conductor._internal.checked_graph.input_plans import (
+    InputFedByEdges,
+    InputPlan,
+    OutputAddress,
+    Scope,
+)
+from conductor._internal.fields import Field, FieldDescription, Series, Type
 from conductor._internal.node_definition import FunctionDefinition, StoredGraphDefinition
 from conductor._internal.units import Skipped, outputs_not_called, outputs_not_taken
 
@@ -44,6 +49,14 @@ class _Placed:
     def plain_inputs(self) -> bool:
         """Whether no input can hold a mapping, so what a unit received needs no key sorting to hash."""
         return all(plan.field.type.hashes_plainly for plan in self.inputs.values())
+
+    def loops_around(self, output: str) -> Scope:
+        """The lists looped over to make one value of ``output``, outermost first: the loops the node is called in."""
+        return self.scope
+
+    def described_outputs(self) -> list[FieldDescription]:
+        """Each output as an editor reads it."""
+        return [field.description for field in self.outputs.values()]
 
 
 @typing.final
@@ -104,6 +117,11 @@ class PlacedEmbeddedGraph(_Placed):
     inside are called by their own policies, and a later run takes their earlier work node by node, as it would
     with the same nodes drawn in the graph itself.
 
+    An output returned inside loops is offered as one ``Series`` per loop. Example: the stored graph
+    ``documents -> lines -> shout``, used as the node ``e``. ``lines`` is called once per document and ``shout``
+    once per line, so ``e`` offers ``shout.result`` as ``Series[Series[str]]``: a list of lines per document.
+    The field in ``outputs`` is the innermost ``Series[str]``, and ``loops_around`` names the loop around it.
+
     Attributes:
         definition: The node as its author declared it.
         inner: The embedded graph, checked alone; it is never run alone.
@@ -111,6 +129,37 @@ class PlacedEmbeddedGraph(_Placed):
 
     definition: StoredGraphDefinition
     inner: CheckedGraph
+
+    def loops_around(self, output: str) -> Scope:
+        """The lists looped over to make one item of the ``Series`` offered as ``output``, outermost first: the
+        loops this node is called in, then the loops inside the stored graph.
+
+        Example: ``e`` above is called once, and ``loops_around("shout.result")`` is ``(e.documents.result,)``.
+        A loop inside is named by this node's id and the address of the list inside, so two outputs returned
+        in the same loop inside name the same loop. The innermost loop is not listed: it is the offered
+        ``Series`` itself, ``e.shout.result``.
+        """
+        node_id, _, inner_output = output.partition(".")
+        returned_by = self.inner._nodes[node_id]
+        inside = returned_by.loops_around(inner_output)
+        if not returned_by.outputs[inner_output].many:  # its innermost loop is the Series this node offers
+            inside = inside[:-1]
+        return (*self.scope, *[OutputAddress(self.id, str(loop)) for loop in inside])
+
+    def described_outputs(self) -> list[FieldDescription]:
+        """Each output as an editor reads it; one returned inside two loops is ``many`` with the type
+        ``Series[str]``, which reads ``Series[Series[str]]``."""
+        described = []
+        for name, field in self.outputs.items():
+            description = field.description
+            if loops_inside := self.loops_around(name)[len(self.scope) :]:
+                one_item: Any = field.type.hint
+                for _ in loops_inside:
+                    one_item = Series[one_item]
+                item_type = Type(one_item)
+                description = description.model_copy(update={"type": item_type.id, "json_schema": item_type.json_schema})
+            described.append(description)
+        return described
 
 
 #: One node of a checked graph: a function, or an embedded graph.

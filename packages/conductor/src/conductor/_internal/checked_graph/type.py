@@ -130,7 +130,7 @@ class CheckedGraph:
             nodes[record.id] = GraphNodeDescription(
                 node=record.node, version=record.version, loaded=True, problems=own, runs=runs_on(placed.scope),
                 inputs=[PlacedFieldDescription(field=plan.field.description, feed=feed_of(placed.scope, plan)) for plan in placed.inputs.values()],
-                outputs=[field.description for field in placed.outputs.values()],
+                outputs=placed.described_outputs(),
             )
         return GraphDescription(nodes=nodes, inputs=dict(self.inputs), outputs=self.outputs, problems=list(self.problems))
 

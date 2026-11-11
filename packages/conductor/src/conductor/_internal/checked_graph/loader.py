@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import heapq
 import logging
-import types
 import typing
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -282,10 +281,12 @@ class _Loader:
         """Place an embedded graph as one node: the inner graph loaded alone, its inputs and outputs this node's fields.
 
         An input is offered under the name the inner graph gives it (``graph.inputs``), and an output under its
-        address in the inner graph (``graph.outputs``), so an edge reads ``e.upper.result``. An output made once
-        inside keeps its field. One made per item inside, at any depth, is a ``Series`` of every item's value in
-        order, as ``run.outputs`` gives it: a ``Series`` made per item is a ``Series`` of lists, and a table made
-        per item a ``Series`` of tables.
+        address in the inner graph (``graph.outputs``), so an edge reads ``e.upper.result``. An output returned
+        once inside keeps its field. One returned inside loops is offered as one ``Series`` per loop: for
+        ``documents -> lines -> shout``, where ``shout`` is called once per line of each document,
+        ``shout.result`` is ``Series[Series[str]]``. The field kept here is the innermost ``Series[str]``, and
+        ``PlacedEmbeddedGraph.loops_around`` names the loops around it. A ``Series`` returned once per document
+        is ``Series[Series[str]]`` the same way, and a table returned once per document a ``Series`` of tables.
 
         A graph that embeds itself is a problem here. The inner graph's own problems are this graph's, each with
         this node's id in front of its place. Either way the node is left out: what a graph with problems offers
@@ -304,6 +305,7 @@ class _Loader:
             return
         fields = {offered.name: Field(offered.name, offered.field.hint, offered.field.default) for offered in inner._input_fields.values()}
         outputs: dict[str, Field] = {}
+        series_of: Any = Series  # a hint built from a value, which a type checker reads no further
         for address in inner.outputs:
             node_id, _, output = address.partition(".")
             at = inner._nodes[node_id]
@@ -311,7 +313,12 @@ class _Loader:
             group = field.param.exclusive_group
             if group:  # a decision inside is this node's, named by where it is made
                 field = Field(field.name, Annotated[field.hint, Param(exclusive_group=f"{node_id}.{group}")], field.default)
-            outputs[address] = _of_every_item(address, field) if at.scope else Field(address, field.hint, field.default)
+            if not at.loops_around(output):  # returned once
+                outputs[address] = Field(address, field.hint, field.default)
+            elif field.many:  # a Series returned in a loop: its own items are the innermost Series
+                outputs[address] = Field(address, field.hint)
+            else:  # one value returned in a loop: the values of the innermost loop are the Series
+                outputs[address] = Field(address, series_of[field.hint])
         planned = self._planned(record, fields, self._typed(record, fields), frozenset(), edges)
         self._keep(PlacedEmbeddedGraph(
             id=record.id, scope=planned.scope, inputs=planned.inputs, outputs=outputs, definition=definition, inner=inner,
@@ -546,7 +553,7 @@ class _Loader:
             self.problems.append(problem.unknown_output(node_id, name, source=address, outputs=fields, record_field=wanted or None))
             return None
         brought = ItemOfSeries if field.many else WholeOutput
-        return brought(source_id, output, source.scope, wanted or None, brings)
+        return brought(source_id, output, source.loops_around(output), wanted or None, brings)
 
     def _edge_order(self, source: Source) -> tuple[int, int, str]:
         """Where an edge into an input falls among several: its node's place in the record, then the output's in its node."""
@@ -680,13 +687,6 @@ def _mismatch(node_id: str, field: Field, source: Source) -> Problem:
 def _fixed(field: Field, typed: Any) -> InputHoldsValue | InputNotFed:
     """The plan of an input holding a typed-in value, as its field read it."""
     return InputNotFed(field) if typed is _REFUSED else InputHoldsValue(field, typed)
-
-
-def _of_every_item(name: str, field: Field) -> Field:
-    """The field ``name`` of an output made once per item, as the ``Series`` of every item's value: of each list, for
-    an output that is itself a ``Series``."""
-    series: Any = Series
-    return Field(name, series[types.GenericAlias(list, (field.type.hint,)) if field.many else field.hint])
 
 
 def _field_type(record: Type, name: str) -> Type | None:

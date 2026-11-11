@@ -144,15 +144,15 @@ def test_a_series_of_records_held_as_a_table_counts_its_items_against_the_ceilin
     assert (run.status, run.state.cause.type, run.state.cause.ctx["items"]) == ("stopped", "item_ceiling", 2)
 
 
-def test_a_series_of_records_made_per_item_inside_an_embedded_graph_is_offered_as_lists_of_plain_records() -> None:
+def test_a_series_of_records_returned_per_item_inside_a_stored_graph_reaches_a_series_input_outside_as_plain_records() -> None:
     @node("parts", title="Parts", description="For a test.")
     def parts(text: str) -> Series[str]:
         return text.split(",")
 
     @node("count", title="Count", description="For a test.")
-    def count(found: Series[list[Contact]]) -> list[int]:
+    def count(found: Series[Contact]) -> int:
         RECEIVED.append(found)
-        return [len(records) for records in found]
+        return len(found)
 
     registry = registry_of(parts, contacts, count)
     inner = GraphRecord(nodes=[NodeRecord(id="p", node="parts"), NodeRecord(id="c", node="contacts")], edges=[("p.result", "c.text")])
@@ -162,7 +162,7 @@ def test_a_series_of_records_made_per_item_inside_an_embedded_graph_is_offered_a
     run = graph.run(text="x,y")
 
     records = [{"name": "ida", "email": "ida@x.dk"}, {"name": "bo", "email": None}]
-    assert (run.status, run.outputs["count.result"]) == ("complete", [2, 2]) and RECEIVED == [[records, records]]
+    assert (run.status, run.outputs["count.result"]) == ("complete", [2, 2]) and RECEIVED == [records, records]  # one call per part
     assert graph.load_run(run.to_json()).outputs == run.outputs
 
 
