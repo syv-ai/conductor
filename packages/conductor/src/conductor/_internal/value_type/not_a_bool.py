@@ -11,25 +11,11 @@ from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema, PydanticCustomError, core_schema
 
 
-def _refuse(value: Any) -> Any:
-    raise PydanticCustomError("bool_is_not_a_number", "a yes or no is not a number; give a number")
-
-
-def _bool_or_number(value: Any) -> str:
-    return "bool" if isinstance(value, bool) else "number"
-
-
-#: The schema a ``bool`` is sent to where a number is asked for: it refuses every value.
-_REFUSED = core_schema.no_info_plain_validator_function(_refuse)
-
-
-def _refusing_a_bool(number: Any) -> CoreSchema:
-    """Returns a schema that refuses a ``bool`` and validates any other value by the schema ``number``, in strict
-    and lax mode and from JSON alike. Its JSON schema is that of ``number``."""
-    return core_schema.tagged_union_schema(
-        {"bool": _REFUSED, "number": number}, discriminator=_bool_or_number,
-        metadata={"pydantic_js_functions": [lambda _, write: write(number)]},
-    )
+def _not_a_bool(value: Any) -> Any:
+    """Raises for a ``bool``; returns any other value unchanged, for pydantic to validate as a number."""
+    if isinstance(value, bool):
+        raise PydanticCustomError("bool_is_not_a_number", "a yes or no is not a number; give a number")
+    return value
 
 
 #: The keys of a core schema that hold no schema that validates a value.
@@ -46,7 +32,9 @@ def numbers_refuse_bools(schema: Any, resolve: Callable[[Any], Any], seen: set[s
     Example: for the schema of ``list[int]`` the result validates ``[1, 2]`` and refuses ``[1, True]``, where
     pydantic alone returns ``[1, 1]``. The same holds for a field of a ``TypedDict``, a value of a dict, an
     item of a ``Series`` and a cell of a table. A ``Literal`` of numbers and an enum of numbers refuse a ``bool``
-    too. The fields of a host's own pydantic model or dataclass are left to pydantic.
+    too. The fields of a host's own pydantic model or dataclass are left to pydantic. The rule applies to a
+    Python value; a number read from JSON text is validated by pydantic alone, which in strict mode (a person's
+    answer) refuses ``true`` with its own message.
 
     Args:
         schema: A core schema, or a list, tuple or other value found inside one.
@@ -62,14 +50,16 @@ def numbers_refuse_bools(schema: Any, resolve: Callable[[Any], Any], seen: set[s
     kind = schema.get("type")
     if not isinstance(kind, str):  # a mapping of fields by name, one of which may be named "type"
         return {key: numbers_refuse_bools(part, resolve, seen) for key, part in schema.items()}
-    if kind in _HOSTS_OWN or (kind == "tagged-union" and schema["discriminator"] is _bool_or_number):
+    if kind in _HOSTS_OWN or (kind == "function-before" and schema["function"]["function"] is _not_a_bool):
+        return schema
+    if kind == "json-or-python" and schema["python_schema"].get("type") == "function-before" and schema["python_schema"]["function"]["function"] is _not_a_bool:
         return schema
     if kind in ("int", "float"):
-        return _refusing_a_bool(schema)
-    if kind == "literal" and all(a_number(type(value)) for value in schema["expected"]):
-        return _refusing_a_bool(schema)
-    if kind == "enum" and schema.get("sub_type") in ("int", "float"):
-        return _refusing_a_bool(schema)
+        # Read from JSON text the number is left as it is: in strict mode pydantic refuses ``true`` itself, and the
+        # only JSON read in lax mode is a saved run, which conductor wrote. So a save costs no call per number.
+        return core_schema.json_or_python_schema(json_schema=schema, python_schema=core_schema.no_info_before_validator_function(_not_a_bool, schema))  # type: ignore[arg-type]  # a core schema, read here as a dict
+    if (kind == "literal" and all(a_number(type(value)) for value in schema["expected"])) or (kind == "enum" and schema.get("sub_type") in ("int", "float")):
+        return core_schema.no_info_before_validator_function(_not_a_bool, schema)  # type: ignore[arg-type]  # pydantic takes True for 1 here from JSON too
     if kind == "definition-ref":  # pydantic keeps a TypedDict's schema aside and refers to it; that one is changed in place
         if schema["schema_ref"] not in seen:
             seen.add(schema["schema_ref"])

@@ -332,7 +332,7 @@ def test_a_table_answer_is_read_as_a_callers_records_are_with_its_cells_read_str
     extra = run.answer("q", [{"sku": "B", "qty": 2, "colour": "red"}]).resume()
     assert extra.results["q"]["result"].columns == ["sku", "qty"] and extra.outputs == {"e.result": ["BB"]}
     assert _refused(lambda: run.answer("q", [{"sku": "B", "qty": True}, {"sku": "C", "qty": 1}]))[0].msg == (
-        "That is not a valid answer: column 'qty': a yes or no is not a number; give a number"
+        "That is not a valid answer: column 'qty': Input should be a valid integer"
     )
 
 
@@ -847,17 +847,15 @@ def test_an_answer_to_a_run_with_nothing_waiting_says_how_the_run_stands():
     assert (problem.type, problem.ctx["status"]) == ("not_waiting", "complete") and "a run that is complete" in problem.msg
 
 
-@pytest.mark.parametrize(("choices", "why"), [
-    ([True, 2], "a yes or no is not a number; give a number"), (["1"], "Input should be a valid integer"),
-], ids=["a bool", "a number as text"])
-def test_a_choice_is_read_as_its_answer_would_be_so_one_a_number_refuses_fails_the_node(choices: list[object], why: str) -> None:
+@pytest.mark.parametrize("choices", [[True, 2], ["1"]], ids=["a bool", "a number as text"])
+def test_a_choice_is_read_as_its_answer_would_be_so_one_a_number_refuses_fails_the_node(choices: list[object]) -> None:
     @node("pick", title="Pick", description="")
     def pick() -> int:
         raise Ask("?", choices=choices)
 
     _, run = _once(pick)
     assert (run.status, run.state.cause.type) == ("failed", "invalid_ask")
-    assert run.state.cause.ctx["reason"] == f"a choice for 'result' is not what it returns: {why}"
+    assert run.state.cause.ctx["reason"] == "a choice for 'result' is not what it returns: Input should be a valid integer"
 
 
 def test_a_model_that_isnt_a_choice_is_a_value_to_param_and_to_ask_alike() -> None:

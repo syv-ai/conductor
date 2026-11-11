@@ -316,3 +316,5 @@ def test_true_is_refused_for_a_number_alike_in_a_record_a_list_of_records_and_a_
         assert refused.value.errors[0]["type"] == "bool_is_not_a_number", hint
     assert Type(Row).read(right) == right and Type(list[Row]).read([right]) == [right]
     assert Type(Row).read_json(right) == right
+    with pytest.raises(FieldValueError, match="valid integer"):  # from JSON, strictly, the refusal is pydantic's own
+        Type(Row).read_json(wrong)
