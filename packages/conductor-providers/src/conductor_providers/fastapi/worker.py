@@ -328,6 +328,7 @@ class Worker(Generic[C]):
         lease: float,
         checkpoint_every: float,
         leg_timeout: float | None,
+        poll: float,
     ) -> None:
         """A worker on ``store``.
 
@@ -340,6 +341,7 @@ class Worker(Generic[C]):
             lease: The seconds this worker holds a run between renewals.
             checkpoint_every: The seconds between saves of a running leg.
             leg_timeout: The seconds one leg may run.
+            poll: The seconds between a follower's reads of new events.
         """
         self.id = uuid.uuid4().hex
         self._store = store
@@ -350,6 +352,7 @@ class Worker(Generic[C]):
         self._lease = lease
         self._checkpoint_every = checkpoint_every
         self._leg_timeout = leg_timeout
+        self._poll = poll
         self._holds: dict[_Hold, asyncio.Task[None]] = {}
         self._stopping = False
 
@@ -457,6 +460,35 @@ class Worker(Generic[C]):
             if hold.run_id == run.row.id:
                 hold.stop.set()
         return run.state.leg_wanted
+
+    async def events(self, run: RunAsRead, after: int = -1) -> AsyncGenerator[tuple[int, str]]:
+        """The events of a run as they are stored, from whichever worker runs it, until no leg is wanted for it.
+
+        A row stops saying a leg is wanted only after the leg's ``run_end`` is stored. So the row is read only once
+        a ``run_end`` was the last event, or when there was no event at all, and otherwise events alone are read.
+
+        Args:
+            run: The run as read.
+            after: The number of the last event the follower has; ``-1`` for none.
+
+        Yields:
+            Each event numbered above ``after``, in order, as ``(number, body)``.
+        """
+        run_id = run.row.id
+        may_have_ended = True
+        while True:
+            new = await self._store.events(run_id, after)
+            for number, body in new:
+                after = number
+                yield number, body
+            if new:
+                may_have_ended = from_json(new[-1][1])["type"] == "run_end"
+            elif may_have_ended and not (await self.read(run_id)).state.leg_wanted:
+                for event in await self._store.events(run_id, after):  # stored before the row said so
+                    yield event
+                return
+            else:  # the row follows its run_end, so it may still say a leg is wanted for a poll or two
+                await asyncio.sleep(self._poll)
 
     async def take_over(self) -> None:
         """Go on with every run whose lease ran out: its worker died or handed it back. A run that can't be taken

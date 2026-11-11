@@ -4,7 +4,6 @@ schema. ``test_worker.py`` has what the worker does."""
 
 from __future__ import annotations
 
-import asyncio
 import dataclasses
 import json
 import pathlib
@@ -17,9 +16,8 @@ import pytest
 
 httpx = pytest.importorskip("httpx")
 
-from conductor import FromRun, Going, GraphRecord, NodeRecord, NodeRegistry, Problem, make_graph  # noqa: E402
-from conductor_providers.fastapi import ROUTER_PROBLEM_CODES, RunChanges, StoredRun, run_router  # noqa: E402
-from conductor_providers.fastapi.worker import StoredState  # noqa: E402
+from conductor import FromRun, GraphRecord, NodeRecord, NodeRegistry, Problem, make_graph  # noqa: E402
+from conductor_providers.fastapi import ROUTER_PROBLEM_CODES, RunChanges, run_router  # noqa: E402
 from fastapi import FastAPI, Header  # noqa: E402
 
 from tests.test_providers.in_memory import MemoryStore, asking  # noqa: E402
@@ -205,82 +203,24 @@ async def test_every_refusal_of_the_router_is_a_list_of_problems_with_a_code_of_
     }
 
 
-@pytest.mark.parametrize(("route", "body"), [("answers", {"anything": True}), ("cancel", None)])
-async def test_a_run_that_is_gone_when_a_write_to_it_is_tried_again_is_a_404(route: str, body: dict[str, Any] | None) -> None:
-    registry, graph, gate, inputs, _ = asking()
-
-    class GoneAtTheWrite(MemoryStore):
-        """Loses what a caller asks of a running leg and has no run to read again, as when the host deleted it meanwhile."""
-
-        async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
-            if changes.keys() == {"status", "state"}:
-                del self.rows[run_id]
-                return False
-            return await super().update(run_id, rev, changes)
-
-    async with _serving(_app(store=GoneAtTheWrite(), registry=registry)) as client:
-        run_id = (await client.post("/runs", json={"graph": graph.model_dump(mode="json"), "inputs": inputs})).json()["id"]
-        gone = await client.post(f"/runs/{run_id}/{route}", json=body)
-        assert (gone.status_code, [problem["type"] for problem in gone.json()["detail"]]) == (404, ["no_such_run"])
-        gate.set()
-
-
 # -- a follower -----------------------------------------------------------------------------------
 
 
-async def test_a_follower_reads_the_row_only_to_learn_whether_a_run_end_was_the_last() -> None:
+async def test_a_follower_gets_each_event_as_a_frame_with_its_number_and_last_event_id_goes_on_after_it() -> None:
     registry, graph, gate, inputs, _ = asking()
-
-    class CountsReads(MemoryStore):
-        reads = 0
-
-        async def get(self, run_id: str) -> StoredRun | None:
-            self.reads += 1
-            return await super().get(run_id)
-
-    store = CountsReads()
+    gate.set()
+    store = MemoryStore()
 
     async with _serving(_app(store=store, registry=registry, poll=0.01)) as client:
         run_id = (await client.post("/runs", json={"graph": graph.model_dump(mode="json"), "inputs": inputs})).json()["id"]
-        following = asyncio.create_task(client.get(f"/runs/{run_id}/events"))
-        await asyncio.sleep(0.1)  # the follower has the leg's first events by now
-        before = store.reads
-        await asyncio.sleep(0.3)  # thirty polls that find no event
-        during = store.reads - before
-        gate.set()
-        frames = _frames(await following)
-        assert (during, frames[-1]["type"], frames[-1]["status"]) == (0, "run_end", "waiting")
-        again = (await client.get(f"/runs/{run_id}/events", headers={"Last-Event-ID": str(len(frames) - 1)})).text
-        assert "data: " not in again  # a follower that has every event of a run that waits is told so at once
-
-
-async def test_a_follower_that_sent_a_run_end_while_the_row_still_reads_running_keeps_asking_until_it_changes() -> None:
-    registry = NodeRegistry()
-
-    @registry.node("shout", title="Shout", description="")
-    def shout(text: str) -> str:
-        return text.upper()
-
-    class RowLags(MemoryStore):
-        """Reads a run that has ended as still running a few times, as a reader between the ``run_end`` and the row's write does."""
-
-        lagged = 0
-
-        async def get(self, run_id: str) -> StoredRun | None:
-            row = await super().get(run_id)
-            if row is not None and row.status == "complete" and self.lagged < 5:
-                self.lagged += 1
-                return dataclasses.replace(row, **StoredState(run_state=Going("running")).columns())
-            return row
-
-    store = RowLags()
-
-    async with _serving(_app(store=store, registry=registry, poll=0.01)) as client:
-        run_id = (await client.post("/runs", json={"graph": make_graph(shout).model_dump(mode="json"), "inputs": {"text": "a"}})).json()["id"]
         await store.ended(run_id)
-        frames = _frames(await asyncio.wait_for(client.get(f"/runs/{run_id}/events"), 5))
-        assert [frame["type"] for frame in frames].count("run_end") == 1 and frames[-1]["type"] == "run_end"
-        assert store.lagged == 5
+        whole = await client.get(f"/runs/{run_id}/events")
+        frames = _frames(whole)
+        assert frames == await store.stored_events(run_id) and (frames[-1]["type"], frames[-1]["status"]) == ("run_end", "waiting")
+        assert [line for line in whole.text.splitlines() if line.startswith("id: ")] == [f"id: {number}" for number in range(len(frames))]
+        rest = await client.get(f"/runs/{run_id}/events", headers={"Last-Event-ID": str(len(frames) - 3)})
+        assert _frames(rest) == frames[-2:]
+        assert "data: " not in (await client.get(f"/runs/{run_id}/events", headers={"Last-Event-ID": str(len(frames) - 1)})).text
 
 
 # -- the schema, the surface, the page ------------------------------------------------------------

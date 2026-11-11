@@ -4,8 +4,6 @@ Each route parses its call, asks the process's ``Worker`` and says what it
 answered; the worker runs the legs.
 """
 
-import asyncio
-import json
 from collections.abc import AsyncIterable, Callable, Coroutine, Mapping
 from typing import Annotated, Any, Literal, TypeVar, get_type_hints, overload
 
@@ -28,7 +26,6 @@ from conductor_providers.fastapi.worker import (
     RefusedError,
     RunAsRead,
     RunView,
-    StoredState,
     Worker,
 )
 
@@ -213,7 +210,7 @@ def run_router(
     nodes_for: Callable[[C], NodeRegistry] = (lambda who: registry) if isinstance(registry, NodeRegistry) else registry
     worker: Worker[C] = Worker(
         store=store, nodes_for=nodes_for, caller_type=_caller_type(caller), from_run=from_run,
-        max_items=max_items, lease=lease, checkpoint_every=checkpoint_every, leg_timeout=leg_timeout,
+        max_items=max_items, lease=lease, checkpoint_every=checkpoint_every, leg_timeout=leg_timeout, poll=poll,
     )
     router = APIRouter(lifespan=lambda _: worker.running(), route_class=_RefusingRoute)
 
@@ -269,28 +266,9 @@ def run_router(
 
     @router.get("/runs/{run_id}/events", response_class=EventSourceResponse, responses=_NOT_FOUND_FOR_A_STREAM)
     async def follow_run(run: Annotated[RunAsRead, Depends(stored)], last_event_id: Annotated[int, Header()] = -1) -> AsyncIterable[ServerSentEvent]:
-        """The run's events, from whichever worker runs it, until it stops running; ``Last-Event-ID`` goes on after a reconnect.
-
-        A run stops running only after its leg's ``run_end`` is stored, so the stream reads the run itself only once
-        it has sent a ``run_end`` or has had nothing to send, and otherwise reads events alone.
-        """
-        seen = last_event_id
-        may_have_ended = True
-        while True:
-            new = await store.events(run.row.id, seen)
-            for seq, body in new:
-                seen = seq
-                yield ServerSentEvent(raw_data=body, id=str(seq))
-            if new:
-                may_have_ended = json.loads(new[-1][1])["type"] == "run_end"
-                continue
-            if may_have_ended:  # the row follows its run_end, so it may still read running for a poll or two
-                read_again = await store.get(run.row.id)
-                if read_again is None or StoredState.model_validate_json(read_again.state).run_state.status != "running":
-                    for seq, body in await store.events(run.row.id, seen):  # written before the status changed
-                        yield ServerSentEvent(raw_data=body, id=str(seq))
-                    return
-            await asyncio.sleep(poll)
+        """The run's events, from whichever worker runs it, until it stops running; ``Last-Event-ID`` goes on after a reconnect."""
+        async for number, body in worker.events(run, last_event_id):
+            yield ServerSentEvent(raw_data=body, id=str(number))
 
     @router.post("/runs/{run_id}/answers", status_code=202, responses={**_NOT_FOUND, **_CONFLICT})
     async def answer_run(

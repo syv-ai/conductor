@@ -62,7 +62,11 @@ class RunChanges(TypedDict, total=False):
 
 
 class RunStore(Protocol):
-    """What the runs router needs of a database. Each method is one statement, and none holds a lock across calls."""
+    """What the runs router needs of a database. Each method is one statement, and none holds a lock across calls.
+
+    A host never removes a run whose ``status`` is ``running``: its worker and its followers read it again and
+    take it to be there. Removing runs that stopped running, such as old ones, is the host's own.
+    """
 
     async def create(self, run: StoredRun) -> None:
         """Insert a new run."""

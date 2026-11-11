@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import json
 import threading
 import time
 from collections.abc import Mapping
@@ -14,6 +15,7 @@ import polars as pl
 import pytest
 from conductor import (
     Ask,
+    Going,
     GraphRecord,
     NodeError,
     NodeRecord,
@@ -25,7 +27,6 @@ from conductor import (
 )
 from conductor_providers.fastapi import RunChanges, StoredRun
 from conductor_providers.fastapi.worker import (
-    NoSuchRunError,
     Outcome,
     RefusedError,
     RunAsRead,
@@ -41,7 +42,7 @@ from tests.test_providers.in_memory import MemoryStore, asking, gated
 
 def _worker(store: MemoryStore, registry: NodeRegistry, **settings: Any) -> Worker[str]:
     """A worker on ``store`` whose callers are names, with the router's own defaults where ``settings`` name none."""
-    defaults: dict[str, Any] = {"from_run": lambda who: {}, "max_items": None, "lease": 30.0, "checkpoint_every": 5.0, "leg_timeout": 300.0}
+    defaults: dict[str, Any] = {"from_run": lambda who: {}, "max_items": None, "lease": 30.0, "checkpoint_every": 5.0, "leg_timeout": 300.0, "poll": 0.1}
     return Worker(store=store, nodes_for=lambda who: registry, caller_type=str, **{**defaults, **settings})
 
 
@@ -644,28 +645,65 @@ async def test_a_leg_whose_end_fails_stays_running_and_is_gone_on_with_and_no_ru
     assert await _starts(store, run_id) == 2
 
 
-@pytest.mark.parametrize("call", ["answer", "cancel"])
-async def test_a_run_that_is_gone_when_a_write_to_it_is_tried_again_is_no_such_run(call: str) -> None:
+# -- a follower -----------------------------------------------------------------------------------
+
+
+async def test_a_follower_reads_the_row_only_to_learn_whether_a_run_end_was_the_last() -> None:
     registry, graph, gate, inputs, _ = asking()
 
-    class GoneAtTheWrite(MemoryStore):
-        """Loses what a caller asks of a running leg and has no run to read again, as when the host deleted it meanwhile."""
+    class CountsReads(MemoryStore):
+        reads = 0
 
-        async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
-            if changes.keys() == {"status", "state"}:
-                del self.rows[run_id]
-                return False
-            return await super().update(run_id, rev, changes)
+        async def get(self, run_id: str) -> StoredRun | None:
+            self.reads += 1
+            return await super().get(run_id)
 
-    store = GoneAtTheWrite()
-    worker = _worker(store, registry)
-    row = await worker.read(await _started(worker, graph, inputs))
+    store = CountsReads()
+    worker = _worker(store, registry, poll=0.01)
+    run = await worker.read(await _started(worker, graph, inputs))
 
-    with pytest.raises(NoSuchRunError) as gone:
-        await (worker.answer(row, {"anything": True}) if call == "answer" else worker.cancel(row))
+    async def followed(after: int = -1) -> list[tuple[int, str]]:
+        return [event async for event in worker.events(run, after)]
 
-    assert [problem.type for problem in gone.value.problems] == ["no_such_run"]
+    following = asyncio.create_task(followed())
+    await asyncio.sleep(0.1)  # the follower has the leg's first events by now
+    before = store.reads
+    await asyncio.sleep(0.3)  # thirty polls that find no event
+    during = store.reads - before
     gate.set()
+    events = await following
+
+    assert during == 0 and [number for number, _ in events] == list(range(len(events)))
+    assert [json.loads(body) for _, body in events] == await store.stored_events(run.row.id)
+    assert await followed(len(events) - 1) == []  # a follower that has every event of a run that waits is told so at once
+    assert await followed(len(events) - 2) == events[-1:]
+
+
+async def test_a_follower_that_got_a_run_end_while_the_row_still_reads_running_keeps_asking_until_it_changes() -> None:
+    registry, graph = _shout()
+
+    class RowLags(MemoryStore):
+        """Reads a run that has ended as still running a few times, as a reader between the ``run_end`` and the row's write does."""
+
+        lagged = 0
+
+        async def get(self, run_id: str) -> StoredRun | None:
+            row = self.rows[run_id]
+            if row.status == "complete" and self.lagged < 5:
+                self.lagged += 1
+                return dataclasses.replace(row, **StoredState(run_state=Going("running")).columns())
+            return row
+
+    store = RowLags()
+    worker = _worker(store, registry, poll=0.01)
+    run_id = await _started(worker, graph, {"text": "a"})
+    await store.ended(run_id)
+
+    async with asyncio.timeout(5):
+        events = [json.loads(body) async for _, body in worker.events(await worker.read(run_id))]
+
+    assert [event["type"] for event in events].count("run_end") == 1 and events[-1]["type"] == "run_end"
+    assert store.lagged >= 5
 
 
 # -- several workers, a shutdown ------------------------------------------------------------------
