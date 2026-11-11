@@ -26,7 +26,7 @@ import json
 import math
 import threading
 import time
-from collections.abc import AsyncGenerator, Callable, Iterator, Mapping
+from collections.abc import AsyncGenerator, Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Literal, NamedTuple, overload
@@ -427,10 +427,19 @@ class Run:
         if problems:
             raise InvalidCallError(problems)
         run = self._copy(share_units=True)
-        for node in {changed for changed, _ in answered}:  # its own units for each node it changes; every other node's are shared
-            run._units[node.inside][node.placed.id] = dict(self._units[node.inside][node.placed.id])
+        around: dict[GraphAtPath, list[Key]] = {}  # each embedded graph's node around an answered unit, innermost first, and its instances there
+        for node, key in answered:
+            embedding = node.embedding
+            while embedding is not None:
+                around.setdefault(embedding, []).append(key[: len(embedding.maps)])
+                embedding = embedding.embedding
+        changes: list[NodeAtPath] = [*{node for node, _ in answered}, *around]
+        for changed in changes:  # its own units for each node it changes; every other node's are shared
+            run._units[changed.inside][changed.placed.id] = dict(self._units[changed.inside][changed.placed.id])
         for (node, key), now in answered.items():
             run._units[node.inside][node.placed.id][key] = now
+        for embedding, instances in around.items():
+            run._settle(embedding, instances)
         return run
 
     def _moved_to(self, nodes: NodePath, fingerprint: str) -> str | None:
@@ -637,6 +646,42 @@ class Run:
                     value = [[None if item is SKIPPED else item for item in one] if type(one) is list else one.records() if type(one) is Records else one for one in value]
             out[address] = value
         return out
+
+    def _settle(self, node: GraphAtPath, instances: Iterable[Key]) -> None:
+        """Gives the embedded graph's node ``node`` its unit in each of ``instances`` where every output of the
+        graph inside is settled.
+
+        The unit is what the units inside came to and nothing else, so a run holds it wherever they settle it:
+        a leg makes it as its readers need it and settles the rest when it ends early or hands out a copy, an
+        answer settles it around the units it answers, and a load for every instance.
+
+        Args:
+            node: The embedded graph's node.
+            instances: The instances of it to look at.
+        """
+        units = self._units[node.inside][node.placed.id]
+        last = next(reversed(units), None)
+        in_order = True
+        for key in instances:
+            offered = self._offered(node, key)
+            if offered is not PENDING:
+                if last is None or key > last:
+                    last = key
+                elif key not in units:
+                    in_order = False
+                units[key] = Done(offered)
+        if not in_order:  # a run holds every node's units in instance order
+            held = sorted(units.items())
+            units.clear()
+            units.update(held)
+
+    def _settle_embedded(self) -> None:
+        """Settles every embedded graph's node in every instance that holds no unit (``_settle``), each after the
+        nodes inside it."""
+        for node in self.graph._tree:
+            if type(node) is GraphAtPath:
+                units = self._units[node.inside][node.placed.id]
+                self._settle(node, [key for key in self._instances(node.maps, ())[0] if key not in units])
 
     # -- what a leg reads -------------------------------------------------------
 
@@ -1058,13 +1103,9 @@ def _run_of(graph: Graph, saved: dict[str, Any]) -> Run:
     run = start_run(graph, saved["inputs"], saved["max_items"], {}, no_units(graph))
     run.state = saved["state"]
     for node in graph._tree:  # each after the nodes it reads, so the Series its instances are of are in place
-        units = run._units[node.inside][node.placed.id]
         instances, _ = run._instances(node.maps, ())
         if isinstance(node, GraphAtPath):  # its units are what the units inside it came to
-            for key in instances:
-                offered = run._offered(node, key)
-                if offered is not PENDING:
-                    units[key] = Done(offered)
+            run._settle(node, instances)
         elif (slots := saved["units"].get("/".join(node.path))) is not None:
             if len(slots) != len(instances):
                 at, reason = f"units.{'/'.join(node.path)}", f"it holds {len(slots)} slots for the {len(instances)} instances the saved run made of the node"

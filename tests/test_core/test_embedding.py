@@ -225,6 +225,7 @@ INNER = {
     "boom-inner": chain(("up", "upper"), ("b", "boom")),
     "maybe-inner": chain(("m", "maybe"), ("up", "upper")),
     "lines-inner": chain(("w", "words"), ("q", "ask")),  # a question per word of what it is given
+    "fetch-words-inner": chain(("w", "words"), ("f", "fetch")),  # a call on a thread per word
     "wrapping": chain(("in", "asking-inner")),  # an embedded graph inside an embedded graph
     "deep-inner": chain(("w", "words"), ("c", "chars"), ("up", "upper")),  # its output sits two maps deep
     "series-per-item-inner": chain(("w", "words"), ("c", "chars")),  # a Series made per word
@@ -709,3 +710,65 @@ def test_tables_made_per_item_reach_a_table_input_one_table_per_item_wherever_th
     assert not graph.problems, graph.problems
     run = graph.run(text="ab c")
     assert (graph.plan["h"].mode, graph.plan["h"].series, run.status, run.results["h"]["result"]) == ("per_item", series, "complete", [2, 1])
+
+
+# -- an embedded graph's node reads alike on a run, on its copy and on either saved and loaded ---------------
+
+
+def read(run) -> tuple[Any, ...]:
+    """Everything a host reads of ``run``."""
+    waiting = [unit.model_dump() for unit in run.waiting]
+    not_called = [call.model_dump() for call in run.not_called]
+    return run.status, run.results, waiting, not_called, run.outputs if run.status == "complete" else None
+
+
+def reads_alike_loaded(run) -> bool:
+    assert read(run) == read(run.graph.load_run(run.to_json()))
+    return True
+
+
+@pytest.mark.parametrize("inner", ["asking-inner", "lines-inner", "wrapping", "staggered-inner"])
+@pytest.mark.parametrize("per_item", [False, True], ids=["once", "per item"])
+def test_an_embedded_graph_reads_alike_live_and_loaded_at_every_pause_and_after_every_answer(inner: str, per_item: bool):
+    graph = mapped(inner, "sentences") if per_item else load({"e": inner})
+    run = graph.run(text="ab cd;ef")
+    assert run.status == "waiting" and reads_alike_loaded(run)
+    while run.status == "waiting":
+        first, *rest = run.waiting
+        one = run.answer(first, "yes")  # one answer, not resumed: what it settles reads as it will loaded
+        assert reads_alike_loaded(one) and read(run) == read(run.graph.load_run(run.to_json()))  # and the run it was given to is as it was
+        answered = one.answer({unit.id: "yes" for unit in rest})
+        assert reads_alike_loaded(answered)
+        run = answered.resume()
+        assert reads_alike_loaded(run)
+    assert run.status == "complete"
+
+
+def test_an_answer_inside_an_embedded_graph_shows_in_its_results_before_the_run_goes_on_as_a_flat_nodes_does():
+    embedded, drawn = load({"e": "asking-inner"}).run(text="a"), load({"up": "upper", "q": "ask"}, [("up.result", "q.text")]).run(text="a")
+    assert embedded.answer(embedded.waiting[0], "yes").results == {"e": {"q.result": "yes"}}
+    assert drawn.answer(drawn.waiting[0], "yes").results == {"up": {"result": "A"}, "q": {"result": "yes"}}
+    assert embedded.results == {"e": {"q.result": None}}  # the run the answer was given to holds none
+
+
+def test_a_leg_stopped_at_the_ceiling_keeps_the_calls_on_threads_inside_an_embedded_graph_and_the_embedded_graph_reads_them():
+    graph = load({"e": "fetch-words-inner", "many": "words", "each": "upper"}, [("many.result", "each.text")])
+    stopped = graph.run({"e.text": "a b", "many.text": "x y z"}, max_items=2)
+    assert stopped.status == "stopped" and stopped.state.cause.loc == ("many",)
+    assert stopped.results["e"] == {"f.result": ["a?", "b?"]} and reads_alike_loaded(stopped)
+
+
+def test_a_failure_in_one_item_leaves_the_embedded_graph_of_the_items_before_it_read_alike_live_and_loaded():
+    failed = mapped("boom-inner").run(text="ab bad cd")
+    assert failed.status == "failed" and failed.results["e"] == {"b.result": ["AB", None, None]} and reads_alike_loaded(failed)
+
+
+def test_a_blank_inside_an_embedded_graph_reads_alike_live_and_loaded():
+    run = mapped("maybe-inner").run(text="ab none cd")
+    assert run.status == "complete" and [call.loc for call in run.not_called] == [("e", 1, "up")] and reads_alike_loaded(run)
+
+
+def test_a_checkpoint_mid_leg_reads_alike_loaded_whatever_inside_an_embedded_graph_has_come_back():
+    events = stream(mapped("fetch-inner").with_inputs(text="a b c d"), checkpoint_every=0.01)
+    checkpoints = [event.run for event in events if isinstance(event, RunCheckpoint)]
+    assert checkpoints and all(reads_alike_loaded(checkpoint) for checkpoint in checkpoints)

@@ -383,7 +383,9 @@ class Leg:
         assert self.emit is not None and self.checkpoint_every is not None
         self.next_checkpoint = time.monotonic() + self.checkpoint_every
         self._put_in_order()
-        self.emit(RunCheckpoint(run=self.run._copy()))
+        copy = self.run._copy()
+        copy._settle_embedded()  # the leg makes an embedded graph's unit when it comes to try it; the copy is read now
+        self.emit(RunCheckpoint(run=copy))
 
     def _put_in_order(self) -> None:
         """Put the units of each node recorded out of instance order back in it, so the run holds every node's
@@ -467,6 +469,8 @@ class Leg:
         """Say how the run stands now the leg is over, and which of its nodes are finished."""
         run = self.run
         self._put_in_order()
+        if not self.going:  # ended early: the units recorded since made nothing ready, an embedded graph's node included
+            run._settle_embedded()
         # one look at every unit: a node already said complete has no unit waiting
         waiting = {node for node, units in self.units.items() if node not in self.complete and Asking in {type(unit) for unit in units.values()}}
         if self.going and not waiting:  # every unit of every node is finished, and nothing carried will be taken
