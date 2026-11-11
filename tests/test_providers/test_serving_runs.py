@@ -266,7 +266,7 @@ def test_a_cancel_sent_to_either_worker_stops_the_leg_and_a_resume_finishes_it(s
             await a.until_status(run_id, "cancelled")
 
             refused = await b.client.post(f"/runs/{run_id}/answers", json={})
-            assert refused.status_code == 409 and "resume" in refused.text
+            assert (refused.status_code, [problem["type"] for problem in refused.json()["detail"]]) == (422, ["run_cancelled"])
             assert (await b.client.post(f"/runs/{run_id}/resume", json={})).status_code == 202
             await b.until_status(run_id, "waiting")
             assert served.calls == ["gate"]
@@ -407,7 +407,7 @@ def test_a_run_is_seen_only_by_the_caller_who_started_it(served: Served) -> None
     _run(scenario)
 
 
-def test_a_wrong_answer_is_a_422_listing_every_fault_and_a_run_not_waiting_is_a_409(served: Served) -> None:
+def test_a_wrong_answer_is_a_422_listing_every_fault_and_a_complete_run_is_a_409(served: Served) -> None:
     async def scenario() -> None:
         async with _workers(served, count=1) as (a,):
             served.open_the_gate()

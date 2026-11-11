@@ -129,6 +129,7 @@ What changes in how you work, before the name-by-name tables:
 - **`make_graph` refuses a default no caller reaches.** `defaults={"pad.width": 8}` on a node that is not an open input of the graph raises `default_on_later_node` at the call, as loading does, instead of building a record that fails later.
 - **`run.not_called` is a list of `NotCalled` records** (`loc`, `input`), exported from `conductor`, not a list of dicts.
 - **A run handed back at shutdown has no `cause`.** The row's `cause` is null and its status `running`: the run did not end early, so it is `Going`.
+- **The runs router takes an answer whenever the run does.** `POST /runs/{id}/answers` on a run that `failed`, `stopped` or `timed_out` gives the answers to `run.answer` and starts the next leg, so one item that keeps failing doesn't make the questions beside it unanswerable; what the run refuses is a 422 with its problems (`not_waiting`, `run_cancelled`), and only a `complete` run is a 409. Answers queued during a leg are given to the run that leg ended with, whatever its status; a leg that raised keeps them queued. The code `run_not_waiting` is gone.
 
 A 1.x graph doesn't load as saved. Convert each stored graph with the table under
 "Converting a stored 1.x graph", then save the `GraphRecord`.

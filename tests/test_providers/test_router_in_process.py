@@ -15,8 +15,17 @@ import pytest
 httpx = pytest.importorskip("httpx")
 
 import polars as pl  # noqa: E402
-from conductor import Ask, FromRun, GraphRecord, NodeRecord, NodeRegistry, Series, Table, make_graph  # noqa: E402
-from conductor._internal.errors import PROBLEM_CATALOGUE  # noqa: E402
+from conductor import (  # noqa: E402
+    Ask,
+    FromRun,
+    GraphRecord,
+    NodeError,
+    NodeRecord,
+    NodeRegistry,
+    Series,
+    Table,
+    make_graph,
+)
 from conductor_providers.fastapi import RunChanges, StoredRun, run_router  # noqa: E402
 from fastapi import FastAPI, Header  # noqa: E402
 from pydantic import GetCoreSchemaHandler  # noqa: E402
@@ -483,34 +492,93 @@ class _FailingEnd(MemoryStore):
         return await super().add_event(run_id, owner, body)
 
 
-@pytest.mark.parametrize(("ended", "store", "settings"), [
-    ("stopped", MemoryStore, {"max_items": 1}),
-    ("timed_out", MemoryStore, {"leg_timeout": 0.2}),
-    ("failed", _FailingEnd, {}),
-])
-def test_an_answer_queued_during_a_leg_that_ends_needing_a_resume_is_refused_and_starts_nothing(
-    ended: str, store: type[MemoryStore], settings: dict[str, Any],
-) -> None:
+def test_an_answer_queued_during_a_leg_that_stops_at_its_ceiling_is_taken_and_starts_the_next_leg() -> None:
     registry, graph, gate, inputs, waiting_id = _asking(items=True)
-    runs = store()
+    runs = MemoryStore()
     app = FastAPI()
-    app.include_router(run_router(store=runs, registry=registry, caller=_caller, **settings))
+    app.include_router(run_router(store=runs, registry=registry, caller=_caller, max_items=1))
 
     async def scenario() -> None:
         async with app.router.lifespan_context(app), httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as client:
             run_id = (await client.post("/runs", json={"graph": graph.model_dump(mode="json"), "inputs": inputs})).json()["id"]
             assert (await client.post(f"/runs/{run_id}/answers", json={waiting_id: True})).json() == {"answers": "queued"}
-            if ended == "timed_out":
-                await asyncio.sleep(0.3)  # past the leg's timeout; the call it waits for then finishes
             gate.set()
-            await _until_status(runs, run_id, ended)
-            await asyncio.sleep(0.1)  # a leg started on the answer would be running by now
+            for _ in range(500):
+                row = runs.rows[run_id]
+                if (row.status, row.pending, row.waiting) == ("stopped", "{}", "[]"):  # the next leg meets the same ceiling
+                    break
+                await asyncio.sleep(0.01)
+            assert (row.status, row.pending, row.waiting, row.refused) == ("stopped", "{}", "[]", "{}")
+            assert [json.loads(body)["type"] for body in runs.written[run_id]].count("run_start") == 2
+
+    asyncio.run(scenario())
+
+
+def test_an_answer_queued_for_a_question_a_timed_out_leg_never_asked_is_refused_by_the_runs_own_code() -> None:
+    registry, graph, gate, inputs, waiting_id = _asking(items=True)
+    runs = MemoryStore()
+    app = FastAPI()
+    app.include_router(run_router(store=runs, registry=registry, caller=_caller, leg_timeout=0.2))
+
+    async def scenario() -> None:
+        async with app.router.lifespan_context(app), httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as client:
+            run_id = (await client.post("/runs", json={"graph": graph.model_dump(mode="json"), "inputs": inputs})).json()["id"]
+            assert (await client.post(f"/runs/{run_id}/answers", json={waiting_id: True})).json() == {"answers": "queued"}
+            await asyncio.sleep(0.3)  # past the leg's timeout; the call it waits for then finishes
+            gate.set()
+            await _until_status(runs, run_id, "timed_out")
             row = (await client.get(f"/runs/{run_id}")).json()
-            assert (row["status"], runs.rows[run_id].pending) == (ended, "{}")
-            assert [(problem["type"], problem["ctx"]) for problem in row["refused"][waiting_id]] == [("run_not_waiting", {"status": ended})]
-            assert row["refused"][waiting_id][0]["msg"] == PROBLEM_CATALOGUE["run_not_waiting"].format(status=ended)
-            direct = await client.post(f"/runs/{run_id}/answers", json={waiting_id: True})
-            assert (direct.status_code, direct.json()["detail"]) == (409, row["refused"][waiting_id][0]["msg"])
+            assert [(problem["type"], problem["ctx"]["status"]) for problem in row["refused"][waiting_id]] == [("not_waiting", "timed_out")]
+            assert runs.rows[run_id].pending == "{}"
+
+    asyncio.run(scenario())
+
+
+def test_an_answer_queued_during_a_leg_that_raised_stays_queued_and_is_taken_after_a_resume() -> None:
+    registry, graph, gate, inputs, waiting_id = _asking(items=True)
+    runs = _FailingEnd()
+    app = FastAPI()
+    app.include_router(run_router(store=runs, registry=registry, caller=_caller))
+
+    async def scenario() -> None:
+        async with app.router.lifespan_context(app), httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as client:
+            run_id = (await client.post("/runs", json={"graph": graph.model_dump(mode="json"), "inputs": inputs})).json()["id"]
+            assert (await client.post(f"/runs/{run_id}/answers", json={waiting_id: True})).json() == {"answers": "queued"}
+            gate.set()
+            await _until_status(runs, run_id, "failed")
+            assert json.loads(runs.rows[run_id].pending) == {waiting_id: True}
+            assert (await client.post(f"/runs/{run_id}/resume")).status_code == 202
+            await _until_status(runs, run_id, "complete")
+            assert (runs.rows[run_id].pending, runs.rows[run_id].refused) == ("{}", "{}")
+
+    asyncio.run(scenario())
+
+
+def test_a_question_that_waits_in_a_failed_run_is_answered_without_a_resume() -> None:
+    registry = NodeRegistry()
+
+    @registry.node("many", title="Many", description="")
+    def many(n: int) -> Series[int]:
+        return list(range(n))
+
+    @registry.node("approve", title="Approve", description="")
+    def approve(x: int) -> bool:
+        if x == 2:
+            raise NodeError("item 2 fails")
+        raise Ask(f"approve {x}?")
+
+    app = FastAPI()
+    app.include_router(run_router(store=MemoryStore(), registry=registry, caller=_caller))
+
+    async def scenario() -> None:
+        async with app.router.lifespan_context(app), httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as client:
+            run_id = (await client.post("/runs", json={"graph": make_graph(many, approve).model_dump(mode="json"), "inputs": {"n": 3}})).json()["id"]
+            failed = await _until_ended(client, run_id, "anna")
+            assert (failed["status"], len(failed["waiting"])) == ("failed", 2)
+            answered = await client.post(f"/runs/{run_id}/answers", json={failed["waiting"][0]["id"]: True})
+            assert (answered.status_code, answered.json()) == (202, {"answers": "started"})
+            after = await _until_ended(client, run_id, "anna")
+            assert (after["status"], [unit["id"] for unit in after["waiting"]]) == ("failed", [failed["waiting"][1]["id"]])
 
     asyncio.run(scenario())
 

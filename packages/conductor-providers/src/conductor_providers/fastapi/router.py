@@ -291,9 +291,9 @@ def run_router(
         the write, so a cancel or an answer that lands meanwhile is never written over.
 
         A leg this worker stopped to shut down, with no cancel asked of the run, is handed back for any worker to go on
-        with. Otherwise the answers queued during the leg are taken when it ended ``waiting``, and the next leg starts
-        on them; when it ended needing a resume, each is refused as ``run_not_waiting``. A run another worker took is
-        left as it is.
+        with. Otherwise the answers queued during the leg are given to the run it ended with, and the next leg starts
+        on those it took; a leg that raised ended with no run, so its queued answers stay queued for the next leg's
+        end. A run another worker took is left as it is.
 
         ``keep_lease`` renews the lease until the end is written, and each JSON of a run is made once, outside the
         write's tries: a run however long it takes to write as JSON stays this worker's, and a try lost to a renewal
@@ -313,7 +313,7 @@ def run_router(
                     changes: RunChanges = {**written, **handed_back}
                 else:
                     changes = {**written, "status": status, "owner": None, "lease_until": 0.0, "cancel": False}
-                    if row.pending != "{}":
+                    if row.pending != "{}" and isinstance(ending, _Ended):
                         if answered_from != (row.pending, row.refused):
                             answered_from = (row.pending, row.refused)
                             answered = await asyncio.to_thread(ending.answered, json.loads(row.pending), json.loads(row.refused))
@@ -432,9 +432,13 @@ def run_router(
 
     @router.post("/runs/{run_id}/answers", status_code=202)
     async def answer(row: Annotated[StoredRun, Depends(stored)], answers: dict[str, Any]) -> Answered:
-        """Answer what waits by its ids. While a leg runs, the answers wait for it to end, and a question answered once
-        meanwhile is refused a second answer. An answer to a place whose question changed since it was read is refused by
-        its waiting id (``answer_stale``)."""
+        """Answer what waits by its ids, and start the next leg on the answers.
+
+        The run takes them as ``run.answer`` does, whatever its status: a run that failed, stopped or timed out with
+        questions waiting is answered and goes on, and every answer the run refuses is in the 422. A complete run
+        has nothing to answer and is a 409. While a leg runs, the answers wait for it to end, and a question
+        answered once meanwhile is refused a second answer.
+        """
         while row.status == "running":
             queued = json.loads(row.pending)
             if queued.keys() & answers.keys():
@@ -446,9 +450,9 @@ def run_router(
             if again is None:
                 raise HTTPException(404, "no such run")
             row = again
-        if row.status != "waiting":
-            raise HTTPException(409, _not_waiting(row.status).msg)
-        try:  # every wrong answer is refused at once
+        if row.status == "complete":
+            raise HTTPException(409, "the run is complete")
+        try:  # every answer the run refuses is refused at once
             answered = await asyncio.to_thread(lambda: load(row, nodes_for(started_by(row))).answer(answers).to_json())
         except InvalidCallError as error:
             raise _unprocessable(error) from None
@@ -520,11 +524,9 @@ class _Ended:
 
     def answered(self, pending: dict[str, Any], refused: dict[str, Any]) -> tuple[str | None, dict[str, Any]]:
         """The answers queued during the leg, each on its own: the run they give as JSON when any was taken, else
-        ``None``, and ``refused`` with the problems of each one that wasn't. A run that ended needing a resume takes
-        none (``run_not_waiting``); otherwise a wrong answer, or one for something that isn't waiting (``not_waiting``, as
-        on a complete run), keeps its own problems."""
-        if self.status in _RESUMABLE:
-            return _refuse_all(self.status, pending, refused)
+        ``None``, and ``refused`` with the problems of each one that wasn't. The run decides, as ``run.answer`` does
+        whatever its status: a wrong answer, one for something that isn't waiting (``not_waiting``, as on a complete
+        run) or one to a cancelled run (``run_cancelled``) keeps its own problems."""
         run, taken = self.run, False
         for unit_id, value in pending.items():
             try:
@@ -535,16 +537,14 @@ class _Ended:
 
 
 class _Raised:
-    """A leg that raised: it ends ``failed`` with no cause, keeps the run as last saved, and takes no answers."""
+    """A leg that raised: it ends ``failed`` with no cause and keeps the run as last saved; answers queued during it
+    stay queued."""
 
     status: RunStatus = "failed"
 
     def __init__(self) -> None:
         self.written: RunChanges = {"cause": None}
         self.as_saved: RunChanges = {}
-
-    def answered(self, pending: dict[str, Any], refused: dict[str, Any]) -> tuple[str | None, dict[str, Any]]:
-        return _refuse_all(self.status, pending, refused)
 
 
 def _standing(state: RunState) -> RunChanges:
@@ -556,21 +556,10 @@ def _standing(state: RunState) -> RunChanges:
             return {"status": status, "cause": None}
 
 
-def _refuse_all(status: RunStatus, pending: dict[str, Any], refused: dict[str, Any]) -> tuple[None, dict[str, Any]]:
-    problem = _not_waiting(status).model_dump(mode="json")
-    return None, {**refused, **{unit_id: [problem] for unit_id in pending}}
-
-
 async def _stopped(task: asyncio.Task[None]) -> None:
     """Cancel ``task`` and wait until it has stopped."""
     task.cancel()
     await asyncio.wait([task])
-
-
-def _not_waiting(status: RunStatus) -> Problem:
-    """Why a run that isn't ``waiting`` takes no answers: a leg starts only on a run that waits for them. The code and
-    its message are in ``PROBLEM_CODES`` and conductor's catalogue, as every code conductor writes."""
-    return Problem(type="run_not_waiting", msg=f"The run is {status}, so it takes no answers; resume it first, then answer.", ctx={"status": status})
 
 
 def _caller_type(caller: Callable[..., Any]) -> Any:
