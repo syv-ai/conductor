@@ -298,6 +298,7 @@ class _Hold:
         stop: Set to end the running leg before its next unit.
         lock: Held for each of this worker's writes to the row, so they land one at a time.
         released: Whether the row was given up or taken by another worker; this worker writes nothing more to it.
+        reads: How many times this worker read the row again, each time taking in what another writer changed.
     """
 
     run_id: str
@@ -306,6 +307,7 @@ class _Hold:
     stop: asyncio.Event = field(default_factory=asyncio.Event)
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     released: bool = False
+    reads: int = 0
 
 
 class Worker(Generic[C]):
@@ -610,8 +612,8 @@ class Worker(Generic[C]):
         async with hold.lock:  # so no renewal moves the rev between this read and what is taken in from it
             await self._read_again(hold)
         while not hold.released:
-            state = hold.state
-            after = await asyncio.to_thread(end.row_after, state, shutting_down=self._stopping and not end_stored)
+            reads = hold.reads
+            after = await asyncio.to_thread(end.row_after, hold.state, shutting_down=self._stopping and not end_stored)
             if after.run_ended and not end_stored:
                 if not await self._store.add_event(hold.run_id, self.id, end.event):
                     hold.released = True  # another worker holds the run, so the write of the row would lose too
@@ -621,7 +623,7 @@ class Worker(Generic[C]):
             holder = self._mine() if goes_on else _HANDED_BACK if after.leg_wanted else _NOBODYS
             changes: RunChanges = {**after.state.columns(), **after.changes, **holder}
             async with hold.lock:  # no renewal lands after the write that gives the run up
-                if hold.state is state and await self._write_once(hold, changes):
+                if hold.reads == reads and await self._write_once(hold, changes):  # decided from the state as it still is
                     hold.state, hold.released = after.state, not goes_on
                     return replace(row, **after.changes)
         return row
@@ -656,6 +658,7 @@ class Worker(Generic[C]):
         """Read the row of a held run, under the hold's lock, and take in what another writer changed: its state,
         a cancel asked of it, and whether another worker took it."""
         run = await self.read(hold.run_id)
+        hold.reads += 1
         hold.rev, hold.state = run.row.rev, run.state
         hold.released = run.row.owner != self.id
         if hold.released or hold.state.cancel_asked:
