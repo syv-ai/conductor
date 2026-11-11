@@ -31,18 +31,18 @@ import pydantic
 
 from conductor._internal.checked_graph.describe import GraphInput
 from conductor._internal.checked_graph.input_plans import (
-    InputFedByEdges,
-    InputFromCaller,
-    InputGathersItems,
-    InputGathersOneValue,
-    InputHoldsValue,
-    InputNotFed,
+    EdgeSource,
+    InputCollectsLoopResults,
+    InputConstant,
+    InputFromEdges,
+    InputFromGraphInput,
+    InputMissing,
     InputPlan,
     InputReadsOneValue,
+    InputWrapsOneValue,
     ItemOfSeries,
-    OutputAtScope,
+    OutputInLoops,
     Scope,
-    Source,
     WholeOutput,
 )
 from conductor._internal.checked_graph.placed_node import (
@@ -268,7 +268,7 @@ class _Loader:
         bound = planned.bound
         outputs: dict[str, Field] | None = dict(definition.outputs) if bound is None else {name: field.bind(bound) for name, field in definition.outputs.items()}
         if definition.compute_outputs is not None:
-            arriving = {name: plan.sources[0].type.bare for name, plan in planned.inputs.items() if isinstance(plan, InputFedByEdges)}
+            arriving = {name: plan.sources[0].type.bare for name, plan in planned.inputs.items() if isinstance(plan, InputFromEdges)}
             outputs = self._hook(record, definition, "compute_outputs", definition.compute_outputs, typed, arriving, tuple(added))
         if outputs is not None:
             self._keep(PlacedFunction(
@@ -325,7 +325,7 @@ class _Loader:
         """Plan every input of a node, and settle the scope it runs in.
 
         An input whose edges bring nothing it takes, or can't meet the node's other inputs in one scope, is
-        ``InputNotFed``, with the problem: the node is kept, for an editor to draw, in a graph that never runs.
+        ``InputMissing``, with the problem: the node is kept, for an editor to draw, in a graph that never runs.
 
         Args:
             record: The node in the record.
@@ -351,39 +351,39 @@ class _Loader:
                 if name in record.values or name in record.defaults:
                     self.problems.append(problem.value_and_edge(record.id, name))
                 brought = sources[name]
-                inputs[name] = InputNotFed(field) if brought is None else self._fed(record.id, field, brought)
+                inputs[name] = InputMissing(field) if brought is None else self._fed(record.id, field, brought)
             elif name in record.values:
                 inputs[name] = _fixed(field, typed[name])
             elif first and name not in fixed_at_load:
                 default = typed.get(name, field.default)
                 if default is _REFUSED:
-                    inputs[name] = InputNotFed(field)
+                    inputs[name] = InputMissing(field)
                     continue
                 address = f"{record.id}.{name}"
                 opened = field if default is field.default else Field(name, field.hint, default)  # the record's default is the caller's
                 self.opened.append((GraphInput(address=address, node_id=record.id, field=opened.description), opened))
-                inputs[name] = InputFromCaller(field, address)
+                inputs[name] = InputFromGraphInput(field, address)
             elif name in record.defaults:
                 self.problems.append(problem.default_on_later_node(record.id, name))
                 inputs[name] = _fixed(field, typed[name])
             elif field.default is REQUIRED and name not in fixed_at_load:  # a hook that reads it says so itself, as hook_needs_value
                 self.problems.append(problem.unbound_on_later_node(record.id, name))
-                inputs[name] = InputNotFed(field)
+                inputs[name] = InputMissing(field)
             else:
-                inputs[name] = InputHoldsValue(field, field.default)
+                inputs[name] = InputConstant(field, field.default)
         for name in self._never_meet(record.id, inputs):
-            inputs[name] = InputNotFed(fields[name])
-        scopes = [plan.scope for plan in inputs.values() if isinstance(plan, InputFedByEdges)]
+            inputs[name] = InputMissing(fields[name])
+        scopes = [plan.scope for plan in inputs.values() if isinstance(plan, InputFromEdges)]
         scope = max(scopes, key=len, default=())
         for name, plan in inputs.items():
-            if isinstance(plan, InputGathersItems) and (made_in := plan.sources[0].read_in) == scope[: len(made_in)] and all(isinstance(s, WholeOutput) for s in plan.sources):
+            if isinstance(plan, InputCollectsLoopResults) and (made_in := plan.sources[0].read_in) == scope[: len(made_in)] and all(isinstance(s, WholeOutput) for s in plan.sources):
                 # its source makes one value where the node runs, for another input's sake: that one, never every item's
-                inputs[name] = InputGathersOneValue(plan.field, typing.cast("tuple[WholeOutput, ...]", plan.sources))
+                inputs[name] = InputWrapsOneValue(plan.field, typing.cast("tuple[WholeOutput, ...]", plan.sources))
         for name, plan in inputs.items():
-            if isinstance(plan, InputFedByEdges) and scope[: len(plan.scope)] != plan.scope:  # items of two Series never pair up
+            if isinstance(plan, InputFromEdges) and scope[: len(plan.scope)] != plan.scope:  # items of two Series never pair up
                 series = [scope[-1], plan.scope[-1]]
                 outer, inner = sorted(series, key=lambda port: list(self.nodes).index(port.node_id))  # the one placed later can read the other with no cycle
-                reading = next(n for n, p in inputs.items() if isinstance(p, InputFedByEdges) and p.scope == scope)
+                reading = next(n for n, p in inputs.items() if isinstance(p, InputFromEdges) and p.scope == scope)
                 stored_graphs = list(dict.fromkeys(port.node_id for port in series if isinstance(self.nodes[port.node_id], PlacedEmbeddedGraph)))
                 if stored_graphs:  # an edge of this graph can't move a list inside a stored graph
                     self.problems.append(problem.series_not_nested_inside_stored_graph(
@@ -394,7 +394,7 @@ class _Loader:
                         record.id, series=[str(s) for s in series], inputs=[reading, name],
                         wire_from=str(outer), wire_into=inner.node_id,
                     ))
-                inputs[name] = InputNotFed(plan.field)
+                inputs[name] = InputMissing(plan.field)
         return _Planned(inputs, scope, self._rests_on(inputs), bound)
 
     def _typed(self, record: NodeRecord, fields: Mapping[str, Field]) -> dict[str, Any]:
@@ -468,14 +468,14 @@ class _Loader:
 
     # -- edges ------------------------------------------------------------------
 
-    def _sources(self, node_id: str, name: str, addresses: list[str]) -> list[Source] | None:
+    def _sources(self, node_id: str, name: str, addresses: list[str]) -> list[EdgeSource] | None:
         """What the edges from ``addresses`` bring one input, in the order their nodes and outputs have in the record.
 
         Returns:
             ``None`` when an edge names nothing a node gives, with the problem, and ``None`` when its node's
             fields aren't known or it is placed later, on a cycle.
         """
-        sources: list[Source] = []
+        sources: list[EdgeSource] = []
         for address in addresses:
             source = self._source(address, node_id, name)
             if source is None:
@@ -485,7 +485,7 @@ class _Loader:
             sources.sort(key=self._edge_order)
         return sources
 
-    def _fed(self, node_id: str, field: Field, sources: list[Source]) -> InputFedByEdges | InputNotFed:
+    def _fed(self, node_id: str, field: Field, sources: list[EdgeSource]) -> InputFromEdges | InputMissing:
         """How edges bringing ``sources`` feed one input: one value on each call, or every value its source made.
 
         An input of one value reads, whatever its type: a ``Series`` reaches it one item at a time. A ``Series``
@@ -493,23 +493,23 @@ class _Loader:
         a time, and else gathers records.
 
         Returns:
-            The input's plan; ``InputNotFed``, with the problem, when an edge brings a type the input doesn't take.
+            The input's plan; ``InputMissing``, with the problem, when an edge brings a type the input doesn't take.
         """
         gathers, wanted = _taken(field, sources)
         for source in sources:
             if wanted is not source.type and wanted.fits(source.type) is None:  # the same type, which most edges join, fits
                 self.problems.append(_mismatch(node_id, field, source))
-                return InputNotFed(field)
+                return InputMissing(field)
         deepest = max((s.read_in for s in sources), key=len)
         if not gathers:
             return InputReadsOneValue(field, tuple(sources), deepest)
         if not deepest:
-            return InputGathersOneValue(field, tuple(s for s in sources if isinstance(s, WholeOutput)))
+            return InputWrapsOneValue(field, tuple(s for s in sources if isinstance(s, WholeOutput)))
         made_by, output = deepest[-1]
-        series = OutputAtScope(made_by, output, deepest[:-1])
-        return InputGathersItems(field, (series, *sources))
+        series = OutputInLoops(made_by, output, deepest[:-1])
+        return InputCollectsLoopResults(field, (series, *sources))
 
-    def _source(self, address: str, node_id: str, name: str) -> Source | None:
+    def _source(self, address: str, node_id: str, name: str) -> EdgeSource | None:
         """What an edge from ``address`` brings: ``node.output``, or ``node.output.field`` for one field of a record.
 
         The output is the one of the node's whose name the address goes on with after the node's id: an embedded
@@ -545,13 +545,13 @@ class _Loader:
         brought = ItemOfSeries if field.many else WholeOutput
         return brought(source_id, output, source.loops_around(output), wanted or None, brings)
 
-    def _edge_order(self, source: Source) -> tuple[int, int, str]:
+    def _edge_order(self, source: EdgeSource) -> tuple[int, int, str]:
         """Where an edge into an input falls among several: its node's place in the record, then the output's in its node."""
         return self.position[source.node_id], list(self.nodes[source.node_id].outputs).index(source.output), source.address
 
     # -- branches ---------------------------------------------------------------
 
-    def _branch(self, source: Source) -> frozenset[Branch]:
+    def _branch(self, source: EdgeSource) -> frozenset[Branch]:
         """The ways decisions must go for ``source`` to hold a value."""
         group = self.nodes[source.node_id].outputs[source.output].param.exclusive_group
         own = {Branch(source.node_id, group, source.output)} if group else set[Branch]()
@@ -569,7 +569,7 @@ class _Loader:
         """
         refused: set[str] = set()
         for name, plan in inputs.items():
-            if not isinstance(plan, InputFedByEdges):
+            if not isinstance(plan, InputFromEdges):
                 continue
             behind = [self._branch(s) for s in plan.sources]
             scopes = list(dict.fromkeys(s.read_in for s in plan.sources))
@@ -582,7 +582,7 @@ class _Loader:
                 refused.add(name)
         aligned = [
             (name, [self._branch(s) for s in plan.sources]) for name, plan in inputs.items()
-            if isinstance(plan, InputGathersItems) and not plan.field.keeps_blanks and name not in refused
+            if isinstance(plan, InputCollectsLoopResults) and not plan.field.accepts_none_items and name not in refused
         ]
         for i, (a, behind_a) in enumerate(aligned):
             for b, behind_b in aligned[i + 1:]:
@@ -596,17 +596,17 @@ class _Loader:
         rests only on what is decided where it runs or above, as a decision made per item skips items, never it."""
         rests_on: set[Branch] = set()
         for plan in inputs.values():
-            if not isinstance(plan, InputFedByEdges):
+            if not isinstance(plan, InputFromEdges):
                 continue
             behind = [self._branch(s) for s in plan.sources]
             shared = behind[0].intersection(*behind[1:])
-            if isinstance(plan, InputGathersItems):
+            if isinstance(plan, InputCollectsLoopResults):
                 shared = frozenset(b for b in shared if len(self.nodes[b.node_id].scope) <= len(plan.scope))
             rests_on |= shared
         return frozenset(rests_on)
 
 
-def _taken(field: Field, sources: list[Source]) -> tuple[bool, Type]:
+def _taken(field: Field, sources: list[EdgeSource]) -> tuple[bool, Type]:
     """Whether the input ``field`` gathers what ``sources`` bring, and the type each must fit: the input's whole
     type when it reads, one item of a ``Series`` or one record of a table when it gathers.
 
@@ -621,7 +621,7 @@ def _taken(field: Field, sources: list[Source]) -> tuple[bool, Type]:
     return gathers, field.whole if not gathers else field.type if record is None else record
 
 
-def _bound(fields: Mapping[str, Field], sources: Mapping[str, list[Source] | None]) -> dict[TypeVar, Any]:
+def _bound(fields: Mapping[str, Field], sources: Mapping[str, list[EdgeSource] | None]) -> dict[TypeVar, Any]:
     """What a node's type variables are bound to by what arrives on its edges; two places sharing a variable join.
 
     Only an edge binds: a typed-in value, a default and an open input bind nothing, and a variable nothing binds
@@ -654,7 +654,7 @@ def _split_gives(whole: Type) -> tuple[Literal["table", "list"], list[str]] | No
     return None
 
 
-def _mismatch(node_id: str, field: Field, source: Source) -> Problem:
+def _mismatch(node_id: str, field: Field, source: EdgeSource) -> Problem:
     """The ``type_mismatch`` of an edge from ``source`` into the input ``field``.
 
     It says the fix where one mistake explains it: a whole table or list wired to an input of one value wants a
@@ -674,9 +674,9 @@ def _mismatch(node_id: str, field: Field, source: Source) -> Problem:
     return problem.type_mismatch(node_id, field.name, source=address, got=got, expected=expected)
 
 
-def _fixed(field: Field, typed: Any) -> InputHoldsValue | InputNotFed:
+def _fixed(field: Field, typed: Any) -> InputConstant | InputMissing:
     """The plan of an input holding a typed-in value, as its field read it."""
-    return InputNotFed(field) if typed is _REFUSED else InputHoldsValue(field, typed)
+    return InputMissing(field) if typed is _REFUSED else InputConstant(field, typed)
 
 
 def _field_type(record: Type, name: str) -> Type | None:

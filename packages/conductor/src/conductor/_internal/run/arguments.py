@@ -40,10 +40,10 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Final, Literal, cast
 
 from conductor._internal.checked_graph.input_plans import (
-    InputGathersItems,
+    InputCollectsLoopResults,
     InputReadsOneValue,
     ItemOfSeries,
-    OutputAtScope,
+    OutputInLoops,
     SeriesAsList,
 )
 from conductor._internal.outcomes import (
@@ -88,12 +88,12 @@ class Reader(abc.ABC):
     graph_inputs: Mapping[str, Any]
 
     @abc.abstractmethod
-    def read_output(self, at: OutputAtScope, item_path: ItemPath) -> Any:
+    def read_output(self, at: OutputInLoops, item_path: ItemPath) -> Any:
         """What the output ``at`` holds for ``item_path`` as an edge brings it: a value, ``None`` for a blank, ``SKIPPED``
         for a branch not taken, or ``NOT_READY``."""
 
     @abc.abstractmethod
-    def collect(self, plan: InputGathersItems, item_path: ItemPath) -> Any:
+    def collect(self, plan: InputCollectsLoopResults, item_path: ItemPath) -> Any:
         """What the gathering input of ``plan`` holds for ``item_path``: its items, ``None`` for a blank,
         ``SKIPPED`` for a branch not taken, or ``NOT_READY``."""
 
@@ -115,13 +115,13 @@ class Reader(abc.ABC):
         Raises:
             CallRejectedError: An edge names a field the record it brings doesn't have (``invalid_edge_value``).
         """
-        arguments = node.call_template.copy()
+        arguments = node.constant_arguments.copy()
         graph_inputs = self.graph_inputs
-        for name, address in node.from_caller:
+        for name, address in node.parameters_from_graph_inputs:
             arguments[name] = graph_inputs[address]
         blank: str | None = None
         settled = True
-        for name, plan, accepts_none in node.fed:
+        for name, plan, accepts_none in node.wired_inputs:
             try:
                 value = plan.value(self, item_path)
             except NoSuchFieldError as missing:
@@ -138,9 +138,9 @@ class Reader(abc.ABC):
             return NOT_READY
         if blank is not None:
             return NotCalled(node.placed.outputs_when_not_called, blank)
-        return self.align_lists(node, arguments) if node.gathered_in_step else arguments
+        return self.align_lists(node, arguments) if node.lists_from_same_loop else arguments
 
-    def read_alternatives(self, reads: tuple[OutputAtScope, ...], item_path: ItemPath) -> Any:
+    def read_alternatives(self, reads: tuple[OutputInLoops, ...], item_path: ItemPath) -> Any:
         """What alternative edges bring one input: a value when one of them holds one, else ``NOT_READY``
         while one isn't settled, else a blank, and ``SKIPPED`` when every branch wasn't taken.
 
@@ -172,7 +172,7 @@ class ResultReader(Reader):
     def __init__(self, outcomes: dict[str, dict[ItemPath, Outcome]], graph_inputs: Mapping[str, Any]) -> None:
         self.outcomes, self.graph_inputs = outcomes, graph_inputs
 
-    def read_output(self, at: OutputAtScope, item_path: ItemPath) -> Any:
+    def read_output(self, at: OutputInLoops, item_path: ItemPath) -> Any:
         """What the output ``at`` holds for ``item_path``: an ``ItemOfSeries``'s is the item of ``item_path``, and a field named
         on the edge is read from it.
 
@@ -184,7 +184,7 @@ class ResultReader(Reader):
         if outcome is None or type(outcome) is Asking:
             return NOT_READY
         value = outcome.out[at.output]
-        if value is None or value is SKIPPED or type(at) is OutputAtScope:
+        if value is None or value is SKIPPED or type(at) is OutputInLoops:
             return value
         if type(at) is ItemOfSeries:  # ``value`` is a stored Series: one item of it, or one field of that item
             wanted = at.record_field
@@ -199,7 +199,7 @@ class ResultReader(Reader):
         field = at.record_field  # type: ignore[attr-defined]  # an edge brings a WholeOutput, an ItemOfSeries or a SeriesAsList, each with its record_field
         return value if field is None else field_of(value, field)
 
-    def collect(self, plan: InputGathersItems, item_path: ItemPath) -> Any:
+    def collect(self, plan: InputCollectsLoopResults, item_path: ItemPath) -> Any:
         """The items the gathering input of ``plan`` gets for ``item_path``, with ``None`` for an item that has
         no value, for a blank or a branch not taken.
 
@@ -233,7 +233,7 @@ class ResultReader(Reader):
             items.append(None if value is SKIPPED else value)
         return items
 
-    def _list_looped_over(self, plan: InputGathersItems, item_path: ItemPath) -> Any:
+    def _list_looped_over(self, plan: InputCollectsLoopResults, item_path: ItemPath) -> Any:
         """The Series the input of ``plan`` gathers, where an item of it could bring a value; else what the
         input holds whatever its items: ``SKIPPED``, ``None`` for a blank, or ``NOT_READY``. A Series that
         was never made, or isn't settled, is handed back as that too."""
@@ -245,10 +245,10 @@ class ResultReader(Reader):
         """``arguments`` with each gathering input holding the items that have a value in every input of the
         node that gathers the same Series, so those inputs stay in step; an input whose items may be blank
         keeps a blank in its place."""
-        for inputs in node.gathered_in_step:
+        for inputs in node.lists_from_same_loop:
             dropped: set[int] = set()  # the indexes at which an input that takes no None has one
-            for name, keeps_blanks in inputs:
-                if not keeps_blanks and arguments[name] is not None:
+            for name, accepts_none_items in inputs:
+                if not accepts_none_items and arguments[name] is not None:
                     dropped.update(places_of_none(arguments[name]))
             if dropped:
                 for name, _ in inputs:
@@ -269,7 +269,7 @@ class DisplayReader(ResultReader):
 
     __slots__ = ()
 
-    def read_output(self, at: OutputAtScope, item_path: ItemPath) -> Any:
+    def read_output(self, at: OutputInLoops, item_path: ItemPath) -> Any:
         """The value of the output ``at`` for the item at ``item_path``; ``None`` when the node hasn't
         returned yet, or when the edge names a field the record doesn't have."""
         try:
@@ -278,7 +278,7 @@ class DisplayReader(ResultReader):
             return None
         return None if value is NOT_READY else value
 
-    def collect(self, plan: InputGathersItems, item_path: ItemPath) -> Any:
+    def collect(self, plan: InputCollectsLoopResults, item_path: ItemPath) -> Any:
         """The list a ``Series`` input with ``plan`` would be called with for the item at ``item_path``;
         ``None`` when the edge names a field that a record in the list doesn't have."""
         try:
@@ -286,7 +286,7 @@ class DisplayReader(ResultReader):
         except NoSuchFieldError:
             return None
 
-    def display_value(self, plans: tuple[InputReadsOneValue | InputGathersItems, ...], item_path: ItemPath = ()) -> Any:
+    def display_value(self, plans: tuple[InputReadsOneValue | InputCollectsLoopResults, ...], item_path: ItemPath = ()) -> Any:
         """One output of a node as ``run.results`` shows it.
 
         Example: ``documents -> lines -> shout`` with three documents, the second empty, so ``lines`` was
@@ -308,7 +308,7 @@ class DisplayReader(ResultReader):
         if len(item_path) == len(plans) - 1:
             value = plan.value(self, item_path)
             return None if value is SKIPPED else value
-        looped_over = self._list_looped_over(cast("InputGathersItems", plan), item_path)  # every plan before the last lists one loop
+        looped_over = self._list_looped_over(cast("InputCollectsLoopResults", plan), item_path)  # every plan before the last lists one loop
         if looped_over is None or looped_over is SKIPPED:
             return None
         return [self.display_value(plans, (*item_path, index)) for index in range(len(looped_over))]
@@ -327,11 +327,11 @@ class LoopDryRun(Reader):
 
     __slots__ = ("dry_outcomes", "item_path", "items", "series")
 
-    def __init__(self, items: ResultReader, series: OutputAtScope, item_path: ItemPath) -> None:
+    def __init__(self, items: ResultReader, series: OutputInLoops, item_path: ItemPath) -> None:
         self.items, self.series, self.item_path, self.graph_inputs = items, series, item_path, items.graph_inputs
         self.dry_outcomes: dict[str, dict[str, Any] | Skipped | NotCalled | Literal[NotReady.NOT_READY]] = {}
 
-    def result_for_every_item(self, plan: InputGathersItems) -> Any:
+    def result_for_every_item(self, plan: InputCollectsLoopResults) -> Any:
         """Whether any item of the Series could bring the gathering input of ``plan`` a value, going by what
         is outside the items. Each function the input gathers through is asked what it comes to for any item,
         in order, and then what the input's edges bring.
@@ -340,11 +340,11 @@ class LoopDryRun(Reader):
             ``MAY_HAVE_VALUE``; ``SKIPPED`` when none could for a branch not taken; ``None`` when none could for a
             blank; ``NOT_READY`` while something outside the items isn't settled.
         """
-        for node in plan.asked_for_any_item:
+        for node in plan.loop_body:
             self.dry_outcomes[node.name] = self.arguments_for(node, self.item_path)
         return self._read_edges(plan)
 
-    def read_output(self, at: OutputAtScope, item_path: ItemPath) -> Any:
+    def read_output(self, at: OutputInLoops, item_path: ItemPath) -> Any:
         """What the output ``at`` holds for an item nobody knows: what its node comes to for any item when it is made
         per item, and as it stands when it is made outside the items, ``MAY_HAVE_VALUE`` for a value."""
         dry_outcomes = self.dry_outcomes.get(at.node_id)
@@ -358,7 +358,7 @@ class LoopDryRun(Reader):
             return NOT_READY
         return MAY_HAVE_VALUE if type(dry_outcomes) is dict else dry_outcomes.out[at.output]  # type: ignore[union-attr]  # mypy doesn't narrow a union by ``type(x) is dict``
 
-    def collect(self, plan: InputGathersItems, item_path: ItemPath) -> Any:
+    def collect(self, plan: InputCollectsLoopResults, item_path: ItemPath) -> Any:
         """What a gathering input met on the way holds for an item nobody knows. One whose Series is made per
         item is asked what its edges bring for the same items; one whose Series is made outside them is an output
         outside like any other: its own, whole answer, read as it stands."""
@@ -371,9 +371,9 @@ class LoopDryRun(Reader):
         """``arguments`` as it is: nothing is known of the items to keep in step."""
         return arguments
 
-    def _read_edges(self, plan: InputGathersItems) -> Any:
+    def _read_edges(self, plan: InputCollectsLoopResults) -> Any:
         """What the edges of a gathering input bring for an item nobody knows; an input whose items take a
         blank receives the blank an edge brings, so it could hold one."""
         edges = plan.sources
         brought = self.read_output(edges[0], self.item_path) if len(edges) == 1 else self.read_alternatives(edges, self.item_path)
-        return MAY_HAVE_VALUE if brought is None and plan.field.keeps_blanks else brought
+        return MAY_HAVE_VALUE if brought is None and plan.field.accepts_none_items else brought

@@ -5,11 +5,11 @@ from __future__ import annotations
 from typing import Literal
 
 from conductor._internal.checked_graph.input_plans import (
-    InputGathersItems,
-    InputGathersOneValue,
-    InputNotFed,
+    InputCollectsLoopResults,
+    InputMissing,
     InputPlan,
     InputReadsOneValue,
+    InputWrapsOneValue,
     Scope,
 )
 from conductor._internal.conductor_model import ConductorModel
@@ -125,15 +125,15 @@ def runs_on(scope: Scope) -> RunsOn:
 def feed_of(scope: Scope, plan: InputPlan) -> Feed:
     """How ``plan`` feeds its input on each call of a node that runs in ``scope``."""
     match plan:
-        case InputGathersItems(series=series):
+        case InputCollectsLoopResults(series=series):
             return Feed(mode="collected", series=series.address, msg=f"every item of {series.address}")
-        case InputGathersOneValue():
+        case InputWrapsOneValue():
             return Feed(mode="collected", msg="the one value, as a Series of one")
         case InputReadsOneValue(scope=fed_in) if fed_in != scope:
             return Feed(mode="outer_value", series=str(fed_in[-1]) if fed_in else None, msg=f"the value of {f'the item of {fed_in[-1]}' if fed_in else 'the graph'}")
         case InputReadsOneValue(scope=fed_in) if fed_in:
             return Feed(mode="per_item", series=str(fed_in[-1]), msg=f"per item of {fed_in[-1]}")
-        case InputNotFed():
+        case InputMissing():
             return Feed(mode="unset", msg="no value: a problem of the graph says why")
         case _:
             return Feed(mode="one_value", msg="one value")

@@ -7,13 +7,13 @@ Code outside this package imports from here only. ``loader.py`` has ``load_graph
 
 from conductor._internal.checked_graph.describe import Feed, GraphDescription, GraphInput, RunsOn
 from conductor._internal.checked_graph.input_plans import (
-    InputFromCaller,
-    InputGathersItems,
-    InputGathersOneValue,
-    InputHoldsValue,
+    InputCollectsLoopResults,
+    InputConstant,
+    InputFromGraphInput,
     InputReadsOneValue,
+    InputWrapsOneValue,
     ItemOfSeries,
-    OutputAtScope,
+    OutputInLoops,
     SeriesAsList,
     WholeOutput,
 )

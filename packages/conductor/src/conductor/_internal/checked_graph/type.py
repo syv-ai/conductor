@@ -67,7 +67,7 @@ class CheckedGraph:
     problems: list[Problem]
     inputs: dict[str, GraphInput]
     #: Each node whose fields are known, by id, each after the nodes its inputs read. A graph with problems holds
-    #: the nodes they are on too, with ``InputNotFed`` for an input that gets nothing, and never runs.
+    #: the nodes they are on too, with ``InputMissing`` for an input that gets nothing, and never runs.
     _nodes: dict[str, PlacedNode]
     #: Each graph input as a run keeps it, by address.
     _input_fields: dict[str, InputField]

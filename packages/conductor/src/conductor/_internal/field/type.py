@@ -93,7 +93,7 @@ class Field:
         return Field(self.name, Type(self.hint).bind(bound).hint, self.default) if self.whole.variables else self
 
     @functools.cached_property
-    def keeps_blanks(self) -> bool:
+    def accepts_none_items(self) -> bool:
         """Whether a field that gathers keeps the place of an item with no value, as a blank: a ``Series`` whose
         item type takes one. A table never does, as a record is never blank."""
         return self.many and self.type.optional

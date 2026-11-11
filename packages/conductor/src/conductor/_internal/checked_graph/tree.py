@@ -17,20 +17,20 @@ from typing import Any
 
 from conductor._internal.address import Loc, NodePath, node_name
 from conductor._internal.checked_graph.input_plans import (
-    InputFedByEdges,
-    InputFromCaller,
-    InputGathersItems,
-    InputGathersOneValue,
-    InputHoldsValue,
-    InputNotFed,
+    EdgeSource,
+    InputCollectsLoopResults,
+    InputConstant,
+    InputFromEdges,
+    InputFromGraphInput,
+    InputMissing,
     InputPlan,
     InputReadsOneValue,
+    InputWrapsOneValue,
     ItemOfSeries,
     OutputAddress,
-    OutputAtScope,
+    OutputInLoops,
     Scope,
     SeriesAsList,
-    Source,
     WholeOutput,
 )
 from conductor._internal.checked_graph.placed_node import PlacedEmbeddedGraph, PlacedFunction
@@ -81,14 +81,14 @@ class FunctionAtPath(_AtPath):
     Attributes:
         placed: The node, as its graph loaded it.
         policy: The node's policy, as its definition declares it.
-        call_template: What the arguments of every call start as: each input by name, in the order declared,
+        constant_arguments: What the arguments of every call start as: each input by name, in the order declared,
             one that holds the same value on every call already holding it.
-        from_caller: The inputs the caller gives: the name, and the address a run keeps the caller's value by.
+        parameters_from_graph_inputs: The inputs the caller gives: the name, and the address a run keeps the caller's value by.
         fed: What the node needs that edges bring, in the order declared: the input's name, a plan, and
             whether the input takes a blank. A gathering input is two of them, as it needs two things: its
             Series, read as the one value it is, and then what its edges bring for the items (the plan
-            itself, which names the functions it gathers through, ``InputGathersItems.asked_for_any_item``).
-        gathered_in_step: The gathering inputs that gather one Series, for each such Series: each input's name
+            itself, which names the functions it gathers through, ``InputCollectsLoopResults.loop_body``).
+        lists_from_same_loop: The gathering inputs that gather one Series, for each such Series: each input's name
             and whether its items may be blank. They receive the same items.
         checked: The inputs whose value is read by the input's type before a call, as the types the edges bring
             don't settle it.
@@ -113,17 +113,17 @@ class FunctionAtPath(_AtPath):
 
     placed: PlacedFunction
     policy: Policy
-    call_template: dict[str, Any]
-    from_caller: tuple[tuple[str, str], ...]
-    fed: tuple[tuple[str, InputFedByEdges, bool], ...]
-    gathered_in_step: tuple[tuple[tuple[str, bool], ...], ...]
+    constant_arguments: dict[str, Any]
+    parameters_from_graph_inputs: tuple[tuple[str, str], ...]
+    wired_inputs: tuple[tuple[str, InputFromEdges, bool], ...]
+    lists_from_same_loop: tuple[tuple[tuple[str, bool], ...], ...]
     checked: tuple[str, ...]
     opens: dict[str, tuple[NodeAtPath, str]] = dataclasses.field(default_factory=dict[str, tuple["NodeAtPath", str]])
     made_from: dict[FunctionAtPath, int] = dataclasses.field(default_factory=dict["FunctionAtPath", int])
     readers: list[tuple[FunctionAtPath, int]] = dataclasses.field(default_factory=list[tuple["FunctionAtPath", int]])
     position: int = 0
     waits_on: frozenset[FunctionAtPath] | None = None
-    shown_as: dict[str, tuple[InputReadsOneValue | InputGathersItems, ...]] = dataclasses.field(default_factory=dict[str, tuple[InputReadsOneValue | InputGathersItems, ...]])
+    shown_as: dict[str, tuple[InputReadsOneValue | InputCollectsLoopResults, ...]] = dataclasses.field(default_factory=dict[str, tuple[InputReadsOneValue | InputCollectsLoopResults, ...]])
 
 
 @typing.final
@@ -191,7 +191,7 @@ def outcome_loc(node: NodeAtPath, key: ItemPath) -> Loc:
 _SHOWN = Field("shown", Series[Any | None], REQUIRED)  # type: ignore[misc]  # mypy takes no union as a type argument here
 
 
-def host_reads(node: FunctionAtPath, output: str) -> tuple[InputReadsOneValue | InputGathersItems, ...]:
+def host_reads(node: FunctionAtPath, output: str) -> tuple[InputReadsOneValue | InputCollectsLoopResults, ...]:
     """The input plans ``run.results`` reads one output of a function node with.
 
     A host reads an output the way a node wired to it would, so the plans are the ones such a node's input
@@ -256,7 +256,7 @@ def _add_to_tree(graph: CheckedGraph, embedding: EmbeddedGraphAtPath | None, tre
     for placed in graph._nodes.values():
         inputs: dict[str, InputPlan] = {}
         for name, plan in placed.inputs.items():
-            if embedding is not None and isinstance(plan, InputFromCaller):  # the embedded graph's node is given it, as a caller would give it
+            if embedding is not None and isinstance(plan, InputFromGraphInput):  # the embedded graph's node is given it, as a caller would give it
                 inputs[name] = embedding.inputs[graph._input_fields[plan.address].name]
             else:
                 inputs[name] = _plan_at_path(plan, here, inside, functions)
@@ -272,36 +272,36 @@ def _add_to_tree(graph: CheckedGraph, embedding: EmbeddedGraphAtPath | None, tre
                 embedded.offers[address] = last.offers[output] if isinstance(last, EmbeddedGraphAtPath) else (last, output)
             here[placed.id] = node_at[embedded.name] = embedded
             continue
-        call_template: dict[str, Any] = {}
-        from_caller: list[tuple[str, str]] = []
-        fed: list[tuple[str, InputFedByEdges, bool]] = []
+        constant_arguments: dict[str, Any] = {}
+        parameters_from_graph_inputs: list[tuple[str, str]] = []
+        wired_inputs: list[tuple[str, InputFromEdges, bool]] = []
         made_from: dict[FunctionAtPath, int] = {}
-        gathering: dict[OutputAtScope, list[tuple[str, bool]]] = {}
+        gathering: dict[OutputInLoops, list[tuple[str, bool]]] = {}
         for name, plan in inputs.items():
-            call_template[name] = None
+            constant_arguments[name] = None
             match plan:
-                case InputHoldsValue(value=value):
-                    call_template[name] = value
+                case InputConstant(value=value):
+                    constant_arguments[name] = value
                     continue
-                case InputFromCaller(address=address):
-                    from_caller.append((name, address))
+                case InputFromGraphInput(address=address):
+                    parameters_from_graph_inputs.append((name, address))
                     continue
-                case InputNotFed():
+                case InputMissing():
                     raise RuntimeError(f"'{node_name(path)}' has an input with no value to give: a graph with problems is never walked")
             read_at = [(functions[at.node_id], min(at.depth, len(plan.scope))) for at in plan.reads]  # no deeper than the input sits
-            if isinstance(plan, InputGathersItems):
+            if isinstance(plan, InputCollectsLoopResults):
                 series = plan.series
                 items_of = (functions[series.node_id], series.output)  # what the functions it gathers through read outside the items can settle it too
-                read_at += [(read, places) for inner in plan.asked_for_any_item for read, places in inner.made_from.items() if items_of not in read.maps]
-                gathering.setdefault(series, []).append((name, plan.field.keeps_blanks))
+                read_at += [(read, places) for inner in plan.loop_body for read, places in inner.made_from.items() if items_of not in read.maps]
+                gathering.setdefault(series, []).append((name, plan.field.accepts_none_items))
                 whole = WholeOutput(series.node_id, series.output, series.scope, None, functions[series.node_id].placed.outputs[series.output].whole)
-                fed.append((name, InputReadsOneValue(plan.field, (whole,), series.scope), plan.field.whole.optional))  # it needs its Series, and then its items
-            fed.append((name, plan, plan.field.whole.optional))
+                wired_inputs.append((name, InputReadsOneValue(plan.field, (whole,), series.scope), plan.field.whole.optional))  # it needs its Series, and then its items
+            wired_inputs.append((name, plan, plan.field.whole.optional))
             for read, places in read_at:
                 made_from[read] = min(places, made_from.get(read, places))
         node = FunctionAtPath(
             placed=placed, embedding=embedding, path=path, name=node_name(path), maps=maps, policy=placed.definition.policy,
-            call_template=call_template, from_caller=tuple(from_caller), fed=tuple(fed), gathered_in_step=tuple(map(tuple, gathering.values())),
+            constant_arguments=constant_arguments, parameters_from_graph_inputs=tuple(parameters_from_graph_inputs), wired_inputs=tuple(wired_inputs), lists_from_same_loop=tuple(map(tuple, gathering.values())),
             checked=tuple(name for name, plan in inputs.items() if _read_before_a_call(plan)), made_from=made_from,
         )
         if maps and min(node.made_from.values(), default=0) < len(maps):  # what it reads may be there before its items are
@@ -357,7 +357,7 @@ def _plan_at_path(plan: InputPlan, here: Mapping[str, NodeAtPath], inside: NodeP
         functions: Every function placed so far, by its name.
     """
 
-    def at_path(source: Source, opened: bool) -> Source:
+    def at_path(source: EdgeSource, opened: bool) -> EdgeSource:
         made_by, output = _made_by(OutputAddress(source.node_id, source.output), here)
         brought = ItemOfSeries if made_by.placed.outputs[output].many else WholeOutput
         if opened and brought is ItemOfSeries:
@@ -368,16 +368,16 @@ def _plan_at_path(plan: InputPlan, here: Mapping[str, NodeAtPath], inside: NodeP
         case InputReadsOneValue(field=field, reads=reads):
             brings = tuple([at_path(source, True) for source in reads])
             return InputReadsOneValue(field, brings, max((source.read_in for source in brings), key=len))
-        case InputGathersOneValue(field=field, reads=reads):
-            return InputGathersOneValue(field, tuple([typing.cast(WholeOutput, at_path(source, False)) for source in reads]))
-        case InputGathersItems(field=field, series=series, sources=sources):
+        case InputWrapsOneValue(field=field, reads=reads):
+            return InputWrapsOneValue(field, tuple([typing.cast(WholeOutput, at_path(source, False)) for source in reads]))
+        case InputCollectsLoopResults(field=field, series=series, sources=sources):
             looped_over = _series_looped_over(OutputAddress(series.node_id, series.output), inside, functions)
             return _gather_at_path(field, looped_over, tuple([at_path(source, False) for source in sources]), functions)
         case _:
             return plan
 
 
-def _gather_at_path(field: Field, looped_over: tuple[FunctionAtPath, str], sources: tuple[Source, ...], functions: Mapping[str, FunctionAtPath]) -> InputGathersItems:
+def _gather_at_path(field: Field, looped_over: tuple[FunctionAtPath, str], sources: tuple[EdgeSource, ...], functions: Mapping[str, FunctionAtPath]) -> InputCollectsLoopResults:
     """The plan of an input that collects one value per item of the list ``looped_over``, where its node
     stands: the one way such a plan is made, for a node's own input and for what a host is shown.
 
@@ -388,9 +388,9 @@ def _gather_at_path(field: Field, looped_over: tuple[FunctionAtPath, str], sourc
         functions: The functions the plan's outputs name, by name.
     """
     made_by, output = looped_over
-    series = OutputAtScope(made_by.name, output, _scope_at_path(made_by.maps))
+    series = OutputInLoops(made_by.name, output, _scope_at_path(made_by.maps))
     through = _gathered_through(looped_over, [functions[at.node_id] for at in sources])
-    return InputGathersItems(field, (series, *sources), through)
+    return InputCollectsLoopResults(field, (series, *sources), through)
 
 
 def _gathered_through(series: tuple[FunctionAtPath, str], sources: list[FunctionAtPath]) -> tuple[FunctionAtPath, ...]:
@@ -420,7 +420,7 @@ def _read_before_a_call(plan: InputPlan) -> bool:
     match plan:
         case InputReadsOneValue(field=field, sources=sources):
             return not all(field.whole.holds(s.type) for s in sources)
-        case InputGathersItems(field=field, sources=sources) | InputGathersOneValue(field=field, sources=sources):
+        case InputCollectsLoopResults(field=field, sources=sources) | InputWrapsOneValue(field=field, sources=sources):
             return field.whole.record is not None or not all(field.type.holds(s.type) for s in sources)
         case _:
             return False

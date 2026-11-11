@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 from conductor._internal.ask import output_questions
 from conductor._internal.checked_graph.input_plans import (
-    InputFedByEdges,
+    InputFromEdges,
     InputPlan,
     OutputAddress,
     Scope,
@@ -45,7 +45,7 @@ class _Placed:
     @functools.cached_property
     def reads(self) -> frozenset[str]:
         """The nodes its inputs read."""
-        return frozenset(source.node_id for plan in self.inputs.values() if isinstance(plan, InputFedByEdges) for source in plan.sources)
+        return frozenset(source.node_id for plan in self.inputs.values() if isinstance(plan, InputFromEdges) for source in plan.sources)
 
     @functools.cached_property
     def plain_inputs(self) -> bool:

@@ -1,13 +1,13 @@
 """How each input of a node gets its value: the plan kinds, and the outputs a plan reads.
 
-An ``OutputAtScope`` is one output of one node, in the scope its node runs in: what one
+An ``OutputInLoops`` is one output of one node, in the scope its node runs in: what one
 unit of the node holds for it. An edge brings the output's value (``WholeOutput``), one
 item of a ``Series`` it holds (``ItemOfSeries``), or a ``Series`` it holds as the one
 list it is (``SeriesAsList``).
 
-A plan is one of six kinds. ``InputHoldsValue`` holds a value, ``InputFromCaller`` is the
-caller's, ``InputNotFed`` has none. The three that edges feed (``InputReadsOneValue``, ``InputGathersItems``,
-``InputGathersOneValue``) each hold ``reads``: every output the input is made from. It is
+A plan is one of six kinds. ``InputConstant`` holds a value, ``InputFromGraphInput`` is the
+caller's, ``InputMissing`` has none. The three that edges feed (``InputReadsOneValue``, ``InputCollectsLoopResults``,
+``InputWrapsOneValue``) each hold ``reads``: every output the input is made from. It is
 the one declaration of what the input reads. A run reads those outputs and no
 other (``value``), and the units a node waits for are the units of those
 outputs, so the two can't differ.
@@ -57,7 +57,7 @@ Scope = tuple[OutputAddress, ...]
 
 
 @dataclass(frozen=True, slots=True)
-class OutputAtScope:
+class OutputInLoops:
     """An output of a node, in the scope its node runs in: what one unit of the node holds for it.
 
     Attributes:
@@ -82,8 +82,8 @@ class OutputAtScope:
 
 
 @dataclass(frozen=True, slots=True)
-class _Brought(OutputAtScope):
-    """What an edge brings from an output. Never made on its own: it is one of the three kinds of ``Source``.
+class _EdgeSourceBase(OutputInLoops):
+    """What an edge brings from an output. Never made on its own: it is one of the three kinds of ``EdgeSource``.
 
     Attributes:
         record_field: The field an edge names after the output (``split.result.email``); ``None`` for all of it.
@@ -106,13 +106,13 @@ class _Brought(OutputAtScope):
 
 @final
 @dataclass(frozen=True, slots=True)
-class WholeOutput(_Brought):
+class WholeOutput(_EdgeSourceBase):
     """An output read as the one value it is, where its node runs or in a scope under it."""
 
 
 @final
 @dataclass(frozen=True, slots=True)
-class ItemOfSeries(_Brought):
+class ItemOfSeries(_EdgeSourceBase):
     """One item of a ``Series`` output, read inside the map that Series opens."""
 
     @property
@@ -123,7 +123,7 @@ class ItemOfSeries(_Brought):
 
 @final
 @dataclass(frozen=True, slots=True)
-class SeriesAsList(_Brought):
+class SeriesAsList(_EdgeSourceBase):
     """A ``Series`` output read as the one list it is.
 
     Only the plans ``run.results`` reads an output with hold one (``host_reads``). Example: ``lines`` is called
@@ -133,7 +133,7 @@ class SeriesAsList(_Brought):
 
 
 #: What an edge brings its input.
-Source = WholeOutput | ItemOfSeries | SeriesAsList
+EdgeSource = WholeOutput | ItemOfSeries | SeriesAsList
 
 
 # -- how an input gets its value ----------------------------------------------------------------
@@ -141,7 +141,7 @@ Source = WholeOutput | ItemOfSeries | SeriesAsList
 
 @final
 @dataclass(frozen=True, slots=True)
-class InputHoldsValue:
+class InputConstant:
     """An input that holds one value on every call: typed into the node, or its default.
 
     Attributes:
@@ -155,7 +155,7 @@ class InputHoldsValue:
 
 @final
 @dataclass(frozen=True, slots=True)
-class InputNotFed:
+class InputMissing:
     """An input with no value to give: its typed-in value was refused by its type, it must be fed and nothing
     feeds it, or its edges bring nothing it can take (an edge refused, or one from a node whose fields aren't
     known). The graph holds the problem, so it never runs; the node is still drawn, with this input to fill.
@@ -169,7 +169,7 @@ class InputNotFed:
 
 @final
 @dataclass(frozen=True, slots=True)
-class InputFromCaller:
+class InputFromGraphInput:
     """An input of a first node that nothing fills: the graph's input, which the caller gives.
 
     Attributes:
@@ -194,11 +194,11 @@ class InputReadsOneValue:
     """
 
     field: Field
-    reads: tuple[Source, ...]
+    reads: tuple[EdgeSource, ...]
     scope: Scope
 
     @property
-    def sources(self) -> tuple[Source, ...]:
+    def sources(self) -> tuple[EdgeSource, ...]:
         """What each edge brings."""
         return self.reads
 
@@ -210,29 +210,29 @@ class InputReadsOneValue:
 
 @final
 @dataclass(frozen=True, slots=True)
-class InputGathersItems:
+class InputCollectsLoopResults:
     """An input of many (a ``Series``, or a ``Table`` fed records) that receives the items of one map as a list.
 
     Attributes:
         field: The input, as its node declares it.
         reads: Every output the input is made from: the Series whose items are gathered, where it was made, then
             what each edge brings for an item. Several edges are alternatives, as for any input.
-        asked_for_any_item: Where the input's node stands, the functions made per item of the Series that what it
+        loop_body: Where the input's node stands, the functions made per item of the Series that what it
             gathers rests on, each after the ones it reads: what stands between the input and everything
             outside the items. A checked graph's own plan names none.
     """
 
     field: Field
-    reads: tuple[OutputAtScope, ...]
-    asked_for_any_item: tuple[FunctionAtPath, ...] = ()
+    reads: tuple[OutputInLoops, ...]
+    loop_body: tuple[FunctionAtPath, ...] = ()
 
     @property
-    def series(self) -> OutputAtScope:
+    def series(self) -> OutputInLoops:
         """The Series whose items are gathered, where it was made."""
         return self.reads[0]
 
     @property
-    def sources(self) -> tuple[Source, ...]:
+    def sources(self) -> tuple[EdgeSource, ...]:
         """What each edge brings for an item."""
         return self.reads[1:]  # type: ignore[return-value]  # every output after the Series is what an edge brings
 
@@ -249,7 +249,7 @@ class InputGathersItems:
 
 @final
 @dataclass(frozen=True, slots=True)
-class InputGathersOneValue:
+class InputWrapsOneValue:
     """An input of many fed by a source that makes one value for each call of the node: the source runs where
     the node runs, or outside the items the node runs per. Each call receives that one value as a list of one.
 
@@ -272,7 +272,7 @@ class InputGathersOneValue:
         items take a blank, a blank is its one item."""
         reads = self.reads
         value = reader.read_output(reads[0], item_path) if len(reads) == 1 else reader.read_alternatives(reads, item_path)
-        if value is SKIPPED or value is NOT_READY or (value is None and not self.field.keeps_blanks):
+        if value is SKIPPED or value is NOT_READY or (value is None and not self.field.accepts_none_items):
             return value
         return [value]
 
@@ -283,7 +283,7 @@ class InputGathersOneValue:
 
 
 #: An input that edges feed.
-InputFedByEdges = InputReadsOneValue | InputGathersItems | InputGathersOneValue
+InputFromEdges = InputReadsOneValue | InputCollectsLoopResults | InputWrapsOneValue
 
 #: How one input of a placed node gets its value.
-InputPlan = InputHoldsValue | InputNotFed | InputFromCaller | InputFedByEdges
+InputPlan = InputConstant | InputMissing | InputFromGraphInput | InputFromEdges
