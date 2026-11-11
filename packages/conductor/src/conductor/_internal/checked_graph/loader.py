@@ -54,7 +54,7 @@ from conductor._internal.checked_graph.type import (
     PlacedFunction,
     PlacedNode,
 )
-from conductor._internal.fields import Field, Series
+from conductor._internal.fields import Field
 from conductor._internal.graph_record import GraphRecord, NodeRecord
 from conductor._internal.node_definition import (
     FunctionDefinition,
@@ -66,6 +66,7 @@ from conductor._internal.node_definition import (
 )
 from conductor._internal.problem import NodeDeclarationError, NodeError, Problem
 from conductor._internal.sentinels import REQUIRED
+from conductor._internal.series import Series
 from conductor._internal.value_type import FieldValueError, Param, Type
 
 _logger = logging.getLogger("conductor")

@@ -1,4 +1,4 @@
-"""``Series``, ``Table``, and ``Field``: one input or output of a node."""
+"""``Table``, and ``Field``: one input or output of a node."""
 
 from __future__ import annotations
 
@@ -7,7 +7,6 @@ import datetime
 import decimal
 import functools
 import typing
-from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Generic, TypeVar, get_args, get_origin
@@ -21,6 +20,7 @@ from pydantic_core import CoreSchema, PydanticCustomError, PydanticSerialization
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.problem import NodeDeclarationError
 from conductor._internal.sentinels import REQUIRED, SKIPPED
+from conductor._internal.series import HeldSeries, read_as_list
 from conductor._internal.value_type import (
     FieldValueError,
     Param,
@@ -33,52 +33,6 @@ from conductor._internal.value_type import (
 from conductor.widgets import Widget
 
 _T = TypeVar("_T")
-
-
-
-
-#: Why a set is refused wherever a list is read or written: its order differs between processes.
-SET_HAS_NO_ORDER = "a set has no order, so its items would come in another order in another process; give a list"
-
-
-#: How a value of a class that is no list is made the list of items it holds, by that class.
-_AS_LIST: dict[type, Callable[[Any], list[Any]]] = {tuple: list, range: list}
-
-
-def read_as_list(cls: type, as_list: Callable[[Any], list[Any]]) -> None:
-    """Declares that a value of ``cls`` given for a ``Series`` is the list ``as_list`` makes of it."""
-    _AS_LIST[cls] = as_list
-
-
-class _Series(Generic[_T]):
-    """``Series[T]``: many values of ``T``, which a graph works through one at a time; a plain ``list[T]`` to the
-    node and to a type checker."""
-
-    # The class is named as a host imports it, so the text a reuse digest is made of names no internal file.
-    __module__, __qualname__ = "conductor", "Series"
-
-    @classmethod
-    def __get_pydantic_core_schema__(cls, source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
-        """Gives the schema of a list of items.
-
-        From Python any sequence but a set is taken, as is a value of a class declared with ``read_as_list``, and
-        an item that is ``SKIPPED`` is a gap kept where it is.
-        """
-        items = core_schema.list_schema(handler.generate_schema((get_args(source) or (Any,))[0]))
-
-        def read(value: Any, read_items: Callable[[Any], list[Any]]) -> list[Any]:
-            if isinstance(value, (set, frozenset)):
-                raise PydanticCustomError("set_has_no_order", SET_HAS_NO_ORDER)
-            for cls, as_list in _AS_LIST.items():
-                if isinstance(value, cls):
-                    value = as_list(value)
-                    break
-            if isinstance(value, list) and any(item is SKIPPED for item in value):
-                kept = iter(read_items([item for item in value if item is not SKIPPED]))
-                return [SKIPPED if item is SKIPPED else next(kept) for item in value]
-            return read_items(value)
-
-        return core_schema.json_or_python_schema(json_schema=items, python_schema=core_schema.no_info_wrap_validator_function(read, items))
 
 
 #: The classes a table's column may be declared or written as, each with the polars dtype that holds it and how
@@ -212,40 +166,6 @@ class _Table(Generic[_T]):
         )
 
 
-class HeldSeries(ABC):
-    """A way a run holds the items of a ``Series`` other than as the list a node returned, declared by subclassing::
-
-        class Records(HeldSeries, returned_as=Frame): ...
-
-    A node that returns a ``returned_as`` for a ``Series`` output has it held as the subclass, where the items'
-    type allows it.
-    """
-
-    __slots__ = ()
-
-    _by_class_returned: ClassVar[dict[type, type[HeldSeries]]] = {}
-
-    def __init_subclass__(cls, *, returned_as: type) -> None:
-        """Keeps the subclass as how a ``returned_as`` returned for a ``Series`` is held."""
-        super().__init_subclass__()
-        HeldSeries._by_class_returned[returned_as] = cls
-
-    @classmethod
-    @abstractmethod
-    def hint_of(cls, item: Type) -> Any | None:
-        """Gives the hint a saved run reads and writes a ``Series`` of ``item`` held this way by; ``None`` when a
-        ``Series`` of such items can't be held this way."""
-
-    @classmethod
-    @abstractmethod
-    def holding(cls, returned: Any, item: Type) -> HeldSeries:
-        """Holds what a node ``returned`` for a ``Series`` of ``item``, read strictly.
-
-        Raises:
-            FieldValueError: The items' type refuses what was returned.
-        """
-
-
 class Records(HeldSeries, Generic[_T], returned_as=pl.DataFrame):
     """A ``Series`` of records held by column: the table a node returned for it, read one record at a time.
 
@@ -302,46 +222,10 @@ class Records(HeldSeries, Generic[_T], returned_as=pl.DataFrame):
         )
 
 
-if TYPE_CHECKING:  # to a type checker a Series is the list a node gets, and a Table the frame, which keeps its row type
+if TYPE_CHECKING:  # to a type checker a Table is the frame a node gets, which keeps its row type
     from conductor._internal.table_as_a_type_checker_reads_it import Table
-
-    type Series[T] = list[T]
 else:
-    Series, Table = _Series, _Table
-
-
-class SeriesType(Type, of=_Series):
-    """The type of a ``Series[T]``, with or without ``| None``."""
-
-    @functools.cached_property
-    def item(self) -> Type:
-        """The type of one item."""
-        return Type((get_args(self.options[0]) or (Any,))[0])
-
-    @functools.cached_property
-    def _named(self) -> tuple[str, str, tuple[type, ...]]:
-        """The Series' id, which says its items' type unless that is ``Any``, its title, and the classes its
-        items name."""
-        return ("Series" if self.item.hint is Any else f"Series[{self.item.text}]"), "Series", self.item.classes
-
-    @functools.cached_property
-    def held_hint(self) -> Any:
-        """The hint of a Series as a unit holds it: a list whose item on a branch not taken is blank, or one of
-        the other ways a Series of its items may be held."""
-        other_ways = [hint for holder in HeldSeries._by_class_returned.values() if (hint := holder.hint_of(self.item)) is not None]
-        return union_of((list_of(union_of((self.item.hint, type(None)))), *other_ways))
-
-    def read_returned(self, value: Any) -> Any:
-        """Reads what a node returned for the Series, strictly: a list of its items, or, for a value of a class
-        held another way, what holds it.
-
-        Raises:
-            FieldValueError: The type refuses the value.
-        """
-        for returned_as, holder in HeldSeries._by_class_returned.items():
-            if isinstance(value, returned_as) and holder.hint_of(self.item) is not None:
-                return holder.holding(value, self.item)
-        return self.read(value, strict=True)
+    Table = _Table
 
 
 #: The words pydantic's ``loc`` names the form a table came in with, which are no place in the table.
