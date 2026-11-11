@@ -897,13 +897,15 @@ def _gathered(units: _UnitsOfAGraph, base: int, plan: Gather, key: Key) -> Any:
 
     Returns:
         The list, one place per item of the Series; ``PENDING`` until every item is settled; ``SKIPPED`` when
-        every edge is skipped where the node runs or above; ``None`` when the Series is blank.
+        every edge is skipped where the node runs or above; ``None`` when the Series is blank, or an edge whose
+        branch was taken is blank where the node runs or above.
     """
     key = key[: base + len(plan.series.scope)]
     live = []
+    blank = False
     for source, gate in zip(plan.sources, plan.gates, strict=True):
         taken = True
-        for cells in gate:
+        for cells in gate.skips:
             held = [_cell(units, base, cell, key) for cell in cells]
             if any(value is PENDING for value in held):  # asked by identity: a cell may hold a table, which has no plain ==
                 return PENDING
@@ -911,8 +913,16 @@ def _gathered(units: _UnitsOfAGraph, base: int, plan: Gather, key: Key) -> Any:
                 taken = False
         if taken:
             live.append(source)
+            for cell in gate.blanks:
+                value = _cell(units, base, cell, key)
+                if value is PENDING:
+                    return PENDING
+                if value is None:
+                    blank = True
     if not live:
         return SKIPPED
+    if blank:
+        return None
     series = _cell(units, base, plan.series, key)
     if series is None:
         return None

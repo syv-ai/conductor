@@ -184,9 +184,19 @@ class Item(_Brought):
 #: What an edge brings its input.
 Source = Value | Item
 
-#: What can skip one edge of a gather for every item at once: sets of cells where the gathering node runs or above
-#: it. The edge brings nothing when every cell of any one set is a branch not taken.
-Gate = tuple[frozenset[Cell], ...]
+class Gate(NamedTuple):
+    """What settles one edge of a gather for every item at once: cells where the gathering node runs or above
+    it. What is decided there is decided for the gathering node, as for any node that reads from there; only
+    what is decided per item leaves an item out.
+
+    Attributes:
+        skips: Sets of cells. The edge brings nothing when every cell of any one set is a branch not taken.
+        blanks: Cells. The edge brings a blank when any one of them is blank: each reaches the edge's node
+            only through inputs that take no blank, so no node on the way is called for any item.
+    """
+
+    skips: tuple[frozenset[Cell], ...]
+    blanks: frozenset[Cell]
 
 
 # -- how an input gets its value ----------------------------------------------------------------
@@ -254,7 +264,7 @@ class Gather:
     Attributes:
         spec: The input's field.
         sources: What each edge brings for an item. Several are alternatives, as for any input.
-        gates: For each of ``sources``, what skips it for every item at once.
+        gates: For each of ``sources``, what settles it for every item at once.
         series: The Series whose items are gathered, where it was made.
     """
 
@@ -1347,23 +1357,33 @@ class _Loader:
         """Where an edge into an input falls among several: its node's place in the record, then the output's in its node."""
         return self.position[source.node_id], list(self.nodes[source.node_id].outputs).index(source.output), source.address
 
-    def _gate(self, source: Cell, depth: int) -> Gate:
-        """What skips ``source`` for every item of a gather at once: the cells ``depth`` maps deep or shallower
+    def _gate(self, source: Source, depth: int) -> Gate:
+        """What settles ``source`` for every item of a gather at once: the cells ``depth`` maps deep or shallower
         that it rests on, found by following it up through the nodes inside the map.
 
-        A node is skipped when any one of its inputs is, and an input when every edge into it is. So each set is
-        one choice of an edge for some input on the way up, and a set that holds a smaller one adds nothing. The
-        sets multiply only where an input inside the map has several edges, each leading out of the map by its own
-        way; a chain of one edge per input gives one cell per way out.
+        A node is skipped when any one of its inputs is, and an input when every edge into it is. So each set of
+        ``skips`` is one choice of an edge for some input on the way up, and a set that holds a smaller one adds
+        nothing. The sets multiply only where an input inside the map has several edges, each leading out of the
+        map by its own way; a chain of one edge per input gives one cell per way out.
+
+        A node isn't called when an input that takes no blank gets one, and its outputs are then blank. So
+        ``blanks`` holds the cells on the way up that only such inputs read. What a node inside the map rests on
+        is left out behind an output of an exclusive group: where that node isn't called the output is a branch
+        not taken, which skips its reader item by item.
         """
         if len(source.scope) <= depth:
-            return (frozenset({Cell(source.node_id, source.output, source.scope, source.exclusive)}),)
+            cell = Cell(source.node_id, source.output, source.scope, source.exclusive)
+            return Gate((frozenset({cell}),), frozenset({cell}))
+        fed = [plan for plan in self.nodes[source.node_id].inputs.values() if isinstance(plan, Fed)]
         found = {
             frozenset[Cell]().union(*choice)
-            for plan in self.nodes[source.node_id].inputs.values() if isinstance(plan, Fed)
-            for choice in itertools.product(*(self._gate(s, depth) for s in plan.sources))
+            for plan in fed for choice in itertools.product(*(self._gate(s, depth).skips for s in plan.sources))
         }
-        return tuple(cells for cells in found if not any(fewer < cells for fewer in found))
+        blanks = frozenset[Cell]().union(*(
+            self._gate(s, depth).blanks for plan in fed if not plan.spec.whole.optional
+            for s in plan.sources if not s.exclusive or len(s.scope) <= depth
+        ))
+        return Gate(tuple(cells for cells in found if not any(fewer < cells for fewer in found)), blanks)
 
     # -- branches ---------------------------------------------------------------
 

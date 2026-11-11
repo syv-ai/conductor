@@ -70,6 +70,10 @@ def total(counts: Series[int]) -> int: ...
 def pair(a: str, b: str) -> str: ...
 
 
+@_node("pair-or-alone")
+def pair_or_alone(a: str, b: str | None) -> str: ...
+
+
 @_node("upper")
 def upper(text: str) -> str: ...
 
@@ -103,7 +107,7 @@ def anything(value: Any) -> Any: ...
 
 
 REGISTRY = NodeRegistry()
-for _definition in (contacts, rows, send, collect, names, ages, documents, lines, count, total, pair, upper, both, decide, measure, anything):
+for _definition in (contacts, rows, send, collect, names, ages, documents, lines, count, total, pair, pair_or_alone, upper, both, decide, measure, anything):
     REGISTRY.add(_definition)
 
 
@@ -266,13 +270,25 @@ def test_alternatives_that_run_per_item_of_different_series_are_refused():
 
 def gates(graph, node_id: str, name: str) -> list[list[set[str]]]:
     plan = graph._nodes[node_id].inputs[name]
-    return [sorted((sorted(cell.address for cell in cells) for cells in gate)) for gate in plan.gates]
+    return [sorted((sorted(cell.address for cell in cells) for cells in gate.skips)) for gate in plan.gates]
 
 
 def test_a_gather_is_gated_by_its_series_and_by_each_branch_decided_outside_the_map():
     edges = [("w.yes", "p.a"), ("d.result", "p.b"), ("p.result", "c.items")]
     graph = load({"w": "decide", "d": "documents", "p": "pair", "c": "count"}, edges)
     assert gates(graph, "c", "items") == [[["d.result"], ["w.yes"]]]
+
+
+def blanks(graph, node_id: str, name: str) -> list[list[str]]:
+    plan = graph._nodes[node_id].inputs[name]
+    return [sorted(cell.address for cell in gate.blanks) for gate in plan.gates]
+
+
+def test_a_gather_is_left_uncalled_by_a_blank_outside_the_map_that_reaches_it_through_inputs_taking_none():
+    edges = [("w.yes", "p.a"), ("d.result", "p.b"), ("p.result", "c.items")]
+    assert blanks(load({"w": "decide", "d": "documents", "p": "pair", "c": "count"}, edges), "c", "items") == [["d.result", "w.yes"]]
+    graph = load({"m": "upper", "d": "documents", "p": "pair-or-alone", "c": "count"}, [("d.result", "p.a"), ("m.result", "p.b"), ("p.result", "c.items")])
+    assert graph.is_runnable and blanks(graph, "c", "items") == [["d.result"]]  # p takes m.result's blank, so it is called for every item
 
 
 def test_a_decision_made_per_item_gates_nothing():

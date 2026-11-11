@@ -366,6 +366,60 @@ def test_a_gather_below_items_that_read_a_table_made_once_is_called_as_below_any
     assert run.status == "complete" and run.results["j"]["result"] == "a3+b3"
 
 
+@node("maybe-template", title="Maybe template", description="``blank`` gives a blank, ``skip`` a branch not taken.")
+def maybe_template(kind: str) -> str | None:
+    return SKIPPED if kind == "skip" else None if kind == "blank" else kind
+
+
+@node("count-texts", title="Count texts", description="")
+def count_texts(values: Series[str]) -> int:
+    return len(values)
+
+
+@node("count-or-none", title="Count or none", description="")
+def count_or_none(values: Series[str] | None) -> str:
+    return "none" if values is None else str(len(values))
+
+
+@node("pair-or-alone", title="Pair or alone", description="")
+def pair_or_alone(a: str, b: str | None) -> str:
+    return f"{a}+{b}"
+
+
+def _below_an_outer_value(kind: str, reader: str = "pair", counter: str = "count-texts") -> Any:
+    """Items each paired with one value made outside them (``kind`` says what it is), and a count of the pairs."""
+    return ran({"id": "s", "node": "split"}, {"id": "t", "node": "maybe-template"}, {"id": "p", "node": reader}, {"id": "n", "node": counter},
+               edges=(("s.result", "p.a"), ("t.result", "p.b"), ("p.result", "n.values")),
+               registry=registry_of(split, maybe_template, pair, pair_or_alone, count_texts, count_or_none), **{"s.text": "a,b", "t.kind": kind})
+
+
+def test_a_blank_made_outside_the_items_leaves_a_gather_below_them_uncalled_as_a_skip_there_skips_it():
+    """Nothing was tried for any item, so "0" would be a wrong answer: the blank was decided outside the items."""
+    blank = _below_an_outer_value("blank")
+    assert blank.status == "complete" and blank.results["n"]["result"] is None
+    assert blank.not_called == [NotCalled(loc=("p", 0), input="b"), NotCalled(loc=("p", 1), input="b"), NotCalled(loc=("n",), input="values")]
+    assert through_json(blank).again().not_called == blank.not_called
+    skipped = _below_an_outer_value("skip")
+    assert skipped.results["n"]["result"] is None and skipped.not_called == []
+    assert _below_an_outer_value("x").results["n"]["result"] == 2
+
+
+def test_a_gather_that_may_be_nothing_gets_the_blank_made_outside_the_items():
+    assert _below_an_outer_value("blank", counter="count-or-none").results["n"]["result"] == "none"
+
+
+def test_an_outer_blank_an_input_takes_is_no_blank_for_the_gather_below():
+    """The node between is called with the blank for every item, so there are items to gather."""
+    run = _below_an_outer_value("blank", reader="pair-or-alone")
+    assert run.results["n"]["result"] == 2 and run.not_called == []
+
+
+def test_a_blank_decided_per_item_is_still_left_out_and_every_item_blank_calls_the_gather_with_an_empty_series():
+    run = ran(*CONTACTS, {"id": "u", "node": "upper"}, {"id": "n", "node": "count-texts"},
+              edges=(SPLIT_CONTACTS, ("r.result.email", "u.text"), ("u.result", "n.values")), registry=registry_of(contacts, records, upper, count_texts), text="Bo,;Cy,")
+    assert run.results["n"]["result"] == 0 and [n.loc for n in run.not_called] == [("u", 0), ("u", 1)]
+
+
 def test_a_series_not_made_for_a_blank_item_is_not_an_empty_one_so_a_count_of_it_is_not_called_either():
     run = ran(*CONTACTS, {"id": "s", "node": "split"}, {"id": "n", "node": "count"},
               edges=(SPLIT_CONTACTS, ("r.result.email", "s.text"), ("s.result", "n.values")), text=CSV)
