@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, Literal
 import pydantic_core
 
 from conductor._internal.canonical_json import canonical_json
-from conductor._internal.outcomes import NOT_ITS_TURN, NotReady, Units
+from conductor._internal.outcomes import NOT_ITS_TURN, NotReady
 from conductor._internal.value_type import untyped_to_hash
 
 if TYPE_CHECKING:
@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 from dataclasses import dataclass, field
 
 from conductor._internal.address import ItemPath
-from conductor._internal.outcomes import Answered, Asking, Done
+from conductor._internal.outcomes import Answered, Asking, Done, Outcome
 
 
 @dataclass(slots=True)
@@ -43,7 +43,7 @@ class EarlierWork:
 
 
 def taken(
-    earlier: EarlierWork, node: FunctionAtPath, key: ItemPath, kwargs: dict[str, Any], units: Units, in_turn: Callable[[], bool],
+    earlier: EarlierWork, node: FunctionAtPath, key: ItemPath, kwargs: dict[str, Any], units: dict[str, dict[ItemPath, Outcome]], in_turn: Callable[[], bool],
 ) -> Done | Answered | Asking | Literal[NotReady.NOT_ITS_TURN] | None:
     """The unit of ``earlier`` that ``node`` takes in ``key`` in place of a call on ``kwargs``; ``None`` when
     there is none.
@@ -78,7 +78,7 @@ def taken(
     return earlier.computed.get(fingerprint)
 
 
-def lineage(units: Units, node: FunctionAtPath, key: ItemPath) -> str:
+def lineage(units: dict[str, dict[ItemPath, Outcome]], node: FunctionAtPath, key: ItemPath) -> str:
     """A fingerprint of the item of each map above the innermost that the instance ``key`` of ``node`` sits
     in, those of the embedded graphs' nodes around it included. A unit's innermost item is in what it
     received."""

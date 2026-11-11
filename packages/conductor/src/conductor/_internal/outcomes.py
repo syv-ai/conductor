@@ -122,12 +122,8 @@ class Asking:
     question: Question
 
 
-#: A unit whose outputs are known: its node was called, a person answered, or it wasn't called and what its
-#: outputs read as follows from why.
-Settled = Done | Answered | Skipped | NotCalled
-
 #: What one node came to in one instance of its scope. A run and its copies share their units, so none is changed.
-Outcome = Settled | Asking
+Outcome = Done | Answered | Skipped | NotCalled | Asking
 
 def outputs_when_skipped(outputs: Mapping[str, Field]) -> dict[str, Any]:
     """What a ``Skipped`` unit of a node with these outputs holds: ``SKIPPED`` for each."""
@@ -140,11 +136,7 @@ def outputs_when_not_called(outputs: Mapping[str, Field]) -> dict[str, Any]:
     return {name: SKIPPED if output.param.exclusive_group is not None else None for name, output in outputs.items()}
 
 
-#: Each function's units by item path, by the function's name (``e/ask``).
-Units = dict[str, dict[ItemPath, Outcome]]
-
-
-def item_paths(units: Units, maps: Maps, under: ItemPath, *, counted: bool = False) -> tuple[list[ItemPath], bool]:
+def item_paths(units: dict[str, dict[ItemPath, Outcome]], maps: Maps, under: ItemPath, *, counted: bool = False) -> tuple[list[ItemPath], bool]:
     """The item paths of a node that runs in ``maps`` under the item path ``under`` of a node that runs in the
     first of them, and whether all of them exist yet: a Series not made yet, or one a person is asked for, has
     none so far.
@@ -173,7 +165,7 @@ def item_paths(units: Units, maps: Maps, under: ItemPath, *, counted: bool = Fal
     return paths, complete
 
 
-def has_every_outcome(units: Units, node: FunctionAtPath) -> bool:
+def has_every_outcome(units: dict[str, dict[ItemPath, Outcome]], node: FunctionAtPath) -> bool:
     """Whether every instance of ``node`` holds a unit, one waiting for a person included, and every Series
     it runs per item of is made, so no instance is still to come."""
     held = units[node.name]

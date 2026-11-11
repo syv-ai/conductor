@@ -77,7 +77,6 @@ from conductor._internal.outcomes import (
     NotReady,
     Outcome,
     Skipped,
-    Units,
     has_every_outcome,
     item_paths,
     length,
@@ -130,7 +129,7 @@ class Leg:
     """
 
     def __init__(
-        self, *, nodes: list[FunctionAtPath], threads: int, units: Units, earlier_work: dict[NodePath, EarlierWork], finished: frozenset[NodePath],
+        self, *, nodes: list[FunctionAtPath], threads: int, units: dict[str, dict[ItemPath, Outcome]], earlier_work: dict[NodePath, EarlierWork], finished: frozenset[NodePath],
         max_items: int | None, comes_to: Callable[[FunctionAtPath, ItemPath], dict[str, Any] | Skipped | NotCalled | Literal[NotReady.NOT_READY]],
         emit: Callable[[EventBase], None] | None, stop: Callable[[], RunState | None] | None, from_run: dict[type, Any],
         checkpoint: Callable[[RunState], None] | None = None, checkpoint_every: float | None = None,

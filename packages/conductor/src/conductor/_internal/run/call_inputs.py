@@ -52,8 +52,8 @@ from conductor._internal.outcomes import (
     ItemPath,
     NotCalled,
     NotReady,
+    Outcome,
     Skipped,
-    Units,
 )
 from conductor._internal.problem import UnitFailedError
 from conductor._internal.problem import catalogue as problem
@@ -172,7 +172,7 @@ class ItemReader(Reader):
 
     __slots__ = ("units",)
 
-    def __init__(self, units: Units, caller_inputs: Mapping[str, Any]) -> None:
+    def __init__(self, units: dict[str, dict[ItemPath, Outcome]], caller_inputs: Mapping[str, Any]) -> None:
         self.units, self.caller_inputs = units, caller_inputs
 
     def output(self, at: OutputAtScope, item_path: ItemPath) -> Any:

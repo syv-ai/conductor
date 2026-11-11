@@ -64,7 +64,6 @@ from conductor._internal.outcomes import (
     Asking,
     Outcome,
     Skipped,
-    Units,
     has_every_outcome,
     item_paths,
 )
@@ -133,7 +132,7 @@ class Run:
     #: Each function's units by instance, in instance order, by the function's name: ``_outcomes["w"]`` for a node of
     #: the graph itself, ``_outcomes["e/ask"]`` for one inside ``e``. Only a leg records out of that order, and it puts
     #: the units back in it before it hands the run on.
-    _outcomes: Units
+    _outcomes: dict[str, dict[ItemPath, Outcome]]
     #: What each node may take from the run this one went on from.
     _earlier_work: dict[NodePath, EarlierWork]
     state: RunState = READY
@@ -565,7 +564,7 @@ RunEnd.model_rebuild(_types_namespace={"Run": Run})
 RunCheckpoint.model_rebuild(_types_namespace={"Run": Run})
 
 
-def no_outcomes(graph: Graph) -> Units:
+def no_outcomes(graph: Graph) -> dict[str, dict[ItemPath, Outcome]]:
     """The units of a run of ``graph`` that hasn't started: none, for every function of the graph and of each
     graph embedded in it."""
     return {node.name: {} for node in graph._tree}
