@@ -190,6 +190,13 @@ def test_collect_takes_the_records_as_a_table_and_keeps_its_columns_as_they_are(
     assert made.schema == {"n": pl.Int32, "name": pl.String, "loud": pl.String} and made["loud"].to_list() == ["A", "B"]
 
 
+def test_collect_given_a_whole_table_types_its_result_by_that_tables_columns():
+    graph = load(contacts, sentence, tables.collect, edges=[("contacts.result", "table-collect.records"), ("sentence.result", "table-collect.team")], values={"table-collect.constant_columns": ["team"]})
+
+    assert graph.problems == [] and list(columns_of(output(graph, "table-collect"))) == ["name", "email", "team"]
+    assert graph.run().results["table-collect"]["result"]["team"].to_list() == ["one two"] * 3
+
+
 def test_collect_refuses_a_new_column_the_records_already_have_naming_it():
     graph = load(contacts, tables.split, tables.collect, edges=[
         ("contacts.result", "split.value"), ("split.result", "table-collect.records"), ("split.result.name", "table-collect.email"),

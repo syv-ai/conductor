@@ -56,7 +56,10 @@ def _column_inputs(columns: list[str], constant_columns: list[str]) -> dict[str,
 
 def _table(records: type, columns: list[str], **added: type) -> dict[str, Any]:
     """The table collected: the records' columns, then each new one, typed by what arrives on its input. Records of
-    unknown columns make a table of any columns."""
+    unknown columns make a table of any columns. ``records`` is the type wired to the input: the record type of a
+    ``Series``, or a whole ``Table[R]``, whose records are ``R``."""
+    if typing.get_origin(records) is Table:
+        records = typing.get_args(records)[0]
     if not typing.is_typeddict(records):
         return {"result": Table}
     known = typing.get_type_hints(records)
