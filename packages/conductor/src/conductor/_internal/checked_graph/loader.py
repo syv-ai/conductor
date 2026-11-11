@@ -182,13 +182,13 @@ class _Loader:
                     self._place_graph(known[node_id], graph, into[node_id])
                 case None:
                     pass
-        names = [spec.name for _, spec in self.opened]
+        names = [field.name for _, field in self.opened]
         inputs: dict[str, GraphInput] = {}
         input_fields: dict[str, InputField] = {}
-        for graph_input, spec in self.opened:
-            name = spec.name if names.count(spec.name) == 1 else graph_input.address
+        for graph_input, field in self.opened:
+            name = field.name if names.count(field.name) == 1 else graph_input.address
             inputs[name] = graph_input
-            input_fields[graph_input.address] = InputField(name, graph_input.address, spec)
+            input_fields[graph_input.address] = InputField(name, graph_input.address, field)
         readers: dict[str, list[PlacedNode]] = {node_id: [] for node_id in self.nodes}
         needs_from_run: list[tuple[str, FunctionDefinition[..., Any]]] = []
         for placed in self.nodes.values():
@@ -269,7 +269,7 @@ class _Loader:
             typed.update(self._typed(record, added))
         planned = self._planned(record, fields, typed, read_by_hooks(definition), edges, generic=definition.generic)
         bound = planned.bound
-        outputs: dict[str, Field] | None = dict(definition.outputs) if bound is None else {name: spec.bind(bound) for name, spec in definition.outputs.items()}
+        outputs: dict[str, Field] | None = dict(definition.outputs) if bound is None else {name: field.bind(bound) for name, field in definition.outputs.items()}
         if definition.compute_outputs is not None:
             arriving = {name: plan.sources[0].type.bare for name, plan in planned.inputs.items() if isinstance(plan, InputFedByEdges)}
             outputs = self._hook(record, definition, "compute_outputs", definition.compute_outputs, typed, arriving, tuple(added))
@@ -307,11 +307,11 @@ class _Loader:
         for address in inner.outputs:
             node_id, _, output = address.partition(".")
             at = inner._nodes[node_id]
-            spec = at.outputs[output]
-            group = spec.param.exclusive_group
+            field = at.outputs[output]
+            group = field.param.exclusive_group
             if group:  # a decision inside is this node's, named by where it is made
-                spec = Field(spec.name, Annotated[spec.hint, Param(exclusive_group=f"{node_id}.{group}")], spec.default)
-            outputs[address] = _of_every_item(address, spec) if at.scope else Field(address, spec.hint, spec.default)
+                field = Field(field.name, Annotated[field.hint, Param(exclusive_group=f"{node_id}.{group}")], field.default)
+            outputs[address] = _of_every_item(address, field) if at.scope else Field(address, field.hint, field.default)
         planned = self._planned(record, fields, self._typed(record, fields), frozenset(), edges)
         self._keep(PlacedEmbeddedGraph(
             id=record.id, scope=planned.scope, inputs=planned.inputs, outputs=outputs, definition=definition, inner=inner,
@@ -345,36 +345,36 @@ class _Loader:
         bound = None
         if generic:
             bound = _bound(fields, sources)
-            fields = {name: spec.bind(bound) for name, spec in fields.items()}  # a placed node's fields hold no type variable
+            fields = {name: field.bind(bound) for name, field in fields.items()}  # a placed node's fields hold no type variable
         first = not any(name in fields for name in edges)  # a first node: nothing is wired into it, so the caller fills it
         inputs: dict[str, InputPlan] = {}
-        for name, spec in fields.items():
+        for name, field in fields.items():
             if name in record.values and name in record.defaults:
                 self.problems.append(problem.value_and_default(record.id, name))
             if name in edges:
                 if name in record.values or name in record.defaults:
                     self.problems.append(problem.value_and_edge(record.id, name))
                 brought = sources[name]
-                inputs[name] = InputNotFed(spec) if brought is None else self._fed(record.id, spec, brought)
+                inputs[name] = InputNotFed(field) if brought is None else self._fed(record.id, field, brought)
             elif name in record.values:
-                inputs[name] = _fixed(spec, typed[name])
+                inputs[name] = _fixed(field, typed[name])
             elif first and name not in fixed_at_load:
-                default = typed.get(name, spec.default)
+                default = typed.get(name, field.default)
                 if default is _REFUSED:
-                    inputs[name] = InputNotFed(spec)
+                    inputs[name] = InputNotFed(field)
                     continue
                 address = f"{record.id}.{name}"
-                opened = spec if default is spec.default else Field(name, spec.hint, default)  # the record's default is the caller's
+                opened = field if default is field.default else Field(name, field.hint, default)  # the record's default is the caller's
                 self.opened.append((GraphInput(address=address, node_id=record.id, field=opened.description), opened))
-                inputs[name] = InputFromCaller(spec, address)
+                inputs[name] = InputFromCaller(field, address)
             elif name in record.defaults:
                 self.problems.append(problem.default_on_later_node(record.id, name))
-                inputs[name] = _fixed(spec, typed[name])
-            elif spec.default is REQUIRED and name not in fixed_at_load:  # a hook that reads it says so itself, as hook_needs_value
+                inputs[name] = _fixed(field, typed[name])
+            elif field.default is REQUIRED and name not in fixed_at_load:  # a hook that reads it says so itself, as hook_needs_value
                 self.problems.append(problem.unbound_on_later_node(record.id, name))
-                inputs[name] = InputNotFed(spec)
+                inputs[name] = InputNotFed(field)
             else:
-                inputs[name] = InputHoldsValue(spec, spec.default)
+                inputs[name] = InputHoldsValue(field, field.default)
         for name in self._never_meet(record.id, inputs):
             inputs[name] = InputNotFed(fields[name])
         scopes = [plan.scope for plan in inputs.values() if isinstance(plan, InputFedByEdges)]
@@ -399,11 +399,11 @@ class _Loader:
         """Each value typed into the record for one of ``fields``, and else each default, as the field reads it;
         ``_REFUSED``, with the problem, where it can't."""
         typed: dict[str, Any] = {}
-        for name, spec in fields.items():
+        for name, field in fields.items():
             if name not in record.values and name not in record.defaults:
                 continue
             try:
-                typed[name] = spec.whole.read(record.values[name] if name in record.values else record.defaults[name])
+                typed[name] = field.whole.read(record.values[name] if name in record.values else record.defaults[name])
             except FieldValueError as refused:
                 self.problems.append(problem.invalid_value(record.id, name, reason=refused.reason, errors=refused.errors, column=refused.column))
                 typed[name] = _REFUSED
@@ -488,7 +488,7 @@ class _Loader:
             sources.sort(key=self._edge_order)
         return sources
 
-    def _fed(self, node_id: str, spec: Field, sources: list[Source]) -> InputFedByEdges | InputNotFed:
+    def _fed(self, node_id: str, field: Field, sources: list[Source]) -> InputFedByEdges | InputNotFed:
         """How edges bringing ``sources`` feed one input: one value on each call, or every value its source made.
 
         An input of one value reads, whatever its type: a ``Series`` reaches it one item at a time. A ``Series``
@@ -498,19 +498,19 @@ class _Loader:
         Returns:
             The input's plan; ``InputNotFed``, with the problem, when an edge brings a type the input doesn't take.
         """
-        gathers, wanted = _taken(spec, sources)
+        gathers, wanted = _taken(field, sources)
         for source in sources:
             if wanted is not source.type and wanted.fits(source.type) is None:  # the same type, which most edges join, fits
-                self.problems.append(_mismatch(node_id, spec, source))
-                return InputNotFed(spec)
+                self.problems.append(_mismatch(node_id, field, source))
+                return InputNotFed(field)
         deepest = max((s.read_in for s in sources), key=len)
         if not gathers:
-            return InputReadsOneValue(spec, tuple(sources), deepest)
+            return InputReadsOneValue(field, tuple(sources), deepest)
         if not deepest:
-            return InputGathersOneValue(spec, tuple(s for s in sources if isinstance(s, WholeOutput)))
+            return InputGathersOneValue(field, tuple(s for s in sources if isinstance(s, WholeOutput)))
         made_by, output = deepest[-1]
         series = OutputAtScope(made_by, output, deepest[:-1])
-        return InputGathersItems(spec, (series, *sources))
+        return InputGathersItems(field, (series, *sources))
 
     def _source(self, address: str, node_id: str, name: str) -> Source | None:
         """What an edge from ``address`` brings: ``node.output``, or ``node.output.field`` for one field of a record.
@@ -530,22 +530,22 @@ class _Loader:
         if output not in source.outputs:  # an embedded graph's output: the longest part of the address that names one
             output = next((declared for declared in source.outputs if rest == declared or rest.startswith(f"{declared}.")), "")
             wanted = rest[len(output) + 1 :]
-        spec = source.outputs.get(output)
-        if spec is None:
+        field = source.outputs.get(output)
+        if field is None:
             self.problems.append(problem.unknown_output(node_id, name, source=address, outputs=[f"{source_id}.{o}" for o in source.outputs]))
             return None
-        if wanted and (split := _split_gives(spec.type)):  # a table or a list is one value: only an item of a Series has a field to wire
+        if wanted and (split := _split_gives(field.type)):  # a table or a list is one value: only an item of a Series has a field to wire
             self.problems.append(problem.unknown_output_split_first(
                 node_id, name, source=address, outputs=[f"{source_id}.{o}" for o in source.outputs], record_field=wanted,
                 whole=split[0], fields=split[1],
             ))
             return None
-        brings = _field_type(spec.type, wanted) if wanted else spec.type
+        brings = _field_type(field.type, wanted) if wanted else field.type
         if brings is None:
-            fields = [f"{source_id}.{output}.{f}" for f in spec.type.fields]
+            fields = [f"{source_id}.{output}.{f}" for f in field.type.fields]
             self.problems.append(problem.unknown_output(node_id, name, source=address, outputs=fields, record_field=wanted or None))
             return None
-        brought = ItemOfSeries if spec.many else WholeOutput
+        brought = ItemOfSeries if field.many else WholeOutput
         return brought(source_id, output, source.scope, wanted or None, brings)
 
     def _edge_order(self, source: Source) -> tuple[int, int, str]:
@@ -609,19 +609,19 @@ class _Loader:
         return frozenset(rests_on)
 
 
-def _taken(spec: Field, sources: list[Source]) -> tuple[bool, Type]:
-    """Whether the input ``spec`` gathers what ``sources`` bring, and the type each must fit: the input's whole
+def _taken(field: Field, sources: list[Source]) -> tuple[bool, Type]:
+    """Whether the input ``field`` gathers what ``sources`` bring, and the type each must fit: the input's whole
     type when it reads, one item of a ``Series`` or one record of a table when it gathers.
 
     A table input reads when every edge brings a table, as one value or as each item of a ``Series`` of tables.
     A value declared ``Any`` says nothing of itself: it is read as a table only where there is nothing to gather,
     made once in the graph, and is taken as a record wherever it is made per item.
     """
-    record = spec.whole.record
-    gathers = spec.many or (record is not None and not all(
-        spec.whole.fits(s.type) is not None and (s.type.bare is not Any or not s.read_in) for s in sources
+    record = field.whole.record
+    gathers = field.many or (record is not None and not all(
+        field.whole.fits(s.type) is not None and (s.type.bare is not Any or not s.read_in) for s in sources
     ))
-    return gathers, spec.whole if not gathers else spec.type if record is None else record
+    return gathers, field.whole if not gathers else field.type if record is None else record
 
 
 def _bound(fields: Mapping[str, Field], sources: Mapping[str, list[Source] | None]) -> dict[TypeVar, Any]:
@@ -631,11 +631,11 @@ def _bound(fields: Mapping[str, Field], sources: Mapping[str, list[Source] | Non
     reads as its bound, else ``Any``.
     """
     bound: dict[TypeVar, Any] = {}
-    for name, spec in fields.items():
+    for name, field in fields.items():
         brought = sources.get(name)
-        if not spec.whole.variables or not brought:
+        if not field.whole.variables or not brought:
             continue
-        wanted = _taken(spec, brought)[1]
+        wanted = _taken(field, brought)[1]
         for source in brought:
             for variable, hint in (wanted.fits(source.type) or {}).items():
                 bound[variable] = bound[variable] | hint if variable in bound else hint
@@ -657,36 +657,36 @@ def _split_gives(whole: Type) -> tuple[Literal["table", "list"], list[str]] | No
     return None
 
 
-def _mismatch(node_id: str, spec: Field, source: Source) -> Problem:
-    """The ``type_mismatch`` of an edge from ``source`` into the input ``spec``.
+def _mismatch(node_id: str, field: Field, source: Source) -> Problem:
+    """The ``type_mismatch`` of an edge from ``source`` into the input ``field``.
 
     It says the fix where one mistake explains it: a whole table or list wired to an input of one value wants a
     Split first, and a table input fed records without a column it names wants that column.
     """
-    address, expected = source.address, spec.whole.id
+    address, expected = source.address, field.whole.id
     got = f"Series[{source.type.text}]" if isinstance(source, ItemOfSeries) else source.type.text
     split = _split_gives(source.type)
-    if spec.whole.record is not None:
+    if field.whole.record is not None:
         has = (source.type.record or source.type).fields
-        missing = [column for column in spec.whole.fields if column not in has]
+        missing = [column for column in field.whole.fields if column not in has]
         if has and missing:
-            column_type = Type(spec.whole.fields[missing[0]]).id
-            return problem.type_mismatch_add_column(node_id, spec.name, source=address, got=got, expected=expected, column=missing[0], column_type=column_type, has=list(has))
-    elif split and not spec.many:
-        return problem.type_mismatch_split_first(node_id, spec.name, source=address, got=got, expected=expected, whole=split[0], fields=split[1])
-    return problem.type_mismatch(node_id, spec.name, source=address, got=got, expected=expected)
+            column_type = Type(field.whole.fields[missing[0]]).id
+            return problem.type_mismatch_add_column(node_id, field.name, source=address, got=got, expected=expected, column=missing[0], column_type=column_type, has=list(has))
+    elif split and not field.many:
+        return problem.type_mismatch_split_first(node_id, field.name, source=address, got=got, expected=expected, whole=split[0], fields=split[1])
+    return problem.type_mismatch(node_id, field.name, source=address, got=got, expected=expected)
 
 
-def _fixed(spec: Field, typed: Any) -> InputHoldsValue | InputNotFed:
+def _fixed(field: Field, typed: Any) -> InputHoldsValue | InputNotFed:
     """The plan of an input holding a typed-in value, as its field read it."""
-    return InputNotFed(spec) if typed is _REFUSED else InputHoldsValue(spec, typed)
+    return InputNotFed(field) if typed is _REFUSED else InputHoldsValue(field, typed)
 
 
-def _of_every_item(name: str, spec: Field) -> Field:
+def _of_every_item(name: str, field: Field) -> Field:
     """The field ``name`` of an output made once per item, as the ``Series`` of every item's value: of each list, for
     an output that is itself a ``Series``."""
     series: Any = Series
-    return Field(name, series[types.GenericAlias(list, (spec.type.hint,)) if spec.many else spec.hint])
+    return Field(name, series[types.GenericAlias(list, (field.type.hint,)) if field.many else field.hint])
 
 
 def _field_type(record: Type, name: str) -> Type | None:

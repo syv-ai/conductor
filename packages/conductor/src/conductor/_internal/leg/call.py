@@ -60,9 +60,9 @@ def checked_outputs(returns: Returns, outputs: Mapping[str, Field], returned: An
     if settled:
         return spread
     groups: dict[str, str] = {}
-    for name, spec in outputs.items():
-        spread[name] = _checked(spec, name, spread[name], returned=True)
-        group = spec.param.exclusive_group
+    for name, field in outputs.items():
+        spread[name] = _checked(field, name, spread[name], returned=True)
+        group = field.param.exclusive_group
         if group is not None and spread[name] is not SKIPPED:
             if group in groups:
                 raise UnitFailedError(problem.invalid_output(reason=f"'{groups[group]}' and '{name}' are alternatives of '{group}', and both hold a value", name=name))
@@ -70,7 +70,7 @@ def checked_outputs(returns: Returns, outputs: Mapping[str, Field], returned: An
     return spread
 
 
-def _checked(spec: Field, name: str, value: Any, *, returned: bool) -> Any:
+def _checked(field: Field, name: str, value: Any, *, returned: bool) -> Any:
     """``value`` as the field ``name`` reads it: an output a node returned, or what an edge brought to an input.
 
     Raises:
@@ -79,14 +79,14 @@ def _checked(spec: Field, name: str, value: Any, *, returned: bool) -> Any:
     if value is SKIPPED:
         return value
     try:
-        read = spec.whole.read_returned(value) if returned else spec.whole.read(value)
+        read = field.whole.read_returned(value) if returned else field.whole.read(value)
     except FieldValueError as refused:
         if returned:
             raise UnitFailedError(problem.invalid_output(reason=refused.reason, name=name, errors=refused.errors, column=refused.column)) from None
         raise UnitFailedError(problem.invalid_edge_value(name=name, reason=refused.reason, errors=refused.errors, column=refused.column)) from None
-    exact = spec.whole.exact_classes
+    exact = field.whole.exact_classes
     if returned and exact and not isinstance(read, exact):
-        raise UnitFailedError(problem.invalid_output(reason=f"its type's own check gave a {type(read).__name__}, not a {spec.whole.id}", name=name))
+        raise UnitFailedError(problem.invalid_output(reason=f"its type's own check gave a {type(read).__name__}, not a {field.whole.id}", name=name))
     return read
 
 

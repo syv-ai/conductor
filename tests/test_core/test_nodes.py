@@ -238,8 +238,8 @@ def test_a_series_of_tables_is_accepted_as_many_tables():
     def f(x: Series[Table[Invoice]]) -> int:
         return 1
 
-    spec = declared(f).inputs["x"]
-    assert spec.many is True and spec.type.id == "Table[name: str, amount: int]"
+    field = declared(f).inputs["x"]
+    assert field.many is True and field.type.id == "Table[name: str, amount: int]"
 
 
 def test_a_definition_is_frozen():
@@ -1003,10 +1003,10 @@ def test_params_stacked_on_an_alias_merge_as_pydantics_fields_do_the_later_one_w
     def f(separator: Annotated[line, Param(min_length=1, title="Separator")] = ",") -> int:
         return 1
 
-    spec = declared(f).inputs["separator"]
-    assert (spec.description.title, spec.param.widget, spec.param.limits) == ("Separator", TextInput(), {"min_length": 1})
+    field = declared(f).inputs["separator"]
+    assert (field.description.title, field.param.widget, field.param.limits) == ("Separator", TextInput(), {"min_length": 1})
     with pytest.raises(FieldValueError):
-        spec.whole.read("")
+        field.whole.read("")
 
 
 def test_a_param_on_a_series_item_is_the_fields_own_so_an_int_lands_and_a_bool_does_not():
@@ -1026,11 +1026,11 @@ def test_a_param_on_a_series_item_is_the_fields_own_so_an_int_lands_and_a_bool_d
         return sum(n)
 
     for name, blank in (("n", False), ("m", True)):
-        spec = total.inputs[name]
-        assert (spec.type.bare, spec.description.title, spec.param.limits) == (int | None if blank else int, "Count", {"ge": 0})
+        field = total.inputs[name]
+        assert (field.type.bare, field.description.title, field.param.limits) == (int | None if blank else int, "Count", {"ge": 0})
         for wrong in ([-1], [True]):
             with pytest.raises(FieldValueError):
-                spec.whole.read(wrong)
+                field.whole.read(wrong)
     graph = registry.load(make_graph(words, length, total, edges=[("words.result", "length.text"), ("length.result", "total.n")]))
     assert graph.problems == []
     assert graph.run(text="ab c").outputs == {"total.result": 3}

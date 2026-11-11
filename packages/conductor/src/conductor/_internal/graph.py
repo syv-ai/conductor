@@ -107,13 +107,13 @@ class Graph(CheckedGraph):
                     problems.append(problem.missing_input("inputs", offered.name, name=offered.name))
                 values[address] = offered.field.default
                 continue
-            value, spec = given[address], offered.field
+            value, field = given[address], offered.field
             try:
-                values[address] = spec.whole.read(value)
+                values[address] = field.whole.read(value)
             except FieldValueError as refused:
                 whole = all(not error["loc"] for error in refused.errors or ())  # the list itself was refused, not an item of it
-                if not spec.many and type(value) is list and whole:  # the one mistake whose fix is in the graph
-                    problems.append(problem.invalid_input_make_a_series("inputs", offered.name, name=offered.name, expected=spec.whole.id, length=len(value)))
+                if not field.many and type(value) is list and whole:  # the one mistake whose fix is in the graph
+                    problems.append(problem.invalid_input_make_a_series("inputs", offered.name, name=offered.name, expected=field.whole.id, length=len(value)))
                 else:
                     problems.append(problem.invalid_input("inputs", offered.name, name=offered.name, reason=refused.reason, errors=refused.errors, column=refused.column))
         if problems:

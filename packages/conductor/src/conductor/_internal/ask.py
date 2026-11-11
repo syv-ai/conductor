@@ -16,9 +16,10 @@ against that record and the node's types before anything runs.
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, TypedDict
 
@@ -126,7 +127,7 @@ class Question:
 
     prompt: str
     inputs: dict[str, Any]
-    overrides: Mapping[str, QuestionOverrides] = field(default_factory=dict)
+    overrides: Mapping[str, QuestionOverrides] = dataclasses.field(default_factory=dict)
 
 
 class Waiting(ConductorModel):
@@ -207,7 +208,7 @@ def _by_output(given: Any, outputs: Mapping[str, Field], argument: str) -> dict[
     return dict(given)
 
 
-def _offered(spec: Field, choices: list[Any]) -> list[dict[str, Any]]:
+def _offered(field: Field, choices: list[Any]) -> list[dict[str, Any]]:
     """The choices an ``Ask`` offers for one output, as records with their ids in JSON form.
 
     A choice is what an answer picks, so its id is read as an answer is; a ``Series``' ids as one pick of them all.
@@ -217,25 +218,25 @@ def _offered(spec: Field, choices: list[Any]) -> list[dict[str, Any]]:
             value of the output's type.
     """
     if not choices:
-        raise InvalidAskError(f"'{spec.name}' is offered no choices")
+        raise InvalidAskError(f"'{field.name}' is offered no choices")
     try:
         shown = [
             (choice if isinstance(choice, Choice) else Choice(choice, str(choice))).model_dump(mode="json")
-            | {"id": spec.type.to_json(spec.type.read_json(choice.id if isinstance(choice, Choice) else choice))}
+            | {"id": field.type.to_json(field.type.read_json(choice.id if isinstance(choice, Choice) else choice))}
             for choice in choices
         ]
     except FieldValueError as refused:
-        raise InvalidAskError(f"a choice for '{spec.name}' is not what it returns: {refused.reason}") from None
+        raise InvalidAskError(f"a choice for '{field.name}' is not what it returns: {refused.reason}") from None
     if len({repr(choice["id"]) for choice in shown}) != len(shown):
-        raise InvalidAskError(f"a choice for '{spec.name}' is offered twice")
+        raise InvalidAskError(f"a choice for '{field.name}' is offered twice")
     return shown
 
 
-def _proposed(spec: Field, default: Any, offered: list[dict[str, Any]] | None) -> JsonValue:
+def _proposed(field: Field, default: Any, offered: list[dict[str, Any]] | None) -> JsonValue:
     """The default an ``Ask`` proposes for one output, in JSON form, held to the rules an answer is.
 
     Args:
-        spec: The output.
+        field: The output.
         default: The proposed answer as given.
         offered: The choices the same ``Ask`` offers for the output, if any.
 
@@ -243,9 +244,9 @@ def _proposed(spec: Field, default: Any, offered: list[dict[str, Any]] | None) -
         InvalidAskError: An answer could not be the default.
     """
     try:
-        proposed: JsonValue = spec.whole.to_json(_checked_answer(spec, default, offered))
+        proposed: JsonValue = field.whole.to_json(_checked_answer(field, default, offered))
     except FieldValueError as refused:
-        raise InvalidAskError(f"the default for '{spec.name}' is not an answer it takes: {refused.reason}") from None
+        raise InvalidAskError(f"the default for '{field.name}' is not an answer it takes: {refused.reason}") from None
     return proposed
 
 
@@ -259,13 +260,13 @@ def output_questions(outputs: Mapping[str, Field]) -> dict[str, FieldDescription
         A question per output, by name, under the output's own label, and a field of a returned dataclass with a
         default proposes it.
     """
-    return {name: _question(spec) for name, spec in outputs.items()}
+    return {name: _question(field) for name, field in outputs.items()}
 
 
-def _question(spec: Field) -> FieldDescription:
+def _question(field: Field) -> FieldDescription:
     """One output's question as its type sets it."""
-    question = spec.description
-    return question.model_copy(update={"required": _required(spec, {}, limited=question.choices is not None)})
+    question = field.description
+    return question.model_copy(update={"required": _required(field, {}, limited=question.choices is not None)})
 
 
 def waiting_questions(placed: PlacedFunction, overrides: Mapping[str, QuestionOverrides]) -> list[FieldDescription]:
@@ -285,21 +286,21 @@ def waiting_questions(placed: PlacedFunction, overrides: Mapping[str, QuestionOv
     ]
 
 
-def _overridden(spec: Field, question: FieldDescription, overrides: QuestionOverrides) -> FieldDescription:
+def _overridden(field: Field, question: FieldDescription, overrides: QuestionOverrides) -> FieldDescription:
     """One output's question with what its ``Ask`` set, and whether it is ``required`` worked out again from that."""
     choices = overrides.get("choices", question.choices)
-    return question.model_copy(update={**overrides, "required": _required(spec, overrides, limited=choices is not None)})
+    return question.model_copy(update={**overrides, "required": _required(field, overrides, limited=choices is not None)})
 
 
-def _required(spec: Field, overrides: QuestionOverrides, *, limited: bool) -> bool:
+def _required(field: Field, overrides: QuestionOverrides, *, limited: bool) -> bool:
     """Whether an answer must give the question.
 
     It needn't when the question has a default (its field's, ``SKIPPED`` too, or one its ``Ask`` set), is one of an
     exclusive group, or its type takes a blank and no choices limit what it takes.
     """
-    defaulted = "default" in overrides or spec.default is not REQUIRED
-    blank = not spec.many and spec.whole.optional and not limited
-    return not defaulted and spec.param.exclusive_group is None and not blank
+    defaulted = "default" in overrides or field.default is not REQUIRED
+    blank = not field.many and field.whole.optional and not limited
+    return not defaulted and field.param.exclusive_group is None and not blank
 
 
 def answer_outputs(placed: PlacedFunction, value: Any, overrides: Mapping[str, QuestionOverrides]) -> tuple[dict[str, Any], list[tuple[str | None, str]]]:
@@ -316,9 +317,9 @@ def answer_outputs(placed: PlacedFunction, value: Any, overrides: Mapping[str, Q
     """
     outputs = placed.outputs
     if len(outputs) == 1:
-        ((name, spec),) = outputs.items()
+        ((name, field),) = outputs.items()
         try:
-            return {name: _checked_answer(spec, value, overrides.get(name, {}).get("choices", placed.questions[name].choices))}, []
+            return {name: _checked_answer(field, value, overrides.get(name, {}).get("choices", placed.questions[name].choices))}, []
         except FieldValueError as refused:
             return {}, [(None, refused.reason)]
     if value is None and not outputs:
@@ -328,18 +329,18 @@ def answer_outputs(placed: PlacedFunction, value: Any, overrides: Mapping[str, Q
     faults: list[tuple[str | None, str]] = [(str(name), f"there is no question '{name}'") for name in value if name not in outputs]
     read: dict[str, Any] = {}
     groups: dict[str, list[str]] = {}
-    for name, spec in outputs.items():
-        question, override, group = placed.questions[name], overrides.get(name, {}), spec.param.exclusive_group
+    for name, field in outputs.items():
+        question, override, group = placed.questions[name], overrides.get(name, {}), field.param.exclusive_group
         offered = override.get("choices", question.choices)
         try:
             if name in value:
-                read[name] = _checked_answer(spec, value[name], offered)
+                read[name] = _checked_answer(field, value[name], offered)
             elif group is not None:
                 read[name] = SKIPPED
-            elif spec.default is SKIPPED and "default" not in override:
+            elif field.default is SKIPPED and "default" not in override:
                 read[name] = SKIPPED  # left out, a field whose default is SKIPPED is a branch not taken
-            elif not _required(spec, override, limited=offered is not None):
-                read[name] = spec.whole.read_json(override.get("default", question.default))  # a default, or a blank where the type takes one
+            elif not _required(field, override, limited=offered is not None):
+                read[name] = field.whole.read_json(override.get("default", question.default))  # a default, or a blank where the type takes one
             else:
                 faults.append((name, f"'{name}' was not answered"))
         except FieldValueError as refused:
@@ -352,17 +353,17 @@ def answer_outputs(placed: PlacedFunction, value: Any, overrides: Mapping[str, Q
     return read, faults
 
 
-def _checked_answer(spec: Field, value: Any, offered: list[dict[str, Any]] | None) -> Any:
+def _checked_answer(field: Field, value: Any, offered: list[dict[str, Any]] | None) -> Any:
     """Reads one question's answer into the node's own form, held to the choices ``offered``.
 
     Raises:
         FieldValueError: The answer is not a value of the output's type, not one of the choices, or, for a pick of several,
             picks a choice twice.
     """
-    read = spec.whole.read_json(value)
+    read = field.whole.read_json(value)
     if offered is not None:
-        picked: Any = spec.whole.to_json(read)
-        picks = picked if spec.many else [picked]
+        picked: Any = field.whole.to_json(read)
+        picks = picked if field.many else [picked]
         ids = [choice["id"] for choice in offered]
         if any(item not in ids for item in picks):
             raise FieldValueError("the answer is not one of the choices")

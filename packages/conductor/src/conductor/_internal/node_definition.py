@@ -56,7 +56,7 @@ import functools
 import inspect
 import typing
 from collections.abc import Callable, Iterable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Annotated, Any, Generic, Literal, ParamSpec, Protocol, TypeVar
 
@@ -179,8 +179,8 @@ class Upgrade:
     of it.
     """
 
-    renamed_inputs: Mapping[str, str] = field(default_factory=dict[str, str])
-    renamed_outputs: Mapping[str, str] = field(default_factory=dict[str, str])
+    renamed_inputs: Mapping[str, str] = dataclasses.field(default_factory=dict[str, str])
+    renamed_outputs: Mapping[str, str] = dataclasses.field(default_factory=dict[str, str])
     rewrite: Callable[[dict[str, JsonValue]], Mapping[str, Any]] | None = None
 
 
@@ -213,7 +213,7 @@ class _Version:
     description: str
     category: str = ""
     tags: tuple[str, ...] = ()
-    extra: Mapping[str, JsonValue] = field(default_factory=dict[str, JsonValue])
+    extra: Mapping[str, JsonValue] = dataclasses.field(default_factory=dict[str, JsonValue])
     docs: str | None = None
     deprecation: Deprecation | None = None
     replaces: NodeDefinition | None = None
@@ -283,8 +283,8 @@ class FunctionDefinition(_Version, Generic[_P, _R]):
     policy: Policy = Policy()
     compute_added_inputs: Callable[..., Mapping[Any, Any]] | None = None
     compute_outputs: Callable[..., Mapping[Any, Any]] | None = None
-    from_run: Mapping[str, type] = field(default_factory=dict[str, type])
-    hook_parameters: Mapping[HookName, Mapping[str, HookParameter]] = field(default_factory=dict[HookName, Mapping[str, HookParameter]])
+    from_run: Mapping[str, type] = dataclasses.field(default_factory=dict[str, type])
+    hook_parameters: Mapping[HookName, Mapping[str, HookParameter]] = dataclasses.field(default_factory=dict[HookName, Mapping[str, HookParameter]])
     generic: bool = False
 
     def __call__(self, *args: _P.args, **kwargs: _P.kwargs) -> _R:
@@ -305,7 +305,7 @@ class FunctionDefinition(_Version, Generic[_P, _R]):
         """The node as an editor's palette shows it."""
         return self.described_as(
             FunctionNodeDescription, policy=self.policy,
-            inputs=[spec.description for spec in self.inputs.values()], outputs=[spec.description for spec in self.outputs.values()],
+            inputs=[field.description for field in self.inputs.values()], outputs=[field.description for field in self.outputs.values()],
             takes_added_inputs=self.compute_added_inputs is not None, computes_outputs=self.compute_outputs is not None,
         )
 
@@ -480,7 +480,7 @@ def node(
                 category=category, tags=tuple(tags), extra=MappingProxyType(dict(extra)), docs=docs, deprecation=deprecation,
                 replaces=replaces, upgrade=upgrade or Upgrade(), policy=policy or Policy(),
                 compute_added_inputs=compute_added_inputs, compute_outputs=compute_outputs, hook_parameters=hook_parameters,
-                generic=any(spec.whole.variables for spec in inputs.values()),
+                generic=any(field.whole.variables for field in inputs.values()),
             )
             if replaces is not None:
                 _raise_if_upgrade_is_missing(replaces, definition)
@@ -717,17 +717,17 @@ def _read_signature(function: Callable[..., Any], computed_outputs: bool) -> tup
         kind = OutputsClass(outputs_class)
     else:
         outputs, kind = {"result": Field("result", returns)}, OneResult()
-    on_inputs = {variable for spec in inputs.values() for variable in spec.whole.variables}
-    for spec in (*inputs.values(), *outputs.values()):
-        for variable in spec.whole.variables:
+    on_inputs = {variable for field in inputs.values() for variable in field.whole.variables}
+    for field in (*inputs.values(), *outputs.values()):
+        for variable in field.whole.variables:
             if variable.__constraints__:
                 raise NodeDeclarationError(
-                    f"{spec.name}: the type variable {variable.__name__} is constrained to a few types; give it a bound, or write the union",
+                    f"{field.name}: the type variable {variable.__name__} is constrained to a few types; give it a bound, or write the union",
                     code="type_variable_constrained",
                 )
             if variable not in on_inputs:
                 raise NodeDeclarationError(
-                    f"{spec.name}: the type variable {variable.__name__} is on no input, so no edge can say what it is; put it on an input",
+                    f"{field.name}: the type variable {variable.__name__} is on no input, so no edge can say what it is; put it on an input",
                     code="type_variable_only_in_return",
                 )
     return inputs, from_run, outputs, kind

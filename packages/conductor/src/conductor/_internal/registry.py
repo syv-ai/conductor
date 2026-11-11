@@ -406,10 +406,10 @@ def _types_declared_by(definitions: Iterable[NodeDefinition]) -> list[type]:
         for step in definition.lineage:
             match step:
                 case FunctionDefinition():
-                    specs = (*step.inputs.values(), *step.outputs.values())
+                    fields = (*step.inputs.values(), *step.outputs.values())
                 case StoredGraphDefinition():  # a graph declares no classes of its own
                     continue
-            found.extend(cls for spec in specs for cls in spec.whole.classes)
+            found.extend(cls for field in fields for cls in field.whole.classes)
     return list(dict.fromkeys(found))
 
 

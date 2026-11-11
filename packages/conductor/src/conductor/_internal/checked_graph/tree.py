@@ -350,30 +350,30 @@ def _plan_at_path(plan: InputPlan, here: Mapping[str, NodeAtPath], functions: Ma
 
     def at_path(source: Source, opened: bool) -> Source:
         last, output, per_item = _made_by(OutputAddress(source.node_id, source.output), here)
-        spec = last.placed.outputs[output]
-        brought: type[Source] = type(source) if not per_item else SeriesAsList if spec.many else WholeOutput
+        field = last.placed.outputs[output]
+        brought: type[Source] = type(source) if not per_item else SeriesAsList if field.many else WholeOutput
         if opened and brought is ItemOfSeries:
             last.opens.setdefault(output, (here[source.node_id], source.output))
         return brought(last.name, output, _scope_at_path(last.maps), source.record_field, source.type)
 
     match plan:
-        case InputReadsOneValue(field=spec, reads=reads):
+        case InputReadsOneValue(field=field, reads=reads):
             brings = tuple([at_path(source, True) for source in reads])
-            return InputReadsOneValue(spec, brings, max((source.read_in for source in brings), key=len))
-        case InputGathersOneValue(field=spec, reads=reads):
-            return InputGathersOneValue(spec, tuple([typing.cast(WholeOutput, at_path(source, False)) for source in reads]))
-        case InputGathersItems(field=spec, series=series, sources=sources):
-            return _gather_at_path(spec, _maps_of(OutputAddress(series.node_id, series.output), here), tuple([at_path(source, False) for source in sources]), functions)
+            return InputReadsOneValue(field, brings, max((source.read_in for source in brings), key=len))
+        case InputGathersOneValue(field=field, reads=reads):
+            return InputGathersOneValue(field, tuple([typing.cast(WholeOutput, at_path(source, False)) for source in reads]))
+        case InputGathersItems(field=field, series=series, sources=sources):
+            return _gather_at_path(field, _maps_of(OutputAddress(series.node_id, series.output), here), tuple([at_path(source, False) for source in sources]), functions)
         case _:
             return plan
 
 
-def _gather_at_path(spec: Field, gathered: Maps, sources: tuple[Source, ...], functions: Mapping[str, FunctionAtPath]) -> InputGathersItems:
+def _gather_at_path(field: Field, gathered: Maps, sources: tuple[Source, ...], functions: Mapping[str, FunctionAtPath]) -> InputGathersItems:
     """The plan of an input that gathers the items of ``gathered``, where its node stands: the one way such a
     plan is made, for a node's own input and for what a host is shown.
 
     Args:
-        spec: The input's field.
+        field: The input's field.
         gathered: The maps gathered through, outermost first: one, but for an output an embedded graph offers
             of something made several maps deep inside it.
         sources: What each edge brings for an item, each naming a function by its name.
@@ -381,7 +381,7 @@ def _gather_at_path(spec: Field, gathered: Maps, sources: tuple[Source, ...], fu
     """
     levels = [OutputAtScope(made_by.name, output, _scope_at_path(made_by.maps)) for made_by, output in gathered]
     through = _gathered_through(gathered[0], [functions[at.node_id] for at in (*levels[1:], *sources)])
-    return InputGathersItems(spec, (*levels, *sources), len(levels), through)
+    return InputGathersItems(field, (*levels, *sources), len(levels), through)
 
 
 def _gathered_through(series: tuple[FunctionAtPath, str], sources: list[FunctionAtPath]) -> tuple[FunctionAtPath, ...]:
@@ -409,9 +409,9 @@ def _read_before_a_call(plan: InputPlan) -> bool:
     """Whether what edges bring an input is read by the input's type before each call: not when every value they
     bring is already one the field takes as it is, with no limit or choice to hold it to."""
     match plan:
-        case InputReadsOneValue(field=spec, sources=sources):
-            return not all(spec.whole.holds(s.type) for s in sources)
-        case InputGathersItems(field=spec, sources=sources) | InputGathersOneValue(field=spec, sources=sources):
-            return spec.whole.record is not None or not all(spec.type.holds(s.type) for s in sources)
+        case InputReadsOneValue(field=field, sources=sources):
+            return not all(field.whole.holds(s.type) for s in sources)
+        case InputGathersItems(field=field, sources=sources) | InputGathersOneValue(field=field, sources=sources):
+            return field.whole.record is not None or not all(field.type.holds(s.type) for s in sources)
         case _:
             return False
