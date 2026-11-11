@@ -54,6 +54,7 @@ from conductor._internal.run import (
     _COMPLETE,
     _RUNNING,
     _WAITING,
+    NOT_NESTED,
     PENDING,
     SKIPPED_UNIT,
     Asking,
@@ -62,6 +63,7 @@ from conductor._internal.run import (
     EndedEarly,
     Going,
     Key,
+    Nesting,
     NodePath,
     Path,
     Run,
@@ -265,6 +267,8 @@ class Leg:
         checkpoint_every: float | None = None,
     ) -> None:
         self.run, self.emit, self.stop, self.from_run = run, emit, stop, from_run
+        #: What each node may take from the run this one went on from, by node whatever nested run it is in.
+        self.carried = run._earlier
         #: Whether nothing has ended the leg early; ``end`` is the one place that does.
         self.going = True
         self.checkpoint_every = checkpoint_every if emit is not None else None
@@ -295,7 +299,7 @@ class Leg:
         if self.emit:
             self.emit(RunStart(waiting=tuple(run.waiting)))
         try:
-            self.open(run, (), (), None)
+            self.open(run, NOT_NESTED, None)
             while self.frontiers and self.going:
                 if self.stop is not None and (stopped := self.stop()) is not None:
                     self.end(stopped)
@@ -321,18 +325,17 @@ class Leg:
         if self.emit:
             self.emit(RunEnd.of(run))
 
-    def open(self, run: Run, inside: Path, node_path: NodePath, embedded_as: tuple[Frontier, PlacedGraph, Key] | None) -> Frontier:
+    def open(self, run: Run, nesting: Nesting, embedded_as: tuple[Frontier, PlacedGraph, Key] | None) -> Frontier:
         """Start driving ``run``. Its units are first tried when it is looked over; a Series it already holds over
         the item ceiling stops the leg.
 
         Args:
             run: The run.
-            inside: The node and item of each embedded graph the run is nested in, outermost first.
-            node_path: The node ids of ``inside``.
+            nesting: Where it sits in the leg's own run.
             embedded_as: For a nested run, the frontier of the run around it, and the embedded graph and instance
                 it is the call of.
         """
-        frontier = self.frontiers[self.opened] = Frontier(self, self.opened, run, inside, node_path, embedded_as)
+        frontier = self.frontiers[self.opened] = Frontier(self, self.opened, run, nesting, embedded_as)
         self.opened += 1
         self.changed[frontier] = None
         frontier._check_ceiling()
@@ -390,9 +393,7 @@ class Leg:
         """Hand the listener a copy of the run as it stands, its nested runs with it, and set when the next is due."""
         assert self.emit is not None and self.checkpoint_every is not None
         self.next_checkpoint = time.monotonic() + self.checkpoint_every
-        snapshot = self.run._copy()
-        self.run._earlier_own = set()  # the snapshot shares what is carried: the leg copies a node's before it next takes from it
-        self.emit(RunCheckpoint(run=snapshot))
+        self.emit(RunCheckpoint(run=self.run._copy()))
 
 
 class Frontier:
@@ -405,14 +406,15 @@ class Frontier:
         leg: The leg, and what every run in it shares.
         number: The frontier's place among the leg's, in the order they were opened.
         run: The run, changed in place.
-        inside: The node and item of each embedded graph the run is nested in, outermost first: ``("e", 0)``.
-        node_path: The node ids of ``inside``: the embedded graphs' nodes, whatever item each was called for.
+        nesting: Where the run sits in the leg's own run: the node and item of each embedded graph it is nested
+            in, which every event, problem and waiting id of the run starts with.
         embedded_as: For a nested run, the frontier of the run around it, and the embedded graph and instance it
             is the call of; ``None`` for the run the leg was started on.
     """
 
-    def __init__(self, leg: Leg, number: int, run: Run, inside: Path, node_path: NodePath, embedded_as: tuple[Frontier, PlacedGraph, Key] | None) -> None:
-        self.leg, self.number, self.run, self.inside, self.node_path, self.embedded_as = leg, number, run, inside, node_path, embedded_as
+    def __init__(self, leg: Leg, number: int, run: Run, nesting: Nesting, embedded_as: tuple[Frontier, PlacedGraph, Key] | None) -> None:
+        self.leg, self.number, self.run, self.nesting, self.embedded_as = leg, number, run, nesting, embedded_as
+        self.inside, self.node_path = nesting.path, nesting.nodes
         self.nodes, self.position = run.graph._order, run.graph._position
         #: (node, an instance above its own): a node that gathers, started in the instances under that one once
         #: nothing it reads still works there.
@@ -427,6 +429,9 @@ class Frontier:
         self.recorded_since_walk = 1
         #: Whether the last walk left a unit whose inputs weren't there yet, so another walk may start it.
         self.left_pending = True
+        #: Whether a unit of a nested run is left until the instances of its embedded graph before this one have
+        #: taken their earlier answers.
+        self.awaits_turn = False
         # what only a listener needs
         self.started = {n for n, units in run._units.items() if units} | {n for n, runs in run._nested.items() if runs}
         self.touched: set[str] = set()
@@ -449,7 +454,7 @@ class Frontier:
             self._completions()
         if self.running or self.nested:
             return
-        if self.left_pending and (self.recorded_since_walk or (self.turns and self._pass_untried())):
+        if self.left_pending and (self.recorded_since_walk or (self.turns and not self.awaits_turn and self._pass_untried())):
             self._walk()
             self.leg.changed[self] = None
         else:
@@ -457,7 +462,7 @@ class Frontier:
 
     def _walk(self) -> None:
         """Try every unit of every node, in order: the first look, and the last one when nothing runs."""
-        self.left_pending, self.recorded_since_walk = False, 0
+        self.left_pending, self.awaits_turn, self.recorded_since_walk = False, False, 0
         leg, units = self.leg, self.run._units
         for placed in self.nodes:
             for key in self.run._instances(placed.scope, ())[0]:
@@ -479,9 +484,11 @@ class Frontier:
             self._record(placed, key, kwargs, walking)
         elif type(placed) is PlacedGraph:  # its call is a nested run, whose nodes take earlier work one by one
             self._open(placed, key, kwargs)
-        elif run._earlier and placed.definition.policy.reuse_when_inputs_match and (
-            earlier := run._reused(placed, key, kwargs, lambda: self._in_turn(placed, key))
-        ) is not None:
+        elif (
+            (carried := self.leg.carried) and placed.definition.policy.reuse_when_inputs_match
+            and (lent := carried.get((*self.node_path, placed.id))) is not None  # by node, whatever nested run it is in
+            and (earlier := run._reused(lent, placed, key, kwargs, lambda: self._in_turn(placed, key), self.nesting)) is not None
+        ):
             if earlier is PENDING:
                 self.left_pending = True  # a unit before it may take this answer; the next walk tries it again
                 return False
@@ -507,7 +514,7 @@ class Frontier:
             return
         if self.leg.emit:
             self._announce(placed)
-        self.nested[(placed.id, key)] = self.leg.open(nested, (*self.inside, placed.id, *key), (*self.node_path, placed.id), (self, placed, key))
+        self.nested[(placed.id, key)] = self.leg.open(nested, self.run._nesting_of(self.nesting, placed, key), (self, placed, key))
 
     def _close(self) -> None:
         """Stop driving the run: say how it stands and which of its nodes are finished. A nested run that is
@@ -516,12 +523,12 @@ class Frontier:
         # one look at every unit: a node already said complete has no unit waiting; an embedded graph waits while a nested run of it does
         waiting = {n for n, us in run._units.items() if n not in self.complete and Asking in {type(u) for u in us.values()}}
         waiting |= {n for n, runs in run._nested.items() if any(nested.state is not _COMPLETE for nested in runs.values())}
-        if leg.going and not waiting:  # every unit of every node is finished, and nothing carried will be taken
+        if leg.going and not waiting and not self.awaits_turn:  # every unit of every node is finished, and nothing carried will be taken
             run.state, run._complete, run._earlier = _COMPLETE, frozenset(self.position), {}
         else:
             run._complete = frozenset(self.complete | {p.id for p in self.nodes if p.id not in self.complete and p.id not in waiting and self._finished(p, False)})
-            for node_id in run._complete if run._earlier else ():  # what a finished node was carried and didn't take, no unit of this run will
-                run._earlier.pop(node_id, None)
+            for path in [path for path in run._earlier if path[0] in run._complete]:  # what a finished node was carried and didn't take, no unit of this run will
+                del run._earlier[path]
             if leg.going:
                 run.state = _WAITING
             elif self.embedded_as is not None:  # a nested run stands as the leg that ended early does, unless the calls it waited for finished it
@@ -537,6 +544,8 @@ class Frontier:
             around, embedded, key = self.embedded_as
             del around.nested[(embedded.id, key)]
             leg.changed[around] = None
+            if self.awaits_turn:  # the run around tries it again, once the instances before it are through
+                around.left_pending = True
             if run.state is _COMPLETE:
                 around._record(embedded, key, run._as_unit())
 
@@ -677,8 +686,15 @@ class Frontier:
         whatever thread finished first.
 
         The k-th of identical units is the k-th in order among those the leg could try: one that waits on a person
-        counts as tried once nothing else can start (``_pass_untried``).
+        counts as tried once nothing else can start (``_pass_untried``). In a nested run, the order goes on from
+        the instances of its embedded graph before this one, which share what the node may take: each is through
+        (complete, or counted as tried) before a unit here takes an answer.
         """
+        if self.embedded_as is not None:
+            around, embedded, instance_around = self.embedded_as
+            if not around._in_turn(embedded, instance_around):
+                self.awaits_turn = True
+                return False
         turn = self.turns.get(placed.id)
         if turn is None or key not in turn.place:
             order = self.run._instances(placed.scope, ())[0]

@@ -85,6 +85,28 @@ Path = tuple[str | int, ...]
 NodePath = tuple[str, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class Nesting:
+    """Where a run sits in the run a leg was started on: in which instance of which embedded graphs.
+
+    Attributes:
+        path: The node and item of each embedded graph the run is nested in, outermost first, ``("e", 0)``; empty
+            for a run that isn't nested.
+        nodes: The node ids of ``path``.
+        positions: The item positions of ``path``.
+        items: The items those positions name, one for each map the embedded graphs' nodes run in.
+    """
+
+    path: Path
+    nodes: NodePath
+    positions: Key
+    items: tuple[Any, ...]
+
+
+#: Where a run that isn't nested sits.
+NOT_NESTED = Nesting((), (), (), ())
+
+
 def path_text(path: Path) -> str:
     """A path as a waiting id writes it: each node id, ``@`` before each place of its item, and ``/`` between
     nodes, ``e@0/ask@2``."""
@@ -230,7 +252,8 @@ class Earlier:
     received the same there, and else by what was received, whichever unit made it.
 
     Attributes:
-        at: Each result by the place its unit stood in, with the fingerprint of what it received.
+        at: Each result by the place its unit stood in, with the fingerprint of what it received. Inside an
+            embedded graph, the place starts with the item of each embedding node around it.
         computed: A node's results by the fingerprint of what the unit received.
         asked: A person's answers and the questions still waiting, by the fingerprint of what the unit received and
             of the items above it, in the order they stood.
@@ -264,9 +287,7 @@ class Run:
     #: For each node that is an embedded graph, the nested run of each instance it was called in, complete or not.
     _nested: dict[str, dict[Key, Run]]
     #: What each node may take from the run this one went on from.
-    _earlier: dict[str, Earlier]
-    #: The nodes whose ``_earlier`` entry is this run's own to take from, not shared with the run it was copied from.
-    _earlier_own: set[str]
+    _earlier: dict[NodePath, Earlier]
     #: For a node whose units a saved run made with other code or another signature, what that code was; they are never carried.
     _ran_as: dict[str, str]
     #: The nodes whose units were recorded out of instance order (threads finish when they finish), sorted when read.
@@ -483,45 +504,67 @@ class Run:
         if unknown:
             raise InvalidCallError([make_problem("node_not_in_graph", n, node_id=n, nodes=list(self.graph._nodes)) for n in unknown])
         fresh = self.with_inputs()
-        for n in node_ids:
-            fresh._earlier.pop(n, None)
+        for path in [path for path in fresh._earlier if path[0] in node_ids]:  # an embedded graph's id forgets every node inside it
+            del fresh._earlier[path]
         return fresh
 
-    def _carried(self, into: Graph | None = None) -> dict[str, Earlier]:
-        """What a run going on from this one may take: each node's finished and waiting units, then what this run
-        carried and didn't take.
+    def _carried(self, into: Graph | None = None) -> dict[NodePath, Earlier]:
+        """What a run going on from this one may take, by node whatever nested run it is in: each node's finished
+        and waiting units, those of every nested run with them, then what this run carried and didn't take.
 
         ``into`` another graph keeps only the nodes it holds as they are here (by ``reuse_digest``): the others'
         units could never be taken there, and carried they would only make its save larger.
         """
-        carried: dict[str, Earlier] = {}
-        for n, placed in self.graph._nodes.items():
-            if not isinstance(placed, PlacedFunction) or not placed.definition.policy.reuse_when_inputs_match or n in self._ran_as:
-                continue
-            there = into._nodes.get(n) if into is not None else placed
-            if not isinstance(there, PlacedFunction) or there.reuse_digest != placed.reuse_digest:
-                continue
-            earlier = Earlier()
-            for key, unit in self._in_order(n):
-                if not isinstance(unit, (Done, Asking)):
-                    continue
-                fingerprint = _fingerprint(placed.reuse_digest, self._inputs(placed, key), plain=placed.plain_inputs)
-                if fingerprint is None:
-                    continue
-                if isinstance(unit, (Answered, Asking)):
-                    earlier.asked.setdefault((fingerprint, self._lineage(placed.scope, key)), []).append(unit)
-                else:
-                    earlier.at[key] = (fingerprint, unit)
-                    earlier.computed.setdefault(fingerprint, unit)
-            left = self._earlier.get(n)
-            if left is not None:  # what this run was lent and no unit of it received
-                for fingerprint, done in left.computed.items():
-                    earlier.computed.setdefault(fingerprint, done)
-                for asked, units in left.asked.items():
-                    earlier.asked.setdefault(asked, []).extend(units)
-            if earlier.computed or earlier.asked:
-                carried[n] = earlier
-        return carried
+        carried: dict[NodePath, Earlier] = {}
+        self._carry(carried, NOT_NESTED)
+        for path, left in self._earlier.items():  # what this run was lent and no unit of it received
+            earlier = carried.setdefault(path, Earlier())
+            for fingerprint, done in left.computed.items():
+                earlier.computed.setdefault(fingerprint, done)
+            for asked, units in left.asked.items():
+                earlier.asked.setdefault(asked, []).extend(units)
+        ours, theirs = self.graph._functions, (into or self.graph)._functions
+        return {
+            path: earlier for path, earlier in carried.items()
+            if (earlier.computed or earlier.asked) and (there := theirs.get(path)) is not None and there.reuse_digest == ours[path].reuse_digest
+        }
+
+    def _carry(self, carried: dict[NodePath, Earlier], nesting: Nesting) -> None:
+        """Add this run's finished and waiting units to ``carried``, and those of each nested run under it, in
+        instance order.
+
+        An embedded graph's own unit is never carried: its nodes' units are, so a later run takes them node by
+        node. A unit is kept by the place it stood in from the outermost run down, and an answer under the item of
+        every map above it, those around the embedded graphs it is inside included.
+
+        Args:
+            carried: What is carried so far, by node whatever nested run it is in.
+            nesting: Where this run sits.
+        """
+        for placed in self.graph._order:
+            if isinstance(placed, PlacedGraph):
+                runs = self._nested[placed.id]
+                for key in sorted(runs):
+                    runs[key]._carry(carried, self._nesting_of(nesting, placed, key))
+            elif placed.definition.policy.reuse_when_inputs_match and placed.id not in self._ran_as:
+                earlier = carried.setdefault((*nesting.nodes, placed.id), Earlier())
+                for key, unit in self._in_order(placed.id):
+                    if not isinstance(unit, (Done, Asking)):
+                        continue
+                    fingerprint = _fingerprint(placed.reuse_digest, self._inputs(placed, key), plain=placed.plain_inputs)
+                    if fingerprint is None:
+                        continue
+                    if isinstance(unit, (Answered, Asking)):
+                        earlier.asked.setdefault((fingerprint, self._lineage(placed.scope, key, nesting.items)), []).append(unit)
+                    else:
+                        earlier.at[nesting.positions + key] = (fingerprint, unit)
+                        earlier.computed.setdefault(fingerprint, unit)
+
+    def _nesting_of(self, nesting: Nesting, placed: PlacedGraph, key: Key) -> Nesting:
+        """Where the nested run of ``placed`` in the instance ``key`` sits, this run sitting at ``nesting``."""
+        return Nesting(
+            (*nesting.path, placed.id, *key), (*nesting.nodes, placed.id), nesting.positions + key, (*nesting.items, *self._items(placed.scope, key)),
+        )
 
     def again(
         self, inputs: Mapping[str, Any] = MappingProxyType({}), /, *, max_items: int | None = None, from_run: Mapping[type, Any] = MappingProxyType({}),
@@ -635,44 +678,47 @@ class Run:
 
     # -- what a leg reads -------------------------------------------------------
 
-    def _reused(self, placed: PlacedFunction, key: Key, kwargs: dict[str, Any], in_turn: Callable[[], bool]) -> Any:
-        """The earlier unit ``placed`` takes in ``key`` in place of a call on ``kwargs``; ``None`` when there is none.
+    def _reused(self, earlier: Earlier, placed: PlacedFunction, key: Key, kwargs: dict[str, Any], in_turn: Callable[[], bool], nesting: Nesting) -> Any:
+        """The unit of ``earlier`` that ``placed`` takes in ``key`` in place of a call on ``kwargs``; ``None`` when
+        there is none.
 
         A person's answer, or a question still waiting, is taken once, in order: when one is there to take and
         ``in_turn`` says a unit before this one hasn't been tried yet, this is ``PENDING``, tried again once it
         has. It is taken only under the same items above, so two documents' identical lines keep each document's
         answers when the documents move. A node's own result is the one of the unit at the same place, when that
         received the same, and else one any earlier unit computed from the same.
+
+        Args:
+            earlier: What the node may take: this run's own to take from.
+            placed: The node.
+            key: The instance.
+            kwargs: What the unit received.
+            in_turn: Whether every unit of the node before this one has been tried.
+            nesting: Where this run sits.
         """
-        earlier = self._earlier.get(placed.id)
-        if earlier is None:
-            return None
         fingerprint = _fingerprint(placed.reuse_digest, kwargs, plain=placed.plain_inputs)
         if fingerprint is None:
             return None
         if earlier.asked:
-            asked = (fingerprint, self._lineage(placed.scope, key))
-            if earlier.asked.get(asked):
+            answers = earlier.asked.get((fingerprint, self._lineage(placed.scope, key, nesting.items)))
+            if answers:
                 if not in_turn():
                     return PENDING
-                return self._own(placed.id).asked[asked].pop(0)
-        there = earlier.at.get(key)
+                return answers.pop(0)
+        there = earlier.at.get(nesting.positions + key)
         if there is not None and there[0] == fingerprint:
             return there[1]
         return earlier.computed.get(fingerprint)
 
-    def _own(self, node_id: str) -> Earlier:
-        """A node's earlier work with the answers and questions this run's own to take from: copied once, as the
-        run it went on from, and a checkpoint of this one, hold them too."""
-        earlier = self._earlier[node_id]
-        if node_id not in self._earlier_own:
-            earlier = self._earlier[node_id] = Earlier(earlier.at, earlier.computed, {k: list(units) for k, units in earlier.asked.items()})
-            self._earlier_own.add(node_id)
-        return earlier
+    def _items(self, scope: Scope, key: Key) -> list[Any]:
+        """The item of each map of ``scope`` that the instance ``key``, of that scope or one under it, sits in."""
+        return [self._units[port.node_id][key[:depth]].out[port.output][key[depth]] for depth, port in enumerate(scope)]  # type: ignore[union-attr]
 
-    def _lineage(self, scope: Scope, key: Key) -> str:
-        """A fingerprint of the item of each map above the innermost that the instance ``key`` of ``scope`` sits in."""
-        above = [self._units[port.node_id][key[:depth]].out[port.output][key[depth]] for depth, port in enumerate(scope[:-1])]  # type: ignore[union-attr]
+    def _lineage(self, scope: Scope, key: Key, around: tuple[Any, ...]) -> str:
+        """A fingerprint of the item of each map above the innermost that the instance ``key`` of ``scope`` sits
+        in: the maps of the scope, and before them those around the embedded graphs the run is nested in, whose
+        items are ``around``. A unit's innermost item is in what it received."""
+        above = [*around, *self._items(scope[:-1], key)] if scope else list(around[:-1])
         return (_fingerprint("", {"items": above}) or "") if above else ""
 
     def _call(self, placed: PlacedFunction, kwargs: dict[str, Any], from_run: Mapping[type, Any]) -> tuple[Any, BaseException | None]:
@@ -885,15 +931,16 @@ class Run:
                     nested.setdefault(n, []).append((key, run._saved()))
                 except _SaveError as unwritable:
                     raise _SaveError(f"{path_text((n, *key))}/{unwritable.at}", unwritable.reason) from None
-        earlier = {n: _dump_earlier(nodes[n], lent) for n, lent in self._earlier.items() if lent.computed or lent.asked}
+        functions = self.graph._functions
+        earlier = {"/".join(path): _dump_earlier(functions[path], lent) for path, lent in self._earlier.items() if lent.computed or lent.asked}
         inputs = {address: _dump_input(self.graph, address, v) for address, v in self.inputs.items()}
         non_finite: dict[str, list[_Path]] = {}
         for address, written_input in inputs.items():
             if not self.graph._input_fields[address].spec.plain:
                 _find_non_finite(written_input, [], non_finite.setdefault(address, []))
         code = {
-            n: self._ran_as.get(n) or placed.reuse_digest
-            for n, placed in nodes.items() if isinstance(placed, PlacedFunction) and (self._units[n] or n in earlier)
+            "/".join(path): self._ran_as.get(path[0]) or placed.reuse_digest if len(path) == 1 else placed.reuse_digest
+            for path, placed in functions.items() if "/".join(path) in earlier or (len(path) == 1 and self._units[path[0]])
         }
         rest: dict[str, Any] = {
             "graph": self.graph.fingerprint, "max_items": self.max_items, "inputs": inputs, "non_finite_inputs": {a: paths for a, paths in non_finite.items() if paths},
@@ -906,27 +953,30 @@ class Run:
                 return _SavedEndedRun.model_construct(status=ended, cause=cause, **rest)
 
     def _copy(self, *, share_units: bool = False, **changes: Any) -> Run:
-        """A copy to change: its own units to record into, and its own copy of each nested run that isn't complete;
-        or with ``share_units`` this run's, for a caller that replaces whole nodes."""
+        """A copy to change: its own units to record into, its own carried answers to take from, and its own copy
+        of each nested run that isn't complete; or with ``share_units`` this run's, for a caller that replaces
+        whole nodes and takes nothing."""
         copy = start_run(self.graph, self.inputs, changes.get("max_items", self.max_items), dict(self._earlier))
         if share_units:
             copy._units, copy._nested = dict(self._units), dict(self._nested)
         else:
             copy._units = {n: dict(us) for n, us in self._units.items()}
+            for path, earlier in self._earlier.items():  # its own answers to take, as this run holds them too
+                copy._earlier[path] = Earlier(earlier.at, earlier.computed, {asked: list(units) for asked, units in earlier.asked.items()})
             copy._nested = {n: {key: nested if nested.state is _COMPLETE else nested._copy() for key, nested in runs.items()} for n, runs in self._nested.items()}
         copy.state, copy._unordered = self.state, set(self._unordered)
         copy._ran_as, copy._complete = self._ran_as, self._complete
         return copy
 
 
-def start_run(graph: Graph, inputs: dict[str, Any], max_items: int | None, earlier: dict[str, Earlier]) -> Run:
+def start_run(graph: Graph, inputs: dict[str, Any], max_items: int | None, earlier: dict[NodePath, Earlier]) -> Run:
     """A run of ``graph`` not started; the one way a ``Run`` is made.
 
     Args:
         graph: The graph.
         inputs: The caller's inputs, already checked, by address.
         max_items: The item ceiling, or ``None``.
-        earlier: What each node may take from an earlier run, by node id.
+        earlier: What each node may take from an earlier run, by node whatever nested run it is in.
     """
     run = Run.__new__(Run)
     run.graph, run.inputs, run.max_items = graph, inputs, max_items
@@ -934,7 +984,6 @@ def start_run(graph: Graph, inputs: dict[str, Any], max_items: int | None, earli
     run._nested = {n: {} for n in graph._embedded}
     run.state = _READY
     run._earlier = earlier
-    run._earlier_own = set()
     run._ran_as = {}
     run._unordered = set()
     run._complete = frozenset()
@@ -1022,10 +1071,9 @@ def _run_from_saved(graph: Graph, data: _SavedRun) -> Run:
     unknown = sorted({*data.inputs, *data.non_finite_inputs} - graph._input_fields.keys())
     if unknown:
         raise _SaveError(unknown[0], "the graph has no such input")
-    for saved_nodes in (data.units, data.earlier):
-        unknown = sorted(saved_nodes.keys() - graph._nodes.keys())
-        if unknown:
-            raise _SaveError(unknown[0], "the graph has no such node")
+    unknown = sorted(data.units.keys() - graph._nodes.keys())
+    if unknown:
+        raise _SaveError(unknown[0], "the graph has no such node")
     written = {address: _with_non_finite(v, data.non_finite_inputs.get(address, ()), address) for address, v in data.inputs.items()}
     run = start_run(graph, {address: _load_input(graph, address, v) for address, v in written.items()}, data.max_items, {})
     for n, dumped in data.units.items():
@@ -1049,13 +1097,15 @@ def _run_from_saved(graph: Graph, data: _SavedRun) -> Run:
             if nested.state is _COMPLETE:  # the finished unit of an embedded graph is its nested run's outputs
                 units[key] = nested._as_unit()
         run._units[n] = dict(sorted(units.items()))
-    for n, digest in data.code.items():
-        placed = graph._nodes.get(n)
-        if isinstance(placed, PlacedFunction) and digest != placed.reuse_digest:
-            run._ran_as[n] = digest
-    for n, lent in data.earlier.items():
-        if n not in run._ran_as:  # units made with other code are never taken
-            run._earlier[n] = _load_earlier(graph._nodes[n], lent)
+    functions = graph._functions
+    other_code = {path for text, digest in data.code.items() if (path := tuple(text.split("/"))) in functions and digest != functions[path].reuse_digest}
+    run._ran_as = {path[0]: data.code[path[0]] for path in other_code if len(path) == 1}
+    for text, lent in data.earlier.items():
+        path = tuple(text.split("/"))
+        if path not in functions:
+            raise _SaveError(text, "the graph has no such node")
+        if path not in other_code:  # units made with other code are never taken
+            run._earlier[path] = _load_earlier(functions[path], lent)
     match data:
         case _SavedGoingRun(status=status):
             run.state = _GOING[status]
@@ -1308,9 +1358,10 @@ class _SavedRunBase(BaseModel):
             uncalled, as a finished one is its nested run's outputs.
         nested: By the node id of an embedded graph, the nested run of each instance it was called in, with its
             instance: a save of its own.
-        earlier: By node id, the carried work not yet taken.
-        code: By node id, the ``reuse_digest`` of the code that made its saved units, so units made by other code are
-            never carried.
+        earlier: The carried work not yet taken, by node: its id, after the ids of the embedded graphs' nodes it
+            is inside, joined by ``/``.
+        code: By node, named as in ``earlier``, the ``reuse_digest`` of the code that made its saved units and its
+            carried work, so units made by other code are never carried.
         complete: The nodes every unit of which was finished when the last leg ended.
     """
 

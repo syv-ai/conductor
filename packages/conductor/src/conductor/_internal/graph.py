@@ -656,6 +656,18 @@ class Graph:
         return tuple(placed.id for placed in self._order if isinstance(placed, PlacedGraph))
 
     @functools.cached_property
+    def _functions(self) -> dict[tuple[str, ...], PlacedFunction]:
+        """Every function node by its path of node ids: its own id, after the id of each embedded graph's node it
+        is inside, ``("e", "upper")``."""
+        found: dict[tuple[str, ...], PlacedFunction] = {}
+        for placed in self._order:
+            if isinstance(placed, PlacedGraph):
+                found.update({(placed.id, *path): inside for path, inside in placed.inner._functions.items()})
+            else:
+                found[(placed.id,)] = placed
+        return found
+
+    @functools.cached_property
     def _threads(self) -> int:
         """How many calls a leg over the graph can have on threads at once: the ``concurrency`` of every node
         called on a thread, those of each embedded graph with them."""

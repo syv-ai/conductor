@@ -137,6 +137,22 @@ def boom(text: str) -> str:
     return text
 
 
+@_node("stamp", policy=Policy(reuse_when_inputs_match=False))
+def stamp(text: str) -> str:
+    CALLS["stamp"] += 1
+    return text
+
+
+@_node("stagger", policy=Policy(concurrency=4, reuse_when_inputs_match=False))
+def stagger(text: str) -> str:
+    """Comes back later the earlier it was called, so the calls of one leg finish in reverse."""
+    with _LOCK:
+        CALLS["stagger"] += 1
+        place = CALLS["stagger"]
+    time.sleep(max(0.0, 0.2 - 0.05 * place))
+    return text
+
+
 @_node("maybe")
 def maybe(text: str) -> str | None:
     return None if text == "none" else text
@@ -200,6 +216,8 @@ INNER = {
     "columns-inner": chain(("c", "columns")),  # its first node has an input a hook reads
     "broken-inner": chain(("up", "upper"), ("x", "no-such-node")),
     "signed-inner": chain(("s", "signed")),
+    "stamped-inner": chain(("s", "stamp"), ("up", "upper")),
+    "staggered-inner": chain(("s", "stagger"), ("q", "ask")),
     "self-a": chain(("x", "self-b")),
     "self-b": chain(("y", "self-a")),
     "deciding-inner": {
@@ -209,7 +227,7 @@ INNER = {
 }
 
 REGISTRY = NodeRegistry()
-for _definition in (words, sentences, chars, upper, exclaim, greet, count, ask, fetch, flaky, stuck, boom, maybe, decide, signed, columns, table):
+for _definition in (words, sentences, chars, upper, exclaim, greet, count, ask, fetch, flaky, stuck, boom, maybe, decide, signed, columns, table, stamp, stagger):
     REGISTRY.add(_definition)
 for _id, _record in INNER.items():
     REGISTRY.add(_node(_id)(_record))
@@ -233,7 +251,7 @@ def flat(inner: str, splitter: str = "words"):
     must behave as."""
     record = INNER[inner]
     first = record["nodes"][0]["id"]
-    graph = REGISTRY.load({"nodes": [{"id": "w", "node": splitter}, *record["nodes"]], "edges": [["w.result", f"{first}.text"], *record["edges"]]})
+    graph = REGISTRY.load({"nodes": [{"id": "outer", "node": splitter}, *record["nodes"]], "edges": [["outer.result", f"{first}.text"], *record["edges"]]})
     assert not graph.problems, graph.problems
     return graph
 
@@ -556,3 +574,82 @@ def test_an_embedded_graph_inside_an_embedded_graph_goes_by_path():
     assert refused.value.errors()[0].loc == ("e", 1, "in", "q")
     done = graph.load_run(run.answer({ids[1]: "two"}).resume().to_json()).answer(ids[0], "one").resume()
     assert done.status == "complete" and done.outputs == {"e.in.q.result": ["one", "two"]} and CALLS["upper"] == 2
+
+
+# -- reuse: embedding a graph changes nothing about what again reuses ---------------------------------------
+
+
+def test_again_calls_inside_only_what_it_would_drawn_flat_after_a_change_and_after_an_insert():
+    for graph, at in ((mapped("shout-inner"), ("e", "ex.result")), (flat("shout-inner"), ("ex", "result"))):
+        run = graph.run(text="ab cd ef")
+        CALLS.clear()
+        assert run.again(text="ab xx ef").results[at[0]][at[1]] == ["AB!", "XX!", "EF!"]
+        assert CALLS == {"words": 1, "upper": 1, "exclaim": 1}
+        CALLS.clear()
+        assert run.again(text="zz ab cd ef").results[at[0]][at[1]] == ["ZZ!", "AB!", "CD!", "EF!"]
+        assert CALLS == {"words": 1, "upper": 1, "exclaim": 1}
+        CALLS.clear()
+        assert graph.load_run(run.again(text="ab").to_json()).again(text="ab cd").status == "complete"
+        assert CALLS == {"words": 2, "upper": 1, "exclaim": 1}  # what a run carried and didn't take is saved, and taken later
+
+
+def test_an_inner_node_that_reads_the_world_is_called_on_again():
+    run = mapped("stamped-inner").run(text="ab cd")
+    CALLS.clear()
+    assert run.again().results["e"]["up.result"] == ["AB", "CD"]
+    assert CALLS == {"stamp": 2}  # the embedding's unit is never taken whole: stamp is called, upper reused
+
+
+def test_two_documents_with_an_identical_inner_line_each_keep_their_own_answer():
+    graph = mapped("lines-inner", "sentences")  # a question per word of each document
+    run = graph.run(text="a b;a c")
+    run = run.answer({w.id: f"doc{w.inside[1]}:{w.inputs['text']}" for w in run.waiting}).resume()
+    assert run.status == "complete" and run.results["e"]["q.result"] == [["doc0:a", "doc0:b"], ["doc1:a", "doc1:c"]]
+    changed = run.again(text="a b d;a c")
+    assert [w.inside for w in changed.waiting] == [("e", 0)] * 3  # document 0 changed, so its lines are asked again, as drawn flat
+    assert changed.answer({w.id: "new" for w in changed.waiting}).resume().results["e"]["q.result"] == [["new", "new", "new"], ["doc1:a", "doc1:c"]]
+    inserted = run.again(text="x;a b;a c")
+    assert [(w.inside, w.inputs["text"]) for w in inserted.waiting] == [(("e", 0), "x")]
+    assert inserted.answer(inserted.waiting[0], "x").resume().results["e"]["q.result"] == [["x"], ["doc0:a", "doc0:b"], ["doc1:a", "doc1:c"]]
+    swapped = run.again(text="a c;a b")
+    assert swapped.status == "complete" and swapped.results["e"]["q.result"] == [["doc1:a", "doc1:c"], ["doc0:a", "doc0:b"]]
+    flat_run = flat("lines-inner", "sentences").run(text="a b;a c")
+    flat_run = flat_run.answer({w.id: f"doc{w.item[0]}:{w.inputs['text']}" for w in flat_run.waiting}).resume()
+    assert flat_run.again(text="a c;a b").results["q"]["result"] == ["doc1:a", "doc1:c", "doc0:a", "doc0:b"]  # the same, drawn flat
+
+
+def test_identical_items_take_their_answers_in_item_order_whatever_thread_finishes_first():
+    graph = mapped("staggered-inner")
+    run = graph.run(text="ab ab ab")
+    run = run.answer({w.id: f"answer {w.inside[1]}" for w in run.waiting}).resume()
+    assert run.results["e"]["q.result"] == ["answer 0", "answer 1", "answer 2"]
+    CALLS.clear()
+    again = graph.load_run(run.to_json()).again()  # stagger is called again, and its first call comes back last
+    assert again.status == "complete" and CALLS["stagger"] == 3 and CALLS["ask"] == 0
+    assert again.results["e"]["q.result"] == ["answer 0", "answer 1", "answer 2"]
+    CALLS.clear()
+    longer = run.again(text="zz ab ab ab")
+    assert [w.inside for w in longer.waiting] == [("e", 0)]
+    assert longer.results["e"]["q.result"] == [None, "answer 0", "answer 1", "answer 2"]
+
+
+def test_reuse_goes_through_an_embedded_graph_inside_an_embedded_graph_and_forget_forgets_all_of_it():
+    graph = mapped("wrapping")
+    run = graph.run(text="ab cd")
+    done = run.answer({w.id: w.inputs["text"].lower() for w in run.waiting}).resume()
+    assert done.outputs == {"e.in.q.result": ["ab", "cd"]}
+    CALLS.clear()
+    longer = done.again(text="ab cd ef")
+    assert longer.status == "waiting" and CALLS == {"words": 1, "upper": 1, "ask": 1}
+    assert [w.id.partition("~")[0] for w in longer.waiting] == ["e@2/in/q"]
+    CALLS.clear()
+    forgotten = done.forget("e").resume()
+    assert forgotten.status == "waiting" and CALLS == {"upper": 2, "ask": 2}
+
+
+def test_work_carried_from_a_run_of_an_earlier_graph_is_taken_inside_where_the_node_is_as_it_was():
+    run = mapped("shout-inner").run(text="ab cd")
+    edited = load({"w": "words", "e": "shout-inner", "n": "count"}, [("w.result", "e.text"), ("e.ex.result", "n.items")])
+    CALLS.clear()
+    assert edited.with_inputs(text="ab cd", earlier=run).resume().results["n"]["result"] == 2
+    assert CALLS == {}
