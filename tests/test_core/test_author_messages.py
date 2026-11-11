@@ -2,7 +2,7 @@
 
 from typing import Any, TypedDict
 
-from conductor import NodeRegistry, Series, Table, node, record_type
+from conductor import NodeRegistry, Series, Table, node, row_type
 
 
 class Contact(TypedDict):
@@ -180,16 +180,29 @@ def test_the_wire_it_names_nests_them():
     assert graph.is_runnable and graph.plan["ask"].series == "list.result" and graph.plan["list"].series == "upload.result"
 
 
-# -- the record type of a table -----------------------------------------------------------------------------
+# -- the row type of a table type ---------------------------------------------------------------------------
 
 
-def test_a_tables_record_type_allows_each_field_blank_and_is_one_type_per_row_type():
-    record = record_type(Table[Contact])
-    assert record.__annotations__ == {"name": str | None, "email": str | None} and record.__name__ == "Contact"
-    assert record_type(Table[Contact]) is record
-
-
-def test_a_table_of_any_columns_gives_a_dict_and_no_table_gives_none():
+def test_row_type_reads_the_row_type_out_of_a_table_type_any_for_any_columns_and_none_for_no_table():
     import polars
 
-    assert record_type(polars.DataFrame) is dict and record_type(list[str]) is None and record_type(str) is None
+    assert row_type(Table[Contact]) is Contact
+    assert row_type(polars.DataFrame) is Any and row_type(list[str]) is None and row_type(str) is None
+
+
+def test_a_hook_reads_the_row_type_of_the_table_arriving():
+    seen: list[Any] = []
+
+    def outputs(table: type) -> dict[str, Any]:
+        seen.append(row_type(table))
+        return {"result": int}
+
+    @node("look", title="Look", description="Looks at a table.", compute_outputs=outputs)
+    def look(table: Table) -> dict[str, Any]:
+        return {"result": 0}
+
+    registry = NodeRegistry()
+    registry.add_subregistry(REGISTRY)
+    registry.add(look)
+    graph = registry.load({"nodes": [{"id": "read", "node": "contacts"}, {"id": "look", "node": "look"}], "edges": [["read.result", "look.table"]]})
+    assert graph.is_runnable and seen == [Contact]

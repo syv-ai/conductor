@@ -31,7 +31,7 @@ print(graph.run(text="a\nb").outputs)  # {'text-uppercase.result': ['A', 'B']}
 
 A module holds one category, so a module's `registry` and a filter by category pick the same nodes: `conductor_nodes.registry.filter(lambda d: d.category == "math")`.
 
-`split` takes a table or a list apart, so what follows runs once for each record or item; a field of a record is wired as `split.result.email`, and a record's fields each take a blank, as a table's cell does. `table-collect` puts records back into one table: each name in `columns` is an input taking one value per record (blank where a record got none), each name in `constant_columns` an input taking one value for every record. `text-split` splits on a newline unless given another separator. `text-list` gives the texts typed into it; wire a Series to `for_each` and it gives them once for each item of it.
+`split` takes a table or a list apart, so what follows runs once for each record or item; a field of a record is wired as `split.result.email`. `table-collect` puts records back into one table: each name in `columns` is an input taking one value per record (blank where a record got none), each name in `constant_columns` an input taking one value for every record. `text-split` splits on a newline unless given another separator. `text-list` gives the texts typed into it; wire a Series to `for_each` and it gives them once for each item of it.
 
 `decision` gives its `value` on `if_true` or `if_false` by `when`, and what is wired to the other way doesn't run on that row. Its outputs take the type that arrives on `value`:
 

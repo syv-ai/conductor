@@ -64,7 +64,7 @@ from conductor._internal.fields import (
     read_field,
     read_given,
     record_fields,
-    record_type,
+    row_type,
     type_id,
     without_none,
 )
@@ -1008,7 +1008,7 @@ class _Loader:
         for name, plan in inputs.items():
             if isinstance(plan, Fed) and scope[: len(plan.scope)] != plan.scope:  # items of two Series never pair up
                 series = [scope[-1], plan.scope[-1]]
-                outer, inner = sorted(series, key=lambda port: list(self.nodes).index(port.node_id))  # placed later, so it can read the other
+                outer, inner = sorted(series, key=lambda port: list(self.nodes).index(port.node_id))  # the one placed later can read the other with no cycle
                 reading = next(n for n, p in inputs.items() if isinstance(p, Fed) and p.scope == scope)
                 self.problems.append(make_problem(
                     "series_not_nested", record.id, series=[str(s) for s in series], inputs=[reading, name],
@@ -1236,9 +1236,9 @@ def _split_gives(hint: Any) -> tuple[Literal["table", "list"], list[str]] | None
         columns, and for an item that is no record); ``None`` for a type that is neither a table nor a list.
     """
     hint = without_none(hint)
-    record = record_type(hint)
-    if record is not None:
-        return "table", list(record_fields(record))
+    row = row_type(hint)
+    if row is not None:
+        return "table", list(record_fields(row))
     if hint is list or typing.get_origin(hint) is list:
         return "list", list(record_fields(next(iter(typing.get_args(hint)), Any)))
     return None
@@ -1260,7 +1260,7 @@ def _mismatch(node_id: str, spec: FieldSpec, source: Source, wanted: Any) -> Pro
     if split and spec.shape == "one":
         said.update(hint="split_first", whole=split[0], fields=split[1])
     elif spec.shape == "table":
-        has = record_fields(record_type(source.type) or source.type)
+        has = record_fields(row_type(source.type) or source.type)
         missing = [column for column in spec.columns or {} if column not in has]
         if has and missing:
             said.update(hint="add_column", column=missing[0], column_type=spec.column_type_ids[missing[0]], has=list(has))

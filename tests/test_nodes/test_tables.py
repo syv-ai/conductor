@@ -12,7 +12,7 @@ from conductor_nodes import tables, text
 
 class Contact(TypedDict):
     name: str
-    email: str
+    email: str | None
 
 
 def _node(node_id: str):
@@ -86,12 +86,12 @@ def output(graph, node_id: str):
 # -- split ---------------------------------------------------------------------------------------------
 
 
-def test_split_gives_a_tables_records_each_field_allowed_blank_as_a_tables_cell_is():
+def test_split_gives_a_tables_records_typed_as_its_row_type_declares_them():
     graph = load(contacts, tables.split, edges=[("contacts.result", "split.value")])
     described = output(graph, "split")
     assert graph.problems == [] and (described.shape, described.type) == ("many", "record")
-    assert {name: field["anyOf"] for name, field in described.json_schema["properties"].items()} == {
-        "name": [{"type": "string"}, {"type": "null"}], "email": [{"type": "string"}, {"type": "null"}],
+    assert described.json_schema["properties"] == {
+        "name": {"title": "Name", "type": "string"}, "email": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Email"},
     }
     assert graph.run().results["split"]["result"] == [
         {"name": "Ann", "email": "ann@x.dk"}, {"name": "Bo", "email": None}, {"name": "Cy", "email": "cy@x.dk"},
@@ -148,7 +148,7 @@ def test_collect_types_its_table_by_the_records_and_what_arrives_on_each_new_col
     ], values={"table-collect.columns": ["sent"], "table-collect.constant_columns": ["team"]})
     assert graph.problems == []
     columns = output(graph, "table-collect").columns
-    assert list(columns) == ["name", "email", "sent", "team"]
+    assert list(columns) == ["name", "email", "sent", "team"] and columns["name"] == {"type": "string"}
     assert columns["sent"] == {"anyOf": [{"type": "string"}, {"type": "null"}]} and columns["team"] == {"type": "string"}
     feeds = {i.name: i.feed.mode for i in graph.describe().nodes["table-collect"].inputs}
     assert (feeds["records"], feeds["sent"], feeds["team"]) == ("gathered", "gathered", "one_value")

@@ -2,8 +2,9 @@
 
 ``split`` makes a ``Series`` of a table's records or a list's items, so what
 follows runs once for each. Its ``compute_outputs`` hook reads the type
-arriving on ``value``: a table gives its records, each field allowed blank as
-a table's cell is, and a list gives its items. The input is typed ``Any``,
+arriving on ``value``: a table gives its records, typed as its row type (a
+``dict`` of any fields for a table of any columns), and a list gives its
+items. The input is typed ``Any``,
 as a table can't stand in a union with a list, so the hook is what refuses a
 type that is neither.
 
@@ -19,7 +20,7 @@ import typing
 from typing import Annotated, Any, TypedDict
 
 import polars as pl
-from conductor import NodeError, NodeRegistry, Param, Series, Table, record_type
+from conductor import NodeError, NodeRegistry, Param, Series, Table, row_type
 from conductor.widgets import ListInput
 
 registry = NodeRegistry(category="table")
@@ -34,9 +35,9 @@ _Table: Any = Table
 def _items(value: type) -> dict[str, Any]:
     """A ``Series`` of what arrives on ``value``, one item at a time: a table's records or a list's items; ``Any``
     items until something is wired."""
-    record = record_type(value)
-    if record is not None:
-        return {"result": _Series[record]}
+    row = row_type(value)
+    if row is not None:
+        return {"result": _Series[dict if row is Any else row]}
     if value is Any or value is list:
         return {"result": _Series[Any]}
     if typing.get_origin(value) is list:

@@ -32,7 +32,7 @@ from conductor._internal.fields import (
     NamedType,
     Param,
     Series,
-    record_type,
+    row_type,
 )
 from conductor._internal.graph import Feed, Graph, GraphDescription, GraphInput, RunsOn
 from conductor._internal.node_definition import (
@@ -96,5 +96,5 @@ __all__ = [
     "Waiting",
     "make_graph",
     "node",
-    "record_type",
+    "row_type",
 ]
