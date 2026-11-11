@@ -2,6 +2,7 @@
 import dataclasses
 import datetime
 import json
+import logging
 import typing
 import warnings
 from dataclasses import dataclass
@@ -881,6 +882,50 @@ def test_a_hint_from_a_hook_naming_a_class_that_declares_no_type_id_is_the_hooks
 
     for hint in (Sheet, Series[Sheet]):
         assert codes(load(node("h", title="H", description="", compute_outputs=giving(hint))(h))) == ["compute_hook_failed"], hint
+
+
+def _computing(hook: Any) -> Any:
+    """A graph of one node, ``h``, whose outputs ``hook`` computes."""
+    def h(x: str = "a") -> dict:
+        return {}
+
+    return load(node("h", title="H", description="", compute_outputs=hook)(h))
+
+
+@pytest.mark.parametrize("returned", [None, ["result"], "result"])
+def test_a_hook_that_returns_no_mapping_is_the_hooks_failure_saying_what_a_hook_returns(returned: Any):
+    [problem] = _computing(lambda: returned).problems
+    assert (problem.type, problem.loc, problem.ctx["error"]) == ("compute_hook_failed", ("h",), "not_a_mapping")
+    assert f"a {type(returned).__name__}" in problem.msg and "by name" in problem.msg
+
+
+def test_a_hook_that_names_a_field_with_no_text_is_refused_by_that_name():
+    assert [(p.type, p.loc) for p in _computing(lambda: {1: int}).problems] == [("parameter_name_invalid", ("h", "1"))]
+
+
+def test_a_bug_in_a_host_types_own_schema_hook_raises_out_of_load_as_it_does_at_the_decorator():
+    """Only a class that declares no ``type_id`` or ``type_title`` is the hook's failure; any other ``AttributeError`` is the host's bug."""
+    class Buggy:
+        type_id: ClassVar[str] = "buggy"
+        type_title: ClassVar[str] = "Buggy"
+
+        @classmethod
+        def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> Any:
+            return handler.no_such_method(str)
+
+    with pytest.raises(AttributeError, match="no_such_method"):
+        _computing(lambda: {"result": Buggy})
+
+
+def test_a_hooks_own_exception_is_logged_with_its_traceback_as_a_nodes_own_failure_is(caplog):
+    def boom() -> dict[str, Any]:
+        return {}["missing"]
+
+    with caplog.at_level(logging.ERROR, logger="conductor"):
+        [problem] = _computing(boom).problems
+    assert (problem.type, problem.ctx["error"]) == ("compute_hook_failed", "KeyError")
+    logged = caplog.records[0]  # once for each time the graph is loaded
+    assert logged.exc_info is not None and logged.exc_info[0] is KeyError and "'h'" in logged.getMessage() and "compute_outputs" in logged.getMessage()
 
 
 def test_a_hook_adding_an_input_whose_name_an_address_cannot_carry_is_refused():

@@ -38,6 +38,7 @@ import hashlib
 import heapq
 import inspect
 import itertools
+import logging
 import types
 import typing
 from collections.abc import Callable, Mapping
@@ -78,6 +79,9 @@ from conductor._internal.record import GraphRecord, NodeRecord
 
 if TYPE_CHECKING:
     from conductor._internal.run import Run, SaveForm
+
+_logger = logging.getLogger("conductor")
+
 
 #: One output of one node.
 class Port(NamedTuple):
@@ -1237,19 +1241,27 @@ class _Loader:
             self.problems.append(make_problem("compute_hook_failed", record.id, reason=error.message, error=error.code, **own))
             return None
         except Exception as error:  # noqa: BLE001  the hook's failure is this node's problem
+            _logger.error("the %s hook of node %r failed", kind, record.id, exc_info=error)
             self.problems.append(make_problem("compute_hook_failed", record.id, reason=str(error), error=type(error).__name__))
             return None
         try:
             hints = _HOOK_FIELDS.validate_python(returned)
         except pydantic.ValidationError as invalid:
-            self.problems.extend(make_problem("parameter_name_invalid", record.id, str(error["loc"][0])) for error in invalid.errors())
+            for fault in invalid.errors():
+                if fault["loc"]:  # a name refused: the place is the name
+                    self.problems.append(make_problem("parameter_name_invalid", record.id, str(fault["loc"][0])))
+                else:  # the value itself refused: it is no mapping
+                    reason = f"its {kind} hook returned a {type(returned).__name__}; a hook returns its fields by name, as a mapping of each name to its type"
+                    self.problems.append(make_problem("compute_hook_failed", record.id, reason=reason, error="not_a_mapping"))
             return None
         try:
             return {name: Field(name, *_hint_and_default(hint)) for name, hint in hints.items()}
         except NodeDeclarationError as error:  # a hint conductor can't carry is the hook's failure
             self.problems.append(make_problem("compute_hook_failed", record.id, reason=error.message, error=error.code))
             return None
-        except AttributeError as error:  # a host's class that declares no type_id or type_title
+        except AttributeError as error:
+            if error.name not in ("type_id", "type_title"):  # any other is a bug in the host's own code, as at @node
+                raise
             self.problems.append(make_problem("compute_hook_failed", record.id, reason=str(error), error="AttributeError"))
             return None
 
