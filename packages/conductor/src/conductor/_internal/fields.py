@@ -206,8 +206,9 @@ class Param:
             layer = layer["schema"]  # type: ignore[typeddict-item]  # every schema that wraps another names it so
         unheld = sorted(self.limits.keys() - held)
         if unheld and functions <= len(unheld):
+            written = source.__name__ if isinstance(source, type) else str(source)  # as its developer wrote it
             raise NodeDeclarationError(
-                f"{unheld} can't apply to {Type(source).id}, as pydantic holds no such limit on it; take them off, or check the value in the node",
+                f"{unheld} can't apply to {written}, as pydantic holds no such limit on it; take them off, or check the value in the node",
                 code="bound_invalid",
             )
         if self.choices is None:

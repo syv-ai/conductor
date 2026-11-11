@@ -1105,6 +1105,15 @@ def test_a_series_that_may_be_none_is_still_many_values():
     assert [(i.many, i.type) for i in f.describe().inputs] == [(True, "int")]
 
 
+def test_a_limit_its_type_cant_hold_names_the_type_as_it_is_written():
+    def f(x: Annotated[str | None, Param(ge=0)] = None) -> str:
+        return ""
+
+    with pytest.raises(NodeDeclarationError) as raised:
+        declared(f)
+    assert "['ge'] can't apply to str | None, as pydantic holds no such limit on it" in str(raised.value)
+
+
 def test_a_wrongly_typed_limit_is_refused_as_a_bound():
     def f(x: Annotated[int, Param(ge="a")]) -> int:
         return x

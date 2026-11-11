@@ -1018,7 +1018,7 @@ except NodeDeclarationError as error:
 
 ### `bound_invalid`
 
-> {unheld} can't apply to {Type(source).id}, as pydantic holds no such limit on it; take them off, or check the value in the node
+> {unheld} can't apply to {written}, as pydantic holds no such limit on it; take them off, or check the value in the node
 
 > the limits {param.limits} don't fit {self.id}, so change one: {error}
 
