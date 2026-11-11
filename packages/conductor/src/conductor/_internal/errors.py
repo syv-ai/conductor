@@ -63,7 +63,7 @@ from conductor._internal.conductor_model import ConductorModel
 #: translates by code covers ``PROBLEM_CODES``.
 PROBLEM_CATALOGUE: Mapping[str, str] = {
     # -- what loading finds in a graph -----------------------------------------
-    "compute_hook_failed": "The node could not work out its fields from what it was given: {reason}. Check what is typed into the node.",
+    "compute_hook_failed": "The node could not work out its fields from what it was given: {reason}. Check what is typed into the node and what is wired to it.",
     "cycle": "The node is part of a cycle, so the graph cannot run; remove one of the edges that close it.",
     "duplicate_node_id": "Two nodes have the id '{node_id}'; rename one.",
     "edge_names_missing_node": "The edge from '{source}' to '{target}' names '{node_id}', which is not a node of the graph; add that node or remove the edge.",
@@ -80,7 +80,7 @@ PROBLEM_CATALOGUE: Mapping[str, str] = {
     ),
     "several_edges_into_one_input": (
         "More than one of the edges into '{field}', from {sources}, can hold a value on the same call. "
-        "Feed it from opposite branches of one decision, or join them in a node with an input for each."
+        "Feed it from opposite branches of one decision, or put a node between that has an input for each."
     ),
     "series_inputs_never_share_an_item": (
         "{inputs} read branches that never both have a value for an item, so no item would reach the node. "
@@ -100,7 +100,7 @@ PROBLEM_CATALOGUE: Mapping[str, str] = {
     "value_and_edge": "Field '{field}' has an edge and a typed-in value; keep one.",
     # -- what a call is refused for ----------------------------------------------
     "invalid_record": "The record is not a graph record at '{at}': {reason}. Fix the record's JSON.",
-    "answer_stale": "The question {waiting_id!r} was answered for has changed where it waited; it is now {current!r}, so answer that one.",
+    "answer_stale": "The answer was given for {waiting_id!r}, and another question waits at that place by now, {current!r}; show that one and answer it.",
     "cannot_move_to_version": "'{node}' cannot move from version {version} to {target}; it has {versions}.",
     "from_run_missing": "'{node_id}' needs a {needs} for '{parameter}', and from_run gives none (it gives {given}); pass from_run={{{needs}: ...}}.",
     "from_run_ambiguous": "'{node_id}' needs a {needs} for '{parameter}', and from_run gives more than one ({given}); key the one to use by {needs}.",

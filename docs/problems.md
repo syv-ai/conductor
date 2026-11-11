@@ -114,7 +114,7 @@ print(problems({
 
 ### `compute_hook_failed`
 
-> The node could not work out its fields from what it was given: {reason}. Check what is typed into the node.
+> The node could not work out its fields from what it was given: {reason}. Check what is typed into the node and what is wired to it.
 
 ```python
 def by_names(names: str) -> dict[str, type]:
@@ -296,7 +296,7 @@ print(unpaired.type, unpaired.ctx["wire_from"], unpaired.ctx["wire_into"])  # se
 
 ### `several_edges_into_one_input`
 
-> More than one of the edges into '{field}', from {sources}, can hold a value on the same call. Feed it from opposite branches of one decision, or join them in a node with an input for each.
+> More than one of the edges into '{field}', from {sources}, can hold a value on the same call. Feed it from opposite branches of one decision, or put a node between that has an input for each.
 
 ```python
 print(problems({
@@ -475,7 +475,7 @@ Raised as `InvalidCallError` by the call that caused it; `error.errors()` lists 
 
 ### `answer_stale`
 
-> The question {waiting_id!r} was answered for has changed where it waited; it is now {current!r}, so answer that one.
+> The answer was given for {waiting_id!r}, and another question waits at that place by now, {current!r}; show that one and answer it.
 
 ```python
 approving = registry.load({"nodes": [{"id": "approve", "node": "approve"}]})
