@@ -69,7 +69,9 @@ What changes in how you work, before the name-by-name tables:
   so is one typed in (`invalid_value`). Items of two Series meeting at one node are refused
   (`series_not_nested`) until one is made inside the other. `graph.plan` says how often each node
   runs, before any run. A blank keeps the node from being called for that item unless its input
-  says `| None`. Each item
+  says `| None`. A node that gathers leaves out only what was decided per item: when no item
+  could bring a value, for a branch not taken or a blank outside the items, it is skipped or not
+  called, with two items as with none, and `Series[X | None]` receives a blank in each item's place. Each item
   of a list given there is held to the input's limits and choices, as one value is. A choice is
   read as its answer would be: strictly from its JSON form, held to the field's limits, so an enum's
   value or a date's ISO text is a choice. A value an edge brings is held to the input's limits and choices
@@ -135,7 +137,10 @@ What changes in how you work, before the name-by-name tables:
 - **A declared choice's `id` is the field type's JSON form.** `Decimal` choices show `"1"` and a `datetime` its seconds, so the id a question shows is an answer it takes.
 - **A table answer and a caller's records have one reader.** Extra columns are dropped for every table from outside, and a missing column is refused. An answer's cells are read strictly from their JSON form; a caller's records are read cell by cell, laxly, never from polars' dtype, so a bool among ints or a number among texts is `invalid_input`. A value that is neither a frame nor a list of records is refused as `invalid_answer` or `invalid_input` with the reason "a table is a frame or a list of records, one object per row".
 - **A default no caller reaches is a problem at load.** `make_graph(..., defaults={"pad.width": 8})` on a node that is not an open input of the graph writes the record, and `registry.load(record).problems` holds `default_on_later_node`.
-- **`run.not_called` is a list of `NotCalled` records** (`loc`, `input`), exported from `conductor`, not a list of dicts.
+- **`run.not_called` is a list of `NotCalled` records** (`loc`, `input`), exported from `conductor`, not a list of dicts. It is in item order on a live run, in a checkpoint and after a load.
+- **A graph with problems is still drawn.** `graph.describe()` gives a node with a problem its fields and where it runs (`loaded` true), and the nodes that read it too; an input whose edge is refused is fed `unset`, a mode `Feed.mode` gains. `loaded` is false only where a node's fields aren't known.
+- **Faults say more.** `invalid_edge_value` carries `ctx.field` when an edge names a field its record lacks. A hook that returns no mapping is `compute_hook_failed` with `error: not_a_mapping`; an `AttributeError` in a hook's hint, other than a type with no `type_id` or `type_title`, is the host's own bug and raises out of `load`. `table-collect` fails with `columns_not_aligned` (`column`, `records`, `values`) when a column doesn't hold one value per record.
+- **`SKIPPED` returned is a result.** A function that returns `SKIPPED` was called: `again` reuses it and a save writes its unit as `done`. `node_skipped` is said for a node whose every unit is a branch not taken, a decision whose every output is `SKIPPED` included; a node with no output that returns `SKIPPED` says `node_complete`.
 - **A run handed back at shutdown has no `cause`.** The row's `cause` is null and its status `running`: the run did not end early, so it is `Going`.
 - **The runs router takes an answer whenever the run does.** `POST /runs/{id}/answers` on a run that `failed`, `stopped` or `timed_out` gives the answers to `run.answer` and starts the next leg, so one item that keeps failing doesn't make the questions beside it unanswerable; what the run refuses is a 422 with its problems (`not_waiting`, `run_cancelled`), and only a `complete` run is a 409. Answers queued during a leg are given to the run that leg ended with, whatever its status; a leg that raised keeps them queued. The code `run_not_waiting` is gone.
 - **A leg's end is stored once, when the router has decided what it is.** A run handed back at shutdown stores no `run_end` (it read `cancelled`, for a run nobody cancelled that another worker then finished), so a follower's stream goes on into the next worker's events. A leg that raised outside a node reads `failed` with a cause, `leg_failed`, in `GET /runs/{id}` and on its `run_end` (the cause was null). The router's own codes are in `conductor_providers.fastapi.ROUTER_PROBLEM_CODES`.
@@ -181,7 +186,7 @@ Every public name of 1.12.2, by the module it was imported from. A name not list
 | **Widgets** | |
 | `conductor.widgets.Checkbox` | `Switch` |
 | `conductor.widgets.CodeEditor` | gone: a host subclasses `Widget` |
-| `conductor.widgets.ColumnSelect` | gone: an edge names a column, `node.output.column` |
+| `conductor.widgets.ColumnSelect` | gone: an edge names one field of a record, `node.output.field`, after a node that gives a table's records one at a time (`split`) |
 | `conductor.widgets.ConditionBuilder` | gone: a host subclasses `Widget` |
 | `conductor.widgets.ConnectionList` | gone: a `Series[X]` input takes every edge into it |
 | `conductor.widgets.DatePicker` | `DatePicker` |
@@ -369,7 +374,7 @@ A 1.x `Flow` becomes a `GraphRecord`, `{"nodes": [...], "edges": [[from, to], ..
 | `GraphEdge.id` | gone: an edge is its two addresses |
 | `GraphEdge.source` | the first address's node: `source.output` |
 | `GraphEdge.target` | the second address's node |
-| `GraphEdge.source_handle` | the first address's field, `source.output`, or `source.output.column` for a table's column |
+| `GraphEdge.source_handle` | the first address's field, `source.output`, or `source.output.field` for one field of a record of a `Series` (a table's column is no address: `split` gives its records one at a time) |
 | `GraphEdge.target_handle` | the second address's field, `target.input` |
 | `GraphEdge.when` | gone: a branch is an output of one `exclusive_group`; wire from that output |
 | `GraphEdge.priority` | gone: edges are kept sorted; several into one input are alternatives, opposite branches of one decision |

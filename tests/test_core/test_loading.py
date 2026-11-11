@@ -680,7 +680,7 @@ def _drawn(graph: Any, node_id: str) -> tuple[bool, str | None, dict[str, str], 
 
 
 def test_a_node_with_a_refused_edge_is_drawn_with_its_fields_and_so_is_a_sound_node_that_reads_it():
-    """The node its problem is on keeps its fields, the refused input marked; what reads it is planned as ever."""
+    """The node its problem is on keeps its fields, the refused input marked; what reads it is planned as in a graph with no problem."""
     graph = REGISTRY.load({
         "nodes": [{"id": "f", "node": "fan"}, {"id": "u", "node": "upper"}, {"id": "t", "node": "tail"}, {"id": "j", "node": "join"}],
         "edges": [["f.result", "u.text"], ["u.result", "t.text"], ["t.result", "j.texts"]],

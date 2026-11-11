@@ -214,6 +214,11 @@ def sheets(text: str) -> Series[Table]:
     return [pl.DataFrame({"letter": list(word)}) for word in text.split()]
 
 
+@_node("note")
+def note(text: str) -> None:
+    CALLS["note"] += 1
+
+
 def chain(*nodes: tuple[str, str]) -> dict[str, Any]:
     """Nodes in a line, each reading the ``result`` of the one before into its ``text``."""
     return {"nodes": [{"id": i, "node": n} for i, n in nodes], "edges": [[f"{a[0]}.result", f"{b[0]}.text"] for a, b in zip(nodes, nodes[1:], strict=False)]}
@@ -246,6 +251,7 @@ INNER = {
     "stamped-inner": chain(("s", "stamp"), ("up", "upper")),
     "staggered-inner": chain(("s", "stagger"), ("q", "ask")),
     "count-inner": chain(("n", "count")),  # its one node gathers
+    "quiet-inner": chain(("n", "note")),  # it has no output
     "self-a": chain(("x", "self-b")),
     "self-b": chain(("y", "self-a")),
     "deciding-inner": {
@@ -255,7 +261,7 @@ INNER = {
 }
 
 REGISTRY = NodeRegistry()
-for _definition in (words, sentences, chars, upper, exclaim, greet, count, ask, fetch, flaky, stuck, boom, maybe, decide, signed, columns, table, stamp, stagger, letters, height, sheets, record):
+for _definition in (words, sentences, chars, upper, exclaim, greet, count, ask, fetch, flaky, stuck, boom, maybe, decide, signed, columns, table, stamp, stagger, letters, height, sheets, record, note):
     REGISTRY.add(_definition)
 for _id, _record in INNER.items():
     REGISTRY.add(_node(_id)(_record))
@@ -816,3 +822,37 @@ def test_values_of_any_type_made_per_item_are_gathered_as_records_by_a_table_inp
     assert not graph.problems, graph.problems
     run = graph.run(text="ab c d")
     assert (graph.plan["h"].mode, run.status, run.results["h"]["result"]) == ("once", "complete", 3)
+
+
+def _said_of(events, node_id: str) -> list[tuple[str, tuple]]:
+    return [(event.type, event.loc) for event in events if getattr(event, "loc", ())[:1] == (node_id,)]
+
+
+def test_an_embedded_graph_with_no_output_says_the_same_on_a_fresh_run_and_on_one_loaded_before_anything_inside_ran():
+    graph = load({"e": "quiet-inner"})
+    said = [("node_start", ("e",)), ("node_start", ("e", "n")), ("node_complete", ("e", "n")), ("node_complete", ("e",))]
+    assert _said_of(stream(graph.with_inputs(text="x")), "e") == said
+    assert _said_of(stream(graph.load_run(graph.with_inputs(text="x").to_json())), "e") == said
+
+
+def test_an_embedded_graph_with_no_output_is_done_when_the_nodes_inside_it_are_and_not_before():
+    graph = load({"q": "ask", "e": "quiet-inner"}, [("q.result", "e.text")])
+    CALLS.clear()
+    waiting = graph.run(text="x")
+    first = stream(graph.with_inputs(text="x"))
+    assert (waiting.status, _said_of(first, "e"), CALLS["note"]) == ("waiting", [], 0)
+    for run in (waiting, graph.load_run(waiting.to_json())):
+        said = _said_of(stream(run.answer(run.waiting[0].id, "y")), "e")
+        assert said == [("node_start", ("e",)), ("node_start", ("e", "n")), ("node_complete", ("e", "n")), ("node_complete", ("e",))]
+
+
+def test_an_embedded_graph_of_no_nodes_runs_to_nothing_as_a_graph_of_no_nodes_does():
+    registry = NodeRegistry()
+    registry.add(upper)
+    registry.add(_node("nothing")({"nodes": [], "edges": []}))
+    alone = registry.load({"nodes": [], "edges": []}).run()
+    graph = registry.load({"nodes": [{"id": "u", "node": "upper"}, {"id": "e", "node": "nothing"}], "edges": []})
+    run = graph.run(text="x")
+    assert graph.problems == [] and (alone.status, alone.results) == ("complete", {})
+    assert (run.status, run.results) == ("complete", {"u": {"result": "X"}, "e": {}})
+    assert graph.load_run(run.to_json()).results == run.results

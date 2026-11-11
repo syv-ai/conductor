@@ -48,6 +48,7 @@ from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.fields import SKIPPED, Field, FieldValueError, Records, Type, written_table
 from conductor._internal.graph import (
     Cell,
+    CellRead,
     Fixed,
     FunctionAtPath,
     Gather,
@@ -61,6 +62,7 @@ from conductor._internal.graph import (
     SeriesOfOne,
 )
 from conductor._internal.node_definition import Returns, from_run_values
+from conductor._internal.outside_the_items import COULD, could_bring
 from conductor._internal.problem import InvalidCallError, Problem, make_problem, value_free_errors
 
 if TYPE_CHECKING:
@@ -617,14 +619,16 @@ class Run:
         An output made once inside is the inner unit's own: its value, ``SKIPPED`` for a branch not taken, ``None``
         for a blank, so what reads the embedded graph's node is skipped or left uncalled as it would be reading
         the node inside. One made per item inside, at any depth, is every item's in order, and a ``Series`` made
-        per item is a list of lists.
+        per item is a list of lists; where the Series those items are of was never made, for a blank or a branch
+        not taken, it is that blank or that branch not taken, as the nodes drawn in the graph itself hold.
 
         Returns:
-            The outputs by address, or ``PENDING`` until every one of them is settled for the instance.
+            The outputs by address, or ``PENDING`` until every one of them is settled for the instance, and
+            every node inside that ends the graph with no output.
         """
         units, base = self._units[node.path], len(key)
         out: dict[str, Any] = {}
-        for address, cell, maps, lists in node.offers:
+        for address, (cell, maps, lists, series) in node.offers.items():
             if len(maps) == base:  # made once inside: the inner unit's own
                 unit = units[cell.node_id].get(key)
                 kind = type(unit)
@@ -635,16 +639,31 @@ class Run:
                 else:
                     return PENDING
             else:
+                made = _cell(units, base, series, key)  # type: ignore[arg-type]  # an output made per item has its Series
+                if made is PENDING:
+                    return PENDING
+                if made is None or made is SKIPPED:  # the Series was never made, so nor was the output: no list of no items
+                    out[address] = made
+                    continue
                 instances, known = self._instances(maps, key)
                 if not known:
                     return PENDING
-                value = [_cell(units, base, cell, instance) for instance in instances]
+                value = [_cell(units, len(maps), cell, instance) for instance in instances]
                 for one in value:
                     if one is PENDING:
                         return PENDING
                 if lists:
                     value = [[None if item is SKIPPED else item for item in one] if type(one) is list else one.records() if type(one) is Records else one for one in value]
             out[address] = value
+        for last in node.ends_silently:  # nothing to offer, and still what the graph inside came to
+            instances, known = self._instances(last.maps, key)
+            if not known:
+                return PENDING
+            held = units[last.placed.id]
+            for instance in instances:
+                unit = held.get(instance)
+                if unit is None or type(unit) is Asking:
+                    return PENDING
         return out
 
     def _settle(self, node: GraphAtPath, instances: Iterable[Key]) -> None:
@@ -778,6 +797,15 @@ class Run:
             keys = below
         return keys, complete
 
+    def _has_every_unit(self, node: NodeAtPath) -> bool:
+        """Whether every instance of ``node`` holds a unit, one waiting for a person included, and every Series
+        it runs per item of is made, so no instance is still to come."""
+        units = self._units[node.inside][node.placed.id]
+        if not node.maps:
+            return bool(units)
+        counted, known = self._instances(node.maps, (), counted=True)
+        return known and len(units) == (counted[0][0] if counted else 0)
+
     def _inputs(self, node: FunctionAtPath, key: Key) -> Any:
         """What ``node`` receives in the instance ``key``.
 
@@ -795,52 +823,100 @@ class Run:
         kwargs: dict[str, Any] = {}
         blank: Blank | None = None
         pending = False
-        gathered: dict[str, tuple[Gather, _UnitsOfAGraph, list[Any]]] = {}
-        own, own_base = self._units[node.inside], node.base
-        try:
-            for name, (plan, giver) in node.inputs.items():
-                kind = type(plan)
-                if kind is Fixed:
-                    kwargs[name] = plan.value  # type: ignore[union-attr]
-                    continue
-                if kind is Open:  # a first node of the graph itself, or of a graph embedded in one: the caller gives it
-                    kwargs[name] = self.inputs[plan.address]  # type: ignore[union-attr]
-                    continue
-                if giver is None:
-                    units, base = own, own_base
-                else:
-                    units, base = self._units[giver.inside], giver.base
+        gathered: dict[str, tuple[Gather, _UnitsOfAGraph, CellRead, list[Any]]] = {}
+        own = self._units[node.inside]
+        for name, (plan, giver, cells) in node.inputs.items():
+            kind = type(plan)
+            if kind is Fixed:
+                kwargs[name] = plan.value  # type: ignore[union-attr]
+                continue
+            if kind is Open:  # a first node of the graph itself, or of a graph embedded in one: the caller gives it
+                kwargs[name] = self.inputs[plan.address]  # type: ignore[union-attr]
+                continue
+            units = own if giver is None else self._units[giver.inside]
+            try:
                 if kind is Gather:
-                    value = _gathered(units, base, plan, key)  # type: ignore[arg-type]
+                    value = self._gathered(node.inside if giver is None else giver.inside, plan, cells, node.gathered_through[name], key)  # type: ignore[arg-type]
                 else:  # one value: the first edge whose branch was taken
                     value = SKIPPED
-                    for source in plan.sources:  # type: ignore[union-attr]
-                        value = _cell(units, base, source, key)
+                    for source, depth in cells:
+                        value = _cell(units, depth, source, key)
                         if value is not SKIPPED:
                             break
-                    if kind is SeriesOfOne and value is not None and value is not SKIPPED and value is not PENDING:
-                        value = [value]
-                if value is SKIPPED:
-                    return SKIPPED_UNIT
-                if value is PENDING:  # a later input may be skipped, which settles the unit whatever this one comes to
-                    pending = True
-                elif value is None:
-                    if not plan.spec.whole.optional and blank is None:
-                        blank = Blank(name)
-                    kwargs[name] = None
-                elif kind is Gather:
-                    gathered[name] = (plan, units, value)  # type: ignore[assignment]
-                else:
-                    kwargs[name] = value
-        except FieldValueError as missing:  # raised reading the input ``name``
-            return make_problem(missing.code, *unit_loc(node, key), name=name, reason=missing.reason, **missing.ctx)
+                    if kind is SeriesOfOne and value is not SKIPPED and value is not PENDING and (value is not None or plan.spec.keeps_blanks):
+                        value = [value]  # a Series of one, whose one item is blank where the items take a blank
+            except FieldValueError as missing:  # an edge into this input names a field its record doesn't have
+                return make_problem(missing.code, *unit_loc(node, key), name=name, reason=missing.reason, **missing.ctx)
+            if value is SKIPPED:
+                return SKIPPED_UNIT
+            if value is PENDING:  # a later input may be skipped, which settles the unit whatever this one comes to
+                pending = True
+            elif value is None:
+                if not plan.spec.whole.optional and blank is None:
+                    blank = Blank(name)
+                kwargs[name] = None
+            elif kind is Gather:
+                gathered[name] = (plan, units, cells[0], value)  # type: ignore[assignment]
+            else:
+                kwargs[name] = value
         if pending:
             return PENDING
         if blank is not None:
             return blank
-        for name, (plan, units, items) in gathered.items():
-            kwargs[name] = _aligned(plan, units, items, gathered)
+        for name, (plan, units, series, items) in gathered.items():
+            kwargs[name] = _aligned(plan, units, series, items, gathered)
         return kwargs
+
+    def _gathered(self, inside: NodePath, plan: Gather, cells: tuple[CellRead, ...], through: tuple[NodeAtPath, ...], key: Key) -> Any:
+        """The items a gathering input gets in the instance ``key``, with ``None`` for an item that has no value.
+
+        What is outside the items is asked first whether any item could bring a value (``could_bring``). When
+        none could, that is the answer for any number of items, none included. When one could, each item
+        answers for itself: one with no value, for a blank or a branch not taken, holds ``None``.
+
+        Args:
+            inside: The path of the embedded graph's node the plan was made in the graph of; ``()`` for the
+                run's own graph.
+            plan: The input's plan.
+            cells: The cells the input reads where its node stands: the Series, then what each edge brings.
+            through: The nodes the input gathers through, as the tree keeps them; none when nothing outside
+                the items but the Series itself has a say.
+            key: The instance of the node that gathers.
+
+        Returns:
+            The list, one place per item of the Series; ``PENDING`` until what is outside and every item is
+            settled; ``SKIPPED`` when no item could bring a value for a branch not taken outside the items;
+            ``None`` when none could for a blank there.
+        """
+        (series_made, gathered_in), *edges = cells
+        key = key[:gathered_in]
+        units = self._units[inside]
+        series = _cell(units, gathered_in, series_made, key)
+        if through:
+            certain = could_bring(plan, cells, through, inside, self.graph._node_at, _AsItStands(self, key))
+            if certain is not COULD:
+                return certain
+        elif series is PENDING or series is SKIPPED or series is None:  # nothing outside but the Series has a say
+            return series
+        if len(edges) == 1 and type(edges[0][0]) is Item:  # the Series itself: its items, or one field of each
+            wanted = edges[0][0].field
+            if type(series) is Records:
+                return series.records() if wanted is None else _field_of(series.columns, wanted)
+            if wanted is None:
+                return [None if item is SKIPPED else item for item in series] if any(item is SKIPPED for item in series) else series
+            return [None if item is SKIPPED or item is None else _field_of(item, wanted) for item in series]
+        items = []
+        per_item = [(source, gathered_in if type(source) is Item else gathered_in + 1) for source, _ in edges]  # an item of the Series' unit, or a unit made for the item
+        for place in range(len(series)):
+            value = SKIPPED
+            for source, depth in per_item:
+                value = _cell(units, depth, source, (*key, place))
+                if value is PENDING:
+                    return PENDING
+                if value is not SKIPPED:
+                    break
+            items.append(None if value is SKIPPED else value)
+        return items
 
     # -- JSON -------------------------------------------------------------------
 
@@ -871,8 +947,7 @@ class Run:
         """A node's units with a slot for each instance of the node, in instance order; ``None`` where the
         instance hasn't run."""
         units = self._units[node.inside][node.placed.id]
-        counted, _ = self._instances(node.maps, (), counted=True)
-        if len(units) == ((counted[0][0] if counted else 0) if node.maps else 1):  # every instance ran: the units as they stand
+        if self._has_every_unit(node):  # the units as they stand
             return list(units.values())
         return [units.get(instance) for instance in self._instances(node.maps, ())[0]]
 
@@ -892,12 +967,39 @@ class Run:
         return copy
 
 
-def _cell(units: _UnitsOfAGraph, base: int, cell: Cell, key: Key) -> Any:
+class _AsItStands:
+    """What was made outside the items of a gathering input, as it stands for the instance the input gathers in:
+    the reader a run hands the question of what is outside the items.
+
+    Attributes:
+        run: The run.
+        key: The instance the input gathers in.
+    """
+
+    __slots__ = ("key", "run")
+
+    def __init__(self, run: Run, key: Key) -> None:
+        self.run, self.key = run, key
+
+    def cell(self, inside: NodePath, depth: int, cell: Cell) -> Any:
+        """What ``cell`` holds there: ``COULD`` for a value, else ``SKIPPED``, ``None`` or ``PENDING``."""
+        value = _cell(self.run._units[inside], depth, cell, self.key)
+        return value if value is PENDING or value is SKIPPED or value is None else COULD
+
+    def gathered(self, inside: NodePath, plan: Gather, cells: tuple[CellRead, ...], through: tuple[NodeAtPath, ...]) -> Any:
+        """What the gathering input of ``plan`` gathers there: ``COULD`` for a list, else ``SKIPPED``, ``None``
+        or ``PENDING``."""
+        value = self.run._gathered(inside, plan, cells, through, self.key)
+        return value if value is PENDING or value is SKIPPED or value is None else COULD
+
+
+def _cell(units: _UnitsOfAGraph, depth: int, cell: Cell, key: Key) -> Any:
     """What ``cell`` holds for the instance ``key`` or one under it, as an edge brings it.
 
     Args:
         units: The units of the graph the cell's node is in.
-        base: How many places of ``key`` are of the items of the embedded graph's node that graph is inside.
+        depth: How many places of ``key`` say which unit of the cell's node holds it, as the reading node's
+            ``inputs`` give it.
         cell: The cell.
         key: The instance of the node that reads.
 
@@ -906,7 +1008,6 @@ def _cell(units: _UnitsOfAGraph, base: int, cell: Cell, key: Key) -> Any:
         ``PENDING`` while its unit hasn't run or waits for a person; ``SKIPPED`` for a branch not taken, which
         an output of an exclusive group is where its node wasn't called; ``None`` for a blank.
     """
-    depth = base + len(cell.scope)
     unit = units[cell.node_id].get(key[:depth])
     kind = type(unit)
     if kind is Done or kind is Answered:
@@ -922,75 +1023,10 @@ def _cell(units: _UnitsOfAGraph, base: int, cell: Cell, key: Key) -> Any:
     if type(cell) is Item:
         if type(value) is Records:  # held by column: the cell an edge names, with no record built
             wanted = cell.field  # type: ignore[attr-defined]
-            if wanted is None:
-                return value[key[depth]]
-            try:
-                return value.columns[wanted][key[depth]]
-            except KeyError:
-                raise _no_such_field(wanted) from None
+            return value[key[depth]] if wanted is None else _field_of(value.columns, wanted)[key[depth]]
         value = value[key[depth]]
     field = cell.field  # type: ignore[attr-defined]
     return value if field is None or value is None or value is SKIPPED else _field_of(value, field)
-
-
-def _gathered(units: _UnitsOfAGraph, base: int, plan: Gather, key: Key) -> Any:
-    """The items a gathering input gets in the instance ``key``, with ``None`` for an item that has no value.
-
-    Args:
-        units: The units of the graph the plan was made in.
-        base: How many places of ``key`` are of the items of the embedded graph's node that graph is inside.
-        plan: The input's plan.
-        key: The instance of the node that gathers.
-
-    Returns:
-        The list, one place per item of the Series; ``PENDING`` until every item is settled; ``SKIPPED`` when
-        every edge is skipped where the node runs or above; ``None`` when the Series is blank, or an edge whose
-        branch was taken is blank where the node runs or above.
-    """
-    key = key[: base + len(plan.series.scope)]
-    live = []
-    blank = False
-    for source, gate in zip(plan.sources, plan.gates, strict=True):
-        taken = True
-        for cells in gate.skips:
-            held = [_cell(units, base, cell, key) for cell in cells]
-            if any(value is PENDING for value in held):  # asked by identity: a cell may hold a table, which has no plain ==
-                return PENDING
-            if all(value is SKIPPED for value in held):
-                taken = False
-        if taken:
-            live.append(source)
-            for cell in gate.blanks:
-                value = _cell(units, base, cell, key)
-                if value is PENDING:
-                    return PENDING
-                if value is None:
-                    blank = True
-    if not live:
-        return SKIPPED
-    if blank:
-        return None
-    series = _cell(units, base, plan.series, key)
-    if series is None:
-        return None
-    if len(live) == 1 and type(live[0]) is Item:  # the Series itself: its items, or one field of each
-        wanted = live[0].field
-        if type(series) is Records:
-            return series.records() if wanted is None else _field_of(series.columns, wanted)
-        if wanted is None:
-            return [None if item is SKIPPED else item for item in series] if any(item is SKIPPED for item in series) else series
-        return [None if item is SKIPPED or item is None else _field_of(item, wanted) for item in series]
-    items = []
-    for place in range(len(series)):
-        value = SKIPPED
-        for source in live:
-            value = _cell(units, base, source, (*key, place))
-            if value is PENDING:
-                return PENDING
-            if value is not SKIPPED:
-                break
-        items.append(None if value is SKIPPED else value)
-    return items
 
 
 def no_units(graph: Graph) -> dict[NodePath, _UnitsOfAGraph]:
@@ -1034,17 +1070,19 @@ def waiting_unit(node: FunctionAtPath, key: Key, unit: Asking) -> Waiting:
     )
 
 
-def _aligned(plan: Gather, units: _UnitsOfAGraph, items: list[Any], gathered: Mapping[str, tuple[Gather, _UnitsOfAGraph, list[Any]]]) -> list[Any]:
+def _aligned(plan: Gather, units: _UnitsOfAGraph, series: CellRead, items: list[Any], gathered: Mapping[str, tuple[Gather, _UnitsOfAGraph, CellRead, list[Any]]]) -> list[Any]:
     """The items one gathering input receives: those that have a value in every input of the node that gathers
     the same Series, so those inputs stay in step; an input whose items may be blank keeps a blank in its place.
 
     Args:
         plan: The input's plan.
-        units: The units of the graph the plan was made in, which with the plan's Series says which Series it is.
+        units: The units of the graph the plan was made in, which with ``series`` says which Series it is.
+        series: The Series the input gathers, as the node's ``inputs`` give it.
         items: What the input gathered, one place per item of the Series.
-        gathered: Every gathering input of the node, by name: its plan, the units of its plan's graph, its items.
+        gathered: Every gathering input of the node, by name: its plan, the units of its plan's graph, its
+            Series, its items.
     """
-    together = [(others, other.spec.keeps_blanks) for other, theirs, others in gathered.values() if other.series == plan.series and theirs is units]
+    together = [(others, other.spec.keeps_blanks) for other, theirs, of, others in gathered.values() if of == series and theirs is units]
     if len(together) == 1:
         return items if together[0][1] else [item for item in items if item is not None]  # by identity: an item may be a frame, which has no plain ==
     return [item for place, item in enumerate(items) if all(keeps or others[place] is not None for others, keeps in together)]

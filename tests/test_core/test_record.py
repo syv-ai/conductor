@@ -643,6 +643,20 @@ def test_a_node_display_is_the_hosts_own_kept_and_outside_the_fingerprint():
     assert PLAIN.load(plain).fingerprint == PLAIN.load(shown).fingerprint
 
 
+@pytest.mark.parametrize("name", [name for name in NodeRecord.model_fields if name != "display"])
+def test_every_field_of_a_node_but_its_display_is_in_the_fingerprint(name: str):
+    node_record = NodeRecord(id="h", node="hello")
+    held = getattr(node_record, name)
+    changed = held + 1 if isinstance(held, int) else f"{held}x" if isinstance(held, str) else {"name": "changed"}
+    other = node_record.model_copy(update={name: changed})
+    assert PLAIN.load(GraphRecord(nodes=[node_record])).fingerprint != PLAIN.load(GraphRecord(nodes=[other])).fingerprint
+
+
+def test_a_graphs_fingerprint_is_the_one_its_saved_runs_name():
+    record = GraphRecord(nodes=[NodeRecord(id="h", node="hello", values={"name": "Ida"}, display={"x": 3}), NodeRecord(id="s", node="shout")], edges=[("h.result", "s.text")])
+    assert PLAIN.load(record).fingerprint == "13cacdb319660389"
+
+
 def test_make_graph_writes_a_value_beside_a_default_and_loading_reports_it():
     record = make_graph(_hello, values={"hello.name": "a"}, defaults={"hello.name": "b"})
 
