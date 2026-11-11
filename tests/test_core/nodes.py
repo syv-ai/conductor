@@ -6,7 +6,7 @@ from typing import Annotated, Literal, TypedDict
 
 import polars as pl
 from conductor import SKIPPED, Ask, NodeRegistry, Param, Series, Table
-from conductor._internal.outcomes import item_paths
+from conductor._internal.outcomes import all_item_indexes
 
 
 class Invoice(TypedDict):
@@ -113,10 +113,10 @@ def place(waiting):
 
 def units_missing(run):
     """Each instance of a node of ``run`` that holds no unit, as its node's path and the instance, with a node
-    whose item_paths aren't all known as its path alone. A complete run has none."""
+    whose all_item_indexes aren't all known as its path alone. A complete run has none."""
     missing = []
     for node in run.graph._flat_function_nodes:
-        made, known = item_paths(run._outcomes, node.loops, ())
+        made, known = all_item_indexes(run._outcomes, node.loops, ())
         units = run._outcomes[node.name]
         missing += [(node.node_path, key) for key in made if key not in units] + ([] if known else [node.node_path])
     return missing

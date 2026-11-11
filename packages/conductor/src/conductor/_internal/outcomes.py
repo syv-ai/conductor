@@ -7,8 +7,8 @@ The example graph used in this file::
     report(cleaned: Series[str]) -> str   # wired to clean: called once, with ["A B", "C"]
 
 ``clean`` is called once per document, so it has one outcome per document. Which document a call is for is
-its item path: ``(0,)`` for "a b" and ``(1,)`` for "c". ``load`` and ``report`` are inside no loop, so their
-item path is ``()``. When the run has finished, its outcomes are this dict, by node name and then by item path::
+its item indexes: ``(0,)`` for "a b" and ``(1,)`` for "c". ``load`` and ``report`` are inside no loop, so their
+item indexes are ``()``. When the run has finished, its outcomes are this dict, by node name and then by item indexes::
 
     {"load":   {(): Done({"result": ["a b", "c"]})},
      "clean":  {(0,): Done({"result": "A B"}), (1,): Done({"result": "C"})},
@@ -35,7 +35,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, final
 
-from conductor._internal.address import ItemPath
+from conductor._internal.address import ItemIndexes
 from conductor._internal.ask import Question
 from conductor._internal.field import Field
 from conductor._internal.sentinels import SKIPPED
@@ -46,7 +46,7 @@ if TYPE_CHECKING:
 
 
 class NotReady(enum.Enum):
-    """Why a node cannot be called yet for one item path.
+    """Why a node cannot be called yet for one set of item indexes.
 
     Nothing in this file returns these. The code that works out the arguments of a call returns one of them
     in place of the arguments, and the caller then tries the node again later.
@@ -147,7 +147,7 @@ class Asking:
     question: Question
 
 
-#: What happened to one node for one item path. An outcome is never changed after it is made.
+#: What happened to one node for one set of item indexes. An outcome is never changed after it is made.
 Outcome = Done | Answered | Skipped | NotCalled | Asking
 
 def outputs_when_skipped(outputs: Mapping[str, Field]) -> dict[str, Any]:
@@ -167,34 +167,34 @@ def outputs_when_not_called(outputs: Mapping[str, Field]) -> dict[str, Any]:
     return {name: SKIPPED if output.param.exclusive_group is not None else None for name, output in outputs.items()}
 
 
-def item_paths(outcomes: dict[str, dict[ItemPath, Outcome]], loops: tuple[tuple[FlatFunctionNode, str], ...], under: ItemPath, *, counted: bool = False) -> tuple[list[ItemPath], bool]:
-    """The item paths a node is called for, and whether that list is complete yet.
+def all_item_indexes(outcomes: dict[str, dict[ItemIndexes, Outcome]], loops: tuple[tuple[FlatFunctionNode, str], ...], prefix: ItemIndexes, *, counted: bool = False) -> tuple[list[ItemIndexes], bool]:
+    """The item indexes of every call a node has, and whether that list is complete yet.
 
     In the example, ``clean`` is inside one loop, over ``load.result``. After ``load`` has returned two
-    documents, ``item_paths(outcomes, clean.maps, ())`` returns ``([(0,), (1,)], True)``. Before ``load`` has
-    returned, or while it is waiting for a person, it returns ``([], False)``: there are no item paths so far,
+    documents, ``all_item_indexes(outcomes, clean.maps, ())`` returns ``([(0,), (1,)], True)``. Before ``load`` has
+    returned, or while it is waiting for a person, it returns ``([], False)``: no call is known so far,
     and more may come.
 
     Args:
-        outcomes: The run's outcomes, by node name and then by item path.
+        outcomes: The run's outcomes, by node name and then by item indexes.
         loops: The loops the node is inside, outermost first. Each is the node that returns the list and the
             name of the output that is the list.
-        under: Return only the item paths that start with this one. ``()`` returns all of them. With two
+        prefix: Return only the item indexes that start with these. ``()`` returns all of them. With two
             nested loops, ``(1,)`` returns the paths inside item 1 of the outer list: ``(1, 0)``, ``(1, 1)``, ...
         counted: Count the items of the innermost loop without making a path for each. The list returned
-            then has at most one entry, and it is a count, not a path: ``[(2,)]`` means two item paths in all.
+            then has at most one entry, and it is a count, not item indexes: ``[(2,)]`` means two calls in all.
 
     Returns:
-        The item paths, and ``True`` when every list the node loops over exists.
+        The item indexes of each call, and ``True`` when every list the node loops over exists.
     """
-    start, deepest = len(under), len(loops)
+    start, deepest = len(prefix), len(loops)
     if start >= deepest:
-        return [under[:deepest]], True
-    paths, complete = [under], True
+        return [prefix[:deepest]], True
+    paths, complete = [prefix], True
     for depth in range(start, deepest):
         series_node, output = loops[depth]
         of_series_node = outcomes[series_node.name]
-        below: list[ItemPath] = []
+        below: list[ItemIndexes] = []
         for parent in paths:
             outcome = of_series_node.get(parent)
             if outcome is None or type(outcome) is Asking:
@@ -209,8 +209,8 @@ def item_paths(outcomes: dict[str, dict[ItemPath, Outcome]], loops: tuple[tuple[
     return paths, complete
 
 
-def has_every_outcome(outcomes: dict[str, dict[ItemPath, Outcome]], node: FlatFunctionNode) -> bool:
-    """Whether ``node`` has an outcome for every item path it will ever have.
+def has_every_outcome(outcomes: dict[str, dict[ItemIndexes, Outcome]], node: FlatFunctionNode) -> bool:
+    """Whether ``node`` has an outcome for every call it will ever have.
 
     In the example, ``clean`` has every outcome when ``load`` has returned and ``clean`` has one outcome per
     document. An ``Asking`` outcome counts: the call was made, though its answer has not come.
@@ -218,7 +218,7 @@ def has_every_outcome(outcomes: dict[str, dict[ItemPath, Outcome]], node: FlatFu
     of_node = outcomes[node.name]
     if not node.loops:
         return bool(of_node)
-    counted, complete = item_paths(outcomes, node.loops, (), counted=True)
+    counted, complete = all_item_indexes(outcomes, node.loops, (), counted=True)
     return complete and len(of_node) == (counted[0][0] if counted else 0)
 
 

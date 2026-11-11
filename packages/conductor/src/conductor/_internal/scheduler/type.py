@@ -46,7 +46,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from conductor._internal.address import ItemPath, NodePath
+from conductor._internal.address import ItemIndexes, NodePath
 from conductor._internal.ask import Ask, InvalidAskError, question_asked, waiting_record
 from conductor._internal.compiled import (
     FlatFunctionNode,
@@ -63,8 +63,8 @@ from conductor._internal.outcomes import (
     NotReady,
     Outcome,
     Skipped,
+    all_item_indexes,
     has_every_outcome,
-    item_paths,
     length,
 )
 from conductor._internal.problem import CallRejectedError, ExternalError, NodeError, Problem
@@ -108,10 +108,10 @@ class _AnswerOrder:
         passed: Instances counted as tried because nothing in the leg could start them (they wait on a person).
     """
 
-    order: list[ItemPath]
-    place: dict[ItemPath, int]
+    order: list[ItemIndexes]
+    place: dict[ItemIndexes, int]
     reached: int = 0
-    passed: set[ItemPath] = field(default_factory=set)
+    passed: set[ItemIndexes] = field(default_factory=set)
 
 
 class Scheduler:
@@ -127,8 +127,8 @@ class Scheduler:
     """
 
     def __init__(
-        self, *, nodes: list[FlatFunctionNode], threads: int, outcomes: dict[str, dict[ItemPath, Outcome]], reusable_results: dict[NodePath, ReusableResults], finished: frozenset[NodePath],
-        max_items: int | None, arguments_for: Callable[[FlatFunctionNode, ItemPath], dict[str, Any] | Skipped | NotCalled | Literal[NotReady.NOT_READY]],
+        self, *, nodes: list[FlatFunctionNode], threads: int, outcomes: dict[str, dict[ItemIndexes, Outcome]], reusable_results: dict[NodePath, ReusableResults], finished: frozenset[NodePath],
+        max_items: int | None, arguments_for: Callable[[FlatFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NotCalled | Literal[NotReady.NOT_READY]],
         emit: Callable[[EventBase], None] | None, stop: Callable[[], RunState | None] | None, from_run: dict[type, Any],
         checkpoint: Callable[[RunState], None] | None = None, checkpoint_every: float | None = None,
     ) -> None:
@@ -149,22 +149,22 @@ class Scheduler:
         self.checkpoint_every = checkpoint_every if checkpoint is not None else None
         self.next_checkpoint = time.monotonic() + checkpoint_every if checkpoint_every is not None else 0.0
         #: (node position, instance): the units to try, in that order.
-        self.ready: list[tuple[int, ItemPath]] = []
+        self.ready: list[tuple[int, ItemIndexes]] = []
         #: Whether a walk ended or a unit was recorded outside one since the leg last looked over the run.
         self.changed = True
         #: (node, an instance above its own): a node that gathers, started in the instances under that one once
         #: nothing it reads still works there.
-        self.collectors: set[tuple[FlatFunctionNode, ItemPath]] = set()
-        self.running: dict[tuple[FlatFunctionNode, ItemPath], dict[str, Any]] = {}  # units handed to threads, and their inputs
-        self.attempts: dict[tuple[FlatFunctionNode, ItemPath], int] = {}  # the attempt each unit on a thread is on
+        self.collectors: set[tuple[FlatFunctionNode, ItemIndexes]] = set()
+        self.running: dict[tuple[FlatFunctionNode, ItemIndexes], dict[str, Any]] = {}  # units handed to threads, and their inputs
+        self.attempts: dict[tuple[FlatFunctionNode, ItemIndexes], int] = {}  # the attempt each unit on a thread is on
         #: Each node's units waiting for a thread: (instance, what it received, attempt).
-        self.waiting_for_thread: defaultdict[FlatFunctionNode, deque[tuple[ItemPath, dict[str, Any], int]]] = defaultdict(deque)
+        self.waiting_for_thread: defaultdict[FlatFunctionNode, deque[tuple[ItemIndexes, dict[str, Any], int]]] = defaultdict(deque)
         #: How many of each node's calls are on threads, which its ``concurrency`` bounds.
         self.on_threads: defaultdict[FlatFunctionNode, int] = defaultdict(int)
         #: What came back from threads: a call's (node, instance, attempt, outputs, what went wrong), or what ``call`` itself raised.
-        self.returned: queue.SimpleQueue[tuple[FlatFunctionNode, ItemPath, int, Any, BaseException | None] | BaseException] = queue.SimpleQueue()
+        self.returned: queue.SimpleQueue[tuple[FlatFunctionNode, ItemIndexes, int, Any, BaseException | None] | BaseException] = queue.SimpleQueue()
         #: (when, order, what is due, node, instance, attempt): a retry of the attempt, or the deadline of the attempt on a thread.
-        self.timers: list[tuple[float, int, Literal["retry", "deadline"], FlatFunctionNode, ItemPath, int, float]] = []
+        self.timers: list[tuple[float, int, Literal["retry", "deadline"], FlatFunctionNode, ItemIndexes, int, float]] = []
         self.timer_order = itertools.count()
         self.pool: ThreadPoolExecutor | None = None
         #: For a node taking a person's earlier answers, how far through its units in order the leg has tried.
@@ -197,14 +197,14 @@ class Scheduler:
             How the run stands, and the nodes every unit of which is finished.
         """
         try:
-            self._check_ceiling()
+            self._check_item_limit()
             self._walk()
             while self.going:
                 if self.stop is not None and (stopped := self.stop()) is not None:
                     self.end(stopped)
                 elif self.ready:
-                    position, key = heapq.heappop(self.ready)
-                    self._try(self.nodes[position], key)
+                    position, item_indexes = heapq.heappop(self.ready)
+                    self._try(self.nodes[position], item_indexes)
                 elif self.changed:
                     self.changed = False
                     if not self._look_over():
@@ -230,12 +230,12 @@ class Scheduler:
         """
         self.state, self.going = state, False
         for node, waiting in self.waiting_for_thread.items():
-            for key, _, _ in waiting:
-                self.running.pop((node, key), None)
+            for item_indexes, _, _ in waiting:
+                self.running.pop((node, item_indexes), None)
             waiting.clear()
-        for _, _, due, node, key, _, _ in self.timers:
+        for _, _, due, node, item_indexes, _, _ in self.timers:
             if due == "retry":
-                self.running.pop((node, key), None)
+                self.running.pop((node, item_indexes), None)
 
     def _wait(self) -> None:
         """Wait for a thread to come back, a timer to fire, or the next look at ``stop``."""
@@ -261,25 +261,25 @@ class Scheduler:
             pass
         now = time.monotonic()
         while self.timers and self.timers[0][0] <= now:
-            _, _, due, node, key, attempt, seconds = heapq.heappop(self.timers)
-            self._due(due, node, key, attempt, seconds)
+            _, _, due, node, item_indexes, attempt, seconds = heapq.heappop(self.timers)
+            self._due(due, node, item_indexes, attempt, seconds)
 
-    def _after(self, seconds: float, due: Literal["retry", "deadline"], node: FlatFunctionNode, key: ItemPath, attempt: int) -> None:
+    def _after(self, seconds: float, due: Literal["retry", "deadline"], node: FlatFunctionNode, item_indexes: ItemIndexes, attempt: int) -> None:
         """Set a timer: the retry of an attempt, or the deadline of the attempt on a thread."""
-        heapq.heappush(self.timers, (time.monotonic() + seconds, next(self.timer_order), due, node, key, attempt, seconds))
+        heapq.heappush(self.timers, (time.monotonic() + seconds, next(self.timer_order), due, node, item_indexes, attempt, seconds))
 
     def _start_waiting_calls(self, node: FlatFunctionNode) -> None:
         """Put the node's waiting units on threads, as far as its ``concurrency`` allows."""
         waiting, policy = self.waiting_for_thread[node], node.policy
         while waiting and self.on_threads[node] < policy.concurrency and self.going:
-            key, arguments, attempt = waiting.popleft()
+            item_indexes, arguments, attempt = waiting.popleft()
             self.on_threads[node] += 1
-            self.attempts[(node, key)] = attempt
+            self.attempts[(node, item_indexes)] = attempt
             if self.pool is None:
                 self.pool = ThreadPoolExecutor(self.threads, "conductor")
             if policy.attempt_timeout is not None:
-                self._after(policy.attempt_timeout, "deadline", node, key, attempt)
-            self.pool.submit(self._on_thread, node, key, arguments, attempt)
+                self._after(policy.attempt_timeout, "deadline", node, item_indexes, attempt)
+            self.pool.submit(self._on_thread, node, item_indexes, arguments, attempt)
 
     def _checkpoint(self) -> None:
         """Hand the listener a copy of the run as it stands, and set when the next is due."""
@@ -329,42 +329,42 @@ class Scheduler:
         running = self.running
         for node in self.nodes:
             outcomes = self.outcomes[node]
-            for key in item_paths(self.all_outcomes, node.loops, ())[0]:
-                if key not in outcomes and (node, key) not in running:
+            for item_indexes in all_item_indexes(self.all_outcomes, node.loops, ())[0]:
+                if item_indexes not in outcomes and (node, item_indexes) not in running:
                     if not self.going or (self.stop is not None and self.stop() is not None):
                         return
-                    self._try(node, key, walking=True)
+                    self._try(node, item_indexes, walking=True)
 
-    def _try(self, node: FlatFunctionNode, key: ItemPath, walking: bool = False) -> None:
-        """Start ``node`` on ``key`` if what it reads exists."""
-        if not walking and (key in self.outcomes[node] or (node, key) in self.running):
+    def _try(self, node: FlatFunctionNode, item_indexes: ItemIndexes, walking: bool = False) -> None:
+        """Start ``node`` on ``item_indexes`` if what it reads exists."""
+        if not walking and (item_indexes in self.outcomes[node] or (node, item_indexes) in self.running):
             return
         try:
-            arguments = self.arguments_for(node, key)
+            arguments = self.arguments_for(node, item_indexes)
         except CallRejectedError as missing:  # an edge names a field the record it brings doesn't have
-            self._record(node, key, self._failure(node, key, missing), walking)
+            self._record(node, item_indexes, self._failure(node, item_indexes, missing), walking)
             return
         if arguments is NotReady.NOT_READY:
             return
         policy = node.policy
         if not isinstance(arguments, dict):  # skipped or blank: it comes to that uncalled
-            self._record(node, key, arguments, walking)
+            self._record(node, item_indexes, arguments, walking)
         elif (
             (reusable_results := self.reusable_results) and policy.reuse_when_inputs_match and (of_node := reusable_results.get(node.node_path)) is not None
-            and (earlier := reused_outcome(of_node, node, key, arguments, self.all_outcomes, lambda: self._in_turn(node, key))) is not None
+            and (earlier := reused_outcome(of_node, node, item_indexes, arguments, self.all_outcomes, lambda: self._in_turn(node, item_indexes))) is not None
         ):
             if earlier is NotReady.NOT_ITS_TURN:
                 self.out_of_turn = True  # a unit before it may take this answer; the next walk tries it again
                 return
             self.reused[node] += 1
-            self._record(node, key, earlier, walking)
+            self._record(node, item_indexes, earlier, walking)
         else:
             if self.emit:
                 self._announce(node)
             if policy.threaded or policy.retries:
-                self._attempt(node, key, arguments, 0, walking)
+                self._attempt(node, item_indexes, arguments, 0, walking)
             else:
-                self._record(node, key, self._outcome(node, key, arguments, *call(node, arguments, self.from_run)), walking)
+                self._record(node, item_indexes, self._outcome(node, item_indexes, arguments, *call(node, arguments, self.from_run)), walking)
 
     def _close(self) -> None:
         """Say how the run stands now the leg is over, and which of its nodes are finished."""
@@ -397,19 +397,19 @@ class Scheduler:
                 if node.loops and node in self.progress_said:
                     self._progress(node, last=True)
 
-    def _attempt(self, node: FlatFunctionNode, key: ItemPath, arguments: dict[str, Any], attempt: int, walking: bool = False) -> None:
+    def _attempt(self, node: FlatFunctionNode, item_indexes: ItemIndexes, arguments: dict[str, Any], attempt: int, walking: bool = False) -> None:
         if not node.policy.threaded:
             out, error = call(node, arguments, self.from_run)
-            if not self._retry(node, key, arguments, attempt, error):
+            if not self._retry(node, item_indexes, arguments, attempt, error):
                 if attempt:
-                    self.running.pop((node, key), None)
-                self._record(node, key, self._outcome(node, key, arguments, out, error), walking)
+                    self.running.pop((node, item_indexes), None)
+                self._record(node, item_indexes, self._outcome(node, item_indexes, arguments, out, error), walking)
             return
-        self.running[(node, key)] = arguments
-        self.waiting_for_thread[node].append((key, arguments, attempt))
+        self.running[(node, item_indexes)] = arguments
+        self.waiting_for_thread[node].append((item_indexes, arguments, attempt))
         self._start_waiting_calls(node)
 
-    def _on_thread(self, node: FlatFunctionNode, key: ItemPath, arguments: dict[str, Any], attempt: int) -> None:
+    def _on_thread(self, node: FlatFunctionNode, item_indexes: ItemIndexes, arguments: dict[str, Any], attempt: int) -> None:
         """Make the call and hand what it came to back to the leg. What ``call`` lets out (an exit, a defect in a
         type's own check) goes back too and is raised on the leg's thread, as it is for a node called there."""
         try:
@@ -417,36 +417,36 @@ class Scheduler:
         except BaseException as raised:  # noqa: BLE001  a pool thread would keep it, and the leg would wait for the call for ever
             self.returned.put(raised)
         else:
-            self.returned.put((node, key, attempt, out, error))
+            self.returned.put((node, item_indexes, attempt, out, error))
 
-    def _due(self, due: Literal["retry", "deadline"], node: FlatFunctionNode, key: ItemPath, attempt: int, seconds: float) -> None:
+    def _due(self, due: Literal["retry", "deadline"], node: FlatFunctionNode, item_indexes: ItemIndexes, attempt: int, seconds: float) -> None:
         """A timer set for ``seconds`` fired: the retry of an attempt, or the deadline of the attempt on a thread."""
         if due == "retry":
             if self.going:
-                self._attempt(node, key, self.running[(node, key)], attempt)
-        elif self.attempts.get((node, key)) == attempt and (node, key) in self.running:  # the attempt still runs
-            del self.running[(node, key)]
-            self._record(node, key, problem.timeout(*outcome_loc(node, key), seconds=seconds))
+                self._attempt(node, item_indexes, self.running[(node, item_indexes)], attempt)
+        elif self.attempts.get((node, item_indexes)) == attempt and (node, item_indexes) in self.running:  # the attempt still runs
+            del self.running[(node, item_indexes)]
+            self._record(node, item_indexes, problem.timeout(*outcome_loc(node, item_indexes), seconds=seconds))
 
-    def _returned(self, node: FlatFunctionNode, key: ItemPath, attempt: int, out: Any, error: BaseException | None) -> None:
+    def _returned(self, node: FlatFunctionNode, item_indexes: ItemIndexes, attempt: int, out: Any, error: BaseException | None) -> None:
         """A call came back from its thread: free its slot, and keep what it came to unless its attempt was
         given up."""
         self.on_threads[node] -= 1
-        latest = self.attempts.get((node, key)) == attempt
-        current = latest and (node, key) in self.running
+        latest = self.attempts.get((node, item_indexes)) == attempt
+        current = latest and (node, item_indexes) in self.running
         self._start_waiting_calls(node)
         if not current:
-            if latest and error is None and not self.going and key not in self.outcomes[node]:
-                self.attempts.pop((node, key))
-                self._record(node, key, self._outcome(node, key, {}, out, None))  # past its timeout, but the leg is draining: keep it, never call it again
+            if latest and error is None and not self.going and item_indexes not in self.outcomes[node]:
+                self.attempts.pop((node, item_indexes))
+                self._record(node, item_indexes, self._outcome(node, item_indexes, {}, out, None))  # past its timeout, but the leg is draining: keep it, never call it again
             return  # timed out while the leg runs on, or the leg stopped
-        self.attempts.pop((node, key))
-        arguments = self.running[(node, key)]
-        if not self._retry(node, key, arguments, attempt, error):
-            del self.running[(node, key)]
-            self._record(node, key, self._outcome(node, key, arguments, out, error))
+        self.attempts.pop((node, item_indexes))
+        arguments = self.running[(node, item_indexes)]
+        if not self._retry(node, item_indexes, arguments, attempt, error):
+            del self.running[(node, item_indexes)]
+            self._record(node, item_indexes, self._outcome(node, item_indexes, arguments, out, error))
 
-    def _retry(self, node: FlatFunctionNode, key: ItemPath, arguments: dict[str, Any], attempt: int, error: BaseException | None) -> bool:
+    def _retry(self, node: FlatFunctionNode, item_indexes: ItemIndexes, arguments: dict[str, Any], attempt: int, error: BaseException | None) -> bool:
         """Put a failed attempt on a timer if the policy says to try again: an ``ExternalError``, or a class ``retry_on``
         names, never a node's own ``NodeError``, an output its type refused or an ``Ask``."""
         policy = node.policy
@@ -455,39 +455,39 @@ class Scheduler:
         if not isinstance(error, ExternalError) and (isinstance(error, _NEVER_RETRIED) or not isinstance(error, policy.retry_on)):
             return False
         delay = policy.retry_delay * 2**attempt
-        self.running[(node, key)] = arguments
-        self._after(delay, "retry", node, key, attempt + 1)
+        self.running[(node, item_indexes)] = arguments
+        self._after(delay, "retry", node, item_indexes, attempt + 1)
         if self.emit:
-            self.emit(NodeRetry(loc=outcome_loc(node, key), attempt=attempt + 1, retries=policy.retries, delay=delay, cause=self._failure(node, key, error)))
+            self.emit(NodeRetry(loc=outcome_loc(node, item_indexes), attempt=attempt + 1, retries=policy.retries, delay=delay, cause=self._failure(node, item_indexes, error)))
         return True
 
-    def _outcome(self, node: FlatFunctionNode, key: ItemPath, arguments: dict[str, Any], out: Any, error: BaseException | None) -> Outcome | Problem:
+    def _outcome(self, node: FlatFunctionNode, item_indexes: ItemIndexes, arguments: dict[str, Any], out: Any, error: BaseException | None) -> Outcome | Problem:
         if error is None:
             return Done(out)
         if isinstance(error, Ask):
             try:
                 inputs = jsonable(arguments)
             except CallRejectedError as unwritable:  # a person can't be shown what the node received
-                return self._failure(node, key, unwritable)
+                return self._failure(node, item_indexes, unwritable)
             try:
                 return Asking(question_asked(error, node.compiled_node.outputs, inputs))
             except InvalidAskError as invalid:
-                return problem.invalid_ask(*outcome_loc(node, key), reason=str(invalid))
-        return self._failure(node, key, error)
+                return problem.invalid_ask(*outcome_loc(node, item_indexes), reason=str(invalid))
+        return self._failure(node, item_indexes, error)
 
-    def _failure(self, node: FlatFunctionNode, key: ItemPath, error: BaseException) -> Problem:
+    def _failure(self, node: FlatFunctionNode, item_indexes: ItemIndexes, error: BaseException) -> Problem:
         """The problem a node's exception is: its own words for a ``NodeError``; for any other, only its class, the text to the log."""
-        loc = outcome_loc(node, key)
+        loc = outcome_loc(node, item_indexes)
         if isinstance(error, NodeError):
             return error._as_problem_at(*loc)
         if isinstance(error, CallRejectedError):
             return error.problem.model_copy(update={"loc": loc})
-        _logger.error("node %r failed for item %r", node.name, key, exc_info=error)
+        _logger.error("node %r failed for item %r", node.name, item_indexes, exc_info=error)
         if isinstance(error, node.policy.retry_on):
             return problem.external_failed(*loc, error=type(error).__name__)
         return problem.execution_failed(*loc, error=type(error).__name__)
 
-    def _record(self, node: FlatFunctionNode, key: ItemPath, outcome: Outcome | Problem, walking: bool = False) -> None:
+    def _record(self, node: FlatFunctionNode, item_indexes: ItemIndexes, outcome: Outcome | Problem, walking: bool = False) -> None:
         """Keep what a unit came to, and make ready what reads it."""
         if type(outcome) is Problem:  # its exact class, which nothing derives from: isinstance of a pydantic model costs four times as much
             if self.going:  # the first failure is the cause; a later one changes nothing
@@ -496,9 +496,9 @@ class Scheduler:
                     self.emit(NodeFailed(loc=node.node_path, cause=outcome))
             return
         outcomes = self.outcomes[node]
-        if outcomes and key not in outcomes and key < next(reversed(outcomes)):
+        if outcomes and item_indexes not in outcomes and item_indexes < next(reversed(outcomes)):
             self.out_of_order.add(node)
-        outcomes[key] = outcome
+        outcomes[item_indexes] = outcome
         if not walking:
             self.recorded_since_walk += 1
             self.changed = True
@@ -508,44 +508,44 @@ class Scheduler:
             for output in node.looped_outputs:
                 items = length(outcome.out[output])
                 if items > self.max_items:
-                    self._stop_at_ceiling(node, key, output, items, self.max_items)
+                    self._stop_at_item_limit(node, item_indexes, output, items, self.max_items)
                     return
         if self.emit:
             self.touched.add(node)
             if type(outcome) is not Skipped:
                 self._announce(node)  # a unit taken from earlier work, or a blank one, starts its node as a call does
             if type(outcome) is Asking:
-                self.emit(NodeWaiting(waiting=waiting_record(node.compiled_node, outcome_loc(node, key), outcome)))
+                self.emit(NodeWaiting(waiting=waiting_record(node.compiled_node, outcome_loc(node, item_indexes), outcome)))
             if node.loops:
                 self._progress(node)
         if walking or not self.going or type(outcome) is Asking:  # nothing reads a unit that waits for a person
             return
-        depth = len(key)
+        depth = len(item_indexes)
         for reader, places in node.downstream:
             if places < depth:  # it is made from every unit under those places: tried once nothing it reads works under them
-                self.collectors.add((reader, key[:places]))
+                self.collectors.add((reader, item_indexes[:places]))
             elif len(reader.loops) == depth:
-                heapq.heappush(self.ready, (reader.position, key))
+                heapq.heappush(self.ready, (reader.position, item_indexes))
             else:
-                for instance in item_paths(self.all_outcomes, reader.loops, key)[0]:
-                    heapq.heappush(self.ready, (reader.position, instance))
+                for downstream_indexes in all_item_indexes(self.all_outcomes, reader.loops, item_indexes)[0]:
+                    heapq.heappush(self.ready, (reader.position, downstream_indexes))
 
-    def _in_turn(self, node: FlatFunctionNode, key: ItemPath) -> bool:
-        """Whether every unit of ``node`` before ``key`` has been tried, so a person's answers are taken in order,
+    def _in_turn(self, node: FlatFunctionNode, item_indexes: ItemIndexes) -> bool:
+        """Whether every unit of ``node`` before ``item_indexes`` has been tried, so a person's answers are taken in order,
         whatever thread finished first.
 
         The k-th of identical units is the k-th in order among those the leg could try: one that waits on a person
         counts as tried once nothing else can start (``_pass_untried``).
         """
         turn = self.answer_orders.get(node)
-        if turn is None or key not in turn.place:
-            order = item_paths(self.all_outcomes, node.loops, ())[0]
+        if turn is None or item_indexes not in turn.place:
+            order = all_item_indexes(self.all_outcomes, node.loops, ())[0]
             turn = self.answer_orders[node] = _AnswerOrder(order, {k: i for i, k in enumerate(order)})
         order, outcomes, passed, reached = turn.order, self.outcomes[node], turn.passed, turn.reached
-        while reached < len(order) and ((instance := order[reached]) in outcomes or (node, instance) in self.running or instance in passed):
+        while reached < len(order) and ((next_indexes := order[reached]) in outcomes or (node, next_indexes) in self.running or next_indexes in passed):
             reached += 1
         turn.reached = reached
-        return turn.place.get(key, 0) <= reached
+        return turn.place.get(item_indexes, 0) <= reached
 
     def _pass_untried(self) -> bool:
         """With nothing left to start, count every unit a node taking earlier answers hasn't tried as tried, so the
@@ -565,36 +565,36 @@ class Scheduler:
         """Make ready each gathering unit nothing above it is still working under; False when there is none."""
         working = list(self.running)
         released = False
-        for node, key in list(self.collectors):
+        for node, item_indexes in list(self.collectors):
             above = all_upstream(node)
-            if not any(n in above and k[: len(key)] == key for n, k in working):
-                self.collectors.discard((node, key))
+            if not any(n in above and k[: len(item_indexes)] == item_indexes for n, k in working):
+                self.collectors.discard((node, item_indexes))
                 released = True
-                for instance in item_paths(self.all_outcomes, node.loops, key)[0] if len(key) < len(node.loops) else (key,):
-                    heapq.heappush(self.ready, (node.position, instance))
+                for call_indexes in all_item_indexes(self.all_outcomes, node.loops, item_indexes)[0] if len(item_indexes) < len(node.loops) else (item_indexes,):
+                    heapq.heappush(self.ready, (node.position, call_indexes))
         return released
 
-    def _check_ceiling(self) -> None:
+    def _check_item_limit(self) -> None:
         """Stop the leg if a Series some node works through already holds more items than ``max_items``, as the
         leg begins."""
-        ceiling = self.max_items
-        if ceiling is None:
+        item_limit = self.max_items
+        if item_limit is None:
             return
         for node in self.nodes:
             for output in node.looped_outputs:
-                for key, outcome in self.outcomes[node].items():
-                    if type(outcome) is not Asking and length(outcome.out[output]) > ceiling:
-                        self._stop_at_ceiling(node, key, output, length(outcome.out[output]), ceiling)
+                for item_indexes, outcome in self.outcomes[node].items():
+                    if type(outcome) is not Asking and length(outcome.out[output]) > item_limit:
+                        self._stop_at_item_limit(node, item_indexes, output, length(outcome.out[output]), item_limit)
                         return
 
-    def _stop_at_ceiling(self, node: FlatFunctionNode, key: ItemPath, output: str, items: int, ceiling: int) -> None:
+    def _stop_at_item_limit(self, node: FlatFunctionNode, item_indexes: ItemIndexes, output: str, items: int, item_limit: int) -> None:
         """Stop the leg at the item ceiling, unless it already ended for a failure, a cancel or its timeout, which
         stays the cause. The cause names the Series as the graph of the reader that works through it does,
         inside the item of each subgraph's node around that."""
         if self.going:
             named, series_output = node.looped_outputs[output]
-            loc = outcome_loc(named, key[: len(named.parent.loops) if named.parent is not None else 0])
-            self.end(EndedEarly("stopped", problem.item_ceiling(*loc, series=f"{named.compiled_node.id}.{series_output}", items=items, max_items=ceiling)))
+            loc = outcome_loc(named, item_indexes[: len(named.parent.loops) if named.parent is not None else 0])
+            self.end(EndedEarly("stopped", problem.item_ceiling(*loc, series=f"{named.compiled_node.id}.{series_output}", items=items, max_items=item_limit)))
 
     # -- what the leg says --------------------------------------------------------------------
 
@@ -616,8 +616,8 @@ class Scheduler:
         done = sum(1 for outcome in self.outcomes[node].values() if type(outcome) is not Asking)  # counted only when said, at most four times a second
         if self.progress_said.get(node) != done:
             self.progress_at[node], self.progress_said[node] = now, done
-            keys, known = item_paths(self.all_outcomes, node.loops, ())
-            emit(NodeProgress(loc=node.node_path, done=done, total=len(keys) if known else None))
+            every_item_indexes, known = all_item_indexes(self.all_outcomes, node.loops, ())
+            emit(NodeProgress(loc=node.node_path, done=done, total=len(every_item_indexes) if known else None))
 
     def _completions(self) -> None:
         """Say which touched nodes are complete: nothing they wait on is working, and every unit is done."""
@@ -654,7 +654,7 @@ class Scheduler:
                     self.skipped.add(around)
                     self.emit(NodeSkipped(loc=around.node_path))
                 else:
-                    counted, _ = item_paths(self.all_outcomes, around.loops, (), counted=True)
+                    counted, _ = all_item_indexes(self.all_outcomes, around.loops, (), counted=True)
                     self.emit(NodeComplete(loc=around.node_path, outcomes=(counted[0][0] if counted else 0) if around.loops else 1))
             around = around.parent
 

@@ -36,7 +36,7 @@ from pydantic import ValidationError
 
 from conductor._internal import outcomes
 from conductor._internal.address import (
-    ItemPath,
+    ItemIndexes,
     Loc,
     NodePath,
     node_path_text,
@@ -62,8 +62,8 @@ from conductor._internal.outcomes import (
     Asking,
     Outcome,
     Skipped,
+    all_item_indexes,
     has_every_outcome,
-    item_paths,
 )
 from conductor._internal.problem import InvalidCallError, Problem, value_free_errors
 from conductor._internal.problem import catalogue as problem
@@ -138,7 +138,7 @@ class Run:
     #: Each function's units by instance, in instance order, by the function's name: ``_outcomes["w"]`` for a node of
     #: the graph itself, ``_outcomes["e/ask"]`` for one inside ``e``. Only a leg records out of that order, and it puts
     #: the units back in it before it hands the run on.
-    _outcomes: dict[str, dict[ItemPath, Outcome]]
+    _outcomes: dict[str, dict[ItemIndexes, Outcome]]
     #: What each node may take from the run this one went on from.
     _reusable_results: dict[NodePath, ReusableResults]
     state: RunState = READY
@@ -302,48 +302,48 @@ class Run:
         else:
             raise TypeError("run.answer takes a unit and its answer, or a mapping of unit ids to answers")
         problems: list[Problem] = []
-        answered: dict[tuple[FlatFunctionNode, ItemPath], Outcome] = {}
+        answered: dict[tuple[FlatFunctionNode, ItemIndexes], Outcome] = {}
         for unit_id, one in given.items():
             place, _, fingerprint = unit_id.partition("~")
             try:
-                loc, nodes, key = parse_loc_text(place)
+                loc, nodes, item_indexes = parse_loc_text(place)
             except ValueError:  # a place in it isn't a number
                 problems.append(problem.not_waiting(unit_id.partition("@")[0], waiting_id=unit_id, status=self.status))
                 continue
             node = self.graph._nodes_by_name.get(node_path_text(nodes))
-            found = self._outcomes[node.name].get(key) if type(node) is FlatFunctionNode else None
+            found = self._outcomes[node.name].get(item_indexes) if type(node) is FlatFunctionNode else None
             if type(node) is not FlatFunctionNode or type(found) is not Asking:
                 moved_to = self._moved_to(nodes, fingerprint) if fingerprint else None
                 problems.append(problem.not_waiting(*loc, waiting_id=unit_id, status=self.status, moved_to=moved_to))
                 continue
             compiled_node = node.compiled_node
             if fingerprint and question_fingerprint(compiled_node, found) != fingerprint:
-                current = waiting_record(compiled_node, outcome_loc(node, key), found).id
+                current = waiting_record(compiled_node, outcome_loc(node, item_indexes), found).id
                 problems.append(problem.answer_stale(*loc, waiting_id=unit_id, current=current, moved_to=self._moved_to(nodes, fingerprint)))
                 continue
-            if (node, key) in answered:
+            if (node, item_indexes) in answered:
                 problems.append(problem.invalid_answer(*loc, waiting_id=unit_id, reason="the unit is answered twice in one call"))
                 continue
             read, faults = answer_outputs(compiled_node, one, found.question.overrides)
             problems.extend(
                 problem.invalid_answer(*loc, waiting_id=unit_id, reason=reason, question=q or None) for q, reason in faults
             )
-            answered[(node, key)] = Answered(read, found.question) if not faults else found
+            answered[(node, item_indexes)] = Answered(read, found.question) if not faults else found
         if problems:
             raise InvalidCallError(problems)
         run = self._copy(share_outcomes=True)
         for changed in {node for node, _ in answered}:  # its own units for each node it changes; every other node's are shared
             run._outcomes[changed.name] = dict(self._outcomes[changed.name])
-        for (node, key), now in answered.items():
-            run._outcomes[node.name][key] = now
+        for (node, item_indexes), now in answered.items():
+            run._outcomes[node.name][item_indexes] = now
         return run
 
     def _moved_to(self, nodes: NodePath, fingerprint: str) -> str | None:
         """The id of the unit where the question a stale id names now waits, if it waits elsewhere on the node at
         the path ``nodes``."""
-        for node, key, outcome in self._asking():
+        for node, item_indexes, outcome in self._asking():
             if node.node_path == nodes and question_fingerprint(node.compiled_node, outcome) == fingerprint:
-                return waiting_record(node.compiled_node, outcome_loc(node, key), outcome).id
+                return waiting_record(node.compiled_node, outcome_loc(node, item_indexes), outcome).id
         return None
 
     def with_inputs(self, inputs: Mapping[str, Any] = MappingProxyType({}), /, *, max_items: int | None = None, **by_name: Any) -> Run:
@@ -393,17 +393,17 @@ class Run:
                 continue
             compiled_node = node.compiled_node
             of_node = work[node.node_path] = ReusableResults()
-            for key, outcome in self._outcomes[node.name].items():
+            for item_indexes, outcome in self._outcomes[node.name].items():
                 if type(outcome) is Skipped or type(outcome) is outcomes.NotCalled:
                     continue
-                arguments = cast("dict[str, Any]", reader.arguments_for(node, key))  # the unit was called, so what it reads is settled and it received a call's arguments
+                arguments = cast("dict[str, Any]", reader.arguments_for(node, item_indexes))  # the unit was called, so what it reads is settled and it received a call's arguments
                 fingerprint = fingerprint_of(compiled_node.reuse_digest, arguments, plain=compiled_node.plain_inputs)
                 if fingerprint is None:
                     continue
                 if type(outcome) is Answered or type(outcome) is Asking:
-                    of_node.asked.setdefault((fingerprint, lineage(self._outcomes, node, key)), []).append(outcome)
+                    of_node.asked.setdefault((fingerprint, lineage(self._outcomes, node, item_indexes)), []).append(outcome)
                 else:
-                    of_node.at[key] = (fingerprint, outcome)
+                    of_node.at[item_indexes] = (fingerprint, outcome)
                     of_node.computed.setdefault(fingerprint, outcome)
         for path, unused in self._reusable_results.items():  # the earlier work this run held and no unit of it took
             of_node = work.setdefault(path, ReusableResults())
@@ -433,22 +433,22 @@ class Run:
     def waiting(self) -> list[Waiting]:
         """Every unit waiting for a person, in node then item order; those inside a subgraph where its
         node stands."""
-        return [waiting_record(node.compiled_node, outcome_loc(node, key), outcome) for node, key, outcome in self._asking()]
+        return [waiting_record(node.compiled_node, outcome_loc(node, item_indexes), outcome) for node, item_indexes, outcome in self._asking()]
 
-    def _asking(self) -> Iterator[tuple[FlatFunctionNode, ItemPath, Asking]]:
+    def _asking(self) -> Iterator[tuple[FlatFunctionNode, ItemIndexes, Asking]]:
         """Every unit waiting for a person, with its node and instance, in node then instance order."""
         for node in self.graph._flat_function_nodes:
-            for key, outcome in self._outcomes[node.name].items():
+            for item_indexes, outcome in self._outcomes[node.name].items():
                 if type(outcome) is Asking:
-                    yield node, key, outcome
+                    yield node, item_indexes, outcome
 
     @property
     def not_called(self) -> list[NotCalled]:
         """The calls a node didn't get because an input was blank: which node, which item and which input; those
         inside a subgraph where its node stands."""
         return [
-            NotCalled(loc=outcome_loc(node, key), input=outcome.input)
-            for node in self.graph._flat_function_nodes for key, outcome in self._outcomes[node.name].items() if type(outcome) is outcomes.NotCalled
+            NotCalled(loc=outcome_loc(node, item_indexes), input=outcome.input)
+            for node in self.graph._flat_function_nodes for item_indexes, outcome in self._outcomes[node.name].items() if type(outcome) is outcomes.NotCalled
         ]
 
     @property
@@ -549,7 +549,7 @@ class Run:
         outcomes = self._outcomes[node.name]
         if has_every_outcome(self._outcomes, node):  # the units as they stand
             return list(outcomes.values())
-        return [outcomes.get(instance) for instance in item_paths(self._outcomes, node.loops, ())[0]]
+        return [outcomes.get(item_indexes) for item_indexes in all_item_indexes(self._outcomes, node.loops, ())[0]]
 
     def _copy(self, *, share_outcomes: bool = False) -> Run:
         """A copy to change: its own units to record into and its own earlier work to take from; or with
@@ -570,7 +570,7 @@ RunEnd.model_rebuild(_types_namespace={"Run": Run})
 RunCheckpoint.model_rebuild(_types_namespace={"Run": Run})
 
 
-def no_outcomes(graph: Graph) -> dict[str, dict[ItemPath, Outcome]]:
+def no_outcomes(graph: Graph) -> dict[str, dict[ItemIndexes, Outcome]]:
     """The units of a run of ``graph`` that hasn't started: none, for every function of the graph and of each
     graph embedded in it."""
     return {node.name: {} for node in graph._flat_function_nodes}
@@ -611,11 +611,11 @@ def _run_of(graph: Graph, saved: SavedRun[list[Outcome | None], ReusableResults]
     run = Run(graph, saved.inputs, saved.max_items, no_outcomes(graph), {}, state=saved.state)
     for node in graph._flat_function_nodes:  # each after the nodes it reads, so the Series its instances are of are in place
         if (slots := saved.outcomes.get(node.name)) is not None:
-            made, _ = item_paths(run._outcomes, node.loops, ())
-            if len(slots) != len(made):
-                at, reason = f"outcomes.{node.name}", f"it holds {len(slots)} slots for the {len(made)} instances the saved run made of the node"
+            series, _ = all_item_indexes(run._outcomes, node.loops, ())
+            if len(slots) != len(series):
+                at, reason = f"outcomes.{node.name}", f"it holds {len(slots)} slots for the {len(series)} instances the saved run made of the node"
                 raise InvalidCallError([problem.state_unreadable("state", at=at, reason=reason)])
-            run._outcomes[node.name] = {instance: outcome for instance, outcome in zip(made, slots, strict=True) if outcome is not None}
+            run._outcomes[node.name] = {item_indexes: outcome for item_indexes, outcome in zip(series, slots, strict=True) if outcome is not None}
     functions = graph._functions
     run._made_by_other_code = {path: digest for name, digest in saved.code.items() if digest != functions[path := parse_node_path(name)].reuse_digest}
     run._reusable_results = {path: of_node for name, of_node in saved.reusable_results.items() if (path := parse_node_path(name)) not in run._made_by_other_code}  # work of other code is never taken

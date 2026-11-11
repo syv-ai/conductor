@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
 from dataclasses import dataclass, field
 
-from conductor._internal.address import ItemPath
+from conductor._internal.address import ItemIndexes
 from conductor._internal.outcomes import Answered, Asking, Done, Outcome
 
 
@@ -37,15 +37,15 @@ class ReusableResults:
             of the items above it, in the order they stood.
     """
 
-    at: dict[ItemPath, tuple[str, Done]] = field(default_factory=dict[ItemPath, tuple[str, Done]])
+    at: dict[ItemIndexes, tuple[str, Done]] = field(default_factory=dict[ItemIndexes, tuple[str, Done]])
     computed: dict[str, Done] = field(default_factory=dict[str, Done])
     asked: dict[tuple[str, str], list[Answered | Asking]] = field(default_factory=dict[tuple[str, str], list["Answered | Asking"]])
 
 
 def reused_outcome(
-    earlier: ReusableResults, node: FlatFunctionNode, key: ItemPath, arguments: dict[str, Any], outcomes: dict[str, dict[ItemPath, Outcome]], in_turn: Callable[[], bool],
+    earlier: ReusableResults, node: FlatFunctionNode, item_indexes: ItemIndexes, arguments: dict[str, Any], outcomes: dict[str, dict[ItemIndexes, Outcome]], in_turn: Callable[[], bool],
 ) -> Done | Answered | Asking | Literal[NotReady.NOT_ITS_TURN] | None:
-    """The unit of ``earlier`` that ``node`` takes in ``key`` in place of a call on ``arguments``; ``None`` when
+    """The unit of ``earlier`` that ``node`` takes in ``item_indexes`` in place of a call on ``arguments``; ``None`` when
     there is none.
 
     A person's answer, or a question still waiting, is taken once, in order: when one is there to take and
@@ -57,7 +57,7 @@ def reused_outcome(
     Args:
         earlier: What the node may take: this run's own to take from.
         node: The node.
-        key: The instance.
+        item_indexes: The instance.
         arguments: What the unit received.
         units: Each function's units, for the items above this one.
         in_turn: Whether every unit of the node before this one has been tried.
@@ -67,23 +67,23 @@ def reused_outcome(
     if fingerprint is None:
         return None
     if earlier.asked:
-        answers = earlier.asked.get((fingerprint, lineage(outcomes, node, key)))
+        answers = earlier.asked.get((fingerprint, lineage(outcomes, node, item_indexes)))
         if answers:
             if not in_turn():
                 return NotReady.NOT_ITS_TURN
             return answers.pop(0)
-    there = earlier.at.get(key)
+    there = earlier.at.get(item_indexes)
     if there is not None and there[0] == fingerprint:
         return there[1]
     return earlier.computed.get(fingerprint)
 
 
-def lineage(outcomes: dict[str, dict[ItemPath, Outcome]], node: FlatFunctionNode, key: ItemPath) -> str:
-    """A fingerprint of the item of each map above the innermost that the instance ``key`` of ``node`` sits
+def lineage(outcomes: dict[str, dict[ItemIndexes, Outcome]], node: FlatFunctionNode, item_indexes: ItemIndexes) -> str:
+    """A fingerprint of the item of each map above the innermost that the instance ``item_indexes`` of ``node`` sits
     in, those of the subgraphs' nodes around it included. A unit's innermost item is in what it
     received."""
     above = [
-        outcomes[series.name][key[:depth]].out[output][key[depth]]  # type: ignore[union-attr]  # a unit under an item of a Series holds that Series
+        outcomes[series.name][item_indexes[:depth]].out[output][item_indexes[depth]]  # type: ignore[union-attr]  # a unit under an item of a Series holds that Series
         for depth, (series, output) in enumerate(node.loops[:-1])
     ]
     return (fingerprint_of("", {"items": above}) or "") if above else ""

@@ -38,7 +38,7 @@ from conductor._internal.compiled.nodes import (
 )
 from conductor._internal.field import Field
 from conductor._internal.node_definition import Policy
-from conductor._internal.outcomes import ItemPath
+from conductor._internal.outcomes import ItemIndexes
 from conductor._internal.sentinels import REQUIRED
 from conductor._internal.series import Series
 
@@ -176,19 +176,19 @@ def all_upstream(node: FlatFunctionNode) -> frozenset[FlatFunctionNode]:
     return node.all_upstream
 
 
-def outcome_loc(node: FlatNode, key: ItemPath) -> Loc:
-    """Where the instance ``key`` of ``node`` is: the node's id, then the places of its own scope's items, after
+def outcome_loc(node: FlatNode, item_indexes: ItemIndexes) -> Loc:
+    """Where the instance ``item_indexes`` of ``node`` is: the node's id, then the places of its own scope's items, after
     the same for each subgraph's node it is inside, ``("e", 0, "ask", 2)``.
 
     Args:
         node: The node.
-        key: The instance; one cut off after the places of the subgraph's node gives the node's id alone
+        item_indexes: The instance; one cut off after the places of the subgraph's node gives the node's id alone
             at the end, ``("e", 0, "ask")``.
     """
     if node.parent is None:
-        return (node.compiled_node.id, *key)
+        return (node.compiled_node.id, *item_indexes)
     around = len(node.parent.loops)  # the places of the subgraph's node's own item
-    return (*outcome_loc(node.parent, key[:around]), node.compiled_node.id, *key[around:])
+    return (*outcome_loc(node.parent, item_indexes[:around]), node.compiled_node.id, *item_indexes[around:])
 
 
 #: What a host is shown of an output made per item is what an input of this type wired to it would be given:
@@ -217,8 +217,8 @@ def display_plans_of(node: FlatFunctionNode, output: str) -> tuple[InputReadsOne
     """
     plans = node.display_plans.get(output)
     if plans is None:
-        made = node.compiled_node.outputs[output]
-        at = (SeriesAsList if made.many else WholeOutput)(node.name, output, _loops_by_name(node.loops), None, made.type)
+        series = node.compiled_node.outputs[output]
+        at = (SeriesAsList if series.many else WholeOutput)(node.name, output, _loops_by_name(node.loops), None, series.type)
         functions = {source_node.name: source_node for source_node in (node, *(series for series, _ in node.loops))}
         per_loop = [_collect_plan(_DISPLAY_FIELD, looped_over, (at,), functions) for looped_over in node.loops]
         plans = node.display_plans[output] = tuple(per_loop) or (InputReadsOneValue(_DISPLAY_FIELD, (at,), at.loops),)
@@ -281,7 +281,7 @@ def _add_flat_nodes(graph: CompiledGraph, parent: FlatSubgraph | None, function_
         graph_inputs: list[tuple[str, str]] = []
         edge_inputs: list[tuple[str, InputFromEdges, bool]] = []
         upstream: dict[FlatFunctionNode, int] = {}
-        gathering: dict[OutputInLoops, list[tuple[str, bool]]] = {}
+        collecting: dict[OutputInLoops, list[tuple[str, bool]]] = {}
         for name, plan in inputs.items():
             constants[name] = None
             match plan:
@@ -298,7 +298,7 @@ def _add_flat_nodes(graph: CompiledGraph, parent: FlatSubgraph | None, function_
                 series = plan.series
                 items_of = (functions[series.node_id], series.output)  # what the functions it gathers through read outside the items can settle it too
                 read_at += [(read, places) for inner in plan.loop_body for read, places in inner.upstream.items() if items_of not in read.loops]
-                gathering.setdefault(series, []).append((name, plan.field.accepts_none_items))
+                collecting.setdefault(series, []).append((name, plan.field.accepts_none_items))
                 whole = WholeOutput(series.node_id, series.output, series.loops, None, functions[series.node_id].compiled_node.outputs[series.output].whole)
                 edge_inputs.append((name, InputReadsOneValue(plan.field, (whole,), series.loops), plan.field.whole.optional))  # it needs its Series, and then its items
             edge_inputs.append((name, plan, plan.field.whole.optional))
@@ -306,7 +306,7 @@ def _add_flat_nodes(graph: CompiledGraph, parent: FlatSubgraph | None, function_
                 upstream[read] = min(places, upstream.get(read, places))
         node = FlatFunctionNode(
             compiled_node=compiled_node, parent=parent, node_path=node_path, name=node_path_text(node_path), loops=loops, policy=compiled_node.definition.policy,
-            constants=constants, graph_inputs=tuple(graph_inputs), edge_inputs=tuple(edge_inputs), lists_from_same_loop=tuple(map(tuple, gathering.values())),
+            constants=constants, graph_inputs=tuple(graph_inputs), edge_inputs=tuple(edge_inputs), lists_from_same_loop=tuple(map(tuple, collecting.values())),
             validated_inputs=tuple(name for name, plan in inputs.items() if _needs_validation(plan)), upstream=upstream,
         )
         if loops and min(node.upstream.values(), default=0) < len(loops):  # what it reads may be there before its items are

@@ -493,13 +493,13 @@ class _Compiler:
         Returns:
             The input's plan; ``InputMissing``, with the problem, when an edge brings a type the input doesn't take.
         """
-        gathers, expected = _collects_and_expected_type(field, sources)
+        collects, expected = _collects_and_expected_type(field, sources)
         for source in sources:
             if expected is not source.type and expected.fits(source.type) is None:  # the same type, which most edges join, fits
                 self.problems.append(_mismatch(node_id, field, source))
                 return InputMissing(field)
         deepest = max((s.loops_of_value for s in sources), key=len)
-        if not gathers:
+        if not collects:
             return InputReadsOneValue(field, tuple(sources), deepest)
         if not deepest:
             return InputWrapsOneValue(field, tuple(s for s in sources if isinstance(s, WholeOutput)))
@@ -613,10 +613,10 @@ def _collects_and_expected_type(field: Field, sources: list[EdgeSource]) -> tupl
     made once in the graph, and is taken as a record wherever it is made per item.
     """
     record = field.whole.record
-    gathers = field.many or (record is not None and not all(
+    collects = field.many or (record is not None and not all(
         field.whole.fits(s.type) is not None and (s.type.bare is not Any or not s.loops_of_value) for s in sources
     ))
-    return gathers, field.whole if not gathers else field.type if record is None else record
+    return collects, field.whole if not collects else field.type if record is None else record
 
 
 def _bound(fields: Mapping[str, Field], sources: Mapping[str, list[EdgeSource] | None]) -> dict[TypeVar, Any]:

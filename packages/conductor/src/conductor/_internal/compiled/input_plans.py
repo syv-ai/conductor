@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, NamedTuple, final
 
 from conductor._internal.field import Field
-from conductor._internal.outcomes import ItemPath, NotReady
+from conductor._internal.outcomes import ItemIndexes, NotReady
 from conductor._internal.sentinels import SKIPPED
 from conductor._internal.value_type import Type
 
@@ -62,7 +62,7 @@ class OutputInLoops:
         node_id: The node: its id in a compiled graph's plan; where a node stands, the function's name.
         output: The output's name.
         loops: The scope the node runs in.
-        depth: How many maps the node runs in, so how many places of an item path name one unit of it.
+        depth: How many maps the node runs in, so how many places of a set of item indexes name one unit of it.
     """
 
     node_id: str
@@ -200,10 +200,10 @@ class InputReadsOneValue:
         """What each edge brings."""
         return self.reads
 
-    def value(self, reader: Reader, item_path: ItemPath) -> Any:
-        """What the input holds for ``item_path``: what its edge brings, or the best of alternative edges."""
+    def value(self, reader: Reader, item_indexes: ItemIndexes) -> Any:
+        """What the input holds for ``item_indexes``: what its edge brings, or the best of alternative edges."""
         reads = self.reads
-        return reader.read_output(reads[0], item_path) if len(reads) == 1 else reader.read_alternatives(reads, item_path)
+        return reader.read_output(reads[0], item_indexes) if len(reads) == 1 else reader.read_alternatives(reads, item_indexes)
 
 
 @final
@@ -234,10 +234,10 @@ class InputCollectsLoopResults:
         """What each edge brings for an item."""
         return self.reads[1:]  # type: ignore[return-value]  # every output after the Series is what an edge brings
 
-    def value(self, reader: Reader, item_path: ItemPath) -> Any:
-        """What the input holds for ``item_path``: the items of its Series, or what is outside them when that
+    def value(self, reader: Reader, item_indexes: ItemIndexes) -> Any:
+        """What the input holds for ``item_indexes``: the items of its Series, or what is outside them when that
         decides."""
-        return reader.collect(self, item_path)
+        return reader.collect(self, item_indexes)
 
     @property
     def loops(self) -> tuple[OutputAddress, ...]:
@@ -265,11 +265,11 @@ class InputWrapsOneValue:
         """What each edge brings."""
         return self.reads
 
-    def value(self, reader: Reader, item_path: ItemPath) -> Any:
-        """What the input holds for ``item_path``: the one value its edge brings, as a list of one; where the
+    def value(self, reader: Reader, item_indexes: ItemIndexes) -> Any:
+        """What the input holds for ``item_indexes``: the one value its edge brings, as a list of one; where the
         items take a blank, a blank is its one item."""
         reads = self.reads
-        value = reader.read_output(reads[0], item_path) if len(reads) == 1 else reader.read_alternatives(reads, item_path)
+        value = reader.read_output(reads[0], item_indexes) if len(reads) == 1 else reader.read_alternatives(reads, item_indexes)
         if value is SKIPPED or value is NotReady.NOT_READY or (value is None and not self.field.accepts_none_items):
             return value
         return [value]
