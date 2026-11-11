@@ -480,13 +480,13 @@ def test_a_leg_whose_run_takes_longer_than_the_lease_to_write_keeps_it_and_write
     asyncio.run(scenario())
 
 
-class _FailingEnd(MemoryStore):
-    """Fails to add a leg's first ``run_end``, so the leg raises there."""
+class _FailingEvent(MemoryStore):
+    """Fails to add the first event after ``armed`` is set, so the leg raises there."""
 
-    failed = False
+    armed = failed = False
 
     async def add_event(self, run_id: str, owner: str, body: str) -> bool:
-        if not self.failed and '"run_end"' in body:
+        if self.armed and not self.failed:
             self.failed = True
             raise ConnectionError("the store went away")
         return await super().add_event(run_id, owner, body)
@@ -536,7 +536,7 @@ def test_an_answer_queued_for_a_question_a_timed_out_leg_never_asked_is_refused_
 
 def test_an_answer_queued_during_a_leg_that_raised_stays_queued_and_is_taken_after_a_resume() -> None:
     registry, graph, gate, inputs, waiting_id = _asking(items=True)
-    runs = _FailingEnd()
+    runs = _FailingEvent()
     app = FastAPI()
     app.include_router(run_router(store=runs, registry=registry, caller=_caller))
 
@@ -544,6 +544,7 @@ def test_an_answer_queued_during_a_leg_that_raised_stays_queued_and_is_taken_aft
         async with app.router.lifespan_context(app), httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as client:
             run_id = (await client.post("/runs", json={"graph": graph.model_dump(mode="json"), "inputs": inputs})).json()["id"]
             assert (await client.post(f"/runs/{run_id}/answers", json={waiting_id: True})).json() == {"answers": "queued"}
+            runs.armed = True
             gate.set()
             await _until_status(runs, run_id, "failed")
             assert json.loads(runs.rows[run_id].pending) == {waiting_id: True}
@@ -938,5 +939,53 @@ def test_a_follower_that_sent_a_run_end_while_the_row_still_reads_running_keeps_
             frames = [json.loads(line.removeprefix("data: ")) for line in followed.text.splitlines() if line.startswith("data: ")]
             assert [frame["type"] for frame in frames].count("run_end") == 1 and frames[-1]["type"] == "run_end"
             assert store.lagged == 5
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("fails", ["the write of the row", "the run as JSON"])
+def test_a_leg_whose_end_fails_after_its_run_end_is_stored_stays_running_and_is_gone_on_with(fails: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    from conductor import Run
+
+    registry = NodeRegistry()
+
+    @registry.node("shout", title="Shout", description="")
+    def shout(text: str) -> str:
+        return text.upper()
+
+    class EndFailsOnce(MemoryStore):
+        """Raises once after a leg's ``run_end`` is stored: in the write that ends the leg, or as the run is written as JSON."""
+
+        end_stored = raised = False
+
+        async def add_event(self, run_id: str, owner: str, body: str) -> bool:
+            self.end_stored = self.end_stored or '"run_end"' in body
+            return await super().add_event(run_id, owner, body)
+
+        async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
+            if fails == "the write of the row" and changes.get("status") == "complete" and not self.raised:
+                self.raised = True
+                raise ConnectionError("the store went away for one statement")
+            return await super().update(run_id, rev, changes)
+
+    store = EndFailsOnce()
+    to_json = Run.to_json
+
+    def failing_to_json(self: Run) -> str:
+        if fails == "the run as JSON" and store.end_stored and not store.raised:
+            store.raised = True
+            raise RuntimeError("a value the run can't write")
+        return to_json(self)
+
+    monkeypatch.setattr(Run, "to_json", failing_to_json)
+    app = FastAPI()
+    app.include_router(run_router(store=store, registry=registry, caller=_caller, lease=0.15))
+
+    async def scenario() -> None:
+        async with app.router.lifespan_context(app), httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as client:
+            run_id = (await client.post("/runs", json={"graph": make_graph(shout).model_dump(mode="json"), "inputs": {"text": "a"}})).json()["id"]
+            ended = await _until_status(store, run_id, "complete", "failed")
+            ends = [json.loads(body)["status"] for body in store.written[run_id] if '"run_end"' in body]
+            assert store.raised and (ended.status, ended.cause, ends) == ("complete", None, ["complete", "complete"])  # one for each leg
 
     asyncio.run(scenario())

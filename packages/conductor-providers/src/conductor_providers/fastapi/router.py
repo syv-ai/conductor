@@ -294,30 +294,40 @@ def run_router(
                 leg.rev = row.rev
 
     async def drive(row: StoredRun, leg: _Leg, ceiling: int | None) -> None:
-        """Run the leg and store its events, then have ``finish`` write its end while its lease is still renewed; a
-        leg that raised ends ``failed``."""
+        """Run the leg and store its events, then have ``finish`` write its end while its lease is still renewed.
+
+        The leg is the stream: a raise while it runs ends the leg ``failed``. A raise while its end is written,
+        which may come after the ``run_end`` is stored, is logged and writes no second end: the row stays
+        ``running``, its lease runs out, and a worker goes on from the last checkpoint.
+        """
         run_id = row.id
         keep_lease = asyncio.create_task(hold(run_id, leg))
         try:
-            who = started_by(row)
-            run = await asyncio.to_thread(load, row, nodes_for(who))
-            values = from_run(who)
-            stream = run.stream(
-                from_run=values, max_items=ceiling, timeout=leg_timeout,
-                cancel=leg.cancel, checkpoint_every=checkpoint_every,
-            )
-            async with contextlib.aclosing(stream):  # a raise in this loop ends the leg before its next unit
-                async for event in stream:
-                    if isinstance(event, RunCheckpoint):
-                        await write(run_id, leg, {"run": await asyncio.to_thread(event.run.to_json)})
-                        continue
-                    if isinstance(event, RunEnd):
-                        await finish(run_id, leg, keep_lease, await asyncio.to_thread(_Ended, event))
-                    elif not await store.add_event(run_id, worker, event.model_dump_json()):
-                        leg.cancel.set()  # another worker holds the run
-        except Exception:
-            log.exception("the leg of run %s failed", run_id)
-            await finish(run_id, leg, keep_lease, _Raised())
+            ending: _Ended | _Raised
+            try:
+                who = started_by(row)
+                run = await asyncio.to_thread(load, row, nodes_for(who))
+                values = from_run(who)
+                stream = run.stream(
+                    from_run=values, max_items=ceiling, timeout=leg_timeout,
+                    cancel=leg.cancel, checkpoint_every=checkpoint_every,
+                )
+                async with contextlib.aclosing(stream):  # a raise in this loop ends the leg before its next unit
+                    async for event in stream:
+                        if isinstance(event, RunCheckpoint):
+                            await write(run_id, leg, {"run": await asyncio.to_thread(event.run.to_json)})
+                        elif isinstance(event, RunEnd):
+                            ending = await asyncio.to_thread(_Ended, event)
+                        elif not await store.add_event(run_id, worker, event.model_dump_json()):
+                            leg.cancel.set()  # another worker holds the run
+            except Exception:
+                log.exception("the leg of run %s failed", run_id)
+                ending = _Raised()
+            try:
+                await finish(run_id, leg, keep_lease, ending)
+            except Exception:
+                log.exception("the end of the leg of run %s was not written; a worker goes on with the run once its lease runs out", run_id)
+                raise
         finally:
             keep_lease.cancel()
             if legs.get(run_id) is leg:  # the answers queued during this leg may have launched the next one already
