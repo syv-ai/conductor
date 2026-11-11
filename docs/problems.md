@@ -892,18 +892,6 @@ match late.state:
 
 **Fix.** Raise the node's `Policy(attempt_timeout=)`, or make the call faster. The timeout is final for that call: it is not retried.
 
-## Serving runs
-
-In `refused` on a run `run_router` serves, by the waiting id of the answer, and as the `detail` of a 409 from `POST /runs/{run_id}/answers`.
-
-### `run_not_waiting`
-
-> The run is {status}, so it takes no answers; resume it first, then answer.
-
-An answer queued while a leg ran, when that leg ended `stopped`, `timed_out`, `cancelled` or `failed`, or an answer sent to a run in one of those states. `ctx.status` is the run's status. The router starts a leg on answers only for a run that waits for them, so a run that stopped at its ceiling or its timeout doesn't start again there on an answer.
-
-**Fix.** `POST /runs/{run_id}/resume`, then send the answer again once the run is `waiting`.
-
 ## Declaring a node
 
 Raised as `NodeDeclarationError` when the module that declares the node is imported. `error.code` is the code. The text is English and for the developer.
@@ -1493,3 +1481,55 @@ print([p.type for p in check_registry(checked)])  # ['upgrade_broken']
 ```
 
 **Fix.** Fix the `Upgrade`, so a node saved at the older version loads cleanly at the newer one.
+
+## The runs router
+
+Written by `conductor_providers.fastapi.run_router` itself, beside the codes of the runs it serves: the `detail` of a 404 or a 409 is a list of these, and `leg_failed` is a run's `cause`. `loc` is `()`: each is about the run as a whole. They aren't in `PROBLEM_CODES`; `conductor_providers.fastapi.ROUTER_PROBLEM_CODES` holds them.
+
+### `no_such_run`
+
+> There is no run by that id that the caller may see; check the id and who is calling.
+
+A 404 from every route under `/runs/{run_id}`: no run has the id, or `may_see` says the caller may not see it. The two read the same, so a caller learns nothing about a run that isn't theirs.
+
+**Fix.** Use the `id` that `POST /runs` gave, as the caller who started the run or one `may_see` lets in.
+
+### `already_answered`
+
+> An answer to {waiting_id!r} already waits for the running leg to end; read the run once it has, and answer what still waits.
+
+A 409 from `POST /runs/{run_id}/answers` while a leg runs: an earlier call queued an answer for the same waiting id, and nothing of this call was queued. `ctx.waiting_id` is the id; there is one problem for each id sent twice.
+
+**Fix.** Wait for the leg to end. The queued answer is taken then, or is in `refused` with why; answer what still waits.
+
+### `run_complete`
+
+> The run is complete, so nothing in it waits for an answer; start a new run to ask again.
+
+A 409 from `POST /runs/{run_id}/answers` on a run whose status is `complete`.
+
+**Fix.** Nothing to answer. `POST /runs/{run_id}/again` starts a new run with some inputs changed.
+
+### `run_not_resumable`
+
+> The run is {status}, and only a run whose last leg ended early is resumed; read the run to see what it needs.
+
+A 409 from `POST /runs/{run_id}/resume` on a run that is `running`, `waiting` or `complete`. `ctx.status` is the run's status.
+
+**Fix.** A `waiting` run goes on when it is answered, a `running` one is already going on, and a `complete` one is done.
+
+### `run_changed`
+
+> The run changed since it was read, so nothing was done; read it again and repeat the call if it still applies.
+
+A 409 from `POST /runs/{run_id}/answers` or `/resume`: between the read of the run and the write that claims it, another call (an answer, a resume, on any worker) changed the run. One of the two calls wins and the other is told so; no node is called twice.
+
+**Fix.** `GET /runs/{run_id}`, and send the call again if the run still needs it.
+
+### `leg_failed`
+
+> The run's worker failed before the leg could end; its operator finds why in the server log. Resume it to carry on.
+
+The `cause` of a run that reads `failed` because its worker raised outside any node: the store went away, `from_run` raised, the run could not be loaded. It is in `GET /runs/{run_id}` and on the leg's `run_end` event. The run is kept as its last checkpoint, and answers queued during the leg stay queued.
+
+**Fix.** `POST /runs/{run_id}/resume`. The exception is in the log `conductor_providers.fastapi`, with the run's id.

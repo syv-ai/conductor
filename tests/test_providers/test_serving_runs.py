@@ -266,7 +266,7 @@ def test_a_cancel_sent_to_either_worker_stops_the_leg_and_a_resume_finishes_it(s
             await a.until_status(run_id, "cancelled")
 
             refused = await b.client.post(f"/runs/{run_id}/answers", json={})
-            assert refused.status_code == 409 and "resume" in refused.text
+            assert (refused.status_code, [problem["type"] for problem in refused.json()["detail"]]) == (422, ["run_cancelled"])
             assert (await b.client.post(f"/runs/{run_id}/resume", json={})).status_code == 202
             await b.until_status(run_id, "waiting")
             assert served.calls == ["gate"]
@@ -351,7 +351,7 @@ def test_a_second_answer_to_a_unit_answered_while_a_leg_runs_is_a_409(served: Se
             assert (await a.client.post(f"/runs/{run_id}/answers", json={second["id"]: False})).json() == {"answers": "queued"}
             twice = await b.client.post(f"/runs/{run_id}/answers", json={second["id"]: True})
             assert twice.status_code == 409
-            assert twice.json() == {"detail": "that question is already answered"}
+            assert [(problem["type"], problem["ctx"]) for problem in twice.json()["detail"]] == [("already_answered", {"waiting_id": second["id"]})]
             served.open_the_gate()
             assert (await b.until_status(run_id, "complete"))["outputs"] == {"after.result": [True, False]}
 
@@ -376,8 +376,9 @@ def test_a_leg_that_cannot_start_leaves_the_run_failed_and_its_follower_is_told(
     async def scenario() -> None:
         async with _workers(served, count=1) as (a,):
             run_id = await a.start(_chain("needs_missing"))
-            await a.until_status(run_id, "failed")
-            assert (await a.frames(run_id))[-1] == {"type": "run_end", "status": "failed", "cause": None}
+            failed = await a.until_status(run_id, "failed")
+            assert failed["cause"]["type"] == "leg_failed"
+            assert (await a.frames(run_id))[-1] == {"type": "run_end", "status": "failed", "cause": failed["cause"]}
 
     _run(scenario)
 
@@ -407,7 +408,7 @@ def test_a_run_is_seen_only_by_the_caller_who_started_it(served: Served) -> None
     _run(scenario)
 
 
-def test_a_wrong_answer_is_a_422_listing_every_fault_and_a_run_not_waiting_is_a_409(served: Served) -> None:
+def test_a_wrong_answer_is_a_422_listing_every_fault_and_a_complete_run_is_a_409(served: Served) -> None:
     async def scenario() -> None:
         async with _workers(served, count=1) as (a,):
             served.open_the_gate()

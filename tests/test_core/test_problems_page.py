@@ -1,8 +1,8 @@
 """``docs/problems.md`` has one section for every code conductor writes, quoting its message, with an example that makes it.
 
-The codes are ``PROBLEM_CATALOGUE``'s, ``DeclarationCode``'s, and the codes ``conductor.testing`` returns. A code both
-a graph and a declaration can have has a section in each group. A declaration's message is written where it is
-raised, so the messages a section quotes are read from the package's source.
+The codes are ``PROBLEM_CATALOGUE``'s, ``DeclarationCode``'s, the codes ``conductor.testing`` returns, and the runs
+router's own. A code both a graph and a declaration can have has a section in each group. A declaration's message is
+written where it is raised, so the messages a section quotes are read from the package's source.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ import typing
 
 import pytest
 from conductor._internal.errors import PROBLEM_CATALOGUE, DeclarationCode
+from conductor_providers.fastapi import ROUTER_PROBLEM_CODES
 
 _ROOT = pathlib.Path(__file__).parents[2]
 _PACKAGE = _ROOT / "packages" / "conductor" / "src" / "conductor"
@@ -70,7 +71,7 @@ def _wanted() -> dict[str, list[str]]:
     messages = _declaration_messages()
     for code in typing.get_args(DeclarationCode):
         wanted[code + _DECLARED if code in PROBLEM_CATALOGUE else code] = messages[code]
-    return wanted | {code: [] for code in _kit_codes()}
+    return wanted | {code: [] for code in _kit_codes()} | {code: [] for code in ROUTER_PROBLEM_CODES}
 
 
 def test_every_code_has_one_section_and_no_section_names_another() -> None:
