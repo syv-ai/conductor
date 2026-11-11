@@ -87,14 +87,14 @@ def check_registry(
     registry: NodeRegistry,
     /,
     *,
-    examples: Mapping[str | tuple[str, int], Sequence[_Example]] | None = None,
-    expected_failures: Mapping[str, str] | None = None,
-    from_run: Mapping[type, Any] | None = None,
+    examples: Mapping[str | tuple[str, int], Sequence[_Example]] = types.MappingProxyType({}),
+    expected_failures: Mapping[str, str] = types.MappingProxyType({}),
+    from_run: Mapping[type, Any] = types.MappingProxyType({}),
 ) -> list[Problem]:
     """Every way a node of ``registry`` breaks what a host relies on, all at once; ``[]`` when none does."""
     found: list[Problem] = []
     by_version: dict[tuple[str, int], list[_Example]] = {}
-    for key, calls in (examples or {}).items():
+    for key, calls in examples.items():
         said = f"{key!r} names no node of the registry; check the id, or remove the example"
         if isinstance(key, str):  # the newest version, by the id alone
             if key not in registry:
@@ -108,8 +108,8 @@ def check_registry(
             place = key
         by_version.setdefault(place, []).extend(calls)
     for definition in registry:
-        found += _problems_of(definition, registry, by_version, from_run or {})
-    return _without_waived(found, expected_failures or {})
+        found += _problems_of(definition, registry, by_version, from_run)
+    return _without_waived(found, expected_failures)
 
 
 def _problems_of(

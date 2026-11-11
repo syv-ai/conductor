@@ -21,6 +21,7 @@ import threading
 import time
 from collections.abc import AsyncGenerator, Callable, Mapping
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Annotated, Any, Literal, overload
 
 import polars as pl
@@ -168,7 +169,7 @@ class Run:
 
     # -- going on ---------------------------------------------------------------
 
-    def resume(self, *, max_rows: int | None = None, from_run: Mapping[type, Any] | None = None, timeout: float | None = None) -> Run:
+    def resume(self, *, max_rows: int | None = None, from_run: Mapping[type, Any] = MappingProxyType({}), timeout: float | None = None) -> Run:
         """Go on: start every unit whose inputs exist, until the run is done, waits, fails, reaches its ceiling or its ``timeout``.
 
         ``max_rows`` raises (or sets) the ceiling a stopped run carries on
@@ -182,7 +183,7 @@ class Run:
         return self._leg(max_rows, from_run_values(self.graph._needs_from_run, from_run), None, _deadline(timeout))
 
     def stream(
-        self, *, max_rows: int | None = None, from_run: Mapping[type, Any] | None = None, timeout: float | None = None, cancel: asyncio.Event | None = None,
+        self, *, max_rows: int | None = None, from_run: Mapping[type, Any] = MappingProxyType({}), timeout: float | None = None, cancel: asyncio.Event | None = None,
         checkpoint_every: float | None = None,
     ) -> AsyncGenerator[Event]:
         """``resume``, saying what happens as it happens: ``async for event in run.stream(): ...``.
@@ -320,7 +321,7 @@ class Run:
                     return self._waiting(n, k, u).id
         return None
 
-    def with_inputs(self, inputs: Mapping[str, Any] | None = None, /, *, max_rows: int | None = None, **by_name: Any) -> Run:
+    def with_inputs(self, inputs: Mapping[str, Any] = MappingProxyType({}), /, *, max_rows: int | None = None, **by_name: Any) -> Run:
         """A run of these changed inputs, the rest as before, ready to ``resume`` or ``stream``.
 
         It carries this run's work, and what this run carried and didn't use
@@ -332,7 +333,7 @@ class Run:
         second the second. Inputs are given as ``graph.with_inputs`` takes
         them, and checked the same way.
         """
-        changed = {**(inputs or {}), **by_name}
+        changed = {**inputs, **by_name}
         named = self.graph._given_by_key(changed)[0]
         given = {field.name: self.inputs[key] for key, field in self.graph._input_fields.items() if key in self.inputs and key not in named}
         fresh = self.graph.with_inputs({**given, **changed}, max_rows=max_rows if max_rows is not None else self.max_rows)
@@ -383,7 +384,7 @@ class Run:
         return earlier
 
     def again(
-        self, inputs: Mapping[str, Any] | None = None, /, *, max_rows: int | None = None, from_run: Mapping[type, Any] | None = None,
+        self, inputs: Mapping[str, Any] = MappingProxyType({}), /, *, max_rows: int | None = None, from_run: Mapping[type, Any] = MappingProxyType({}),
         timeout: float | None = None, **by_name: Any,
     ) -> Run:
         """Run again with changed inputs, the rest as before: ``run.with_inputs(...).resume(...)``.

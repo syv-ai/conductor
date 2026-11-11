@@ -511,14 +511,14 @@ def is_node_id(value: str) -> bool:
     return bool(value) and not _MARKS & set(value)
 
 
-def from_run_values(definitions: Iterable[tuple[str, FunctionDefinition[..., Any]]], from_run: Mapping[type, Any] | None) -> dict[type, Any]:
+def from_run_values(definitions: Iterable[tuple[str, FunctionDefinition[..., Any]]], from_run: Mapping[type, Any]) -> dict[type, Any]:
     """The value each ``FromRun`` parameter of these placed nodes takes, by the class it names; ``InvalidCallError`` listing
     every parameter it can't fill.
 
     A value keyed by the class itself is taken; else the one value given that is an instance of it, so a subclass
     (a test double, a session of the host's own) is keyed by its own class or its parent's alike.
     """
-    given = dict(from_run or {})
+    given = dict(from_run)
     found: dict[type, Any] = {}
     problems: list[Problem] = []
     for node_id, definition in definitions:

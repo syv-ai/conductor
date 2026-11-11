@@ -512,7 +512,7 @@ class Graph:
     # -- running ----------------------------------------------------------------
 
     def with_inputs(
-        self, inputs: Mapping[str, Any] | None = None, /, *, max_rows: int | None = None, earlier: Run | None = None, **by_name: Any,
+        self, inputs: Mapping[str, Any] = types.MappingProxyType({}), /, *, max_rows: int | None = None, earlier: Run | None = None, **by_name: Any,
     ) -> Run:
         """A run with the caller's inputs checked, not started; ``run.resume()`` starts it.
 
@@ -534,7 +534,7 @@ class Graph:
         if self.problems:
             raise InvalidCallError(self.problems)
         checked_leg(max_rows=max_rows)
-        by_key, problems = self._given_by_key({**(inputs or {}), **by_name})
+        by_key, problems = self._given_by_key({**inputs, **by_name})
         graph = self._compiled_for(frozenset(  # each open input given a list, or given nothing and its default a list
             key for key, f in self._input_fields.items() if given_as_items(f.spec, by_key[key] if key in by_key else f.default)
         ))
@@ -545,7 +545,7 @@ class Graph:
             run._earlier = earlier._carried(into=graph)
         return run
 
-    def calls_for(self, lengths: Mapping[str, int] | None = None, /, **by_name: int) -> dict[str, int | None]:
+    def calls_for(self, lengths: Mapping[str, int] = types.MappingProxyType({}), /, **by_name: int) -> dict[str, int | None]:
         """How many times each node is called in a run given lists of these lengths, before any run: ``graph.calls_for(file=11)``.
 
         Lengths are given by input name or address, as ``with_inputs`` takes
@@ -554,7 +554,7 @@ class Graph:
         another node makes counts ``None``, as how many is known only once that
         node has run. An embedded graph counts the calls of every node in it.
         """
-        given = {**(lengths or {}), **by_name}
+        given = {**lengths, **by_name}
         bad = [name for name, n in given.items() if n < 0]
         if bad:
             raise InvalidCallError([make_problem("invalid_input", "inputs", name, name=name, reason="a length is 0 or more") for name in bad])
@@ -583,7 +583,7 @@ class Graph:
         return counts
 
     def run(
-        self, inputs: Mapping[str, Any] | None = None, /, *, max_rows: int | None = None, from_run: Mapping[type, Any] | None = None,
+        self, inputs: Mapping[str, Any] = types.MappingProxyType({}), /, *, max_rows: int | None = None, from_run: Mapping[type, Any] = types.MappingProxyType({}),
         timeout: float | None = None, **by_name: Any,
     ) -> Run:
         """Run the graph with these inputs until it is done, waits for a person, fails or stops."""

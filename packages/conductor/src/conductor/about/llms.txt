@@ -270,10 +270,10 @@ Five public modules: `conductor`, `conductor.widgets`, `conductor.events`, `cond
 
 ### Running
 
-- `graph.run(inputs=None, /, *, max_rows=None, from_run=None, timeout=None, **by_name)`: one leg from the start; its `Run`. A pause or failure is a `status`.
-- `graph.with_inputs(inputs=None, /, *, max_rows=None, **by_name)`: a `Run` with the inputs checked and not started; a name it doesn't offer (`not_offered`), a required one left out (`missing_input`), one given by both its name and its address (`input_given_twice`), a value its type can't read (`invalid_input`), two lists that meet (`lists_not_collected`) or a `max_rows` below 1 (`invalid_max_rows`) raises `InvalidCallError`, every fault at once.
-- `run.resume(*, max_rows=None, from_run=None, timeout=None)`: the next leg. `run.stream(...)`, the same arguments and `cancel=`: the leg's events.
-- `run.answer(unit, value)` or `run.answer({unit_id: value})`, `run.with_inputs(inputs=None, /, *, max_rows=None, **by_name)` (a run carrying this one's work, to resume or stream), `run.forget(*node_ids)` (a run of the same inputs that calls these nodes again, carrying the rest, to resume or stream), `run.again(...)` (the same, resumed; takes `from_run=` and `timeout=` too), `run.to_json()`, `graph.load_run(saved)`, `graph.calls_for(lengths=None, /, **by_name)` (each node's calls given lists of these lengths, before any run; a name it doesn't offer or one given by both its name and its address raises `InvalidCallError`).
+- `graph.run(inputs={}, /, *, max_rows=None, from_run={}, timeout=None, **by_name)`: one leg from the start; its `Run`. A pause or failure is a `status`.
+- `graph.with_inputs(inputs={}, /, *, max_rows=None, **by_name)`: a `Run` with the inputs checked and not started; a name it doesn't offer (`not_offered`), a required one left out (`missing_input`), one given by both its name and its address (`input_given_twice`), a value its type can't read (`invalid_input`), two lists that meet (`lists_not_collected`) or a `max_rows` below 1 (`invalid_max_rows`) raises `InvalidCallError`, every fault at once.
+- `run.resume(*, max_rows=None, from_run={}, timeout=None)`: the next leg. `run.stream(...)`, the same arguments and `cancel=`: the leg's events.
+- `run.answer(unit, value)` or `run.answer({unit_id: value})`, `run.with_inputs(inputs={}, /, *, max_rows=None, **by_name)` (a run carrying this one's work, to resume or stream), `run.forget(*node_ids)` (a run of the same inputs that calls these nodes again, carrying the rest, to resume or stream), `run.again(...)` (the same, resumed; takes `from_run=` and `timeout=` too), `run.to_json()`, `graph.load_run(saved)`, `graph.calls_for(lengths={}, /, **by_name)` (each node's calls given lists of these lengths, before any run; a name it doesn't offer or one given by both its name and its address raises `InvalidCallError`).
 - `run.results`: every node's outputs so far, by node id: one value for a node that ran once, a list in row order for one that ran per row, `None` where a row has none. `run.outputs`: narrowed to `graph.outputs`, by address, on a `complete` run only (`run_not_complete` otherwise). `run.waiting` (each a `Waiting`), `run.not_called` (each a `NotCalled`: `node_id`, `row`, `input`), `run.status`, `run.cause`.
 
 ### Problem and error codes
@@ -298,7 +298,7 @@ Frozen models with a `type`, and a host subclasses `Widget` for a control of its
 
 ### conductor.testing
 
-`check_registry(registry, /, *, examples=None, expected_failures=None, from_run=None)` is one test a node package or host runs in CI: `assert check_registry(registry, examples={"upper": [{"text": "hi"}]}) == []`.
+`check_registry(registry, /, *, examples={}, expected_failures={}, from_run={})` is one test a node package or host runs in CI: `assert check_registry(registry, examples={"upper": [{"text": "hi"}]}) == []`.
 
 - It returns every problem at once as `Problem`s, `loc` `(node_id, version)`. For `waiver_not_needed`, and for `example_for_no_node` given without a version, `loc` is `(node_id,)`.
 - A body is called only for a node given an example, once per example, through the engine as a graph of that one node. `(id, version)` keys an older version's examples, and `from_run={T: value}` gives every example's `FromRun` values, as `graph.run` takes them.
