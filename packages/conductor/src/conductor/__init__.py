@@ -27,6 +27,7 @@ from conductor._internal.fields import (
     Table,
 )
 from conductor._internal.graph import Feed, Graph, GraphDescription, GraphInput, RunsOn
+from conductor._internal.graph_record import GraphRecord, NodeRecord
 from conductor._internal.make_graph import make_graph
 from conductor._internal.node_definition import (
     Deprecation,
@@ -51,7 +52,6 @@ from conductor._internal.problem import (
     ProblemCatalogue,
     ProblemKind,
 )
-from conductor._internal.record import GraphRecord, NodeRecord
 from conductor._internal.registry import NodeRegistry, RegistryDescription, TypeDescription
 from conductor._internal.run import EndedEarly, Going, NotCalled, Run, RunState, RunStatus
 

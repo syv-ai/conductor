@@ -58,6 +58,7 @@ from conductor._internal.fields import (
     Series,
     Type,
 )
+from conductor._internal.graph_record import GraphRecord, NodeRecord
 from conductor._internal.node_definition import (
     FunctionDefinition,
     GraphDefinition,
@@ -75,7 +76,6 @@ from conductor._internal.problem import (
     Problem,
     make_problem,
 )
-from conductor._internal.record import GraphRecord, NodeRecord
 
 if TYPE_CHECKING:
     from conductor._internal.run import Run, SaveForm

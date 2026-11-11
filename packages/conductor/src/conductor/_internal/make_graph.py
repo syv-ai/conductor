@@ -10,9 +10,9 @@ from typing import Any
 from pydantic import JsonValue, ValidationError
 
 from conductor._internal.fields import REQUIRED
+from conductor._internal.graph_record import GraphRecord, NodeRecord, not_a_record, typed_in
 from conductor._internal.node_definition import FunctionDefinition, NodeDefinition
 from conductor._internal.problem import InvalidCallError, Problem, make_problem, not_a_chain
-from conductor._internal.record import GraphRecord, NodeRecord, not_a_record, typed_in
 
 
 def make_graph(

@@ -72,8 +72,8 @@ from conductor._internal.fields import (
     Type,
     _FromRun,
 )
+from conductor._internal.graph_record import GraphRecord, as_record
 from conductor._internal.problem import InvalidCallError, NodeDeclarationError, from_run_missing
-from conductor._internal.record import GraphRecord, as_record
 
 _P = ParamSpec("_P")
 _R = TypeVar("_R")

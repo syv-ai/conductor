@@ -48,6 +48,7 @@ from pydantic import JsonValue
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.fields import NamedType, Type
 from conductor._internal.graph import Graph, load_graph
+from conductor._internal.graph_record import GraphRecord, NodeRecord, as_record, typed_in
 from conductor._internal.node_definition import (
     FunctionDefinition,
     GraphDefinition,
@@ -63,7 +64,6 @@ from conductor._internal.problem import (
     cannot_move_to_version,
     make_problem,
 )
-from conductor._internal.record import GraphRecord, NodeRecord, as_record, typed_in
 
 
 def _takes_the_arguments_of[**P, R](

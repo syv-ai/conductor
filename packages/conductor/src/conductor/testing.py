@@ -52,6 +52,7 @@ import polars as pl
 
 from conductor._internal.fields import REQUIRED, Field, FieldValueError, Param
 from conductor._internal.graph import load_graph
+from conductor._internal.graph_record import GraphRecord, NodeRecord, typed_in
 from conductor._internal.node_definition import (
     FunctionDefinition,
     GraphDefinition,
@@ -73,7 +74,6 @@ from conductor._internal.problem import (
     upgrade_broken,
     upgrade_raised,
 )
-from conductor._internal.record import GraphRecord, NodeRecord, typed_in
 from conductor._internal.registry import NodeRegistry
 from conductor._internal.run import EndedEarly
 
