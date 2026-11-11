@@ -142,7 +142,7 @@ def run_router(
     from_run: Callable[[C], Mapping[type, Any]] = ...,
     may_see: Callable[[C, C], bool] = ...,
     published: Callable[..., GraphRecord] | None = None,
-    max_rows: int | None = None,
+    max_items: int | None = None,
     lease: float = 30.0,
     checkpoint_every: float = 5.0,
     leg_timeout: float | None = 300.0,
@@ -158,7 +158,7 @@ def run_router(
     from_run: Callable[[None], Mapping[type, Any]] = ...,
     may_see: Callable[[None, None], bool] = ...,
     published: Callable[..., GraphRecord] | None = None,
-    max_rows: int | None = None,
+    max_items: int | None = None,
     lease: float = 30.0,
     checkpoint_every: float = 5.0,
     leg_timeout: float | None = 300.0,
@@ -174,7 +174,7 @@ def run_router(
     from_run: Callable[[C], Mapping[type, Any]] = _no_values,
     may_see: Callable[[C, C], bool] = _same,
     published: Callable[..., GraphRecord] | None = None,
-    max_rows: int | None = None,
+    max_items: int | None = None,
     lease: float = 30.0,
     checkpoint_every: float = 5.0,
     leg_timeout: float | None = 300.0,
@@ -195,7 +195,7 @@ def run_router(
     - ``published`` is a FastAPI dependency taking the path's ``name`` and giving a ``GraphRecord``, raising
       ``HTTPException(404)`` for one it doesn't offer; with it, ``POST /graphs/{name}/runs`` starts that graph on
       inputs alone.
-    - ``max_rows`` is the ceiling on the rows of one table a run starts with; a resume may raise it for that run,
+    - ``max_items`` is the ceiling on the items of any one Series a node works through, which a run starts with; a resume may raise it for that run,
       and the raised ceiling holds for its later legs. ``lease`` the seconds a worker holds a run between
       renewals; ``checkpoint_every`` the seconds between saves of a running leg; ``leg_timeout`` the seconds one leg
       may run; ``poll`` the seconds between a follower's reads of new events.
@@ -267,7 +267,7 @@ def run_router(
             run = await asyncio.to_thread(load, row, nodes_for(who))
             values = from_run(who)
             stream = run.stream(
-                from_run=values, max_rows=ceiling, timeout=leg_timeout,
+                from_run=values, max_items=ceiling, timeout=leg_timeout,
                 cancel=leg.cancel, checkpoint_every=checkpoint_every,
             )
             async with contextlib.aclosing(stream):  # a raise in this loop ends the leg before its next unit
@@ -354,7 +354,7 @@ def run_router(
 
     async def start(graph: GraphRecord, inputs: Mapping[str, Any], who: C) -> Started:
         try:
-            saved = await asyncio.to_thread(lambda: nodes_for(who).load(graph).with_inputs(inputs, max_rows=max_rows).to_json())
+            saved = await asyncio.to_thread(lambda: nodes_for(who).load(graph).with_inputs(inputs, max_items=max_items).to_json())
         except InvalidCallError as error:
             raise _unprocessable(error) from None
         return await begin(graph.model_dump_json(), who, saved)
@@ -459,12 +459,12 @@ def run_router(
         return Answered(answers="started")
 
     @router.post("/runs/{run_id}/resume", status_code=202)
-    async def resume(row: Annotated[StoredRun, Depends(stored)], max_rows: Annotated[PositiveInt | None, Body(embed=True)] = None) -> Started:
+    async def resume(row: Annotated[StoredRun, Depends(stored)], max_items: Annotated[PositiveInt | None, Body(embed=True)] = None) -> Started:
         """Go on with a run that timed out, stopped at its ceiling, was cancelled or failed; nothing finished is called
-        again. ``{"max_rows": ...}`` raises the ceiling of a run that stopped at it; a resume needs no body."""
+        again. ``{"max_items": ...}`` raises the ceiling of a run that stopped at it; a resume needs no body."""
         if row.status not in _RESUMABLE:
             raise HTTPException(409, f"the run is {row.status}")
-        if not await claim(row, max_rows, cancel=False):
+        if not await claim(row, max_items, cancel=False):
             raise HTTPException(409, "the run changed since it was read")
         return Started(id=row.id)
 
