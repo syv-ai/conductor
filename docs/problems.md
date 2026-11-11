@@ -1464,19 +1464,9 @@ print([p.type for p in check_registry(checked)])  # ['needs_example']
 ### `run_failed`
 
 ```python
-checked = NodeRegistry()
-checked.add(divide)
-print([p.type for p in check_registry(checked, examples={"divide": [{"n": 0}]})])  # ['run_failed']
-```
-
-**Fix.** Fix the node or the example. `ctx.cause` has the run's own problem, and the message names the exception class a body raised.
-
-A node that is known to fail goes in a test of its own, checked down to that node with `registry.filter`. `xfail(strict=True)` turns the run red once the node starts passing:
-
-```python
 import pytest
 
-only_divide = checked.filter(lambda definition: definition.id == "divide")
+only_divide = registry.filter(lambda definition: definition.id == "divide")
 print([p.type for p in check_registry(only_divide, examples={"divide": [{"n": 0}]})])  # ['run_failed']
 
 
@@ -1484,6 +1474,8 @@ print([p.type for p in check_registry(only_divide, examples={"divide": [{"n": 0}
 def test_divide_by_zero_is_known():
     assert check_registry(only_divide, examples={"divide": [{"n": 0}]}) == []
 ```
+
+**Fix.** Fix the node or the example. `ctx.cause` has the run's own problem, and the message names the exception class a body raised. A node that is known to fail goes in a test of its own, checked down to that node with `registry.filter` as above; `xfail(strict=True)` turns the run red once the node starts passing.
 
 ### `upgrade_broken`
 
