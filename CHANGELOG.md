@@ -150,7 +150,8 @@ What changes in how you work, before the name-by-name tables:
   and gives the value made for every item as one list. `split` and `stack` are `series-split` and
   `series-stack` and live in `conductor_nodes.series`. `decision`, `logic-if-empty` and `logic-if-equals`
   are `control-decide`, `control-if-empty` and `control-if-equals`. A stored graph that names an old id
-  needs the new one.
+  needs the new one, and a run saved from a graph that used an old id is refused by `graph.load_run`
+  (`state_of_another_graph`), because the graph's fingerprint includes the ids of its nodes.
 - **A declared choice's `id` is the field type's JSON form.** `Decimal` choices show `"1"` and a `datetime` its seconds, so the id a question shows is an answer it takes.
 - **A table answer and a caller's records have one reader.** Extra columns are dropped for every table from outside, and a missing column is refused. An answer's cells are read strictly from their JSON form; a caller's records are read cell by cell, laxly, never from polars' dtype, so a bool among ints or a number among texts is `invalid_input`. A value that is neither a frame nor a list of records is refused as `invalid_answer` or `invalid_input` with the reason "a table is a frame or a list of records, one object per row".
 - **A default no caller reaches is a problem at load.** `make_graph(..., defaults={"pad.width": 8})` on a node that is not an open input of the graph writes the record, and `registry.load(record).problems` holds `default_on_later_node`.
