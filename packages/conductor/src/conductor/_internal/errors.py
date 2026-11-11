@@ -50,7 +50,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from types import MappingProxyType
-from typing import Any, TypeAlias
+from typing import Any, TypeAlias, final
 
 from pydantic import ConfigDict, Field, ValidationError
 
@@ -180,6 +180,7 @@ def value_free_errors(invalid: ValidationError) -> list[dict[str, Any]]:
     ]
 
 
+@final
 class Problem(ConductorModel):
     """One thing wrong, in pydantic's shape: ``type``, ``loc``, ``msg`` and ``ctx``.
 

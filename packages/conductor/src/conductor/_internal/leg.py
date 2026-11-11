@@ -566,7 +566,7 @@ class Leg:
         units, placed = self.units[node], node.placed
         if units and key not in units and key < next(reversed(units)):
             run._unordered.add(node.path)
-        units[key] = unit  # type: ignore[assignment]  # a Problem has returned
+        units[key] = unit
         if not walking:
             self.recorded_since_walk += 1
             self.changed = True
