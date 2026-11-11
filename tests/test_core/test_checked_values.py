@@ -195,11 +195,24 @@ def test_a_fraction_in_an_int_column_fails_the_node_rather_than_being_cut_off():
     assert (run.state.cause.type, run.state.cause.loc, run.state.cause.ctx["name"], run.state.cause.ctx["column"]) == ("invalid_output", ("g",), "result", "amount")
 
 
-def test_a_float_column_for_an_int_one_fails_even_when_whole_and_an_int_column_with_blanks_is_kept():
+def test_a_float_column_for_an_int_one_fails_even_when_whole():
     """Outputs are read strictly: ``12.0`` is a float, so an ``int`` column refuses it, as ``-> int`` refuses ``"12"``."""
     assert _returning(pl.DataFrame({"item": ["a"], "amount": [12.0]}), Table[Line]).state.cause.type == "invalid_output"
-    table = _returning(pl.DataFrame({"item": ["a", "b"], "amount": [12, None]}), Table[Line]).results["g"]["result"]
-    assert table.to_dicts() == [{"item": "a", "amount": 12}, {"item": "b", "amount": None}]
+
+
+def test_a_column_holds_a_blank_only_where_its_type_takes_one():
+    """A type means what it says: a blank in an ``int`` column is refused where the table arrives, naming the column;
+    a column that may be blank is declared ``int | None``."""
+
+    class Loose(TypedDict):
+        item: str
+        amount: int | None
+
+    with_a_blank = pl.DataFrame({"item": ["a", "b"], "amount": [12, None]})
+    refused = _returning(with_a_blank, Table[Line]).state.cause
+    assert (refused.type, refused.ctx["column"]) == ("invalid_output", "amount")
+    kept = _returning(with_a_blank, Table[Loose]).results["g"]["result"]
+    assert kept.to_dicts() == [{"item": "a", "amount": 12}, {"item": "b", "amount": None}]
 
 
 def test_a_column_of_yes_or_no_is_never_an_int_column_returned_brought_or_given():

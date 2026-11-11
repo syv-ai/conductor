@@ -47,7 +47,6 @@ from conductor._internal.fields import (
     FieldValueError,
     carried_list,
     read_value,
-    takes_a_blank,
 )
 from conductor._internal.graph import (
     Cell,
@@ -818,7 +817,7 @@ def start_run(graph: Graph, inputs: dict[str, Any], max_items: int | None, earli
 def _aligned(name: str, plan: Gather, items: list[Any], gathered: Mapping[str, tuple[Gather, list[Any]]]) -> list[Any]:
     """The items one gathering input receives: those that have a value in every input of the node that gathers
     the same Series, so those inputs stay in step; an input whose items may be blank keeps a blank in its place."""
-    together = [(others, takes_a_blank(other.spec.item)) for other, others in gathered.values() if other.series == plan.series]
+    together = [(others, other.spec.keeps_blanks) for other, others in gathered.values() if other.series == plan.series]
     if len(together) == 1:
         return items if together[0][1] or None not in items else [item for item in items if item is not None]
     return [item for place, item in enumerate(items) if all(keeps or others[place] is not None for others, keeps in together)]

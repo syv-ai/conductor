@@ -10,7 +10,7 @@ from conductor import SKIPPED, Ask, NodeRegistry, Param, Series, Table
 
 class Invoice(TypedDict):
     name: str
-    email: str
+    email: str | None
     amount: int
 
 

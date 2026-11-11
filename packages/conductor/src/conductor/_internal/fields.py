@@ -401,6 +401,12 @@ class FieldSpec:
         return bool(classes) and classes <= SCALARS and not {float, str} <= classes
 
     @functools.cached_property
+    def keeps_blanks(self) -> bool:
+        """Whether a field that gathers keeps the place of an item with no value, as a blank: a ``Series`` whose
+        item type takes one. A table never does, as a record is never blank."""
+        return self.shape == "many" and takes_a_blank(self.type)
+
+    @functools.cached_property
     def takes_a_number(self) -> bool:
         """Whether a ``bool`` must not land here (``refuses_a_bool``)."""
         return refuses_a_bool(self.type)
@@ -430,11 +436,12 @@ class FieldSpec:
 
     @functools.cached_property
     def column_adapters(self) -> dict[str, TypeAdapter[Any]]:
-        """For a table, a check and writer of each column its row type names, refusing a yes or no where ``refuses_a_bool`` says so."""
+        """For a table, a check and writer of each column its row type names: a cell is a value of the column's type,
+        so blank only where that type takes a blank, and never a yes or no where ``refuses_a_bool`` says so."""
         adapters = {}
         for column, hint in (self.columns or {}).items():
             checked = Annotated[hint, BeforeValidator(_not_a_bool)] if refuses_a_bool(hint) else hint
-            adapters[column] = TypeAdapter(_column_of(_carried(Union[checked, None])), config=_FLOATS_AS_TEXT)  # noqa: UP007  a cell may be blank
+            adapters[column] = TypeAdapter(_column_of(_carried(checked)), config=_FLOATS_AS_TEXT)
         return adapters
 
     @overload
@@ -1162,6 +1169,10 @@ def read_table(spec: FieldSpec, value: Any, *, strict: bool, given: bool = False
     missing = [c for c in spec.columns if c not in held and (height or not given)]
     if missing:
         raise FieldValueError(f"the column '{missing[0]}' its row type declares is missing", column=missing[0])
+    if isinstance(value, pl.DataFrame):  # a frame's column says how many blanks it holds without reading a cell
+        for column, hint in spec.columns.items():
+            if column in held and value[column].null_count() and not takes_a_blank(hint):
+                raise FieldValueError(f"column '{column}': a cell is blank, and the column's type takes no blank", column=column)
     read: dict[str, list[object]] = {}
     for column, hint in spec.columns.items():
         if column not in held:

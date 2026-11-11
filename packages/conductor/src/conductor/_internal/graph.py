@@ -63,7 +63,6 @@ from conductor._internal.fields import (
     read_field,
     read_given,
     record_fields,
-    takes_a_blank,
     type_id,
     without_none,
 )
@@ -1179,7 +1178,7 @@ class _Loader:
                 return False
         aligned = [
             (name, [self._branch(s) for s in plan.sources]) for name, plan in inputs.items()
-            if isinstance(plan, Gather) and not takes_a_blank(plan.spec.item)
+            if isinstance(plan, Gather) and not plan.spec.keeps_blanks
         ]
         for i, (a, behind_a) in enumerate(aligned):
             for b, behind_b in aligned[i + 1:]:
