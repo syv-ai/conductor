@@ -172,8 +172,8 @@ def _chain(*node_ids: str, edges: tuple[tuple[str, str], ...] = (), values: dict
 
 
 _GATE_ASK = _chain("gate", "ask", edges=(("gate.result", "ask.value"),))
-_WORK = _chain("rows", "work", edges=(("rows.result", "work.i"),))
-_APPROVE = _chain("rows", "approve_each", "after", edges=(("rows.result", "approve_each.i"), ("approve_each.result", "after.approved")))
+_WORK = _chain("numbers", "work", edges=(("numbers.result", "work.i"),))
+_APPROVE = _chain("numbers", "approve_each", "after", edges=(("numbers.result", "approve_each.i"), ("approve_each.result", "after.approved")))
 
 
 @pytest.fixture
@@ -192,7 +192,7 @@ def test_a_run_started_on_one_worker_is_followed_read_and_answered_on_the_other(
 
             assert seen[0]["type"] == "run_start" and seen[-1] == {"type": "run_end", "status": "waiting", "cause": None}
             completed = next(frame for frame in seen if frame["type"] == "node_complete")
-            assert completed == {"type": "node_complete", "node_id": "gate", "rows": 1, "not_called": 0, "reused_units": 0}
+            assert completed == {"type": "node_complete", "node_id": "gate", "units": 1, "not_called": 0, "reused_units": 0}
             assert await a.frames(run_id) == seen  # a follower that comes late gets every event
 
             (unit,) = (await b.read(run_id))["waiting"]
@@ -216,7 +216,7 @@ def test_two_workers_answering_one_run_at_once_start_one_leg(served: Served) -> 
                 b.client.post(f"/runs/{run_id}/answers", json={unit["id"]: False}),
             )
             said = sorted([first.json() if first.status_code == 202 else 409, second.json() if second.status_code == 202 else 409], key=str)
-            # the later answer is refused at once, or, if it read the row once the leg had started, queued and then refused
+            # the later answer is refused at once, or, if it read the run once the leg had started, queued and then refused
             assert said in ([409, {"answers": "started"}], [{"answers": "queued"}, {"answers": "started"}])
             await a.until_status(run_id, "complete")
             assert served.calls == ["after"]
@@ -325,7 +325,7 @@ def test_a_wrong_answer_sent_while_a_leg_runs_keeps_its_problems_and_costs_nobod
     _run(scenario)
 
 
-def test_an_answer_sent_while_a_leg_runs_to_a_row_that_waits_for_nothing_is_refused_when_it_ends(served: Served) -> None:
+def test_an_answer_sent_while_a_leg_runs_to_a_unit_that_waits_for_nothing_is_refused_when_it_ends(served: Served) -> None:
     async def scenario() -> None:
         async with _workers(served) as (a, b):
             run_id = await a.start(_APPROVE, {"n": 2})
@@ -341,7 +341,7 @@ def test_an_answer_sent_while_a_leg_runs_to_a_row_that_waits_for_nothing_is_refu
     _run(scenario)
 
 
-def test_a_second_answer_to_a_row_answered_while_a_leg_runs_is_a_409(served: Served) -> None:
+def test_a_second_answer_to_a_unit_answered_while_a_leg_runs_is_a_409(served: Served) -> None:
     async def scenario() -> None:
         async with _workers(served) as (a, b):
             run_id = await a.start(_APPROVE, {"n": 2})
@@ -441,7 +441,7 @@ def test_a_graph_that_cannot_run_is_a_422_before_anything_is_saved_and_load_says
     _run(scenario)
 
 
-def test_an_edited_input_runs_again_calling_only_the_rows_that_changed(served: Served) -> None:
+def test_an_edited_input_runs_again_calling_only_the_items_that_changed(served: Served) -> None:
     async def scenario() -> None:
         async with _workers(served, count=1) as (a,):
             run_id = await a.start(_WORK, {"n": 3})
@@ -482,6 +482,6 @@ def test_a_stream_says_not_to_cache_it_and_the_schema_says_what_a_run_reads_as(s
             schemas = (await a.client.get("/openapi.json")).json()["components"]["schemas"]
             assert {"id", "status", "waiting", "outputs", "refused", "cause"} <= set(schemas["RunView"]["properties"])
             assert "rev" not in schemas["RunView"]["properties"]
-            assert {"id", "node_id", "row", "prompt", "questions", "inputs"} <= set(schemas["Waiting"]["required"])
+            assert {"id", "node_id", "item", "prompt", "questions", "inputs"} <= set(schemas["Waiting"]["required"])
 
     _run(scenario)

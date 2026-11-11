@@ -55,8 +55,8 @@ def test_a_waiting_units_question_and_a_failures_cause_are_records():
 
 
 def test_a_completion_is_counts_and_a_float_that_isnt_finite_in_a_question_is_text():
-    assert _payload(NodeComplete(node_id="n", rows=3, not_called=1)) == {"type": "node_complete", "node_id": "n", "rows": 3, "not_called": 1, "reused_units": 0}
-    waiting = UnitWaiting(unit=Waiting(id="n", node_id="n", row=(), prompt="?", questions=[], inputs={"x": float("nan")}))
+    assert _payload(NodeComplete(node_id="n", units=3, not_called=1)) == {"type": "node_complete", "node_id": "n", "units": 3, "not_called": 1, "reused_units": 0}
+    waiting = UnitWaiting(unit=Waiting(id="n", node_id="n", item=(), prompt="?", questions=[], inputs={"x": float("nan")}))
     assert _payload(waiting)["unit"]["inputs"] == {"x": "NaN"}
 
 
@@ -76,4 +76,4 @@ def test_a_branch_nodes_completion_streams_with_the_branch_not_taken_blank():
 
     (completed,) = [_payload(event) for event in events if event.type == "node_complete"]
 
-    assert completed["rows"] == 1 and events[-1].run.results["d"] == {"not_empty": "x", "empty": None}
+    assert completed["units"] == 1 and events[-1].run.results["d"] == {"not_empty": "x", "empty": None}

@@ -45,8 +45,8 @@ def greet(name: str) -> str:
     return f"hi {name}"
 
 
-@served.node("rows", title="Rows", description="")
-def rows(n: int) -> Series[int]:
+@served.node("numbers", title="Numbers", description="")
+def numbers(n: int) -> Series[int]:
     return list(range(n))
 
 

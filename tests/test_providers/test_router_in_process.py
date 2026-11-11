@@ -144,14 +144,18 @@ def test_an_output_that_isnt_finite_reads_as_its_text() -> None:
 def test_a_run_stopped_at_its_ceiling_says_why_and_is_resumed_with_no_body_or_a_higher_ceiling() -> None:
     registry = NodeRegistry()
 
+    @registry.node("split", title="Split", description="")
+    def split(text: str) -> Series[str]:
+        return text.split(",")
+
     @registry.node("up", title="Up", description="")
     def up(text: str) -> str:
         return text.upper()
 
-    graph = GraphRecord(nodes=[NodeRecord(id="u", node="up")]).model_dump(mode="json")
+    graph = GraphRecord(nodes=[NodeRecord(id="s", node="split"), NodeRecord(id="u", node="up")], edges=[("s.result", "u.text")]).model_dump(mode="json")
     store = MemoryStore()
     app = FastAPI()
-    app.include_router(run_router(store=store, registry=registry, caller=_caller, max_rows=1))
+    app.include_router(run_router(store=store, registry=registry, caller=_caller, max_items=1))
 
     def last_end(run_id: str) -> dict[str, Any]:
         ends: list[dict[str, Any]] = [json.loads(body) for body in store.written[run_id] if json.loads(body)["type"] == "run_end"]
@@ -159,18 +163,18 @@ def test_a_run_stopped_at_its_ceiling_says_why_and_is_resumed_with_no_body_or_a_
 
     async def scenario() -> None:
         async with app.router.lifespan_context(app), httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as client:
-            run_id = (await client.post("/runs", json={"graph": graph, "inputs": {"text": ["a", "b"]}})).json()["id"]
+            run_id = (await client.post("/runs", json={"graph": graph, "inputs": {"text": "a,b"}})).json()["id"]
             stopped = await _until_ended(client, run_id, "anna")
             assert stopped["status"] == "stopped"
-            assert stopped["cause"]["type"] == last_end(run_id)["cause"]["type"] == "row_ceiling"
-            assert stopped["cause"]["ctx"]["max_rows"] == 1 and "rows" in stopped["cause"]["ctx"]
-            below_one = await client.post(f"/runs/{run_id}/resume", json={"max_rows": 0})
+            assert stopped["cause"]["type"] == last_end(run_id)["cause"]["type"] == "item_ceiling"
+            assert stopped["cause"]["ctx"] == {"series": "s.result", "items": 2, "max_items": 1}
+            below_one = await client.post(f"/runs/{run_id}/resume", json={"max_items": 0})
             assert below_one.status_code == 422
-            assert [(e["type"], e["loc"]) for e in below_one.json()["detail"]] == [("greater_than", ["body", "max_rows"])]
+            assert [(e["type"], e["loc"]) for e in below_one.json()["detail"]] == [("greater_than", ["body", "max_items"])]
             assert (await client.get(f"/runs/{run_id}")).json()["status"] == "stopped"
             assert (await client.post(f"/runs/{run_id}/resume")).status_code == 202
             assert (await _until_ended(client, run_id, "anna"))["status"] == "stopped"
-            assert (await client.post(f"/runs/{run_id}/resume", json={"max_rows": 2})).status_code == 202
+            assert (await client.post(f"/runs/{run_id}/resume", json={"max_items": 2})).status_code == 202
             completed = await _until_ended(client, run_id, "anna")
             assert completed["outputs"] == {"u.result": ["A", "B"]}
             assert completed["cause"] is None and last_end(run_id)["cause"] is None
@@ -192,13 +196,13 @@ def test_a_ceiling_raised_by_a_resume_holds_for_the_legs_after_it() -> None:
 
     graph = make_graph(split, ask, edges=[("split.result", "ask.x")], values={"split.n": 5}).model_dump(mode="json")
     app = FastAPI()
-    app.include_router(run_router(store=MemoryStore(), registry=registry, caller=_caller, max_rows=3))
+    app.include_router(run_router(store=MemoryStore(), registry=registry, caller=_caller, max_items=3))
 
     async def scenario() -> None:
         async with app.router.lifespan_context(app), httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as client:
             run_id = (await client.post("/runs", json={"graph": graph})).json()["id"]
             assert (await _until_ended(client, run_id, "anna"))["status"] == "stopped"
-            assert (await client.post(f"/runs/{run_id}/resume", json={"max_rows": 10})).status_code == 202
+            assert (await client.post(f"/runs/{run_id}/resume", json={"max_items": 10})).status_code == 202
             waiting = (await _until_ended(client, run_id, "anna"))["waiting"]
             assert len(waiting) == 5
             assert (await client.post(f"/runs/{run_id}/answers", json={waiting[0]["id"]: 7})).status_code == 202
@@ -212,7 +216,7 @@ class Part(TypedDict):
     text: str
 
 
-def test_a_table_made_on_each_row_reads_as_a_list_of_records_per_row() -> None:
+def test_a_table_made_for_each_item_reads_as_a_list_of_records_per_item() -> None:
     registry = NodeRegistry()
 
     @registry.node("split", title="Split", description="")
@@ -238,7 +242,7 @@ def test_a_table_made_on_each_row_reads_as_a_list_of_records_per_row() -> None:
 
 def _gated() -> tuple[NodeRegistry, GraphRecord, dict[str, threading.Event], list[str]]:
     """A graph whose first leg waits on ``first`` beside a question, and whose leg after the answer waits on ``second``
-    on its first row of two; ``held`` is set once that row is called."""
+    on its first item of two; ``held`` is set once that item is called."""
     registry, gates, calls = NodeRegistry(), {name: threading.Event() for name in ("first", "second", "held")}, []
 
     @registry.node("items", title="Items", description="")
@@ -314,9 +318,9 @@ def test_a_cancel_sent_while_a_dead_worker_held_the_run_is_kept_when_another_tak
     asyncio.run(scenario())
 
 
-def _asking(rows: bool = False) -> tuple[NodeRegistry, GraphRecord, threading.Event, dict[str, Any], str]:
+def _asking(items: bool = False) -> tuple[NodeRegistry, GraphRecord, threading.Event, dict[str, Any], str]:
     """A graph whose leg waits on ``gate`` beside a question, its inputs, and the waiting id the question gets; with
-    ``rows``, beside a table of three rows too, for a ceiling of 1 to stop."""
+    ``items``, beside a Series of three items read one at a time too, for a ceiling of 1 to stop."""
     registry, gate = NodeRegistry(), threading.Event()
 
     @registry.node("busy", title="Busy", description="")
@@ -332,13 +336,17 @@ def _asking(rows: bool = False) -> tuple[NodeRegistry, GraphRecord, threading.Ev
     def after(ok: bool) -> bool:
         return ok
 
-    @registry.node("items", title="Items", description="")
-    def items(n: int) -> Series[int]:
+    @registry.node("three", title="Three", description="")
+    def three(n: int) -> Series[int]:
         return list(range(n))
 
-    nodes: list[Any] = [busy, approve, after, items] if rows else [busy, approve, after]
-    graph = make_graph(*nodes, edges=[("approve.result", "after.ok")])
-    inputs: dict[str, Any] = {"busy.text": "x", "approve.text": "y", **({"items.n": 3} if rows else {})}
+    @registry.node("each", title="Each", description="")
+    def each(i: int) -> int:
+        return i
+
+    nodes: list[Any] = [busy, approve, after, three, each] if items else [busy, approve, after]
+    graph = make_graph(*nodes, edges=[("approve.result", "after.ok"), *([("three.result", "each.i")] if items else [])])
+    inputs: dict[str, Any] = {"busy.text": "x", "approve.text": "y", **({"three.n": 3} if items else {})}
     gate.set()
     (waiting,) = registry.load(graph).run(inputs).waiting
     gate.clear()
@@ -432,14 +440,14 @@ class _FailingEnd(MemoryStore):
 
 
 @pytest.mark.parametrize(("ended", "store", "settings"), [
-    ("stopped", MemoryStore, {"max_rows": 1}),
+    ("stopped", MemoryStore, {"max_items": 1}),
     ("timed_out", MemoryStore, {"leg_timeout": 0.2}),
     ("failed", _FailingEnd, {}),
 ])
 def test_an_answer_queued_during_a_leg_that_ends_needing_a_resume_is_refused_and_starts_nothing(
     ended: str, store: type[MemoryStore], settings: dict[str, Any],
 ) -> None:
-    registry, graph, gate, inputs, waiting_id = _asking(rows=True)
+    registry, graph, gate, inputs, waiting_id = _asking(items=True)
     runs = store()
     app = FastAPI()
     app.include_router(run_router(store=runs, registry=registry, caller=_caller, **settings))
@@ -500,8 +508,8 @@ def test_a_leg_whose_event_the_store_fails_to_take_calls_no_node_once_the_run_re
     registry, started = NodeRegistry(), []
 
     @registry.node("first", title="First", description="")
-    def first(text: str) -> str:
-        return text
+    def first(n: int) -> Series[str]:
+        return [str(i) for i in range(n)]
 
     @registry.node("slow", title="Slow", description="")
     def slow(text: str) -> str:
@@ -525,7 +533,7 @@ def test_a_leg_whose_event_the_store_fails_to_take_calls_no_node_once_the_run_re
 
     async def scenario() -> None:
         async with app.router.lifespan_context(app), httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as client:
-            run_id = (await client.post("/runs", json={"graph": graph, "inputs": {"text": [str(i) for i in range(100)]}})).json()["id"]
+            run_id = (await client.post("/runs", json={"graph": graph, "inputs": {"n": 100}})).json()["id"]
             await _until_status(store, run_id, "failed")
             at_the_end = len(started)
             await asyncio.sleep(0.3)
@@ -571,7 +579,7 @@ def test_a_caller_with_no_return_annotation_is_refused_when_the_router_is_made()
 def test_a_run_handed_back_by_a_worker_shutting_down_reads_as_running_with_no_cause() -> None:
     registry = NodeRegistry()
 
-    @registry.node("many", title="Many", description="Gives several rows.")
+    @registry.node("many", title="Many", description="Gives several items.")
     def many(n: int) -> Series[int]:
         return list(range(n))
 

@@ -45,13 +45,13 @@ def test_a_node_gives_its_result(node_id: str, values: dict[str, Any], expected:
     assert _run(node_id, **values) == {"result": expected}
 
 
-def test_a_node_that_gives_many_values_makes_a_row_of_each_and_a_series_input_gathers_the_rows_under_its_own() -> None:
+def test_a_node_that_gives_many_values_makes_an_item_of_each_and_a_series_input_takes_the_series_made_for_its_own_item_whole() -> None:
     graph = conductor_nodes.registry.load(make_graph(text.split, regex_ops.extract, text.join, edges=[
         ("text-split.result", "regex-extract.text"), ("regex-extract.result", "text-join.parts"),
     ], values={"regex-extract.pattern": r"\d+"}))
 
-    assert graph.plan["regex-extract"].msg == "per row of text-split.result"
-    assert graph.plan["text-join"].msg == "per row of text-split.result"
+    assert graph.plan["regex-extract"].msg == "per item of text-split.result"
+    assert graph.plan["text-join"].msg == "per item of text-split.result"
     assert graph.run(text="a1,b2 3,c").outputs == {"text-join.result": ["1", "2, 3", ""]}
 
 
