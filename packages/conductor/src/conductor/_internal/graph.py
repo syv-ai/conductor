@@ -1,4 +1,4 @@
-"""``Graph``: the checked graph a host holds, with the calls that make a run of it and how its runs are saved."""
+"""``Graph``: the compiled graph a host holds, with the calls that make a run of it and how its runs are saved."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import types
 from collections.abc import Mapping
 from typing import Any
 
-from conductor._internal.checked_graph import CheckedGraph
+from conductor._internal.compiled import CompiledGraph
 from conductor._internal.problem import InvalidCallError, Problem
 from conductor._internal.problem import catalogue as problem
 from conductor._internal.run import Run, checked_max_items, no_outcomes, run_from_json
@@ -16,7 +16,7 @@ from conductor._internal.sentinels import REQUIRED
 from conductor._internal.value_type import FieldValueError
 
 
-class Graph(CheckedGraph):
+class Graph(CompiledGraph):
     """A graph record checked against a registry's nodes, which can start a run: ``registry.load(record)`` makes one.
 
     ``problems`` is everything wrong with it, and a graph with none runs: ``graph.run(**inputs)``.
@@ -74,7 +74,7 @@ class Graph(CheckedGraph):
         return save_form(
             self.fingerprint,
             inputs={address: offered.field.whole for address, offered in self._input_fields.items()},
-            outputs={node.name: node.checked_node.outputs for node in self._flat_function_nodes},
+            outputs={node.name: node.compiled_node.outputs for node in self._flat_function_nodes},
             nodes=[node.name for node in self._flat_function_nodes],
         )
 

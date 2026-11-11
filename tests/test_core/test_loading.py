@@ -1005,20 +1005,20 @@ def test_a_loaded_graph_is_compiled_once_and_freed_without_the_cycle_collector(m
     import gc
     import weakref
 
-    from conductor._internal.checked_graph import loader as graph_module
+    from conductor._internal.compiled import compiler as graph_module
 
     @node("upper", title="Upper", description="For a test.")
     def upper(text: str) -> str:
         return text.upper()
 
     loads: list[object] = []
-    load = graph_module._Loader.load
+    load = graph_module._Compiler.load
 
     def counted(self: Any, *args: Any, **kwargs: Any) -> Any:
         loads.append(self)
         return load(self, *args, **kwargs)
 
-    monkeypatch.setattr(graph_module._Loader, "load", counted)
+    monkeypatch.setattr(graph_module._Compiler, "load", counted)
     registry = registry_of(upper)
     gc.disable()
     try:

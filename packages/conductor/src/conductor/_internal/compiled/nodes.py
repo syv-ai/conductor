@@ -1,4 +1,4 @@
-"""The nodes of a checked graph, as the loader places them: a function node, or a stored graph used as a node."""
+"""The nodes of a compiled graph, as the compiler places them: a function node, or a stored graph used as a node."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from conductor._internal.ask import output_questions
-from conductor._internal.checked_graph.input_plans import (
+from conductor._internal.compiled.input_plans import (
     InputFromEdges,
     InputPlan,
     OutputAddress,
@@ -22,12 +22,12 @@ from conductor._internal.series import Series
 from conductor._internal.value_type import Type
 
 if TYPE_CHECKING:
-    from conductor._internal.checked_graph.type import CheckedGraph
+    from conductor._internal.compiled.type import CompiledGraph
 
 
 @dataclass(frozen=True, kw_only=True)
-class _CheckedNodeBase:
-    """What every node of a checked graph has, whether it is a function or an embedded graph. Never made on its own.
+class _CompiledNodeBase:
+    """What every node of a compiled graph has, whether it is a function or an embedded graph. Never made on its own.
 
     Attributes:
         id: The node's id in the record.
@@ -62,8 +62,8 @@ class _CheckedNodeBase:
 
 @typing.final
 @dataclass(frozen=True, kw_only=True)
-class CheckedFunctionNode(_CheckedNodeBase):
-    """A node of a checked graph that is a function.
+class CompiledFunctionNode(_CompiledNodeBase):
+    """A node of a compiled graph that is a function.
 
     Attributes:
         definition: The node as its author declared it.
@@ -109,8 +109,8 @@ class CheckedFunctionNode(_CheckedNodeBase):
 
 @typing.final
 @dataclass(frozen=True, kw_only=True)
-class CheckedEmbeddedGraphNode(_CheckedNodeBase):
-    """A node of a checked graph that is a stored graph: the loader makes one where a record uses a
+class CompiledSubgraphNode(_CompiledNodeBase):
+    """A node of a compiled graph that is a stored graph: the compiler makes one where a record uses a
     ``StoredGraphDefinition``, checking that definition's record alone as ``inner``, whose nodes run where it stands.
 
     Its inputs are the inner graph's (``inner.inputs``) by their names there, and its outputs the inner graph's
@@ -131,7 +131,7 @@ class CheckedEmbeddedGraphNode(_CheckedNodeBase):
     """
 
     definition: StoredGraphDefinition
-    inner: CheckedGraph
+    inner: CompiledGraph
 
     def loops_around(self, output: str) -> tuple[OutputAddress, ...]:
         """The lists looped over to make one value of ``output``, outermost first: the loops this node is called
@@ -170,8 +170,8 @@ class CheckedEmbeddedGraphNode(_CheckedNodeBase):
         return described
 
 
-#: One node of a checked graph: a function, or an embedded graph.
-CheckedNode = CheckedFunctionNode | CheckedEmbeddedGraphNode
+#: One node of a compiled graph: a function, or an embedded graph.
+CompiledNode = CompiledFunctionNode | CompiledSubgraphNode
 
 
 def _code_text(code: Any) -> str:

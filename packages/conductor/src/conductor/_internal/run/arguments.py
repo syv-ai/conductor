@@ -39,7 +39,7 @@ import abc
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Final, Literal, cast
 
-from conductor._internal.checked_graph.input_plans import (
+from conductor._internal.compiled.input_plans import (
     InputCollectsLoopResults,
     InputReadsOneValue,
     ItemOfSeries,
@@ -54,7 +54,7 @@ from conductor._internal.sentinels import SKIPPED
 from conductor._internal.series import places_of_none, without_places
 
 if TYPE_CHECKING:
-    from conductor._internal.checked_graph.flat_nodes import FlatFunctionNode
+    from conductor._internal.compiled.flat_nodes import FlatFunctionNode
 
 
 class _MayHaveValue:
@@ -120,7 +120,7 @@ class Reader(abc.ABC):
                 reason = f"it has no field '{missing.field}'"
                 raise CallRejectedError(problem.invalid_edge_value(name=name, reason=reason, record_field=missing.field)) from None
             if value is SKIPPED:
-                return node.checked_node.skipped
+                return node.compiled_node.skipped
             if value is NotReady.NOT_READY:  # a later input may be skipped, which settles the node whatever this one comes to
                 settled = False
             elif value is None and blank is None and not accepts_none:
@@ -129,7 +129,7 @@ class Reader(abc.ABC):
         if not settled:
             return NotReady.NOT_READY
         if blank is not None:
-            return NotCalled(node.checked_node.outputs_when_not_called, blank)
+            return NotCalled(node.compiled_node.outputs_when_not_called, blank)
         return self.align_lists(node, arguments) if node.lists_from_same_loop else arguments
 
     def read_alternatives(self, reads: tuple[OutputInLoops, ...], item_path: ItemPath) -> Any:

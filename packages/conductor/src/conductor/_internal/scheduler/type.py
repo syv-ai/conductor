@@ -48,7 +48,7 @@ from typing import Any, Literal
 
 from conductor._internal.address import ItemPath, NodePath
 from conductor._internal.ask import Ask, InvalidAskError, question_asked, waiting_record
-from conductor._internal.checked_graph import (
+from conductor._internal.compiled import (
     FlatEmbeddedGraph,
     FlatFunctionNode,
     FlatNode,
@@ -470,7 +470,7 @@ class Scheduler:
             except CallRejectedError as unwritable:  # a person can't be shown what the node received
                 return self._failure(node, key, unwritable)
             try:
-                return Asking(question_asked(error, node.checked_node.outputs, inputs))
+                return Asking(question_asked(error, node.compiled_node.outputs, inputs))
             except InvalidAskError as invalid:
                 return problem.invalid_ask(*outcome_loc(node, key), reason=str(invalid))
         return self._failure(node, key, error)
@@ -515,7 +515,7 @@ class Scheduler:
             if type(outcome) is not Skipped:
                 self._announce(node)  # a unit taken from earlier work, or a blank one, starts its node as a call does
             if type(outcome) is Asking:
-                self.emit(NodeWaiting(waiting=waiting_record(node.checked_node, outcome_loc(node, key), outcome)))
+                self.emit(NodeWaiting(waiting=waiting_record(node.compiled_node, outcome_loc(node, key), outcome)))
             if node.loops:
                 self._progress(node)
         if walking or not self.going or type(outcome) is Asking:  # nothing reads a unit that waits for a person
@@ -594,7 +594,7 @@ class Scheduler:
         if self.going:
             named, offered = node.looped_outputs[output]
             loc = outcome_loc(named, key[: len(named.embedding.loops) if named.embedding is not None else 0])
-            self.end(EndedEarly("stopped", problem.item_ceiling(*loc, series=f"{named.checked_node.id}.{offered}", items=items, max_items=ceiling)))
+            self.end(EndedEarly("stopped", problem.item_ceiling(*loc, series=f"{named.compiled_node.id}.{offered}", items=items, max_items=ceiling)))
 
     # -- what the leg says --------------------------------------------------------------------
 

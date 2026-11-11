@@ -1,4 +1,4 @@
-"""Loading: a stored graph checked against the nodes it uses, into a ``CheckedGraph``.
+"""Loading: a stored graph checked against the nodes it uses, into a ``CompiledGraph``.
 
 Loading does everything once: every edge and value is checked, and each node
 gets the scope it runs in. What is wrong becomes a ``Problem`` with a place,
@@ -29,13 +29,8 @@ from typing import Annotated, Any, Literal, TypeVar
 
 import pydantic
 
-from conductor._internal.checked_graph.checked_node import (
-    CheckedEmbeddedGraphNode,
-    CheckedFunctionNode,
-    CheckedNode,
-)
-from conductor._internal.checked_graph.describe import GraphInput
-from conductor._internal.checked_graph.input_plans import (
+from conductor._internal.compiled.describe import GraphInput
+from conductor._internal.compiled.input_plans import (
     EdgeSource,
     InputCollectsLoopResults,
     InputConstant,
@@ -50,7 +45,12 @@ from conductor._internal.checked_graph.input_plans import (
     OutputInLoops,
     WholeOutput,
 )
-from conductor._internal.checked_graph.type import CheckedGraph, InputField
+from conductor._internal.compiled.nodes import (
+    CompiledFunctionNode,
+    CompiledNode,
+    CompiledSubgraphNode,
+)
+from conductor._internal.compiled.type import CompiledGraph, InputField
 from conductor._internal.field import Field
 from conductor._internal.graph_record import GraphRecord, NodeRecord
 from conductor._internal.node_definition import (
@@ -69,10 +69,10 @@ from conductor._internal.value_type import FieldValueError, Param, Type
 _logger = logging.getLogger("conductor")
 
 
-def load_graph[GraphT: CheckedGraph](record: GraphRecord, definitions: Mapping[str, NodeDefinition], graph_type: type[GraphT]) -> GraphT:
+def compile_graph[GraphT: CompiledGraph](record: GraphRecord, definitions: Mapping[str, NodeDefinition], graph_type: type[GraphT]) -> GraphT:
     """``record`` loaded against ``definitions``, the newest version of each node by id, as a ``graph_type``: the
     ``Graph`` a host holds, which is the one way one is made."""
-    return _Loader(definitions, (), {}).load(record, graph_type)
+    return _Compiler(definitions, (), {}).load(record, graph_type)
 
 
 
@@ -98,7 +98,7 @@ class RequiredBranch(typing.NamedTuple):
 
 
 @dataclass(frozen=True, slots=True)
-class _Planned:
+class _InputPlans:
     """A node's inputs, planned.
 
     Attributes:
@@ -115,14 +115,14 @@ class _Planned:
     bound: Mapping[TypeVar, Any] | None
 
 
-class _Loader:
+class _Compiler:
     """Loads one record: the working state of placing its nodes, each after the nodes it reads.
 
     Attributes:
         definitions: The newest version of each node, by id.
         embedded_in: The ids of the graph nodes this record sits in, outermost first, so one that embeds itself
             is found.
-        alone: Each embedded graph already loaded, shared by every loader one load makes, so each loads once.
+        alone: Each embedded graph already loaded, shared by every compiler one compile makes, so each loads once.
         problems: What is wrong with the record, as found.
         nodes: Each node placed so far, by id.
         branches: The ways decisions must go for each placed node to hold a value, as far as load can tell: what
@@ -131,15 +131,15 @@ class _Loader:
         position: Each node's place in the record.
     """
 
-    def __init__(self, definitions: Mapping[str, NodeDefinition], embedded_in: tuple[str, ...], alone: dict[tuple[str, int, tuple[str, ...]], CheckedGraph]) -> None:
+    def __init__(self, definitions: Mapping[str, NodeDefinition], embedded_in: tuple[str, ...], alone: dict[tuple[str, int, tuple[str, ...]], CompiledGraph]) -> None:
         self.definitions, self.embedded_in, self.alone = definitions, embedded_in, alone
         self.problems: list[Problem] = []
-        self.nodes: dict[str, CheckedNode] = {}
+        self.nodes: dict[str, CompiledNode] = {}
         self.branches: dict[str, frozenset[RequiredBranch]] = {}
         self.opened: list[tuple[GraphInput, Field]] = []
         self.position: dict[str, int] = {}
 
-    def load[GraphT: CheckedGraph](self, record: GraphRecord, graph_type: type[GraphT]) -> GraphT:
+    def load[GraphT: CompiledGraph](self, record: GraphRecord, graph_type: type[GraphT]) -> GraphT:
         """The graph of ``record``, as a ``graph_type``: every node whose fields are known placed, and every
         problem noted."""
         refused = {n.id for n in record.nodes if not is_node_id(n.id)}
@@ -172,9 +172,9 @@ class _Loader:
         for node_id in ordered:
             match self._resolve(known[node_id]):
                 case FunctionDefinition() as function:
-                    self._place_function(known[node_id], function, into[node_id])
+                    self._compile_function_node(known[node_id], function, into[node_id])
                 case StoredGraphDefinition() as graph:
-                    self._place_graph(known[node_id], graph, into[node_id])
+                    self._compile_subgraph_node(known[node_id], graph, into[node_id])
                 case None:
                     pass
         names = [field.name for _, field in self.opened]
@@ -184,17 +184,17 @@ class _Loader:
             name = field.name if names.count(field.name) == 1 else graph_input.address
             inputs[name] = graph_input
             input_fields[graph_input.address] = InputField(name, graph_input.address, field)
-        readers: dict[str, list[CheckedNode]] = {node_id: [] for node_id in self.nodes}
+        readers: dict[str, list[CompiledNode]] = {node_id: [] for node_id in self.nodes}
         needs_from_run: list[tuple[str, FunctionDefinition[..., Any]]] = []
-        for checked_node in self.nodes.values():
-            match checked_node:
-                case CheckedFunctionNode(definition=function):
+        for compiled_node in self.nodes.values():
+            match compiled_node:
+                case CompiledFunctionNode(definition=function):
                     if function.from_run:
-                        needs_from_run.append((checked_node.id, function))
-                case CheckedEmbeddedGraphNode(inner=inner):
+                        needs_from_run.append((compiled_node.id, function))
+                case CompiledSubgraphNode(inner=inner):
                     needs_from_run += inner._needs_from_run
-            for source_id in checked_node.reads:
-                readers[source_id].append(checked_node)
+            for source_id in compiled_node.reads:
+                readers[source_id].append(compiled_node)
         return graph_type(record, self.problems, inputs, self.nodes, input_fields, readers, needs_from_run)
 
     def _resolve(self, record: NodeRecord) -> NodeDefinition | None:
@@ -244,7 +244,7 @@ class _Loader:
 
     # -- placing a node ---------------------------------------------------------
 
-    def _place_function(self, record: NodeRecord, definition: FunctionDefinition[..., Any], edges: dict[str, list[str]]) -> None:
+    def _compile_function_node(self, record: NodeRecord, definition: FunctionDefinition[..., Any], edges: dict[str, list[str]]) -> None:
         """Place a function node: its declared inputs and the ones its hook adds planned, then its outputs, as
         declared or as its hook makes them of the types arriving. A node a hook gives no fields for is left out;
         any other is kept, whatever problems its inputs have."""
@@ -262,24 +262,24 @@ class _Loader:
                 return
             fields.update(added)
             typed.update(self._typed(record, added))
-        planned = self._planned(record, fields, typed, read_by_hooks(definition), edges, generic=definition.generic)
+        planned = self._plan_inputs(record, fields, typed, read_by_hooks(definition), edges, generic=definition.generic)
         bound = planned.bound
         outputs: dict[str, Field] | None = dict(definition.outputs) if bound is None else {name: field.bind(bound) for name, field in definition.outputs.items()}
         if definition.compute_outputs is not None:
             arriving = {name: plan.sources[0].type.bare for name, plan in planned.inputs.items() if isinstance(plan, InputFromEdges)}
             outputs = self._hook(record, definition, "compute_outputs", definition.compute_outputs, typed, arriving, tuple(added))
         if outputs is not None:
-            self._keep(CheckedFunctionNode(
+            self._add_node(CompiledFunctionNode(
                 id=record.id, loops=planned.loops, inputs=planned.inputs, outputs=outputs, definition=definition,
             ), planned.required_branches)
 
-    def _place_graph(self, record: NodeRecord, definition: StoredGraphDefinition, edges: dict[str, list[str]]) -> None:
+    def _compile_subgraph_node(self, record: NodeRecord, definition: StoredGraphDefinition, edges: dict[str, list[str]]) -> None:
         """Place an embedded graph as one node: the inner graph loaded alone, its inputs and outputs this node's fields.
 
         An input is offered under the name the inner graph gives it (``graph.inputs``), and an output under its
         address in the inner graph (``graph.outputs``), so an edge reads ``e.upper.result``. An output keeps the
         field its node inside declares, and is read outside as it would be with the same nodes drawn in this
-        graph: ``CheckedEmbeddedGraphNode.loops_around`` names the loops inside it is returned in.
+        graph: ``CompiledSubgraphNode.loops_around`` names the loops inside it is returned in.
 
         A graph that embeds itself is a problem here. The inner graph's own problems are this graph's, each with
         this node's id in front of its place. Either way the node is left out: what a graph with problems offers
@@ -291,7 +291,7 @@ class _Loader:
         stack = (*self.embedded_in, definition.id)
         key = (definition.id, definition.version, stack)
         if key not in self.alone:
-            self.alone[key] = _Loader(self.definitions, stack, self.alone).load(definition.graph, CheckedGraph)
+            self.alone[key] = _Compiler(self.definitions, stack, self.alone).load(definition.graph, CompiledGraph)
         inner = self.alone[key]
         if inner.problems:
             self.problems += [problem.model_copy(update={"loc": (record.id, *problem.loc)}) for problem in inner.problems]
@@ -306,20 +306,20 @@ class _Loader:
             if group:  # a decision inside is this node's, named by where it is made
                 field = Field(field.name, Annotated[field.hint, Param(exclusive_group=f"{node_id}.{group}")], field.default)
             outputs[address] = Field(address, field.hint, field.default)
-        planned = self._planned(record, fields, self._typed(record, fields), frozenset(), edges)
-        self._keep(CheckedEmbeddedGraphNode(
+        planned = self._plan_inputs(record, fields, self._typed(record, fields), frozenset(), edges)
+        self._add_node(CompiledSubgraphNode(
             id=record.id, loops=planned.loops, inputs=planned.inputs, outputs=outputs, definition=definition, inner=inner,
         ), planned.required_branches)
 
-    def _keep(self, checked_node: CheckedNode, required_branches: frozenset[RequiredBranch]) -> None:
+    def _add_node(self, compiled_node: CompiledNode, required_branches: frozenset[RequiredBranch]) -> None:
         """Keep a node that placed."""
-        self.nodes[checked_node.id] = checked_node
-        self.branches[checked_node.id] = required_branches
+        self.nodes[compiled_node.id] = compiled_node
+        self.branches[compiled_node.id] = required_branches
 
-    def _planned(
-        self, record: NodeRecord, fields: Mapping[str, Field], typed: Mapping[str, Any], fixed_at_load: frozenset[str],
+    def _plan_inputs(
+        self, record: NodeRecord, fields: Mapping[str, Field], typed: Mapping[str, Any], constant_at_compile: frozenset[str],
         edges: dict[str, list[str]], *, generic: bool = False,
-    ) -> _Planned:
+    ) -> _InputPlans:
         """Plan every input of a node, and settle the scope it runs in.
 
         An input whose edges bring nothing it takes, or can't meet the node's other inputs in one scope, is
@@ -329,7 +329,7 @@ class _Loader:
             record: The node in the record.
             fields: The node's inputs, by name.
             typed: Each value and default typed into the record, as its field read it, by name.
-            fixed_at_load: The inputs a hook reads when the graph loads, which a caller therefore never fills.
+            constant_at_compile: The inputs a hook reads when the graph loads, which a caller therefore never fills.
             edges: The addresses wired into each input, by name.
             generic: Whether a field holds a type variable for the edges to bind.
         """
@@ -352,7 +352,7 @@ class _Loader:
                 inputs[name] = InputMissing(field) if brought is None else self._fed(record.id, field, brought)
             elif name in record.values:
                 inputs[name] = _fixed(field, typed[name])
-            elif first and name not in fixed_at_load:
+            elif first and name not in constant_at_compile:
                 default = typed.get(name, field.default)
                 if default is _INVALID:
                     inputs[name] = InputMissing(field)
@@ -364,7 +364,7 @@ class _Loader:
             elif name in record.defaults:
                 self.problems.append(problem.default_on_later_node(record.id, name))
                 inputs[name] = _fixed(field, typed[name])
-            elif field.default is REQUIRED and name not in fixed_at_load:  # a hook that reads it says so itself, as hook_needs_value
+            elif field.default is REQUIRED and name not in constant_at_compile:  # a hook that reads it says so itself, as hook_needs_value
                 self.problems.append(problem.unbound_on_later_node(record.id, name))
                 inputs[name] = InputMissing(field)
             else:
@@ -382,7 +382,7 @@ class _Loader:
                 series = [loops[-1], plan.loops[-1]]
                 outer, inner = sorted(series, key=lambda port: list(self.nodes).index(port.node_id))  # the one placed later can read the other with no cycle
                 reading = next(n for n, p in inputs.items() if isinstance(p, InputFromEdges) and p.loops == loops)
-                stored_graphs = list(dict.fromkeys(port.node_id for port in series if isinstance(self.nodes[port.node_id], CheckedEmbeddedGraphNode)))
+                stored_graphs = list(dict.fromkeys(port.node_id for port in series if isinstance(self.nodes[port.node_id], CompiledSubgraphNode)))
                 if stored_graphs:  # an edge of this graph can't move a list inside a stored graph
                     self.problems.append(problem.series_not_nested_inside_stored_graph(
                         record.id, series=[str(s) for s in series], inputs=[reading, name], stored_graphs=stored_graphs,
@@ -393,7 +393,7 @@ class _Loader:
                         wire_from=str(outer), wire_into=inner.node_id,
                     ))
                 inputs[name] = InputMissing(plan.field)
-        return _Planned(inputs, loops, self._required_branches(inputs), bound)
+        return _InputPlans(inputs, loops, self._required_branches(inputs), bound)
 
     def _typed(self, record: NodeRecord, fields: Mapping[str, Field]) -> dict[str, Any]:
         """Each value typed into the record for one of ``fields``, and else each default, as the field reads it;

@@ -49,7 +49,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any, Literal
 
 from conductor._internal import kit_problem
-from conductor._internal.checked_graph import load_graph
+from conductor._internal.compiled import compile_graph
 from conductor._internal.field import Field
 from conductor._internal.graph import Graph
 from conductor._internal.graph_record import GraphRecord, NodeRecord, values_as_json
@@ -161,11 +161,11 @@ def _upgrade_problems(older: NodeDefinition, registry: NodeRegistry, given: Sequ
         values = {name: made for name, field in declared_inputs(older).items() if (made := _made_up(field)) is not _CANNOT}
     newest = registry[older.id].version
     try:
-        placed = _one_node_graph(older, values)
+        record = _one_node_graph(older, values)
     except InvalidCallError:
         return []  # the example's own run says what can't be typed in
     try:
-        upgraded = registry.upgrade(placed, older.id)
+        upgraded = registry.upgrade(record, older.id)
     except Exception as raised:  # noqa: BLE001  an upgrade's rewrite is the author's code
         return [kit_problem.upgrade_raised(older.id, older.version, newest=newest, error=type(raised).__name__, reason=str(raised))]
     problems = registry.load(upgraded).problems
@@ -186,10 +186,10 @@ def _run_problems(version: NodeDefinition, registry: NodeRegistry, example: _Exa
             watched, changed = _watched(version)
             definitions = {version.id: watched}
     try:
-        placed = _one_node_graph(version, dict(example))
+        record = _one_node_graph(version, dict(example))
     except InvalidCallError as refused:
         return _not_loaded(version, refused.errors())
-    graph = load_graph(placed, definitions, Graph)
+    graph = compile_graph(record, definitions, Graph)
     if graph.problems:
         return _not_loaded(version, graph.problems)
     try:

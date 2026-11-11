@@ -41,7 +41,7 @@ from conductor._internal.field import Field
 from conductor._internal.sentinels import SKIPPED
 
 if TYPE_CHECKING:
-    from conductor._internal.checked_graph.flat_nodes import FlatFunctionNode
+    from conductor._internal.compiled.flat_nodes import FlatFunctionNode
 
 
 

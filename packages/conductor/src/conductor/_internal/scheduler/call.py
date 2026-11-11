@@ -8,7 +8,7 @@ from typing import Any
 
 import pydantic_core
 
-from conductor._internal.checked_graph import FlatFunctionNode
+from conductor._internal.compiled import FlatFunctionNode
 from conductor._internal.field import Field
 from conductor._internal.node_definition import ReturnShape
 from conductor._internal.problem import CallRejectedError
@@ -23,11 +23,11 @@ def call(node: FlatFunctionNode, kwargs: dict[str, Any], from_run: Mapping[type,
     A value an edge brings is checked against the input first where its source's type doesn't settle it, and what
     the node returns against its declared outputs; either refusal is a ``CallRejectedError``, whose problem quotes no value.
     """
-    checked_node = node.checked_node
-    definition = checked_node.definition
+    compiled_node = node.compiled_node
+    definition = compiled_node.definition
     try:
         for name in node.checked:
-            kwargs = {**kwargs, name: _checked(checked_node.inputs[name].field, name, kwargs[name], returned=False)}
+            kwargs = {**kwargs, name: _checked(compiled_node.inputs[name].field, name, kwargs[name], returned=False)}
         if definition.from_run:
             kwargs = {**kwargs, **{name: from_run[needed] for name, needed in definition.from_run.items()}}
         returned = definition.function(**kwargs)
@@ -36,7 +36,7 @@ def call(node: FlatFunctionNode, kwargs: dict[str, Any], from_run: Mapping[type,
             raise
         return None, error
     try:
-        return checked_outputs(definition.returns, checked_node.outputs, returned), None
+        return checked_outputs(definition.returns, compiled_node.outputs, returned), None
     except CallRejectedError as wrong:
         return None, wrong
 

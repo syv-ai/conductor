@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from conductor._internal.checked_graph.input_plans import (
+from conductor._internal.compiled.input_plans import (
     InputCollectsLoopResults,
     InputMissing,
     InputPlan,

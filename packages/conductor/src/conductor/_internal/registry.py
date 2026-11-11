@@ -45,7 +45,7 @@ from typing import Any, Concatenate
 
 from pydantic import JsonValue
 
-from conductor._internal.checked_graph import load_graph
+from conductor._internal.compiled import compile_graph
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.graph import Graph
 from conductor._internal.graph_record import GraphRecord, NodeRecord, as_record, values_as_json
@@ -267,9 +267,9 @@ class NodeRegistry:
             case StoredGraphDefinition():
                 pass
         if definition.id not in self._graph_descriptions:
-            placed = self.load(GraphRecord(nodes=[NodeRecord(id="node", node=definition.id, version=definition.version)])).describe().nodes["node"]
+            described = self.load(GraphRecord(nodes=[NodeRecord(id="node", node=definition.id, version=definition.version)])).describe().nodes["node"]
             self._graph_descriptions[definition.id] = definition.described_as(
-                StoredGraphDescription, inputs=[placed_input.field for placed_input in placed.inputs], outputs=placed.outputs,
+                StoredGraphDescription, inputs=[described_input.field for described_input in described.inputs], outputs=described.outputs,
             )
         return self._graph_descriptions[definition.id]
 
@@ -282,7 +282,7 @@ class NodeRegistry:
         ``graph.problems``. The graph keeps its own copy of the definitions
         as they are when it loads.
         """
-        return load_graph(as_record(record), self._nodes, Graph)
+        return compile_graph(as_record(record), self._nodes, Graph)
 
     def upgrade(self, record: GraphRecord | str | bytes, node_id: str, *, to: int | None = None) -> GraphRecord:
         """``record`` with the node ``node_id`` moved from the version it was saved at to ``to``, the newest by default.
@@ -305,23 +305,23 @@ class NodeRegistry:
         with no JSON form (``invalid_value``) are each an ``InvalidCallError``.
         """
         graph = as_record(record)
-        placed = next((n for n in graph.nodes if n.id == node_id), None)
-        if placed is None:
+        node_record = next((n for n in graph.nodes if n.id == node_id), None)
+        if node_record is None:
             raise InvalidCallError([problem.node_not_in_graph(node_id, nodes=[n.id for n in graph.nodes])])
-        if placed.node not in self._nodes:
-            raise InvalidCallError([problem.unknown_node(node_id, node=placed.node, choices=sorted(self._nodes))])
-        newest = self._nodes[placed.node]
+        if node_record.node not in self._nodes:
+            raise InvalidCallError([problem.unknown_node(node_id, node=node_record.node, choices=sorted(self._nodes))])
+        newest = self._nodes[node_record.node]
         target = newest.version if to is None else to
-        if target == placed.version:
+        if target == node_record.version:
             return graph
-        if target < placed.version or target not in newest.versions or placed.version not in newest.versions:
+        if target < node_record.version or target not in newest.versions or node_record.version not in newest.versions:
             raise InvalidCallError([problem.cannot_move_to_version(
                 node_id,
-                node=placed.node, version=placed.version, target=target, versions=sorted(newest.versions),
+                node=node_record.node, version=node_record.version, target=target, versions=sorted(newest.versions),
             )])
         lineage = newest.version_of(target).lineage
-        steps = [(newer, older) for newer, older in zip(lineage, lineage[1:], strict=False) if newer.version > placed.version]
-        values, defaults, edges = dict(placed.values), dict(placed.defaults), list(graph.edges)
+        steps = [(newer, older) for newer, older in zip(lineage, lineage[1:], strict=False) if newer.version > node_record.version]
+        values, defaults, edges = dict(node_record.values), dict(node_record.defaults), list(graph.edges)
         for step, older in reversed(steps):
             upgrade = step.upgrade
             values, defaults = _with_keys_renamed(values, upgrade.renamed_inputs), _with_keys_renamed(defaults, upgrade.renamed_inputs)
@@ -337,8 +337,8 @@ class NodeRegistry:
                 for source, target_ in edges
                 if target_ not in gone
             ]
-        moved = placed.model_copy(update={"version": target, "values": values, "defaults": defaults})
-        return GraphRecord(nodes=[moved if n is placed else n for n in graph.nodes], edges=edges)
+        moved = node_record.model_copy(update={"version": target, "values": values, "defaults": defaults})
+        return GraphRecord(nodes=[moved if n is node_record else n for n in graph.nodes], edges=edges)
 
 
 class TypeDescription(ConductorModel):

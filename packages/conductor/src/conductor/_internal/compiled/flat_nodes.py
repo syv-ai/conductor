@@ -1,4 +1,4 @@
-"""The nodes of a checked graph where they stand: what a run holds units of, and how each of their inputs is read.
+"""The nodes of a compiled graph where they stand: what a run holds units of, and how each of their inputs is read.
 
 A graph loads once, alone, however many graphs embed it. What a run walks is every function of the graph and of
 each graph embedded in it, each a ``FlatFunctionNode``, with its inputs planned where it stands: an output of an
@@ -16,11 +16,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from conductor._internal.address import Loc, NodePath, node_name
-from conductor._internal.checked_graph.checked_node import (
-    CheckedEmbeddedGraphNode,
-    CheckedFunctionNode,
-)
-from conductor._internal.checked_graph.input_plans import (
+from conductor._internal.compiled.input_plans import (
     EdgeSource,
     InputCollectsLoopResults,
     InputConstant,
@@ -36,6 +32,10 @@ from conductor._internal.checked_graph.input_plans import (
     SeriesAsList,
     WholeOutput,
 )
+from conductor._internal.compiled.nodes import (
+    CompiledFunctionNode,
+    CompiledSubgraphNode,
+)
 from conductor._internal.field import Field
 from conductor._internal.node_definition import Policy
 from conductor._internal.outcomes import ItemPath
@@ -43,7 +43,7 @@ from conductor._internal.sentinels import REQUIRED
 from conductor._internal.series import Series
 
 if typing.TYPE_CHECKING:
-    from conductor._internal.checked_graph.type import CheckedGraph
+    from conductor._internal.compiled.type import CompiledGraph
 
 
 @dataclass(eq=False, slots=True, kw_only=True)
@@ -86,7 +86,7 @@ class FlatFunctionNode(_FlatNodeBase):
     the output inside that holds it.
 
     Attributes:
-        checked_node: The node, as its graph loaded it.
+        compiled_node: The node, as its graph loaded it.
         policy: The node's policy, as its definition declares it.
         constant_arguments: What the arguments of every call start as: each input by name, in the order declared,
             one that holds the same value on every call already holding it.
@@ -118,7 +118,7 @@ class FlatFunctionNode(_FlatNodeBase):
             (``host_reads``); filled when first asked for.
     """
 
-    checked_node: CheckedFunctionNode
+    compiled_node: CompiledFunctionNode
     policy: Policy
     constant_arguments: dict[str, Any]
     parameters_from_graph_inputs: tuple[tuple[str, str], ...]
@@ -143,7 +143,7 @@ class FlatEmbeddedGraph(_FlatNodeBase):
     complete) is read from the functions inside when asked.
 
     Attributes:
-        checked_node: The node, as its graph loaded it.
+        compiled_node: The node, as its graph loaded it.
         inputs: How each input gets its value where the node stands, by name: the plan an open input inside
             is given for its own.
         nodes: The nodes of the graph inside, where they stand.
@@ -151,7 +151,7 @@ class FlatEmbeddedGraph(_FlatNodeBase):
             any depth of embedded graphs, and that function's output.
     """
 
-    checked_node: CheckedEmbeddedGraphNode
+    compiled_node: CompiledSubgraphNode
     inputs: dict[str, InputPlan]
     nodes: list[FlatNode] = dataclasses.field(default_factory=list["FlatNode"])
     output_sources: dict[str, tuple[FlatFunctionNode, str]] = dataclasses.field(default_factory=dict[str, tuple["FlatFunctionNode", str]])
@@ -186,9 +186,9 @@ def outcome_loc(node: FlatNode, key: ItemPath) -> Loc:
             at the end, ``("e", 0, "ask")``.
     """
     if node.embedding is None:
-        return (node.checked_node.id, *key)
+        return (node.compiled_node.id, *key)
     around = len(node.embedding.loops)  # the places of the embedded graph's node's own item
-    return (*outcome_loc(node.embedding, key[:around]), node.checked_node.id, *key[around:])
+    return (*outcome_loc(node.embedding, key[:around]), node.compiled_node.id, *key[around:])
 
 
 #: What a host is shown of an output made per item is what an input of this type wired to it would be given:
@@ -217,7 +217,7 @@ def host_reads(node: FlatFunctionNode, output: str) -> tuple[InputReadsOneValue 
     """
     plans = node.display_plans.get(output)
     if plans is None:
-        made = node.checked_node.outputs[output]
+        made = node.compiled_node.outputs[output]
         at = (SeriesAsList if made.many else WholeOutput)(node.name, output, _loops_by_name(node.loops), None, made.type)
         functions = {made_by.name: made_by for made_by in (node, *(series for series, _ in node.loops))}
         per_loop = [_gather_at_path(_DISPLAY_FIELD, looped_over, (at,), functions) for looped_over in node.loops]
@@ -225,7 +225,7 @@ def host_reads(node: FlatFunctionNode, output: str) -> tuple[InputReadsOneValue 
     return plans
 
 
-def flat_nodes(graph: CheckedGraph) -> tuple[list[FlatFunctionNode], dict[str, FlatNode]]:
+def flat_nodes(graph: CompiledGraph) -> tuple[list[FlatFunctionNode], dict[str, FlatNode]]:
     """The nodes of ``graph`` and those of each graph embedded in it, where they stand: the functions in the
     order a leg tries them, each after the functions it reads, and every node by its name."""
     tree: list[FlatFunctionNode] = []
@@ -237,11 +237,11 @@ def flat_nodes(graph: CheckedGraph) -> tuple[list[FlatFunctionNode], dict[str, F
     return tree, node_at
 
 
-def _add_to_tree(graph: CheckedGraph, embedding: FlatEmbeddedGraph | None, tree: list[FlatFunctionNode], node_at: dict[str, FlatNode]) -> dict[str, FlatNode]:
+def _add_to_tree(graph: CompiledGraph, embedding: FlatEmbeddedGraph | None, tree: list[FlatFunctionNode], node_at: dict[str, FlatNode]) -> dict[str, FlatNode]:
     """Add the functions of ``graph`` to ``tree``, each after the functions it reads, those of each graph
     embedded in it where that graph's node stands, and every node to ``node_at``.
 
-    A plan of the checked graph names the nodes of its own graph. Here each is written for where its node stands
+    A plan of the compiled graph names the nodes of its own graph. Here each is written for where its node stands
     (``_plan_at_path``): the one place an embedded graph's boundary is crossed, inwards for an open input and
     outwards for an output.
 
@@ -258,24 +258,24 @@ def _add_to_tree(graph: CheckedGraph, embedding: FlatEmbeddedGraph | None, tree:
     above = embedding.loops if embedding is not None else ()
     here: dict[str, FlatNode] = {}
     functions = typing.cast("dict[str, FlatFunctionNode]", node_at)  # an output of a plan at a path names a function
-    for checked_node in graph._nodes.values():
+    for compiled_node in graph._nodes.values():
         inputs: dict[str, InputPlan] = {}
-        for name, plan in checked_node.inputs.items():
+        for name, plan in compiled_node.inputs.items():
             if embedding is not None and isinstance(plan, InputFromGraphInput):  # the embedded graph's node is given it, as a caller would give it
                 inputs[name] = embedding.inputs[graph._input_fields[plan.address].name]
             else:
                 inputs[name] = _plan_at_path(plan, here, inside, functions)
-        loops = (*above, *[_series_looped_over(loop, inside, node_at) for loop in checked_node.loops])
-        path = (*inside, checked_node.id)
-        if isinstance(checked_node, CheckedEmbeddedGraphNode):
-            embedded = FlatEmbeddedGraph(checked_node=checked_node, embedding=embedding, path=path, name=node_name(path), loops=loops, inputs=inputs)
-            within = _add_to_tree(checked_node.inner, embedded, tree, node_at)
+        loops = (*above, *[_series_looped_over(loop, inside, node_at) for loop in compiled_node.loops])
+        path = (*inside, compiled_node.id)
+        if isinstance(compiled_node, CompiledSubgraphNode):
+            embedded = FlatEmbeddedGraph(compiled_node=compiled_node, embedding=embedding, path=path, name=node_name(path), loops=loops, inputs=inputs)
+            within = _add_to_tree(compiled_node.inner, embedded, tree, node_at)
             embedded.nodes = list(within.values())
-            for address in checked_node.inner.outputs:
+            for address in compiled_node.inner.outputs:
                 made_by, _, output = address.partition(".")
                 last = within[made_by]
                 embedded.output_sources[address] = last.output_sources[output] if isinstance(last, FlatEmbeddedGraph) else (last, output)
-            here[checked_node.id] = node_at[embedded.name] = embedded
+            here[compiled_node.id] = node_at[embedded.name] = embedded
             continue
         constant_arguments: dict[str, Any] = {}
         parameters_from_graph_inputs: list[tuple[str, str]] = []
@@ -299,19 +299,19 @@ def _add_to_tree(graph: CheckedGraph, embedding: FlatEmbeddedGraph | None, tree:
                 items_of = (functions[series.node_id], series.output)  # what the functions it gathers through read outside the items can settle it too
                 read_at += [(read, places) for inner in plan.loop_body for read, places in inner.reads_from.items() if items_of not in read.loops]
                 gathering.setdefault(series, []).append((name, plan.field.accepts_none_items))
-                whole = WholeOutput(series.node_id, series.output, series.loops, None, functions[series.node_id].checked_node.outputs[series.output].whole)
+                whole = WholeOutput(series.node_id, series.output, series.loops, None, functions[series.node_id].compiled_node.outputs[series.output].whole)
                 wired_inputs.append((name, InputReadsOneValue(plan.field, (whole,), series.loops), plan.field.whole.optional))  # it needs its Series, and then its items
             wired_inputs.append((name, plan, plan.field.whole.optional))
             for read, places in read_at:
                 reads_from[read] = min(places, reads_from.get(read, places))
         node = FlatFunctionNode(
-            checked_node=checked_node, embedding=embedding, path=path, name=node_name(path), loops=loops, policy=checked_node.definition.policy,
+            compiled_node=compiled_node, embedding=embedding, path=path, name=node_name(path), loops=loops, policy=compiled_node.definition.policy,
             constant_arguments=constant_arguments, parameters_from_graph_inputs=tuple(parameters_from_graph_inputs), wired_inputs=tuple(wired_inputs), lists_from_same_loop=tuple(map(tuple, gathering.values())),
             checked=tuple(name for name, plan in inputs.items() if _read_before_a_call(plan)), reads_from=reads_from,
         )
         if loops and min(node.reads_from.values(), default=0) < len(loops):  # what it reads may be there before its items are
             node.reads_from.setdefault(loops[-1][0], len(loops) - 1)
-        here[checked_node.id] = node_at[node.name] = node
+        here[compiled_node.id] = node_at[node.name] = node
         node.position = len(tree)
         tree.append(node)
     return here
@@ -349,7 +349,7 @@ def _loops_by_name(loops: tuple[tuple[FlatFunctionNode, str], ...]) -> tuple[Out
 
 
 def _plan_at_path(plan: InputPlan, here: Mapping[str, FlatNode], inside: NodePath, functions: Mapping[str, FlatFunctionNode]) -> InputPlan:
-    """A plan of a checked graph as the plan of its node where it stands: each output names the function that
+    """A plan of a compiled graph as the plan of its node where it stands: each output names the function that
     returns it by its ``name``, in the loops that function is called in.
 
     An output of a stored graph's node is the output of a function inside it: an edge from
@@ -364,7 +364,7 @@ def _plan_at_path(plan: InputPlan, here: Mapping[str, FlatNode], inside: NodePat
 
     def at_path(source: EdgeSource, opened: bool) -> EdgeSource:
         made_by, output = _made_by(OutputAddress(source.node_id, source.output), here)
-        brought = ItemOfSeries if made_by.checked_node.outputs[output].many else WholeOutput
+        brought = ItemOfSeries if made_by.compiled_node.outputs[output].many else WholeOutput
         if opened and brought is ItemOfSeries:
             made_by.looped_outputs.setdefault(output, (here[source.node_id], source.output))
         return brought(made_by.name, output, _loops_by_name(made_by.loops), source.record_field, source.type)

@@ -16,7 +16,7 @@ Everything in ``conductor._internal`` is the library's own and may move.
 from typing import TYPE_CHECKING
 
 from conductor._internal.ask import Ask, Waiting
-from conductor._internal.checked_graph import Feed, GraphDescription, GraphInput, RunsOn
+from conductor._internal.compiled import Feed, GraphDescription, GraphInput, RunsOn
 from conductor._internal.field import FieldDescription
 from conductor._internal.from_run import FromRun
 from conductor._internal.graph import Graph

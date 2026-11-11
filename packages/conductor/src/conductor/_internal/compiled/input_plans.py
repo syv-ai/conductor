@@ -12,7 +12,7 @@ the one declaration of what the input reads. A run reads those outputs and no
 other (``value``), and the units a node waits for are the units of those
 outputs, so the two can't differ.
 
-A checked graph holds the plans of its own nodes, each output naming a node of
+A compiled graph holds the plans of its own nodes, each output naming a node of
 that graph by id. Where a node stands among the graphs a run is of, its plans
 are written again with every output naming a function by the name a run keeps
 its units by (``e/ask``): see ``tree.py``.
@@ -30,7 +30,7 @@ from conductor._internal.sentinels import SKIPPED
 from conductor._internal.value_type import Type
 
 if TYPE_CHECKING:
-    from conductor._internal.checked_graph.flat_nodes import FlatFunctionNode
+    from conductor._internal.compiled.flat_nodes import FlatFunctionNode
     from conductor._internal.run.arguments import Reader
 
 
@@ -59,7 +59,7 @@ class OutputInLoops:
     """An output of a node, in the scope its node runs in: what one unit of the node holds for it.
 
     Attributes:
-        node_id: The node: its id in a checked graph's plan; where a node stands, the function's name.
+        node_id: The node: its id in a compiled graph's plan; where a node stands, the function's name.
         output: The output's name.
         loops: The scope the node runs in.
         depth: How many maps the node runs in, so how many places of an item path name one unit of it.
@@ -217,7 +217,7 @@ class InputCollectsLoopResults:
             what each edge brings for an item. Several edges are alternatives, as for any input.
         loop_body: Where the input's node stands, the functions made per item of the Series that what it
             gathers rests on, each after the ones it reads: what stands between the input and everything
-            outside the items. A checked graph's own plan names none.
+            outside the items. A compiled graph's own plan names none.
     """
 
     field: Field

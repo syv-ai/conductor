@@ -34,7 +34,7 @@ from conductor._internal.sentinels import REQUIRED, SKIPPED
 from conductor._internal.value_type import Choice, FieldValueError
 
 if TYPE_CHECKING:
-    from conductor._internal.checked_graph import CheckedFunctionNode
+    from conductor._internal.compiled import CompiledFunctionNode
     from conductor._internal.outcomes import Asking
 
 
@@ -264,20 +264,20 @@ def _question(field: Field) -> FieldDescription:
     return question.model_copy(update={"required": _required(field, {}, limited=question.choices is not None)})
 
 
-def waiting_questions(checked_node: CheckedFunctionNode, overrides: Mapping[str, QuestionOverrides]) -> list[FieldDescription]:
+def waiting_questions(compiled_node: CompiledFunctionNode, overrides: Mapping[str, QuestionOverrides]) -> list[FieldDescription]:
     """A waiting unit's questions: each output's question with what its ``Ask`` set.
 
     Args:
-        checked_node: The node that asks.
+        compiled_node: The node that asks.
         overrides: What the ``Ask`` set, by output name.
 
     Returns:
         A question per output, in the outputs' order.
     """
-    outputs = checked_node.outputs
+    outputs = compiled_node.outputs
     return [
         _overridden(outputs[name], question, overrides[name]) if name in overrides else question
-        for name, question in checked_node.questions.items()
+        for name, question in compiled_node.questions.items()
     ]
 
 
@@ -298,11 +298,11 @@ def _required(field: Field, overrides: QuestionOverrides, *, limited: bool) -> b
     return not defaulted and field.param.exclusive_group is None and not blank
 
 
-def answer_outputs(checked_node: CheckedFunctionNode, value: Any, overrides: Mapping[str, QuestionOverrides]) -> tuple[dict[str, Any], list[tuple[str | None, str]]]:
+def answer_outputs(compiled_node: CompiledFunctionNode, value: Any, overrides: Mapping[str, QuestionOverrides]) -> tuple[dict[str, Any], list[tuple[str | None, str]]]:
     """Reads a person's answer as the node's outputs.
 
     Args:
-        checked_node: The node that asked.
+        compiled_node: The node that asked.
         value: The answer: a value for a node with one output, a mapping by output name for several.
         overrides: What the node's ``Ask`` set, by output name.
 
@@ -310,11 +310,11 @@ def answer_outputs(checked_node: CheckedFunctionNode, value: Any, overrides: Map
         The outputs by name, and every fault in the answer as ``(question, reason)``, the question ``None`` for a
         fault of the whole answer. Nothing of the value is quoted.
     """
-    outputs = checked_node.outputs
+    outputs = compiled_node.outputs
     if len(outputs) == 1:
         ((name, field),) = outputs.items()
         try:
-            return {name: _checked_answer(field, value, overrides.get(name, {}).get("choices", checked_node.questions[name].choices))}, []
+            return {name: _checked_answer(field, value, overrides.get(name, {}).get("choices", compiled_node.questions[name].choices))}, []
         except FieldValueError as refused:
             return {}, [(None, refused.reason)]
     if value is None and not outputs:
@@ -325,7 +325,7 @@ def answer_outputs(checked_node: CheckedFunctionNode, value: Any, overrides: Map
     read: dict[str, Any] = {}
     groups: dict[str, list[str]] = {}
     for name, field in outputs.items():
-        question, override, group = checked_node.questions[name], overrides.get(name, {}), field.param.exclusive_group
+        question, override, group = compiled_node.questions[name], overrides.get(name, {}), field.param.exclusive_group
         offered = override.get("choices", question.choices)
         try:
             if name in value:
@@ -367,26 +367,26 @@ def _checked_answer(field: Field, value: Any, offered: list[dict[str, Any]] | No
     return read
 
 
-def waiting_record(checked_node: CheckedFunctionNode, loc: Loc, asking: Asking) -> Waiting:
+def waiting_record(compiled_node: CompiledFunctionNode, loc: Loc, asking: Asking) -> Waiting:
     """A waiting unit as a host shows it. Its id is where it is as text, then ``~`` and the fingerprint of the
     question asked there, as ``run.answer`` reads it.
 
     Args:
-        checked_node: The node that asks.
+        compiled_node: The node that asks.
         loc: Where the unit is: the node and its item, behind those of each embedded graph's node around it.
         unit: The unit.
     """
     question = asking.question
     return Waiting(
-        id=f"{loc_text(loc)}~{question_fingerprint(checked_node, asking)}", loc=loc, prompt=question.prompt,
-        questions=waiting_questions(checked_node, question.overrides), inputs=question.inputs,
+        id=f"{loc_text(loc)}~{question_fingerprint(compiled_node, asking)}", loc=loc, prompt=question.prompt,
+        questions=waiting_questions(compiled_node, question.overrides), inputs=question.inputs,
     )
 
 
-def question_fingerprint(checked_node: CheckedFunctionNode, asking: Asking) -> str:
+def question_fingerprint(compiled_node: CompiledFunctionNode, asking: Asking) -> str:
     """Eight hex digits of which node asks, as which code, and what it received, so a waiting id stops matching when its place holds another question."""
     inputs = asking.question.inputs
     values = [inputs[name] for name in sorted(inputs)]  # saved, so the names may come back from a store in any order
-    hashed = [checked_node.id, checked_node.reuse_digest, values]
+    hashed = [compiled_node.id, compiled_node.reuse_digest, values]
     written = canonical_json(hashed) if {type(v) for v in values} & {dict, list} else pydantic_core.to_json(hashed)  # plain values have no keys to sort
     return hashlib.blake2b(written, digest_size=4).hexdigest()

@@ -14,7 +14,7 @@ from conductor._internal.outcomes import NotReady
 from conductor._internal.value_type import untyped_to_hash
 
 if TYPE_CHECKING:
-    from conductor._internal.checked_graph.flat_nodes import FlatFunctionNode
+    from conductor._internal.compiled.flat_nodes import FlatFunctionNode
 
 from dataclasses import dataclass, field
 
@@ -62,8 +62,8 @@ def reused_outcome(
         units: Each function's units, for the items above this one.
         in_turn: Whether every unit of the node before this one has been tried.
     """
-    checked_node = node.checked_node
-    fingerprint = fingerprint_of(checked_node.reuse_digest, kwargs, plain=checked_node.plain_inputs)
+    compiled_node = node.compiled_node
+    fingerprint = fingerprint_of(compiled_node.reuse_digest, kwargs, plain=compiled_node.plain_inputs)
     if fingerprint is None:
         return None
     if earlier.asked:
