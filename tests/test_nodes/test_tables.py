@@ -185,7 +185,7 @@ def test_collect_types_its_table_by_the_records_and_what_arrives_on_each_new_col
     assert list(columns) == ["name", "email", "sent", "team"] and columns["name"] == {"type": "string"}
     assert columns["sent"] == {"anyOf": [{"type": "string"}, {"type": "null"}]} and columns["team"] == {"type": "string"}
     feeds = {i.field.name: i.feed.mode for i in graph.describe().nodes["table-collect"].inputs}
-    assert (feeds["records"], feeds["sent"], feeds["team"]) == ("gathered", "gathered", "one_value")
+    assert (feeds["records"], feeds["sent"], feeds["team"]) == ("collected", "collected", "one_value")
     assert graph.run().results["table-collect"]["result"]["team"].to_list() == ["one two"] * 3
 
 

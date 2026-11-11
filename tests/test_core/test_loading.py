@@ -687,7 +687,7 @@ def test_a_node_with_a_refused_edge_is_drawn_with_its_fields_and_so_is_a_sound_n
     assert [(p.type, p.loc) for p in graph.problems] == [("type_mismatch", ("u", "text"))]
     assert _drawn(graph, "u") == (True, "once", {"text": "unset"}, ["result"], ["type_mismatch"])
     assert _drawn(graph, "t") == (True, "once", {"text": "one_value"}, ["result"], [])
-    assert _drawn(graph, "j") == (True, "once", {"texts": "gathered"}, ["result"], [])
+    assert _drawn(graph, "j") == (True, "once", {"texts": "collected"}, ["result"], [])
     assert list(graph.runs_on) == ["f", "u", "t", "j"] and not graph.is_runnable
     with pytest.raises(InvalidCallError) as refused:
         graph.run()

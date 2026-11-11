@@ -36,21 +36,21 @@ class Feed(ConductorModel):
 
     Attributes:
         mode: ``one_value`` for a value typed in, a default or the caller's; ``per_item`` for one item of
-            ``series``; ``outer_value`` for a value made outside the items the node runs per; ``gathered`` for
+            ``series``; ``outer_value`` for a value made outside the items the node runs per; ``collected`` for
             every item of ``series`` as one list; ``unset`` for an input with no value to give, which a problem
             of the graph says why.
         series: The address of the Series the mode names: for ``outer_value``, the one whose item the value
             belongs to. ``None`` for ``one_value``, for an ``outer_value`` made once in the graph, and for the
-            one value of a source that runs once, ``gathered`` as a Series of one.
+            one value of a source that runs once, ``collected`` as a Series of one.
         msg: The same, in English.
     """
 
-    mode: Literal["one_value", "per_item", "outer_value", "gathered", "unset"]
+    mode: Literal["one_value", "per_item", "outer_value", "collected", "unset"]
     series: str | None = None
     msg: str
 
 
-class PlacedFieldDescription(ConductorModel):
+class NodeInputDescription(ConductorModel):
     """An input of a node in a loaded graph.
 
     Attributes:
@@ -82,7 +82,7 @@ class GraphNodeDescription(ConductorModel):
     loaded: bool
     problems: list[Problem]
     runs: RunsOn | None = None
-    inputs: list[PlacedFieldDescription] = []
+    inputs: list[NodeInputDescription] = []
     outputs: list[FieldDescription] = []
 
 
@@ -126,9 +126,9 @@ def feed_of(scope: Scope, plan: InputPlan) -> Feed:
     """How ``plan`` feeds its input on each call of a node that runs in ``scope``."""
     match plan:
         case InputGathersItems(series=series):
-            return Feed(mode="gathered", series=series.address, msg=f"every item of {series.address}")
+            return Feed(mode="collected", series=series.address, msg=f"every item of {series.address}")
         case InputGathersOneValue():
-            return Feed(mode="gathered", msg="the one value, as a Series of one")
+            return Feed(mode="collected", msg="the one value, as a Series of one")
         case InputReadsOneValue(scope=fed_in) if fed_in != scope:
             return Feed(mode="outer_value", series=str(fed_in[-1]) if fed_in else None, msg=f"the value of {f'the item of {fed_in[-1]}' if fed_in else 'the graph'}")
         case InputReadsOneValue(scope=fed_in) if fed_in:
