@@ -1,6 +1,7 @@
 """Where each node of a loaded graph runs: a Series read one item at a time opens a map, a value from outside it is
 captured, a ``Series`` or ``Table`` input gathers, and declared types alone decide all of it."""
 
+import time
 from dataclasses import dataclass
 from typing import Annotated, Any, TypedDict
 
@@ -375,3 +376,34 @@ def test_the_fingerprint_follows_the_graphs_embedded_in_it():
     one = load({"e": "inner"}, [], _embedding({"u": "upper"}, []))
     other = load({"e": "inner"}, [], _embedding({"u": "upper", "v": "upper"}, [("u.result", "v.text")]))
     assert one.fingerprint != other.fingerprint
+
+
+# -- a gate is worked out once per node -----------------------------------------------------------------
+
+
+def _staged(stages: int) -> Any:
+    """A map with ``stages`` stages inside it, each two nodes on opposite branches of a decision made outside
+    the map, both fed by both nodes of the stage before; a gather of the last stage."""
+    nodes: dict[str, str | dict] = {"d": "documents"}
+    edges: list[tuple[str, str]] = []
+    before = ["d.result"]
+    for stage in range(stages):
+        nodes.update({f"w{stage}": "decide", f"x{stage}": "pair", f"y{stage}": "pair"})
+        edges += [(source, f"{node_id}{stage}.a") for source in before for node_id in "xy"]
+        edges += [(f"w{stage}.yes", f"x{stage}.b"), (f"w{stage}.no", f"y{stage}.b")]
+        before = [f"x{stage}.result", f"y{stage}.result"]
+    nodes["c"] = "count"
+    return load(nodes, [*edges, *((source, "c.items") for source in before)])
+
+
+def test_a_gate_behind_a_chain_of_alternatives_is_worked_out_once_per_node_not_once_per_way_to_it():
+    """Each stage doubles the ways up to the stages before it; loading follows each node's gate once all the same."""
+    def seconds(stages: int) -> float:
+        started = time.perf_counter()
+        graph = _staged(stages)
+        took = time.perf_counter() - started
+        assert graph.is_runnable and [len(gate.skips) for gate in graph._nodes["c"].inputs["items"].gates] == [stages + 1, stages + 1]
+        return took
+
+    seconds(2)  # whatever a first load pays once
+    assert min(seconds(16) for _ in range(3)) < 8 * min(seconds(8) for _ in range(3))  # twice the nodes; 2**8 times the ways

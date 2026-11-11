@@ -937,6 +937,9 @@ class _Loader:
         nodes: Each node placed so far, by id.
         branches: The ways decisions must go for each placed node to hold a value, as far as load can tell: what
             every edge into one of its inputs rests on. It says which edges into one input are alternatives.
+        gates: What settles each node placed inside a map for every item of a gather at once, by the node's id
+            and how many maps deep the gather's Series was made. It is the same whichever of the node's outputs
+            is gathered and whatever way leads up to the node, so it is worked out once.
         opened: Each first node's open input, with its default, in the order placed.
         position: Each node's place in the record.
     """
@@ -946,6 +949,7 @@ class _Loader:
         self.problems: list[Problem] = []
         self.nodes: dict[str, PlacedNode] = {}
         self.branches: dict[str, frozenset[Branch]] = {}
+        self.gates: dict[tuple[str, int], Gate] = {}
         self.opened: list[tuple[GraphInput, Field]] = []
         self.position: dict[str, int] = {}
 
@@ -1364,7 +1368,8 @@ class _Loader:
         A node is skipped when any one of its inputs is, and an input when every edge into it is. So each set of
         ``skips`` is one choice of an edge for some input on the way up, and a set that holds a smaller one adds
         nothing. The sets multiply only where an input inside the map has several edges, each leading out of the
-        map by its own way; a chain of one edge per input gives one cell per way out.
+        map by its own way; a chain of one edge per input gives one cell per way out. A node's gate is kept
+        (``gates``), so a node many ways lead up to is followed once.
 
         A node isn't called when an input that takes no blank gets one, and its outputs are then blank. So
         ``blanks`` holds the cells on the way up that only such inputs read. What a node inside the map rests on
@@ -1374,16 +1379,18 @@ class _Loader:
         if len(source.scope) <= depth:
             cell = Cell(source.node_id, source.output, source.scope, source.exclusive)
             return Gate((frozenset({cell}),), frozenset({cell}))
-        fed = [plan for plan in self.nodes[source.node_id].inputs.values() if isinstance(plan, Fed)]
-        found = {
-            frozenset[Cell]().union(*choice)
-            for plan in fed for choice in itertools.product(*(self._gate(s, depth).skips for s in plan.sources))
-        }
-        blanks = frozenset[Cell]().union(*(
-            self._gate(s, depth).blanks for plan in fed if not plan.spec.whole.optional
-            for s in plan.sources if not s.exclusive or len(s.scope) <= depth
-        ))
-        return Gate(tuple(cells for cells in found if not any(fewer < cells for fewer in found)), blanks)
+        if (source.node_id, depth) not in self.gates:
+            fed = [plan for plan in self.nodes[source.node_id].inputs.values() if isinstance(plan, Fed)]
+            found = {
+                frozenset[Cell]().union(*choice)
+                for plan in fed for choice in itertools.product(*(self._gate(s, depth).skips for s in plan.sources))
+            }
+            blanks = frozenset[Cell]().union(*(
+                self._gate(s, depth).blanks for plan in fed if not plan.spec.whole.optional
+                for s in plan.sources if not s.exclusive or len(s.scope) <= depth
+            ))
+            self.gates[(source.node_id, depth)] = Gate(tuple(cells for cells in found if not any(fewer < cells for fewer in found)), blanks)
+        return self.gates[(source.node_id, depth)]
 
     # -- branches ---------------------------------------------------------------
 
