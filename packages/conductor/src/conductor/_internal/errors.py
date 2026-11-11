@@ -50,7 +50,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from types import MappingProxyType
-from typing import Any, TypeAlias, final
+from typing import Any, Literal, TypeAlias, final
 
 from pydantic import Field, JsonValue, TypeAdapter, ValidationError
 
@@ -264,6 +264,39 @@ class ConductorError(Exception):
         super().__init__(message)
 
 
+#: Every code a ``NodeDeclarationError`` has, so a type checker refuses one that is misspelled where it is raised.
+DeclarationCode = Literal[
+    "arriving_on_compute_added_inputs",
+    "async_run",
+    "bound_invalid",
+    "choices_invalid",
+    "compute_added_inputs_without_var_keyword",
+    "default_invalid",
+    "duplicate_node_id",
+    "duplicate_type_id",
+    "exclusive_group_on_input",
+    "from_run_misplaced",
+    "from_run_not_a_class",
+    "hook_parameter_unknown",
+    "input_without_type",
+    "invalid_node_id",
+    "nested_series",
+    "not_for_a_graph",
+    "output_without_type",
+    "outputs_not_frozen",
+    "parameter_not_by_name",
+    "replaces_another_node",
+    "type_not_carried",
+    "type_variable_constrained",
+    "type_variable_only_in_return",
+    "upgrade_missing",
+    "upgrade_without_replaces",
+    "var_keyword_without_hook",
+    "version_not_after",
+    "widget_outside_param",
+]
+
+
 class NodeDeclarationError(ConductorError, TypeError):
     """A node or a type was declared wrong; the developer writing it meets this at import.
 
@@ -273,10 +306,10 @@ class NodeDeclarationError(ConductorError, TypeError):
     ``code`` is stable, as pydantic's ``PydanticUserError`` has one.
 
     Attributes:
-        code: The stable word for what was declared wrong; ``docs/problems.md`` has each.
+        code: The stable word for what was declared wrong, one of ``DeclarationCode``; ``docs/problems.md`` has each.
     """
 
-    def __init__(self, message: str, *, code: str) -> None:
+    def __init__(self, message: str, *, code: DeclarationCode) -> None:
         super().__init__(message)
         self.code = code
 

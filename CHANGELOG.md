@@ -52,7 +52,8 @@ What changes in how you work, before the name-by-name tables:
   `bool` never lands on a number, a `Literal` of numbers or a union holding a number and no
   `bool` (`int | float`) included, as a field's value or in a table's column. `async def` and
   auto-discovery are gone. A node declared wrong raises `NodeDeclarationError` at import, with a
-  `code`; [`docs/problems.md`](docs/problems.md) lists them. A `Param` is checked against its type as pydantic
+  `code`; [`docs/problems.md`](docs/problems.md) lists them, and the parameter is typed as those
+  codes, so a type checker refuses one conductor doesn't have. A `Param` is checked against its type as pydantic
   builds the schema: a limit pydantic doesn't hold on the type (`ge` on a `bool` or an `IntEnum`), or
   a choice that isn't a value of it, is `bound_invalid` or `choices_invalid`, so a host's `BaseModel`
   holding one fails as its class is made. Limits are pydantic's own: bounds on numbers, a `Decimal`,

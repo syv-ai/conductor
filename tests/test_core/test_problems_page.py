@@ -1,7 +1,8 @@
 """``docs/problems.md`` has one section for every code conductor writes, quoting its message, with an example that makes it.
 
-The codes are ``PROBLEM_CATALOGUE``'s, every ``NodeDeclarationError(..., code=...)`` the package raises, and the codes
-``conductor.testing`` returns. A code both a graph and a declaration can have has a section in each group.
+The codes are ``PROBLEM_CATALOGUE``'s, ``DeclarationCode``'s, and the codes ``conductor.testing`` returns. A code both
+a graph and a declaration can have has a section in each group. A declaration's message is written where it is
+raised, so the messages a section quotes are read from the package's source.
 """
 
 from __future__ import annotations
@@ -13,9 +14,10 @@ import pathlib
 import re
 import sys
 import types
+import typing
 
 import pytest
-from conductor._internal.errors import PROBLEM_CATALOGUE
+from conductor._internal.errors import PROBLEM_CATALOGUE, DeclarationCode
 
 _ROOT = pathlib.Path(__file__).parents[2]
 _PACKAGE = _ROOT / "packages" / "conductor" / "src" / "conductor"
@@ -34,16 +36,15 @@ def _template(message: ast.expr) -> str:
     return str(ast.literal_eval(message))
 
 
-def _declaration_codes() -> dict[str, list[str]]:
+def _declaration_messages() -> dict[str, list[str]]:
+    """The messages the package raises each declaration code with; an error raised again under the code it had adds none."""
     found: dict[str, list[str]] = {}
     for path in sorted(_PACKAGE.rglob("*.py")):
         for call in ast.walk(ast.parse(path.read_text())):
             if isinstance(call, ast.Call) and isinstance(call.func, ast.Name) and call.func.id == "NodeDeclarationError":
                 code = next(k.value for k in call.keywords if k.arg == "code")
-                if isinstance(code, ast.Attribute) and code.attr == "code":  # an error raised again with its place in front
-                    continue
-                assert isinstance(code, ast.Constant), f"{path}:{call.lineno} raises NodeDeclarationError without a literal code"
-                found.setdefault(code.value, []).append(_template(call.args[0]))
+                if isinstance(code, ast.Constant):
+                    found.setdefault(code.value, []).append(_template(call.args[0]))
     return found
 
 
@@ -66,8 +67,9 @@ def _sections() -> list[tuple[str, str]]:
 def _wanted() -> dict[str, list[str]]:
     """Every section the page owes, by heading, with the messages it quotes."""
     wanted = {code: [text] for code, text in PROBLEM_CATALOGUE.items()}
-    for code, texts in _declaration_codes().items():
-        wanted[code + _DECLARED if code in PROBLEM_CATALOGUE else code] = texts
+    messages = _declaration_messages()
+    for code in typing.get_args(DeclarationCode):
+        wanted[code + _DECLARED if code in PROBLEM_CATALOGUE else code] = messages[code]
     return wanted | {code: [] for code in _kit_codes()}
 
 
@@ -92,7 +94,7 @@ def test_every_message_says_what_to_do() -> None:
 def test_every_declaration_message_says_what_to_do() -> None:
     """A declaration's message carries its fix too: a clause after what is wrong, past the name of the field it is about."""
     without = [
-        (code, text) for code, texts in _declaration_codes().items() for text in texts
+        (code, text) for code, texts in _declaration_messages().items() for text in texts
         if not re.search(r"[;,] \S", re.sub(r"^\{[^}]+\}: ", "", text))
     ]
     assert without == []
