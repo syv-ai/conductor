@@ -12,7 +12,7 @@ import json
 import logging
 import random
 import time
-from typing import Any, ClassVar, Literal, TypedDict
+from typing import Annotated, Any, ClassVar, Literal, TypedDict
 
 import polars as pl
 import pydantic
@@ -25,6 +25,7 @@ from conductor import (
     InvalidCallError,
     NodeError,
     NodeRecord,
+    Param,
     Policy,
     Series,
     Table,
@@ -1560,3 +1561,36 @@ def test_again_and_with_inputs_take_an_input_by_its_address_as_graph_run_does():
     with pytest.raises(InvalidCallError) as refused:
         first.again({"u.text": "b"}, text="c")
     assert [p.type for p in refused.value.errors()] == ["input_given_twice"]
+
+
+def test_a_unit_made_under_another_limit_or_other_choices_is_never_taken():
+    """What a unit's result rests on includes what each field's type refuses: an input whose limit or choices
+    changed reads the same value another way, so earlier work on it is called again and the edge value is held to
+    the limit the graph has."""
+    made: list[int] = []
+
+    @node("give", title="Give", description="")
+    def give(n: int) -> int:
+        return n
+
+    def graph_taking(hint: object):
+        @node("take", title="Take", description="")
+        def take(n: hint) -> int:  # type: ignore[valid-type]
+            made.append(n)
+            return n
+
+        record = GraphRecord(nodes=[NodeRecord(id="g", node="give"), NodeRecord(id="t", node="take")], edges=[("g.result", "t.n")])
+        return registry_of(give, take).load(record)
+
+    loose = graph_taking(Annotated[int, Param(ge=0)])
+    first = loose.run(n=3)
+    assert first.status == "complete" and made == [3]
+
+    same = graph_taking(Annotated[int, Param(ge=0, title="N")]).with_inputs(n=3, earlier=first).resume()
+    assert same.status == "complete" and made == [3]  # a title changes nothing that is read
+
+    tight = graph_taking(Annotated[int, Param(ge=5)]).with_inputs(n=3, earlier=first).resume()
+    assert tight.status == "failed" and tight.state.cause.type == "invalid_edge_value"
+
+    chosen = graph_taking(Annotated[int, Param(choices=[1, 2])]).with_inputs(n=3, earlier=first).resume()
+    assert chosen.status == "failed" and chosen.state.cause.type == "invalid_edge_value"

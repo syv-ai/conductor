@@ -334,12 +334,12 @@ class PlacedFunction(_Placed):
     def reuse_digest(self) -> str:
         """What a unit's result rests on besides what it received: the node's version, its code, its fields and its scope.
 
-        So a node redeclared under the same id and version, with other code or a signature that takes a blank or
-        runs in another scope, is called again by ``run.again``. Code is read from the function's own bytecode and
+        So a node redeclared under the same id and version, with other code, a field of another type, limit or
+        choice, or one that runs in another scope, is called again by ``run.again``. Code is read from the function's own bytecode and
         constants, not from what it calls.
         """
         specs = (*(plan.spec for plan in self.inputs.values()), *self.outputs.values())
-        fields = [(spec.name, _type_text(spec.whole.closed)) for spec in specs]
+        fields = [(spec.name, spec.whole.reads_as) for spec in specs]
         definition = self.definition
         written = repr((definition.id, definition.version, _code_text(inspect.unwrap(definition.function).__code__), fields, self.scope))
         return hashlib.blake2b(written.encode(), digest_size=8).hexdigest()
@@ -1518,25 +1518,6 @@ def _hint_and_default(given: Any) -> tuple[Any, Any]:
     if isinstance(given, tuple) and len(given) == 2:
         return given[0], given[1]
     return given, REQUIRED
-
-
-def _type_text(hint: Any) -> str:
-    """A type as text that is the same in every process and tells apart every two types a value is read by differently:
-    a class by its module and name, a generic by its arguments (``list[int]``, ``list[str]``), a ``Literal`` by its
-    values, a type alias by its name; the metadata of an ``Annotated`` left out."""
-    if typing.get_origin(hint) is typing.Annotated:
-        return _type_text(typing.get_args(hint)[0])
-    if typing.get_origin(hint) is Literal:
-        return f"Literal{[_constant_text(value) for value in typing.get_args(hint)]}"
-    if isinstance(hint, typing.TypeAliasType):
-        return f"{hint.__module__}.{hint.__name__}"
-    origin, args = typing.get_origin(hint), typing.get_args(hint)
-    if args:
-        name = "Union" if origin in (typing.Union, types.UnionType) else _type_text(origin)
-        return f"{name}[{', '.join(map(_type_text, args))}]"
-    if isinstance(hint, type):
-        return f"{hint.__module__}.{hint.__qualname__}"
-    return repr(hint)
 
 
 def _code_text(code: Any) -> str:

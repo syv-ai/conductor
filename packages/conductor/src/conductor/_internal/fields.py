@@ -539,6 +539,21 @@ def _aliased(alias: Any) -> Any:
     return typing.get_type_hints(holder, include_extras=True)["value"]
 
 
+def _written(hint: Any) -> str:
+    """One bare hint as ``Type.reads_as`` writes it; an ``Annotated`` inside it is written as the type it is."""
+    origin, args = get_origin(hint), get_args(hint)
+    if origin is Annotated:
+        return Type(hint).reads_as
+    if origin is Literal:
+        return f"Literal{[repr(value) for value in args]}"
+    if _is_alias(hint):
+        return f"{hint.__module__}.{hint.__name__}"
+    if args:
+        name = "Union" if origin in (Union, types.UnionType) else _written(origin)
+        return f"{name}[{', '.join(map(_written, args))}]"
+    return f"{hint.__module__}.{hint.__qualname__}" if isinstance(hint, type) else repr(hint)
+
+
 def _split(hint: Any) -> tuple[Any, Param, tuple[Any, ...]]:
     """Takes a hint apart into its bare type, its ``Param`` and its other metadata.
 
@@ -695,6 +710,21 @@ class Type:
         """Whether a value of the right class may still be refused: the hint holds a limit, choices or other metadata."""
         _, param, others = self._parts
         return bool(others or param.limits) or param.choices is not None
+
+    @functools.cached_property
+    def reads_as(self) -> str:
+        """A text that is the same in every process and differs between any two types that read a value differently.
+
+        A class is written by its module and name, a generic by its arguments, a ``Literal`` by its values, a type
+        alias by its name, and a limit or a choice by what it holds. A title, a description and a widget are left
+        out, as they change nothing that is read. What a unit's result rests on about a field is this text.
+        """
+        bare, param, others = self._parts
+        held = [f"{limit}={value!r}" for limit, value in sorted(param.limits.items())]
+        if param.choices is not None:
+            held.append(f"choices={[choice.id for choice in param.choices]!r}")
+        held += [repr(other) for other in others]
+        return f"{_written(bare)}{held}" if held else _written(bare)
 
     @functools.cached_property
     def variables(self) -> tuple[TypeVar, ...]:
