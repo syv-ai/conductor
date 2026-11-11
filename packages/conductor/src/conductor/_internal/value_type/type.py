@@ -40,7 +40,7 @@ from conductor._internal.value_type.hint import (
     union_members,
     union_of,
 )
-from conductor._internal.value_type.not_a_bool import _a_number, _NotABool
+from conductor._internal.value_type.not_a_bool import NUMBERS_REFUSE_BOOLS
 from conductor._internal.value_type.param import Param, split_hint
 from conductor._internal.value_type.refused import FieldValueError
 
@@ -266,8 +266,8 @@ class Type:
     def _built(self) -> tuple[Any, TypeAdapter[Any]]:
         """The hint pydantic reads for the type, and pydantic's adapter of it.
 
-        A container's arguments are each read as a type of their own. A type that takes a number and nothing a
-        ``bool`` already is refuses a ``bool``, which pydantic alone reads as 1.
+        A container's arguments are each read as a type of their own. Every ``int`` and ``float`` in the schema
+        refuses a ``bool``, which pydantic alone reads as 1 (``numbers_refuse_bools``).
 
         Raises:
             NodeDeclarationError: A ``Param`` that doesn't fit, a misplaced ``FromRun``, or a type pydantic has no
@@ -282,13 +282,9 @@ class Type:
         read: Any = union_of(options)
         if metadata := (*others, *([param] if param.limits or param.choices is not None else [])):
             read = Annotated[(read, *metadata)]
-        literals = [option for option in options if get_origin(option) is Literal]
-        numbers = [o for o in options if isinstance(o, type) and _a_number(o)] + [o for o in literals if all(_a_number(type(v)) for v in get_args(o))]
-        takes_a_bool = any(o in (bool, Any, object) for o in options) or any(isinstance(v, bool) for o in literals for v in get_args(o))
-        if numbers and not takes_a_bool:
-            read = Annotated[read, _NotABool(strict_too=any(o in literals for o in numbers))]
+        marked = Annotated[read, NUMBERS_REFUSE_BOOLS]
         try:  # a record is written by its own config; any other type writes a float that isn't finite as its text
-            adapter = TypeAdapter(read) if len(options) == 1 and _is_record(options[0]) else TypeAdapter(read, config=ConfigDict(ser_json_inf_nan="strings"))
+            adapter = TypeAdapter(marked) if len(options) == 1 and _is_record(options[0]) else TypeAdapter(marked, config=ConfigDict(ser_json_inf_nan="strings"))
         except SchemaError as error:  # a limit of the wrong kind for the type, such as ge="a" on an int
             raise NodeDeclarationError(f"the limits {param.limits!r} don't fit {self.id}, so change one: {error}", code="bound_invalid") from None
         except PydanticSchemaGenerationError:
