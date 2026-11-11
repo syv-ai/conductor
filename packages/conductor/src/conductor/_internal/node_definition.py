@@ -60,8 +60,8 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Annotated, Any, Generic, Literal, ParamSpec, Protocol, TypeVar, overload
 
+from pydantic import ConfigDict, JsonValue
 from pydantic import Field as PydanticField
-from pydantic import JsonValue
 
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.errors import InvalidCallError, NodeDeclarationError, Problem, make_problem
@@ -117,7 +117,7 @@ class Policy(ConductorModel):
     world, not only its inputs: ``run.again`` calls it for every item.
 
     It is also what an editor reads of a node's policy: as JSON it leaves ``retry_on`` out, since a class has no
-    JSON form.
+    JSON form. Its values are read strictly: a whole number is no yes or no and no text that spells one.
 
     Attributes:
         concurrency: How many calls are made at once; at least 1.
@@ -127,6 +127,8 @@ class Policy(ConductorModel):
         retry_on: The exception classes of the node's own client that are tried again like an ``ExternalError``.
         reuse_when_inputs_match: Whether ``run.again`` reuses a result when a call receives what it received before.
     """
+
+    model_config = ConfigDict(strict=True)
 
     concurrency: int = PydanticField(default=1, ge=1)
     retries: int = PydanticField(default=0, ge=0)

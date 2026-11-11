@@ -925,7 +925,7 @@ def test_a_table_made_per_document_is_described_as_a_table_with_its_columns():
 
 def test_a_bare_table_offers_no_columns():
     (result,) = graph({"id": "s", "node": "show"}).describe().nodes["s"].outputs
-    assert (result.many, result.type) == (False, "Table")
+    assert (result.many, result.type) == (False, "Table") and "prefixItems" not in result.json_schema["properties"]["columns"]
 
 
 def test_a_typed_in_list_of_records_is_one_table_not_many():

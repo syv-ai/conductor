@@ -528,7 +528,8 @@ def test_a_table_declares_its_columns_and_their_types():
     output = field_of(read, "result", "outputs")
     columns = {c["properties"]["name"]["const"]: c["properties"]["values"]["items"] for c in output.json_schema["properties"]["columns"]["prefixItems"]}
     assert not output.many and output.type == "Table[name: str, amount: int]" and columns == {"name": {"type": "string"}, "amount": {"type": "integer"}}
-    assert (field_of(bare, "result", "outputs").many, field_of(bare, "result", "outputs").type) == (False, "Table")
+    any_columns = field_of(bare, "result", "outputs")
+    assert (any_columns.many, any_columns.type) == (False, "Table") and "prefixItems" not in any_columns.json_schema["properties"]["columns"]
 
 
 # -- Param and widgets -------------------------------------------------------------------------

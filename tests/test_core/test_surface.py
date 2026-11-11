@@ -556,7 +556,6 @@ def test_every_description_is_a_typed_record_a_host_publishes_as_its_schema():
         GraphDescription,
         NodeRegistry,
         RegistryDescription,
-        StoredGraphDescription,
         node,
     )
 
@@ -567,7 +566,7 @@ def test_every_description_is_a_typed_record_a_host_publishes_as_its_schema():
     registry = NodeRegistry()
     registry.add(upper)
     described = registry.describe()
-    assert isinstance(described, RegistryDescription) and isinstance(described.nodes[0], (FunctionNodeDescription, StoredGraphDescription))
+    assert isinstance(described, RegistryDescription) and isinstance(described.nodes[0], FunctionNodeDescription)
     assert isinstance(described.nodes[0].inputs[0], FieldDescription) and described.nodes[0].inputs[0].json_schema == {"type": "string"}
     assert isinstance(registry.load({"nodes": [{"id": "u", "node": "upper"}]}).describe(), GraphDescription)
     for record in (RegistryDescription, GraphDescription):

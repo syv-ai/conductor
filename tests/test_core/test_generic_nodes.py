@@ -187,4 +187,4 @@ def test_a_generic_node_in_the_palette_shows_any() -> None:
     assert [(field.name, field.type) for field in decision.describe().outputs] == [("if_true", "Any"), ("if_false", "Any")]
     assert decision.describe().inputs[0].type_variables == ["T"]
     placed = _loaded(text, decision, edges=[["text.result", "decision.value"]]).describe().nodes["decision"]
-    assert [placed_input.field.type_variables for placed_input in placed.inputs] == [[], []] and placed.outputs[0].type_variables == []
+    assert [placed_input.field.type_variables for placed_input in placed.inputs] == [[], []] and [output.type_variables for output in placed.outputs] == [[], []]

@@ -509,9 +509,9 @@ def test_adding_a_node_adds_the_types_it_declares_a_series_giving_its_item_and_a
     assert dict(registry.types) == {"text": Text, "number": Number, "list": list, "str": str}
 
 
-def test_every_type_a_field_is_described_by_is_one_the_registry_holds():
-    """A union names each member, a ``Literal`` its values' types and a generic its class; ``None`` names no class a
-    value is made of, and a table by the columns in its type."""
+def test_every_class_a_fields_type_names_is_one_the_registry_holds_and_a_table_names_none():
+    """A union names each member, a ``Literal`` its values' types and a generic its class and its arguments'. ``None``
+    names no class a value is made of, and a table is known by its columns, so its id is no class a registry holds."""
 
     class Cash(ReadAsItsBuiltin, float):
         type_id: ClassVar[str] = "cash"
@@ -528,7 +528,7 @@ def test_every_type_a_field_is_described_by_is_one_the_registry_holds():
     registry.add(mix)
 
     [described] = registry.describe().nodes
-    shown = {named for field in (*described.inputs, *described.outputs) if field.type for named in field.type.split(" | ")}
+    shown = {named for field in (*described.inputs, *described.outputs) for named in field.type.split(" | ")}
     assert shown == {"cash", "text", "str", "number", "list[str]", "Table[weight: number]"}
     assert dict(registry.types) == {"cash": Cash, "text": Text, "str": str, "number": Number, "list": list}
 
@@ -671,6 +671,7 @@ def test_a_stored_graphs_fields_are_listed_by_the_registry_that_holds_its_nodes_
     registry.add(upper, shout)
     listed = next(n for n in registry.describe().nodes if n.id == "shout")
     assert listed.kind == "graph" and not hasattr(shout, "describe")
+    assert not {"policy", "takes_added_inputs", "computes_outputs"} & listed.model_dump(mode="json").keys()
     assert [f.name for f in listed.inputs] == ["text"] and [f.name for f in listed.outputs] == ["upper.result"]
 
 

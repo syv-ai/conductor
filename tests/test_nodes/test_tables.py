@@ -202,7 +202,8 @@ def test_collect_of_records_of_unknown_columns_is_a_table_of_any_columns():
         ("csv.result", "split.value"), ("split.result.name", "shout.text"), ("split.result", "table-collect.records"),
         ("shout.result", "table-collect.loud"),
     ], values={"table-collect.columns": ["loud"]})
-    assert graph.problems == [] and output(graph, "table-collect").type == "Table"
+    collected = output(graph, "table-collect")
+    assert graph.problems == [] and collected.type == "Table" and "prefixItems" not in collected.json_schema["properties"]["columns"]
     assert graph.run().results["table-collect"]["result"].to_dicts() == [{"name": "Ann", "age": 31, "loud": "ANN"}, {"name": "Bo", "age": 47, "loud": "BO"}]
 
 

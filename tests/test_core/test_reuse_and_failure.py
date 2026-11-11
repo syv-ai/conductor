@@ -184,14 +184,16 @@ def test_a_validation_error_the_node_raised_is_never_retried():
     assert len(calls) == 1 and (run.state.cause.type, run.state.cause.ctx) == ("execution_failed", {"error": "ValidationError"})
 
 
-def test_a_policy_out_of_bounds_is_refused_and_its_dump_leaves_retry_on_out():
+def test_a_policy_out_of_bounds_or_of_another_type_is_refused_and_its_dump_leaves_retry_on_out():
     nan, inf = float("nan"), float("inf")
     for wrong in (
         {"concurrency": 0}, {"retries": -1}, {"retries": 1.5}, {"retry_delay": -1}, {"attempt_timeout": 0},
         {"attempt_timeout": nan}, {"attempt_timeout": inf}, {"retry_delay": nan}, {"retry_delay": inf},
+        {"retries": True}, {"retries": "2"}, {"concurrency": 1.0}, {"retry_delay": "1"}, {"reuse_when_inputs_match": 1},
     ):
         with pytest.raises(pydantic.ValidationError):
             Policy(**wrong)
+    assert Policy(retry_delay=2, attempt_timeout=5).attempt_timeout == 5  # a whole number of seconds is a number
     assert "retry_on" not in Policy(retry_on=(ConnectionError,)).model_dump()
 
 
