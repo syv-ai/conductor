@@ -35,7 +35,6 @@ from conductor._internal.fields import REQUIRED, Field, FieldValueError, Param, 
 from conductor._internal.graph_record import GraphRecord, NodeRecord
 from conductor._internal.loaded_graph.describe import GraphInput
 from conductor._internal.loaded_graph.input_plans import (
-    Cell,
     InputFedByEdges,
     InputFromCaller,
     InputGathersItems,
@@ -44,10 +43,11 @@ from conductor._internal.loaded_graph.input_plans import (
     InputNotFed,
     InputPlan,
     InputReadsOneValue,
-    Item,
+    ItemOfSeries,
+    OutputAtScope,
     Scope,
     Source,
-    Value,
+    WholeOutput,
 )
 from conductor._internal.loaded_graph.type import (
     CheckedGraph,
@@ -381,9 +381,9 @@ class _Loader:
         scopes = [plan.scope for plan in inputs.values() if isinstance(plan, InputFedByEdges)]
         scope = max(scopes, key=len, default=())
         for name, plan in inputs.items():
-            if isinstance(plan, InputGathersItems) and (made_in := plan.sources[0].read_in) == scope[: len(made_in)] and all(isinstance(s, Value) for s in plan.sources):
+            if isinstance(plan, InputGathersItems) and (made_in := plan.sources[0].read_in) == scope[: len(made_in)] and all(isinstance(s, WholeOutput) for s in plan.sources):
                 # its source makes one value where the node runs, for another input's sake: that one, never every item's
-                inputs[name] = InputGathersOneValue(plan.spec, typing.cast("tuple[Value, ...]", plan.sources))
+                inputs[name] = InputGathersOneValue(plan.spec, typing.cast("tuple[WholeOutput, ...]", plan.sources))
         for name, plan in inputs.items():
             if isinstance(plan, InputFedByEdges) and scope[: len(plan.scope)] != plan.scope:  # items of two Series never pair up
                 series = [scope[-1], plan.scope[-1]]
@@ -508,9 +508,9 @@ class _Loader:
         if not gathers:
             return InputReadsOneValue(spec, tuple(sources), deepest)
         if not deepest:
-            return InputGathersOneValue(spec, tuple(s for s in sources if isinstance(s, Value)))
+            return InputGathersOneValue(spec, tuple(s for s in sources if isinstance(s, WholeOutput)))
         made_by, output = deepest[-1]
-        series = Cell(made_by, output, deepest[:-1])
+        series = OutputAtScope(made_by, output, deepest[:-1])
         return InputGathersItems(spec, (series, *sources))
 
     def _source(self, address: str, node_id: str, name: str) -> Source | None:
@@ -546,7 +546,7 @@ class _Loader:
             fields = [f"{source_id}.{output}.{f}" for f in spec.type.fields]
             self.problems.append(problem.unknown_output(node_id, name, source=address, outputs=fields, record_field=wanted or None))
             return None
-        brought = Item if spec.many else Value
+        brought = ItemOfSeries if spec.many else WholeOutput
         return brought(source_id, output, source.scope, wanted or None, brings)
 
     def _edge_order(self, source: Source) -> tuple[int, int, str]:
@@ -665,7 +665,7 @@ def _mismatch(node_id: str, spec: Field, source: Source) -> Problem:
     Split first, and a table input fed records without a column it names wants that column.
     """
     address, expected = source.address, spec.whole.id
-    got = f"Series[{source.type.text}]" if isinstance(source, Item) else source.type.text
+    got = f"Series[{source.type.text}]" if isinstance(source, ItemOfSeries) else source.type.text
     split = _split_gives(source.type)
     if spec.whole.record is not None:
         has = (source.type.record or source.type).fields

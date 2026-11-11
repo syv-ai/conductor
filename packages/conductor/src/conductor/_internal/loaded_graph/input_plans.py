@@ -1,8 +1,8 @@
 """How each input of a node gets its value: the plan kinds, and the cells a plan reads.
 
-A cell is one output of one node, in the scope its node runs in: what one
-unit of the node holds for it. An edge brings a cell's value (``Value``), one
-item of a ``Series`` it holds (``Item``), or a ``Series`` it holds as the one
+A cell (``OutputAtScope``) is one output of one node, in the scope its node runs in: what one
+unit of the node holds for it. An edge brings a cell's value (``WholeOutput``), one
+item of a ``Series`` it holds (``ItemOfSeries``), or a ``Series`` it holds as the one
 list it is (``WholeSeries``).
 
 A plan is one of six kinds. ``InputHoldsValue`` holds a value, ``InputFromCaller`` is the
@@ -31,7 +31,7 @@ if TYPE_CHECKING:
     from conductor._internal.loaded_graph.tree import FunctionAtPath
 
 
-class Port(NamedTuple):
+class OutputAddress(NamedTuple):
     """One output of one node, named in an address as ``node.output``.
 
     Attributes:
@@ -47,14 +47,14 @@ class Port(NamedTuple):
 
 
 #: A path of maps from the graph's own scope, each the ``Series`` output it works through.
-Scope = tuple[Port, ...]
+Scope = tuple[OutputAddress, ...]
 
 
 # -- what an edge brings ------------------------------------------------------------------------
 
 
 @dataclass(frozen=True, slots=True)
-class Cell:
+class OutputAtScope:
     """An output of a node, in the scope its node runs in: what one unit of the node holds for it.
 
     Attributes:
@@ -79,21 +79,21 @@ class Cell:
 
 
 @dataclass(frozen=True, slots=True)
-class _Brought(Cell):
+class _Brought(OutputAtScope):
     """What an edge brings from a cell. Never made on its own: it is one of the three kinds of ``Source``.
 
     Attributes:
-        field: The field an edge names after the output (``split.result.email``); ``None`` for all of it.
+        record_field: The field an edge names after the output (``split.result.email``); ``None`` for all of it.
         type: The type of what it brings.
     """
 
-    field: str | None
+    record_field: str | None
     type: Type
 
     @property
     def address(self) -> str:
         """The address an edge names it by, ``node.output`` or ``node.output.field``."""
-        return f"{self.node_id}.{self.output}.{self.field}" if self.field else f"{self.node_id}.{self.output}"
+        return f"{self.node_id}.{self.output}.{self.record_field}" if self.record_field else f"{self.node_id}.{self.output}"
 
     @property
     def read_in(self) -> Scope:
@@ -103,19 +103,19 @@ class _Brought(Cell):
 
 @final
 @dataclass(frozen=True, slots=True)
-class Value(_Brought):
+class WholeOutput(_Brought):
     """An output read as the one value it is, where its node runs or in a scope under it."""
 
 
 @final
 @dataclass(frozen=True, slots=True)
-class Item(_Brought):
+class ItemOfSeries(_Brought):
     """One item of a ``Series`` output, read inside the map that Series opens."""
 
     @property
     def read_in(self) -> Scope:
         """The scope its values sit in: the map of the Series, under the scope its node runs in."""
-        return (*self.scope, Port(self.node_id, self.output))
+        return (*self.scope, OutputAddress(self.node_id, self.output))
 
 
 @final
@@ -130,7 +130,7 @@ class WholeSeries(_Brought):
 
 
 #: What an edge brings its input.
-Source = Value | Item | WholeSeries
+Source = WholeOutput | ItemOfSeries | WholeSeries
 
 
 # -- how an input gets its value ----------------------------------------------------------------
@@ -140,10 +140,10 @@ class ReadsCells(Protocol):
     """What a plan asks of what reads for it: a way to read one cell, for one item or for an item nobody
     knows. Each answer is a value, ``None`` for a blank, ``SKIPPED`` for a branch not taken, or ``NOT_SETTLED``."""
 
-    def cell(self, cell: Cell, item_path: ItemPath) -> Any:
+    def cell(self, cell: OutputAtScope, item_path: ItemPath) -> Any:
         """What ``cell`` holds for ``item_path``, as an edge brings it."""
 
-    def best_of(self, reads: tuple[Cell, ...], item_path: ItemPath) -> Any:
+    def best_of(self, reads: tuple[OutputAtScope, ...], item_path: ItemPath) -> Any:
         """What alternative edges bring one input: the best of what each brings."""
 
     def gathered(self, plan: InputGathersItems, item_path: ItemPath) -> Any:
@@ -237,12 +237,12 @@ class InputGathersItems:
     """
 
     spec: Field
-    reads: tuple[Cell, ...]
+    reads: tuple[OutputAtScope, ...]
     levels: int = 1
     through: tuple[FunctionAtPath, ...] = ()
 
     @property
-    def series(self) -> Cell:
+    def series(self) -> OutputAtScope:
         """The Series whose items are gathered, where it was made."""
         return self.reads[0]
 
@@ -275,10 +275,10 @@ class InputGathersOneValue:
     """
 
     spec: Field
-    reads: tuple[Value, ...]
+    reads: tuple[WholeOutput, ...]
 
     @property
-    def sources(self) -> tuple[Value, ...]:
+    def sources(self) -> tuple[WholeOutput, ...]:
         """What each edge brings."""
         return self.reads
 
