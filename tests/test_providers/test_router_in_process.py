@@ -836,10 +836,19 @@ def test_every_refusal_of_the_router_is_a_list_of_problems_with_a_code_of_its_ow
             assert refusal(await client.post(f"/runs/{waits}/answers", json={waiting_id: True})) == (409, [("run_changed", {})])
 
     asyncio.run(scenario())
-    paths = app.openapi()["paths"]
     refused = {"application/json": {"schema": {"$ref": "#/components/schemas/Refused"}}}
-    assert [paths["/runs/{run_id}/answers"]["post"]["responses"][code]["content"] for code in ("404", "409")] == [refused, refused]
-    assert paths["/runs/{run_id}"]["get"]["responses"]["404"]["content"] == refused
+    declared = {
+        (verb, path): {code: response["content"] for code, response in operation["responses"].items() if code in ("404", "409")}
+        for path, verbs in app.openapi()["paths"].items() for verb, operation in verbs.items() if path.startswith("/runs/")
+    }
+    assert declared == {
+        ("get", "/runs/{run_id}"): {"404": refused},
+        ("get", "/runs/{run_id}/events"): {"404": refused},
+        ("post", "/runs/{run_id}/answers"): {"404": refused, "409": refused},
+        ("post", "/runs/{run_id}/resume"): {"404": refused, "409": refused},
+        ("post", "/runs/{run_id}/again"): {"404": refused},
+        ("post", "/runs/{run_id}/cancel"): {"404": refused},
+    }
 
 
 @pytest.mark.parametrize("ends", ["complete", "waiting"])

@@ -147,7 +147,7 @@ That gives these routes:
 | `POST /runs/{id}/again` | A new run with some inputs changed; what didn't change isn't called again. |
 | `POST /runs/{id}/cancel` | Stop a running leg before its next unit. |
 
-Every refusal has one body, `{"detail": [problem, ...]}`, each problem a `{type, loc, msg, ctx}` to translate by its `type`. A 422 lists what the graph or the run refused, with conductor's codes. A 404 is `no_such_run`, and a 409 is one of the router's own: `already_answered`, `run_complete`, `run_not_resumable` or `run_changed`. [The runs router](problems.md#the-runs-router) has each, and `ROUTER_PROBLEM_CODES` lists them for a test that pins your translations. The OpenAPI schema declares the 404 and the 409 as `Refused`.
+Every refusal the router makes has one body, `{"detail": [problem, ...]}`, each problem a `{type, loc, msg, ctx}` to translate by its `type`. A 422 lists what the graph or the run refused, with conductor's codes. A 404 is `no_such_run`, and a 409 is one of the router's own: `already_answered`, `run_complete`, `run_not_resumable` or `run_changed`. A 404 your own `published` dependency raises is yours, as you wrote it. [The runs router](problems.md#the-runs-router) has each of the router's codes, and `ROUTER_PROBLEM_CODES` lists them for a test that pins your translations. The OpenAPI schema declares the 404 and the 409 as `Refused`.
 
 ## What each part is for
 

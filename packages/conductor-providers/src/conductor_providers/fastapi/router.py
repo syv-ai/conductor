@@ -98,11 +98,10 @@ class RunView(BaseModel):
 
 
 class Refused(BaseModel):
-    """The body of a call the router refused, as a 404, 409 or 422.
+    """The body of a 404 or a 409: a call the router itself refused.
 
     Attributes:
-        detail: Every problem with the call. A 404 and a 409 hold the router's own codes
-            (``ROUTER_PROBLEM_CODES``); a 422 holds the codes of the graph or the run that refused it.
+        detail: Every problem with the call, each with one of the router's own codes (``ROUTER_PROBLEM_CODES``).
     """
 
     detail: list[Problem]
@@ -111,6 +110,11 @@ class Refused(BaseModel):
 #: What a route declares beside its own answer: a run that isn't there for the caller, and a run in another state.
 _NOT_FOUND: dict[int | str, dict[str, Any]] = {404: {"model": Refused, "description": "No such run for the caller: `no_such_run`."}}
 _CONFLICT: dict[int | str, dict[str, Any]] = {**_NOT_FOUND, 409: {"model": Refused, "description": "The run is in a state that doesn't take the call."}}
+#: The same 404 for a route that answers with a stream: its refusal is JSON, where a model would be declared as the
+#: stream's type, so it names the component the other routes' model declares.
+_NOT_FOUND_FOR_A_STREAM: dict[int | str, dict[str, Any]] = {
+    404: {"description": _NOT_FOUND[404]["description"], "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Refused"}}}},
+}
 
 
 class Started(BaseModel):
@@ -474,7 +478,7 @@ def run_router(
             cause=json.loads(row.cause) if row.cause is not None else None,
         )
 
-    @router.get("/runs/{run_id}/events", response_class=EventSourceResponse, responses=_NOT_FOUND)
+    @router.get("/runs/{run_id}/events", response_class=EventSourceResponse, responses=_NOT_FOUND_FOR_A_STREAM)
     async def follow_run(row: Annotated[StoredRun, Depends(stored)], last_event_id: Annotated[int, Header()] = -1) -> AsyncIterable[ServerSentEvent]:
         """The run's events, from whichever worker runs it, until it stops running; ``Last-Event-ID`` goes on after a reconnect.
 
