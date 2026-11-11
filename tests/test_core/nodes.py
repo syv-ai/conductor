@@ -106,5 +106,5 @@ registry.add_subregistry(text)
 
 
 def place(waiting):
-    """A waiting row's place, ``node@row``: its id without the fingerprint of its question."""
+    """A waiting unit's place, ``node@item``: its id without the fingerprint of its question."""
     return waiting.id.partition("~")[0]
