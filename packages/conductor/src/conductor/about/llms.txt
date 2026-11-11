@@ -42,7 +42,7 @@ run.results["upper"]["result"]     # ["A", "B", "C"]: ran once per item of lines
 run.results["join"]["result"]      # "A+B+C": Series[str] received every value, once
 ```
 
-`make_graph(*nodes, edges=None, values={}, defaults={})` writes a `GraphRecord`, each node at its version and under its own id (`upper-1`, `upper-2` when one is used twice). With no `edges` the nodes form a chain: each takes its one required input nothing typed in fills from the one output before it (`not_a_chain` otherwise). A chain reads the fields each node declares; a stored graph, or a node whose fields a hook works out, takes `edges=`. With `edges=[("upper.result", "join.texts")]` those are every edge; nothing is matched by name. `values={"upper.text": "x"}` types values in, fixed; `defaults=` the same, open to the caller. The record is loaded against the definitions at the call, each node against the one it was given (two of one id that aren't versions of one node are `duplicate_node_id`), and every fault of what the call said (an address, a value, a type, an edge into a value, a chain it can't draw) is one `InvalidCallError` listing them all; a graph still half drawn (an open input, a cycle) is written, and `graph.problems` says so when it loads.
+`make_graph(*nodes, edges=None, values={}, defaults={})` writes a `GraphRecord`, each node at its version and under its own id (`upper-1`, `upper-2` when one is used twice). With no `edges` the nodes form a chain: each takes its one required input nothing typed in fills from the one output before it (`not_a_chain` otherwise). A chain reads the fields each node declares; a stored graph, or a node whose fields a hook works out, takes `edges=`. With `edges=[("upper.result", "join.texts")]` those are every edge; nothing is matched by name. `values={"upper.text": "x"}` types values in, fixed; `defaults=` the same, open to the caller. `make_graph` writes the record and loads nothing. It raises one `InvalidCallError` listing what it can't write: a value or default addressed to a node it wasn't given (`node_not_in_graph`), a value with no JSON form or holding a set (`invalid_value`), an edge that is no address (`invalid_record`), a chain it can't draw (`not_a_chain`). Everything else (an input or output a node doesn't have, a value its field refuses, a default no caller reaches, an edge between types that don't meet, a graph half drawn) is in `registry.load(record).problems`.
 
 ## Core Concepts
 
@@ -232,7 +232,7 @@ The classes are exported from `conductor`. What is wrong is always one record, `
 ```
 NodeDeclarationError    a node or registry declared wrong, at import; a TypeError, with code
 InvalidCallError        a call was given what it cannot act on, every fault listed
-NodeError               a node's own failure: message, code, ctx
+NodeError               a node's own failure: message, code, ctx (JSON values only; anything else is pydantic's ValidationError where it is raised)
 └── ExternalError         retried
 ```
 
