@@ -1,11 +1,12 @@
 """One leg of a run: start every unit whose inputs exist, record what comes of each, and say so as events.
 
-The leg first walks the nodes in order and tries every row that exists, as a
-later leg would. A node whose policy has ``concurrency`` 1 and no timeout is
-called on the spot; any other is handed to threads, at most ``concurrency``
-of its rows at once, and the walk goes on. When a call comes back, the units
-that read it are tried at once: the reader's rows under, at, or above the
-unit's row. So row 1 can finish the chain while row 10 is still being made.
+The leg first walks the nodes in order and tries every unit that can exist,
+as a later leg would. A node whose policy has ``concurrency`` 1 and no
+timeout is called on the spot; any other is handed to threads, at most
+``concurrency`` of its units at once, and the walk goes on. When a call comes
+back, the units that read it are tried at once: the reader's units under,
+at, or above the unit's instance. So item 1 can finish the chain while item
+10 is still being made.
 
 A failure the node's ``Policy`` may retry waits its delay on a timer, and the
 leg goes on meanwhile; so does an attempt with a timeout, whose clock starts
@@ -13,9 +14,9 @@ with its thread. The first failure that is final stops the leg from starting
 units, and the calls already on threads are waited for and kept, so a resume
 never makes them twice.
 
-A unit that gathers rows (a ``Series`` or ``Table`` input fed from deeper
-rows) is tried only once nothing it waits on is still working under its row,
-so it is tried once and not once per row it reads. When nothing is working,
+A unit that gathers (a ``Series`` or ``Table`` input fed one value per item)
+is tried only once nothing it waits on is still working under its instance,
+so it is tried once and not once per item it reads. When nothing is working,
 the leg walks every node once more if any unit was left waiting on another;
 it ends when nothing more can start.
 """
@@ -35,7 +36,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal
 from pydantic import ConfigDict, Field
 from pydantic.json_schema import SkipJsonSchema
 
-from conductor._internal.ask import Ask, InvalidAskError, Waiting, row_question
+from conductor._internal.ask import Ask, InvalidAskError, Waiting, question_asked
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.errors import ExternalError, NodeError, Problem, make_problem
 from conductor._internal.fields import SKIPPED, FieldValueError
@@ -45,13 +46,16 @@ from conductor._internal.run import (
     _RUNNING,
     _WAITING,
     PENDING,
+    SKIPPED_UNIT,
+    Asking,
+    Blank,
+    Done,
     EndedEarly,
     Going,
     Key,
     Run,
     RunStatus,
     Unit,
-    WaitingUnit,
     _length,
     jsonable,
 )
@@ -79,7 +83,7 @@ class _EventBase(ConductorModel):
 
 
 class RunStart(_EventBase):
-    """A leg began; ``waiting`` is the rows already waiting for a person."""
+    """A leg began; ``waiting`` is the units already waiting for a person."""
 
     type: Literal["run_start"] = "run_start"
     waiting: tuple[Waiting, ...] = ()
@@ -93,7 +97,8 @@ class NodeStart(_EventBase):
 
 
 class NodeProgress(_EventBase):
-    """How many rows of a node are done, at most four times a second; ``total`` ``None`` until its rows are known."""
+    """How many units of a node that runs per item are done, at most four times a second; ``total`` ``None`` until
+    every Series above it is made."""
 
     type: Literal["node_progress"] = "node_progress"
     node_id: str
@@ -102,29 +107,34 @@ class NodeProgress(_EventBase):
 
 
 class NodeComplete(_EventBase):
-    """Every row of a node is done: how many rows it has, how many of them a blank input kept it from (``not_called``),
-    and how many ``run.again`` took from the earlier run (``reused_units``).
+    """Every unit of a node is done.
 
     Its values stay in the run, as ``run.results`` and ``run.not_called`` read them, so an event is small whatever
-    the size of the table.
+    the run holds.
+
+    Attributes:
+        node_id: The node.
+        units: How many units it has: one, or one per item.
+        not_called: How many of them a blank input kept the node from.
+        reused_units: How many of them ``run.again`` took from the earlier run.
     """
 
     type: Literal["node_complete"] = "node_complete"
     node_id: str
-    rows: int
+    units: int
     not_called: int = 0
     reused_units: int = 0
 
 
 class NodeSkipped(_EventBase):
-    """Every row of a node was a branch not taken."""
+    """Every unit of a node was a branch not taken."""
 
     type: Literal["node_skipped"] = "node_skipped"
     node_id: str
 
 
 class NodeFailed(_EventBase):
-    """A unit of the node failed, finally; ``cause`` says why, at ``(node_id, *row)``."""
+    """A unit of the node failed, finally; ``cause`` says why, at ``(node_id, *item)``."""
 
     type: Literal["node_failed"] = "node_failed"
     node_id: str
@@ -132,11 +142,11 @@ class NodeFailed(_EventBase):
 
 
 class NodeRetry(_EventBase):
-    """An attempt failed on the outside world and is tried again: attempt ``attempt`` of ``retries``, on ``row``, after ``delay`` seconds."""
+    """An attempt failed on the outside world and is tried again: attempt ``attempt`` of ``retries``, for ``item``, after ``delay`` seconds."""
 
     type: Literal["node_retry"] = "node_retry"
     node_id: str
-    row: tuple[int, ...]
+    item: tuple[int, ...]
     attempt: int
     retries: int
     delay: float
@@ -144,7 +154,7 @@ class NodeRetry(_EventBase):
 
 
 class UnitWaiting(_EventBase):
-    """A row started waiting for a person. The row waits, whatever reads it waits, and the rest of the graph runs on."""
+    """A unit started waiting for a person. It waits, whatever reads it waits, and the rest of the graph runs on."""
 
     type: Literal["unit_waiting"] = "unit_waiting"
     unit: Waiting
@@ -196,36 +206,19 @@ Event.__doc__ = "Any event ``run.stream()`` yields, told apart by ``type``: ``Ty
 
 @dataclass(slots=True)
 class _Turn:
-    """How far a leg has tried a node's rows in order, so identical rows take earlier work in row order.
+    """How far a leg has tried a node's units in order, so a person's answers are taken in order.
 
     Attributes:
-        order: The node's rows in row order.
-        place: Each row's position in ``order``.
-        reached: How many rows from the first have been tried.
-        passed: Rows counted as tried because nothing in the leg could start them (they wait on a person).
+        order: The node's instances, in order.
+        place: Each instance's position in ``order``.
+        reached: How many instances from the first have been tried.
+        passed: Instances counted as tried because nothing in the leg could start them (they wait on a person).
     """
 
     order: list[Key]
     place: dict[Key, int]
     reached: int = 0
     passed: set[Key] = field(default_factory=set)
-
-
-@dataclass(slots=True, frozen=True)
-class _InnerComplete:
-    """What one node of an embedding came to once complete, for the embedding's own ``NodeComplete``.
-
-    Attributes:
-        skipped: Every row of the node was a branch not taken.
-        rows: How many rows the node has.
-        not_called: The rows a blank input kept the node from.
-        reused: How many rows took earlier work.
-    """
-
-    skipped: bool
-    rows: int
-    not_called: set[Key]
-    reused: int
 
 
 class Leg:
@@ -241,52 +234,43 @@ class Leg:
         self.run, self.stop, self.from_run = run, stop, from_run
         self.checkpoint_every = checkpoint_every if emit is not None else None
         self.next_checkpoint = time.monotonic() + checkpoint_every if checkpoint_every is not None else 0.0
-        self.emit = emit if emit is None or not run.graph._spliced else self._as_seen_from_outside(emit)
+        self.emit = emit
         self.nodes = list(run.graph._nodes.values())
         self.position = {p.id: i for i, p in enumerate(self.nodes)}
-        self.ready: list[tuple[int, Key]] = []  # (node position, row), tried in that order
-        #: (node, row above it): a node that reads rows from below its own, started on the rows under that one once
+        self.ready: list[tuple[int, Key]] = []  # (node position, instance), tried in that order
+        #: (node, an instance above its own): a node that gathers, started in the instances under that one once
         #: nothing it reads still works there.
         self.gathers: set[tuple[str, Key]] = set()
         self.running: dict[tuple[str, Key], dict[str, Any]] = {}  # units handed to threads, and their inputs
         self.slots_waiting: dict[str, deque[tuple[Key, dict[str, Any], int]]] = {p.id: deque() for p in self.nodes}
         self.on_threads = {p.id: 0 for p in self.nodes}
         self.returned: queue.SimpleQueue[tuple[str, Key, int, Any, BaseException | None]] = queue.SimpleQueue()
-        #: (when, order, what is due, node, row, attempt): a retry of the attempt, or the deadline of the attempt on a thread.
+        #: (when, order, what is due, node, instance, attempt): a retry of the attempt, or the deadline of the attempt on a thread.
         self.timers: list[tuple[float, int, Literal["retry", "deadline"], str, Key, int]] = []
         self.attempts: dict[tuple[str, Key], int] = {}  # the attempt each unit on a thread is on
         self.pool: ThreadPoolExecutor | None = None
-        #: How many rows each table holds so far, held to ``max_rows``.
-        self.made = run._rows_made()
-        #: (node, a node reading it): how many tables their rows share, worked out once.
+        #: (node, a node reading it): how many maps their scopes share, worked out once.
         self.shared: dict[tuple[str, str], int] = {}
-        #: For a node taking earlier work, how far through its rows in order the leg has tried.
+        #: For a node taking a person's earlier answers, how far through its units in order the leg has tried.
         self.turns: dict[str, _Turn] = {}
-        #: Units recorded since the last walk over every row; a walk with none to follow would find nothing new.
+        #: Units recorded since the last walk over every unit; a walk with none to follow would find nothing new.
         self.recorded_since_walk = 1
-        #: Whether the last walk left a row whose inputs weren't there yet, so another walk may start it.
+        #: Whether the last walk left a unit whose inputs weren't there yet, so another walk may start it.
         self.left_pending = True
         # what only a listener needs
-        self.started = {run.graph._outward(n) for n, units in run._units.items() if units}
-        #: For an embedding, what each of its nodes came to once complete: all skipped, the rows not called, the rows reused.
-        self.inside: dict[str, dict[str, _InnerComplete]] = {}
+        self.started = {n for n, units in run._units.items() if units}
         self.touched: set[str] = set()
         #: The nodes said complete, on this leg or on an earlier one; a node an answer finished between legs is said on this one.
         self.complete: set[str] = set(run._complete)
         if seeded := {n for n, units in run._units.items() if units and n not in self.complete}:
             self.touched.update(seeded)
-        for node_id in self.complete & run.graph._spliced:  # an embedding completes once its last node does
-            units = run._units[node_id].values()
-            skipped = bool(units) and all(u.state == "skipped" for u in units)
-            blank = {k for k, u in run._units[node_id].items() if u.state == "blank"}
-            self.inside.setdefault(run.graph._outward(node_id), {})[node_id] = _InnerComplete(skipped, len(units), blank, 0)
         self.reused = {p.id: 0 for p in self.nodes}
         self.progress_at: dict[str, float] = {}
         self.progress_said: dict[str, int] = {}
 
     def go(self) -> None:
         run = self.run
-        run.state = _RUNNING  # the one running state a leg holds, so it is asked by identity on each row
+        run.state = _RUNNING  # the one running state a leg holds, so it is asked by identity on each unit
         if self.emit:
             self.emit(RunStart(waiting=tuple(run.waiting)))
         try:
@@ -299,21 +283,21 @@ class Leg:
         finally:
             if self.pool is not None:
                 self.pool.shutdown(wait=False, cancel_futures=True)
-        # one look at every unit: a node already said complete has no row waiting
-        waiting = {n for n, us in run._units.items() if n not in self.complete and "waiting" in {u.state for u in us.values()}}
+        # one look at every unit: a node already said complete has no unit waiting
+        waiting = {n for n, us in run._units.items() if n not in self.complete and any(type(u) is Asking for u in us.values())}
         if run.state is _RUNNING:
             run.state = _WAITING if waiting else _COMPLETE
-        if run.status == "complete":  # every row of every node is finished, and nothing carried will be taken
+        if run.status == "complete":  # every unit of every node is finished, and nothing carried will be taken
             run._complete, run._earlier = frozenset(self.position), {}
         else:
             run._complete = frozenset(self.complete | {p.id for p in self.nodes if p.id not in self.complete and p.id not in waiting and self._finished(p, False)})
-            for node_id in run._complete if run._earlier else ():  # what a finished node was carried and didn't take, no row of this run will
+            for node_id in run._complete if run._earlier else ():  # what a finished node was carried and didn't take, no unit of this run will
                 run._earlier.pop(node_id, None)
         if self.emit:
             self.touched.update(self.position)
             self._completions()
             for placed in self.nodes:  # a node the leg left part done says how far it got
-                if placed.level and placed.id in self.progress_said:
+                if placed.scope and placed.id in self.progress_said:
                     self._progress(placed, last=True)
             self.emit(RunEnd.of(run))
 
@@ -338,11 +322,11 @@ class Leg:
                     return
 
     def _walk(self) -> None:
-        """Try every row of every node, in order: the first look, and the last one when nothing runs."""
+        """Try every unit of every node, in order: the first look, and the last one when nothing runs."""
         self.left_pending, self.recorded_since_walk = False, 0
         units = self.run._units
         for placed in self.nodes:
-            for key in self.run._rows(placed.level, ())[0]:
+            for key in self.run._instances(placed.scope, ())[0]:
                 if key not in units[placed.id] and (placed.id, key) not in self.running:
                     if not self._try(placed, key, walking=True):
                         self.left_pending = True
@@ -357,20 +341,20 @@ class Leg:
         kwargs = run._inputs(placed, key)
         if kwargs is PENDING:
             return False
-        if isinstance(kwargs, Unit):  # skipped or blank: it comes to that uncalled
+        if type(kwargs) is not dict:  # skipped or blank: it comes to that uncalled
             self._record(placed, key, kwargs, walking)
-        elif run._earlier and placed.definition.policy.reuse_when_inputs_match and (
+        elif run._earlier and placed.policy.reuse_when_inputs_match and (
             earlier := run._reused(placed, key, kwargs, lambda: self._in_turn(placed, key))
         ) is not None:
             if earlier is PENDING:
-                self.left_pending = True  # a row before it may take this earlier unit; the next walk tries it again
+                self.left_pending = True  # a unit before it may take this answer; the next walk tries it again
                 return False
             self.reused[placed.id] += 1
             self._record(placed, key, earlier, walking)
         else:
             if self.emit:
                 self._announce(placed)
-            policy = placed.definition.policy
+            policy = placed.policy
             if policy.threaded or policy.retries:
                 self._attempt(placed, key, kwargs, 0, walking)
             else:
@@ -378,7 +362,7 @@ class Leg:
         return True
 
     def _attempt(self, placed: PlacedNode, key: Key, kwargs: dict[str, Any], attempt: int, walking: bool = False) -> None:
-        if not placed.definition.policy.threaded:
+        if not placed.policy.threaded:
             out, error = self.run._call(placed, kwargs, self.from_run)
             if not self._retry(placed, key, kwargs, attempt, error):
                 if attempt:
@@ -390,13 +374,13 @@ class Leg:
         self._fill_slots(placed)
 
     def _fill_slots(self, placed: PlacedNode) -> None:
-        waiting, policy = self.slots_waiting[placed.id], placed.definition.policy
+        waiting, policy = self.slots_waiting[placed.id], placed.policy
         while waiting and self.on_threads[placed.id] < policy.concurrency and self.run.state is _RUNNING:
             key, kwargs, attempt = waiting.popleft()
             self.on_threads[placed.id] += 1
             self.attempts[(placed.id, key)] = attempt
             if self.pool is None:
-                self.pool = ThreadPoolExecutor(sum(p.definition.policy.concurrency for p in self.nodes if p.definition.policy.threaded), "conductor")
+                self.pool = ThreadPoolExecutor(sum(p.policy.concurrency for p in self.nodes if p.policy.threaded), "conductor")
             if policy.attempt_timeout is not None:
                 heapq.heappush(self.timers, (time.monotonic() + policy.attempt_timeout, len(self.timers), "deadline", placed.id, key, attempt))
             self.pool.submit(self._on_thread, placed, key, kwargs, attempt)
@@ -422,7 +406,7 @@ class Leg:
                     self._attempt(placed, key, self.running[(node_id, key)], attempt)
             elif self.attempts.get((node_id, key)) == attempt and (node_id, key) in self.running:  # the attempt still runs
                 del self.running[(node_id, key)]
-                seconds = placed.definition.policy.attempt_timeout
+                seconds = placed.policy.attempt_timeout
                 self._record(placed, key, make_problem("timeout", node_id, *key, seconds=seconds))
 
     def _returned(self, node_id: str, key: Key, attempt: int, out: Any, error: BaseException | None) -> None:
@@ -445,7 +429,7 @@ class Leg:
     def _retry(self, placed: PlacedNode, key: Key, kwargs: dict[str, Any], attempt: int, error: BaseException | None) -> bool:
         """Put a failed attempt on a timer if the policy says to try again: an ``ExternalError``, or a class ``retry_on``
         names, never a node's own ``NodeError``, an output its type refused or an ``Ask``."""
-        policy = placed.definition.policy
+        policy = placed.policy
         if error is None or attempt >= policy.retries or self.run.state is not _RUNNING:
             return False
         if not isinstance(error, ExternalError) and (isinstance(error, _NEVER_RETRIED) or not isinstance(error, policy.retry_on)):
@@ -454,19 +438,19 @@ class Leg:
         self.running[(placed.id, key)] = kwargs
         heapq.heappush(self.timers, (time.monotonic() + delay, len(self.timers), "retry", placed.id, key, attempt + 1))
         if self.emit:
-            self.emit(NodeRetry(node_id=placed.id, row=key, attempt=attempt + 1, retries=policy.retries, delay=delay, cause=self._failure(placed, key, error)))
+            self.emit(NodeRetry(node_id=placed.id, item=key, attempt=attempt + 1, retries=policy.retries, delay=delay, cause=self._failure(placed, key, error)))
         return True
 
     def _outcome(self, placed: PlacedNode, key: Key, kwargs: dict[str, Any], out: Any, error: BaseException | None) -> Unit | Problem:
         if error is None:
-            return Unit("skipped") if out is SKIPPED else Unit("done", out)
+            return SKIPPED_UNIT if out is SKIPPED else Done(out)
         if isinstance(error, Ask):
             try:
                 inputs = jsonable(kwargs)
             except FieldValueError as unwritable:  # a person can't be shown what the node received
                 return self._failure(placed, key, unwritable)
             try:
-                return WaitingUnit(row_question(error, placed.definition.outputs, inputs))
+                return Asking(question_asked(error, placed.outputs, inputs))
             except InvalidAskError as invalid:
                 return make_problem("invalid_ask", placed.id, *key, reason=str(invalid))
         return self._failure(placed, key, error)
@@ -477,8 +461,8 @@ class Leg:
             return error._as_problem_at(placed.id, *key)
         if isinstance(error, FieldValueError):
             return make_problem(error.code, placed.id, *key, reason=error.reason, **error.ctx)
-        _logger.error("node %r failed on row %r", placed.id, key, exc_info=error)
-        if isinstance(error, placed.definition.policy.retry_on):
+        _logger.error("node %r failed for item %r", placed.id, key, exc_info=error)
+        if isinstance(error, placed.policy.retry_on):
             return make_problem("external_failed", placed.id, *key, error=type(error).__name__)
         return make_problem("execution_failed", placed.id, *key, error=type(error).__name__)
 
@@ -488,7 +472,7 @@ class Leg:
         if isinstance(unit, Problem):
             match run.state:
                 case Going():  # the first failure is the cause; a later one changes nothing
-                    run.state = EndedEarly("failed", run.graph._seen_from_outside(unit))  # a node of an embedding fails as the embedding
+                    run.state = EndedEarly("failed", unit)
                     self._start_nothing_more()
                     if self.emit:
                         self.emit(NodeFailed(node_id=placed.id, cause=unit))
@@ -502,28 +486,30 @@ class Leg:
         self.recorded_since_walk += 1
         if self.checkpoint_every is not None and time.monotonic() >= self.next_checkpoint:
             self._checkpoint()
-        if unit.state == "done" and placed.makes:
-            for output, level in placed.makes.items():
-                self._made(level[-1], _length(unit.out[output]))  # type: ignore[index]
-            if self._over_ceiling():
-                return
+        if placed.opens and run.max_items is not None and isinstance(unit, Done):
+            for output in placed.opens:
+                items = _length(unit.out[output])
+                if items > run.max_items:
+                    run._stop(placed, output, items)
+                    self._start_nothing_more()
+                    return
         if self.emit:
             self.touched.add(placed.id)
-            if unit.state != "skipped":
-                self._announce(placed)  # a unit taken from earlier work, or a blank row, starts its node as a call does
-            if isinstance(unit, WaitingUnit):
-                self.emit(UnitWaiting(unit=run._waiting(placed.id, key, unit)))
-            if placed.level:
+            if unit is not SKIPPED_UNIT:
+                self._announce(placed)  # a unit taken from earlier work, or a blank one, starts its node as a call does
+            if isinstance(unit, Asking):
+                self.emit(UnitWaiting(unit=run._waiting(placed, key, unit)))  # type: ignore[arg-type]
+            if placed.scope:
                 self._progress(placed)
         if walking or run.state is not _RUNNING:
             return
         for reader in run.graph._readers[placed.id]:
             shared = self._shared(placed, reader)
-            if shared < len(key):  # a reader above this row, or beside it: tried once nothing it reads works under the row they share
+            if shared < len(key):  # a reader above this instance: tried once nothing it reads works under the one they share
                 self.gathers.add((reader.id, key[:shared]))
             else:
-                for row in run._rows(reader.level, key)[0]:
-                    heapq.heappush(self.ready, (self.position[reader.id], row))
+                for instance in run._instances(reader.scope, key)[0]:
+                    heapq.heappush(self.ready, (self.position[reader.id], instance))
 
     def _checkpoint(self) -> None:
         """Hand the listener a copy of the run as it stands, and set when the next is due."""
@@ -534,25 +520,27 @@ class Leg:
         self.emit(RunCheckpoint(run=snapshot))
 
     def _in_turn(self, placed: PlacedNode, key: Key) -> bool:
-        """Whether every row of ``placed`` before ``key`` has been tried, so identical rows take earlier work in row order, whatever thread finished first.
+        """Whether every unit of ``placed`` before ``key`` has been tried, so a person's answers are taken in order,
+        whatever thread finished first.
 
-        The k-th of identical rows is the k-th in row order among the rows the leg could try: a row that waits on a
-        person counts as tried once nothing else can start (``_pass_untried``).
+        The k-th of identical units is the k-th in order among those the leg could try: one that waits on a person
+        counts as tried once nothing else can start (``_pass_untried``).
         """
         turn = self.turns.get(placed.id)
         if turn is None or key not in turn.place:
-            order = self.run._rows(placed.level, ())[0]
+            order = self.run._instances(placed.scope, ())[0]
             turn = self.turns[placed.id] = _Turn(order, {k: i for i, k in enumerate(order)})
         order, units, passed, reached = turn.order, self.run._units[placed.id], turn.passed, turn.reached
-        while reached < len(order) and ((row := order[reached]) in units or (placed.id, row) in self.running or row in passed):
+        while reached < len(order) and ((instance := order[reached]) in units or (placed.id, instance) in self.running or instance in passed):
             reached += 1
         turn.reached = reached
         return turn.place.get(key, 0) <= reached
 
     def _pass_untried(self) -> bool:
-        """With nothing left to start, count every row a node taking earlier work hasn't tried as tried, so the rows after it take theirs.
+        """With nothing left to start, count every unit a node taking earlier answers hasn't tried as tried, so the
+        ones after it take theirs.
 
-        Such a row waits on a person, so this leg can't learn what it receives; if it does later, it takes what is left.
+        Such a unit waits on a person, so this leg can't learn what it receives; if it does later, it takes what is left.
         """
         passed_any = False
         for node_id, turn in self.turns.items():
@@ -563,10 +551,10 @@ class Leg:
         return passed_any
 
     def _shared(self, placed: PlacedNode, reader: PlacedNode) -> int:
-        """How many tables the rows of ``placed`` and of a node reading it share from the graph's own row down."""
+        """How many maps the scopes of ``placed`` and of a node reading it share from the graph's own scope down."""
         found = self.shared.get((placed.id, reader.id))
         if found is None:
-            found = self.shared[(placed.id, reader.id)] = shared_depth(placed.level, reader.level)
+            found = self.shared[(placed.id, reader.id)] = shared_depth(placed.scope, reader.scope)
         return found
 
     def _start_nothing_more(self) -> None:
@@ -587,65 +575,46 @@ class Leg:
             if not self.running or not any(n in above and k[: len(key)] == key for n, k in busy):
                 self.gathers.discard((node_id, key))
                 placed = self.nodes[self.position[node_id]]
-                for row in self.run._rows(placed.level, key)[0] if len(key) < len(placed.level) else (key,):
-                    heapq.heappush(self.ready, (self.position[node_id], row))
+                for instance in self.run._instances(placed.scope, key)[0] if len(key) < len(placed.scope) else (key,):
+                    heapq.heappush(self.ready, (self.position[node_id], instance))
         if self.gathers and not self.ready:
             self._wait()
 
-    def _made(self, table: str, rows: int) -> None:
-        """Count ``rows`` more of ``table``, and the rows each given list under them makes."""
-        self.made[table] = self.made.get(table, 0) + rows
-        for address in self.run.graph._lists_under.get(table, ()):
-            self._made(address, rows * len(self.run._given(address)))
-
     def _over_ceiling(self) -> bool:
-        """Whether a table holds more rows than ``max_rows``; if so the run stops, and starts nothing more."""
-        limit = self.run.max_rows
-        if limit is not None:
-            for table, count in self.made.items():
-                if count > limit:
-                    self.run._stop(table, count)
-                    self._start_nothing_more()
+        """Whether a Series some node works through already holds more items than ``max_items``, as a leg begins;
+        if so the run stops, and starts nothing."""
+        run = self.run
+        if run.max_items is None:
+            return False
+        for placed in self.nodes:
+            for output in placed.opens:
+                longest = max((_length(unit.out[output]) for unit in run._units[placed.id].values() if isinstance(unit, Done)), default=0)
+                if longest > run.max_items:
+                    run._stop(placed, output, longest)
                     return True
         return False
 
     # -- what the leg says --------------------------------------------------------------------
 
-    def _as_seen_from_outside(self, emit: Callable[[_EventBase], None]) -> Callable[[_EventBase], None]:
-        """``emit``, with every event about a node an embedding put in its place said of the embedding, its cause too."""
-        graph = self.run.graph
-
-        def say(event: _EventBase) -> None:
-            node_id = getattr(event, "node_id", None)
-            if node_id in graph._spliced:
-                cause = getattr(event, "cause", None)
-                event = event.model_copy(update={"node_id": graph._outward(node_id), **({"cause": graph._seen_from_outside(cause)} if cause is not None else {})})
-            emit(event)
-
-        return say
-
     def _announce(self, placed: PlacedNode) -> None:
-        outer = self.run.graph._outward(placed.id)
-        if outer not in self.started:
-            self.started.add(outer)
+        if placed.id not in self.started:
+            self.started.add(placed.id)
             if self.emit:
-                self.emit(NodeStart(node_id=outer))
+                self.emit(NodeStart(node_id=placed.id))
 
     def _progress(self, placed: PlacedNode, last: bool = False) -> None:
-        """Say how far a node running per row has got, at most four times a second; ``last`` says its final count, unless already said."""
+        """Say how far a node running per item has got, at most four times a second; ``last`` says its final count, unless already said."""
         now = time.monotonic()
-        if placed.id in self.run.graph._spliced:
-            return  # an embedding's own nodes are not seen from outside; its completion is
         if not self.emit or not (last or now - self.progress_at.get(placed.id, -1.0) >= _SECONDS_BETWEEN_PROGRESS):
             return
-        done = sum(1 for unit in self.run._units[placed.id].values() if unit.state != "waiting")  # counted only when said, at most four times a second
+        done = sum(1 for unit in self.run._units[placed.id].values() if type(unit) is not Asking)  # counted only when said, at most four times a second
         if self.progress_said.get(placed.id) != done:
             self.progress_at[placed.id], self.progress_said[placed.id] = now, done
-            keys, known = self.run._rows(placed.level, ())
+            keys, known = self.run._instances(placed.scope, ())
             self.emit(NodeProgress(node_id=placed.id, done=done, total=len(keys) if known else None))
 
     def _completions(self) -> None:
-        """Say which touched nodes are complete: nothing they wait on is working, and every row is done."""
+        """Say which touched nodes are complete: nothing they wait on is working, and every unit is done."""
         assert self.emit is not None
         running = {n for n, _ in self.running}
         for node_id in sorted(self.touched, key=self.position.__getitem__):
@@ -655,44 +624,24 @@ class Leg:
             placed, units = self.run.graph._nodes[node_id], self.run._units[node_id]
             if node_id in self.complete or not self._finished(placed):
                 continue
-            keys, _ = self.run._rows(placed.level, ())
             self.complete.add(node_id)
-            if placed.level and node_id in self.progress_said:
+            if placed.scope and node_id in self.progress_said:
                 self._progress(placed, last=True)
-            skipped = bool(keys) and all(units[k].state == "skipped" for k in keys)
-            if node_id in self.run.graph._spliced:
-                self._inner_complete(node_id, skipped, len(keys), {k for k in keys if units[k].state == "blank"})
-            elif skipped:
+            if units and all(unit is SKIPPED_UNIT for unit in units.values()):
                 self.emit(NodeSkipped(node_id=node_id))
             else:
-                self.emit(NodeComplete(node_id=node_id, rows=len(keys), not_called=sum(units[k].state == "blank" for k in keys), reused_units=self.reused[node_id]))
+                not_called = sum(type(unit) is Blank for unit in units.values())
+                self.emit(NodeComplete(node_id=node_id, units=len(units), not_called=not_called, reused_units=self.reused[node_id]))
 
     def _finished(self, placed: PlacedNode, may_wait: bool = True) -> bool:
-        """Whether every row of ``placed`` is known and none of them is still to run or waiting; ``may_wait`` False when
-        the caller already knows none waits."""
+        """Whether every unit of ``placed`` is known and none of them is still to run or waiting; ``may_wait`` False
+        when the caller already knows none waits."""
         units = self.run._units[placed.id]
-        if not placed.level:
+        if not placed.scope:
             for unit in units.values():
-                return unit.state != "waiting"
+                return type(unit) is not Asking
             return False
-        if may_wait and "waiting" in {u.state for u in units.values()}:
+        if may_wait and any(type(unit) is Asking for unit in units.values()):
             return False
-        counted, known = self.run._rows(placed.level, (), counted=True)
+        counted, known = self.run._instances(placed.scope, (), counted=True)
         return known and len(units) == (counted[0][0] if counted else 0)
-
-    def _inner_complete(self, node_id: str, skipped: bool, rows: int, not_called: set[Key]) -> None:
-        """A node of an embedding is complete: once all of them are, the embedding is, as one node: its rows the most any of
-        them has, a row not called once however many of its nodes weren't."""
-        assert self.emit is not None
-        graph = self.run.graph
-        outer = graph._outward(node_id)
-        inside = self.inside.setdefault(outer, {})
-        inside[node_id] = _InnerComplete(skipped, rows, not_called, self.reused[node_id])
-        if len(inside) < len(graph._placed_as(outer)):
-            return
-        done = inside.values()
-        if all(d.skipped for d in done):
-            self.emit(NodeSkipped(node_id=outer))
-            return
-        rows_not_called: set[Key] = set().union(*(d.not_called for d in done))
-        self.emit(NodeComplete(node_id=outer, rows=max(d.rows for d in done), not_called=len(rows_not_called), reused_units=sum(d.reused for d in done)))

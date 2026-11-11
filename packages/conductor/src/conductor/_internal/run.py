@@ -1,12 +1,13 @@
 """``Run``: a graph's inputs and every unit's result, as one value that writes itself as JSON.
 
-A unit is one node on one row. A unit is ``done`` (its outputs kept),
-``skipped`` (a branch not taken), ``blank`` (a plain input got nothing, so the
-node wasn't called) or ``waiting`` for a person. A unit with no entry hasn't
-run yet. Going on is one leg: start every unit whose inputs exist, until
-nothing more can start. So a run can stop anywhere (a person to ask, a
-failure, the row ceiling, a timeout) and carry on from its JSON in another
-process.
+A unit is one node in one instance of its scope: the node's one call, or its
+call for one item. A unit is ``Done`` (its outputs kept), ``Answered`` (done
+by a person), ``Skipped`` (a branch not taken), ``Blank`` (an input got
+nothing, so the node wasn't called) or ``Asking`` (it waits for a person). A
+unit with no entry hasn't run yet. Going on is one leg: start every unit
+whose inputs exist, until nothing more can start. So a run can stop anywhere
+(a person to ask, a failure, the item ceiling, a timeout) and carry on from
+its JSON in another process.
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ import math
 import threading
 import time
 from collections.abc import AsyncGenerator, Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Annotated, Any, Literal, overload
 
@@ -37,7 +38,7 @@ from pydantic import (
     ValidationError,
 )
 
-from conductor._internal.ask import RowQuestion, Waiting, answer_outputs, waiting_questions
+from conductor._internal.ask import Question, Waiting, answer_outputs, waiting_questions
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.errors import InvalidCallError, Problem, make_problem, value_free_errors
 from conductor._internal.fields import (
@@ -48,21 +49,29 @@ from conductor._internal.fields import (
     read_value,
     takes_a_blank,
 )
-from conductor._internal.node_definition import (
-    from_run_values,
+from conductor._internal.graph import (
+    Cell,
+    Fixed,
+    Gather,
+    Item,
+    Open,
+    PlacedFunction,
+    PlacedGraph,
+    Scope,
+    SeriesOfOne,
 )
+from conductor._internal.node_definition import Returns, from_run_values
 
 if TYPE_CHECKING:
-    from conductor._internal.graph import Graph, InputPlan, Level, PlacedNode, Source
+    from conductor._internal.graph import Graph, PlacedNode
     from conductor._internal.leg import Event, _EventBase
-    from conductor._internal.node_definition import FunctionDefinition
 
-#: A row: the parent's key plus a number, ``()`` for the graph's own row.
+#: An instance of a scope: the place of an item in each of the scope's maps, ``()`` for the graph's own scope.
 Key = tuple[int, ...]
 
 #: How a run stands while nothing has ended it early: not started, in a leg, waiting for a person, or done.
 GoingStatus = Literal["ready", "running", "complete", "waiting"]
-#: How a leg ended before the run was done: a node failed, a table outgrew ``max_rows``, a cancel, or the deadline.
+#: How a leg ended before the run was done: a node failed, a Series outgrew ``max_items``, a cancel, or the deadline.
 EndedStatus = Literal["failed", "stopped", "cancelled", "timed_out"]
 #: How a run stands after a leg.
 RunStatus = GoingStatus | EndedStatus
@@ -84,7 +93,8 @@ class EndedEarly:
     """A run whose last leg ended before it was done, and why; ``resume`` goes on from where it stopped.
 
     Attributes:
-        status: ``failed`` (a node failed), ``stopped`` (a table outgrew ``max_rows``), ``cancelled`` or ``timed_out``.
+        status: ``failed`` (a node failed), ``stopped`` (a Series outgrew ``max_items``), ``cancelled`` or
+            ``timed_out``.
         cause: Why, as a problem with its place and code.
     """
 
@@ -111,90 +121,128 @@ _ONE_ANSWER: Any = object()
 
 
 class NotCalled(ConductorModel):
-    """A row a node wasn't called on, because a plain input got a blank there.
+    """A call a node didn't get, because an input got a blank there.
 
     Attributes:
-        node_id: The node, as the graph's caller names it.
-        row: The row's place under each table above the node.
-        input: The input that got nothing, as the node's caller names it.
+        node_id: The node.
+        item: Which of the node's calls it was: the place of its item in each Series the node runs per item of.
+        input: The input that got nothing.
     """
 
     node_id: str
-    row: tuple[int, ...]
+    item: tuple[int, ...]
     input: str
 
 
-@dataclass(frozen=True)
-class Frame:
-    """A table as a run keeps it: columns of plain values, so a cell is a list index."""
+# -- what a unit came to ------------------------------------------------------------------------
 
-    rows: int
-    columns: dict[str, list[Any]]
 
-    def frame(self) -> pl.DataFrame:
-        return pl.DataFrame(self.columns, strict=False) if self.columns else pl.DataFrame()
+@dataclass(frozen=True, slots=True)
+class Done:
+    """A unit whose node was called and returned.
+
+    Attributes:
+        out: Its outputs by name: a value, ``None`` for a blank, ``SKIPPED`` for a branch not taken, a list for a
+            ``Series``.
+    """
+
+    out: dict[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
+class Answered(Done):
+    """A unit a person answered: its outputs are the answer.
+
+    Attributes:
+        question: What the person was asked.
+    """
+
+    question: Question
+
+
+@dataclass(frozen=True, slots=True)
+class Skipped:
+    """A unit on a branch not taken: its node wasn't called, and what reads it is skipped too."""
+
+
+@dataclass(frozen=True, slots=True)
+class Blank:
+    """A unit whose node wasn't called because an input that takes no blank got one; its outputs are blank.
+
+    Attributes:
+        input: The input that got nothing.
+    """
+
+    input: str
+
+
+@dataclass(frozen=True, slots=True)
+class Asking:
+    """A unit waiting for a person: its node raised ``Ask``.
+
+    Attributes:
+        question: What the person is asked.
+    """
+
+    question: Question
+
+
+#: What one node came to in one instance of its scope. A run and its copies share their units, so none is changed.
+Unit = Done | Answered | Skipped | Blank | Asking
+
+#: The one skipped unit.
+SKIPPED_UNIT = Skipped()
 
 
 @dataclass(slots=True)
-class Unit:
-    """What one node came to on one row.
+class Earlier:
+    """The work of one node that a run may take from the run it went on from, in place of calling the node.
 
-    A run and its copies share their units, so a unit is never changed in place: a new state is a new ``Unit``.
+    A person's answer, or a question still waiting, is taken once, by the next unit in order that received the
+    same under the same items above it. A node's own result is taken by the unit at the same place when it
+    received the same there, and else by what was received, whichever unit made it.
+
+    Attributes:
+        at: Each result by the place its unit stood in, with the fingerprint of what it received.
+        computed: A node's results by the fingerprint of what the unit received.
+        asked: A person's answers and the questions still waiting, by the fingerprint of what the unit received and
+            of the items above it, in the order they stood.
     """
 
-    state: Literal["done", "skipped", "blank", "waiting"]
-    out: dict[str, Any] | None = None
-    #: For a waiting unit, what the person is asked, and for a done one, what they were asked when a person answered it.
-    question: RowQuestion | None = None
-    #: For a blank unit, the plain input that got nothing.
-    blank_input: str | None = None
-    #: For a skipped unit, the depth of the row where the branch not taken was decided.
-    skipped_from: int | None = None
-
-
-class WaitingUnit(Unit):
-    """A unit waiting for a person: its node raised ``Ask`` on the row, and it always holds the question."""
-
-    __slots__ = ()
-    state: Literal["waiting"]
-    question: RowQuestion
-
-    def __init__(self, question: RowQuestion) -> None:  # one is made for every row that asks: positional, and no more
-        self.state, self.out, self.question, self.blank_input, self.skipped_from = "waiting", None, question, None, None
+    at: dict[Key, tuple[str, Done]] = field(default_factory=dict[Key, tuple[str, Done]])
+    computed: dict[str, Done] = field(default_factory=dict[str, Done])
+    asked: dict[tuple[str, str], list[Answered | Asking]] = field(default_factory=dict[tuple[str, str], list["Answered | Asking"]])
 
 
 class Run:
     """One run of a graph. Every call returns a new ``Run``; ``to_json`` is all of it.
 
     Attributes:
-        graph: The graph the run runs on: the one it was started from, or, when a caller gave a list to an input that
-            takes one value per row, that graph compiled for those lists, whose ``plan`` says where each node ran.
+        graph: The graph the run runs on.
         inputs: The caller's inputs as checked, by address (``"upper.text"``) whether they were given by name or by
             address.
-        max_rows: The most rows any table may hold before the run stops as ``stopped``; ``None`` for no ceiling.
+        max_items: The most items any one Series a node works through may hold before the run stops as
+            ``stopped``; ``None`` for no ceiling.
         state: How the run stands: ``Going`` (``ready`` before the first leg, then ``running``, ``waiting`` or
-            ``complete``), or ``EndedEarly`` (``failed``, ``stopped`` at the row ceiling, ``cancelled`` or
+            ``complete``), or ``EndedEarly`` (``failed``, ``stopped`` at the item ceiling, ``cancelled`` or
             ``timed_out``) with the ``Problem`` that caused it.
     """
 
     graph: Graph
     inputs: dict[str, Any]
-    #: The caller's inputs and the lists an author typed in, by address: what a graph input's edge reads.
-    _given_values: dict[str, Any]
-    max_rows: int | None
-    _units: dict[str, dict[Key, Unit]]
+    max_items: int | None
     state: RunState
-    #: node -> fingerprint of what a unit received -> the earlier units that received it, in row order, not yet taken.
-    _earlier: dict[str, dict[str, list[Unit]]]
+    #: Each node's units, by instance.
+    _units: dict[str, dict[Key, Unit]]
+    #: What each node may take from the run this one went on from.
+    _earlier: dict[str, Earlier]
     #: The nodes whose ``_earlier`` entry is this run's own to take from, not shared with the run it was copied from.
     _earlier_own: set[str]
-    #: Whether a node's earlier units include answers or questions, which are kept by the rows above them too.
-    _asking: dict[str, bool]
     #: For a node whose units a saved run made with other code or another signature, what that code was; they are never carried.
     _ran_as: dict[str, str]
-    #: The nodes whose units were recorded out of row order (threads finish when they finish), sorted when read.
+    #: The nodes whose units were recorded out of instance order (threads finish when they finish), sorted when read.
     _unordered: set[str]
-    #: The nodes every row of which was finished when the last leg ended, so a later leg doesn't say them complete again.
+    #: The nodes every unit of which was finished when the last leg ended, so a later leg doesn't say them complete again.
     _complete: frozenset[str]
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -210,21 +258,21 @@ class Run:
 
     # -- going on ---------------------------------------------------------------
 
-    def resume(self, *, max_rows: int | None = None, from_run: Mapping[type, Any] = MappingProxyType({}), timeout: float | None = None) -> Run:
+    def resume(self, *, max_items: int | None = None, from_run: Mapping[type, Any] = MappingProxyType({}), timeout: float | None = None) -> Run:
         """Go on: start every unit whose inputs exist, until the run is done, waits, fails, reaches its ceiling or its ``timeout``.
 
-        ``max_rows`` raises (or sets) the ceiling a stopped run carries on
+        ``max_items`` raises (or sets) the ceiling a stopped run carries on
         under. ``from_run`` gives each ``FromRun`` type its value. Past its
         ``timeout`` a leg starts nothing more but waits for the calls already
         on threads, as far as their ``attempt_timeout``, and keeps them; so it
         can end later than ``timeout``, and a call that came back is never made
         again.
         """
-        checked_leg(max_rows=max_rows, timeout=timeout)
-        return self._leg(max_rows, from_run_values(self.graph._needs_from_run, from_run), None, _deadline(timeout))
+        checked_leg(max_items=max_items, timeout=timeout)
+        return self._leg(max_items, from_run_values(self.graph._needs_from_run, from_run), None, _deadline(timeout))
 
     def stream(
-        self, *, max_rows: int | None = None, from_run: Mapping[type, Any] = MappingProxyType({}), timeout: float | None = None, cancel: asyncio.Event | None = None,
+        self, *, max_items: int | None = None, from_run: Mapping[type, Any] = MappingProxyType({}), timeout: float | None = None, cancel: asyncio.Event | None = None,
         checkpoint_every: float | None = None,
     ) -> AsyncGenerator[Event]:
         """``resume``, saying what happens as it happens: ``async for event in run.stream(): ...``.
@@ -241,11 +289,11 @@ class Run:
         its ``run`` loses only the calls in flight if the process dies. A call
         that can't start raises here, before anything is iterated.
         """
-        checked_leg(max_rows=max_rows, timeout=timeout, checkpoint_every=checkpoint_every)
-        return self._stream(max_rows, from_run_values(self.graph._needs_from_run, from_run), timeout, cancel, checkpoint_every)
+        checked_leg(max_items=max_items, timeout=timeout, checkpoint_every=checkpoint_every)
+        return self._stream(max_items, from_run_values(self.graph._needs_from_run, from_run), timeout, cancel, checkpoint_every)
 
     async def _stream(
-        self, max_rows: int | None, from_run: dict[type, Any], timeout: float | None, cancel: asyncio.Event | None, checkpoint_every: float | None,
+        self, max_items: int | None, from_run: dict[type, Any], timeout: float | None, cancel: asyncio.Event | None, checkpoint_every: float | None,
     ) -> AsyncGenerator[Event]:
         loop, events = asyncio.get_running_loop(), asyncio.Queue["Event | None"]()
         cancelled = threading.Event()
@@ -260,7 +308,7 @@ class Run:
 
         def leg() -> None:
             try:
-                self._leg(max_rows, from_run, lambda event: _hand_over(loop, events, event), stop, checkpoint_every)
+                self._leg(max_items, from_run, lambda event: _hand_over(loop, events, event), stop, checkpoint_every)
             except BaseException as error:  # the engine's own defect reaches the caller
                 failed.append(error)
             finally:
@@ -277,12 +325,12 @@ class Run:
             cancelled.set()
 
     def _leg(
-        self, max_rows: int | None, from_run: dict[type, Any], emit: Callable[[_EventBase], None] | None, stop: Callable[[], EndedEarly | None] | None,
+        self, max_items: int | None, from_run: dict[type, Any], emit: Callable[[_EventBase], None] | None, stop: Callable[[], EndedEarly | None] | None,
         checkpoint_every: float | None = None,
     ) -> Run:
         from conductor._internal.leg import Leg
 
-        run = self._copy(max_rows=max_rows if max_rows is not None else self.max_rows)
+        run = self._copy(max_items=max_items if max_items is not None else self.max_items)
         Leg(run, emit, stop, from_run, checkpoint_every).go()
         return run
 
@@ -293,60 +341,51 @@ class Run:
     def answer(self, answers: Mapping[str, Any], /) -> Run: ...
 
     def answer(self, unit: Waiting | str | Mapping[str, Any], value: Any = _ONE_ANSWER, /) -> Run:
-        """Give waiting rows their answers, checked against their questions; nothing runs until ``resume``.
+        """Give waiting units their answers, checked against their questions; nothing runs until ``resume``.
 
-        ``run.answer(unit, value)`` answers one row, ``run.answer({unit_id: value, ...})``
+        ``run.answer(unit, value)`` answers one, ``run.answer({unit_id: value, ...})``
         several. A node with one output is answered with its value, one with
         several with a mapping by output name, where a question with a default
         or a blank-taking type without choices may be left out, and of an
         ``exclusive_group`` exactly one is answered; a question limited by
-        choices is answered unless it has a default. Every fault is refused at once and the run is left as it was:
-        a row answered twice in one call, an id that names nothing waiting
-        (``not_waiting``), or one whose row now holds another question
-        (``answer_stale``, with ``ctx.moved_to`` when that question waits on
-        another row). A cancelled run takes no answers (``run_cancelled``):
-        ``resume`` it, and it carries on and waits again, or start a new run.
+        choices is answered unless it has a default. Every fault is refused at
+        once and the run is left as it was: a unit answered twice in one call,
+        an id that names nothing waiting (``not_waiting``), or one whose place
+        now holds another question (``answer_stale``, with ``ctx.moved_to``
+        when that question waits elsewhere). A cancelled run takes no answers
+        (``run_cancelled``): ``resume`` it, and it carries on and waits again,
+        or start a new run.
         """
         if self.status == "cancelled":
             raise InvalidCallError([make_problem("run_cancelled", "status")])
         if value is not _ONE_ANSWER:
             given: Mapping[str, Any] = {unit.id if isinstance(unit, Waiting) else str(unit): value}
         elif isinstance(unit, Mapping):
-            given = unit if all(isinstance(key, str) for key in unit) else {str(key): one for key, one in unit.items()}
+            given = {str(key): one for key, one in unit.items()}
         else:
             raise TypeError("run.answer takes a unit and its answer, or a mapping of unit ids to answers")
         problems: list[Problem] = []
         answered: dict[str, dict[Key, Unit]] = {}
         for unit_id, one in given.items():
-            outer, key, fingerprint = _parse_unit(unit_id)
-            if key is None:
-                problems.append(make_problem("not_waiting", outer, waiting_id=unit_id, status=self.status))
+            node_id, key, fingerprint = _parse_unit(unit_id)
+            placed = self.graph._nodes.get(node_id)
+            found = self._units[node_id].get(key) if placed is not None and key is not None else None
+            if not isinstance(placed, PlacedFunction) or key is None or not isinstance(found, Asking):
+                moved = {"moved_to": went} if fingerprint is not None and isinstance(placed, PlacedFunction) and (went := self._moved_to(placed, fingerprint)) else {}
+                problems.append(make_problem("not_waiting", node_id, *(key or ()), waiting_id=unit_id, status=self.status, **moved))
                 continue
-            here = [(n, u) for n in self.graph._placed_as(outer) if isinstance(u := self._units[n].get(key), WaitingUnit)]
-            matching = [(n, u) for n, u in here if fingerprint is None or _question_fingerprint(self.graph._nodes[n], u) == fingerprint]
-            if len(matching) != 1:
-                moved = {"moved_to": went} if fingerprint is not None and (went := self._moved_to(outer, fingerprint)) else {}
-                if len(here) == 1 and fingerprint is not None:
-                    current = self._waiting(here[0][0], key, here[0][1]).id
-                    problems.append(make_problem("answer_stale", outer, *key, waiting_id=unit_id, current=current, **moved))
-                else:
-                    problems.append(make_problem("not_waiting", outer, *key, waiting_id=unit_id, status=self.status, **moved))
+            if fingerprint is not None and _question_fingerprint(placed, found) != fingerprint:
+                moved = {"moved_to": went} if (went := self._moved_to(placed, fingerprint)) else {}
+                problems.append(make_problem("answer_stale", node_id, *key, waiting_id=unit_id, current=self._waiting(placed, key, found).id, **moved))
                 continue
-            ((node_id, found),) = matching
             if key in answered.get(node_id, {}):
-                problems.append(make_problem("invalid_answer", outer, *key, waiting_id=unit_id, reason="the row is answered twice in one call"))
+                problems.append(make_problem("invalid_answer", node_id, *key, waiting_id=unit_id, reason="the unit is answered twice in one call"))
                 continue
-            placed = self.graph._nodes[node_id]
-            shown = self.graph._shown_outputs(node_id) if node_id in self.graph._spliced else {}  # an embedding's questions are asked, and answered, by the names it offers
-            if shown and isinstance(one, Mapping):
-                own = {name: inner for inner, name in shown.items()}
-                one = {own.get(name, name): value for name, value in one.items()}
             read, faults = answer_outputs(placed, one, found.question.overrides)
-            if faults:
-                problems.extend(
-                    make_problem("invalid_answer", outer, *key, waiting_id=unit_id, reason=reason, **({"question": shown.get(q, q)} if q else {})) for q, reason in faults
-                )
-            answered.setdefault(node_id, {})[key] = Unit("done", kept_outputs(placed.definition.outputs, read), found.question) if not faults else found
+            problems.extend(
+                make_problem("invalid_answer", node_id, *key, waiting_id=unit_id, reason=reason, **({"question": q} if q else {})) for q, reason in faults
+            )
+            answered.setdefault(node_id, {})[key] = Answered(kept_outputs(placed.outputs, read), found.question) if not faults else found
         if problems:
             raise InvalidCallError(problems)
         run = self._copy(share_units=True)
@@ -354,30 +393,28 @@ class Run:
             run._units[node_id] = {**self._units[node_id], **units}
         return run
 
-    def _moved_to(self, outer: str, fingerprint: str) -> str | None:
-        """The id of the row where the question a stale id names now waits, if it waits on another row of the same node."""
-        for n in self.graph._placed_as(outer):
-            for k, u in self._units[n].items():
-                if isinstance(u, WaitingUnit) and _question_fingerprint(self.graph._nodes[n], u) == fingerprint:
-                    return self._waiting(n, k, u).id
+    def _moved_to(self, placed: PlacedFunction, fingerprint: str) -> str | None:
+        """The id of the unit where the question a stale id names now waits, if it waits elsewhere on the same node."""
+        for key, unit in self._units[placed.id].items():
+            if isinstance(unit, Asking) and _question_fingerprint(placed, unit) == fingerprint:
+                return self._waiting(placed, key, unit).id
         return None
 
-    def with_inputs(self, inputs: Mapping[str, Any] = MappingProxyType({}), /, *, max_rows: int | None = None, **by_name: Any) -> Run:
+    def with_inputs(self, inputs: Mapping[str, Any] = MappingProxyType({}), /, *, max_items: int | None = None, **by_name: Any) -> Run:
         """A run of these changed inputs, the rest as before, ready to ``resume`` or ``stream``.
 
         It carries this run's work, and what this run carried and didn't use
         for a node that hasn't finished (a finished node's is dropped, so a
-        save stays its size over edits): a row that receives what an earlier unit of its node received takes
-        that unit's outcome, an answer or a question still waiting included, and
-        the node is not called for it. Identical rows match the earlier ones in
-        row order: the first identical row takes the first earlier one, the
-        second the second. Inputs are given as ``graph.with_inputs`` takes
-        them, and checked the same way.
+        save stays its size over edits): a unit that receives what an earlier
+        unit of its node received takes that unit's outcome, an answer or a
+        question still waiting included, and the node is not called for it.
+        Inputs are given as ``graph.with_inputs`` takes them, and checked the
+        same way.
         """
         changed = {**inputs, **by_name}
-        named = self.graph._given_by_key(changed)[0]
-        given = {field.name: self.inputs[key] for key, field in self.graph._input_fields.items() if key in self.inputs and key not in named}
-        fresh = self.graph.with_inputs({**given, **changed}, max_rows=max_rows if max_rows is not None else self.max_rows)
+        named = self.graph._given_by_address(changed)[0]
+        given = {offered.name: self.inputs[address] for address, offered in self.graph._input_fields.items() if address not in named}
+        fresh = self.graph.with_inputs({**given, **changed}, max_items=max_items if max_items is not None else self.max_items)
         fresh._earlier = self._carried()
         return fresh
 
@@ -387,97 +424,94 @@ class Run:
         Every other unit is carried as ``with_inputs`` carries it, so only the
         forgotten nodes are called again, and a node below them that then
         receives what it received before is not. A host forgets a node whose
-        access it must check again. An embedded graph's id forgets its nodes.
+        access it must check again.
         """
-        unknown = [n for n in node_ids if not self.graph._placed_as(n)]
+        unknown = [n for n in node_ids if n not in self.graph._nodes]
         if unknown:
-            raise InvalidCallError([make_problem("node_not_in_graph", n, node_id=n, nodes=list(self.graph._readable)) for n in unknown])
+            raise InvalidCallError([make_problem("node_not_in_graph", n, node_id=n, nodes=list(self.graph._nodes)) for n in unknown])
         fresh = self.with_inputs()
         for n in node_ids:
-            for placed_id in self.graph._placed_as(n):
-                fresh._earlier.pop(placed_id, None)
+            fresh._earlier.pop(n, None)
         return fresh
 
-    def _carried(self, into: Graph | None = None) -> dict[str, dict[str, list[Unit]]]:
-        """What a run going on from this one may take: each node's finished and waiting units by what they received, then what this run carried and didn't take.
+    def _carried(self, into: Graph | None = None) -> dict[str, Earlier]:
+        """What a run going on from this one may take: each node's finished and waiting units, then what this run
+        carried and didn't take.
 
-        ``into`` another graph keeps only the nodes it holds as they are here (by ``reuse_digest``): the others' units could
-        never be taken there, and carried they would only make its save larger.
+        ``into`` another graph keeps only the nodes it holds as they are here (by ``reuse_digest``): the others'
+        units could never be taken there, and carried they would only make its save larger.
         """
-        earlier: dict[str, dict[str, list[Unit]]] = {}
-        for n, units in self._units.items():
+        carried: dict[str, Earlier] = {}
+        for n in self._units:
             placed = self.graph._nodes[n]
-            if not placed.definition.policy.reuse_when_inputs_match or n in self._ran_as:
+            if not placed.policy.reuse_when_inputs_match or n in self._ran_as:
                 continue
             if into is not None and (n not in into._nodes or into._nodes[n].reuse_digest != placed.reuse_digest):
                 continue
-            by: dict[str, list[Unit]] = {}
-            for k, u in self._in_order(n):
-                if u.state == "done" or u.state == "waiting":
-                    fingerprint = _fingerprint(placed.reuse_digest, self._inputs(placed, k), plain=placed.plain_inputs)
-                    if fingerprint is not None:
-                        by.setdefault(self._asked_key(placed, k, fingerprint) if u.question is not None else fingerprint, []).append(u)
-            for fingerprint, left in self._earlier.get(n, {}).items():
-                if left:
-                    by.setdefault(fingerprint, []).extend(left)
-            if by:
-                earlier[n] = by
-        return earlier
+            earlier = Earlier()
+            for key, unit in self._in_order(n):
+                if not isinstance(unit, (Done, Asking)):
+                    continue
+                fingerprint = _fingerprint(placed.reuse_digest, self._inputs(placed, key), plain=placed.plain_inputs)
+                if fingerprint is None:
+                    continue
+                if isinstance(unit, (Answered, Asking)):
+                    earlier.asked.setdefault((fingerprint, self._lineage(placed.scope, key)), []).append(unit)
+                else:
+                    earlier.at[key] = (fingerprint, unit)
+                    earlier.computed.setdefault(fingerprint, unit)
+            left = self._earlier.get(n)
+            if left is not None:  # what this run was lent and no unit of it received
+                for fingerprint, done in left.computed.items():
+                    earlier.computed.setdefault(fingerprint, done)
+                for asked, units in left.asked.items():
+                    earlier.asked.setdefault(asked, []).extend(units)
+            if earlier.computed or earlier.asked:
+                carried[n] = earlier
+        return carried
 
     def again(
-        self, inputs: Mapping[str, Any] = MappingProxyType({}), /, *, max_rows: int | None = None, from_run: Mapping[type, Any] = MappingProxyType({}),
+        self, inputs: Mapping[str, Any] = MappingProxyType({}), /, *, max_items: int | None = None, from_run: Mapping[type, Any] = MappingProxyType({}),
         timeout: float | None = None, **by_name: Any,
     ) -> Run:
         """Run again with changed inputs, the rest as before: ``run.with_inputs(...).resume(...)``.
 
-        A row that receives what it received before is not called again.
+        A unit that receives what it received before is not called again.
         """
-        return self.with_inputs(inputs, max_rows=max_rows, **by_name).resume(from_run=from_run, timeout=timeout)
+        return self.with_inputs(inputs, max_items=max_items, **by_name).resume(from_run=from_run, timeout=timeout)
 
     # -- reading ----------------------------------------------------------------
 
     @property
     def waiting(self) -> list[Waiting]:
-        """Every row waiting for a person, in node then row order."""
-        return [self._waiting(n, k, u) for n in self._units for k, u in self._in_order(n) if isinstance(u, WaitingUnit)]
+        """Every unit waiting for a person, in node then item order."""
+        nodes = self.graph._nodes
+        return [self._waiting(nodes[n], key, unit) for n in self._units for key, unit in self._in_order(n) if isinstance(unit, Asking)]  # type: ignore[arg-type]
 
     def _in_order(self, node_id: str) -> Any:
-        """A node's units in row order."""
+        """A node's units in instance order."""
         units = self._units[node_id]
         return sorted(units.items()) if node_id in self._unordered else units.items()
 
-    def _waiting(self, node_id: str, key: Key, unit: WaitingUnit) -> Waiting:
+    def _waiting(self, placed: PlacedFunction, key: Key, unit: Asking) -> Waiting:
+        """A waiting unit as a host shows it; its id is ``node@place~fingerprint``, as ``_parse_unit`` reads it."""
         question = unit.question
-        outer = self.graph._outward(node_id)
-        shown = self.graph._shown_outputs(node_id) if node_id in self.graph._spliced else {}
-        asked = [q.model_copy(update={"name": shown[q.name]}) if q.name in shown else q for q in waiting_questions(self.graph._nodes[node_id], question.overrides)]
-        row = "".join(f"@{i}" for i in key)  # a waiting id is node@row~fingerprint, as _parse_unit reads it
+        place = "".join(f"@{i}" for i in key)
         return Waiting(
-            id=f"{outer}{row}~{_question_fingerprint(self.graph._nodes[node_id], unit)}", node_id=outer, row=key, prompt=question.prompt,
-            questions=asked, inputs=question.inputs,
+            id=f"{placed.id}{place}~{_question_fingerprint(placed, unit)}", node_id=placed.id, item=key, prompt=question.prompt,
+            questions=waiting_questions(placed, question.overrides), inputs=question.inputs,
         )
 
     @property
     def not_called(self) -> list[NotCalled]:
-        """Rows a node wasn't called on because a plain input was blank: which node, row and input."""
-        found: list[NotCalled] = []
-        seen = set()
-        for n, units in self._units.items():
-            for k, u in units.items():
-                if u.blank_input is not None and (place := (self.graph._outward(n), k)) not in seen:  # an embedding's row once, by its first node
-                    seen.add(place)
-                    found.append(NotCalled(node_id=place[0], row=k, input=self.graph._outward(f"{n}.{u.blank_input}").partition(".")[2] or u.blank_input))
-        return found
+        """The calls a node didn't get because an input was blank: which node, which item and which input."""
+        return [NotCalled(node_id=n, item=key, input=unit.input) for n, units in self._units.items() for key, unit in units.items() if isinstance(unit, Blank)]
 
     @property
     def results(self) -> dict[str, dict[str, Any]]:
-        """Each node's outputs: one value on a node that ran once, else a list in row order, ``None`` where a row has none.
-
-        An embedded graph is one node here, with the outputs it offers.
-        """
-        nodes = self.graph._nodes
-        found = {drawn: {name: self._collect(nodes[n], o) for name, (n, o) in fields.items()} for drawn, fields in self.graph._readable.items()}
-        return found
+        """Each node's outputs: one value on a node that ran once, else a list in item order, ``None`` where a
+        unit has none."""
+        return {n: {o: self._collect(placed, o) for o in placed.outputs} for n, placed in self.graph._nodes.items()}
 
     @property
     def outputs(self) -> dict[str, Any]:
@@ -489,69 +523,60 @@ class Run:
                 raise InvalidCallError([make_problem("run_not_complete", "outputs", status=status, reason="")])
             case EndedEarly(status=status, cause=cause):
                 raise InvalidCallError([make_problem("run_not_complete", "outputs", status=status, reason=cause.msg)])
-        results = self.results
-        return {address: results[address.split(".")[0]][address.split(".", 1)[1]] for address in self.graph.outputs}
+        nodes = self.graph._nodes
+        return {address: self._collect(nodes[address.partition(".")[0]], address.partition(".")[2]) for address in self.graph.outputs}
 
     def _collect(self, placed: PlacedNode, output: str) -> Any:
-        keys, _ = self._rows(placed.level, ())
+        """One output of a node over its units, in instance order."""
+        units = self._units[placed.id]
         values = []
-        for key in keys:
-            unit = self._units[placed.id].get(key)
-            value = unit.out.get(output) if unit is not None and unit.out is not None else None
-            values.append(None if value is SKIPPED else value.frame() if isinstance(value, Frame) else [None if v is SKIPPED else v for v in value] if isinstance(value, list) else value)
-        return values[0] if not placed.level else values
+        for key in self._instances(placed.scope, ())[0]:
+            unit = units.get(key)
+            value = unit.out[output] if isinstance(unit, Done) else None
+            values.append(None if value is SKIPPED else [None if v is SKIPPED else v for v in value] if isinstance(value, list) else value)
+        return values if placed.scope else values[0]
 
     # -- what a leg reads -------------------------------------------------------
 
     def _reused(self, placed: PlacedNode, key: Key, kwargs: dict[str, Any], in_turn: Callable[[], bool]) -> Any:
-        """The next earlier unit of ``placed`` that received ``kwargs``, taken so an identical row after it takes the one after.
+        """The earlier unit ``placed`` takes in ``key`` in place of a call on ``kwargs``; ``None`` when there is none.
 
-        Identical rows take them in row order: when an earlier unit is there to take and ``in_turn`` says a row
-        before this one hasn't been tried yet, this is ``PENDING``, tried again once it has.
-
-        A person's answer, or a question still waiting, is taken only by a row under the same rows above it, so two
-        documents' identical lines keep each document's answers when the documents move.
+        A person's answer, or a question still waiting, is taken once, in order: when one is there to take and
+        ``in_turn`` says a unit before this one hasn't been tried yet, this is ``PENDING``, tried again once it
+        has. It is taken only under the same items above, so two documents' identical lines keep each document's
+        answers when the documents move. A node's own result is the one of the unit at the same place, when that
+        received the same, and else one any earlier unit computed from the same.
         """
         earlier = self._earlier.get(placed.id)
-        if not earlier:
+        if earlier is None:
             return None
         fingerprint = _fingerprint(placed.reuse_digest, kwargs, plain=placed.plain_inputs)
         if fingerprint is None:
             return None
-        asks = self._asking.get(placed.id)
-        if asks is None:
-            asks = self._asking[placed.id] = any(k.startswith("asked:") for k in earlier)
-        if asks and earlier.get(asked := self._asked_key(placed, key, fingerprint)):
-            fingerprint = asked
-        if not earlier.get(fingerprint):
-            return None
-        if not in_turn():
-            return PENDING
-        if placed.id not in self._earlier_own:  # the lists are the earlier run's too until this run takes from them
-            earlier = self._earlier[placed.id] = {fp: list(units) for fp, units in earlier.items()}
-            self._earlier_own.add(placed.id)
-        return earlier[fingerprint].pop(0)
+        if earlier.asked:
+            asked = (fingerprint, self._lineage(placed.scope, key))
+            if earlier.asked.get(asked):
+                if not in_turn():
+                    return PENDING
+                return self._own(placed.id).asked[asked].pop(0)
+        there = earlier.at.get(key)
+        if there is not None and there[0] == fingerprint:
+            return there[1]
+        return earlier.computed.get(fingerprint)
 
-    def _asked_key(self, placed: PlacedNode, key: Key, fingerprint: str) -> str:
-        """Where an answered or waiting unit is kept for reuse: what it received, and the value of each row above its own."""
-        above = [self._row_value(placed.level[i], key[: i + 1]) for i in range(len(placed.level) - 1)]
-        lineage = _fingerprint("", {"rows": above}) if above else ""
-        return f"asked:{fingerprint}:{lineage}"
+    def _own(self, node_id: str) -> Earlier:
+        """A node's earlier work with the answers and questions this run's own to take from: copied once, as the
+        run it went on from, and a checkpoint of this one, hold them too."""
+        earlier = self._earlier[node_id]
+        if node_id not in self._earlier_own:
+            earlier = self._earlier[node_id] = Earlier(earlier.at, earlier.computed, {k: list(units) for k, units in earlier.asked.items()})
+            self._earlier_own.add(node_id)
+        return earlier
 
-    def _given(self, address: str) -> Any:
-        """The list a caller gave, or an author typed in, at ``address``, whose items are the rows of the table it makes."""
-        return self._given_values[address]
-
-    def _row_value(self, table: str, key: Key) -> Any:
-        """What one row of a table holds: an item of a list, or a table's row as a mapping."""
-        node_id, output = self.graph._makers[table]
-        if node_id is None:
-            return self._given(output)[key[-1]]
-        unit = self._units[node_id].get(key[:-1])
-        made = unit.out.get(output) if unit is not None and unit.out else None
-        if isinstance(made, Frame):
-            return {c: v[key[-1]] for c, v in made.columns.items()}
-        return made[key[-1]] if isinstance(made, list) else None
+    def _lineage(self, scope: Scope, key: Key) -> str:
+        """A fingerprint of the item of each map above the innermost that the instance ``key`` of ``scope`` sits in."""
+        above = [self._units[port.node_id][key[:depth]].out[port.output][key[depth]] for depth, port in enumerate(scope[:-1])]  # type: ignore[union-attr]
+        return (_fingerprint("", {"items": above}) or "") if above else ""
 
     def _call(self, placed: PlacedNode, kwargs: dict[str, Any], from_run: Mapping[type, Any]) -> tuple[Any, BaseException | None]:
         """Call ``placed`` on what a unit received: its outputs as a run keeps them, or what went wrong.
@@ -559,71 +584,54 @@ class Run:
         A value an edge brings is checked against the input first where its source's type doesn't settle it, and what
         the node returns against its declared outputs; either refusal is a ``FieldValueError``, which quotes no value.
         """
+        match placed:
+            case PlacedGraph():
+                raise NotImplementedError("an embedded graph's nested run")
+            case PlacedFunction(definition=definition):
+                pass
         try:
             for name in placed.checked:
-                kwargs = {**kwargs, name: _checked(placed.definition.inputs[name], name, kwargs[name], code="invalid_edge_value")}
-            if placed.definition.from_run:
-                kwargs = {**kwargs, **{name: from_run[needed] for name, needed in placed.definition.from_run.items()}}
-            returned = placed.definition.function(**kwargs)
+                kwargs = {**kwargs, name: _checked(placed.inputs[name].spec, name, kwargs[name], code="invalid_edge_value")}
+            if definition.from_run:
+                kwargs = {**kwargs, **{name: from_run[needed] for name, needed in definition.from_run.items()}}
+            returned = definition.function(**kwargs)
         except BaseException as error:  # noqa: BLE001  a node's own failure, or its Ask, is the run's to record
             if isinstance(error, (KeyboardInterrupt, SystemExit)):
                 raise
             return None, error
         try:
-            return checked_outputs(placed.definition, returned), None
+            return checked_outputs(definition.returns, placed.outputs, returned), None
         except FieldValueError as wrong:
             return None, wrong
 
-    def _stop(self, table: str, count: int) -> None:
-        """Stop at the row ceiling, unless the leg already ended for a failure, a cancel or its timeout, which stays the cause."""
+    def _stop(self, placed: PlacedNode, output: str, count: int) -> None:
+        """Stop at the item ceiling, unless the leg already ended for a failure, a cancel or its timeout, which stays the cause."""
         match self.state:
             case EndedEarly():
                 return
             case Going():
-                maker = self.graph._makers[table][0]
-                self.state = EndedEarly("stopped", make_problem(
-                    "row_ceiling", self.graph._outward(maker) if maker else "inputs", table=self.graph._outward(table, table=True), rows=count, max_rows=self.max_rows,
-                ))
+                self.state = EndedEarly("stopped", make_problem("item_ceiling", placed.id, series=f"{placed.id}.{output}", items=count, max_items=self.max_items))
 
-    def _rows_made(self) -> dict[str, int]:
-        """How many rows each table has so far; a typed list's are its items times the rows they go under."""
-        made: dict[str, int] = {}
-        for table, (node_id, output) in self.graph._makers.items():
-            if node_id is not None:
-                made[table] = sum(_length(u.out[output]) for u in self._units[node_id].values() if u.state == "done" and u.out)
+    def _instances(self, scope: Scope, under: Key, *, counted: bool = False) -> tuple[list[Key], bool]:
+        """The instances of ``scope`` under the instance ``under`` of an enclosing scope, and whether all of them
+        exist yet: a Series not made yet, or one a person is asked for, has none so far.
 
-        stack = [("", 1), *((t, made[t]) for t, (node_id, _) in self.graph._makers.items() if node_id is not None)]
-        while stack:
-            parent, rows = stack.pop()
-            for address in self.graph._lists_under.get(parent, ()):
-                made[address] = rows * len(self._given(address))
-                stack.append((address, made[address]))
-        return made
-
-    def _rows(self, level: Level, row: Key, *, counted: bool = False) -> tuple[list[Key], bool]:
-        """The rows of ``level`` under ``row`` (or the one above it), and whether all of them exist yet.
-
-        With ``counted``, the last table's rows are only counted: ``[(n,)]`` stands for ``n`` rows, unbuilt.
+        With ``counted``, the innermost map's instances are only counted: ``[(n,)]`` stands for ``n`` of them, unbuilt.
         """
-        start, deepest = len(row), len(level)
+        start, deepest = len(under), len(scope)
         if start >= deepest:
-            return [row[:deepest]], True
-        keys, complete = [row], True
-        for depth, table in enumerate(level[start:], start):
-            node_id, output = self.graph._makers[table]
+            return [under[:deepest]], True
+        keys, complete = [under], True
+        for depth in range(start, deepest):
+            port = scope[depth]
+            units = self._units[port.node_id]
             below: list[Key] = []
             for parent in keys:
-                if node_id is None:
-                    count: int | None = len(self._given(output))
-                else:
-                    unit = self._units[node_id].get(parent)
-                    if unit is None or unit.state == "waiting":
-                        count = None
-                    else:
-                        count = _length(unit.out.get(output)) if unit.state == "done" and unit.out else 0
-                if count is None:
+                unit = units.get(parent)
+                if unit is None or type(unit) is Asking:
                     complete = False
                     continue
+                count = _length(unit.out[port.output]) if isinstance(unit, Done) else 0
                 if counted and depth == deepest - 1:
                     below = [(below[0][0] + count,)] if below else [(count,)]
                 else:
@@ -631,202 +639,119 @@ class Run:
             keys = below
         return keys, complete
 
-    def _not_made(self, source: Source, row: Key) -> Literal["skipped", "blank"] | None:
-        """Why the table ``source`` reads under ``row`` was never made: its maker took no branch there, or wasn't called for
-        a blank input, or gave a blank in place of it."""
-        if len(row) >= len(source.level) or source.node_id is None:
-            return None
-        node_id, output = self.graph._makers[source.level[len(row)]]
-        unit = self._units[node_id].get(row) if node_id is not None else None
-        if unit is None:
-            return None
-        if unit.state == "skipped" or (unit.state == "done" and unit.out is not None and unit.out.get(output) is SKIPPED):
-            return "skipped"
-        return "blank" if unit.state == "blank" or (unit.state == "done" and unit.out is not None and output in unit.out and unit.out[output] is None) else None
+    def _cell(self, cell: Cell, key: Key) -> Any:
+        """What ``cell`` holds for the instance ``key`` or one under it, as an edge brings it.
 
-    def _skip_origin(self, source: Source, key: Key) -> int:
-        """The depth of the row where the branch behind a skipped value was decided."""
-        if source.node_id is None:
-            return len(key)
-        unit_key = key[:-1] if source.made else key
-        unit = self._units[source.node_id].get(unit_key)
-        if unit is not None and unit.state == "skipped":
-            return unit.skipped_from if unit.skipped_from is not None else len(unit_key)
-        if unit is not None and unit.out is not None and unit.out.get(source.output) is SKIPPED:
-            return len(unit_key)  # the whole output was the branch not taken on its node's row
-        return len(key)
-
-    def _cell(self, source: Source, key: Key) -> Any:
-        if source.node_id is None:
-            value = self._given(source.output)
-            return value[key[-1]] if source.made else value
-        unit = self._units[source.node_id].get(key[:-1] if source.made else key)
-        if unit is None or unit.state == "waiting":
+        Returns:
+            The value (an ``Item``'s is the item of ``key``, and a field named on the edge is read from it);
+            ``PENDING`` while its unit hasn't run or waits for a person; ``SKIPPED`` for a branch not taken;
+            ``None`` for a blank.
+        """
+        depth = len(cell.scope)
+        unit = self._units[cell.node_id].get(key[:depth])
+        kind = type(unit)
+        if kind is Done or kind is Answered:
+            value = unit.out[cell.output]  # type: ignore[union-attr]
+        elif kind is Skipped:
+            return SKIPPED
+        elif kind is Blank:
+            return None
+        else:
             return PENDING
-        if unit.state != "done":
-            return SKIPPED if unit.state == "skipped" else None
-        value = unit.out[source.output]  # type: ignore[index]
-        if value is SKIPPED or not source.made:
+        if value is None or value is SKIPPED or type(cell) is Cell:
             return value
-        if isinstance(value, Frame):
-            if source.whole_table:
-                return {c: v[key[-1]] for c, v in value.columns.items()}
-            return value.columns[source.column][key[-1]]  # type: ignore[index]
-        return value[key[-1]]
+        if type(cell) is Item:
+            value = value[key[depth]]
+        field = cell.field  # type: ignore[attr-defined]
+        return value if field is None or value is None or value is SKIPPED else _field_of(value, field)
 
-    def _inputs(self, placed: PlacedNode, row: Key) -> Any:
-        """The keyword arguments for ``placed`` on ``row``; PENDING; or the ``Unit`` it comes to uncalled, skipped or blank.
+    def _inputs(self, placed: PlacedNode, key: Key) -> Any:
+        """What ``placed`` receives in the instance ``key``.
 
-        Every input is read before a blank is the answer: the call is skipped when any input is, and blank only when none is.
+        Returns:
+            The keyword arguments of the call; ``PENDING`` while something it reads hasn't run; or the unit it
+            comes to uncalled: ``Skipped`` when an input comes only from branches not taken, else ``Blank`` when
+            an input that takes no blank got one. Every input is read before a blank is the answer.
         """
         kwargs: dict[str, Any] = {}
-        uncalled: Unit | None = None
-        gathered: dict[str, list[tuple[Level, Key, Any]]] = {}
+        blank: Blank | None = None
+        gathered: dict[str, tuple[Gather, list[Any]]] = {}
         for name, plan in placed.inputs.items():
-            spec = plan.spec
-            if not plan.sources:
-                kwargs[name] = plan.value
-            elif spec.shape == "one":
+            kind = type(plan)
+            if kind is Fixed:
+                kwargs[name] = plan.value  # type: ignore[union-attr]
+                continue
+            if kind is Open:
+                kwargs[name] = self.inputs[plan.address]  # type: ignore[union-attr]
+                continue
+            if kind is Gather:
+                value = self._gathered(plan, key)  # type: ignore[arg-type]
+            else:  # one value: the first edge whose branch was taken
                 value = SKIPPED
-                origins = []
-                for source in plan.sources:
-                    value = self._cell(source, row[: len(source.level)])
-                    if value is PENDING:
-                        return PENDING
+                for source in plan.sources:  # type: ignore[union-attr]
+                    value = self._cell(source, key)
                     if value is not SKIPPED:
                         break
-                    origins.append(self._skip_origin(source, row[: len(source.level)]))
-                if value is SKIPPED:
-                    return Unit("skipped", skipped_from=min(origins))
-                if value is None and not spec.optional:
-                    uncalled = uncalled or Unit("blank", blank_input=name)
-                kwargs[name] = value
-            elif spec.shape == "many":
-                if len(plan.sources) == 1 and plan.sources[0].node_id is None and self.inputs[plan.sources[0].output] is None:
-                    kwargs[name] = None  # a Series that may be None, and nothing was given
-                    continue
-                items: list[tuple[Level, Key, Any]] = []
-                skipped_above = blank_above = 0
-                skips = []  # for each item that is a skip: whether its branch was decided at or above the row it is gathered under, and where
-                lone = plan.sources[0]
-                on: dict[Level, list[Source]] = {}  # sources on one table are read row by row, in the table's order
-                if len(plan.sources) == 1 and (lone.node_id is not None or lone.made):
-                    on[lone.level] = plan.sources
-                else:
-                    for source in plan.sources:
-                        if source.node_id is None and not source.made:  # the caller's list, given whole
-                            items.extend(((source.output,), (i,), v) for i, v in enumerate(self.inputs[source.output]))
-                            continue
-                        on.setdefault(source.level, []).append(source)
-                for level, sources in on.items():
-                    under = row[: sources[0].anchor]
-                    keys, complete = self._rows(level, under)
-                    if not complete:
-                        return PENDING
-                    if not keys:
-                        why = [self._not_made(source, under) for source in sources]
-                        skipped_above, blank_above = skipped_above + why.count("skipped"), blank_above + why.count("blank")
-                    if len(sources) == 1:  # one source: each row is its value, or a skip
-                        (source,) = sources
-                        for key in keys:
-                            value = self._cell(source, key)
-                            if value is PENDING:
-                                return PENDING
-                            if value is SKIPPED:
-                                origin = self._skip_origin(source, key)
-                                skips.append((len(key) > len(under) and origin <= len(under), origin))
-                                value = None
-                            items.append((level, key, value))
-                        continue
-                    for key in keys:
-                        values, origins = [], []
-                        for source in sources:
-                            value = self._cell(source, key)
-                            if value is PENDING:
-                                return PENDING
-                            if value is SKIPPED:
-                                origins.append(self._skip_origin(source, key))
-                            else:
-                                values.append(value)
-                        if values:
-                            items.extend((level, key, value) for value in values)
-                        else:
-                            items.append((level, key, None))
-                            skips.append((len(key) > len(under) and max(origins) <= len(under), min(origins)))
-                if skipped_above and skipped_above == len(plan.sources):
-                    return Unit("skipped", skipped_from=len(row))  # every source was a branch not taken above this row: so is the call
-                if blank_above and skipped_above + blank_above == len(plan.sources):
-                    if spec.optional:  # a Series that may be None receives the blank in place of the list, as a Table does
-                        kwargs[name] = None
-                    else:  # the rows were never made, as their maker had a blank input: not the same as no rows
-                        uncalled = uncalled or Unit("blank", blank_input=name)
-                    continue
-                if items and len(skips) == len(items) and all(above for above, _ in skips):
-                    return Unit("skipped", skipped_from=min(origin for _, origin in skips))  # every row under this one was skipped by a decision at or above it
-                gathered[name] = items
-            elif plan.sources[0].node_id is None:
-                kwargs[name] = self.inputs[plan.sources[0].output]  # a caller's table, read to its columns at the call
+                if kind is SeriesOfOne and value is not None and value is not SKIPPED and value is not PENDING:
+                    value = [value]
+            if value is PENDING:
+                return PENDING
+            if value is SKIPPED:
+                return SKIPPED_UNIT
+            if value is None:
+                if not plan.spec.optional and blank is None:
+                    blank = Blank(name)
+                kwargs[name] = None
+            elif kind is Gather:
+                gathered[name] = (plan, value)  # type: ignore[assignment]
             else:
-                table = self._table(plan, row)
-                if table is PENDING or isinstance(table, Unit):
-                    return table
-                if table is None and not spec.optional:
-                    uncalled = uncalled or Unit("blank", blank_input=name)
-                kwargs[name] = table
-        if uncalled is not None:
-            return uncalled
-        if gathered:
-            # A row a Series input can't take leaves every Series input on that table.
-            blank = {name: {(lvl, k) for lvl, k, v in items if v is None} for name, items in gathered.items() if not takes_a_blank(placed.inputs[name].spec.type)}
-            for name, items in gathered.items():
-                others = [rows for other, rows in blank.items() if other != name]
-                keep_blank = takes_a_blank(placed.inputs[name].spec.type)
-                kwargs[name] = [v for lvl, k, v in items if (keep_blank or v is not None) and not any((lvl, k) in rows for rows in others)]
+                kwargs[name] = value
+        if blank is not None:
+            return blank
+        for name, (plan, items) in gathered.items():
+            kwargs[name] = _aligned(name, plan, items, gathered)
         return kwargs
 
-    def _table(self, plan: InputPlan, row: Key) -> Any:
-        """The table a ``Table`` input receives on ``row``; for alternatives, the one whose branch ran, or a skipped ``Unit`` when none did.
+    def _gathered(self, plan: Gather, key: Key) -> Any:
+        """The items a gathering input gets in the instance ``key``, with ``None`` for an item that has no value.
 
-        ``None`` when the table was never made there because its maker had a blank input, whether it is the one maker or the
-        branch that ran.
+        Returns:
+            The list, one place per item of the Series; ``PENDING`` until every item is settled; ``SKIPPED`` when
+            every edge is skipped where the node runs or above; ``None`` when the Series is blank.
         """
-        if not plan.alternatives:
-            under = row[: plan.table_anchor]
-            if all(self._not_made(source, under) == "blank" for source in plan.sources):
-                return None  # its maker had a blank input there: the table was never made
-            return self._columns(plan.sources, plan.table_level, under, plan.spec.columns)
-        for source in plan.sources:
-            under = row[: source.anchor]
-            why = self._not_made(source, under)
-            if why == "blank":
-                return None
-            if why is None:
-                return self._columns([source], source.level, under, plan.spec.columns)
-        return Unit("skipped", skipped_from=len(row))
-
-    def _columns(self, sources: list[Source], level: Level, row: Key, declared: Mapping[str, Any] | None) -> Any:
-        """``sources``' columns on the rows of ``level`` under ``row``, only the declared ones when the input names them."""
-        keys, complete = self._rows(level, row)
-        if not complete:
-            return PENDING
-        columns: dict[str, list[Any]] = {}
-        for source in sources:
-            for column in (source.columns or {}) if source.whole_table else ():
-                columns[column] = [None] * len(keys)  # a table with no rows under this row still has its columns
-        for source in sources:
-            depth = len(source.level)
-            cells = [self._cell(source, key[:depth]) for key in keys]
-            if any(c is PENDING for c in cells):
-                return PENDING
-            if source.whole_table:
-                for i, cell in enumerate(cells):
-                    for column, value in (cell if isinstance(cell, dict) else {}).items():
-                        columns.setdefault(column, [None] * len(keys))[i] = value
-            else:
-                columns[source.name] = [None if c is SKIPPED else c for c in cells]
-        if declared is not None:  # a declared column a table of unknown columns didn't bring is left missing, for the input's check to name
-            columns = {c: columns.get(c, [None] * len(keys)) for c in declared if c in columns or not keys}
-        return pl.DataFrame(columns, strict=False)
+        key = key[: len(plan.series.scope)]
+        live = []
+        for source, gate in zip(plan.sources, plan.gates, strict=True):
+            taken = True
+            for cells in gate:
+                held = [self._cell(cell, key) for cell in cells]
+                if PENDING in held:
+                    return PENDING
+                if all(value is SKIPPED for value in held):
+                    taken = False
+            if taken:
+                live.append(source)
+        if not live:
+            return SKIPPED
+        series = self._cell(plan.series, key)
+        if series is None:
+            return None
+        if len(live) == 1 and type(live[0]) is Item:  # the Series itself: its items, or one field of each
+            wanted = live[0].field
+            if wanted is None:
+                return [None if item is SKIPPED else item for item in series] if any(item is SKIPPED for item in series) else series
+            return [None if item is SKIPPED or item is None else _field_of(item, wanted) for item in series]
+        items = []
+        for place in range(len(series)):
+            value = SKIPPED
+            for source in live:
+                value = self._cell(source, (*key, place))
+                if value is PENDING:
+                    return PENDING
+                if value is not SKIPPED:
+                    break
+            items.append(None if value is SKIPPED else value)
+        return items
 
     # -- JSON -------------------------------------------------------------------
 
@@ -838,21 +763,17 @@ class Run:
             raise InvalidCallError([make_problem("state_unwritable", "state", unwritable.at, at=unwritable.at, reason=unwritable.reason)]) from None
 
     def _written(self) -> str:
-        units = {n: _dump_units(self.graph._nodes[n], dict(self._in_order(n)) if n in self._unordered else us) for n, us in self._units.items() if us}
-        earlier = {}
-        for n, by in self._earlier.items():
-            listed = [(fp, unit) for fp, units in by.items() for unit in units]
-            if listed:
-                numbered: dict[Key, Unit] = {(i,): unit for i, (_, unit) in enumerate(listed)}
-                earlier[n] = _dump_units(self.graph._nodes[n], numbered, fingerprints=[fp for fp, _ in listed])
+        nodes = self.graph._nodes
+        units = {n: _dump_units(nodes[n], dict(self._in_order(n)) if n in self._unordered else us) for n, us in self._units.items() if us}
+        earlier = {n: _dump_earlier(nodes[n], lent) for n, lent in self._earlier.items() if lent.computed or lent.asked}
         inputs = {address: _dump_input(self.graph, address, v) for address, v in self.inputs.items()}
         non_finite: dict[str, list[_Path]] = {}
         for address, written_input in inputs.items():
             if not self.graph._input_fields[address].spec.plain:
                 _find_non_finite(written_input, [], non_finite.setdefault(address, []))
-        code = {n: self._ran_as.get(n) or self.graph._nodes[n].reuse_digest for n, us in self._units.items() if us or n in earlier}
+        code = {n: self._ran_as.get(n) or nodes[n].reuse_digest for n, us in self._units.items() if us or n in earlier}
         rest: dict[str, Any] = {
-            "graph": self.graph.fingerprint, "max_rows": self.max_rows, "inputs": inputs, "non_finite_inputs": {a: paths for a, paths in non_finite.items() if paths},
+            "graph": self.graph.fingerprint, "max_items": self.max_items, "inputs": inputs, "non_finite_inputs": {a: paths for a, paths in non_finite.items() if paths},
             "units": units, "earlier": earlier, "code": code, "complete": [n for n in self._units if n in self._complete],
         }
         written: _SavedRun
@@ -865,27 +786,46 @@ class Run:
 
     def _copy(self, *, share_units: bool = False, **changes: Any) -> Run:
         """A copy to change: its own units to record into, or with ``share_units`` this run's, for a caller that replaces whole nodes."""
-        copy = start_run(self.graph, self.inputs, changes.get("max_rows", self.max_rows))
+        copy = start_run(self.graph, self.inputs, changes.get("max_items", self.max_items), dict(self._earlier))
         copy._units = dict(self._units) if share_units else {n: dict(us) for n, us in self._units.items()}
-        copy.state, copy._earlier, copy._unordered = self.state, dict(self._earlier), set(self._unordered)
+        copy.state, copy._unordered = self.state, set(self._unordered)
         copy._ran_as, copy._complete = self._ran_as, self._complete
         return copy
 
 
-def start_run(graph: Graph, inputs: dict[str, Any], max_rows: int | None) -> Run:
-    """A run of ``graph`` on ``inputs`` already checked, by address, not started; the one way a ``Run`` is made."""
+def start_run(graph: Graph, inputs: dict[str, Any], max_items: int | None, earlier: dict[str, Earlier]) -> Run:
+    """A run of ``graph`` not started; the one way a ``Run`` is made.
+
+    Args:
+        graph: The graph.
+        inputs: The caller's inputs, already checked, by address.
+        max_items: The item ceiling, or ``None``.
+        earlier: What each node may take from an earlier run, by node id.
+    """
     run = Run.__new__(Run)
-    run.graph, run.inputs, run.max_rows = graph, inputs, max_rows
-    run._given_values = {**inputs, **graph._typed_lists}
+    run.graph, run.inputs, run.max_items = graph, inputs, max_items
     run._units = {n: {} for n in graph._nodes}
     run.state = _READY
-    run._earlier = {}
+    run._earlier = earlier
     run._earlier_own = set()
-    run._asking = {}
     run._ran_as = {}
     run._unordered = set()
     run._complete = frozenset()
     return run
+
+
+def _aligned(name: str, plan: Gather, items: list[Any], gathered: Mapping[str, tuple[Gather, list[Any]]]) -> list[Any]:
+    """The items one gathering input receives: those that have a value in every input of the node that gathers
+    the same Series, so those inputs stay in step; an input whose items may be blank keeps a blank in its place."""
+    together = [(others, takes_a_blank(other.spec.item)) for other, others in gathered.values() if other.series == plan.series]
+    if len(together) == 1:
+        return items if together[0][1] or None not in items else [item for item in items if item is not None]
+    return [item for place, item in enumerate(items) if all(keeps or others[place] is not None for others, keeps in together)]
+
+
+def _field_of(value: Any, name: str) -> Any:
+    """One field of a record: a mapping's key, else an attribute."""
+    return value[name] if type(value) is dict or isinstance(value, Mapping) else getattr(value, name)
 
 
 def run_from_json(graph: Graph, saved: str | bytes | Mapping[str, Any]) -> Run:
@@ -909,62 +849,58 @@ def run_from_json(graph: Graph, saved: str | bytes | Mapping[str, Any]) -> Run:
         at = ".".join(str(step) for step in loc) or "the run"
         raise InvalidCallError([make_problem("state_unreadable", "state", at=at, reason=value_free_errors(error)[0]["msg"])]) from None
     try:
-        if data.graph != graph.fingerprint:
-            raise InvalidCallError([make_problem("state_of_another_graph", "state", saved=data.graph, graph=graph.fingerprint)])
-        fields = graph._input_fields
-        unknown = sorted(data.inputs.keys() - fields.keys())
-        if unknown:
-            raise _SaveError(unknown[0], "the graph has no such input")
-        graph = graph._compiled_for(frozenset(a for a, v in data.inputs.items() if fields[a].spec.per_item and isinstance(v, list)))
-        if graph.problems:
-            raise InvalidCallError(graph.problems)
-        unknown = sorted(data.non_finite_inputs.keys() - data.inputs.keys())
-        if unknown:
-            raise _SaveError(unknown[0], "the graph has no such input")
-        written = {address: _with_non_finite(v, data.non_finite_inputs.get(address, ()), address) for address, v in data.inputs.items()}
-        inputs = {address: _load_input(graph, address, v) for address, v in written.items()}
-        run = start_run(graph, inputs, data.max_rows)
-        for saved_nodes in (data.units, data.earlier):
-            unknown = sorted(saved_nodes.keys() - graph._nodes.keys())
-            if unknown:
-                raise _SaveError(unknown[0], "the graph has no such node")
-        for n, dumped in data.units.items():
-            loaded = _load_units(graph._nodes[n], dumped)
-            run._units[n] = dict(loaded)
-            if len(run._units[n]) != len(loaded):
-                raise _SaveError(n, "a row is listed twice")
-        run._ran_as = {n: digest for n, digest in data.code.items() if n in graph._nodes and digest != graph._nodes[n].reuse_digest}
-        for n, dumped in data.earlier.items():
-            if n in run._ran_as:
-                continue  # made with other code: never reused
-            if len(dumped.fingerprints) != len(dumped.states):
-                raise _SaveError(n, f"it holds {len(dumped.fingerprints)} fingerprints for {len(dumped.states)} units")
-            by: dict[str, list[Unit]] = {}
-            for fp, (_, unit) in zip(dumped.fingerprints, _load_units(graph._nodes[n], dumped), strict=True):
-                by.setdefault(fp, []).append(unit)
-            run._earlier[n] = by
-        match data:
-            case _SavedGoingRun(status=status):
-                run.state = Going(status)
-            case _SavedEndedRun(status=status, cause=cause):
-                run.state = EndedEarly(status, cause)
-        run._complete = frozenset({n for n in data.complete if n in graph._nodes})
-        for n, units in run._units.items():  # every row is one the saved makers made
-            placed = graph._nodes[n]
-            made, _ = run._rows(placed.level, ())
-            stray = sorted(set(units) - set(made))
-            if stray:
-                raise _SaveError(n, f"it holds the row {list(stray[0])}, which the saved run never made")
-        return run
+        return _run_from_saved(graph, data)
     except _SaveError as unreadable:
         raise InvalidCallError([make_problem("state_unreadable", "state", unreadable.at, at=unreadable.at, reason=unreadable.reason)]) from None
 
 
-def checked_leg(*, max_rows: int | None = None, timeout: float | None = None, checkpoint_every: float | None = None) -> None:
-    """A leg's ceiling (at least 1 row) and its seconds (a finite number above 0) are refused at the call."""
+def _run_from_saved(graph: Graph, data: _SavedRun) -> Run:
+    """A run of ``graph`` from its read save.
+
+    Raises:
+        InvalidCallError: The save is of another graph.
+        _SaveError: Something in the save doesn't fit the graph, naming where.
+    """
+    if data.graph != graph.fingerprint:
+        raise InvalidCallError([make_problem("state_of_another_graph", "state", saved=data.graph, graph=graph.fingerprint)])
+    unknown = sorted({*data.inputs, *data.non_finite_inputs} - graph._input_fields.keys())
+    if unknown:
+        raise _SaveError(unknown[0], "the graph has no such input")
+    for saved_nodes in (data.units, data.earlier):
+        unknown = sorted(saved_nodes.keys() - graph._nodes.keys())
+        if unknown:
+            raise _SaveError(unknown[0], "the graph has no such node")
+    written = {address: _with_non_finite(v, data.non_finite_inputs.get(address, ()), address) for address, v in data.inputs.items()}
+    run = start_run(graph, {address: _load_input(graph, address, v) for address, v in written.items()}, data.max_items, {})
+    for n, dumped in data.units.items():
+        if len(dumped.keys) != len(dumped.states):
+            raise _SaveError(n, f"it holds {len(dumped.keys)} places for {len(dumped.states)} units")
+        run._units[n] = dict(zip(dumped.keys, _load_units(graph._nodes[n], dumped), strict=True))
+        if len(run._units[n]) != len(dumped.keys):
+            raise _SaveError(n, "a unit is listed twice")
+    run._ran_as = {n: digest for n, digest in data.code.items() if n in graph._nodes and digest != graph._nodes[n].reuse_digest}
+    for n, lent in data.earlier.items():
+        if n not in run._ran_as:  # units made with other code are never taken
+            run._earlier[n] = _load_earlier(graph._nodes[n], lent)
+    match data:
+        case _SavedGoingRun(status=status):
+            run.state = Going(status)
+        case _SavedEndedRun(status=status, cause=cause):
+            run.state = EndedEarly(status, cause)
+    run._complete = frozenset({n for n in data.complete if n in graph._nodes})
+    for n, units in run._units.items():  # every unit is in an instance the saved Series made
+        made, _ = run._instances(graph._nodes[n].scope, ())
+        stray = sorted(set(units) - set(made))
+        if stray:
+            raise _SaveError(n, f"it holds the unit {list(stray[0])}, of an item the saved run never made")
+    return run
+
+
+def checked_leg(*, max_items: int | None = None, timeout: float | None = None, checkpoint_every: float | None = None) -> None:
+    """A leg's ceiling (at least 1 item) and its seconds (a finite number above 0) are refused at the call."""
     problems = []
-    if max_rows is not None and max_rows < 1:
-        problems.append(make_problem("invalid_max_rows", "max_rows", max_rows=max_rows))
+    if max_items is not None and max_items < 1:
+        problems.append(make_problem("invalid_max_items", "max_items", max_items=max_items))
     if timeout is not None and not _seconds(timeout):
         problems.append(make_problem("invalid_timeout", "timeout", timeout=timeout))
     if checkpoint_every is not None and not _seconds(checkpoint_every):
@@ -981,29 +917,31 @@ def _seconds(value: float) -> bool:
 
 
 def kept_outputs(outputs: Mapping[str, FieldSpec], spread: dict[str, Any]) -> dict[str, Any]:
-    """A node's checked outputs by name as a run keeps them: a table as columns, a ``Series`` as a list."""
+    """A node's checked outputs by name as a run keeps them: a ``Series`` as a list."""
     for name, spec in outputs.items():
-        value = spread[name]
-        if value is SKIPPED or value is None:  # a branch not taken, or the blank of a field that may be nothing
-            continue
-        if spec.shape == "table":
-            spread[name] = Frame(value.height, value.to_dict(as_series=False))
-        elif spec.shape == "many":
-            spread[name] = list(value)  # a SKIPPED item is a row whose branch wasn't taken
+        if spec.shape == "many" and spread[name] is not SKIPPED and spread[name] is not None:
+            spread[name] = list(spread[name])  # an item may be SKIPPED: a branch not taken for it
     return spread
 
 
-def checked_outputs(definition: FunctionDefinition[..., Any], returned: Any) -> Any:
+def checked_outputs(returns: Returns, outputs: Mapping[str, FieldSpec], returned: Any) -> Any:
     """What a node returned, as its outputs by name as a run keeps them; ``SKIPPED`` for a whole branch not taken.
 
     Each is read strictly by its declared type (a value already of its class as it is, a model from a dict, never
-    ``"12"`` for an ``int``), and of an ``exclusive_group`` at most one output holds a value. A fault raises
-    ``FieldValueError`` with the code ``invalid_output``.
+    ``"12"`` for an ``int``), and of an ``exclusive_group`` at most one output holds a value.
+
+    Args:
+        returns: How the node's function returns its outputs.
+        outputs: The node's outputs, by name.
+        returned: What the function returned.
+
+    Raises:
+        FieldValueError: An output is not of its type, or two of one group hold a value; its code is
+            ``invalid_output``.
     """
     if returned is SKIPPED:
         return SKIPPED
-    outputs = definition.outputs
-    spread, settled = definition.returns.spread(returned, outputs)
+    spread, settled = returns.spread(returned, outputs)
     if settled:
         return spread
     groups: dict[str, str] = {}
@@ -1029,15 +967,50 @@ def _checked(spec: FieldSpec, name: str, value: Any, *, code: str) -> Any:
 
 
 def _length(value: Any) -> int:
-    return 0 if value is SKIPPED or value is None else value.rows if isinstance(value, Frame) else len(value)
+    """How many items a ``Series`` output holds; none when it is blank or a branch not taken."""
+    return 0 if value is SKIPPED or value is None else len(value)
 
 
-def _dump_units(placed: PlacedNode, units: Mapping[Key, Unit], fingerprints: list[str] | None = None) -> _SavedUnits:
-    """Units as columns: keys, states, questions, and one list per output; carried work by what each unit received, in place of its row."""
-    done = [u for u in units.values() if u.state == "done" and u.out is not None]
+#: The state a save writes for each kind of unit.
+_STATE: Mapping[type, Literal["done", "skipped", "blank", "waiting"]] = {Done: "done", Answered: "done", Skipped: "skipped", Blank: "blank", Asking: "waiting"}
+
+
+def _dump_units(placed: PlacedNode, units: Mapping[Key, Unit]) -> _SavedUnits:
+    """A node's units as columns: their places, their states, and one list per output."""
+    return _SavedUnits.model_construct(keys=list(units), **_unit_columns(placed, list(units.values())))
+
+
+def _dump_earlier(placed: PlacedNode, earlier: Earlier) -> _SavedEarlier:
+    """What a node may take from an earlier run, as columns: each unit once, with what it received."""
+    listed: list[Unit] = []
+    places: dict[int, Key] = {}
+    received: list[str] = []
+    lineages: dict[int, str] = {}
+    held = {id(done): key for key, (_, done) in earlier.at.items()}
+    for fingerprint, done in earlier.computed.items():
+        if id(done) in held:
+            places[len(listed)] = held.pop(id(done))
+        listed.append(done)
+        received.append(fingerprint)
+    for key, (fingerprint, done) in earlier.at.items():
+        if id(done) in held:  # received the same as an earlier unit of the node, which holds the place in ``computed``
+            places[len(listed)] = key
+            listed.append(done)
+            received.append(fingerprint)
+    for (fingerprint, lineage), asked in earlier.asked.items():
+        for unit in asked:
+            lineages[len(listed)] = lineage
+            listed.append(unit)
+            received.append(fingerprint)
+    return _SavedEarlier.model_construct(fingerprints=received, places=places, lineages=lineages, **_unit_columns(placed, listed))
+
+
+def _unit_columns(placed: PlacedNode, listed: list[Unit]) -> dict[str, Any]:
+    """Units as the columns a save writes: states, questions, blank inputs, and each output across the done ones."""
+    done = [u for u in listed if isinstance(u, Done)]
     outputs: dict[str, _SavedOutput] = {}
-    for name, spec in placed.definition.outputs.items():
-        values = [u.out[name] for u in done]  # type: ignore[index]
+    for name, spec in placed.outputs.items():
+        values = [u.out[name] for u in done]
         at = f"{placed.id}.{name}"
         if spec.shape == "table":
             dumped: Any = [None if v is SKIPPED or v is None else _dump_frame(spec, v, at) for v in values]
@@ -1049,14 +1022,11 @@ def _dump_units(placed: PlacedNode, units: Mapping[Key, Unit], fingerprints: lis
             _find_non_finite(dumped, [], non_finite)
         items = {n: skips for n, v in enumerate(values) if spec.shape == "many" and v is not SKIPPED and v is not None and (skips := [i for i, item in enumerate(v) if item is SKIPPED])}
         outputs[name] = _SavedOutput.model_construct(values=dumped, skipped=[i for i, v in enumerate(values) if v is SKIPPED], skipped_items=items, non_finite=non_finite)
-    listed = list(units.values())
-    states = [u.state for u in listed]
-    columns: dict[str, Any] = dict(
-        states=states, questions={i: u.question for i, u in enumerate(listed) if u.question is not None}, outputs=outputs,
-        blank_inputs={i: u.blank_input for i, u in enumerate(listed) if u.blank_input is not None} if "blank" in states else {},
-        skipped_from={i: u.skipped_from for i, u in enumerate(listed) if u.skipped_from is not None} if "skipped" in states else {},
+    return dict(
+        states=[_STATE[type(u)] for u in listed], outputs=outputs,
+        questions={i: u.question for i, u in enumerate(listed) if isinstance(u, (Answered, Asking))},
+        blank_inputs={i: u.input for i, u in enumerate(listed) if isinstance(u, Blank)},
     )
-    return _SavedUnits.model_construct(keys=list(units), **columns) if fingerprints is None else _SavedEarlier.model_construct(fingerprints=fingerprints, **columns)
 
 
 #: A place in a saved value: a key of a mapping, or an index of a list.
@@ -1109,35 +1079,46 @@ class _SavedOutput(BaseModel):
     non_finite: _Paths = []
 
 
-class _SavedUnits(BaseModel):
-    """A node's units as columns, one place per unit.
+class _SavedUnitColumns(BaseModel):
+    """Units of one node as columns, one place per unit.
 
     Attributes:
-        keys: Each unit's row; ``None`` for carried work, which is kept by what it received, not by row.
         states: What each unit came to: ``done``, ``skipped``, ``blank`` or ``waiting``.
         questions: By place, the question a waiting unit asks, or a done one was answered on.
-        blank_inputs: By place, for a blank unit, the plain input that got nothing.
-        skipped_from: By place, for a skipped unit, the depth of the row where the branch not taken was decided.
+        blank_inputs: By place, for a blank unit, the input that got nothing.
         outputs: By output name, that output across the done units, in their order.
     """
 
     model_config = _SAVE_CONFIG
-    keys: list[tuple[NonNegativeInt, ...]] | None = None
     states: Annotated[list[Literal["done", "skipped", "blank", "waiting"]], _AS_IS]
-    questions: dict[NonNegativeInt, RowQuestion] = {}
+    questions: dict[NonNegativeInt, Question] = {}
     blank_inputs: dict[NonNegativeInt, str] = {}
-    skipped_from: dict[NonNegativeInt, NonNegativeInt] = {}
     outputs: dict[str, _SavedOutput] = {}
 
 
-class _SavedEarlier(_SavedUnits):
-    """Work a run carried from the one before it and hasn't taken yet: the units, and what each received.
+class _SavedUnits(_SavedUnitColumns):
+    """A node's units.
 
     Attributes:
-        fingerprints: By place, the fingerprint of what the unit received, where a row receiving the same takes it.
+        keys: Each unit's instance: the place of its item in each map of the node's scope.
+    """
+
+    keys: list[tuple[NonNegativeInt, ...]]
+
+
+class _SavedEarlier(_SavedUnitColumns):
+    """Work a run carried from the one before it: the units, and what each received.
+
+    Attributes:
+        fingerprints: By place, the fingerprint of what the unit received.
+        places: By place, the instance a computed unit stood in in the earlier run, where one of this run that
+            received the same takes it first.
+        lineages: By place, for an answer or a question still waiting, the fingerprint of the items above it.
     """
 
     fingerprints: list[str]
+    places: dict[NonNegativeInt, tuple[NonNegativeInt, ...]] = {}
+    lineages: dict[NonNegativeInt, str] = {}
 
 
 class _SavedRunBase(BaseModel):
@@ -1146,19 +1127,19 @@ class _SavedRunBase(BaseModel):
 
     Attributes:
         graph: The fingerprint of the graph that ran, so another graph's save is refused.
-        max_rows: The row ceiling the run goes on under.
+        max_items: The item ceiling the run goes on under.
         inputs: The caller's inputs by address, as JSON; a table as a ``_SavedTable``.
         non_finite_inputs: By address, the places of each float that isn't finite, as ``_SavedOutput.non_finite``.
         units: By node id, the units of each node with any.
         earlier: By node id, the carried work not yet taken.
         code: By node id, the ``reuse_digest`` of the code that made its saved units, so units made by other code are
             never carried.
-        complete: The nodes every row of which was finished when the last leg ended.
+        complete: The nodes every unit of which was finished when the last leg ended.
     """
 
     model_config = _SAVE_CONFIG
     graph: str
-    max_rows: PositiveInt | None
+    max_items: PositiveInt | None
     inputs: dict[str, Any]
     non_finite_inputs: dict[str, _Paths] = {}
     units: dict[str, _SavedUnits]
@@ -1210,12 +1191,34 @@ class _SaveError(Exception):
         self.at, self.reason = at, reason
 
 
-def _load_units(placed: PlacedNode, dumped: _SavedUnits) -> list[tuple[Key, Unit]]:
-    """A node's saved units, each output read by its own type; anything that doesn't fit raises ``_SaveError`` naming where."""
+def _load_earlier(placed: PlacedNode, dumped: _SavedEarlier) -> Earlier:
+    """What a node may take from an earlier run, from its save."""
+    if len(dumped.fingerprints) != len(dumped.states):
+        raise _SaveError(placed.id, f"it holds {len(dumped.fingerprints)} fingerprints for {len(dumped.states)} units")
+    earlier = Earlier()
+    for place, (fingerprint, unit) in enumerate(zip(dumped.fingerprints, _load_units(placed, dumped), strict=True)):
+        match unit:
+            case Answered() | Asking():
+                earlier.asked.setdefault((fingerprint, dumped.lineages.get(place, "")), []).append(unit)
+            case Done():
+                earlier.computed.setdefault(fingerprint, unit)
+                if place in dumped.places:
+                    earlier.at[dumped.places[place]] = (fingerprint, unit)
+            case Skipped() | Blank():
+                raise _SaveError(placed.id, "it carries a unit that was never called")
+    return earlier
+
+
+def _load_units(placed: PlacedNode, dumped: _SavedUnitColumns) -> list[Unit]:
+    """A node's saved units, in their saved order, each output read by its own type.
+
+    Raises:
+        _SaveError: Something doesn't fit the node, naming where.
+    """
     states = dumped.states
     done = states.count("done")
     columns: dict[str, list[Any]] = {}
-    for name, spec in placed.definition.outputs.items():
+    for name, spec in placed.outputs.items():
         at = f"{placed.id}.{name}"
         column = dumped.outputs.get(name)
         if column is None:
@@ -1241,29 +1244,31 @@ def _load_units(placed: PlacedNode, dumped: _SavedUnits) -> list[tuple[Key, Unit
                 raise _SaveError(at, f"it skips an item the value {n} doesn't hold")
             for i in positions:
                 values[n][i] = SKIPPED
-        if spec.shape != "one" and not spec.optional and any(v is None for v in values):
-            raise _SaveError(at, "a finished unit has no value on an output that makes rows")
+        if spec.shape == "many" and not spec.optional and any(v is None for v in values):
+            raise _SaveError(at, "a finished unit has no value on an output of many")
         columns[name] = values
-    unknown = sorted(dumped.outputs.keys() - placed.definition.outputs.keys())
+    unknown = sorted(dumped.outputs.keys() - placed.outputs.keys())
     if unknown:
         raise _SaveError(f"{placed.id}.{unknown[0]}", "the node has no such output")
-    keys = dumped.keys if dumped.keys is not None else [() for _ in states]
-    if len(keys) != len(states):
-        raise _SaveError(placed.id, f"it holds {len(keys)} rows for {len(states)} units")
-    loaded: list[tuple[Key, Unit]] = []
+    loaded: list[Unit] = []
     n = 0
-    for i, (key, state) in enumerate(zip(keys, states, strict=True)):
-        out = None
-        if state == "done":
-            out = {name: values[n] for name, values in columns.items()}
-            n += 1
+    for i, state in enumerate(states):
         question = dumped.questions.get(i)
-        if state == "waiting":
-            if question is None:
-                raise _SaveError(placed.id, f"the waiting unit {i} holds no question")
-            loaded.append((key, WaitingUnit(question)))
-        else:
-            loaded.append((key, Unit(state, out, question, dumped.blank_inputs.get(i), dumped.skipped_from.get(i))))
+        match state:
+            case "done":
+                out = {name: values[n] for name, values in columns.items()}
+                n += 1
+                loaded.append(Done(out) if question is None else Answered(out, question))
+            case "waiting":
+                if question is None:
+                    raise _SaveError(placed.id, f"the waiting unit {i} holds no question")
+                loaded.append(Asking(question))
+            case "blank":
+                if i not in dumped.blank_inputs:
+                    raise _SaveError(placed.id, f"the blank unit {i} names no input")
+                loaded.append(Blank(dumped.blank_inputs[i]))
+            case "skipped":
+                loaded.append(SKIPPED_UNIT)
     return loaded
 
 
@@ -1306,7 +1311,7 @@ def _with_non_finite(written: Any, paths: Any, at: str) -> Any:
 _NON_FINITE_TEXT = frozenset({"NaN", "Infinity", "-Infinity"})
 
 
-def _load_frame(spec: FieldSpec, saved: _SavedTable, at: str) -> Frame:
+def _load_frame(spec: FieldSpec, saved: _SavedTable, at: str) -> pl.DataFrame:
     """A saved table, each column read by its type; a column whose length isn't the row count is refused."""
     rows, columns = saved.rows, {}
     for c, values in saved.columns:
@@ -1316,7 +1321,7 @@ def _load_frame(spec: FieldSpec, saved: _SavedTable, at: str) -> Frame:
             columns[c] = _column_adapter(spec, c, saved.types.get(c)).validate_python(values)
         except ValidationError as error:
             raise _SaveError(f"{at}.{c}", value_free_errors(error)[0]["msg"]) from None
-    return Frame(rows, columns)
+    return pl.DataFrame(columns, strict=False)
 
 
 def _column_adapter(spec: FieldSpec, column: str, written_as: str | None = None) -> TypeAdapter[Any]:
@@ -1324,15 +1329,15 @@ def _column_adapter(spec: FieldSpec, column: str, written_as: str | None = None)
     return spec.column_adapters.get(column) or _COLUMN_OF.get(written_as or "", _ANY_COLUMN)
 
 
-def _dump_frame(spec: FieldSpec, frame: Frame, at: str) -> dict[str, Any]:
+def _dump_frame(spec: FieldSpec, frame: pl.DataFrame, at: str) -> dict[str, Any]:
     """A table as JSON: its row count, its columns in order as ``[name, values]`` pairs, and the value type of each column its row type doesn't name, so it reads back as written."""
     written, types = {}, {}
-    for c, values in frame.columns.items():
+    for c, values in frame.to_dict(as_series=False).items():
         written_as = None if c in spec.column_adapters else _value_type(values)
         if written_as is not None:
             types[c] = written_as
         written[c] = _written_as_json(_column_adapter(spec, c, written_as), values, f"{at}.{c}")
-    return {"rows": frame.rows, "columns": [[c, v] for c, v in written.items()], **({"types": types} if types else {})}
+    return {"rows": frame.height, "columns": [[c, v] for c, v in written.items()], **({"types": types} if types else {})}
 
 
 def _written_as_json(adapter: TypeAdapter[Any], values: list[Any], at: str) -> Any:
@@ -1363,22 +1368,24 @@ _ANY_COLUMN = carried_list(Any)
 
 
 def _dump_input(graph: Graph, address: str, value: Any) -> Any:
-    """A caller's input as JSON: a table as a saved table output is, anything else by its field; a value with no JSON
-    form raises ``_SaveError`` naming the input."""
-    field = graph._input_fields[address]
-    if field.spec.shape == "table":
-        return None if value is None else _dump_frame(field.spec, Frame(value.height, value.to_dict(as_series=False)), address)
-    if field.listed:
-        return _written_as_json(field.spec.column_adapter, value, address)
-    return _written_as_json(field.spec.column_adapter, [value], address)[0]  # written as a list is, a float that isn't finite kept
+    """A caller's input as JSON: a table as a saved table output is, anything else by its field.
+
+    Raises:
+        _SaveError: The value has no JSON form; it names the input.
+    """
+    spec = graph._input_fields[address].spec
+    if spec.shape == "table":
+        return None if value is None else _dump_frame(spec, value, address)
+    return _written_as_json(spec.adapter, value, address)
 
 
 def _load_input(graph: Graph, address: str, saved: Any) -> Any:
-    field = graph._input_fields[address]
+    """A caller's input from a save, read by its field."""
+    spec = graph._input_fields[address].spec
     try:
-        if field.spec.shape != "table":
-            return (field.spec.list_adapter if field.listed else field.spec.adapter).validate_python(saved)
-        return None if saved is None else _load_frame(field.spec, _SAVED_TABLE.validate_python(saved), address).frame()
+        if spec.shape == "table":
+            return None if saved is None else _load_frame(spec, _SAVED_TABLE.validate_python(saved), address)
+        return spec.adapter.validate_python(saved)
     except ValidationError as error:
         raise _SaveError(address, value_free_errors(error)[0]["msg"]) from None
 
@@ -1442,8 +1449,8 @@ def _frame_columns(value: Any) -> Any:
     raise TypeError(type(value).__name__)
 
 
-def _question_fingerprint(placed: PlacedNode, unit: WaitingUnit) -> str:
-    """Eight hex digits of which node asks, as which code, and what it received, so a waiting id stops matching when its row holds another question."""
+def _question_fingerprint(placed: PlacedFunction, unit: Asking) -> str:
+    """Eight hex digits of which node asks, as which code, and what it received, so a waiting id stops matching when its place holds another question."""
     inputs = unit.question.inputs
     values = [inputs[name] for name in sorted(inputs)]  # saved, so the names may come back from a store in any order
     hashed = [placed.id, placed.reuse_digest, values]
@@ -1452,7 +1459,8 @@ def _question_fingerprint(placed: PlacedNode, unit: WaitingUnit) -> str:
 
 
 def _parse_unit(unit_id: str) -> tuple[str, Key | None, str | None]:
-    """A waiting id's node, row (``None`` when it isn't one) and question fingerprint (``None`` when the id names only the place, ``node@row``)."""
+    """A waiting id's node, instance (``None`` when it isn't one) and question fingerprint (``None`` when the id
+    names only the place, ``node@place``)."""
     place, _, fingerprint = unit_id.partition("~")
     node_id, *rest = place.split("@")
     try:

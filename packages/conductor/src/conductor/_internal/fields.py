@@ -1114,8 +1114,8 @@ def read_value(spec: FieldSpec, value: Any, *, strict: bool) -> Any:
     pydantic's strict mode is. A ``SKIPPED`` item of a ``Series`` is a gap, read around."""
     if value is SKIPPED:
         return value
-    if spec.shape == "table":
-        return None if value is None and spec.optional else read_table(spec, value, strict=strict)
+    if spec.shape == "table":  # a frame, or the records a table input gathered
+        return None if value is None and spec.optional else read_table(spec, value, strict=strict, given=type(value) is list)
     if spec.shape == "one" and type(value) in spec.plain_classes:
         return value
     if spec.shape == "many" and isinstance(value, (tuple, range)):

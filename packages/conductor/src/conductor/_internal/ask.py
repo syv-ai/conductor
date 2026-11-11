@@ -8,7 +8,7 @@ through ``Param``. ``Ask`` adds only what the run knows: the prompt, choices
 known only when the node runs, and a proposed answer. Every return type's
 question is in the reference, ``python -m conductor.about legs-and-asking``.
 
-A waiting row is a ``Waiting``, and each of its ``questions`` is the field
+A waiting unit is a ``Waiting``, and each of its ``questions`` is the field
 record ``describe()`` gives an output, with what the ``Ask`` set: so a host
 draws a question with the code that draws an input. An answer is checked
 against that record and the node's types before anything runs.
@@ -36,14 +36,14 @@ from conductor._internal.fields import (
 )
 
 if TYPE_CHECKING:
-    from conductor._internal.graph import PlacedNode
+    from conductor._internal.graph import PlacedFunction
 
 
 class Ask(BaseException):
-    """Stops a node on its row to ask a person; the node's return type is what they answer.
+    """Stops a node's call to ask a person; the node's return type is what they answer.
 
-    Nothing runs for the row until an answer arrives. The answer is the
-    node's outputs, and the node is not called again for that row. A
+    Nothing that reads the call runs until an answer arrives. The answer is the
+    node's outputs, and the node is not called again for it. A
     free-text question is the plain case: ``-> str`` and ``raise Ask(prompt)``::
 
         @node("reason", title="Reason", description="Asks why a ticket was closed.")
@@ -104,20 +104,20 @@ class QuestionOverrides(TypedDict, total=False):
     default: JsonValue
 
 
-#: The overrides of an ``Ask`` that set nothing, shared by every row such an ``Ask`` stops.
+#: The overrides of an ``Ask`` that set nothing, shared by every call such an ``Ask`` stops.
 _NOTHING_SET: Mapping[str, QuestionOverrides] = MappingProxyType({})
 
 
 @dataclass(slots=True)
-class RowQuestion:
-    """What a node asked on one row, kept on the row while it waits and after it is answered, and saved with the run.
+class Question:
+    """What a node asked on one call, kept on its unit while it waits and after it is answered, and saved with the run.
 
-    A plain record, made for every row that asks, so it costs what a dict would; a save reads it back through
+    A plain record, made for every call that asks, so it costs what a dict would; a save reads it back through
     pydantic. Like the unit that holds it, it is never changed once made.
 
     Attributes:
         prompt: What the person reads.
-        inputs: What the node received on the row, as JSON.
+        inputs: What the node received, as JSON.
         overrides: What the ``Ask`` set on each question, by output name; empty when it set nothing.
     """
 
@@ -134,18 +134,18 @@ class RowQuestion:
 
 
 class Waiting(ConductorModel):
-    """A row of a node waiting for a person, as a host shows it.
+    """A call of a node waiting for a person, as a host shows it.
 
     A node with one output is answered with its value, one with several with
     a mapping by output name.
 
     Attributes:
         id: What ``run.answer`` takes: the node's id, then ``@`` and each place
-            of the row, then ``~`` and a fingerprint of the question asked
-            there, ``"approve@1~3fa2c0d1"``. An answer for an id whose row has
+            of its item, then ``~`` and a fingerprint of the question asked
+            there, ``"approve@1~3fa2c0d1"``. An answer for an id whose place has
             since come to hold another question is refused as ``answer_stale``.
         node_id: The node that asks, as the graph's caller names it.
-        row: The row's place under each table above the node.
+        item: Which of the node's calls it is: the place of its item in each Series the node runs per item of.
         prompt: What the node's ``Ask`` said.
         questions: One per output: the ``FieldDescription`` its ``describe()``
             gives, with the ``choices`` and ``default`` the ``Ask`` set and
@@ -155,14 +155,14 @@ class Waiting(ConductorModel):
 
     id: str
     node_id: str
-    row: tuple[int, ...]
+    item: tuple[int, ...]
     prompt: str
     questions: list[FieldDescription]
     inputs: dict[str, Any]
 
 
-def row_question(ask: Ask, outputs: Mapping[str, FieldSpec], inputs: dict[str, Any]) -> RowQuestion:
-    """Checks an ``Ask`` against the node's outputs and keeps it, with what the node received, as the row's question.
+def question_asked(ask: Ask, outputs: Mapping[str, FieldSpec], inputs: dict[str, Any]) -> Question:
+    """Checks an ``Ask`` against the node's outputs and keeps it, with what the node received, as the unit's question.
 
     Each choice and the default are read as an answer is, so a choice or a
     default the output's type refuses is refused here, when the node asks.
@@ -170,16 +170,16 @@ def row_question(ask: Ask, outputs: Mapping[str, FieldSpec], inputs: dict[str, A
     Args:
         ask: What the node raised.
         outputs: The node's outputs, by name.
-        inputs: What the node received on the row, as JSON.
+        inputs: What the node received, as JSON.
 
     Returns:
-        The question the row holds until it is answered.
+        The question the unit holds until it is answered.
 
     Raises:
         InvalidAskError: The ``Ask``'s choices or default don't fit the outputs.
     """
     if ask.choices is None and ask.default is REQUIRED:
-        return RowQuestion(ask.prompt, inputs, _NOTHING_SET)
+        return Question(ask.prompt, inputs, _NOTHING_SET)
     overrides: dict[str, QuestionOverrides] = {}
     if ask.choices is not None:
         for name, choices in _by_output(ask.choices, outputs, "choices").items():
@@ -187,7 +187,7 @@ def row_question(ask: Ask, outputs: Mapping[str, FieldSpec], inputs: dict[str, A
     if ask.default is not REQUIRED:
         for name, default in _by_output(ask.default, outputs, "default").items():
             overrides.setdefault(name, {})["default"] = _proposed(outputs[name], default, overrides.get(name, {}).get("choices"))
-    return RowQuestion(ask.prompt, inputs, overrides)
+    return Question(ask.prompt, inputs, overrides)
 
 
 def _by_output(given: Any, outputs: Mapping[str, FieldSpec], argument: str) -> dict[str, Any]:
@@ -267,8 +267,8 @@ def _question(spec: FieldSpec) -> FieldDescription:
     return question.model_copy(update={"required": _required(spec, {}, limited=question.choices is not None)})
 
 
-def waiting_questions(placed: PlacedNode, overrides: Mapping[str, QuestionOverrides]) -> list[FieldDescription]:
-    """A waiting row's questions: each output's question with what its ``Ask`` set.
+def waiting_questions(placed: PlacedFunction, overrides: Mapping[str, QuestionOverrides]) -> list[FieldDescription]:
+    """A waiting unit's questions: each output's question with what its ``Ask`` set.
 
     Args:
         placed: The node that asks.
@@ -277,7 +277,7 @@ def waiting_questions(placed: PlacedNode, overrides: Mapping[str, QuestionOverri
     Returns:
         A question per output, in the outputs' order.
     """
-    outputs = placed.definition.outputs
+    outputs = placed.outputs
     return [
         _overridden(outputs[name], question, overrides[name]) if name in overrides else question
         for name, question in placed.questions.items()
@@ -301,7 +301,7 @@ def _required(spec: FieldSpec, overrides: QuestionOverrides, *, limited: bool) -
     return not defaulted and spec.param.exclusive_group is None and not blank
 
 
-def answer_outputs(placed: PlacedNode, value: Any, overrides: Mapping[str, QuestionOverrides]) -> tuple[dict[str, Any], list[tuple[str | None, str]]]:
+def answer_outputs(placed: PlacedFunction, value: Any, overrides: Mapping[str, QuestionOverrides]) -> tuple[dict[str, Any], list[tuple[str | None, str]]]:
     """Reads a person's answer as the node's outputs.
 
     Args:
@@ -313,7 +313,7 @@ def answer_outputs(placed: PlacedNode, value: Any, overrides: Mapping[str, Quest
         The outputs by name, and every fault in the answer as ``(question, reason)``, the question ``None`` for a
         fault of the whole answer. Nothing of the value is quoted.
     """
-    outputs = placed.definition.outputs
+    outputs = placed.outputs
     if len(outputs) == 1:
         ((name, spec),) = outputs.items()
         try:
