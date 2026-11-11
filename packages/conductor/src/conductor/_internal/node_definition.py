@@ -256,7 +256,7 @@ class _Version:
         """Each version this one replaces, newest first."""
         return () if self.replaces is None else self.replaces.lineage
 
-    @property
+    @functools.cached_property
     def versions(self) -> tuple[int, ...]:
         """Every version number, newest first."""
         return (self.version, *(step.version for step in self._replaced))

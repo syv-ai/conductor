@@ -1104,7 +1104,8 @@ class _Loader:
             if source is None:
                 return None
             sources.append(source)
-        sources.sort(key=self._edge_order)
+        if len(sources) > 1:
+            sources.sort(key=self._edge_order)
         gathers = spec.shape == "many" or (spec.shape == "table" and not all(isinstance(s, Value) and accepts(spec.type, s.type) for s in sources))
         wanted = spec.item if gathers else spec.type
         for source in sources:
@@ -1135,8 +1136,7 @@ class _Loader:
         if spec is None:
             self.problems.append(make_problem("unknown_output", node_id, name, source=address, outputs=[f"{source_id}.{o}" for o in source.outputs]))
             return None
-        split = _split_gives(spec.type)
-        if wanted and split:  # a table or a list is one value: only an item of a Series has a field to wire
+        if wanted and (split := _split_gives(spec.type)):  # a table or a list is one value: only an item of a Series has a field to wire
             self.problems.append(make_problem(
                 "unknown_output", node_id, name, source=address, outputs=[f"{source_id}.{o}" for o in source.outputs], field=wanted,
                 hint="split_first", whole=split[0], fields=split[1],
