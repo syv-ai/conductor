@@ -164,7 +164,6 @@ def test_half_finished_drawing():
         assert error.errors()[0].type == "missing_input"
 
 
-@pytest.mark.xfail(reason="engine fault: loading stops at a node's first input it can't plan, so a second fault on the node goes unsaid", strict=True)
 def test_every_fault_of_one_node_is_said_at_once():
     later = registry.load({"nodes": [{"id": "a", "node": "upper"}, {"id": "b", "node": "repeat"}], "edges": [["a.result", "b.times"]]})
     assert [(p.type, p.loc) for p in later.problems] == [("unbound_on_later_node", ("b", "text")), ("type_mismatch", ("b", "times"))]

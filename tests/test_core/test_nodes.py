@@ -853,7 +853,6 @@ def test_a_series_of_tables_from_a_hook_is_the_hooks_problem():
     assert codes(load(node("h", title="H", description="", compute_outputs=lambda: {"result": Series[Table]})(h))) == ["compute_hook_failed"]
 
 
-@pytest.mark.xfail(reason="engine fault: a hook's hint naming a class with no type_id raises AttributeError out of load", strict=True)
 def test_a_hint_from_a_hook_naming_a_class_that_declares_no_type_id_is_the_hooks_problem():
     class Sheet(Table):
         pass

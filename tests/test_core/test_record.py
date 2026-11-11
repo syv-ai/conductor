@@ -315,7 +315,6 @@ def test_make_graph_refuses_a_type_mismatch_and_a_field_a_hook_does_not_give_at_
     assert [p.type for p in refused.value.errors()] == ["unknown_output"]
 
 
-@pytest.mark.xfail(reason="engine fault: record.py's SAID_AT_THE_CALL still lists columns_missing, a code the catalogue dropped", strict=True)
 def test_every_code_make_graph_raises_from_the_load_is_a_catalogued_problem():
     from conductor._internal.errors import PROBLEM_CATALOGUE
     from conductor._internal.record import SAID_AT_THE_CALL
@@ -474,7 +473,6 @@ def test_an_embedding_is_filled_wired_and_read_by_its_own_id():
     assert [f.name for f in graph.describe().nodes["e"].inputs] == ["text"]
 
 
-@pytest.mark.xfail(reason="engine fault: an edge from a node that did not place into an input its target does not have raises KeyError out of load", strict=True)
 def test_a_wrong_address_on_an_embedding_is_a_problem_on_it_and_never_names_an_inner_node():
     graph = EMBEDDED.load({"nodes": [{"id": "e", "node": "enrich"}, {"id": "u", "node": "upper"}, {"id": "v", "node": "upper"}],
                            "edges": [["e.nope", "u.text"], ["v.result", "e.tail"], ["e/upper.result", "v.text"]]})
@@ -545,7 +543,6 @@ def test_a_skipped_item_of_a_series_output_is_a_gap_that_reads_back_from_json():
     assert graph.load_run(run.to_json()).results == run.results
 
 
-@pytest.mark.xfail(reason="engine fault: a Table[R] input fed a wider table by an edge receives the columns R does not name", strict=True)
 def test_a_table_input_gets_its_declared_columns():
     from typing import TypedDict
 

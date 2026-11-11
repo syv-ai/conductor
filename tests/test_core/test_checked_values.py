@@ -244,7 +244,6 @@ def test_an_output_is_read_strictly_never_from_text_that_spells_it(returned, ret
     assert _returning(returned, return_type).state.cause.type == "invalid_output"
 
 
-@pytest.mark.xfail(reason="engine fault: a node returning a list of records for a Table output completes, read as a caller's records are", strict=True)
 def test_a_table_that_is_not_a_frame_fails_its_node():
     assert _returning([{"item": "a", "amount": 1}], Table[Line]).state.cause.type == "invalid_output"
 

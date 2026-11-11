@@ -300,7 +300,6 @@ class _Placed:
         scope: The scope it runs in.
         inputs: How each input gets its value, by name; the fields are the node's as its hooks made them.
         outputs: Each output's field, by name, as its hooks made them.
-        reads: The nodes its edges read.
         opens: The ``Series`` outputs some reader works through one item at a time, which a run holds to
             ``max_items``. A reader placed after this node adds to it.
     """
@@ -309,8 +308,12 @@ class _Placed:
     scope: Scope
     inputs: dict[str, InputPlan]
     outputs: dict[str, FieldSpec]
-    reads: frozenset[str]
     opens: set[str] = dataclasses.field(default_factory=set[str])
+
+    @functools.cached_property
+    def reads(self) -> frozenset[str]:
+        """The nodes its inputs read."""
+        return frozenset(source.node_id for plan in self.inputs.values() if isinstance(plan, Fed) for source in plan.sources)
 
     @functools.cached_property
     def checked(self) -> tuple[str, ...]:
@@ -787,13 +790,13 @@ class _Loader:
                 self.problems.append(make_problem("edge_names_missing_node", node_id, name, node_id=missing[0], source=source, target=target))
             if node_id in known:  # the input is drawn as fed, whether or not its source exists
                 into[node_id].setdefault(name, []).append(source)
-        ordered, reads = self._order(list(known), into)
+        ordered = self._order(list(known), into)
         for node_id in ordered:
             match self._resolve(known[node_id]):
                 case FunctionDefinition() as function:
-                    self._place_function(known[node_id], function, into[node_id], reads[node_id])
+                    self._place_function(known[node_id], function, into[node_id])
                 case GraphDefinition() as graph:
-                    self._place_graph(known[node_id], graph, into[node_id], reads[node_id])
+                    self._place_graph(known[node_id], graph, into[node_id])
                 case None:
                     pass
         names = [graph_input.name for graph_input, _, _ in self.opened]
@@ -827,9 +830,8 @@ class _Loader:
             return None
         return newest.version_of(record.version)
 
-    def _order(self, order: list[str], into: dict[str, dict[str, list[str]]]) -> tuple[list[str], dict[str, frozenset[str]]]:
-        """The nodes with each after what it reads, ties in the record's order, and the nodes each one's edges read;
-        a node on a cycle is a problem."""
+    def _order(self, order: list[str], into: dict[str, dict[str, list[str]]]) -> list[str]:
+        """The nodes with each after what its edges read, ties in the record's order; a node on a cycle is a problem."""
         position = self.position
         reads = {n: frozenset({s.partition(".")[0] for sources in into[n].values() for s in sources} & position.keys()) for n in order}
         readers: dict[str, list[str]] = {n: [] for n in order}
@@ -851,11 +853,11 @@ class _Loader:
         for n in order:
             if n in stuck and _reaches(n, n, readers, stuck):  # on the cycle, not only below it
                 self.problems.append(make_problem("cycle", n))
-        return done, reads
+        return done
 
     # -- placing a node ---------------------------------------------------------
 
-    def _place_function(self, record: NodeRecord, definition: FunctionDefinition[..., Any], edges: dict[str, list[str]], reads: frozenset[str]) -> None:
+    def _place_function(self, record: NodeRecord, definition: FunctionDefinition[..., Any], edges: dict[str, list[str]]) -> None:
         """Place a function node: its declared inputs and the ones its hook adds planned, then its outputs, as
         declared or as its hook makes them of the types arriving. A node with a problem of its own is left out,
         and so is every node that reads it."""
@@ -880,10 +882,10 @@ class _Loader:
             outputs = self._hook(record, definition, "compute_outputs", definition.compute_outputs, typed, arriving)
         if outputs is not None:
             self._keep(PlacedFunction(
-                id=record.id, scope=planned.scope, inputs=planned.inputs, outputs=outputs, reads=reads, definition=definition,
+                id=record.id, scope=planned.scope, inputs=planned.inputs, outputs=outputs, definition=definition,
             ), planned.rests_on)
 
-    def _place_graph(self, record: NodeRecord, definition: GraphDefinition, edges: dict[str, list[str]], reads: frozenset[str]) -> None:
+    def _place_graph(self, record: NodeRecord, definition: GraphDefinition, edges: dict[str, list[str]]) -> None:
         """Place an embedded graph as one node: the inner graph loaded, its inputs and outputs this node's fields.
 
         An inner input or output is offered under its own name where no other shares it, else as ``node/field``,
@@ -929,7 +931,7 @@ class _Loader:
         planned = self._planned(record, fields, self._typed(record, fields), frozenset(), edges)
         if planned is not None:
             self._keep(PlacedGraph(
-                id=record.id, scope=planned.scope, inputs=planned.inputs, outputs=outputs, reads=reads, definition=definition,
+                id=record.id, scope=planned.scope, inputs=planned.inputs, outputs=outputs, definition=definition,
                 inner=inner, inner_inputs=inner_inputs, inner_outputs=inner_outputs,
             ), planned.rests_on)
 
@@ -964,6 +966,7 @@ class _Loader:
             self.problems.append(make_problem("unknown_input", record.id, name, inputs=list(fields)))
         first = not any(name in fields for name in edges)  # a first node: nothing is wired into it, so the caller fills it
         inputs: dict[str, InputPlan] = {}
+        broken = False  # an edge that brings nothing the input takes: the node is left out, once every input is looked at
         for name, spec in fields.items():
             if name in record.values and name in record.defaults:
                 self.problems.append(make_problem("value_and_default", record.id, name))
@@ -972,8 +975,9 @@ class _Loader:
                     self.problems.append(make_problem("value_and_edge", record.id, name))
                 fed = self._fed(record.id, name, spec, edges[name])
                 if fed is None:
-                    return None
-                inputs[name] = fed
+                    broken = True
+                else:
+                    inputs[name] = fed
             elif name in record.values:
                 inputs[name] = _fixed(spec, typed[name])
             elif first and name not in fixed_at_load:
@@ -994,6 +998,8 @@ class _Loader:
                 inputs[name] = Unset(spec)
             else:
                 inputs[name] = Fixed(spec, spec.default)
+        if broken:
+            return None
         scopes = [plan.scope for plan in inputs.values() if isinstance(plan, Fed)]
         scope = max(scopes, key=len, default=())
         for other in scopes:
@@ -1054,6 +1060,9 @@ class _Loader:
             return {name: read_field(name, *_hint_and_default(hint), where=f"node {definition.id!r}, ") for name, hint in hints.items()}
         except NodeDeclarationError as error:  # a hint conductor can't carry is the hook's failure
             self.problems.append(make_problem("compute_hook_failed", record.id, reason=error.message, error=error.code))
+            return None
+        except AttributeError as error:  # a host's class that declares no type_id or type_title
+            self.problems.append(make_problem("compute_hook_failed", record.id, reason=str(error), error="AttributeError"))
             return None
 
     # -- edges ------------------------------------------------------------------

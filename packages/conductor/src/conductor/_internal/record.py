@@ -278,7 +278,7 @@ def _one_per_id(nodes: Sequence[NodeDefinition]) -> dict[str, NodeDefinition]:
 #: where a value is, a default where no caller reaches it), never a half-drawn graph's.
 SAID_AT_THE_CALL = frozenset({
     "unknown_input", "unknown_output", "edge_names_missing_node", "invalid_value", "value_and_default", "value_and_edge",
-    "type_mismatch", "columns_missing", "repeated_edge", "default_on_later_node",
+    "type_mismatch", "repeated_edge", "default_on_later_node",
 })
 
 

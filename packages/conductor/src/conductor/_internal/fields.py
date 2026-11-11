@@ -1037,8 +1037,8 @@ def already(target: Any, source: Any) -> bool:
     if target is Any or target == source:
         return True
     wanted, held = _table_marker(target), _table_marker(source)
-    if wanted is not None and held is not None:
-        return _columns_fit(wanted, held, already, unknown=False)
+    if wanted is not None and held is not None:  # a table of other columns is cut to the ones the input names
+        return wanted.row is Any or wanted.row is None
     targets = [t for t in _options(target) if isinstance(t, type) and not typing.is_typeddict(t)]
     sources = [s for s in _options(source) if s is not type(None)]
     return all(isinstance(s, type) and not typing.is_typeddict(s) and any(lands_as_it_is(t, s) for t in targets) for s in sources)
@@ -1114,8 +1114,8 @@ def read_value(spec: FieldSpec, value: Any, *, strict: bool) -> Any:
     pydantic's strict mode is. A ``SKIPPED`` item of a ``Series`` is a gap, read around."""
     if value is SKIPPED:
         return value
-    if spec.shape == "table":  # a frame, or the records a table input gathered
-        return None if value is None and spec.optional else read_table(spec, value, strict=strict, given=type(value) is list)
+    if spec.shape == "table":  # an input's table comes as given: a frame cut to its columns, or the records it gathered
+        return None if value is None and spec.optional else read_table(spec, value, strict=strict, given=not strict)
     if spec.shape == "one" and type(value) in spec.plain_classes:
         return value
     if spec.shape == "many" and isinstance(value, (tuple, range)):
