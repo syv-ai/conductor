@@ -223,7 +223,7 @@ class Param:
                 f"a choice is not a value of the field's type: {value_free_errors(refused)[0]['msg']}; give each choice once, as a value of the field's type",
                 code="choices_invalid",
             ) from None
-        literal = [value for option in _options(source) if get_origin(option) is Literal for value in get_args(option)]
+        literal = [value for option in union_members(source) if get_origin(option) is Literal for value in get_args(option)]
         distinct = {repr(i) for i in ids}
         if not ids or len(distinct) != len(ids):
             raise NodeDeclarationError("the choices hold an id twice, or none; give each choice once, as a value of the field's type", code="choices_invalid")
@@ -606,17 +606,17 @@ _KINDS: dict[Any, type[Type]] = {}
 _READ_AS: dict[type, Any] = {}
 
 
-def _options(hint: Any) -> tuple[Any, ...]:
+def union_members(hint: Any) -> tuple[Any, ...]:
     """Gives the members of a union, or the hint itself as the one member of any other type."""
     return get_args(hint) if get_origin(hint) in (Union, types.UnionType) else (hint,)
 
 
-def _list_of(item: Any) -> Any:
+def list_of(item: Any) -> Any:
     """Gives ``list[item]`` for an ``item`` known only when a hint is read."""
     return types.GenericAlias(list, (item,))
 
 
-def _union(options: Iterable[Any]) -> Any:
+def union_of(options: Iterable[Any]) -> Any:
     """Gives the union of ``options``, which is the option itself when there is one."""
     return functools.reduce(operator.or_, options)
 
@@ -666,7 +666,7 @@ def _written(hint: Any) -> str:
     return f"{hint.__module__}.{hint.__qualname__}" if isinstance(hint, type) else repr(hint)
 
 
-def _split(hint: Any) -> tuple[Any, Param, tuple[Any, ...]]:
+def split_hint(hint: Any) -> tuple[Any, Param, tuple[Any, ...]]:
     """Takes a hint apart into its bare type, its ``Param`` and its other metadata.
 
     ``Annotated[X, Param(...)] | None`` is ``X | None`` with that ``Param``; several ``Param``s are one, each
@@ -679,16 +679,16 @@ def _split(hint: Any) -> tuple[Any, Param, tuple[Any, ...]]:
     if type(hint) is type and hint not in _READ_AS:  # a plain class has nothing to take off, and most hints are one
         return hint, _NO_PARAM, ()
     options, params, others = [], list[Param](), list[Any]()
-    for option in _options(hint):
+    for option in union_members(hint):
         if get_origin(option) is Annotated:
             option, *metadata = get_args(option)
             params += [m for m in metadata if isinstance(m, Param)]
             others += [m for m in metadata if not isinstance(m, Param)]
-            inner, inner_param, inner_others = _split(option)
+            inner, inner_param, inner_others = split_hint(option)
             option, params, others = inner, [inner_param, *params], [*inner_others, *others]
         options.append(_READ_AS.get(option, option) if type(option) is type else option)
     merged = {f.name: value for param in params for f in dataclasses.fields(param) if (value := getattr(param, f.name)) is not None}
-    return _union(options), Param(**merged) if merged else _NO_PARAM, tuple(others)
+    return union_of(options), Param(**merged) if merged else _NO_PARAM, tuple(others)
 
 
 def _fit(target: Any, source: Any, bound: dict[TypeVar, Any], exact: bool) -> bool:
@@ -700,7 +700,7 @@ def _fit(target: Any, source: Any, bound: dict[TypeVar, Any], exact: bool) -> bo
         bound: What each variable is bound to so far, added to here; two places sharing a variable join.
         exact: Ask instead whether every ``source`` value already is a ``target`` as it is, with nothing to read.
     """
-    target, source = _split(target)[0], _split(source)[0]
+    target, source = split_hint(target)[0], split_hint(source)[0]
     if target == source:
         return True
     if _is_alias(target) or _is_alias(source):  # an alias is read as what it stands for
@@ -714,8 +714,8 @@ def _fit(target: Any, source: Any, bound: dict[TypeVar, Any], exact: bool) -> bo
         return True
     if source is Any:
         return not exact
-    targets, sources = _options(target), [option for option in _options(source) if option is not type(None)]
-    if len(targets) > 1 or len(sources) != len(_options(source)):
+    targets, sources = union_members(target), [option for option in union_members(source) if option is not type(None)]
+    if len(targets) > 1 or len(sources) != len(union_members(source)):
         for one in sources:
             for option in targets:
                 if _fit(option, one, trial := dict(bound), exact):
@@ -823,8 +823,8 @@ class Type:
 
     @functools.cached_property
     def _parts(self) -> tuple[Any, Param, tuple[Any, ...]]:
-        """The closed hint as ``_split`` takes it apart."""
-        return _split(self.closed)
+        """The closed hint as ``split_hint`` takes it apart."""
+        return split_hint(self.closed)
 
     @property
     def bare(self) -> Any:
@@ -834,12 +834,12 @@ class Type:
     @functools.cached_property
     def options(self) -> tuple[Any, ...]:
         """The members of the bare hint, ``| None`` taken off."""
-        return tuple(option for option in _options(self.bare) if option is not type(None))
+        return tuple(option for option in union_members(self.bare) if option is not type(None))
 
     @functools.cached_property
     def optional(self) -> bool:
         """Whether a blank (``None``) may arrive: ``X | None``, ``Any``, or a type alias that stands for either."""
-        options = _options(self.bare)
+        options = union_members(self.bare)
         return Any in options or type(None) in options or any(_is_alias(option) and Type(_aliased(option)).optional for option in options)
 
     @functools.cached_property
@@ -884,7 +884,7 @@ class Type:
     @property
     def text(self) -> str:
         """The id with its blank said (``str | None``): how a type inside another, and a type an edge brings, is named."""
-        return f"{self.id} | None" if type(None) in _options(self.bare) and self.options else self.id
+        return f"{self.id} | None" if type(None) in union_members(self.bare) and self.options else self.id
 
     @functools.cached_property
     def title(self) -> str:
@@ -908,7 +908,7 @@ class Type:
         if _is_alias(one):
             return one.__name__, one.__name__, ()
         if origin is Literal:
-            return Type(_union(dict.fromkeys(type(value) for value in args)))._named
+            return Type(union_of(dict.fromkeys(type(value) for value in args)))._named
         if typing.is_typeddict(one):  # a record declares no name of its own
             return "record", "Record", ()
         own_id, title = _NAMES[origin] if origin in _NAMES else (origin.type_id, origin.type_title)
@@ -932,11 +932,11 @@ class Type:
         """
         bare, param, others = self._parts
         options = []
-        for option in _options(bare):
+        for option in union_members(bare):
             if get_origin(option) in _CONTAINERS or get_origin(option) in _KINDS:
                 option = get_origin(option)[tuple(arg if arg is Ellipsis else Type(arg).carried for arg in get_args(option))]
             options.append(option)
-        read: Any = _union(options)
+        read: Any = union_of(options)
         if metadata := (*others, *([param] if param.limits or param.choices is not None else [])):
             read = Annotated[(read, *metadata)]
         literals = [option for option in options if get_origin(option) is Literal]
@@ -997,7 +997,7 @@ class Type:
         Empty when a value must always be read: an option is no plain class (``list[int]``, a ``Literal``, a
         ``TypedDict``, ``Any``, a kind of its own), or the type is ``limited``.
         """
-        options = _options(self.bare)
+        options = union_members(self.bare)
         plain = all(isinstance(option, type) and not typing.is_typeddict(option) and option is not Any and option not in _KINDS for option in options)
         return options if plain and not self.limited else ()
 
@@ -1005,7 +1005,7 @@ class Type:
     def hashes_plainly(self) -> bool:
         """Whether its values are plain in JSON: no keys to order, and no float beside a text it could be read as. So
         what a unit received hashes as it is written, and a float that isn't finite reads back from its text."""
-        classes = {option for option in _options(self.bare) if not _KINDS.get(get_origin(option) or option, Type).keys_in_order}
+        classes = {option for option in union_members(self.bare) if not _KINDS.get(get_origin(option) or option, Type).keys_in_order}
         return classes <= _SCALARS and not {float, str} <= classes
 
     @property
@@ -1112,8 +1112,8 @@ class Type:
             Two places sharing a variable join, and a source outside a variable's bound does not fit.
         """
         bound: dict[TypeVar, Any] = {}
-        lands_without_blank = isinstance(_split(self.hint)[0], TypeVar) and source.options
-        arriving = _union(source.options) if lands_without_blank else source.closed
+        lands_without_blank = isinstance(split_hint(self.hint)[0], TypeVar) and source.options
+        arriving = union_of(source.options) if lands_without_blank else source.closed
         return bound if _fit(self.hint, arriving, bound, False) else None
 
     def holds(self, source: Type) -> bool:
@@ -1198,7 +1198,7 @@ def _kind_of(hint: Any) -> type[Type]:
     with or without ``| None``."""
     if type(hint) is type and hint not in _READ_AS and hint not in _KINDS:
         return Type
-    options = [option for option in _options(_split(_substituted(hint, {}))[0]) if option is not type(None)]
+    options = [option for option in union_members(split_hint(_substituted(hint, {}))[0]) if option is not type(None)]
     if len(options) != 1:
         return Type
     origin = get_origin(options[0]) or options[0]
@@ -1254,7 +1254,7 @@ class SeriesType(Type, of=_Series):
         """The hint of a Series as a unit holds it: a list whose item on a branch not taken is blank, or one of
         the other ways a Series of its items may be held."""
         other_ways = [hint for holder in HeldSeries._by_class_returned.values() if (hint := holder.hint_of(self.item)) is not None]
-        return _union((_list_of(_union((self.item.hint, type(None)))), *other_ways))
+        return union_of((list_of(union_of((self.item.hint, type(None)))), *other_ways))
 
     def read_returned(self, value: Any) -> Any:
         """Reads what a node returned for the Series, strictly: a list of its items, or, for a value of a class
@@ -1443,12 +1443,12 @@ class Field:
     def slot(self) -> Type:
         """The type of the field's value on one unit, as a saved run and a run's written outputs hold it: blank
         where the unit gave none, and otherwise as its type says a unit holds one."""
-        return Type(_union((self.whole.held_hint, type(None))))
+        return Type(union_of((self.whole.held_hint, type(None))))
 
     @functools.cached_property
     def column(self) -> Type:
         """The type of the field's values over many units: a list of what ``slot`` is the type of."""
-        return Type(_list_of(self.slot.hint))
+        return Type(list_of(self.slot.hint))
 
     @functools.cached_property
     def description(self) -> FieldDescription:
@@ -1474,12 +1474,12 @@ def _field_parts(hint: Any) -> tuple[Param, Type, Type]:
         NodeDeclarationError: A ``Series`` of ``Series`` (``nested_series``), or a widget in ``Annotated`` that is
             not on a ``Param`` (``widget_outside_param``).
     """
-    bare, param, others = _split(hint)
+    bare, param, others = split_hint(hint)
     beside_param = others  # what Annotated holds that is no Param, on the field and on a Series' item
     written, of_items = bare, Type(bare).item is not None
     if of_items:  # the item as written, its type variables still open
-        (items,) = (option for option in _options(written) if option is not type(None))
-        bare, of_item, others = _split((get_args(items) or (Any,))[0])
+        (items,) = (option for option in union_members(written) if option is not type(None))
+        bare, of_item, others = split_hint((get_args(items) or (Any,))[0])
         beside_param = (*beside_param, *others)
         if Type(bare).item is not None:
             raise NodeDeclarationError("a Series of Series; a field holds one level of items, so return one Series", code="nested_series")
@@ -1491,5 +1491,5 @@ def _field_parts(hint: Any) -> tuple[Param, Type, Type]:
     one = Type(Annotated[(bare, *metadata)] if metadata else bare)
     if not of_items:
         return param, one, one
-    whole = _union((get_origin(option) or option)[one.hint] if option is not type(None) else option for option in _options(written))
+    whole = union_of((get_origin(option) or option)[one.hint] if option is not type(None) else option for option in union_members(written))
     return param, Type(whole), one
