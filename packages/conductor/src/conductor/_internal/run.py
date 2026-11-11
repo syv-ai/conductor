@@ -628,8 +628,13 @@ class Run:
         out: dict[str, Any] = {}
         for address, cell, maps, lists in node.offers:
             if len(maps) == base:  # made once inside: the inner unit's own
-                value = _cell(units, base, cell, key)
-                if value is PENDING:
+                unit = units[cell.node_id].get(key)
+                kind = type(unit)
+                if kind is Done or kind is Answered:
+                    value = unit.out[cell.output]  # type: ignore[union-attr]
+                elif kind is Skipped or kind is Blank:
+                    value = SKIPPED if kind is Skipped or cell.exclusive else None
+                else:
                     return PENDING
             else:
                 instances, known = self._instances(maps, key)
