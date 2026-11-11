@@ -54,6 +54,9 @@ class _Series(Generic[_T]):
     """``Series[T]``: many values of ``T``, which a graph works through one at a time; a plain ``list[T]`` to the
     node and to a type checker."""
 
+    # The class is named as a host imports it, so the text a reuse digest is made of names no internal file.
+    __module__, __qualname__ = "conductor", "Series"
+
     @classmethod
     def __get_pydantic_core_schema__(cls, source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
         """Gives the schema of a list of items.
@@ -153,6 +156,9 @@ class _Table(Generic[_T]):
     ``R``'s columns, as a ``TypedDict`` read drops other keys: each present, each cell a value of its column's
     type, and blank only where that type takes a blank.
     """
+
+    # The class is named as a host imports it, so the text a reuse digest is made of names no internal file.
+    __module__, __qualname__ = "conductor", "Table"
 
     @classmethod
     def __get_pydantic_core_schema__(cls, source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
