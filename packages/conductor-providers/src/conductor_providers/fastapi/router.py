@@ -72,7 +72,7 @@ class RunView(BaseModel):
         id: The run's id, as ``POST /runs`` gave it.
         status: Where the run is: ``running`` while a leg runs, ``waiting`` for answers, ``complete``, or
             ``timed_out``, ``stopped``, ``cancelled`` or ``failed``, which ``POST /runs/{id}/resume`` goes on from.
-        waiting: The rows waiting for a person, as of the last leg's end; each ``id`` is what
+        waiting: What waits for a person, as of the last leg's end; each ``id`` is what
             ``POST /runs/{id}/answers`` takes.
         outputs: The graph's outputs by name once the run is complete, a table as a list of records; ``None`` until then.
         refused: Answers sent while a leg ran that were refused when it ended, by waiting id, each with its problems.
@@ -434,13 +434,13 @@ def run_router(
 
     @router.post("/runs/{run_id}/answers", status_code=202)
     async def answer(row: Annotated[StoredRun, Depends(stored)], answers: dict[str, Any]) -> Answered:
-        """Answer waiting rows by their ids. While a leg runs, the answers wait for it to end, and a row answered once
-        meanwhile is refused a second answer. An answer to a row whose question changed since it was read is refused by
+        """Answer what waits by its ids. While a leg runs, the answers wait for it to end, and a question answered once
+        meanwhile is refused a second answer. An answer to a place whose question changed since it was read is refused by
         its waiting id (``answer_stale``)."""
         while row.status == "running":
             queued = json.loads(row.pending)
             if queued.keys() & answers.keys():
-                raise HTTPException(409, "the row is already answered")
+                raise HTTPException(409, "that question is already answered")
             queued.update(answers)
             if await store.update(row.id, row.rev, {"pending": to_json(queued).decode()}):
                 return Answered(answers="queued")  # the leg's end, written after this, reads them
@@ -470,8 +470,8 @@ def run_router(
 
     @router.post("/runs/{run_id}/again", status_code=202)
     async def again(row: Annotated[StoredRun, Depends(stored)], inputs: dict[str, Any], who: Annotated[C, Depends(caller)]) -> Started:
-        """A new run of the caller's with these inputs changed, on the caller's own nodes; a row that receives what it
-        received before isn't called again."""
+        """A new run of the caller's with these inputs changed, on the caller's own nodes; a call that receives what it
+        received before isn't made again."""
         try:
             saved = await asyncio.to_thread(lambda: load(row, nodes_for(who)).with_inputs(inputs).to_json())
         except InvalidCallError as error:
@@ -501,8 +501,8 @@ def _always(registry: NodeRegistry) -> Callable[[object], NodeRegistry]:
 
 
 class _Ended:
-    """A leg that ended with ``run``: its status, and what its end writes of it beside the run itself (its waiting
-    rows, its outputs once complete, a table as records wherever it sits, a float that isn't finite as text, as every
+    """A leg that ended with ``run``: its status, and what its end writes of it beside the run itself (what waits
+    for a person, its outputs once complete, a table as records wherever it sits, a float that isn't finite as text, as every
     JSON conductor writes, and its status and cause)."""
 
     def __init__(self, run: Run) -> None:
@@ -523,7 +523,7 @@ class _Ended:
     def answered(self, pending: dict[str, Any], refused: dict[str, Any]) -> tuple[str | None, dict[str, Any]]:
         """The answers queued during the leg, each on its own: the run they give as JSON when any was taken, else
         ``None``, and ``refused`` with the problems of each one that wasn't. A run that ended needing a resume takes
-        none (``run_not_waiting``); otherwise a wrong answer, or one whose row waits for nothing (``not_waiting``, as
+        none (``run_not_waiting``); otherwise a wrong answer, or one for something that isn't waiting (``not_waiting``, as
         on a complete run), keeps its own problems."""
         if self.status in _RESUMABLE:
             return _refuse_all(self.status, pending, refused)

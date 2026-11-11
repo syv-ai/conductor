@@ -1,7 +1,7 @@
 """Nodes that send a value one of two ways: ``decision``, ``logic-if-empty`` and ``logic-if-equals``.
 
 Each gives its value on one of two outputs and ``SKIPPED`` on the other, so
-what is wired to the way not taken doesn't run on that row. A choice between
+what is wired to the way not taken doesn't run for that item. A choice between
 more than two ways is a chain of them.
 
 ``decision`` sends ``value`` on ``if_true`` or ``if_false`` by ``when``. ``when``
@@ -25,7 +25,7 @@ registry = NodeRegistry(category="control")
 
 
 def _either_way(value: type) -> dict[str, Any]:
-    """Both outputs of the type arriving on ``value``, ``Any`` until it is wired; one holds a value on each row."""
+    """Both outputs of the type arriving on ``value``, ``Any`` until it is wired; one holds a value on each call."""
     return {
         "if_true": Annotated[value, Param(title="If true", exclusive_group="when")],
         "if_false": Annotated[value, Param(title="If false", exclusive_group="when")],

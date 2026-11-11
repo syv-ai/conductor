@@ -1,6 +1,6 @@
 """``ConductorModel``: the base of every record a host saves or sends.
 
-A graph a host stores, a problem it shows, an event it streams, a row
+A graph a host stores, a problem it shows, an event it streams, a question
 waiting for a person: each crosses into JSON, so each is a frozen pydantic
 model on this one base, and reads back what it wrote with pydantic's own
 ``model_dump_json`` and ``model_validate_json``. A widget reads back as

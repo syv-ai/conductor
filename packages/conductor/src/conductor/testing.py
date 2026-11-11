@@ -27,7 +27,7 @@ Every problem is a ``Problem``. Its ``loc`` is ``(node_id, version)``, except fo
     a node saved at an older version, moved on with ``registry.upgrade``,
     doesn't load cleanly (or the upgrade raised).
 ``changed_its_inputs``
-    the body changed a value it was given; the rows of a run can share one.
+    the body changed a value it was given; several calls of a run can be given one.
 ``run_failed``
     an example didn't run to the end or to a pause.
 ``pause_untested``
@@ -231,7 +231,7 @@ def _run_problems(version: NodeDefinition, registry: NodeRegistry, example: _Exa
     except InvalidCallError as refused:
         return [_problem("run_failed", (version.id, version.version), "the example was refused: " + "; ".join(p.msg for p in refused.errors()), **_causes(refused.errors()))], False
     found = [
-        _problem("changed_its_inputs", (version.id, version.version), f"the body changed {name!r}, a value it was given; rows of a run can share it, so copy the value before changing it", input=name)
+        _problem("changed_its_inputs", (version.id, version.version), f"the body changed {name!r}, a value it was given; several calls of a run can be given it, so copy the value before changing it", input=name)
         for name in changed
     ]
     match run.state:

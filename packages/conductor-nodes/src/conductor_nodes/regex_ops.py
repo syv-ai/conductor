@@ -67,9 +67,9 @@ def replace_all(
         return compiled.sub(replacement, text, timeout=TIMEOUT)
 
 
-@registry.node("regex-extract", title="Find pattern", description="Finds every piece of the text that matches a pattern, one row for each.")
+@registry.node("regex-extract", title="Find pattern", description="Finds every piece of the text that matches a pattern, one item for each.")
 def extract(text: LongText, pattern: Line, ignore_case: Flag = False) -> Annotated[Series[str], Param(title="Matches")]:
-    """Every match, a row each, or the first group of each when the pattern has groups; a group that took no part is ``""``."""
+    """Every match, an item each, or the first group of each when the pattern has groups; a group that took no part is ``""``."""
     compiled = _compiled(pattern, ignore_case)
     with _pattern_faults():  # ``finditer`` is lazy and the timeout fires while it is walked
         return [m.groups(default="")[0] if compiled.groups else m.group(0) for m in compiled.finditer(text, timeout=TIMEOUT)]

@@ -19,12 +19,11 @@ item. ``display`` is the host's own: conductor stores it and never reads it. An 
 record is saved, so a bare node is ``{"id": "up", "node": "upper"}``.
 
 Edges are a list of ``[from, to]`` addresses, ``node.field`` or
-``node.output.column`` for one column of a table, kept sorted, so two records
+``node.output.field`` for one field of a record, kept sorted, so two records
 that differ only in the order of their edges are equal and save alike. An
 edge listed twice stays twice, and loading reports it (``repeated_edge``).
-Several edges into one input on rows of one table gather in that table's row
-order; on different tables, in the order their source nodes appear in
-``nodes``, then in the order the source node declares its outputs.
+Several edges into one input are alternatives, opposite branches of one
+decision, so nothing depends on the order of the list.
 
 ``registry.load`` reads a record into a ``Graph``; what the record says that
 can't be meant (a repeated edge, an edge naming a node the graph doesn't
@@ -167,7 +166,7 @@ def typed_in(node_id: str, values: Mapping[str, Any]) -> tuple[dict[str, JsonVal
         except PydanticSerializationError:
             reason = "a value typed into a graph is saved with it as JSON"
             if isinstance(value, pl.DataFrame):
-                reason += "; give a table as a list of rows"
+                reason += "; give a table as a list of records"
             problems.append(make_problem("invalid_value", node_id, name, reason=reason))
     return typed, problems
 
@@ -197,7 +196,8 @@ def make_graph(
     node already has. ``values`` and ``defaults`` are keyed by ``"node.input"``
     addresses of those ids, as the record's fields of those names are: a value
     is fixed, and a default stays open to the caller. A list typed into an input
-    that takes one value is many values, a row per item.
+    that takes one value is refused: a node that returns a ``Series`` makes
+    the items a graph runs per.
 
     With no ``edges`` the nodes form a chain: each takes its one required
     input that nothing typed in fills from the one output of the node before

@@ -42,7 +42,7 @@ the problem's ``ctx`` has its class name. A value a run handled stays out of a
 problem for the same reason: ``value_free_errors`` is what pydantic's account of
 a refused value may say there.
 
-A pause is not an error: a node raises ``Ask``, its row waits, and the leg
+A pause is not an error: a node raises ``Ask``, that call waits, and the leg
 ends with the status ``waiting``.
 """
 
@@ -56,7 +56,7 @@ from pydantic import ConfigDict, Field, ValidationError
 
 from conductor._internal.conductor_model import ConductorModel
 
-#: Every code conductor itself writes, on one row each: its English, with
+#: Every code conductor itself writes, one entry each: its English, with
 #: the ``ctx`` keys as slots. A compile problem's slots also take
 #: ``{node_id}`` and ``{field}``, the first two places of its ``loc``. A code
 #: that is not here is a node's own, from a ``NodeError``. A host that
@@ -101,7 +101,7 @@ PROBLEM_CATALOGUE: Mapping[str, str] = {
     "value_and_edge": "Field '{field}' has an edge and a typed-in value; keep one.",
     # -- what a call is refused for ----------------------------------------------
     "invalid_record": "The record is not a graph record at '{at}': {reason}. Fix the record's JSON.",
-    "answer_stale": "The question {waiting_id!r} was answered for has changed on its row; it is now {current!r}, so answer that one.",
+    "answer_stale": "The question {waiting_id!r} was answered for has changed where it waited; it is now {current!r}, so answer that one.",
     "cannot_move_to_version": "'{node}' cannot move from version {version} to {target}; it has {versions}.",
     "from_run_missing": "'{node_id}' needs a {needs} for '{parameter}', and from_run gives none (it gives {given}); pass from_run={{{needs}: ...}}.",
     "from_run_ambiguous": "'{node_id}' needs a {needs} for '{parameter}', and from_run gives more than one ({given}); key the one to use by {needs}.",
@@ -140,7 +140,7 @@ PROBLEM_CATALOGUE: Mapping[str, str] = {
 }
 
 #: The English of a problem whose ``ctx.hint`` names the fix, by its code and that hint, in place of the code's own
-#: row: the same code, said for the one mistake the hint is for.
+#: entry: the same code, said for the one mistake the hint is for.
 HINTED_CATALOGUE: Mapping[tuple[str, str], str] = {
     ("type_mismatch", "split_first"): (
         "'{source}' is a whole {whole} and '{node_id}.{field}' takes one {expected}. To run '{node_id}' once for each record or item "
@@ -188,10 +188,10 @@ class Problem(ConductorModel):
 
     ========================  ==================================================
     a problem of a graph      ``(node_id)`` or ``(node_id, field)``
-    a node's failure          ``(node_id, *row)``: ``("b", 2, 0)`` is the first
-                              row under the third row of what ``b`` runs on
+    a node's failure          ``(node_id, *item)``: ``("b", 2, 0)`` is the first
+                              item inside the third of what ``b`` runs per
     a run stopped as a whole  ``()``
-    a refused call            ``("inputs", name)``, ``(node_id, *row)`` for an
+    a refused call            ``("inputs", name)``, ``(node_id, *item)`` for an
                               answer, ``("state",)``, ``("record", *where)``
                               for a record that isn't one; a graph that can't
                               run is refused with its own problems
@@ -217,9 +217,9 @@ def make_problem(code: str, /, *loc: str | int, **ctx: CtxValue) -> Problem:
     """The problem ``code`` at ``loc``, its message made from ``ctx``, which the record keeps as JSON values.
 
     A list in ``ctx`` stays a list, and the message writes it joined by
-    commas (``none`` when empty); in a list of tables, ``None`` is the graph's
-    own row. A ``hint`` in ``ctx`` picks the code's row in ``HINTED_CATALOGUE``.
-    A code not in ``PROBLEM_CATALOGUE``, or a slot its row
+    commas (``none`` when empty); in a list of Series, ``None`` stands for a
+    node that runs once. A ``hint`` in ``ctx`` picks the code's entry in ``HINTED_CATALOGUE``.
+    A code not in ``PROBLEM_CATALOGUE``, or a slot its entry
     names that ``ctx`` does not fill, is a programming error and raises; only
     ``reason`` may be left out, the sentence a type's own constructor raised,
     which not every one gives.
@@ -227,17 +227,17 @@ def make_problem(code: str, /, *loc: str | int, **ctx: CtxValue) -> Problem:
     said = {key: _said(value) for key, value in ctx.items()}
     reason = said.get("reason")
     if isinstance(reason, str):
-        said["reason"] = reason.rstrip(".")  # the row's own sentence goes on after it
+        said["reason"] = reason.rstrip(".")  # the entry's own sentence goes on after it
     slots = {"reason": "", "node_id": loc[0] if loc else None, "field": loc[1] if len(loc) > 1 else None, **said}
-    row = HINTED_CATALOGUE[code, str(ctx["hint"])] if "hint" in ctx else PROBLEM_CATALOGUE[code]
-    return Problem(type=code, loc=loc, msg=row.format_map(slots).rstrip(), ctx=ctx)
+    entry = HINTED_CATALOGUE[code, str(ctx["hint"])] if "hint" in ctx else PROBLEM_CATALOGUE[code]
+    return Problem(type=code, loc=loc, msg=entry.format_map(slots).rstrip(), ctx=ctx)
 
 
 def _said(value: CtxValue) -> CtxValue:
-    """A ``ctx`` value as its message writes it: a list joined by commas, ``None`` in it the graph's own row."""
+    """A ``ctx`` value as its message writes it: a list joined by commas, ``None`` in it a node that runs once."""
     if not isinstance(value, (list, tuple)):
         return value
-    return ", ".join("the graph's own row" if item is None else str(item) for item in value) or "none"
+    return ", ".join("none (it runs once)" if item is None else str(item) for item in value) or "none"
 
 
 class ConductorError(Exception):
@@ -296,7 +296,7 @@ class NodeError(ConductorError):
     ``NodeError("The document could not be read.")`` reaches the event as
     a ``Problem`` of code ``failed`` with that text; ``code`` and ``ctx`` give it
     a code of the node's own and what the host needs beyond the text.
-    The engine adds the node and the row. It never retries a ``NodeError``;
+    The engine adds the node and the item. It never retries a ``NodeError``;
     a failure the outside world caused is an ``ExternalError``::
 
         raise NodeError("The document could not be read.", code="unreadable", ctx={"pages": 0})

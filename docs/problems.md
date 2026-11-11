@@ -34,8 +34,8 @@ def count(n: int) -> int:
     return n
 
 
-@registry.node("split", title="Split", description="Splits a text into words.")
-def split(text: str) -> Series[str]:
+@registry.node("words", title="Words", description="Gives the words of a text, one at a time.")
+def words(text: str) -> Series[str]:
     return text.split()
 
 
@@ -91,62 +91,26 @@ def refused(call) -> list[str]:
 
 In `graph.problems`, never raised. `loc` is `(node_id,)` or `(node_id, field)`.
 
-### `alternatives_on_different_rows`
+### `alternatives_in_different_series`
 
-> '{field}' takes alternatives from rows of different tables, {tables}, so a row of one has no place for the other's value. Bring them onto rows of one table first.
+> '{field}' takes alternatives that run per item of different Series, {series}, so a call for an item of one has no place for the other's value. Bring them to items of one Series first.
 
 ```python
 print(problems({
     "nodes": [
-        {"id": "s", "node": "split"}, {"id": "r", "node": "route"},
-        {"id": "words", "node": "split"}, {"id": "u", "node": "upper"},
+        {"id": "w", "node": "words"}, {"id": "r", "node": "route"},
+        {"id": "letters", "node": "words"}, {"id": "u", "node": "upper"},
     ],
     "edges": [
-        ["s.result", "r.text"], ["r.short", "words.text"],
-        ["words.result", "u.text"], ["r.long", "u.text"],
+        ["w.result", "r.text"], ["r.short", "letters.text"],
+        ["letters.result", "u.text"], ["r.long", "u.text"],
     ],
-}))  # ['alternatives_on_different_rows']
+}))  # ['alternatives_in_different_series']
 ```
 
-**Fix.** Bring the branches onto rows of one table first, or feed the node from one of them.
+`u.text` is fed from both branches of `r`. The long branch gives one value per item of `w.result`. The short branch goes through `letters`, which makes a Series of its own, so it gives one value per item of `letters.result`.
 
-### `columns_missing`
-
-> '{node_id}.{field}' takes the columns {missing}, which nothing wired into it from {sources} gives; wire them in, or take a Table of any columns.
-
-```python
-from typing import TypedDict
-
-import polars as pl
-from conductor import Table
-
-
-class NameRow(TypedDict):
-    name: str
-
-
-class Invoice(TypedDict):
-    name: str
-    amount: int
-
-
-@registry.node("names", title="Names", description="Splits a text into a table of names.")
-def names(text: str) -> Table[NameRow]:
-    return pl.DataFrame({"name": text.split()})
-
-
-@registry.node("total", title="Total", description="Adds up the amounts on all invoices.")
-def total(invoices: Table[Invoice]) -> int:
-    return int(invoices["amount"].sum())
-
-
-print(problems({
-    "nodes": [{"id": "n", "node": "names"}, {"id": "t", "node": "total"}],
-    "edges": [["n.result", "t.invoices"]],
-}))  # ['columns_missing']
-```
-
-**Fix.** Wire in a table or columns that give every column the input names, or type the input as a bare `Table`, which takes any columns.
+**Fix.** Bring both branches to items of one Series first: gather the inner one in a node with a `Series` input, or feed the node from one of them.
 
 ### `compute_hook_failed`
 
@@ -274,20 +238,6 @@ print(problems({"nodes": [{"id": "c", "node": "count", "values": {"n": "many"}}]
 
 **Fix.** Type in a value of the field's type. `reason` says what the type refused, without quoting the value; `errors` is pydantic's list of what it refused (`type`, `loc`, `msg`; `loc` as far as the type names it, an index or a declared field, never a key of a dict), each without the value, so a host can key on `greater_than_equal` or `bool_is_not_a_number`.
 
-### `lists_not_collected`
-
-> {tables} are lists, each a row per item, and they meet at '{node_id}', which can't tell which item goes with which; collect one of them first, with a node that takes it as a Series, so it arrives as one value.
-
-```python
-print(problems({"nodes": [{"id": "g", "node": "greet", "values": {"name": ["Ida", "Bo"], "greeting": ["hi", "hello"]}}]}))  # ['lists_not_collected']
-greeting = registry.load({"nodes": [{"id": "g", "node": "greet"}]})
-print(refused(lambda: greeting.run(name=["Ida", "Bo"], greeting=["hi", "hello"])))  # ['lists_not_collected']
-```
-
-Each list is a row per item, so two of them reaching one node, typed in or given by a caller, are rows of two different tables. Given by a caller, the call is refused; typed in, the graph has the problem.
-
-**Fix.** Collect one list first: wire it through a node whose input is a `Series`, which takes every item as one value, or give it to an input whose type takes a list. Then the other list's rows each get the whole of it.
-
 ### `parameter_name_invalid`
 
 > '{field}' cannot be a field name: '.', '/' and '@' each mean something in an address, and a name can't be empty; rename the field.
@@ -320,22 +270,9 @@ print(problems({
 
 **Fix.** Remove one of the two.
 
-### `rows_not_related`
+### `series_inputs_never_share_an_item`
 
-> {tables} are rows of different tables; join them on a key in a node, and wire the join.
-
-```python
-print(problems({
-    "nodes": [{"id": "s1", "node": "split"}, {"id": "s2", "node": "split"}, {"id": "g", "node": "greet"}],
-    "edges": [["s1.result", "g.name"], ["s2.result", "g.greeting"]],
-}))  # ['rows_not_related']
-```
-
-**Fix.** Rows of two tables never meet by themselves. Write a node that joins them on a key, and wire the join.
-
-### `series_inputs_never_share_a_row`
-
-> {inputs} read branches that never both have a value on a row, so no row would reach the node. Write Series[X | None] on them to keep every row, or take the branches through one input.
+> {inputs} read branches that never both have a value for an item, so no item would reach the node. Write Series[X | None] on them to keep every item, or take the branches through one input.
 
 ```python
 @registry.node("pair", title="Pair", description="Puts two lists of words side by side.")
@@ -344,25 +281,43 @@ def pair(a: Series[str], b: Series[str]) -> str:
 
 
 print(problems({
-    "nodes": [{"id": "s", "node": "split"}, {"id": "r", "node": "route"}, {"id": "p", "node": "pair"}],
-    "edges": [["s.result", "r.text"], ["r.short", "p.a"], ["r.long", "p.b"]],
-}))  # ['series_inputs_never_share_a_row']
+    "nodes": [{"id": "w", "node": "words"}, {"id": "r", "node": "route"}, {"id": "p", "node": "pair"}],
+    "edges": [["w.result", "r.text"], ["r.short", "p.a"], ["r.long", "p.b"]],
+}))  # ['series_inputs_never_share_an_item']
 ```
 
-**Fix.** Write `Series[X | None]` on both inputs to keep every row, blanks included, or take the branches through one input.
+A node's `Series` inputs leave out an item together when one of them has no value for it. Each word here is short or long, never both, so every item would be left out.
 
-### `several_edges_into_one_value`
+**Fix.** Write `Series[X | None]` on both inputs to keep every item, blanks included, or take the branches through one input.
 
-> '{field}' takes one value, and more than one of the edges into it from {sources} can hold one on a row. Feed it from opposite branches of one decision, or take them through a Series or Table input.
+### `series_not_nested`
+
+> '{node_id}' reads items of {series}, and neither is made inside the other, so nothing says which item goes with which. Make one inside the other (wire '{wire_from}' into '{wire_into}', the node that makes the other), or give one of them whole to a Series input.
+
+```python
+unpaired = registry.load({
+    "nodes": [{"id": "names", "node": "words"}, {"id": "greetings", "node": "words"}, {"id": "g", "node": "greet"}],
+    "edges": [["names.result", "g.name"], ["greetings.result", "g.greeting"]],
+}).problems[0]
+print(unpaired.type, unpaired.ctx["wire_from"], unpaired.ctx["wire_into"])  # series_not_nested names.result greetings
+```
+
+`g` would run once per name and once per greeting, and nothing says which name goes with which greeting. `ctx.series` lists the two Series, `ctx.inputs` the inputs that read them, and `ctx.wire_from` and `ctx.wire_into` name an edge that would put one inside the other.
+
+**Fix.** Make one Series inside the other: wire an item of the first into the node that makes the second, so the second is made once per item of the first, and the node runs for each pair. Or give one of them whole to a `Series` input, so it arrives as one list.
+
+### `several_edges_into_one_input`
+
+> More than one of the edges into '{field}', from {sources}, can hold a value on the same call. Feed it from opposite branches of one decision, or join them in a node with an input for each.
 
 ```python
 print(problems({
     "nodes": [{"id": "a", "node": "upper"}, {"id": "b", "node": "upper"}, {"id": "c", "node": "upper"}],
     "edges": [["a.result", "c.text"], ["b.result", "c.text"]],
-}))  # ['several_edges_into_one_value']
+}))  # ['several_edges_into_one_input']
 ```
 
-**Fix.** Feed it from opposite branches of one decision (outputs of one `exclusive_group`), or take the values through a `Series` input.
+**Fix.** Feed it from opposite branches of one decision (outputs of one `exclusive_group`), or write a node with an input for each and wire them there. A `Series` input takes several edges on the same terms.
 
 ### `type_mismatch`
 
@@ -376,6 +331,62 @@ print(problems({
 ```
 
 **Fix.** Wire an output of the type the input takes, or put a node between that turns one into the other.
+
+Two mismatches have a sentence of their own, and `ctx.hint` says which.
+
+A whole table or list wired into an input of one value is `split_first`:
+
+> '{source}' is a whole {whole} and '{node_id}.{field}' takes one {expected}. To run '{node_id}' once for each record or item in it, put a Split between them and wire Split's result, or one field of it.
+
+```python
+from typing import TypedDict
+
+import polars as pl
+from conductor import Table
+
+
+class Contact(TypedDict):
+    name: str
+    email: str
+
+
+class Invoice(TypedDict):
+    name: str
+    amount: int
+
+
+@registry.node("contacts", title="Contacts", description="Reads contacts from a text, a name and an email on each line.")
+def contacts(text: str) -> Table[Contact]:
+    return pl.DataFrame([dict(zip(("name", "email"), line.split(), strict=True)) for line in text.splitlines()])
+
+
+whole = registry.load({
+    "nodes": [{"id": "c", "node": "contacts"}, {"id": "u", "node": "upper"}],
+    "edges": [["c.result", "u.text"]],
+}).problems[0]
+print(whole.type, whole.ctx["hint"], whole.ctx["fields"])  # type_mismatch split_first ['name', 'email']
+```
+
+**Fix.** A table or a list is one value. Put a node between that gives its records or items as a `Series` (`split` in `syv-conductor-nodes`), and wire that node's result, or one field of it (`split.result.email`). `ctx.whole` is `table` or `list`, and `ctx.fields` lists a table's columns.
+
+A table wired into a `Table[R]` input that names a column the table lacks is `add_column`:
+
+> '{node_id}.{field}' needs the column '{column}' ({column_type}); '{source}' has {has}. Add the column in a node between, or connect a table that has it.
+
+```python
+@registry.node("total", title="Total", description="Adds up the amounts on all invoices.")
+def total(invoices: Table[Invoice]) -> int:
+    return int(invoices["amount"].sum())
+
+
+lacking = registry.load({
+    "nodes": [{"id": "c", "node": "contacts"}, {"id": "t", "node": "total"}],
+    "edges": [["c.result", "t.invoices"]],
+}).problems[0]
+print(lacking.type, lacking.ctx["hint"], lacking.ctx["column"])  # type_mismatch add_column amount
+```
+
+**Fix.** Wire in a table that has every column the input names, add the column in a node between, or type the input as a bare `Table`, which takes any columns. `ctx.column` and `ctx.column_type` say what is missing, and `ctx.has` lists the columns the table has.
 
 ### `unbound_on_later_node`
 
@@ -421,7 +432,21 @@ print(problems({
 }))  # ['unknown_output']
 ```
 
-**Fix.** Wire from one of the addresses `ctx.outputs` lists.
+**Fix.** Wire from one of the addresses `ctx.outputs` lists. An edge may name one field of a record an output gives, `node.output.field`; `ctx.outputs` lists those too.
+
+A field named on a whole table or list has a sentence of its own, with `ctx.hint` set to `split_first`:
+
+> '{source}' names a field of a whole {whole}, which has no field to wire. Split it first: put a Split after it and wire the field from Split's result.
+
+```python
+column = registry.load({
+    "nodes": [{"id": "c", "node": "contacts"}, {"id": "u", "node": "upper"}],
+    "edges": [["c.result.email", "u.text"]],
+}).problems[0]
+print(column.type, column.ctx["hint"])  # unknown_output split_first
+```
+
+**Fix.** A table is one value, so it has no field to wire. Put a node after it that gives its records as a `Series` (`split` in `syv-conductor-nodes`), and wire the field from that node's result: `split.result.email`.
 
 ### `unknown_version`
 
@@ -462,7 +487,7 @@ Raised as `InvalidCallError` by the call that caused it; `error.errors()` lists 
 
 ### `answer_stale`
 
-> The question {waiting_id!r} was answered for has changed on its row; it is now {current!r}, so answer that one.
+> The question {waiting_id!r} was answered for has changed where it waited; it is now {current!r}, so answer that one.
 
 ```python
 approving = registry.load({"nodes": [{"id": "approve", "node": "approve"}]})
@@ -553,19 +578,20 @@ print(refused(lambda: uppering.with_inputs(text="a").stream(checkpoint_every=0))
 ```python
 counting = registry.load(make_graph(count))
 print(refused(lambda: counting.run(n="many")))  # ['invalid_input']
+print(refused(lambda: uppering.run(text=["a", "b"])))  # ['invalid_input']
 ```
 
-**Fix.** Give a value of the input's type. `graph.inputs[name].json_schema` is its schema, limits included. `reason` and `errors` are as `invalid_value` has them.
+**Fix.** Give a value of the input's type. `graph.inputs[name].json_schema` is its schema, limits included. `reason` and `errors` are as `invalid_value` has them. An input of one value takes one value: a list given there is refused, since a graph runs once per item only after a node that returns a `Series`. An open `Series` input takes a list, also for one value.
 
-### `invalid_max_rows`
+### `invalid_max_items`
 
-> max_rows is at least 1; it was {max_rows}.
+> max_items is at least 1; it was {max_items}.
 
 ```python
-print(refused(lambda: uppering.run(text="a", max_rows=0)))  # ['invalid_max_rows']
+print(refused(lambda: uppering.run(text="a", max_items=0)))  # ['invalid_max_items']
 ```
 
-**Fix.** Give `max_rows` of 1 or more, or leave it out for no ceiling.
+**Fix.** Give `max_items` of 1 or more, or leave it out for no ceiling.
 
 ### `invalid_timeout`
 
@@ -690,7 +716,7 @@ print(refused(lambda: unwritable.to_json()))  # ['state_unwritable']
 
 ## Why a node or a run stopped
 
-In `run.state` (an `EndedEarly`'s `cause`) and on `node_failed`. `loc` is `(node_id, *row)`, or `()` for the run as a whole.
+In `run.state` (an `EndedEarly`'s `cause`) and on `node_failed`. `loc` starts with the node's id, and is `()` for the run as a whole.
 
 ### `execution_failed`
 
@@ -805,6 +831,22 @@ match wrong.state:
 
 **Fix.** Return what the node declares. `"12"` is never an `int`: outputs are read strictly. `ctx.name` names the output.
 
+### `item_ceiling`
+
+> {series} has {items} items, more than the {max_items} this run may work through; resume it with a larger max_items.
+
+```python
+per_word = registry.load(make_graph(words, upper))
+capped = per_word.run(text="a b c", max_items=2)
+match capped.state:
+    case EndedEarly(cause=cause):
+        print(cause.type, cause.ctx["items"])  # item_ceiling 3
+```
+
+`upper` would run once per word, and there are three. The ceiling counts only a Series some node runs per item of: one that is only gathered or passed on whole costs no calls.
+
+**Fix.** `capped.resume(max_items=...)` with a higher ceiling carries on, calling nothing again.
+
 ### `question_unwritable`
 
 > The node asked a person, but what it received at '{input}' has no JSON form to show them: {reason}. Give that input a type pydantic writes as JSON.
@@ -822,20 +864,6 @@ match unshown.state:
 ```
 
 **Fix.** Give the input a type pydantic writes as JSON, or ask in a node that receives one. A question carries what its node received, for the person answering it. `ctx.input` names the input.
-
-### `row_ceiling`
-
-> {table} has {rows} rows, more than the {max_rows} this run may make; resume it with a larger max_rows.
-
-```python
-splitting = registry.load(make_graph(split, upper))
-capped = splitting.run(text="a b c", max_rows=2)
-match capped.state:
-    case EndedEarly(cause=cause):
-        print(cause.type)  # row_ceiling
-```
-
-**Fix.** `capped.resume(max_rows=...)` with a higher ceiling carries on, calling nothing again.
 
 ### `run_cancelled`
 
@@ -894,7 +922,7 @@ match late.state:
         print(cause.type)  # timeout
 ```
 
-**Fix.** Raise the node's `Policy(attempt_timeout=)`, or make the call faster. The timeout is final for that row: it is not retried.
+**Fix.** Raise the node's `Policy(attempt_timeout=)`, or make the call faster. The timeout is final for that call: it is not retried.
 
 ## Serving runs
 
@@ -961,7 +989,7 @@ except NodeDeclarationError as error:
     print(error.code)  # async_run
 ```
 
-**Fix.** Write a plain `def`. For a slow call, `Policy(concurrency=8)` runs several rows at once on threads.
+**Fix.** Write a plain `def`. For a slow call, `Policy(concurrency=8)` makes several calls at once on threads.
 
 ### `bound_invalid`
 
@@ -1186,7 +1214,7 @@ except NodeDeclarationError as error:
 
 ### `nested_series`
 
-> {name}: a Series of Series; rows are never nested in a field, so return one Series
+> {name}: a Series of Series; a field holds one level of items, so return one Series
 
 ```python
 try:
@@ -1197,7 +1225,7 @@ except NodeDeclarationError as error:
     print(error.code)  # nested_series
 ```
 
-**Fix.** Return one `Series`. A node after it that runs per row makes the next level.
+**Fix.** Return one `Series`. A node after it that runs once per item and returns a `Series` of its own makes the next level.
 
 ### `not_for_a_graph`
 
@@ -1246,7 +1274,7 @@ except NodeDeclarationError as error:
     print(error.code)  # outputs_not_frozen
 ```
 
-**Fix.** Write `@dataclass(frozen=True)`. The rows of a run can share one value.
+**Fix.** Write `@dataclass(frozen=True)`. Several calls in a run can be given the same value.
 
 ### `parameter_not_by_name`
 
@@ -1411,7 +1439,7 @@ checked.add(sort_in_place)
 print([p.type for p in check_registry(checked, examples={"sort_in_place": [{"texts": ["b", "a"]}]})])  # ['changed_its_inputs']
 ```
 
-**Fix.** Copy the value before changing it, `sorted(texts)`. The rows of a run can share one value.
+**Fix.** Copy the value before changing it, `sorted(texts)`. Several calls in a run can be given the same value.
 
 ### `example_for_no_node`
 

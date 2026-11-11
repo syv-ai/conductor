@@ -16,8 +16,8 @@ readable, unless its ``Param(title=)`` says otherwise. ``extra`` is the host's o
 never reads.
 
 One output is ``result``, of whatever type is returned, a ``dict`` included;
-a frozen dataclass returned gives one output per field. ``Series[X]`` and ``Table[R]`` give many rows, ``SKIPPED`` on an output
-is a branch not taken, and ``raise Ask(...)`` stops the row for a person.
+a frozen dataclass returned gives one output per field. ``Series[X]`` gives many values, each an item, and ``Table[R]`` one table; ``SKIPPED`` on an output
+is a branch not taken, and ``raise Ask(...)`` stops that call for a person.
 
 A newer version of a node names the one it ``replaces``, itself a ``@node``
 of the same id, and says with ``upgrade`` how a node saved at that one moves
@@ -31,7 +31,7 @@ here. A definition is one version, and each version names the one before it in
     def split(text: str, separator: str = "\\n") -> Series[str]: ...
 
 Two hooks shape a node from what it is given in one graph, each a plain
-function run when a graph is loaded, never per row. A parameter of a hook
+function run when a graph is loaded, never per call. A parameter of a hook
 names an input of the node and receives the value typed into it (or its
 default); a parameter annotated ``type`` receives the type arriving on the
 input of that name by its edge (``Any`` until one does), and ``**added: type``
@@ -105,7 +105,7 @@ HookParameter = Literal["value", "arriving_type", "added_arriving_types"]
 class Policy:
     """How the engine calls a node, set by its author: ``@node("fetch", policy=Policy(retries=3))``.
 
-    ``concurrency`` rows are called at once, on threads; with 1 and no
+    ``concurrency`` calls are made at once, on threads; with 1 and no
     ``attempt_timeout`` the node is called in order, on the leg's own thread.
     A call that raises ``ExternalError``, or one of the ``retry_on`` classes
     of the node's own client, is tried ``retries`` more times, waiting from
@@ -116,7 +116,7 @@ class Policy:
     attempt that runs past ``attempt_timeout`` fails the unit, finally: its
     thread can't be stopped, and a second call beside it would repeat its
     effect. ``reuse_when_inputs_match=False`` is for a node that reads the
-    world, not only its inputs: ``run.again`` calls it on every row.
+    world, not only its inputs: ``run.again`` calls it for every item.
     """
 
     concurrency: int = 1
@@ -279,13 +279,13 @@ class FunctionDefinition(_Version, Generic[_P, _R]):
     ``def`` makes one; a host reads it from ``registry[id]`` or by looping over a registry.
 
     Attributes:
-        function: What runs on each row.
+        function: What each call runs.
         inputs: Each input by name, as its signature declares it. A ``FromRun`` parameter is not an input: it is in
             ``from_run``. An input a hook adds is not here either; a loaded graph's node holds it.
         outputs: Each output by name: ``result`` for one value, a field each for a frozen dataclass returned.
         returns: What the function returns: one ``result``, a frozen dataclass of outputs, the mapping of outputs a
             ``compute_outputs`` hook gave, or nothing.
-        policy: How it runs: how many rows at once, its retries and time limit, whether it reuses earlier work.
+        policy: How it runs: how many calls at once, its retries and time limit, whether it reuses earlier work.
         compute_added_inputs: A hook run at load that adds inputs from the values typed into it; the function takes
             them as ``**kwargs``.
         compute_outputs: A hook run at load that gives every output, from the values typed in and the types
@@ -511,7 +511,7 @@ def node(
 
 
 #: What a node id never holds: each means something in an address (``node.field``, ``embedding/inner``) or a waiting id
-#: (``node@row~fingerprint``).
+#: (``node@item~fingerprint``).
 _MARKS = frozenset("./@~")
 
 

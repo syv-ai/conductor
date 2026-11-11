@@ -137,7 +137,7 @@ class Param:
         description: A longer text about the field, for its help.
         widget: The ``conductor.widgets`` control a person edits the field with (on an output, answers it with); a
             host's own is a subclass of ``Widget``. Carried to the host and never read here.
-        exclusive_group: Outputs of one node that share it are alternatives: on each row the node gives a value on
+        exclusive_group: Outputs of one node that share it are alternatives: on each call the node gives a value on
             one of them and ``SKIPPED`` on the rest.
         choices: The values the field takes, each a value or a ``Choice`` to give it a title. On a ``Literal`` field
             they title its values, one each; on any other they limit what it takes. A ``Dropdown`` draws them.
@@ -265,7 +265,7 @@ _T = TypeVar("_T")
 _Record = TypeVar("_Record", bound="FieldDescription")
 
 #: ``FromRun[X]``: a value the host hands the run by its type (a session, who is running), never an input. It takes
-#: no edge, is not stored in the record, and is no part of what makes a row's result reusable. The run is given one
+#: no edge, is not stored in the record, and is no part of what makes a call's result reusable. The run is given one
 #: with ``from_run={X: value}``. To a type checker the parameter is an ``X``.
 FromRun = Annotated[_T, _FromRunMarker()]
 
@@ -495,7 +495,7 @@ class FieldSpec:
 
 
 class FieldDescription(ConductorModel):
-    """An input or output as an editor reads it, and a question a waiting row asks.
+    """An input or output as an editor reads it, and a question a waiting call asks.
 
     ``type`` is its type's id and ``schema`` its JSON schema, for one value or a ``Series`` item; a table has
     ``columns`` instead, each column's schema. ``default`` is what it holds when it is not ``required``.
@@ -572,7 +572,7 @@ def read_field(name: str, hint: Any, default: Any = REQUIRED, where: str = "") -
             if item is pl.DataFrame or item is Table or marked(item, _TableMarker):
                 raise NodeDeclarationError(f"{where}{name}: a Series of tables; a table already holds many rows, so take or return one table", code="series_of_tables")
             if marked(item, _ManyMarker):
-                raise NodeDeclarationError(f"{where}{name}: a Series of Series; rows are never nested in a field, so return one Series", code="nested_series")
+                raise NodeDeclarationError(f"{where}{name}: a Series of Series; a field holds one level of items, so return one Series", code="nested_series")
             item_id, classes = named_by(without_none(item))
             return _checked(FieldSpec(name, "many", item, or_none, default, param, type_id=item_id, classes=classes, item=item), where)
         if markers and isinstance(markers[0], _TableMarker):
@@ -1140,7 +1140,7 @@ def read_value(spec: FieldSpec, value: Any, *, strict: bool) -> Any:
     if spec.shape == "one" and type(value) in spec.plain_classes:
         return value
     if spec.shape == "many" and isinstance(value, (tuple, range)):
-        value = list(value)  # any sequence a node returns is its rows
+        value = list(value)  # any sequence a node returns is its items
     elif spec.shape == "many" and isinstance(value, pl.Series):
         value = value.to_list()  # a column of a frame is its values, as a frame is a Table
     try:
