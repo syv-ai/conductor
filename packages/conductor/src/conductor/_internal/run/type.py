@@ -68,10 +68,10 @@ from conductor._internal.outcomes import (
 )
 from conductor._internal.problem import InvalidCallError, Problem, value_free_errors
 from conductor._internal.problem import catalogue as problem
-from conductor._internal.run.call_inputs import (
-    AsItStandsReader,
+from conductor._internal.run.arguments import (
     CallInputs,
-    ItemReader,
+    DisplayReader,
+    ResultReader,
 )
 from conductor._internal.run_status import READY, RUNNING, EndedEarly, Going, RunState, RunStatus
 from conductor._internal.saved_run import (
@@ -268,7 +268,7 @@ class Run:
         graph = self.graph
         run.state, run._finished_nodes = Scheduler(
             nodes=graph._tree, threads=graph._threads, units=run._outcomes, earlier_work=run._earlier_work, finished=run._finished_nodes,
-            max_items=run.max_items, comes_to=run._reader.comes_to, emit=emit, stop=stop, from_run=from_run,
+            max_items=run.max_items, arguments_for=run._reader.arguments_for, emit=emit, stop=stop, from_run=from_run,
             checkpoint=checkpoint, checkpoint_every=checkpoint_every,
         ).go()
         if emit is not None:  # a leg handed back left its run running: the run didn't end, and the host stores it as it stands
@@ -397,7 +397,7 @@ class Run:
             for key, unit in self._outcomes[node.name].items():
                 if type(unit) is Skipped or type(unit) is outcomes.NotCalled:
                     continue
-                received = cast("CallInputs", reader.comes_to(node, key))  # the unit was called, so what it reads is settled and it received a call's arguments
+                received = cast("CallInputs", reader.arguments_for(node, key))  # the unit was called, so what it reads is settled and it received a call's arguments
                 fingerprint = fingerprint_of(placed.reuse_digest, received, plain=placed.plain_inputs)
                 if fingerprint is None:
                     continue
@@ -462,8 +462,8 @@ class Run:
         ``[["A", "B"], None, ["C"]]``. ``None`` instead of a list means the list being looped over was never
         made, or no item of it could have a value.
         """
-        reader = self._reader_as_it_stands
-        return {n: {o: reader.shown(host_reads(*self._function_of(f"{n}.{o}"))) for o in placed.outputs} for n, placed in self.graph._nodes.items()}
+        reader = self._display_reader
+        return {n: {o: reader.display_value(host_reads(*self._function_of(f"{n}.{o}"))) for o in placed.outputs} for n, placed in self.graph._nodes.items()}
 
     @property
     def outputs(self) -> dict[str, Any]:
@@ -475,8 +475,8 @@ class Run:
                 raise InvalidCallError([problem.run_not_complete("outputs", status=status, reason="")])
             case EndedEarly(status=status, cause=cause):
                 raise InvalidCallError([problem.run_not_complete("outputs", status=status, reason=cause.msg)])
-        reader = self._reader_as_it_stands
-        return {address: reader.shown(host_reads(*self._function_of(address))) for address in self.graph.outputs}
+        reader = self._display_reader
+        return {address: reader.display_value(host_reads(*self._function_of(address))) for address in self.graph.outputs}
 
     def outputs_json(self) -> str:
         """The graph's outputs (``run.outputs``) as JSON, by address, each written by its output's type as a save
@@ -509,14 +509,14 @@ class Run:
     # -- what a leg reads -------------------------------------------------------
 
     @property
-    def _reader(self) -> ItemReader:
+    def _reader(self) -> ResultReader:
         """Reads what this run's units hold for one item: what a call of a node receives there."""
-        return ItemReader(self._outcomes, self.inputs)
+        return ResultReader(self._outcomes, self.inputs)
 
     @property
-    def _reader_as_it_stands(self) -> AsItStandsReader:
+    def _display_reader(self) -> DisplayReader:
         """Reads what this run's units hold as they stand, waiting for nothing: what a host is shown."""
-        return AsItStandsReader(self._outcomes, self.inputs)
+        return DisplayReader(self._outcomes, self.inputs)
 
     # -- JSON -------------------------------------------------------------------
 

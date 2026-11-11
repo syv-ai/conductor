@@ -130,11 +130,11 @@ class Scheduler:
 
     def __init__(
         self, *, nodes: list[FunctionAtPath], threads: int, units: dict[str, dict[ItemPath, Outcome]], earlier_work: dict[NodePath, EarlierWork], finished: frozenset[NodePath],
-        max_items: int | None, comes_to: Callable[[FunctionAtPath, ItemPath], dict[str, Any] | Skipped | NotCalled | Literal[NotReady.NOT_READY]],
+        max_items: int | None, arguments_for: Callable[[FunctionAtPath, ItemPath], dict[str, Any] | Skipped | NotCalled | Literal[NotReady.NOT_READY]],
         emit: Callable[[EventBase], None] | None, stop: Callable[[], RunState | None] | None, from_run: dict[type, Any],
         checkpoint: Callable[[RunState], None] | None = None, checkpoint_every: float | None = None,
     ) -> None:
-        self.nodes, self.threads, self.all_outcomes, self.max_items, self.comes_to = nodes, threads, units, max_items, comes_to
+        self.nodes, self.threads, self.all_outcomes, self.max_items, self.arguments_for = nodes, threads, units, max_items, arguments_for
         self.emit, self.stop, self.from_run, self.checkpoint = emit, stop, from_run, checkpoint
         #: How the run stands for this leg: running, until the leg ends it early or closes.
         self.state: RunState = RUNNING
@@ -342,7 +342,7 @@ class Scheduler:
         if not walking and (key in self.units[node] or (node, key) in self.running):
             return
         try:
-            kwargs = self.comes_to(node, key)
+            kwargs = self.arguments_for(node, key)
         except UnitFailedError as missing:  # an edge names a field the record it brings doesn't have
             self._record(node, key, self._failure(node, key, missing), walking)
             return

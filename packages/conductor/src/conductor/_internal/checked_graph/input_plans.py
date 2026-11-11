@@ -142,13 +142,13 @@ class ReadsOutputs(Protocol):
     """What a plan asks of what reads for it: a way to read one output, for one item or for an item nobody
     knows. Each answer is a value, ``None`` for a blank, ``SKIPPED`` for a branch not taken, or ``NOT_READY``."""
 
-    def output(self, at: OutputAtScope, item_path: ItemPath) -> Any:
+    def read_output(self, at: OutputAtScope, item_path: ItemPath) -> Any:
         """What the output ``at`` holds for ``item_path``, as an edge brings it."""
 
-    def best_of(self, reads: tuple[OutputAtScope, ...], item_path: ItemPath) -> Any:
+    def read_alternatives(self, reads: tuple[OutputAtScope, ...], item_path: ItemPath) -> Any:
         """What alternative edges bring one input: the best of what each brings."""
 
-    def gathered(self, plan: InputGathersItems, item_path: ItemPath) -> Any:
+    def collect(self, plan: InputGathersItems, item_path: ItemPath) -> Any:
         """What the gathering input of ``plan`` holds: its items, or what is outside them when that decides."""
 
 
@@ -218,7 +218,7 @@ class InputReadsOneValue:
     def value(self, reader: ReadsOutputs, item_path: ItemPath) -> Any:
         """What the input holds for ``item_path``: what its edge brings, or the best of alternative edges."""
         reads = self.reads
-        return reader.output(reads[0], item_path) if len(reads) == 1 else reader.best_of(reads, item_path)
+        return reader.read_output(reads[0], item_path) if len(reads) == 1 else reader.read_alternatives(reads, item_path)
 
 
 @final
@@ -252,7 +252,7 @@ class InputGathersItems:
     def value(self, reader: ReadsOutputs, item_path: ItemPath) -> Any:
         """What the input holds for ``item_path``: the items of its Series, or what is outside them when that
         decides."""
-        return reader.gathered(self, item_path)
+        return reader.collect(self, item_path)
 
     @property
     def scope(self) -> Scope:
@@ -284,7 +284,7 @@ class InputGathersOneValue:
         """What the input holds for ``item_path``: the one value its edge brings, as a list of one; where the
         items take a blank, a blank is its one item."""
         reads = self.reads
-        value = reader.output(reads[0], item_path) if len(reads) == 1 else reader.best_of(reads, item_path)
+        value = reader.read_output(reads[0], item_path) if len(reads) == 1 else reader.read_alternatives(reads, item_path)
         if value is SKIPPED or value is NOT_READY or (value is None and not self.field.keeps_blanks):
             return value
         return [value]
