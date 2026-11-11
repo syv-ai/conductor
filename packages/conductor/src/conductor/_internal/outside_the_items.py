@@ -10,7 +10,9 @@ A cell made outside the items is read as it stands. A node made per item is
 the worst of its inputs, where an input that takes a blank receives it; an
 input is the best of its alternative edges; an output of an exclusive group of
 a node that isn't called is skipped, as no branch is chosen. A gathering input
-is the worst of its Series and the best of its edges.
+is the worst of its Series and the best of its edges, and an item of the
+gathered Series is what the Series itself is: a Series that was never made
+has no item, so a node per item that takes no blank isn't called for it.
 
 When no item could bring a value, the gathering node is treated as any node
 reading from outside the items, with two items as with none: skipped for a
@@ -21,7 +23,8 @@ The rule is asked twice. When the tree of a graph is built, ``gathered_through``
 finds the nodes made per item that a gathering input rests on, and adds what
 they read outside the items to what the gathering node reads, so the unit that
 settles the answer makes the node ready. In a run, ``could_bring`` asks those
-nodes, in order, and no other.
+nodes, in order, and no other. So no answer is kept from load: the tree keeps
+which nodes to ask, and a run asks them of the units it holds.
 """
 
 from __future__ import annotations
@@ -63,8 +66,8 @@ def gathered_through(node: FunctionAtPath, series: tuple[NodeAtPath, str], sourc
 
     Returns:
         The nodes, in the tree's order: each after the ones it reads. None when all they read outside the
-        items is the Series, from a node whose one output it is: then only the Series itself has a say, and
-        a run reads that with no question asked.
+        items is the Series, from a node whose one output it is, and none of them decides: then the input
+        comes to what the Series itself is, and a run reads that with no question asked.
     """
     made_by = series[0]
     through: set[NodeAtPath] = set()
@@ -74,6 +77,8 @@ def gathered_through(node: FunctionAtPath, series: tuple[NodeAtPath, str], sourc
         inner = stack.pop()
         if series in inner.maps and inner not in through:
             through.add(inner)
+            if any([spec.param.exclusive_group is not None for spec in inner.placed.outputs.values()]):
+                only_the_series = False  # a decision not called for a Series never made chooses no branch: a skip, not the Series' blank
             for read, places in inner.reads.items():
                 if series in read.maps:
                     stack.append(read)
@@ -133,7 +138,7 @@ def _could_hold(inside: NodePath, base: int, cell: Cell, gathered: Gather, asked
     if made_by not in asked:
         series = gathered.reads[0][0]
         if type(cell) is Item and cell.node_id == series.node_id and cell.output == series.output:
-            return COULD  # an item of the Series itself
+            cell = series  # an item of the Series itself is what the Series is: a Series never made has none
         return stands(inside, base, cell, ())
     if type(made_by) is GraphAtPath:  # an output of an embedded graph: the cell inside that holds it
         for address, offered, maps, _ in made_by.offers:

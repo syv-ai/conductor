@@ -261,3 +261,17 @@ def test_a_long_chain_of_alternatives_in_the_items_is_asked_node_by_node_however
     graph = REGISTRY.load({"nodes": [*nodes, {"id": "n", "node": "count"}], "edges": [list(edge) for edge in [*edges, *((source, "n.values") for source in before)]]})
     assert not graph.problems, graph.problems
     assert came_to(graph.run(), "n") == n
+
+
+@pytest.mark.parametrize("counter", ["count", "count-or-none", "count-with-blanks"])
+def test_a_series_never_made_below_a_decision_made_per_item_skips_the_gather_as_no_branch_was_chosen(counter: str) -> None:
+    nodes, edges = {"t": "template", "s": "items", "w": "decide"}, [("t.result", "s.text"), ("s.result", "w.go")]
+    direct = ran({**nodes, "n": counter}, [*edges, ("w.no", "n.values")], kind="blank")
+    through = ran({**nodes, "u": "up", "n": counter}, [*edges, ("w.no", "u.a"), ("u.result", "n.values")], kind="blank")
+    assert (came_to(direct, "n"), came_to(through, "n")) == ("skipped", "skipped")
+
+
+def test_a_series_never_made_is_the_gathers_own_blank_where_the_nodes_per_item_would_take_a_blank_item() -> None:
+    nodes = {"t": "template", "s": "items", "u": "up-or-none", "n": "count", "o": "count-or-none"}
+    run = ran(nodes, [("t.result", "s.text"), ("s.result", "u.a"), ("u.result", "n.values"), ("u.result", "o.values")], kind="blank")
+    assert (came_to(run, "n"), came_to(run, "o")) == ("not called", "none")
