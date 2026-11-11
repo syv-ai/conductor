@@ -17,7 +17,7 @@ from conductor._internal.loaded_graph import (
     PlacedFunction,
     nodes_at_paths,
 )
-from conductor._internal.problem import InvalidCallError, Problem, make_problem
+from conductor._internal.problem import InvalidCallError, Problem
 from conductor._internal.run import Run, checked_leg, no_units, run_from_json
 from conductor._internal.saved_run import SaveForm, save_form
 
@@ -125,7 +125,7 @@ class Graph(LoadedGraph):
             if offered is None:
                 problems.append(problem.not_offered("inputs", name, name=name, inputs=list(self.inputs)))
             elif offered.address in by_address:
-                problems.append(make_problem("input_given_twice", "inputs", offered.name, name=offered.name, address=offered.address))
+                problems.append(problem.input_given_twice("inputs", offered.name, name=offered.name, address=offered.address))
             else:
                 by_address[offered.address] = value
         return by_address, problems
@@ -140,7 +140,7 @@ class Graph(LoadedGraph):
         for address, offered in self._input_fields.items():
             if address not in given:
                 if offered.spec.default is REQUIRED:
-                    problems.append(make_problem("missing_input", "inputs", offered.name, name=offered.name))
+                    problems.append(problem.missing_input("inputs", offered.name, name=offered.name))
                 values[address] = offered.spec.default
                 continue
             value, spec = given[address], offered.spec

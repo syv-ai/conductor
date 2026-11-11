@@ -400,6 +400,18 @@ def from_run_missing(node_id: str, parameter: str, *, needs: str, given: list[st
 
 
 @PROBLEMS.problem()
+def input_given_twice(*loc: str | int, name: str, address: str) -> str:
+    """A call gives an input by its name and by its address.
+
+    Args:
+        loc: ``"inputs"``, then the input's name.
+        name: The input's name.
+        address: The input's address.
+    """
+    return f"'{name}' is given twice, by its name and by its address '{address}'; give it once."
+
+
+@PROBLEMS.problem()
 def invalid_answer(*loc: str | int, waiting_id: str, reason: str, question: str | None = None) -> str:
     """An answer is not one the question it is for takes.
 
@@ -486,6 +498,17 @@ def invalid_timeout(*loc: str | int, timeout: float) -> str:
         timeout: The value given.
     """
     return f"timeout is a number of seconds above 0; it was {timeout}."
+
+
+@PROBLEMS.problem()
+def missing_input(*loc: str | int, name: str) -> str:
+    """A call leaves out an input the graph requires.
+
+    Args:
+        loc: ``"inputs"``, then the input's name.
+        name: The input's name.
+    """
+    return f"'{name}' is required; give it in the call."
 
 
 @PROBLEMS.problem()

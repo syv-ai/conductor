@@ -25,8 +25,6 @@ from conductor._internal.problem.type import Problem
 PROBLEM_CATALOGUE: Mapping[str, str] = {
     # -- what loading finds in a graph -----------------------------------------
     # -- what a call is refused for ----------------------------------------------
-    "input_given_twice": "'{name}' is given twice, by its name and by its address '{address}'; give it once.",
-    "missing_input": "'{name}' is required; give it in the call.",
     # -- why a node or a run stopped -------------------------------------------
 }
 
