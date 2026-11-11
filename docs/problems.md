@@ -78,6 +78,11 @@ def problems(drawing: dict) -> list[str]:
     return [problem.type for problem in registry.load(drawing).problems]
 
 
+def told(drawing: dict) -> list[str]:
+    """What loading ``drawing`` tells a person, a sentence for each problem."""
+    return [problem.msg for problem in registry.load(drawing).problems]
+
+
 def refused(call) -> list[str]:
     """The codes a refused call lists."""
     try:
@@ -102,10 +107,8 @@ In `graph.problems`, never raised. `loc` is `(node_id,)` or `(node_id, field)`.
 
 ### `alternatives_in_different_series`
 
-> '{field}' takes alternatives that run per item of different Series, {series}, so a call for an item of one has no place for the other's value. Bring them to items of one Series first.
-
 ```python
-print(problems({
+drawing = {
     "nodes": [
         {"id": "w", "node": "words"}, {"id": "r", "node": "route"},
         {"id": "letters", "node": "words"}, {"id": "u", "node": "upper"},
@@ -114,16 +117,18 @@ print(problems({
         ["w.result", "r.text"], ["r.short", "letters.text"],
         ["letters.result", "u.text"], ["r.long", "u.text"],
     ],
-}))  # ['alternatives_in_different_series']
+}
+print(problems(drawing))  # ['alternatives_in_different_series']
+print(told(drawing)[0])  # 'text' takes alternatives that run per item of different Series, w.result, letters.result, so a call for an item of one has no place for the other's value. Bring them to items of one Series first.
 ```
 
 `u.text` is fed from both branches of `r`. The long branch gives one value per item of `w.result`. The short branch goes through `letters`, which makes a Series of its own, so it gives one value per item of `letters.result`.
 
 **Fix.** Bring both branches to items of one Series first: gather the inner one in a node with a `Series` input, or feed the node from one of them.
 
-### `compute_hook_failed`
+Its `ctx` keys are in the reference: `python -m conductor.about alternatives-in-different-series`.
 
-> The node could not work out its fields from what it was given: {reason}. Check what is typed into the node and what is wired to it.
+### `compute_hook_failed`
 
 ```python
 def by_names(names: str) -> dict[str, type]:
@@ -137,60 +142,70 @@ def pick(names: str) -> dict[str, str]:
     return {name: name for name in names.split(",")}
 
 
-print(problems({"nodes": [{"id": "pick", "node": "pick", "values": {"names": ""}}]}))  # ['compute_hook_failed']
+drawing = {"nodes": [{"id": "pick", "node": "pick", "values": {"names": ""}}]}
+print(problems(drawing))  # ['compute_hook_failed']
+print(told(drawing)[0])  # The node could not work out its fields from what it was given: no names. Check what is typed into the node and what is wired to it.
 ```
 
 **Fix.** Type in a value the node's hook can work its fields out from. The hook's own exception is in the `conductor` log. A hook that raises `NodeError` gives its `code` as `ctx.error` (`failed` when it names none, `external_failed` for an `ExternalError`) and its own `ctx` whole as `ctx.error_ctx`; any other exception gives its class name.
 
+Its `ctx` keys are in the reference: `python -m conductor.about compute-hook-failed`.
+
 ### `cycle`
 
-> The node is part of a cycle, so the graph cannot run; remove one of the edges that close it.
-
 ```python
-print(problems({
+drawing = {
     "nodes": [{"id": "a", "node": "upper"}, {"id": "b", "node": "upper"}],
     "edges": [["a.result", "b.text"], ["b.result", "a.text"]],
-}))  # ['cycle', 'cycle']
+}
+print(problems(drawing))  # ['cycle', 'cycle']
+print(told(drawing)[0])  # The node is part of a cycle, so the graph cannot run; remove one of the edges that close it.
 ```
 
 **Fix.** Remove one of the edges that close the loop. A graph runs each node after what it reads.
 
+Its `ctx` keys are in the reference: `python -m conductor.about cycle`.
+
 ### `default_on_later_node`
 
-> '{field}' is not an open input of the graph, so a caller can't change its default; make it a value.
-
 ```python
-print(problems({
+drawing = {
     "nodes": [{"id": "a", "node": "upper"}, {"id": "g", "node": "greet", "defaults": {"greeting": "hi"}}],
     "edges": [["a.result", "g.name"]],
-}))  # ['default_on_later_node']
+}
+print(problems(drawing))  # ['default_on_later_node']
+print(told(drawing)[0])  # 'greeting' is not an open input of the graph, so a caller can't change its default; make it a value.
 ```
 
 **Fix.** Write it as a value (`values`), which fixes it. Only an open input of a first node is the caller's to fill, so only there does a default mean anything; an input a hook reads is never open.
 
+Its `ctx` keys are in the reference: `python -m conductor.about default-on-later-node`.
+
 ### `duplicate_node_id`
 
-> Two nodes have the id '{node_id}'; rename one.
-
 ```python
-print(problems({"nodes": [{"id": "a", "node": "upper"}, {"id": "a", "node": "count"}]}))  # ['duplicate_node_id']
+drawing = {"nodes": [{"id": "a", "node": "upper"}, {"id": "a", "node": "count"}]}
+print(problems(drawing))  # ['duplicate_node_id']
+print(told(drawing)[0])  # Two nodes have the id 'a'; rename one.
 ```
 
 **Fix.** Give one of the nodes another id. `make_graph` picks free ids itself (`upper-1`, `upper-2`).
 
+Its `ctx` keys are in the reference: `python -m conductor.about duplicate-node-id`.
+
 ### `edge_names_missing_node`
 
-> The edge from '{source}' to '{target}' names '{node_id}', which is not a node of the graph; add that node or remove the edge.
-
 ```python
-print(problems({"nodes": [{"id": "a", "node": "upper"}], "edges": [["a.result", "ghost.text"]]}))  # ['edge_names_missing_node']
+drawing = {"nodes": [{"id": "a", "node": "upper"}], "edges": [["a.result", "ghost.text"]]}
+print(problems(drawing))  # ['edge_names_missing_node']
+print(told(drawing)[0])  # The edge from 'a.result' to 'ghost.text' names 'ghost', which is not a node of the graph; add that node or remove the edge.
 ```
 
 **Fix.** Add the node the edge names, or remove the edge.
 
-### `embeds_itself`
+Its `ctx` keys are in the reference: `python -m conductor.about edge-names-missing-node`.
 
-> The node '{node}' is a graph that contains itself; embed a graph that does not contain this one.
+### `embeds_itself`
 
 ```python
 inner_record = GraphRecord.model_validate({"nodes": [{"id": "again", "node": "itself"}]})
@@ -199,45 +214,52 @@ looping = NodeRegistry()
 looping.add(itself)
 broken = looping.load({"nodes": [{"id": "i", "node": "itself"}]}).problems[0]
 print(broken.type, broken.loc)  # embeds_itself ('i', 'again')
+print(broken.msg)  # The node 'itself' is a graph that contains itself; embed a graph that does not contain this one.
 ```
 
 **Fix.** A stored graph can't contain itself, directly or through another. Remove the node that leads back. The problem
 sits on the node that closes the circle: a problem of a graph used as a node is that graph's own, with the id of the
 node that uses it in front of its `loc`.
 
+Its `ctx` keys are in the reference: `python -m conductor.about embeds-itself`.
+
 ### `hook_needs_value`
 
-> '{field}' must be typed in: the node works out its fields from it when the graph loads.
-
 ```python
-print(problems({"nodes": [{"id": "pick", "node": "pick"}]}))  # ['hook_needs_value']
+drawing = {"nodes": [{"id": "pick", "node": "pick"}]}
+print(problems(drawing))  # ['hook_needs_value']
+print(told(drawing)[0])  # 'names' must be typed in: the node works out its fields from it when the graph loads.
 ```
 
 **Fix.** Type a value into the input the hook reads. The node's fields depend on it, so it is fixed when the graph loads and never one of the graph's inputs.
 
+Its `ctx` keys are in the reference: `python -m conductor.about hook-needs-value`.
+
 ### `invalid_node_id`
 
-> '{node_id}' cannot be a node id: '.', '/', '@' and '~' each mean something in an address or a waiting id; rename it without them.
-
 ```python
-print(problems({"nodes": [{"id": "a.b", "node": "upper"}]}))  # ['invalid_node_id']
+drawing = {"nodes": [{"id": "a.b", "node": "upper"}]}
+print(problems(drawing))  # ['invalid_node_id']
+print(told(drawing)[0])  # 'a.b' cannot be a node id: '.', '/', '@' and '~' each mean something in an address or a waiting id; rename it without them.
 ```
 
 **Fix.** Pick an id without `.`, `/`, `@` or `~`: those characters build addresses (`a.result`) and waiting ids (`a@1~3fa2`).
 
+Its `ctx` keys are in the reference: `python -m conductor.about invalid-node-id`.
+
 ### `invalid_value`
 
-> The value typed into '{field}' is not valid: {reason}. Type a value of the field's type.
-
 ```python
-print(problems({"nodes": [{"id": "c", "node": "count", "values": {"n": "many"}}]}))  # ['invalid_value']
+drawing = {"nodes": [{"id": "c", "node": "count", "values": {"n": "many"}}]}
+print(problems(drawing))  # ['invalid_value']
+print(told(drawing)[0])  # The value typed into 'n' is not valid: Input should be a valid integer, unable to parse string as an integer. Type a value of the field's type.
 ```
 
 **Fix.** Type in a value of the field's type. `reason` says what the type refused, without quoting the value; `errors` is pydantic's list of what it refused (`type`, `loc`, `msg`; `loc` as far as the type names it, an index or a declared field, never a key of a dict), each without the value, so a host can key on `greater_than_equal` or `bool_is_not_a_number`.
 
-### `parameter_name_invalid`
+Its `ctx` keys are in the reference: `python -m conductor.about invalid-value`.
 
-> '{field}' cannot be a field name: '.', '/' and '@' each mean something in an address, and a name can't be empty; rename the field.
+### `parameter_name_invalid`
 
 ```python
 def dotted(names: str) -> dict[str, type]:
@@ -249,27 +271,31 @@ def fields(names: str) -> dict[str, str]:
     return {}
 
 
-print(problems({"nodes": [{"id": "f", "node": "fields", "values": {"names": "a.b"}}]}))  # ['parameter_name_invalid']
+drawing = {"nodes": [{"id": "f", "node": "fields", "values": {"names": "a.b"}}]}
+print(problems(drawing))  # ['parameter_name_invalid']
+print(told(drawing)[0])  # 'a.b' cannot be a field name: '.', '/' and '@' each mean something in an address, and a name can't be empty; rename the field.
 ```
 
 **Fix.** Have the hook give names without `.`, `/` or `@`, and never an empty one.
 
+Its `ctx` keys are in the reference: `python -m conductor.about parameter-name-invalid`.
+
 ### `repeated_edge`
 
-> The edge from '{source}' into '{field}' is drawn twice; remove one.
-
 ```python
-print(problems({
+drawing = {
     "nodes": [{"id": "a", "node": "upper"}, {"id": "b", "node": "upper"}],
     "edges": [["a.result", "b.text"], ["a.result", "b.text"]],
-}))  # ['repeated_edge']
+}
+print(problems(drawing))  # ['repeated_edge']
+print(told(drawing)[0])  # The edge from 'a.result' into 'text' is drawn twice; remove one.
 ```
 
 **Fix.** Remove one of the two.
 
-### `series_inputs_never_share_an_item`
+Its `ctx` keys are in the reference: `python -m conductor.about repeated-edge`.
 
-> {inputs} read branches that never both have a value for an item, so no item would reach the node. Write Series[X | None] on them to keep every item, or take the branches through one input.
+### `series_inputs_never_share_an_item`
 
 ```python
 @registry.node("pair", title="Pair", description="Puts two lists of words side by side.")
@@ -277,19 +303,21 @@ def pair(a: Series[str], b: Series[str]) -> str:
     return f"{a} {b}"
 
 
-print(problems({
+drawing = {
     "nodes": [{"id": "w", "node": "words"}, {"id": "r", "node": "route"}, {"id": "p", "node": "pair"}],
     "edges": [["w.result", "r.text"], ["r.short", "p.a"], ["r.long", "p.b"]],
-}))  # ['series_inputs_never_share_an_item']
+}
+print(problems(drawing))  # ['series_inputs_never_share_an_item']
+print(told(drawing)[0])  # a, b read branches that never both have a value for an item, so no item would reach the node. Write Series[X | None] on them to keep every item, or take the branches through one input.
 ```
 
 A node's `Series` inputs leave out an item together when one of them has no value for it. Each word here is short or long, never both, so every item would be left out.
 
 **Fix.** Write `Series[X | None]` on both inputs to keep every item, blanks included, or take the branches through one input.
 
-### `series_not_nested`
+Its `ctx` keys are in the reference: `python -m conductor.about series-inputs-never-share-an-item`.
 
-> '{node_id}' reads items of {series}, and neither is made inside the other, so nothing says which item goes with which. Make one inside the other (wire '{wire_from}' into '{wire_into}', the node that makes the other), or give one of them whole to a Series input.
+### `series_not_nested`
 
 ```python
 unpaired = registry.load({
@@ -297,34 +325,39 @@ unpaired = registry.load({
     "edges": [["names.result", "g.name"], ["greetings.result", "g.greeting"]],
 }).problems[0]
 print(unpaired.type, unpaired.ctx["wire_from"], unpaired.ctx["wire_into"])  # series_not_nested names.result greetings
+print(unpaired.msg)  # 'g' reads items of names.result, greetings.result, and neither is made inside the other, so nothing says which item goes with which. Make one inside the other (wire 'names.result' into 'greetings', the node that makes the other), or give one of them whole to a Series input.
 ```
 
 `g` would run once per name and once per greeting, and nothing says which name goes with which greeting. `ctx.series` lists the two Series, `ctx.inputs` the inputs that read them, and `ctx.wire_from` and `ctx.wire_into` name an edge that would put one inside the other.
 
 **Fix.** Make one Series inside the other: wire an item of the first into the node that makes the second, so the second is made once per item of the first, and the node runs for each pair. Or give one of them whole to a `Series` input, so it arrives as one list.
 
+Its `ctx` keys are in the reference: `python -m conductor.about series-not-nested`.
+
 ### `several_edges_into_one_input`
 
-> More than one of the edges into '{field}', from {sources}, can hold a value on the same call. Feed it from opposite branches of one decision, or put a node between that has an input for each.
-
 ```python
-print(problems({
+drawing = {
     "nodes": [{"id": "a", "node": "upper"}, {"id": "b", "node": "upper"}, {"id": "c", "node": "upper"}],
     "edges": [["a.result", "c.text"], ["b.result", "c.text"]],
-}))  # ['several_edges_into_one_input']
+}
+print(problems(drawing))  # ['several_edges_into_one_input']
+print(told(drawing)[0])  # More than one of the edges into 'text', from a.result, b.result, can hold a value on the same call. Feed it from opposite branches of one decision, or put a node between that has an input for each.
 ```
 
 **Fix.** Feed it from opposite branches of one decision (outputs of one `exclusive_group`), or write a node with an input for each and wire them there. A `Series` input takes several edges on the same terms.
 
+Its `ctx` keys are in the reference: `python -m conductor.about several-edges-into-one-input`.
+
 ### `type_mismatch`
 
-> '{source}' gives {got}, but '{node_id}.{field}' takes {expected}; connect an output that gives {expected}, or convert it in a node between.
-
 ```python
-print(problems({
+drawing = {
     "nodes": [{"id": "c", "node": "count"}, {"id": "u", "node": "upper"}],
     "edges": [["c.result", "u.text"]],
-}))  # ['type_mismatch']
+}
+print(problems(drawing))  # ['type_mismatch']
+print(told(drawing)[0])  # 'c.result' gives int, but 'u.text' takes str; connect an output that gives str, or convert it in a node between.
 ```
 
 **Fix.** Wire an output of the type the input takes, or put a node between that turns one into the other.
@@ -385,48 +418,56 @@ print(lacking.type, lacking.ctx["hint"], lacking.ctx["column"])  # type_mismatch
 
 **Fix.** Wire in a table that has every column the input names, add the column in a node between, or type the input as a bare `Table`, which takes any columns. `ctx.column` and `ctx.column_type` say what is missing, and `ctx.has` lists the columns the table has.
 
+Its `ctx` keys are in the reference: `python -m conductor.about type-mismatch`.
+
 ### `unbound_on_later_node`
 
-> Nothing feeds '{field}', and only a first node takes inputs from the caller; draw an edge into it or type a value in.
-
 ```python
-print(problems({
+drawing = {
     "nodes": [{"id": "a", "node": "upper"}, {"id": "g", "node": "greet"}],
     "edges": [["a.result", "g.name"]],
-}))  # ['unbound_on_later_node']
+}
+print(problems(drawing))  # ['unbound_on_later_node']
+print(told(drawing)[0])  # Nothing feeds 'greeting', and only a first node takes inputs from the caller; draw an edge into it or type a value in.
 ```
 
 **Fix.** Draw an edge into it, or type a value in. A caller fills only a first node's open inputs.
 
+Its `ctx` keys are in the reference: `python -m conductor.about unbound-on-later-node`.
+
 ### `unknown_input`
 
-> '{node_id}' has no input '{field}'; it has {inputs}.
-
 ```python
-print(problems({"nodes": [{"id": "u", "node": "upper", "values": {"txt": "a"}}]}))  # ['unknown_input']
+drawing = {"nodes": [{"id": "u", "node": "upper", "values": {"txt": "a"}}]}
+print(problems(drawing))  # ['unknown_input']
+print(told(drawing)[0])  # 'u' has no input 'txt'; it has text.
 ```
 
 **Fix.** Use one of the inputs `ctx.inputs` lists. After a version renamed an input, `registry.upgrade` moves the value across.
 
+Its `ctx` keys are in the reference: `python -m conductor.about unknown-input`.
+
 ### `unknown_node`
 
-> There is no node '{node}'; the nodes are {choices}.
-
 ```python
-print(problems({"nodes": [{"id": "m", "node": "send-mail"}]}))  # ['unknown_node']
+drawing = {"nodes": [{"id": "m", "node": "send-mail"}]}
+print(problems(drawing))  # ['unknown_node']
+print(told(drawing)[0])  # There is no node 'send-mail'; the nodes are approve, contacts, count, fields, greet, join, pair, pick, route, total, upper, who, words.
 ```
 
 **Fix.** Use a node the registry has (`ctx.choices`), or add the missing one to the registry the graph loads through.
 
+Its `ctx` keys are in the reference: `python -m conductor.about unknown-node`.
+
 ### `unknown_output`
 
-> '{source}' is not something that node gives; it gives {outputs}.
-
 ```python
-print(problems({
+drawing = {
     "nodes": [{"id": "a", "node": "upper"}, {"id": "b", "node": "upper"}],
     "edges": [["a.text", "b.text"]],
-}))  # ['unknown_output']
+}
+print(problems(drawing))  # ['unknown_output']
+print(told(drawing)[0])  # 'a.text' is not something that node gives; it gives a.result.
 ```
 
 **Fix.** Wire from one of the addresses `ctx.outputs` lists. An edge may name one field of a record an output gives, `node.output.field`; `ctx.outputs` lists those too.
@@ -445,35 +486,41 @@ print(column.type, column.ctx["hint"])  # unknown_output split_first
 
 **Fix.** A table is one value, so it has no field to wire. Put a node after it that gives its records as a `Series` (`split` in `syv-conductor-nodes`), and wire the field from that node's result: `split.result.email`.
 
+Its `ctx` keys are in the reference: `python -m conductor.about unknown-output`.
+
 ### `unknown_version`
 
-> '{node}' has no version {version}; the newest is {newest}.
-
 ```python
-print(problems({"nodes": [{"id": "u", "node": "upper", "version": 9}]}))  # ['unknown_version']
+drawing = {"nodes": [{"id": "u", "node": "upper", "version": 9}]}
+print(problems(drawing))  # ['unknown_version']
+print(told(drawing)[0])  # 'upper' has no version 9; the newest is 1.
 ```
 
 **Fix.** Use a version the node has. `registry.upgrade(record, node_id)` moves a saved node to the newest.
 
+Its `ctx` keys are in the reference: `python -m conductor.about unknown-version`.
+
 ### `value_and_default`
 
-> Field '{field}' has both a value and a default; keep one.
-
 ```python
-print(problems({"nodes": [{"id": "u", "node": "upper", "values": {"text": "a"}, "defaults": {"text": "b"}}]}))  # ['value_and_default']
+drawing = {"nodes": [{"id": "u", "node": "upper", "values": {"text": "a"}, "defaults": {"text": "b"}}]}
+print(problems(drawing))  # ['value_and_default']
+print(told(drawing)[0])  # Field 'text' has both a value and a default; keep one.
 ```
 
 **Fix.** Keep one: a value fixes the input, a default leaves it open for a caller.
 
+Its `ctx` keys are in the reference: `python -m conductor.about value-and-default`.
+
 ### `value_and_edge`
 
-> Field '{field}' has an edge and a typed-in value; keep one.
-
 ```python
-print(problems({
+drawing = {
     "nodes": [{"id": "a", "node": "upper"}, {"id": "b", "node": "upper", "values": {"text": "x"}}],
     "edges": [["a.result", "b.text"]],
-}))  # ['value_and_edge']
+}
+print(problems(drawing))  # ['value_and_edge']
+print(told(drawing)[0])  # Field 'text' has an edge and a typed-in value; keep one.
 ```
 
 **Fix.** Keep one: remove the edge or the typed-in value.
@@ -482,18 +529,21 @@ print(problems({
 
 Raised as `InvalidCallError` by the call that caused it; `error.errors()` lists every one, and nothing changed.
 
-### `answer_stale`
+Its `ctx` keys are in the reference: `python -m conductor.about value-and-edge`.
 
-> The answer was given for {waiting_id!r}, and another question waits at that place by now, {current!r}; show that one and answer it.
+### `answer_stale`
 
 ```python
 approving = registry.load({"nodes": [{"id": "approve", "node": "approve"}]})
 asked = approving.run(amount=5000)
 asked_again = asked.again(amount=5500)
 print(refused(lambda: asked_again.answer(asked.waiting[0].id, True)))  # ['answer_stale']
+print(said(lambda: asked_again.answer(asked.waiting[0].id, True))[0])  # The answer was given for 'approve~baeb6e2d', and another question waits at that place by now, 'approve~81aa8d1c'; show that one and answer it.
 ```
 
 **Fix.** Answer the question that waits there now: `ctx.current` is its id, and `run.waiting` has it.
+
+Its `ctx` keys are in the reference: `python -m conductor.about answer-stale`.
 
 ### `cannot_move_to_version`
 
@@ -520,67 +570,73 @@ Its `ctx` keys are in the reference: `python -m conductor.about from-run-missing
 
 ### `input_given_twice`
 
-> '{name}' is given twice, by its name and by its address '{address}'; give it once.
-
 ```python
 uppering = registry.load(make_graph(upper))
 print(refused(lambda: uppering.run({"upper.text": "a"}, text="b")))  # ['input_given_twice']
+print(said(lambda: uppering.run({"upper.text": "a"}, text="b"))[0])  # 'text' is given twice, by its name and by its address 'upper.text'; give it once.
 ```
 
 **Fix.** Give it once, by its name or by its address.
 
-### `invalid_answer`
+Its `ctx` keys are in the reference: `python -m conductor.about input-given-twice`.
 
-> That is not a valid answer: {reason}
+### `invalid_answer`
 
 ```python
 waiting = registry.load({"nodes": [{"id": "approve", "node": "approve"}]}).run(amount=5000)
 print(refused(lambda: waiting.answer(waiting.waiting[0], "yes")))  # ['invalid_answer']
+print(said(lambda: waiting.answer(waiting.waiting[0], "yes"))[0])  # That is not a valid answer: Input should be a valid boolean
 ```
 
 **Fix.** Answer with a value of the question's type, as JSON reads it: `true`, not `"yes"`. `ctx.question` names the question.
 
-### `invalid_checkpoint_every`
+Its `ctx` keys are in the reference: `python -m conductor.about invalid-answer`.
 
-> checkpoint_every is a number of seconds above 0; it was {checkpoint_every}.
+### `invalid_checkpoint_every`
 
 ```python
 print(refused(lambda: uppering.with_inputs(text="a").stream(checkpoint_every=0)))  # ['invalid_checkpoint_every']
+print(said(lambda: uppering.with_inputs(text="a").stream(checkpoint_every=0))[0])  # checkpoint_every is a number of seconds above 0; it was 0.
 ```
 
 **Fix.** Give a number of seconds above 0, or leave it out for no checkpoints.
 
-### `invalid_input`
+Its `ctx` keys are in the reference: `python -m conductor.about invalid-checkpoint-every`.
 
-> The value given for '{name}' is not valid: {reason}. Give a value of the type the input takes.
+### `invalid_input`
 
 ```python
 counting = registry.load(make_graph(count))
 print(refused(lambda: counting.run(n="many")))  # ['invalid_input']
+print(said(lambda: counting.run(n="many"))[0])  # The value given for 'n' is not valid: Input should be a valid integer, unable to parse string as an integer. Give a value of the type the input takes.
 print(refused(lambda: uppering.run(text=["a", "b"])))  # ['invalid_input']
 ```
 
 **Fix.** Give a value of the input's type. `graph.inputs[name].json_schema` is its schema, limits included. `reason` and `errors` are as `invalid_value` has them. An input of one value takes one value: a list given there is refused, since a graph runs once per item only after a node that returns a `Series`. An open `Series` input takes a list, also for one value.
 
-### `invalid_max_items`
+Its `ctx` keys are in the reference: `python -m conductor.about invalid-input`.
 
-> max_items is at least 1; it was {max_items}.
+### `invalid_max_items`
 
 ```python
 print(refused(lambda: uppering.run(text="a", max_items=0)))  # ['invalid_max_items']
+print(said(lambda: uppering.run(text="a", max_items=0))[0])  # max_items is at least 1; it was 0.
 ```
 
 **Fix.** Give `max_items` of 1 or more, or leave it out for no ceiling.
 
-### `invalid_timeout`
+Its `ctx` keys are in the reference: `python -m conductor.about invalid-max-items`.
 
-> timeout is a number of seconds above 0; it was {timeout}.
+### `invalid_timeout`
 
 ```python
 print(refused(lambda: uppering.with_inputs(text="a").resume(timeout=-1)))  # ['invalid_timeout']
+print(said(lambda: uppering.with_inputs(text="a").resume(timeout=-1))[0])  # timeout is a number of seconds above 0; it was -1.
 ```
 
 **Fix.** Give a number of seconds above 0, or leave it out for a leg with no deadline.
+
+Its `ctx` keys are in the reference: `python -m conductor.about invalid-timeout`.
 
 ### `invalid_record`
 
@@ -595,24 +651,26 @@ Its `ctx` keys are in the reference: `python -m conductor.about invalid-record`.
 
 ### `missing_input`
 
-> '{name}' is required; give it in the call.
-
 ```python
 print(refused(lambda: uppering.run()))  # ['missing_input']
+print(said(lambda: uppering.run())[0])  # 'text' is required; give it in the call.
 ```
 
 **Fix.** Give it in the call. `graph.inputs` lists what the graph takes and which are required.
 
-### `node_not_in_graph`
+Its `ctx` keys are in the reference: `python -m conductor.about missing-input`.
 
-> '{node_id}' is not a node of this graph; it has {nodes}.
+### `node_not_in_graph`
 
 ```python
 done = uppering.run(text="a")
 print(refused(lambda: done.forget("lower")))  # ['node_not_in_graph']
+print(said(lambda: done.forget("lower"))[0])  # 'lower' is not a node of this graph; it has upper.
 ```
 
 **Fix.** Name a node of the graph; `ctx.nodes` lists them.
+
+Its `ctx` keys are in the reference: `python -m conductor.about node-not-in-graph`.
 
 ### `not_a_chain`
 
@@ -627,47 +685,49 @@ Its `ctx` keys are in the reference: `python -m conductor.about not-a-chain`.
 
 ### `not_offered`
 
-> The graph has no input '{name}'; it has {inputs}.
-
 ```python
 print(refused(lambda: uppering.run(text="a", txt="a")))  # ['not_offered']
+print(said(lambda: uppering.run(text="a", txt="a"))[0])  # The graph has no input 'txt'; it has text.
 ```
 
 **Fix.** Use one of the inputs `ctx.inputs` lists.
 
-### `not_waiting`
+Its `ctx` keys are in the reference: `python -m conductor.about not-offered`.
 
-> Nothing is waiting on an answer as {waiting_id!r} in a run that is {status}; run.waiting lists what is.
+### `not_waiting`
 
 ```python
 print(refused(lambda: waiting.answer("upper", True)))  # ['not_waiting']
+print(said(lambda: waiting.answer("upper", True))[0])  # Nothing is waiting on an answer as 'upper' in a run that is waiting; run.waiting lists what is.
 ```
 
 **Fix.** Answer an id from `run.waiting`.
 
-### `run_not_complete`
+Its `ctx` keys are in the reference: `python -m conductor.about not-waiting`.
 
-> The run is {status}, so it has no outputs yet; run.results has what it did. {reason}
+### `run_not_complete`
 
 ```python
 print(refused(lambda: waiting.outputs))  # ['run_not_complete']
+print(said(lambda: waiting.outputs)[0])  # The run is waiting, so it has no outputs yet; run.results has what it did.
 ```
 
 **Fix.** Answer what waits and `resume()`, or read `run.results`, which has what the run did so far.
 
-### `state_of_another_graph`
+Its `ctx` keys are in the reference: `python -m conductor.about run-not-complete`.
 
-> The saved run is of another graph ({saved}) than this one ({graph}); an edited graph starts a new run.
+### `state_of_another_graph`
 
 ```python
 print(refused(lambda: counting.load_run(uppering.run(text="a").to_json())))  # ['state_of_another_graph']
+print(said(lambda: counting.load_run(uppering.run(text="a").to_json()))[0])  # The saved run is of another graph (2071554324bb5138) than this one (afb5e890aac04b55); an edited graph starts a new run.
 ```
 
 **Fix.** Load the save into the graph it was saved from. An edited graph starts a new run.
 
-### `state_unreadable`
+Its `ctx` keys are in the reference: `python -m conductor.about state-of-another-graph`.
 
-> The saved run does not fit this graph at '{at}': {reason}. Load it into the graph it was saved from.
+### `state_unreadable`
 
 ```python
 import json
@@ -675,13 +735,14 @@ import json
 tampered = json.loads(uppering.run(text="a").to_json())
 tampered["units"] = {"upper": "not units"}
 print(refused(lambda: uppering.load_run(tampered)))  # ['state_unreadable']
+print(said(lambda: uppering.load_run(tampered))[0])  # The saved run does not fit this graph at 'units.upper': Input should be an object. Load it into the graph it was saved from.
 ```
 
 **Fix.** Load what `run.to_json()` wrote, unchanged. `ctx.at` says where it stopped fitting.
 
-### `state_unwritable`
+Its `ctx` keys are in the reference: `python -m conductor.about state-unreadable`.
 
-> The run can't be written as JSON at '{at}': {reason}. Give that field a type pydantic writes as JSON.
+### `state_unwritable`
 
 ```python
 @registry.node("raw", title="Raw", description="Turns a text into raw bytes.")
@@ -691,6 +752,7 @@ def raw(text: str) -> bytes:
 
 unwritable = registry.load(make_graph(raw)).run(text="a")
 print(refused(lambda: unwritable.to_json()))  # ['state_unwritable']
+print(said(lambda: unwritable.to_json())[0])  # The run can't be written as JSON at 'raw.result': a value has no JSON form. Give that field a type pydantic writes as JSON.
 ```
 
 **Fix.** Return a type pydantic writes as JSON. `ctx.at` names the output that couldn't be written.
@@ -699,9 +761,9 @@ print(refused(lambda: unwritable.to_json()))  # ['state_unwritable']
 
 In `run.state` (an `EndedEarly`'s `cause`) and on `node_failed`. `loc` starts with the node's id, and is `()` for the run as a whole.
 
-### `execution_failed`
+Its `ctx` keys are in the reference: `python -m conductor.about state-unwritable`.
 
-> The node failed; its developer finds why in the conductor log.
+### `execution_failed`
 
 ```python
 @registry.node("divide", title="Divide", description="Divides one by a number.")
@@ -713,13 +775,14 @@ failed = registry.load(make_graph(divide)).run(n=0)
 match failed.state:
     case EndedEarly(cause=cause):
         print(cause.type)  # execution_failed
+        print(cause.msg)  # The node failed; its developer finds why in the conductor log.
 ```
 
 **Fix.** The node let out an exception of its own. Its class is `ctx.error`; the exception and its traceback are in the `conductor` log. Fix the node, then `resume()`.
 
-### `external_failed`
+Its `ctx` keys are in the reference: `python -m conductor.about execution-failed`.
 
-> An outside service did not answer.
+### `external_failed`
 
 ```python
 @registry.node("fetch", title="Fetch", description="Fetches a page from an address, and fails.", policy=Policy(retry_on=(ConnectionError,)))
@@ -731,13 +794,14 @@ cut_off = registry.load(make_graph(fetch)).run(url="https://example.com")
 match cut_off.state:
     case EndedEarly(cause=cause):
         print(cause.type)  # external_failed
+        print(cause.msg)  # An outside service did not answer.
 ```
 
 **Fix.** The outside world failed after every retry. `resume()` tries again; raise `Policy(retries=)` for more tries.
 
-### `failed`
+Its `ctx` keys are in the reference: `python -m conductor.about external-failed`.
 
-> The node reported a failure.
+### `failed`
 
 ```python
 @registry.node("read_pdf", title="Read PDF", description="Reads the text from a PDF file, and fails.")
@@ -753,9 +817,11 @@ match unread.state:
 
 **Fix.** The node said why in `msg`. A node gives its own code with `NodeError(message, code=)`, and what a host fills its sentence from with `ctx=`, JSON values only: a `ctx` holding anything else raises pydantic's `ValidationError` where the node raises the error, which is `execution_failed`.
 
-### `invalid_ask`
+Without a message of your own a host falls back on the catalogue's sentence for the code, in the reference.
 
-> The node asked a question its outputs can't be answered with: {reason}. Fix the node's Ask.
+Its `ctx` keys are in the reference: `python -m conductor.about failed`.
+
+### `invalid_ask`
 
 ```python
 @registry.node("confirm", title="Confirm", description="Asks a person to confirm.")
@@ -767,13 +833,14 @@ misasked = registry.load(make_graph(confirm)).run(text="a")
 match misasked.state:
     case EndedEarly(cause=cause):
         print(cause.type)  # invalid_ask
+        print(cause.msg)  # The node asked a question its outputs can't be answered with: the default for 'result' is not an answer it takes: Input should be a valid boolean. Fix the node's Ask.
 ```
 
 **Fix.** Ask with choices and a default the node's return type accepts. `ctx.reason` says which part doesn't fit.
 
-### `invalid_edge_value`
+Its `ctx` keys are in the reference: `python -m conductor.about invalid-ask`.
 
-> The value an edge brought to '{name}' is not one it takes: {reason}. Fix the node that made it, or connect an output of the type the input takes.
+### `invalid_edge_value`
 
 ```python
 @registry.node("letters", title="Letters", description="Counts the letters in a text.")
@@ -790,13 +857,14 @@ too_big = registry.load(make_graph(letters, small)).run(text="many letters")
 match too_big.state:
     case EndedEarly(cause=cause):
         print(cause.type)  # invalid_edge_value
+        print(cause.msg)  # The value an edge brought to 'n' is not one it takes: Input should be less than or equal to 3. Fix the node that made it, or connect an output of the type the input takes.
 ```
 
-**Fix.** Make the node upstream give what the input takes, or put a node between that converts it. Loading lets through what a type alone can't settle: a limit or a choice on the input, a host type's own check, a table whose columns are known only once it is made. `ctx.name` names the input, a table's `ctx.column` its column. An edge that names a field of a record whose type declares none (a `dict`, `Any`, a record split from a table of unknown columns) is trusted when the graph loads; if the record has no such field, the reader fails here, and `ctx.field` names the field.
+**Fix.** Make the node upstream give what the input takes, or put a node between that converts it. Loading lets through what a type alone can't settle: a limit or a choice on the input, a host type's own check, a table whose columns are known only once it is made. `ctx.name` names the input, a table's `ctx.column` its column. An edge that names a field of a record whose type declares none (a `dict`, `Any`, a record split from a table of unknown columns) is trusted when the graph loads; if the record has no such field, the reader fails here, and `ctx.record_field` names the field.
+
+Its `ctx` keys are in the reference: `python -m conductor.about invalid-edge-value`.
 
 ### `invalid_output`
-
-> The node returned a value that is not what it declares: {reason}. Fix what the node returns.
 
 ```python
 @registry.node("guess", title="Guess", description="Hands back a text where a number is promised.")
@@ -808,13 +876,14 @@ wrong = registry.load(make_graph(guess)).run(text="12")
 match wrong.state:
     case EndedEarly(cause=cause):
         print(cause.type)  # invalid_output
+        print(cause.msg)  # The node returned a value that is not what it declares: Input should be a valid integer. Fix what the node returns.
 ```
 
 **Fix.** Return what the node declares. `"12"` is never an `int`: outputs are read strictly. `ctx.name` names the output.
 
-### `item_ceiling`
+Its `ctx` keys are in the reference: `python -m conductor.about invalid-output`.
 
-> {series} has {items} items, more than the {max_items} this run may work through; resume it with a larger max_items.
+### `item_ceiling`
 
 ```python
 per_word = registry.load(make_graph(words, upper))
@@ -822,15 +891,16 @@ capped = per_word.run(text="a b c", max_items=2)
 match capped.state:
     case EndedEarly(cause=cause):
         print(cause.type, cause.ctx["items"])  # item_ceiling 3
+        print(cause.msg)  # words.result has 3 items, more than the 2 this run may work through; resume it with a larger max_items.
 ```
 
 `upper` would run once per word, and there are three. The ceiling counts only a Series some node runs per item of: one that is only gathered or passed on whole costs no calls.
 
 **Fix.** `capped.resume(max_items=...)` with a higher ceiling carries on, calling nothing again.
 
-### `question_unwritable`
+Its `ctx` keys are in the reference: `python -m conductor.about item-ceiling`.
 
-> The node asked a person, but what it received at '{input}' has no JSON form to show them: {reason}. Give that input a type pydantic writes as JSON.
+### `question_unwritable`
 
 ```python
 @registry.node("approve-file", title="Approve file", description="Asks a person to approve sending a file.")
@@ -842,9 +912,12 @@ unshown = registry.load(make_graph(approve_file)).run(data=b"\xff")
 match unshown.state:
     case EndedEarly(cause=cause):
         print(cause.type)  # question_unwritable
+        print(cause.msg)  # The node asked a person, but what it received at 'data' has no JSON form to show them: Error serializing to JSON: invalid utf-8 sequence of 1 bytes from index 0. Give that input a type pydantic writes as JSON.
 ```
 
 **Fix.** Give the input a type pydantic writes as JSON, or ask in a node that receives one. A question carries what its node received, for the person answering it. `ctx.input` names the input.
+
+Its `ctx` keys are in the reference: `python -m conductor.about question-unwritable`.
 
 ### `run_cancelled`
 
@@ -869,8 +942,6 @@ print(asyncio.run(cancelled()))  # run_cancelled
 
 ### `run_timed_out`
 
-> The run took too long and was stopped; run.resume() carries on.
-
 ```python
 @registry.node("slow", title="Slow", description="Waits a moment, then hands back the text.")
 def slow(text: str) -> str:
@@ -882,13 +953,14 @@ timed_out = registry.load(make_graph(slow)).run(text="a", timeout=0.05)
 match timed_out.state:
     case EndedEarly(cause=cause):
         print(cause.type)  # run_timed_out
+        print(cause.msg)  # The run took too long and was stopped; run.resume() carries on.
 ```
 
 **Fix.** `resume()` carries on, calling nothing again that finished. Give a longer `timeout`, or none.
 
-### `timeout`
+Its `ctx` keys are in the reference: `python -m conductor.about run-timed-out`.
 
-> The node did not answer in time; its Policy(attempt_timeout=) sets how long it may take.
+### `timeout`
 
 ```python
 @registry.node("stuck", title="Stuck", description="Waits too long, then hands back the text.", policy=Policy(attempt_timeout=0.05))
@@ -901,9 +973,12 @@ late = registry.load(make_graph(stuck)).run(text="a")
 match late.state:
     case EndedEarly(cause=cause):
         print(cause.type)  # timeout
+        print(cause.msg)  # The node did not answer in time; its Policy(attempt_timeout=) sets how long it may take.
 ```
 
 **Fix.** Raise the node's `Policy(attempt_timeout=)`, or make the call faster. The timeout is final for that call: it is not retried.
+
+Its `ctx` keys are in the reference: `python -m conductor.about timeout`.
 
 ## Declaring a node
 
