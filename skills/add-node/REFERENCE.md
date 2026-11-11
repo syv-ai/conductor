@@ -1,6 +1,6 @@
 # add-node reference
 
-One module, one example per shape; the rules are in `python -m conductor.about`.
+One module, one example per kind of node; the rules are in `python -m conductor.about`.
 
 ```python
 from collections.abc import Mapping
@@ -71,9 +71,21 @@ def columns(names: Annotated[str, Param(title="Column names", widget=TextInput()
     return {name: name.upper() for name in names.split(",")}
 
 
+@dataclass(frozen=True)
+class Checked[T]:                     # generic outputs: each takes the type that arrives on the edge
+    passed: Annotated[T, Param(exclusive_group="check")]
+    failed: Annotated[T, Param(exclusive_group="check")]
+
+
+@node("check", title="Check", description="Sends a value one way if it passed and the other if it failed.", category="logic")
+def check[T](value: T, ok: bool) -> Checked[T]:        # a node for any type: T is bound by the edge when a graph loads
+    return Checked(passed=value, failed=SKIPPED) if ok else Checked(passed=SKIPPED, failed=value)
+
+
 assert approve.from_run == {"who": Caller}
 ```
 
 - A pydantic model a node returns is one value, not one output per field.
+- A hook is for fields a setting names. A type that follows what arrives is a type variable, with no hook.
 - `Ask` is a `BaseException`: an `except Exception` in the node lets it through.
 - Only `ExternalError` and `retry_on` classes retry, on the schedule `python -m conductor.about` gives. A timed-out attempt is final.

@@ -155,7 +155,7 @@ print([(skipped.loc, skipped.input) for skipped in sent.not_called])  # [(("send
 
 - **`raise Ask(prompt, choices=, default=)` pauses one call.** The return type says what the answer is and how to ask: `bool` is yes or no, a `Literal` one of its values, a frozen dataclass a form. `AskBool`, `AskMulti` and a `type=` argument were rejected as a second declaration. That call and whatever reads it wait; the rest runs on.
 - **`Ask` holds only what the run knows, typed.** How a question looks is its type's `Param` (a widget, a title, choices known when the node is written), so a hook's output types carry it too; `widget=` on `Ask` was a second home for it and went. `-> str` with a bare `Ask(prompt)` is free text. Each argument has the answer's shape: a value for one output, a mapping by output name, naming only some, for several. There is no plural `defaults=`.
-- **A question is the same record as a field:** the `FieldDescription` a palette reads, with the `choices` and `default` the `Ask` set. A host draws it the way it draws an input. One JSON Schema for the whole answer was rejected: it loses a host type's id, a field's shape and exclusive groups, and has no place for a widget.
+- **A question is the same record as a field:** the `FieldDescription` a palette reads, with the `choices` and `default` the `Ask` set. A host draws it the way it draws an input. One JSON Schema for the whole answer was rejected: it loses a host type's id, whether a field is one or many, and exclusive groups, and has no place for a widget.
 - **`run.answer(unit, value)` or `run.answer({id: value, ...})`.** Every fault is refused at once and nothing is half-answered. Each answer is read strictly from its JSON form (`true`, never `"yes"`). A declared choice is read exactly the same way, held to the field's limits, so an enum's value or a date's ISO text is a choice. A choice's id is the type's JSON of the value it reads as, so `Decimal` choices show `"1"` and a `datetime` its seconds.
 - **A waiting id names the place and the question**, `node@item~fingerprint`. An answer meant for a question that has moved is `answer_stale`.
 
@@ -184,7 +184,7 @@ print(asked.answer(asked.waiting[0], "casual").resume().outputs)  # {'tone.resul
 - **Nodes run on the leg's own thread by default** (`Policy(concurrency=1)`). An author asks for threads with `concurrency` or `attempt_timeout`. Threads by default would surprise code that isn't thread-safe, and calling inline is most of the core's speed.
 - **Values are checked where it matters.** A node's return is read strictly against its type (`invalid_output`). An edge's value is read again only where its source's type doesn't settle it, decided at load, so a plain chain checks nothing at run time.
 - **Only `ExternalError`, or a class the node's `retry_on` names, is retried.** A `NodeError` of the node's own, an output its type refused and an `Ask` are never retried, whatever `retry_on` says: repeating the call repeats them. After a failure, calls already on threads finish and are kept, so resuming repeats none.
-- **A stored graph is a node:** `node("id", title=..., description=...)(record)`, taking no policy or hook, as its own nodes run by theirs. From outside it is one node with the inputs and outputs it offers, which are its graph's own loaded alone, as its hooks made them, and a call of it is a run of that graph, kept beside its unit and driven by the same leg. What is inside is named by a path: the node and item of each stored graph around it, then the inner node.
+- **A stored graph is a node:** `node("id", title=..., description=...)(record)`, taking no policy or hook, as its own nodes run by theirs. From outside it is one node with the inputs and outputs it offers, which are its graph's own loaded alone, as its hooks made them. It loads once however many graphs use it, and nothing of it is copied into the graph around it: a run walks the tree those graphs make. A node inside keeps its calls as any node does, one per item of the stored graph's node and of its own Series, and is named by a path: the node and item of each stored graph around it, then the inner node. So a blank or a skip that arrives reaches the inner nodes that read it, exactly as drawn flat, and the stored graph is never called, blank or skipped itself. A run per item of the stored graph was built first and removed: a 2,000-item save was 34 times a flat graph's.
 
 ```python
 from conductor import node
@@ -194,6 +194,8 @@ registry.add(shout)
 shouted = registry.load(make_graph(shout, join, edges=[("shout.upper.result", "join.texts")]))
 print(list(shouted.inputs), shouted.outputs)  # ['text'] ['join.result']
 ```
+
+**Worth questioning:** a stored graph's node keeps one unit per item, what its outputs came to there, so a stored graph run per item costs about a quarter more than the same nodes drawn flat. Reading its outputs straight from the nodes inside would close that, at the price of two ways for an output to get out.
 
 **Worth questioning:** a host whose slow nodes forget `concurrency` runs them in series. This holds because the slow node knows it's slow, and saying so is one argument.
 
@@ -225,7 +227,12 @@ asyncio.run(follow())
 - **Every record is a frozen pydantic model:** `GraphRecord`, `Problem`, the events (one union on `type`), `Waiting`, and every `describe()` result. Each serves as a FastAPI response model as it is.
 - **`Param` is pydantic metadata.** It implements pydantic's schema hooks, so its limits and its choices hold inside a host's own `BaseModel` as on a node's field: the choice rule has one home, the hook. A field's limits live in its JSON schema, not in a separate list.
 - **Strict where a program produced the value, lax where a person or caller typed it.** Answers, declared choices and node outputs are read strictly (`"12"` is never an `int`). Typed-in values, inputs and edges are read laxly. A `bool` never lands on a number, nor on a union a number is in and a `bool` isn't (`int | float`), as a value or in a table's column.
-- **What a person sees for a type is declared.** Conductor's own types take their id and title from one fixed table; a host's type shown to people declares `type_id` and `type_title` as class attributes (`NamedType`). Nothing falls back to a class's name. A host shows its own words for type ids in its editor. `Series[T]` and `FromRun[T]` are `Annotated` aliases, and every Python block in the docs is type-checked under mypy and pyright.
+- **One reading of an annotation.** Each hint is read once into one object that names the type, reads a value, writes it as JSON and says which types may land on it. Validation is pydantic's throughout. The one question pydantic doesn't answer is whether an output of one type may feed an input of another, so that is conductor's own walk over the two types; answering it from pydantic's JSON schema was tried and accepted edges whose values were then refused.
+- **`Series[T]` and `Table[R]` are ordinary generic classes** with their own pydantic schema. So a table stands in a union, in a `Series` and inside a host's model, and it has one JSON form wherever a host sees one, `{"columns": [{"name", "type", "values"}]}`. A value read as `Table[R]` holds exactly `R`'s columns at every door: a caller's, a person's answer, gathered records, a node's own return. To a type checker a `Series[T]` is a `list[T]` and a `Table[R]` a frame.
+- **A node may be written for any type.** `def split[T](value: Table[T] | list[T]) -> Series[T]` takes the type that arrives on its edge, bound when the graph loads; after that the placed node has ordinary fields. Split, stack and the decision are written this way and have no hooks. A hook stays for what a type can't say: fields named by a setting.
+- **One flat record per field.** A `FieldDescription` always has a `type` and a `schema`, `many` says one or many, and a table's columns are in its schema. Where a field stands it is held, not copied: an input of a placed node is `{field, feed}`, a graph's input `{address, node_id, field}`.
+- **`Policy` is a strict pydantic model.** `Policy(retries="2")` raises pydantic's own error where it is written.
+- **What a person sees for a type is declared.** Conductor's own types take their id and title from one fixed table; a host's type shown to people declares `type_id` and `type_title` as class attributes (`NamedType`). Nothing falls back to a class's name. A type's id shows its generic arguments (`list[address]`), so a mismatch can say them, and a class inside a generic declares its id and title too. A host shows its own words for type ids in its editor. Every Python block in the docs is type-checked under mypy and pyright.
 
 ```python
 from typing import Annotated
@@ -242,11 +249,15 @@ class Settings(BaseModel):
 print(Settings.model_json_schema()["properties"]["temperature"])  # {'default': 1.0, 'maximum': 2, 'minimum': 0, 'title': 'Temperature', 'type': 'number'}
 ```
 
+**Worth questioning:** a host's subclass of a builtin (`class Email(str)`) needs three lines of its own, a `__get_pydantic_core_schema__`, or it is refused as `type_not_carried`. This holds because conductor knows no host type: reading it as a `str` for the host dropped a limit on it and refused `list[Email]`.
+
+**Worth questioning:** `type_accepts` is a list of classes, so a rule that isn't a list of classes can't be said. A list is data an editor can show before anything runs.
+
 **Worth questioning:** a type checker accepts a `Table[Sale]` where a `Table[Order]` is expected. A distinct generic would refuse it, but it would make every plain `polars.DataFrame` return a type error.
 
 ## The companion packages
 
-- **`conductor-nodes`:** the 32 standard nodes, a registry per module, and `conductor_nodes.registry` holding them all. It has no types of its own. A failure a person can act on is a `NodeError` with a code. Node ids never change, since stored graphs name them.
+- **`conductor-nodes`:** the 33 standard nodes, a registry per module, and `conductor_nodes.registry` holding them all. It has no types of its own. A failure a person can act on is a `NodeError` with a code. Node ids never change, since stored graphs name them.
 - **`conductor-providers`:** `run_router(store=, registry=, caller=)`, a FastAPI router mounted with `app.include_router(...)`. Starting, reading, following, answering, resuming, running again and cancelling are routes, by run id, served from any worker.
 - **The host owns storage and login.** `RunStore` is six async methods over one row per run, and every change is a compare-and-set on a revision. A lease lets another worker resume a dead worker's run from its last checkpoint. `caller` is a FastAPI dependency whose return type is kept on the run as JSON, so any worker can rebuild the registry for that caller. A run is visible only to whoever started it, unless the host widens `may_see`; `again` by another caller loads the run on that caller's own nodes.
 - **What the router promises.** An answer sent while a leg runs is queued, and the write that ends the leg either takes it or refuses it in the run's `refused`, never drops it; only a leg that ends `waiting` takes answers; a second answer to a question already queued is 409. The ceiling a run was started or resumed with holds for every later leg. A cancel stays set through a takeover, so only an explicit resume restarts the run. One leg may run 5 minutes by default (`leg_timeout`), and a timed-out run waits for a resume.

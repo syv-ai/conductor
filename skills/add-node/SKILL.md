@@ -42,14 +42,16 @@ assert registry["greet"] is greet
 | Several outputs | a frozen dataclass as the return type, `Annotated[str, Param(title=...)]` on a field to say more |
 | To run once per item | return `Series[X]`; what takes one `X` from it runs once per item, and so does everything after |
 | Every item in one call | a `Series[X]` input: it gathers them, in order |
-| A whole table in or out | `Table[Contact]` (a `TypedDict` names the columns) or bare `Table`; it is a `polars.DataFrame`, one value. A `Table` input fed records gathers them |
+| A whole table in or out | `Table[Contact]` (a `TypedDict` names the columns, and the table holds exactly those) or bare `Table`; it is a `polars.DataFrame`, one value, and may be returned as a list of records. A `Table` input fed records gathers them |
 | A branch | return `SKIPPED` on the output not taken; share an `exclusive_group` |
 | A blank (an empty cell) | `email: str \| None`; otherwise the node is not called for that item and its outputs are blank there |
 | A person's answer | `raise Ask(prompt, choices=..., default=...)`; the return type says what the answer is and how to ask, its `Param` how it looks (`-> str` free text, `bool` yes or no, a frozen dataclass a form; every type in `python -m conductor.about legs-and-asking`). Each has the answer's shape: on several outputs it goes by output name; `Choice(id, title)` titles a choice |
 | A client, a clock, the caller | `FromRun[T]`, supplied by `run.resume(from_run={T: value})` |
 | Retries, a timeout, a concurrency bound | `@node("x", title="X", description="...", policy=Policy(retries=3, attempt_timeout=10, concurrency=4))` |
 | A second version | `replaces=node("x", title="X", description="...")(run_v1), upgrade=Upgrade(renamed_inputs={...})` on `@node` |
-| Fields that depend on configuration | `compute_added_inputs=` / `compute_outputs=`: plain functions whose parameters name the inputs they read and that return `{name: type hint}`; a parameter annotated `type` gets the type on an edge. Added inputs arrive on `**values` |
+| A type that follows what arrives | a type variable: `def keep[T](value: T) -> T`, `def split[T](value: Table[T] \| list[T]) -> Series[T]`, a generic frozen dataclass of outputs. `T` is the type on the edge, bound when the graph loads |
+| Fields named by a setting | `compute_added_inputs=` / `compute_outputs=`: plain functions whose parameters name the inputs they read and that return `{name: type hint}`. Added inputs arrive on `**values` |
+| A text or number class of your own | `class Email(str)` with `type_id`, `type_title` and its own `__get_pydantic_core_schema__` (`core_schema.no_info_after_validator_function(cls, handler(str))`) |
 
 `@registry.node` takes `@node`'s arguments and adds the node; plain `@node` registers nothing, and `registry.add(node_a, node_b)` adds such nodes later. A module keeps a registry of its own (`NodeRegistry(category=, tags=, extra=)` set its nodes' defaults) and the host joins them with `registry.add_subregistry(module_registry)`. Two definitions under one id raise; `replace` and `remove` change one, and `registry.filter(predicate)` is a narrower registry. `extra=` is your own JSON about a node, which conductor keeps and never reads.
 

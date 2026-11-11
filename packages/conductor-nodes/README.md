@@ -1,12 +1,12 @@
 # syv-conductor-nodes
 
-Nodes for [Conductor](https://github.com/syv-ai/conductor) that only compute: text, numbers, yes or no, JSON, regular expressions and a decision that sends a value one of two ways.
+Nodes for [Conductor](https://github.com/syv-ai/conductor) that only compute: text, numbers, yes or no, JSON, regular expressions, tables and a decision that sends a value one of two ways.
 
 ```bash
 uv add syv-conductor-nodes
 ```
 
-`conductor_nodes.registry` holds all 32. Add it to yours, or add one module's:
+`conductor_nodes.registry` holds all 33. Add it to yours, or add one module's:
 
 ```python
 import conductor_nodes
@@ -26,7 +26,7 @@ print(graph.run(text="a\nb").outputs)  # {'text-uppercase.result': ['A', 'B']}
 | `logic` | `logic` | `logic-not` |
 | `json_ops` | `json` | `json-parse`, `json-stringify`, `json-get` |
 | `regex_ops` | `regex` | `regex-match`, `regex-replace`, `regex-extract` |
-| `tables` | `table` | `split`, `table-collect` |
+| `tables` | `table` | `split`, `stack`, `table-collect` |
 | `control` | `control` | `decision`, `logic-if-empty`, `logic-if-equals` |
 
 A module holds one category, so a module's `registry` and a filter by category pick the same nodes: `conductor_nodes.registry.filter(lambda d: d.category == "math")`.
@@ -65,6 +65,8 @@ print(contacts.run(csv="name\nIda\nBo\n").outputs["table-collect.result"].to_dic
 - `split.result.name` is one field of each record. `greet` takes one name, so it runs once per contact.
 - `table-collect` gathers: it runs once, with every record and every greeting. Each name in `columns` is an input taking one value per record, blank where a record got none.
 - Each name in `constant_columns` is an input taking one value made outside the records, written on every one of them: the file's name on each line.
+
+`split` takes the type that arrives: a table of contacts gives contacts, a list of numbers gives numbers, and anything else is a `type_mismatch` on the edge. `stack` goes the other way for tables: where a node makes a table per item, say the lines of each invoice, it puts them into one table, one under the other.
 
 `text-split` splits a text into its lines, or at another separator. `text-list` gives the texts typed into it; wire a Series to `for_each` and it gives them once for each item of it, so each document gets every question.
 

@@ -136,8 +136,8 @@ That gives these routes:
 
 | Route | What it does |
 |---|---|
-| `GET /nodes` | The caller's palette: `registry.describe()`. |
-| `POST /load` | A graph's problems and plan as an editor draws them: `graph.describe()`. |
+| `GET /nodes` | The caller's palette: `registry.describe()`, each node with its fields. |
+| `POST /load` | A graph as an editor draws it: `graph.describe()`. Each node has its problems, how often it runs, and its inputs, each a `field` beside its `feed`, which says how the input gets its value on each call. The graph's own inputs are each an `address`, a `node_id` and a `field`. |
 | `POST /runs` | Start a run of `{"graph": ..., "inputs": {...}}`; 202 with its `id`, 422 listing every problem. |
 | `POST /graphs/{name}/runs` | Start a graph you offer, on its inputs alone. Only with `published=`. |
 | `GET /runs/{id}` | Its `status`, what is `waiting` for a person (as of the last leg's end, so while a leg runs it still lists what was just answered; a client hides the ones it answered), `outputs` once complete (each as its type writes it: a table as `{"columns": [{"name", "type", "values"}]}`, a float that isn't finite as its text, a host's type by its own schema), `refused` answers, and the `cause` of a run that failed, stopped, was cancelled or timed out (an `item_ceiling` cause says the `items` and `max_items`, for choosing a resume's ceiling). |
