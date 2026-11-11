@@ -101,8 +101,6 @@ PROBLEM_CATALOGUE: Mapping[str, str] = {
     "value_and_edge": "Field '{field}' has an edge and a typed-in value; keep one.",
     # -- what a call is refused for ----------------------------------------------
     "answer_stale": "The answer was given for {waiting_id!r}, and another question waits at that place by now, {current!r}; show that one and answer it.",
-    "cannot_move_to_version": "'{node}' cannot move from version {version} to {target}; it has {versions}.",
-    "from_run_missing": "'{node_id}' needs a {needs} for '{parameter}', and from_run gives none (it gives {given}); pass from_run={{{needs}: ...}}.",
     "invalid_answer": "That is not a valid answer: {reason}",
     "input_given_twice": "'{name}' is given twice, by its name and by its address '{address}'; give it once.",
     "invalid_edge_value": "The value an edge brought to '{name}' is not one it takes: {reason}. Fix the node that made it, or connect an output of the type the input takes.",

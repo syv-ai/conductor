@@ -497,21 +497,19 @@ print(refused(lambda: asked_again.answer(asked.waiting[0].id, True)))  # ['answe
 
 ### `cannot_move_to_version`
 
-> '{node}' cannot move from version {version} to {target}; it has {versions}.
-
 ```python
 record = make_graph(upper)
 print(refused(lambda: registry.upgrade(record, "upper", to=3)))  # ['cannot_move_to_version']
+print(said(lambda: registry.upgrade(record, "upper", to=3))[0])  # 'upper' cannot move from version 1 to 3; it has 1.
 ```
 
 **Fix.** Move it to a version `ctx.versions` lists, or leave `to` out for the newest.
 
 ### `from_run_missing`
 
-> '{node_id}' needs a {needs} for '{parameter}', and from_run gives none (it gives {given}); pass from_run={{{needs}: ...}}.
-
 ```python
 print(refused(lambda: asking_who.run()))  # ['from_run_missing']
+print(said(lambda: asking_who.run())[0])  # 'who' needs a Caller for 'caller', and from_run gives none (it gives none); pass from_run={Caller: ...}.
 ```
 
 **Fix.** Pass the value by its type: `graph.run(from_run={Caller: Caller("Ida")})`. It is never saved with the run, so pass it again on each `resume`.

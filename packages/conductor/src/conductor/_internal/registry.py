@@ -45,6 +45,7 @@ from typing import TYPE_CHECKING, Any, Concatenate
 
 from pydantic import JsonValue
 
+from conductor._internal import core_problems
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.errors import InvalidCallError, NodeDeclarationError, make_problem
 from conductor._internal.fields import NamedType, Type
@@ -297,8 +298,8 @@ class NodeRegistry:
         if target == placed.version:
             return graph
         if target < placed.version or target not in newest.versions or placed.version not in newest.versions:
-            raise InvalidCallError([make_problem(
-                "cannot_move_to_version", node_id,
+            raise InvalidCallError([core_problems.cannot_move_to_version(
+                node_id,
                 node=placed.node, version=placed.version, target=target, versions=sorted(newest.versions),
             )])
         lineage = newest.version_of(target).lineage

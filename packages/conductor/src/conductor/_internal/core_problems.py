@@ -16,6 +16,33 @@ PROBLEMS = ProblemCatalogue()
 
 
 @PROBLEMS.problem()
+def cannot_move_to_version(*loc: str | int, node: str, version: int, target: int, versions: list[int]) -> str:
+    """``registry.upgrade`` is asked to move a placed node to a version it can't reach from the one it is at.
+
+    Args:
+        loc: The placed node.
+        node: The id of the node's definition.
+        version: The version the node is placed at.
+        target: The version asked for.
+        versions: The versions the definition has.
+    """
+    return f"'{node}' cannot move from version {version} to {target}; it has {listed(versions)}."
+
+
+@PROBLEMS.problem()
+def from_run_missing(node_id: str, parameter: str, *, needs: str, given: list[str]) -> str:
+    """A node takes a value from the run, and the call's ``from_run`` has none under that class.
+
+    Args:
+        node_id: The node.
+        parameter: Its ``FromRun`` parameter.
+        needs: The name of the class the parameter names.
+        given: The names of the classes ``from_run`` has values for.
+    """
+    return f"'{node_id}' needs a {needs} for '{parameter}', and from_run gives none (it gives {listed(given)}); pass from_run={{{needs}: ...}}."
+
+
+@PROBLEMS.problem()
 def invalid_record(*loc: str | int, at: str, reason: str, error: str) -> str:
     """What was given as a graph record is not one.
 

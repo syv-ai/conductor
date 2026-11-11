@@ -63,8 +63,9 @@ from typing import Annotated, Any, Generic, Literal, ParamSpec, Protocol, TypeVa
 from pydantic import ConfigDict, JsonValue
 from pydantic import Field as PydanticField
 
+from conductor._internal import core_problems
 from conductor._internal.conductor_model import ConductorModel
-from conductor._internal.errors import InvalidCallError, NodeDeclarationError, make_problem
+from conductor._internal.errors import InvalidCallError, NodeDeclarationError
 from conductor._internal.fields import (
     REQUIRED,
     Field,
@@ -552,7 +553,7 @@ def from_run_values(definitions: Iterable[tuple[str, FunctionDefinition[..., Any
         InvalidCallError: One ``from_run_missing`` problem per parameter whose class is not a key of ``from_run``.
     """
     problems = [
-        make_problem("from_run_missing", node_id, name, needs=needed.__name__, parameter=name, given=[key.__name__ for key in from_run])
+        core_problems.from_run_missing(node_id, name, needs=needed.__name__, given=[key.__name__ for key in from_run])
         for node_id, definition in definitions
         for name, needed in definition.from_run.items()
         if needed not in from_run
