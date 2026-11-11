@@ -119,7 +119,14 @@ class RunView(Outcome):
 
     @classmethod
     def of(cls, run: RunAsRead) -> "RunView":
-        """The view of ``run``, from its state and its row's ``outcome``."""
+        """The view of a run, from its state and its row's ``outcome``.
+
+        Args:
+            run: The run as read.
+
+        Returns:
+            What ``GET /runs/{id}`` answers for it.
+        """
         outcome = Outcome.model_validate_json(run.row.outcome)
         cause = run.state.run_state.cause if isinstance(run.state.run_state, EndedEarly) else None
         return cls(id=run.row.id, status=run.state.run_state.status, refused=run.state.refused, cause=cause, waiting=outcome.waiting, outputs=outcome.outputs)
@@ -130,7 +137,11 @@ class _RefusingRoute(APIRoute):
     run that isn't there for the caller, a 409 for a run in a state that doesn't take the call."""
 
     def get_route_handler(self) -> Callable[[Request], Coroutine[Any, Any, Response]]:
-        """The route's handler, with each refusal raised under it answered as its status and problems."""
+        """The route's handler, with each refusal raised under it answered as its status and problems.
+
+        Returns:
+            The handler FastAPI calls for a request.
+        """
         handle = super().get_route_handler()
 
         async def refusing(request: Request) -> Response:
@@ -147,7 +158,15 @@ class _RefusingRoute(APIRoute):
 
 
 def _refusal(status_code: int, problems: list[Problem]) -> HTTPException:
-    """The refusal of a call: ``problems`` as the ``detail`` of a response with ``status_code``."""
+    """The refusal of a call.
+
+    Args:
+        status_code: The status of the response.
+        problems: Why the call is refused; the response's ``detail``.
+
+    Returns:
+        The exception FastAPI answers with.
+    """
     return HTTPException(status_code, [problem.model_dump(mode="json") for problem in problems])
 
 
@@ -214,24 +233,33 @@ def run_router(
 ) -> APIRouter:
     """The runs routes, with the worker that runs their legs; mount them with ``app.include_router(...)``.
 
-    - ``store`` keeps runs and events (``RunStore``).
-    - ``registry`` is the nodes graphs may use, or a function of the caller giving them, for a registry per tenant.
-      It is called again for every request and every leg, so a function caches what it builds.
-    - ``caller`` is a FastAPI dependency giving who is calling: your login. The type it gives (a class used as the
-      dependency, or a function's return annotation, which it must have) is kept on the run as JSON, so a run is
-      built again on any worker. Let it hold what identifies the caller and nothing that changes: a run keeps its
-      caller as they were when it started.
-    - ``may_see(caller, started_by)`` says whether a caller may read and act on a run, and is given whenever
-      ``caller`` is: ``lambda caller, started_by: caller.id == started_by.id`` for the starter alone.
-    - ``from_run`` gives a leg its ``FromRun`` values from the caller who started it. A leg runs on threads of its
-      own, so a value is a way to connect, never an open connection.
-    - ``published`` is a FastAPI dependency taking the path's ``name`` and giving a ``GraphRecord``, raising
-      ``HTTPException(404)`` for one it doesn't offer; with it, ``POST /graphs/{name}/runs`` starts that graph on
-      inputs alone.
-    - ``max_items`` is the ceiling on the items of any one Series a node works through, which a run starts with; a resume may raise it for that run,
-      and the raised ceiling holds for its later legs. ``lease`` the seconds a worker holds a run between
-      renewals; ``checkpoint_every`` the seconds between saves of a running leg; ``leg_timeout`` the seconds one leg
-      may run; ``poll`` the seconds between a follower's reads of new events.
+    Args:
+        store: Where runs and events are kept.
+        registry: The nodes graphs may use, or a function of the caller giving them, for a registry per tenant. It
+            is called again for every request and every leg, so a function caches what it builds.
+        caller: A FastAPI dependency giving who is calling: your login. The type it gives (a class used as the
+            dependency, or a function's return annotation, which it must have) is kept on the run as JSON, so a
+            run is built again on any worker. Let it hold what identifies the caller and nothing that changes: a
+            run keeps its caller as they were when it started.
+        may_see: ``may_see(caller, started_by)`` says whether a caller may read and act on a run. Given whenever
+            ``caller`` is: ``lambda caller, started_by: caller.id == started_by.id`` for the starter alone.
+        from_run: Gives a leg its ``FromRun`` values from the caller who started it. A leg runs on threads of its
+            own, so a value is a way to connect, never an open connection.
+        published: A FastAPI dependency taking the path's ``name`` and giving a ``GraphRecord``, raising
+            ``HTTPException(404)`` for one it doesn't offer; with it, ``POST /graphs/{name}/runs`` starts that
+            graph on inputs alone.
+        max_items: The ceiling on the items of any one Series a node works through, which a run starts with; a
+            resume may raise it for that run, and the raised ceiling holds for its later legs.
+        lease: The seconds a worker holds a run between renewals.
+        checkpoint_every: The seconds between saves of a running leg.
+        leg_timeout: The seconds one leg may run.
+        poll: The seconds between a follower's reads of new events.
+
+    Returns:
+        The router, whose lifespan runs the worker.
+
+    Raises:
+        TypeError: ``caller`` is given without ``may_see``, or is a function with no return annotation.
     """
     if caller is not _nobody and may_see is _everyone:
         raise TypeError("run_router(caller=...) needs may_see=: say who may see a run, as lambda caller, started_by: caller.id == started_by.id")
@@ -338,7 +366,17 @@ def run_router(
 
 
 def _caller_type(caller: Callable[..., Any]) -> Any:
-    """The type a ``caller`` dependency gives: the class itself, or a function's return annotation, which it must have."""
+    """The type a ``caller`` dependency gives.
+
+    Args:
+        caller: The dependency: a class, or a function.
+
+    Returns:
+        The class itself, or the function's return annotation.
+
+    Raises:
+        TypeError: The function has no return annotation.
+    """
     if isinstance(caller, type):
         return caller
     returns = get_type_hints(caller).get("return")

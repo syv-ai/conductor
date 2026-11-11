@@ -122,11 +122,24 @@ class Worker(Generic[C]):
     # -- what a route calls -----------------------------------------------------------------------
 
     def started_by(self, row: StoredRun) -> C:
-        """The caller who started the run of ``row``."""
+        """The caller who started a run.
+
+        Args:
+            row: The run's row.
+
+        Returns:
+            The caller, read from the JSON the row keeps.
+        """
         return self._callers.validate_json(row.caller)
 
     async def read(self, run_id: str) -> RunAsRead:
         """The run as the store has it.
+
+        Args:
+            run_id: The run's id.
+
+        Returns:
+            The row, with its state read.
 
         Raises:
             NoSuchRunError: The store has no run by that id.
@@ -137,7 +150,12 @@ class Worker(Generic[C]):
         return RunAsRead.of(row)
 
     async def begin(self, graph: GraphRecord, inputs: Mapping[str, Any], who: C) -> str:
-        """Start a run of ``graph`` for ``who`` and run its first leg.
+        """Start a run and run its first leg.
+
+        Args:
+            graph: The graph to run.
+            inputs: Values for the graph's open inputs, by name or by address.
+            who: The caller who starts it, on whose nodes the graph is loaded.
 
         Returns:
             The run's id.
@@ -150,8 +168,13 @@ class Worker(Generic[C]):
         return await self._create(graph.model_dump_json(), who, saved)
 
     async def again(self, run: RunAsRead, inputs: Mapping[str, Any], who: C) -> str:
-        """Start a run of ``who``'s, on ``who``'s own nodes, that is ``run`` with ``inputs`` changed; a call that
-        receives what it received before isn't made again.
+        """Start a run that is another with some inputs changed; a call that receives what it received before
+        isn't made again.
+
+        Args:
+            run: The run to start from, as read.
+            inputs: The inputs to change, by name or by address; the rest stay as ``run`` had them.
+            who: The caller who starts the new run, on whose own nodes it is loaded.
 
         Returns:
             The new run's id.
@@ -168,6 +191,10 @@ class Worker(Generic[C]):
 
         While a leg runs, the answers are queued for its end. Otherwise the run takes them as ``run.answer`` does,
         whatever its status, and its next leg starts.
+
+        Args:
+            run: The run as read.
+            answers: An answer for each waiting unit, by its waiting id.
 
         Returns:
             ``queued`` when a leg was running, else ``started``.
@@ -214,6 +241,9 @@ class Worker(Generic[C]):
     async def cancel(self, run: RunAsRead) -> bool:
         """Ask the running leg of a run to stop before its next unit: at once when this worker runs it, at its next
         renewal when another does.
+
+        Args:
+            run: The run as read.
 
         Returns:
             Whether a leg was running to ask.
@@ -267,9 +297,15 @@ class Worker(Generic[C]):
 
     @asynccontextmanager
     async def serving(self) -> AsyncGenerator[None]:
-        """While entered, take over runs whose lease ran out, three times a lease. On leaving, stop every leg this
-        worker runs and hand its run back: a leg handed back keeps the calls already made, so the next worker
-        repeats none. A sweep that raises is logged and the next one runs."""
+        """The context a worker serves in: a lifespan enters it.
+
+        While entered, runs whose lease ran out are taken over, three times a lease; a sweep that raises is logged
+        and the next one runs. On leaving, every leg this worker runs is stopped and its run handed back: a leg
+        handed back keeps the calls already made, so the next worker repeats none.
+
+        Yields:
+            Nothing; the worker serves until the context is left.
+        """
         async def keep_sweeping() -> None:
             while True:
                 try:
@@ -294,7 +330,16 @@ class Worker(Generic[C]):
         return {"owner": self.id, "lease_until": time.time() + self._lease}
 
     async def _create(self, graph: str, who: C, saved: str) -> str:
-        """Store a run of ``who``'s, held by this worker, and run its first leg."""
+        """Store a run, held by this worker, and run its first leg.
+
+        Args:
+            graph: The run's graph, as JSON.
+            who: The caller who starts it.
+            saved: The run with its inputs, as JSON.
+
+        Returns:
+            The run's id.
+        """
         state = StoredState.started()
         written: RunChanges = {"run": saved, **state.columns(), "outcome": Outcome.empty().model_dump_json(), **self._mine()}
         row = StoredRun(id=uuid.uuid4().hex, graph=graph, caller=self._callers.dump_json(who).decode(), rev=0, **written)
@@ -325,8 +370,14 @@ class Worker(Generic[C]):
         return True
 
     def _run_legs(self, row: StoredRun, state: StoredState, max_items: int | None = None) -> None:
-        """Run the legs of ``row``, as this worker has just written it, in the background; a cancel asked of it the
-        first leg hears before its first unit."""
+        """Run the legs of a run this worker has just written, in the background; a cancel asked of it the first leg
+        hears before its first unit.
+
+        Args:
+            row: The row as written.
+            state: The row's state.
+            max_items: A ceiling on the items of any one Series for the first leg, where the run's own is to be raised.
+        """
         hold = _Hold(row.id, row.rev, state)
         if state.cancel_asked:
             hold.stop.set()
@@ -339,6 +390,11 @@ class Worker(Generic[C]):
 
         A raise while a leg's end is written, which may come after its ``run_end`` is stored, is logged and writes
         no second end: the row stays ``running``, its lease runs out, and a worker goes on from the last checkpoint.
+
+        Args:
+            hold: The hold on the run.
+            row: The row as this worker wrote it.
+            max_items: A ceiling on the items of any one Series for the first leg, where the run's own is to be raised.
         """
         renewing = asyncio.create_task(self._renew(hold))
         try:
@@ -353,7 +409,11 @@ class Worker(Generic[C]):
 
     async def _renew(self, hold: _Hold) -> None:
         """Renew the lease three times a lease, until the run is given up or taken. A renewal that raises is logged
-        and the next one is tried, so one failed statement doesn't cost a leg its run."""
+        and the next one is tried, so one failed statement doesn't cost a leg its run.
+
+        Args:
+            hold: The hold on the run.
+        """
         while not hold.released:
             await asyncio.sleep(self._lease / 3)
             try:
@@ -362,7 +422,12 @@ class Worker(Generic[C]):
                 log.exception("the lease of run %s was not renewed; the next renewal tries again", hold.run_id)
 
     async def _leg(self, hold: _Hold, row: StoredRun, max_items: int | None) -> LegEnd:
-        """Run one leg of ``row`` and store its events and checkpoints.
+        """Run one leg of a held run and store its events and checkpoints.
+
+        Args:
+            hold: The hold on the run.
+            row: The row, whose ``run`` the leg starts from.
+            max_items: A ceiling on the items of any one Series, where the run's own is to be raised.
 
         Returns:
             How the leg ended: with the run of its ``run_end``; handed back, when the worker shuts down and no
@@ -401,6 +466,11 @@ class Worker(Generic[C]):
         The lease is renewed until the end is written, and the run is made JSON outside the lock, so a run however
         long it takes to write stays this worker's.
 
+        Args:
+            hold: The hold on the run.
+            row: The row as the leg started from it.
+            end: How the leg ended.
+
         Returns:
             ``row`` with the ``run`` and ``outcome`` that were written. The hold is released unless this worker
             goes on with a next leg of it.
@@ -429,6 +499,10 @@ class Worker(Generic[C]):
         """Write a checkpoint or a renewal to a held run, again for as long as another writer (an answer queued, a
         cancel) moved its ``rev`` on first.
 
+        Args:
+            hold: The hold on the run.
+            changes: The columns to write.
+
         Returns:
             Whether it was written. A run given up, or that another worker took, takes no write.
         """
@@ -442,6 +516,10 @@ class Worker(Generic[C]):
         """Write ``changes`` to a held run at the ``rev`` this worker knows, under the hold's lock; a write that
         loses reads the row again.
 
+        Args:
+            hold: The hold on the run.
+            changes: The columns to write.
+
         Returns:
             Whether it was written.
         """
@@ -453,7 +531,11 @@ class Worker(Generic[C]):
 
     async def _read_again(self, hold: _Hold) -> None:
         """Read the row of a held run, under the hold's lock, and take in what another writer changed: its state,
-        a cancel asked of it, and whether another worker took it."""
+        a cancel asked of it, and whether another worker took it.
+
+        Args:
+            hold: The hold on the run.
+        """
         run = await self.read(hold.run_id)
         hold.reads += 1
         hold.rev, hold.state = run.row.rev, run.state
@@ -485,5 +567,13 @@ class Worker(Generic[C]):
 
 
 def _loaded(row: StoredRun, nodes: NodeRegistry) -> Run:
-    """The stored run, on ``nodes``."""
+    """A stored run, loaded.
+
+    Args:
+        row: The run's row.
+        nodes: The nodes its graph is loaded on.
+
+    Returns:
+        The run as the row's ``run`` saved it.
+    """
     return nodes.load(row.graph).load_run(row.run)

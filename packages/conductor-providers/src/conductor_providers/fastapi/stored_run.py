@@ -110,9 +110,15 @@ class StoredState(BaseModel):
         return self.run_state == RUNNING
 
     def columns(self) -> RunChanges:
-        """The row's ``status`` and ``state`` for this state. Nothing else writes either column, so each write of
-        ``state`` writes the ``status`` it holds in the same statement. ``status`` is for the host's own queries:
-        the worker and the routes read ``state`` and never ``status``."""
+        """The row's ``status`` and ``state`` for this state.
+
+        Nothing else writes either column, so each write of ``state`` writes the ``status`` it holds in the same
+        statement. ``status`` is for the host's own queries: the worker and the routes read ``state`` and never
+        ``status``.
+
+        Returns:
+            The two columns, to write in one ``update``.
+        """
         return {"status": self.run_state.status, "state": self.model_dump_json()}
 
 
@@ -130,5 +136,12 @@ class RunAsRead:
 
     @classmethod
     def of(cls, row: StoredRun) -> RunAsRead:
-        """``row`` with its state read."""
+        """A row with its state read.
+
+        Args:
+            row: The row, as the store gave it.
+
+        Returns:
+            The row and its state.
+        """
         return cls(row, StoredState.model_validate_json(row.state))
