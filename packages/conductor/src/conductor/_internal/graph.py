@@ -74,7 +74,6 @@ from conductor._internal.node_definition import (
     GraphDefinition,
     HookName,
     NodeDefinition,
-    Policy,
     is_node_id,
     read_by_hooks,
 )
@@ -329,6 +328,7 @@ class _Placed:
         return all(plan.spec.shape == "table" or plan.spec.plain for plan in self.inputs.values())
 
 
+@typing.final
 @dataclass(frozen=True, kw_only=True)
 class PlacedFunction(_Placed):
     """A node of a loaded graph that is a function.
@@ -338,11 +338,6 @@ class PlacedFunction(_Placed):
     """
 
     definition: FunctionDefinition[..., Any]
-
-    @property
-    def policy(self) -> Policy:
-        """How the engine calls it."""
-        return self.definition.policy
 
     @functools.cached_property
     def reuse_digest(self) -> str:
@@ -364,12 +359,15 @@ class PlacedFunction(_Placed):
         return output_questions(self.outputs)
 
 
+@typing.final
 @dataclass(frozen=True, kw_only=True)
 class PlacedGraph(_Placed):
     """A node of a loaded graph that is an embedded graph: a call of it is a run of ``inner``.
 
     Its inputs are the inner graph's (``inner.inputs``) by their names there, and its outputs the inner graph's
-    (``inner.outputs``) by their addresses there.
+    (``inner.outputs``) by their addresses there. It has no policy and no unit of it is reused whole: the nodes
+    inside are called by their own policies, and a later run takes their earlier work node by node, as it would
+    with the same nodes drawn in the graph itself.
 
     Attributes:
         definition: The node as its author declared it.
@@ -379,23 +377,9 @@ class PlacedGraph(_Placed):
     definition: GraphDefinition
     inner: Graph
 
-    @property
-    def policy(self) -> Policy:
-        """How the engine calls it: on the leg's own thread, as the nodes inside carry their own policies."""
-        return _INLINE
-
-    @functools.cached_property
-    def reuse_digest(self) -> str:
-        """What a unit's result rests on besides what it received: the node's version, the inner graph and its scope."""
-        written = repr((self.definition.id, self.definition.version, self.inner.fingerprint, self.scope))
-        return hashlib.blake2b(written.encode(), digest_size=8).hexdigest()
-
 
 #: One node of a loaded graph: a function, or an embedded graph.
 PlacedNode = PlacedFunction | PlacedGraph
-
-#: The policy of a node called on the leg's own thread.
-_INLINE = Policy()
 
 
 # -- what a host reads of a loaded graph --------------------------------------------------------
@@ -539,6 +523,8 @@ class Graph:
     _needs_from_run: list[tuple[str, FunctionDefinition[..., Any]]]
     #: Every node each node waits on, however far up, filled as a leg asks.
     _above: dict[str, frozenset[str]] = dataclasses.field(default_factory=dict[str, frozenset[str]])
+    #: (node, a node reading it): how many maps their scopes share, filled as a leg asks.
+    _shared: dict[tuple[str, str], int] = dataclasses.field(default_factory=dict[tuple[str, str], int])
 
     def __repr__(self) -> str:
         state = "runnable" if self.is_runnable else f"{len(self.problems)} problem{'s' if len(self.problems) != 1 else ''}"
@@ -654,6 +640,30 @@ class Graph:
 
         return run_from_json(self, saved)
 
+    @functools.cached_property
+    def _order(self) -> list[PlacedNode]:
+        """The nodes that loaded, each after the nodes it reads: the order a leg tries them in."""
+        return list(self._nodes.values())
+
+    @functools.cached_property
+    def _position(self) -> dict[str, int]:
+        """Each node's place in ``_order``, by id."""
+        return {placed.id: place for place, placed in enumerate(self._order)}
+
+    @functools.cached_property
+    def _embedded(self) -> tuple[str, ...]:
+        """The ids of the nodes that are embedded graphs."""
+        return tuple(placed.id for placed in self._order if isinstance(placed, PlacedGraph))
+
+    @functools.cached_property
+    def _threads(self) -> int:
+        """How many calls a leg over the graph can have on threads at once: the ``concurrency`` of every node
+        called on a thread, those of each embedded graph with them."""
+        return sum(
+            placed.inner._threads if isinstance(placed, PlacedGraph) else placed.definition.policy.concurrency if placed.definition.policy.threaded else 0
+            for placed in self._nodes.values()
+        )
+
     def _above_of(self, node_id: str) -> frozenset[str]:
         """Every node ``node_id`` waits on, however far up; worked out when first asked, as most nodes never are."""
         found = self._above.get(node_id)
@@ -665,6 +675,18 @@ class Graph:
                     seen.add(read)
                     stack.append(read)
             found = self._above[node_id] = frozenset(seen)
+        return found
+
+    def _shared_maps(self, placed: PlacedNode, reader: PlacedNode) -> int:
+        """How many maps the scopes of ``placed`` and of a node reading it share from the graph's own scope down;
+        worked out when first asked."""
+        found = self._shared.get((placed.id, reader.id))
+        if found is None:
+            ours, theirs = placed.scope, reader.scope
+            found = 0
+            while found < min(len(ours), len(theirs)) and ours[found] == theirs[found]:
+                found += 1
+            self._shared[(placed.id, reader.id)] = found
         return found
 
     def _given_by_address(self, given: Mapping[str, Any]) -> tuple[dict[str, Any], list[Problem]]:
@@ -1403,11 +1425,3 @@ def _reaches(start: str, goal: str, readers: Mapping[str, list[str]], within: se
             seen.add(n)
             stack.extend(readers[n])
     return False
-
-
-def shared_depth(a: Scope, b: Scope) -> int:
-    """How many maps two scopes share from the graph's own scope down."""
-    n = 0
-    while n < min(len(a), len(b)) and a[n] == b[n]:
-        n += 1
-    return n

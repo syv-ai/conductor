@@ -290,12 +290,12 @@ def test_an_external_failure_is_a_node_error_and_there_is_no_retry_flag():
 #: Every event's fields, all required in the schema a generated client reads, by its ``type``.
 SHAPES = {
     "run_start": ["type", "waiting"],
-    "node_start": ["node_id", "type"],
-    "node_progress": ["done", "node_id", "total", "type"],
-    "node_complete": ["node_id", "not_called", "reused_units", "type", "units"],
-    "node_skipped": ["node_id", "type"],
-    "node_failed": ["cause", "node_id", "type"],
-    "node_retry": ["attempt", "cause", "delay", "item", "node_id", "retries", "type"],
+    "node_start": ["inside", "node_id", "type"],
+    "node_progress": ["done", "inside", "node_id", "total", "type"],
+    "node_complete": ["inside", "node_id", "not_called", "reused_units", "type", "units"],
+    "node_skipped": ["inside", "node_id", "type"],
+    "node_failed": ["cause", "inside", "node_id", "type"],
+    "node_retry": ["attempt", "cause", "delay", "inside", "item", "node_id", "retries", "type"],
     "unit_waiting": ["type", "unit"],
     "run_checkpoint": ["type"],
     "run_end": ["cause", "status", "type"],
@@ -374,7 +374,7 @@ def _every_event() -> list[Any]:
 def test_a_node_complete_of_a_frame_holding_floats_that_are_not_finite_is_a_small_summary_in_strict_json():
     by_node = {event.node_id: event for event in _streamed_events() if isinstance(event, NodeComplete)}
 
-    assert _strict(by_node["f"].model_dump_json()) == {"type": "node_complete", "node_id": "f", "units": 1, "not_called": 0, "reused_units": 0}
+    assert _strict(by_node["f"].model_dump_json()) == {"type": "node_complete", "inside": [], "node_id": "f", "units": 1, "not_called": 0, "reused_units": 0}
 
 
 @pytest.mark.parametrize("event", _every_event(), ids=lambda event: event.type)

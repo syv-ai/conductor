@@ -142,9 +142,14 @@ class Waiting(ConductorModel):
     Attributes:
         id: What ``run.answer`` takes: the node's id, then ``@`` and each place
             of its item, then ``~`` and a fingerprint of the question asked
-            there, ``"approve@1~3fa2c0d1"``. An answer for an id whose place has
-            since come to hold another question is refused as ``answer_stale``.
-        node_id: The node that asks, as the graph's caller names it.
+            there, ``"approve@1~3fa2c0d1"``. Inside an embedded graph, the
+            embedding node and its item come first, ``"review@0/approve@1~3fa2c0d1"``.
+            An answer for an id whose place has since come to hold another
+            question is refused as ``answer_stale``.
+        inside: The node and item of each embedded graph the node is inside,
+            outermost first, ``("review", 0)``; empty for a node of the graph
+            itself.
+        node_id: The node that asks, by its id in the graph it is a node of.
         item: Which of the node's calls it is: the place of its item in each Series the node runs per item of.
         prompt: What the node's ``Ask`` said.
         questions: One per output: the ``FieldDescription`` its ``describe()``
@@ -154,6 +159,7 @@ class Waiting(ConductorModel):
     """
 
     id: str
+    inside: tuple[str | int, ...] = ()
     node_id: str
     item: tuple[int, ...]
     prompt: str

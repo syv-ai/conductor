@@ -731,7 +731,7 @@ def test_a_question_record_is_json_a_host_draws_from_with_no_graph_loaded():
     written = run.waiting[0].model_dump(mode="json")
     assert re.fullmatch(r"q~[0-9a-f]{8}", written.pop("id"))  # the place, and a fingerprint of the question asked there
     assert written == {
-        "node_id": "q", "item": [], "prompt": "Who takes T-1?", "inputs": {"ticket": "T-1"},
+        "inside": [], "node_id": "q", "item": [], "prompt": "Who takes T-1?", "inputs": {"ticket": "T-1"},
         "questions": [{
             "name": "result", "title": "Assignee", "shape": "one", "required": False, "type": "str", "schema": {"type": "string"},
             "choices": [{"id": "ida", "title": "Ida B."}], "default": "ida", "widget": {"type": "textarea", "rows": 4},

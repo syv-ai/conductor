@@ -1,9 +1,14 @@
-"""An embedded graph is one node: its inputs and outputs are the inner graph's, and its problems the inner graph's
-by path."""
+"""An embedded graph is one node whose call is a nested run, and embedding a graph changes nothing about how its
+nodes behave: every test here holds a graph embedded against what the same nodes do drawn in the graph itself."""
 
 from __future__ import annotations
 
+import asyncio
 import collections
+import json
+import pathlib
+import subprocess
+import sys
 import threading
 import time
 from dataclasses import dataclass
@@ -15,6 +20,7 @@ from conductor import (
     Ask,
     ExternalError,
     FromRun,
+    InvalidCallError,
     NodeError,
     NodeRegistry,
     Param,
@@ -22,6 +28,15 @@ from conductor import (
     Series,
     Table,
     node,
+)
+from conductor.events import (
+    NodeComplete,
+    NodeFailed,
+    NodeRetry,
+    NodeStart,
+    RunCheckpoint,
+    RunEnd,
+    UnitWaiting,
 )
 
 CALLS: collections.Counter[str] = collections.Counter()
@@ -223,6 +238,18 @@ def flat(inner: str, splitter: str = "words"):
     return graph
 
 
+def stream(run, cancel_when=None, **options):
+    async def go():
+        cancel, events = asyncio.Event(), []
+        async for event in run.stream(cancel=cancel, **options):
+            events.append(event)
+            if cancel_when is not None and cancel_when(event):
+                cancel.set()
+        return events
+
+    return asyncio.run(go())
+
+
 def problems(graph) -> list[tuple[str, tuple]]:
     return [(p.type, p.loc) for p in graph.problems]
 
@@ -299,3 +326,233 @@ def chain_node(node_id: str) -> str:
     if embedded not in REGISTRY:
         REGISTRY.add(_node(embedded)(chain(("d", node_id))))
     return embedded
+
+
+# -- running: once and per item, and what is typed or wired on the embedding ---------------------------------
+
+
+def test_an_embedded_graph_runs_once_and_per_item_as_its_nodes_would_drawn_flat():
+    run = load({"e": "shout-inner"}).run(text="ab")
+    assert run.status == "complete" and run.outputs == {"e.ex.result": "AB!"}
+    graph = mapped("shout-inner")
+    assert graph.plan["e"].mode == "per_item"
+    run = graph.run(text="ab cd")
+    assert run.status == "complete" and run.results["e"] == {"ex.result": ["AB!", "CD!"]}
+    assert run.results["e"]["ex.result"] == flat("shout-inner").run(text="ab cd").results["ex"]["result"]
+    two = load({"a": "shout-inner", "b": "shout-inner"}, [("a.ex.result", "b.text")])
+    assert two.run(text="x").outputs == {"b.ex.result": "X!!"}
+
+
+def test_a_value_a_default_and_an_edge_on_the_embedding_are_any_nodes():
+    graph = load({"w": "words", "e": {"node": "greet-inner", "values": {"greeting": "hej"}}}, [("w.result", "e.text")])
+    assert graph.run(text="ab cd").results["e"]["g.result"] == ["hej ab", "hej cd"]
+    first = load({"e": {"node": "greet-inner", "defaults": {"greeting": "hi"}}})
+    assert first.inputs["greeting"].default == "hi"
+    assert first.run(text="ab").outputs == {"e.g.result": "hi ab"}  # the embedding's default, proposed to the caller
+    assert first.run(text="ab", greeting="yo").outputs == {"e.g.result": "yo ab"}
+    assert mapped("greet-inner").run(text="ab").results["e"]["g.result"] == ["hello ab"]  # the inner node's own default
+    wired = load({"w": "words", "g": "upper", "e": "greet-inner"}, [("w.result", "e.text"), ("w.result", "g.text"), ("g.result", "e.greeting")])
+    assert wired.run(text="ab cd").results["e"]["g.result"] == ["AB ab", "CD cd"]
+
+
+def test_deep_outputs_are_what_run_outputs_gives_alone_and_embedded():
+    alone = REGISTRY.load(INNER["deep-inner"]).run(text="ab cd").outputs["up.result"]
+    assert alone == ["A", "B", "C", "D"]  # two maps deep, in item order
+    graph = load({"e": "deep-inner", "n": "count", "x": "exclaim"}, [("e.up.result", "n.items"), ("e.up.result", "x.text")])
+    run = graph.run(text="ab cd")
+    assert run.results["e"]["up.result"] == alone and run.results["n"]["result"] == 4
+    assert run.results["x"]["result"] == ["A!", "B!", "C!", "D!"]
+    assert load({"e": "series-per-item-inner"}).run(text="ab cd").outputs == {"e.c.result": [["a", "b"], ["c", "d"]]}
+
+
+def test_a_branch_not_taken_inside_skips_what_reads_the_embedding_as_it_would_drawn_flat():
+    graph = load({"w": "words", "e": chain_node("decide"), "s": "exclaim", "l": "upper"}, [("w.result", "e.text"), ("e.d.short", "s.text"), ("e.d.long", "l.text")])
+    run = graph.run(text="ab long")
+    assert run.status == "complete" and run.results["s"]["result"] == ["ab!", None] and run.results["l"]["result"] == [None, "LONG"]
+    assert run.results["e"] == {"d.short": ["ab", None], "d.long": [None, "long"]}
+    inside = load({"w": "words", "e": "deciding-inner", "n": "count"}, [("w.result", "e.text"), ("e.s.result", "n.items")])
+    assert inside.run(text="ab long cd").results["n"]["result"] == 2  # the item whose branch was not taken is left out of a gather
+
+
+def test_a_blank_inside_is_listed_as_not_called_by_its_path():
+    run = mapped("maybe-inner").run(text="a none")
+    assert run.status == "complete" and run.results["e"]["up.result"] == ["A", None]
+    assert [(n.inside, n.node_id, n.item, n.input) for n in run.not_called] == [(("e", 1), "up", (), "text")]
+    blank_in = load({"w": "words", "m": "maybe", "e": "shout-inner"}, [("w.result", "m.text"), ("m.result", "e.text")]).run(text="a none")
+    assert blank_in.results["e"]["ex.result"] == ["A!", None]
+    assert [(n.inside, n.node_id, n.item, n.input) for n in blank_in.not_called] == [((), "e", (1,), "text")]
+
+
+def test_a_node_inside_takes_what_the_host_gives_every_run():
+    graph = mapped("signed-inner")
+    assert graph.run(text="a b", from_run={Session: Session("ida")}).results["e"]["s.result"] == ["a by ida", "b by ida"]
+    with pytest.raises(InvalidCallError) as refused:
+        graph.run(text="a b")
+    assert [p.type for p in refused.value.errors()] == ["from_run_missing"]
+
+
+def test_the_item_ceiling_holds_inside_and_is_raised_by_resume():
+    graph = mapped("deep-inner")
+    run = graph.run(text="ab cdef", max_items=3)
+    assert run.status == "stopped" and run.state.cause.type == "item_ceiling" and run.state.cause.loc == ("e", 1, "c")
+    resumed = graph.load_run(run.to_json()).resume(max_items=10)
+    assert resumed.status == "complete" and resumed.results["e"]["up.result"] == [["A", "B"], ["C", "D", "E", "F"]]
+    assert graph.load_run(run.to_json()).resume().status == "stopped"  # the ceiling it was saved under still holds inside
+
+
+# -- pausing inside, saved, loaded in a fresh process --------------------------------------------------------
+
+_CHILD = """
+import importlib.util, json, sys
+spec = importlib.util.spec_from_file_location("embedding_nodes", {module!r})
+nodes = importlib.util.module_from_spec(spec)
+sys.modules["embedding_nodes"] = nodes
+spec.loader.exec_module(nodes)
+graph = nodes.mapped("asking-inner")
+run = graph.load_run(open({path!r}).read())
+ids = [w.id for w in run.waiting]
+half = run.answer(ids[0], "first").resume()
+open({path!r}, "w").write(half.to_json())
+print(json.dumps({{"status": half.status, "ids": ids, "left": [w.id for w in half.waiting], "calls": dict(nodes.CALLS)}}))
+"""
+
+
+def test_pausing_inside_a_mapped_embedding_half_answered_in_a_fresh_process_and_finished(tmp_path: pathlib.Path):
+    graph = mapped("asking-inner")
+    run = graph.run(text="ab cd")
+    assert run.status == "waiting"
+    ids = [w.id for w in run.waiting]
+    assert ids[0].startswith("e@0/q~") and ids[1].startswith("e@1/q~")
+    assert [(w.inside, w.node_id, w.item) for w in run.waiting] == [(("e", 0), "q", ()), (("e", 1), "q", ())]
+    assert run.results["e"] == {"q.result": [None, None]}  # the embedding has no unit until its nested run is complete
+    path = tmp_path / "run.json"
+    path.write_text(run.to_json())
+    CALLS.clear()
+    child = subprocess.run([sys.executable, "-c", _CHILD.format(module=__file__, path=str(path))], capture_output=True, text=True, timeout=120, check=False)
+    assert child.returncode == 0, child.stderr
+    assert json.loads(child.stdout) == {"status": "waiting", "ids": ids, "left": ids[1:], "calls": {}}  # the fresh process calls nothing again
+    done = graph.load_run(path.read_text()).answer(ids[1], "second").resume()
+    assert done.status == "complete" and done.results["e"]["q.result"] == ["first", "second"]
+    assert CALLS == {}
+    assert graph.load_run(done.to_json()).outputs == done.outputs  # a finished embedding's unit is read back from its nested run
+
+
+def test_an_answer_inside_is_refused_by_its_path():
+    graph = mapped("asking-inner")
+    run = graph.run(text="ab cd")
+    first, second = (w.id for w in run.waiting)
+    with pytest.raises(InvalidCallError) as refused:
+        run.answer({"e@5/q": "x", "e@1/q~00000000": "y", "e@0/up": "z", "e@x/q": "w"})
+    assert [(p.type, p.loc) for p in refused.value.errors()] == [
+        ("not_waiting", ("e", 5, "q")), ("answer_stale", ("e", 1, "q")), ("not_waiting", ("e", 0, "up")), ("not_waiting", ("e",)),
+    ]
+    assert refused.value.errors()[1].ctx["current"] == second
+    with pytest.raises(InvalidCallError) as twice:
+        run.answer({first: "a", "e@0/q": "b"})
+    assert [(p.type, p.loc) for p in twice.value.errors()] == [("invalid_answer", ("e", 0, "q"))]
+    assert run.answer("e@1/q", "by place").resume().results["e"]["q.result"] == [None, "by place"]
+
+
+# -- policy: one leg drives every nested run -----------------------------------------------------------------
+
+
+def test_an_inner_nodes_concurrency_bounds_the_node_across_nested_runs():
+    run = mapped("fetch-inner").run(text="a b c d e f")
+    assert run.status == "complete" and run.results["e"]["up.result"] == ["A?", "B?", "C?", "D?", "E?", "F?"]
+    assert CALLS["fetch"] == 6 and AT_ONCE["peak"] == 2  # Policy(concurrency=2): two at once, not one, and not two per nested run
+    AT_ONCE.update(now=0, peak=0)
+    assert flat("fetch-inner").run(text="a b c d e f").status == "complete" and AT_ONCE["peak"] == 2
+
+
+def test_a_cancel_inside_keeps_the_calls_on_threads_and_a_resume_repeats_none():
+    graph = mapped("fetch-inner")
+    events = stream(graph.with_inputs(text="a b c d"), cancel_when=lambda e: isinstance(e, NodeStart) and e.inside == ("e", 1) and e.node_id == "f")
+    cancelled = events[-1].run
+    assert cancelled.status == "cancelled" and cancelled.state.cause.type == "run_cancelled"
+    assert CALLS["fetch"] == 2  # the two that had a thread; the two waiting for one were dropped
+    assert cancelled.results["e"] == {"up.result": [None, None, None, None]}
+    resumed = graph.load_run(cancelled.to_json()).resume()
+    assert resumed.status == "complete" and resumed.results["e"]["up.result"] == ["A?", "B?", "C?", "D?"]
+    assert CALLS["fetch"] == 4  # the two kept in their nested runs were not called again
+
+
+def test_the_leg_timeout_crosses_into_the_nested_runs():
+    graph = mapped("fetch-inner")
+    run = graph.run(text="a b c d", timeout=0.05)
+    assert run.status == "timed_out" and run.state.cause.type == "run_timed_out"
+    assert CALLS["fetch"] == 2
+    assert graph.load_run(run.to_json()).resume().status == "complete" and CALLS["fetch"] == 4
+
+
+def test_an_inner_nodes_retry_is_its_own_policy():
+    events = stream(mapped("flaky-inner").with_inputs(text="a b"))
+    assert events[-1].run.status == "complete" and events[-1].run.results["e"]["f.result"] == ["a~", "b~"]
+    assert CALLS["flaky"] == 4
+    retries = sorted((e.inside, e.node_id, e.item, e.attempt, e.cause.loc) for e in events if isinstance(e, NodeRetry))
+    assert retries == [(("e", 0), "f", (), 1, ("e", 0, "f")), (("e", 1), "f", (), 1, ("e", 1, "f"))]
+
+
+def test_an_inner_nodes_attempt_timeout_fails_the_run_at_its_path_and_keeps_the_other_items_work():
+    graph = mapped("stuck-inner")
+    run = graph.run(text="ok slow")
+    assert run.status == "failed" and run.state.cause.type == "timeout" and run.state.cause.loc == ("e", 1, "s")
+    assert run.results["e"]["up.result"] == ["OK", None]
+    CALLS.clear()
+    assert graph.load_run(run.to_json()).resume().status == "failed" and CALLS == {"stuck": 1}  # only the unit that failed
+
+
+def test_a_failure_inside_keeps_the_nested_runs_finished_work_for_a_resume():
+    graph = mapped("boom-inner")
+    events = stream(graph.with_inputs(text="ok bad"))
+    run = events[-1].run
+    assert run.status == "failed" and run.state.cause.loc == ("e", 1, "b") and run.state.cause.type == "failed"
+    assert [(e.inside, e.node_id, e.cause.loc) for e in events if isinstance(e, NodeFailed)] == [(("e", 1), "b", ("e", 1, "b"))]
+    again = graph.load_run(run.to_json()).resume()
+    assert again.status == "failed" and CALLS["upper"] == 2 and CALLS["boom"] == 3  # only the failed unit is called again
+
+
+def test_a_checkpoint_mid_leg_loads_and_resumes_with_no_inner_call_repeated():
+    graph = mapped("fetch-inner")
+    events = stream(graph.with_inputs(text="a b c d"), checkpoint_every=0.01)
+    assert events[-1].run.status == "complete" and CALLS["fetch"] == 4
+    mid = next(e.run for e in events if isinstance(e, RunCheckpoint) and 0 < _made(e.run, "e", "f") < 4)
+    assert mid.status == "running"
+    made = _made(mid, "e", "f")
+    resumed = graph.load_run(mid.to_json()).resume()  # as a process that died mid-leg would
+    assert resumed.status == "complete" and resumed.results["e"]["up.result"] == ["A?", "B?", "C?", "D?"]
+    assert CALLS["fetch"] == 4 + (4 - made)  # only the calls the checkpoint holds no record of
+
+
+def _made(run, embedding: str, node_id: str) -> int:
+    """How many units of ``node_id`` the nested runs of ``embedding`` hold."""
+    return sum(len(nested._units[node_id]) for nested in run._nested[embedding].values())
+
+
+# -- one address: a path of node ids and item positions -----------------------------------------------------
+
+
+def test_inner_events_are_forwarded_with_their_path():
+    events = stream(mapped("asking-inner").with_inputs(text="ab cd"))
+    starts = [(e.inside, e.node_id) for e in events if isinstance(e, NodeStart)]
+    assert starts == [((), "w"), ((), "e"), (("e", 0), "up"), (("e", 0), "q"), (("e", 1), "up"), (("e", 1), "q")]
+    assert {(e.inside, e.node_id) for e in events if isinstance(e, NodeComplete)} == {((), "w"), (("e", 0), "up"), (("e", 1), "up")}
+    waiting = [e.unit for e in events if isinstance(e, UnitWaiting)]
+    assert [w.id for w in waiting] == [w.id for w in events[-1].run.waiting] and waiting[1].inside == ("e", 1)
+    assert isinstance(events[-1], RunEnd) and events[-1].status == "waiting"
+    answered = events[-1].run.answer({w.id: "yes" for w in waiting})
+    later = stream(answered)
+    assert not [e for e in later if isinstance(e, NodeStart)]  # every node started on the first leg
+    assert [(e.inside, e.node_id, e.units) for e in later if isinstance(e, NodeComplete)] == [(("e", 0), "q", 1), (("e", 1), "q", 1), ((), "e", 2)]
+
+
+def test_an_embedded_graph_inside_an_embedded_graph_goes_by_path():
+    graph = mapped("wrapping")
+    assert graph.outputs == ["e.in.q.result"]
+    run = graph.run(text="ab cd")
+    ids = [w.id for w in run.waiting]
+    assert ids[0].startswith("e@0/in/q~") and ids[1].startswith("e@1/in/q~") and run.waiting[1].inside == ("e", 1, "in")
+    with pytest.raises(InvalidCallError) as refused:
+        run.answer("e@1/in/q~00000000", "x")
+    assert refused.value.errors()[0].loc == ("e", 1, "in", "q")
+    done = graph.load_run(run.answer({ids[1]: "two"}).resume().to_json()).answer(ids[0], "one").resume()
+    assert done.status == "complete" and done.outputs == {"e.in.q.result": ["one", "two"]} and CALLS["upper"] == 2

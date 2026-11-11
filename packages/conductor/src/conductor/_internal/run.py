@@ -8,6 +8,15 @@ unit with no entry hasn't run yet. Going on is one leg: start every unit
 whose inputs exist, until nothing more can start. So a run can stop anywhere
 (a person to ask, a failure, the item ceiling, a timeout) and carry on from
 its JSON in another process.
+
+A call of an embedded graph is a nested run: a ``Run`` of the inner graph,
+given what the embedding node received as a caller's inputs, and kept beside
+the node's units whatever its status. The node's unit is ``Done`` with the
+nested run's outputs exactly when the nested run is complete; until then it
+has no unit, as any node that hasn't finished. Where something is, at any
+depth of nested runs, is one path of node ids and item positions:
+``("e", 0, "ask", 2)`` is the third item of ``ask`` in the nested run of
+``e``'s first item.
 """
 
 from __future__ import annotations
@@ -20,7 +29,7 @@ import json
 import math
 import threading
 import time
-from collections.abc import AsyncGenerator, Callable, Mapping
+from collections.abc import AsyncGenerator, Callable, Iterator, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Annotated, Any, Literal, overload
@@ -68,6 +77,19 @@ if TYPE_CHECKING:
 #: An instance of a scope: the place of an item in each of the scope's maps, ``()`` for the graph's own scope.
 Key = tuple[int, ...]
 
+#: Where something is in a run: a node's id, then the place of its item in each of its scope's maps; for what is
+#: inside an embedded graph, the embedding node and its item first, ``("e", 0, "ask", 2)``.
+Path = tuple[str | int, ...]
+
+#: The node ids of a path: a node whatever item it runs for, ``("e", "ask")``.
+NodePath = tuple[str, ...]
+
+
+def path_text(path: Path) -> str:
+    """A path as a waiting id writes it: each node id, ``@`` before each place of its item, and ``/`` between
+    nodes, ``e@0/ask@2``."""
+    return "".join(f"@{step}" if isinstance(step, int) else f"/{step}" for step in path)[1:]
+
 #: How a run stands while nothing has ended it early: not started, in a leg, waiting for a person, or done.
 GoingStatus = Literal["ready", "running", "complete", "waiting"]
 #: How a leg ended before the run was done: a node failed, a Series outgrew ``max_items``, a cancel, or the deadline.
@@ -105,6 +127,8 @@ class EndedEarly:
 RunState = Going | EndedEarly
 
 _READY, _RUNNING, _WAITING, _COMPLETE = Going("ready"), Going("running"), Going("waiting"), Going("complete")
+#: The one ``Going`` of each status, so a run is asked how it stands by identity.
+_GOING: Mapping[GoingStatus, Going] = {going.status: going for going in (_READY, _RUNNING, _WAITING, _COMPLETE)}
 
 
 class _Pending:
@@ -123,11 +147,14 @@ class NotCalled(ConductorModel):
     """A call a node didn't get, because an input got a blank there.
 
     Attributes:
-        node_id: The node.
+        inside: The node and item of each embedded graph the node is inside, outermost first; empty for a node of
+            the graph itself.
+        node_id: The node, by its id in the graph it is a node of.
         item: Which of the node's calls it was: the place of its item in each Series the node runs per item of.
         input: The input that got nothing.
     """
 
+    inside: Path = ()
     node_id: str
     item: tuple[int, ...]
     input: str
@@ -234,6 +261,8 @@ class Run:
     state: RunState
     #: Each node's units, by instance.
     _units: dict[str, dict[Key, Unit]]
+    #: For each node that is an embedded graph, the nested run of each instance it was called in, complete or not.
+    _nested: dict[str, dict[Key, Run]]
     #: What each node may take from the run this one went on from.
     _earlier: dict[str, Earlier]
     #: The nodes whose ``_earlier`` entry is this run's own to take from, not shared with the run it was copied from.
@@ -365,39 +394,63 @@ class Run:
         else:
             raise TypeError("run.answer takes a unit and its answer, or a mapping of unit ids to answers")
         problems: list[Problem] = []
-        answered: dict[str, dict[Key, Unit]] = {}
+        answered: dict[_Steps, Unit] = {}
         for unit_id, one in given.items():
-            node_id, key, fingerprint = _parse_unit(unit_id)
-            placed = self.graph._nodes.get(node_id)
-            found = self._units[node_id].get(key) if placed is not None and key is not None else None
-            if not isinstance(placed, PlacedFunction) or key is None or not isinstance(found, Asking):
-                moved = {"moved_to": went} if fingerprint is not None and isinstance(placed, PlacedFunction) and (went := self._moved_to(placed, fingerprint)) else {}
-                problems.append(make_problem("not_waiting", node_id, *(key or ()), waiting_id=unit_id, status=self.status, **moved))
+            steps, fingerprint = _parse_unit(unit_id)
+            if steps is None:
+                problems.append(make_problem("not_waiting", unit_id.partition("@")[0], waiting_id=unit_id, status=self.status))
+                continue
+            holder: Run | None = self
+            for embedding, item in steps[:-1]:  # the nested run the id leads into
+                holder = holder._nested.get(embedding, {}).get(item) if holder is not None else None
+            node_id, key = steps[-1]
+            placed = holder.graph._nodes.get(node_id) if holder is not None else None
+            found = holder._units[node_id].get(key) if holder is not None and placed is not None else None
+            if not isinstance(placed, PlacedFunction) or not isinstance(found, Asking):
+                moved = {"moved_to": went} if fingerprint is not None and (went := self._moved_to(steps, fingerprint)) else {}
+                problems.append(make_problem("not_waiting", *_path(steps), waiting_id=unit_id, status=self.status, **moved))
                 continue
             if fingerprint is not None and _question_fingerprint(placed, found) != fingerprint:
-                moved = {"moved_to": went} if (went := self._moved_to(placed, fingerprint)) else {}
-                problems.append(make_problem("answer_stale", node_id, *key, waiting_id=unit_id, current=self._waiting(placed, key, found).id, **moved))
+                moved = {"moved_to": went} if (went := self._moved_to(steps, fingerprint)) else {}
+                current = waiting_unit(_path(steps[:-1]), placed, key, found).id
+                problems.append(make_problem("answer_stale", *_path(steps), waiting_id=unit_id, current=current, **moved))
                 continue
-            if key in answered.get(node_id, {}):
-                problems.append(make_problem("invalid_answer", node_id, *key, waiting_id=unit_id, reason="the unit is answered twice in one call"))
+            if steps in answered:
+                problems.append(make_problem("invalid_answer", *_path(steps), waiting_id=unit_id, reason="the unit is answered twice in one call"))
                 continue
             read, faults = answer_outputs(placed, one, found.question.overrides)
             problems.extend(
-                make_problem("invalid_answer", node_id, *key, waiting_id=unit_id, reason=reason, **({"question": q} if q else {})) for q, reason in faults
+                make_problem("invalid_answer", *_path(steps), waiting_id=unit_id, reason=reason, **({"question": q} if q else {})) for q, reason in faults
             )
-            answered.setdefault(node_id, {})[key] = Answered(kept_outputs(placed.outputs, read), found.question) if not faults else found
+            answered[steps] = Answered(kept_outputs(placed.outputs, read), found.question) if not faults else found
         if problems:
             raise InvalidCallError(problems)
+        return self._with_units(answered)
+
+    def _with_units(self, changed: Mapping[_Steps, Unit]) -> Run:
+        """A copy with the units ``changed`` in place, each named by its steps from this run; it shares every unit
+        and nested run it doesn't change."""
+        own: dict[str, dict[Key, Unit]] = {}
+        below: dict[str, dict[Key, dict[_Steps, Unit]]] = {}
+        for steps, unit in changed.items():
+            node_id, key = steps[0]
+            if len(steps) == 1:
+                own.setdefault(node_id, {})[key] = unit
+            else:
+                below.setdefault(node_id, {}).setdefault(key, {})[steps[1:]] = unit
         run = self._copy(share_units=True)
-        for node_id, units in answered.items():
+        for node_id, units in own.items():
             run._units[node_id] = {**self._units[node_id], **units}
+        for node_id, runs in below.items():
+            run._nested[node_id] = {**self._nested[node_id], **{key: self._nested[node_id][key]._with_units(units) for key, units in runs.items()}}
         return run
 
-    def _moved_to(self, placed: PlacedFunction, fingerprint: str) -> str | None:
+    def _moved_to(self, steps: _Steps, fingerprint: str) -> str | None:
         """The id of the unit where the question a stale id names now waits, if it waits elsewhere on the same node."""
-        for key, unit in self._units[placed.id].items():
-            if isinstance(unit, Asking) and _question_fingerprint(placed, unit) == fingerprint:
-                return self._waiting(placed, key, unit).id
+        nodes = tuple(node_id for node_id, _ in steps)
+        for inside, placed, key, unit in self._asking(()):
+            if (*(step for step in inside if isinstance(step, str)), placed.id) == nodes and _question_fingerprint(placed, unit) == fingerprint:
+                return waiting_unit(inside, placed, key, unit).id
         return None
 
     def with_inputs(self, inputs: Mapping[str, Any] = MappingProxyType({}), /, *, max_items: int | None = None, **by_name: Any) -> Run:
@@ -442,11 +495,11 @@ class Run:
         units could never be taken there, and carried they would only make its save larger.
         """
         carried: dict[str, Earlier] = {}
-        for n in self._units:
-            placed = self.graph._nodes[n]
-            if not placed.policy.reuse_when_inputs_match or n in self._ran_as:
+        for n, placed in self.graph._nodes.items():
+            if not isinstance(placed, PlacedFunction) or not placed.definition.policy.reuse_when_inputs_match or n in self._ran_as:
                 continue
-            if into is not None and (n not in into._nodes or into._nodes[n].reuse_digest != placed.reuse_digest):
+            there = into._nodes.get(n) if into is not None else placed
+            if not isinstance(there, PlacedFunction) or there.reuse_digest != placed.reuse_digest:
                 continue
             earlier = Earlier()
             for key, unit in self._in_order(n):
@@ -484,28 +537,52 @@ class Run:
 
     @property
     def waiting(self) -> list[Waiting]:
-        """Every unit waiting for a person, in node then item order."""
-        nodes = self.graph._nodes
-        return [self._waiting(nodes[n], key, unit) for n in self._units for key, unit in self._in_order(n) if isinstance(unit, Asking)]  # type: ignore[arg-type]
+        """Every unit waiting for a person, in node then item order; those inside an embedded graph where its node
+        stands, a nested run after another."""
+        return [waiting_unit(inside, placed, key, unit) for inside, placed, key, unit in self._asking(())]
+
+    def _asking(self, inside: Path) -> Iterator[tuple[Path, PlacedFunction, Key, Asking]]:
+        """Every unit waiting for a person, in node then item order, each nested run's where its embedded graph's
+        node stands.
+
+        Args:
+            inside: The node and item of each embedded graph this run is nested in, outermost first.
+
+        Yields:
+            For each: the embedded graphs' nodes and items it is inside, its node, its instance and the unit.
+        """
+        for placed in self.graph._nodes.values():
+            match placed:
+                case PlacedGraph():
+                    for key, nested in sorted(self._nested[placed.id].items()):
+                        if nested.state is not _COMPLETE:
+                            yield from nested._asking((*inside, placed.id, *key))
+                case PlacedFunction():
+                    for key, unit in self._in_order(placed.id):
+                        if isinstance(unit, Asking):
+                            yield inside, placed, key, unit
 
     def _in_order(self, node_id: str) -> Any:
         """A node's units in instance order."""
         units = self._units[node_id]
         return sorted(units.items()) if node_id in self._unordered else units.items()
 
-    def _waiting(self, placed: PlacedFunction, key: Key, unit: Asking) -> Waiting:
-        """A waiting unit as a host shows it; its id is ``node@place~fingerprint``, as ``_parse_unit`` reads it."""
-        question = unit.question
-        place = "".join(f"@{i}" for i in key)
-        return Waiting(
-            id=f"{placed.id}{place}~{_question_fingerprint(placed, unit)}", node_id=placed.id, item=key, prompt=question.prompt,
-            questions=waiting_questions(placed, question.overrides), inputs=question.inputs,
-        )
-
     @property
     def not_called(self) -> list[NotCalled]:
-        """The calls a node didn't get because an input was blank: which node, which item and which input."""
-        return [NotCalled(node_id=n, item=key, input=unit.input) for n, units in self._units.items() for key, unit in units.items() if isinstance(unit, Blank)]
+        """The calls a node didn't get because an input was blank: which node, which item and which input; those
+        inside an embedded graph after the graph's own."""
+        return self._not_called(())
+
+    def _not_called(self, inside: Path) -> list[NotCalled]:
+        """``not_called`` of a run nested ``inside`` these embedded graphs' nodes and items."""
+        found = [
+            NotCalled(inside=inside, node_id=n, item=key, input=unit.input)
+            for n, units in self._units.items() for key, unit in units.items() if isinstance(unit, Blank)
+        ]
+        for n, runs in self._nested.items():
+            for key, nested in sorted(runs.items()):
+                found += nested._not_called((*inside, n, *key))
+        return found
 
     @property
     def results(self) -> dict[str, dict[str, Any]]:
@@ -536,9 +613,29 @@ class Run:
             values.append(None if value is SKIPPED else [None if v is SKIPPED else v for v in value] if isinstance(value, list) else value)
         return values if placed.scope else values[0]
 
+    def _as_unit(self) -> Done:
+        """What this run, complete, comes to as the unit of the embedded graph's instance it is the call of.
+
+        Its outputs are the graph's (``outputs``), by address, as a unit keeps them: where ``outputs`` gives a
+        reader ``None``, a branch not taken is ``SKIPPED``, for an output made once and for each item of one made
+        per item, so what reads the embedded graph is skipped as it would be reading the node inside.
+        """
+        out: dict[str, Any] = {}
+        for address in self.graph.outputs:
+            node_id, _, output = address.partition(".")
+            placed = self.graph._nodes[node_id]
+            lists = placed.outputs[output].shape == "many"
+            values = []
+            for key in self._instances(placed.scope, ())[0]:
+                unit = self._units[node_id][key]
+                value = unit.out[output] if isinstance(unit, Done) else SKIPPED if unit is SKIPPED_UNIT else None
+                values.append([None if v is SKIPPED else v for v in value] if lists and placed.scope and isinstance(value, list) else value)
+            out[address] = values if placed.scope else values[0]
+        return Done(out)
+
     # -- what a leg reads -------------------------------------------------------
 
-    def _reused(self, placed: PlacedNode, key: Key, kwargs: dict[str, Any], in_turn: Callable[[], bool]) -> Any:
+    def _reused(self, placed: PlacedFunction, key: Key, kwargs: dict[str, Any], in_turn: Callable[[], bool]) -> Any:
         """The earlier unit ``placed`` takes in ``key`` in place of a call on ``kwargs``; ``None`` when there is none.
 
         A person's answer, or a question still waiting, is taken once, in order: when one is there to take and
@@ -578,20 +675,15 @@ class Run:
         above = [self._units[port.node_id][key[:depth]].out[port.output][key[depth]] for depth, port in enumerate(scope[:-1])]  # type: ignore[union-attr]
         return (_fingerprint("", {"items": above}) or "") if above else ""
 
-    def _call(self, placed: PlacedNode, kwargs: dict[str, Any], from_run: Mapping[type, Any]) -> tuple[Any, BaseException | None]:
+    def _call(self, placed: PlacedFunction, kwargs: dict[str, Any], from_run: Mapping[type, Any]) -> tuple[Any, BaseException | None]:
         """Call ``placed`` on what a unit received: its outputs as a run keeps them, or what went wrong.
 
         A value an edge brings is checked against the input first where its source's type doesn't settle it, and what
         the node returns against its declared outputs; either refusal is a ``FieldValueError``, which quotes no value.
         """
-        match placed:
-            case PlacedGraph():
-                raise NotImplementedError("an embedded graph's nested run")
-            case PlacedFunction(definition=definition):
-                pass
+        definition = placed.definition
         try:
-            for name in placed.checked:
-                kwargs = {**kwargs, name: _checked(placed.inputs[name].spec, name, kwargs[name], code="invalid_edge_value")}
+            kwargs = _with_edge_values_checked(placed, kwargs)
             if definition.from_run:
                 kwargs = {**kwargs, **{name: from_run[needed] for name, needed in definition.from_run.items()}}
             returned = definition.function(**kwargs)
@@ -604,13 +696,22 @@ class Run:
         except FieldValueError as wrong:
             return None, wrong
 
-    def _stop(self, placed: PlacedNode, output: str, count: int) -> None:
-        """Stop at the item ceiling, unless the leg already ended for a failure, a cancel or its timeout, which stays the cause."""
-        match self.state:
-            case EndedEarly():
-                return
-            case Going():
-                self.state = EndedEarly("stopped", make_problem("item_ceiling", placed.id, series=f"{placed.id}.{output}", items=count, max_items=self.max_items))
+    def _nested_run(self, placed: PlacedGraph, key: Key, kwargs: dict[str, Any]) -> Run:
+        """The nested run of the embedded graph ``placed`` in the instance ``key``, set going under this run's item
+        ceiling: the one kept from an earlier leg, else a new one, given what the instance received (``kwargs``)
+        as a caller's inputs.
+
+        Raises:
+            FieldValueError: A value an edge brought is not one its input takes; its code is ``invalid_edge_value``.
+        """
+        runs = self._nested[placed.id]
+        nested = runs.get(key)
+        if nested is None:
+            kwargs = _with_edge_values_checked(placed, kwargs)
+            inputs = {offered.address: kwargs[offered.name] for offered in placed.inner._input_fields.values()}
+            nested = runs[key] = start_run(placed.inner, inputs, self.max_items, {})
+        nested.max_items, nested.state = self.max_items, _RUNNING
+        return nested
 
     def _instances(self, scope: Scope, under: Key, *, counted: bool = False) -> tuple[list[Key], bool]:
         """The instances of ``scope`` under the instance ``under`` of an enclosing scope, and whether all of them
@@ -756,38 +857,63 @@ class Run:
     # -- JSON -------------------------------------------------------------------
 
     def to_json(self) -> str:
-        """The run as JSON: its inputs, every unit, and what it went on from, a column per output of each node."""
+        """The run as JSON: its inputs, every unit, each nested run, and what it went on from, a column per output of each node."""
         try:
-            return self._written()
+            return self._saved().model_dump_json(exclude_defaults=True)
         except _SaveError as unwritable:
             raise InvalidCallError([make_problem("state_unwritable", "state", unwritable.at, at=unwritable.at, reason=unwritable.reason)]) from None
 
-    def _written(self) -> str:
+    def _saved(self) -> _SavedGoingRun | _SavedEndedRun:
+        """The run as its save. A nested run is saved as a run, under its embedded graph's node and item; a
+        finished unit of an embedded graph is not written, as it is its nested run's outputs.
+
+        Raises:
+            _SaveError: A value has no JSON form; it names where, a nested run's place by its path.
+        """
         nodes = self.graph._nodes
-        units = {n: _dump_units(nodes[n], dict(self._in_order(n)) if n in self._unordered else us) for n, us in self._units.items() if us}
+        units: dict[str, _SavedUnits] = {}
+        for n, us in self._units.items():
+            kept = dict(self._in_order(n)) if n in self._unordered else us
+            if n in self._nested:
+                kept = {key: unit for key, unit in kept.items() if not isinstance(unit, Done)}
+            if kept:
+                units[n] = _dump_units(nodes[n], kept)
+        nested: dict[str, list[tuple[Key, _SavedGoingRun | _SavedEndedRun]]] = {}
+        for n, runs in self._nested.items():
+            for key, run in sorted(runs.items()):
+                try:
+                    nested.setdefault(n, []).append((key, run._saved()))
+                except _SaveError as unwritable:
+                    raise _SaveError(f"{path_text((n, *key))}/{unwritable.at}", unwritable.reason) from None
         earlier = {n: _dump_earlier(nodes[n], lent) for n, lent in self._earlier.items() if lent.computed or lent.asked}
         inputs = {address: _dump_input(self.graph, address, v) for address, v in self.inputs.items()}
         non_finite: dict[str, list[_Path]] = {}
         for address, written_input in inputs.items():
             if not self.graph._input_fields[address].spec.plain:
                 _find_non_finite(written_input, [], non_finite.setdefault(address, []))
-        code = {n: self._ran_as.get(n) or nodes[n].reuse_digest for n, us in self._units.items() if us or n in earlier}
+        code = {
+            n: self._ran_as.get(n) or placed.reuse_digest
+            for n, placed in nodes.items() if isinstance(placed, PlacedFunction) and (self._units[n] or n in earlier)
+        }
         rest: dict[str, Any] = {
             "graph": self.graph.fingerprint, "max_items": self.max_items, "inputs": inputs, "non_finite_inputs": {a: paths for a, paths in non_finite.items() if paths},
-            "units": units, "earlier": earlier, "code": code, "complete": [n for n in self._units if n in self._complete],
+            "units": units, "nested": nested, "earlier": earlier, "code": code, "complete": [n for n in self._units if n in self._complete],
         }
-        written: _SavedRun
         match self.state:
             case Going(status=status):
-                written = _SavedGoingRun.model_construct(status=status, **rest)
-            case EndedEarly(status=status, cause=cause):
-                written = _SavedEndedRun.model_construct(status=status, cause=cause, **rest)
-        return written.model_dump_json(exclude_defaults=True)
+                return _SavedGoingRun.model_construct(status=status, **rest)
+            case EndedEarly(status=ended, cause=cause):
+                return _SavedEndedRun.model_construct(status=ended, cause=cause, **rest)
 
     def _copy(self, *, share_units: bool = False, **changes: Any) -> Run:
-        """A copy to change: its own units to record into, or with ``share_units`` this run's, for a caller that replaces whole nodes."""
+        """A copy to change: its own units to record into, and its own copy of each nested run that isn't complete;
+        or with ``share_units`` this run's, for a caller that replaces whole nodes."""
         copy = start_run(self.graph, self.inputs, changes.get("max_items", self.max_items), dict(self._earlier))
-        copy._units = dict(self._units) if share_units else {n: dict(us) for n, us in self._units.items()}
+        if share_units:
+            copy._units, copy._nested = dict(self._units), dict(self._nested)
+        else:
+            copy._units = {n: dict(us) for n, us in self._units.items()}
+            copy._nested = {n: {key: nested if nested.state is _COMPLETE else nested._copy() for key, nested in runs.items()} for n, runs in self._nested.items()}
         copy.state, copy._unordered = self.state, set(self._unordered)
         copy._ran_as, copy._complete = self._ran_as, self._complete
         return copy
@@ -805,6 +931,7 @@ def start_run(graph: Graph, inputs: dict[str, Any], max_items: int | None, earli
     run = Run.__new__(Run)
     run.graph, run.inputs, run.max_items = graph, inputs, max_items
     run._units = {n: {} for n in graph._nodes}
+    run._nested = {n: {} for n in graph._embedded}
     run.state = _READY
     run._earlier = earlier
     run._earlier_own = set()
@@ -812,6 +939,35 @@ def start_run(graph: Graph, inputs: dict[str, Any], max_items: int | None, earli
     run._unordered = set()
     run._complete = frozenset()
     return run
+
+
+def _with_edge_values_checked(placed: PlacedNode, kwargs: dict[str, Any]) -> dict[str, Any]:
+    """What a unit of ``placed`` received, with each value an edge brought read by its input's type where the type
+    of its source doesn't settle that it fits.
+
+    Raises:
+        FieldValueError: A value is not one its input takes; its code is ``invalid_edge_value``.
+    """
+    for name in placed.checked:
+        kwargs = {**kwargs, name: _checked(placed.inputs[name].spec, name, kwargs[name], code="invalid_edge_value")}
+    return kwargs
+
+
+def waiting_unit(inside: Path, placed: PlacedFunction, key: Key, unit: Asking) -> Waiting:
+    """A waiting unit as a host shows it. Its id is its path as text, then ``~`` and the fingerprint of the question
+    asked there, as ``_parse_unit`` reads it.
+
+    Args:
+        inside: The node and item of each embedded graph the unit is inside, outermost first.
+        placed: The node that asks.
+        key: The instance it asks in.
+        unit: The unit.
+    """
+    question = unit.question
+    return Waiting(
+        id=f"{path_text((*inside, placed.id, *key))}~{_question_fingerprint(placed, unit)}", inside=inside, node_id=placed.id, item=key,
+        prompt=question.prompt, questions=waiting_questions(placed, question.overrides), inputs=question.inputs,
+    )
 
 
 def _aligned(name: str, plan: Gather, items: list[Any], gathered: Mapping[str, tuple[Gather, list[Any]]]) -> list[Any]:
@@ -878,19 +1034,37 @@ def _run_from_saved(graph: Graph, data: _SavedRun) -> Run:
         run._units[n] = dict(zip(dumped.keys, _load_units(graph._nodes[n], dumped), strict=True))
         if len(run._units[n]) != len(dumped.keys):
             raise _SaveError(n, "a unit is listed twice")
-    run._ran_as = {n: digest for n, digest in data.code.items() if n in graph._nodes and digest != graph._nodes[n].reuse_digest}
+    for n, saved_runs in data.nested.items():
+        placed = graph._nodes.get(n)
+        if not isinstance(placed, PlacedGraph):
+            raise _SaveError(n, "the graph has no such embedded graph")
+        units = run._units[n]
+        for key, saved_run in saved_runs:
+            try:
+                nested = run._nested[n][key] = _run_from_saved(placed.inner, saved_run)
+            except _SaveError as unreadable:
+                raise _SaveError(f"{path_text((n, *key))}/{unreadable.at}", unreadable.reason) from None
+            if key in units:
+                raise _SaveError(n, f"it holds both a unit and a nested run for the item {list(key)}")
+            if nested.state is _COMPLETE:  # the finished unit of an embedded graph is its nested run's outputs
+                units[key] = nested._as_unit()
+        run._units[n] = dict(sorted(units.items()))
+    for n, digest in data.code.items():
+        placed = graph._nodes.get(n)
+        if isinstance(placed, PlacedFunction) and digest != placed.reuse_digest:
+            run._ran_as[n] = digest
     for n, lent in data.earlier.items():
         if n not in run._ran_as:  # units made with other code are never taken
             run._earlier[n] = _load_earlier(graph._nodes[n], lent)
     match data:
         case _SavedGoingRun(status=status):
-            run.state = Going(status)
-        case _SavedEndedRun(status=status, cause=cause):
-            run.state = EndedEarly(status, cause)
+            run.state = _GOING[status]
+        case _SavedEndedRun(status=ended, cause=cause):
+            run.state = EndedEarly(ended, cause)
     run._complete = frozenset({n for n in data.complete if n in graph._nodes})
-    for n, units in run._units.items():  # every unit is in an instance the saved Series made
+    for n, units in run._units.items():  # every unit, and every nested run, is in an instance the saved Series made
         made, _ = run._instances(graph._nodes[n].scope, ())
-        stray = sorted(set(units) - set(made))
+        stray = sorted({*units, *run._nested.get(n, ())} - set(made))
         if stray:
             raise _SaveError(n, f"it holds the unit {list(stray[0])}, of an item the saved run never made")
     return run
@@ -1130,7 +1304,10 @@ class _SavedRunBase(BaseModel):
         max_items: The item ceiling the run goes on under.
         inputs: The caller's inputs by address, as JSON; a table as a ``_SavedTable``.
         non_finite_inputs: By address, the places of each float that isn't finite, as ``_SavedOutput.non_finite``.
-        units: By node id, the units of each node with any.
+        units: By node id, the units of each node with any; of an embedded graph, only the ones it came to
+            uncalled, as a finished one is its nested run's outputs.
+        nested: By the node id of an embedded graph, the nested run of each instance it was called in, with its
+            instance: a save of its own.
         earlier: By node id, the carried work not yet taken.
         code: By node id, the ``reuse_digest`` of the code that made its saved units, so units made by other code are
             never carried.
@@ -1143,6 +1320,7 @@ class _SavedRunBase(BaseModel):
     inputs: dict[str, Any]
     non_finite_inputs: dict[str, _Paths] = {}
     units: dict[str, _SavedUnits]
+    nested: dict[str, list[tuple[tuple[NonNegativeInt, ...], _SavedRun]]] = {}
     earlier: dict[str, _SavedEarlier] = {}
     code: dict[str, str] = {}
     complete: list[str] = []
@@ -1174,6 +1352,8 @@ class _SavedEndedRun(_SavedRunBase):
 
 #: A save, told apart by its ``status``: a status and a cause that disagree are refused at the parse.
 _SavedRun = Annotated[_SavedGoingRun | _SavedEndedRun, Field(discriminator="status")]
+_SavedGoingRun.model_rebuild()
+_SavedEndedRun.model_rebuild()
 _SAVED: TypeAdapter[_SavedRun] = TypeAdapter(_SavedRun)
 _SAVED_TABLE = TypeAdapter(_SavedTable)
 
@@ -1458,15 +1638,30 @@ def _question_fingerprint(placed: PlacedFunction, unit: Asking) -> str:
     return hashlib.blake2b(written, digest_size=4).hexdigest()
 
 
-def _parse_unit(unit_id: str) -> tuple[str, Key | None, str | None]:
-    """A waiting id's node, instance (``None`` when it isn't one) and question fingerprint (``None`` when the id
-    names only the place, ``node@place``)."""
+#: A path as its steps: each node with its instance, ``(("e", (0,)), ("ask", (2,)))``.
+_Steps = tuple[tuple[str, Key], ...]
+
+
+def _path(steps: _Steps) -> Path:
+    """Steps as the path they spell: each node's id, then the places of its instance."""
+    path: Path = ()
+    for node_id, key in steps:
+        path = (*path, node_id, *key)
+    return path
+
+
+def _parse_unit(unit_id: str) -> tuple[_Steps | None, str | None]:
+    """A waiting id's path, as steps (``None`` when a place in it isn't a number), and its question fingerprint
+    (``None`` when the id names only the place, ``e@0/ask@2``)."""
     place, _, fingerprint = unit_id.partition("~")
-    node_id, *rest = place.split("@")
+    steps: list[tuple[str, Key]] = []
     try:
-        return node_id, tuple(int(i) for i in rest), fingerprint or None
+        for step in place.split("/"):
+            node_id, *places = step.split("@")
+            steps.append((node_id, tuple([int(i) for i in places])))
     except ValueError:
-        return node_id, None, fingerprint or None
+        return None, fingerprint or None
+    return tuple(steps), fingerprint or None
 
 
 def _deadline(timeout: float | None) -> Callable[[], EndedEarly | None] | None:
