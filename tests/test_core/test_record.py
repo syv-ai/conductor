@@ -13,7 +13,6 @@ from conductor import (
     SKIPPED,
     GraphRecord,
     InvalidCallError,
-    NodeDeclarationError,
     NodeRecord,
     Param,
     Problem,
@@ -277,14 +276,13 @@ def test_make_graph_refuses_a_value_on_a_node_it_does_not_have():
     assert [(p.type, p.ctx["nodes"]) for p in refused.value.errors()] == [("node_not_in_graph", ["hello"])]
 
 
-def test_make_graph_checks_every_address_and_value_at_the_call_and_lists_every_fault():
-    with pytest.raises(InvalidCallError) as refused:
-        make_graph(
-            _hello, _shout,
-            edges=[("hello.reslt", "shout.text"), ("nobody.result", "shout.text"), ("hello.result", "shout.txt")],
-            values={"hello.nmae": "x"}, defaults={"hello.name": 3},
-        )
-    assert sorted((p.type, p.loc) for p in refused.value.errors()) == [
+def test_make_graph_writes_an_input_an_output_and_a_value_it_was_given_wrong_and_loading_reports_each():
+    record = make_graph(
+        _hello, _shout,
+        edges=[("hello.reslt", "shout.text"), ("nobody.result", "shout.text"), ("hello.result", "shout.txt")],
+        values={"hello.nmae": "x"}, defaults={"hello.name": 3},
+    )
+    assert sorted((p.type, p.loc) for p in PLAIN.load(record).problems) == [
         ("edge_names_missing_node", ("shout", "text")),
         ("invalid_value", ("hello", "name")),
         ("unknown_input", ("hello", "nmae")),
@@ -301,34 +299,24 @@ def test_make_graph_refuses_a_set_typed_in_as_set_has_no_order(value: object):
     assert (problem.type, problem.loc, [e["type"] for e in problem.ctx["errors"]]) == ("invalid_value", ("hello", "name"), ["set_has_no_order"])
 
 
-def test_make_graph_refuses_a_type_mismatch_and_a_field_a_hook_does_not_give_at_the_call():
+def test_make_graph_writes_a_type_mismatch_and_a_field_a_hook_does_not_give_and_loading_reports_them():
     @node("fan", title="Fan", description="", compute_outputs=lambda n: {f"o{i}": int for i in range(n)})
     def fan(n: int = 2) -> dict:
         return {f"o{i}": i for i in range(n)}
 
-    with pytest.raises(InvalidCallError) as refused:
-        make_graph(_count, _hello, edges=[("count.result", "hello.name")])
-    assert [(p.type, p.loc) for p in refused.value.errors()] == [("type_mismatch", ("hello", "name"))]
-    with pytest.raises(InvalidCallError) as refused:
-        make_graph(fan, _shout, edges=[("fan.o5", "shout.text")])
-    assert [p.type for p in refused.value.errors()] == ["unknown_output"]
+    mismatched = make_graph(_count, _hello, edges=[("count.result", "hello.name")])
+    assert [(p.type, p.loc) for p in PLAIN.load(mismatched).problems] == [("type_mismatch", ("hello", "name"))]
+    not_given = make_graph(fan, _shout, edges=[("fan.o5", "shout.text")])
+    assert [p.type for p in registry_of(fan, _shout).load(not_given).problems] == ["unknown_output"]
 
 
-def test_every_code_make_graph_raises_from_the_load_is_a_catalogued_problem():
-    from conductor._internal.errors import PROBLEM_CATALOGUE
-    from conductor._internal.record import SAID_AT_THE_CALL
-
-    assert SAID_AT_THE_CALL <= PROBLEM_CATALOGUE.keys()
-
-
-def test_make_graph_writes_defaults_and_a_list_for_an_input_of_one_value_is_refused_at_the_call():
+def test_make_graph_writes_defaults_and_a_list_for_an_input_of_one_value_is_reported_when_it_loads():
     record = make_graph(_hello, defaults={"hello.name": "you"})
     assert record.nodes[0].defaults == {"name": "you"}
     assert PLAIN.load(record).run().outputs == {"hello.result": "hello you"}
     assert PLAIN.load(record).run(name="ida").outputs == {"hello.result": "hello ida"}
-    with pytest.raises(InvalidCallError) as refused:
-        make_graph(_hello, defaults={"hello.name": ["you"]})
-    assert [(p.type, p.loc) for p in refused.value.errors()] == [("invalid_value", ("hello", "name"))]
+    listed = make_graph(_hello, defaults={"hello.name": ["you"]})
+    assert [(p.type, p.loc) for p in PLAIN.load(listed).problems] == [("invalid_value", ("hello", "name"))]
 
 
 def test_make_graph_writes_each_node_at_its_version():
@@ -654,24 +642,11 @@ def test_a_node_display_is_the_hosts_own_kept_and_outside_the_fingerprint():
     assert PLAIN.load(plain).fingerprint == PLAIN.load(shown).fingerprint
 
 
-def test_make_graph_refuses_a_value_beside_a_default_and_what_is_not_a_node():
-    @node("count", title="Count", description="")
-    def count(items: Series[str]) -> int:
-        return len(items)
+def test_make_graph_writes_a_value_beside_a_default_and_loading_reports_it():
+    record = make_graph(_hello, values={"hello.name": "a"}, defaults={"hello.name": "b"})
 
-    with pytest.raises(InvalidCallError) as refused:
-        make_graph(_hello, count, edges=[], values={"hello.name": "a"}, defaults={"hello.name": "b"})
-    assert sorted(p.type for p in refused.value.errors()) == ["value_and_default"]
-
-
-def test_make_graph_refuses_a_default_on_a_node_no_caller_reaches():
-    @node("pad", title="Pad", description="Pads a text to a width.")
-    def pad(text: str, width: int = 4) -> str:
-        return text.rjust(width)
-
-    with pytest.raises(InvalidCallError) as refused:
-        make_graph(_hello, pad, defaults={"pad.width": 8})
-    assert [(p.type, p.loc) for p in refused.value.errors()] == [("default_on_later_node", ("pad", "width"))]
+    assert (record.nodes[0].values, record.nodes[0].defaults) == ({"name": "a"}, {"name": "b"})
+    assert [(p.type, p.loc) for p in PLAIN.load(record).problems] == [("value_and_default", ("hello", "name"))]
 
 
 def test_a_value_typed_in_from_python_is_its_json_so_the_record_equals_its_own_reload():
@@ -745,13 +720,13 @@ def test_a_float_that_isnt_finite_typed_in_is_written_as_its_text_so_a_record_eq
         NodeRecord(id="x", node="half", values={"x": float("nan")})
 
 
-def test_make_graph_lists_the_faults_it_finds_itself_beside_the_ones_loading_finds():
+def test_make_graph_raises_every_fault_of_its_own_and_none_that_loading_finds():
     with pytest.raises(InvalidCallError) as refused:
         make_graph(_count, _hello, edges=[("count.result", "hello.name"), ("count", "hello.name")], values={"nobody.x": 1})
-    assert sorted(p.type for p in refused.value.errors()) == ["invalid_record", "node_not_in_graph", "type_mismatch"]
+    assert sorted(p.type for p in refused.value.errors()) == ["invalid_record", "node_not_in_graph"]
 
 
-def test_make_graph_checks_each_node_against_the_definition_it_was_given():
+def test_make_graph_writes_each_node_by_the_id_and_version_of_the_definition_given_and_loads_none_of_them():
     @node("v", title="V1", description="")
     def v1(text: str) -> str:
         return text
@@ -760,17 +735,16 @@ def test_make_graph_checks_each_node_against_the_definition_it_was_given():
     def v2(text: str) -> str:
         return text
 
-    with pytest.raises(InvalidCallError) as refused:
-        make_graph(v2, v1, edges=[], values={"v-1.nope": 1})
-    assert [(p.type, p.loc) for p in refused.value.errors()] == [("unknown_input", ("v-1", "nope"))]
+    record = make_graph(v2, v1, edges=[], values={"v-1.nope": 1})
+    assert [(n.id, n.node, n.version) for n in record.nodes] == [("v-1", "v", 2), ("v-2", "v", 1)]
+    assert [(p.type, p.loc) for p in registry_of(v2).load(record).problems] == [("unknown_input", ("v-1", "nope"))]
 
     @node("v", title="Other", description="")
     def other(n: int) -> int:
         return n
 
-    with pytest.raises(NodeDeclarationError) as raised:
-        make_graph(v1, other, edges=[])
-    assert raised.value.code == "duplicate_node_id"
+    unrelated = make_graph(v1, other, edges=[])
+    assert [(n.id, n.node, n.version) for n in unrelated.nodes] == [("v-1", "v", 1), ("v-2", "v", 1)]
 
 
 def test_an_edge_that_is_no_address_is_told_the_two_forms_an_address_has():

@@ -49,7 +49,7 @@ from pydantic import (
 from pydantic_core import PydanticSerializationError, from_json, to_json
 
 from conductor._internal.conductor_model import ConductorModel
-from conductor._internal.errors import InvalidCallError, NodeDeclarationError, Problem, make_problem
+from conductor._internal.errors import InvalidCallError, Problem, make_problem
 from conductor._internal.fields import REQUIRED, SET_HAS_NO_ORDER
 
 if TYPE_CHECKING:
@@ -205,19 +205,18 @@ def make_graph(
     it. With ``edges``, those are every edge of the graph. Nothing is matched
     by name.
 
-    The record is loaded against the definitions here, each node against the
-    one it was given (two of one id must be versions of one node, else
-    ``NodeDeclarationError`` ``duplicate_node_id``), and every fault of what
-    the call said (an address, a value, a default no caller reaches, a type, an edge into a value, a chain
-    it can't draw) raises one ``InvalidCallError`` listing each. A graph still
-    half drawn (an input left open, a cycle) is written: ``graph.problems``
-    says that when it loads.
-    """
-    from conductor._internal.graph import load_graph  # which imports this module
+    The record is written and nothing is loaded: an input or output a node
+    doesn't have, a value its field refuses, an edge between types that don't
+    meet and a graph half drawn are in ``registry.load(record).problems``.
 
+    Raises:
+        InvalidCallError: Listing every fault in writing the record itself: a value or default addressed to
+            a node not given (``node_not_in_graph``), a value with no JSON form or holding a set
+            (``invalid_value``), an edge that is no address (``invalid_record``) and a chain that can't
+            be drawn (``not_a_chain``).
+    """
     ids = _ids_of(nodes)
     known = dict(zip(ids, nodes, strict=True))
-    definitions = _one_per_id(nodes)
     problems: list[Problem] = []
     typed: dict[str, dict[str, dict[str, JsonValue]]] = {"values": {}, "defaults": {}}
     for kind, given in (("values", values), ("defaults", defaults)):
@@ -242,7 +241,9 @@ def make_graph(
             except ValueError as wrong:
                 problems.append(make_problem("invalid_record", "record", "edges", at=f"{source} -> {target}", reason=str(wrong), error="value_error"))
         edges = drawn
-    record = GraphRecord(
+    if problems:
+        raise InvalidCallError(problems)
+    return GraphRecord(
         nodes=[
             NodeRecord(
                 id=node_id, node=definition.id, version=definition.version, values=typed["values"].get(node_id, {}),
@@ -252,35 +253,6 @@ def make_graph(
         ],
         edges=list(edges),
     )
-    problems += [p for p in load_graph(record, definitions).problems if p.type in SAID_AT_THE_CALL]
-    if problems:
-        raise InvalidCallError(problems)
-    return record
-
-
-def _one_per_id(nodes: Sequence[NodeDefinition]) -> dict[str, NodeDefinition]:
-    """The definitions to load the record against: the newest given of each id, which holds the older ones given as its
-    versions. Two definitions of one id that aren't versions of one node raise, as a registry does."""
-    newest: dict[str, NodeDefinition] = {}
-    for definition in nodes:
-        held = newest.setdefault(definition.id, definition)
-        newer, older = (definition, held) if definition.version > held.version else (held, definition)
-        if older.version not in newer.versions or newer.version_of(older.version) is not older:
-            raise NodeDeclarationError(
-                f"make_graph was given two nodes with the id {definition.id!r} that aren't versions of one node; "
-                "ids are unique, so give each its own id",
-                code="duplicate_node_id",
-            )
-        newest[definition.id] = newer
-    return newest
-
-
-#: What loading finds that ``make_graph`` raises: a fault of what the call said (an address, a value, a type, an edge
-#: where a value is, a default where no caller reaches it), never a half-drawn graph's.
-SAID_AT_THE_CALL = frozenset({
-    "unknown_input", "unknown_output", "edge_names_missing_node", "invalid_value", "value_and_default", "value_and_edge",
-    "type_mismatch", "repeated_edge", "default_on_later_node",
-})
 
 
 def _ids_of(nodes: Sequence[NodeDefinition]) -> list[str]:

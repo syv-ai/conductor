@@ -6,7 +6,7 @@ from typing import Any, TypedDict
 import conductor_nodes
 import polars as pl
 import pytest
-from conductor import InvalidCallError, NodeRegistry, Series, Table, make_graph, node
+from conductor import NodeRegistry, Series, Table, make_graph, node
 from conductor_nodes import tables, text
 
 
@@ -142,9 +142,7 @@ def test_a_list_typed_into_split_is_items_of_any_type():
 
 
 def test_what_is_neither_a_table_nor_a_list_is_a_type_mismatch_on_the_edge_into_split():
-    with pytest.raises(InvalidCallError) as refused:
-        load(sentence, tables.split, edges=[("sentence.result", "split.value")])
-    (problem,) = refused.value.errors()
+    (problem,) = load(sentence, tables.split, edges=[("sentence.result", "split.value")]).problems
     assert (problem.type, problem.loc, problem.ctx["got"], problem.ctx["expected"]) == ("type_mismatch", ("split", "value"), "str", "Table | list")
 
 
@@ -227,9 +225,7 @@ def test_collect_of_records_of_unknown_columns_is_a_table_of_any_columns():
 
 
 def test_collect_takes_records_only():
-    with pytest.raises(InvalidCallError) as refused:
-        load(words, tables.collect, edges=[("words.result", "table-collect.records")])
-    (problem,) = refused.value.errors()
+    (problem,) = load(words, tables.collect, edges=[("words.result", "table-collect.records")]).problems
     assert (problem.type, problem.loc, problem.ctx["got"], problem.ctx["expected"]) == ("type_mismatch", ("table-collect", "records"), "Series[str]", "Series[dict]")
 
 

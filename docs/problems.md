@@ -1024,8 +1024,6 @@ except NodeDeclarationError as error:
 
 > two nodes have the id {definition.id}: {_where_declared(held)} and {_where_declared(definition)}; ids are unique, so swap one for the other with registry.replace(...)
 
-> make_graph was given two nodes with the id {definition.id} that aren't versions of one node; ids are unique, so give each its own id
-
 ```python
 twice = NodeRegistry()
 twice.add(upper)

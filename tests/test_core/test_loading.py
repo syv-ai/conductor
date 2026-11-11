@@ -863,9 +863,7 @@ def test_a_type_mismatch_into_a_series_says_the_series_it_reads():
     registry.add(words, count)
     (problem,) = registry.load({"nodes": [{"id": "w", "node": "words"}, {"id": "c", "node": "count"}], "edges": [["w.result", "c.flags"]]}).problems
     assert (problem.type, problem.ctx["got"], problem.ctx["expected"]) == ("type_mismatch", "Series[str]", "Series[bool]")
-    with pytest.raises(InvalidCallError) as refused:
-        make_graph(words, count)
-    assert [p.type for p in refused.value.errors()] == ["type_mismatch"]
+    assert [p.type for p in registry.load(make_graph(words, count)).problems] == ["type_mismatch"]
 
 
 def test_what_the_outside_gives_an_embedded_input_replaces_the_inner_default():

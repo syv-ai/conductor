@@ -77,10 +77,11 @@ What changes in how you work, before the name-by-name tables:
   read `graph.problems`, each a `Problem(type, loc, msg, ctx)`. Only a record of the wrong shape raises,
   `InvalidCallError` with the code `invalid_record`. A value typed in or given that its field refuses
   (`invalid_value`, `invalid_input`) carries pydantic's value-free `errors` in `ctx`. `make_graph(*nodes, edges=, values=, defaults=)`
-  writes a record from Python, loading each node against the definition it was given, and raises one
-  error at the call listing every fault of what it was told: an address, a
-  value, or an edge whose types don't meet (`type_mismatch`); two nodes of one id that aren't
-  versions of one node are `duplicate_node_id`. A record's `values`, `defaults` and
+  writes a record from Python and loads nothing: it raises one error listing what it can't write
+  (a value for a node it wasn't given, a value with no JSON form, an edge that is no address, a
+  chain it can't draw), and an input a node doesn't have, a value its field refuses, a default no
+  caller reaches or an edge whose types don't meet (`type_mismatch`) is in
+  `registry.load(record).problems`. A record's `values`, `defaults` and
   `display` are JSON values; `make_graph` writes each value typed in as its JSON, a float that isn't
   finite as `"NaN"` or `"Infinity"`, so a record equals its JSON, and an `upgrade` rewrite is written
   the same way (`invalid_value` where it has no JSON form). A stored graph used as a node offers
@@ -131,7 +132,7 @@ What changes in how you work, before the name-by-name tables:
   There is no canvas package.
 - **A declared choice's `id` is the field type's JSON form.** `Decimal` choices show `"1"` and a `datetime` its seconds, so the id a question shows is an answer it takes.
 - **A table answer and a caller's records have one reader.** Extra columns are dropped for every table from outside, and a missing column is refused. An answer's cells are read strictly from their JSON form; a caller's records are read cell by cell, laxly, never from polars' dtype, so a bool among ints or a number among texts is `invalid_input`. A value that is neither a frame nor a list of records is refused as `invalid_answer` or `invalid_input` with the reason "a table is a frame or a list of records, one object per row".
-- **`make_graph` refuses a default no caller reaches.** `defaults={"pad.width": 8}` on a node that is not an open input of the graph raises `default_on_later_node` at the call, as loading does, instead of building a record that fails later.
+- **A default no caller reaches is a problem at load.** `make_graph(..., defaults={"pad.width": 8})` on a node that is not an open input of the graph writes the record, and `registry.load(record).problems` holds `default_on_later_node`.
 - **`run.not_called` is a list of `NotCalled` records** (`loc`, `input`), exported from `conductor`, not a list of dicts.
 - **A run handed back at shutdown has no `cause`.** The row's `cause` is null and its status `running`: the run did not end early, so it is `Going`.
 

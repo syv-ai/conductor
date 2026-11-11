@@ -2,7 +2,7 @@
 
 This page is for you if you write nodes that other people place in graphs: a package of nodes, or the nodes your own editor offers. The [first page](https://github.com/syv-ai/conductor#readme) shows a host loading and running a graph. Here every example builds its own small graph with `make_graph`, so you can see what a node does in one.
 
-`make_graph(a, b)` writes a graph record from Python. Each node goes under its own id, `upper-1` and `upper-2` when one is used twice. With no `edges`, the nodes form a chain: each takes its one required input from the one output of the node before it. `edges=[("a.result", "b.text")]` names the edges instead. `values={"a.text": "hi"}` types a value in, and `defaults=` gives one a caller may change. Every key is a `"node.input"` address. A wrong address, a value of the wrong type, a default on an input no caller reaches or an edge between types that don't meet raises at the call.
+`make_graph(a, b)` writes a graph record from Python. Each node goes under its own id, `upper-1` and `upper-2` when one is used twice. With no `edges`, the nodes form a chain: each takes its one required input from the one output of the node before it. `edges=[("a.result", "b.text")]` names the edges instead. `values={"a.text": "hi"}` types a value in, and `defaults=` gives one a caller may change. Every key is a `"node.input"` address. `make_graph` only writes the record. It raises for what it can't write: a value for a node it wasn't given, a value with no JSON form, an edge that is no address, a chain it can't draw. An input a node doesn't have, a value of the wrong type, a default on an input no caller reaches or an edge between types that don't meet is in `registry.load(record).problems`.
 
 The rules in full are in the reference: `python -m conductor.about`.
 
@@ -57,7 +57,7 @@ for problem in graph.problems:
 # ('repeat', 'times') invalid_value
 ```
 
-`make_graph(repeat, values={"repeat.times": 20})` raises that same problem at the call, as an `InvalidCallError`: from Python, the traceback points at the line you wrote.
+`make_graph(repeat, values={"repeat.times": 20})` writes the same record, and loading it reports the same problem: a record's faults are found in one place, `graph.problems`.
 
 An alias may be wrapped again: with `Line = Annotated[str, Param(widget=TextInput())]`, `Annotated[Line, Param(min_length=1)]` keeps the widget and adds the limit. Stacked `Param`s merge as pydantic's stacked `Field`s do, the later one winning per argument and per limit. A `Param` on a `Series` item, `Series[Annotated[int, Param(ge=0)]]`, is the field's.
 
