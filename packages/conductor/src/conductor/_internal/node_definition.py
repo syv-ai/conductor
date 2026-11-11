@@ -293,6 +293,7 @@ class FunctionDefinition(_Version, Generic[_P, _R]):
         hook_parameters: Each hook's parameters, by the hook's name (``compute_added_inputs``, ``compute_outputs``)
             and then the parameter's: what the parameter receives. Read from the hooks' signatures once, at
             ``@node``.
+        generic: Whether an input's type holds a type variable, which a graph binds from its edges as it loads.
     """
 
     function: NodeFunction[_P, _R]
@@ -304,6 +305,7 @@ class FunctionDefinition(_Version, Generic[_P, _R]):
     compute_outputs: Callable[..., Mapping[Any, Any]] | None = None
     from_run: Mapping[str, type] = field(default_factory=dict[str, type])
     hook_parameters: Mapping[HookName, Mapping[str, HookParameter]] = field(default_factory=dict[HookName, Mapping[str, HookParameter]])
+    generic: bool = False
 
     def __call__(self, *args: _P.args, **kwargs: _P.kwargs) -> _R:
         """Call the function, as a test or a host would."""
@@ -501,6 +503,7 @@ def node(
                 category=category, tags=tuple(tags), extra=MappingProxyType(dict(extra)), docs=docs, deprecation=deprecation,
                 replaces=replaces, upgrade=upgrade or Upgrade(), policy=policy or Policy(),
                 compute_added_inputs=compute_added_inputs, compute_outputs=compute_outputs, hook_parameters=hook_parameters,
+                generic=any(spec.whole.variables for spec in inputs.values()),
             )
             if replaces is not None:
                 _raise_if_upgrade_is_missing(replaces, definition)

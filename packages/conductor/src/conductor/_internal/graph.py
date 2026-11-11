@@ -914,7 +914,7 @@ class _Loader:
                 return
             fields.update(added)
             typed.update(self._typed(record, added))
-        planned = self._planned(record, fields, typed, read_by_hooks(definition), edges)
+        planned = self._planned(record, fields, typed, read_by_hooks(definition), edges, generic=definition.generic)
         if planned is None:
             return
         bound = planned.bound
@@ -978,7 +978,7 @@ class _Loader:
 
     def _planned(
         self, record: NodeRecord, fields: Mapping[str, FieldSpec], typed: Mapping[str, Any], fixed_at_load: frozenset[str],
-        edges: dict[str, list[str]],
+        edges: dict[str, list[str]], *, generic: bool = False,
     ) -> _Planned | None:
         """Plan every input of a node, and settle the scope it runs in.
 
@@ -988,6 +988,7 @@ class _Loader:
             typed: Each value and default typed into the record, as its field read it, by name.
             fixed_at_load: The inputs a hook reads when the graph loads, which a caller therefore never fills.
             edges: The addresses wired into each input, by name.
+            generic: Whether a field holds a type variable for the edges to bind.
 
         Returns:
             ``None``, with the problem, when an edge into an input brings nothing it takes, or its inputs can't
@@ -997,7 +998,7 @@ class _Loader:
             self.problems.append(make_problem("unknown_input", record.id, name, inputs=list(fields)))
         sources = {name: self._sources(record.id, name, edges[name]) for name in fields if name in edges}
         bound = None
-        if any(spec.whole.variables for spec in fields.values()):
+        if generic:
             bound = _bound(fields, sources)
             fields = {name: spec.bind(bound) for name, spec in fields.items()}  # a placed node's fields hold no type variable
         first = not any(name in fields for name in edges)  # a first node: nothing is wired into it, so the caller fills it
