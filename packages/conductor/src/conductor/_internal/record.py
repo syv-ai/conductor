@@ -48,6 +48,7 @@ from pydantic import (
 )
 from pydantic_core import PydanticSerializationError, from_json, to_json
 
+from conductor._internal import core_problems
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.errors import InvalidCallError, Problem, make_problem
 from conductor._internal.fields import REQUIRED, SET_HAS_NO_ORDER
@@ -151,7 +152,7 @@ def as_record(record: GraphRecord | str | bytes | Mapping[str, Any]) -> GraphRec
 def _not_a_record(invalid: ValidationError) -> list[Problem]:
     """Gives an ``invalid_record`` problem for each fault pydantic found reading a record, at ``("record", *where)``."""
     return [
-        make_problem("invalid_record", "record", *error["loc"], at=".".join(map(str, error["loc"])) or "the record", reason=error["msg"].removeprefix("Value error, "), error=error["type"])
+        core_problems.invalid_record("record", *error["loc"], at=".".join(map(str, error["loc"])) or "the record", reason=error["msg"].removeprefix("Value error, "), error=error["type"])
         for error in invalid.errors(include_url=False, include_input=False)  # a validator's own sentence, without pydantic's prefix
     ]
 
@@ -287,7 +288,7 @@ def _chain_edges(
             case _:  # a stored graph's fields are known only when it loads, so a chain can't be drawn through it
                 outputs, open_inputs = [], []
         if len(outputs) != 1 or len(open_inputs) != 1:
-            problems.append(make_problem("not_a_chain", after_id, before=before_id, inputs=open_inputs, outputs=outputs))
+            problems.append(core_problems.not_a_chain(after_id, before=before_id, inputs=open_inputs, outputs=outputs))
         else:
             edges.append((f"{before_id}.{outputs[0]}", f"{after_id}.{open_inputs[0]}"))
     return edges, problems

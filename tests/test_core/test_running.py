@@ -806,6 +806,7 @@ def test_a_stream_that_cannot_start_raises_at_the_call_before_any_event():
         prepared.stream()
 
     assert [p.type for p in refused.value.errors()] == ["from_run_missing"]
+    assert refused.value.errors()[0].ctx == {"node_id": "s", "parameter": "who", "needs": "Caller", "given": []}
 
 
 def test_a_type_no_node_needs_from_the_run_is_fine():

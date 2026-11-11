@@ -268,6 +268,7 @@ def test_make_graph_refuses_a_chain_it_cannot_draw_at_the_call():
     with pytest.raises(InvalidCallError) as refused:
         make_graph(_count, _hello, _shout, values={"hello.name": "x"})
     assert [(p.type, p.loc, p.ctx["inputs"]) for p in refused.value.errors()] == [("not_a_chain", ("hello",), [])]
+    assert refused.value.errors()[0].ctx == {"node_id": "hello", "before": "count", "inputs": [], "outputs": ["result"]}
 
 
 def test_make_graph_refuses_a_value_on_a_node_it_does_not_have():

@@ -2,7 +2,7 @@
 
 Everything conductor reports has a stable code. A `Problem`'s `type` is one, and so is a `NodeDeclarationError`'s `code`. This page has each code: where you meet it, an example that makes it, and the fix. A host that translates messages keys on the code and fills its sentence from `ctx`. `PROBLEM_CODES` holds every code a `Problem` can have that conductor writes itself; a code not in it is a node's own, from `NodeError(code=)`.
 
-Every example on this page runs after this block. `problems(drawing)` loads a drawing and lists the codes of what is wrong with it; `refused(call)` makes a call and lists the codes it was refused for.
+Every example on this page runs after this block. `problems(drawing)` loads a drawing and lists the codes of what is wrong with it; `refused(call)` makes a call and lists the codes it was refused for, and `said(call)` the sentence of each.
 
 ```python
 import asyncio
@@ -84,6 +84,15 @@ def refused(call) -> list[str]:
         call()
     except InvalidCallError as error:
         return [problem.type for problem in error.errors()]
+    return []
+
+
+def said(call) -> list[str]:
+    """What a refused call tells a person, a sentence for each problem."""
+    try:
+        call()
+    except InvalidCallError as error:
+        return [problem.msg for problem in error.errors()]
     return []
 ```
 
@@ -488,24 +497,26 @@ print(refused(lambda: asked_again.answer(asked.waiting[0].id, True)))  # ['answe
 
 ### `cannot_move_to_version`
 
-> '{node}' cannot move from version {version} to {target}; it has {versions}.
-
 ```python
 record = make_graph(upper)
 print(refused(lambda: registry.upgrade(record, "upper", to=3)))  # ['cannot_move_to_version']
+print(said(lambda: registry.upgrade(record, "upper", to=3))[0])  # 'upper' cannot move from version 1 to 3; it has 1.
 ```
 
 **Fix.** Move it to a version `ctx.versions` lists, or leave `to` out for the newest.
 
-### `from_run_missing`
+Its `ctx` keys are in the reference: `python -m conductor.about cannot-move-to-version`.
 
-> '{node_id}' needs a {needs} for '{parameter}', and from_run gives none (it gives {given}); pass from_run={{{needs}: ...}}.
+### `from_run_missing`
 
 ```python
 print(refused(lambda: asking_who.run()))  # ['from_run_missing']
+print(said(lambda: asking_who.run())[0])  # 'who' needs a Caller for 'caller', and from_run gives none (it gives none); pass from_run={Caller: ...}.
 ```
 
 **Fix.** Pass the value by its type: `graph.run(from_run={Caller: Caller("Ida")})`. It is never saved with the run, so pass it again on each `resume`.
+
+Its `ctx` keys are in the reference: `python -m conductor.about from-run-missing`.
 
 ### `input_given_twice`
 
@@ -573,13 +584,14 @@ print(refused(lambda: uppering.with_inputs(text="a").resume(timeout=-1)))  # ['i
 
 ### `invalid_record`
 
-> The record is not a graph record at '{at}': {reason}. Fix the record's JSON.
-
 ```python
 print(refused(lambda: registry.load({"nodes": [{"id": "u", "type": "upper"}]})))  # ['invalid_record', 'invalid_record']: 1.x's 'type', and no 'node'
+print(said(lambda: registry.load({"nodes": [{"id": "u", "type": "upper"}]}))[0])  # The record is not a graph record at 'nodes.0.node': Field required. Fix the record's JSON.
 ```
 
 **Fix.** Fix the record's JSON: `ctx.at` says where it stopped being a graph record. A drawing that is well formed but unfinished loads, with its problems in `graph.problems`.
+
+Its `ctx` keys are in the reference: `python -m conductor.about invalid-record`.
 
 ### `missing_input`
 
@@ -604,13 +616,14 @@ print(refused(lambda: done.forget("lower")))  # ['node_not_in_graph']
 
 ### `not_a_chain`
 
-> '{node_id}' can't follow '{before}' in a chain: a chain takes its one required open input (it has {inputs}) from the one output of the node before it (that has {outputs}); pass edges= to make_graph.
-
 ```python
 print(refused(lambda: make_graph(upper, greet)))  # ['not_a_chain']
+print(said(lambda: make_graph(upper, greet))[0])  # 'greet' can't follow 'upper' in a chain: a chain takes its one required open input (it has name, greeting) from the one output of the node before it (that has result); pass edges= to make_graph.
 ```
 
 **Fix.** Pass `edges=[("upper.result", "greet.name")]`. `make_graph` chains nodes only when each takes one required open input from the one output before it. A chain reads the fields each node declares; a stored graph, or a node whose fields a hook works out, takes `edges=`.
+
+Its `ctx` keys are in the reference: `python -m conductor.about not-a-chain`.
 
 ### `not_offered`
 
@@ -1381,7 +1394,7 @@ except NodeDeclarationError as error:
 
 ## `check_registry`
 
-Returned by `conductor.testing.check_registry`, in a test run. A host never meets these, and they aren't in `PROBLEM_CODES`.
+Returned by `conductor.testing.check_registry`, in a test run. A host never meets these, and they aren't in `PROBLEM_CODES`. What each one's `ctx` holds is in the reference, `python -m conductor.about conductor-testing`.
 
 ### `changed_its_inputs`
 
@@ -1395,6 +1408,7 @@ def sort_in_place(texts: list[str]) -> list[str]:
 checked = NodeRegistry()
 checked.add(sort_in_place)
 print([p.type for p in check_registry(checked, examples={"sort_in_place": [{"texts": ["b", "a"]}]})])  # ['changed_its_inputs']
+print([p.msg for p in check_registry(checked, examples={"sort_in_place": [{"texts": ["b", "a"]}]})][0])  # the body changed 'texts', a value it was given; several calls of a run can be given it, so copy the value before changing it
 ```
 
 **Fix.** Copy the value before changing it, `sorted(texts)`. Several calls in a run can be given the same value.
@@ -1405,6 +1419,7 @@ print([p.type for p in check_registry(checked, examples={"sort_in_place": [{"tex
 checked = NodeRegistry()
 checked.add(upper)
 print([p.type for p in check_registry(checked, examples={"uper": [{"text": "a"}]})])  # ['example_for_no_node']
+print([p.msg for p in check_registry(checked, examples={"uper": [{"text": "a"}]})][0])  # 'uper' names no node of the registry; check the id, or remove the example
 ```
 
 **Fix.** Check the id in `examples`, or remove the example.
@@ -1424,6 +1439,7 @@ def unnamed(names: str) -> dict[str, str]:
 checked = NodeRegistry()
 checked.add(unnamed)
 print([p.type for p in check_registry(checked)])  # ['hook_failed']
+print([p.msg for p in check_registry(checked)][0])  # a hook failed on the node's defaults and made-up values: The node could not work out its fields from what it was given: 'x'. Check what is typed into the node and what is wired to it.
 ```
 
 **Fix.** Make the hook work on the node's defaults and made-up values, or give an example it works on.
@@ -1443,6 +1459,7 @@ def coded(code: Annotated[str, Param(pattern=r"^\d{4}$")]) -> dict[str, str]:
 checked = NodeRegistry()
 checked.add(coded)
 print([p.type for p in check_registry(checked)])  # ['needs_example']
+print([p.msg for p in check_registry(checked)][0])  # its hooks read ['code'], and no value could be made up; give an example
 ```
 
 **Fix.** Give the node an example, `examples={"coded": [{"code": "1234"}]}`.
@@ -1454,6 +1471,7 @@ import pytest
 
 only_divide = registry.filter(lambda definition: definition.id == "divide")
 print([p.type for p in check_registry(only_divide, examples={"divide": [{"n": 0}]})])  # ['run_failed']
+print([p.msg for p in check_registry(only_divide, examples={"divide": [{"n": 0}]})][0])  # the example ended failed: the node raised ZeroDivisionError
 
 
 @pytest.mark.xfail(strict=True, reason="divide by zero is not handled yet")
@@ -1478,6 +1496,7 @@ def hello_v2(first: str) -> str:
 checked = NodeRegistry()
 checked.add(hello_v2)
 print([p.type for p in check_registry(checked)])  # ['upgrade_broken']
+print([p.msg for p in check_registry(checked)][0])  # moving to version 2 raised KeyError: 'first'
 ```
 
 **Fix.** Fix the `Upgrade`, so a node saved at the older version loads cleanly at the newer one.

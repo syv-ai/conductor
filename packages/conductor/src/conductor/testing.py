@@ -50,7 +50,8 @@ from typing import Any, Literal
 
 import polars as pl
 
-from conductor._internal.errors import InvalidCallError, Problem
+from conductor._internal import kit_problems
+from conductor._internal.errors import InvalidCallError
 from conductor._internal.fields import REQUIRED, Field, FieldValueError, Param
 from conductor._internal.graph import load_graph
 from conductor._internal.node_definition import (
@@ -60,6 +61,7 @@ from conductor._internal.node_definition import (
     declared_inputs,
     read_by_hooks,
 )
+from conductor._internal.problem import Problem
 from conductor._internal.record import GraphRecord, NodeRecord, typed_in
 from conductor._internal.registry import NodeRegistry
 from conductor._internal.run import EndedEarly
@@ -90,14 +92,13 @@ def check_registry(
     found: list[Problem] = []
     by_version: dict[tuple[str, int], list[_Example]] = {}
     for key, calls in examples.items():
-        said = f"{key!r} names no node of the registry; check the id, or remove the example"
         if isinstance(key, str):  # the newest version, by the id alone
             if key not in registry:
-                found.append(_problem("example_for_no_node", (key,), said))
+                found.append(kit_problems.example_for_no_node(key, named=repr(key)))
                 continue
             place = (key, registry[key].version)
         elif key[0] not in registry or key[1] not in registry[key[0]].versions:
-            found.append(_problem("example_for_no_node", key, said))
+            found.append(kit_problems.example_for_no_node(*key, named=repr(key)))
             continue
         else:
             place = key
@@ -125,10 +126,6 @@ def _version_problems(version: NodeDefinition, registry: NodeRegistry, given: Se
     return [problem for example in given for problem in _run_problems(version, registry, example, from_run)]
 
 
-def _problem(code: str, loc: tuple[str] | tuple[str, int], message: str, **ctx: Any) -> Problem:
-    return Problem(type=code, loc=loc, msg=message, ctx=ctx)
-
-
 def _one_node_graph(version: NodeDefinition, values: Mapping[str, Any]) -> GraphRecord:
     """A graph of this one node, at its version, with ``values`` typed in, placed under its own id.
 
@@ -138,10 +135,6 @@ def _one_node_graph(version: NodeDefinition, values: Mapping[str, Any]) -> Graph
     if problems:
         raise InvalidCallError(problems)
     return GraphRecord(nodes=[NodeRecord(id=version.id, node=version.id, version=version.version, values=typed)])
-
-
-def _causes(problems: Sequence[Problem]) -> dict[str, Any]:
-    return {"cause": [p.type for p in problems], "problems": [p.model_dump(mode="json") for p in problems]}
 
 
 def _hook_problems(version: NodeDefinition, registry: NodeRegistry) -> list[Problem]:
@@ -155,9 +148,9 @@ def _hook_problems(version: NodeDefinition, registry: NodeRegistry) -> list[Prob
     values = {name: _made_up(version.inputs[name]) for name in read if version.inputs[name].default is REQUIRED}
     missing = [name for name, value in values.items() if value is _CANNOT]
     if missing:
-        return [_problem("needs_example", (version.id, version.version), f"its hooks read {missing}, and no value could be made up; give an example", inputs=missing)]
+        return [kit_problems.needs_example(version.id, version.version, inputs=missing)]
     failed = [p for p in registry.load(_one_node_graph(version, values)).problems if p.type in _HOOK_CODES]
-    return [_problem("hook_failed", (version.id, version.version), f"a hook failed on the node's defaults and made-up values: {p.msg}", **_causes([p])) for p in failed]
+    return [kit_problems.hook_failed(version.id, version.version, reason=p.msg, cause=[p.type], problems=[p.model_dump(mode="json")]) for p in failed]
 
 
 def _upgrade_problems(older: NodeDefinition, registry: NodeRegistry, given: Sequence[_Example]) -> list[Problem]:
@@ -174,12 +167,12 @@ def _upgrade_problems(older: NodeDefinition, registry: NodeRegistry, given: Sequ
     try:
         upgraded = registry.upgrade(placed, older.id)
     except Exception as raised:  # noqa: BLE001  an upgrade's rewrite is the author's code
-        return [_problem("upgrade_broken", (older.id, older.version), f"moving to version {newest} raised {type(raised).__name__}: {raised}", error=type(raised).__name__)]
+        return [kit_problems.upgrade_raised(older.id, older.version, newest=newest, error=type(raised).__name__, reason=str(raised))]
     problems = registry.load(upgraded).problems
     if not problems:
         return []
     said = "; ".join(f"{p.type}: {p.msg}" for p in problems)
-    return [_problem("upgrade_broken", (older.id, older.version), f"after moving to version {newest}: {said}", **_causes(problems))]
+    return [kit_problems.upgrade_broken(older.id, older.version, newest=newest, reason=said, cause=[p.type for p in problems], problems=[p.model_dump(mode="json") for p in problems])]
 
 
 def _run_problems(version: NodeDefinition, registry: NodeRegistry, example: _Example, from_run: Mapping[type, Any]) -> list[Problem]:
@@ -202,23 +195,29 @@ def _run_problems(version: NodeDefinition, registry: NodeRegistry, example: _Exa
     try:
         run = graph.run(from_run=from_run)
     except InvalidCallError as refused:
-        return [_problem("run_failed", (version.id, version.version), "the example was refused: " + "; ".join(p.msg for p in refused.errors()), **_causes(refused.errors()))]
+        faults = refused.errors()
+        return [kit_problems.example_refused(
+            version.id, version.version, reason="; ".join(p.msg for p in faults), cause=[p.type for p in faults], problems=[p.model_dump(mode="json") for p in faults],
+        )]
     found = [
-        _problem("changed_its_inputs", (version.id, version.version), f"the body changed {name!r}, a value it was given; several calls of a run can be given it, so copy the value before changing it", input=name)
+        kit_problems.changed_its_inputs(version.id, version.version, input=name)
         for name in changed
     ]
     match run.state:
         case EndedEarly(status=status, cause=cause):
             # a body's own exception reaches the problem as its class only; the message says which
             said = f"the node raised {cause.ctx['error']}" if cause.type == "execution_failed" else cause.msg
-            found.append(_problem("run_failed", (version.id, version.version), f"the example ended {status}: {said}", **_causes([cause])))
+            found.append(kit_problems.run_failed(version.id, version.version, status=status, reason=said, cause=[cause.type], problems=[cause.model_dump(mode="json")]))
     return found
 
 
 def _not_loaded(version: NodeDefinition, problems: Sequence[Problem]) -> list[Problem]:
     """The one problem of an example that doesn't load: a hook's when every cause is, else the run's."""
-    code = "hook_failed" if all(p.type in _HOOK_CODES for p in problems) else "run_failed"
-    return [_problem(code, (version.id, version.version), "the example doesn't load: " + "; ".join(p.msg for p in problems), **_causes(problems))]
+    said = "; ".join(p.msg for p in problems)
+    cause, written = [p.type for p in problems], [p.model_dump(mode="json") for p in problems]
+    if all(p.type in _HOOK_CODES for p in problems):
+        return [kit_problems.hook_failed_on_an_example(version.id, version.version, reason=said, cause=cause, problems=written)]
+    return [kit_problems.example_not_loaded(version.id, version.version, reason=said, cause=cause, problems=written)]
 
 
 def _watched(version: FunctionDefinition[..., Any]) -> tuple[FunctionDefinition[..., Any], list[str]]:
