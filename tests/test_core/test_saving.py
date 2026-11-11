@@ -32,7 +32,8 @@ from conductor import (
     make_graph,
     node,
 )
-from conductor._internal.run import Asking, Blank, Done, Run, Skipped
+from conductor._internal.run import Run
+from conductor._internal.units import Asking, Blank, Done, Skipped
 from pydantic import BaseModel
 
 from tests.test_core.nodes import registry_of

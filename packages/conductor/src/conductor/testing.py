@@ -66,7 +66,7 @@ from conductor._internal.problem import (
     Problem,
 )
 from conductor._internal.registry import NodeRegistry
-from conductor._internal.run import EndedEarly
+from conductor._internal.run_status import EndedEarly
 
 #: One call's inputs, by name.
 _Example = Mapping[str, Any]

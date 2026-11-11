@@ -27,7 +27,7 @@ import math
 import threading
 import time
 from collections.abc import AsyncGenerator, Callable, Iterable, Iterator, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Literal, NamedTuple, get_args, overload
 
@@ -46,6 +46,7 @@ from pydantic_core import (
 from conductor._internal.address import Key, NodePath, Path, _parse_place, path_text
 from conductor._internal.ask import Question, Waiting, answer_outputs, waiting_questions
 from conductor._internal.conductor_model import ConductorModel
+from conductor._internal.earlier_work import Earlier
 from conductor._internal.fields import SKIPPED, Field, FieldValueError, Records, Type, written_table
 from conductor._internal.graph import (
     Cell,
@@ -64,6 +65,8 @@ from conductor._internal.graph import (
 from conductor._internal.node_definition import Returns, from_run_values
 from conductor._internal.outside_the_items import COULD, could_bring
 from conductor._internal.problem import InvalidCallError, Problem, make_problem, value_free_errors
+from conductor._internal.run_status import _READY, _RUNNING, EndedEarly, Going, RunState, RunStatus
+from conductor._internal.units import SKIPPED_UNIT, Answered, Asking, Blank, Done, Skipped, Unit
 
 if TYPE_CHECKING:
     from conductor._internal.graph import Graph
@@ -87,46 +90,6 @@ def unit_loc(node: NodeAtPath, key: Key) -> Path:
         return (node.placed.id, *key)
     base = node.base
     return (*unit_loc(node.embedding, key[:base]), node.placed.id, *key[base:])
-
-#: How a run stands while nothing has ended it early: not started, in a leg, waiting for a person, or done.
-GoingStatus = Literal["ready", "running", "complete", "waiting"]
-#: How a leg ended before the run was done: a node failed, a Series outgrew ``max_items``, a cancel, or the deadline.
-EndedStatus = Literal["failed", "stopped", "cancelled", "timed_out"]
-#: How a run stands after a leg.
-RunStatus = GoingStatus | EndedStatus
-
-
-@dataclass(frozen=True, slots=True)
-class Going:
-    """A run nothing has ended early.
-
-    Attributes:
-        status: Not started (``ready``), in a leg (``running``), waiting for a person, or ``complete``.
-    """
-
-    __pydantic_config__: ClassVar[ConfigDict] = ConfigDict(extra="forbid")  # a save that gives it a cause is refused
-    status: GoingStatus
-
-
-@dataclass(frozen=True, slots=True)
-class EndedEarly:
-    """A run whose last leg ended before it was done, and why; ``resume`` goes on from where it stopped.
-
-    Attributes:
-        status: ``failed`` (a node failed), ``stopped`` (a Series outgrew ``max_items``), ``cancelled`` or
-            ``timed_out``.
-        cause: Why, as a problem with its place and code.
-    """
-
-    __pydantic_config__: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
-    status: EndedStatus
-    cause: Problem
-
-
-#: How a run stands: going on, or ended early with a cause.
-RunState = Going | EndedEarly
-
-_READY, _RUNNING, _WAITING, _COMPLETE = Going("ready"), Going("running"), Going("waiting"), Going("complete")
 
 
 class _Pending:
@@ -152,89 +115,6 @@ class NotCalled(ConductorModel):
 
     loc: Path
     input: str
-
-
-# -- what a unit came to ------------------------------------------------------------------------
-
-
-@dataclass(frozen=True, slots=True)
-class Done:
-    """A unit whose node was called and returned.
-
-    Attributes:
-        out: Its outputs by name: a value, ``None`` for a blank, ``SKIPPED`` for a branch not taken (every one
-            of them, when the node returned ``SKIPPED``), and for a ``Series`` a list, or ``Records`` when the
-            node returned a table for a ``Series`` of records.
-    """
-
-    out: dict[str, Any]
-
-
-@dataclass(frozen=True, slots=True)
-class Answered(Done):
-    """A unit a person answered: its outputs are the answer.
-
-    Attributes:
-        question: What the person was asked.
-    """
-
-    question: Question
-
-
-@dataclass(frozen=True, slots=True)
-class Skipped:
-    """A unit whose node wasn't called because a branch above it wasn't taken: an input came only from branches
-    not taken. What reads it is skipped too."""
-
-
-@dataclass(frozen=True, slots=True)
-class Blank:
-    """A unit whose node wasn't called because an input that takes no blank got one. Its outputs are blank,
-    except those of an exclusive group, which are a branch not taken: no branch was chosen.
-
-    Attributes:
-        input: The input that got nothing.
-    """
-
-    input: str
-
-
-@dataclass(frozen=True, slots=True)
-class Asking:
-    """A unit waiting for a person: its node raised ``Ask``.
-
-    Attributes:
-        question: What the person is asked.
-    """
-
-    question: Question
-
-
-#: What one node came to in one instance of its scope. A run and its copies share their units, so none is changed.
-Unit = Done | Answered | Skipped | Blank | Asking
-
-#: The one skipped unit: it holds nothing, so every node not called for a branch not taken shares it.
-SKIPPED_UNIT = Skipped()
-
-
-@dataclass(slots=True)
-class Earlier:
-    """The work of one node that a run may take from the run it went on from, in place of calling the node.
-
-    A person's answer, or a question still waiting, is taken once, by the next unit in order that received the
-    same under the same items above it. A node's own result is taken by the unit at the same place when it
-    received the same there, and else by what was received, whichever unit made it.
-
-    Attributes:
-        at: Each result by the instance its unit stood in, with the fingerprint of what it received.
-        computed: A node's results by the fingerprint of what the unit received.
-        asked: A person's answers and the questions still waiting, by the fingerprint of what the unit received and
-            of the items above it, in the order they stood.
-    """
-
-    at: dict[Key, tuple[str, Done]] = field(default_factory=dict[Key, tuple[str, Done]])
-    computed: dict[str, Done] = field(default_factory=dict[str, Done])
-    asked: dict[tuple[str, str], list[Answered | Asking]] = field(default_factory=dict[tuple[str, str], list["Answered | Asking"]])
 
 
 class Run:

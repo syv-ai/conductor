@@ -11,7 +11,8 @@ from conductor._internal.address import Path
 from conductor._internal.ask import Waiting
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.problem import Problem
-from conductor._internal.run import EndedEarly, Going, Run, RunStatus
+from conductor._internal.run import Run
+from conductor._internal.run_status import EndedEarly, Going, RunStatus
 
 
 class _EventBase(ConductorModel):
