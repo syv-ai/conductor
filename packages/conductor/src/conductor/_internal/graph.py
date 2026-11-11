@@ -1,4 +1,4 @@
-"""``Graph``: the checked graph a host holds, with the verbs that start a run."""
+"""``Graph``: the checked graph a host holds, with the calls that make a run of it and how its runs are saved."""
 
 from __future__ import annotations
 
@@ -8,14 +8,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from conductor._internal import problem
-from conductor._internal.address import NodePath
-from conductor._internal.checked_graph import (
-    CheckedGraph,
-    FunctionAtPath,
-    NodeAtPath,
-    PlacedFunction,
-    nodes_at_paths,
-)
+from conductor._internal.checked_graph import CheckedGraph
 from conductor._internal.fields import REQUIRED, FieldValueError
 from conductor._internal.problem import InvalidCallError, Problem
 from conductor._internal.run import Run, checked_leg, no_units, run_from_json
@@ -33,35 +26,6 @@ class Graph(CheckedGraph):
         inputs: The open inputs of its first nodes, by name (``node.input`` where two share a name): what a
             caller fills.
     """
-
-    @functools.cached_property
-    def _at_paths(self) -> tuple[list[FunctionAtPath], dict[str, NodeAtPath]]:
-        """The graph's nodes and those of each graph embedded in it, where they stand (``nodes_at_paths``),
-        made when a run of the graph is first made."""
-        return nodes_at_paths(self)
-
-    @property
-    def _tree(self) -> list[FunctionAtPath]:
-        """Every function of the graph and of each graph embedded in it, at any depth, each after the
-        functions it reads: the order a leg tries them in."""
-        return self._at_paths[0]
-
-    @property
-    def _node_at(self) -> dict[str, NodeAtPath]:
-        """Each node of the graph and of each graph embedded in it, a function or an embedded graph, by its
-        name (``e/ask``)."""
-        return self._at_paths[1]
-
-    @functools.cached_property
-    def _functions(self) -> dict[NodePath, PlacedFunction]:
-        """Every function node of ``_tree``, by its path."""
-        return {node.path: node.placed for node in self._tree}
-
-    @functools.cached_property
-    def _threads(self) -> int:
-        """How many calls a leg over the graph can have on threads at once: the ``concurrency`` of every node
-        called on a thread, those of each embedded graph with them."""
-        return sum(policy.concurrency for placed in self._functions.values() if (policy := placed.definition.policy).threaded)
 
     def with_inputs(
         self, inputs: Mapping[str, Any] = types.MappingProxyType({}), /, *, max_items: int | None = None, earlier: Run | None = None, **by_name: Any,

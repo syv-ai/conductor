@@ -33,10 +33,13 @@ from conductor._internal.checked_graph.input_plans import (
     Source,
     WholeOutput,
 )
-from conductor._internal.checked_graph.type import CheckedGraph, PlacedEmbeddedGraph, PlacedFunction
+from conductor._internal.checked_graph.placed_node import PlacedEmbeddedGraph, PlacedFunction
 from conductor._internal.fields import REQUIRED, Field, Series
 from conductor._internal.node_definition import Policy
 from conductor._internal.units import ItemPath
+
+if typing.TYPE_CHECKING:
+    from conductor._internal.checked_graph.type import CheckedGraph
 
 
 @dataclass(eq=False, slots=True, kw_only=True)

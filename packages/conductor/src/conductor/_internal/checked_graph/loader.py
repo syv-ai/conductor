@@ -47,13 +47,12 @@ from conductor._internal.checked_graph.input_plans import (
     Source,
     WholeOutput,
 )
-from conductor._internal.checked_graph.type import (
-    CheckedGraph,
-    InputField,
+from conductor._internal.checked_graph.placed_node import (
     PlacedEmbeddedGraph,
     PlacedFunction,
     PlacedNode,
 )
+from conductor._internal.checked_graph.type import CheckedGraph, InputField
 from conductor._internal.fields import REQUIRED, Field, FieldValueError, Param, Series, Type
 from conductor._internal.graph_record import GraphRecord, NodeRecord
 from conductor._internal.node_definition import (
