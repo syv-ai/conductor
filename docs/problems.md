@@ -980,11 +980,9 @@ Its `ctx` keys are in the reference: `python -m conductor.about timeout`.
 
 ## Declaring a node
 
-Raised as `NodeDeclarationError` when the module that declares the node is imported. `error.code` is the code. The text is English and for the developer.
+Raised as `NodeDeclarationError` when the module that declares the node is imported. `error.code` is the code. The text is English and for the developer. Each example prints the code, then the text.
 
 ### `arriving_on_compute_added_inputs`
-
-> compute_added_inputs parameter {name} reads an arriving type, but inputs are decided before anything arrives; read it in compute_outputs
 
 ```python
 def added(value: type) -> dict[str, type]:
@@ -997,13 +995,12 @@ try:
         return value
 except NodeDeclarationError as error:
     print(error.code)  # arriving_on_compute_added_inputs
+    print(error)  # @node('adds') on adds: compute_added_inputs parameter 'value' reads an arriving type, but inputs are decided before anything arrives; read it in compute_outputs
 ```
 
 **Fix.** Read the arriving type in `compute_outputs`. The added inputs are decided before anything arrives.
 
 ### `async_run`
-
-> a node is a plain def; the engine gives a slow one threads with Policy(concurrency=)
 
 ```python
 try:
@@ -1012,6 +1009,7 @@ try:
         return url
 except NodeDeclarationError as error:
     print(error.code)  # async_run
+    print(error)  # @node('fetch_async') on fetch_async: a node is a plain def; the engine gives a slow one threads with Policy(concurrency=)
 ```
 
 **Fix.** Write a plain `def`. For a slow call, `Policy(concurrency=8)` makes several calls at once on threads.
@@ -1060,8 +1058,6 @@ except NodeDeclarationError as error:
 
 ### `compute_added_inputs_without_var_keyword`
 
-> a node with compute_added_inputs takes them as **kwargs; add **values to its signature
-
 ```python
 def operands(count: int) -> dict[str, type]:
     return {f"value_{i}": float for i in range(count)}
@@ -1073,6 +1069,7 @@ try:
         return 0.0
 except NodeDeclarationError as error:
     print(error.code)  # compute_added_inputs_without_var_keyword
+    print(error)  # @node('sum_of') on sum_of: a node with compute_added_inputs takes them as **kwargs; add **values to its signature
 ```
 
 **Fix.** Take the added inputs as `**values: float`.
@@ -1096,8 +1093,6 @@ except NodeDeclarationError as error:
 
 ### `duplicate_node_id` (declaring a node)
 
-> two nodes have the id {definition.id}: {_where_declared(held)} and {_where_declared(definition)}; ids are unique, so swap one for the other with registry.replace(...)
-
 ```python
 twice = NodeRegistry()
 twice.add(upper)
@@ -1107,13 +1102,12 @@ try:
         return text
 except NodeDeclarationError as error:
     print(error.code)  # duplicate_node_id
+    print(error)  # two nodes have the id 'upper': doc_docs_problems_md.upper and doc_docs_problems_md.upper_again; ids are unique, so swap one for the other with registry.replace(...)
 ```
 
 **Fix.** For a node the registry already holds, swap one for the other with `registry.replace(newer)`, or give the new node an id of its own. The older versions of a chain are plain `@node` definitions that are never registered; only the newest is declared on the registry, with `replaces=`.
 
 ### `duplicate_type_id`
-
-> type id {Type(held).id} is declared by both {_qualified_name(existing)} and {_qualified_name(held)}; one registry holds one type per id
 
 ```python
 @dataclass
@@ -1134,13 +1128,12 @@ try:
     NodeRegistry(types=[Amount, Price])
 except NodeDeclarationError as error:
     print(error.code)  # duplicate_type_id
+    print(error)  # type id 'money' is declared by both doc_docs_problems_md.Amount and doc_docs_problems_md.Price; one registry holds one type per id
 ```
 
 **Fix.** Give one of the classes another `type_id`.
 
 ### `empty_title_or_description`
-
-> @node({id}) has an empty {name}; write the words a person reads for the node in a palette
 
 ```python
 try:
@@ -1149,13 +1142,12 @@ try:
         return text.upper()
 except NodeDeclarationError as error:
     print(error.code)  # empty_title_or_description
+    print(error)  # @node('shout') has an empty description; write the words a person reads for the node in a palette
 ```
 
 **Fix.** Give the node a title and a description: they are what a person reads for it in a palette.
 
 ### `exclusive_group_on_input`
-
-> {name}: exclusive_group is for outputs; put it on an output's Param
 
 ```python
 try:
@@ -1164,13 +1156,12 @@ try:
         return text
 except NodeDeclarationError as error:
     print(error.code)  # exclusive_group_on_input
+    print(error)  # @node('branchy') on branchy: text: exclusive_group is for outputs; put it on an output's Param
 ```
 
 **Fix.** Put `exclusive_group` on the outputs that are branches, the fields of the frozen dataclass the node returns.
 
 ### `from_run_misplaced`
-
-> FromRun is a whole parameter the host always gives, name: FromRun[Session]; anywhere else, a caller would fill it
 
 ```python
 class Session: ...
@@ -1181,14 +1172,13 @@ try:
         return ""
 except NodeDeclarationError as error:
     print(error.code)  # from_run_misplaced
+    print(error)  # @node('maybe') on maybe: session: FromRun is a whole parameter the host always gives, name: FromRun[Session]; anywhere else, a caller would fill it
 ```
 
 **Fix.** Write the parameter as `name: FromRun[Session]`, never inside `| None`, a list or a return type. The host
 gives that value on every run, so a node can trust it; anywhere else it would be an input a caller fills.
 
 ### `from_run_not_a_class`
-
-> {name}: FromRun names the class of the value the run is given, FromRun[Session]
 
 ```python
 try:
@@ -1197,6 +1187,7 @@ try:
         return ""
 except NodeDeclarationError as error:
     print(error.code)  # from_run_not_a_class
+    print(error)  # @node('listed') on listed: names: FromRun names the class of the value the run is given, FromRun[Session]
 ```
 
 **Fix.** Name a class, `FromRun[Session]`: the run is given its value by that class, `from_run={Session: ...}`.
@@ -1226,8 +1217,6 @@ except NodeDeclarationError as error:
 
 ### `input_without_type`
 
-> {name}: an input needs a type hint; write one, as it is the input's interface
-
 ```python
 try:
     @node("untyped", title="Untyped", description="Passes the text on as it is.")
@@ -1235,13 +1224,12 @@ try:
         return str(text)
 except NodeDeclarationError as error:
     print(error.code)  # input_without_type
+    print(error)  # @node('untyped') on untyped: text: an input needs a type hint; write one, as it is the input's interface
 ```
 
 **Fix.** Give the input a type hint. The hint is the input's interface.
 
 ### `invalid_node_id` (declaring a node)
-
-> @node takes the node's id first, a non-empty string without '.', '/', '@' or '~', which mean something in an address or a waiting id: @node('upper'); got {id}
 
 ```python
 try:
@@ -1250,13 +1238,12 @@ try:
         return text
 except NodeDeclarationError as error:
     print(error.code)  # invalid_node_id
+    print(error)  # @node takes the node's id first, a non-empty string without '.', '/', '@' or '~', which mean something in an address or a waiting id: @node('upper'); got 'a.b'
 ```
 
 **Fix.** Pick an id without `.`, `/`, `@` or `~`, and never an empty one. The same rule holds for an id in a record.
 
 ### `nested_series`
-
-> a Series of Series; a field holds one level of items, so return one Series
 
 ```python
 try:
@@ -1265,13 +1252,12 @@ try:
         return [[text]]
 except NodeDeclarationError as error:
     print(error.code)  # nested_series
+    print(error)  # @node('nested') on nested: result: a Series of Series; a field holds one level of items, so return one Series
 ```
 
 **Fix.** Return one `Series`. A node after it that runs once per item and returns a `Series` of its own makes the next level.
 
 ### `output_without_type`
-
-> a node needs a return type; write one, or -> None for no outputs
 
 ```python
 try:
@@ -1280,13 +1266,12 @@ try:
         return text
 except NodeDeclarationError as error:
     print(error.code)  # output_without_type
+    print(error)  # @node('silent') on silent: a node needs a return type; write one, or -> None for no outputs
 ```
 
 **Fix.** Write the return type. `-> None` declares no outputs.
 
 ### `outputs_not_frozen`
-
-> a dataclass of outputs is frozen; write @dataclass(frozen=True)
 
 ```python
 @dataclass
@@ -1301,13 +1286,12 @@ try:
         return Parts(*name.split(" ", 1))
 except NodeDeclarationError as error:
     print(error.code)  # outputs_not_frozen
+    print(error)  # @node('parts') on parts: a dataclass of outputs is frozen; write @dataclass(frozen=True)
 ```
 
 **Fix.** Write `@dataclass(frozen=True)`. Several calls in a run can be given the same value.
 
 ### `parameter_not_by_name`
-
-> {name}: a node's inputs are passed by name; drop the / and *args
 
 ```python
 try:
@@ -1316,13 +1300,12 @@ try:
         return text
 except NodeDeclarationError as error:
     print(error.code)  # parameter_not_by_name
+    print(error)  # @node('positional') on positional: text: a node's inputs are passed by name; drop the / and *args
 ```
 
 **Fix.** Drop the `/` and `*args`: the engine passes every input by its name.
 
 ### `replaces_another_node`
-
-> @node({id}) replaces {replaces}; a node replaces an earlier node of its own id
 
 ```python
 try:
@@ -1331,13 +1314,12 @@ try:
         return text.lower()
 except NodeDeclarationError as error:
     print(error.code)  # replaces_another_node
+    print(error)  # @node('lower') replaces FunctionDefinition(id='upper', version=1, title='Uppercase'); a node replaces an earlier node of its own id
 ```
 
 **Fix.** A version replaces an earlier `@node` of its own id. A different node gets no `replaces=`.
 
 ### `type_not_carried`
-
-> conductor can't check or write {self.id} as JSON; use a type pydantic knows, such as a pydantic model or a dataclass, or give the class its own __get_pydantic_core_schema__
 
 ```python
 class Plain:
@@ -1351,13 +1333,12 @@ try:
         return ""
 except NodeDeclarationError as error:
     print(error.code)  # type_not_carried
+    print(error)  # @node('plain') on plain: value: conductor can't check or write plain as JSON; use a type pydantic knows, such as a pydantic model or a dataclass, or give the class its own __get_pydantic_core_schema__
 ```
 
 **Fix.** Use a type pydantic can check and write as JSON: a pydantic model, a dataclass or a builtin. A class of your own that subclasses a builtin (`class Text(str)`) says how pydantic reads it, in a `__get_pydantic_core_schema__` of its own. [Writing nodes](writing-nodes.md#a-text-or-a-number-of-your-own) has the three lines.
 
 ### `type_variable_constrained`
-
-> {spec.name}: the type variable {variable.__name__} is constrained to a few types; give it a bound, or write the union
 
 ```python
 try:
@@ -1366,13 +1347,12 @@ try:
         return value
 except NodeDeclarationError as error:
     print(error.code)  # type_variable_constrained
+    print(error)  # @node('hand-on') on hand_on: value: the type variable T is constrained to a few types; give it a bound, or write the union
 ```
 
 **Fix.** Give the variable a bound (`T: int | str`), or write the union in the signature. A bound says what may arrive; the variable is then whatever does.
 
 ### `type_variable_only_in_return`
-
-> {spec.name}: the type variable {variable.__name__} is on no input, so no edge can say what it is; put it on an input
 
 ```python
 try:
@@ -1381,13 +1361,12 @@ try:
         return []
 except NodeDeclarationError as error:
     print(error.code)  # type_variable_only_in_return
+    print(error)  # @node('make') on make: result: the type variable T is on no input, so no edge can say what it is; put it on an input
 ```
 
 **Fix.** A type variable is what arrives on an edge, so it stands on an input. An output whose type depends on a setting, not on an edge, is typed by a `compute_outputs` hook.
 
 ### `upgrade_missing`
-
-> the version it replaces has {sorted(unexplained)}, gone from this one; its Upgrade says where they went
 
 ```python
 @node("hello", title="Hello v1", description="Says hello to a person.")
@@ -1401,13 +1380,12 @@ try:
         return first
 except NodeDeclarationError as error:
     print(error.code)  # upgrade_missing
+    print(error)  # @node('hello') on hello: the version it replaces has ['name'], gone from this one; its Upgrade says where they went
 ```
 
 **Fix.** Say where the gone field went: `upgrade=Upgrade(renamed_inputs={"name": "first"})`, or a `rewrite=` for an input; a gone output takes `renamed_outputs=`, since a rewrite reads only what is typed into the node.
 
 ### `upgrade_without_replaces`
-
-> @node({id}) has an upgrade but replaces nothing; name the version it upgrades with replaces=
 
 ```python
 try:
@@ -1416,13 +1394,12 @@ try:
         return first
 except NodeDeclarationError as error:
     print(error.code)  # upgrade_without_replaces
+    print(error)  # @node('hi') has an upgrade but replaces nothing; name the version it upgrades with replaces=
 ```
 
 **Fix.** Name the version it upgrades with `replaces=`.
 
 ### `var_keyword_without_hook`
-
-> **kwargs takes the inputs compute_added_inputs adds; the node has no such hook, so remove **kwargs or add compute_added_inputs=
 
 ```python
 try:
@@ -1431,13 +1408,12 @@ try:
         return ""
 except NodeDeclarationError as error:
     print(error.code)  # var_keyword_without_hook
+    print(error)  # @node('loose') on loose: **kwargs takes the inputs compute_added_inputs adds; the node has no such hook, so remove **kwargs or add compute_added_inputs=
 ```
 
 **Fix.** Remove `**values`, or add the hook that adds those inputs, `compute_added_inputs=`.
 
 ### `version_not_after`
-
-> @node({id}) is version {number}, not after the version {replaces.version} it replaces; leave version= out, or give one above {replaces.version}
 
 ```python
 try:
@@ -1446,13 +1422,12 @@ try:
         return name
 except NodeDeclarationError as error:
     print(error.code)  # version_not_after
+    print(error)  # @node('hello') is version 1, not after the version 1 it replaces; leave version= out, or give one above 1
 ```
 
 **Fix.** Leave `version=` out (one past the version replaced), or give a number above it.
 
 ### `widget_outside_param`
-
-> a widget in Annotated goes on Param: Annotated[..., Param(widget=...)]
 
 ```python
 from conductor.widgets import Textarea
@@ -1463,6 +1438,7 @@ try:
         return text
 except NodeDeclarationError as error:
     print(error.code)  # widget_outside_param
+    print(error)  # @node('note') on note: text: a widget in Annotated goes on Param: Annotated[..., Param(widget=...)]
 ```
 
 **Fix.** Put the widget on the field's `Param`: `Annotated[str, Param(widget=Textarea())]`. Other metadata in `Annotated` is pydantic's and is read as pydantic reads it; a widget there would be passed by, and the field would show no control.
