@@ -150,6 +150,10 @@ HINTED_CATALOGUE: Mapping[tuple[str, str], str] = {
         "'{node_id}.{field}' needs the column '{column}' ({column_type}); '{source}' has {has}. "
         "Add the column in a node between, or connect a table that has it."
     ),
+    ("invalid_input", "make_a_series"): (
+        "'{name}' takes one {expected} and was given a list of {length}. A graph runs once per item only after a node that makes "
+        "a Series, such as a list or an upload node: give the list to such a node, or give one value."
+    ),
     ("unknown_output", "split_first"): (
         "'{source}' names a field of a whole {whole}, which has no field to wire. Split it first: put a Split after it and wire "
         "the field from Split's result."

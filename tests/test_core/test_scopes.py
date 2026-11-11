@@ -4,7 +4,8 @@ captured, a ``Series`` or ``Table`` input gathers, and declared types alone deci
 from dataclasses import dataclass
 from typing import Annotated, Any, TypedDict
 
-from conductor import SKIPPED, NodeRegistry, Param, Series, Table, node
+import pytest
+from conductor import SKIPPED, InvalidCallError, NodeRegistry, Param, Series, Table, node
 
 
 class Contact(TypedDict):
@@ -303,6 +304,17 @@ def test_a_graph_input_of_a_series_is_given_whole_and_opens_no_map():
     graph = load({"c": "count"}, [])
     assert graph.is_runnable and graph.inputs["items"].shape == "many" and graph.plan["c"].mode == "once"
     assert feeds(graph, "c") == {"items": ("one_value", None)}
+
+
+def test_a_list_given_at_an_input_of_one_value_is_refused_saying_what_makes_a_graph_run_per_item():
+    graph = load({"u": "upper"}, [])
+    with pytest.raises(InvalidCallError) as refused:
+        graph.run(text=["a", "b", "c"])
+    (problem,) = refused.value.errors()
+    assert (problem.type, problem.loc, problem.ctx) == (
+        "invalid_input", ("inputs", "text"), {"name": "text", "expected": "str", "length": 3, "hint": "make_a_series"},
+    )
+    assert "a node that makes a Series" in problem.msg
 
 
 # -- an embedded graph is one node -----------------------------------------------------------------------

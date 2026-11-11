@@ -696,10 +696,17 @@ class Graph:
                     problems.append(make_problem("missing_input", "inputs", offered.name, name=offered.name))
                 values[address] = offered.default
                 continue
+            value, spec = given[address], offered.spec
             try:
-                values[address] = read_given(offered.spec, given[address])
+                values[address] = read_given(spec, value)
             except FieldValueError as refused:
-                problems.append(make_problem("invalid_input", "inputs", offered.name, name=offered.name, reason=refused.reason, **refused.ctx))
+                whole = all(not error["loc"] for error in refused.ctx.get("errors", ()))  # the list itself was refused, not an item of it
+                if spec.shape == "one" and type(value) is list and whole:  # the one mistake whose fix is in the graph
+                    problems.append(make_problem(
+                        "invalid_input", "inputs", offered.name, name=offered.name, expected=spec.type_id, length=len(value), hint="make_a_series",
+                    ))
+                else:
+                    problems.append(make_problem("invalid_input", "inputs", offered.name, name=offered.name, reason=refused.reason, **refused.ctx))
         if problems:
             raise InvalidCallError(problems)
         return values
