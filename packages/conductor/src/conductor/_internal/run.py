@@ -773,6 +773,15 @@ class Run:
             keys = below
         return keys, complete
 
+    def _has_every_unit(self, node: NodeAtPath) -> bool:
+        """Whether every instance of ``node`` holds a unit, one waiting for a person included, and every Series
+        it runs per item of is made, so no instance is still to come."""
+        units = self._units[node.inside][node.placed.id]
+        if not node.maps:
+            return bool(units)
+        counted, known = self._instances(node.maps, (), counted=True)
+        return known and len(units) == (counted[0][0] if counted else 0)
+
     def _inputs(self, node: FunctionAtPath, key: Key) -> Any:
         """What ``node`` receives in the instance ``key``.
 
@@ -866,8 +875,7 @@ class Run:
         """A node's units with a slot for each instance of the node, in instance order; ``None`` where the
         instance hasn't run."""
         units = self._units[node.inside][node.placed.id]
-        counted, _ = self._instances(node.maps, (), counted=True)
-        if len(units) == ((counted[0][0] if counted else 0) if node.maps else 1):  # every instance ran: the units as they stand
+        if self._has_every_unit(node):  # the units as they stand
             return list(units.values())
         return [units.get(instance) for instance in self._instances(node.maps, ())[0]]
 
