@@ -572,7 +572,7 @@ class Leg:
             self.changed = True
         if self.checkpoint_every is not None and time.monotonic() >= self.next_checkpoint:
             self._checkpoint()
-        if placed.opens and run.max_items is not None and isinstance(unit, Done):
+        if run.max_items is not None and placed.opens and isinstance(unit, Done):
             for output in placed.opens:
                 items = _length(unit.out[output])
                 if items > run.max_items:
