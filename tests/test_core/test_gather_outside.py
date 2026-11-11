@@ -439,9 +439,9 @@ REGISTRY.stored_graph("words-up-and-letters", title="Words and letters", descrip
 )
 
 
-def test_two_series_inputs_fed_by_outputs_a_stored_graph_returns_per_word_and_per_letter_are_each_collected_in_their_own_loop() -> None:
-    """The letters are a list per word, so the node is called once per word with that word's letters. The words
-    are one list, made outside that loop, so every call receives all of them."""
+def test_two_series_inputs_fed_by_outputs_a_stored_graph_returns_per_word_and_per_letter_are_called_per_word_as_drawn_flat() -> None:
+    """The letters are a list per word, so the node is called once per word with that word's letters, and the
+    other input receives that word's one value as a list of one."""
     graph = REGISTRY.load(GraphRecord.model_validate({"nodes": [{"id": "e", "node": "words-up-and-letters"}, {"id": "n", "node": "both"}], "edges": [["e.up.result", "n.a"], ["e.maybe.result", "n.b"]]}))
     assert not graph.problems
-    assert graph.run(text="ab cd").results["n"]["result"] == ["AB|CD:AB", "AB|CD:CD"]
+    assert graph.run(text="ab cd").results["n"]["result"] == ["AB:AB", "CD:CD"]

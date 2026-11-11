@@ -149,13 +149,46 @@ def test_a_stored_graph_inside_a_stored_graph_offers_the_same_series_of_series()
     assert stored == ["A+B", None, "C"]
 
 
-def test_one_item_of_each_of_two_outputs_of_a_stored_graph_is_refused_as_items_of_two_series() -> None:
-    """Outside a stored graph each output it offers is a Series of its own, however the two are made inside."""
-    reads = [("shout-and-whisper.shout.result", "pair.a"), ("shout-and-whisper.whisper.result", "pair.b")]
+@_node("title")
+def title(document: str) -> str:
+    return "T:" + document
 
-    @_node("pair")
-    def pair(a: str, b: str) -> str:
-        return a + b
 
-    graph = REGISTRY.load(make_graph(REGISTRY["shout-and-whisper"], pair, edges=reads))
-    assert [problem.type for problem in graph.problems] == ["series_not_nested"]
+@_node("pair")
+def pair(a: str, b: str) -> str:
+    return a + b
+
+
+@_node("label")
+def label(heading: str, values: Series[str]) -> str:
+    return f"{heading}={'+'.join(values)}"
+
+
+TITLE_EDGES = [*WHISPER_EDGES, ("documents.result", "title.document")]
+REGISTRY.stored_graph("titled", title="Titled", description="Each document's title, and every line in capitals and in small letters.")(
+    make_graph(documents, lines, shout, whisper, title, edges=TITLE_EDGES)
+)
+
+
+def test_one_item_of_each_of_two_outputs_returned_in_the_same_loop_inside_reach_one_call_together() -> None:
+    reads = [("shout.result", "pair.a"), ("whisper.result", "pair.b")]
+    drawn = results([documents, lines, shout, whisper, title, pair], [*TITLE_EDGES, *reads], "pair", "A,b;;c")
+    stored = results([REGISTRY["titled"], pair], [(f"titled.{source}", target) for source, target in reads], "pair", "A,b;;c")
+    assert drawn == stored == [["Aa", "Bb"], None, ["Cc"]]
+
+
+def test_one_value_per_document_beside_the_list_of_that_documents_lines_reach_one_call_together() -> None:
+    reads = [("title.result", "label.heading"), ("shout.result", "label.values")]
+    drawn = results([documents, lines, shout, whisper, title, label], [*TITLE_EDGES, *reads], "label", "a,b;;c")
+    stored = results([REGISTRY["titled"], label], [(f"titled.{source}", target) for source, target in reads], "label", "a,b;;c")
+    assert drawn == stored == ["T:a,b=A+B", None, "T:c=C"]
+
+
+def test_one_item_of_a_list_inside_a_stored_graph_and_of_a_list_outside_it_is_refused_with_what_the_author_can_do() -> None:
+    """``whisper`` runs once per line inside the stored graph; outside, each title is split into a list of its
+    own. A node that takes one item of each has two lists side by side, and no edge outside can nest them."""
+    edges = [("titled.title.result", "lines.document"), ("lines.result", "pair.b"), ("titled.whisper.result", "pair.a")]
+    refused = REGISTRY.load(make_graph(REGISTRY["titled"], lines, pair, edges=edges)).problems[0]
+    assert (refused.type, refused.ctx["hint"], refused.ctx["stored_graphs"]) == ("series_not_nested", "inside_stored_graph", ["titled"])
+    assert sorted(refused.ctx["series"]) == ["lines.result", "titled.lines.result"]
+    assert "wire '" not in refused.msg and "Give one of them whole to a Series input" in refused.msg

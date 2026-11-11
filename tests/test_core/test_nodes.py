@@ -493,7 +493,7 @@ def test_an_any_input_has_a_json_form_before_anything_is_wired():
         return ""
 
     assert json.loads(f.describe().model_dump_json(exclude_none=True))["inputs"][0] == {
-        "name": "x", "title": "X", "many": False, "required": True, "type": "Any", "type_variables": [], "schema": {},
+        "name": "x", "title": "X", "many": False, "required": True, "type": "Any", "type_variables": [], "schema": {}, "loops": [],
     }
 
 

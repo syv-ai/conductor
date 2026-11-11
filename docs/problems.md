@@ -334,6 +334,8 @@ print(unpaired.msg)  # 'g' reads items of names.result, greetings.result, and ne
 
 Its `ctx` keys are in the reference: `python -m conductor.about series-not-nested`.
 
+When one of the two lists is inside a stored graph, no edge of the outer graph can put one inside the other. The problem then has `ctx.hint` set to `inside_stored_graph` and `ctx.stored_graphs` in place of `wire_from` and `wire_into`, and its message says to give one of them whole to a `Series` input or to change the stored graph so it returns both outputs from the same loop.
+
 ### `several_edges_into_one_input`
 
 ```python

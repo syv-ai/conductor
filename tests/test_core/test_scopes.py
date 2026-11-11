@@ -410,7 +410,7 @@ def test_an_output_made_per_item_inside_an_embedded_graph_is_offered_as_a_series
     registry = _embedding({"d": "documents", "u": "upper"}, [("d.result", "u.text")])
     graph = load({"e": "inner", "c": "count"}, [("e.u.result", "c.items")], registry)
     assert graph.is_runnable and graph.describe().nodes["e"].outputs[0].many
-    assert feeds(graph, "c") == {"items": ("collected", "e.u.result")}
+    assert feeds(graph, "c") == {"items": ("collected", "e.d.result")}
 
 
 def test_a_first_embedded_graphs_inputs_are_the_outer_graphs():

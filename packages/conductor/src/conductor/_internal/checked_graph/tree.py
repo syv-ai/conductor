@@ -323,12 +323,8 @@ def _series_looped_over(loop: OutputAddress, inside: NodePath, node_at: Mapping[
     """The list one loop of a node's scope goes through, as the function that returns it and the output's name.
 
     A loop over a function's ``Series`` output is that output. A loop a stored graph's node names is a loop
-    inside the stored graph. Example: ``e`` is the stored graph ``documents -> lines -> shout``, where
-    ``shout`` is called once per line of each document.
-
-    - ``e.documents.result`` is the list ``documents`` returns inside ``e``.
-    - ``e.shout.result`` is what ``e`` offers: ``shout`` returns one value per line, so the loop over them is
-      the loop ``shout`` is called in, over ``lines.result``.
+    inside the stored graph. Example: ``e`` is the stored graph ``documents -> lines -> shout``, and a node
+    outside is called once per item of ``e.documents.result``: that is ``result`` of ``e/documents``.
 
     Args:
         loop: The loop, as a graph's scope names it.
@@ -339,7 +335,7 @@ def _series_looped_over(loop: OutputAddress, inside: NodePath, node_at: Mapping[
     if isinstance(made_by, EmbeddedGraphAtPath):
         inner_id, _, inner_output = loop.output.partition(".")
         return _series_looped_over(OutputAddress(inner_id, inner_output), made_by.path, node_at)
-    return (made_by, loop.output) if made_by.placed.outputs[loop.output].many else made_by.maps[-1]
+    return made_by, loop.output
 
 
 def _scope_at_path(maps: Maps) -> Scope:
@@ -351,10 +347,8 @@ def _plan_at_path(plan: InputPlan, here: Mapping[str, NodeAtPath], inside: NodeP
     """A plan of a checked graph as the plan of its node where it stands: each output names the function that
     returns it by its ``name``, in the loops that function is called in.
 
-    An output of a stored graph's node is the output of a function inside it. Example: ``e`` is the stored
-    graph ``documents -> lines -> shout``. An edge from ``e.shout.result`` reads one item of the ``Series``
-    that ``e`` offers, and that item is what one call of ``shout`` returned, so the plan reads ``e/shout``'s
-    ``result`` whole.
+    An output of a stored graph's node is the output of a function inside it: an edge from
+    ``e.shout.result`` reads ``result`` of ``e/shout``.
 
     Args:
         plan: The plan, as its graph loaded it.

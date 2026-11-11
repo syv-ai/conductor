@@ -86,31 +86,31 @@ print(both.run({"upper.text": "a", "exclaim.text": "b"}).outputs)
 # {'both.upper.result': 'A', 'both.exclaim.result': 'b!'}
 ```
 
-Outside, a `Series` a stored graph offers is a Series like any other, however it was made inside. An input of
-one value reads it one item at a time, and a `Series` input beside it receives the whole Series on each call:
+A node outside reads a stored graph's output as it would read the same node drawn in its own graph. Below, `upper`
+and `exclaim` each run once per word inside the stored graph. A node wired to both is called once per word, with
+that word's two values:
 
 ```python
-words = stored_graph("words", title="Words", description="The words of a text, in capital letters.")(make_graph(split, upper, edges=[("split.result", "upper.text")]))
-registry.add(words)
+both_per_word = stored_graph("per-word", title="Per word", description="Each word in capital letters, and with an exclamation mark.")(
+    make_graph(split, upper, exclaim, edges=[("split.result", "upper.text"), ("split.result", "exclaim.text")])
+)
+registry.add(both_per_word)
 
 
-@registry.node("place", title="Place", description="Says how many words a word stands among.")
-def place(word: str, among: Series[str]) -> str:
-    return f"{word} of {len(among)}"
+@registry.node("beside", title="Beside", description="Puts two texts side by side.")
+def beside(loud: str, keen: str) -> str:
+    return f"{loud}/{keen}"
 
 
-placed = registry.load(make_graph(words, place, edges=[("words.upper.result", "place.word"), ("words.upper.result", "place.among")]))
-print(placed.run(text="a b").results["place"]["result"])  # ['A of 2', 'B of 2']
+graph = registry.load(make_graph(both_per_word, beside, edges=[("per-word.upper.result", "beside.loud"), ("per-word.exclaim.result", "beside.keen")]))
+print(graph.run(text="hi there").results["beside"]["result"])  # ['HI/hi!', 'THERE/there!']
+print(graph.runs_on["beside"].msg)                             # per item of per-word.split.result
 ```
 
-`upper` runs once per word inside `words`, but what `words` offers is one Series of them, so `among` gathers it.
-The same four nodes drawn in one graph mean something else: there `place` would read `upper` where `upper` runs,
-once per word, and `among` would be that word's one text. A stored graph's boundary is where its per-item
-outputs become a Series; what the nodes inside do to each other is as drawn in the graph itself.
-
-Each `Series` a stored graph offers is a Series of its own. A node that takes one item of each of two of them
-is refused with `series_not_nested`, even when both are returned in the same loop inside, because nothing outside
-says the two lists have the same items.
+The loop is named by the list inside the stored graph that is looped over, `per-word.split.result`. Two outputs
+returned in the same loop inside line up outside, as here. Two returned in different loops inside don't: a node
+that takes one item of each is refused with `series_not_nested`, as it is for two lists drawn in one graph. Each
+output's description lists its `loops`, so an editor can tell which outputs line up.
 
 ### An output returned inside two loops
 
@@ -145,7 +145,7 @@ print(graph.describe().nodes["per-line"].outputs[0].type)  # Series[str]
 `join` takes a `Series[str]`, so it collects one loop: it is called once per document, with that document's lines.
 A node that takes one `str` would be called once per line. Both are what the same four nodes do drawn in one
 graph, and both see the list per document that `run.results` shows. The description says `many` with the type
-`Series[str]`: the items of the offered `Series` are themselves a `Series[str]`.
+`Series[str]`, one `Series` for each loop, and its `loops` are `["documents.result", "lines.result"]`.
 
 ## A blank or a skip coming in
 

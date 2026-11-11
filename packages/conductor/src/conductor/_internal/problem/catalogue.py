@@ -193,6 +193,25 @@ def series_not_nested(node_id: str, *, series: list[str], inputs: list[str], wir
     )
 
 
+@PROBLEMS.problem("series_not_nested", hint="inside_stored_graph")
+def series_not_nested_inside_stored_graph(node_id: str, *, series: list[str], inputs: list[str], stored_graphs: list[str]) -> str:
+    """A node reads items of two Series, neither is made inside the other, and one of them is a list inside a
+    stored graph, so no edge of this graph can put one inside the other.
+
+    Args:
+        node_id: The node.
+        series: The two Series, by the address of each one's output; a list inside a stored graph is named
+            by the stored graph's node and its address there, ``e.documents.result``.
+        inputs: The two inputs that read them.
+        stored_graphs: The ids of the stored graphs' nodes a list of the two is inside.
+    """
+    return (
+        f"'{node_id}' reads items of {listed(series)}, and neither is made inside the other, so nothing says which item goes with which. "
+        f"A list inside a stored graph ({listed(stored_graphs)}) is looped over where that graph loops over it, so no edge here can change that. "
+        "Give one of them whole to a Series input, or change the stored graph so it returns both outputs from the same loop."
+    )
+
+
 @PROBLEMS.problem()
 def several_edges_into_one_input(node_id: str, field: str, *, sources: list[str]) -> str:
     """More than one edge into an input can hold a value on the same call.

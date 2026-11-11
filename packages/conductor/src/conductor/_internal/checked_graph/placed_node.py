@@ -119,10 +119,12 @@ class PlacedEmbeddedGraph(_Placed):
     inside are called by their own policies, and a later run takes their earlier work node by node, as it would
     with the same nodes drawn in the graph itself.
 
-    An output returned inside loops is offered as one ``Series`` per loop. Example: the stored graph
-    ``documents -> lines -> shout``, used as the node ``e``. ``lines`` is called once per document and ``shout``
-    once per line, so ``e`` offers ``shout.result`` as ``Series[Series[str]]``: a list of lines per document.
-    The field in ``outputs`` is the innermost ``Series[str]``, and ``loops_around`` names the loop around it.
+    An output is read outside as it would be with the same nodes drawn in the outer graph. Example: the stored
+    graph ``documents -> lines -> shout``, used as the node ``e``. ``lines`` is called once per document and
+    ``shout`` once per line, so a node outside wired to ``e.shout.result`` that takes one ``str`` is called once
+    per line of each document, and one that takes a ``Series[str]`` once per document. ``outputs`` holds the
+    field as ``shout`` declares it (``str``), and ``loops_around`` names the two loops. The description says
+    ``Series[Series[str]]``, one ``Series`` per loop.
 
     Attributes:
         definition: The node as its author declared it.
@@ -133,34 +135,39 @@ class PlacedEmbeddedGraph(_Placed):
     inner: CheckedGraph
 
     def loops_around(self, output: str) -> Scope:
-        """The lists looped over to make one item of the ``Series`` offered as ``output``, outermost first: the
-        loops this node is called in, then the loops inside the stored graph.
+        """The lists looped over to make one value of ``output``, outermost first: the loops this node is called
+        in, then the loops inside the stored graph.
 
-        Example: ``e`` above is called once, and ``loops_around("shout.result")`` is ``(e.documents.result,)``.
-        A loop inside is named by this node's id and the address of the list inside, so two outputs returned
-        in the same loop inside name the same loop. The innermost loop is not listed: it is the offered
-        ``Series`` itself, ``e.shout.result``.
+        Example: ``e`` above is called once, and ``loops_around("shout.result")`` is
+        ``(e.documents.result, e.lines.result)``. A loop inside is named by this node's id and the address of
+        the list inside, so two outputs returned in the same loop inside name the same loop, and a node outside
+        that reads both is called once per item with the two values of that item.
         """
         node_id, _, inner_output = output.partition(".")
-        returned_by = self.inner._nodes[node_id]
-        inside = returned_by.loops_around(inner_output)
-        if not returned_by.outputs[inner_output].many:  # its innermost loop is the Series this node offers
-            inside = inside[:-1]
+        inside = self.inner._nodes[node_id].loops_around(inner_output)
         return (*self.scope, *[OutputAddress(self.id, str(loop)) for loop in inside])
 
     def described_outputs(self) -> list[FieldDescription]:
-        """Each output as an editor reads it; one returned inside two loops is ``many`` with the type
-        ``Series[str]``, which reads ``Series[Series[str]]``."""
+        """Each output as an editor reads it: one ``Series`` for each loop inside, and the loops by name.
+
+        Example: ``shout.result`` of ``e`` above is ``many`` with the type ``Series[str]``, which reads
+        ``Series[Series[str]]``, and its ``loops`` are ``["documents.result", "lines.result"]``.
+        """
         described = []
+        series_of: Any = Series  # a hint built from a value, which a type checker reads no further
         for name, field in self.outputs.items():
-            description = field.description
-            if loops_inside := self.loops_around(name)[len(self.scope) :]:
-                one_item: Any = field.type.hint
-                for _ in loops_inside:
-                    one_item = Series[one_item]
-                item_type = Type(one_item)
-                description = description.model_copy(update={"type": item_type.id, "json_schema": item_type.json_schema})
-            described.append(description)
+            loops = [str(loop).removeprefix(f"{self.id}.") for loop in self.loops_around(name)[len(self.scope) :]]
+            if not loops:
+                described.append(field.description)
+                continue
+            if field.many:  # the node's own Series is the innermost one
+                loops.append(name)
+            item: Any = field.type.hint
+            for _ in loops[1:]:
+                item = series_of[item]
+            item_type = Type(item)
+            offered = field if field.many else Field(name, series_of[field.hint])
+            described.append(offered.description.model_copy(update={"type": item_type.id, "json_schema": item_type.json_schema, "loops": loops}))
         return described
 
 
