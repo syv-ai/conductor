@@ -67,6 +67,7 @@ from conductor._internal.fields import (
     REQUIRED,
     FieldDescription,
     FieldSpec,
+    FieldValueError,
     _FromRunMarker,
     marked,
     read_field,
@@ -276,8 +277,8 @@ class FunctionDefinition(_Version, Generic[_P, _R]):
         inputs: Each input by name, as its signature declares it. A ``FromRun`` parameter is not an input: it is in
             ``from_run``. An input a hook adds is not here either; a loaded graph's node holds it.
         outputs: Each output by name: ``result`` for one value, a field each for a frozen dataclass returned.
-        outputs_class: The frozen dataclass the function returns when it has one output per field; ``None`` for any
-            other return type.
+        returns: What the function returns: one ``result``, a frozen dataclass of outputs, the mapping of outputs a
+            ``compute_outputs`` hook gave, or nothing.
         policy: How it runs: how many rows at once, its retries and time limit, whether it reuses earlier work.
         compute_added_inputs: A hook run at load that adds inputs from the values typed into it; the function takes
             them as ``**kwargs``.
@@ -293,7 +294,7 @@ class FunctionDefinition(_Version, Generic[_P, _R]):
     function: NodeFunction[_P, _R]
     inputs: Mapping[str, FieldSpec]
     outputs: Mapping[str, FieldSpec]
-    outputs_class: type | None = None
+    returns: Returns
     policy: Policy = Policy()
     compute_added_inputs: Callable[..., Mapping[Any, Any]] | None = None
     compute_outputs: Callable[..., Mapping[Any, Any]] | None = None
@@ -479,7 +480,7 @@ def node(
         where = f"@node({id!r}) on {target.__name__}: "
         if inspect.iscoroutinefunction(target) or inspect.isasyncgenfunction(target):
             raise NodeDeclarationError(f"{where}a node is a plain def; the engine gives a slow one threads with Policy(concurrency=)", code="async_run")
-        inputs, from_run, outputs, outputs_class = _read_signature(where, target, compute_outputs is not None)
+        inputs, from_run, outputs, returns = _read_signature(where, target, compute_outputs is not None)
         takes_kwargs = any(p.kind is p.VAR_KEYWORD for p in inspect.signature(target).parameters.values())
         if compute_added_inputs is not None and not takes_kwargs:
             raise NodeDeclarationError(f"{where}a node with compute_added_inputs takes them as **kwargs; add **values to its signature", code="compute_added_inputs_without_var_keyword")
@@ -488,7 +489,7 @@ def node(
         hooks: dict[HookName, Callable[..., Any] | None] = {"compute_added_inputs": compute_added_inputs, "compute_outputs": compute_outputs}
         hook_parameters = {kind: _check_hook(where, hook, kind, inputs) for kind, hook in hooks.items() if hook is not None}
         definition = FunctionDefinition(
-            function=target, inputs=inputs, outputs=outputs, outputs_class=outputs_class, from_run=from_run,
+            function=target, inputs=inputs, outputs=outputs, returns=returns, from_run=from_run,
             id=id, version=number, title=title, description=description,
             category=category, tags=tuple(tags), extra=MappingProxyType(dict(extra)), docs=docs, deprecation=deprecation,
             replaces=replaces, upgrade=upgrade or Upgrade(), policy=policy or Policy(),
@@ -548,11 +549,69 @@ def _fits(needed: type, key: type, value: Any) -> bool:
         return False
 
 
+@dataclass(frozen=True, slots=True)
+class OneResult:
+    """The function returns one value, its output ``result``."""
+
+    def spread(self, returned: Any, outputs: Mapping[str, FieldSpec]) -> tuple[dict[str, Any], bool]:
+        """The value as the output ``result``, and whether it needs no checking: one value already of a plain class."""
+        spec = outputs["result"]
+        return {"result": returned}, spec.shape == "one" and type(returned) in spec.plain_classes
+
+
+@dataclass(frozen=True, slots=True)
+class OutputsClass:
+    """The function returns a frozen dataclass, one output per field.
+
+    Attributes:
+        cls: The dataclass.
+    """
+
+    cls: type
+
+    def spread(self, returned: Any, outputs: Mapping[str, FieldSpec]) -> tuple[dict[str, Any], bool]:
+        """Each field of the dataclass returned as its output, to be checked."""
+        if not isinstance(returned, self.cls):
+            raise FieldValueError(f"the node returns a {self.cls.__name__}, not a {type(returned).__name__}", code="invalid_output")
+        return {name: getattr(returned, name) for name in outputs}, False
+
+
+@dataclass(frozen=True, slots=True)
+class HookOutputs:
+    """The function returns a mapping of the outputs its ``compute_outputs`` hook gave when the graph loaded."""
+
+    def spread(self, returned: Any, outputs: Mapping[str, FieldSpec]) -> tuple[dict[str, Any], bool]:
+        """Each output of the mapping returned, to be checked; one missing or not an output is refused."""
+        if not isinstance(returned, Mapping):
+            raise FieldValueError(f"the node returns its outputs as a mapping of {', '.join(outputs) or 'nothing'}, not a {type(returned).__name__}", code="invalid_output")
+        unknown = sorted(set(returned) - outputs.keys())
+        missing = [name for name in outputs if name not in returned]
+        if unknown or missing:
+            name = (missing or unknown)[0]
+            raise FieldValueError(f"'{name}' is {'missing from' if missing else 'not one of'} the outputs it returns", code="invalid_output", name=str(name))
+        return {name: returned[name] for name in outputs}, False
+
+
+@dataclass(frozen=True, slots=True)
+class NoOutputs:
+    """The function returns ``None``: the node has no outputs."""
+
+    def spread(self, returned: Any, outputs: Mapping[str, FieldSpec]) -> tuple[dict[str, Any], bool]:
+        """No outputs; anything but ``None`` returned is refused."""
+        if returned is not None:
+            raise FieldValueError(f"the node declares no outputs, but returned a {type(returned).__name__}", code="invalid_output")
+        return {}, True
+
+
+#: What a node's function returns, read from its signature at ``@node``.
+Returns = OneResult | OutputsClass | HookOutputs | NoOutputs
+
+
 def _read_signature(
     where: str, function: Callable[..., Any], computed_outputs: bool,
-) -> tuple[dict[str, FieldSpec], dict[str, type], dict[str, FieldSpec], type | None]:
+) -> tuple[dict[str, FieldSpec], dict[str, type], dict[str, FieldSpec], Returns]:
     """The inputs, the ``FromRun`` parameters (the class each takes) and the outputs a function's signature declares,
-    and the frozen dataclass it returns its outputs as, if it does."""
+    and what kind of value it returns them as."""
     hints = typing.get_type_hints(function, include_extras=True)
     inputs: dict[str, FieldSpec] = {}
     from_run: dict[str, type] = {}
@@ -577,15 +636,17 @@ def _read_signature(
     if "return" not in hints:
         raise NodeDeclarationError(f"{where}a node needs a return type; write one, or -> None for no outputs", code="output_without_type")
     returns = hints["return"]
-    if computed_outputs or returns is None or returns is type(None):
-        return inputs, from_run, {}, None
+    if computed_outputs:
+        return inputs, from_run, {}, HookOutputs()
+    if returns is None or returns is type(None):
+        return inputs, from_run, {}, NoOutputs()
     if isinstance(returns, type) and dataclasses.is_dataclass(returns):
         if not returns.__dataclass_params__.frozen:  # type: ignore[attr-defined]
             raise NodeDeclarationError(f"{where}a dataclass of outputs is frozen; write @dataclass(frozen=True)", code="outputs_not_frozen")
         own = typing.get_type_hints(returns, include_extras=True)
         outputs = {f.name: read_field(f.name, own[f.name], _declared_default(f), where=where) for f in dataclasses.fields(returns)}
-        return inputs, from_run, outputs, returns
-    return inputs, from_run, {"result": read_field("result", returns, where=where)}, None
+        return inputs, from_run, outputs, OutputsClass(returns)
+    return inputs, from_run, {"result": read_field("result", returns, where=where)}, OneResult()
 
 
 def _declared_default(declared: dataclasses.Field[Any]) -> Any:

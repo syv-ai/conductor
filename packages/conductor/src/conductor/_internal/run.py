@@ -47,7 +47,9 @@ from conductor._internal.fields import (
     read_value,
     takes_a_blank,
 )
-from conductor._internal.node_definition import from_run_values
+from conductor._internal.node_definition import (
+    from_run_values,
+)
 
 if TYPE_CHECKING:
     from conductor._internal.graph import Graph, InputPlan, Level, PlacedNode, Source
@@ -945,28 +947,9 @@ def checked_outputs(definition: FunctionDefinition[..., Any], returned: Any) -> 
     if returned is SKIPPED:
         return SKIPPED
     outputs = definition.outputs
-    if definition.outputs_class is None and definition.compute_outputs is None and outputs:  # -> X: one output, named result
-        spec = outputs["result"]
-        if spec.shape == "one" and type(returned) in spec.plain_classes:  # the common case: one output, already its type
-            return {"result": returned}
-        spread = {"result": returned}
-    elif definition.compute_outputs is not None:
-        if not isinstance(returned, Mapping):
-            raise FieldValueError(f"the node returns its outputs as a mapping of {', '.join(outputs) or 'nothing'}, not a {type(returned).__name__}", code="invalid_output")
-        unknown = sorted(set(returned) - outputs.keys())
-        missing = [name for name in outputs if name not in returned]
-        if unknown or missing:
-            name = (missing or unknown)[0]
-            raise FieldValueError(f"'{name}' is {'missing from' if missing else 'not one of'} the outputs it returns", code="invalid_output", name=str(name))
-        spread = {name: returned[name] for name in outputs}
-    elif definition.outputs_class is not None:
-        if not isinstance(returned, definition.outputs_class):
-            raise FieldValueError(f"the node returns a {definition.outputs_class.__name__}, not a {type(returned).__name__}", code="invalid_output")
-        spread = {name: getattr(returned, name) for name in outputs}
-    else:
-        if returned is not None:
-            raise FieldValueError(f"the node declares no outputs, but returned a {type(returned).__name__}", code="invalid_output")
-        return {}
+    spread, settled = definition.returns.spread(returned, outputs)
+    if settled:
+        return spread
     groups: dict[str, str] = {}
     for name, spec in outputs.items():
         spread[name] = _checked(spec, name, spread[name], code="invalid_output")
