@@ -578,3 +578,36 @@ def test_a_field_an_item_or_a_column_of_unknown_columns_lacks_fails_the_reader_a
     assert _fails_with(column_read) == ("failed", "invalid_edge_value", ("anything-in", 0), "x", "name")
     column_gathered = registry_of(by_column, _all_of).load(make_graph(by_column, _all_of, edges=[("give.result.name", "all-of.values")]))
     assert _fails_with(column_gathered) == ("failed", "invalid_edge_value", ("all-of",), "values", "name")
+
+
+@node("words", title="Words", description="")
+def _words(text: str) -> Series[str]:
+    return text.split()
+
+
+@node("with-it", title="With it", description="")
+def _with_it(word: str, x: Any) -> str:
+    return word
+
+
+@node("with-them", title="With them", description="")
+def _with_them(word: str, values: Series[Any]) -> str:
+    return word
+
+
+@pytest.mark.parametrize(
+    ("returned", "declared", "reader", "input_name"),
+    [({"other": 1}, dict, _with_it, "x"), ([{"name": "a"}, {"other": "b"}], Series[dict], _with_them, "values"), (pl.DataFrame({"other": ["a"]}), Series[Any], _with_them, "values")],
+)
+def test_a_run_that_failed_on_a_field_a_record_lacks_shows_its_results_with_a_blank_for_each_item_never_called(
+    returned: Any, declared: Any, reader: Any, input_name: str,
+):
+    """The failure is the run's cause; a host that reads the run afterwards is shown a blank where the field was read."""
+    give = _giving(returned, declared)
+    edges = [("words.result", f"{reader.id}.word"), ("give.result.name", f"{reader.id}.{input_name}"), (f"{reader.id}.result", "all-of.values")]
+    graph = registry_of(_words, give, reader, _all_of).load(make_graph(_words, give, reader, _all_of, edges=edges))
+    run = graph.run({"words.text": "a b"})
+    assert (run.status, run.state.cause.type, run.state.cause.ctx["record_field"]) == ("failed", "invalid_edge_value", "name")
+    for read in (run, graph.load_run(run.to_json())):
+        assert read.results["words"] == {"result": ["a", "b"]}
+        assert read.results[reader.id] == {"result": [None, None]} and read.results["all-of"] == {"result": None}

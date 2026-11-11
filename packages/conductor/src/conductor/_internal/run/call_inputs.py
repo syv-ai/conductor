@@ -275,14 +275,30 @@ class ItemReader(Reader):
 class AsItStandsReader(ItemReader):
     """Reads what the units of a run hold as they stand, for a host that reads a run in any state: an output that
     isn't settled reads as a blank, where a call waits for it. So a host is shown the items so far, with a
-    blank in the place of one that hasn't run or waits for a person."""
+    blank in the place of one that hasn't run or waits for a person.
+
+    A field an edge names that the record lacks reads as a blank too, where a call fails on it: the run failed
+    on it when a node was to be called with it, and that failure is the run's cause.
+    """
 
     __slots__ = ()
 
     def output(self, at: OutputAtScope, item_path: ItemPath) -> Any:
-        """What the output ``at`` holds for ``item_path``, a blank where it isn't settled."""
-        value = ItemReader.output(self, at, item_path)
+        """What the output ``at`` holds for ``item_path``, a blank where it isn't settled or lacks the field
+        read of it."""
+        try:
+            value = ItemReader.output(self, at, item_path)
+        except NoSuchFieldError:
+            return None
         return None if value is NOT_SETTLED else value
+
+    def gathered(self, plan: InputGathersItems, item_path: ItemPath) -> Any:
+        """What the gathering input of ``plan`` holds for ``item_path``, a blank where a record of the Series
+        lacks the field gathered."""
+        try:
+            return ItemReader.gathered(self, plan, item_path)
+        except NoSuchFieldError:
+            return None
 
     def shown(self, plan: InputReadsOneValue | InputGathersItems, item_path: ItemPath = ()) -> Any:
         """An output as a host is shown it for ``item_path``, read by the plan an input wired to it would have:
