@@ -1,12 +1,13 @@
 """One leg of a run: start every unit whose inputs exist, record what comes of each, and say so as events.
 
-A leg drives the run it was started on and, for each instance of an embedded
-graph, the nested run that is its call. Each run has a frontier of its own;
-the threads, each node's slots on them, the timers and the events are the
-leg's, so a node inside an embedded graph is called, retried, timed out and
-cancelled as the same node drawn in the graph around it.
+A leg walks every node of the run's graph and of the graphs embedded in it,
+each where it stands (``graph._tree``). A node inside an embedded graph is
+one of them, with a unit per item of the embedding node and of its own scope,
+so it is called, retried, timed out and cancelled as the same node drawn in
+the graph around it. An embedded graph's node is never called: its unit is
+what the outputs of the graph inside it came to for that item.
 
-A frontier first walks its run's nodes in order and tries every unit that can exist,
+The leg first walks the nodes in order and tries every unit that can exist,
 as a later leg would. A node whose policy has ``concurrency`` 1 and no
 timeout is called on the spot; any other is handed to threads, at most
 ``concurrency`` of its units at once, and the walk goes on. When a call comes
@@ -22,11 +23,9 @@ never makes them twice.
 
 A unit that gathers (a ``Series`` or ``Table`` input fed one value per item)
 is tried only once nothing it waits on is still working under its instance,
-so it is tried once and not once per item it reads. When nothing of a run is
-working, its frontier walks every node once more if any unit was left waiting
-on another, and closes when nothing more can start: a nested run that is
-complete is then the unit of its embedded graph's instance. The leg ends when
-the frontier of its own run closes.
+so it is tried once and not once per item it reads. When nothing is working,
+the leg walks every node once more if any unit was left waiting on another,
+and ends when nothing more can start.
 """
 
 from __future__ import annotations
@@ -34,13 +33,14 @@ from __future__ import annotations
 import heapq
 import itertools
 import logging
+import operator
 import queue
 import time
 from collections import defaultdict, deque
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Annotated, Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import ConfigDict, Field
 from pydantic.json_schema import SkipJsonSchema
@@ -49,12 +49,11 @@ from conductor._internal.ask import Ask, InvalidAskError, Waiting, question_aske
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.errors import ExternalError, NodeError, Problem, make_problem
 from conductor._internal.fields import SKIPPED, FieldValueError
-from conductor._internal.graph import PlacedGraph
+from conductor._internal.graph import FunctionAtPath, GraphAtPath, NodeAtPath, waits_on
 from conductor._internal.run import (
     _COMPLETE,
     _RUNNING,
     _WAITING,
-    NOT_NESTED,
     PENDING,
     SKIPPED_UNIT,
     Asking,
@@ -63,20 +62,15 @@ from conductor._internal.run import (
     EndedEarly,
     Going,
     Key,
-    Nesting,
-    NodePath,
     Path,
     Run,
     RunStatus,
     Unit,
     _length,
     jsonable,
-    path_text,
+    unit_loc,
     waiting_unit,
 )
-
-if TYPE_CHECKING:
-    from conductor._internal.graph import PlacedFunction, PlacedNode
 
 #: What a call can raise that is never tried again, whatever a ``Policy``'s ``retry_on`` names: the node's own failure,
 #: an output its type refused, a question for a person. Repeating the call repeats it.
@@ -86,6 +80,9 @@ _NEVER_RETRIED = (NodeError, FieldValueError, Ask)
 _SECONDS_BETWEEN_PROGRESS = 0.25
 
 _logger = logging.getLogger("conductor")
+
+#: A node's place in the order a leg tries the nodes in.
+_POSITION = operator.attrgetter("position")
 
 
 # -- events -------------------------------------------------------------------------------------
@@ -101,10 +98,9 @@ class _NodeEvent(_EventBase):
     """Every event about one node, or one unit of it. Never made on its own.
 
     Attributes:
-        loc: Where the node is, as a ``Problem``'s ``loc`` says it: the node's id, and for a node inside an
-            embedded graph the embedding node and its item first, ``("e", 0, "upper")``. A node inside an embedded
-            graph says its events once per nested run, so a host that shows it once folds them by the ids in
-            ``loc``.
+        loc: Which node it is: its id, and for a node inside an embedded graph the id of each embedding node
+            first, ``("e", "upper")``. A node inside an embedded graph says its events once, for every item of
+            the embedding node together, as a node that runs per item does.
     """
 
     loc: Path
@@ -157,8 +153,8 @@ class NodeSkipped(_NodeEvent):
 
 
 class NodeFailed(_NodeEvent):
-    """A unit of the node failed, finally; ``cause`` says why, and its ``loc`` which unit: this ``loc``, then the
-    unit's item."""
+    """A unit of the node failed, finally; ``cause`` says why, and its ``loc`` which unit: the node's id, then the
+    unit's item, and inside an embedded graph the embedding node and its item first, ``("e", 0, "upper")``."""
 
     type: Literal["node_failed"] = "node_failed"
     cause: Problem
@@ -166,8 +162,9 @@ class NodeFailed(_NodeEvent):
 
 class NodeRetry(_NodeEvent):
     """An attempt failed on the outside world and is tried again: attempt ``attempt`` of ``retries``, after
-    ``delay`` seconds. Its ``loc`` is the unit's: the node's, then the place of the unit's item in each Series the
-    node runs per item of."""
+    ``delay`` seconds. Its ``loc`` is the unit's, as its ``cause`` has it: the node's id, then the place of the
+    unit's item in each Series the node runs per item of; inside an embedded graph, the embedding node and its
+    item first."""
 
     type: Literal["node_retry"] = "node_retry"
     attempt: int
@@ -227,14 +224,9 @@ Event.__doc__ = "Any event ``run.stream()`` yields, told apart by ``type``: ``Ty
 # -- the leg ------------------------------------------------------------------------------------
 
 
-#: A node whatever nested run it is in: the ids of the embedded graphs' nodes it is inside, outermost first, and
-#: its own. What its ``concurrency`` counts.
-_Slots = tuple[NodePath, str]
-
-
 @dataclass(slots=True)
 class _Turn:
-    """How far a frontier has tried a node's units in order, so a person's answers are taken in order.
+    """How far a leg has tried a node's units in order, so a person's answers are taken in order.
 
     Attributes:
         order: The node's instances, in order.
@@ -250,12 +242,11 @@ class _Turn:
 
 
 class Leg:
-    """One leg over ``run``, which it changes in place, and over every nested run under it.
+    """One leg over ``run``, which it changes in place.
 
-    The leg holds what the runs it drives share: the units ready to try, the threads, each node's slots on them,
-    the timers, ``stop``, the listener and the checkpoint clock. Each run, the one the leg was started on and the
-    nested run of each instance of an embedded graph, has its own ``Frontier``. Only node functions run on
-    threads; every run is changed on the leg's own thread.
+    The leg walks every node of the run's graph and of the graphs embedded in it (``graph._tree``): it holds
+    which of their units can start, the threads, each node's slots on them, the timers, ``stop``, the listener
+    and the checkpoint clock. Only node functions run on threads; the run is changed on the leg's own thread.
 
     ``emit`` is None when nobody listens. ``stop`` is asked between units, and says why the leg must end now (a
     cancel, the deadline), or None.
@@ -266,95 +257,92 @@ class Leg:
         checkpoint_every: float | None = None,
     ) -> None:
         self.run, self.emit, self.stop, self.from_run = run, emit, stop, from_run
-        #: What each node may take from the run this one went on from, by node whatever nested run it is in.
+        self.nodes = run.graph._tree
+        #: Each node's units by instance: the run's own, recorded into.
+        self.units = units = {node: run._units[node.inside][node.placed.id] for node in self.nodes}
+        #: What each node may take from the run this one went on from, by its path.
         self.carried = run._earlier
         #: Whether nothing has ended the leg early; ``end`` is the one place that does.
         self.going = True
         self.checkpoint_every = checkpoint_every if emit is not None else None
         self.next_checkpoint = time.monotonic() + checkpoint_every if checkpoint_every is not None else 0.0
-        #: The frontier of each run being driven, by its number: the order they were opened in, the leg's own run first.
-        self.frontiers: dict[int, Frontier] = {}
-        self.opened = 0
-        #: (frontier's number, node position, instance): the units to try, in that order.
-        self.ready: list[tuple[int, int, Key]] = []
-        #: The frontiers a unit was recorded in since each was last looked over, in that order.
-        self.changed: dict[Frontier, None] = {}
-        #: By a node whatever nested run it is in, ``(("e",), "fetch")``: its units waiting for a thread.
-        self.slots_waiting: defaultdict[_Slots, deque[tuple[Frontier, Key, dict[str, Any], int]]] = defaultdict(deque)
-        #: By a node whatever nested run it is in: how many of its calls are on threads, so ``concurrency`` bounds
-        #: the node across nested runs.
-        self.on_threads: defaultdict[_Slots, int] = defaultdict(int)
-        self.returned: queue.SimpleQueue[tuple[Frontier, PlacedFunction, Key, int, Any, BaseException | None]] = queue.SimpleQueue()
-        #: (when, order, what is due, frontier, node, instance, attempt): a retry of the attempt, or the deadline of the attempt on a thread.
-        self.timers: list[tuple[float, int, Literal["retry", "deadline"], Frontier, PlacedFunction, Key, int]] = []
+        #: (node position, instance): the units to try, in that order.
+        self.ready: list[tuple[int, Key]] = []
+        #: Whether a unit was recorded since the leg last looked over the run.
+        self.changed = True
+        #: (node, an instance above its own): a node that gathers, started in the instances under that one once
+        #: nothing it reads still works there.
+        self.gathers: set[tuple[NodeAtPath, Key]] = set()
+        self.running: dict[tuple[FunctionAtPath, Key], dict[str, Any]] = {}  # units handed to threads, and their inputs
+        self.attempts: dict[tuple[FunctionAtPath, Key], int] = {}  # the attempt each unit on a thread is on
+        #: Each node's units waiting for a thread: (instance, what it received, attempt).
+        self.slots_waiting: defaultdict[FunctionAtPath, deque[tuple[Key, dict[str, Any], int]]] = defaultdict(deque)
+        #: How many of each node's calls are on threads, which its ``concurrency`` bounds.
+        self.on_threads: defaultdict[FunctionAtPath, int] = defaultdict(int)
+        self.returned: queue.SimpleQueue[tuple[FunctionAtPath, Key, int, Any, BaseException | None]] = queue.SimpleQueue()
+        #: (when, order, what is due, node, instance, attempt): a retry of the attempt, or the deadline of the attempt on a thread.
+        self.timers: list[tuple[float, int, Literal["retry", "deadline"], FunctionAtPath, Key, int]] = []
         self.timer_order = itertools.count()
         self.pool: ThreadPoolExecutor | None = None
+        #: For a node taking a person's earlier answers, how far through its units in order the leg has tried.
+        self.turns: dict[FunctionAtPath, _Turn] = {}
+        #: Units recorded since the last walk over every unit; a walk with none to follow would find nothing new.
+        self.recorded_since_walk = 1
+        #: Whether the last walk left a unit whose inputs weren't there yet, so another walk may start it.
+        self.left_pending = True
+        # what only a listener needs
+        with_units: set[NodeAtPath] = {node for node, held in units.items() if held}
+        self.started = with_units | {around for node in with_units for around in _around(node)}
+        #: The nodes said complete, on this leg or on an earlier one; a node an answer finished between legs is said on this one.
+        self.complete = {node for node in self.nodes if node.path in run._complete} if run._complete else set()
+        self.touched = with_units - self.complete
+        self.reused: defaultdict[NodeAtPath, int] = defaultdict(int)
+        self.progress_at: dict[NodeAtPath, float] = {}
+        self.progress_said: dict[NodeAtPath, int] = {}
 
     def go(self) -> None:
-        """Run the leg: try what is ready, look over each run something happened in, and wait for the threads, until
-        the leg's own run closes or something ends the leg early."""
+        """Run the leg: try what is ready, look over the run when something happened in it, and wait for the
+        threads, until nothing more can start or something ends the leg early."""
         run = self.run
         run.state = _RUNNING  # the one running state a leg holds
         if self.emit:
             self.emit(RunStart(waiting=tuple(run.waiting)))
         try:
-            self.open(run, NOT_NESTED, None)
-            while self.frontiers and self.going:
+            self._check_ceiling()
+            while self.going:
                 if self.stop is not None and (stopped := self.stop()) is not None:
                     self.end(stopped)
                 elif self.ready:
-                    number, position, key = heapq.heappop(self.ready)
-                    frontier = self.frontiers[number]
-                    frontier._try(frontier.nodes[position], key)
+                    position, key = heapq.heappop(self.ready)
+                    self._try(self.nodes[position], key)
                 elif self.changed:
-                    frontier = next(iter(self.changed))
-                    del self.changed[frontier]
-                    frontier._look_over()
+                    self.changed = False
+                    if not self._look_over():
+                        break
                 else:
                     self._wait()
-            if self.checkpoint_every is not None and self._calls_on_threads():  # stopped with calls on threads: the drain may outlast the process
+            if self.checkpoint_every is not None and self.running:  # stopped with calls on threads: the drain may outlast the process
                 self._checkpoint()
-            while self._calls_on_threads():  # calls already made had their effect: keep them, as long as their timeouts allow
+            while self.running:  # calls already made had their effect: keep them, as long as their timeouts allow
                 self._wait()
         finally:
             if self.pool is not None:
                 self.pool.shutdown(wait=False, cancel_futures=True)
-        for frontier in reversed(list(self.frontiers.values())):  # ended early: each nested run before the run it is a call of
-            frontier._close()
+        self._close()
         if self.emit:
             self.emit(RunEnd.of(run))
 
-    def open(self, run: Run, nesting: Nesting, embedded_as: tuple[Frontier, PlacedGraph, Key] | None) -> Frontier:
-        """Start driving ``run``. Its units are first tried when it is looked over; a Series it already holds over
-        the item ceiling stops the leg.
-
-        Args:
-            run: The run.
-            nesting: Where it sits in the leg's own run.
-            embedded_as: For a nested run, the frontier of the run around it, and the embedded graph and instance
-                it is the call of.
-        """
-        frontier = self.frontiers[self.opened] = Frontier(self, self.opened, run, nesting, embedded_as)
-        self.opened += 1
-        self.changed[frontier] = None
-        frontier._check_ceiling()
-        return frontier
-
     def end(self, state: EndedEarly) -> None:
-        """End the leg early: nothing more starts in any run it drives. The units waiting for a thread and the
-        retries not yet due are dropped; the calls on threads are waited for and kept."""
+        """End the leg early: nothing more starts. The units waiting for a thread and the retries not yet due are
+        dropped; the calls on threads are waited for and kept."""
         self.run.state, self.going = state, False
-        for (_, node_id), waiting in self.slots_waiting.items():
-            for frontier, key, _, _ in waiting:
-                frontier.running.pop((node_id, key), None)
+        for node, waiting in self.slots_waiting.items():
+            for key, _, _ in waiting:
+                self.running.pop((node, key), None)
             waiting.clear()
-        for _, _, due, frontier, placed, key, _ in self.timers:
+        for _, _, due, node, key, _ in self.timers:
             if due == "retry":
-                frontier.running.pop((placed.id, key), None)
-
-    def _calls_on_threads(self) -> bool:
-        """Whether a call of any run is still on a thread, within its timeout, once the leg has ended early."""
-        return any(frontier.running for frontier in self.frontiers.values())
+                self.running.pop((node, key), None)
 
     def _wait(self) -> None:
         """Wait for a thread to come back, a timer to fire, or the next look at ``stop``."""
@@ -362,344 +350,266 @@ class Leg:
         if self.stop is not None:
             timeout = 0.05 if timeout is None else min(timeout, 0.05)
         try:
-            frontier, placed, key, attempt, out, error = self.returned.get(timeout=None if timeout is None else max(timeout, 0))
-            frontier._returned(placed, key, attempt, out, error)
+            self._returned(*self.returned.get(timeout=None if timeout is None else max(timeout, 0)))
         except queue.Empty:
             pass
         now = time.monotonic()
         while self.timers and self.timers[0][0] <= now:
-            _, _, due, frontier, placed, key, attempt = heapq.heappop(self.timers)
-            frontier._due(due, placed, key, attempt)
+            _, _, due, node, key, attempt = heapq.heappop(self.timers)
+            self._due(due, node, key, attempt)
 
-    def _after(self, seconds: float, due: Literal["retry", "deadline"], frontier: Frontier, placed: PlacedFunction, key: Key, attempt: int) -> None:
+    def _after(self, seconds: float, due: Literal["retry", "deadline"], node: FunctionAtPath, key: Key, attempt: int) -> None:
         """Set a timer: the retry of an attempt, or the deadline of the attempt on a thread."""
-        heapq.heappush(self.timers, (time.monotonic() + seconds, next(self.timer_order), due, frontier, placed, key, attempt))
+        heapq.heappush(self.timers, (time.monotonic() + seconds, next(self.timer_order), due, node, key, attempt))
 
-    def _fill_slots(self, slots: _Slots, placed: PlacedFunction) -> None:
-        """Put the node's waiting units on threads, as far as its ``concurrency`` allows across every run it is in."""
-        waiting, policy = self.slots_waiting[slots], placed.definition.policy
-        while waiting and self.on_threads[slots] < policy.concurrency and self.going:
-            frontier, key, kwargs, attempt = waiting.popleft()
-            self.on_threads[slots] += 1
-            frontier.attempts[(placed.id, key)] = attempt
+    def _fill_slots(self, node: FunctionAtPath) -> None:
+        """Put the node's waiting units on threads, as far as its ``concurrency`` allows."""
+        waiting, policy = self.slots_waiting[node], node.policy
+        while waiting and self.on_threads[node] < policy.concurrency and self.going:
+            key, kwargs, attempt = waiting.popleft()
+            self.on_threads[node] += 1
+            self.attempts[(node, key)] = attempt
             if self.pool is None:
                 self.pool = ThreadPoolExecutor(self.run.graph._threads, "conductor")
             if policy.attempt_timeout is not None:
-                self._after(policy.attempt_timeout, "deadline", frontier, placed, key, attempt)
-            self.pool.submit(frontier._on_thread, placed, key, kwargs, attempt)
+                self._after(policy.attempt_timeout, "deadline", node, key, attempt)
+            self.pool.submit(self._on_thread, node, key, kwargs, attempt)
 
     def _checkpoint(self) -> None:
-        """Hand the listener a copy of the run as it stands, its nested runs with it, and set when the next is due."""
+        """Hand the listener a copy of the run as it stands, and set when the next is due."""
         assert self.emit is not None and self.checkpoint_every is not None
         self.next_checkpoint = time.monotonic() + self.checkpoint_every
         self.emit(RunCheckpoint(run=self.run._copy()))
 
-
-class Frontier:
-    """One run in a leg: which of its units can start, and what came of each.
-
-    A nested run has a frontier like the run around it; only where it sits differs. When nothing more of it can
-    start in the leg, it closes: complete, it is the unit of the embedded graph's instance it is the call of.
-
-    Attributes:
-        leg: The leg, and what every run in it shares.
-        number: The frontier's place among the leg's, in the order they were opened.
-        run: The run, changed in place.
-        nesting: Where the run sits in the leg's own run: the node and item of each embedded graph it is nested
-            in, which every event, problem and waiting id of the run starts with.
-        embedded_as: For a nested run, the frontier of the run around it, and the embedded graph and instance it
-            is the call of; ``None`` for the run the leg was started on.
-    """
-
-    def __init__(self, leg: Leg, number: int, run: Run, nesting: Nesting, embedded_as: tuple[Frontier, PlacedGraph, Key] | None) -> None:
-        self.leg, self.number, self.run, self.nesting, self.embedded_as = leg, number, run, nesting, embedded_as
-        self.inside, self.node_path = nesting.path, nesting.nodes
-        self.nodes, self.position = run.graph._order, run.graph._position
-        #: (node, an instance above its own): a node that gathers, started in the instances under that one once
-        #: nothing it reads still works there.
-        self.gathers: set[tuple[str, Key]] = set()
-        self.running: dict[tuple[str, Key], dict[str, Any]] = {}  # units handed to threads, and their inputs
-        #: The frontier of each nested run open under this one, by the embedded graph's node and instance.
-        self.nested: dict[tuple[str, Key], Frontier] = {}
-        self.attempts: dict[tuple[str, Key], int] = {}  # the attempt each unit on a thread is on
-        #: For a node taking a person's earlier answers, how far through its units in order the frontier has tried.
-        self.turns: dict[str, _Turn] = {}
-        #: Units recorded since the last walk over every unit; a walk with none to follow would find nothing new.
-        self.recorded_since_walk = 1
-        #: Whether the last walk left a unit whose inputs weren't there yet, so another walk may start it.
-        self.left_pending = True
-        #: Whether a unit of a nested run is left until the instances of its embedded graph before this one have
-        #: taken their earlier answers.
-        self.awaits_turn = False
-        # what only a listener needs
-        self.started = {n for n, units in run._units.items() if units} | {n for n, runs in run._nested.items() if runs}
-        self.touched: set[str] = set()
-        #: The nodes said complete, on this leg or on an earlier one; a node an answer finished between legs is said on this one.
-        self.complete: set[str] = set(run._complete)
-        if seeded := {n for n, units in run._units.items() if units and n not in self.complete}:
-            self.touched.update(seeded)
-        self.reused: defaultdict[str, int] = defaultdict(int)
-        self.progress_at: dict[str, float] = {}
-        self.progress_said: dict[str, int] = {}
-
-    def _look_over(self) -> None:
+    def _look_over(self) -> bool:
         """With nothing ready to try: start the gathering units nothing works under any more and say which nodes
-        are complete. Once nothing of the run is working, walk its units again if that could start one, and else
-        close it."""
+        are complete. Once nothing is working, walk every unit again if that could start one.
+
+        Returns:
+            False once nothing more can start in this leg.
+        """
         if self.gathers and self._release_gathers():
-            self.leg.changed[self] = None
-            return
-        if self.leg.emit and self.touched:
+            self.changed = True
+            return True
+        if self.emit and self.touched:
             self._completions()
-        if self.running or self.nested:
-            return
-        if self.left_pending and (self.recorded_since_walk or (self.turns and not self.awaits_turn and self._pass_untried())):
+        if self.running:
+            return True
+        if self.left_pending and (self.recorded_since_walk or (self.turns and self._pass_untried())):
             self._walk()
-            self.leg.changed[self] = None
-        else:
-            self._close()
+            self.changed = True
+            return True
+        return False
 
     def _walk(self) -> None:
         """Try every unit of every node, in order: the first look, and the last one when nothing runs."""
-        self.left_pending, self.awaits_turn, self.recorded_since_walk = False, False, 0
-        leg, units = self.leg, self.run._units
-        for placed in self.nodes:
-            for key in self.run._instances(placed.scope, ())[0]:
-                if key not in units[placed.id] and (placed.id, key) not in self.running and (placed.id, key) not in self.nested:
-                    if not self._try(placed, key, walking=True):
+        self.left_pending, self.recorded_since_walk = False, 0
+        run, running = self.run, self.running
+        for node in self.nodes:
+            units = self.units[node]
+            for key in run._instances(node.maps, ())[0]:
+                if key not in units and (node, key) not in running:
+                    if not self._try(node, key, walking=True):
                         self.left_pending = True
-                    if not leg.going or (leg.stop is not None and leg.stop() is not None):
+                    if not self.going or (self.stop is not None and self.stop() is not None):
                         return
 
-    def _try(self, placed: PlacedNode, key: Key, walking: bool = False) -> bool:
-        """Start ``placed`` on ``key`` if its inputs exist; False if they don't yet."""
+    def _try(self, node: NodeAtPath, key: Key, walking: bool = False) -> bool:
+        """Start ``node`` on ``key`` if what it reads exists; False if it doesn't yet."""
         run = self.run
-        if not walking and (key in run._units[placed.id] or (placed.id, key) in self.running or (placed.id, key) in self.nested):
+        if not walking and (key in self.units[node] or (node, key) in self.running):
             return True
-        kwargs = run._inputs(placed, key)
+        if type(node) is GraphAtPath:  # never called: its unit is what its inner graph's outputs came to
+            offered = run._offered(node, key)
+            if offered is PENDING:
+                return False
+            self._record(node, key, Done(offered), walking)
+            return True
+        kwargs = run._inputs(node, key)
         if kwargs is PENDING:
             return False
+        policy = node.policy
         if type(kwargs) is not dict:  # skipped or blank: it comes to that uncalled
-            self._record(placed, key, kwargs, walking)
-        elif type(placed) is PlacedGraph:  # its call is a nested run, whose nodes take earlier work one by one
-            self._open(placed, key, kwargs)
+            self._record(node, key, kwargs, walking)
         elif (
-            (carried := self.leg.carried) and placed.definition.policy.reuse_when_inputs_match
-            and (lent := carried.get((*self.node_path, placed.id))) is not None  # by node, whatever nested run it is in
-            and (earlier := run._reused(lent, placed, key, kwargs, lambda: self._in_turn(placed, key), self.nesting)) is not None
+            (carried := self.carried) and policy.reuse_when_inputs_match and (lent := carried.get(node.path)) is not None
+            and (earlier := run._reused(lent, node, key, kwargs, lambda: self._in_turn(node, key))) is not None
         ):
             if earlier is PENDING:
                 self.left_pending = True  # a unit before it may take this answer; the next walk tries it again
                 return False
-            self.reused[placed.id] += 1
-            self._record(placed, key, earlier, walking)
+            self.reused[node] += 1
+            self._record(node, key, earlier, walking)
         else:
-            if self.leg.emit:
-                self._announce(placed)
-            policy = placed.definition.policy
+            if self.emit:
+                self._announce(node)
             if policy.threaded or policy.retries:
-                self._attempt(placed, key, kwargs, 0, walking)
+                self._attempt(node, key, kwargs, 0, walking)
             else:
-                self._record(placed, key, self._outcome(placed, key, kwargs, *run._call(placed, kwargs, self.leg.from_run)), walking)
+                self._record(node, key, self._outcome(node, key, kwargs, *run._call(node, kwargs, self.from_run)), walking)
         return True
 
-    def _open(self, placed: PlacedGraph, key: Key, kwargs: dict[str, Any]) -> None:
-        """Start driving the nested run of an embedded graph's instance: the one the run keeps from an earlier
-        leg, else one of what the instance received."""
-        try:
-            nested = self.run._nested_run(placed, key, kwargs)
-        except FieldValueError as refused:  # an edge brought what the inner graph's input doesn't take
-            self._record(placed, key, make_problem(refused.code, placed.id, *key, reason=refused.reason, **refused.ctx))
-            return
-        if self.leg.emit:
-            self._announce(placed)
-        self.nested[(placed.id, key)] = self.leg.open(nested, self.run._nesting_of(self.nesting, placed, key), (self, placed, key))
-
     def _close(self) -> None:
-        """Stop driving the run: say how it stands and which of its nodes are finished. A nested run that is
-        complete becomes the unit of the embedded graph's instance it is the call of, its outputs the unit's."""
-        run, leg = self.run, self.leg
-        # one look at every unit: a node already said complete has no unit waiting; an embedded graph waits while a nested run of it does
-        waiting = {n for n, us in run._units.items() if n not in self.complete and Asking in {type(u) for u in us.values()}}
-        waiting |= {n for n, runs in run._nested.items() if any(nested.state is not _COMPLETE for nested in runs.values())}
-        if leg.going and not waiting and not self.awaits_turn:  # every unit of every node is finished, and nothing carried will be taken
-            run.state, run._complete, run._earlier = _COMPLETE, frozenset(self.position), {}
+        """Say how the run stands now the leg is over, and which of its nodes are finished."""
+        run = self.run
+        # one look at every unit: a node already said complete has no unit waiting
+        waiting = {node for node, units in self.units.items() if node not in self.complete and Asking in {type(unit) for unit in units.values()}}
+        if self.going and not waiting:  # every unit of every node is finished, and nothing carried will be taken
+            run.state, run._complete, run._earlier = _COMPLETE, frozenset(run.graph._node_at), {}
         else:
-            run._complete = frozenset(self.complete | {p.id for p in self.nodes if p.id not in self.complete and p.id not in waiting and self._finished(p, False)})
-            for path in [path for path in run._earlier if path[0] in run._complete]:  # what a finished node was carried and didn't take, no unit of this run will
+            finished = {node for node in self.nodes if node not in self.complete and node not in waiting and self._finished(node, False)}
+            run._complete = frozenset(node.path for node in self.complete | finished)
+            for path in [path for path in run._earlier if path in run._complete]:  # what a finished node was carried and didn't take, no unit of this run will
                 del run._earlier[path]
-            if leg.going:
+            if self.going:
                 run.state = _WAITING
-            elif self.embedded_as is not None:  # a nested run stands as the leg that ended early does, unless the calls it waited for finished it
-                run.state = _COMPLETE if len(run._complete) == len(self.nodes) else leg.run.state
-        if leg.emit:
-            self.touched.update(self.position)
+        if self.emit:
+            self.touched.update(self.nodes)
             self._completions()
-            for placed in self.nodes:  # a node the leg left part done says how far it got
-                if placed.scope and placed.id in self.progress_said:
-                    self._progress(placed, last=True)
-        del leg.frontiers[self.number]
-        if self.embedded_as is not None:
-            around, embedded, key = self.embedded_as
-            del around.nested[(embedded.id, key)]
-            leg.changed[around] = None
-            if self.awaits_turn:  # the run around tries it again, once the instances before it are through
-                around.left_pending = True
-            if run.state is _COMPLETE:
-                around._record(embedded, key, run._as_unit())
+            for node in self.nodes:  # a node the leg left part done says how far it got
+                if node.maps and node in self.progress_said:
+                    self._progress(node, last=True)
 
-    def _attempt(self, placed: PlacedFunction, key: Key, kwargs: dict[str, Any], attempt: int, walking: bool = False) -> None:
-        if not placed.definition.policy.threaded:
-            out, error = self.run._call(placed, kwargs, self.leg.from_run)
-            if not self._retry(placed, key, kwargs, attempt, error):
+    def _attempt(self, node: FunctionAtPath, key: Key, kwargs: dict[str, Any], attempt: int, walking: bool = False) -> None:
+        if not node.policy.threaded:
+            out, error = self.run._call(node, kwargs, self.from_run)
+            if not self._retry(node, key, kwargs, attempt, error):
                 if attempt:
-                    self.running.pop((placed.id, key), None)
-                self._record(placed, key, self._outcome(placed, key, kwargs, out, error), walking)
+                    self.running.pop((node, key), None)
+                self._record(node, key, self._outcome(node, key, kwargs, out, error), walking)
             return
-        self.running[(placed.id, key)] = kwargs
-        slots = (self.node_path, placed.id)
-        self.leg.slots_waiting[slots].append((self, key, kwargs, attempt))
-        self.leg._fill_slots(slots, placed)
+        self.running[(node, key)] = kwargs
+        self.slots_waiting[node].append((key, kwargs, attempt))
+        self._fill_slots(node)
 
-    def _on_thread(self, placed: PlacedFunction, key: Key, kwargs: dict[str, Any], attempt: int) -> None:
-        self.leg.returned.put((self, placed, key, attempt, *self.run._call(placed, kwargs, self.leg.from_run)))
+    def _on_thread(self, node: FunctionAtPath, key: Key, kwargs: dict[str, Any], attempt: int) -> None:
+        self.returned.put((node, key, attempt, *self.run._call(node, kwargs, self.from_run)))
 
-    def _due(self, due: Literal["retry", "deadline"], placed: PlacedFunction, key: Key, attempt: int) -> None:
-        """A timer of this run fired: the retry of an attempt, or the deadline of the attempt on a thread."""
+    def _due(self, due: Literal["retry", "deadline"], node: FunctionAtPath, key: Key, attempt: int) -> None:
+        """A timer fired: the retry of an attempt, or the deadline of the attempt on a thread."""
         if due == "retry":
-            if self.leg.going:
-                self._attempt(placed, key, self.running[(placed.id, key)], attempt)
-        elif self.attempts.get((placed.id, key)) == attempt and (placed.id, key) in self.running:  # the attempt still runs
-            del self.running[(placed.id, key)]
-            self._record(placed, key, make_problem("timeout", placed.id, *key, seconds=placed.definition.policy.attempt_timeout))
+            if self.going:
+                self._attempt(node, key, self.running[(node, key)], attempt)
+        elif self.attempts.get((node, key)) == attempt and (node, key) in self.running:  # the attempt still runs
+            del self.running[(node, key)]
+            self._record(node, key, make_problem("timeout", *unit_loc(node, key), seconds=node.policy.attempt_timeout))
 
-    def _returned(self, placed: PlacedFunction, key: Key, attempt: int, out: Any, error: BaseException | None) -> None:
-        """A call of this run came back from its thread: free its slot, and keep what it came to unless its attempt
-        was given up."""
-        slots = (self.node_path, placed.id)
-        self.leg.on_threads[slots] -= 1
-        latest = self.attempts.get((placed.id, key)) == attempt
-        current = latest and (placed.id, key) in self.running
-        self.leg._fill_slots(slots, placed)
+    def _returned(self, node: FunctionAtPath, key: Key, attempt: int, out: Any, error: BaseException | None) -> None:
+        """A call came back from its thread: free its slot, and keep what it came to unless its attempt was
+        given up."""
+        self.on_threads[node] -= 1
+        latest = self.attempts.get((node, key)) == attempt
+        current = latest and (node, key) in self.running
+        self._fill_slots(node)
         if not current:
-            if latest and error is None and not self.leg.going and key not in self.run._units[placed.id]:
-                self.attempts.pop((placed.id, key))
-                self._record(placed, key, self._outcome(placed, key, {}, out, None))  # past its timeout, but the leg is draining: keep it, never call it again
+            if latest and error is None and not self.going and key not in self.units[node]:
+                self.attempts.pop((node, key))
+                self._record(node, key, self._outcome(node, key, {}, out, None))  # past its timeout, but the leg is draining: keep it, never call it again
             return  # timed out while the leg runs on, or the leg stopped
-        self.attempts.pop((placed.id, key))
-        kwargs = self.running[(placed.id, key)]
-        if not self._retry(placed, key, kwargs, attempt, error):
-            del self.running[(placed.id, key)]
-            self._record(placed, key, self._outcome(placed, key, kwargs, out, error))
+        self.attempts.pop((node, key))
+        kwargs = self.running[(node, key)]
+        if not self._retry(node, key, kwargs, attempt, error):
+            del self.running[(node, key)]
+            self._record(node, key, self._outcome(node, key, kwargs, out, error))
 
-    def _retry(self, placed: PlacedFunction, key: Key, kwargs: dict[str, Any], attempt: int, error: BaseException | None) -> bool:
+    def _retry(self, node: FunctionAtPath, key: Key, kwargs: dict[str, Any], attempt: int, error: BaseException | None) -> bool:
         """Put a failed attempt on a timer if the policy says to try again: an ``ExternalError``, or a class ``retry_on``
         names, never a node's own ``NodeError``, an output its type refused or an ``Ask``."""
-        policy, leg = placed.definition.policy, self.leg
-        if error is None or attempt >= policy.retries or not leg.going:
+        policy = node.policy
+        if error is None or attempt >= policy.retries or not self.going:
             return False
         if not isinstance(error, ExternalError) and (isinstance(error, _NEVER_RETRIED) or not isinstance(error, policy.retry_on)):
             return False
         delay = policy.retry_delay * 2**attempt
-        self.running[(placed.id, key)] = kwargs
-        leg._after(delay, "retry", self, placed, key, attempt + 1)
-        if leg.emit:
-            cause = self._here(self._failure(placed, key, error))
-            leg.emit(NodeRetry(loc=(*self.inside, placed.id, *key), attempt=attempt + 1, retries=policy.retries, delay=delay, cause=cause))
+        self.running[(node, key)] = kwargs
+        self._after(delay, "retry", node, key, attempt + 1)
+        if self.emit:
+            self.emit(NodeRetry(loc=unit_loc(node, key), attempt=attempt + 1, retries=policy.retries, delay=delay, cause=self._failure(node, key, error)))
         return True
 
-    def _outcome(self, placed: PlacedFunction, key: Key, kwargs: dict[str, Any], out: Any, error: BaseException | None) -> Unit | Problem:
+    def _outcome(self, node: FunctionAtPath, key: Key, kwargs: dict[str, Any], out: Any, error: BaseException | None) -> Unit | Problem:
         if error is None:
             return SKIPPED_UNIT if out is SKIPPED else Done(out)
         if isinstance(error, Ask):
             try:
                 inputs = jsonable(kwargs)
             except FieldValueError as unwritable:  # a person can't be shown what the node received
-                return self._failure(placed, key, unwritable)
+                return self._failure(node, key, unwritable)
             try:
-                return Asking(question_asked(error, placed.outputs, inputs))
+                return Asking(question_asked(error, node.placed.outputs, inputs))
             except InvalidAskError as invalid:
-                return make_problem("invalid_ask", placed.id, *key, reason=str(invalid))
-        return self._failure(placed, key, error)
+                return make_problem("invalid_ask", *unit_loc(node, key), reason=str(invalid))
+        return self._failure(node, key, error)
 
-    def _failure(self, placed: PlacedFunction, key: Key, error: BaseException) -> Problem:
+    def _failure(self, node: FunctionAtPath, key: Key, error: BaseException) -> Problem:
         """The problem a node's exception is: its own words for a ``NodeError``; for any other, only its class, the text to the log."""
+        loc = unit_loc(node, key)
         if isinstance(error, NodeError):
-            return error._as_problem_at(placed.id, *key)
+            return error._as_problem_at(*loc)
         if isinstance(error, FieldValueError):
-            return make_problem(error.code, placed.id, *key, reason=error.reason, **error.ctx)
-        _logger.error("node %r failed for item %r", path_text((*self.inside, placed.id)), key, exc_info=error)
-        if isinstance(error, placed.definition.policy.retry_on):
-            return make_problem("external_failed", placed.id, *key, error=type(error).__name__)
-        return make_problem("execution_failed", placed.id, *key, error=type(error).__name__)
+            return make_problem(error.code, *loc, reason=error.reason, **error.ctx)
+        _logger.error("node %r failed for item %r", "/".join(node.path), key, exc_info=error)
+        if isinstance(error, node.policy.retry_on):
+            return make_problem("external_failed", *loc, error=type(error).__name__)
+        return make_problem("execution_failed", *loc, error=type(error).__name__)
 
-    def _here(self, problem: Problem) -> Problem:
-        """A problem placed in this run, placed by its whole path: each embedded graph's node and item in front."""
-        return problem.model_copy(update={"loc": (*self.inside, *problem.loc)}) if self.inside else problem
-
-    def _record(self, placed: PlacedNode, key: Key, unit: Unit | Problem, walking: bool = False) -> None:
+    def _record(self, node: NodeAtPath, key: Key, unit: Unit | Problem, walking: bool = False) -> None:
         """Keep what a unit came to, and make ready what reads it."""
-        run, leg = self.run, self.leg
+        run = self.run
         if isinstance(unit, Problem):
-            if leg.going:  # the first failure is the cause; a later one changes nothing
-                cause = self._here(unit)
-                leg.end(EndedEarly("failed", cause))
-                if leg.emit:
-                    leg.emit(NodeFailed(loc=(*self.inside, placed.id), cause=cause))
+            if self.going:  # the first failure is the cause; a later one changes nothing
+                self.end(EndedEarly("failed", unit))
+                if self.emit:
+                    self.emit(NodeFailed(loc=node.path, cause=unit))
             return
-        units = run._units[placed.id]
+        units, placed = self.units[node], node.placed
         if units and key not in units and key < next(reversed(units)):
-            run._unordered.add(placed.id)
+            run._unordered.add(node.path)
         units[key] = unit
         self.recorded_since_walk += 1
-        leg.changed[self] = None
-        if leg.checkpoint_every is not None and time.monotonic() >= leg.next_checkpoint:
-            leg._checkpoint()
+        self.changed = True
+        if self.checkpoint_every is not None and time.monotonic() >= self.next_checkpoint:
+            self._checkpoint()
         if placed.opens and run.max_items is not None and isinstance(unit, Done):
             for output in placed.opens:
                 items = _length(unit.out[output])
                 if items > run.max_items:
-                    self._stop_at_ceiling(placed, output, items)
+                    self._stop_at_ceiling(node, key, output, items)
                     return
-        if leg.emit:
-            self.touched.add(placed.id)
+        if self.emit:
+            self.touched.add(node)
             if unit is not SKIPPED_UNIT:
-                self._announce(placed)  # a unit taken from earlier work, or a blank one, starts its node as a call does
+                self._announce(node)  # a unit taken from earlier work, or a blank one, starts its node as a call does
             if isinstance(unit, Asking):
-                leg.emit(UnitWaiting(unit=waiting_unit(self.inside, placed, key, unit)))  # type: ignore[arg-type]
-            if placed.scope:
-                self._progress(placed)
-        if walking or not leg.going:
+                assert type(node) is FunctionAtPath  # only a function's unit asks
+                self.emit(UnitWaiting(unit=waiting_unit(node, key, unit)))
+            if node.maps:
+                self._progress(node)
+        if walking or not self.going or type(unit) is Asking:  # nothing reads a unit that waits for a person
             return
-        graph = run.graph
-        for reader in graph._readers[placed.id]:
-            shared = graph._shared_maps(placed, reader)
-            if shared < len(key):  # a reader above this instance: tried once nothing it reads works under the one they share
-                self.gathers.add((reader.id, key[:shared]))
+        depth = len(key)
+        for reader, shared in node.readers:
+            if shared < depth:  # a reader above this instance: tried once nothing it reads works under the one they share
+                self.gathers.add((reader, key[:shared]))
+            elif len(reader.maps) == depth:
+                heapq.heappush(self.ready, (reader.position, key))
             else:
-                for instance in run._instances(reader.scope, key)[0]:
-                    heapq.heappush(leg.ready, (self.number, self.position[reader.id], instance))
+                for instance in run._instances(reader.maps, key)[0]:
+                    heapq.heappush(self.ready, (reader.position, instance))
 
-    def _in_turn(self, placed: PlacedNode, key: Key) -> bool:
-        """Whether every unit of ``placed`` before ``key`` has been tried, so a person's answers are taken in order,
+    def _in_turn(self, node: FunctionAtPath, key: Key) -> bool:
+        """Whether every unit of ``node`` before ``key`` has been tried, so a person's answers are taken in order,
         whatever thread finished first.
 
         The k-th of identical units is the k-th in order among those the leg could try: one that waits on a person
-        counts as tried once nothing else can start (``_pass_untried``). In a nested run, the order goes on from
-        the instances of its embedded graph before this one, which share what the node may take: each is through
-        (complete, or counted as tried) before a unit here takes an answer.
+        counts as tried once nothing else can start (``_pass_untried``).
         """
-        if self.embedded_as is not None:
-            around, embedded, instance_around = self.embedded_as
-            if not around._in_turn(embedded, instance_around):
-                self.awaits_turn = True
-                return False
-        turn = self.turns.get(placed.id)
+        turn = self.turns.get(node)
         if turn is None or key not in turn.place:
-            order = self.run._instances(placed.scope, ())[0]
-            turn = self.turns[placed.id] = _Turn(order, {k: i for i, k in enumerate(order)})
-        order, units, passed, reached = turn.order, self.run._units[placed.id], turn.passed, turn.reached
-        while reached < len(order) and ((instance := order[reached]) in units or (placed.id, instance) in self.running or instance in passed):
+            order = self.run._instances(node.maps, ())[0]
+            turn = self.turns[node] = _Turn(order, {k: i for i, k in enumerate(order)})
+        order, units, passed, reached = turn.order, self.units[node], turn.passed, turn.reached
+        while reached < len(order) and ((instance := order[reached]) in units or (node, instance) in self.running or instance in passed):
             reached += 1
         turn.reached = reached
         return turn.place.get(key, 0) <= reached
@@ -711,8 +621,8 @@ class Frontier:
         Such a unit waits on a person, so this leg can't learn what it receives; if it does later, it takes what is left.
         """
         passed_any = False
-        for node_id, turn in self.turns.items():
-            units = self.run._units[node_id]
+        for node, turn in self.turns.items():
+            units = self.units[node]
             untried = {k for k in turn.order[turn.reached :] if k not in units and k not in turn.passed}
             turn.passed |= untried
             passed_any = passed_any or bool(untried)
@@ -720,89 +630,99 @@ class Frontier:
 
     def _release_gathers(self) -> bool:
         """Make ready each gathering unit nothing above it is still working under; False when there is none."""
-        working = [*self.running, *self.nested]
+        working = list(self.running)
         released = False
-        for node_id, key in list(self.gathers):
-            above = self.run.graph._above_of(node_id)
+        for node, key in list(self.gathers):
+            above = waits_on(node)
             if not any(n in above and k[: len(key)] == key for n, k in working):
-                self.gathers.discard((node_id, key))
+                self.gathers.discard((node, key))
                 released = True
-                position = self.position[node_id]
-                placed = self.nodes[position]
-                for instance in self.run._instances(placed.scope, key)[0] if len(key) < len(placed.scope) else (key,):
-                    heapq.heappush(self.leg.ready, (self.number, position, instance))
+                for instance in self.run._instances(node.maps, key)[0] if len(key) < len(node.maps) else (key,):
+                    heapq.heappush(self.ready, (node.position, instance))
         return released
 
     def _check_ceiling(self) -> None:
-        """Stop the leg if a Series some node works through already holds more items than ``max_items``, as the run
-        is opened."""
-        run = self.run
-        if run.max_items is None:
+        """Stop the leg if a Series some node works through already holds more items than ``max_items``, as the
+        leg begins."""
+        ceiling = self.run.max_items
+        if ceiling is None:
             return
-        for placed in self.nodes:
-            for output in placed.opens:
-                longest = max((_length(unit.out[output]) for unit in run._units[placed.id].values() if isinstance(unit, Done)), default=0)
-                if longest > run.max_items:
-                    self._stop_at_ceiling(placed, output, longest)
-                    return
+        for node in self.nodes:
+            for output in node.placed.opens:
+                for key, unit in self.units[node].items():
+                    if isinstance(unit, Done) and _length(unit.out[output]) > ceiling:
+                        self._stop_at_ceiling(node, key, output, _length(unit.out[output]))
+                        return
 
-    def _stop_at_ceiling(self, placed: PlacedNode, output: str, items: int) -> None:
+    def _stop_at_ceiling(self, node: NodeAtPath, key: Key, output: str, items: int) -> None:
         """Stop the leg at the item ceiling, unless it already ended for a failure, a cancel or its timeout, which
-        stays the cause."""
-        if self.leg.going:
-            ceiling = make_problem("item_ceiling", placed.id, series=f"{placed.id}.{output}", items=items, max_items=self.run.max_items)
-            self.leg.end(EndedEarly("stopped", self._here(ceiling)))
+        stays the cause. The cause names the node, inside the item of each embedded graph's node around it."""
+        if self.going:
+            loc = unit_loc(node, key[: node.base])
+            self.end(EndedEarly("stopped", make_problem("item_ceiling", *loc, series=f"{node.placed.id}.{output}", items=items, max_items=self.run.max_items)))
 
-    # -- what the frontier says ---------------------------------------------------------------
+    # -- what the leg says --------------------------------------------------------------------
 
-    def _announce(self, placed: PlacedNode) -> None:
-        if placed.id not in self.started:
-            self.started.add(placed.id)
-            if self.leg.emit:
-                self.leg.emit(NodeStart(loc=(*self.inside, placed.id)))
+    def _announce(self, node: NodeAtPath) -> None:
+        """Say that ``node`` started, once, after each embedded graph's node it is inside."""
+        if node not in self.started:
+            if node.embedding is not None:
+                self._announce(node.embedding)
+            self.started.add(node)
+            if self.emit:
+                self.emit(NodeStart(loc=node.path))
 
-    def _progress(self, placed: PlacedNode, last: bool = False) -> None:
+    def _progress(self, node: NodeAtPath, last: bool = False) -> None:
         """Say how far a node running per item has got, at most four times a second; ``last`` says its final count, unless already said."""
         now = time.monotonic()
-        emit = self.leg.emit
-        if not emit or not (last or now - self.progress_at.get(placed.id, -1.0) >= _SECONDS_BETWEEN_PROGRESS):
+        emit = self.emit
+        if not emit or not (last or now - self.progress_at.get(node, -1.0) >= _SECONDS_BETWEEN_PROGRESS):
             return
-        done = sum(1 for unit in self.run._units[placed.id].values() if type(unit) is not Asking)  # counted only when said, at most four times a second
-        if self.progress_said.get(placed.id) != done:
-            self.progress_at[placed.id], self.progress_said[placed.id] = now, done
-            keys, known = self.run._instances(placed.scope, ())
-            emit(NodeProgress(loc=(*self.inside, placed.id), done=done, total=len(keys) if known else None))
+        done = sum(1 for unit in self.units[node].values() if type(unit) is not Asking)  # counted only when said, at most four times a second
+        if self.progress_said.get(node) != done:
+            self.progress_at[node], self.progress_said[node] = now, done
+            keys, known = self.run._instances(node.maps, ())
+            emit(NodeProgress(loc=node.path, done=done, total=len(keys) if known else None))
 
     def _completions(self) -> None:
         """Say which touched nodes are complete: nothing they wait on is working, and every unit is done."""
-        emit = self.leg.emit
+        emit = self.emit
         assert emit is not None
-        working = {n for n, _ in self.running} | {n for n, _ in self.nested}
-        for node_id in sorted(self.touched, key=self.position.__getitem__):
-            if node_id in working or working & self.run.graph._above_of(node_id):
+        working = {node for node, _ in self.running}
+        for node in sorted(self.touched, key=_POSITION):
+            if node in working or working & waits_on(node):
                 continue
-            self.touched.discard(node_id)
-            placed, units = self.run.graph._nodes[node_id], self.run._units[node_id]
-            if node_id in self.complete or not self._finished(placed):
+            self.touched.discard(node)
+            units = self.units[node]
+            if node in self.complete or not self._finished(node):
                 continue
-            self.complete.add(node_id)
-            if placed.scope and node_id in self.progress_said:
-                self._progress(placed, last=True)
+            self.complete.add(node)
+            if node.maps and node in self.progress_said:
+                self._progress(node, last=True)
             if units and all(unit is SKIPPED_UNIT for unit in units.values()):
-                emit(NodeSkipped(loc=(*self.inside, node_id)))
+                emit(NodeSkipped(loc=node.path))
             else:
                 not_called = sum(type(unit) is Blank for unit in units.values())
-                emit(NodeComplete(loc=(*self.inside, node_id), units=len(units), not_called=not_called, reused_units=self.reused[node_id]))
+                emit(NodeComplete(loc=node.path, units=len(units), not_called=not_called, reused_units=self.reused[node]))
 
-    def _finished(self, placed: PlacedNode, may_wait: bool = True) -> bool:
-        """Whether every unit of ``placed`` is known and none of them is still to run or waiting; ``may_wait`` False
+    def _finished(self, node: NodeAtPath, may_wait: bool = True) -> bool:
+        """Whether every unit of ``node`` is known and none of them is still to run or waiting; ``may_wait`` False
         when the caller already knows none waits."""
-        units = self.run._units[placed.id]
-        if not placed.scope:
+        units = self.units[node]
+        if not node.maps:
             for unit in units.values():
                 return type(unit) is not Asking
             return False
         if may_wait and Asking in {type(unit) for unit in units.values()}:
             return False
-        counted, known = self.run._instances(placed.scope, (), counted=True)
+        counted, known = self.run._instances(node.maps, (), counted=True)
         return known and len(units) == (counted[0][0] if counted else 0)
+
+
+def _around(node: NodeAtPath) -> list[GraphAtPath]:
+    """The embedded graphs' nodes ``node`` is inside, innermost first."""
+    around = []
+    while node.embedding is not None:
+        node = node.embedding
+        around.append(node)
+    return around

@@ -79,13 +79,15 @@ What changes in how you work, before the name-by-name tables:
   the same way (`invalid_value` where it has no JSON form). A stored graph used as a node offers
   its graph's inputs by their names there and its outputs by their addresses there
   (`e.upper.result`), and `@node` on a stored graph refuses a `policy` or a hook as
-  `not_for_a_graph`. A call of it is a nested run, driven by the same leg, so its nodes are
-  called, retried, timed out, cancelled and reused by `run.again` as the same nodes drawn in the
-  graph itself. An output made per item inside is a `Series` of them, and an inner decision's group
+  `not_for_a_graph`. Its nodes run where it stands, each with a unit per item of the node that
+  embeds it, so they are called, retried, timed out, cancelled and reused by `run.again` as the
+  same nodes drawn in the graph itself, and say their events once, under `("e", "upper")`. A blank
+  arriving at the embedding leaves the inner nodes that read it uncalled, and `run.not_called`
+  lists them. A saved run holds an inner node's units under `e/upper`. An output made per item inside is a `Series` of them, and an inner decision's group
   is named by its node, `d1.answer`. A problem inside has the embedding's node (and item) in front
   of its `loc`; there is no `embedded_graph_broken`. Every node event, a `Waiting` and a
-  `NotCalled` say where they are with one `loc`, a problem's (`("e", 0, "ask")`), in place of
-  `node_id` and an item; a waiting id inside reads `e@0/ask~3fa2c0d1`.
+  `NotCalled` say where they are with one `loc` in place of `node_id` and an item: a unit's is a
+  problem's (`("e", 0, "ask")`), a node's its id behind the embedding's (`("e", "ask")`); a waiting id inside reads `e@0/ask~3fa2c0d1`.
 - **A run is one value.** `graph.run(**inputs)` returns a `Run` whose `status` says how the leg
   ended, and whose `state` is `Going` or, for a leg that failed, stopped, was cancelled or timed out,
   `EndedEarly` with its `cause` (`match run.state`). It pauses for a person (`raise Ask(...)`, then `run.answer(...)` and `run.resume()`), writes

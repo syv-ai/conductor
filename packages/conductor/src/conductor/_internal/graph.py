@@ -24,8 +24,10 @@ lies on the path to it: items of two Series never pair up
 (``series_not_nested``). Readers of one Series read one map.
 
 A table is one value. An embedded graph is one node: its inputs are the inner
-graph's inputs, its outputs the inner graph's outputs, and a call of it runs
-the inner graph.
+graph's inputs, its outputs the inner graph's outputs. It loads once, alone,
+however many graphs embed it, and nothing of it is copied into the graph
+around it. What a run walks is the tree those graphs make: every node of the
+graph and of each graph embedded in it, each a ``NodeAtPath``.
 """
 
 from __future__ import annotations
@@ -68,6 +70,7 @@ from conductor._internal.node_definition import (
     GraphDefinition,
     HookName,
     NodeDefinition,
+    Policy,
     is_node_id,
     read_by_hooks,
 )
@@ -356,7 +359,7 @@ class PlacedFunction(_Placed):
 @typing.final
 @dataclass(frozen=True, kw_only=True)
 class PlacedGraph(_Placed):
-    """A node of a loaded graph that is an embedded graph: a call of it is a run of ``inner``.
+    """A node of a loaded graph that is an embedded graph: the nodes of ``inner`` run where it stands.
 
     Its inputs are the inner graph's (``inner.inputs``) by their names there, and its outputs the inner graph's
     (``inner.outputs``) by their addresses there. It has no policy and no unit of it is reused whole: the nodes
@@ -374,6 +377,102 @@ class PlacedGraph(_Placed):
 
 #: One node of a loaded graph: a function, or an embedded graph.
 PlacedNode = PlacedFunction | PlacedGraph
+
+#: A node whatever item it runs for: its id, after the id of each embedded graph's node it is inside, outermost
+#: first, ``("e", "ask")``.
+NodePath = tuple[str, ...]
+
+
+@dataclass(eq=False, slots=True, kw_only=True)
+class _AtPath:
+    """A node where it stands in the tree of graphs a run walks: a node of the graph itself, or of a graph
+    embedded in it, at any depth. Never made on its own: it is a ``FunctionAtPath`` or a ``GraphAtPath``.
+
+    A graph loads once and may be embedded in many places; this is a node of it in one of them. A node inside an
+    embedded graph runs once for each item its embedding node runs for, and then once per item of its own scope,
+    so the maps it runs in are the embedding node's and then its own.
+
+    Attributes:
+        embedding: The embedded graph's node it is directly inside; ``None`` for a node of the graph itself.
+        inside: The ids of the embedded graphs' nodes it is inside, outermost first; ``()`` for a node of the
+            graph itself.
+        path: ``inside``, then its own id.
+        maps: Every map it runs in, outermost first, each as the node and the output of its ``Series``: those of
+            the embedded graph's node it is inside, then those of its own scope.
+        base: How many of ``maps`` are the embedded graph's node's.
+        handed: For each open input of a node inside an embedded graph, how that graph's node gets the value:
+            its plan, and the embedded graph's node in whose graph the plan reads.
+        reads: The nodes whose units its own are made from: the ones its inputs read, and for an embedded
+            graph's node the last nodes inside it.
+        readers: Each node that reads it, with how many maps the two share from the outermost down.
+        position: Its place in the order a leg tries the nodes of the tree in.
+        waits_on: Every node it waits on, however far up; filled when first asked for.
+    """
+
+    embedding: GraphAtPath | None
+    inside: NodePath
+    path: NodePath
+    maps: Maps
+    base: int
+    handed: dict[str, tuple[InputPlan, GraphAtPath]]
+    reads: tuple[NodeAtPath, ...] = ()
+    readers: list[tuple[NodeAtPath, int]] = dataclasses.field(default_factory=list[tuple["NodeAtPath", int]])
+    position: int = 0
+    waits_on: frozenset[NodeAtPath] | None = None
+
+
+@typing.final
+@dataclass(eq=False, slots=True, kw_only=True)
+class FunctionAtPath(_AtPath):
+    """A function node where it stands in the tree of graphs a run walks.
+
+    Attributes:
+        placed: The node, as its graph loaded it.
+        policy: The node's policy, as its definition declares it.
+        checked: The inputs whose value is read by the input's type before a call, as the types the edges bring
+            don't settle it: the node's own, and the open ones an embedded graph's node is handed by such edges.
+    """
+
+    placed: PlacedFunction
+    policy: Policy
+    checked: tuple[str, ...]
+
+
+@typing.final
+@dataclass(eq=False, slots=True, kw_only=True)
+class GraphAtPath(_AtPath):
+    """An embedded graph's node where it stands in the tree of graphs a run walks. It is never called: its unit
+    is what the outputs of the graph inside it came to.
+
+    Attributes:
+        placed: The node, as its graph loaded it.
+        offers: Each output it offers: its address in the inner graph, the cell of the inner graph that holds
+            it, the maps that cell's node runs in, and whether it is a ``Series``.
+    """
+
+    placed: PlacedGraph
+    offers: tuple[tuple[str, Cell, Maps, bool], ...] = ()
+
+
+#: A node where it stands in the tree of graphs a run walks: a function, or an embedded graph.
+NodeAtPath = FunctionAtPath | GraphAtPath
+
+#: The maps a node runs in, outermost first, each as the node and the output of its ``Series``.
+Maps = tuple[tuple["NodeAtPath", str], ...]
+
+
+def waits_on(node: NodeAtPath) -> frozenset[NodeAtPath]:
+    """Every node ``node`` waits on, however far up; worked out when first asked, as most nodes never are."""
+    if node.waits_on is None:
+        seen: set[NodeAtPath] = set()
+        stack = [node]
+        while stack:
+            for read in stack.pop().reads:
+                if read not in seen:
+                    seen.add(read)
+                    stack.append(read)
+        node.waits_on = frozenset(seen)
+    return node.waits_on
 
 
 # -- what a host reads of a loaded graph --------------------------------------------------------
@@ -515,10 +614,6 @@ class Graph:
     _readers: dict[str, list[PlacedNode]]
     #: The nodes with a ``FromRun`` parameter, an embedded graph's too, as ``from_run_values`` reads them.
     _needs_from_run: list[tuple[str, FunctionDefinition[..., Any]]]
-    #: Every node each node waits on, however far up, filled as a leg asks.
-    _above: dict[str, frozenset[str]] = dataclasses.field(default_factory=dict[str, frozenset[str]])
-    #: (node, a node reading it): how many maps their scopes share, filled as a leg asks.
-    _shared: dict[tuple[str, str], int] = dataclasses.field(default_factory=dict[tuple[str, str], int])
 
     def __repr__(self) -> str:
         state = "runnable" if self.is_runnable else f"{len(self.problems)} problem{'s' if len(self.problems) != 1 else ''}"
@@ -609,13 +704,13 @@ class Graph:
         Raises:
             InvalidCallError: The graph has problems, or an input is missing, unknown or not of its type.
         """
-        from conductor._internal.run import checked_leg, start_run
+        from conductor._internal.run import checked_leg, no_units, start_run
 
         if self.problems:
             raise InvalidCallError(self.problems)
         checked_leg(max_items=max_items)
         checked = self._checked_inputs(*self._given_by_address({**inputs, **by_name}))
-        return start_run(self, checked, max_items, earlier._carried(into=self) if earlier is not None else {})
+        return start_run(self, checked, max_items, earlier._carried(into=self) if earlier is not None else {}, no_units(self))
 
     def run(
         self, inputs: Mapping[str, Any] = types.MappingProxyType({}), /, *, max_items: int | None = None,
@@ -635,65 +730,44 @@ class Graph:
         return run_from_json(self, saved)
 
     @functools.cached_property
-    def _order(self) -> list[PlacedNode]:
-        """The nodes that loaded, each after the nodes it reads: the order a leg tries them in."""
-        return list(self._nodes.values())
+    def _tree(self) -> list[NodeAtPath]:
+        """Every node of the graph and of each graph embedded in it, at any depth, each after the nodes it reads:
+        the order a leg tries them in. An embedded graph's node comes after the nodes inside it."""
+        tree: list[NodeAtPath] = []
+        _add_to_tree(self, None, tree, {})
+        for position, node in enumerate(tree):
+            node.position = position
+            for read in node.reads:
+                shared = 0
+                while shared < min(len(read.maps), len(node.maps)) and read.maps[shared] == node.maps[shared]:
+                    shared += 1
+                read.readers.append((node, shared))
+        return tree
 
     @functools.cached_property
-    def _position(self) -> dict[str, int]:
-        """Each node's place in ``_order``, by id."""
-        return {placed.id: place for place, placed in enumerate(self._order)}
+    def _ids_inside(self) -> dict[NodePath, list[str]]:
+        """The ids of the nodes of each graph of ``_tree``, by the path of the node that embeds it, ``()`` for
+        the graph itself: what a run keeps units by."""
+        ids: dict[NodePath, list[str]] = {}
+        for node in self._tree:
+            ids.setdefault(node.inside, []).append(node.placed.id)
+        return ids
 
     @functools.cached_property
-    def _embedded(self) -> tuple[str, ...]:
-        """The ids of the nodes that are embedded graphs."""
-        return tuple(placed.id for placed in self._order if isinstance(placed, PlacedGraph))
+    def _node_at(self) -> dict[NodePath, NodeAtPath]:
+        """Each node of ``_tree``, by its path."""
+        return {node.path: node for node in self._tree}
 
     @functools.cached_property
-    def _functions(self) -> dict[tuple[str, ...], PlacedFunction]:
-        """Every function node by its path of node ids: its own id, after the id of each embedded graph's node it
-        is inside, ``("e", "upper")``."""
-        found: dict[tuple[str, ...], PlacedFunction] = {}
-        for placed in self._order:
-            if isinstance(placed, PlacedGraph):
-                found.update({(placed.id, *path): inside for path, inside in placed.inner._functions.items()})
-            else:
-                found[(placed.id,)] = placed
-        return found
+    def _functions(self) -> dict[NodePath, PlacedFunction]:
+        """Every function node of ``_tree``, by its path."""
+        return {node.path: node.placed for node in self._tree if isinstance(node, FunctionAtPath)}
 
     @functools.cached_property
     def _threads(self) -> int:
         """How many calls a leg over the graph can have on threads at once: the ``concurrency`` of every node
         called on a thread, those of each embedded graph with them."""
-        return sum(
-            placed.inner._threads if isinstance(placed, PlacedGraph) else placed.definition.policy.concurrency if placed.definition.policy.threaded else 0
-            for placed in self._nodes.values()
-        )
-
-    def _above_of(self, node_id: str) -> frozenset[str]:
-        """Every node ``node_id`` waits on, however far up; worked out when first asked, as most nodes never are."""
-        found = self._above.get(node_id)
-        if found is None:
-            seen: set[str] = set()
-            stack = [node_id]
-            while stack:
-                for read in self._nodes[stack.pop()].reads - seen:
-                    seen.add(read)
-                    stack.append(read)
-            found = self._above[node_id] = frozenset(seen)
-        return found
-
-    def _shared_maps(self, placed: PlacedNode, reader: PlacedNode) -> int:
-        """How many maps the scopes of ``placed`` and of a node reading it share from the graph's own scope down;
-        worked out when first asked."""
-        found = self._shared.get((placed.id, reader.id))
-        if found is None:
-            ours, theirs = placed.scope, reader.scope
-            found = 0
-            while found < min(len(ours), len(theirs)) and ours[found] == theirs[found]:
-                found += 1
-            self._shared[(placed.id, reader.id)] = found
-        return found
+        return sum(policy.concurrency for placed in self._functions.values() if (policy := placed.definition.policy).threaded)
 
     def _given_by_address(self, given: Mapping[str, Any]) -> tuple[dict[str, Any], list[Problem]]:
         """What a caller gave by name or by address, by address; with a problem for each name the graph doesn't
@@ -741,6 +815,52 @@ class Graph:
 
 
 # -- loading ------------------------------------------------------------------------------------
+
+
+def _add_to_tree(graph: Graph, embedding: GraphAtPath | None, tree: list[NodeAtPath], beside: dict[NodePath, dict[str, NodeAtPath]]) -> None:
+    """Add the nodes of ``graph`` to ``tree``, each after the nodes it reads, and those of each graph embedded
+    in it before that graph's node.
+
+    Args:
+        graph: The graph: the one a run is of, or one embedded in it.
+        embedding: The embedded graph's node that ``graph`` is the inner graph of; ``None`` for the run's own.
+        tree: The nodes so far, added to.
+        beside: The nodes of each graph placed so far by id, by the path of the node that embeds it, added to.
+    """
+    inside = embedding.path if embedding is not None else ()
+    above = embedding.maps if embedding is not None else ()
+    here = beside[inside] = {}
+    for placed in graph._nodes.values():
+        handed: dict[str, tuple[InputPlan, GraphAtPath]] = {}
+        if embedding is not None:
+            for name, plan in placed.inputs.items():
+                if isinstance(plan, Open):  # the embedded graph's node is given it, as a caller would give it
+                    offered = graph._input_fields[plan.address].name
+                    handed[name] = embedding.handed.get(offered) or (embedding.placed.inputs[offered], embedding)
+        maps = (*above, *((here[port.node_id], port.output) for port in placed.scope))
+        if isinstance(placed, PlacedGraph):
+            node: NodeAtPath = (embedded := GraphAtPath(
+                placed=placed, embedding=embedding, inside=inside, path=(*inside, placed.id), maps=maps, base=len(above), handed=handed,
+            ))
+            _add_to_tree(placed.inner, embedded, tree, beside)
+            within = beside[node.path]
+            embedded.offers = tuple(
+                (address, Cell(last.placed.id, output, last.placed.scope), last.maps, last.placed.outputs[output].many)
+                for address in placed.inner.outputs for last, output in [(within[address.partition(".")[0]], address.partition(".")[2])]
+            )
+            node.reads = tuple(dict.fromkeys(within[cell.node_id] for _, cell, _, _ in embedded.offers))
+        else:
+            plans = [handed.get(name, (plan, None)) for name, plan in placed.inputs.items()]
+            node = FunctionAtPath(
+                placed=placed, embedding=embedding, inside=inside, path=(*inside, placed.id), maps=maps, base=len(above), handed=handed,
+                policy=placed.definition.policy, checked=tuple(name for name, (plan, _) in zip(placed.inputs, plans, strict=True) if _read_before_a_call(plan)),
+            )
+            node.reads = tuple(dict.fromkeys(
+                beside[giver.inside if giver is not None else inside][source.node_id]
+                for plan, giver in plans if isinstance(plan, Fed) for source in plan.sources
+            ))
+        here[placed.id] = node
+        tree.append(node)
 
 
 def load_graph(record: GraphRecord, definitions: Mapping[str, NodeDefinition]) -> Graph:

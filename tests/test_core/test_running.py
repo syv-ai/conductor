@@ -999,7 +999,7 @@ def test_a_failed_leg_with_calls_on_threads_offers_a_checkpoint_saying_it_failed
     assert seen[-1].type == "run_end" and seen[-1].status == "failed"
 
 
-def test_an_embeddings_items_not_called_count_once_however_many_of_its_nodes_were_not():
+def test_a_blank_into_an_embedding_leaves_the_nodes_inside_uncalled_as_it_would_drawn_flat():
     @node("words", title="Words", description="")
     def words(text: str) -> Series[str | None]:
         return [None if w == "_" else w for w in text.split()]
@@ -1014,7 +1014,10 @@ def test_an_embeddings_items_not_called_count_once_however_many_of_its_nodes_wer
     ))
     events = _events(graph.with_inputs(text="a _ b _"))
 
-    (complete,) = [e for e in events if e.type == "node_complete" and e.loc == ("emb",)]
-    assert (complete.units, complete.not_called) == (4, 2)
-    assert events[-1].run.not_called == [NotCalled(loc=("emb", 1), input="text"), NotCalled(loc=("emb", 3), input="text")]
-    assert {e.loc[:2] for e in events if e.type == "node_start" and len(e.loc) > 1} == {("emb", 0), ("emb", 2)}  # nothing inside an item not called starts
+    complete = {e.loc: (e.units, e.not_called) for e in events if e.type == "node_complete"}
+    assert complete == {("w",): (1, 0), ("emb", "u"): (4, 2), ("emb", "v"): (4, 2), ("emb",): (4, 0)}  # the embedding is never called: the nodes inside are
+    assert events[-1].run.not_called == [
+        NotCalled(loc=("emb", 1, "u"), input="text"), NotCalled(loc=("emb", 3, "u"), input="text"),
+        NotCalled(loc=("emb", 1, "v"), input="text"), NotCalled(loc=("emb", 3, "v"), input="text"),
+    ]
+    assert events[-1].run.results["emb"] == {"v.result": ["A", None, "B", None]}

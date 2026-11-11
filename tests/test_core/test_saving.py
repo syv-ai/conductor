@@ -860,9 +860,9 @@ def test_a_blank_and_a_skipped_unit_come_back_from_a_save_and_a_resumed_run_name
     )
     run = graph.run(text="ab,,long,cd")
     assert run.status == "waiting"
-    assert list(run._units["s"].values()) == [Done({"result": "ab"}), Blank("email"), Skipped(), Done({"result": "cd"})]
-    assert [type(u) for u in run._units["c"].values()] == [Asking, Blank, Skipped, Asking]
-    assert run._units["c"][(1,)] == Blank("email")
+    assert list(run._units[()]["s"].values()) == [Done({"result": "ab"}), Blank("email"), Skipped(), Done({"result": "cd"})]
+    assert [type(u) for u in run._units[()]["c"].values()] == [Asking, Blank, Skipped, Asking]
+    assert run._units[()]["c"][(1,)] == Blank("email")
     loaded = graph.load_run(run.to_json())
     assert loaded._units == run._units
     assert loaded.resume().not_called == run.not_called == [

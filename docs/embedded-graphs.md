@@ -53,11 +53,13 @@ print(graph.run(text="hi there").outputs)  # {'join.result': 'HI! THERE!'}
 print(graph.plan["shout"].msg)              # per item of split.result
 ```
 
-A call of a stored graph is a run of it: here one per word. Embedding a graph changes nothing about how its nodes
-behave. Each is called by its own `Policy`, so a node with `concurrency=2` has two calls at once however many items
+The nodes of a stored graph run where its node stands: here once per word. Embedding a graph changes nothing about
+how its nodes behave. Each is called by its own `Policy`, so a node with `concurrency=2` has two calls at once however many items
 the graph around it runs for; its retries and its `attempt_timeout` are its own; a cancel and a leg's `timeout` stop
 the nodes inside as they stop any node; and `run.again(...)` calls inside only the nodes it would call with the same
-nodes drawn in the graph itself. A stored graph takes no `Policy` of its own.
+nodes drawn in the graph itself. A stored graph takes no `Policy` of its own, and it is never called itself: a blank
+or a branch not taken that arrives at one of its inputs leaves uncalled, or skips, the inner nodes that read it, and
+`run.not_called` lists those nodes.
 
 ## What it offers
 
@@ -85,15 +87,19 @@ print(both.run({"upper.text": "a", "exclaim.text": "b"}).outputs)
 
 ## Where something is inside
 
-`run.results`, `graph.plan` and `graph.describe()` show the stored graph as one node. What happens inside it is told
-with where it is: the node and item of each stored graph around it, outermost first.
+`run.results`, `graph.plan` and `graph.describe()` show the stored graph as one node: for an item it holds what its
+graph's outputs came to, once every one of them is settled there. What happens inside it is told with where it is:
+the node and item of each stored graph around it, outermost first.
 
 - A problem's `loc` starts with it. A problem of the stored graph itself is that graph's own problem with the id of
-  the node that uses it in front, `("shout", "upper", "text")`; a failure inside the second word's call is at
+  the node that uses it in front, `("shout", "upper", "text")`; a failure inside for the second word is at
   `("shout", 1, "upper")`.
-- An event of a node inside, a waiting unit and an entry of `run.not_called` have the same `loc`: `("shout", 1, "upper")`
-  is `upper` inside the second call of `shout`. The inner nodes say their events once per call of the stored graph.
-- A waiting id spells it out: `shout@1/ask~3fa2c0d1` is `ask`, inside the second call of `shout`.
+- A waiting unit and an entry of `run.not_called` have the same `loc`: `("shout", 1, "upper")` is `upper` inside
+  `shout`, for the second word.
+- A waiting id spells it out: `shout@1/ask~3fa2c0d1` is `ask` inside `shout`, for the second word.
+- A node inside says its events once, for every word together, as any node that runs per item does. Their `loc` is
+  the node's id behind the id of each stored graph's node around it, `("shout", "upper")`.
+- A saved run holds a node inside as it holds any node, under `shout/upper`.
 
 A stored graph's palette entry lists the fields it offers in `registry.describe()`, which holds the nodes its
 graph uses. The definition's own `describe()` lists none, because its fields depend on that registry.
