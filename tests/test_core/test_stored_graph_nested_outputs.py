@@ -1,0 +1,169 @@
+"""A stored graph offers an output made inside loops as one ``Series`` per loop, and a node outside the stored
+graph that reads it is called as it would be with the same nodes drawn in its own graph.
+
+The stored graph of most tests is ``documents -> lines -> shout``: ``documents`` returns a list of documents
+(``None`` for an empty one), ``lines`` is called once per document and returns its lines, ``shout`` is called once
+per line. So ``shout`` is called inside two loops, and its return values are a list per document.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+import pytest
+from conductor import NodeRegistry, Series, make_graph
+
+REGISTRY = NodeRegistry()
+
+
+def _node(node_id: str) -> Any:
+    return REGISTRY.node(node_id, title=node_id, description=node_id)
+
+
+@_node("texts")
+def texts(text: str) -> Series[str]:
+    return text.split("|")
+
+
+@_node("documents")
+def documents(text: str) -> Series[str | None]:
+    return [document or None for document in text.split(";")]
+
+
+@_node("lines")
+def lines(document: str) -> Series[str]:
+    return document.split(",")
+
+
+@_node("shout")
+def shout(line: str) -> str:
+    return line.upper()
+
+
+@_node("whisper")
+def whisper(line: str) -> str:
+    return line.lower()
+
+
+@_node("show")
+def show(values: Series[str]) -> str:
+    return "+".join(values)
+
+
+@_node("mark")
+def mark(value: str) -> str:
+    return value + "!"
+
+
+@_node("side-by-side")
+def side_by_side(loud: Series[str], quiet: Series[str]) -> str:
+    return f"{'+'.join(loud)}={'+'.join(quiet)}"
+
+
+#: The edges of ``documents -> lines -> shout``, drawn in a graph or stored as one.
+SHOUT_EDGES = [("documents.result", "lines.document"), ("lines.result", "shout.line")]
+WHISPER_EDGES = [*SHOUT_EDGES, ("lines.result", "whisper.line")]
+
+REGISTRY.stored_graph("shout-lines", title="Shout lines", description="Every line of every document, in capitals.")(
+    make_graph(documents, lines, shout, edges=SHOUT_EDGES)
+)
+REGISTRY.stored_graph("split-lines", title="Split lines", description="The lines of every document.")(
+    make_graph(documents, lines, edges=SHOUT_EDGES[:1])
+)
+REGISTRY.stored_graph("shout-and-whisper", title="Shout and whisper", description="Every line in capitals, and in small letters.")(
+    make_graph(documents, lines, shout, whisper, edges=WHISPER_EDGES)
+)
+REGISTRY.stored_graph("wrapped", title="Wrapped", description="A stored graph whose one node is the stored graph shout-lines.")(
+    make_graph(REGISTRY["shout-lines"])
+)
+
+
+def results(nodes: list[Any], edges: list[tuple[str, str]], node_id: str, text: str) -> Any:
+    """The ``result`` of the node ``node_id`` after a run of the graph of ``nodes`` and ``edges`` on ``text``."""
+    graph = REGISTRY.load(make_graph(*nodes, edges=edges))
+    assert not graph.problems, graph.problems
+    run = graph.run(text=text)
+    assert run.status == "complete"
+    return run.results[node_id]["result"]
+
+
+@pytest.mark.xfail(strict=True, reason="a stored graph offers an output made two loops deep as one flat Series")
+def test_a_series_input_outside_gets_one_documents_lines_per_call_as_it_does_with_the_nodes_drawn_in_its_graph() -> None:
+    drawn = results([documents, lines, shout, show], [*SHOUT_EDGES, ("shout.result", "show.values")], "show", "a,b;;c")
+    stored = results([REGISTRY["shout-lines"], show], [("shout-lines.shout.result", "show.values")], "show", "a,b;;c")
+    assert drawn == stored == ["A+B", None, "C"]  # the second document is None, so show is not called for it
+
+
+@pytest.mark.xfail(strict=True, reason="a stored graph offers an output made two loops deep as one flat Series")
+def test_a_node_outside_and_a_host_see_the_same_list_per_document() -> None:
+    @_node("as-given")
+    def as_given(values: Series[str]) -> list[str]:
+        return list(values)
+
+    graph = REGISTRY.load(make_graph(REGISTRY["shout-lines"], as_given, edges=[("shout-lines.shout.result", "as-given.values")]))
+    run = graph.run(text="a,b;;c")
+    assert run.results["shout-lines"]["shout.result"] == run.results["as-given"]["result"] == [["A", "B"], None, ["C"]]
+
+
+@pytest.mark.xfail(strict=True, reason="a stored graph describes an output made two loops deep as Series[str]")
+def test_the_output_is_described_as_a_series_of_series() -> None:
+    graph = REGISTRY.load(make_graph(REGISTRY["shout-lines"], show, edges=[("shout-lines.shout.result", "show.values")]))
+    described = graph.describe().nodes["shout-lines"].outputs[0]
+    assert (described.many, described.type, described.json_schema) == (True, "Series[str]", {"type": "array", "items": {"type": "string"}})
+    in_palette = next(entry for entry in REGISTRY.describe().nodes if entry.id == "shout-lines").outputs[0]
+    assert in_palette == described
+    assert graph.runs_on["show"].series == "shout-lines.documents.result"  # show is called once per document
+
+
+def test_an_input_of_one_value_outside_is_called_once_per_line_of_each_document() -> None:
+    drawn = results([documents, lines, shout, mark], [*SHOUT_EDGES, ("shout.result", "mark.value")], "mark", "a,b;;c")
+    stored = results([REGISTRY["shout-lines"], mark], [("shout-lines.shout.result", "mark.value")], "mark", "a,b;;c")
+    assert drawn == stored == [["A!", "B!"], None, ["C!"]]
+
+
+@pytest.mark.xfail(strict=True, reason="a stored graph offers an output made two loops deep as one flat Series")
+def test_a_stored_graph_used_once_per_item_of_an_outer_list_gives_a_node_outside_one_documents_lines_per_call() -> None:
+    per_text = [("texts.result", "documents.text")]
+    drawn = results([texts, documents, lines, shout, show], [*per_text, *SHOUT_EDGES, ("shout.result", "show.values")], "show", "a,b;;c|d;e,f")
+    stored_edges = [("texts.result", "shout-lines.text"), ("shout-lines.shout.result", "show.values")]
+    stored = results([texts, REGISTRY["shout-lines"], show], stored_edges, "show", "a,b;;c|d;e,f")
+    assert drawn == stored == [["A+B", None, "C"], ["D", "E+F"]]
+
+
+@pytest.mark.xfail(strict=True, reason="a stored graph offers a Series made per item as a Series of whole lists")
+def test_a_series_returned_once_per_document_is_offered_as_a_series_of_series_too() -> None:
+    drawn_edges = SHOUT_EDGES[:1]
+    for reader, port, expected in ((show, "values", ["a+b", None, "c"]), (mark, "value", [["a!", "b!"], None, ["c!"]])):
+        reader_id = reader.id
+        drawn = results([documents, lines, reader], [*drawn_edges, ("lines.result", f"{reader_id}.{port}")], reader_id, "a,b;;c")
+        stored = results([REGISTRY["split-lines"], reader], [("split-lines.lines.result", f"{reader_id}.{port}")], reader_id, "a,b;;c")
+        assert drawn == stored == expected
+    described = REGISTRY.load(make_graph(REGISTRY["split-lines"])).describe().nodes["split-lines"].outputs[0]
+    assert (described.many, described.type) == (True, "Series[str]")
+
+
+@pytest.mark.xfail(strict=True, reason="a stored graph offers an output made two loops deep as one flat Series")
+def test_two_outputs_made_per_line_are_collected_per_document_by_one_node() -> None:
+    reads = [("shout.result", "side-by-side.loud"), ("whisper.result", "side-by-side.quiet")]
+    drawn = results([documents, lines, shout, whisper, side_by_side], [*WHISPER_EDGES, *reads], "side-by-side", "A,b;;c")
+    stored_reads = [(f"shout-and-whisper.{source}", target) for source, target in reads]
+    stored = results([REGISTRY["shout-and-whisper"], side_by_side], stored_reads, "side-by-side", "A,b;;c")
+    assert drawn == stored == ["A+B=a+b", None, "C=c"]
+
+
+@pytest.mark.xfail(strict=True, reason="a stored graph offers an output made two loops deep as one flat Series")
+def test_a_stored_graph_inside_a_stored_graph_offers_the_same_series_of_series() -> None:
+    stored = results([REGISTRY["wrapped"], show], [("wrapped.shout-lines.shout.result", "show.values")], "show", "a,b;;c")
+    assert stored == ["A+B", None, "C"]
+
+
+def test_one_item_of_each_of_two_outputs_of_a_stored_graph_is_refused_as_items_of_two_series() -> None:
+    """Outside a stored graph each output it offers is a Series of its own, however the two are made inside."""
+    reads = [("shout-and-whisper.shout.result", "pair.a"), ("shout-and-whisper.whisper.result", "pair.b")]
+
+    @_node("pair")
+    def pair(a: str, b: str) -> str:
+        return a + b
+
+    graph = REGISTRY.load(make_graph(REGISTRY["shout-and-whisper"], pair, edges=reads))
+    assert [problem.type for problem in graph.problems] == ["series_not_nested"]
