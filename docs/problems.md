@@ -1564,6 +1564,6 @@ A 409 from `POST /runs/{run_id}/answers` or `/resume`: between the read of the r
 print("leg_failed:", router_sentence["leg_failed"])  # leg_failed: The run's worker failed before the leg could end; its operator finds why in the server log. Resume it to carry on.
 ```
 
-The `cause` of a run that reads `failed` because its worker raised outside any node: the store went away, `from_run` raised, the run could not be loaded. It is in `GET /runs/{run_id}` and on the leg's `run_end` event. The run is kept as its last checkpoint, and answers queued during the leg stay queued. The leg ended with no run to ask, so `waiting` is empty until a resume's leg ends.
+The `cause` of a run that reads `failed` because its worker raised outside any node in a way that would raise again: `from_run` raised, the run could not be loaded. A raise from the store is not one: it fails no run, and the run is gone on with once its lease runs out. It is in `GET /runs/{run_id}` and on the leg's `run_end` event. The run is kept as its last checkpoint, and answers queued during the leg stay queued. The leg ended with no run to ask, so `waiting` is empty until a resume's leg ends.
 
 **Fix.** `POST /runs/{run_id}/resume`. The exception is in the log `conductor_providers.fastapi`, with the run's id.

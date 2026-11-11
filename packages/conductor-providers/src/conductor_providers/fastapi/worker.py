@@ -395,8 +395,9 @@ class Worker(Generic[C]):
     async def _legs(self, hold: _Hold, row: StoredRun, max_items: int | None) -> None:
         """Run legs of a held run, renewing its lease, until the end of one gives the run up.
 
-        A raise while a leg's end is written, which may come after its ``run_end`` is stored, is logged and writes
-        no second end: the row stays ``running``, its lease runs out, and a worker goes on from the last checkpoint.
+        A raise that reaches here is the store's, at an event, a checkpoint or a leg's end. It is the host's
+        outage and never fails the run: it is logged, the leg stops before its next unit and the run is given up
+        as it is in the store, ``running``. Its lease runs out, and a worker goes on from the last checkpoint.
 
         Args:
             hold: The hold on the run.
@@ -409,7 +410,7 @@ class Worker(Generic[C]):
                 end = await self._leg(hold, row, max_items)
                 row, max_items = await self._finish(hold, row, end), None
         except Exception:
-            log.exception("the end of the leg of run %s was not written; a worker goes on with the run once its lease runs out", row.id)
+            log.exception("the store raised while a leg of run %s ran; a worker goes on with the run once its lease runs out", row.id)
         finally:
             renewing.cancel()
             del self._holds[hold]
@@ -434,6 +435,9 @@ class Worker(Generic[C]):
     async def _leg(self, hold: _Hold, row: StoredRun, max_items: int | None) -> LegEnd:
         """Run one leg of a held run and store its events and checkpoints.
 
+        The leg's own work is done in ``_leg_steps``, and every call to the store is made here. So a raise that
+        leaves this method is the store's: the host's outage, which never fails a run.
+
         Args:
             hold: The hold on the run.
             row: The row, whose ``run`` the leg starts from.
@@ -441,8 +445,33 @@ class Worker(Generic[C]):
 
         Returns:
             How the leg ended: with the run of its ``run_end``; handed back, when the worker shuts down and no
-            cancel was asked, its run stored as the leg's last checkpoint; or, for a raise anywhere in it outside
-            a node, which is logged, as a leg that raised.
+            cancel was asked, its run stored as the leg's last checkpoint; or as a leg that raised.
+        """
+        end: LegEnd = HandedBack()
+        async with contextlib.aclosing(self._leg_steps(hold, row, max_items)) as steps:  # a raise in this loop ends the leg before its next unit
+            async for step in steps:
+                match step:
+                    case LegEnd():
+                        end = step
+                    case str():
+                        if not await self._store.add_event(row.id, self.id, step):
+                            hold.stop.set()  # another worker holds the run
+                    case _:
+                        await self._write(hold, step)
+        return end
+
+    async def _leg_steps(self, hold: _Hold, row: StoredRun, max_items: int | None) -> AsyncGenerator[str | RunChanges | LegEnd]:
+        """Run one leg of a held run, and say what the store is to take of it. Nothing here calls the store.
+
+        Args:
+            hold: The hold on the run.
+            row: The row, whose ``run`` the leg starts from.
+            max_items: A ceiling on the items of any one Series, where the run's own is to be raised.
+
+        Yields:
+            Each event to store, as JSON; each checkpoint, as the row's ``run`` to write; and last, unless the leg
+            is handed back, how the leg ended. A raise anywhere in the leg outside a node is logged and ends it
+            as a leg that raised.
         """
         try:
             who = self.started_by(row)
@@ -451,19 +480,17 @@ class Worker(Generic[C]):
                 from_run=self._from_run(who), max_items=max_items, timeout=self._leg_timeout,
                 cancel=hold.stop, hand_back=self._handing_back, checkpoint_every=self._checkpoint_every,
             )
-            end: LegEnd = HandedBack()
-            async with contextlib.aclosing(stream):  # a raise in this loop ends the leg before its next unit
+            async with contextlib.aclosing(stream):
                 async for event in stream:
                     if isinstance(event, RunCheckpoint):
-                        await self._write(hold, {"run": await asyncio.to_thread(event.run.to_json)})
+                        yield {"run": await asyncio.to_thread(event.run.to_json)}
                     elif isinstance(event, RunEnd):
-                        end = await asyncio.to_thread(end_of, event)
-                    elif not await self._store.add_event(row.id, self.id, event.model_dump_json()):
-                        hold.stop.set()  # another worker holds the run
-            return end
+                        yield await asyncio.to_thread(end_of, event)
+                    else:
+                        yield event.model_dump_json()
         except Exception:
             log.exception("the leg of run %s failed", row.id)
-            return Raised.because(router_problem.leg_failed())
+            yield Raised.because(router_problem.leg_failed())
 
     async def _finish(self, hold: _Hold, row: StoredRun, end: LegEnd) -> StoredRun:
         """Write how a leg ended, decided from the row's state as read for each try of the write, so a cancel or an

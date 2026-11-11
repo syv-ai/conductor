@@ -466,33 +466,30 @@ async def test_an_answer_queued_during_a_leg_that_ends_cancelled_before_its_ques
     assert await _starts(store, run_id) == 1
 
 
-class _FailingEvent(MemoryStore):
-    """Fails to add the first event after ``armed`` is set, so the leg raises there."""
-
-    armed = failed = False
-
-    async def add_event(self, run_id: str, owner: str, body: str) -> bool:
-        if self.armed and not self.failed:
-            self.failed = True
-            raise ConnectionError("the store went away")
-        return await super().add_event(run_id, owner, body)
-
-
 async def test_an_answer_queued_during_a_leg_that_raised_stays_queued_and_is_taken_after_a_resume() -> None:
-    registry, graph, gate, inputs, waiting_id = asking(items=True)
-    store = _FailingEvent()
-    worker = _worker(store, registry)
-
-    run_id = await _started(worker, graph, inputs)
-    assert await worker.answer(await worker.read(run_id), {waiting_id: True}) == "queued"
-    store.armed = True
+    registry, graph, gate, inputs, waiting_id = asking()
     gate.set()
-    failed = await store.ended(run_id)
-    assert (failed.status, failed.refused) == ("failed", {})
+    legs = []
 
-    await worker.resume(await worker.read(run_id))
-    completed = await store.ended(run_id)  # the leg after the resume ended waiting, and took the answer queued two legs before
-    assert (completed.status, completed.refused, completed.outputs) == ("complete", {}, {"busy.result": "x", "after.result": True, "each.result": [0, 1, 2]})
+    def fails_on_the_first_leg(caller: str) -> dict[type, Any]:
+        legs.append(caller)
+        if len(legs) == 1:
+            raise ConnectionError("the secrets service is down")
+        return {}
+
+    store = MemoryStore()
+    worker = _worker(store, registry, from_run=fails_on_the_first_leg)
+    left = left_running("left", graph, registry.load(graph).with_inputs(inputs), owner="a-dead-worker")
+    await store.create(left)
+    assert await worker.answer(await worker.read("left"), {waiting_id: True}) == "queued"
+
+    await worker.sweep()
+    failed = await store.ended("left")
+    assert (failed.status, failed.refused, (await worker.read("left")).state.queued_answers) == ("failed", {}, {waiting_id: True})
+
+    await worker.resume(await worker.read("left"))
+    completed = await store.ended("left")  # the leg after the resume ended waiting, and took the answer queued two legs before
+    assert (completed.status, completed.refused, completed.outputs) == ("complete", {}, {"busy.result": "x", "after.result": True})
 
 
 async def test_an_answer_that_is_taken_leaves_nothing_refused_or_queued_for_its_question() -> None:
@@ -623,35 +620,47 @@ async def test_a_question_that_waits_in_a_failed_run_is_answered_without_a_resum
 # -- a leg that raised ----------------------------------------------------------------------------
 
 
-async def test_a_leg_whose_event_the_store_fails_to_take_calls_no_node_once_the_run_reads_failed() -> None:
-    registry, started = NodeRegistry(), []
+@pytest.mark.parametrize("fails", ["the write of an event", "the write of a checkpoint"])
+async def test_a_leg_the_store_raises_in_is_given_up_and_gone_on_with_once_its_lease_runs_out_and_the_run_never_fails(fails: str) -> None:
+    registry, graph, called, calls = _slow_items()
 
-    @registry.node("first", title="First", description="")
-    def first(n: int) -> Series[str]:
-        return [str(i) for i in range(n)]
+    class RaisesOnce(MemoryStore):
+        """Raises once mid-leg, as a database that drops one statement."""
 
-    @registry.node("slow", title="Slow", description="")
-    def slow(text: str) -> str:
-        started.append(text)
-        time.sleep(0.01)
-        return text
+        def __init__(self) -> None:
+            super().__init__()
+            self.raised = asyncio.Event()
 
-    class Flaky(MemoryStore):
-        failed_once = False
+        def down(self) -> bool:
+            if not self.raised.is_set() and len(calls) >= 5:
+                self.raised.set()
+                return True
+            return False
 
         async def add_event(self, run_id: str, owner: str, body: str) -> bool:
-            if '"node_start"' in body and '"slow"' in body and not self.failed_once:
-                self.failed_once = True
-                raise OSError("the store is down for a moment")
+            if fails == "the write of an event" and self.down():
+                raise ConnectionError("the store is down for one statement")
             return await super().add_event(run_id, owner, body)
 
-    store = Flaky()
-    run_id = await _started(_worker(store, registry), make_graph(first, slow), {"n": 100})
+        async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
+            if fails == "the write of a checkpoint" and changes.keys() == {"run"} and self.down():
+                raise ConnectionError("the store is down for one statement")
+            return await super().update(run_id, rev, changes)
 
-    assert (await store.ended(run_id)).status == "failed"
-    at_the_end = len(started)
-    await asyncio.sleep(0.3)  # a leg still running would have called more by now
-    assert len(started) == at_the_end < 100
+    store = RaisesOnce()
+    worker = _worker(store, registry, lease=0.3, checkpoint_every=0.01)
+    async with worker.serving():
+        run_id = await _started(worker, graph, {"n": 40})
+        async with asyncio.timeout(5):
+            await store.raised.wait()
+        at_the_raise = len(calls)
+        await asyncio.sleep(0.1)  # a leg still running would have called more by now, and no lease has run out
+        assert len(calls) <= at_the_raise + 1 and store.rows[run_id].status == "running"
+        ended = await store.ended(run_id)  # once the lease ran out and a sweep took the run
+
+    ends = [event["status"] for event in await store.stored_events(run_id) if event["type"] == "run_end"]
+    assert (ended.status, ended.cause, ends, ended.outputs) == ("complete", None, ["complete"], {"slow.result": list(range(40))})
+    assert await _starts(store, run_id) == 2
 
 
 def _shout() -> tuple[NodeRegistry, GraphRecord]:
@@ -938,6 +947,37 @@ async def test_a_worker_whose_renewal_never_returns_stops_its_leg_once_another_t
     ends = [event["status"] for event in await store.stored_events(run_id) if event["type"] == "run_end"]
     assert (ended.status, ends, ended.outputs) == ("complete", ["complete"], {"slow.result": list(range(40))})
     assert len(calls) < 2 * 40  # the leg that lost the run stopped before it had called everything again
+
+
+async def test_a_deploy_whose_last_checkpoint_the_store_fails_to_take_leaves_the_run_running_for_the_worker_that_takes_it() -> None:
+    registry, graph, called, calls = _slow_items()
+
+    class HandBackFails(MemoryStore):
+        """Raises once in the write of a checkpoint, once ``armed``: the one a leg handed back ends with."""
+
+        armed = raised = False
+
+        async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
+            if self.armed and not self.raised and changes.keys() == {"run"}:
+                self.raised = True
+                raise ConnectionError("the store is down for one statement")
+            return await super().update(run_id, rev, changes)
+
+    store = HandBackFails()
+    deployed, other = _worker(store, registry, lease=0.15), _worker(store, registry, lease=0.15)
+
+    async with deployed.serving():
+        run_id = await _started(deployed, graph, {"n": 40})
+        await asyncio.to_thread(called.wait, 5)
+        store.armed = True
+    row = store.rows[run_id]
+    assert store.raised and (row.status, row.owner) == ("running", deployed.id)
+
+    async with other.serving():
+        ended = await store.ended(run_id)  # once the lease the deployed worker left ran out
+
+    ends = [event["status"] for event in await store.stored_events(run_id) if event["type"] == "run_end"]
+    assert (ended.status, ended.cause, ends, ended.outputs) == ("complete", None, ["complete"], {"slow.result": list(range(40))})
 
 
 async def test_a_run_begun_as_a_worker_shuts_down_is_handed_back_before_the_worker_has_shut_down() -> None:
