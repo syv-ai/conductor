@@ -14,21 +14,7 @@ From Python::
 from __future__ import annotations
 
 import re
-
-
-def _load_text() -> str:
-    """Read the packaged ``llms.txt``."""
-    from importlib.resources import files
-
-    resource = files("conductor.about").joinpath("llms.txt")
-    if resource.is_file():
-        return resource.read_text(encoding="utf-8")
-
-    raise RuntimeError(
-        "conductor.about could not locate llms.txt inside the package. "
-        "This indicates a broken install; please reinstall conductor."
-    )
-
+from importlib.resources import files
 
 _HEADING = re.compile(r"^(##+) (.+)$", re.MULTILINE)
 
@@ -57,17 +43,17 @@ def _parse_sections(text: str) -> dict[str, str]:
 
 def get_content() -> str:
     """The whole reference."""
-    return _load_text()
+    return files("conductor.about").joinpath("llms.txt").read_text(encoding="utf-8")
 
 
 def list_sections() -> list[str]:
     """The slug of every ``##`` and ``###`` section, in the order the reference has them."""
-    return list(_parse_sections(_load_text()).keys())
+    return list(_parse_sections(get_content()).keys())
 
 
 def get_section(name: str) -> str | None:
     """One section by its slug, or the first whose slug contains ``name``; ``None`` when none does."""
-    sections = _parse_sections(_load_text())
+    sections = _parse_sections(get_content())
     if name in sections:
         return sections[name]
     for slug, body in sections.items():
