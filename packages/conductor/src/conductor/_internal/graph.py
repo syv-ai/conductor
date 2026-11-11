@@ -245,17 +245,12 @@ class _AtPath:
         maps: Every map it runs in, outermost first, each as the function whose ``Series`` output it is and
             that output: those of the embedded graph's node it is inside, then those of its own scope. A map
             over what an embedded graph offers is the map inside that makes it.
-        inputs: How each input gets its value where the node stands, by name. Every cell of a plan names a
-            function by its ``name``, so a plan is read the same wherever its node stands: an open input of a
-            node inside an embedded graph has the plan that graph's node has for it, and an edge from an
-            embedded graph's output reads the cell inside that holds it.
     """
 
     embedding: GraphAtPath | None
     path: NodePath
     name: str
     maps: Maps
-    inputs: dict[str, InputPlan]
 
 
 @typing.final
@@ -263,15 +258,23 @@ class _AtPath:
 class FunctionAtPath(_AtPath):
     """A function node where it stands: what a run holds units of and a leg calls.
 
+    How each input gets its value is written for where the node stands: every cell of a plan names a function
+    by its ``name``, so a plan is read the same wherever its node stands. An open input of a node inside an
+    embedded graph has the plan that graph's node has for it, and an edge from an embedded graph's output reads
+    the cell inside that holds it.
+
     Attributes:
         placed: The node, as its graph loaded it.
         policy: The node's policy, as its definition declares it.
+        call_template: What the arguments of every call start as: each input by name, in the order declared,
+            one that holds the same value on every call already holding it.
+        from_caller: The inputs the caller gives: the name, and the address a run keeps the caller's value by.
+        fed: The inputs edges feed, in the order declared: the name, the plan, and whether the input takes a
+            blank. A gathering input's plan names the functions it gathers through (``Gather.through``).
+        gathered_in_step: The gathering inputs that gather one Series, for each such Series: each input's name
+            and whether its items may be blank. They receive the same items.
         checked: The inputs whose value is read by the input's type before a call, as the types the edges bring
             don't settle it.
-        gathered_through: For each gathering input, by name, the functions made per item of its Series that
-            what it gathers rests on, in the order a leg tries them: what stands between the input and
-            everything outside the items. A run asks them, in this order, whether any item could bring the
-            input a value; none when the Series itself is all that has a say.
         opens: The ``Series`` outputs some reader works through one item at a time where the node stands,
             which a run holds to ``max_items``, each with the node and the output its reader's graph names it
             by: its own, for a reader in its graph; for a reader of an embedded graph's node around it, that
@@ -290,8 +293,11 @@ class FunctionAtPath(_AtPath):
 
     placed: PlacedFunction
     policy: Policy
+    call_template: dict[str, Any]
+    from_caller: tuple[tuple[str, str], ...]
+    fed: tuple[tuple[str, Fed, bool], ...]
+    gathered_in_step: tuple[tuple[tuple[str, bool], ...], ...]
     checked: tuple[str, ...]
-    gathered_through: dict[str, tuple[FunctionAtPath, ...]] = dataclasses.field(default_factory=dict[str, tuple["FunctionAtPath", ...]])
     opens: dict[str, tuple[NodeAtPath, str]] = dataclasses.field(default_factory=dict[str, tuple["NodeAtPath", str]])
     made_from: dict[FunctionAtPath, int] = dataclasses.field(default_factory=dict["FunctionAtPath", int])
     readers: list[tuple[FunctionAtPath, int]] = dataclasses.field(default_factory=list[tuple["FunctionAtPath", int]])
@@ -309,12 +315,15 @@ class GraphAtPath(_AtPath):
 
     Attributes:
         placed: The node, as its graph loaded it.
+        inputs: How each input gets its value where the node stands, by name: the plan an open input inside
+            is given for its own.
         nodes: The nodes of the graph inside, where they stand.
         offers: Each output it offers, by its address in the inner graph: the function inside that makes it, at
             any depth of embedded graphs, and that function's output.
     """
 
     placed: PlacedGraph
+    inputs: dict[str, InputPlan]
     nodes: list[NodeAtPath] = dataclasses.field(default_factory=list["NodeAtPath"])
     offers: dict[str, tuple[FunctionAtPath, str]] = dataclasses.field(default_factory=dict[str, tuple["FunctionAtPath", str]])
 
@@ -737,21 +746,38 @@ def _add_to_tree(graph: Graph, embedding: GraphAtPath | None, tree: list[Functio
                 embedded.offers[address] = last.offers[output] if isinstance(last, GraphAtPath) else (last, output)
             here[placed.id] = node_at[embedded.name] = embedded
             continue
-        node = FunctionAtPath(
-            placed=placed, embedding=embedding, path=path, name="/".join(path), maps=maps, inputs=inputs,
-            policy=placed.definition.policy, checked=tuple(name for name, plan in inputs.items() if _read_before_a_call(plan)),
-        )
-        node.opens = {output: (node, output) for output in placed.opens}
+        call_template: dict[str, Any] = {}
+        from_caller: list[tuple[str, str]] = []
+        fed: list[tuple[str, Fed, bool]] = []
+        made_from: dict[FunctionAtPath, int] = {}
+        gathering: dict[Cell, list[tuple[str, bool]]] = {}
         for name, plan in inputs.items():
-            if not isinstance(plan, Fed):
-                continue
+            call_template[name] = None
+            match plan:
+                case Fixed(value=value):
+                    call_template[name] = value
+                    continue
+                case Open(address=address):
+                    from_caller.append((name, address))
+                    continue
+                case Unset():
+                    raise RuntimeError(f"'{'/'.join(path)}' has an input with no value to give: a graph with problems is never walked")
             read_at = [(functions[cell.node_id], min(cell.depth, len(plan.scope))) for cell in plan.reads]  # no deeper than the input sits
             if isinstance(plan, Gather):
                 series = plan.series
-                node.gathered_through[name], outside = _gathered_through((functions[series.node_id], series.output), [functions[source.node_id] for source in plan.sources])
+                through, outside = _gathered_through((functions[series.node_id], series.output), [functions[cell.node_id] for cell in plan.reads[1:]])
+                plan = dataclasses.replace(plan, through=through)
                 read_at += outside.items()
+                gathering.setdefault(series, []).append((name, plan.spec.keeps_blanks))
+            fed.append((name, plan, plan.spec.whole.optional))
             for read, places in read_at:
-                node.made_from[read] = min(places, node.made_from.get(read, places))
+                made_from[read] = min(places, made_from.get(read, places))
+        node = FunctionAtPath(
+            placed=placed, embedding=embedding, path=path, name="/".join(path), maps=maps, policy=placed.definition.policy,
+            call_template=call_template, from_caller=tuple(from_caller), fed=tuple(fed), gathered_in_step=tuple(map(tuple, gathering.values())),
+            checked=tuple(name for name, plan in inputs.items() if _read_before_a_call(plan)), made_from=made_from,
+        )
+        node.opens = {output: (node, output) for output in placed.opens}
         if maps and min(node.made_from.values(), default=0) < len(maps):  # what it reads may be there before its items are
             node.made_from.setdefault(maps[-1][0], len(maps) - 1)
         here[placed.id] = node_at[node.name] = node
@@ -820,37 +846,30 @@ def _plan_at_path(plan: InputPlan, here: Mapping[str, NodeAtPath]) -> InputPlan:
 
 
 def _gathered_through(series: tuple[FunctionAtPath, str], sources: list[FunctionAtPath]) -> tuple[tuple[FunctionAtPath, ...], dict[FunctionAtPath, int]]:
-    """Finds the nodes made per item of ``series`` that a gathering input rests on, by what each one's units are
-    made from (``made_from``), and what those nodes read outside the items.
+    """Finds the functions made per item of ``series`` that a gathering input rests on, by what each one's
+    units are made from (``made_from``), and what those functions read outside the items.
 
     Args:
-        series: The Series the input gathers: the node that makes it, and its output.
-        sources: The nodes whose outputs the input's edges bring.
+        series: The Series the input gathers: the function that makes it, and its output.
+        sources: The functions whose outputs the input reads for an item.
 
     Returns:
-        The nodes, in the tree's order, each after the ones it reads; and each node outside the items that
-        one of them reads, with how many places of an instance say which of its units. No nodes when all they
-        read outside the items is the Series, from a node whose one output it is, and none of them has an
-        output of an exclusive group: the input then comes to what the Series itself is.
+        The functions, in the order a leg tries them, each after the ones it reads; and each function outside
+        the items that one of them reads, with how many places of an item path say which of its units.
     """
-    made_by = series[0]
     through: set[FunctionAtPath] = set()
     outside: dict[FunctionAtPath, int] = {}
-    only_the_series = len(made_by.placed.outputs) == 1
     stack = sources
     while stack:
         inner = stack.pop()
         if series in inner.maps and inner not in through:
             through.add(inner)
-            if any([spec.param.exclusive_group is not None for spec in inner.placed.outputs.values()]):
-                only_the_series = False  # not called for a Series never made, it chooses no branch: a skip, not the Series' blank
             for read, places in inner.made_from.items():
                 if series in read.maps:
                     stack.append(read)
                 else:
                     outside[read] = min(places, outside.get(read, places))
-                    only_the_series = only_the_series and read is made_by
-    return (() if only_the_series else tuple(sorted(through, key=lambda inner: inner.position))), outside
+    return tuple(sorted(through, key=lambda inner: inner.position)), outside
 
 
 def load_graph(record: GraphRecord, definitions: Mapping[str, NodeDefinition]) -> Graph:

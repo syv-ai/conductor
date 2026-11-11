@@ -65,7 +65,6 @@ from conductor._internal.run import (
     Run,
     RunState,
     RunStatus,
-    _length,
     jsonable,
     unit_loc,
     waiting_unit,
@@ -79,6 +78,8 @@ from conductor._internal.units import (
     Done,
     Skipped,
     Unit,
+    instances,
+    length,
 )
 
 #: What a call can raise that is never tried again, whatever a ``Policy``'s ``retry_on`` names: the node's own failure,
@@ -271,6 +272,8 @@ class Leg:
         self.nodes = run.graph._tree
         #: Each node's units by instance: the run's own, recorded into.
         self.units = units = {node: run._units[node.name] for node in self.nodes}
+        #: Reads what the run's units hold for one item: what a call of a node receives there.
+        self.reader = run._reader
         #: The nodes whose units were recorded out of instance order, as calls on threads finish when they finish.
         self.out_of_order: set[FunctionAtPath] = set()
         #: What each node may take from the run this one went on from, by its path.
@@ -447,7 +450,7 @@ class Leg:
         run, running = self.run, self.running
         for node in self.nodes:
             units = self.units[node]
-            for key in run._instances(node.maps, ())[0]:
+            for key in instances(run._units, node.maps, ())[0]:
                 if key not in units and (node, key) not in running:
                     if not self.going or (self.stop is not None and self.stop() is not None):
                         return
@@ -458,11 +461,15 @@ class Leg:
         run = self.run
         if not walking and (key in self.units[node] or (node, key) in self.running):
             return
-        kwargs = run._inputs(node, key)
+        try:
+            kwargs = self.reader.comes_to(node, key)
+        except FieldValueError as missing:  # an edge names a field the record it brings doesn't have
+            self._record(node, key, self._failure(node, key, missing), walking)
+            return
         if kwargs is NOT_SETTLED:
             return
         policy = node.policy
-        if not isinstance(kwargs, dict):  # skipped or blank: it comes to that uncalled; or the problem it fails with
+        if not isinstance(kwargs, dict):  # skipped or blank: it comes to that uncalled
             self._record(node, key, kwargs, walking)
         elif (
             (carried := self.carried) and policy.reuse_when_inputs_match and (lent := carried.get(node.path)) is not None
@@ -615,7 +622,7 @@ class Leg:
             self._checkpoint()
         if run.max_items is not None and node.opens and type(unit) is not Asking:
             for output in node.opens:
-                items = _length(unit.out[output])
+                items = length(unit.out[output])
                 if items > run.max_items:
                     self._stop_at_ceiling(node, key, output, items)
                     return
@@ -636,7 +643,7 @@ class Leg:
             elif len(reader.maps) == depth:
                 heapq.heappush(self.ready, (reader.position, key))
             else:
-                for instance in run._instances(reader.maps, key)[0]:
+                for instance in instances(run._units, reader.maps, key)[0]:
                     heapq.heappush(self.ready, (reader.position, instance))
 
     def _in_turn(self, node: FunctionAtPath, key: Key) -> bool:
@@ -648,7 +655,7 @@ class Leg:
         """
         turn = self.turns.get(node)
         if turn is None or key not in turn.place:
-            order = self.run._instances(node.maps, ())[0]
+            order = instances(self.run._units, node.maps, ())[0]
             turn = self.turns[node] = _Turn(order, {k: i for i, k in enumerate(order)})
         order, units, passed, reached = turn.order, self.units[node], turn.passed, turn.reached
         while reached < len(order) and ((instance := order[reached]) in units or (node, instance) in self.running or instance in passed):
@@ -679,7 +686,7 @@ class Leg:
             if not any(n in above and k[: len(key)] == key for n, k in working):
                 self.gathers.discard((node, key))
                 released = True
-                for instance in self.run._instances(node.maps, key)[0] if len(key) < len(node.maps) else (key,):
+                for instance in instances(self.run._units, node.maps, key)[0] if len(key) < len(node.maps) else (key,):
                     heapq.heappush(self.ready, (node.position, instance))
         return released
 
@@ -692,8 +699,8 @@ class Leg:
         for node in self.nodes:
             for output in node.opens:
                 for key, unit in self.units[node].items():
-                    if type(unit) is not Asking and _length(unit.out[output]) > ceiling:
-                        self._stop_at_ceiling(node, key, output, _length(unit.out[output]))
+                    if type(unit) is not Asking and length(unit.out[output]) > ceiling:
+                        self._stop_at_ceiling(node, key, output, length(unit.out[output]))
                         return
 
     def _stop_at_ceiling(self, node: FunctionAtPath, key: Key, output: str, items: int) -> None:
@@ -725,7 +732,7 @@ class Leg:
         done = sum(1 for unit in self.units[node].values() if type(unit) is not Asking)  # counted only when said, at most four times a second
         if self.progress_said.get(node) != done:
             self.progress_at[node], self.progress_said[node] = now, done
-            keys, known = self.run._instances(node.maps, ())
+            keys, known = instances(self.run._units, node.maps, ())
             emit(NodeProgress(loc=node.path, done=done, total=len(keys) if known else None))
 
     def _completions(self) -> None:
@@ -763,7 +770,7 @@ class Leg:
                     self.skipped.add(around)
                     self.emit(NodeSkipped(loc=around.path))
                 else:
-                    counted, _ = self.run._instances(around.maps, (), counted=True)
+                    counted, _ = instances(self.run._units, around.maps, (), counted=True)
                     self.emit(NodeComplete(loc=around.path, units=(counted[0][0] if counted else 0) if around.maps else 1))
             around = around.embedding
 

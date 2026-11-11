@@ -9,8 +9,8 @@ A plan is one of six kinds. ``Fixed`` holds a value, ``Open`` is the
 caller's, ``Unset`` has none. The three that edges feed (``Read``, ``Gather``,
 ``SeriesOfOne``) each hold ``reads``: every cell the input is made from. It is
 the one declaration of what the input reads. A run reads those cells and no
-other, and the units a node waits for are the units of those cells, so the
-two can't differ.
+other (``value``), and the units a node waits for are the units of those
+cells, so the two can't differ.
 
 A loaded graph holds the plans of its own nodes, each cell naming a node of
 that graph by id. Where a node stands among the graphs a run is of, its plans
@@ -22,9 +22,13 @@ from __future__ import annotations
 
 import dataclasses
 from dataclasses import dataclass
-from typing import Any, NamedTuple, final
+from typing import TYPE_CHECKING, Any, NamedTuple, Protocol, final
 
-from conductor._internal.fields import Field, Type
+from conductor._internal.fields import SKIPPED, Field, Type
+from conductor._internal.units import NOT_SETTLED, ItemPath
+
+if TYPE_CHECKING:
+    from conductor._internal.graph import FunctionAtPath
 
 
 class Port(NamedTuple):
@@ -132,6 +136,20 @@ Source = Value | Item | WholeSeries
 # -- how an input gets its value ----------------------------------------------------------------
 
 
+class ReadsCells(Protocol):
+    """What a plan asks of what reads for it: a way to read one cell, for one item or for an item nobody
+    knows. Each answer is a value, ``None`` for a blank, ``SKIPPED`` for a branch not taken, or ``NOT_SETTLED``."""
+
+    def cell(self, cell: Cell, item_path: ItemPath) -> Any:
+        """What ``cell`` holds for ``item_path``, as an edge brings it."""
+
+    def best_of(self, reads: tuple[Cell, ...], item_path: ItemPath) -> Any:
+        """What alternative edges bring one input: the best of what each brings."""
+
+    def gathered(self, plan: Gather, item_path: ItemPath) -> Any:
+        """What the gathering input of ``plan`` holds: its items, or what is outside them when that decides."""
+
+
 @final
 @dataclass(frozen=True, slots=True)
 class Fixed:
@@ -195,6 +213,11 @@ class Read:
         """What each edge brings."""
         return self.reads
 
+    def value(self, reader: ReadsCells, item_path: ItemPath) -> Any:
+        """What the input holds for ``item_path``: what its edge brings, or the best of alternative edges."""
+        reads = self.reads
+        return reader.cell(reads[0], item_path) if len(reads) == 1 else reader.best_of(reads, item_path)
+
 
 @final
 @dataclass(frozen=True, slots=True)
@@ -208,11 +231,15 @@ class Gather:
             for an item. Several edges are alternatives, as for any input.
         levels: How many of ``reads`` are a Series: one, but for what an embedded graph offers of an output
             made more than one map deep inside it, which is gathered through every one of those maps.
+        through: Where the input's node stands, the functions made per item of the Series that what it
+            gathers rests on, each after the ones it reads: what stands between the input and everything
+            outside the items. A loaded graph's own plan names none.
     """
 
     spec: Field
     reads: tuple[Cell, ...]
     levels: int = 1
+    through: tuple[FunctionAtPath, ...] = ()
 
     @property
     def series(self) -> Cell:
@@ -223,6 +250,11 @@ class Gather:
     def sources(self) -> tuple[Source, ...]:
         """What each edge brings for an item."""
         return self.reads[self.levels :]  # type: ignore[return-value]  # every cell after the Series is what an edge brings
+
+    def value(self, reader: ReadsCells, item_path: ItemPath) -> Any:
+        """What the input holds for ``item_path``: the items of its Series, or what is outside them when that
+        decides."""
+        return reader.gathered(self, item_path)
 
     @property
     def scope(self) -> Scope:
@@ -249,6 +281,15 @@ class SeriesOfOne:
     def sources(self) -> tuple[Value, ...]:
         """What each edge brings."""
         return self.reads
+
+    def value(self, reader: ReadsCells, item_path: ItemPath) -> Any:
+        """What the input holds for ``item_path``: the one value its edge brings, as a list of one; where the
+        items take a blank, a blank is its one item."""
+        reads = self.reads
+        value = reader.cell(reads[0], item_path) if len(reads) == 1 else reader.best_of(reads, item_path)
+        if value is SKIPPED or value is NOT_SETTLED or (value is None and not self.spec.keeps_blanks):
+            return value
+        return [value]
 
     @property
     def scope(self) -> Scope:

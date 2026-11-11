@@ -11,16 +11,25 @@ what reads an output reads ``unit.out[output]`` whatever the unit's kind:
   was chosen.
 
 ``Asking`` waits for a person and holds no outputs: it is not settled, and
-nor is an instance that holds no unit yet.
+nor is an item that holds no unit yet. Which items a node has is read from
+the units too: one for each item of each ``Series`` it runs per item of
+(``instances``).
 """
 
 from __future__ import annotations
 
 import enum
 from dataclasses import dataclass
-from typing import Any, Final, final
+from typing import TYPE_CHECKING, Any, Final, final
 
 from conductor._internal.ask import Question
+from conductor._internal.fields import SKIPPED
+
+if TYPE_CHECKING:
+    from conductor._internal.graph import Maps
+
+#: The place of an item in each map a node runs in, outermost first; ``()`` for a node that runs once.
+ItemPath = tuple[int, ...]
 
 
 class NotReady(enum.Enum):
@@ -118,3 +127,40 @@ Settled = Done | Answered | Skipped | Blank
 
 #: What one node came to in one instance of its scope. A run and its copies share their units, so none is changed.
 Unit = Settled | Asking
+
+#: Each function's units by item path, by the function's name (``e/ask``).
+Units = dict[str, dict[ItemPath, Unit]]
+
+
+def instances(units: Units, maps: Maps, under: ItemPath, *, counted: bool = False) -> tuple[list[ItemPath], bool]:
+    """The item paths of a node that runs in ``maps`` under the item path ``under`` of a node that runs in the
+    first of them, and whether all of them exist yet: a Series not made yet, or one a person is asked for, has
+    none so far.
+
+    With ``counted``, the innermost map's items are only counted: ``[(n,)]`` stands for ``n`` of them, unbuilt.
+    """
+    start, deepest = len(under), len(maps)
+    if start >= deepest:
+        return [under[:deepest]], True
+    paths, complete = [under], True
+    for depth in range(start, deepest):
+        series, output = maps[depth]
+        held = units[series.name]
+        below: list[ItemPath] = []
+        for parent in paths:
+            unit = held.get(parent)
+            if unit is None or type(unit) is Asking:
+                complete = False
+                continue
+            count = length(unit.out[output])
+            if counted and depth == deepest - 1:
+                below = [(below[0][0] + count,)] if below else [(count,)]
+            else:
+                below.extend((*parent, i) for i in range(count))
+        paths = below
+    return paths, complete
+
+
+def length(value: Any) -> int:
+    """How many items a ``Series`` output holds; none when it is blank or a branch not taken."""
+    return 0 if value is SKIPPED or value is None else len(value)

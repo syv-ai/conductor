@@ -31,7 +31,17 @@ import time
 from collections.abc import AsyncGenerator, Callable, Iterator, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Literal, NamedTuple, get_args, overload
+from typing import (
+    TYPE_CHECKING,
+    Annotated,
+    Any,
+    ClassVar,
+    Literal,
+    NamedTuple,
+    cast,
+    get_args,
+    overload,
+)
 
 import pydantic_core
 from pydantic import ConfigDict, NonNegativeInt, PositiveInt, TypeAdapter, ValidationError
@@ -46,27 +56,17 @@ from pydantic_core import (
 )
 
 from conductor._internal.ask import Question, Waiting, answer_outputs, waiting_questions
+from conductor._internal.call_inputs import CallInputs, ItemReader
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.fields import SKIPPED, Field, FieldValueError, Records, Type, written_table
 from conductor._internal.graph import (
     FunctionAtPath,
     GraphAtPath,
-    Maps,
     NodeAtPath,
     NodePath,
     PlacedFunction,
 )
-from conductor._internal.input_plans import (
-    Cell,
-    Fixed,
-    Gather,
-    Item,
-    Open,
-    SeriesOfOne,
-    WholeSeries,
-)
 from conductor._internal.node_definition import Returns, from_run_values
-from conductor._internal.outside_the_items import COULD, could_bring
 from conductor._internal.problem import InvalidCallError, Problem, make_problem, value_free_errors
 from conductor._internal.units import (
     NOT_ITS_TURN,
@@ -78,6 +78,8 @@ from conductor._internal.units import (
     NotReady,
     Skipped,
     Unit,
+    Units,
+    instances,
 )
 
 if TYPE_CHECKING:
@@ -91,9 +93,6 @@ Key = tuple[int, ...]
 #: Where something is in a run: a node's id, then the place of its item in each of its scope's maps; for what is
 #: inside an embedded graph, the embedding node and its item first, ``("e", 0, "ask", 2)``.
 Path = tuple[str | int, ...]
-
-#: Each function's units by instance, by the function's name (``e/ask``).
-_Units = dict[str, dict[Key, Unit]]
 
 
 def unit_loc(node: NodeAtPath, key: Key) -> Path:
@@ -215,7 +214,7 @@ class Run:
     #: Each function's units by instance, in instance order, by the function's name: ``_units["w"]`` for a node of
     #: the graph itself, ``_units["e/ask"]`` for one inside ``e``. Only a leg records out of that order, and it puts
     #: the units back in it before it hands the run on.
-    _units: _Units
+    _units: Units
     #: What each node may take from the run this one went on from.
     _earlier: dict[NodePath, Earlier]
     #: For a node whose units a saved run made with other code or another signature, what that code was; they are never carried.
@@ -435,6 +434,7 @@ class Run:
         save larger.
         """
         carried: dict[NodePath, Earlier] = {}
+        reader = self._reader
         for node in self.graph._tree:
             if not node.policy.reuse_when_inputs_match or node.path in self._ran_as:
                 continue
@@ -443,8 +443,7 @@ class Run:
             for key, unit in self._units[node.name].items():
                 if type(unit) is Skipped or type(unit) is Blank:
                     continue
-                received = self._inputs(node, key)
-                assert isinstance(received, dict)  # the unit was called, so what it reads is settled and it received a call's arguments
+                received = cast("CallInputs", reader.comes_to(node, key))  # the unit was called, so what it reads is settled and it received a call's arguments
                 fingerprint = _fingerprint(placed.reuse_digest, received, plain=placed.plain_inputs)
                 if fingerprint is None:
                     continue
@@ -543,7 +542,7 @@ class Run:
         its output is read from the function inside that makes it."""
         units = self._units[node.name] if type(node) is FunctionAtPath else {}
         values = []
-        for key in self._instances(node.maps, ())[0]:
+        for key in instances(self._units, node.maps, ())[0]:
             if type(node) is GraphAtPath:
                 value = self._offered(node, output, key)
             else:
@@ -578,11 +577,11 @@ class Run:
             return NOT_SETTLED
         if made.out[of] is None or made.out[of] is SKIPPED:  # the Series was never made, so nor was the output: no list of no items
             return made.out[of]
-        instances, known = self._instances(last.maps, key)
+        inside, known = instances(self._units, last.maps, key)
         if not known:
             return NOT_SETTLED
         values = []
-        for instance in instances:
+        for instance in inside:
             unit = units.get(instance)
             if unit is None or type(unit) is Asking:
                 return NOT_SETTLED
@@ -660,33 +659,10 @@ class Run:
         except FieldValueError as wrong:
             return None, wrong
 
-    def _instances(self, maps: Maps, under: Key, *, counted: bool = False) -> tuple[list[Key], bool]:
-        """The instances of a node that runs in ``maps`` under the instance ``under`` of a node that runs in the
-        first of them, and whether all of them exist yet: a Series not made yet, or one a person is asked for,
-        has none so far.
-
-        With ``counted``, the innermost map's instances are only counted: ``[(n,)]`` stands for ``n`` of them, unbuilt.
-        """
-        start, deepest = len(under), len(maps)
-        if start >= deepest:
-            return [under[:deepest]], True
-        keys, complete = [under], True
-        for depth in range(start, deepest):
-            series, output = maps[depth]
-            units = self._units[series.name]
-            below: list[Key] = []
-            for parent in keys:
-                unit = units.get(parent)
-                if unit is None or type(unit) is Asking:
-                    complete = False
-                    continue
-                count = _length(unit.out[output])
-                if counted and depth == deepest - 1:
-                    below = [(below[0][0] + count,)] if below else [(count,)]
-                else:
-                    below.extend((*parent, i) for i in range(count))
-            keys = below
-        return keys, complete
+    @property
+    def _reader(self) -> ItemReader:
+        """Reads what this run's units hold for one item: what a call of a node receives there."""
+        return ItemReader(self._units, self.inputs, self.graph._node_at)
 
     def _has_every_unit(self, node: FunctionAtPath) -> bool:
         """Whether every instance of ``node`` holds a unit, one waiting for a person included, and every Series
@@ -694,118 +670,8 @@ class Run:
         units = self._units[node.name]
         if not node.maps:
             return bool(units)
-        counted, known = self._instances(node.maps, (), counted=True)
+        counted, known = instances(self._units, node.maps, (), counted=True)
         return known and len(units) == (counted[0][0] if counted else 0)
-
-    def _inputs(self, node: FunctionAtPath, key: Key) -> dict[str, Any] | Skipped | Blank | Literal[NotReady.NOT_SETTLED] | Problem:
-        """What ``node`` receives in the instance ``key``.
-
-        Returns:
-            The keyword arguments of the call; or the unit it comes to uncalled: ``Skipped`` when an input comes
-            only from branches not taken, whatever the others hold; else ``NOT_SETTLED`` while something it reads
-            hasn't run; else ``Blank`` when an input that takes no blank got one. Every input is read before
-            not settled or a blank is the answer, so the order of a node's parameters decides nothing. When an
-            edge names a field the record it brings doesn't have, the ``Problem`` the unit fails with
-            (``invalid_edge_value``).
-        """
-        kwargs: dict[str, Any] = {}
-        blank: str | None = None
-        not_settled = False
-        gathered: dict[str, tuple[Gather, list[Any]]] = {}
-        units = self._units
-        for name, plan in node.inputs.items():
-            kind = type(plan)
-            if kind is Fixed:
-                kwargs[name] = plan.value  # type: ignore[union-attr]
-                continue
-            if kind is Open:  # a first node of the graph itself, or of a graph embedded in one: the caller gives it
-                kwargs[name] = self.inputs[plan.address]  # type: ignore[union-attr]
-                continue
-            try:
-                if kind is Gather:
-                    value = self._gathered(plan, node.gathered_through[name], key)  # type: ignore[arg-type]
-                else:  # one value: the first edge whose branch was taken
-                    value = SKIPPED
-                    for source in plan.reads:  # type: ignore[union-attr]
-                        value = _cell(units, source, key)
-                        if value is not SKIPPED:
-                            break
-                    if kind is SeriesOfOne and value is not SKIPPED and value is not NOT_SETTLED and (value is not None or plan.spec.keeps_blanks):
-                        value = [value]  # a Series of one, whose one item is blank where the items take a blank
-            except FieldValueError as missing:  # an edge into this input names a field its record doesn't have
-                return make_problem(missing.code, *unit_loc(node, key), name=name, reason=missing.reason, **missing.ctx)
-            if value is SKIPPED:
-                return node.placed.skipped
-            if value is NOT_SETTLED:  # a later input may be skipped, which settles the unit whatever this one comes to
-                not_settled = True
-            elif value is None:
-                if not plan.spec.whole.optional and blank is None:
-                    blank = name
-                kwargs[name] = None
-            elif kind is Gather:
-                gathered[name] = (plan, value)  # type: ignore[assignment]
-            else:
-                kwargs[name] = value
-        if not_settled:
-            return NOT_SETTLED
-        if blank is not None:
-            return Blank(node.placed.outputs_not_called, blank)
-        for name, (plan, items) in gathered.items():
-            kwargs[name] = _aligned(plan, items, gathered)
-        return kwargs
-
-    def _gathered(self, plan: Gather, through: tuple[FunctionAtPath, ...], key: Key) -> Any:
-        """The items a gathering input gets in the instance ``key``, with ``None`` for an item that has no value.
-
-        What is outside the items is asked first whether any item could bring a value (``could_bring``). When
-        none could, that is the answer for any number of items, none included. When one could, each item
-        answers for itself: one with no value, for a blank or a branch not taken, holds ``None``.
-
-        Args:
-            plan: The input's plan, where its node stands.
-            through: The functions the input gathers through, as the tree keeps them; none when nothing outside
-                the items but the Series itself has a say.
-            key: The instance of the node that gathers.
-
-        Returns:
-            The list, one place per item of the Series; ``NOT_SETTLED`` until what is outside and every item is
-            settled; ``SKIPPED`` when no item could bring a value for a branch not taken outside the items;
-            ``None`` when none could for a blank there.
-        """
-        series_made, edges = plan.series, plan.sources
-        key = key[: series_made.depth]
-        units = self._units
-        series = _cell(units, series_made, key)
-        if through:
-            certain = could_bring(plan, through, self.graph._node_at, _AsItStands(self, key))
-            if certain is not COULD:
-                return certain
-        elif series is NOT_SETTLED or series is SKIPPED or series is None:  # nothing outside but the Series has a say
-            return series
-        if len(edges) == 1 and type(edges[0]) is Item:  # the Series itself: its items, or one field of each
-            wanted = edges[0].field
-            if type(series) is Records:
-                return series.records() if wanted is None else _field_of(series.columns, wanted)
-            if wanted is None:
-                return [None if item is SKIPPED else item for item in series] if any(item is SKIPPED for item in series) else series
-            return [None if item is SKIPPED or item is None else _field_of(item, wanted) for item in series]
-        if plan.levels == 1:
-            instances = [(*key, place) for place in range(len(series))]
-        else:  # what an embedded graph offers of an output made several maps deep inside it: every item of every one
-            instances, known = self._instances(self.graph._node_at[edges[0].node_id].maps, key)
-            if not known:
-                return NOT_SETTLED
-        items = []
-        for instance in instances:
-            value = SKIPPED
-            for source in edges:
-                value = _cell(units, source, instance)
-                if value is NOT_SETTLED:
-                    return NOT_SETTLED
-                if value is not SKIPPED:
-                    break
-            items.append(None if value is SKIPPED else value)
-        return items
 
     # -- JSON -------------------------------------------------------------------
 
@@ -837,7 +703,7 @@ class Run:
         units = self._units[node.name]
         if self._has_every_unit(node):  # the units as they stand
             return list(units.values())
-        return [units.get(instance) for instance in self._instances(node.maps, ())[0]]
+        return [units.get(instance) for instance in instances(self._units, node.maps, ())[0]]
 
     def _copy(self, *, share_units: bool = False, **changes: Any) -> Run:
         """A copy to change: its own units to record into and its own carried answers to take from; or with
@@ -852,70 +718,13 @@ class Run:
         return copy
 
 
-class _AsItStands:
-    """What was made outside the items of a gathering input, as it stands for the instance the input gathers in:
-    the reader a run hands the question of what is outside the items.
-
-    Attributes:
-        run: The run.
-        key: The instance the input gathers in.
-    """
-
-    __slots__ = ("key", "run")
-
-    def __init__(self, run: Run, key: Key) -> None:
-        self.run, self.key = run, key
-
-    def cell(self, cell: Cell) -> Any:
-        """What ``cell`` holds there: ``COULD`` for a value, else ``SKIPPED``, ``None`` or ``NOT_SETTLED``."""
-        value = _cell(self.run._units, cell, self.key)
-        return value if value is NOT_SETTLED or value is SKIPPED or value is None else COULD
-
-    def gathered(self, plan: Gather, through: tuple[FunctionAtPath, ...]) -> Any:
-        """What the gathering input of ``plan`` gathers there: ``COULD`` for a list, else ``SKIPPED``, ``None``
-        or ``NOT_SETTLED``."""
-        value = self.run._gathered(plan, through, self.key)
-        return value if value is NOT_SETTLED or value is SKIPPED or value is None else COULD
-
-
-def _cell(units: _Units, cell: Cell, key: Key) -> Any:
-    """What ``cell`` holds for the instance ``key`` or one under it, as an edge brings it.
-
-    Args:
-        units: Each function's units.
-        cell: The cell.
-        key: The instance of the node that reads.
-
-    Returns:
-        The value (an ``Item``'s is the item of ``key``, and a field named on the edge is read from it);
-        ``NOT_SETTLED`` while its unit hasn't run or waits for a person; ``SKIPPED`` for a branch not taken;
-        ``None`` for a blank.
-    """
-    depth = cell.depth
-    unit = units[cell.node_id].get(key[:depth])
-    if unit is None or type(unit) is Asking:
-        return NOT_SETTLED
-    value = unit.out[cell.output]
-    if value is None or value is SKIPPED or type(cell) is Cell:
-        return value
-    if type(cell) is Item:
-        if type(value) is Records:  # held by column: the cell an edge names, with no record built
-            wanted = cell.field
-            return value[key[depth]] if wanted is None else _field_of(value.columns, wanted)[key[depth]]
-        value = value[key[depth]]
-    elif type(cell) is WholeSeries:  # the list as a reader receives one: no mark of a branch not taken in it
-        return value.records() if type(value) is Records else [None if item is SKIPPED else item for item in value]
-    field = cell.field  # type: ignore[attr-defined]  # an edge brings a Value, an Item or a WholeSeries, each with its field
-    return value if field is None or value is None or value is SKIPPED else _field_of(value, field)
-
-
-def no_units(graph: Graph) -> _Units:
+def no_units(graph: Graph) -> Units:
     """The units of a run of ``graph`` that hasn't started: none, for every function of the graph and of each
     graph embedded in it."""
     return {node.name: {} for node in graph._tree}
 
 
-def start_run(graph: Graph, inputs: dict[str, Any], max_items: int | None, earlier: dict[NodePath, Earlier], units: _Units) -> Run:
+def start_run(graph: Graph, inputs: dict[str, Any], max_items: int | None, earlier: dict[NodePath, Earlier], units: Units) -> Run:
     """A run of ``graph`` not started; the one way a ``Run`` is made.
 
     Args:
@@ -948,40 +757,6 @@ def waiting_unit(node: FunctionAtPath, key: Key, unit: Asking) -> Waiting:
         id=f"{path_text(loc)}~{_question_fingerprint(placed, unit)}", loc=loc, prompt=question.prompt,
         questions=waiting_questions(placed, question.overrides), inputs=question.inputs,
     )
-
-
-def _aligned(plan: Gather, items: list[Any], gathered: Mapping[str, tuple[Gather, list[Any]]]) -> list[Any]:
-    """The items one gathering input receives: those that have a value in every input of the node that gathers
-    the same Series, so those inputs stay in step; an input whose items may be blank keeps a blank in its place.
-
-    Args:
-        plan: The input's plan.
-        items: What the input gathered, one place per item of the Series.
-        gathered: Every gathering input of the node, by name: its plan and its items.
-    """
-    series = plan.series
-    together = [(others, other.spec.keeps_blanks) for other, others in gathered.values() if other.series == series]
-    if len(together) == 1:
-        return items if together[0][1] else [item for item in items if item is not None]  # by identity: an item may be a frame, which has no plain ==
-    return [item for place, item in enumerate(items) if all(keeps or others[place] is not None for others, keeps in together)]
-
-
-def _field_of(value: Any, name: str) -> Any:
-    """One field of a record: a mapping's key, else an attribute; of records held by column, that column.
-
-    Raises:
-        FieldValueError: The record has no such field (``invalid_edge_value``). Only a record whose type
-            declares no fields can lack one: a field a type declares is checked when the graph loads.
-    """
-    try:
-        return value[name] if type(value) is dict or isinstance(value, Mapping) else getattr(value, name)
-    except (KeyError, AttributeError):
-        raise _no_such_field(name) from None
-
-
-def _no_such_field(name: str) -> FieldValueError:
-    """The refusal of an edge that names the field ``name`` of a record that has none."""
-    return FieldValueError(f"it has no field '{name}'", code="invalid_edge_value", field=name)
 
 
 def run_from_json(graph: Graph, saved: str | bytes | Mapping[str, Any]) -> Run:
@@ -1022,11 +797,11 @@ def _run_of(graph: Graph, saved: SavedRun[list[Unit | None], Earlier]) -> Run:
     run.state = saved.state
     for node in graph._tree:  # each after the nodes it reads, so the Series its instances are of are in place
         if (slots := saved.units.get(node.name)) is not None:
-            instances, _ = run._instances(node.maps, ())
-            if len(slots) != len(instances):
-                at, reason = f"units.{node.name}", f"it holds {len(slots)} slots for the {len(instances)} instances the saved run made of the node"
+            made, _ = instances(run._units, node.maps, ())
+            if len(slots) != len(made):
+                at, reason = f"units.{node.name}", f"it holds {len(slots)} slots for the {len(made)} instances the saved run made of the node"
                 raise InvalidCallError([make_problem("state_unreadable", "state", at=at, reason=reason)])
-            run._units[node.name] = {instance: unit for instance, unit in zip(instances, slots, strict=True) if unit is not None}
+            run._units[node.name] = {instance: unit for instance, unit in zip(made, slots, strict=True) if unit is not None}
     functions = graph._functions
     run._ran_as = {path: digest for name, digest in saved.code.items() if digest != functions[path := tuple(name.split("/"))].reuse_digest}
     run._earlier = {path: lent for name, lent in saved.earlier.items() if (path := tuple(name.split("/"))) not in run._ran_as}  # work of other code is never taken
@@ -1099,11 +874,6 @@ def _checked(spec: Field, name: str, value: Any, *, code: str) -> Any:
     if returned and exact and not isinstance(read, exact):
         raise FieldValueError(f"its type's own check gave a {type(read).__name__}, not a {spec.whole.id}", code="invalid_output", name=name)
     return read
-
-
-def _length(value: Any) -> int:
-    """How many items a ``Series`` output holds; none when it is blank or a branch not taken."""
-    return 0 if value is SKIPPED or value is None else len(value)
 
 
 # -- the save -----------------------------------------------------------------------------------

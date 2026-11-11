@@ -6,6 +6,7 @@ from typing import Annotated, Literal, TypedDict
 
 import polars as pl
 from conductor import SKIPPED, Ask, NodeRegistry, Param, Series, Table
+from conductor._internal.units import instances
 from pydantic_core import core_schema
 
 
@@ -125,7 +126,7 @@ def units_missing(run):
     whose instances aren't all known as its path alone. A complete run has none."""
     missing = []
     for node in run.graph._tree:
-        instances, known = run._instances(node.maps, ())
+        made, known = instances(run._units, node.maps, ())
         units = run._units[node.name]
-        missing += [(node.path, key) for key in instances if key not in units] + ([] if known else [node.path])
+        missing += [(node.path, key) for key in made if key not in units] + ([] if known else [node.path])
     return missing
