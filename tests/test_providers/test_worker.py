@@ -15,6 +15,7 @@ import polars as pl
 import pytest
 from conductor import (
     Ask,
+    FromRun,
     GraphRecord,
     NodeError,
     NodeRecord,
@@ -688,6 +689,30 @@ async def test_a_leg_that_raised_outside_a_node_reads_failed_with_a_cause_that_i
     assert await store.stored_events(run_id) == [{"type": "run_end", "status": "failed", "cause": failed.cause.model_dump(mode="json")}]
 
 
+class Tenant:
+    """A value a leg's ``from_run`` is to give."""
+
+
+class Clock:
+    """Another."""
+
+
+async def test_a_leg_conductor_refuses_to_start_fails_with_the_first_of_its_own_problems_and_the_log_has_them_all(caplog: pytest.LogCaptureFixture) -> None:
+    registry, store = NodeRegistry(), MemoryStore()
+
+    @registry.node("stamp", title="Stamp", description="")
+    def stamp(text: str, tenant: FromRun[Tenant], clock: FromRun[Clock]) -> str:
+        return text
+
+    run_id = await _started(_worker(store, registry), make_graph(stamp), {"text": "a"})
+    failed = await store.ended(run_id)
+
+    assert failed.cause is not None and (failed.status, failed.cause.type, failed.cause.loc, failed.cause.ctx["needs"]) == ("failed", "from_run_missing", ("stamp", "tenant"), "Tenant")
+    assert await store.stored_events(run_id) == [{"type": "run_end", "status": "failed", "cause": failed.cause.model_dump(mode="json")}]
+    (logged,) = [record.getMessage() for record in caplog.records if run_id in record.getMessage()]
+    assert "Tenant" in logged and "Clock" in logged
+
+
 async def test_a_run_whose_leg_raised_lists_what_waits_in_the_run_as_stored_and_takes_an_answer_to_it_without_a_resume() -> None:
     registry, store, legs = NodeRegistry(), MemoryStore(), []
 
@@ -726,7 +751,7 @@ async def test_a_run_that_cant_be_loaded_fails_its_leg_and_lists_nothing_as_wait
 
     await worker.sweep()
     failed = await store.ended("left")
-    assert failed.cause is not None and (failed.status, failed.cause.type, failed.waiting) == ("failed", "leg_failed", [])
+    assert failed.cause is not None and (failed.status, failed.cause.type, failed.waiting) == ("failed", "state_unreadable", [])
 
 
 async def test_a_leg_whose_end_the_store_fails_to_write_stays_running_and_is_gone_on_with_once_its_lease_runs_out() -> None:

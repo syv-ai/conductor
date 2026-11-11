@@ -88,7 +88,7 @@ class Ended(LegEnd):
 
 @dataclass(frozen=True)
 class Raised(LegEnd):
-    """A leg that raised outside a node, or whose run can't be written: it ended with no run to store.
+    """A leg that raised outside a node, or that conductor refused: it ended with no run to store.
 
     Attributes:
         cause: Why the run failed.
@@ -117,6 +117,22 @@ class Raised(LegEnd):
         """
         outcome = Outcome(waiting=waiting, outputs=None)
         return cls(cause, outcome.model_dump_json(), RunEnd.model_construct(status="failed", cause=cause).model_dump_json())
+
+    @classmethod
+    def refused(cls, refusal: InvalidCallError, waiting: list[Waiting]) -> Raised:
+        """The end of a leg that conductor refused: the run can't start its leg, or can't be read or written.
+
+        Trying again would be refused again, so the run fails with conductor's own problem as its cause. A cause
+        is one problem: of several, it is the first.
+
+        Args:
+            refusal: What conductor raised.
+            waiting: What waits in the run as the row holds it.
+
+        Returns:
+            The end, its cause the first of the refusal's problems.
+        """
+        return cls.because(refusal.errors()[0], waiting)
 
     def row_after(self, state: StoredState) -> RowAfterALeg:
         """What a row holds after this end: the run failed, and the row keeps its last checkpoint, lists what
@@ -156,4 +172,4 @@ def end_of(run_end: RunEnd, stored: Run) -> LegEnd:
         outcome = Outcome(waiting=run.waiting, outputs=from_json(run.outputs_json()) if run.status == "complete" else None)
         return Ended(run, run.to_json(), outcome.model_dump_json(), run_end.model_dump_json())
     except InvalidCallError as unwritable:
-        return Raised.because(unwritable.errors()[0], stored.waiting)
+        return Raised.refused(unwritable, stored.waiting)

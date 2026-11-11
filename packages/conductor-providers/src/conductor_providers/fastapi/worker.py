@@ -21,7 +21,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field, replace
 from typing import Any, Generic, Literal, TypeVar
 
-from conductor import GraphRecord, NodeRegistry, Run
+from conductor import GraphRecord, InvalidCallError, NodeRegistry, Run
 from conductor.events import RunCheckpoint, RunEnd
 from pydantic import TypeAdapter
 from pydantic_core import from_json
@@ -472,11 +472,17 @@ class Worker(Generic[C]):
             Each event to store, as JSON; each checkpoint, as the row's ``run`` to write; and last, unless the leg
             is handed back, how the leg ended. A raise anywhere in the leg outside a node is logged and ends it
             as a leg that raised, which lists what waits in the run as the row holds it: the run as loaded, or
-            the last checkpoint the store was given.
+            the last checkpoint the store was given. Its cause is conductor's own problem where conductor
+            refused the leg (a ``FromRun`` value nobody gives, a run that can't be read or written), the first
+            of them where there are several, with all of them in the log; else ``leg_failed``.
         """
         try:
             who = self.started_by(row)
             stored = await asyncio.to_thread(_loaded, row, self._nodes_for(who))
+        except InvalidCallError as refusal:
+            log.error("the run %s could not be loaded for its leg: %s", row.id, refusal)
+            yield Raised.refused(refusal, waiting=[])
+            return
         except Exception:
             log.exception("the run %s could not be loaded for its leg", row.id)
             yield Raised.because(router_problem.leg_failed(), waiting=[])
@@ -495,6 +501,9 @@ class Worker(Generic[C]):
                         yield await asyncio.to_thread(end_of, event, stored)
                     else:
                         yield event.model_dump_json()
+        except InvalidCallError as refusal:
+            log.error("the leg of run %s was refused: %s", row.id, refusal)
+            yield Raised.refused(refusal, stored.waiting)
         except Exception:
             log.exception("the leg of run %s failed", row.id)
             yield Raised.because(router_problem.leg_failed(), stored.waiting)
