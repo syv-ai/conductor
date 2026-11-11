@@ -125,7 +125,7 @@ class NodeRegistry:
 
     def __iter__(self) -> Iterator[NodeDefinition]:
         """The definitions, in the order they arrived."""
-        return iter(tuple(self._nodes.values()))
+        return iter(self._nodes.values())
 
     # -- what it holds -----------------------------------------------------------
 
