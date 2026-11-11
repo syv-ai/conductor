@@ -228,11 +228,8 @@ class InputGathersItems:
 
     Attributes:
         field: The input, as its node declares it.
-        reads: Every output the input is made from: the Series whose items are gathered, where it was made; where
-            the items sit more than one map under it, each Series on the way down; then what each edge brings
-            for an item. Several edges are alternatives, as for any input.
-        levels: How many of ``reads`` are a Series: one, but for what an embedded graph offers of an output
-            made more than one map deep inside it, which is gathered through every one of those maps.
+        reads: Every output the input is made from: the Series whose items are gathered, where it was made, then
+            what each edge brings for an item. Several edges are alternatives, as for any input.
         asked_for_any_item: Where the input's node stands, the functions made per item of the Series that what it
             gathers rests on, each after the ones it reads: what stands between the input and everything
             outside the items. A checked graph's own plan names none.
@@ -240,7 +237,6 @@ class InputGathersItems:
 
     field: Field
     reads: tuple[OutputAtScope, ...]
-    levels: int = 1
     asked_for_any_item: tuple[FunctionAtPath, ...] = ()
 
     @property
@@ -251,7 +247,7 @@ class InputGathersItems:
     @property
     def sources(self) -> tuple[Source, ...]:
         """What each edge brings for an item."""
-        return self.reads[self.levels :]  # type: ignore[return-value]  # every output after the Series is what an edge brings
+        return self.reads[1:]  # type: ignore[return-value]  # every output after the Series is what an edge brings
 
     def value(self, reader: ReadsOutputs, item_path: ItemPath) -> Any:
         """What the input holds for ``item_path``: the items of its Series, or what is outside them when that

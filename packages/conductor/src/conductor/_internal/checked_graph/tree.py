@@ -396,7 +396,7 @@ def _gather_at_path(field: Field, looped_over: tuple[FunctionAtPath, str], sourc
     made_by, output = looped_over
     series = OutputAtScope(made_by.name, output, _scope_at_path(made_by.maps))
     through = _gathered_through(looped_over, [functions[at.node_id] for at in sources])
-    return InputGathersItems(field, (series, *sources), asked_for_any_item=through)
+    return InputGathersItems(field, (series, *sources), through)
 
 
 def _gathered_through(series: tuple[FunctionAtPath, str], sources: list[FunctionAtPath]) -> tuple[FunctionAtPath, ...]:
