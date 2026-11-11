@@ -35,7 +35,7 @@ from conductor._internal.value_type import Choice, FieldValueError
 
 if TYPE_CHECKING:
     from conductor._internal.checked_graph import PlacedFunction
-    from conductor._internal.units import Asking
+    from conductor._internal.outcomes import Asking
 
 
 class Ask(BaseException):

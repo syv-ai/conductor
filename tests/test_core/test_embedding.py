@@ -598,7 +598,7 @@ def test_a_checkpoint_mid_leg_loads_and_resumes_with_no_inner_call_repeated():
 
 def _made(run, embedding: str, node_id: str) -> int:
     """How many units ``node_id`` inside ``embedding`` holds."""
-    return len(run._units[f"{embedding}/{node_id}"])
+    return len(run._outcomes[f"{embedding}/{node_id}"])
 
 
 # -- one address: a path of node ids and item positions -----------------------------------------------------

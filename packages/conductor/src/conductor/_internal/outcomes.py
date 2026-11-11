@@ -6,14 +6,14 @@ what reads an output reads ``unit.out[output]`` whatever the unit's kind:
 
 - ``Done`` and ``Answered`` hold what the node returned or a person answered.
 - ``Skipped`` (a branch above wasn't taken) holds ``SKIPPED`` for each output.
-- ``Blank`` (an input that takes no blank got one) holds a blank for each
+- ``NotCalled`` (an input that takes no blank got one) holds a blank for each
   output, and ``SKIPPED`` for an output of an exclusive group, as no branch
   was chosen.
 
 ``Asking`` waits for a person and holds no outputs: it is not settled, and
 nor is an item that holds no unit yet. Which items a node has is read from
 the units too: one for each item of each ``Series`` it runs per item of
-(``instances``).
+(``item_paths``).
 """
 
 from __future__ import annotations
@@ -37,16 +37,16 @@ class NotReady(enum.Enum):
     """Why a unit can't be made yet.
 
     Attributes:
-        NOT_SETTLED: A unit it reads holds no outputs yet: it hasn't run, or it waits for a person.
+        NOT_READY: A unit it reads holds no outputs yet: it hasn't run, or it waits for a person.
         NOT_ITS_TURN: A person's earlier answer is there for it to take, and a unit of its node before it,
             which may take that answer first, hasn't been tried.
     """
 
-    NOT_SETTLED = "not_settled"
+    NOT_READY = "not_ready"
     NOT_ITS_TURN = "not_its_turn"
 
 
-NOT_SETTLED: Final = NotReady.NOT_SETTLED
+NOT_READY: Final = NotReady.NOT_READY
 NOT_ITS_TURN: Final = NotReady.NOT_ITS_TURN
 
 
@@ -84,7 +84,7 @@ class Skipped:
     """A unit whose node wasn't called because a branch above it wasn't taken: an input came only from branches
     not taken. What reads it is skipped too.
 
-    It differs from ``Blank`` only in what a run says of it: ``not_called`` lists a blank unit and not a skipped
+    It differs from ``NotCalled`` only in what a run says of it: ``not_called`` lists a blank unit and not a skipped
     one, a node whose every unit is skipped says ``node_skipped``, and a save writes the two apart. A reader of
     its outputs reads ``out`` and never asks which it is.
 
@@ -97,7 +97,7 @@ class Skipped:
 
 @final
 @dataclass(frozen=True, slots=True)
-class Blank:
+class NotCalled:
     """A unit whose node wasn't called because an input that takes no blank got one.
 
     Attributes:
@@ -124,27 +124,27 @@ class Asking:
 
 #: A unit whose outputs are known: its node was called, a person answered, or it wasn't called and what its
 #: outputs read as follows from why.
-Settled = Done | Answered | Skipped | Blank
+Settled = Done | Answered | Skipped | NotCalled
 
 #: What one node came to in one instance of its scope. A run and its copies share their units, so none is changed.
-Unit = Settled | Asking
+Outcome = Settled | Asking
 
-def outputs_not_taken(outputs: Mapping[str, Field]) -> dict[str, Any]:
+def outputs_when_skipped(outputs: Mapping[str, Field]) -> dict[str, Any]:
     """What a ``Skipped`` unit of a node with these outputs holds: ``SKIPPED`` for each."""
     return dict.fromkeys(outputs, SKIPPED)
 
 
-def outputs_not_called(outputs: Mapping[str, Field]) -> dict[str, Any]:
-    """What a ``Blank`` unit of a node with these outputs holds: a blank for each, and ``SKIPPED`` for an output
+def outputs_when_not_called(outputs: Mapping[str, Field]) -> dict[str, Any]:
+    """What a ``NotCalled`` unit of a node with these outputs holds: a blank for each, and ``SKIPPED`` for an output
     of an exclusive group, as no branch was chosen."""
     return {name: SKIPPED if output.param.exclusive_group is not None else None for name, output in outputs.items()}
 
 
 #: Each function's units by item path, by the function's name (``e/ask``).
-Units = dict[str, dict[ItemPath, Unit]]
+Units = dict[str, dict[ItemPath, Outcome]]
 
 
-def instances(units: Units, maps: Maps, under: ItemPath, *, counted: bool = False) -> tuple[list[ItemPath], bool]:
+def item_paths(units: Units, maps: Maps, under: ItemPath, *, counted: bool = False) -> tuple[list[ItemPath], bool]:
     """The item paths of a node that runs in ``maps`` under the item path ``under`` of a node that runs in the
     first of them, and whether all of them exist yet: a Series not made yet, or one a person is asked for, has
     none so far.
@@ -173,13 +173,13 @@ def instances(units: Units, maps: Maps, under: ItemPath, *, counted: bool = Fals
     return paths, complete
 
 
-def has_every_unit(units: Units, node: FunctionAtPath) -> bool:
+def has_every_outcome(units: Units, node: FunctionAtPath) -> bool:
     """Whether every instance of ``node`` holds a unit, one waiting for a person included, and every Series
     it runs per item of is made, so no instance is still to come."""
     held = units[node.name]
     if not node.maps:
         return bool(held)
-    counted, known = instances(units, node.maps, (), counted=True)
+    counted, known = item_paths(units, node.maps, (), counted=True)
     return known and len(held) == (counted[0][0] if counted else 0)
 
 

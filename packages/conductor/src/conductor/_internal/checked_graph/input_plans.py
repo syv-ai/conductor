@@ -25,8 +25,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, NamedTuple, Protocol, final
 
 from conductor._internal.field import Field
+from conductor._internal.outcomes import NOT_READY, ItemPath
 from conductor._internal.sentinels import SKIPPED
-from conductor._internal.units import NOT_SETTLED, ItemPath
 from conductor._internal.value_type import Type
 
 if TYPE_CHECKING:
@@ -140,7 +140,7 @@ Source = WholeOutput | ItemOfSeries | SeriesAsList
 
 class ReadsOutputs(Protocol):
     """What a plan asks of what reads for it: a way to read one output, for one item or for an item nobody
-    knows. Each answer is a value, ``None`` for a blank, ``SKIPPED`` for a branch not taken, or ``NOT_SETTLED``."""
+    knows. Each answer is a value, ``None`` for a blank, ``SKIPPED`` for a branch not taken, or ``NOT_READY``."""
 
     def output(self, at: OutputAtScope, item_path: ItemPath) -> Any:
         """What the output ``at`` holds for ``item_path``, as an edge brings it."""
@@ -285,7 +285,7 @@ class InputGathersOneValue:
         items take a blank, a blank is its one item."""
         reads = self.reads
         value = reader.output(reads[0], item_path) if len(reads) == 1 else reader.best_of(reads, item_path)
-        if value is SKIPPED or value is NOT_SETTLED or (value is None and not self.field.keeps_blanks):
+        if value is SKIPPED or value is NOT_READY or (value is None and not self.field.keeps_blanks):
             return value
         return [value]
 

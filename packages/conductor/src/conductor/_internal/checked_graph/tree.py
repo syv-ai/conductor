@@ -36,9 +36,9 @@ from conductor._internal.checked_graph.input_plans import (
 from conductor._internal.checked_graph.placed_node import PlacedEmbeddedGraph, PlacedFunction
 from conductor._internal.field import Field
 from conductor._internal.node_definition import Policy
+from conductor._internal.outcomes import ItemPath
 from conductor._internal.sentinels import REQUIRED
 from conductor._internal.series import Series
-from conductor._internal.units import ItemPath
 
 if typing.TYPE_CHECKING:
     from conductor._internal.checked_graph.type import CheckedGraph
@@ -171,7 +171,7 @@ def waits_on(node: FunctionAtPath) -> frozenset[FunctionAtPath]:
     return node.waits_on
 
 
-def unit_loc(node: NodeAtPath, key: ItemPath) -> Loc:
+def outcome_loc(node: NodeAtPath, key: ItemPath) -> Loc:
     """Where the instance ``key`` of ``node`` is: the node's id, then the places of its own scope's items, after
     the same for each embedded graph's node it is inside, ``("e", 0, "ask", 2)``.
 
@@ -183,7 +183,7 @@ def unit_loc(node: NodeAtPath, key: ItemPath) -> Loc:
     if node.embedding is None:
         return (node.placed.id, *key)
     around = len(node.embedding.maps)  # the places of the embedded graph's node's own item
-    return (*unit_loc(node.embedding, key[:around]), node.placed.id, *key[around:])
+    return (*outcome_loc(node.embedding, key[:around]), node.placed.id, *key[around:])
 
 
 #: What a host is shown of an output made per item is what an input of this type wired to it would be given:

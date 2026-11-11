@@ -34,8 +34,9 @@ from conductor import (
     node,
     stored_graph,
 )
+from conductor._internal import outcomes
+from conductor._internal.outcomes import Asking, Done, Skipped
 from conductor._internal.run import Run
-from conductor._internal.units import Asking, Blank, Done, Skipped
 from pydantic import BaseModel
 
 from tests.test_core.nodes import registry_of
@@ -874,11 +875,11 @@ def test_a_blank_and_a_skipped_unit_come_back_from_a_save_and_a_resumed_run_name
     )
     run = graph.run(text="ab,,long,cd")
     assert run.status == "waiting"
-    assert list(run._units["s"].values()) == [Done({"result": "ab"}), Blank({"result": None}, "email"), Done({"result": SKIPPED}), Done({"result": "cd"})]
-    assert [type(u) for u in run._units["c"].values()] == [Asking, Blank, Skipped, Asking]
-    assert run._units["c"][(1,)] == Blank({"result": None}, "email")
+    assert list(run._outcomes["s"].values()) == [Done({"result": "ab"}), outcomes.NotCalled({"result": None}, "email"), Done({"result": SKIPPED}), Done({"result": "cd"})]
+    assert [type(u) for u in run._outcomes["c"].values()] == [Asking, outcomes.NotCalled, Skipped, Asking]
+    assert run._outcomes["c"][(1,)] == outcomes.NotCalled({"result": None}, "email")
     loaded = graph.load_run(run.to_json())
-    assert loaded._units == run._units
+    assert loaded._outcomes == run._outcomes
     assert loaded.resume().not_called == run.not_called == [
         NotCalled(loc=("s", 1), input="email"),
         NotCalled(loc=("c", 1), input="email"),

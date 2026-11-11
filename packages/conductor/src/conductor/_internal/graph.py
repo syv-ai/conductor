@@ -10,7 +10,7 @@ from typing import Any
 from conductor._internal.checked_graph import CheckedGraph
 from conductor._internal.problem import InvalidCallError, Problem
 from conductor._internal.problem import catalogue as problem
-from conductor._internal.run import Run, checked_leg, no_units, run_from_json
+from conductor._internal.run import Run, checked_leg, no_outcomes, run_from_json
 from conductor._internal.saved_run import SaveForm, save_form
 from conductor._internal.sentinels import REQUIRED
 from conductor._internal.value_type import FieldValueError
@@ -52,7 +52,7 @@ class Graph(CheckedGraph):
             raise InvalidCallError(self.problems)
         checked_leg(max_items=max_items)
         checked = self._checked_inputs(*self._given_by_address({**inputs, **by_name}))
-        return Run(self, checked, max_items, no_units(self), earlier._as_earlier_work(into=self) if earlier is not None else {})
+        return Run(self, checked, max_items, no_outcomes(self), earlier._as_earlier_work(into=self) if earlier is not None else {})
 
     def run(
         self, inputs: Mapping[str, Any] = types.MappingProxyType({}), /, *, max_items: int | None = None,

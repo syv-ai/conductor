@@ -18,8 +18,8 @@ from conductor._internal.checked_graph.input_plans import (
 )
 from conductor._internal.field import Field, FieldDescription
 from conductor._internal.node_definition import FunctionDefinition, StoredGraphDefinition
+from conductor._internal.outcomes import Skipped, outputs_when_not_called, outputs_when_skipped
 from conductor._internal.series import Series
-from conductor._internal.units import Skipped, outputs_not_called, outputs_not_taken
 from conductor._internal.value_type import Type
 
 if TYPE_CHECKING:
@@ -88,19 +88,19 @@ class PlacedFunction(_Placed):
         return hashlib.blake2b(written.encode(), digest_size=8).hexdigest()
 
     @functools.cached_property
-    def outputs_not_taken(self) -> dict[str, Any]:
+    def outputs_when_skipped(self) -> dict[str, Any]:
         """What a unit of the node holds where the node wasn't called for a branch not taken."""
-        return outputs_not_taken(self.outputs)
+        return outputs_when_skipped(self.outputs)
 
     @functools.cached_property
-    def outputs_not_called(self) -> dict[str, Any]:
+    def outputs_when_not_called(self) -> dict[str, Any]:
         """What a unit of the node holds where the node wasn't called for a blank."""
-        return outputs_not_called(self.outputs)
+        return outputs_when_not_called(self.outputs)
 
     @functools.cached_property
     def skipped(self) -> Skipped:
         """The unit the node comes to where it wasn't called for a branch not taken; every such unit of it is this one."""
-        return Skipped(self.outputs_not_taken)
+        return Skipped(self.outputs_when_skipped)
 
     @functools.cached_property
     def questions(self) -> dict[str, FieldDescription]:

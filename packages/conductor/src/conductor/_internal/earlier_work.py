@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, Literal
 import pydantic_core
 
 from conductor._internal.canonical_json import canonical_json
-from conductor._internal.units import NOT_ITS_TURN, NotReady, Units
+from conductor._internal.outcomes import NOT_ITS_TURN, NotReady, Units
 from conductor._internal.value_type import untyped_to_hash
 
 if TYPE_CHECKING:
@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 from dataclasses import dataclass, field
 
 from conductor._internal.address import ItemPath
-from conductor._internal.units import Answered, Asking, Done
+from conductor._internal.outcomes import Answered, Asking, Done
 
 
 @dataclass(slots=True)

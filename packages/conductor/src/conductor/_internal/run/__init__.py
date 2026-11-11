@@ -8,6 +8,6 @@ from conductor._internal.run.type import (
     NotCalled,
     Run,
     checked_leg,
-    no_units,
+    no_outcomes,
     run_from_json,
 )

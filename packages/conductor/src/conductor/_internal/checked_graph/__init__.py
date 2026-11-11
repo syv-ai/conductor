@@ -25,7 +25,7 @@ from conductor._internal.checked_graph.tree import (
     Maps,
     NodeAtPath,
     host_reads,
-    unit_loc,
+    outcome_loc,
     waits_on,
 )
 from conductor._internal.checked_graph.type import CheckedGraph

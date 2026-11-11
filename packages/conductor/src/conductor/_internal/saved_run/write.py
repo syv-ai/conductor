@@ -10,6 +10,7 @@ import pydantic_core
 from conductor._internal.ask import Question
 from conductor._internal.earlier_work import EarlierWork
 from conductor._internal.field import Field
+from conductor._internal.outcomes import Answered, Asking, Done, NotCalled, Outcome, Skipped
 from conductor._internal.saved_run.type import (
     SAVED_DONE,
     SAVED_SKIPPED,
@@ -20,7 +21,6 @@ from conductor._internal.saved_run.type import (
     UnitState,
 )
 from conductor._internal.sentinels import SKIPPED
-from conductor._internal.units import Answered, Asking, Blank, Done, Skipped, Unit
 from conductor._internal.value_type import Type
 
 #: The state a save writes for a unit that holds outputs or is a branch not taken; any other has none.
@@ -30,7 +30,7 @@ _STATE_WORD: Mapping[type, UnitState] = {Done: SAVED_DONE, Answered: SAVED_DONE,
 _HOLDS_OUTPUTS = frozenset({Done, Answered})
 
 
-def unit_columns(outputs: Mapping[str, Field], slots: list[Unit | None]) -> SavedUnits:
+def unit_columns(outputs: Mapping[str, Field], slots: list[Outcome | None]) -> SavedUnits:
     """Gives units as the columns a save holds of them.
 
     Args:
@@ -63,8 +63,8 @@ def unit_columns(outputs: Mapping[str, Field], slots: list[Unit | None]) -> Save
         columns = {name: [None] * len(slots) for name in outputs}
     if Answered in kinds or Asking in kinds:
         questions = {slot: unit.question for slot, unit in enumerate(slots) if type(unit) is Answered or type(unit) is Asking}
-    if Blank in kinds:
-        blank_inputs = {slot: unit.input for slot, unit in enumerate(slots) if type(unit) is Blank}
+    if NotCalled in kinds:
+        blank_inputs = {slot: unit.input for slot, unit in enumerate(slots) if type(unit) is NotCalled}
     return SavedUnits(
         states=list(map(_STATE_WORD.get, map(type, slots))), outputs=columns, questions=questions, blank_inputs=blank_inputs,
         skipped=skipped or None, skipped_items=skipped_items or None,
@@ -114,7 +114,7 @@ def earlier_columns(outputs: Mapping[str, Field], earlier: EarlierWork) -> Saved
         outputs: The node's outputs, by name.
         earlier: The earlier work.
     """
-    slots: list[Unit | None] = [done for _, done in earlier.at.values()]
+    slots: list[Outcome | None] = [done for _, done in earlier.at.values()]
     fingerprints = [fingerprint for fingerprint, _ in earlier.at.values()]
     places = dict(enumerate(earlier.at))
     stood = set(fingerprints)  # each of these is one of the units above: the first that received it

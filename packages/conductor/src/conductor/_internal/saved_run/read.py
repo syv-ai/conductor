@@ -9,6 +9,7 @@ from pydantic_core import PydanticCustomError
 
 from conductor._internal.earlier_work import EarlierWork
 from conductor._internal.field import Field
+from conductor._internal.outcomes import Answered, Asking, Done, NotCalled, Outcome, Skipped
 from conductor._internal.saved_run.type import (
     SAVED_DONE,
     SAVED_SKIPPED,
@@ -17,11 +18,10 @@ from conductor._internal.saved_run.type import (
     SavedUnits,
 )
 from conductor._internal.sentinels import SKIPPED
-from conductor._internal.units import Answered, Asking, Blank, Done, Skipped, Unit
 from conductor._internal.value_type import FieldValueError
 
 
-def units_of(not_taken: dict[str, Any], not_called: dict[str, Any], saved: SavedUnits) -> list[Unit | None]:
+def units_of(not_taken: dict[str, Any], not_called: dict[str, Any], saved: SavedUnits) -> list[Outcome | None]:
     """Makes the units a node's saved columns hold, in the order of their slots; ``None`` for an instance that
     hasn't run.
 
@@ -53,7 +53,7 @@ def units_of(not_taken: dict[str, Any], not_called: dict[str, Any], saved: Saved
             outs = [dict(zip(names, values, strict=True)) for values in zip(*outputs.values(), strict=True)] if outputs else [{} for _ in states]
         done, skipped = SAVED_DONE, SAVED_SKIPPED
         not_taken_unit = Skipped(not_taken)
-        units: list[Unit | None] = [Done(out) if state == done else not_taken_unit if state == skipped else None for state, out in zip(states, outs, strict=True)]
+        units: list[Outcome | None] = [Done(out) if state == done else not_taken_unit if state == skipped else None for state, out in zip(states, outs, strict=True)]
         for slot, question in (saved.questions or {}).items():
             answered = units[slot]
             if states[slot] is None:
@@ -65,13 +65,13 @@ def units_of(not_taken: dict[str, Any], not_called: dict[str, Any], saved: Saved
         for slot, blank in (saved.blank_inputs or {}).items():
             if units[slot] is not None:
                 raise LookupError(slot)
-            units[slot] = Blank(not_called, blank)
+            units[slot] = NotCalled(not_called, blank)
     except (LookupError, TypeError, AttributeError):  # a slot the columns don't have, or one that holds another kind of unit
         raise PydanticCustomError("misplaced", "a skip, a question or a blank input is placed on a slot that can't hold one") from None
     return units
 
 
-def with_shared_tables(outputs: Mapping[str, Mapping[str, Field]], saved: SavedRun[list[Unit | None], EarlierWork]) -> SavedRun[list[Unit | None], EarlierWork]:
+def with_shared_tables(outputs: Mapping[str, Mapping[str, Field]], saved: SavedRun[list[Outcome | None], EarlierWork]) -> SavedRun[list[Outcome | None], EarlierWork]:
     """Fills in the outputs a save wrote as ``null`` and listed under ``tables_written_once``.
 
     Example: the save lists ``{"output": ["split", "result", 0], "same_as": ["people", "result", 0]}``. The table
@@ -106,7 +106,7 @@ def with_shared_tables(outputs: Mapping[str, Mapping[str, Field]], saved: SavedR
     return saved
 
 
-def earlier_of(saved: SavedEarlier[list[Unit | None]]) -> EarlierWork:
+def earlier_of(saved: SavedEarlier[list[Outcome | None]]) -> EarlierWork:
     """Makes the earlier work a node's save holds.
 
     Raises:

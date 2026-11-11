@@ -11,6 +11,7 @@ from pydantic import TypeAdapter
 from pydantic_core import CoreConfig, CoreSchema, SchemaSerializer, SchemaValidator, core_schema
 
 from conductor._internal.field import Field
+from conductor._internal.outcomes import outputs_when_not_called, outputs_when_skipped
 from conductor._internal.saved_run.read import earlier_of, units_of, with_shared_tables
 from conductor._internal.saved_run.type import (
     SavedEarlier,
@@ -19,7 +20,6 @@ from conductor._internal.saved_run.type import (
     SkippedItems,
     SkippedSlots,
 )
-from conductor._internal.units import outputs_not_called, outputs_not_taken
 from conductor._internal.value_type import Type
 
 #: Each record's own schema, as pydantic makes it from the record: what a save's schema is composed from.
@@ -73,7 +73,7 @@ def save_form(fingerprint: str, inputs: Mapping[str, Type], outputs: Mapping[str
     blocks: dict[tuple[tuple[str, Type, bool, Any], ...], tuple[CoreSchema, CoreSchema]] = {}
     units, earlier = {}, {}
     for node, of_node in outputs.items():
-        not_taken, not_called = outputs_not_taken(of_node), outputs_not_called(of_node)
+        not_taken, not_called = outputs_when_skipped(of_node), outputs_when_not_called(of_node)
         columns = tuple((name, output.column, output.many, not_called[name]) for name, output in of_node.items())
         if columns not in blocks:  # nodes of the same outputs, which hold the same when they aren't called, share one schema
             block = len(blocks)
