@@ -315,6 +315,15 @@ def test_a_table_made_per_item_is_read_per_item_and_a_series_of_tables_input_gat
     assert whole.is_runnable and feeds(whole, "k") == {"tables": ("gathered", "s.result")}
 
 
+def test_a_value_of_any_type_is_read_as_a_table_only_where_there_is_nothing_to_gather():
+    once = load({"a": "anything", "h": "height"}, [("a.result", "h.table")])
+    assert once.is_runnable and feeds(once, "h") == {"table": ("one_value", None)}
+    per_item = load({"d": "documents", "a": "anything", "h": "height"}, [("d.result", "a.value"), ("a.result", "h.table")])
+    assert per_item.is_runnable and per_item.plan["h"].mode == "once" and feeds(per_item, "h") == {"table": ("gathered", "d.result")}
+    items = load({"u": "unknowns", "h": "height"}, [("u.result", "h.table")])
+    assert items.is_runnable and feeds(items, "h") == {"table": ("gathered", "u.result")}
+
+
 def test_an_edge_may_name_one_field_of_a_record_and_an_unknown_field_lists_the_ones_there_are():
     graph = load({"c": "contacts", "r": "rows", "s": "send"}, [("c.result", "r.table"), ("r.result.phone", "s.email")])
     assert problems(graph) == [("unknown_output", ("s", "email"))]

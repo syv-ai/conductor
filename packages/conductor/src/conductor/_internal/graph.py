@@ -1455,11 +1455,12 @@ def _taken(spec: Field, sources: list[Source]) -> tuple[bool, Type]:
     type when it reads, one item of a ``Series`` or one record of a table when it gathers.
 
     A table input reads when every edge brings a table, as one value or as each item of a ``Series`` of tables.
-    An item of a ``Series[Any]`` says nothing of itself and is taken as a record.
+    A value declared ``Any`` says nothing of itself: it is read as a table only where there is nothing to gather,
+    made once in the graph, and is taken as a record wherever it is made per item.
     """
     record = spec.whole.record
     gathers = spec.many or (record is not None and not all(
-        spec.whole.fits(s.type) is not None and (isinstance(s, Value) or s.type.bare is not Any) for s in sources
+        spec.whole.fits(s.type) is not None and (s.type.bare is not Any or not s.read_in) for s in sources
     ))
     return gathers, spec.whole if not gathers else spec.type if record is None else record
 

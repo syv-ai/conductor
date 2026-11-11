@@ -204,6 +204,11 @@ def height(table: Table) -> int:
     return table.height
 
 
+@_node("record")
+def record(text: str) -> Any:
+    return {"letter": text}
+
+
 @_node("sheets")
 def sheets(text: str) -> Series[Table]:
     return [pl.DataFrame({"letter": list(word)}) for word in text.split()]
@@ -234,6 +239,7 @@ INNER = {
     "series-per-item-inner": chain(("w", "words"), ("c", "chars")),  # a Series made per word
     "table-per-item-inner": chain(("w", "words"), ("t", "table")),
     "letters-per-word-inner": chain(("w", "words"), ("t", "letters")),
+    "record-per-word-inner": chain(("w", "words"), ("r", "record")),  # each word's value is declared Any
     "columns-inner": chain(("c", "columns")),  # its first node has an input a hook reads
     "broken-inner": chain(("up", "upper"), ("x", "no-such-node")),
     "signed-inner": chain(("s", "signed")),
@@ -249,7 +255,7 @@ INNER = {
 }
 
 REGISTRY = NodeRegistry()
-for _definition in (words, sentences, chars, upper, exclaim, greet, count, ask, fetch, flaky, stuck, boom, maybe, decide, signed, columns, table, stamp, stagger, letters, height, sheets):
+for _definition in (words, sentences, chars, upper, exclaim, greet, count, ask, fetch, flaky, stuck, boom, maybe, decide, signed, columns, table, stamp, stagger, letters, height, sheets, record):
     REGISTRY.add(_definition)
 for _id, _record in INNER.items():
     REGISTRY.add(_node(_id)(_record))
@@ -795,3 +801,18 @@ def test_every_word_answered_in_one_call_inside_one_embedded_graph_settles_it_on
     run = load({"e": "lines-inner"}).run(text=" ".join(f"w{i}" for i in range(300)))
     answered = run.answer({unit.id: "yes" for unit in run.waiting})
     assert answered.results["e"] == {"q.result": ["yes"] * 300} and reads_alike_loaded(answered)
+
+
+@pytest.mark.parametrize(
+    ("nodes", "edges"),
+    [
+        ({"w": "words", "r": "record", "h": "height"}, [("w.result", "r.text"), ("r.result", "h.table")]),
+        ({"e": "record-per-word-inner", "h": "height"}, [("e.r.result", "h.table")]),
+    ],
+    ids=["drawn flat", "made inside an embedded graph"],
+)
+def test_values_of_any_type_made_per_item_are_gathered_as_records_by_a_table_input_wherever_they_are_made(nodes: dict[str, str], edges: list[tuple[str, str]]):
+    graph = load(nodes, edges)
+    assert not graph.problems, graph.problems
+    run = graph.run(text="ab c d")
+    assert (graph.plan["h"].mode, run.status, run.results["h"]["result"]) == ("once", "complete", 3)
