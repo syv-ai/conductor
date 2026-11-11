@@ -62,7 +62,7 @@ def outcomes_of(not_taken: dict[str, Any], not_called: dict[str, Any], saved: Sa
                 units[slot] = Answered(answered.out, question)
             else:
                 raise LookupError(slot)
-        for slot, blank in (saved.blank_inputs or {}).items():
+        for slot, blank in (saved.not_called_because or {}).items():
             if units[slot] is not None:
                 raise LookupError(slot)
             units[slot] = NotCalled(not_called, blank)

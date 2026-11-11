@@ -42,7 +42,7 @@ def outcome_columns(outputs: Mapping[str, Field], slots: list[Outcome | None]) -
     skipped: dict[str, list[int]] = {}
     skipped_items: dict[str, dict[int, list[int]]] = {}
     questions: dict[int, Question] | None = None
-    blank_inputs: dict[int, str] | None = None
+    not_called_because: dict[int, str] | None = None
     if kinds & _HOLDS_OUTPUTS:
         every = kinds <= _HOLDS_OUTPUTS  # every unit holds outputs, as those of a node that finished do
         for name, output in outputs.items():
@@ -64,9 +64,9 @@ def outcome_columns(outputs: Mapping[str, Field], slots: list[Outcome | None]) -
     if Answered in kinds or Asking in kinds:
         questions = {slot: outcome.question for slot, outcome in enumerate(slots) if type(outcome) is Answered or type(outcome) is Asking}
     if NotCalled in kinds:
-        blank_inputs = {slot: outcome.input for slot, outcome in enumerate(slots) if type(outcome) is NotCalled}
+        not_called_because = {slot: outcome.input for slot, outcome in enumerate(slots) if type(outcome) is NotCalled}
     return SavedOutcomes(
-        states=list(map(_STATE_WORD.get, map(type, slots))), outputs=columns, questions=questions, blank_inputs=blank_inputs,
+        states=list(map(_STATE_WORD.get, map(type, slots))), outputs=columns, questions=questions, not_called_because=not_called_because,
         skipped=skipped or None, skipped_items=skipped_items or None,
     )
 

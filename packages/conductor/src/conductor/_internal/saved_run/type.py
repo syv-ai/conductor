@@ -36,7 +36,7 @@ class SavedOutcomes:
         questions: By slot, the question a unit asked; ``None``, as for each field after it, when there is none,
             which leaves the key out of the save. On a slot that isn't done the unit waits for a person, so a
             waiting unit can't be written without its question.
-        blank_inputs: By slot, the input that got a blank, for a unit that wasn't called for it.
+        not_called_because: By slot, the input that got a blank, for a unit that wasn't called for it.
         skipped: By output, the slots whose value is a branch not taken (``SKIPPED``); ``None`` in the column.
             A graph's form takes it for the node's own outputs only.
         skipped_items: By output and slot, the items of a ``Series`` there that are a branch not taken; ``None``
@@ -48,7 +48,7 @@ class SavedOutcomes:
     states: list[SavedOutcomeState | None]
     outputs: dict[str, list[Any]]
     questions: dict[NonNegativeInt, Question] | None = None
-    blank_inputs: dict[NonNegativeInt, str] | None = None
+    not_called_because: dict[NonNegativeInt, str] | None = None
     skipped: dict[str, list[NonNegativeInt]] | None = None
     skipped_items: dict[str, dict[NonNegativeInt, list[NonNegativeInt]]] | None = None
 

@@ -381,11 +381,11 @@ def test_a_field_added_to_a_saved_record_is_written_and_read_with_no_other_edit(
     record = _inlined(TypeAdapter(Noted).core_schema, shared)  # the record's schema, as pydantic makes it from the record
     composed = _with_fields(record, outputs=core_schema.typed_dict_schema({"result": core_schema.typed_dict_field(column)}))
     schema = core_schema.definitions_schema(composed, list(shared.values()))
-    noted = Noted(states=["done", None], outputs={"result": ["a", None]}, blank_inputs={1: "text"}, note="kept")
+    noted = Noted(states=["done", None], outputs={"result": ["a", None]}, not_called_because={1: "text"}, note="kept")
 
     written = SchemaSerializer(schema).to_json(noted, exclude_defaults=True)
 
-    assert json.loads(written) == {"states": ["done", None], "outputs": {"result": ["a", None]}, "blank_inputs": {"1": "text"}, "note": "kept"}
+    assert json.loads(written) == {"states": ["done", None], "outputs": {"result": ["a", None]}, "not_called_because": {"1": "text"}, "note": "kept"}
     assert SchemaValidator(schema).validate_json(written) == noted
     with pytest.raises(KeyError):
         _with_fields(record, undeclared=column)  # composing for a field the record doesn't declare

@@ -820,14 +820,14 @@ def ok_word(word: str) -> bool:
         ("units.upper.states", lambda s: s["units"]["upper"].__setitem__("states", {})),
         ("units.ok.questions", lambda s: s["units"]["ok"].__setitem__("questions", [])),
         ("units.ok.questions.0.prompt", lambda s: s["units"]["ok"]["questions"].__setitem__("0", {"inputs": {}})),
-        ("units.upper.blank_inputs.0", lambda s: s["units"]["upper"].__setitem__("blank_inputs", {"0": 1})),
+        ("units.upper.not_called_because.0", lambda s: s["units"]["upper"].__setitem__("not_called_because", {"0": 1})),
         ("units.upper.undeclared", lambda s: s["units"]["upper"].__setitem__("undeclared", {"0": -1})),  # a save holds only what it declares
         ("units.upper", lambda s: s["units"]["upper"].__setitem__("skipped", {"result": [7]})),
         ("units.upper.skipped.other", lambda s: s["units"]["upper"].__setitem__("skipped", {"other": [0]})),  # no such output
         ("units.upper.skipped_items.result", lambda s: s["units"]["upper"].__setitem__("skipped_items", {"result": {"0": [0]}})),  # only a Series has items
         ("units.ok", lambda s: s["units"]["ok"]["questions"].__setitem__("7", {"prompt": "?", "inputs": {}})),
-        ("units.upper", lambda s: s["units"]["upper"].__setitem__("blank_inputs", {"0": "word"})),  # a blank input on a unit that is done
-        ("units.ok", lambda s: s["units"]["ok"].__setitem__("blank_inputs", {"0": "word"})),  # a blank input on a unit that asks
+        ("units.upper", lambda s: s["units"]["upper"].__setitem__("not_called_because", {"0": "word"})),  # a blank input on a unit that is done
+        ("units.ok", lambda s: s["units"]["ok"].__setitem__("not_called_because", {"0": "word"})),  # a blank input on a unit that asks
         ("the run", lambda s: s.clear()),  # an empty save: the graph's fingerprint, which says whose save it is, is read first
         ("inputs.split.text", lambda s: s["inputs"].__setitem__("split.text", ["a"])),
         ("inputs.nowhere.text", lambda s: s["inputs"].__setitem__("nowhere.text", "a")),
