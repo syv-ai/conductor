@@ -1063,7 +1063,7 @@ class Graph:
         items = not required and given_as_items(plan.spec, plan.value)
         graph_input = plan.spec.describe(
             GraphInput, address=address, node_id=placed.id, per_item=plan.spec.per_item, required=required,
-            default=None if required else plan.spec.list_adapter.dump_python(plan.value, mode="json") if items else _jsonable(plan.spec, plan.value),
+            default=None if required else plan.spec.list_adapter.dump_python(plan.value, mode="json") if items else plan.spec.json_of(plan.value),
         )
         self._graph_inputs.append((graph_input, address, plan.spec, plan.value, listed))
 
@@ -1465,8 +1465,3 @@ def _table(level: Level) -> str | None:
     return level[-1] if level else None
 
 
-def _jsonable(spec: FieldSpec, value: Any) -> Any:
-    try:
-        return spec.adapter.dump_python(value, mode="json")
-    except Exception:  # noqa: BLE001  a value with no JSON form shows as nothing
-        return None

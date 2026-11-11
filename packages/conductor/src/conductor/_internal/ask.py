@@ -23,7 +23,6 @@ from typing import TYPE_CHECKING, Any, TypedDict
 
 import polars as pl
 from pydantic import JsonValue, ValidationError
-from pydantic_core import to_jsonable_python
 
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.fields import (
@@ -226,7 +225,7 @@ def _offered(spec: FieldSpec, choices: list[Any]) -> list[dict[str, Any]]:
         raise InvalidAskError(f"'{spec.name}' is offered no choices")
     ids = [choice_record(choice)["id"] for choice in choices]
     try:
-        kept = _as_json(spec, read_answer(spec, ids)) if spec.shape == "many" else [_as_json(spec, read_answer(spec, i)) for i in ids]
+        kept = spec.json_of(read_answer(spec, ids)) if spec.shape == "many" else [spec.json_of(read_answer(spec, i)) for i in ids]
     except FieldValueError as refused:
         raise InvalidAskError(f"a choice for '{spec.name}' is not what it returns: {refused.reason}") from None
     if len({repr(k) for k in kept}) != len(kept):
@@ -246,7 +245,7 @@ def _proposed(spec: FieldSpec, default: Any, offered: list[dict[str, Any]] | Non
         InvalidAskError: An answer could not be the default.
     """
     try:
-        proposed: JsonValue = _as_json(spec, _checked_answer(spec, default, offered))
+        proposed: JsonValue = spec.json_of(_checked_answer(spec, default, offered))
     except FieldValueError as refused:
         raise InvalidAskError(f"the default for '{spec.name}' is not an answer it takes: {refused.reason}") from None
     return proposed
@@ -259,21 +258,15 @@ def output_questions(definition: NodeDefinition[..., Any]) -> dict[str, FieldDes
         definition: The node.
 
     Returns:
-        A question per output, by name. A lone output is titled by the node unless its type names it, and a field
-        of a returned dataclass with a default proposes it.
+        A question per output, by name, under the output's own label, and a field of a returned dataclass with a
+        default proposes it.
     """
-    lone = len(definition.outputs) == 1
-    return {name: _question(spec, definition.title if lone else None) for name, spec in definition.outputs.items()}
+    return {name: _question(spec) for name, spec in definition.outputs.items()}
 
 
-def _question(spec: FieldSpec, node_title: str | None) -> FieldDescription:
-    """One output's question as its type sets it, titled ``node_title`` when that is given and the type names none."""
-    changed: dict[str, Any] = {}
-    if node_title is not None and spec.param.title is None:
-        changed["title"] = node_title  # a lone output's own name, "result", says nothing to a person
-    if not spec.required and spec.default is not SKIPPED:
-        changed["default"] = _as_json(spec, spec.default)
-    question = spec.describe(**changed)
+def _question(spec: FieldSpec) -> FieldDescription:
+    """One output's question as its type sets it."""
+    question = spec.describe()
     return question.model_copy(update={"required": _required(spec, {}, limited=question.choices is not None)})
 
 
@@ -370,7 +363,7 @@ def _checked_answer(spec: FieldSpec, value: Any, offered: list[dict[str, Any]] |
     """
     read = read_answer(spec, value)
     if offered is not None:
-        picked = _as_json(spec, read)
+        picked = spec.json_of(read)
         picks = picked if spec.shape == "many" else [picked]
         ids = [choice["id"] for choice in offered]
         if any(item not in ids for item in picks):
@@ -421,8 +414,3 @@ def _read_table(spec: FieldSpec, value: Any) -> pl.DataFrame:
     return pl.DataFrame(columns, strict=False)
 
 
-def _as_json(spec: FieldSpec, value: Any) -> Any:
-    """A value of the output ``spec`` in its JSON form; a table as its records."""
-    if spec.shape == "table":
-        return to_jsonable_python(value.to_dicts())
-    return spec.adapter.dump_python(value, mode="json")

@@ -474,20 +474,17 @@ def test_an_any_input_has_a_json_form_before_anything_is_wired():
     }
 
 
-def test_describe_writes_as_json_whatever_default_a_host_set():
-    class Own:
-        pass
-
+def test_describe_writes_each_default_as_its_type_writes_it_as_json():
     @dataclass
     class Point:
         x: int
 
     @node("f", title="F", description="")
-    def f(a: Any = Own(), b: list[Point] = [Point(1)]) -> str:  # noqa: B006, B008
+    def f(b: list[Point] = [Point(1)]) -> str:  # noqa: B006, B008
         return ""
 
     written = json.loads(f.describe().model_dump_json())
-    assert [i["default"] for i in written["inputs"]] == [None, [{"x": 1}]]
+    assert [i["default"] for i in written["inputs"]] == [[{"x": 1}]]
 
 
 def test_a_parameter_named_like_a_pydantic_model_attribute_checks_and_runs_without_a_warning():
@@ -1334,3 +1331,29 @@ def test_a_param_whose_choices_are_not_values_of_its_type_is_refused_at_node_in_
         with pytest.raises(NodeDeclarationError) as raised:
             declared(wrong)
         assert raised.value.code == "choices_invalid"
+
+
+@pytest.mark.parametrize("default", [b"\xff\xfe", object()], ids=["bytes-not-utf-8", "any-object"])
+def test_a_default_with_no_json_form_is_refused_where_the_node_is_declared(default: Any) -> None:
+    with pytest.raises(NodeDeclarationError) as raised:
+
+        @node("b", title="B", description="Takes a value.")
+        def b(data: Any = default) -> int:
+            return 1
+
+    assert raised.value.code == "default_invalid"
+
+
+def test_a_default_is_described_and_offered_by_a_loaded_graph_as_its_json():
+    class Row(TypedDict):
+        n: int
+
+    @node("t", title="T", description="Counts rows.")
+    def t(rows: Table[Row] = pl.DataFrame({"n": [1, 2]}), when: datetime.date = datetime.date(2026, 1, 2)) -> int:
+        return len(rows)
+
+    described = {field.name: field.default for field in t.describe().inputs}
+    offered = {name: given.default for name, given in registry_of(t).load(make_graph(t)).inputs.items()}
+
+    assert described == {"rows": [{"n": 1}, {"n": 2}], "when": "2026-01-02"}
+    assert offered == {"rows": [{"n": 1}, {"n": 2}], "when": "2026-01-02"}

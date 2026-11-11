@@ -1017,6 +1017,8 @@ except NodeDeclarationError as error:
 
 > {spec.name}: the default {spec.default} is not a {getattr(base, '__name__', base)}, so give one that is: {error}
 
+> {spec.name}: the default {spec.default} has no JSON form, so give one its type writes as JSON: {error}
+
 ```python
 try:
     @node("maybe", title="Maybe", description="Passes the text on as it is.")
@@ -1026,7 +1028,7 @@ except NodeDeclarationError as error:
     print(error.code)  # default_invalid
 ```
 
-**Fix.** Write `text: str | None = None` for an input that takes a blank, or give a default of the input's type.
+**Fix.** Write `text: str | None = None` for an input that takes a blank, or give a default of the input's type that it writes as JSON: an editor shows it, and a saved graph stores it.
 
 ### `duplicate_node_id` (declaring a node)
 

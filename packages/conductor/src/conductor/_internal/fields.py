@@ -53,6 +53,7 @@ from pydantic import (
     ConfigDict,
     GetCoreSchemaHandler,
     GetJsonSchemaHandler,
+    JsonValue,
     TypeAdapter,
     ValidateAs,
     ValidationError,
@@ -302,6 +303,9 @@ class FieldSpec:
     type_id: str = field(kw_only=True)
     #: The ids of a table's declared column types, by column.
     column_type_ids: Mapping[str, str] = field(kw_only=True, default_factory=dict[str, str])
+    #: The default in its JSON form, written once when the node is declared; ``None`` where the field has no value
+    #: to propose (it is required, or its default is ``SKIPPED``).
+    default_json: JsonValue = field(kw_only=True, default=None)
 
     @property
     def required(self) -> bool:
@@ -310,6 +314,13 @@ class FieldSpec:
     @property
     def title(self) -> str:
         return self.param.title or humanised(self.name)
+
+    def json_of(self, value: Any) -> Any:
+        """``value``, one this field holds, in its JSON form as its type writes it; a table as its rows' records,
+        and a blank table as ``None``."""
+        if self.shape == "table":
+            return None if value is None else to_jsonable_python(value.to_dicts())
+        return self.adapter.dump_python(value, mode="json")
 
     @functools.cached_property
     def _one(self) -> Any:
@@ -422,7 +433,7 @@ class FieldSpec:
             out["type"] = self.type_id
         out.update(copy.deepcopy(self._schemas))  # the caller may change what it is given
         if not self.required:
-            out["default"] = to_jsonable_python(self.default, fallback=lambda _: None)
+            out["default"] = self.default_json
         offered = literal_values(self.type) if self.shape != "table" else None
         if self.param.choices is not None:
             out["choices"] = [{**(said := choice_record(choice)), "id": to_jsonable_python(said["id"])} for choice in self.param.choices]
@@ -580,7 +591,7 @@ def _checked(spec: FieldSpec, where: str) -> FieldSpec:
     if spec.shape == "table" and spec.param.choices is not None:
         raise NodeDeclarationError(f"{where}{spec.name}: a table takes no choices; take them off", code="choices_invalid")
     if spec.shape == "table":
-        return spec
+        return _with_default_json(spec, where)
     try:
         spec.adapter  # noqa: B018
     except NodeDeclarationError as error:  # a Param that doesn't fit its type, the field's own or one in a model it holds
@@ -602,8 +613,21 @@ def _checked(spec: FieldSpec, where: str) -> FieldSpec:
             made = spec.lax_adapter.validate_python(spec.default)
         except Exception as error:  # noqa: BLE001  pydantic's own error says why
             raise NodeDeclarationError(f"{where}{spec.name}: the default {spec.default!r} is not a {getattr(base, '__name__', base)}, so give one that is: {error}", code="default_invalid") from None
-        return dataclasses.replace(spec, default=made)
-    return spec
+        spec = dataclasses.replace(spec, default=made)
+    return _with_default_json(spec, where)
+
+
+def _with_default_json(spec: FieldSpec, where: str) -> FieldSpec:
+    """``spec`` holding its default's JSON form; a default its type can't write as JSON raises ``default_invalid``."""
+    if spec.required or spec.default is SKIPPED:
+        return spec
+    try:
+        written = spec.json_of(spec.default)
+    except ValueError as error:  # pydantic's verdict: a PydanticSerializationError, or bytes that aren't UTF-8
+        raise NodeDeclarationError(
+            f"{where}{spec.name}: the default {spec.default!r} has no JSON form, so give one its type writes as JSON: {error}", code="default_invalid",
+        ) from None
+    return dataclasses.replace(spec, default_json=written)
 
 
 _BUILTINS: tuple[type, ...] = (bool, int, float, str, bytes, datetime.datetime, datetime.date)
