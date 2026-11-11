@@ -29,6 +29,7 @@ import pydantic_core
 from pydantic import (
     BaseModel,
     ConfigDict,
+    Field,
     NonNegativeInt,
     PlainSerializer,
     PositiveInt,
@@ -57,8 +58,42 @@ if TYPE_CHECKING:
 #: A row: the parent's key plus a number, ``()`` for the graph's own row.
 Key = tuple[int, ...]
 
+#: How a run stands while nothing has ended it early: not started, in a leg, waiting for a person, or done.
+GoingStatus = Literal["ready", "running", "complete", "waiting"]
+#: How a leg ended before the run was done: a node failed, a table outgrew ``max_rows``, a cancel, or the deadline.
+EndedStatus = Literal["failed", "stopped", "cancelled", "timed_out"]
 #: How a run stands after a leg.
-RunStatus = Literal["ready", "running", "complete", "waiting", "failed", "stopped", "cancelled", "timed_out"]
+RunStatus = GoingStatus | EndedStatus
+
+
+@dataclass(frozen=True, slots=True)
+class Going:
+    """A run nothing has ended early.
+
+    Attributes:
+        status: Not started (``ready``), in a leg (``running``), waiting for a person, or ``complete``.
+    """
+
+    status: GoingStatus
+
+
+@dataclass(frozen=True, slots=True)
+class EndedEarly:
+    """A run whose last leg ended before it was done, and why; ``resume`` goes on from where it stopped.
+
+    Attributes:
+        status: ``failed`` (a node failed), ``stopped`` (a table outgrew ``max_rows``), ``cancelled`` or ``timed_out``.
+        cause: Why, as a problem with its place and code.
+    """
+
+    status: EndedStatus
+    cause: Problem
+
+
+#: How a run stands: going on, or ended early with a cause.
+RunState = Going | EndedEarly
+
+_READY, _RUNNING, _WAITING, _COMPLETE = Going("ready"), Going("running"), Going("waiting"), Going("complete")
 
 
 class _Pending:
@@ -135,9 +170,9 @@ class Run:
         inputs: The caller's inputs as checked, by address (``"upper.text"``) whether they were given by name or by
             address.
         max_rows: The most rows any table may hold before the run stops as ``stopped``; ``None`` for no ceiling.
-        status: ``ready`` before the first leg, then ``complete``, ``waiting``, ``failed``, ``stopped`` (the row
-            ceiling), ``cancelled`` or ``timed_out``.
-        cause: The ``Problem`` behind a ``failed``, ``stopped``, ``cancelled`` or ``timed_out`` run, else ``None``.
+        state: How the run stands: ``Going`` (``ready`` before the first leg, then ``running``, ``waiting`` or
+            ``complete``), or ``EndedEarly`` (``failed``, ``stopped`` at the row ceiling, ``cancelled`` or
+            ``timed_out``) with the ``Problem`` that caused it.
     """
 
     graph: Graph
@@ -146,8 +181,7 @@ class Run:
     _given_values: dict[str, Any]
     max_rows: int | None
     _units: dict[str, dict[Key, Unit]]
-    status: RunStatus
-    cause: Problem | None
+    state: RunState
     #: node -> fingerprint of what a unit received -> the earlier units that received it, in row order, not yet taken.
     _earlier: dict[str, dict[str, list[Unit]]]
     #: The nodes whose ``_earlier`` entry is this run's own to take from, not shared with the run it was copied from.
@@ -166,6 +200,11 @@ class Run:
 
     def __repr__(self) -> str:
         return f"<Run {self.status}: {sum(len(u) for u in self._units.values())} units>"
+
+    @property
+    def status(self) -> RunStatus:
+        """How the run stands, as ``state`` says it."""
+        return self.state.status
 
     # -- going on ---------------------------------------------------------------
 
@@ -210,9 +249,9 @@ class Run:
         cancelled = threading.Event()
         deadline = _deadline(timeout)
 
-        def stop() -> Problem | None:
+        def stop() -> EndedEarly | None:
             if cancelled.is_set() or (cancel is not None and cancel.is_set()):
-                return make_problem("run_cancelled")
+                return EndedEarly("cancelled", make_problem("run_cancelled"))
             return deadline() if deadline is not None else None
 
         failed: list[BaseException] = []
@@ -236,7 +275,7 @@ class Run:
             cancelled.set()
 
     def _leg(
-        self, max_rows: int | None, from_run: dict[type, Any], emit: Callable[[_EventBase], None] | None, stop: Callable[[], Problem | None] | None,
+        self, max_rows: int | None, from_run: dict[type, Any], emit: Callable[[_EventBase], None] | None, stop: Callable[[], EndedEarly | None] | None,
         checkpoint_every: float | None = None,
     ) -> Run:
         from conductor._internal.leg import Leg
@@ -441,9 +480,13 @@ class Run:
     @property
     def outputs(self) -> dict[str, Any]:
         """The graph's outputs (``graph.outputs``), by address, once the run is complete; ``results`` reads a run in any state."""
-        if self.status != "complete":
-            reason = self.cause.msg if self.cause is not None else ""
-            raise InvalidCallError([make_problem("run_not_complete", "outputs", status=self.status, reason=reason)])
+        match self.state:
+            case Going(status="complete"):
+                pass
+            case Going(status=status):
+                raise InvalidCallError([make_problem("run_not_complete", "outputs", status=status, reason="")])
+            case EndedEarly(status=status, cause=cause):
+                raise InvalidCallError([make_problem("run_not_complete", "outputs", status=status, reason=cause.msg)])
         results = self.results
         return {address: results[address.split(".")[0]][address.split(".", 1)[1]] for address in self.graph.outputs}
 
@@ -531,13 +574,14 @@ class Run:
 
     def _stop(self, table: str, count: int) -> None:
         """Stop at the row ceiling, unless the leg already ended for a failure, a cancel or its timeout, which stays the cause."""
-        if self.cause is not None:
-            return
-        self.status = "stopped"
-        maker = self.graph._makers[table][0]
-        self.cause = make_problem(
-            "row_ceiling", self.graph._outward(maker) if maker else "inputs", table=self.graph._outward(table, table=True), rows=count, max_rows=self.max_rows,
-        )
+        match self.state:
+            case EndedEarly():
+                return
+            case Going():
+                maker = self.graph._makers[table][0]
+                self.state = EndedEarly("stopped", make_problem(
+                    "row_ceiling", self.graph._outward(maker) if maker else "inputs", table=self.graph._outward(table, table=True), rows=count, max_rows=self.max_rows,
+                ))
 
     def _rows_made(self) -> dict[str, int]:
         """How many rows each table has so far; a typed list's are its items times the rows they go under."""
@@ -805,17 +849,23 @@ class Run:
             if not self.graph._input_fields[address].spec.plain:
                 _find_non_finite(written_input, [], non_finite.setdefault(address, []))
         code = {n: self._ran_as.get(n) or self.graph._nodes[n].reuse_digest for n, us in self._units.items() if us or n in earlier}
-        written = _SavedRun.model_construct(
-            graph=self.graph.fingerprint, status=self.status, cause=self.cause, max_rows=self.max_rows, inputs=inputs, non_finite_inputs={a: paths for a, paths in non_finite.items() if paths},
-            units=units, earlier=earlier, code=code, complete=[n for n in self._units if n in self._complete],
-        )
-        return _SAVED.dump_json(written, exclude_defaults=True).decode()
+        rest: dict[str, Any] = {
+            "graph": self.graph.fingerprint, "max_rows": self.max_rows, "inputs": inputs, "non_finite_inputs": {a: paths for a, paths in non_finite.items() if paths},
+            "units": units, "earlier": earlier, "code": code, "complete": [n for n in self._units if n in self._complete],
+        }
+        written: _SavedRun
+        match self.state:
+            case Going(status=status):
+                written = _SavedGoingRun.model_construct(status=status, **rest)
+            case EndedEarly(status=status, cause=cause):
+                written = _SavedEndedRun.model_construct(status=status, cause=cause, **rest)
+        return written.model_dump_json(exclude_defaults=True)
 
     def _copy(self, *, share_units: bool = False, **changes: Any) -> Run:
         """A copy to change: its own units to record into, or with ``share_units`` this run's, for a caller that replaces whole nodes."""
         copy = start_run(self.graph, self.inputs, changes.get("max_rows", self.max_rows))
         copy._units = dict(self._units) if share_units else {n: dict(us) for n, us in self._units.items()}
-        copy.status, copy.cause, copy._earlier, copy._unordered = self.status, self.cause, dict(self._earlier), set(self._unordered)
+        copy.state, copy._earlier, copy._unordered = self.state, dict(self._earlier), set(self._unordered)
         copy._ran_as, copy._complete = self._ran_as, self._complete
         return copy
 
@@ -826,8 +876,7 @@ def start_run(graph: Graph, inputs: dict[str, Any], max_rows: int | None) -> Run
     run.graph, run.inputs, run.max_rows = graph, inputs, max_rows
     run._given_values = {**inputs, **graph._typed_lists}
     run._units = {n: {} for n in graph._nodes}
-    run.status = "ready"
-    run.cause = None
+    run.state = _READY
     run._earlier = {}
     run._earlier_own = set()
     run._asking = {}
@@ -851,7 +900,11 @@ def run_from_json(graph: Graph, saved: str | bytes | Mapping[str, Any]) -> Run:
         raise InvalidCallError([make_problem("state_unreadable", "state", at="the run", reason="it is not JSON")]) from None
     except ValidationError as error:
         # The save's own shape is conductor's, so its whole place is named: node ids, output names, indexes, never a value.
-        at = ".".join(str(step) for step in error.errors(include_input=False)[0]["loc"]) or "the run"
+        first = error.errors(include_input=False)[0]
+        # a save is read as the kind its status names, so a place inside it starts with that status, and a fault of the
+        # status itself has no place of its own
+        loc = ("status",) if first["type"].startswith("union_tag") else first["loc"][1:]
+        at = ".".join(str(step) for step in loc) or "the run"
         raise InvalidCallError([make_problem("state_unreadable", "state", at=at, reason=value_free_errors(error)[0]["msg"])]) from None
     try:
         if data.graph != graph.fingerprint:
@@ -888,9 +941,12 @@ def run_from_json(graph: Graph, saved: str | bytes | Mapping[str, Any]) -> Run:
             for fp, (_, unit) in zip(dumped.fingerprints, _load_units(graph._nodes[n], dumped), strict=True):
                 by.setdefault(fp, []).append(unit)
             run._earlier[n] = by
-        run.status = data.status
+        match data:
+            case _SavedGoingRun(status=status):
+                run.state = Going(status)
+            case _SavedEndedRun(status=status, cause=cause):
+                run.state = EndedEarly(status, cause)
         run._complete = frozenset({n for n in data.complete if n in graph._nodes})
-        run.cause = data.cause
         for n, units in run._units.items():  # every row is one the saved makers made
             placed = graph._nodes[n]
             made, _ = run._rows(placed.level, ())
@@ -1101,13 +1157,12 @@ class _SavedEarlier(_SavedUnits):
     fingerprints: list[str]
 
 
-class _SavedRun(BaseModel):
-    """What ``run.to_json()`` writes, read once at ``load_run``: a malformed save is refused here, by where.
+class _SavedRunBase(BaseModel):
+    """What ``run.to_json()`` writes beside how the run stands, read once at ``load_run``: a malformed save is refused
+    here, by where.
 
     Attributes:
         graph: The fingerprint of the graph that ran, so another graph's save is refused.
-        status: How the run stood when it was saved.
-        cause: The problem behind a ``failed``, ``stopped``, ``cancelled`` or ``timed_out`` run.
         max_rows: The row ceiling the run goes on under.
         inputs: The caller's inputs by address, as JSON; a table as a ``_SavedTable``.
         non_finite_inputs: By address, the places of each float that isn't finite, as ``_SavedOutput.non_finite``.
@@ -1120,8 +1175,6 @@ class _SavedRun(BaseModel):
 
     model_config = _SAVE_CONFIG
     graph: str
-    status: RunStatus
-    cause: Problem | None
     max_rows: PositiveInt | None
     inputs: dict[str, Any]
     non_finite_inputs: dict[str, _Paths] = {}
@@ -1131,7 +1184,33 @@ class _SavedRun(BaseModel):
     complete: list[str] = []
 
 
-_SAVED = TypeAdapter(_SavedRun)
+class _SavedGoingRun(_SavedRunBase):
+    """A saved run nothing ended early. ``cause`` is taken as ``null`` only, and never written.
+
+    Attributes:
+        status: How the run stood when it was saved: ``ready``, ``running``, ``waiting`` or ``complete``.
+        cause: Always ``None``.
+    """
+
+    status: GoingStatus
+    cause: None = None
+
+
+class _SavedEndedRun(_SavedRunBase):
+    """A saved run whose last leg ended early: its ``cause`` is required.
+
+    Attributes:
+        status: How the run ended: ``failed``, ``stopped``, ``cancelled`` or ``timed_out``.
+        cause: The problem that ended it.
+    """
+
+    status: EndedStatus
+    cause: Problem
+
+
+#: A save, told apart by its ``status``: a status and a cause that disagree are refused at the parse.
+_SavedRun = Annotated[_SavedGoingRun | _SavedEndedRun, Field(discriminator="status")]
+_SAVED: TypeAdapter[_SavedRun] = TypeAdapter(_SavedRun)
 _SAVED_TABLE = TypeAdapter(_SavedTable)
 
 
@@ -1399,9 +1478,9 @@ def _parse_unit(unit_id: str) -> tuple[str, Key | None, str | None]:
         return node_id, None, fingerprint or None
 
 
-def _deadline(timeout: float | None) -> Callable[[], Problem | None] | None:
+def _deadline(timeout: float | None) -> Callable[[], EndedEarly | None] | None:
     if timeout is None:
         return None
     end = time.monotonic() + timeout
-    return lambda: make_problem("run_timed_out", timeout=timeout) if time.monotonic() > end else None
+    return lambda: EndedEarly("timed_out", make_problem("run_timed_out", timeout=timeout)) if time.monotonic() > end else None
 

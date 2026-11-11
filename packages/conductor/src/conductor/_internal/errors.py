@@ -3,7 +3,7 @@
 Everything wrong that a person has to hear about is a ``Problem``: what
 loading a graph found (``graph.problems``), what a refused call lists
 (``InvalidCallError.errors()``), and why a node or a run stopped
-(``NodeFailed.cause``, ``run.cause``). So a host has one type to
+(``NodeFailed.cause``, an ``EndedEarly`` ``run.state``'s ``cause``). So a host has one type to
 translate, and one table to translate it with: ``PROBLEM_CODES`` is every
 code conductor itself writes. Who meets what:
 
@@ -11,7 +11,7 @@ code conductor itself writes. Who meets what:
     a developer, importing  NodeDeclarationError     a node is declared wrong
     an author, editing      Problem on the graph     loading; never raised
     a caller                InvalidCallError         run, answer, with_inputs, ...
-    whoever reads a run     run.cause                a leg that ended in error
+    whoever reads a run     run.state                a leg that ended early
 
 A graph that says something impossible is data, so an editor can show it
 mid-edit; a caller asking for what cannot be done raises, from the call

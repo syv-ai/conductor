@@ -158,7 +158,7 @@ def test_waiting_and_skipped_events():
 def test_failure_keeps_calls_already_made():
     graph = reg.load(chain("split", "boom"))
     run = graph.run(text="a,b,c,d")
-    assert run.status == "failed" and run.cause.loc == ("boom", 2), run.cause
+    assert run.status == "failed" and run.state.cause.loc == ("boom", 2), run.state.cause
     assert all(run._units["boom"].get((i,)) is not None for i in (0, 1, 3))  # d finished on its thread after c failed
     seen = []
 
@@ -250,10 +250,10 @@ def test_retries_run_out_and_plain_errors_never_retry():
         raise KeyError(text)
 
     run = registry_of(down).load({"nodes": [{"id": "down", "node": "down"}]}).run(text="x")
-    assert run.status == "failed" and run.cause.type == "external_failed" and calls == ["x", "x"], (run.cause, calls)
+    assert run.status == "failed" and run.state.cause.type == "external_failed" and calls == ["x", "x"], (run.state.cause, calls)
     calls.clear()
     run = registry_of(bug).load({"nodes": [{"id": "bug", "node": "bug"}]}).run(text="x")
-    assert run.status == "failed" and run.cause.type == "execution_failed" and calls == ["bug"]
+    assert run.status == "failed" and run.state.cause.type == "execution_failed" and calls == ["bug"]
 
 
 def test_attempt_timeout_is_final():
@@ -267,7 +267,7 @@ def test_attempt_timeout_is_final():
 
     start = t.monotonic()
     run = registry_of(hang).load({"nodes": [{"id": "hang", "node": "hang"}]}).run(text="x")
-    assert run.status == "failed" and run.cause.type == "timeout" and calls == ["x"] and t.monotonic() - start < 0.25, (run.cause, calls)
+    assert run.status == "failed" and run.state.cause.type == "timeout" and calls == ["x"] and t.monotonic() - start < 0.25, (run.state.cause, calls)
 
 
 def test_reuse_when_inputs_match_false_calls_again():

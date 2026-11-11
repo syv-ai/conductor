@@ -40,6 +40,6 @@ A node raises `Ask` when a person must answer. That row waits, and so does whate
 
 ## Failures
 
-Every failure is a `Problem`: `type`, `loc`, `msg` and `ctx`. Loading reports problems, a failed node puts one on its event and on `run.cause`, and a call that can't be acted on raises `InvalidCallError` with every problem listed. A host routes and translates by `type`.
+Every failure is a `Problem`: `type`, `loc`, `msg` and `ctx`. Loading reports problems, a failed node puts one on its event and on `run.state` (an `EndedEarly`'s `cause`), and a call that can't be acted on raises `InvalidCallError` with every problem listed. A host routes and translates by `type`.
 
 Retries are the node's `Policy` ([writing nodes](writing-nodes.md#when-something-fails)). A failed unit stops anything new from starting. The calls already running finish and are kept, so resuming doesn't make them again.

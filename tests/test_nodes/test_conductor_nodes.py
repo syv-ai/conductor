@@ -12,7 +12,7 @@ def _run(node_id: str, **values: Any) -> dict[str, Any]:
     """One node of the registry in a graph, its inputs typed in, run to the end."""
     record = make_graph(conductor_nodes.registry[node_id], values={f"{node_id}.{name}": value for name, value in values.items()})
     run = conductor_nodes.registry.load(record).run()
-    assert run.status == "complete", run.cause
+    assert run.status == "complete", run.state
     return run.results[node_id]
 
 
@@ -81,13 +81,13 @@ def test_a_failure_says_what_went_wrong_in_a_code_of_its_own(node_id: str, value
     record = make_graph(conductor_nodes.registry[node_id], values={f"{node_id}.{name}": value for name, value in values.items()})
     run = conductor_nodes.registry.load(record).run()
 
-    assert run.status == "failed" and run.cause is not None and run.cause.type == code
+    assert run.status == "failed" and run.state.cause is not None and run.state.cause.type == code
 
 
 def test_a_replacement_that_names_a_group_the_pattern_lacks_is_its_own_fault_not_the_patterns() -> None:
     record = make_graph(regex_ops.replace_all, values={"regex-replace.text": "a", "regex-replace.pattern": "a", "regex-replace.replacement": r"\9"})
 
-    cause = conductor_nodes.registry.load(record).run().cause
+    cause = conductor_nodes.registry.load(record).run().state.cause
     assert cause is not None and cause.type == "invalid_replacement" and "pattern" not in cause.msg
 
 
@@ -104,7 +104,7 @@ def test_a_pattern_that_takes_too_long_fails_its_node_instead_of_freezing_the_ru
     record = make_graph(regex_ops.match, values={"regex-match.text": "a" * 50_000 + "b", "regex-match.pattern": r"(a|aa)+$"})
 
     run = conductor_nodes.registry.load(record).run()
-    assert run.cause is not None and run.cause.type == "pattern_timeout"
+    assert run.state.cause is not None and run.state.cause.type == "pattern_timeout"
 
 
 def test_a_node_is_still_its_function() -> None:

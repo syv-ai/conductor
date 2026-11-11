@@ -41,7 +41,12 @@ from conductor._internal.errors import ExternalError, NodeError, Problem, make_p
 from conductor._internal.fields import SKIPPED, FieldValueError
 from conductor._internal.graph import shared_depth
 from conductor._internal.run import (
+    _COMPLETE,
+    _RUNNING,
+    _WAITING,
     PENDING,
+    EndedEarly,
+    Going,
     Key,
     Run,
     RunStatus,
@@ -156,6 +161,15 @@ class RunEnd(_EventBase):
     cause: Problem | None = None
     run: SkipJsonSchema[Run] = Field(exclude=True)
 
+    @classmethod
+    def of(cls, run: Run) -> RunEnd:
+        """The end of the leg that left ``run`` as it is."""
+        match run.state:
+            case Going(status=status):
+                return cls(status=status, run=run)
+            case EndedEarly(status=status, cause=cause):
+                return cls(status=status, cause=cause, run=run)
+
 
 class RunCheckpoint(_EventBase):
     """The run as it stands mid-leg, for a host to store, every ``checkpoint_every`` seconds and once when the leg is stopped.
@@ -221,7 +235,7 @@ class Leg:
     """
 
     def __init__(
-        self, run: Run, emit: Callable[[_EventBase], None] | None, stop: Callable[[], Problem | None] | None, from_run: dict[type, Any],
+        self, run: Run, emit: Callable[[_EventBase], None] | None, stop: Callable[[], EndedEarly | None] | None, from_run: dict[type, Any],
         checkpoint_every: float | None = None,
     ) -> None:
         self.run, self.stop, self.from_run = run, stop, from_run
@@ -272,7 +286,7 @@ class Leg:
 
     def go(self) -> None:
         run = self.run
-        run.status, run.cause = "running", None
+        run.state = _RUNNING  # the one running state a leg holds, so it is asked by identity on each row
         if self.emit:
             self.emit(RunStart(waiting=tuple(run.waiting)))
         try:
@@ -280,15 +294,15 @@ class Leg:
                 self._loop()
             if self.checkpoint_every is not None and self.running:  # stopped with calls on threads: the drain may outlast the process
                 self._checkpoint()
-            while self.running and self.run.status != "running":  # calls already made had their effect: keep them, as long as their timeouts allow
+            while self.running and self.run.state is not _RUNNING:  # calls already made had their effect: keep them, as long as their timeouts allow
                 self._wait()
         finally:
             if self.pool is not None:
                 self.pool.shutdown(wait=False, cancel_futures=True)
         # one look at every unit: a node already said complete has no row waiting
         waiting = {n for n, us in run._units.items() if n not in self.complete and "waiting" in {u.state for u in us.values()}}
-        if run.status == "running":
-            run.status = "waiting" if waiting else "complete"
+        if run.state is _RUNNING:
+            run.state = _WAITING if waiting else _COMPLETE
         if run.status == "complete":  # every row of every node is finished, and nothing carried will be taken
             run._complete, run._earlier = frozenset(self.position), {}
         else:
@@ -301,12 +315,12 @@ class Leg:
             for placed in self.nodes:  # a node the leg left part done says how far it got
                 if placed.level and placed.id in self.progress_said:
                     self._progress(placed, last=True)
-            self.emit(RunEnd(status=run.status, cause=run.cause, run=run))
+            self.emit(RunEnd.of(run))
 
     def _loop(self) -> None:
-        while self.run.status == "running":
+        while self.run.state is _RUNNING:
             if self.stop is not None and (stopped := self.stop()) is not None:
-                self.run.status, self.run.cause = stopped.type.removeprefix("run_"), stopped  # type: ignore[assignment]
+                self.run.state = stopped
                 self._start_nothing_more()
             elif self.ready:
                 position, key = heapq.heappop(self.ready)
@@ -332,7 +346,7 @@ class Leg:
                 if key not in units[placed.id] and (placed.id, key) not in self.running:
                     if not self._try(placed, key, walking=True):
                         self.left_pending = True
-                    if self.run.status != "running" or (self.stop is not None and self.stop() is not None):
+                    if self.run.state is not _RUNNING or (self.stop is not None and self.stop() is not None):
                         return
 
     def _try(self, placed: PlacedNode, key: Key, walking: bool = False) -> bool:
@@ -377,7 +391,7 @@ class Leg:
 
     def _fill_slots(self, placed: PlacedNode) -> None:
         waiting, policy = self.slots_waiting[placed.id], placed.definition.policy
-        while waiting and self.on_threads[placed.id] < policy.concurrency and self.run.status == "running":
+        while waiting and self.on_threads[placed.id] < policy.concurrency and self.run.state is _RUNNING:
             key, kwargs, attempt = waiting.popleft()
             self.on_threads[placed.id] += 1
             self.attempts[(placed.id, key)] = attempt
@@ -404,7 +418,7 @@ class Leg:
             _, _, due, node_id, key, attempt = heapq.heappop(self.timers)
             placed = self.run.graph._nodes[node_id]
             if due == "retry":
-                if self.run.status == "running":
+                if self.run.state is _RUNNING:
                     self._attempt(placed, key, self.running[(node_id, key)], attempt)
             elif self.attempts.get((node_id, key)) == attempt and (node_id, key) in self.running:  # the attempt still runs
                 del self.running[(node_id, key)]
@@ -418,7 +432,7 @@ class Leg:
         current = latest and (node_id, key) in self.running
         self._fill_slots(placed)
         if not current:
-            if latest and error is None and self.run.status != "running" and key not in self.run._units[node_id]:
+            if latest and error is None and self.run.state is not _RUNNING and key not in self.run._units[node_id]:
                 self.attempts.pop((node_id, key))
                 self._record(placed, key, self._outcome(placed, key, {}, out, None))  # past its timeout, but the leg is draining: keep it, never call it again
             return  # timed out while the leg runs on, or the leg stopped
@@ -432,7 +446,7 @@ class Leg:
         """Put a failed attempt on a timer if the policy says to try again: an ``ExternalError``, or a class ``retry_on``
         names, never a node's own ``NodeError``, an output its type refused or an ``Ask``."""
         policy = placed.definition.policy
-        if error is None or attempt >= policy.retries or self.run.status != "running":
+        if error is None or attempt >= policy.retries or self.run.state is not _RUNNING:
             return False
         if not isinstance(error, ExternalError) and (isinstance(error, _NEVER_RETRIED) or not isinstance(error, policy.retry_on)):
             return False
@@ -472,11 +486,14 @@ class Leg:
         """Keep what a unit came to, and make ready what reads it."""
         run = self.run
         if isinstance(unit, Problem):
-            if run.cause is None:
-                run.status, run.cause = "failed", run.graph._seen_from_outside(unit)  # a node of an embedding fails as the embedding
-                self._start_nothing_more()
-                if self.emit:
-                    self.emit(NodeFailed(node_id=placed.id, cause=unit))
+            match run.state:
+                case Going():  # the first failure is the cause; a later one changes nothing
+                    run.state = EndedEarly("failed", run.graph._seen_from_outside(unit))  # a node of an embedding fails as the embedding
+                    self._start_nothing_more()
+                    if self.emit:
+                        self.emit(NodeFailed(node_id=placed.id, cause=unit))
+                case EndedEarly():
+                    pass
             return
         units = run._units[placed.id]
         if units and key not in units and key < next(reversed(units)):
@@ -498,7 +515,7 @@ class Leg:
                 self.emit(UnitWaiting(unit=run._waiting(placed.id, key, unit)))
             if placed.level:
                 self._progress(placed)
-        if walking or run.status != "running":
+        if walking or run.state is not _RUNNING:
             return
         for reader in run.graph._readers[placed.id]:
             shared = self._shared(placed, reader)

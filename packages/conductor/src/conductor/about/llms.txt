@@ -214,7 +214,7 @@ Retries live on the node's `Policy`, per unit.
 
 ### Errors
 
-The classes are exported from `conductor`. What is wrong is always one record, `Problem(type, loc, msg, ctx)`: on `graph.problems`, on `node_failed` and `run.cause`, and in `InvalidCallError.errors()`. Its `type` is a stable code (see "Problem and error codes"); a node failure's `loc` is `(node_id, *row)`, a graph problem's `(node_id, field)`.
+The classes are exported from `conductor`. What is wrong is always one record, `Problem(type, loc, msg, ctx)`: on `graph.problems`, on `node_failed` and an ended run's `run.state`, and in `InvalidCallError.errors()`. Its `type` is a stable code (see "Problem and error codes"); a node failure's `loc` is `(node_id, *row)`, a graph problem's `(node_id, field)`.
 
 ```
 NodeDeclarationError    a node or registry declared wrong, at import; a TypeError, with code
@@ -223,7 +223,7 @@ NodeError               a node's own failure: message, code, ctx
 └── ExternalError         retried
 ```
 
-A failed unit ends the leg `failed`, its problem on `run.cause`: nothing more starts, the calls already on a thread are waited for (each as far as its `attempt_timeout`) and kept, so resuming doesn't repeat them. A call that can't be acted on raises `InvalidCallError`, whose `errors()` lists a `Problem` for every fault, and nothing changes. Running a graph with problems raises it too, listing them. A failure never quotes a value the run handled: a node's exception other than a `NodeError` goes to `logging.getLogger("conductor")` and only its class name reaches `ctx`.
+A failed unit ends the leg `failed`, its problem the `cause` of `run.state`, an `EndedEarly`: nothing more starts, the calls already on a thread are waited for (each as far as its `attempt_timeout`) and kept, so resuming doesn't repeat them. A call that can't be acted on raises `InvalidCallError`, whose `errors()` lists a `Problem` for every fault, and nothing changes. Running a graph with problems raises it too, listing them. A failure never quotes a value the run handled: a node's exception other than a `NodeError` goes to `logging.getLogger("conductor")` and only its class name reaches `ctx`.
 
 ### Events
 
@@ -274,7 +274,7 @@ Five public modules: `conductor`, `conductor.widgets`, `conductor.events`, `cond
 - `graph.with_inputs(inputs={}, /, *, max_rows=None, **by_name)`: a `Run` with the inputs checked and not started; a name it doesn't offer (`not_offered`), a required one left out (`missing_input`), one given by both its name and its address (`input_given_twice`), a value its type can't read (`invalid_input`), two lists that meet (`lists_not_collected`) or a `max_rows` below 1 (`invalid_max_rows`) raises `InvalidCallError`, every fault at once.
 - `run.resume(*, max_rows=None, from_run={}, timeout=None)`: the next leg. `run.stream(...)`, the same arguments and `cancel=`: the leg's events.
 - `run.answer(unit, value)` or `run.answer({unit_id: value})`, `run.with_inputs(inputs={}, /, *, max_rows=None, **by_name)` (a run carrying this one's work, to resume or stream), `run.forget(*node_ids)` (a run of the same inputs that calls these nodes again, carrying the rest, to resume or stream), `run.again(...)` (the same, resumed; takes `from_run=` and `timeout=` too), `run.to_json()`, `graph.load_run(saved)`, `graph.calls_for(lengths={}, /, **by_name)` (each node's calls given lists of these lengths, before any run; a name it doesn't offer or one given by both its name and its address raises `InvalidCallError`).
-- `run.results`: every node's outputs so far, by node id: one value for a node that ran once, a list in row order for one that ran per row, `None` where a row has none. `run.outputs`: narrowed to `graph.outputs`, by address, on a `complete` run only (`run_not_complete` otherwise). `run.waiting` (each a `Waiting`), `run.not_called` (each a `NotCalled`: `node_id`, `row`, `input`), `run.status`, `run.cause`.
+- `run.results`: every node's outputs so far, by node id: one value for a node that ran once, a list in row order for one that ran per row, `None` where a row has none. `run.outputs`: narrowed to `graph.outputs`, by address, on a `complete` run only (`run_not_complete` otherwise). `run.waiting` (each a `Waiting`), `run.not_called` (each a `NotCalled`: `node_id`, `row`, `input`), `run.status`, and `run.state`: `Going(status)` while nothing has ended it early (`ready`, `running`, `waiting`, `complete`), else `EndedEarly(status, cause)` (`failed`, `stopped`, `cancelled`, `timed_out`), read with `match run.state: case EndedEarly(cause=cause): ...`. A save keeps the status and, on an ended run, its cause; one whose status and cause disagree is `state_unreadable`.
 
 ### Problem and error codes
 

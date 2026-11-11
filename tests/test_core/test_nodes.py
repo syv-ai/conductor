@@ -972,7 +972,7 @@ def test_a_value_an_edge_brings_is_held_to_the_inputs_choices_as_to_its_limits()
     graph = registry.load(make_graph(give, pick))
     assert graph.run(text="red").outputs == {"pick.result": "red"}
     run = graph.run(text="green")
-    assert (run.status, run.cause.type, run.cause.loc) == ("failed", "invalid_edge_value", ("pick",))
+    assert (run.status, run.state.cause.type, run.state.cause.loc) == ("failed", "invalid_edge_value", ("pick",))
 
 
 def test_a_params_choices_hold_on_a_field_of_a_dataclass_a_node_takes_as_its_limits_do():

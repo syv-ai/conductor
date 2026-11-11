@@ -427,7 +427,7 @@ def test_a_node_asking_what_its_output_cant_be_answered_with_fails_naming_why(as
         raise ask()
 
     _, run = _once(wrong)
-    assert (run.status, run.cause.type, run.cause.loc, run.cause.ctx["reason"]) == ("failed", "invalid_ask", ("q",), reason)
+    assert (run.status, run.state.cause.type, run.state.cause.loc, run.state.cause.ctx["reason"]) == ("failed", "invalid_ask", ("q",), reason)
 
 
 @pytest.mark.parametrize("stream", [False, True])
@@ -449,7 +449,7 @@ def test_a_question_on_inputs_with_no_json_form_fails_its_node_naming_the_input(
     import asyncio
 
     run = asyncio.run(streamed()) if stream else graph.run(text="x")
-    assert (run.status, run.cause.type, run.cause.loc, run.cause.ctx["input"]) == ("failed", "question_unwritable", ("a",), "value")
+    assert (run.status, run.state.cause.type, run.state.cause.loc, run.state.cause.ctx["input"]) == ("failed", "question_unwritable", ("a",), "value")
 
 
 @pytest.mark.parametrize(("ask", "reason"), [
@@ -462,7 +462,7 @@ def test_a_node_of_several_outputs_asks_by_output_name(ask, reason):
     def wrong() -> Route:
         raise ask()
 
-    assert _once(wrong)[1].cause.ctx["reason"] == reason
+    assert _once(wrong)[1].state.cause.ctx["reason"] == reason
 
 
 def test_a_default_obeys_what_an_answer_must():
@@ -474,8 +474,8 @@ def test_a_default_obeys_what_an_answer_must():
     def twice() -> Series[str]:
         raise Ask("?", choices=["t1", "t2"], default=["t1", "t1"])
 
-    assert _once(blank)[1].cause.ctx["reason"] == "the default for 'result' is not an answer it takes: the answer is not one of the choices"
-    assert _once(twice)[1].cause.ctx["reason"] == "the default for 'result' is not an answer it takes: a choice is picked twice"
+    assert _once(blank)[1].state.cause.ctx["reason"] == "the default for 'result' is not an answer it takes: the answer is not one of the choices"
+    assert _once(twice)[1].state.cause.ctx["reason"] == "the default for 'result' is not an answer it takes: a choice is picked twice"
 
 
 def test_a_question_whose_choices_limit_it_must_be_answered_even_if_its_type_takes_a_blank():
@@ -520,7 +520,7 @@ def test_a_table_takes_no_choices():
     def wrong() -> Table[Line]:
         raise Ask("?", choices=[1])
 
-    assert _once(wrong)[1].cause.ctx["reason"] == "'result' is a table, which takes no choices"
+    assert _once(wrong)[1].state.cause.ctx["reason"] == "'result' is a table, which takes no choices"
 
 
 # -- answering ----------------------------------------------------------------------------------
@@ -836,8 +836,8 @@ def test_a_choice_is_read_as_its_answer_would_be_so_one_a_number_refuses_fails_t
         raise Ask("?", choices=choices)
 
     _, run = _once(pick)
-    assert (run.status, run.cause.type) == ("failed", "invalid_ask")
-    assert run.cause.ctx["reason"] == "a choice for 'result' is not what it returns: Input should be a valid integer"
+    assert (run.status, run.state.cause.type) == ("failed", "invalid_ask")
+    assert run.state.cause.ctx["reason"] == "a choice for 'result' is not what it returns: Input should be a valid integer"
 
 
 def test_a_model_that_isnt_a_choice_is_a_value_to_param_and_to_ask_alike() -> None:
@@ -861,8 +861,8 @@ def test_a_model_that_isnt_a_choice_is_a_value_to_param_and_to_ask_alike() -> No
         raise Ask("Who?", choices=[ida])
 
     _, run = _once(assign)
-    assert (run.status, run.cause.type) == ("failed", "invalid_ask")
-    assert run.cause.ctx["reason"] == "a choice for 'result' is not what it returns: Input should be a valid string"
+    assert (run.status, run.state.cause.type) == ("failed", "invalid_ask")
+    assert run.state.cause.ctx["reason"] == "a choice for 'result' is not what it returns: Input should be a valid string"
 
 
 def test_a_lone_output_is_asked_under_the_label_describe_shows_for_it():

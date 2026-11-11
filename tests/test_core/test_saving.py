@@ -748,7 +748,7 @@ def test_a_save_missing_a_key_says_which_key_not_a_python_error():
 
     graph = registry_of(same).load(make_graph(same))
     problem = _refused(graph, {})
-    assert problem.ctx["at"] == "graph" and problem.ctx["reason"] == "Field required" and "KeyError" not in problem.msg
+    assert problem.ctx["at"] == "status" and "KeyError" not in problem.msg  # a save is read as the kind its status names, so the status is read first
 
 
 @pytest.mark.parametrize(
@@ -798,7 +798,7 @@ def ok_word(word: str) -> bool:
         ("units.upper.blank_inputs.0", lambda s: s["units"]["upper"].__setitem__("blank_inputs", {"0": 1})),
         ("units.upper.skipped_from.0", lambda s: s["units"]["upper"].__setitem__("skipped_from", {"0": -1})),
         ("upper.result", lambda s: s["units"]["upper"]["outputs"]["result"].__setitem__("skipped", [7])),
-        ("graph", lambda s: s.clear()),
+        ("status", lambda s: s.clear()),  # an empty save: the status, which says what kind of save it is, is read first
         ("text", lambda s: s["inputs"].__setitem__("text", ["a"])),
     ],
 )
@@ -906,3 +906,20 @@ def test_a_run_is_written_to_the_same_bytes_in_every_process():
         for seed in ("1", "2", "3", "4")
     }
     assert len(saved) == 1
+
+
+def test_a_save_whose_status_and_cause_disagree_is_refused_at_the_cause():
+    """A run that ended early holds its cause, and one going on holds none: a save that says otherwise is not read."""
+
+    @node("boom", title="Boom", description="Fails on 'x'.")
+    def boom(text: str) -> str:
+        if text == "x":
+            raise ValueError("no")
+        return text
+
+    graph = registry_of(boom).load(make_graph(boom))
+    failed, complete = json.loads(graph.run(text="x").to_json()), json.loads(graph.run(text="y").to_json())
+    assert failed["status"] == "failed" and "cause" not in complete
+    assert _refused(graph, {**failed, "cause": None}).ctx["at"] == "cause"
+    assert _refused(graph, {**complete, "cause": failed["cause"]}).ctx["at"] == "cause"
+    assert graph.load_run({**complete, "cause": None}).status == "complete"  # a save that wrote null for no cause still reads

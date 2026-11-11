@@ -68,7 +68,8 @@ What changes in how you work, before the name-by-name tables:
   on; rows made inside it are named by the output it offers on them (`per row of e.result`), and two
   inner decisions sharing a group name are two groups, `d1/answer` and `d2/answer`.
 - **A run is one value.** `graph.run(**inputs)` returns a `Run` whose `status` says how the leg
-  ended. It pauses for a person (`raise Ask(...)`, then `run.answer(...)` and `run.resume()`), writes
+  ended, and whose `state` is `Going` or, for a leg that failed, stopped, was cancelled or timed out,
+  `EndedEarly` with its `cause` (`match run.state`). It pauses for a person (`raise Ask(...)`, then `run.answer(...)` and `run.resume()`), writes
   itself as JSON (`run.to_json()`, `graph.load_run(saved)`, which reads a save from its JSON text; a save that
   doesn't fit is `state_unreadable`, `ctx.at` its place in the save; a node with no work done, and a
   part with nothing in it, is left out of it) and runs again on changed inputs,
@@ -94,7 +95,7 @@ What changes in how you work, before the name-by-name tables:
 - **A table answer and a caller's records have one reader.** Extra columns are dropped for every table from outside, and a missing column is refused. An answer's cells are read strictly from their JSON form; a caller's records are read cell by cell, laxly, never from polars' dtype, so a bool among ints or a number among texts is `invalid_input`. A value that is neither a frame nor a list of records is refused as `invalid_answer` or `invalid_input` with the reason "a table is a frame or a list of records, one object per row".
 - **`make_graph` refuses a default no caller reaches.** `defaults={"pad.width": 8}` on a node that is not an open input of the graph raises `default_on_later_node` at the call, as loading does, instead of building a record that fails later.
 - **`run.not_called` is a list of `NotCalled` records** (`node_id`, `row`, `input`), exported from `conductor`, not a list of dicts.
-- **A run handed back at shutdown has no `cause`.** It is null, since the run did not fail.
+- **A run handed back at shutdown has no `cause`.** The row's `cause` is null and its status `running`: the run did not end early, so it is `Going`.
 
 A 1.x graph doesn't load as saved. Convert each stored graph with the table under
 "Converting a stored 1.x graph", then save the `GraphRecord`.
@@ -216,7 +217,7 @@ Every public name of 1.12.2, by the module it was imported from. A name not list
 | `conductor.execution.results.normalize_result` | gone: what a node returns is checked against its type |
 | `conductor.execution.results.OutputRef` | an address, `node.output` |
 | `conductor.execution.results.project_outputs` | `run.outputs`, by address |
-| `conductor.execution.state.FlowRunState` | `Run`: `status`, `results`, `waiting`, `cause` |
+| `conductor.execution.state.FlowRunState` | `Run`: `status`, `results`, `waiting`, `state` (`Going`, or `EndedEarly` with its `cause`) |
 | `execute_sync` | `graph.run(**inputs)` |
 | `execute` | `graph.run(**inputs)` returns a `Run`; `run.stream()` yields its events |
 | `FlowCheckpoint` | a `Run`: `run.to_json()` and `graph.load_run(saved)`; mid-leg, `run.stream(checkpoint_every=)` yields `RunCheckpoint` |
@@ -240,7 +241,7 @@ Every public name of 1.12.2, by the module it was imported from. A name not list
 | `conductor.errors.TypeCheckError` | the problem `type_mismatch` in `graph.problems` |
 | `ConductorError` | gone: catch `NodeDeclarationError`, `InvalidCallError` or `NodeError` |
 | `errors` | gone as a module: the classes import from `conductor` |
-| `FlowExecutionError` | gone: a failed leg returns its `Run`, `status` `failed` and `cause` a `Problem` |
+| `FlowExecutionError` | gone: a failed leg returns its `Run`, its `state` an `EndedEarly` whose `status` is `failed` and `cause` a `Problem` |
 | `FlowPausedError` | gone: a paused leg returns its `Run`, `status` `waiting` |
 | `HumanInputRequired` | `raise Ask(prompt, choices=, default=)`; each has the answer's shape, so on several outputs each goes by output name; a question's widget is its output type's `Param` |
 | `LoopRunawayError` | `graph.run(max_rows=)`, the problem `row_ceiling` |

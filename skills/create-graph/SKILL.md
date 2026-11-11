@@ -75,7 +75,7 @@ An input takes an edge, a value or a default, never two: `values` are fixed, `de
 | Rebuilding the record to change a value per run | `graph.run(**inputs)`, or a `defaults` entry the caller may change |
 | A loop node, or a `for` around `run` | bind a column; the engine runs the node once per row |
 | Columns of one table side by side | wire them all into one `Table` input; rows of two different tables need a join on a key in a node |
-| `except` around `run` for a pause, error or timeout | they are statuses: read `run.status`, `run.cause` |
+| `except` around `run` for a pause, error or timeout | they are statuses: read `run.status`, and `match run.state` for an `EndedEarly`'s `cause` |
 | `graph.run` in a server's event loop | `async for event in run.stream()`: the leg runs on a thread of its own |
 
 To debug, read `problems`, then print every event of `run.stream()`. A failure is a `Problem`: `type`, `msg`, `ctx`, and `loc` is the node and the row. `graph.plan` says where each node runs.

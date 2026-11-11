@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import Annotated, ClassVar
 
 from conductor import (
-    Ask, ExternalError, FromRun, GraphRecord, InvalidCallError, NodeDeclarationError,
+    Ask, EndedEarly, ExternalError, FromRun, GraphRecord, InvalidCallError, NodeDeclarationError,
     NodeError, NodeRegistry, Param, Policy, Series, Upgrade, make_graph, node,
 )
 from conductor.testing import check_registry
@@ -690,7 +690,7 @@ print(refused(lambda: unwritable.to_json()))  # ['state_unwritable']
 
 ## Why a node or a run stopped
 
-In `run.cause` and on `node_failed`. `loc` is `(node_id, *row)`, or `()` for the run as a whole.
+In `run.state` (an `EndedEarly`'s `cause`) and on `node_failed`. `loc` is `(node_id, *row)`, or `()` for the run as a whole.
 
 ### `execution_failed`
 
@@ -703,8 +703,9 @@ def divide(n: int) -> float:
 
 
 failed = registry.load(make_graph(divide)).run(n=0)
-assert failed.cause is not None
-print(failed.cause.type)  # execution_failed
+match failed.state:
+    case EndedEarly(cause=cause):
+        print(cause.type)  # execution_failed
 ```
 
 **Fix.** The node let out an exception of its own. Its class is `ctx.error`; the exception and its traceback are in the `conductor` log. Fix the node, then `resume()`.
@@ -720,8 +721,9 @@ def fetch(url: str) -> str:
 
 
 cut_off = registry.load(make_graph(fetch)).run(url="https://example.com")
-assert cut_off.cause is not None
-print(cut_off.cause.type)  # external_failed
+match cut_off.state:
+    case EndedEarly(cause=cause):
+        print(cause.type)  # external_failed
 ```
 
 **Fix.** The outside world failed after every retry. `resume()` tries again; raise `Policy(retries=)` for more tries.
@@ -737,8 +739,9 @@ def read_pdf(path: str) -> str:
 
 
 unread = registry.load(make_graph(read_pdf)).run(path="a.pdf")
-assert unread.cause is not None
-print(unread.cause.type)  # failed
+match unread.state:
+    case EndedEarly(cause=cause):
+        print(cause.type)  # failed
 ```
 
 **Fix.** The node said why in `msg`. A node gives its own code with `NodeError(message, code=)`.
@@ -754,8 +757,9 @@ def confirm(text: str) -> bool:
 
 
 misasked = registry.load(make_graph(confirm)).run(text="a")
-assert misasked.cause is not None
-print(misasked.cause.type)  # invalid_ask
+match misasked.state:
+    case EndedEarly(cause=cause):
+        print(cause.type)  # invalid_ask
 ```
 
 **Fix.** Ask with choices and a default the node's return type accepts. `ctx.reason` says which part doesn't fit.
@@ -776,8 +780,9 @@ def small(n: Annotated[int, Param(le=3)]) -> int:
 
 
 too_big = registry.load(make_graph(letters, small)).run(text="many letters")
-assert too_big.cause is not None
-print(too_big.cause.type)  # invalid_edge_value
+match too_big.state:
+    case EndedEarly(cause=cause):
+        print(cause.type)  # invalid_edge_value
 ```
 
 **Fix.** Make the node upstream give what the input takes, or put a node between that converts it. Loading lets through what a type alone can't settle: a limit or a choice on the input, a host type's own check, a table whose columns are known only once it is made. `ctx.name` names the input, a table's `ctx.column` its column.
@@ -793,8 +798,9 @@ def guess(text: str) -> int:
 
 
 wrong = registry.load(make_graph(guess)).run(text="12")
-assert wrong.cause is not None
-print(wrong.cause.type)  # invalid_output
+match wrong.state:
+    case EndedEarly(cause=cause):
+        print(cause.type)  # invalid_output
 ```
 
 **Fix.** Return what the node declares. `"12"` is never an `int`: outputs are read strictly. `ctx.name` names the output.
@@ -810,8 +816,9 @@ def approve_file(data: bytes) -> bool:
 
 
 unshown = registry.load(make_graph(approve_file)).run(data=b"\xff")
-assert unshown.cause is not None
-print(unshown.cause.type)  # question_unwritable
+match unshown.state:
+    case EndedEarly(cause=cause):
+        print(cause.type)  # question_unwritable
 ```
 
 **Fix.** Give the input a type pydantic writes as JSON, or ask in a node that receives one. A question carries what its node received, for the person answering it. `ctx.input` names the input.
@@ -823,8 +830,9 @@ print(unshown.cause.type)  # question_unwritable
 ```python
 splitting = registry.load(make_graph(split, upper))
 capped = splitting.run(text="a b c", max_rows=2)
-assert capped.cause is not None
-print(capped.cause.type)  # row_ceiling
+match capped.state:
+    case EndedEarly(cause=cause):
+        print(cause.type)  # row_ceiling
 ```
 
 **Fix.** `capped.resume(max_rows=...)` with a higher ceiling carries on, calling nothing again.
@@ -839,8 +847,9 @@ async def cancelled() -> str:
     stop.set()
     async for event in uppering.with_inputs(text="a").stream(cancel=stop):
         if event.type == "run_end":
-            assert event.run.cause is not None
-            return event.run.cause.type
+            match event.run.state:
+                case EndedEarly(cause=cause):
+                    return cause.type
     return ""
 
 
@@ -861,8 +870,9 @@ def slow(text: str) -> str:
 
 
 timed_out = registry.load(make_graph(slow)).run(text="a", timeout=0.05)
-assert timed_out.cause is not None
-print(timed_out.cause.type)  # run_timed_out
+match timed_out.state:
+    case EndedEarly(cause=cause):
+        print(cause.type)  # run_timed_out
 ```
 
 **Fix.** `resume()` carries on, calling nothing again that finished. Give a longer `timeout`, or none.
@@ -879,8 +889,9 @@ def stuck(text: str) -> str:
 
 
 late = registry.load(make_graph(stuck)).run(text="a")
-assert late.cause is not None
-print(late.cause.type)  # timeout
+match late.state:
+    case EndedEarly(cause=cause):
+        print(cause.type)  # timeout
 ```
 
 **Fix.** Raise the node's `Policy(attempt_timeout=)`, or make the call faster. The timeout is final for that row: it is not retried.

@@ -68,7 +68,7 @@ def test_a_foreign_exception_runs_once_and_is_execution_failed_and_quotes_nothin
     assert (failed.cause.type, failed.cause.msg, failed.cause.loc, failed.cause.ctx) == ("execution_failed", "The node failed; its developer finds why in the conductor log.", ("n",), {"error": "KeyError"})
     assert "secret" not in json.dumps([e.model_dump(mode="json") for e in events])
     assert "the secret" in caplog.text  # the text goes to the log, with its traceback
-    assert events[-1].run.status == "failed" and events[-1].run.cause == failed.cause
+    assert events[-1].run.status == "failed" and events[-1].run.state.cause == failed.cause
 
 
 @pytest.mark.parametrize("concurrency", [1, 2])
@@ -91,7 +91,7 @@ def test_a_node_error_a_wrong_output_and_an_ask_are_never_retried_whatever_retry
         calls.append("asks")
         raise Ask("Which?")
 
-    causes = [_alone(definition).run().cause for definition in (own, wrong)]
+    causes = [_alone(definition).run().state.cause for definition in (own, wrong)]
 
     assert [c.type for c in causes] == ["unreadable", "invalid_output"] and _alone(asks).run().status == "waiting"
     assert calls == ["own", "wrong", "asks"]
@@ -126,7 +126,7 @@ def test_an_exhausted_external_failure_is_external_failed_without_its_text():
     run = _alone(down).run()
 
     assert len(calls) == 3 and run.status == "failed"
-    assert (run.cause.type, run.cause.msg) == ("external_failed", "An outside service did not answer.")
+    assert (run.state.cause.type, run.state.cause.msg) == ("external_failed", "An outside service did not answer.")
 
 
 def test_an_external_failure_the_node_raised_retries_and_keeps_its_message():
@@ -141,7 +141,7 @@ def test_an_external_failure_the_node_raised_retries_and_keeps_its_message():
     run = _alone(bank).run()
 
     assert len(calls) == 2
-    assert (run.cause.type, run.cause.msg) == ("external_failed", "Nationalbanken svarede ikke.")
+    assert (run.state.cause.type, run.state.cause.msg) == ("external_failed", "Nationalbanken svarede ikke.")
 
 
 def test_a_node_error_runs_once_and_keeps_its_message_code_and_ctx():
@@ -172,7 +172,7 @@ def test_a_validation_error_the_node_raised_is_never_retried():
 
     run = _alone(parse, text="not a number").run()
 
-    assert len(calls) == 1 and (run.cause.type, run.cause.ctx) == ("execution_failed", {"error": "ValidationError"})
+    assert len(calls) == 1 and (run.state.cause.type, run.state.cause.ctx) == ("execution_failed", {"error": "ValidationError"})
 
 
 def test_a_policy_out_of_bounds_is_refused_and_its_description_leaves_retry_on_out():
@@ -256,7 +256,7 @@ def test_a_run_that_failed_resumes_from_its_json_calling_only_what_had_not_finis
     broken["on"] = False
     resumed = graph.load_run(failed.to_json()).resume()
 
-    assert failed.status == "failed" and failed.cause.loc == ("mail", 1)
+    assert failed.status == "failed" and failed.state.cause.loc == ("mail", 1)
     assert resumed.results["mail"]["result"] == ["sent a", "sent b", "sent c"]
     assert calls.count("a") == 1 and calls.count("b") == 2
 
@@ -1483,7 +1483,7 @@ def test_a_node_errors_own_code_inside_an_embedded_graph_fails_the_embedding_wit
     run = registry_of(refuse, inner).load(GraphRecord(nodes=[NodeRecord(id="r", node="reading")])).run(text="x")
 
     assert run.status == "failed"
-    assert (run.cause.type, run.cause.loc, run.cause.msg, run.cause.ctx) == ("document_unreadable", ("r",), "Dokumentet kan ikke læses.", {"pages": 0})
+    assert (run.state.cause.type, run.state.cause.loc, run.state.cause.msg, run.state.cause.ctx) == ("document_unreadable", ("r",), "Dokumentet kan ikke læses.", {"pages": 0})
 
 
 def test_an_inner_nodes_wrong_output_names_the_output_as_the_embedding_offers_it():
@@ -1500,7 +1500,7 @@ def test_an_inner_nodes_wrong_output_names_the_output_as_the_embedding_offers_it
     run = graph.run(x="q", y="w")
 
     assert graph.outputs == ["emb.a/result", "emb.b/result"]
-    assert (run.status, run.cause.type, run.cause.loc, run.cause.ctx["name"]) == ("failed", "invalid_output", ("emb",), "a/result")
+    assert (run.status, run.state.cause.type, run.state.cause.loc, run.state.cause.ctx["name"]) == ("failed", "invalid_output", ("emb",), "a/result")
 
 
 def test_a_saved_run_stays_the_same_size_over_one_row_edits_at_ten_thousand_rows():

@@ -187,7 +187,7 @@ def test_a_contract_with_all_its_appendices_collects_the_appendices_and_reads_ea
 
 def test_a_list_counts_against_max_rows_before_any_call():
     run = ran(PER, max_rows=10, file=FILES)
-    assert run.status == "stopped" and run.cause.type == "row_ceiling" and run.cause.ctx["rows"] == 11
+    assert run.status == "stopped" and run.state.cause.type == "row_ceiling" and run.state.cause.ctx["rows"] == 11
     assert CALLS == {}
 
 
