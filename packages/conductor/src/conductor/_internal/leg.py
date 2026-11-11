@@ -14,7 +14,7 @@ timeout is called on the spot; any other is handed to threads, at most
 back, the units that read it are tried at once: the reader's units under,
 at, or above the unit's instance. So item 1 can finish the chain while item
 10 is still being made. What reads a unit is every node whose units are made
-from it (a node's ``reads``, which is what its inputs' plans read): a node
+from it (a node's ``made_from``, which is what its inputs' plans read): a node
 that gathers reads the Series as well as what fills its items, so a Series
 of no items makes its gather ready as the last item of a long one does.
 
@@ -404,9 +404,9 @@ class Leg:
         """With nothing ready to try: start the gathering units nothing works under any more and say which nodes
         are complete. Once nothing is working, walk every unit again if one was left out of its turn.
 
-        A unit is made ready by the units it is made from (a node's ``reads``), so nothing else needs a walk
+        A unit is made ready by the units it is made from (a node's ``made_from``), so nothing else needs a walk
         after the first. A unit that takes a person's earlier answer waits for the units of its node before it,
-        which no ``reads`` holds: it is tried again by a walk, once a unit was recorded since the last one or
+        which no ``made_from`` holds: it is tried again by a walk, once a unit was recorded since the last one or
         the units that can't be tried in this leg are counted as tried.
 
         Returns:
