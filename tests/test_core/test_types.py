@@ -348,3 +348,26 @@ def test_one_hint_is_read_once() -> None:
 
     hint = Annotated[int, Param(ge=0)]
     assert Type(hint) is Type(Annotated[int, Param(ge=0)]) and Type(hint).adapter is Type(hint).adapter
+
+
+def test_a_widget_in_annotated_outside_param_is_refused_saying_where_it_goes() -> None:
+    from conductor.widgets import Textarea
+
+    for hint in (Annotated[str, Textarea()], Series[Annotated[str, Textarea()]], Annotated[str, Textarea()] | None):
+        with pytest.raises(NodeDeclarationError, match=r"Param\(widget=") as raised:
+            node("note", title="Note", description="")(_returning_its_input(hint))
+        assert raised.value.code == "widget_outside_param"
+
+    @node("note", title="Note", description="")
+    def note(text: Annotated[str, Param(widget=Textarea())]) -> str:
+        return text
+
+    assert note.describe().inputs[0].widget["type"] == "textarea"
+
+
+def _returning_its_input(hint: Any) -> Any:
+    def passes(value: Any) -> str:
+        return str(value)
+
+    passes.__annotations__ = {"value": hint, "return": str}
+    return passes

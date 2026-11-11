@@ -63,9 +63,7 @@ from pydantic_core import (
 
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.errors import NodeDeclarationError, value_free_errors
-
-if TYPE_CHECKING:
-    from conductor.widgets import Widget
+from conductor.widgets import Widget
 
 
 class _Sentinel:
@@ -1112,15 +1110,23 @@ def _field_parts(hint: Any) -> tuple[Param, Type, Type]:
     A type is made of the hint and what a value must keep (limits, choices, other metadata), so fields that
     differ only in what a person reads share one. A ``Series``' limits and choices are its items', wherever in
     the hint they were written.
+
+    Raises:
+        NodeDeclarationError: A ``Series`` of ``Series`` (``nested_series``), or a widget in ``Annotated`` that is
+            not on a ``Param`` (``widget_outside_param``).
     """
     bare, param, others = _split(hint)
+    beside_param = others  # what Annotated holds that is no Param, on the field and on a Series' item
     series = [option for option in _options(bare) if (get_origin(option) or option) is _Series]
     optional = type(None) in _options(bare)  # of the whole Series, when it is one
     if series:
         bare, of_item, others = _split((get_args(series[0]) or (Any,))[0])
+        beside_param = (*beside_param, *others)
         if any((get_origin(option) or option) is _Series for option in _options(bare)):
             raise NodeDeclarationError("a Series of Series; a field holds one level of items, so return one Series", code="nested_series")
         param = dataclasses.replace(of_item, **{f.name: value for f in dataclasses.fields(param) if (value := getattr(param, f.name)) is not None})
+    if any(isinstance(mark, Widget) for mark in beside_param):  # pydantic would pass it by, and the field would show no control
+        raise NodeDeclarationError("a widget in Annotated goes on Param: Annotated[..., Param(widget=...)]", code="widget_outside_param")
     kept = {**param.limits, **({} if param.choices is None else {"choices": param.choices})}
     metadata = (*others, *([Param(**kept)] if kept else []))
     one = Type(Annotated[(bare, *metadata)] if metadata else bare)

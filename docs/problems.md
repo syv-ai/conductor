@@ -1392,6 +1392,23 @@ except NodeDeclarationError as error:
 
 **Fix.** Leave `version=` out (one past the version replaced), or give a number above it.
 
+### `widget_outside_param`
+
+> a widget in Annotated goes on Param: Annotated[..., Param(widget=...)]
+
+```python
+from conductor.widgets import Textarea
+
+try:
+    @node("note", title="Note", description="Hands a note on.")
+    def note(text: Annotated[str, Textarea()]) -> str:
+        return text
+except NodeDeclarationError as error:
+    print(error.code)  # widget_outside_param
+```
+
+**Fix.** Put the widget on the field's `Param`: `Annotated[str, Param(widget=Textarea())]`. Other metadata in `Annotated` is pydantic's and is read as pydantic reads it; a widget there would be passed by, and the field would show no control.
+
 ## `check_registry`
 
 Returned by `conductor.testing.check_registry`, in a test run. A host never meets these, and they aren't in `PROBLEM_CODES`.
