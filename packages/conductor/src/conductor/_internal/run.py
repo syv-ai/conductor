@@ -1204,6 +1204,13 @@ UnitState = Literal["done", "skipped"]
 _DONE, _SKIPPED = get_args(UnitState)
 
 
+#: The slots of one output whose value is a branch not taken.
+SkippedSlots = list[NonNegativeInt]
+
+#: By slot, the items of a ``Series`` output there that are a branch not taken.
+SkippedItems = dict[NonNegativeInt, list[NonNegativeInt]]
+
+
 @dataclass(slots=True, kw_only=True)
 class SavedUnits:
     """Units of one node as a save holds them: columns with a slot for each unit. A node's own units have a slot
@@ -1220,8 +1227,10 @@ class SavedUnits:
             waiting unit can't be written without its question.
         blank_inputs: By slot, the input that got a blank, for a unit that wasn't called for it.
         skipped: By output, the slots whose value is a branch not taken (``SKIPPED``); ``None`` in the column.
+            A graph's form takes it for the node's own outputs only.
         skipped_items: By output and slot, the items of a ``Series`` there that are a branch not taken; ``None``
-            in the column.
+            in the column. A graph's form takes it for the node's ``Series`` outputs only, so an output of one
+            value can't be saved with any.
     """
 
     __pydantic_config__: ClassVar[ConfigDict] = _SAVED
@@ -1229,8 +1238,8 @@ class SavedUnits:
     outputs: dict[str, list[Any]]
     questions: dict[NonNegativeInt, Question] | None = None
     blank_inputs: dict[NonNegativeInt, str] | None = None
-    skipped: dict[str, list[NonNegativeInt]] | None = None
-    skipped_items: dict[str, dict[NonNegativeInt, list[NonNegativeInt]]] | None = None
+    skipped: dict[str, SkippedSlots] | None = None
+    skipped_items: dict[str, SkippedItems] | None = None
 
 
 @dataclass(slots=True, kw_only=True)
@@ -1286,6 +1295,9 @@ class SavedRun[UnitsT, EarlierT]:
 #: Each record's own schema, as pydantic makes it from the record: what a save's schema is composed from.
 _UNITS, _EARLIER, _RUN = (TypeAdapter(record).core_schema for record in (SavedUnits, SavedEarlier, SavedRun))
 
+#: The schemas of what ``SavedUnits`` holds for one output beside its column.
+_SKIPPED_SLOTS, _SKIPPED_ITEMS = TypeAdapter(SkippedSlots).core_schema, TypeAdapter(SkippedItems).core_schema
+
 #: The key of a save that names its graph, as ``SavedRun`` declares it.
 _GRAPH = SavedRun.__dataclass_fields__["graph"].name  # a KeyError where this is read, should the field be renamed
 
@@ -1313,14 +1325,19 @@ def save_form(graph: Graph) -> SaveForm:
     """
     shared: dict[str, CoreSchema] = {}
     units_record, earlier_record = _inlined(_UNITS, shared), _inlined(_EARLIER, shared)
-    blocks: dict[tuple[tuple[str, Type], ...], tuple[CoreSchema, CoreSchema]] = {}
+    blocks: dict[tuple[tuple[str, Type, bool], ...], tuple[CoreSchema, CoreSchema]] = {}
     units, earlier = {}, {}
     for path, placed in graph._functions.items():
-        columns = tuple((name, output.column) for name, output in placed.outputs.items())
+        columns = tuple((name, output.column, output.many) for name, output in placed.outputs.items())
         if columns not in blocks:  # nodes of the same outputs share one schema
             block = len(blocks)
-            outputs = _closed({name: _inlined(column.saved_schema, shared) for name, column in columns})
-            shared[f"units:{block}"] = core_schema.no_info_after_validator_function(_units_of, _with_fields(units_record, outputs=outputs), ref=f"units:{block}")
+            of_block = _with_fields(
+                units_record,
+                outputs=_closed({name: _inlined(column.saved_schema, shared) for name, column, _ in columns}),
+                skipped=_closed({}, {name: _SKIPPED_SLOTS for name, _, _ in columns}),
+                skipped_items=_closed({}, {name: _SKIPPED_ITEMS for name, _, many in columns if many}),
+            )
+            shared[f"units:{block}"] = core_schema.no_info_after_validator_function(_units_of, of_block, ref=f"units:{block}")
             carried = _with_fields(earlier_record, units=core_schema.definition_reference_schema(f"units:{block}"))
             shared[f"earlier:{block}"] = core_schema.no_info_after_validator_function(_earlier_of, carried, ref=f"earlier:{block}")
             blocks[columns] = core_schema.definition_reference_schema(f"units:{block}"), core_schema.definition_reference_schema(f"earlier:{block}")
@@ -1429,7 +1446,7 @@ def _units_of(saved: SavedUnits) -> list[Unit | None]:
 
     Raises:
         PydanticCustomError: An output doesn't hold one slot for each state (``slots_differ``); or a skip, a
-            question or a blank input is placed on a slot or an output that can't hold one (``misplaced``).
+            question or a blank input is placed on a slot that can't hold one (``misplaced``).
     """
     states, outputs = saved.states, saved.outputs
     if any(len(column) != len(states) for column in outputs.values()):
@@ -1456,7 +1473,7 @@ def _units_of(saved: SavedUnits) -> list[Unit | None]:
             if units[slot] is not None:
                 raise LookupError(slot)
             units[slot] = Blank(blank)
-    except (LookupError, TypeError, AttributeError):  # a slot or an output the columns don't have, or a slot that holds another kind of unit
+    except (LookupError, TypeError, AttributeError):  # a slot the columns don't have, or one that holds another kind of unit
         raise PydanticCustomError("misplaced", "a skip, a question or a blank input is placed on a slot that can't hold one") from None
     return units
 

@@ -415,3 +415,26 @@ def test_every_field_a_run_sets_in_its_save_is_a_key_of_the_json_and_reads_back(
     for name, carried in saved.earlier.items():
         assert set(written["earlier"][name]) == set_fields(carried) and set(written["earlier"][name]["units"]) == set_fields(carried.units), name
     assert graph.load_run(waiting.to_json()).to_json() == waiting.to_json()
+
+
+def test_only_a_series_output_can_be_saved_with_items_on_a_branch_not_taken() -> None:
+    """A one-value output's saved form has no ``skipped_items``, even when its value is a list; a Series' has."""
+
+    @node("listed", title="Listed", description="")
+    def listed(text: str) -> list[str]:
+        return list(text)
+
+    registry = NodeRegistry()
+    registry.add(listed, letters)
+    graph = registry.load(GraphRecord(nodes=[NodeRecord(id="listed", node="listed"), NodeRecord(id="letters", node="letters")]))
+    run = graph.run({"listed.text": "ax", "letters.text": "ax"})
+    saved = json.loads(run.to_json())
+    assert saved["units"]["letters"]["skipped_items"] == {"result": {"0": [1]}} and "skipped_items" not in saved["units"]["listed"]
+    assert graph.load_run(saved).to_json() == run.to_json()
+
+    saved["units"]["listed"]["skipped_items"] = {"result": {"0": [1]}}
+    with pytest.raises(InvalidCallError) as refused:
+        graph.load_run(saved)
+
+    (problem,) = refused.value.errors()
+    assert (problem.type, problem.ctx["at"]) == ("state_unreadable", "units.listed.skipped_items.result")

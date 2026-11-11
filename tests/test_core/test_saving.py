@@ -824,8 +824,8 @@ def ok_word(word: str) -> bool:
         ("units.upper.blank_inputs.0", lambda s: s["units"]["upper"].__setitem__("blank_inputs", {"0": 1})),
         ("units.upper.undeclared", lambda s: s["units"]["upper"].__setitem__("undeclared", {"0": -1})),  # a save holds only what it declares
         ("units.upper", lambda s: s["units"]["upper"].__setitem__("skipped", {"result": [7]})),
-        ("units.upper", lambda s: s["units"]["upper"].__setitem__("skipped", {"other": [0]})),  # no such output
-        ("units.upper", lambda s: s["units"]["upper"].__setitem__("skipped_items", {"result": {"0": [0]}})),  # the value there holds no items
+        ("units.upper.skipped.other", lambda s: s["units"]["upper"].__setitem__("skipped", {"other": [0]})),  # no such output
+        ("units.upper.skipped_items.result", lambda s: s["units"]["upper"].__setitem__("skipped_items", {"result": {"0": [0]}})),  # only a Series has items
         ("units.ok", lambda s: s["units"]["ok"]["questions"].__setitem__("7", {"prompt": "?", "inputs": {}})),
         ("units.upper", lambda s: s["units"]["upper"].__setitem__("blank_inputs", {"0": "word"})),  # a blank input on a unit that is done
         ("units.ok", lambda s: s["units"]["ok"].__setitem__("blank_inputs", {"0": "word"})),  # a blank input on a unit that asks
