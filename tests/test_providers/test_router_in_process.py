@@ -529,7 +529,31 @@ def test_an_answer_queued_for_a_question_a_timed_out_leg_never_asked_is_refused_
             await _until_status(runs, run_id, "timed_out")
             row = (await client.get(f"/runs/{run_id}")).json()
             assert [(problem["type"], problem["ctx"]["status"]) for problem in row["refused"][waiting_id]] == [("not_waiting", "timed_out")]
-            assert runs.rows[run_id].pending == "{}"
+            await asyncio.sleep(0.1)  # a leg started on the answer would be running by now
+            assert (runs.rows[run_id].status, runs.rows[run_id].pending) == ("timed_out", "{}")
+            assert [json.loads(body)["type"] for body in runs.written[run_id]].count("run_start") == 1
+
+    asyncio.run(scenario())
+
+
+def test_an_answer_queued_during_a_leg_that_ends_cancelled_is_refused_as_run_cancelled_and_starts_nothing() -> None:
+    registry, graph, gate, inputs, waiting_id = _asking()
+    runs = MemoryStore()
+    app = FastAPI()
+    app.include_router(run_router(store=runs, registry=registry, caller=_caller))
+
+    async def scenario() -> None:
+        async with app.router.lifespan_context(app), httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as client:
+            run_id = (await client.post("/runs", json={"graph": graph.model_dump(mode="json"), "inputs": inputs})).json()["id"]
+            assert (await client.post(f"/runs/{run_id}/answers", json={waiting_id: True})).json() == {"answers": "queued"}
+            assert (await client.post(f"/runs/{run_id}/cancel")).json() == {"cancelled": True}
+            gate.set()
+            await _until_status(runs, run_id, "cancelled")
+            row = (await client.get(f"/runs/{run_id}")).json()
+            assert [problem["type"] for problem in row["refused"][waiting_id]] == ["run_cancelled"]
+            await asyncio.sleep(0.1)  # a leg started on the answer would be running by now
+            assert (runs.rows[run_id].status, runs.rows[run_id].pending) == ("cancelled", "{}")
+            assert [json.loads(body)["type"] for body in runs.written[run_id]].count("run_start") == 1
 
     asyncio.run(scenario())
 
