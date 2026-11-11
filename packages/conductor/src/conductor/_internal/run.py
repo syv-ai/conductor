@@ -728,26 +728,18 @@ class Run:
         kwargs: dict[str, Any] = {}
         blank: Blank | None = None
         gathered: dict[str, tuple[Gather, _UnitsOfAGraph, list[Any]]] = {}
-        handed = node.handed
         own, own_base = self._units[node.inside], node.base
-        for name, plan in node.placed.inputs.items():
+        for name, (plan, giver) in node.inputs.items():
             kind = type(plan)
             if kind is Fixed:
                 kwargs[name] = plan.value  # type: ignore[union-attr]
                 continue
-            units, base = own, own_base
-            if kind is Open:
-                if name not in handed:
-                    kwargs[name] = self.inputs[plan.address]  # type: ignore[union-attr]
-                    continue
-                plan, giver = handed[name]
-                kind = type(plan)
-                if kind is Fixed:
-                    kwargs[name] = plan.value  # type: ignore[union-attr]
-                    continue
-                if kind is Open:  # the outermost embedded graph's node is a first node: the caller gives it
-                    kwargs[name] = self.inputs[plan.address]  # type: ignore[union-attr]
-                    continue
+            if kind is Open:  # a first node of the graph itself, or of a graph embedded in one: the caller gives it
+                kwargs[name] = self.inputs[plan.address]  # type: ignore[union-attr]
+                continue
+            if giver is None:
+                units, base = own, own_base
+            else:
                 units, base = self._units[giver.inside], giver.base
             if kind is Gather:
                 value = _gathered(units, base, plan, key)  # type: ignore[arg-type]

@@ -400,8 +400,9 @@ class _AtPath:
         maps: Every map it runs in, outermost first, each as the node and the output of its ``Series``: those of
             the embedded graph's node it is inside, then those of its own scope.
         base: How many of ``maps`` are the embedded graph's node's.
-        handed: For each open input of a node inside an embedded graph, how that graph's node gets the value:
-            its plan, and the embedded graph's node in whose graph the plan reads.
+        inputs: How each input gets its value where the node stands, by name: its plan, and the embedded
+            graph's node in whose graph that plan reads, ``None`` for the node's own graph. An open input of a
+            node inside an embedded graph has the plan that graph's node has for it.
         reads: The nodes whose units its own are made from: the ones its inputs read, and for an embedded
             graph's node the last nodes inside it.
         readers: Each node that reads it, with how many maps the two share from the outermost down.
@@ -414,7 +415,7 @@ class _AtPath:
     path: NodePath
     maps: Maps
     base: int
-    handed: dict[str, tuple[InputPlan, GraphAtPath]]
+    inputs: dict[str, tuple[InputPlan, GraphAtPath | None]]
     reads: tuple[NodeAtPath, ...] = ()
     readers: list[tuple[NodeAtPath, int]] = dataclasses.field(default_factory=list[tuple["NodeAtPath", int]])
     position: int = 0
@@ -832,16 +833,17 @@ def _add_to_tree(graph: Graph, embedding: GraphAtPath | None, tree: list[NodeAtP
     above = embedding.maps if embedding is not None else ()
     here = beside[inside] = {}
     for placed in graph._nodes.values():
-        handed: dict[str, tuple[InputPlan, GraphAtPath]] = {}
-        if embedding is not None:
-            for name, plan in placed.inputs.items():
-                if isinstance(plan, Open):  # the embedded graph's node is given it, as a caller would give it
-                    offered = graph._input_fields[plan.address].name
-                    handed[name] = embedding.handed.get(offered) or (embedding.placed.inputs[offered], embedding)
+        inputs: dict[str, tuple[InputPlan, GraphAtPath | None]] = {}
+        for name, plan in placed.inputs.items():
+            if embedding is not None and isinstance(plan, Open):  # the embedded graph's node is given it, as a caller would give it
+                handed, giver = embedding.inputs[graph._input_fields[plan.address].name]
+                inputs[name] = (handed, giver or embedding)
+            else:
+                inputs[name] = (plan, None)
         maps = (*above, *((here[port.node_id], port.output) for port in placed.scope))
         if isinstance(placed, PlacedGraph):
             node: NodeAtPath = (embedded := GraphAtPath(
-                placed=placed, embedding=embedding, inside=inside, path=(*inside, placed.id), maps=maps, base=len(above), handed=handed,
+                placed=placed, embedding=embedding, inside=inside, path=(*inside, placed.id), maps=maps, base=len(above), inputs=inputs,
             ))
             _add_to_tree(placed.inner, embedded, tree, beside)
             within = beside[node.path]
@@ -851,14 +853,13 @@ def _add_to_tree(graph: Graph, embedding: GraphAtPath | None, tree: list[NodeAtP
             )
             node.reads = tuple(dict.fromkeys(within[cell.node_id] for _, cell, _, _ in embedded.offers))
         else:
-            plans = [handed.get(name, (plan, None)) for name, plan in placed.inputs.items()]
             node = FunctionAtPath(
-                placed=placed, embedding=embedding, inside=inside, path=(*inside, placed.id), maps=maps, base=len(above), handed=handed,
-                policy=placed.definition.policy, checked=tuple(name for name, (plan, _) in zip(placed.inputs, plans, strict=True) if _read_before_a_call(plan)),
+                placed=placed, embedding=embedding, inside=inside, path=(*inside, placed.id), maps=maps, base=len(above), inputs=inputs,
+                policy=placed.definition.policy, checked=tuple(name for name, (plan, _) in inputs.items() if _read_before_a_call(plan)),
             )
             node.reads = tuple(dict.fromkeys(
                 beside[giver.inside if giver is not None else inside][source.node_id]
-                for plan, giver in plans if isinstance(plan, Fed) for source in plan.sources
+                for plan, giver in inputs.values() if isinstance(plan, Fed) for source in plan.sources
             ))
         here[placed.id] = node
         tree.append(node)
