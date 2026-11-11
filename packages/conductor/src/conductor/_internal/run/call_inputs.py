@@ -40,14 +40,14 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Final, Literal, cast
 
 from conductor._internal import problem
-from conductor._internal.fields import SKIPPED, Records
-from conductor._internal.loaded_graph.input_plans import (
+from conductor._internal.checked_graph.input_plans import (
     InputGathersItems,
     InputReadsOneValue,
     ItemOfSeries,
     OutputAtScope,
     SeriesAsList,
 )
+from conductor._internal.fields import SKIPPED, Records
 from conductor._internal.problem import UnitFailedError
 from conductor._internal.units import (
     NOT_SETTLED,
@@ -61,7 +61,7 @@ from conductor._internal.units import (
 )
 
 if TYPE_CHECKING:
-    from conductor._internal.loaded_graph.tree import FunctionAtPath
+    from conductor._internal.checked_graph.tree import FunctionAtPath
 
 #: The arguments of one call of a node, by input name.
 CallInputs = dict[str, Any]

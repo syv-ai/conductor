@@ -49,10 +49,7 @@ from conductor._internal.ask import (
     question_fingerprint,
     waiting_unit,
 )
-from conductor._internal.conductor_model import ConductorModel
-from conductor._internal.earlier_work import EarlierWork, fingerprint_of, lineage
-from conductor._internal.leg import Event, EventBase, Leg, RunCheckpoint, RunEnd, RunStart
-from conductor._internal.loaded_graph import (
+from conductor._internal.checked_graph import (
     EmbeddedGraphAtPath,
     FunctionAtPath,
     InputGathersItems,
@@ -60,6 +57,9 @@ from conductor._internal.loaded_graph import (
     host_reads,
     unit_loc,
 )
+from conductor._internal.conductor_model import ConductorModel
+from conductor._internal.earlier_work import EarlierWork, fingerprint_of, lineage
+from conductor._internal.leg import Event, EventBase, Leg, RunCheckpoint, RunEnd, RunStart
 from conductor._internal.node_definition import from_run_values
 from conductor._internal.problem import InvalidCallError, Problem, value_free_errors
 from conductor._internal.run.call_inputs import (

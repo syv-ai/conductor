@@ -14,7 +14,7 @@ from conductor._internal.fields import written_table
 from conductor._internal.units import NOT_ITS_TURN, NotReady, Units
 
 if TYPE_CHECKING:
-    from conductor._internal.loaded_graph.tree import FunctionAtPath
+    from conductor._internal.checked_graph.tree import FunctionAtPath
 
 from dataclasses import dataclass, field
 

@@ -31,10 +31,8 @@ from typing import Annotated, Any, Literal, TypeVar
 import pydantic
 
 from conductor._internal import problem
-from conductor._internal.fields import REQUIRED, Field, FieldValueError, Param, Series, Type
-from conductor._internal.graph_record import GraphRecord, NodeRecord
-from conductor._internal.loaded_graph.describe import GraphInput
-from conductor._internal.loaded_graph.input_plans import (
+from conductor._internal.checked_graph.describe import GraphInput
+from conductor._internal.checked_graph.input_plans import (
     InputFedByEdges,
     InputFromCaller,
     InputGathersItems,
@@ -49,13 +47,15 @@ from conductor._internal.loaded_graph.input_plans import (
     Source,
     WholeOutput,
 )
-from conductor._internal.loaded_graph.type import (
+from conductor._internal.checked_graph.type import (
     CheckedGraph,
     InputField,
     PlacedEmbeddedGraph,
     PlacedFunction,
     PlacedNode,
 )
+from conductor._internal.fields import REQUIRED, Field, FieldValueError, Param, Series, Type
+from conductor._internal.graph_record import GraphRecord, NodeRecord
 from conductor._internal.node_definition import (
     FunctionDefinition,
     HookName,

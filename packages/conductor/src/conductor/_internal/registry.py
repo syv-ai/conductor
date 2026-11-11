@@ -46,11 +46,11 @@ from typing import Any, Concatenate
 from pydantic import JsonValue
 
 from conductor._internal import problem
+from conductor._internal.checked_graph import load_graph
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.fields import NamedType, Type
 from conductor._internal.graph import Graph
 from conductor._internal.graph_record import GraphRecord, NodeRecord, as_record, values_as_json
-from conductor._internal.loaded_graph import load_graph
 from conductor._internal.node_definition import (
     FunctionDefinition,
     NodeDefinition,

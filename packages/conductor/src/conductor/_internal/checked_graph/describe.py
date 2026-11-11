@@ -4,9 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from conductor._internal.conductor_model import ConductorModel
-from conductor._internal.fields import FieldDescription
-from conductor._internal.loaded_graph.input_plans import (
+from conductor._internal.checked_graph.input_plans import (
     InputGathersItems,
     InputGathersOneValue,
     InputNotFed,
@@ -14,6 +12,8 @@ from conductor._internal.loaded_graph.input_plans import (
     InputReadsOneValue,
     Scope,
 )
+from conductor._internal.conductor_model import ConductorModel
+from conductor._internal.fields import FieldDescription
 from conductor._internal.problem import Problem
 
 

@@ -16,6 +16,7 @@ Everything in ``conductor._internal`` is the library's own and may move.
 from typing import TYPE_CHECKING
 
 from conductor._internal.ask import Ask, Waiting
+from conductor._internal.checked_graph import Feed, GraphDescription, GraphInput, RunsOn
 from conductor._internal.fields import (
     SKIPPED,
     Choice,
@@ -28,7 +29,6 @@ from conductor._internal.fields import (
 )
 from conductor._internal.graph import Graph
 from conductor._internal.graph_record import GraphRecord, NodeRecord
-from conductor._internal.loaded_graph import Feed, GraphDescription, GraphInput, RunsOn
 from conductor._internal.make_graph import make_graph
 from conductor._internal.node_definition import (
     Deprecation,

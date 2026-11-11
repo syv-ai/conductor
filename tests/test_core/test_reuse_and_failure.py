@@ -65,7 +65,7 @@ def _events(run: Any, **kwargs: Any) -> list[Any]:
 def test_what_a_units_result_rests_on_names_its_scope_by_address_not_by_how_a_class_prints(monkeypatch: pytest.MonkeyPatch):
     """A waiting id and a saved run hold the digest, so it is made of the scope's addresses as an author writes
     them (``words.result``), whatever the engine's class for an address is called or prints as."""
-    from conductor._internal.loaded_graph.input_plans import OutputAddress
+    from conductor._internal.checked_graph.input_plans import OutputAddress
 
     @node("words", title="Words", description="")
     def words(text: str) -> Series[str]:

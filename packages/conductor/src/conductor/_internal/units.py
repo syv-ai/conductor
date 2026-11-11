@@ -28,7 +28,7 @@ from conductor._internal.ask import Question
 from conductor._internal.fields import SKIPPED, Field
 
 if TYPE_CHECKING:
-    from conductor._internal.loaded_graph.tree import FunctionAtPath, Maps
+    from conductor._internal.checked_graph.tree import FunctionAtPath, Maps
 
 
 

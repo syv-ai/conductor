@@ -16,8 +16,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from conductor._internal.address import Loc, NodePath, node_name
-from conductor._internal.fields import REQUIRED, Field, Series
-from conductor._internal.loaded_graph.input_plans import (
+from conductor._internal.checked_graph.input_plans import (
     InputFedByEdges,
     InputFromCaller,
     InputGathersItems,
@@ -34,7 +33,8 @@ from conductor._internal.loaded_graph.input_plans import (
     Source,
     WholeOutput,
 )
-from conductor._internal.loaded_graph.type import CheckedGraph, PlacedEmbeddedGraph, PlacedFunction
+from conductor._internal.checked_graph.type import CheckedGraph, PlacedEmbeddedGraph, PlacedFunction
+from conductor._internal.fields import REQUIRED, Field, Series
 from conductor._internal.node_definition import Policy
 from conductor._internal.units import ItemPath
 

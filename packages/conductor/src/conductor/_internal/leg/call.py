@@ -9,8 +9,8 @@ from typing import Any
 import pydantic_core
 
 from conductor._internal import problem
+from conductor._internal.checked_graph import FunctionAtPath
 from conductor._internal.fields import SKIPPED, Field, FieldValueError, written_table
-from conductor._internal.loaded_graph import FunctionAtPath
 from conductor._internal.node_definition import Returns
 from conductor._internal.problem import UnitFailedError
 

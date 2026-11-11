@@ -18,9 +18,7 @@ from typing import Any
 
 from conductor._internal.ask import output_questions
 from conductor._internal.canonical_json import canonical_json
-from conductor._internal.fields import Field, FieldDescription
-from conductor._internal.graph_record import GraphRecord
-from conductor._internal.loaded_graph.describe import (
+from conductor._internal.checked_graph.describe import (
     GraphDescription,
     GraphInput,
     GraphNodeDescription,
@@ -29,7 +27,9 @@ from conductor._internal.loaded_graph.describe import (
     feed_of,
     runs_on,
 )
-from conductor._internal.loaded_graph.input_plans import InputFedByEdges, InputPlan, Scope
+from conductor._internal.checked_graph.input_plans import InputFedByEdges, InputPlan, Scope
+from conductor._internal.fields import Field, FieldDescription
+from conductor._internal.graph_record import GraphRecord
 from conductor._internal.node_definition import FunctionDefinition, StoredGraphDefinition
 from conductor._internal.problem import Problem
 from conductor._internal.units import Skipped, outputs_not_called, outputs_not_taken

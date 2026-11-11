@@ -51,10 +51,10 @@ from typing import Any, Literal
 import polars as pl
 
 from conductor._internal import kit_problem
+from conductor._internal.checked_graph import load_graph
 from conductor._internal.fields import REQUIRED, Field, FieldValueError, Param
 from conductor._internal.graph import Graph
 from conductor._internal.graph_record import GraphRecord, NodeRecord, values_as_json
-from conductor._internal.loaded_graph import load_graph
 from conductor._internal.node_definition import (
     FunctionDefinition,
     NodeDefinition,

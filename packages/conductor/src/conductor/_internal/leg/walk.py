@@ -49,6 +49,13 @@ from typing import Any, Literal
 from conductor._internal import problem
 from conductor._internal.address import ItemPath, NodePath
 from conductor._internal.ask import Ask, InvalidAskError, question_asked, waiting_unit
+from conductor._internal.checked_graph import (
+    EmbeddedGraphAtPath,
+    FunctionAtPath,
+    NodeAtPath,
+    unit_loc,
+    waits_on,
+)
 from conductor._internal.earlier_work import EarlierWork, taken
 from conductor._internal.fields import SKIPPED
 from conductor._internal.leg.call import call, jsonable
@@ -61,13 +68,6 @@ from conductor._internal.leg.events import (
     NodeSkipped,
     NodeStart,
     UnitWaiting,
-)
-from conductor._internal.loaded_graph import (
-    EmbeddedGraphAtPath,
-    FunctionAtPath,
-    NodeAtPath,
-    unit_loc,
-    waits_on,
 )
 from conductor._internal.problem import ExternalError, NodeError, Problem, UnitFailedError
 from conductor._internal.run_status import COMPLETE, RUNNING, WAITING, EndedEarly, RunState

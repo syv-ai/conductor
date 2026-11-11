@@ -38,7 +38,7 @@ from conductor._internal.fields import (
 )
 
 if TYPE_CHECKING:
-    from conductor._internal.loaded_graph import PlacedFunction
+    from conductor._internal.checked_graph import PlacedFunction
     from conductor._internal.units import Asking
 
 

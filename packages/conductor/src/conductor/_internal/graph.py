@@ -9,14 +9,14 @@ from typing import Any
 
 from conductor._internal import problem
 from conductor._internal.address import NodePath
-from conductor._internal.fields import REQUIRED, FieldValueError
-from conductor._internal.loaded_graph import (
+from conductor._internal.checked_graph import (
     CheckedGraph,
     FunctionAtPath,
     NodeAtPath,
     PlacedFunction,
     nodes_at_paths,
 )
+from conductor._internal.fields import REQUIRED, FieldValueError
 from conductor._internal.problem import InvalidCallError, Problem
 from conductor._internal.run import Run, checked_leg, no_units, run_from_json
 from conductor._internal.saved_run import SaveForm, save_form

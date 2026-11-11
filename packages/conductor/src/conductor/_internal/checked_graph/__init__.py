@@ -5,8 +5,8 @@ Code outside this package imports from here only. ``loader.py`` has ``load_graph
 ``tree.py`` the nodes where they stand, which a run walks; ``describe.py`` what a host is shown of a loaded graph.
 """
 
-from conductor._internal.loaded_graph.describe import Feed, GraphDescription, GraphInput, RunsOn
-from conductor._internal.loaded_graph.input_plans import (
+from conductor._internal.checked_graph.describe import Feed, GraphDescription, GraphInput, RunsOn
+from conductor._internal.checked_graph.input_plans import (
     InputFromCaller,
     InputGathersItems,
     InputGathersOneValue,
@@ -17,8 +17,8 @@ from conductor._internal.loaded_graph.input_plans import (
     SeriesAsList,
     WholeOutput,
 )
-from conductor._internal.loaded_graph.loader import load_graph
-from conductor._internal.loaded_graph.tree import (
+from conductor._internal.checked_graph.loader import load_graph
+from conductor._internal.checked_graph.tree import (
     EmbeddedGraphAtPath,
     FunctionAtPath,
     Maps,
@@ -28,4 +28,4 @@ from conductor._internal.loaded_graph.tree import (
     unit_loc,
     waits_on,
 )
-from conductor._internal.loaded_graph.type import CheckedGraph, PlacedFunction
+from conductor._internal.checked_graph.type import CheckedGraph, PlacedFunction
