@@ -68,10 +68,14 @@ What changes in how you work, before the name-by-name tables:
   `display` are JSON values; `make_graph` writes each value typed in as its JSON, a float that isn't
   finite as `"NaN"` or `"Infinity"`, so a record equals its JSON, and an `upgrade` rewrite is written
   the same way (`invalid_value` where it has no JSON form). A stored graph used as a node offers
-  the inputs and outputs it offers loaded alone, the fields its hooks add included, and `@node` on
-  a stored graph refuses a `policy` or a hook as `not_for_a_graph`. It runs on the rows it is fed
-  on; rows made inside it are named by the output it offers on them (`per row of e.result`), and two
-  inner decisions sharing a group name are two groups, `d1/answer` and `d2/answer`.
+  its graph's inputs by their names there and its outputs by their addresses there
+  (`e.upper.result`), and `@node` on a stored graph refuses a `policy` or a hook as
+  `not_for_a_graph`. A call of it is a nested run, driven by the same leg, so its nodes are
+  called, retried, timed out, cancelled and reused by `run.again` as the same nodes drawn in the
+  graph itself. An output made per item inside is a `Series` of them, and an inner decision's group
+  is named by its node, `d1.answer`. A problem inside has the embedding's node (and item) in front
+  of its `loc`; there is no `embedded_graph_broken`. A node's events, a `Waiting` and a
+  `NotCalled` say where they are with `inside`, and a waiting id inside reads `e@0/ask~3fa2c0d1`.
 - **A run is one value.** `graph.run(**inputs)` returns a `Run` whose `status` says how the leg
   ended, and whose `state` is `Going` or, for a leg that failed, stopped, was cancelled or timed out,
   `EndedEarly` with its `cause` (`match run.state`). It pauses for a person (`raise Ask(...)`, then `run.answer(...)` and `run.resume()`), writes
@@ -258,7 +262,7 @@ Every public name of 1.12.2, by the module it was imported from. A name not list
 | `NodeTimeoutError` | `Policy(attempt_timeout=)`; the unit fails with the code `timeout` |
 | `NodeValidationError` | `NodeError(message, code=, ctx=)` |
 | `SignalRequired` | `raise Ask(...)` |
-| `SubprocessFailedError` | the embedding node's `node_failed`, naming the embedding |
+| `SubprocessFailedError` | the failing inner node's `node_failed`; its `cause.loc` starts with the embedding's node and item |
 | **The palette** | |
 | `conductor.registry.schema.serialize_input_model` | `FieldDescription` |
 | `conductor.registry.schema.serialize_input` | an entry of `definition.describe().inputs`, a `FieldDescription` |

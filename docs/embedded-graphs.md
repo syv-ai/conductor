@@ -43,56 +43,57 @@ version 1 keeps running version 1 until [`registry.upgrade`](writing-nodes.md#a-
 
 ## Use one
 
-Wire it like any node:
+Wire it like any node. Its inputs are its graph's inputs, by their names there, and its outputs are its graph's
+outputs, by their addresses there, so an edge reads `shout.exclaim.result`:
 
 ```python
-graph = registry.load(make_graph(split, shout, join, edges=[("split.result", "shout.text"), ("shout.result", "join.texts")]))
+graph = registry.load(make_graph(split, shout, join, edges=[("split.result", "shout.text"), ("shout.exclaim.result", "join.texts")]))
 
 print(graph.run(text="hi there").outputs)  # {'join.result': 'HI! THERE!'}
-print(graph.plan["shout"].msg)              # per row of split.result
+print(graph.plan["shout"].msg)              # per item of split.result
 ```
 
-A stored graph runs on each row its node runs on, here once per word. Its own `Series` inputs gather the rows under
-that one row.
+A call of a stored graph is a run of it: here one per word. Embedding a graph changes nothing about how its nodes
+behave. Each is called by its own `Policy`, so a node with `concurrency=2` has two calls at once however many items
+the graph around it runs for; its retries and its `attempt_timeout` are its own; a cancel and a leg's `timeout` stop
+the nodes inside as they stop any node; and `run.again(...)` calls inside only the nodes it would call with the same
+nodes drawn in the graph itself. A stored graph takes no `Policy` of its own.
 
 ## What it offers
 
 From outside, a stored graph is one node:
 
-- **Its inputs** are the open inputs of its first nodes.
-- **Its outputs** are the outputs of the nodes nothing inside reads.
-- Each field goes by its inner name where that name is unique, and by `inner_node/field` where two inner nodes share
-  one. With `upper` and `exclaim` side by side, the inputs are `upper/text` and `exclaim/text`.
+- **Its inputs** are the open inputs of its first nodes (`graph.inputs` of the stored graph), under the names that
+  graph gives them: the input's own name, or `node.input` where two inner nodes share one. A value, a default or an
+  edge on it works as on any node. An inner input a hook reads is set inside the stored graph and is not offered.
+- **Its outputs** are the outputs of the nodes nothing inside reads (`graph.outputs` of the stored graph), under their
+  addresses there, `node.output`.
+- An output its graph makes once has the type the inner node gives it. One made per item inside, however deep, is a
+  `Series` of every item's value in order, exactly what `run.outputs` of the stored graph gives; a `Series` made per
+  item is a `Series` of lists. A table made per item is refused (`table_per_item_not_offered`).
+- An exclusive group inside is named by the node that decides, `decide.answer`.
 
 ```python
 side_by_side = node("both", title="Both", description="Runs the capital letters and the exclamation mark side by side.")(make_graph(upper, exclaim, edges=[]))
 registry.add(side_by_side)
 both = registry.load(make_graph(side_by_side))
 
-print(list(both.inputs))  # ['upper/text', 'exclaim/text']
-print(both.run({"both.upper/text": "a", "both.exclaim/text": "b"}).outputs)
-# {'both.upper/result': 'A', 'both.exclaim/result': 'b!'}
+print(list(both.inputs))  # ['upper.text', 'exclaim.text']
+print(both.run({"upper.text": "a", "exclaim.text": "b"}).outputs)
+# {'both.upper.result': 'A', 'both.exclaim.result': 'b!'}
 ```
 
-A caller gives them by name or by address alike: `{"upper/text": "a"}` and `{"both.upper/text": "a"}` fill the same input.
+## Where something is inside
 
-Everything else names the embedding, never its inner nodes:
+`run.results`, `graph.plan` and `graph.describe()` show the stored graph as one node. What happens inside it is told
+with where it is: the node and item of each stored graph around it, outermost first.
 
-- problems
-- results
-- `graph.plan` and `graph.describe()`
-- events: it starts once and completes once
-- waiting rows and their questions
-- a run's `cause`
-
-Rows made inside an embedding are its own: `graph.plan` puts the embedding on the rows it is fed on, and a node outside
-that reads an output offered on those rows runs per row of that output, as `per row of e.result` for an embedding
-`e`. Where two nodes inside
-hold an exclusive group of one name, they are two decisions: `graph.exclusive_groups` and `describe()` name each by
-its node's place inside, `d1/answer` and `d2/answer`.
-
-A stored graph with problems of its own is one problem, `embedded_graph_broken`, and its `ctx.problems` lists them
-(see [problem codes](problems.md#embedded_graph_broken)).
+- A problem's `loc` starts with it. A problem of the stored graph itself is that graph's own problem with the id of
+  the node that uses it in front, `("shout", "upper", "text")`; a failure inside the second word's call is at
+  `("shout", 1, "upper")`.
+- An event of a node inside, a waiting unit and an entry of `run.not_called` carry it as `inside`, `("shout", 1)`, next
+  to the inner node's own id. The inner nodes say their events once per call of the stored graph.
+- A waiting id spells it out: `shout@1/ask~3fa2c0d1` is `ask`, inside the second call of `shout`.
 
 A stored graph's palette entry lists the fields it offers in `registry.describe()`, which holds the nodes its
 graph uses. The definition's own `describe()` lists none, because its fields depend on that registry.
