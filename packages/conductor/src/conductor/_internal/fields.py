@@ -913,8 +913,6 @@ class Type:
             Two places sharing a variable join, and a source outside a variable's bound does not fit.
         """
         bound: dict[TypeVar, Any] = {}
-        if self is source and not self.variables:  # the same hint, which is most edges
-            return bound
         return bound if _fit(self.hint, source.closed, bound, False) else None
 
     def holds(self, source: Type) -> bool:

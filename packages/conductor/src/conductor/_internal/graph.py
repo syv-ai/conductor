@@ -1270,7 +1270,7 @@ class _Loader:
         """
         gathers, wanted = _taken(spec, sources)
         for source in sources:
-            if wanted.fits(source.type) is None:
+            if wanted is not source.type and wanted.fits(source.type) is None:  # the same type, which most edges join, fits
                 self.problems.append(_mismatch(node_id, spec, source))
                 return None
         deepest = max((s.read_in for s in sources), key=len)
