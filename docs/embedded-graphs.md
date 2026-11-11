@@ -121,6 +121,50 @@ graph = registry.load(make_graph(split, maybe, side_by_side, edges=[
 print(graph.run(text="hi none").results["both"])  # {'upper.result': ['HI', None], 'exclaim.result': ['hi!', 'none!']}
 ```
 
+## A stored graph is loaded alone
+
+A stored graph is checked once, before any graph uses it, so it doesn't know what will be wired to it. That matters
+when its first node takes any type. `each` gives the records of whatever table arrives. Drawn in a graph, after a
+node that gives a table of contacts, it gives contacts. As the first node of a stored graph it has nothing wired to
+it, so it gives records of unknown fields:
+
+```python
+from typing import TypedDict, cast
+
+from conductor import Table
+
+
+class Contact(TypedDict):
+    name: str
+
+
+@registry.node("each", title="Each", description="Gives the records of a table, or the items of a list, one at a time.")
+def each[T](value: Table[T] | list[T]) -> Series[T]:
+    return cast("list[T]", value)
+
+
+@registry.node("known", title="Known contacts", description="Takes a table of contacts and passes it on.")
+def known(contacts: Table[Contact]) -> Table[Contact]:
+    return contacts
+
+
+untyped = node("shout-names", title="Shout names", description="Writes each name in capitals.")(
+    make_graph(each, upper, edges=[("each.result.name", "upper.text")])
+)
+typed = node("shout-contacts", title="Shout contacts", description="Writes each contact's name in capitals.")(
+    make_graph(known, each, upper, edges=[("known.result", "each.value"), ("each.result.name", "upper.text")])
+)
+registry.add(untyped, typed)
+
+palette = {described.id: described for described in registry.describe().nodes}
+print(palette["shout-names"].inputs[0].type)     # Table | list
+print(palette["shout-contacts"].inputs[0].type)  # Table[name: str]
+```
+
+`shout-names` takes any table, so nothing checks `each.result.name` until a run: a misspelled field would load.
+`shout-contacts` starts with a node whose input says what it takes. Its edges are checked when it is declared, and a
+graph that wires the wrong table to it gets a `type_mismatch`. So give a stored graph a first node with a typed input.
+
 ## Where something is inside
 
 `run.results`, `graph.plan` and `graph.describe()` show the stored graph as one node: for an item it holds what its

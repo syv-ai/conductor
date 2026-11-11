@@ -1064,14 +1064,18 @@ except NodeDeclarationError as error:
 > type id {Type(held).id} is declared by both {_qualified_name(existing)} and {_qualified_name(held)}; one registry holds one type per id
 
 ```python
-class Amount(int):
+@dataclass
+class Amount:
     type_id: ClassVar[str] = "money"
     type_title: ClassVar[str] = "Amount"
+    kroner: int
 
 
-class Price(float):
+@dataclass
+class Price:
     type_id: ClassVar[str] = "money"
     type_title: ClassVar[str] = "Price"
+    kroner: float
 
 
 try:
@@ -1295,7 +1299,7 @@ except NodeDeclarationError as error:
     print(error.code)  # type_not_carried
 ```
 
-**Fix.** Use a type pydantic can check and write as JSON: a pydantic model, a dataclass or a builtin. A class of your own that subclasses a builtin (`class Text(str)`) says how pydantic reads it, in a `__get_pydantic_core_schema__` of its own.
+**Fix.** Use a type pydantic can check and write as JSON: a pydantic model, a dataclass or a builtin. A class of your own that subclasses a builtin (`class Text(str)`) says how pydantic reads it, in a `__get_pydantic_core_schema__` of its own. [Writing nodes](writing-nodes.md#a-text-or-a-number-of-your-own) has the three lines.
 
 ### `type_variable_constrained`
 

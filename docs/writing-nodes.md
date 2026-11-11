@@ -117,7 +117,7 @@ A type of your own is shown to people, so it declares the id an editor knows it 
 
 An editor reads a field's type as an id, and the id says what is inside: a `list[Address]` input has the type `list[address]`. So a class of your own inside a list or a dict declares its id and title too.
 
-- `X | None` takes a blank. An input receives a blank only if its type says so, with `| None` or as `Any`, and that holds for a type variable too: `value: T` gets none, `value: T | None` does. Otherwise the node isn't called where the input is blank, and its outputs are blank there too.
+- `X | None` takes a blank. An input receives a blank only if its type says so, with `| None` or as `Any`. Otherwise the node isn't called where the input is blank, and its outputs are blank there too.
 - `Series[X]` is many values of `X`, a plain list to your function.
 - `Table[R]` is a whole table, one value. The next example shows one.
 - `list[X]` is one value that happens to be a list.
@@ -367,6 +367,8 @@ def check[T](value: T, ok: bool) -> Checked[T]:
 ```
 
 Only an edge says what `T` is. With nothing wired to it, a value typed in or given by a caller is taken as it is, as `Any`.
+
+A blank is no different here. An input receives one only if its type says so, so where a `str | None` output is wired to `value: T`, `T` is `str` and the node isn't called for a blank. A node that passes blanks on writes `value: T | None`.
 
 ## Fields that a setting decides
 
