@@ -771,3 +771,47 @@ def test_a_leg_that_raised_outside_a_node_reads_failed_with_a_cause_that_its_run
             assert [json.loads(body) for body in store.written[run_id]] == [{"type": "run_end", "status": "failed", "cause": failed["cause"]}]
 
     asyncio.run(scenario())
+
+
+def test_every_refusal_of_the_router_is_a_list_of_problems_with_a_code_of_its_own() -> None:
+    from conductor import Problem
+    from conductor_providers.fastapi import ROUTER_PROBLEM_CODES
+
+    registry, graph, gate, inputs, waiting_id = _asking()
+
+    class ClaimLost(MemoryStore):
+        """Loses every claim of a run that waits, as when another worker took it first."""
+
+        async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
+            return not ("owner" in changes and self.rows[run_id].status == "waiting") and await super().update(run_id, rev, changes)
+
+    store = ClaimLost()
+    app = FastAPI()
+    app.include_router(run_router(store=store, registry=registry, caller=_caller))
+
+    def refusal(response: Any) -> tuple[int, list[tuple[str, dict[str, Any]]]]:
+        problems = [Problem.model_validate(problem) for problem in response.json()["detail"]]
+        assert all(problem.type in ROUTER_PROBLEM_CODES and problem.msg for problem in problems)
+        return response.status_code, [(problem.type, dict(problem.ctx)) for problem in problems]
+
+    async def scenario() -> None:
+        async with app.router.lifespan_context(app), httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as client:
+            assert refusal(await client.get("/runs/nonesuch")) == (404, [("no_such_run", {})])
+            run_id = (await client.post("/runs", json={"graph": graph.model_dump(mode="json"), "inputs": inputs})).json()["id"]
+            assert refusal(await client.get(f"/runs/{run_id}", headers={"x-user": "bo"})) == (404, [("no_such_run", {})])
+            assert (await client.post(f"/runs/{run_id}/answers", json={waiting_id: True})).json() == {"answers": "queued"}
+            assert refusal(await client.post(f"/runs/{run_id}/answers", json={waiting_id: False})) == (409, [("already_answered", {"waiting_id": waiting_id})])
+            assert refusal(await client.post(f"/runs/{run_id}/resume")) == (409, [("run_not_resumable", {"status": "running"})])
+            gate.set()
+            await _until_status(store, run_id, "complete")
+            assert refusal(await client.post(f"/runs/{run_id}/answers", json={})) == (409, [("run_complete", {})])
+            assert refusal(await client.post(f"/runs/{run_id}/resume")) == (409, [("run_not_resumable", {"status": "complete"})])
+            waits = (await client.post("/runs", json={"graph": graph.model_dump(mode="json"), "inputs": inputs})).json()["id"]
+            await _until_status(store, waits, "waiting")
+            assert refusal(await client.post(f"/runs/{waits}/answers", json={waiting_id: True})) == (409, [("run_changed", {})])
+
+    asyncio.run(scenario())
+    paths = app.openapi()["paths"]
+    refused = {"application/json": {"schema": {"$ref": "#/components/schemas/Refused"}}}
+    assert [paths["/runs/{run_id}/answers"]["post"]["responses"][code]["content"] for code in ("404", "409")] == [refused, refused]
+    assert paths["/runs/{run_id}"]["get"]["responses"]["404"]["content"] == refused

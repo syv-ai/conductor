@@ -52,6 +52,11 @@ _RESUMABLE = ("timed_out", "stopped", "cancelled", "failed")
 
 #: The English of each code the router itself writes, beside the codes of the runs it serves.
 _ROUTER_PROBLEMS: dict[str, str] = {
+    "no_such_run": "There is no run by that id that the caller may see; check the id and who is calling.",
+    "already_answered": "An answer to {waiting_id!r} already waits for the running leg to end; read the run once it has, and answer what still waits.",
+    "run_complete": "The run is complete, so nothing in it waits for an answer; start a new run to ask again.",
+    "run_not_resumable": "The run is {status}, and only a run that failed, stopped, was cancelled or timed out is resumed; read the run to see what it needs.",
+    "run_changed": "The run changed since it was read, so nothing was done; read it again and repeat the call if it still applies.",
     "leg_failed": "The run's worker failed before the leg could end; its operator finds why in the server log. Resume it to carry on.",
 }
 
@@ -93,6 +98,22 @@ class RunView(BaseModel):
     outputs: dict[str, Any] | None = None
     refused: dict[str, list[Problem]] = {}
     cause: Problem | None = None
+
+
+class Refused(BaseModel):
+    """The body of a call the router refused, as a 404, 409 or 422.
+
+    Attributes:
+        detail: Every problem with the call. A 404 and a 409 hold the router's own codes
+            (``ROUTER_PROBLEM_CODES``); a 422 holds the codes of the graph or the run that refused it.
+    """
+
+    detail: list[Problem]
+
+
+#: What a route declares beside its own answer: a run that isn't there for the caller, and a run in another state.
+_NOT_FOUND: dict[int | str, dict[str, Any]] = {404: {"model": Refused, "description": "No such run for the caller: `no_such_run`."}}
+_CONFLICT: dict[int | str, dict[str, Any]] = {**_NOT_FOUND, 409: {"model": Refused, "description": "The run is in a state that doesn't take the call."}}
 
 
 class Started(BaseModel):
@@ -368,7 +389,7 @@ def run_router(
         try:
             saved = await asyncio.to_thread(lambda: nodes_for(who).load(graph).with_inputs(inputs, max_items=max_items).to_json())
         except InvalidCallError as error:
-            raise _unprocessable(error) from None
+            raise _refused(422, *error.errors()) from None
         return await begin(graph.model_dump_json(), who, saved)
 
     async def begin(graph: str, who: C, saved: str) -> Started:
@@ -395,7 +416,7 @@ def run_router(
     async def stored(run_id: str, who: Annotated[C, Depends(caller)]) -> StoredRun:
         row = await store.get(run_id)
         if row is None or not may_see(who, started_by(row)):
-            raise HTTPException(404, "no such run")
+            raise _refused(404, _router_problem("no_such_run"))
         return row
 
     @router.get("/nodes")
@@ -419,7 +440,7 @@ def run_router(
             """Start a graph you offer by name, on inputs alone."""
             return await start(graph, inputs, who)
 
-    @router.get("/runs/{run_id}")
+    @router.get("/runs/{run_id}", responses=_NOT_FOUND)
     def read(row: Annotated[StoredRun, Depends(stored)]) -> RunView:
         return RunView(
             id=row.id, status=row.status, waiting=json.loads(row.waiting),
@@ -427,7 +448,7 @@ def run_router(
             cause=json.loads(row.cause) if row.cause is not None else None,
         )
 
-    @router.get("/runs/{run_id}/events", response_class=EventSourceResponse)
+    @router.get("/runs/{run_id}/events", response_class=EventSourceResponse, responses=_NOT_FOUND)
     async def follow(row: Annotated[StoredRun, Depends(stored)], last_event_id: Annotated[int, Header()] = -1) -> AsyncIterable[ServerSentEvent]:
         """The run's events, from whichever worker runs it, until it stops running; ``Last-Event-ID`` goes on after a reconnect."""
         seen = last_event_id
@@ -444,7 +465,7 @@ def run_router(
                     return
                 await asyncio.sleep(poll)
 
-    @router.post("/runs/{run_id}/answers", status_code=202)
+    @router.post("/runs/{run_id}/answers", status_code=202, responses=_CONFLICT)
     async def answer(row: Annotated[StoredRun, Depends(stored)], answers: dict[str, Any]) -> Answered:
         """Answer what waits by its ids, and start the next leg on the answers.
 
@@ -455,46 +476,46 @@ def run_router(
         """
         while row.status == "running":
             queued = json.loads(row.pending)
-            if queued.keys() & answers.keys():
-                raise HTTPException(409, "that question is already answered")
+            if twice := queued.keys() & answers.keys():
+                raise _refused(409, *(_router_problem("already_answered", waiting_id=waiting_id) for waiting_id in sorted(twice)))
             queued.update(answers)
             if await store.update(row.id, row.rev, {"pending": to_json(queued).decode()}):
                 return Answered(answers="queued")  # the leg's end, written after this, reads them
             again = await store.get(row.id)
             if again is None:
-                raise HTTPException(404, "no such run")
+                raise _refused(404, _router_problem("no_such_run"))
             row = again
         if row.status == "complete":
-            raise HTTPException(409, "the run is complete")
+            raise _refused(409, _router_problem("run_complete"))
         try:  # every answer the run refuses is refused at once
             answered = await asyncio.to_thread(lambda: load(row, nodes_for(started_by(row))).answer(answers).to_json())
         except InvalidCallError as error:
-            raise _unprocessable(error) from None
+            raise _refused(422, *error.errors()) from None
         if not await claim(row, run=answered):
-            raise HTTPException(409, "the run changed since it was read")
+            raise _refused(409, _router_problem("run_changed"))
         return Answered(answers="started")
 
-    @router.post("/runs/{run_id}/resume", status_code=202)
+    @router.post("/runs/{run_id}/resume", status_code=202, responses=_CONFLICT)
     async def resume(row: Annotated[StoredRun, Depends(stored)], max_items: Annotated[PositiveInt | None, Body(embed=True)] = None) -> Started:
         """Go on with a run that timed out, stopped at its ceiling, was cancelled or failed; nothing finished is called
         again. ``{"max_items": ...}`` raises the ceiling of a run that stopped at it; a resume needs no body."""
         if row.status not in _RESUMABLE:
-            raise HTTPException(409, f"the run is {row.status}")
+            raise _refused(409, _router_problem("run_not_resumable", status=row.status))
         if not await claim(row, max_items, cancel=False):
-            raise HTTPException(409, "the run changed since it was read")
+            raise _refused(409, _router_problem("run_changed"))
         return Started(id=row.id)
 
-    @router.post("/runs/{run_id}/again", status_code=202)
+    @router.post("/runs/{run_id}/again", status_code=202, responses=_NOT_FOUND)
     async def again(row: Annotated[StoredRun, Depends(stored)], inputs: dict[str, Any], who: Annotated[C, Depends(caller)]) -> Started:
         """A new run of the caller's with these inputs changed, on the caller's own nodes; a call that receives what it
         received before isn't made again."""
         try:
             saved = await asyncio.to_thread(lambda: load(row, nodes_for(who)).with_inputs(inputs).to_json())
         except InvalidCallError as error:
-            raise _unprocessable(error) from None
+            raise _refused(422, *error.errors()) from None
         return await begin(row.graph, who, saved)
 
-    @router.post("/runs/{run_id}/cancel")
+    @router.post("/runs/{run_id}/cancel", responses=_NOT_FOUND)
     async def cancel(row: Annotated[StoredRun, Depends(stored)]) -> Cancelled:
         """Stop a running leg before its next unit; the calls already made are kept, and ``resume`` goes on."""
         while row.status == "running":
@@ -595,7 +616,8 @@ def _caller_type(caller: Callable[..., Any]) -> Any:
     return returns
 
 
-def _unprocessable(error: InvalidCallError) -> HTTPException:
-    return HTTPException(422, [problem.model_dump(mode="json") for problem in error.errors()])
+def _refused(status_code: int, *problems: Problem) -> HTTPException:
+    """The refusal of a call: ``problems`` as the ``detail`` of a response with ``status_code``."""
+    return HTTPException(status_code, [problem.model_dump(mode="json") for problem in problems])
 
 

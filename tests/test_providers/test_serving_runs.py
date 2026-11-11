@@ -351,7 +351,7 @@ def test_a_second_answer_to_a_unit_answered_while_a_leg_runs_is_a_409(served: Se
             assert (await a.client.post(f"/runs/{run_id}/answers", json={second["id"]: False})).json() == {"answers": "queued"}
             twice = await b.client.post(f"/runs/{run_id}/answers", json={second["id"]: True})
             assert twice.status_code == 409
-            assert twice.json() == {"detail": "that question is already answered"}
+            assert [(problem["type"], problem["ctx"]) for problem in twice.json()["detail"]] == [("already_answered", {"waiting_id": second["id"]})]
             served.open_the_gate()
             assert (await b.until_status(run_id, "complete"))["outputs"] == {"after.result": [True, False]}
 
