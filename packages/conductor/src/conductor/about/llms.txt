@@ -317,7 +317,7 @@ Frozen models with a `type`, and a host subclasses `Widget` for a control of its
 - It returns every problem at once as `Problem`s, `loc` `(node_id, version)`. For `example_for_no_node` given without a version, `loc` is `(node_id,)`.
 - A body is called only for a node given an example, once per example, through the engine as a graph of that one node. `(id, version)` keys an older version's examples, and `from_run={T: value}` gives every example's `FromRun` values, as `graph.run` takes them.
 - The checks are `hook_failed`, `needs_example`, `upgrade_broken`, `changed_its_inputs`, `run_failed` and `example_for_no_node`; `docs/problems.md` says what each means and how to fix it. These codes are `check_registry`'s, not in `PROBLEM_CODES`.
-- A node known to fail goes in a test of its own marked `pytest.mark.xfail(strict=True)`, checking `registry.filter(...)` down to it.
+- A node known to fail goes in a test of its own marked `pytest.mark.xfail(strict=True)`, checking `registry.filter(...)` down to it (`docs/problems.md` shows one).
 
 ### conductor.events
 

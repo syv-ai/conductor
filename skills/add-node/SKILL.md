@@ -65,7 +65,7 @@ from conductor.testing import check_registry
 assert check_registry(registry, examples={"greet": [{"name": "Ida"}]}) == []
 ```
 
-A body is called only for a node given an example (a node may send mail), once per example, through the engine. `("greet", 1)` keys an older version's examples, and `from_run={T: value}` gives the examples' `FromRun` values, as `graph.run` takes them. A known failure goes in a test of its own marked `pytest.mark.xfail(strict=True)`, over `registry.filter(...)`.
+A body is called only for a node given an example (a node may send mail), once per example, through the engine. `("greet", 1)` keys an older version's examples, and `from_run={T: value}` gives the examples' `FromRun` values, as `graph.run` takes them. A known failure goes in a test of its own marked `pytest.mark.xfail(strict=True)`, over `registry.filter(...)` (`docs/problems.md`, under `run_failed`, shows one).
 
 ## Common mistakes
 
