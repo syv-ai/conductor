@@ -533,8 +533,8 @@ class Run:
         code = {name: self._made_by_other_code.get(path) or placed.reuse_digest for path, placed in functions.items() if (name := node_name(path)) in units or name in earlier}
         complete = [node.name for node in self.graph._tree if node.path in self._finished_nodes]
         form = self.graph._save_form
-        same_as = tables_written_once(form.outputs, form.shareable, units) if form.shareable else None
-        return SavedRun(graph=self.graph.fingerprint, state=self.state, max_items=self.max_items, inputs=self.inputs, units=units, earlier=earlier, code=code, complete=complete, same_as=same_as)
+        written_once = tables_written_once(form.outputs, form.shareable, units) if form.shareable else None
+        return SavedRun(graph=self.graph.fingerprint, state=self.state, max_items=self.max_items, inputs=self.inputs, units=units, earlier=earlier, code=code, complete=complete, tables_written_once=written_once)
 
     def _slots(self, node: FunctionAtPath) -> list[Unit | None]:
         """A node's units with a slot for each instance of the node, in instance order; ``None`` where the

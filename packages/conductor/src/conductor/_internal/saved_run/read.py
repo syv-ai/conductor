@@ -72,7 +72,7 @@ def units_of(not_taken: dict[str, Any], not_called: dict[str, Any], saved: Saved
 
 
 def with_shared_tables(outputs: Mapping[str, Mapping[str, Field]], saved: SavedRun[list[Unit | None], EarlierWork]) -> SavedRun[list[Unit | None], EarlierWork]:
-    """Gives each output a save wrote as ``null`` under ``same_as`` the table of the output it names, validated by
+    """Gives each output a save wrote as ``null`` and listed under ``tables_written_once`` the table of the output it names, validated by
     its own type, so both outputs have one table object again.
 
     Args:
@@ -84,7 +84,7 @@ def with_shared_tables(outputs: Mapping[str, Mapping[str, Field]], saved: SavedR
             written in full, one whose own column is not ``null`` there, or a table its own type refuses
             (``same_as_unreadable``).
     """
-    for entry in saved.same_as or ():
+    for entry in saved.tables_written_once or ():
         (node, output, slot), (from_node, from_output, from_slot) = entry.output, entry.same_as
         try:
             unit, source = saved.units[node][slot], saved.units[from_node][from_slot]
@@ -96,7 +96,7 @@ def with_shared_tables(outputs: Mapping[str, Mapping[str, Field]], saved: SavedR
             unit.out[output] = outputs[node][output].whole.read_returned(table)
         except (LookupError, AttributeError, FieldValueError):
             raise PydanticCustomError(
-                "same_as_unreadable", "same_as: '{output}' can't be read as the same table as '{same_as}', which must be an output written in full before it",
+                "same_as_unreadable", "tables_written_once: '{output}' can't be read as the same table as '{same_as}', which must be an output written in full before it",
                 {"output": f"{node}.{output}[{slot}]", "same_as": f"{from_node}.{from_output}[{from_slot}]"},
             ) from None
     return saved

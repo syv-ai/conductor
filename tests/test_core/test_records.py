@@ -285,7 +285,7 @@ def test_a_table_read_and_then_split_is_written_once_in_a_save_and_is_one_table_
     saved = json.loads(run.to_json())
 
     assert saved["units"]["split"]["outputs"]["result"] == [None]
-    assert saved["same_as"] == [{"output": ["split", "result", 0], "same_as": ["people", "result", 0]}]
+    assert saved["tables_written_once"] == [{"output": ["split", "result", 0], "same_as": ["people", "result", 0]}]
     assert run.to_json().count('"ida@x.dk"') == 1
 
     loaded = graph.load_run(run.to_json())
@@ -300,13 +300,13 @@ def test_a_table_with_equal_cells_that_is_another_object_is_written_in_full_and_
     run = graph.run(text="x")
     saved = json.loads(run.to_json())
 
-    assert "same_as" not in saved and saved["units"]["copied"]["outputs"]["result"] == saved["units"]["people"]["outputs"]["result"]
+    assert "tables_written_once" not in saved and saved["units"]["copied"]["outputs"]["result"] == saved["units"]["people"]["outputs"]["result"]
     assert graph.load_run(run.to_json()).results["copied"]["result"].equals(run.results["copied"]["result"])
 
 
-def test_a_save_of_a_graph_with_no_table_has_no_same_as_key() -> None:
+def test_a_save_of_a_graph_with_no_table_has_no_tables_written_once_key() -> None:
     graph = registry_of(listed, greet).load(make_graph(listed, greet, edges=[("listed.result.name", "greet.name")]))
-    assert "same_as" not in json.loads(graph.run(text="x").to_json())
+    assert "tables_written_once" not in json.loads(graph.run(text="x").to_json())
 
 
 def test_work_carried_from_an_earlier_run_shares_its_table_in_a_save_as_the_first_run_did() -> None:
@@ -314,7 +314,7 @@ def test_work_carried_from_an_earlier_run_shares_its_table_in_a_save_as_the_firs
     again = graph.run(text="x").again(text="x")
     saved = json.loads(again.to_json())
 
-    assert saved["same_as"] == [{"output": ["split", "result", 0], "same_as": ["people", "result", 0]}]
+    assert saved["tables_written_once"] == [{"output": ["split", "result", 0], "same_as": ["people", "result", 0]}]
     assert graph.load_run(again.to_json()).to_json() == again.to_json()
 
 
@@ -327,7 +327,7 @@ def test_a_table_shared_inside_an_embedded_graph_is_written_once_under_the_nodes
     graph = registry.load(GraphRecord(nodes=[NodeRecord(id="e", node="inner"), NodeRecord(id="greet", node="greet")], edges=[("e.split.result.name", "greet.name")]))
     run = graph.run(text="x")
 
-    assert json.loads(run.to_json())["same_as"] == [{"output": ["e/split", "result", 0], "same_as": ["e/people", "result", 0]}]
+    assert json.loads(run.to_json())["tables_written_once"] == [{"output": ["e/split", "result", 0], "same_as": ["e/people", "result", 0]}]
     loaded = graph.load_run(run.to_json())
     assert loaded.to_json() == run.to_json() and loaded.outputs == {"greet.result": ["hi ida", "hi bo"]}
 
@@ -339,18 +339,18 @@ def test_a_table_shared_inside_an_embedded_graph_is_written_once_under_the_nodes
     ["split", "result", 0],  # itself, which is written as null
     ["greet", "result", 0],  # an output that is no table
 ], ids=["no such node", "no such slot", "no such output", "itself", "not a table"])
-def test_a_save_whose_same_as_names_an_output_that_is_no_table_written_in_full_is_refused(same_as: list[Any]) -> None:
+def test_a_save_whose_tables_written_once_names_an_output_that_is_no_table_written_in_full_is_refused(same_as: list[Any]) -> None:
     graph = _read_then_split()
     saved = json.loads(graph.run(text="x").to_json())
-    saved["same_as"][0]["same_as"] = same_as
+    saved["tables_written_once"][0]["same_as"] = same_as
 
     with pytest.raises(InvalidCallError) as refused:
         graph.load_run(json.dumps(saved))
     (found,) = refused.value.errors()
-    assert found.type == "state_unreadable" and "same_as: 'split.result[0]' can't be read as the same table" in found.msg
+    assert found.type == "state_unreadable" and "tables_written_once: 'split.result[0]' can't be read as the same table" in found.msg
 
 
-def test_a_save_whose_same_as_names_a_table_of_other_columns_is_refused_by_the_outputs_own_type() -> None:
+def test_a_save_whose_tables_written_once_names_a_table_of_other_columns_is_refused_by_the_outputs_own_type() -> None:
     graph = _read_then_split()
     saved = json.loads(graph.run(text="x").to_json())
     saved["units"]["people"]["outputs"]["result"][0]["columns"][0]["name"] = "nom"
