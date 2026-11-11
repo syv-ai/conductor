@@ -2,7 +2,7 @@
 
 This page is for you if you write nodes that other people place in graphs: a package of nodes, or the nodes your own editor offers. The [first page](https://github.com/syv-ai/conductor#readme) shows a host loading and running a graph. Here every example builds its own small graph with `make_graph`, so you can see what a node does in one.
 
-`make_graph(a, b)` writes a graph record from Python. Each node goes under its own id, `upper-1` and `upper-2` when one is used twice. With no `edges`, the nodes form a chain: each takes its one required input from the one output of the node before it. `edges=[("a.result", "b.text")]` names the edges instead. `values={"a.text": "hi"}` types a value in, and `defaults=` gives one a caller may change. A list given to an input of one value runs the node once per item. Every key is a `"node.input"` address. A wrong address, a value of the wrong type, a default on an input no caller reaches or an edge between types that don't meet raises at the call.
+`make_graph(a, b)` writes a graph record from Python. Each node goes under its own id, `upper-1` and `upper-2` when one is used twice. With no `edges`, the nodes form a chain: each takes its one required input from the one output of the node before it. `edges=[("a.result", "b.text")]` names the edges instead. `values={"a.text": "hi"}` types a value in, and `defaults=` gives one a caller may change. Every key is a `"node.input"` address. A wrong address, a value of the wrong type, a default on an input no caller reaches or an edge between types that don't meet raises at the call.
 
 The rules in full are in the reference: `python -m conductor.about`.
 
@@ -113,33 +113,74 @@ def city(address: Address) -> str:
 print(city(Address(street="Nørregade 1", city="Aarhus")))  # Aarhus
 ```
 
-A type of your own is shown to people, so it declares the id an editor knows it by and the title a person reads as class attributes, `type_id` and `type_title`, as `Address` does. They are read when the node is declared, so a type missing one fails at import. A table's row type is never shown and declares nothing. Conductor's own types (`str`, `int`, `date` and the rest) take theirs from conductor's table. A class pydantic can't check, such as a plain class with only an `__init__`, is refused when the node is declared, as `type_not_carried`.
+A type of your own is shown to people, so it declares the id an editor knows it by and the title a person reads as class attributes, `type_id` and `type_title`, as `Address` does. They are read when the node is declared, so a type missing one fails at import. A `TypedDict` is a record of plain fields and declares nothing. Conductor's own types (`str`, `int`, `date` and the rest) take theirs from conductor's table. A class pydantic can't check, such as a plain class with only an `__init__`, is refused when the node is declared, as `type_not_carried`.
 
 
-- `X | None` takes a blank. If an input's type has no `| None`, the node isn't called for a row where it is blank, and its outputs are blank there too. Rows a blank node never made are not zero rows: a `Series` or `Table` input that would gather them is blank in turn.
-- `Series[X]` is many values of `X`, a plain list to your function. Wired to a column, it gets every value of it. Returned, each item is a row.
-- `Table[R]` is a whole table, a `polars.DataFrame` whose columns the `TypedDict` `R` names, each by its bare type: a column's limits are the node's to check, and an `Annotated` column is refused. Each column of a table you return is an output of its own: `read.result.email`.
-- `list[X]` is one value that happens to be a list.
+- `X | None` takes a blank. If an input's type has no `| None`, the node isn't called where it is blank, and its outputs are blank there too.
+- `Series[X]` is many values of `X`, a plain list to your function.
+- `Table[R]` is a whole table, a `polars.DataFrame` whose columns the `TypedDict` `R` names, each by its bare type: a column's limits are the node's to check, and an `Annotated` column is refused. A column may be blank only if its type says `| None`.
+- `list[X]` is one value that happens to be a list. So is a table.
 
-A node typed for one value runs once per row when a column is wired to it. You never write the loop.
+## One or many
 
-## Several outputs, and branches
-
-Return a frozen dataclass for several outputs, one per field. Outputs that share an `exclusive_group` are branches: on each row one gets a value and the others get `SKIPPED`. A node fed only `SKIPPED` is skipped too:
+Return a `Series` and whatever takes one value of it runs once per item. You never write the loop:
 
 ```python
 from dataclasses import dataclass
 
-from conductor import SKIPPED, NodeRegistry
+from conductor import NodeRegistry, Series
+
+registry = NodeRegistry()
+
+
+@dataclass(frozen=True)
+class Letter:
+    sender: str
+    lines: Series[str]
+
+
+@registry.node("open", title="Open", description="Reads a letter: who sent it, and its lines.")
+def open_letter(text: str) -> Letter:
+    sender, *lines = text.splitlines()
+    return Letter(sender=sender, lines=lines)
+
+
+@registry.node("tag", title="Tag", description="Puts the sender in front of a line.")
+def tag(line: str, sender: str) -> str:
+    return f"{sender}: {line}"
+
+
+@registry.node("count", title="Count", description="Counts the texts it is given.")
+def count(texts: Series[str]) -> int:
+    return len(texts)
+
+
+letter = make_graph(open_letter, tag, count, edges=[("open.lines", "tag.line"), ("open.sender", "tag.sender"), ("tag.result", "count.texts")])
+run = registry.load(letter).run(text="Ida\nhello\nsee you")
+print(run.results["tag"]["result"])  # ['Ida: hello', 'Ida: see you']
+print(run.outputs)                   # {'count.result': 2}
+```
+
+- `open` gives many lines, and `tag` takes one, so `tag` runs once per line. Anything reading `tag` would run once per line too.
+- `count` takes a `Series`, so it gathers: it runs once and gets every tagged line, in order. A `Table[R]` input gathers records into a table the same way.
+- The sender was made outside the lines, so it is simply there on every call of `tag`.
+
+A table never makes items by itself. Return `Series[R]`, with `R` a `TypedDict`, to give records one at a time; then an edge may name one field of each, `read.result.email`. A host with `syv-conductor-nodes` has a Split node that does this for any table or list.
+
+A blank item is left out of a `Series[X]` input, and `Series[X | None]` keeps its place as `None`. No items at all is an empty list, and your node is still called. What a gather does with branches not taken is in the reference (`python -m conductor.about one-or-many`).
+
+## Several outputs, and branches
+
+Return a frozen dataclass for several outputs, one per field. Outputs that share an `exclusive_group` are branches: on each call one gets a value and the others get `SKIPPED`. A node fed only `SKIPPED` is skipped too:
+
+```python
+from conductor import SKIPPED
 
 
 @dataclass(frozen=True)
 class Routed:
     large: Annotated[int, Param(exclusive_group="size")]
     small: Annotated[int, Param(exclusive_group="size")]
-
-
-registry = NodeRegistry()
 
 
 @registry.node("route", title="Route", description="Sends an amount down one of two paths.")
@@ -163,7 +204,7 @@ A branch not taken reads as `None` in `run.results` and `run.outputs`.
 
 ## Asking a person
 
-`raise Ask(prompt)` stops the node on that row and asks a person. Your return type says what they answer: `-> bool` asks a yes or no, and a frozen dataclass asks a form, one question per field, each field's default offered. What every type asks is in the reference (`python -m conductor.about`, "Legs and Asking").
+`raise Ask(prompt)` stops that call of the node and asks a person. Your return type says what they answer: `-> bool` asks a yes or no, and a frozen dataclass asks a form, one question per field, each field's default offered. What every type asks is in the reference (`python -m conductor.about`, "Legs and Asking").
 
 With no more than a prompt, `-> str` asks for a line of free text: `raise Ask(f"Why was {ticket} closed?")`. How a question looks is its type's, as for an input: `-> Annotated[str, Param(title="Reason", widget=Textarea())]`.
 
@@ -209,7 +250,7 @@ run = run.answer(waiting, {"approved": True, "owner": "ida"}).resume()
 print(run.outputs)  # {'review.approved': True, 'review.owner': 'ida', 'review.note': None}
 ```
 
-The node isn't called again for that row: the answer is its outputs. An answer that doesn't fit its question is refused before anything runs. An `Ask` that doesn't fit your outputs, say a default your type refuses, fails the node as `invalid_ask`.
+The node isn't called again for it: the answer is its outputs. An answer that doesn't fit its question is refused before anything runs. An `Ask` that doesn't fit your outputs, say a default your type refuses, fails the node as `invalid_ask`.
 
 `Ask` is a `BaseException`, so an `except Exception` in your node lets it through.
 
@@ -256,7 +297,7 @@ run = registry.load(make_graph(fetch)).run(url="https://example.com")
 print(run.status, len(attempts))  # complete 3
 ```
 
-`Policy` also sets `attempt_timeout`, `retry_on` (exception classes of your client to treat as external) and `concurrency`, how many rows are called at once on threads. By default a node is called one row at a time.
+`Policy` also sets `attempt_timeout`, `retry_on` (exception classes of your client to treat as external) and `concurrency`, how many calls run at once on threads. By default a node is called for one item at a time.
 
 ## What the host gives the run
 
@@ -323,6 +364,9 @@ problems = check_registry(registry, examples={
     "route": [{"amount": 5}],
     "assign": [{"ticket": "T-1"}],
     "notify": [{"amount": 5}],
+    "open": [{"text": "Ida\nhello"}],
+    "tag": [{"line": "hello", "sender": "Ida"}],
+    "count": [{"texts": ["hello"]}],
 }, from_run={Caller: Caller("Ida")})
 print(problems)  # []
 ```
