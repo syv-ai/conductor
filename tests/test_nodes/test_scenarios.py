@@ -189,7 +189,7 @@ def test_scenario_1_per_invoice_approval():
     assert graph.plan["approve"].series == "split.result" and graph.plan["approved-total"].mode == "once"
 
     run = graph.run(file=INVOICES)
-    assert run.status == "waiting" and [(w.node_id, w.item, w.prompt) for w in run.waiting] == [("approve", (1,), "Approve A2 for 900.0?")]
+    assert run.status == "waiting" and [(w.loc[0], w.loc[1:], w.prompt) for w in run.waiting] == [("approve", (1,), "Approve A2 for 900.0?")]
     assert run.answer(run.waiting[0], True).resume().outputs == {"approved-total.result": 1300.0}
     assert run.answer(run.waiting[0], False).resume().outputs == {"approved-total.result": 400.0}
 
@@ -315,7 +315,7 @@ def test_scenario_7_a_contact_without_an_email_gets_no_mail_and_stays_in_the_exc
         ("table-collect.result", "excel.table"),
     ], values={"send-mail.body": "Hello", "table-collect.columns": ["sent"]}))
     run = graph.run(file=CONTACTS)
-    assert run.status == "complete" and [(n.node_id, n.item, n.input) for n in run.not_called] == [("send-mail", (1,), "to")]
+    assert run.status == "complete" and [(n.loc[0], n.loc[1:], n.input) for n in run.not_called] == [("send-mail", (1,), "to")]
     assert run.results["send-mail"]["result"] == ["sent to ann@x.dk", None, "sent to cy@x.dk"]
     assert run.outputs["excel.result"].text == "name,email,sent\nAnn,ann@x.dk,sent to ann@x.dk\nBo,,\nCy,cy@x.dk,sent to cy@x.dk\n"
 
@@ -337,7 +337,7 @@ def test_scenario_8_an_excel_per_document_of_the_approved_invoices():
 
     only_large = File(name="d.pdf", text="D1,Dune,800")
     run = graph.run(files=[A_PDF, C_PDF, only_large])
-    assert [(w.item, w.inputs["number"]) for w in run.waiting] == [((0, 1), "A2"), ((1, 1), "C2"), ((2, 0), "D1")]
+    assert [(w.loc[1:], w.inputs["number"]) for w in run.waiting] == [((0, 1), "A2"), ((1, 1), "C2"), ((2, 0), "D1")]
     sheets = answered(run, yes={"A2"}).results["excel"]["result"]
     assert [sheet.name for sheet in sheets] == ["a.pdf.xlsx", "c.pdf.xlsx", "d.pdf.xlsx"]
     assert [sheet.text for sheet in sheets] == [
@@ -375,11 +375,11 @@ def test_scenario_10_a_nested_approval_saved_and_resumed_in_another_process():
     ]))
     run = graph.run(files=[A_PDF, B_PDF, C_PDF])
     first, second = run.waiting
-    assert (first.node_id, first.item, second.item) == ("approve", (0, 1), (2, 1))  # invoice 1 of document 0, invoice 1 of document 2
+    assert (first.loc[0], first.loc[1:], second.loc[1:]) == ("approve", (0, 1), (2, 1))  # invoice 1 of document 0, invoice 1 of document 2
 
     saved = run.to_json()
     resumed = graph.load_run(saved).answer(second.id, False).resume()
-    assert resumed.status == "waiting" and [w.item for w in resumed.waiting] == [(0, 1)]
+    assert resumed.status == "waiting" and [w.loc[1:] for w in resumed.waiting] == [(0, 1)]
     done = graph.load_run(resumed.to_json()).answer(first.id, True).resume()
     assert done.outputs == {"approve.result": [True, True, True, False, True]}  # every item, in order: two of a.pdf, none of b.pdf, three of c.pdf
 

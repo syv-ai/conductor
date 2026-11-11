@@ -146,7 +146,7 @@ def send(middle: str) -> str:
 
 sent = registry.load(make_graph(words, middle_name, send)).run(text="Ida Bo")
 print(sent.status, sent.results["send"]["result"])  # complete ['sent Marie', None]
-print([(skipped.node_id, skipped.input) for skipped in sent.not_called])  # [('send', 'middle')]
+print([(skipped.loc, skipped.input) for skipped in sent.not_called])  # [(("send", 1), "middle")]
 ```
 
 **Worth questioning:** the run ends `complete` with one message not sent. This holds because the run records which item and which input, so a host can say "Bo was not sent: middle name blank" instead of failing everyone.

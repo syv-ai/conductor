@@ -500,7 +500,7 @@ def test_a_slow_output_check_runs_on_its_nodes_thread_and_holds_up_no_other_unit
 
     async def go() -> str:
         async for event in graph.with_inputs().stream():
-            if event.type == "node_complete" and event.node_id == "o":
+            if event.type == "node_complete" and event.loc[0] == "o":
                 _SlowOutput.other_reported.set()
             if event.type == "run_end":
                 return event.status

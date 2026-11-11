@@ -119,7 +119,7 @@ def test_a_foreign_exception_named_in_retry_on_is_external_and_retries():
     events = _events(_alone(flaky).with_inputs())
 
     retries = [e for e in events if e.type == "node_retry"]
-    assert len(calls) == 3 and [(e.attempt, e.retries, e.node_id) for e in retries] == [(1, 2, "n"), (2, 2, "n")]
+    assert len(calls) == 3 and [(e.attempt, e.retries, e.loc[0]) for e in retries] == [(1, 2, "n"), (2, 2, "n")]
     assert retries[0].cause.type == "external_failed" and retries[0].cause.msg == "An outside service did not answer."
     assert events[-1].run.outputs == {"n.result": "ok"}
 
@@ -354,7 +354,7 @@ def test_a_run_with_changed_inputs_streams_and_a_node_entirely_reused_says_how_m
 
     events = _events(first.with_inputs(items=["ida", "bo", "al"]))
 
-    completed = {e.node_id: e.reused_units for e in events if e.type == "node_complete"}
+    completed = {e.loc[0]: e.reused_units for e in events if e.type == "node_complete"}
     assert sent == ["al", "confirm sent al"] and completed == {"each": 0, "mail": 2, "confirm": 2}
     assert events[-1].run.results["confirm"]["result"] == ["SENT IDA", "SENT BO", "SENT AL"]
 
@@ -894,7 +894,7 @@ def test_a_first_run_reports_no_reuse():
 
     events = _events(graph.with_inputs(items=["ida", "bo"]))
 
-    assert {e.node_id: e.reused_units for e in events if e.type == "node_complete"} == {"each": 0, "mail": 0, "confirm": 0}
+    assert {e.loc[0]: e.reused_units for e in events if e.type == "node_complete"} == {"each": 0, "mail": 0, "confirm": 0}
 
 
 def test_a_run_with_changed_inputs_not_yet_started_shows_no_results():
@@ -1457,7 +1457,7 @@ def test_identical_items_take_earlier_answers_in_item_order_whatever_thread_fini
         nodes=[_EACH, NodeRecord(id="f", node="fetch"), NodeRecord(id="a", node="approve")], edges=[("each.result", "f.name"), ("f.result", "a.name")],
     ))
     first = graph.run(items=["bo-0", "bo-1"])
-    answered = first.answer({w.id: w.item == (0,) for w in first.waiting}).resume()
+    answered = first.answer({w.id: w.loc[1:] == (0,) for w in first.waiting}).resume()
     assert answered.results["a"]["result"] == [True, False]
 
     for _ in range(3):

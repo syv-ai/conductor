@@ -197,10 +197,10 @@ def test_an_input_whose_type_takes_a_list_takes_it_as_one_value_and_a_series_inp
 def test_a_run_that_waits_per_item_saves_and_loads_back_onto_the_same_items():
     graph = registry.load(drawn(("s", "split"), ("q", "approve"), edges=(("s.result", "q.text"),)))
     run = graph.run(text="a,b")
-    assert [w.item for w in run.waiting] == [(0,), (1,)]
+    assert [w.loc[1:] for w in run.waiting] == [(0,), (1,)]
     saved = graph.load_run(run.to_json())
     assert saved.graph is graph and saved.graph.plan["q"].mode == "per_item"
-    done = saved.answer({w.id: w.item == (1,) for w in saved.waiting}).resume()
+    done = saved.answer({w.id: w.loc[1:] == (1,) for w in saved.waiting}).resume()
     assert done.outputs == {"q.result": [False, True]}
 
 

@@ -146,11 +146,10 @@ class Waiting(ConductorModel):
             embedding node and its item come first, ``"review@0/approve@1~3fa2c0d1"``.
             An answer for an id whose place has since come to hold another
             question is refused as ``answer_stale``.
-        inside: The node and item of each embedded graph the node is inside,
-            outermost first, ``("review", 0)``; empty for a node of the graph
-            itself.
-        node_id: The node that asks, by its id in the graph it is a node of.
-        item: Which of the node's calls it is: the place of its item in each Series the node runs per item of.
+        loc: Which unit it is, as a ``Problem``'s ``loc`` says it: the node
+            that asks, then the place of its item in each Series the node
+            runs per item of, ``("approve", 1)``; inside an embedded graph,
+            the embedding node and its item first, ``("review", 0, "approve", 1)``.
         prompt: What the node's ``Ask`` said.
         questions: One per output: the ``FieldDescription`` its ``describe()``
             gives, with the ``choices`` and ``default`` the ``Ask`` set and
@@ -159,9 +158,7 @@ class Waiting(ConductorModel):
     """
 
     id: str
-    inside: tuple[str | int, ...] = ()
-    node_id: str
-    item: tuple[int, ...]
+    loc: tuple[str | int, ...]
     prompt: str
     questions: list[FieldDescription]
     inputs: dict[str, Any]

@@ -100,7 +100,7 @@ def test_events_in_order():
     events = collect(graph.with_inputs(text="a,b,c"))
     kinds = [e.type for e in events]
     assert kinds[0] == "run_start" and kinds[-1] == "run_end" and events[-1].status == "complete", kinds
-    complete = {e.node_id: e.units for e in events if e.type == "node_complete"}
+    complete = {e.loc[0]: e.units for e in events if e.type == "node_complete"}
     assert complete == {"split": 1, "upper": 3, "join": 1}, complete
     assert kinds.index("node_start") < kinds.index("node_complete")
     assert events[-1].run.outputs == {"join.result": "A+B+C"}
@@ -152,7 +152,7 @@ def test_waiting_and_skipped_events():
     assert "unit_waiting" in kinds and "node_skipped" in kinds and events[-1].status == "waiting", kinds
     waiting = [e.unit for e in events if e.type == "unit_waiting"]
     assert [place(w) for w in waiting] == ["gate@1"]
-    assert not any(e.type == "node_complete" and e.node_id == "gate" for e in events)
+    assert not any(e.type == "node_complete" and e.loc[0] == "gate" for e in events)
 
 
 def test_failure_keeps_calls_already_made():
@@ -232,7 +232,7 @@ def test_retries_external_failures_then_succeeds():
     events = collect(graph.with_inputs(text="a,b"))
     retries = [e for e in events if e.type == "node_retry"]
     assert events[-1].status == "complete" and events[-1].run.results["client"]["result"] == ["a!", "b!"], events[-1].run.cause
-    assert sorted((e.node_id, e.item, e.attempt) for e in retries) == [("client", (0,), 1), ("client", (1,), 1), ("fetch", (0,), 1), ("fetch", (0,), 2), ("fetch", (1,), 1), ("fetch", (1,), 2)]
+    assert sorted((e.loc[0], e.loc[1:], e.attempt) for e in retries) == [("client", (0,), 1), ("client", (1,), 1), ("fetch", (0,), 1), ("fetch", (0,), 2), ("fetch", (1,), 1), ("fetch", (1,), 2)]
     assert retries[0].cause.type == "external_failed" and retries[0].delay == 0.01
 
 

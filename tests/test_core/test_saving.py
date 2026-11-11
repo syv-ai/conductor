@@ -867,8 +867,8 @@ def test_a_blank_and_a_skipped_unit_come_back_from_a_save_and_a_resumed_run_name
     loaded = graph.load_run(run.to_json())
     assert loaded._units == run._units
     assert loaded.resume().not_called == run.not_called == [
-        NotCalled(node_id="s", item=(1,), input="email"),
-        NotCalled(node_id="c", item=(1,), input="email"),
+        NotCalled(loc=("s", 1), input="email"),
+        NotCalled(loc=("c", 1), input="email"),
     ]
 
 

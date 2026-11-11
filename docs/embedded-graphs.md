@@ -91,8 +91,8 @@ with where it is: the node and item of each stored graph around it, outermost fi
 - A problem's `loc` starts with it. A problem of the stored graph itself is that graph's own problem with the id of
   the node that uses it in front, `("shout", "upper", "text")`; a failure inside the second word's call is at
   `("shout", 1, "upper")`.
-- An event of a node inside, a waiting unit and an entry of `run.not_called` carry it as `inside`, `("shout", 1)`, next
-  to the inner node's own id. The inner nodes say their events once per call of the stored graph.
+- An event of a node inside, a waiting unit and an entry of `run.not_called` have the same `loc`: `("shout", 1, "upper")`
+  is `upper` inside the second call of `shout`. The inner nodes say their events once per call of the stored graph.
 - A waiting id spells it out: `shout@1/ask~3fa2c0d1` is `ask`, inside the second call of `shout`.
 
 A stored graph's palette entry lists the fields it offers in `registry.describe()`, which holds the nodes its

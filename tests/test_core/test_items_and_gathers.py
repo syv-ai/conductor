@@ -286,7 +286,7 @@ def test_a_default_is_for_an_input_nothing_is_wired_to_not_for_a_blank():
     run = ran(*CONTACTS, {"id": "d", "node": "defaulted"}, edges=(SPLIT_CONTACTS, ("r.result.email", "d.email")),
               registry=registry_of(contacts, records, defaulted), text=CSV)
     assert run.results["d"]["result"] == ["ida@x", None, "nina@x"]
-    assert run.not_called == [NotCalled(node_id="d", item=(1,), input="email")]
+    assert run.not_called == [NotCalled(loc=("d", 1), input="email")]
 
 
 def test_a_node_all_blank_completes_it_is_never_skipped():
@@ -298,9 +298,9 @@ def test_a_node_all_blank_completes_it_is_never_skipped():
 
     said = streamed(loaded.with_inputs())
     assert not [e for e in said if e.type == "node_skipped"]
-    (complete,) = [e for e in said if e.type == "node_complete" and e.node_id == "s"]
+    (complete,) = [e for e in said if e.type == "node_complete" and e.loc[0] == "s"]
     assert (complete.units, complete.not_called) == (1, 1)
-    assert said[-1].status == "complete" and said[-1].run.not_called == [NotCalled(node_id="s", item=(), input="email")]
+    assert said[-1].status == "complete" and said[-1].run.not_called == [NotCalled(loc=("s",), input="email")]
 
 
 @pytest.mark.parametrize("blank_into", ["a", "b"])
@@ -327,14 +327,14 @@ def test_choice_outputs_are_skipped_when_not_called():
               edges=(SPLIT_CONTACTS, ("r.result.email", "b.email"), ("b.yes", "u.text")), registry=registry_of(contacts, records, branched, upper), text=CSV)
     assert run.results["b"] == {"yes": ["ida@x", None, "nina@x"], "no": [None, None, None]}
     assert run.results["u"]["result"] == ["IDA@X", None, "NINA@X"]
-    assert [(n.node_id, n.item) for n in run.not_called] == [("b", (1,)), ("u", (1,))]
+    assert [(n.loc[0], n.loc[1:]) for n in run.not_called] == [("b", (1,)), ("u", (1,))]
 
 
 def test_a_series_not_made_for_a_blank_item_is_not_an_empty_one_so_a_count_of_it_is_not_called_either():
     run = ran(*CONTACTS, {"id": "s", "node": "split"}, {"id": "n", "node": "count"},
               edges=(SPLIT_CONTACTS, ("r.result.email", "s.text"), ("s.result", "n.values")), text=CSV)
     assert run.results["n"]["result"] == [1, None, 1]
-    assert NotCalled(node_id="n", item=(1,), input="values") in run.not_called
+    assert NotCalled(loc=("n", 1), input="values") in run.not_called
 
 
 def test_a_table_not_made_for_a_blank_item_is_not_split_so_a_count_of_its_records_is_not_called_either():
@@ -376,7 +376,7 @@ def test_a_reader_of_a_blank_chain_is_not_called_either():
               edges=(SPLIT_CONTACTS, ("r.result.email", "u.text"), ("u.result", "v.text")), text=CSV)
     assert run.results["v"]["result"] == ["IDA@X", None, "NINA@X"]
     assert len(CALLED) == 4
-    assert [(n.node_id, n.item) for n in run.not_called] == [("u", (1,)), ("v", (1,))]
+    assert [(n.loc[0], n.loc[1:]) for n in run.not_called] == [("u", (1,)), ("v", (1,))]
 
 
 def test_a_blank_item_is_left_out_of_every_series_input_together_so_a_zip_stays_paired():
@@ -433,7 +433,7 @@ def test_a_gather_over_a_series_a_blank_kept_from_being_made_is_not_called_and_i
     assert run.results["c"]["result"] == [2, None, 1, 0]  # the last document is empty: 0 lines, made
     assert run.results["w"]["result"] == [1, None, 1, 1]
     assert run.results["t"]["result"] == 3
-    assert {(n.node_id, n.item, n.input) for n in run.not_called} >= {("c", (1,), "items"), ("w", (1,), "table")}
+    assert {(n.loc[0], n.loc[1:], n.input) for n in run.not_called} >= {("c", (1,), "items"), ("w", (1,), "table")}
 
 
 # -- items, outer values and gathers -----------------------------------------------------------
@@ -669,7 +669,7 @@ def test_a_node_over_an_empty_series_never_starts_and_the_gather_is_called_with_
                    edges=(("s.result", "u.text"), ("u.result", "j.texts")))
 
     said = streamed(loaded.with_inputs(text=""))
-    assert [e.type for e in said if getattr(e, "node_id", None) == "u"] == ["node_complete"]  # never started
+    assert [e.type for e in said if getattr(e, "loc", None) == ("u",)] == ["node_complete"]  # never started
     run = said[-1].run
     assert run.status == "complete" and run.results["u"]["result"] == [] and run.results["j"]["result"] == ""
     assert through_json(run).results["u"]["result"] == []
@@ -1179,7 +1179,7 @@ def test_a_table_never_made_on_the_branch_that_ran_is_a_blank_as_it_is_from_one_
 
     for run in (one_maker, alternatives):
         assert run.results["w"] == {"result": None}
-        assert NotCalled(node_id="w", item=(), input="table") in run.not_called
+        assert NotCalled(loc=("w",), input="table") in run.not_called
 
 
 def test_whole_tables_that_can_both_hold_a_value_into_one_table_input_are_a_problem_as_into_any_input():
@@ -1213,9 +1213,9 @@ def test_questions_listed_per_document_are_asked_of_each_document_and_each_answe
 
     assert loaded.plan["q"].msg == "per item of l.result"
     assert [w.prompt for w in run.waiting] == ["x: a", "x: b", "x: c", "y: a", "y: b", "y: c"]
-    assert [w.item for w in run.waiting] == [(0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2)]
+    assert [w.loc[1:] for w in run.waiting] == [(0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2)]
     saved = loaded.load_run(run.to_json())
-    done = saved.answer({w.id: w.item == (1, 2) for w in saved.waiting}).resume()
+    done = saved.answer({w.id: w.loc[1:] == (1, 2) for w in saved.waiting}).resume()
     assert done.results["q"]["result"] == [False, False, False, False, False, True]
 
 
@@ -1574,7 +1574,7 @@ def test_a_contact_with_a_blank_email_is_not_mailed_and_keeps_its_place_in_the_s
     run = loaded.run(text=CSV)
 
     assert run.status == "complete" and mailed == ["ida@x", "nina@x"]
-    assert run.not_called == [NotCalled(node_id="m", item=(1,), input="email")]
+    assert run.not_called == [NotCalled(loc=("m", 1), input="email")]
     sheet = run.outputs["k.result"]
     assert sheet.select("name", "sent").to_dicts() == [{"name": "Ida", "sent": True}, {"name": "Bo", "sent": None}, {"name": "Nina", "sent": True}]
     assert through_json(run).outputs["k.result"].equals(sheet)
@@ -1635,7 +1635,7 @@ def test_an_approval_per_line_of_each_document_pauses_saves_resumes_and_a_new_do
 
     paused = loaded.run(folder="a1,a2|b1")
     assert paused.status == "waiting"
-    assert [(w.node_id, w.item, w.prompt) for w in paused.waiting] == [
+    assert [(w.loc[0], w.loc[1:], w.prompt) for w in paused.waiting] == [
         ("a", (0, 0), "approve a1?"), ("a", (0, 1), "approve a2?"), ("a", (1, 0), "approve b1?"),
     ]
 
@@ -1648,7 +1648,7 @@ def test_an_approval_per_line_of_each_document_pauses_saves_resumes_and_a_new_do
     asked.clear()
     again = done.again(folder="a1,a2|new1,new2|b1")
     assert again.status == "waiting" and asked == ["new1", "new2"]
-    assert [(w.item, w.prompt) for w in again.waiting] == [((1, 0), "approve new1?"), ((1, 1), "approve new2?")]
+    assert [(w.loc[1:], w.prompt) for w in again.waiting] == [((1, 0), "approve new1?"), ((1, 1), "approve new2?")]
     finished = again.answer({w.id: "yes" for w in again.waiting}).resume()
     assert finished.results["a"]["result"] == ["yes", "no", "yes", "yes", "yes"]
     assert finished.outputs == {"n.result": [1, 2, 1]}

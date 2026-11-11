@@ -290,12 +290,12 @@ def test_an_external_failure_is_a_node_error_and_there_is_no_retry_flag():
 #: Every event's fields, all required in the schema a generated client reads, by its ``type``.
 SHAPES = {
     "run_start": ["type", "waiting"],
-    "node_start": ["inside", "node_id", "type"],
-    "node_progress": ["done", "inside", "node_id", "total", "type"],
-    "node_complete": ["inside", "node_id", "not_called", "reused_units", "type", "units"],
-    "node_skipped": ["inside", "node_id", "type"],
-    "node_failed": ["cause", "inside", "node_id", "type"],
-    "node_retry": ["attempt", "cause", "delay", "inside", "item", "node_id", "retries", "type"],
+    "node_start": ["loc", "type"],
+    "node_progress": ["done", "loc", "total", "type"],
+    "node_complete": ["loc", "not_called", "reused_units", "type", "units"],
+    "node_skipped": ["loc", "type"],
+    "node_failed": ["cause", "loc", "type"],
+    "node_retry": ["attempt", "cause", "delay", "loc", "retries", "type"],
     "unit_waiting": ["type", "unit"],
     "run_checkpoint": ["type"],
     "run_end": ["cause", "status", "type"],
@@ -314,18 +314,18 @@ def test_every_event_names_its_fields_and_requires_them_in_the_schema():
 
 
 def test_an_event_is_frozen_and_refuses_a_key_it_does_not_have():
-    event = NodeStart(node_id="a")
+    event = NodeStart(loc=("a",))
 
     with pytest.raises(ValidationError):
-        event.node_id = "b"  # type: ignore[misc]
+        event.loc = ("b",)  # type: ignore[misc]
     with pytest.raises(ValidationError):
-        NodeStart(node_id="a", item=None)  # type: ignore[call-arg]
+        NodeStart(loc=("a",), item=None)  # type: ignore[call-arg]
 
 
 def test_the_union_reads_an_event_back_by_its_type():
-    progress = TypeAdapter(Event).validate_python({"type": "node_progress", "node_id": "a", "done": 1, "total": None})
+    progress = TypeAdapter(Event).validate_python({"type": "node_progress", "loc": ["a"], "done": 1, "total": None})
 
-    assert progress == NodeProgress(node_id="a", done=1, total=None)
+    assert progress == NodeProgress(loc=("a",), done=1, total=None)
 
 
 def _strict(document: str | bytes) -> Any:
@@ -357,14 +357,14 @@ def _streamed_events() -> list[Any]:
 
 def _every_event() -> list[Any]:
     streamed = _streamed_events()
-    waiting = Waiting(id="n", node_id="n", item=(), prompt="Q?", questions=[{"name": "result", "title": "Result", "shape": "one", "required": False, "default": 1.5}], inputs={"x": "a"})
+    waiting = Waiting(id="n", loc=("n",), prompt="Q?", questions=[{"name": "result", "title": "Result", "shape": "one", "required": False, "default": 1.5}], inputs={"x": "a"})
     cause = Problem(type="external_failed", msg="e", loc=("n",), ctx={"error": "OSError"})
     built = [
         RunStart(waiting=(waiting,)),
-        NodeProgress(node_id="n", done=1, total=None),
-        NodeSkipped(node_id="n"),
-        NodeFailed(node_id="n", cause=cause),
-        NodeRetry(node_id="n", item=(), attempt=1, retries=2, delay=0.5, cause=cause),
+        NodeProgress(loc=("n",), done=1, total=None),
+        NodeSkipped(loc=("n",)),
+        NodeFailed(loc=("n",), cause=cause),
+        NodeRetry(loc=("n",), attempt=1, retries=2, delay=0.5, cause=cause),
         UnitWaiting(unit=waiting),
         RunCheckpoint(run=streamed[-1].run),
     ]
@@ -372,9 +372,9 @@ def _every_event() -> list[Any]:
 
 
 def test_a_node_complete_of_a_frame_holding_floats_that_are_not_finite_is_a_small_summary_in_strict_json():
-    by_node = {event.node_id: event for event in _streamed_events() if isinstance(event, NodeComplete)}
+    by_node = {event.loc[0]: event for event in _streamed_events() if isinstance(event, NodeComplete)}
 
-    assert _strict(by_node["f"].model_dump_json()) == {"type": "node_complete", "inside": [], "node_id": "f", "units": 1, "not_called": 0, "reused_units": 0}
+    assert _strict(by_node["f"].model_dump_json()) == {"type": "node_complete", "loc": ["f"], "units": 1, "not_called": 0, "reused_units": 0}
 
 
 @pytest.mark.parametrize("event", _every_event(), ids=lambda event: event.type)

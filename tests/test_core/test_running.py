@@ -99,10 +99,10 @@ def test_node_complete_counts_the_items_a_blank_kept_the_node_from_and_a_saved_r
 
     events = _events(graph.with_inputs(text="ida@a.dk,,al@a.dk"))
 
-    (mail,) = [e for e in events if e.type == "node_complete" and e.node_id == "send"]
+    (mail,) = [e for e in events if e.type == "node_complete" and e.loc[0] == "send"]
     assert (mail.units, mail.not_called, mail.reused_units) == (3, 1, 0)
     loaded = graph.load_run(events[-1].run.to_json())
-    assert loaded.not_called == [NotCalled(node_id="send", item=(1,), input="email")]
+    assert loaded.not_called == [NotCalled(loc=("send", 1), input="email")]
     assert loaded.results["send"]["result"] == ["sent ida@a.dk", None, "sent al@a.dk"]
     assert loaded.status == "complete"
 
@@ -138,7 +138,7 @@ def test_a_diamond_runs_each_branch_once_and_joins_them():
 
     assert events[-1].run.outputs == {"m.result": "ABC|cba"}
     assert sorted(calls) == ["left", "right", "source"]
-    assert [e.node_id for e in events if e.type == "node_complete"][-1] == "m"
+    assert [e.loc[0] for e in events if e.type == "node_complete"][-1] == "m"
 
 
 def test_a_failed_item_fails_the_node_naming_the_item_and_the_gather_below_never_starts():
@@ -153,8 +153,8 @@ def test_a_failed_item_fails_the_node_naming_the_item_and_the_gather_below_never
     events = _events(graph.with_inputs())
 
     (failed,) = [e for e in events if e.type == "node_failed"]
-    assert (failed.node_id, failed.cause.type, failed.cause.loc) == ("picky", "execution_failed", ("picky", 1))
-    assert not [e for e in events if getattr(e, "node_id", None) == "join"]
+    assert (failed.loc[0], failed.cause.type, failed.cause.loc) == ("picky", "execution_failed", ("picky", 1))
+    assert not [e for e in events if getattr(e, "loc", None) == ("join",)]
     assert events[-1].run.status == "failed" and events[-1].run.results["join"]["result"] is None
 
 
@@ -185,10 +185,10 @@ def test_progress_counts_items_between_start_and_complete_with_the_total_once_th
 
     events = _events(_per_item(echo, 3).with_inputs())
 
-    kinds = [(e.type, getattr(e, "node_id", None)) for e in events]
-    progress = [e for e in events if e.type == "node_progress" and e.node_id == "slow"]
+    kinds = [(e.type, getattr(e, "loc", None)) for e in events]
+    progress = [e for e in events if e.type == "node_progress" and e.loc[0] == "slow"]
     assert progress and all(e.total == 3 for e in progress) and progress[-1].done >= 1
-    assert kinds.index(("node_start", "slow")) < kinds.index(("node_progress", "slow")) < kinds.index(("node_complete", "slow"))
+    assert kinds.index(("node_start", ("slow",))) < kinds.index(("node_progress", ("slow",))) < kinds.index(("node_complete", ("slow",)))
 
 
 def test_a_fast_node_over_many_items_reports_progress_a_few_times_a_second_ending_on_its_last_count():
@@ -200,10 +200,10 @@ def test_a_fast_node_over_many_items_reports_progress_a_few_times_a_second_endin
     events = _events(_per_item(echo, 20_000).with_inputs())
     took = time.monotonic() - started
 
-    progress = [e for e in events if e.type == "node_progress" and e.node_id == "slow"]
+    progress = [e for e in events if e.type == "node_progress" and e.loc[0] == "slow"]
     assert len(progress) <= took / 0.25 + 2
     assert (progress[-1].done, progress[-1].total) == (20_000, 20_000)
-    complete = next(i for i, e in enumerate(events) if e.type == "node_complete" and e.node_id == "slow")
+    complete = next(i for i, e in enumerate(events) if e.type == "node_complete" and e.loc[0] == "slow")
     assert events.index(progress[-1]) < complete
 
 
@@ -219,7 +219,7 @@ def test_a_leg_that_ends_waiting_reports_the_last_count_of_the_node_still_waitin
 
     events = _events(graph.with_inputs())
 
-    last = [e for e in events if e.type == "node_progress" and e.node_id == "maybe"][-1]
+    last = [e for e in events if e.type == "node_progress" and e.loc[0] == "maybe"][-1]
     assert (last.done, last.total) == (2, 3)
     assert events[-1].status == "waiting"
 
@@ -231,7 +231,7 @@ def test_a_node_above_items_that_were_never_made_reports_no_progress():
 
     events = _events(_per_item(echo, 0).with_inputs())
 
-    assert not [e for e in events if e.type == "node_progress" and e.node_id == "slow"]
+    assert not [e for e in events if e.type == "node_progress" and e.loc[0] == "slow"]
     assert events[-1].status == "complete" and events[-1].run.results["slow"]["result"] == []
 
 
@@ -543,7 +543,7 @@ def test_closing_the_stream_after_one_event_stops_the_rest():
     async def go() -> None:
         events = prepared.stream()
         async for event in events:
-            if event.type == "node_start" and event.node_id == "slow":
+            if event.type == "node_start" and event.loc[0] == "slow":
                 break
         await events.aclose()  # type: ignore[attr-defined]
 
@@ -562,7 +562,7 @@ def test_cancelling_the_task_that_reads_the_stream_stops_the_rest():
 
         async def consume() -> None:
             async for event in prepared.stream():
-                if event.type == "node_start" and event.node_id == "slow":
+                if event.type == "node_start" and event.loc[0] == "slow":
                     started.set()
 
         consumer = asyncio.create_task(consume())
@@ -584,7 +584,7 @@ def test_a_cancel_set_mid_run_ends_the_leg_cancelled_at_once():
         cancel, seen, set_at = asyncio.Event(), [], 0.0
         async for event in prepared.stream(cancel=cancel):
             seen.append(event)
-            if event.type == "node_start" and event.node_id == "slow":
+            if event.type == "node_start" and event.loc[0] == "slow":
                 cancel.set()
                 set_at = time.monotonic()
         return seen, time.monotonic() - set_at
@@ -592,7 +592,7 @@ def test_a_cancel_set_mid_run_ends_the_leg_cancelled_at_once():
     seen, after = _bounded(go())
 
     assert seen[-1].type == "run_end" and seen[-1].status == "cancelled"
-    assert not [e for e in seen if e.type == "node_complete" and e.node_id == "slow"]
+    assert not [e for e in seen if e.type == "node_complete" and e.loc[0] == "slow"]
     assert after < 0.3 and len(calls) < 20, (after, len(calls))
 
 
@@ -643,7 +643,7 @@ def test_exactly_one_run_end_comes_last_when_a_call_returns_after_a_cancel():
         cancel, seen = asyncio.Event(), []
         async for event in prepared.stream(cancel=cancel):
             seen.append(event)
-            if event.type == "node_start" and event.node_id == "slow":
+            if event.type == "node_start" and event.loc[0] == "slow":
                 cancel.set()
                 release.set()
         await asyncio.sleep(0.1)
@@ -817,7 +817,7 @@ def test_a_table_with_a_blank_cell_survives_a_saved_run():
     loaded = graph.load_run(run.to_json())
 
     assert loaded.results["c"]["result"].to_dicts() == [{"name": "ida", "email": "ida@a.dk"}, {"name": "bo", "email": None}]
-    assert loaded.not_called == [NotCalled(node_id="m", item=(1,), input="email")]
+    assert loaded.not_called == [NotCalled(loc=("m", 1), input="email")]
 
 
 def test_a_node_starts_before_any_other_event_about_it_when_its_items_are_taken_from_earlier_work():
@@ -838,7 +838,7 @@ def test_a_node_starts_before_any_other_event_about_it_when_its_items_are_taken_
     answered = paused.answer(paused.waiting[0], True).resume()
 
     events = _events(answered.with_inputs(text="ida,bo,eva"))
-    about_approve = [e.type for e in events if getattr(e, "node_id", None) == "approve"]
+    about_approve = [e.type for e in events if getattr(e, "loc", None) == ("approve",)]
     assert about_approve[0] == "node_start", about_approve
     assert about_approve.count("node_start") == 1
 
@@ -861,12 +861,12 @@ def test_a_node_finished_on_an_earlier_leg_is_not_said_complete_again_and_an_emb
     first = graph.with_inputs(text="a,b")
     events = _events(first)
     paused = events[-1].run
-    assert [e.node_id for e in events if e.type == "node_complete"] == ["s"]
+    assert [e.loc[0] for e in events if e.type == "node_complete"] == ["s"]
 
     answered = paused.answer({w.id: "yes" for w in paused.waiting})
     later = _events(answered)
 
-    assert [e.node_id for e in later if e.type == "node_complete"] == ["e", "j"]
+    assert [e.loc[0] for e in later if e.type == "node_complete"] == ["e", "j"]
 
 
 def test_a_series_over_the_item_ceiling_coming_back_after_a_failure_leaves_the_failure_the_cause():
@@ -959,7 +959,7 @@ def test_a_stopped_leg_with_calls_on_threads_offers_a_checkpoint_before_it_drain
         cancel, seen = asyncio.Event(), []
         async for event in graph.with_inputs(n=[1, 2, 3, 4, 5, 6]).stream(cancel=cancel, checkpoint_every=60):
             seen.append(event)
-            if event.type == "node_start" and event.node_id == "llm":
+            if event.type == "node_start" and event.loc[0] == "llm":
                 cancel.set()
         return seen
 
@@ -1041,6 +1041,6 @@ def test_an_embeddings_items_not_called_count_once_however_many_of_its_nodes_wer
     ))
     events = _events(graph.with_inputs(text="a _ b _"))
 
-    (complete,) = [e for e in events if e.type == "node_complete" and e.node_id == "emb"]
+    (complete,) = [e for e in events if e.type == "node_complete" and e.loc[0] == "emb"]
     assert (complete.units, complete.not_called) == (4, 2)
-    assert events[-1].run.not_called == [NotCalled(node_id="emb", item=(1,), input="text"), NotCalled(node_id="emb", item=(3,), input="text")]
+    assert events[-1].run.not_called == [NotCalled(loc=("emb", 1), input="text"), NotCalled(loc=("emb", 3), input="text")]

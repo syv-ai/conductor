@@ -98,19 +98,16 @@ class _EventBase(ConductorModel):
 
 
 class _NodeEvent(_EventBase):
-    """Every event about one node. Never made on its own.
-
-    A node inside an embedded graph says its events once per nested run: ``inside`` tells them apart.
+    """Every event about one node, or one unit of it. Never made on its own.
 
     Attributes:
-        inside: The node and item of each embedded graph the node is inside, outermost first: ``("e", 0)`` for a
-            node of the graph that ``e`` embeds, in the call for its first item. Empty for a node of the graph
-            itself.
-        node_id: The node, by its id in the graph it is a node of.
+        loc: Where the node is, as a ``Problem``'s ``loc`` says it: the node's id, and for a node inside an
+            embedded graph the embedding node and its item first, ``("e", 0, "upper")``. A node inside an embedded
+            graph says its events once per nested run, so a host that shows it once folds them by the ids in
+            ``loc``.
     """
 
-    inside: Path = ()
-    node_id: str
+    loc: Path
 
 
 class RunStart(_EventBase):
@@ -160,17 +157,19 @@ class NodeSkipped(_NodeEvent):
 
 
 class NodeFailed(_NodeEvent):
-    """A unit of the node failed, finally; ``cause`` says why, at ``(*inside, node_id, *item)``."""
+    """A unit of the node failed, finally; ``cause`` says why, and its ``loc`` which unit: this ``loc``, then the
+    unit's item."""
 
     type: Literal["node_failed"] = "node_failed"
     cause: Problem
 
 
 class NodeRetry(_NodeEvent):
-    """An attempt failed on the outside world and is tried again: attempt ``attempt`` of ``retries``, for ``item``, after ``delay`` seconds."""
+    """An attempt failed on the outside world and is tried again: attempt ``attempt`` of ``retries``, after
+    ``delay`` seconds. Its ``loc`` is the unit's: the node's, then the place of the unit's item in each Series the
+    node runs per item of."""
 
     type: Literal["node_retry"] = "node_retry"
-    item: tuple[int, ...]
     attempt: int
     retries: int
     delay: float
@@ -606,7 +605,7 @@ class Frontier:
         leg._after(delay, "retry", self, placed, key, attempt + 1)
         if leg.emit:
             cause = self._here(self._failure(placed, key, error))
-            leg.emit(NodeRetry(inside=self.inside, node_id=placed.id, item=key, attempt=attempt + 1, retries=policy.retries, delay=delay, cause=cause))
+            leg.emit(NodeRetry(loc=(*self.inside, placed.id, *key), attempt=attempt + 1, retries=policy.retries, delay=delay, cause=cause))
         return True
 
     def _outcome(self, placed: PlacedFunction, key: Key, kwargs: dict[str, Any], out: Any, error: BaseException | None) -> Unit | Problem:
@@ -646,7 +645,7 @@ class Frontier:
                 cause = self._here(unit)
                 leg.end(EndedEarly("failed", cause))
                 if leg.emit:
-                    leg.emit(NodeFailed(inside=self.inside, node_id=placed.id, cause=cause))
+                    leg.emit(NodeFailed(loc=(*self.inside, placed.id), cause=cause))
             return
         units = run._units[placed.id]
         if units and key not in units and key < next(reversed(units)):
@@ -760,7 +759,7 @@ class Frontier:
         if placed.id not in self.started:
             self.started.add(placed.id)
             if self.leg.emit:
-                self.leg.emit(NodeStart(inside=self.inside, node_id=placed.id))
+                self.leg.emit(NodeStart(loc=(*self.inside, placed.id)))
 
     def _progress(self, placed: PlacedNode, last: bool = False) -> None:
         """Say how far a node running per item has got, at most four times a second; ``last`` says its final count, unless already said."""
@@ -772,7 +771,7 @@ class Frontier:
         if self.progress_said.get(placed.id) != done:
             self.progress_at[placed.id], self.progress_said[placed.id] = now, done
             keys, known = self.run._instances(placed.scope, ())
-            emit(NodeProgress(inside=self.inside, node_id=placed.id, done=done, total=len(keys) if known else None))
+            emit(NodeProgress(loc=(*self.inside, placed.id), done=done, total=len(keys) if known else None))
 
     def _completions(self) -> None:
         """Say which touched nodes are complete: nothing they wait on is working, and every unit is done."""
@@ -790,10 +789,10 @@ class Frontier:
             if placed.scope and node_id in self.progress_said:
                 self._progress(placed, last=True)
             if units and all(unit is SKIPPED_UNIT for unit in units.values()):
-                emit(NodeSkipped(inside=self.inside, node_id=node_id))
+                emit(NodeSkipped(loc=(*self.inside, node_id)))
             else:
                 not_called = sum(type(unit) is Blank for unit in units.values())
-                emit(NodeComplete(inside=self.inside, node_id=node_id, units=len(units), not_called=not_called, reused_units=self.reused[node_id]))
+                emit(NodeComplete(loc=(*self.inside, node_id), units=len(units), not_called=not_called, reused_units=self.reused[node_id]))
 
     def _finished(self, placed: PlacedNode, may_wait: bool = True) -> bool:
         """Whether every unit of ``placed`` is known and none of them is still to run or waiting; ``may_wait`` False

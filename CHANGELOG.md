@@ -74,8 +74,9 @@ What changes in how you work, before the name-by-name tables:
   called, retried, timed out, cancelled and reused by `run.again` as the same nodes drawn in the
   graph itself. An output made per item inside is a `Series` of them, and an inner decision's group
   is named by its node, `d1.answer`. A problem inside has the embedding's node (and item) in front
-  of its `loc`; there is no `embedded_graph_broken`. A node's events, a `Waiting` and a
-  `NotCalled` say where they are with `inside`, and a waiting id inside reads `e@0/ask~3fa2c0d1`.
+  of its `loc`; there is no `embedded_graph_broken`. Every node event, a `Waiting` and a
+  `NotCalled` say where they are with one `loc`, a problem's (`("e", 0, "ask")`), in place of
+  `node_id` and an item; a waiting id inside reads `e@0/ask~3fa2c0d1`.
 - **A run is one value.** `graph.run(**inputs)` returns a `Run` whose `status` says how the leg
   ended, and whose `state` is `Going` or, for a leg that failed, stopped, was cancelled or timed out,
   `EndedEarly` with its `cause` (`match run.state`). It pauses for a person (`raise Ask(...)`, then `run.answer(...)` and `run.resume()`), writes
@@ -105,7 +106,7 @@ What changes in how you work, before the name-by-name tables:
 - **A declared choice's `id` is the field type's JSON form.** `Decimal` choices show `"1"` and a `datetime` its seconds, so the id a question shows is an answer it takes.
 - **A table answer and a caller's records have one reader.** Extra columns are dropped for every table from outside, and a missing column is refused. An answer's cells are read strictly from their JSON form; a caller's records are read cell by cell, laxly, never from polars' dtype, so a bool among ints or a number among texts is `invalid_input`. A value that is neither a frame nor a list of records is refused as `invalid_answer` or `invalid_input` with the reason "a table is a frame or a list of records, one object per row".
 - **`make_graph` refuses a default no caller reaches.** `defaults={"pad.width": 8}` on a node that is not an open input of the graph raises `default_on_later_node` at the call, as loading does, instead of building a record that fails later.
-- **`run.not_called` is a list of `NotCalled` records** (`node_id`, `item`, `input`), exported from `conductor`, not a list of dicts.
+- **`run.not_called` is a list of `NotCalled` records** (`loc`, `input`), exported from `conductor`, not a list of dicts.
 - **A run handed back at shutdown has no `cause`.** The row's `cause` is null and its status `running`: the run did not end early, so it is `Going`.
 
 A 1.x graph doesn't load as saved. Convert each stored graph with the table under
@@ -364,7 +365,7 @@ Events are frozen pydantic models in `conductor.events`, told apart by `type`. T
 | `flow_cancelled` | `run_end`, `status` `cancelled` |
 | `flow_timeout` | `run_end`, `status` `timed_out` |
 | `flow_paused` | `unit_waiting` per waiting call, then `run_end`, `status` `waiting` |
-| `node_retry` | `node_retry`: `item`, `attempt`, `retries`, `delay`, `cause` |
+| `node_retry` | `node_retry`: `loc`, `attempt`, `retries`, `delay`, `cause` |
 | `compensation_start` | gone with compensation |
 | `compensation_complete` | gone with compensation |
 | `compensation_failed` | gone with compensation |

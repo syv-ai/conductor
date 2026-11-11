@@ -106,7 +106,7 @@ def test_a_node_reading_a_field_of_a_split_record_is_not_called_where_the_cell_i
     ], values={"table-collect.columns": ["sent"]})
     run = graph.run()
     assert run.status == "complete" and SENT == ["ann@x.dk", "cy@x.dk"]
-    assert [(n.node_id, n.item, n.input) for n in run.not_called] == [("send", (1,), "email")]
+    assert [(n.loc[0], n.loc[1:], n.input) for n in run.not_called] == [("send", (1,), "email")]
     assert run.results["table-collect"]["result"].to_dicts() == [
         {"name": "Ann", "email": "ann@x.dk", "sent": "sent to ann@x.dk"},
         {"name": "Bo", "email": None, "sent": None},

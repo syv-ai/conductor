@@ -169,16 +169,12 @@ class NotCalled(ConductorModel):
     """A call a node didn't get, because an input got a blank there.
 
     Attributes:
-        inside: The node and item of each embedded graph the node is inside, outermost first; empty for a node of
-            the graph itself.
-        node_id: The node, by its id in the graph it is a node of.
-        item: Which of the node's calls it was: the place of its item in each Series the node runs per item of.
+        loc: Which call it was, as a ``Problem``'s ``loc`` says it: the node, then the place of its item in each
+            Series the node runs per item of; inside an embedded graph, the embedding node and its item first.
         input: The input that got nothing.
     """
 
-    inside: Path = ()
-    node_id: str
-    item: tuple[int, ...]
+    loc: Path
     input: str
 
 
@@ -619,7 +615,7 @@ class Run:
     def _not_called(self, inside: Path) -> list[NotCalled]:
         """``not_called`` of a run nested ``inside`` these embedded graphs' nodes and items."""
         found = [
-            NotCalled(inside=inside, node_id=n, item=key, input=unit.input)
+            NotCalled(loc=(*inside, n, *key), input=unit.input)
             for n, units in self._units.items() for key, unit in units.items() if isinstance(unit, Blank)
         ]
         for n, runs in self._nested.items():
@@ -1012,10 +1008,10 @@ def waiting_unit(inside: Path, placed: PlacedFunction, key: Key, unit: Asking) -
         key: The instance it asks in.
         unit: The unit.
     """
-    question = unit.question
+    question, loc = unit.question, (*inside, placed.id, *key)
     return Waiting(
-        id=f"{path_text((*inside, placed.id, *key))}~{_question_fingerprint(placed, unit)}", inside=inside, node_id=placed.id, item=key,
-        prompt=question.prompt, questions=waiting_questions(placed, question.overrides), inputs=question.inputs,
+        id=f"{path_text(loc)}~{_question_fingerprint(placed, unit)}", loc=loc, prompt=question.prompt,
+        questions=waiting_questions(placed, question.overrides), inputs=question.inputs,
     )
 
 

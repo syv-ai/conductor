@@ -219,7 +219,7 @@ def test_branches_and_blanks():
     blank = registry_of(read_csv, each_invoice, mail).load(invoices_then({"id": "mail", "node": "mail"}, edges=[["each.result.email", "mail.email"]]))
     run = blank.run(text="name,email,amount\nIda,ida@a.dk,1\nBo,,2\n")
     assert run.status == "complete" and run.results["mail"]["result"] == ["sent to ida@a.dk", None]
-    assert run.not_called == [NotCalled(node_id="mail", item=(1,), input="email")]
+    assert run.not_called == [NotCalled(loc=("mail", 1), input="email")]
 
 
 def test_one_value_gathers_as_a_series_of_one_and_a_list_given_for_one_value_is_refused():

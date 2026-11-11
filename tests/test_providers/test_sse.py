@@ -45,7 +45,7 @@ def test_a_waiting_units_question_and_a_failures_cause_are_records():
         raise Ask("Hvad?", default="forslag")
 
     (waiting,) = [e for e in _events(GraphRecord(nodes=[NodeRecord(id="ask", node="ask", values={"text": "x"})]), ask) if isinstance(e, UnitWaiting)]
-    failed = _payload(NodeFailed(node_id="n", cause=Problem(type="boom", msg="Boom.", loc=("n", 2))))
+    failed = _payload(NodeFailed(loc=("n",), cause=Problem(type="boom", msg="Boom.", loc=("n", 2))))
 
     unit = _payload(waiting)["unit"]
     (question,) = unit["questions"]
@@ -55,8 +55,8 @@ def test_a_waiting_units_question_and_a_failures_cause_are_records():
 
 
 def test_a_completion_is_counts_and_a_float_that_isnt_finite_in_a_question_is_text():
-    assert _payload(NodeComplete(node_id="n", units=3, not_called=1)) == {"type": "node_complete", "inside": [], "node_id": "n", "units": 3, "not_called": 1, "reused_units": 0}
-    waiting = UnitWaiting(unit=Waiting(id="n", node_id="n", item=(), prompt="?", questions=[], inputs={"x": float("nan")}))
+    assert _payload(NodeComplete(loc=("n",), units=3, not_called=1)) == {"type": "node_complete", "loc": ["n"], "units": 3, "not_called": 1, "reused_units": 0}
+    waiting = UnitWaiting(unit=Waiting(id="n", loc=("n",), prompt="?", questions=[], inputs={"x": float("nan")}))
     assert _payload(waiting)["unit"]["inputs"] == {"x": "NaN"}
 
 
