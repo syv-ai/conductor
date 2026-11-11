@@ -557,7 +557,7 @@ class Leg:
     def _record(self, node: NodeAtPath, key: Key, unit: Unit | Problem, walking: bool = False) -> None:
         """Keep what a unit came to, and make ready what reads it."""
         run = self.run
-        if isinstance(unit, Problem):
+        if type(unit) is Problem:  # its exact class, which nothing derives from: isinstance of a pydantic model costs four times as much
             if self.going:  # the first failure is the cause; a later one changes nothing
                 self.end(EndedEarly("failed", unit))
                 if self.emit:
@@ -566,7 +566,7 @@ class Leg:
         units, placed = self.units[node], node.placed
         if units and key not in units and key < next(reversed(units)):
             run._unordered.add(node.path)
-        units[key] = unit
+        units[key] = unit  # type: ignore[assignment]  # a Problem has returned
         if not walking:
             self.recorded_since_walk += 1
             self.changed = True
