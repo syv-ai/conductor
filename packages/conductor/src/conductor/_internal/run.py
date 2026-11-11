@@ -29,24 +29,24 @@ import time
 from collections.abc import AsyncGenerator, Callable, Iterator, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Annotated, Any, Literal, overload
+from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Literal, NamedTuple, overload
 
 import pydantic_core
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    NonNegativeInt,
-    PlainSerializer,
-    PositiveInt,
-    TypeAdapter,
-    ValidationError,
-)
+from pydantic import ConfigDict, NonNegativeInt, TypeAdapter, ValidationError
 from pydantic import Field as PydanticField
+from pydantic_core import (
+    CoreConfig,
+    CoreSchema,
+    PydanticCustomError,
+    SchemaSerializer,
+    SchemaValidator,
+    core_schema,
+)
 
 from conductor._internal.ask import Question, Waiting, answer_outputs, waiting_questions
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.errors import InvalidCallError, Problem, make_problem, value_free_errors
-from conductor._internal.fields import SKIPPED, Field, FieldValueError, written_table
+from conductor._internal.fields import SKIPPED, Field, FieldValueError, Type, written_table
 from conductor._internal.graph import (
     Cell,
     Fixed,
@@ -64,7 +64,7 @@ from conductor._internal.graph import (
 from conductor._internal.node_definition import Returns, from_run_values
 
 if TYPE_CHECKING:
-    from conductor._internal.graph import Graph, PlacedNode
+    from conductor._internal.graph import Graph
     from conductor._internal.leg import Event, _EventBase
 
 #: An instance of a node: the place of its item in each map the node runs in, outermost first; ``()`` for a node
@@ -115,6 +115,7 @@ class Going:
         status: Not started (``ready``), in a leg (``running``), waiting for a person, or ``complete``.
     """
 
+    __pydantic_config__: ClassVar[ConfigDict] = ConfigDict(extra="forbid")  # a save that gives it a cause is refused
     status: GoingStatus
 
 
@@ -128,6 +129,7 @@ class EndedEarly:
         cause: Why, as a problem with its place and code.
     """
 
+    __pydantic_config__: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
     status: EndedStatus
     cause: Problem
 
@@ -136,8 +138,6 @@ class EndedEarly:
 RunState = Going | EndedEarly
 
 _READY, _RUNNING, _WAITING, _COMPLETE = Going("ready"), Going("running"), Going("waiting"), Going("complete")
-#: The one ``Going`` of each status, so a run is asked how it stands by identity.
-_GOING: Mapping[GoingStatus, Going] = {going.status: going for going in (_READY, _RUNNING, _WAITING, _COMPLETE)}
 
 
 class _Pending:
@@ -772,47 +772,38 @@ class Run:
     # -- JSON -------------------------------------------------------------------
 
     def to_json(self) -> str:
-        """The run as JSON: its inputs, every unit, and what it went on from, a column per output of each node."""
+        """The run as JSON: its inputs, each node's units as a column per output, and what it went on from."""
+        saved = self._saved()
         try:
-            return self._saved().model_dump_json(exclude_defaults=True)
-        except _SaveError as unwritable:
-            raise InvalidCallError([make_problem("state_unwritable", "state", unwritable.at, at=unwritable.at, reason=unwritable.reason)]) from None
+            return self.graph._save_form.serializer.to_json(saved, exclude_defaults=True).decode()
+        except pydantic_core.PydanticSerializationError:
+            at = _unwritable_at(self.graph, saved)
+            raise InvalidCallError([make_problem("state_unwritable", "state", at, at=at, reason="a value has no JSON form")]) from None
 
-    def _saved(self) -> _SavedGoingRun | _SavedEndedRun:
-        """The run as its save. A node inside an embedded graph is saved as any node, under its path. The unit
-        of an embedded graph's node is not written: it is what the units inside came to, and is read from them.
-
-        Raises:
-            _SaveError: A value has no JSON form; it names where.
-        """
+    def _saved(self) -> dict[str, Any]:
+        """The run as its graph's ``SaveForm`` writes it. A node inside an embedded graph is saved as any node,
+        under its path. The unit of an embedded graph's node is not written: it is what the units inside came
+        to, and is read from them."""
         functions = self.graph._functions
-        units: dict[str, _SavedUnits] = {}
-        for path, placed in functions.items():
-            kept = self._units[path[:-1]][path[-1]]
-            if kept:
-                try:
-                    units["/".join(path)] = _dump_units(placed, dict(sorted(kept.items())) if path in self._unordered else kept)
-                except _SaveError as unwritable:
-                    raise _SaveError("/".join((*path[:-1], unwritable.at)), unwritable.reason) from None
-        earlier = {"/".join(path): _dump_earlier(functions[path], lent) for path, lent in self._earlier.items() if lent.computed or lent.asked}
-        inputs = {address: _dump_input(self.graph, address, v) for address, v in self.inputs.items()}
-        non_finite: dict[str, list[_Path]] = {}
-        for address, written_input in inputs.items():
-            if not self.graph._input_fields[address].spec.type.hashes_plainly:
-                _find_non_finite(written_input, [], non_finite.setdefault(address, []))
-        code = {
-            "/".join(path): self._ran_as.get(path) or placed.reuse_digest
-            for path, placed in functions.items() if "/".join(path) in earlier or "/".join(path) in units
+        units = {
+            "/".join(node.path): _unit_columns(node.placed.outputs, self._slots(node))
+            for node in self.graph._tree if isinstance(node, FunctionAtPath) and self._units[node.inside][node.placed.id]
         }
-        rest: dict[str, Any] = {
-            "graph": self.graph.fingerprint, "max_items": self.max_items, "inputs": inputs, "non_finite_inputs": {a: paths for a, paths in non_finite.items() if paths},
-            "units": units, "earlier": earlier, "code": code, "complete": ["/".join(node.path) for node in self.graph._tree if node.path in self._complete],
+        earlier = {"/".join(path): _earlier_columns(functions[path].outputs, lent) for path, lent in self._earlier.items() if lent.computed or lent.asked}
+        return {
+            "graph": self.graph.fingerprint, "state": self.state, "max_items": self.max_items, "inputs": self.inputs, "units": units, "earlier": earlier,
+            "code": {name: self._ran_as.get(path) or placed.reuse_digest for path, placed in functions.items() if (name := "/".join(path)) in units or name in earlier},
+            "complete": ["/".join(node.path) for node in self.graph._tree if node.path in self._complete],
         }
-        match self.state:
-            case Going(status=status):
-                return _SavedGoingRun.model_construct(status=status, **rest)
-            case EndedEarly(status=ended, cause=cause):
-                return _SavedEndedRun.model_construct(status=ended, cause=cause, **rest)
+
+    def _slots(self, node: FunctionAtPath) -> list[Unit | None]:
+        """A node's units with a slot for each instance of the node, in instance order; ``None`` where the
+        instance hasn't run."""
+        units = self._units[node.inside][node.placed.id]
+        counted, _ = self._instances(node.maps, (), counted=True)
+        if len(units) == (counted[0][0] if counted and node.maps else 1):  # every instance ran: the units as they stand
+            return [unit for _, unit in sorted(units.items())] if node.path in self._unordered else list(units.values())
+        return [units.get(instance) for instance in self._instances(node.maps, ())[0]]
 
     def _copy(self, *, share_units: bool = False, **changes: Any) -> Run:
         """A copy to change: its own units to record into and its own carried answers to take from; or with
@@ -977,81 +968,56 @@ def _field_of(value: Any, name: str) -> Any:
 def run_from_json(graph: Graph, saved: str | bytes | Mapping[str, Any]) -> Run:
     """A run of ``graph`` from what ``run.to_json()`` wrote; a caller reaches it through ``graph.load_run``.
 
-    A graph with problems takes no run, so they are what is refused, before anything of the save is read.
+    A graph with problems takes no run, so they are what is refused, before anything of the save is read. The
+    save is read once, by the graph's ``SaveForm``, from its JSON text, so each value is read as its type reads
+    JSON: a date, and a float that isn't finite, from their text.
+
+    Raises:
+        InvalidCallError: The graph's problems; ``state_of_another_graph``; or ``state_unreadable`` at the place
+            pydantic names (the section, the node, the output, the slot), quoting nothing of a value.
     """
     if graph.problems:
         raise InvalidCallError(graph.problems)
     try:
-        # read from its JSON text, so the values it holds are the save's own and its marked floats are put in place
-        data = _SAVED.validate_json(saved if isinstance(saved, (str, bytes)) else pydantic_core.to_json(saved, inf_nan_mode="strings"))
+        read = graph._save_form.validator.validate_json(saved if isinstance(saved, (str, bytes)) else pydantic_core.to_json(saved, inf_nan_mode="strings"))
     except pydantic_core.PydanticSerializationError:
         raise InvalidCallError([make_problem("state_unreadable", "state", at="the run", reason="it is not JSON")]) from None
     except ValidationError as error:
-        # The save's own shape is conductor's, so its whole place is named: node ids, output names, indexes, never a value.
-        first = error.errors(include_input=False)[0]
-        # a save is read as the kind its status names, so a place inside it starts with that status, and a fault of the
-        # status itself has no place of its own
-        loc = ("status",) if first["type"].startswith("union_tag") else first["loc"][1:]
-        at = ".".join(str(step) for step in loc) or "the run"
+        first = error.errors(include_url=False, include_input=False)[0]
+        if first["type"] == "union_tag_invalid" and not first["loc"]:  # a save is read as one of this graph, which its fingerprint says it is
+            raise InvalidCallError([make_problem("state_of_another_graph", "state", saved=first["ctx"]["tag"], graph=graph.fingerprint)]) from None
+        at = ".".join(str(step) for step in first["loc"][1:]) or "the run"  # a place in the save comes after the fingerprint it was read under
         raise InvalidCallError([make_problem("state_unreadable", "state", at=at, reason=value_free_errors(error)[0]["msg"])]) from None
-    try:
-        return _run_from_saved(graph, data)
-    except _SaveError as unreadable:
-        raise InvalidCallError([make_problem("state_unreadable", "state", unreadable.at, at=unreadable.at, reason=unreadable.reason)]) from None
+    return _run_of(graph, read)
 
 
-def _run_from_saved(graph: Graph, data: _SavedRun) -> Run:
-    """A run of ``graph`` from its read save.
+def _run_of(graph: Graph, saved: dict[str, Any]) -> Run:
+    """A run of ``graph`` from its save as the graph's ``SaveForm`` read it: each node's units in the order of
+    their slots, its carried work an ``Earlier``.
 
     Raises:
-        InvalidCallError: The save is of another graph.
-        _SaveError: Something in the save doesn't fit the graph, naming where.
+        InvalidCallError: A node doesn't hold one slot for each instance the saved run made of it
+            (``state_unreadable``).
     """
-    if data.graph != graph.fingerprint:
-        raise InvalidCallError([make_problem("state_of_another_graph", "state", saved=data.graph, graph=graph.fingerprint)])
-    unknown = sorted({*data.inputs, *data.non_finite_inputs} - graph._input_fields.keys())
-    if unknown:
-        raise _SaveError(unknown[0], "the graph has no such input")
-    functions = graph._functions
-    unknown = sorted(text for text in data.units if tuple(text.split("/")) not in functions)
-    if unknown:
-        raise _SaveError(unknown[0], "the graph has no such node")
-    written = {address: _with_non_finite(v, data.non_finite_inputs.get(address, ()), address) for address, v in data.inputs.items()}
-    run = start_run(graph, {address: _load_input(graph, address, v) for address, v in written.items()}, data.max_items, {}, no_units(graph))
-    for text, dumped in data.units.items():
-        path = tuple(text.split("/"))
-        if len(dumped.keys) != len(dumped.states):
-            raise _SaveError(text, f"it holds {len(dumped.keys)} places for {len(dumped.states)} units")
-        try:
-            units = run._units[path[:-1]][path[-1]] = dict(zip(dumped.keys, _load_units(functions[path], dumped), strict=True))
-        except _SaveError as unreadable:
-            raise _SaveError("/".join((*path[:-1], unreadable.at)), unreadable.reason) from None
-        if len(units) != len(dumped.keys):
-            raise _SaveError(text, "a unit is listed twice")
-    other_code = {path for text, digest in data.code.items() if (path := tuple(text.split("/"))) in functions and digest != functions[path].reuse_digest}
-    run._ran_as = {path: data.code["/".join(path)] for path in other_code}
-    for text, lent in data.earlier.items():
-        path = tuple(text.split("/"))
-        if path not in functions:
-            raise _SaveError(text, "the graph has no such node")
-        if path not in other_code:  # units made with other code are never taken
-            run._earlier[path] = _load_earlier(functions[path], lent)
-    match data:
-        case _SavedGoingRun(status=status):
-            run.state = _GOING[status]
-        case _SavedEndedRun(status=ended, cause=cause):
-            run.state = EndedEarly(ended, cause)
-    run._complete = frozenset(path for text in data.complete if (path := tuple(text.split("/"))) in graph._node_at)
+    run = start_run(graph, saved["inputs"], saved["max_items"], {}, no_units(graph))
+    run.state = saved["state"]
     for node in graph._tree:  # each after the nodes it reads, so the Series its instances are of are in place
         units = run._units[node.inside][node.placed.id]
-        made, _ = run._instances(node.maps, ())
+        instances, _ = run._instances(node.maps, ())
         if isinstance(node, GraphAtPath):  # its units are what the units inside it came to
-            for key in made:
+            for key in instances:
                 offered = run._offered(node, key)
                 if offered is not PENDING:
                     units[key] = Done(offered)
-        elif stray := sorted(set(units) - set(made)):
-            raise _SaveError("/".join(node.path), f"it holds the unit {list(stray[0])}, of an item the saved run never made")
+        elif (slots := saved["units"].get("/".join(node.path))) is not None:
+            if len(slots) != len(instances):
+                at, reason = f"units.{'/'.join(node.path)}", f"it holds {len(slots)} slots for the {len(instances)} instances the saved run made of the node"
+                raise InvalidCallError([make_problem("state_unreadable", "state", at=at, reason=reason)])
+            units.update((instance, unit) for instance, unit in zip(instances, slots, strict=True) if unit is not None)
+    functions = graph._functions
+    run._ran_as = {path: digest for name, digest in saved["code"].items() if digest != functions[path := tuple(name.split("/"))].reuse_digest}
+    run._earlier = {path: lent for name, lent in saved["earlier"].items() if (path := tuple(name.split("/"))) not in run._ran_as}  # work of other code is never taken
+    run._complete = frozenset(tuple(name.split("/")) for name in saved["complete"])
     return run
 
 
@@ -1133,350 +1099,282 @@ def _length(value: Any) -> int:
     return 0 if value is SKIPPED or value is None else len(value)
 
 
-#: The state a save writes for each kind of unit.
-_STATE: Mapping[type, Literal["done", "skipped", "blank", "waiting"]] = {Done: "done", Answered: "done", Skipped: "skipped", Blank: "blank", Asking: "waiting"}
+# -- the save -----------------------------------------------------------------------------------
 
 
-def _dump_units(placed: PlacedNode, units: Mapping[Key, Unit]) -> _SavedUnits:
-    """A node's units as columns: their places, their states, and one list per output."""
-    return _SavedUnits.model_construct(keys=list(units), **_unit_columns(placed, list(units.values())))
+class SaveForm(NamedTuple):
+    """How the runs of one graph are read from JSON and written as it.
+
+    Attributes:
+        validator: Reads a save into what ``_run_of`` makes a run of.
+        serializer: Writes what ``Run._saved`` gives.
+    """
+
+    validator: SchemaValidator
+    serializer: SchemaSerializer
 
 
-def _dump_earlier(placed: PlacedNode, earlier: Earlier) -> _SavedEarlier:
-    """What a node may take from an earlier run, as columns: each unit once, with what it received."""
-    listed: list[Unit] = []
-    places: dict[int, Key] = {}
-    received: list[str] = []
-    lineages: dict[int, str] = {}
-    held = {id(done): key for key, (_, done) in earlier.at.items()}
-    for fingerprint, done in earlier.computed.items():
-        if id(done) in held:
-            places[len(listed)] = held.pop(id(done))
-        listed.append(done)
-        received.append(fingerprint)
-    for key, (fingerprint, done) in earlier.at.items():
-        if id(done) in held:  # received the same as an earlier unit of the node, which holds the place in ``computed``
-            places[len(listed)] = key
-            listed.append(done)
-            received.append(fingerprint)
-    for (fingerprint, lineage), asked in earlier.asked.items():
-        for unit in asked:
-            lineages[len(listed)] = lineage
-            listed.append(unit)
-            received.append(fingerprint)
-    return _SavedEarlier.model_construct(fingerprints=received, places=places, lineages=lineages, **_unit_columns(placed, listed))
+def save_form(graph: Graph) -> SaveForm:
+    """Composes how the runs of ``graph`` are read from JSON and written as it.
+
+    A save is one JSON object:
+
+    - ``graph``: the graph's fingerprint, so a save of another graph is told apart before anything in it is read.
+    - ``state``: how the run stands, ``{"status"}``, with its ``cause`` when a leg ended early.
+    - ``max_items``: the item ceiling the run goes on under.
+    - ``inputs``: the caller's inputs by address, each read and written by its field's type.
+    - ``units``: by node, the units of each function node that has any. A node is named by its id after the ids
+      of the embedded graphs' nodes it is inside, ``e/ask``; an embedded graph's node has no units of its own.
+    - ``earlier``: by node, the work carried from an earlier run and not yet taken.
+    - ``code``: by node, the ``reuse_digest`` of the code that made its units and its carried work, so work made
+      by other code is never taken.
+    - ``complete``: the nodes every unit of which was finished when the last leg ended.
+
+    A node's units are columns with a slot for each instance of the node, in instance order, so an instance is a
+    place in them and is never written:
+
+    - ``states``: ``"done"``, ``"skipped"``, or ``null`` for a unit that holds no outputs.
+    - ``outputs``: by output, its value in each slot, read and written by the output's type; ``null`` where the
+      unit holds none.
+    - ``questions``: by slot, the question a unit asked. On a slot that isn't done the unit waits for a person, so
+      a waiting unit can't be written without its question.
+    - ``blank_inputs``: by slot, the input that got a blank, for a unit that wasn't called for it.
+    - ``skipped``: by output, the slots whose value is a branch not taken; ``skipped_items``, by output and slot,
+      the items of a ``Series`` there that are. Both are ``null`` in the column.
+
+    Carried work has the same columns, a slot for each carried unit, and beside them ``fingerprints`` (what each
+    unit received), ``places`` (by slot, the instance a computed unit stood in) and ``lineages`` (by slot, for an
+    answer or a question still waiting, the fingerprint of the items above it).
+
+    The parts are pydantic's own schemas of the types, put together as core schemas: generating a model of a
+    whole graph costs more than reading a small run. A graph's form is made the first time a run of it is saved
+    or loaded.
+    """
+    shared: dict[str, CoreSchema] = {}
+    blocks: dict[tuple[tuple[str, Type, bool], ...], str] = {}
+    units, earlier = {}, {}
+    for path, placed in graph._functions.items():
+        columns = tuple((name, output.column, output.many) for name, output in placed.outputs.items())
+        if columns not in blocks:  # nodes of the same outputs share one schema
+            blocks[columns] = str(len(blocks))
+            _share_unit_schemas(blocks[columns], columns, shared)
+        units["/".join(path)] = core_schema.definition_reference_schema(f"units:{blocks[columns]}")
+        earlier["/".join(path)] = core_schema.definition_reference_schema(f"earlier:{blocks[columns]}")
+    run = _closed({
+        "graph": core_schema.literal_schema([graph.fingerprint]),
+        "state": _inlined(_STATE, shared),
+        "max_items": core_schema.nullable_schema(core_schema.int_schema(ge=1)),
+        "inputs": _closed({address: _inlined(offered.spec.whole.saved_schema, shared) for address, offered in graph._input_fields.items()}),
+        "units": _closed({}, units),
+        "earlier": _closed({}, earlier),
+        "code": _closed({}, dict.fromkeys(units, core_schema.str_schema())),
+        "complete": core_schema.list_schema(core_schema.literal_schema(["/".join(node.path) for node in graph._tree])),
+    })
+    schema = core_schema.definitions_schema(core_schema.tagged_union_schema({graph.fingerprint: run}, discriminator="graph"), list(shared.values()))
+    config = CoreConfig(ser_json_inf_nan="strings")
+    return SaveForm(SchemaValidator(schema, config), SchemaSerializer(schema, config))
 
 
-def _unit_columns(placed: PlacedNode, listed: list[Unit]) -> dict[str, Any]:
-    """Units as the columns a save writes: states, questions, blank inputs, and each output across the done ones."""
-    done = [u for u in listed if isinstance(u, Done)]
-    outputs: dict[str, _SavedOutput] = {}
-    for name, spec in placed.outputs.items():
-        values = [u.out[name] for u in done]
-        at = f"{placed.id}.{name}"
-        plain = [None if v is SKIPPED or v is None else [None if i is SKIPPED else i for i in v] if spec.many else v for v in values]
-        dumped = _written_as_json(spec.column.adapter, plain, at)
-        non_finite: list[_Path] = []
-        if not spec.type.hashes_plainly:
-            _find_non_finite(dumped, [], non_finite)
-        items = {n: skips for n, v in enumerate(values) if spec.many and v is not SKIPPED and v is not None and (skips := [i for i, item in enumerate(v) if item is SKIPPED])}
-        outputs[name] = _SavedOutput.model_construct(values=dumped, skipped=[i for i, v in enumerate(values) if v is SKIPPED], skipped_items=items, non_finite=non_finite)
-    return dict(
-        states=[_STATE[type(u)] for u in listed], outputs=outputs,
-        questions={i: u.question for i, u in enumerate(listed) if isinstance(u, (Answered, Asking))},
-        blank_inputs={i: u.input for i, u in enumerate(listed) if isinstance(u, Blank)},
+def _share_unit_schemas(block: str, columns: tuple[tuple[str, Type, bool], ...], shared: dict[str, CoreSchema]) -> None:
+    """Puts in ``shared`` what a save holds of a node with these outputs: its units as ``units:<block>``, read
+    into ``Unit``s, and its carried work as ``earlier:<block>``, read into an ``Earlier``.
+
+    Args:
+        block: The name the two schemas are shared under.
+        columns: Each output's name, the type of its column, and whether it is a ``Series``.
+        shared: The definitions of the save's schema, added to.
+    """
+    places = core_schema.list_schema(_PLACE)
+    required = {
+        "states": core_schema.list_schema(core_schema.nullable_schema(core_schema.literal_schema(["done", "skipped"]))),
+        "outputs": _closed({name: _inlined(column.saved_schema, shared) for name, column, _ in columns}),
+    }
+    optional = {
+        "questions": _inlined(_QUESTIONS, shared),
+        "blank_inputs": core_schema.dict_schema(_PLACE, core_schema.str_schema()),
+        "skipped": _closed({}, {name: places for name, _, _ in columns}),
+        "skipped_items": _closed({}, {name: core_schema.dict_schema(_PLACE, places) for name, _, many in columns if many}),
+    }
+    shared[f"units:{block}"] = core_schema.no_info_after_validator_function(_units_of, _closed(required, optional), ref=f"units:{block}")
+    carried = {
+        "places": core_schema.dict_schema(_PLACE, core_schema.tuple_variable_schema(_PLACE)),
+        "lineages": core_schema.dict_schema(_PLACE, core_schema.str_schema()),
+    }
+    shared[f"earlier:{block}"] = core_schema.no_info_after_validator_function(
+        _earlier_of, _closed({**required, "fingerprints": core_schema.list_schema(core_schema.str_schema())}, {**optional, **carried}), ref=f"earlier:{block}",
     )
 
 
-#: A place in a saved value: a key of a mapping, or an index of a list.
-_Path = list[str | int]
-
-#: A long column of a save that the writer made of the right items already: read typed, written as it is, since checking
-#: each item against its type on the way out costs as much as writing it.
-_AS_IS = PlainSerializer(lambda column: column, return_type=Any)
-
-#: The places of a value's floats that aren't finite.
-_Paths = Annotated[list[_Path], _AS_IS]
+def _closed(required: Mapping[str, CoreSchema], optional: Mapping[str, CoreSchema] = MappingProxyType({})) -> CoreSchema:
+    """Gives the schema of an object of exactly these keys, each of ``required`` there."""
+    fields = {name: core_schema.typed_dict_field(schema) for name, schema in required.items()}
+    fields.update((name, core_schema.typed_dict_field(schema, required=False)) for name, schema in optional.items())
+    return core_schema.typed_dict_schema(fields, extra_behavior="forbid")
 
 
-#: Every part of a save refuses what it doesn't declare, and writes a float that isn't finite as its text.
-_SAVE_CONFIG = ConfigDict(extra="forbid", ser_json_inf_nan="strings")
+def _inlined(schema: CoreSchema, shared: dict[str, CoreSchema]) -> CoreSchema:
+    """Gives ``schema`` as it stands inside another: what pydantic defined beside it (a model met twice, one that
+    holds itself) moves to ``shared``, since one validator takes each definition once."""
+    if schema["type"] != "definitions":
+        return schema
+    shared.update((definition["ref"], definition) for definition in schema["definitions"])  # type: ignore[typeddict-item]  # every definition has its ref
+    return schema["schema"]
 
 
-class _SavedOutput(BaseModel):
-    """One output of a node across its finished units, as a column.
+#: A slot of a node's saved units, counted from 0.
+_PLACE = core_schema.int_schema(ge=0)
 
-    Attributes:
-        values: The output's value on each finished unit, in the units' order, as JSON; ``None`` where it was blank
-            or a branch not taken.
-        skipped: The places in ``values`` whose output was a branch not taken (``SKIPPED``), not a blank.
-        skipped_items: For a ``Series`` output, by place in ``values``, the items that were a branch not taken.
-        non_finite: The places, from the place in ``values`` down, of each float that isn't finite where the output's
-            type wouldn't read its text back as a float (an ``Any``, a ``dict``).
+#: The questions of a node's saved units, by slot.
+_QUESTIONS = TypeAdapter(dict[NonNegativeInt, Question]).core_schema
+
+#: How a saved run stands, read as the ``RunState`` it is: a status and a cause that disagree are refused.
+_STATE = TypeAdapter(Annotated[Going | EndedEarly, PydanticField(discriminator="status")]).core_schema
+
+#: The state a save writes for a unit that holds outputs or is a branch not taken; any other has none.
+_STATE_WORD: Mapping[type, str] = {Done: "done", Answered: "done", Skipped: "skipped"}
+
+
+def _unit_columns(outputs: Mapping[str, Field], slots: list[Unit | None]) -> dict[str, Any]:
+    """Gives units as the columns a save holds of them.
+
+    Args:
+        outputs: The outputs of the units' node, by name.
+        slots: The units, in the order of their slots; ``None`` for an instance that hasn't run.
     """
+    kinds = [type(unit) for unit in slots]
+    outs = [unit.out if kind is Done or kind is Answered else None for unit, kind in zip(slots, kinds, strict=True)]  # type: ignore[union-attr]
+    saved: dict[str, Any] = {"states": [_STATE_WORD.get(kind) for kind in kinds], "outputs": {}}
+    for name, output in outputs.items():
+        column = saved["outputs"][name] = [out and out[name] for out in outs]
+        skipped = [slot for slot, value in enumerate(column) if value is SKIPPED]
+        if skipped:
+            saved.setdefault("skipped", {})[name] = skipped
+            for slot in skipped:
+                column[slot] = None
+        if output.many:
+            for slot, items in enumerate(column):
+                if type(items) is list and (gaps := [place for place, item in enumerate(items) if item is SKIPPED]):
+                    saved.setdefault("skipped_items", {}).setdefault(name, {})[slot] = gaps
+                    column[slot] = [None if item is SKIPPED else item for item in items]
+    present = set(kinds)
+    if Answered in present or Asking in present:
+        saved["questions"] = {slot: unit.question for slot, unit in enumerate(slots) if type(unit) is Answered or type(unit) is Asking}  # type: ignore[union-attr]
+    if Blank in present:
+        saved["blank_inputs"] = {slot: unit.input for slot, unit in enumerate(slots) if type(unit) is Blank}  # type: ignore[union-attr]
+    return saved
 
-    model_config = _SAVE_CONFIG
-    values: list[Any]
-    skipped: list[NonNegativeInt] = []
-    skipped_items: dict[NonNegativeInt, list[NonNegativeInt]] = {}
-    non_finite: _Paths = []
 
+def _units_of(saved: dict[str, Any]) -> list[Unit | None]:
+    """Makes the units a node's saved columns hold, in the order of their slots; ``None`` for an instance that
+    hasn't run.
 
-class _SavedUnitColumns(BaseModel):
-    """Units of one node as columns, one place per unit.
-
-    Attributes:
-        states: What each unit came to: ``done``, ``skipped``, ``blank`` or ``waiting``.
-        questions: By place, the question a waiting unit asks, or a done one was answered on.
-        blank_inputs: By place, for a blank unit, the input that got nothing.
-        outputs: By output name, that output across the done units, in their order.
+    Raises:
+        PydanticCustomError: An output doesn't hold one slot for each state (``slots_differ``); or a skip, a
+            question or a blank input is placed on a slot that can't hold one (``misplaced``).
     """
+    states, outputs = saved["states"], saved["outputs"]
+    if any(len(column) != len(states) for column in outputs.values()):
+        raise PydanticCustomError("slots_differ", "an output doesn't hold one slot for each state")
+    try:
+        for name, slots in saved.get("skipped", {}).items():
+            for slot in slots:
+                outputs[name][slot] = SKIPPED
+        for name, by_slot in saved.get("skipped_items", {}).items():
+            for slot, places in by_slot.items():
+                for place in places:
+                    outputs[name][slot][place] = SKIPPED
+        outs = [dict(zip(outputs, values, strict=True)) for values in zip(*outputs.values(), strict=True)] if outputs else [{} for _ in states]
+        units: list[Unit | None] = [Done(out) if state == "done" else SKIPPED_UNIT if state == "skipped" else None for state, out in zip(states, outs, strict=True)]
+        for slot, question in saved.get("questions", {}).items():
+            units[slot] = Asking(question) if states[slot] is None else Answered(units[slot].out, question)  # type: ignore[union-attr]
+        for slot, blank in saved.get("blank_inputs", {}).items():
+            if units[slot] is not None:
+                raise LookupError(slot)
+            units[slot] = Blank(blank)
+    except (LookupError, TypeError, AttributeError):  # a slot the columns don't have, or one that holds another kind of unit
+        raise PydanticCustomError("misplaced", "a skip, a question or a blank input is placed on a slot that can't hold one") from None
+    return units
 
-    model_config = _SAVE_CONFIG
-    states: Annotated[list[Literal["done", "skipped", "blank", "waiting"]], _AS_IS]
-    questions: dict[NonNegativeInt, Question] = {}
-    blank_inputs: dict[NonNegativeInt, str] = {}
-    outputs: dict[str, _SavedOutput] = {}
 
+def _earlier_columns(outputs: Mapping[str, Field], earlier: Earlier) -> dict[str, Any]:
+    """Gives what a node may take from an earlier run as the columns a save holds of it, each unit once: the
+    computed units by the instance they stood in, then the ones only known by what they received, then the
+    answers and the questions still waiting.
 
-class _SavedUnits(_SavedUnitColumns):
-    """A node's units.
-
-    Attributes:
-        keys: Each unit's instance: the place of its item in each map the node runs in, those of the embedded
-            graphs' nodes around it first.
+    Args:
+        outputs: The node's outputs, by name.
+        earlier: The carried work.
     """
+    slots: list[Unit | None] = [done for _, done in earlier.at.values()]
+    fingerprints = [fingerprint for fingerprint, _ in earlier.at.values()]
+    places = dict(enumerate(earlier.at))
+    stood = set(fingerprints)  # each of these is one of the units above: the first that received it
+    for fingerprint, done in earlier.computed.items():
+        if fingerprint not in stood:
+            slots.append(done)
+            fingerprints.append(fingerprint)
+    lineages: dict[int, str] = {}
+    for (fingerprint, lineage), asked in earlier.asked.items():
+        for unit in asked:
+            if lineage:
+                lineages[len(slots)] = lineage
+            slots.append(unit)
+            fingerprints.append(fingerprint)
+    saved = {**_unit_columns(outputs, slots), "fingerprints": fingerprints}
+    if places:
+        saved["places"] = places
+    if lineages:
+        saved["lineages"] = lineages
+    return saved
 
-    keys: list[tuple[NonNegativeInt, ...]]
 
+def _earlier_of(saved: dict[str, Any]) -> Earlier:
+    """Makes the carried work a node's saved columns hold.
 
-class _SavedEarlier(_SavedUnitColumns):
-    """Work a run carried from the one before it: the units, and what each received.
-
-    Attributes:
-        fingerprints: By place, the fingerprint of what the unit received.
-        places: By place, the instance a computed unit stood in in the earlier run, where one of this run that
-            received the same takes it first.
-        lineages: By place, for an answer or a question still waiting, the fingerprint of the items above it.
+    Raises:
+        PydanticCustomError: It doesn't hold one fingerprint for each unit (``slots_differ``), or it carries a
+            unit that was never called (``not_carried``).
     """
-
-    fingerprints: list[str]
-    places: dict[NonNegativeInt, tuple[NonNegativeInt, ...]] = {}
-    lineages: dict[NonNegativeInt, str] = {}
-
-
-class _SavedRunBase(BaseModel):
-    """What ``run.to_json()`` writes beside how the run stands, read once at ``load_run``: a malformed save is refused
-    here, by where.
-
-    Attributes:
-        graph: The fingerprint of the graph that ran, so another graph's save is refused.
-        max_items: The item ceiling the run goes on under.
-        inputs: The caller's inputs by address, as JSON, each as its type writes it.
-        non_finite_inputs: By address, the places of each float that isn't finite, as ``_SavedOutput.non_finite``.
-        units: The units of each function node with any, by node: its id, after the ids of the embedded
-            graphs' nodes it is inside, joined by ``/`` (``e/ask``). An embedded graph's node has none of its own.
-        earlier: The carried work not yet taken, by node, named as in ``units``.
-        code: By node, named as in ``units``, the ``reuse_digest`` of the code that made its saved units and its
-            carried work, so units made by other code are never carried.
-        complete: The nodes, named as in ``units``, every unit of which was finished when the last leg ended.
-    """
-
-    model_config = _SAVE_CONFIG
-    graph: str
-    max_items: PositiveInt | None
-    inputs: dict[str, Any]
-    non_finite_inputs: dict[str, _Paths] = {}
-    units: dict[str, _SavedUnits]
-    earlier: dict[str, _SavedEarlier] = {}
-    code: dict[str, str] = {}
-    complete: list[str] = []
-
-
-class _SavedGoingRun(_SavedRunBase):
-    """A saved run nothing ended early. ``cause`` is taken as ``null`` only, and never written.
-
-    Attributes:
-        status: How the run stood when it was saved: ``ready``, ``running``, ``waiting`` or ``complete``.
-        cause: Always ``None``.
-    """
-
-    status: GoingStatus
-    cause: None = None
-
-
-class _SavedEndedRun(_SavedRunBase):
-    """A saved run whose last leg ended early: its ``cause`` is required.
-
-    Attributes:
-        status: How the run ended: ``failed``, ``stopped``, ``cancelled`` or ``timed_out``.
-        cause: The problem that ended it.
-    """
-
-    status: EndedStatus
-    cause: Problem
-
-
-#: A save, told apart by its ``status``: a status and a cause that disagree are refused at the parse.
-_SavedRun = Annotated[_SavedGoingRun | _SavedEndedRun, PydanticField(discriminator="status")]
-_SAVED: TypeAdapter[_SavedRun] = TypeAdapter(_SavedRun)
-
-
-class _SaveError(Exception):
-    """A run that can't be written to its save, or a save this graph can't read.
-
-    Attributes:
-        at: Where: an input's address, ``node.output`` or ``node.output.column``.
-        reason: Why, quoting nothing of the value.
-    """
-
-    def __init__(self, at: str, reason: str) -> None:
-        super().__init__(reason)
-        self.at, self.reason = at, reason
-
-
-def _load_earlier(placed: PlacedNode, dumped: _SavedEarlier) -> Earlier:
-    """What a node may take from an earlier run, from its save."""
-    if len(dumped.fingerprints) != len(dumped.states):
-        raise _SaveError(placed.id, f"it holds {len(dumped.fingerprints)} fingerprints for {len(dumped.states)} units")
+    units, fingerprints = _units_of(saved), saved["fingerprints"]
+    if len(fingerprints) != len(units):
+        raise PydanticCustomError("slots_differ", "it doesn't hold one fingerprint for each unit")
+    places, lineages = saved.get("places", {}), saved.get("lineages", {})
     earlier = Earlier()
-    for place, (fingerprint, unit) in enumerate(zip(dumped.fingerprints, _load_units(placed, dumped), strict=True)):
-        match unit:
-            case Answered() | Asking():
-                earlier.asked.setdefault((fingerprint, dumped.lineages.get(place, "")), []).append(unit)
-            case Done():
-                earlier.computed.setdefault(fingerprint, unit)
-                if place in dumped.places:
-                    earlier.at[dumped.places[place]] = (fingerprint, unit)
-            case Skipped() | Blank():
-                raise _SaveError(placed.id, "it carries a unit that was never called")
+    for slot, (fingerprint, unit) in enumerate(zip(fingerprints, units, strict=True)):
+        kind = type(unit)
+        if kind is Done:
+            earlier.computed.setdefault(fingerprint, unit)  # type: ignore[arg-type]
+            if slot in places:
+                earlier.at[places[slot]] = (fingerprint, unit)  # type: ignore[assignment]
+        elif kind is Answered or kind is Asking:
+            earlier.asked.setdefault((fingerprint, lineages.get(slot, "")), []).append(unit)  # type: ignore[arg-type]
+        else:
+            raise PydanticCustomError("not_carried", "it carries a unit that was never called")
     return earlier
 
 
-def _load_units(placed: PlacedNode, dumped: _SavedUnitColumns) -> list[Unit]:
-    """A node's saved units, in their saved order, each output read by its own type.
+def _unwritable_at(graph: Graph, saved: dict[str, Any]) -> str:
+    """Says where a run that pydantic refused to write holds a value with no JSON form: the first input, or
+    output of a node, that isn't written alone either. It is looked for only once the whole save was refused.
 
-    Raises:
-        _SaveError: Something doesn't fit the node, naming where.
+    Args:
+        graph: The run's graph.
+        saved: The run as ``Run._saved`` gives it.
+
+    Returns:
+        The input's address, or the node as a save names it and the output (``e/ask.result``).
     """
-    states = dumped.states
-    done = states.count("done")
-    columns: dict[str, list[Any]] = {}
-    for name, spec in placed.outputs.items():
-        at = f"{placed.id}.{name}"
-        column = dumped.outputs.get(name)
-        if column is None:
-            if done:
-                raise _SaveError(at, "the output is missing")
-            continue
-        values: list[Any]
+    columns = {address: (graph._input_fields[address].spec.whole, value) for address, value in saved["inputs"].items()}
+    for section in ("units", "earlier"):
+        for name, block in saved[section].items():
+            outputs = graph._functions[tuple(name.split("/"))].outputs
+            columns.update({f"{name}.{output}": (outputs[output].column, column) for output, column in block["outputs"].items()})
+    for at, (written_by, value) in columns.items():
         try:
-            values = spec.column.adapter.validate_python(_with_non_finite(column.values, column.non_finite, at))
-        except ValidationError as error:
-            raise _SaveError(at, value_free_errors(error)[0]["msg"]) from None
-        if len(values) != done:
-            raise _SaveError(at, f"it holds {len(values)} values for {done} finished units")
-        for i in column.skipped:
-            if i >= done:
-                raise _SaveError(at, f"it skips the value {i} of {done}")
-            values[i] = SKIPPED
-        for n, positions in column.skipped_items.items():
-            if n >= done or not isinstance(values[n], list) or any(i >= len(values[n]) for i in positions):
-                raise _SaveError(at, f"it skips an item the value {n} doesn't hold")
-            for i in positions:
-                values[n][i] = SKIPPED
-        if spec.many and not spec.whole.optional and any(v is None for v in values):
-            raise _SaveError(at, "a finished unit has no value on an output of many")
-        columns[name] = values
-    unknown = sorted(dumped.outputs.keys() - placed.outputs.keys())
-    if unknown:
-        raise _SaveError(f"{placed.id}.{unknown[0]}", "the node has no such output")
-    loaded: list[Unit] = []
-    n = 0
-    for i, state in enumerate(states):
-        question = dumped.questions.get(i)
-        match state:
-            case "done":
-                out = {name: values[n] for name, values in columns.items()}
-                n += 1
-                loaded.append(Done(out) if question is None else Answered(out, question))
-            case "waiting":
-                if question is None:
-                    raise _SaveError(placed.id, f"the waiting unit {i} holds no question")
-                loaded.append(Asking(question))
-            case "blank":
-                if i not in dumped.blank_inputs:
-                    raise _SaveError(placed.id, f"the blank unit {i} names no input")
-                loaded.append(Blank(dumped.blank_inputs[i]))
-            case "skipped":
-                loaded.append(SKIPPED_UNIT)
-    return loaded
-
-
-def _find_non_finite(value: Any, path: list[Any], found: list[list[Any]]) -> None:
-    """The place of every float that isn't finite in a dumped value its type doesn't read back as a float, such as a ``dict``'s."""
-    if type(value) is float:
-        if not math.isfinite(value):
-            found.append(path)
-    elif type(value) is dict:
-        for k, v in value.items():
-            _find_non_finite(v, [*path, k], found)
-    elif type(value) is list:
-        for i, v in enumerate(value):
-            _find_non_finite(v, [*path, i], found)
-
-
-def _with_non_finite(written: Any, paths: Any, at: str) -> Any:
-    """A saved value with each float a save marked read back from the text it was written as, before its type reads it.
-
-    The marks are places in the JSON, so only its mappings and lists are walked. The value is the save's own, read
-    from its text, so it is changed in place.
-    """
-    root: list[Any] = [written]
-    try:
-        for path in paths:
-            holder: Any = root
-            steps: list[Any] = [0, *path]
-            for step in steps[:-1]:
-                holder = holder[step]
-            last = steps[-1]
-            if holder[last] not in _NON_FINITE_TEXT:
-                raise LookupError(last)
-            holder[last] = float(holder[last])  # a text holder can't take it: TypeError
-    except (LookupError, TypeError):
-        raise _SaveError(at, "it marks a float where the value has none") from None
-    return root[0]
-
-
-#: How a save writes a float that isn't finite.
-_NON_FINITE_TEXT = frozenset({"NaN", "Infinity", "-Infinity"})
-
-
-def _written_as_json(adapter: TypeAdapter[Any], values: list[Any], at: str) -> Any:
-    """``values`` as JSON; a value with no JSON form raises ``_SaveError`` naming where, never quoting it."""
-    try:
-        written = adapter.dump_python(values, mode="json")
-    except Exception as error:  # noqa: BLE001  pydantic's and the codec's errors both quote the value
-        raise _SaveError(at, f"a value has no JSON form ({type(error).__name__})") from None
-    return written
-
-
-def _dump_input(graph: Graph, address: str, value: Any) -> Any:
-    """A caller's input as JSON, as its field writes it.
-
-    Raises:
-        _SaveError: The value has no JSON form; it names the input.
-    """
-    return _written_as_json(graph._input_fields[address].spec.column.adapter, [value], address)[0]  # as a column writes it: a float that isn't finite is kept
-
-
-def _load_input(graph: Graph, address: str, saved: Any) -> Any:
-    """A caller's input from a save, read by its field."""
-    spec = graph._input_fields[address].spec
-    try:
-        return spec.whole.adapter.validate_python(saved)
-    except ValidationError as error:
-        raise _SaveError(address, value_free_errors(error)[0]["msg"]) from None
+            written_by.adapter.serializer.to_json(value)
+        except pydantic_core.PydanticSerializationError:
+            return at
+    return "the run"
 
 
 def jsonable(kwargs: dict[str, Any]) -> Any:

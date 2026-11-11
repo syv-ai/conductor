@@ -77,7 +77,7 @@ from conductor._internal.node_definition import (
 from conductor._internal.record import GraphRecord, NodeRecord
 
 if TYPE_CHECKING:
-    from conductor._internal.run import Run
+    from conductor._internal.run import Run, SaveForm
 
 #: One output of one node.
 class Port(NamedTuple):
@@ -718,12 +718,19 @@ class Graph:
     def load_run(self, saved: str | bytes | Mapping[str, Any]) -> Run:
         """A run of this graph from what ``run.to_json()`` wrote; a graph with problems refuses it with them.
 
-        A save is read from its JSON text, a mapping written as JSON first, so a float marked as not finite is in
-        place before each value's type reads it.
+        A save is read from its JSON text, a mapping written as JSON first, so each value is read as its type
+        reads JSON.
         """
         from conductor._internal.run import run_from_json
 
         return run_from_json(self, saved)
+
+    @functools.cached_property
+    def _save_form(self) -> SaveForm:
+        """How this graph's runs are read from JSON and written as it, made when the first one is."""
+        from conductor._internal.run import save_form
+
+        return save_form(self)
 
     @functools.cached_property
     def _tree(self) -> list[NodeAtPath]:

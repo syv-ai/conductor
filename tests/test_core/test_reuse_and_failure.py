@@ -950,7 +950,7 @@ def test_waiting_items_and_a_saved_run_keep_node_then_item_order_whatever_thread
     for _ in range(3):
         run = graph.run(text=",".join("abcdefgh"))
         assert [place(w) for w in run.waiting] == [f"slow-ask@{i}" for i in range(8)]
-        assert json.loads(run.to_json())["units"]["slow-ask"]["keys"] == [[i] for i in range(8)]
+        assert [question["prompt"] for question in json.loads(run.to_json())["units"]["slow-ask"]["questions"].values()] == [f"{letter}?" for letter in "abcdefgh"]
 
 
 def test_a_saved_run_that_does_not_fit_is_refused_naming_where_and_never_with_a_raw_error():
@@ -965,10 +965,10 @@ def test_a_saved_run_that_does_not_fit_is_refused_naming_where_and_never_with_a_
     graph = registry_of(split, echo).load(make_graph(split, echo))
     saved = json.loads(graph.run(text="a,b,c").to_json())
     for tamper, at in (
-        (lambda s: s["units"]["echo"]["keys"].__setitem__(2, [7]), "echo"),
-        (lambda s: s["units"]["echo"]["outputs"]["result"]["values"].pop(), "echo.result"),
-        (lambda s: s["units"]["echo"]["outputs"].pop("result"), "echo.result"),
-        (lambda s: s["units"]["echo"]["outputs"]["result"]["values"].__setitem__(0, 5), "echo.result"),
+        (lambda s: s["units"]["echo"]["states"].append(None), "units.echo"),
+        (lambda s: s["units"]["echo"]["outputs"]["result"].pop(), "units.echo"),
+        (lambda s: s["units"]["echo"]["outputs"].pop("result"), "units.echo.outputs.result"),
+        (lambda s: s["units"]["echo"]["outputs"]["result"].__setitem__(0, 5), "units.echo.outputs.result.0"),
     ):
         copy = json.loads(json.dumps(saved))
         tamper(copy)
@@ -1389,7 +1389,7 @@ def test_a_save_of_a_node_redeclared_so_it_runs_per_other_items_does_not_fit_and
     with pytest.raises(InvalidCallError) as refused:
         registry_of(split, count_all).load(record).load_run(saved)
 
-    assert [(p.type, p.ctx["at"]) for p in refused.value.errors()] == [("state_unreadable", "c")]
+    assert [(p.type, p.ctx["at"]) for p in refused.value.errors()] == [("state_unreadable", "units.c")]
 
 
 def test_identical_items_take_earlier_answers_in_item_order_whatever_thread_finished_first():

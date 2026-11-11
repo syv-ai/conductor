@@ -6,6 +6,7 @@ them and the node's types, refuses every fault at once, and runs nothing.
 """
 
 import datetime
+import json
 import re
 import time
 from dataclasses import dataclass
@@ -707,19 +708,25 @@ def test_an_answer_names_an_item_by_its_place_so_one_for_an_item_that_no_longer_
 def test_a_saved_waiting_unit_the_graph_never_made_is_refused_on_load():
     gate, _ = _counted()
     graph, run = _asking(gate, text="a,b")
-    saved = run.to_json().replace('"keys":[[0],[1]]', '"keys":[[0],[7]]')
-    assert saved != run.to_json()
+    saved = json.loads(run.to_json())
+    asked = saved["units"]["q"]
+    asked["states"].append(None)
+    asked["outputs"]["result"].append(None)
+    asked["questions"]["2"] = asked["questions"]["1"]
     (fault,) = _refused(lambda: graph.load_run(saved))
-    assert fault.type == "state_unreadable"
+    assert (fault.type, fault.ctx["at"]) == ("state_unreadable", "units.q")
 
 
-def test_a_saved_waiting_unit_that_holds_no_question_is_refused_on_load():
+def test_a_save_cannot_hold_a_waiting_unit_without_its_question():
+    """A unit waits by the question its slot holds, so with the question taken out of a save the unit hasn't run."""
     gate, _ = _counted()
     graph, run = _asking(gate, text="a,b")
-    saved = re.sub(r',"questions":\{"1":\{[^}]*\}\}\}', "", run.to_json())
-    assert saved != run.to_json()
-    (fault,) = _refused(lambda: graph.load_run(saved))
-    assert (fault.type, fault.ctx["at"]) == ("state_unreadable", "q")
+    saved = json.loads(run.to_json())
+    assert saved["units"]["q"]["states"] == ["done", None] and list(saved["units"]["q"]["questions"]) == ["1"]
+    del saved["units"]["q"]["questions"]
+    loaded = graph.load_run(saved)
+    assert loaded.waiting == []
+    assert [place(w) for w in loaded.resume().waiting] == ["q@1"]  # the node is called for it, and asks again
 
 
 def test_a_question_record_is_json_a_host_draws_from_with_no_graph_loaded():
