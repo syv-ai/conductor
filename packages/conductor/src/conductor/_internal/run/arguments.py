@@ -55,7 +55,7 @@ from conductor._internal.outcomes import (
     Outcome,
     Skipped,
 )
-from conductor._internal.problem import UnitFailedError
+from conductor._internal.problem import CallRejectedError
 from conductor._internal.problem import catalogue as problem
 from conductor._internal.record_field import NoSuchFieldError, field_of
 from conductor._internal.sentinels import SKIPPED
@@ -116,7 +116,7 @@ class Reader(abc.ABC):
             got one; or ``NOT_READY`` while something it reads is.
 
         Raises:
-            UnitFailedError: An edge names a field the record it brings doesn't have (``invalid_edge_value``).
+            CallRejectedError: An edge names a field the record it brings doesn't have (``invalid_edge_value``).
         """
         arguments = node.call_template.copy()
         graph_inputs = self.graph_inputs
@@ -129,7 +129,7 @@ class Reader(abc.ABC):
                 value = plan.value(self, item_path)
             except NoSuchFieldError as missing:
                 reason = f"it has no field '{missing.field}'"
-                raise UnitFailedError(problem.invalid_edge_value(name=name, reason=reason, record_field=missing.field)) from None
+                raise CallRejectedError(problem.invalid_edge_value(name=name, reason=reason, record_field=missing.field)) from None
             if value is SKIPPED:
                 return node.placed.skipped
             if value is NOT_READY:  # a later input may be skipped, which settles the node whatever this one comes to

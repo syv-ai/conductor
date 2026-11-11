@@ -4,7 +4,7 @@ Code outside this package imports from here only, and calls a kind as ``kit_prob
 """
 
 from conductor._internal.kit_problem.catalogue import (
-    KIT_PROBLEMS,
+    REGISTRY_CHECK_PROBLEMS,
     changed_its_inputs,
     example_for_no_node,
     example_not_loaded,
@@ -18,7 +18,7 @@ from conductor._internal.kit_problem.catalogue import (
 )
 
 __all__ = [
-    "KIT_PROBLEMS",
+    "REGISTRY_CHECK_PROBLEMS",
     "changed_its_inputs",
     "example_for_no_node",
     "example_not_loaded",

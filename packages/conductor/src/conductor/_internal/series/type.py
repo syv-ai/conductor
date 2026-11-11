@@ -8,8 +8,8 @@ from typing import TYPE_CHECKING, Any, Generic, TypeVar, get_args
 from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema
 
-from conductor._internal.series.held import SeriesItems, StoredSeries
 from conductor._internal.series.read import series_schema
+from conductor._internal.series.stored import SeriesItems, StoredSeries
 from conductor._internal.value_type import Type, union_of
 
 _T = TypeVar("_T")

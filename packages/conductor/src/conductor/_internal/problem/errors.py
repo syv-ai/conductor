@@ -161,7 +161,7 @@ class InvalidCallError(ConductorError, ValueError):
         return list(self._problems)
 
 
-class UnitFailedError(Exception):
+class CallRejectedError(Exception):
     """A unit's call ends on a problem conductor names itself: what the node was to be given, or what it returned, is refused.
 
     Raised where the fault is met, which knows what is wrong and not which unit it is; the leg gives the problem

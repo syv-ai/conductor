@@ -99,7 +99,7 @@ if TYPE_CHECKING:
 
 
 #: ``run.answer``'s second argument when it is given a mapping of answers instead.
-_ONE_ANSWER: Any = object()
+_NOT_GIVEN: Any = object()
 
 
 class NotCalled(ConductorModel):
@@ -281,7 +281,7 @@ class Run:
     @overload
     def answer(self, answers: Mapping[str, Any], /) -> Run: ...
 
-    def answer(self, waiting: Waiting | str | Mapping[str, Any], value: Any = _ONE_ANSWER, /) -> Run:
+    def answer(self, waiting: Waiting | str | Mapping[str, Any], value: Any = _NOT_GIVEN, /) -> Run:
         """Give waiting units their answers, checked against their questions; nothing runs until ``resume``.
 
         ``run.answer(unit, value)`` answers one, ``run.answer({unit_id: value, ...})``
@@ -296,7 +296,7 @@ class Run:
         when that question waits elsewhere). A run that ended early takes
         answers as a waiting one does, a cancelled one included.
         """
-        if value is not _ONE_ANSWER:
+        if value is not _NOT_GIVEN:
             given: Mapping[str, Any] = {waiting.id if isinstance(waiting, Waiting) else str(waiting): value}
         elif isinstance(waiting, Mapping):
             given = {str(key): one for key, one in waiting.items()}

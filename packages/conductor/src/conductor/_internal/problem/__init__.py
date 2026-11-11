@@ -9,12 +9,12 @@ Code outside this package imports from here only. ``type.py`` has ``Problem`` an
 from conductor._internal.problem import catalogue
 from conductor._internal.problem.catalogue import PROBLEMS
 from conductor._internal.problem.errors import (
+    CallRejectedError,
     DeclarationCode,
     ExternalError,
     InvalidCallError,
     NodeDeclarationError,
     NodeError,
-    UnitFailedError,
     value_free_errors,
 )
 from conductor._internal.problem.type import Problem, ProblemCatalogue, ProblemKind
@@ -29,7 +29,7 @@ __all__ = [
     "Problem",
     "ProblemCatalogue",
     "ProblemKind",
-    "UnitFailedError",
+    "CallRejectedError",
     "catalogue",
     "value_free_errors",
 ]

@@ -10,8 +10,8 @@ import pydantic_core
 
 from conductor._internal.checked_graph import FunctionAtPath
 from conductor._internal.field import Field
-from conductor._internal.node_definition import Returns
-from conductor._internal.problem import UnitFailedError
+from conductor._internal.node_definition import ReturnShape
+from conductor._internal.problem import CallRejectedError
 from conductor._internal.problem import catalogue as problem
 from conductor._internal.sentinels import SKIPPED
 from conductor._internal.value_type import FieldValueError, untyped_as_json
@@ -21,7 +21,7 @@ def call(node: FunctionAtPath, kwargs: dict[str, Any], from_run: Mapping[type, A
     """Call ``node`` on what a unit received: its outputs as a run keeps them, or what went wrong.
 
     A value an edge brings is checked against the input first where its source's type doesn't settle it, and what
-    the node returns against its declared outputs; either refusal is a ``UnitFailedError``, whose problem quotes no value.
+    the node returns against its declared outputs; either refusal is a ``CallRejectedError``, whose problem quotes no value.
     """
     placed = node.placed
     definition = placed.definition
@@ -37,11 +37,11 @@ def call(node: FunctionAtPath, kwargs: dict[str, Any], from_run: Mapping[type, A
         return None, error
     try:
         return checked_outputs(definition.returns, placed.outputs, returned), None
-    except UnitFailedError as wrong:
+    except CallRejectedError as wrong:
         return None, wrong
 
 
-def checked_outputs(returns: Returns, outputs: Mapping[str, Field], returned: Any) -> dict[str, Any]:
+def checked_outputs(returns: ReturnShape, outputs: Mapping[str, Field], returned: Any) -> dict[str, Any]:
     """What a node returned, as its outputs by name as a run keeps them; ``SKIPPED`` returned for the whole node
     is ``SKIPPED`` on every output.
 
@@ -54,7 +54,7 @@ def checked_outputs(returns: Returns, outputs: Mapping[str, Field], returned: An
         returned: What the function returned.
 
     Raises:
-        UnitFailedError: An output is not of its type, or two of one group hold a value (``invalid_output``).
+        CallRejectedError: An output is not of its type, or two of one group hold a value (``invalid_output``).
     """
     if returned is SKIPPED:
         return dict.fromkeys(outputs, SKIPPED)
@@ -67,7 +67,7 @@ def checked_outputs(returns: Returns, outputs: Mapping[str, Field], returned: An
         group = field.param.exclusive_group
         if group is not None and spread[name] is not SKIPPED:
             if group in groups:
-                raise UnitFailedError(problem.invalid_output(reason=f"'{groups[group]}' and '{name}' are alternatives of '{group}', and both hold a value", name=name))
+                raise CallRejectedError(problem.invalid_output(reason=f"'{groups[group]}' and '{name}' are alternatives of '{group}', and both hold a value", name=name))
             groups[group] = name
     return spread
 
@@ -76,7 +76,7 @@ def _checked(field: Field, name: str, value: Any, *, returned: bool) -> Any:
     """``value`` as the field ``name`` reads it: an output a node returned, or what an edge brought to an input.
 
     Raises:
-        UnitFailedError: The field's type refuses the value: ``invalid_output`` for a return, else ``invalid_edge_value``.
+        CallRejectedError: The field's type refuses the value: ``invalid_output`` for a return, else ``invalid_edge_value``.
     """
     if value is SKIPPED:
         return value
@@ -84,18 +84,18 @@ def _checked(field: Field, name: str, value: Any, *, returned: bool) -> Any:
         read = field.whole.read_returned(value) if returned else field.whole.read(value)
     except FieldValueError as refused:
         if returned:
-            raise UnitFailedError(problem.invalid_output(reason=refused.reason, name=name, errors=refused.errors, column=refused.column)) from None
-        raise UnitFailedError(problem.invalid_edge_value(name=name, reason=refused.reason, errors=refused.errors, column=refused.column)) from None
+            raise CallRejectedError(problem.invalid_output(reason=refused.reason, name=name, errors=refused.errors, column=refused.column)) from None
+        raise CallRejectedError(problem.invalid_edge_value(name=name, reason=refused.reason, errors=refused.errors, column=refused.column)) from None
     exact = field.whole.exact_classes
     if returned and exact and not isinstance(read, exact):
-        raise UnitFailedError(problem.invalid_output(reason=f"its type's own check gave a {type(read).__name__}, not a {field.whole.id}", name=name))
+        raise CallRejectedError(problem.invalid_output(reason=f"its type's own check gave a {type(read).__name__}, not a {field.whole.id}", name=name))
     return read
 
 
 
 
 def jsonable(kwargs: dict[str, Any]) -> Any:
-    """What a unit received, as JSON; a float that isn't finite as text. ``UnitFailedError`` as ``question_unwritable`` names
+    """What a unit received, as JSON; a float that isn't finite as text. ``CallRejectedError`` as ``question_unwritable`` names
     the first input with no JSON form."""
     try:
         return pydantic_core.from_json(pydantic_core.to_json(kwargs, fallback=untyped_as_json, inf_nan_mode="strings"))
@@ -104,5 +104,5 @@ def jsonable(kwargs: dict[str, Any]) -> Any:
             try:
                 pydantic_core.to_json(value, fallback=untyped_as_json, inf_nan_mode="strings")
             except (TypeError, ValueError, pydantic_core.PydanticSerializationError) as unwritable:
-                raise UnitFailedError(problem.question_unwritable(reason=str(unwritable), input=name)) from None
+                raise CallRejectedError(problem.question_unwritable(reason=str(unwritable), input=name)) from None
         raise error

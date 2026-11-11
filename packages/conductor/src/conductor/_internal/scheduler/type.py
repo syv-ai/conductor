@@ -69,7 +69,7 @@ from conductor._internal.outcomes import (
     item_paths,
     length,
 )
-from conductor._internal.problem import ExternalError, NodeError, Problem, UnitFailedError
+from conductor._internal.problem import CallRejectedError, ExternalError, NodeError, Problem
 from conductor._internal.problem import catalogue as problem
 from conductor._internal.reusable_results import ReusableResults, reused_outcome
 from conductor._internal.run_status import COMPLETE, RUNNING, WAITING, EndedEarly, RunState
@@ -88,7 +88,7 @@ from conductor._internal.sentinels import SKIPPED
 
 #: What a call can raise that is never tried again, whatever a ``Policy``'s ``retry_on`` names: the node's own failure,
 #: an output its type refused, a question for a person. Repeating the call repeats it.
-_NEVER_RETRIED = (NodeError, UnitFailedError, Ask)
+_NEVER_RETRIED = (NodeError, CallRejectedError, Ask)
 
 #: The least time between two ``NodeProgress`` of one node.
 _SECONDS_BETWEEN_PROGRESS = 0.25
@@ -343,7 +343,7 @@ class Scheduler:
             return
         try:
             kwargs = self.arguments_for(node, key)
-        except UnitFailedError as missing:  # an edge names a field the record it brings doesn't have
+        except CallRejectedError as missing:  # an edge names a field the record it brings doesn't have
             self._record(node, key, self._failure(node, key, missing), walking)
             return
         if kwargs is NOT_READY:
@@ -469,7 +469,7 @@ class Scheduler:
         if isinstance(error, Ask):
             try:
                 inputs = jsonable(kwargs)
-            except UnitFailedError as unwritable:  # a person can't be shown what the node received
+            except CallRejectedError as unwritable:  # a person can't be shown what the node received
                 return self._failure(node, key, unwritable)
             try:
                 return Asking(question_asked(error, node.placed.outputs, inputs))
@@ -482,7 +482,7 @@ class Scheduler:
         loc = outcome_loc(node, key)
         if isinstance(error, NodeError):
             return error._as_problem_at(*loc)
-        if isinstance(error, UnitFailedError):
+        if isinstance(error, CallRejectedError):
             return error.problem.model_copy(update={"loc": loc})
         _logger.error("node %r failed for item %r", node.name, key, exc_info=error)
         if isinstance(error, node.policy.retry_on):

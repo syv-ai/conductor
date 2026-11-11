@@ -67,7 +67,7 @@ from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.field import Field, FieldDescription
 from conductor._internal.from_run import _FromRun
 from conductor._internal.graph_record import GraphRecord, as_record
-from conductor._internal.problem import InvalidCallError, NodeDeclarationError, UnitFailedError
+from conductor._internal.problem import CallRejectedError, InvalidCallError, NodeDeclarationError
 from conductor._internal.problem import catalogue as problem
 from conductor._internal.sentinels import REQUIRED
 from conductor._internal.value_type import Type
@@ -276,7 +276,7 @@ class FunctionDefinition(_Version, Generic[_P, _R]):
     function: NodeFunction[_P, _R]
     inputs: Mapping[str, Field]
     outputs: Mapping[str, Field]
-    returns: Returns
+    returns: ReturnShape
     policy: Policy = Policy()
     compute_added_inputs: Callable[..., Mapping[Any, Any]] | None = None
     compute_outputs: Callable[..., Mapping[Any, Any]] | None = None
@@ -541,7 +541,7 @@ def _version_number(
         replaces: The version this one replaces, or ``None``.
         upgrade: The upgrade given, or ``None``.
 
-    Returns:
+    ReturnShape:
         ``version`` when given; else one more than the version replaced, or 1 for a first version.
 
     Raises:
@@ -588,7 +588,7 @@ def from_run_values(definitions: Iterable[tuple[str, FunctionDefinition[..., Any
         definitions: Each placed function node, as its id and definition.
         from_run: The values the caller gave, by class.
 
-    Returns:
+    ReturnShape:
         ``from_run`` as a dict, once every parameter is known to be filled.
 
     Raises:
@@ -627,7 +627,7 @@ class OutputsClass:
     def spread(self, returned: Any, outputs: Mapping[str, Field]) -> tuple[dict[str, Any], bool]:
         """Each field of the dataclass returned as its output, to be checked."""
         if not isinstance(returned, self.cls):
-            raise UnitFailedError(problem.invalid_output(reason=f"the node returns a {self.cls.__name__}, not a {type(returned).__name__}"))
+            raise CallRejectedError(problem.invalid_output(reason=f"the node returns a {self.cls.__name__}, not a {type(returned).__name__}"))
         return {name: getattr(returned, name) for name in outputs}, False
 
 
@@ -638,12 +638,12 @@ class HookOutputs:
     def spread(self, returned: Any, outputs: Mapping[str, Field]) -> tuple[dict[str, Any], bool]:
         """Each output of the mapping returned, to be checked; one missing or not an output is refused."""
         if not isinstance(returned, Mapping):
-            raise UnitFailedError(problem.invalid_output(reason=f"the node returns its outputs as a mapping of {', '.join(outputs) or 'nothing'}, not a {type(returned).__name__}"))
+            raise CallRejectedError(problem.invalid_output(reason=f"the node returns its outputs as a mapping of {', '.join(outputs) or 'nothing'}, not a {type(returned).__name__}"))
         unknown = sorted(set(returned) - outputs.keys())
         missing = [name for name in outputs if name not in returned]
         if unknown or missing:
             name = (missing or unknown)[0]
-            raise UnitFailedError(problem.invalid_output(reason=f"'{name}' is {'missing from' if missing else 'not one of'} the outputs it returns", name=str(name)))
+            raise CallRejectedError(problem.invalid_output(reason=f"'{name}' is {'missing from' if missing else 'not one of'} the outputs it returns", name=str(name)))
         return {name: returned[name] for name in outputs}, False
 
 
@@ -654,20 +654,20 @@ class NoOutputs:
     def spread(self, returned: Any, outputs: Mapping[str, Field]) -> tuple[dict[str, Any], bool]:
         """No outputs; anything but ``None`` returned is refused."""
         if returned is not None:
-            raise UnitFailedError(problem.invalid_output(reason=f"the node declares no outputs, but returned a {type(returned).__name__}"))
+            raise CallRejectedError(problem.invalid_output(reason=f"the node declares no outputs, but returned a {type(returned).__name__}"))
         return {}, True
 
 
 #: What a node's function returns, read from its signature at ``@node``.
-Returns = OneResult | OutputsClass | HookOutputs | NoOutputs
+ReturnShape = OneResult | OutputsClass | HookOutputs | NoOutputs
 
 
-def _read_signature(function: Callable[..., Any], computed_outputs: bool) -> tuple[dict[str, Field], dict[str, type], dict[str, Field], Returns]:
+def _read_signature(function: Callable[..., Any], computed_outputs: bool) -> tuple[dict[str, Field], dict[str, type], dict[str, Field], ReturnShape]:
     """Reads a function's signature.
 
     A type variable in it (``def keep[T](value: T) -> T``) stays in the field's hint, to be bound when a graph loads.
 
-    Returns:
+    ReturnShape:
         The inputs by name, the ``FromRun`` parameters (the class each takes), the outputs by name, and what kind
         of value the function returns them as.
 
@@ -700,7 +700,7 @@ def _read_signature(function: Callable[..., Any], computed_outputs: bool) -> tup
         raise NodeDeclarationError("a node needs a return type; write one, or -> None for no outputs", code="output_without_type")
     returns = hints["return"]
     outputs: dict[str, Field] = {}
-    kind: Returns
+    kind: ReturnShape
     outputs_class = typing.get_origin(returns) or returns  # a generic dataclass of outputs is written with its arguments
     if computed_outputs:
         kind = HookOutputs()
@@ -763,7 +763,7 @@ def _check_hook(hook: Callable[..., Any], kind: HookName, inputs: Mapping[str, F
         inputs: The node's declared inputs, by name.
         adds_inputs: Whether the node has a ``compute_added_inputs`` hook, so there are added inputs to read.
 
-    Returns:
+    ReturnShape:
         What each parameter receives, by the parameter's name.
 
     Raises:

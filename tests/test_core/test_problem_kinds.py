@@ -8,7 +8,7 @@ from typing import Any, Literal
 
 import pytest
 from conductor import PROBLEMS, Problem, ProblemCatalogue
-from conductor._internal.kit_problem import KIT_PROBLEMS
+from conductor._internal.kit_problem import REGISTRY_CHECK_PROBLEMS
 from conductor_providers.fastapi import ROUTER_PROBLEMS
 
 catalogue = ProblemCatalogue()
@@ -150,7 +150,7 @@ def test_a_hint_for_a_code_the_catalogue_has_not_declared_is_refused() -> None:
 
 
 def test_every_kinds_sentence_fills_from_its_ctx_keys_and_leaves_no_brace() -> None:
-    for declared in (PROBLEMS, KIT_PROBLEMS, ROUTER_PROBLEMS):
+    for declared in (PROBLEMS, REGISTRY_CHECK_PROBLEMS, ROUTER_PROBLEMS):
         for kind in declared:
             filled = kind.sentence.format(**{key: "x" for key in kind.ctx_type.__annotations__})
 
