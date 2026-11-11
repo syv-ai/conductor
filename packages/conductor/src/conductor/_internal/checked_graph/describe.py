@@ -117,21 +117,21 @@ class GraphDescription(ConductorModel):
     problems: list[Problem]
 
 
-def runs_on(scope: Scope) -> RunsOn:
-    """Where a node of ``scope`` runs."""
-    return RunsOn(mode="per_item", series=str(scope[-1]), msg=f"per item of {scope[-1]}") if scope else RunsOn(mode="once", msg="once")
+def runs_on(loops: Scope) -> RunsOn:
+    """Where a node of ``loops`` runs."""
+    return RunsOn(mode="per_item", series=str(loops[-1]), msg=f"per item of {loops[-1]}") if loops else RunsOn(mode="once", msg="once")
 
 
-def feed_of(scope: Scope, plan: InputPlan) -> Feed:
-    """How ``plan`` feeds its input on each call of a node that runs in ``scope``."""
+def feed_of(loops: Scope, plan: InputPlan) -> Feed:
+    """How ``plan`` feeds its input on each call of a node that runs in ``loops``."""
     match plan:
         case InputCollectsLoopResults(series=series):
             return Feed(mode="collected", series=series.address, msg=f"every item of {series.address}")
         case InputWrapsOneValue():
             return Feed(mode="collected", msg="the one value, as a Series of one")
-        case InputReadsOneValue(scope=fed_in) if fed_in != scope:
+        case InputReadsOneValue(loops=fed_in) if fed_in != loops:
             return Feed(mode="outer_value", series=str(fed_in[-1]) if fed_in else None, msg=f"the value of {f'the item of {fed_in[-1]}' if fed_in else 'the graph'}")
-        case InputReadsOneValue(scope=fed_in) if fed_in:
+        case InputReadsOneValue(loops=fed_in) if fed_in:
             return Feed(mode="per_item", series=str(fed_in[-1]), msg=f"per item of {fed_in[-1]}")
         case InputMissing():
             return Feed(mode="unset", msg="no value: a problem of the graph says why")

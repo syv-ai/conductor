@@ -221,10 +221,10 @@ def host_reads(node: FlatFunctionNode, output: str) -> tuple[InputReadsOneValue 
     plans = node.display_plans.get(output)
     if plans is None:
         made = node.checked_node.outputs[output]
-        at = (SeriesAsList if made.many else WholeOutput)(node.name, output, _scope_at_path(node.loops), None, made.type)
+        at = (SeriesAsList if made.many else WholeOutput)(node.name, output, _loops_by_name(node.loops), None, made.type)
         functions = {made_by.name: made_by for made_by in (node, *(series for series, _ in node.loops))}
         per_loop = [_gather_at_path(_DISPLAY_FIELD, looped_over, (at,), functions) for looped_over in node.loops]
-        plans = node.display_plans[output] = tuple(per_loop) or (InputReadsOneValue(_DISPLAY_FIELD, (at,), at.scope),)
+        plans = node.display_plans[output] = tuple(per_loop) or (InputReadsOneValue(_DISPLAY_FIELD, (at,), at.loops),)
     return plans
 
 
@@ -268,7 +268,7 @@ def _add_to_tree(graph: CheckedGraph, embedding: FlatEmbeddedGraph | None, tree:
                 inputs[name] = embedding.inputs[graph._input_fields[plan.address].name]
             else:
                 inputs[name] = _plan_at_path(plan, here, inside, functions)
-        loops = (*above, *[_series_looped_over(loop, inside, node_at) for loop in checked_node.scope])
+        loops = (*above, *[_series_looped_over(loop, inside, node_at) for loop in checked_node.loops])
         path = (*inside, checked_node.id)
         if isinstance(checked_node, CheckedEmbeddedGraphNode):
             embedded = FlatEmbeddedGraph(checked_node=checked_node, embedding=embedding, path=path, name=node_name(path), loops=loops, inputs=inputs)
@@ -296,14 +296,14 @@ def _add_to_tree(graph: CheckedGraph, embedding: FlatEmbeddedGraph | None, tree:
                     continue
                 case InputMissing():
                     raise RuntimeError(f"'{node_name(path)}' has an input with no value to give: a graph with problems is never walked")
-            read_at = [(functions[at.node_id], min(at.depth, len(plan.scope))) for at in plan.reads]  # no deeper than the input sits
+            read_at = [(functions[at.node_id], min(at.depth, len(plan.loops))) for at in plan.reads]  # no deeper than the input sits
             if isinstance(plan, InputCollectsLoopResults):
                 series = plan.series
                 items_of = (functions[series.node_id], series.output)  # what the functions it gathers through read outside the items can settle it too
                 read_at += [(read, places) for inner in plan.loop_body for read, places in inner.reads_from.items() if items_of not in read.loops]
                 gathering.setdefault(series, []).append((name, plan.field.accepts_none_items))
-                whole = WholeOutput(series.node_id, series.output, series.scope, None, functions[series.node_id].checked_node.outputs[series.output].whole)
-                wired_inputs.append((name, InputReadsOneValue(plan.field, (whole,), series.scope), plan.field.whole.optional))  # it needs its Series, and then its items
+                whole = WholeOutput(series.node_id, series.output, series.loops, None, functions[series.node_id].checked_node.outputs[series.output].whole)
+                wired_inputs.append((name, InputReadsOneValue(plan.field, (whole,), series.loops), plan.field.whole.optional))  # it needs its Series, and then its items
             wired_inputs.append((name, plan, plan.field.whole.optional))
             for read, places in read_at:
                 reads_from[read] = min(places, reads_from.get(read, places))
@@ -346,7 +346,7 @@ def _series_looped_over(loop: OutputAddress, inside: NodePath, node_at: Mapping[
     return made_by, loop.output
 
 
-def _scope_at_path(loops: Maps) -> Scope:
+def _loops_by_name(loops: Maps) -> Scope:
     """``loops`` as the scope of a plan at a path, each Series named by the name of its function."""
     return tuple([OutputAddress(series.name, output) for series, output in loops])
 
@@ -370,7 +370,7 @@ def _plan_at_path(plan: InputPlan, here: Mapping[str, FlatNode], inside: NodePat
         brought = ItemOfSeries if made_by.checked_node.outputs[output].many else WholeOutput
         if opened and brought is ItemOfSeries:
             made_by.looped_outputs.setdefault(output, (here[source.node_id], source.output))
-        return brought(made_by.name, output, _scope_at_path(made_by.loops), source.record_field, source.type)
+        return brought(made_by.name, output, _loops_by_name(made_by.loops), source.record_field, source.type)
 
     match plan:
         case InputReadsOneValue(field=field, reads=reads):
@@ -396,7 +396,7 @@ def _gather_at_path(field: Field, looped_over: tuple[FlatFunctionNode, str], sou
         functions: The functions the plan's outputs name, by name.
     """
     made_by, output = looped_over
-    series = OutputInLoops(made_by.name, output, _scope_at_path(made_by.loops))
+    series = OutputInLoops(made_by.name, output, _loops_by_name(made_by.loops))
     through = _gathered_through(looped_over, [functions[at.node_id] for at in sources])
     return InputCollectsLoopResults(field, (series, *sources), through)
 

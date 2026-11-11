@@ -95,7 +95,7 @@ class CheckedGraph:
     @property
     def runs_on(self) -> dict[str, RunsOn]:
         """Where each node runs: ``once``, or ``per_item`` of the innermost Series of its scope."""
-        return {checked_node.id: runs_on(checked_node.scope) for checked_node in self._nodes.values()}
+        return {checked_node.id: runs_on(checked_node.loops) for checked_node in self._nodes.values()}
 
     @property
     def exclusive_groups(self) -> dict[str, dict[str, list[str]]]:
@@ -128,8 +128,8 @@ class CheckedGraph:
                 nodes[record.id] = GraphNodeDescription(node=record.node, version=record.version, loaded=False, problems=own)
                 continue
             nodes[record.id] = GraphNodeDescription(
-                node=record.node, version=record.version, loaded=True, problems=own, runs=runs_on(checked_node.scope),
-                inputs=[NodeInputDescription(field=plan.field.description, feed=feed_of(checked_node.scope, plan)) for plan in checked_node.inputs.values()],
+                node=record.node, version=record.version, loaded=True, problems=own, runs=runs_on(checked_node.loops),
+                inputs=[NodeInputDescription(field=plan.field.description, feed=feed_of(checked_node.loops, plan)) for plan in checked_node.inputs.values()],
                 outputs=checked_node.described_outputs(),
             )
         return GraphDescription(nodes=nodes, inputs=dict(self.inputs), outputs=self.outputs, problems=list(self.problems))

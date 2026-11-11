@@ -32,13 +32,13 @@ class _CheckedNodeBase:
 
     Attributes:
         id: The node's id in the record.
-        scope: The scope it runs in.
+        loops: The scope it runs in.
         inputs: How each input gets its value, by name; the fields are the node's as its hooks made them.
         outputs: Each output's field, by name, as its hooks made them.
     """
 
     id: str
-    scope: Scope
+    loops: Scope
     inputs: dict[str, InputPlan]
     outputs: dict[str, Field]
 
@@ -54,7 +54,7 @@ class _CheckedNodeBase:
 
     def loops_around(self, output: str) -> Scope:
         """The lists looped over to make one value of ``output``, outermost first: the loops the node is called in."""
-        return self.scope
+        return self.loops
 
     def described_outputs(self) -> list[FieldDescription]:
         """Each output as an editor reads it."""
@@ -83,8 +83,8 @@ class CheckedFunctionNode(_CheckedNodeBase):
         specs = (*(plan.field for plan in self.inputs.values()), *self.outputs.values())
         fields = [(spec.name, spec.whole.reads_as) for spec in specs]
         definition = self.definition
-        scope = tuple([str(series) for series in self.scope])  # as addresses: a waiting id and a save hold the digest, so no class's repr is in it
-        written = repr((definition.id, definition.version, _code_text(inspect.unwrap(definition.function).__code__), fields, scope))
+        loops = tuple([str(series) for series in self.loops])  # as addresses: a waiting id and a save hold the digest, so no class's repr is in it
+        written = repr((definition.id, definition.version, _code_text(inspect.unwrap(definition.function).__code__), fields, loops))
         return hashlib.blake2b(written.encode(), digest_size=8).hexdigest()
 
     @functools.cached_property
@@ -145,7 +145,7 @@ class CheckedEmbeddedGraphNode(_CheckedNodeBase):
         """
         node_id, _, inner_output = output.partition(".")
         inside = self.inner._nodes[node_id].loops_around(inner_output)
-        return (*self.scope, *[OutputAddress(self.id, str(loop)) for loop in inside])
+        return (*self.loops, *[OutputAddress(self.id, str(loop)) for loop in inside])
 
     def described_outputs(self) -> list[FieldDescription]:
         """Each output as an editor reads it: one ``Series`` for each loop inside, and the loops by name.
@@ -156,7 +156,7 @@ class CheckedEmbeddedGraphNode(_CheckedNodeBase):
         described = []
         series_of: Any = Series  # a hint built from a value, which a type checker reads no further
         for name, field in self.outputs.items():
-            loops = [str(loop).removeprefix(f"{self.id}.") for loop in self.loops_around(name)[len(self.scope) :]]
+            loops = [str(loop).removeprefix(f"{self.id}.") for loop in self.loops_around(name)[len(self.loops) :]]
             if not loops:
                 described.append(field.description)
                 continue

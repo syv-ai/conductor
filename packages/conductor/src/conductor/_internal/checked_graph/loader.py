@@ -79,13 +79,13 @@ def load_graph[GraphT: CheckedGraph](record: GraphRecord, definitions: Mapping[s
 _AloneKey = tuple[str, int, tuple[str, ...]]
 
 #: What stands for a typed-in value its field's type refused, while a node is placed.
-_REFUSED: Any = object()
+_INVALID: Any = object()
 
 #: Reads what a hook returns: fields by name, a name holding none of the marks an address is written with.
 _HOOK_FIELDS = pydantic.TypeAdapter(dict[Annotated[str, pydantic.StringConstraints(min_length=1, pattern=r"^[^./@]+$")], Any])
 
 
-class Branch(typing.NamedTuple):
+class RequiredBranch(typing.NamedTuple):
     """One way a decision must go for a node to hold a value.
 
     Attributes:
@@ -105,15 +105,15 @@ class _Planned:
 
     Attributes:
         inputs: How each input gets its value, by name.
-        scope: The scope the node runs in.
-        rests_on: The branches the node rests on.
+        loops: The scope the node runs in.
+        required_branches: The branches the node rests on.
         bound: What the node's type variables are bound to by what arrives on its edges; ``None`` for a node whose
             inputs hold no type variable, which is nearly every node, so nothing is bound or replaced for it.
     """
 
     inputs: dict[str, InputPlan]
-    scope: Scope
-    rests_on: frozenset[Branch]
+    loops: Scope
+    required_branches: frozenset[RequiredBranch]
     bound: Mapping[TypeVar, Any] | None
 
 
@@ -137,7 +137,7 @@ class _Loader:
         self.definitions, self.embedded_in, self.alone = definitions, embedded_in, alone
         self.problems: list[Problem] = []
         self.nodes: dict[str, CheckedNode] = {}
-        self.branches: dict[str, frozenset[Branch]] = {}
+        self.branches: dict[str, frozenset[RequiredBranch]] = {}
         self.opened: list[tuple[GraphInput, Field]] = []
         self.position: dict[str, int] = {}
 
@@ -272,8 +272,8 @@ class _Loader:
             outputs = self._hook(record, definition, "compute_outputs", definition.compute_outputs, typed, arriving, tuple(added))
         if outputs is not None:
             self._keep(CheckedFunctionNode(
-                id=record.id, scope=planned.scope, inputs=planned.inputs, outputs=outputs, definition=definition,
-            ), planned.rests_on)
+                id=record.id, loops=planned.loops, inputs=planned.inputs, outputs=outputs, definition=definition,
+            ), planned.required_branches)
 
     def _place_graph(self, record: NodeRecord, definition: StoredGraphDefinition, edges: dict[str, list[str]]) -> None:
         """Place an embedded graph as one node: the inner graph loaded alone, its inputs and outputs this node's fields.
@@ -310,13 +310,13 @@ class _Loader:
             outputs[address] = Field(address, field.hint, field.default)
         planned = self._planned(record, fields, self._typed(record, fields), frozenset(), edges)
         self._keep(CheckedEmbeddedGraphNode(
-            id=record.id, scope=planned.scope, inputs=planned.inputs, outputs=outputs, definition=definition, inner=inner,
-        ), planned.rests_on)
+            id=record.id, loops=planned.loops, inputs=planned.inputs, outputs=outputs, definition=definition, inner=inner,
+        ), planned.required_branches)
 
-    def _keep(self, checked_node: CheckedNode, rests_on: frozenset[Branch]) -> None:
+    def _keep(self, checked_node: CheckedNode, required_branches: frozenset[RequiredBranch]) -> None:
         """Keep a node that placed."""
         self.nodes[checked_node.id] = checked_node
-        self.branches[checked_node.id] = rests_on
+        self.branches[checked_node.id] = required_branches
 
     def _planned(
         self, record: NodeRecord, fields: Mapping[str, Field], typed: Mapping[str, Any], fixed_at_load: frozenset[str],
@@ -356,7 +356,7 @@ class _Loader:
                 inputs[name] = _fixed(field, typed[name])
             elif first and name not in fixed_at_load:
                 default = typed.get(name, field.default)
-                if default is _REFUSED:
+                if default is _INVALID:
                     inputs[name] = InputMissing(field)
                     continue
                 address = f"{record.id}.{name}"
@@ -373,17 +373,17 @@ class _Loader:
                 inputs[name] = InputConstant(field, field.default)
         for name in self._never_meet(record.id, inputs):
             inputs[name] = InputMissing(fields[name])
-        scopes = [plan.scope for plan in inputs.values() if isinstance(plan, InputFromEdges)]
-        scope = max(scopes, key=len, default=())
+        loops_of_inputs = [plan.loops for plan in inputs.values() if isinstance(plan, InputFromEdges)]
+        loops = max(loops_of_inputs, key=len, default=())
         for name, plan in inputs.items():
-            if isinstance(plan, InputCollectsLoopResults) and (made_in := plan.sources[0].read_in) == scope[: len(made_in)] and all(isinstance(s, WholeOutput) for s in plan.sources):
+            if isinstance(plan, InputCollectsLoopResults) and (made_in := plan.sources[0].read_in) == loops[: len(made_in)] and all(isinstance(s, WholeOutput) for s in plan.sources):
                 # its source makes one value where the node runs, for another input's sake: that one, never every item's
                 inputs[name] = InputWrapsOneValue(plan.field, typing.cast("tuple[WholeOutput, ...]", plan.sources))
         for name, plan in inputs.items():
-            if isinstance(plan, InputFromEdges) and scope[: len(plan.scope)] != plan.scope:  # items of two Series never pair up
-                series = [scope[-1], plan.scope[-1]]
+            if isinstance(plan, InputFromEdges) and loops[: len(plan.loops)] != plan.loops:  # items of two Series never pair up
+                series = [loops[-1], plan.loops[-1]]
                 outer, inner = sorted(series, key=lambda port: list(self.nodes).index(port.node_id))  # the one placed later can read the other with no cycle
-                reading = next(n for n, p in inputs.items() if isinstance(p, InputFromEdges) and p.scope == scope)
+                reading = next(n for n, p in inputs.items() if isinstance(p, InputFromEdges) and p.loops == loops)
                 stored_graphs = list(dict.fromkeys(port.node_id for port in series if isinstance(self.nodes[port.node_id], CheckedEmbeddedGraphNode)))
                 if stored_graphs:  # an edge of this graph can't move a list inside a stored graph
                     self.problems.append(problem.series_not_nested_inside_stored_graph(
@@ -395,11 +395,11 @@ class _Loader:
                         wire_from=str(outer), wire_into=inner.node_id,
                     ))
                 inputs[name] = InputMissing(plan.field)
-        return _Planned(inputs, scope, self._rests_on(inputs), bound)
+        return _Planned(inputs, loops, self._required_branches(inputs), bound)
 
     def _typed(self, record: NodeRecord, fields: Mapping[str, Field]) -> dict[str, Any]:
         """Each value typed into the record for one of ``fields``, and else each default, as the field reads it;
-        ``_REFUSED``, with the problem, where it can't."""
+        ``_INVALID``, with the problem, where it can't."""
         typed: dict[str, Any] = {}
         for name, field in fields.items():
             if name not in record.values and name not in record.defaults:
@@ -408,7 +408,7 @@ class _Loader:
                 typed[name] = field.whole.read(record.values[name] if name in record.values else record.defaults[name])
             except FieldValueError as refused:
                 self.problems.append(problem.invalid_value(record.id, name, reason=refused.reason, errors=refused.errors, column=refused.column))
-                typed[name] = _REFUSED
+                typed[name] = _INVALID
         return typed
 
     def _hook(
@@ -438,7 +438,7 @@ class _Loader:
                     if value is REQUIRED:
                         self.problems.append(problem.hook_needs_value(record.id, name))
                         return None
-                    if value is _REFUSED:
+                    if value is _INVALID:
                         return None  # its own invalid_value says why
                     kwargs[name] = value
         try:
@@ -551,10 +551,10 @@ class _Loader:
 
     # -- branches ---------------------------------------------------------------
 
-    def _branch(self, source: EdgeSource) -> frozenset[Branch]:
+    def _branch(self, source: EdgeSource) -> frozenset[RequiredBranch]:
         """The ways decisions must go for ``source`` to hold a value."""
         group = self.nodes[source.node_id].outputs[source.output].param.exclusive_group
-        own = {Branch(source.node_id, group, source.output)} if group else set[Branch]()
+        own = {RequiredBranch(source.node_id, group, source.output)} if group else set[RequiredBranch]()
         return self.branches[source.node_id] | own
 
     def _never_meet(self, node_id: str, inputs: Mapping[str, InputPlan]) -> set[str]:
@@ -572,12 +572,12 @@ class _Loader:
             if not isinstance(plan, InputFromEdges):
                 continue
             behind = [self._branch(s) for s in plan.sources]
-            scopes = list(dict.fromkeys(s.read_in for s in plan.sources))
+            loops_of_inputs = list(dict.fromkeys(s.read_in for s in plan.sources))
             if not all(_opposed(a, b) for i, a in enumerate(behind) for b in behind[i + 1:]):
                 self.problems.append(problem.several_edges_into_one_input(node_id, name, sources=[s.address for s in plan.sources]))
                 refused.add(name)
-            elif len(scopes) > 1:
-                series = [str(scope[-1]) if scope else None for scope in scopes[:2]]
+            elif len(loops_of_inputs) > 1:
+                series = [str(loops[-1]) if loops else None for loops in loops_of_inputs[:2]]
                 self.problems.append(problem.alternatives_in_different_series(node_id, name, series=series))
                 refused.add(name)
         aligned = [
@@ -591,19 +591,19 @@ class _Loader:
                     refused.update((a, b))
         return refused
 
-    def _rests_on(self, inputs: Mapping[str, InputPlan]) -> frozenset[Branch]:
+    def _required_branches(self, inputs: Mapping[str, InputPlan]) -> frozenset[RequiredBranch]:
         """The branches a node rests on: for each input edges feed, what every edge into it rests on. A gather
         rests only on what is decided where it runs or above, as a decision made per item skips items, never it."""
-        rests_on: set[Branch] = set()
+        required_branches: set[RequiredBranch] = set()
         for plan in inputs.values():
             if not isinstance(plan, InputFromEdges):
                 continue
             behind = [self._branch(s) for s in plan.sources]
             shared = behind[0].intersection(*behind[1:])
             if isinstance(plan, InputCollectsLoopResults):
-                shared = frozenset(b for b in shared if len(self.nodes[b.node_id].scope) <= len(plan.scope))
-            rests_on |= shared
-        return frozenset(rests_on)
+                shared = frozenset(b for b in shared if len(self.nodes[b.node_id].loops) <= len(plan.loops))
+            required_branches |= shared
+        return frozenset(required_branches)
 
 
 def _taken(field: Field, sources: list[EdgeSource]) -> tuple[bool, Type]:
@@ -676,7 +676,7 @@ def _mismatch(node_id: str, field: Field, source: EdgeSource) -> Problem:
 
 def _fixed(field: Field, typed: Any) -> InputConstant | InputMissing:
     """The plan of an input holding a typed-in value, as its field read it."""
-    return InputMissing(field) if typed is _REFUSED else InputConstant(field, typed)
+    return InputMissing(field) if typed is _INVALID else InputConstant(field, typed)
 
 
 def _field_type(record: Type, name: str) -> Type | None:
@@ -702,7 +702,7 @@ def _hint_and_default(given: Any) -> tuple[Any, Any]:
     return given, REQUIRED
 
 
-def _opposed(a: frozenset[Branch], b: frozenset[Branch]) -> bool:
+def _opposed(a: frozenset[RequiredBranch], b: frozenset[RequiredBranch]) -> bool:
     """Whether two sets of branches never hold together: one decision goes one way for ``a`` and another for ``b``."""
     return any(x[:2] == y[:2] and x.output != y.output for x in a for y in b)
 

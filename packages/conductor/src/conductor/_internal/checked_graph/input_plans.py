@@ -63,17 +63,17 @@ class OutputInLoops:
     Attributes:
         node_id: The node: its id in a checked graph's plan; where a node stands, the function's name.
         output: The output's name.
-        scope: The scope the node runs in.
+        loops: The scope the node runs in.
         depth: How many maps the node runs in, so how many places of an item path name one unit of it.
     """
 
     node_id: str
     output: str
-    scope: Scope
+    loops: Scope
     depth: int = dataclasses.field(init=False, compare=False, repr=False)
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "depth", len(self.scope))
+        object.__setattr__(self, "depth", len(self.loops))
 
     @property
     def address(self) -> str:
@@ -101,7 +101,7 @@ class _EdgeSourceBase(OutputInLoops):
     @property
     def read_in(self) -> Scope:
         """The scope its values sit in: the one its node runs in."""
-        return self.scope
+        return self.loops
 
 
 @final
@@ -118,7 +118,7 @@ class ItemOfSeries(_EdgeSourceBase):
     @property
     def read_in(self) -> Scope:
         """The scope its values sit in: the map of the Series, under the scope its node runs in."""
-        return (*self.scope, OutputAddress(self.node_id, self.output))
+        return (*self.loops, OutputAddress(self.node_id, self.output))
 
 
 @final
@@ -190,12 +190,12 @@ class InputReadsOneValue:
         field: The input, as its node declares it.
         reads: Every output the input is made from: what each edge brings. Several are alternatives, on opposite
             branches of one decision: a call receives the one whose branch was taken.
-        scope: The scope the value sits in.
+        loops: The scope the value sits in.
     """
 
     field: Field
     reads: tuple[EdgeSource, ...]
-    scope: Scope
+    loops: Scope
 
     @property
     def sources(self) -> tuple[EdgeSource, ...]:
@@ -242,9 +242,9 @@ class InputCollectsLoopResults:
         return reader.collect(self, item_path)
 
     @property
-    def scope(self) -> Scope:
+    def loops(self) -> Scope:
         """The scope the list sits in: where the Series was made."""
-        return self.reads[0].scope
+        return self.reads[0].loops
 
 
 @final
@@ -277,9 +277,9 @@ class InputWrapsOneValue:
         return [value]
 
     @property
-    def scope(self) -> Scope:
+    def loops(self) -> Scope:
         """The scope the value sits in: the one its source runs in."""
-        return self.reads[0].scope
+        return self.reads[0].loops
 
 
 #: An input that edges feed.
