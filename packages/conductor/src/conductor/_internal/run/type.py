@@ -47,7 +47,7 @@ from conductor._internal.ask import (
     Waiting,
     answer_outputs,
     question_fingerprint,
-    waiting_unit,
+    waiting_record,
 )
 from conductor._internal.checked_graph import (
     EmbeddedGraphAtPath,
@@ -57,7 +57,6 @@ from conductor._internal.checked_graph import (
 )
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.earlier_work import EarlierWork, fingerprint_of, lineage
-from conductor._internal.leg import Event, EventBase, Leg, RunCheckpoint, RunEnd, RunStart
 from conductor._internal.node_definition import from_run_values
 from conductor._internal.outcomes import (
     Answered,
@@ -83,6 +82,14 @@ from conductor._internal.saved_run import (
     tables_written_once,
     unit_columns,
     unwritable_at,
+)
+from conductor._internal.scheduler import (
+    Event,
+    EventBase,
+    RunCheckpoint,
+    RunEnd,
+    RunStart,
+    Scheduler,
 )
 from conductor._internal.value_type import Type
 
@@ -162,7 +169,7 @@ class Run:
         Raises:
             InvalidCallError: ``max_items`` is below 1 (``invalid_max_items``).
         """
-        checked_leg(max_items=max_items)
+        checked_max_items(max_items=max_items)
         return dataclasses.replace(self, max_items=max_items)
 
     def resume(self, *, from_run: Mapping[type, Any] = MappingProxyType({}), timeout: float | None = None) -> Run:
@@ -174,8 +181,8 @@ class Run:
         can end later than ``timeout``, and a call that came back is never made
         again.
         """
-        checked_leg(timeout=timeout)
-        return self._leg(from_run_values(self.graph._needs_from_run, from_run), None, _deadline(timeout))
+        checked_max_items(timeout=timeout)
+        return self._run_scheduler(from_run_values(self.graph._needs_from_run, from_run), None, _deadline(timeout))
 
     def stream(
         self, *, from_run: Mapping[type, Any] = MappingProxyType({}), timeout: float | None = None, cancel: asyncio.Event | None = None,
@@ -200,7 +207,7 @@ class Run:
         its ``run`` loses only the calls in flight if the process dies. A call
         that can't start raises here, before anything is iterated.
         """
-        checked_leg(timeout=timeout, checkpoint_every=checkpoint_every)
+        checked_max_items(timeout=timeout, checkpoint_every=checkpoint_every)
         return self._stream(from_run_values(self.graph._needs_from_run, from_run), timeout, cancel, hand_back, checkpoint_every)
 
     async def _stream(
@@ -222,7 +229,7 @@ class Run:
 
         def leg() -> None:
             try:
-                self._leg(from_run, lambda event: _hand_over(loop, events, event), stop, checkpoint_every)
+                self._run_scheduler(from_run, lambda event: _hand_over(loop, events, event), stop, checkpoint_every)
             except BaseException as error:  # the engine's own defect reaches the caller
                 failed.append(error)
             finally:
@@ -238,7 +245,7 @@ class Run:
         finally:
             cancelled.set()
 
-    def _leg(
+    def _run_scheduler(
         self, from_run: dict[type, Any], emit: Callable[[EventBase], None] | None, stop: Callable[[], RunState | None] | None,
         checkpoint_every: float | None = None,
     ) -> Run:
@@ -259,7 +266,7 @@ class Run:
                     listener(RunCheckpoint(run=dataclasses.replace(run._copy(), state=state)))
 
         graph = self.graph
-        run.state, run._finished_nodes = Leg(
+        run.state, run._finished_nodes = Scheduler(
             nodes=graph._tree, threads=graph._threads, units=run._outcomes, earlier_work=run._earlier_work, finished=run._finished_nodes,
             max_items=run.max_items, comes_to=run._reader.comes_to, emit=emit, stop=stop, from_run=from_run,
             checkpoint=checkpoint, checkpoint_every=checkpoint_every,
@@ -312,7 +319,7 @@ class Run:
                 continue
             placed = node.placed
             if fingerprint and question_fingerprint(placed, found) != fingerprint:
-                current = waiting_unit(placed, outcome_loc(node, key), found).id
+                current = waiting_record(placed, outcome_loc(node, key), found).id
                 problems.append(problem.answer_stale(*loc, waiting_id=unit_id, current=current, moved_to=self._moved_to(nodes, fingerprint)))
                 continue
             if (node, key) in answered:
@@ -337,7 +344,7 @@ class Run:
         the path ``nodes``."""
         for node, key, unit in self._asking():
             if node.path == nodes and question_fingerprint(node.placed, unit) == fingerprint:
-                return waiting_unit(node.placed, outcome_loc(node, key), unit).id
+                return waiting_record(node.placed, outcome_loc(node, key), unit).id
         return None
 
     def with_inputs(self, inputs: Mapping[str, Any] = MappingProxyType({}), /, *, max_items: int | None = None, **by_name: Any) -> Run:
@@ -427,7 +434,7 @@ class Run:
     def waiting(self) -> list[Waiting]:
         """Every unit waiting for a person, in node then item order; those inside an embedded graph where its
         node stands."""
-        return [waiting_unit(node.placed, outcome_loc(node, key), unit) for node, key, unit in self._asking()]
+        return [waiting_record(node.placed, outcome_loc(node, key), unit) for node, key, unit in self._asking()]
 
     def _asking(self) -> Iterator[tuple[FunctionAtPath, ItemPath, Asking]]:
         """Every unit waiting for a person, with its node and instance, in node then instance order."""
@@ -617,7 +624,7 @@ def _run_of(graph: Graph, saved: SavedRun[list[Outcome | None], EarlierWork]) ->
     return run
 
 
-def checked_leg(*, max_items: int | None = None, timeout: float | None = None, checkpoint_every: float | None = None) -> None:
+def checked_max_items(*, max_items: int | None = None, timeout: float | None = None, checkpoint_every: float | None = None) -> None:
     """A run's ceiling (at least 1 item) and a leg's seconds (a finite number above 0) are refused at the call."""
     problems = []
     if max_items is not None and max_items < 1:

@@ -47,7 +47,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from conductor._internal.address import ItemPath, NodePath
-from conductor._internal.ask import Ask, InvalidAskError, question_asked, waiting_unit
+from conductor._internal.ask import Ask, InvalidAskError, question_asked, waiting_record
 from conductor._internal.checked_graph import (
     EmbeddedGraphAtPath,
     FunctionAtPath,
@@ -56,17 +56,6 @@ from conductor._internal.checked_graph import (
     waits_on,
 )
 from conductor._internal.earlier_work import EarlierWork, taken
-from conductor._internal.leg.call import call, jsonable
-from conductor._internal.leg.events import (
-    EventBase,
-    NodeComplete,
-    NodeFailed,
-    NodeProgress,
-    NodeRetry,
-    NodeSkipped,
-    NodeStart,
-    UnitWaiting,
-)
 from conductor._internal.outcomes import (
     NOT_ITS_TURN,
     NOT_READY,
@@ -84,6 +73,17 @@ from conductor._internal.outcomes import (
 from conductor._internal.problem import ExternalError, NodeError, Problem, UnitFailedError
 from conductor._internal.problem import catalogue as problem
 from conductor._internal.run_status import COMPLETE, RUNNING, WAITING, EndedEarly, RunState
+from conductor._internal.scheduler.call import call, jsonable
+from conductor._internal.scheduler.events import (
+    EventBase,
+    NodeComplete,
+    NodeFailed,
+    NodeProgress,
+    NodeRetry,
+    NodeSkipped,
+    NodeStart,
+    UnitWaiting,
+)
 from conductor._internal.sentinels import SKIPPED
 
 #: What a call can raise that is never tried again, whatever a ``Policy``'s ``retry_on`` names: the node's own failure,
@@ -100,7 +100,7 @@ _POSITION = operator.attrgetter("position")
 
 
 @dataclass(slots=True)
-class _Turn:
+class _AnswerOrder:
     """How far a leg has tried a node's units in order, so a person's answers are taken in order.
 
     Attributes:
@@ -116,7 +116,7 @@ class _Turn:
     passed: set[ItemPath] = field(default_factory=set)
 
 
-class Leg:
+class Scheduler:
     """One leg over the units of a run, which it records into.
 
     The leg walks every function of the run's graph and of the graphs embedded in it, where they stand: it holds
@@ -156,11 +156,11 @@ class Leg:
         self.changed = True
         #: (node, an instance above its own): a node that gathers, started in the instances under that one once
         #: nothing it reads still works there.
-        self.gathers: set[tuple[FunctionAtPath, ItemPath]] = set()
+        self.collectors: set[tuple[FunctionAtPath, ItemPath]] = set()
         self.running: dict[tuple[FunctionAtPath, ItemPath], dict[str, Any]] = {}  # units handed to threads, and their inputs
         self.attempts: dict[tuple[FunctionAtPath, ItemPath], int] = {}  # the attempt each unit on a thread is on
         #: Each node's units waiting for a thread: (instance, what it received, attempt).
-        self.slots_waiting: defaultdict[FunctionAtPath, deque[tuple[ItemPath, dict[str, Any], int]]] = defaultdict(deque)
+        self.waiting_for_thread: defaultdict[FunctionAtPath, deque[tuple[ItemPath, dict[str, Any], int]]] = defaultdict(deque)
         #: How many of each node's calls are on threads, which its ``concurrency`` bounds.
         self.on_threads: defaultdict[FunctionAtPath, int] = defaultdict(int)
         #: What came back from threads: a call's (node, instance, attempt, outputs, what went wrong), or what ``call`` itself raised.
@@ -170,7 +170,7 @@ class Leg:
         self.timer_order = itertools.count()
         self.pool: ThreadPoolExecutor | None = None
         #: For a node taking a person's earlier answers, how far through its units in order the leg has tried.
-        self.turns: dict[FunctionAtPath, _Turn] = {}
+        self.answer_orders: dict[FunctionAtPath, _AnswerOrder] = {}
         #: Units recorded since the last walk over every unit ended.
         self.recorded_since_walk = 0
         #: Whether a unit was left untried because a unit before it may take the earlier answer it would take.
@@ -231,7 +231,7 @@ class Leg:
             state: How the run stands for it: ended early with its cause, or ``running`` for a leg handed back.
         """
         self.state, self.going = state, False
-        for node, waiting in self.slots_waiting.items():
+        for node, waiting in self.waiting_for_thread.items():
             for key, _, _ in waiting:
                 self.running.pop((node, key), None)
             waiting.clear()
@@ -270,9 +270,9 @@ class Leg:
         """Set a timer: the retry of an attempt, or the deadline of the attempt on a thread."""
         heapq.heappush(self.timers, (time.monotonic() + seconds, next(self.timer_order), due, node, key, attempt, seconds))
 
-    def _fill_slots(self, node: FunctionAtPath) -> None:
+    def _start_waiting_calls(self, node: FunctionAtPath) -> None:
         """Put the node's waiting units on threads, as far as its ``concurrency`` allows."""
-        waiting, policy = self.slots_waiting[node], node.policy
+        waiting, policy = self.waiting_for_thread[node], node.policy
         while waiting and self.on_threads[node] < policy.concurrency and self.going:
             key, kwargs, attempt = waiting.popleft()
             self.on_threads[node] += 1
@@ -312,7 +312,7 @@ class Leg:
         Returns:
             False once nothing more can start in this leg.
         """
-        if self.gathers and self._release_gathers():
+        if self.collectors and self._release_collectors():
             self.changed = True
             return True
         if self.emit and self.touched:
@@ -408,8 +408,8 @@ class Leg:
                 self._record(node, key, self._outcome(node, key, kwargs, out, error), walking)
             return
         self.running[(node, key)] = kwargs
-        self.slots_waiting[node].append((key, kwargs, attempt))
-        self._fill_slots(node)
+        self.waiting_for_thread[node].append((key, kwargs, attempt))
+        self._start_waiting_calls(node)
 
     def _on_thread(self, node: FunctionAtPath, key: ItemPath, kwargs: dict[str, Any], attempt: int) -> None:
         """Make the call and hand what it came to back to the leg. What ``call`` lets out (an exit, a defect in a
@@ -436,7 +436,7 @@ class Leg:
         self.on_threads[node] -= 1
         latest = self.attempts.get((node, key)) == attempt
         current = latest and (node, key) in self.running
-        self._fill_slots(node)
+        self._start_waiting_calls(node)
         if not current:
             if latest and error is None and not self.going and key not in self.units[node]:
                 self.attempts.pop((node, key))
@@ -517,7 +517,7 @@ class Leg:
             if type(unit) is not Skipped:
                 self._announce(node)  # a unit taken from earlier work, or a blank one, starts its node as a call does
             if type(unit) is Asking:
-                self.emit(UnitWaiting(unit=waiting_unit(node.placed, outcome_loc(node, key), unit)))
+                self.emit(UnitWaiting(unit=waiting_record(node.placed, outcome_loc(node, key), unit)))
             if node.maps:
                 self._progress(node)
         if walking or not self.going or type(unit) is Asking:  # nothing reads a unit that waits for a person
@@ -525,7 +525,7 @@ class Leg:
         depth = len(key)
         for reader, places in node.readers:
             if places < depth:  # it is made from every unit under those places: tried once nothing it reads works under them
-                self.gathers.add((reader, key[:places]))
+                self.collectors.add((reader, key[:places]))
             elif len(reader.maps) == depth:
                 heapq.heappush(self.ready, (reader.position, key))
             else:
@@ -539,10 +539,10 @@ class Leg:
         The k-th of identical units is the k-th in order among those the leg could try: one that waits on a person
         counts as tried once nothing else can start (``_pass_untried``).
         """
-        turn = self.turns.get(node)
+        turn = self.answer_orders.get(node)
         if turn is None or key not in turn.place:
             order = item_paths(self.all_outcomes, node.maps, ())[0]
-            turn = self.turns[node] = _Turn(order, {k: i for i, k in enumerate(order)})
+            turn = self.answer_orders[node] = _AnswerOrder(order, {k: i for i, k in enumerate(order)})
         order, units, passed, reached = turn.order, self.units[node], turn.passed, turn.reached
         while reached < len(order) and ((instance := order[reached]) in units or (node, instance) in self.running or instance in passed):
             reached += 1
@@ -556,21 +556,21 @@ class Leg:
         Such a unit waits on a person, so this leg can't learn what it receives; if it does later, it takes what is left.
         """
         passed_any = False
-        for node, turn in self.turns.items():
+        for node, turn in self.answer_orders.items():
             units = self.units[node]
             untried = {k for k in turn.order[turn.reached :] if k not in units and k not in turn.passed}
             turn.passed |= untried
             passed_any = passed_any or bool(untried)
         return passed_any
 
-    def _release_gathers(self) -> bool:
+    def _release_collectors(self) -> bool:
         """Make ready each gathering unit nothing above it is still working under; False when there is none."""
         working = list(self.running)
         released = False
-        for node, key in list(self.gathers):
+        for node, key in list(self.collectors):
             above = waits_on(node)
             if not any(n in above and k[: len(key)] == key for n, k in working):
-                self.gathers.discard((node, key))
+                self.collectors.discard((node, key))
                 released = True
                 for instance in item_paths(self.all_outcomes, node.maps, key)[0] if len(key) < len(node.maps) else (key,):
                     heapq.heappush(self.ready, (node.position, instance))
@@ -636,7 +636,7 @@ class Leg:
             self.complete.add(node)
             if node.maps and node in self.progress_said:
                 self._progress(node, last=True)
-            if units and all(_came_to_no_value(unit) for unit in units.values()):
+            if units and all(_has_no_value(unit) for unit in units.values()):
                 self.skipped.add(node)
                 emit(NodeSkipped(loc=node.path))
             else:
@@ -668,7 +668,7 @@ class Leg:
         return has_every_outcome(self.all_outcomes, node)
 
 
-def _came_to_no_value(unit: Outcome) -> bool:
+def _has_no_value(unit: Outcome) -> bool:
     """Whether a unit is a branch not taken: its node wasn't called for one above it, or was called and returned
     ``SKIPPED`` on every output."""
     return type(unit) is Skipped or ((type(unit) is Done or type(unit) is Answered) and bool(unit.out) and all(value is SKIPPED for value in unit.out.values()))

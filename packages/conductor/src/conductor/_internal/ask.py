@@ -367,7 +367,7 @@ def _checked_answer(field: Field, value: Any, offered: list[dict[str, Any]] | No
     return read
 
 
-def waiting_unit(placed: PlacedFunction, loc: Loc, unit: Asking) -> Waiting:
+def waiting_record(placed: PlacedFunction, loc: Loc, unit: Asking) -> Waiting:
     """A waiting unit as a host shows it. Its id is where it is as text, then ``~`` and the fingerprint of the
     question asked there, as ``run.answer`` reads it.
 

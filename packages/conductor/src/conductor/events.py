@@ -6,7 +6,7 @@ is a frozen pydantic model, one of the union ``Event`` told apart by
 ``type``, and writes itself as JSON with ``model_dump(mode="json")``.
 """
 
-from conductor._internal.leg import (
+from conductor._internal.scheduler import (
     Event,
     NodeComplete,
     NodeFailed,
