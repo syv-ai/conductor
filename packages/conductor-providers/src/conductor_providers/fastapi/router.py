@@ -133,6 +133,17 @@ class Answered(BaseModel):
     answers: typing.Literal["started", "queued"]
 
 
+class Resume(BaseModel):
+    """The body of ``POST /runs/{id}/resume``; a resume needs none.
+
+    Attributes:
+        max_items: A higher ceiling on the items of any one Series, for a run that stopped at its ceiling; it
+            holds for the run's later legs. Left out, the run keeps the ceiling it has.
+    """
+
+    max_items: PositiveInt | None = None
+
+
 class Cancelled(BaseModel):
     """Whether a running leg was asked to stop; a run that isn't running has nothing to cancel."""
 
@@ -421,12 +432,12 @@ def run_router(
         return row
 
     @router.get("/nodes")
-    def palette(who: Annotated[C, Depends(caller)]) -> RegistryDescription:
+    def list_nodes(who: Annotated[C, Depends(caller)]) -> RegistryDescription:
         """The nodes the caller may use, as an editor's palette reads them."""
         return nodes_for(who).describe()
 
     @router.post("/load")
-    def check(graph: GraphRecord, who: Annotated[C, Depends(caller)]) -> GraphDescription:
+    def load_graph(graph: GraphRecord, who: Annotated[C, Depends(caller)]) -> GraphDescription:
         """The graph as loading reads it: each node's fields, where it runs, and every problem."""
         return nodes_for(who).load(graph).describe()
 
@@ -437,12 +448,18 @@ def run_router(
 
     if published is not None:
         @router.post("/graphs/{name}/runs", status_code=202)
-        async def start_published(graph: Annotated[GraphRecord, Depends(published)], inputs: dict[str, Any], who: Annotated[C, Depends(caller)]) -> Started:
+        async def start_published(
+            graph: Annotated[GraphRecord, Depends(published)],
+            inputs: Annotated[dict[str, Any], Body(description="Values for the graph's open inputs, each by its name or its address `node.input`.")],
+            who: Annotated[C, Depends(caller)],
+        ) -> Started:
             """Start a graph you offer by name, on inputs alone."""
             return await start(graph, inputs, who)
 
     @router.get("/runs/{run_id}", responses=_NOT_FOUND)
-    def read(row: Annotated[StoredRun, Depends(stored)]) -> RunView:
+    def read_run(row: Annotated[StoredRun, Depends(stored)]) -> RunView:
+        """The run as its last leg left it: its status, what waits for a person, its outputs once complete, the
+        queued answers that were refused, and why it ended early if it did."""
         return RunView(
             id=row.id, status=row.status, waiting=json.loads(row.waiting),
             outputs=json.loads(row.outputs) if row.outputs is not None else None, refused=json.loads(row.refused),
@@ -450,7 +467,7 @@ def run_router(
         )
 
     @router.get("/runs/{run_id}/events", response_class=EventSourceResponse, responses=_NOT_FOUND)
-    async def follow(row: Annotated[StoredRun, Depends(stored)], last_event_id: Annotated[int, Header()] = -1) -> AsyncIterable[ServerSentEvent]:
+    async def follow_run(row: Annotated[StoredRun, Depends(stored)], last_event_id: Annotated[int, Header()] = -1) -> AsyncIterable[ServerSentEvent]:
         """The run's events, from whichever worker runs it, until it stops running; ``Last-Event-ID`` goes on after a reconnect.
 
         A run stops running only after its leg's ``run_end`` is stored, so the stream reads the run itself only once
@@ -475,7 +492,10 @@ def run_router(
             await asyncio.sleep(poll)
 
     @router.post("/runs/{run_id}/answers", status_code=202, responses=_CONFLICT)
-    async def answer(row: Annotated[StoredRun, Depends(stored)], answers: dict[str, Any]) -> Answered:
+    async def answer_run(
+        row: Annotated[StoredRun, Depends(stored)],
+        answers: Annotated[dict[str, Any], Body(description="An answer for each waiting unit, by its `id` in the run's `waiting`.")],
+    ) -> Answered:
         """Answer what waits by its ids, and start the next leg on the answers.
 
         The run takes them as ``run.answer`` does, whatever its status: a run that failed, stopped or timed out with
@@ -490,10 +510,10 @@ def run_router(
             queued.update(answers)
             if await store.update(row.id, row.rev, {"pending": to_json(queued).decode()}):
                 return Answered(answers="queued")  # the leg's end, written after this, reads them
-            again = await store.get(row.id)
-            if again is None:
+            read_again = await store.get(row.id)
+            if read_again is None:
                 raise _refused(404, _router_problem("no_such_run"))
-            row = again
+            row = read_again
         if row.status == "complete":
             raise _refused(409, _router_problem("run_complete"))
         try:  # every answer the run refuses is refused at once
@@ -505,17 +525,21 @@ def run_router(
         return Answered(answers="started")
 
     @router.post("/runs/{run_id}/resume", status_code=202, responses=_CONFLICT)
-    async def resume(row: Annotated[StoredRun, Depends(stored)], max_items: Annotated[PositiveInt | None, Body(embed=True)] = None) -> Started:
+    async def resume_run(row: Annotated[StoredRun, Depends(stored)], body: Resume = Resume()) -> Started:
         """Go on with a run that timed out, stopped at its ceiling, was cancelled or failed; nothing finished is called
         again. ``{"max_items": ...}`` raises the ceiling of a run that stopped at it; a resume needs no body."""
         if row.status not in _RESUMABLE:
             raise _refused(409, _router_problem("run_not_resumable", status=row.status))
-        if not await claim(row, max_items, cancel=False):
+        if not await claim(row, body.max_items, cancel=False):
             raise _refused(409, _router_problem("run_changed"))
         return Started(id=row.id)
 
     @router.post("/runs/{run_id}/again", status_code=202, responses=_NOT_FOUND)
-    async def again(row: Annotated[StoredRun, Depends(stored)], inputs: dict[str, Any], who: Annotated[C, Depends(caller)]) -> Started:
+    async def run_again(
+        row: Annotated[StoredRun, Depends(stored)],
+        inputs: Annotated[dict[str, Any], Body(description="The inputs to change, each by its name or its address `node.input`; the rest stay as the run had them.")],
+        who: Annotated[C, Depends(caller)],
+    ) -> Started:
         """A new run of the caller's with these inputs changed, on the caller's own nodes; a call that receives what it
         received before isn't made again."""
         try:
@@ -525,17 +549,17 @@ def run_router(
         return await begin(row.graph, who, saved)
 
     @router.post("/runs/{run_id}/cancel", responses=_NOT_FOUND)
-    async def cancel(row: Annotated[StoredRun, Depends(stored)]) -> Cancelled:
+    async def cancel_run(row: Annotated[StoredRun, Depends(stored)]) -> Cancelled:
         """Stop a running leg before its next unit; the calls already made are kept, and ``resume`` goes on."""
         while row.status == "running":
             if await store.update(row.id, row.rev, {"cancel": True}):
                 if row.id in legs:  # on this worker at once; on another at its next renewal
                     legs[row.id].cancel.set()
                 return Cancelled(cancelled=True)
-            again = await store.get(row.id)
-            if again is None:
+            read_again = await store.get(row.id)
+            if read_again is None:
                 break
-            row = again
+            row = read_again
         return Cancelled(cancelled=False)
 
     return router

@@ -874,3 +874,34 @@ def test_a_follower_reads_the_row_only_to_learn_whether_a_run_end_was_the_last()
             assert "data: " not in again  # a follower that has every event of a run that waits is told so at once
 
     asyncio.run(scenario())
+
+
+def test_the_schema_names_each_operation_and_body_as_a_generated_client_reads_them() -> None:
+    app = FastAPI()
+    app.include_router(run_router(store=MemoryStore(), registry=NodeRegistry(), caller=_caller, published=lambda name: GraphRecord()))
+    schema = app.openapi()
+    operations = {(verb, path): operation for path, verbs in schema["paths"].items() for verb, operation in verbs.items()}
+
+    assert {key: operation["summary"] for key, operation in operations.items()} == {
+        ("get", "/nodes"): "List Nodes",
+        ("post", "/load"): "Load Graph",
+        ("post", "/runs"): "Start Run",
+        ("post", "/graphs/{name}/runs"): "Start Published",
+        ("get", "/runs/{run_id}"): "Read Run",
+        ("get", "/runs/{run_id}/events"): "Follow Run",
+        ("post", "/runs/{run_id}/answers"): "Answer Run",
+        ("post", "/runs/{run_id}/resume"): "Resume Run",
+        ("post", "/runs/{run_id}/again"): "Run Again",
+        ("post", "/runs/{run_id}/cancel"): "Cancel Run",
+    }
+    assert all(operation.get("description") for operation in operations.values())
+    assert "Resume" in schema["components"]["schemas"] and not [name for name in schema["components"]["schemas"] if name.startswith("Body_")]
+    assert operations["post", "/runs/{run_id}/resume"]["requestBody"]["content"]["application/json"]["schema"] == {"$ref": "#/components/schemas/Resume", "default": {}}
+    for key in [("post", "/graphs/{name}/runs"), ("post", "/runs/{run_id}/answers"), ("post", "/runs/{run_id}/again")]:
+        assert operations[key]["requestBody"]["content"]["application/json"]["schema"]["description"], key
+
+
+def test_the_package_exports_what_a_host_writes_and_calls() -> None:
+    import conductor_providers.fastapi as provider
+
+    assert sorted(provider.__all__) == ["ROUTER_PROBLEM_CODES", "RunChanges", "RunStore", "StoredRun", "run_router"]
