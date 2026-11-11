@@ -145,6 +145,31 @@ def test_a_variable_beside_none_is_what_arrives_without_its_blank() -> None:
     assert graph.problems == [] and _types(graph, "maybe")["result"] == (False, "str")
 
 
+def test_a_bare_variable_binds_without_the_blank_so_a_blank_leaves_the_node_uncalled_as_for_any_input() -> None:
+    """An input receives a blank only if its hint says so: ``value: T`` fed ``str | None`` is a ``str`` input."""
+    calls: list[Any] = []
+
+    @node("seen", title="Seen", description="")
+    def seen[T](value: T) -> T:
+        calls.append(value)
+        return value
+
+    graph = _loaded(blank, seen, edges=[["blank.result", "seen.value"]])
+    assert graph.problems == [] and _types(graph, "seen") == {"value": (False, "str"), "result": (False, "str")}
+    assert not graph.describe().nodes["seen"].inputs[0].field.json_schema.get("anyOf")
+    run = graph.run()
+    assert calls == [] and [(n.loc, n.input) for n in run.not_called] == [(("seen",), "value")]
+    inside_a_list = _loaded(keep, seen, edges=[["keep.result", "seen.value"]], values={"keep": {"value": 1}})
+    assert _types(inside_a_list, "seen")["value"] == (False, "Any")  # Any takes a blank, and says so
+
+
+def test_an_uncalled_decision_gives_a_branch_not_taken_on_both_outputs_for_a_blank() -> None:
+    graph = _loaded(blank, decision, maybe, edges=[["blank.result", "decision.value"], ["decision.if_true", "maybe.value"]])
+    assert graph.problems == []
+    events_free = graph.run()
+    assert events_free.results["maybe"] == {"result": None} and [n.loc for n in events_free.not_called] == [("decision",)]
+
+
 def test_two_places_for_one_variable_join() -> None:
     graph = _loaded(number, text, either, edges=[["number.result", "either.a"], ["text.result", "either.b"]])
     assert graph.problems == [] and _types(graph, "either")["result"] == (False, "int | str")

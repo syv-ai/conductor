@@ -1032,12 +1032,18 @@ class Type:
     def fits(self, source: Type) -> dict[TypeVar, Any] | None:
         """Says whether a value of ``source`` may land on this type, and what that binds its type variables to.
 
+        A blank that may arrive lands only where a hint says ``| None``; anywhere else the node isn't called for
+        it. So a variable that is the whole hint binds to ``source`` without its blank: ``value: T`` fed
+        ``str | None`` is a ``str``, and ``value: T | None`` takes the blank.
+
         Returns:
             What each variable binds to (``{}`` for a type that has none); ``None`` when the value may not land.
             Two places sharing a variable join, and a source outside a variable's bound does not fit.
         """
         bound: dict[TypeVar, Any] = {}
-        return bound if _fit(self.hint, source.closed, bound, False) else None
+        lands_without_blank = isinstance(_split(self.hint)[0], TypeVar) and source.options
+        arriving = _union(source.options) if lands_without_blank else source.closed
+        return bound if _fit(self.hint, arriving, bound, False) else None
 
     def holds(self, source: Type) -> bool:
         """Says whether every value of ``source`` already is one of this type as it is, so nothing is read per call."""

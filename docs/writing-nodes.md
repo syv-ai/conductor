@@ -323,7 +323,7 @@ print(graph.describe().nodes["keep"].outputs[0].type)  # int
 print(graph.run(amount=5000).outputs)                  # {'notify.result': 'told the manager about 5000'}
 ```
 
-`route.large` gives an `int`, so in this graph `keep` takes an `int` and gives one, and `notify.amount` may read it. In a graph where a text arrives, `keep` gives a text. What the node returns is checked against the type that arrived.
+`route.large` gives an `int`, so in this graph `keep` takes an `int` and gives one, and `notify.amount` may read it. In a graph where a text arrives, `keep` gives a text. What the node returns is checked against the type that arrived. A blank is taken only by a hint that says so: where a `str | None` arrives, `value: T` is a `str` input and the node isn't called for the blank, and a node that passes blanks on writes `value: T | None`.
 
 A variable can stand inside another type. This node takes a table or a list apart, and what it gives are the table's records or the list's items:
 
