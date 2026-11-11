@@ -130,7 +130,7 @@ class Leg:
     """
 
     def __init__(
-        self, nodes: list[FunctionAtPath], threads: int, units: Units, earlier_work: dict[NodePath, EarlierWork], finished: frozenset[NodePath],
+        self, *, nodes: list[FunctionAtPath], threads: int, units: Units, earlier_work: dict[NodePath, EarlierWork], finished: frozenset[NodePath],
         max_items: int | None, comes_to: Callable[[FunctionAtPath, ItemPath], dict[str, Any] | Skipped | Blank | Literal[NotReady.NOT_SETTLED]],
         emit: Callable[[EventBase], None] | None, stop: Callable[[], RunState | None] | None, from_run: dict[type, Any],
         checkpoint: Callable[[RunState], None] | None = None, checkpoint_every: float | None = None,
@@ -192,9 +192,13 @@ class Leg:
         self.progress_at: dict[FunctionAtPath, float] = {}
         self.progress_said: dict[FunctionAtPath, int] = {}
 
-    def go(self) -> None:
+    def go(self) -> tuple[RunState, frozenset[NodePath]]:
         """Run the leg: try what is ready, look over the run when something happened in it, and wait for the
-        threads, until nothing more can start or something ends the leg early."""
+        threads, until nothing more can start or something ends the leg early.
+
+        Returns:
+            How the run stands, and the nodes every unit of which is finished.
+        """
         try:
             self._check_ceiling()
             self._walk()
@@ -218,6 +222,7 @@ class Leg:
             if self.pool is not None:
                 self.pool.shutdown(wait=False, cancel_futures=True)
         self._close()
+        return self.state, self.finished
 
     def end(self, state: RunState) -> None:
         """End the leg early: nothing more starts. The units waiting for a thread and the retries not yet due are

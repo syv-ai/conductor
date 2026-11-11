@@ -247,9 +247,11 @@ class Run:
                     listener(RunCheckpoint(run=dataclasses.replace(run._copy(), state=state)))
 
         graph = self.graph
-        leg = Leg(graph._tree, graph._threads, run._units, run._earlier_work, run._finished_nodes, run.max_items, run._reader.comes_to, emit, stop, from_run, checkpoint, checkpoint_every)
-        leg.go()
-        run.state, run._finished_nodes = leg.state, leg.finished
+        run.state, run._finished_nodes = Leg(
+            nodes=graph._tree, threads=graph._threads, units=run._units, earlier_work=run._earlier_work, finished=run._finished_nodes,
+            max_items=run.max_items, comes_to=run._reader.comes_to, emit=emit, stop=stop, from_run=from_run,
+            checkpoint=checkpoint, checkpoint_every=checkpoint_every,
+        ).go()
         if emit is not None:  # a leg handed back left its run running: the run didn't end, and the host stores it as it stands
             emit(RunCheckpoint(run=run) if run.state is RUNNING else RunEnd.of(run))
         return run
