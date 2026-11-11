@@ -42,12 +42,17 @@ What changes in how you work, before the name-by-name tables:
   holding one fails as its class is made. Limits are pydantic's own: bounds on numbers, a `Decimal`,
   dates, times and durations, lengths on texts, bytes and collections. `Param` is a frozen dataclass whose limits
   are its fields, so an argument it doesn't have is Python's own `TypeError`.
-- **Loops are rows.** A list or a column on an input typed for one value runs the node once per
-  row, and the node never sees the difference: the value a caller gives decides, with no mark on
-  the graph (`graph.inputs[name].per_item` says where a list is rows). `Series[X]` takes many values
-  and `Table[R]` a whole `polars.DataFrame`. Two lists meeting at one node are refused
-  (`lists_not_collected`) until a node collects one. `graph.calls_for(file=11)` says each node's
-  calls before a run, refusing an input given by name and address as `with_inputs` does. A blank skips the node for that row unless its input says `| None`. Each item
+- **The types decide one or many.** A `Series[X]` output wired to an input typed for one `X` runs
+  that node once per item, and everything after it; the node never sees the difference. A
+  `Series[X]` input gathers every item in one call, and a `Table[R]` input gathers records into a
+  table. A value made outside the items is there on every call. A table (a whole
+  `polars.DataFrame`) and a list are each one value: `split` in `syv-conductor-nodes`, or any node
+  that returns a `Series`, makes the items, and an edge may name one field of a record
+  (`split.result.email`). A list given to an input of one value is refused (`invalid_input`), and
+  so is one typed in (`invalid_value`). Items of two Series meeting at one node are refused
+  (`series_not_nested`) until one is made inside the other. `graph.plan` says how often each node
+  runs, before any run. A blank keeps the node from being called for that item unless its input
+  says `| None`. Each item
   of a list given there is held to the input's limits and choices, as one value is. A choice is
   read as its answer would be: strictly from its JSON form, held to the field's limits, so an enum's
   value or a date's ISO text is a choice. A value an edge brings is held to the input's limits and choices
@@ -73,9 +78,9 @@ What changes in how you work, before the name-by-name tables:
   itself as JSON (`run.to_json()`, `graph.load_run(saved)`, which reads a save from its JSON text; a save that
   doesn't fit is `state_unreadable`, `ctx.at` its place in the save; a node with no work done, and a
   part with nothing in it, is left out of it) and runs again on changed inputs,
-  calling only the rows that changed (`run.again(...)`). A leg's `max_rows` is a whole number of
+  calling the nodes only for the items that changed (`run.again(...)`). A leg's `max_items` is a whole number of
   at least 1 and its `timeout` and `checkpoint_every` finite seconds above 0, a `bool` neither,
-  refused at the call (`invalid_max_rows`, `invalid_timeout`, `invalid_checkpoint_every`).
+  refused at the call (`invalid_max_items`, `invalid_timeout`, `invalid_checkpoint_every`).
 - **Only an outside failure is retried.** `ExternalError`, or a class in `Policy(retry_on=)`;
   a `NodeError`, a wrong output or an `Ask` never is, whatever `retry_on` names.
   A node's own exception goes to the `conductor` logger, never to an event.
@@ -96,7 +101,7 @@ What changes in how you work, before the name-by-name tables:
 - **A declared choice's `id` is the field type's JSON form.** `Decimal` choices show `"1"` and a `datetime` its seconds, so the id a question shows is an answer it takes.
 - **A table answer and a caller's records have one reader.** Extra columns are dropped for every table from outside, and a missing column is refused. An answer's cells are read strictly from their JSON form; a caller's records are read cell by cell, laxly, never from polars' dtype, so a bool among ints or a number among texts is `invalid_input`. A value that is neither a frame nor a list of records is refused as `invalid_answer` or `invalid_input` with the reason "a table is a frame or a list of records, one object per row".
 - **`make_graph` refuses a default no caller reaches.** `defaults={"pad.width": 8}` on a node that is not an open input of the graph raises `default_on_later_node` at the call, as loading does, instead of building a record that fails later.
-- **`run.not_called` is a list of `NotCalled` records** (`node_id`, `row`, `input`), exported from `conductor`, not a list of dicts.
+- **`run.not_called` is a list of `NotCalled` records** (`node_id`, `item`, `input`), exported from `conductor`, not a list of dicts.
 - **A run handed back at shutdown has no `cause`.** The row's `cause` is null and its status `running`: the run did not end early, so it is `Going`.
 
 A 1.x graph doesn't load as saved. Convert each stored graph with the table under
@@ -187,7 +192,7 @@ Every public name of 1.12.2, by the module it was imported from. A name not list
 | `resolve_graph_inputs` | `registry.load(record).inputs`, each a `GraphInput` |
 | `resolve_graph_outputs` | `registry.load(record).outputs` |
 | **Running** | |
-| `compute_for_each_end_outputs` | gone: a `Series[X]` input gathers the rows |
+| `compute_for_each_end_outputs` | gone: a `Series[X]` input gathers the items |
 | `conductor.compound.CompoundNodeType` | gone with compound nodes |
 | `conductor.compound.NodeExecutor` | gone with compound nodes |
 | `conductor.compound.Region` | gone with regions |
@@ -200,7 +205,7 @@ Every public name of 1.12.2, by the module it was imported from. A name not list
 | `conductor.execution.events.FlowCancelledEvent` | `RunEnd` with `status` `cancelled` |
 | `conductor.execution.events.FlowCompleteEvent` | `RunEnd` with `status` `complete` |
 | `conductor.execution.events.FlowErrorEvent` | `RunEnd` with `status` `failed` |
-| `conductor.execution.events.FlowPausedEvent` | `UnitWaiting` per waiting row, then `RunEnd` with `status` `waiting` |
+| `conductor.execution.events.FlowPausedEvent` | `UnitWaiting` per waiting call, then `RunEnd` with `status` `waiting` |
 | `conductor.execution.events.FlowTimeoutEvent` | `RunEnd` with `status` `timed_out` |
 | `conductor.execution.events.NodeCompleteEvent` | `NodeComplete` |
 | `conductor.execution.events.NodeErrorEvent` | `NodeFailed`, its `cause` a `Problem` |
@@ -214,8 +219,8 @@ Every public name of 1.12.2, by the module it was imported from. A name not list
 | `conductor.execution.resolver.InputResolver` | gone: the graph reads its inputs, `graph.with_inputs(...)` |
 | `conductor.execution.resolver.MULTI_VALUE_SEPARATOR` | gone: several edges into a `Series` input arrive as a list, never joined |
 | `conductor.execution.results.extract_output` | `run.results[node_id][output]` |
-| `conductor.execution.results.filter_all_skipped` | gone: a skipped row is a blank in `run.results` |
-| `conductor.execution.results.filter_skipped` | gone: a skipped row is a blank in `run.results` |
+| `conductor.execution.results.filter_all_skipped` | gone: a skipped item is a blank in `run.results` |
+| `conductor.execution.results.filter_skipped` | gone: a skipped item is a blank in `run.results` |
 | `conductor.execution.results.normalize_result` | gone: what a node returns is checked against its type |
 | `conductor.execution.results.OutputRef` | an address, `node.output` |
 | `conductor.execution.results.project_outputs` | `run.outputs`, by address |
@@ -224,7 +229,7 @@ Every public name of 1.12.2, by the module it was imported from. A name not list
 | `execute` | `graph.run(**inputs)` returns a `Run`; `run.stream()` yields its events |
 | `FlowCheckpoint` | a `Run`: `run.to_json()` and `graph.load_run(saved)`; mid-leg, `run.stream(checkpoint_every=)` yields `RunCheckpoint` |
 | `FOR_EACH` | gone with the for-each node |
-| `ForEachNode` | gone: a list or column on a single-value input runs the node once per row |
+| `ForEachNode` | gone: a `Series` output wired to an input of one value runs the node once per item |
 | `resume_sync` | `run.resume()` |
 | `resume` | `run.answer(...)`, then `run.resume()` |
 | `SUBPROCESS` | gone with the subprocess node |
@@ -246,7 +251,7 @@ Every public name of 1.12.2, by the module it was imported from. A name not list
 | `FlowExecutionError` | gone: a failed leg returns its `Run`, its `state` an `EndedEarly` whose `status` is `failed` and `cause` a `Problem` |
 | `FlowPausedError` | gone: a paused leg returns its `Run`, `status` `waiting` |
 | `HumanInputRequired` | `raise Ask(prompt, choices=, default=)`; each has the answer's shape, so on several outputs each goes by output name; a question's widget is its output type's `Param` |
-| `LoopRunawayError` | `graph.run(max_rows=)`, the problem `row_ceiling` |
+| `LoopRunawayError` | `graph.run(max_items=)`, the problem `item_ceiling` |
 | `NodeConnectionError` | `ExternalError`, the one failure that is retried |
 | `NodeError` | `NodeError(message, code=, ctx=)`, never retried |
 | `NodeExecutionError` | `NodeError(message, code=, ctx=)` |
@@ -273,7 +278,7 @@ Every public name of 1.12.2, by the module it was imported from. A name not list
 | `conductor_nodes`: `get_default_registry`, `register_all` | `conductor_nodes.registry`, added with `registry.add_subregistry(...)` |
 | `conductor_nodes`: `CATEGORIES` | gone: each node has its `category`; `conductor_nodes.registry.filter(lambda d: d.category == "math")` |
 | `conductor_nodes`: `decision`, `json_ops`, `logic`, `math`, `regex_ops`, `text` | a module per category, each with a `registry` of its own nodes: `control` (`decision`, `logic-if-empty`, `logic-if-equals`), `json_ops`, `logic` (`logic-not`), `math`, `regex_ops`, `text`; node ids unchanged |
-| `conductor_nodes`: `loop`, `while_loop`, `signal`, `subprocess` | gone: a node typed for one value runs once per row by itself, and a pause is `raise Ask(...)` |
+| `conductor_nodes`: `loop`, `while_loop`, `signal`, `subprocess` | gone: a node typed for one value runs once per item of a `Series` wired to it, and a pause is `raise Ask(...)` |
 | `conductor_providers.fastapi.conductor_router` | `conductor_providers.fastapi.run_router(store=, registry=, caller=)`: runs by id, kept in a `RunStore`, on several workers; `/nodes` is `registry.describe()`, `/compile` is `POST /load` (`graph.describe()`), `/execute-stream` is `POST /runs` and `GET /runs/{id}/events` |
 | `conductor_providers.fastapi`: `ExecuteRequest`, `NodeInput`, `EdgeInput` | `StartRun`, a `GraphRecord` and its inputs |
 | `conductor_providers.fastapi`: `CompileResult`, `CompileWarning` | `GraphDescription`, whose problems name each node |
@@ -327,7 +332,7 @@ A 1.x `Flow` becomes a `GraphRecord`, `{"nodes": [...], "edges": [[from, to], ..
 | `GraphEdge.source_handle` | the first address's field, `source.output`, or `source.output.column` for a table's column |
 | `GraphEdge.target_handle` | the second address's field, `target.input` |
 | `GraphEdge.when` | gone: a branch is an output of one `exclusive_group`; wire from that output |
-| `GraphEdge.priority` | gone: edges are kept sorted; several into one input are read in row order |
+| `GraphEdge.priority` | gone: edges are kept sorted; several into one input are alternatives, opposite branches of one decision |
 | `Flow.nodes` | `nodes` |
 | `Flow.edges` | `edges`, each `["a.result", "b.text"]` |
 | `Flow.id` | not stored in the record: the host keys its rows |
@@ -345,7 +350,7 @@ Events are frozen pydantic models in `conductor.events`, told apart by `type`. T
 | 1.12.2 `type` | 2.0 |
 |---|---|
 | `node_start` | `node_start` |
-| `node_complete` | `node_complete`: `rows`, `not_called`, `reused_units`, counts only; the values are `run.results` |
+| `node_complete` | `node_complete`: `units`, `not_called`, `reused_units`, counts only; the values are `run.results` |
 | `node_skipped` | `node_skipped` |
 | `node_error` | `node_failed`, `cause` a `Problem` |
 | `node_progress` | `node_progress`: `done`, `total` |
@@ -354,8 +359,8 @@ Events are frozen pydantic models in `conductor.events`, told apart by `type`. T
 | `flow_error` | `run_end`, `status` `failed` |
 | `flow_cancelled` | `run_end`, `status` `cancelled` |
 | `flow_timeout` | `run_end`, `status` `timed_out` |
-| `flow_paused` | `unit_waiting` per row, then `run_end`, `status` `waiting` |
-| `node_retry` | `node_retry`: `row`, `attempt`, `retries`, `delay`, `cause` |
+| `flow_paused` | `unit_waiting` per waiting call, then `run_end`, `status` `waiting` |
+| `node_retry` | `node_retry`: `item`, `attempt`, `retries`, `delay`, `cause` |
 | `compensation_start` | gone with compensation |
 | `compensation_complete` | gone with compensation |
 | `compensation_failed` | gone with compensation |
