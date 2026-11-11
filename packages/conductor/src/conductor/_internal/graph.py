@@ -81,7 +81,12 @@ class Graph(LoadedGraph):
     @functools.cached_property
     def _save_form(self) -> SaveForm:
         """How this graph's runs are read from JSON and written as it, made when the first one is."""
-        return save_form(self)
+        return save_form(
+            self.fingerprint,
+            inputs={address: offered.spec.whole for address, offered in self._input_fields.items()},
+            outputs={"/".join(path): placed.outputs for path, placed in self._functions.items()},
+            nodes=["/".join(node.path) for node in self._tree],
+        )
 
     def _given_by_address(self, given: Mapping[str, Any]) -> tuple[dict[str, Any], list[Problem]]:
         """What a caller gave by name or by address, by address; with a problem for each name the graph doesn't

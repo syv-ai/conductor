@@ -794,11 +794,11 @@ class Run:
 
     def to_json(self) -> str:
         """The run as JSON: its inputs, each node's units as a column per output, and what it went on from."""
-        saved = self._saved()
+        saved, form = self._saved(), self.graph._save_form
         try:
-            return self.graph._save_form.serializer.to_json(saved, exclude_defaults=True).decode()
+            return form.serializer.to_json(saved, exclude_defaults=True).decode()
         except pydantic_core.PydanticSerializationError:
-            at = _unwritable_at(self.graph, saved)
+            at = _unwritable_at(form.inputs, form.outputs, saved)
             raise InvalidCallError([make_problem("state_unwritable", "state", at, at=at, reason="a value has no JSON form")]) from None
 
     def _saved(self) -> SavedRun[SavedUnits, SavedEarlier[SavedUnits]]:
@@ -1216,29 +1216,41 @@ class SaveForm(NamedTuple):
     """How the runs of one graph are read from JSON and written as it.
 
     Attributes:
+        inputs: The type of each input of the graph, by address.
+        outputs: The outputs of each function node of the graph and of the graphs embedded in it, by the node's
+            name in a save.
         validator: Reads a save into the ``SavedRun`` that ``_run_of`` makes a run of.
         serializer: Writes the ``SavedRun`` that ``Run._saved`` gives.
     """
 
+    inputs: Mapping[str, Type]
+    outputs: Mapping[str, Mapping[str, Field]]
     validator: SchemaValidator
     serializer: SchemaSerializer
 
 
-def save_form(graph: Graph) -> SaveForm:
-    """Composes how the runs of ``graph`` are read from JSON and written as it.
+def save_form(fingerprint: str, inputs: Mapping[str, Type], outputs: Mapping[str, Mapping[str, Field]], nodes: Iterable[str]) -> SaveForm:
+    """Composes how the runs of one graph are read from JSON and written as it.
 
     What a save holds is declared once, by ``SavedRun``, ``SavedUnits`` and ``SavedEarlier``, and their own
     schemas are what is written and read by. Only what depends on the graph is put in here: each input's and
     each output's own type, the nodes a save may name, and the graph's fingerprint. The parts are pydantic's own
     schemas of those types, put together as core schemas, since generating a model of a whole graph costs more
     than reading a small run. A graph's form is made the first time a run of it is saved or loaded.
+
+    Args:
+        fingerprint: The graph's fingerprint.
+        inputs: The type of each input of the graph, by address.
+        outputs: The outputs of each function node of the graph and of the graphs embedded in it, by the node's
+            name in a save.
+        nodes: Every node of the graph and of the graphs embedded in it, by its name in a save.
     """
     shared: dict[str, CoreSchema] = {}
     units_record, earlier_record = _inlined(_UNITS, shared), _inlined(_EARLIER, shared)
     blocks: dict[tuple[tuple[str, Type, bool], ...], tuple[CoreSchema, CoreSchema]] = {}
     units, earlier = {}, {}
-    for path, placed in graph._functions.items():
-        columns = tuple((name, output.column, output.many) for name, output in placed.outputs.items())
+    for node, of_node in outputs.items():
+        columns = tuple((name, output.column, output.many) for name, output in of_node.items())
         if columns not in blocks:  # nodes of the same outputs share one schema
             block = len(blocks)
             of_block = _with_fields(
@@ -1251,19 +1263,19 @@ def save_form(graph: Graph) -> SaveForm:
             carried = _with_fields(earlier_record, units=core_schema.definition_reference_schema(f"units:{block}"))
             shared[f"earlier:{block}"] = core_schema.no_info_after_validator_function(_earlier_of, carried, ref=f"earlier:{block}")
             blocks[columns] = core_schema.definition_reference_schema(f"units:{block}"), core_schema.definition_reference_schema(f"earlier:{block}")
-        units["/".join(path)], earlier["/".join(path)] = blocks[columns]
+        units[node], earlier[node] = blocks[columns]
     run = _with_fields(
         _inlined(_RUN, shared),
-        graph=core_schema.literal_schema([graph.fingerprint]),
-        inputs=_closed({address: _inlined(offered.spec.whole.saved_schema, shared) for address, offered in graph._input_fields.items()}),
+        graph=core_schema.literal_schema([fingerprint]),
+        inputs=_closed({address: _inlined(whole.saved_schema, shared) for address, whole in inputs.items()}),
         units=_closed({}, units),
         earlier=_closed({}, earlier),
         code=_closed({}, dict.fromkeys(units, core_schema.str_schema())),
-        complete=core_schema.list_schema(core_schema.literal_schema(["/".join(node.path) for node in graph._tree])),
+        complete=core_schema.list_schema(core_schema.literal_schema(list(nodes))),
     )
-    schema = core_schema.definitions_schema(core_schema.tagged_union_schema({graph.fingerprint: run}, discriminator=_GRAPH), list(shared.values()))
+    schema = core_schema.definitions_schema(core_schema.tagged_union_schema({fingerprint: run}, discriminator=_GRAPH), list(shared.values()))
     config = CoreConfig(ser_json_inf_nan="strings")
-    return SaveForm(SchemaValidator(schema, config), SchemaSerializer(schema, config))
+    return SaveForm(inputs, outputs, SchemaValidator(schema, config), SchemaSerializer(schema, config))
 
 
 def _with_fields(record: Any, **schemas: CoreSchema) -> CoreSchema:
@@ -1439,22 +1451,22 @@ def _earlier_of(saved: SavedEarlier[list[Unit | None]]) -> Earlier:
     return earlier
 
 
-def _unwritable_at(graph: Graph, saved: SavedRun[SavedUnits, SavedEarlier[SavedUnits]]) -> str:
+def _unwritable_at(inputs: Mapping[str, Type], outputs: Mapping[str, Mapping[str, Field]], saved: SavedRun[SavedUnits, SavedEarlier[SavedUnits]]) -> str:
     """Says where a run that pydantic refused to write holds a value with no JSON form: the first input, or
     output of a node, that isn't written alone either. It is looked for only once the whole save was refused.
 
     Args:
-        graph: The run's graph.
+        inputs: The type of each input of the run's graph, by address.
+        outputs: The outputs of each function node of the graph, by the node's name in a save.
         saved: The run as ``Run._saved`` gives it.
 
     Returns:
         The input's address, or the node as a save names it and the output (``e/ask.result``).
     """
-    columns = {address: (graph._input_fields[address].spec.whole, value) for address, value in saved.inputs.items()}
+    columns = {address: (inputs[address], value) for address, value in saved.inputs.items()}
     by_node = [*saved.units.items(), *((name, carried.units) for name, carried in saved.earlier.items())]
     for name, units in by_node:
-        outputs = graph._functions[tuple(name.split("/"))].outputs
-        columns.update({f"{name}.{output}": (outputs[output].column, column) for output, column in units.outputs.items()})
+        columns.update({f"{name}.{output}": (outputs[name][output].column, column) for output, column in units.outputs.items()})
     for at, (written_by, value) in columns.items():
         try:
             written_by.adapter.serializer.to_json(value)
