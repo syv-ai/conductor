@@ -14,15 +14,8 @@ from conductor._internal.graph_record import GraphRecord
 from conductor._internal.loaded_graph import LoadedGraph
 from conductor._internal.node_definition import NodeDefinition
 from conductor._internal.problem import InvalidCallError, Problem, make_problem
-from conductor._internal.run import (
-    Run,
-    SaveForm,
-    checked_leg,
-    no_units,
-    run_from_json,
-    save_form,
-    start_run,
-)
+from conductor._internal.run import Run, checked_leg, no_units, run_from_json, start_run
+from conductor._internal.saved_run import SaveForm, save_form
 
 
 class Graph(LoadedGraph):
