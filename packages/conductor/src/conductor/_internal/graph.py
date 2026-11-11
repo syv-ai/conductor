@@ -7,6 +7,7 @@ import types
 from collections.abc import Mapping
 from typing import Any
 
+from conductor._internal import problem
 from conductor._internal.address import NodePath
 from conductor._internal.fields import REQUIRED, FieldValueError
 from conductor._internal.loaded_graph import (
@@ -122,7 +123,7 @@ class Graph(LoadedGraph):
         for name, value in given.items():
             offered = fields.get(name)
             if offered is None:
-                problems.append(make_problem("not_offered", "inputs", name, name=name, inputs=list(self.inputs)))
+                problems.append(problem.not_offered("inputs", name, name=name, inputs=list(self.inputs)))
             elif offered.address in by_address:
                 problems.append(make_problem("input_given_twice", "inputs", offered.name, name=offered.name, address=offered.address))
             else:
@@ -146,13 +147,11 @@ class Graph(LoadedGraph):
             try:
                 values[address] = spec.whole.read(value)
             except FieldValueError as refused:
-                whole = all(not error["loc"] for error in refused.ctx.get("errors", ()))  # the list itself was refused, not an item of it
+                whole = all(not error["loc"] for error in refused.errors or ())  # the list itself was refused, not an item of it
                 if not spec.many and type(value) is list and whole:  # the one mistake whose fix is in the graph
-                    problems.append(make_problem(
-                        "invalid_input", "inputs", offered.name, name=offered.name, expected=spec.whole.id, length=len(value), hint="make_a_series",
-                    ))
+                    problems.append(problem.invalid_input_make_a_series("inputs", offered.name, name=offered.name, expected=spec.whole.id, length=len(value)))
                 else:
-                    problems.append(make_problem("invalid_input", "inputs", offered.name, name=offered.name, reason=refused.reason, **refused.ctx))
+                    problems.append(problem.invalid_input("inputs", offered.name, name=offered.name, reason=refused.reason, errors=refused.errors, column=refused.column))
         if problems:
             raise InvalidCallError(problems)
         return values

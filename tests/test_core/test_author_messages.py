@@ -81,7 +81,10 @@ def problem(nodes: dict[str, str], edges: list[tuple[str, str]]):
 def test_a_whole_table_into_an_input_of_one_value_says_to_split_first_and_lists_the_fields():
     found = problem({"read": "contacts", "send": "send"}, [("read.result", "send.to")])
     assert (found.type, found.loc) == ("type_mismatch", ("send", "to"))
-    assert found.ctx == {"source": "read.result", "got": "Table[name: str, email: str]", "expected": "str", "hint": "split_first", "whole": "table", "fields": ["name", "email"]}
+    assert found.ctx == {
+        "node_id": "send", "field": "to", "source": "read.result", "got": "Table[name: str, email: str]", "expected": "str",
+        "hint": "split_first", "whole": "table", "fields": ["name", "email"],
+    }
     assert found.msg == (
         "'read.result' is a whole table and 'send.to' takes one str. To run 'send' once for each record or item in it, "
         "put a Split between them and wire Split's result, or one field of it."
@@ -138,7 +141,7 @@ def test_a_table_without_a_column_the_input_names_says_which_and_what_the_table_
     found = problem({"read": "contacts", "report": "report"}, [("read.result", "report.table")])
     assert (found.type, found.loc) == ("type_mismatch", ("report", "table"))
     assert found.ctx == {
-        "source": "read.result", "got": "Table[name: str, email: str]", "expected": "Table[name: str, amount: float]",
+        "node_id": "report", "field": "table", "source": "read.result", "got": "Table[name: str, email: str]", "expected": "Table[name: str, amount: float]",
         "hint": "add_column", "column": "amount", "column_type": "float", "has": ["name", "email"],
     }
     assert found.msg == "'report.table' needs the column 'amount' (float); 'read.result' has name, email. Add the column in a node between, or connect a table that has it."

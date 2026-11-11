@@ -1089,7 +1089,7 @@ class Type:
             elif whole := raw.get("ctx", {}).get("column"):  # a fault of a whole column of a frame
                 columns.append(whole)
                 said["loc"] = [whole]
-        return FieldValueError(errors[0]["msg"], errors=errors, **({"column": columns[0]} if columns else {}))
+        return FieldValueError(errors[0]["msg"], errors=errors, column=columns[0] if columns else None)
 
 
 class FieldValueError(Exception):
@@ -1097,15 +1097,13 @@ class FieldValueError(Exception):
 
     Attributes:
         reason: Why, quoting nothing of the value.
-        code: The problem it is where it was met: ``invalid_output`` for a node's return, ``invalid_edge_value``
-            for what an edge brought.
-        ctx: What a problem says beside the reason: pydantic's ``errors`` without the value, the field's ``name``,
-            and the ``column`` of a table the first fault is in.
+        errors: pydantic's account of the refusal without the value; ``None`` when pydantic didn't refuse it.
+        column: The column of a table the first fault is in, else ``None``.
     """
 
-    def __init__(self, reason: str, *, code: str = "", **ctx: Any) -> None:
+    def __init__(self, reason: str, *, errors: list[dict[str, Any]] | None = None, column: str | None = None) -> None:
         super().__init__(reason)
-        self.reason, self.code, self.ctx = reason, code, ctx
+        self.reason, self.errors, self.column = reason, errors, column
 
 
 class FieldDescription(ConductorModel):

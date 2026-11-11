@@ -46,10 +46,11 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from conductor._internal import problem
 from conductor._internal.address import ItemPath, NodePath
 from conductor._internal.ask import Ask, InvalidAskError, question_asked, waiting_unit
 from conductor._internal.earlier_work import Earlier, taken
-from conductor._internal.fields import SKIPPED, FieldValueError
+from conductor._internal.fields import SKIPPED
 from conductor._internal.leg.call import call, jsonable
 from conductor._internal.leg.events import (
     NodeComplete,
@@ -68,7 +69,7 @@ from conductor._internal.loaded_graph import (
     unit_loc,
     waits_on,
 )
-from conductor._internal.problem import ExternalError, NodeError, Problem, make_problem
+from conductor._internal.problem import ExternalError, NodeError, Problem, UnitFailedError
 from conductor._internal.run_status import _COMPLETE, _RUNNING, _WAITING, EndedEarly, RunState
 from conductor._internal.units import (
     NOT_ITS_TURN,
@@ -88,7 +89,7 @@ from conductor._internal.units import (
 
 #: What a call can raise that is never tried again, whatever a ``Policy``'s ``retry_on`` names: the node's own failure,
 #: an output its type refused, a question for a person. Repeating the call repeats it.
-_NEVER_RETRIED = (NodeError, FieldValueError, Ask)
+_NEVER_RETRIED = (NodeError, UnitFailedError, Ask)
 
 #: The least time between two ``NodeProgress`` of one node.
 _SECONDS_BETWEEN_PROGRESS = 0.25
@@ -165,7 +166,7 @@ class Leg:
         self.on_threads: defaultdict[FunctionAtPath, int] = defaultdict(int)
         self.returned: queue.SimpleQueue[tuple[FunctionAtPath, ItemPath, int, Any, BaseException | None]] = queue.SimpleQueue()
         #: (when, order, what is due, node, instance, attempt): a retry of the attempt, or the deadline of the attempt on a thread.
-        self.timers: list[tuple[float, int, Literal["retry", "deadline"], FunctionAtPath, ItemPath, int]] = []
+        self.timers: list[tuple[float, int, Literal["retry", "deadline"], FunctionAtPath, ItemPath, int, float]] = []
         self.timer_order = itertools.count()
         self.pool: ThreadPoolExecutor | None = None
         #: For a node taking a person's earlier answers, how far through its units in order the leg has tried.
@@ -229,7 +230,7 @@ class Leg:
             for key, _, _ in waiting:
                 self.running.pop((node, key), None)
             waiting.clear()
-        for _, _, due, node, key, _ in self.timers:
+        for _, _, due, node, key, _, _ in self.timers:
             if due == "retry":
                 self.running.pop((node, key), None)
 
@@ -255,12 +256,12 @@ class Leg:
             pass
         now = time.monotonic()
         while self.timers and self.timers[0][0] <= now:
-            _, _, due, node, key, attempt = heapq.heappop(self.timers)
-            self._due(due, node, key, attempt)
+            _, _, due, node, key, attempt, seconds = heapq.heappop(self.timers)
+            self._due(due, node, key, attempt, seconds)
 
     def _after(self, seconds: float, due: Literal["retry", "deadline"], node: FunctionAtPath, key: ItemPath, attempt: int) -> None:
         """Set a timer: the retry of an attempt, or the deadline of the attempt on a thread."""
-        heapq.heappush(self.timers, (time.monotonic() + seconds, next(self.timer_order), due, node, key, attempt))
+        heapq.heappush(self.timers, (time.monotonic() + seconds, next(self.timer_order), due, node, key, attempt, seconds))
 
     def _fill_slots(self, node: FunctionAtPath) -> None:
         """Put the node's waiting units on threads, as far as its ``concurrency`` allows."""
@@ -335,7 +336,7 @@ class Leg:
             return
         try:
             kwargs = self.comes_to(node, key)
-        except FieldValueError as missing:  # an edge names a field the record it brings doesn't have
+        except UnitFailedError as missing:  # an edge names a field the record it brings doesn't have
             self._record(node, key, self._failure(node, key, missing), walking)
             return
         if kwargs is NOT_SETTLED:
@@ -406,14 +407,14 @@ class Leg:
     def _on_thread(self, node: FunctionAtPath, key: ItemPath, kwargs: dict[str, Any], attempt: int) -> None:
         self.returned.put((node, key, attempt, *call(node, kwargs, self.from_run)))
 
-    def _due(self, due: Literal["retry", "deadline"], node: FunctionAtPath, key: ItemPath, attempt: int) -> None:
-        """A timer fired: the retry of an attempt, or the deadline of the attempt on a thread."""
+    def _due(self, due: Literal["retry", "deadline"], node: FunctionAtPath, key: ItemPath, attempt: int, seconds: float) -> None:
+        """A timer set for ``seconds`` fired: the retry of an attempt, or the deadline of the attempt on a thread."""
         if due == "retry":
             if self.going:
                 self._attempt(node, key, self.running[(node, key)], attempt)
         elif self.attempts.get((node, key)) == attempt and (node, key) in self.running:  # the attempt still runs
             del self.running[(node, key)]
-            self._record(node, key, make_problem("timeout", *unit_loc(node, key), seconds=node.policy.attempt_timeout))
+            self._record(node, key, problem.timeout(*unit_loc(node, key), seconds=seconds))
 
     def _returned(self, node: FunctionAtPath, key: ItemPath, attempt: int, out: Any, error: BaseException | None) -> None:
         """A call came back from its thread: free its slot, and keep what it came to unless its attempt was
@@ -454,12 +455,12 @@ class Leg:
         if isinstance(error, Ask):
             try:
                 inputs = jsonable(kwargs)
-            except FieldValueError as unwritable:  # a person can't be shown what the node received
+            except UnitFailedError as unwritable:  # a person can't be shown what the node received
                 return self._failure(node, key, unwritable)
             try:
                 return Asking(question_asked(error, node.placed.outputs, inputs))
             except InvalidAskError as invalid:
-                return make_problem("invalid_ask", *unit_loc(node, key), reason=str(invalid))
+                return problem.invalid_ask(*unit_loc(node, key), reason=str(invalid))
         return self._failure(node, key, error)
 
     def _failure(self, node: FunctionAtPath, key: ItemPath, error: BaseException) -> Problem:
@@ -467,12 +468,12 @@ class Leg:
         loc = unit_loc(node, key)
         if isinstance(error, NodeError):
             return error._as_problem_at(*loc)
-        if isinstance(error, FieldValueError):
-            return make_problem(error.code, *loc, reason=error.reason, **error.ctx)
+        if isinstance(error, UnitFailedError):
+            return error.problem.model_copy(update={"loc": loc})
         _logger.error("node %r failed for item %r", node.name, key, exc_info=error)
         if isinstance(error, node.policy.retry_on):
-            return make_problem("external_failed", *loc, error=type(error).__name__)
-        return make_problem("execution_failed", *loc, error=type(error).__name__)
+            return problem.external_failed(*loc, error=type(error).__name__)
+        return problem.execution_failed(*loc, error=type(error).__name__)
 
     def _record(self, node: FunctionAtPath, key: ItemPath, unit: Unit | Problem, walking: bool = False) -> None:
         """Keep what a unit came to, and make ready what reads it."""
@@ -495,7 +496,7 @@ class Leg:
             for output in node.opens:
                 items = length(unit.out[output])
                 if items > self.max_items:
-                    self._stop_at_ceiling(node, key, output, items)
+                    self._stop_at_ceiling(node, key, output, items, self.max_items)
                     return
         if self.emit:
             self.touched.add(node)
@@ -571,17 +572,17 @@ class Leg:
             for output in node.opens:
                 for key, unit in self.units[node].items():
                     if type(unit) is not Asking and length(unit.out[output]) > ceiling:
-                        self._stop_at_ceiling(node, key, output, length(unit.out[output]))
+                        self._stop_at_ceiling(node, key, output, length(unit.out[output]), ceiling)
                         return
 
-    def _stop_at_ceiling(self, node: FunctionAtPath, key: ItemPath, output: str, items: int) -> None:
+    def _stop_at_ceiling(self, node: FunctionAtPath, key: ItemPath, output: str, items: int, ceiling: int) -> None:
         """Stop the leg at the item ceiling, unless it already ended for a failure, a cancel or its timeout, which
         stays the cause. The cause names the Series as the graph of the reader that works through it does,
         inside the item of each embedded graph's node around that."""
         if self.going:
             named, offered = node.opens[output]
             loc = unit_loc(named, key[: len(named.embedding.maps) if named.embedding is not None else 0])
-            self.end(EndedEarly("stopped", make_problem("item_ceiling", *loc, series=f"{named.placed.id}.{offered}", items=items, max_items=self.max_items)))
+            self.end(EndedEarly("stopped", problem.item_ceiling(*loc, series=f"{named.placed.id}.{offered}", items=items, max_items=ceiling)))
 
     # -- what the leg says --------------------------------------------------------------------
 

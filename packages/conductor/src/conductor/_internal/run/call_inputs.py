@@ -39,8 +39,10 @@ import abc
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Final, Literal, cast
 
-from conductor._internal.fields import SKIPPED, FieldValueError, Records
+from conductor._internal import problem
+from conductor._internal.fields import SKIPPED, Records
 from conductor._internal.loaded_graph.input_plans import Cell, Gather, Item, Read, WholeSeries
+from conductor._internal.problem import UnitFailedError
 from conductor._internal.units import (
     NOT_SETTLED,
     Asking,
@@ -107,8 +109,7 @@ class Reader(abc.ABC):
             got one; or ``NOT_SETTLED`` while something it reads is.
 
         Raises:
-            FieldValueError: An edge names a field the record it brings doesn't have (``invalid_edge_value``);
-                its ``ctx`` names the input.
+            UnitFailedError: An edge names a field the record it brings doesn't have (``invalid_edge_value``).
         """
         received = node.call_template.copy()
         caller_inputs = self.caller_inputs
@@ -119,9 +120,9 @@ class Reader(abc.ABC):
         for name, plan, takes_a_blank in node.fed:
             try:
                 value = plan.value(self, item_path)
-            except FieldValueError as missing:
-                missing.ctx = {"name": name, **missing.ctx}
-                raise
+            except NoSuchFieldError as missing:
+                reason = f"it has no field '{missing.field}'"
+                raise UnitFailedError(problem.invalid_edge_value(name=name, reason=reason, record_field=missing.field)) from None
             if value is SKIPPED:
                 return node.placed.skipped
             if value is NOT_SETTLED:  # a later input may be skipped, which settles the node whatever this one comes to
@@ -172,7 +173,7 @@ class ItemReader(Reader):
         on the edge is read from it.
 
         Raises:
-            FieldValueError: The edge names a field the record doesn't have (``invalid_edge_value``).
+            NoSuchFieldError: The edge names a field the record doesn't have.
         """
         depth = cell.depth
         unit = self.units[cell.node_id].get(item_path[:depth])
@@ -372,12 +373,24 @@ def field_of(value: Any, name: str) -> Any:
     """One field of a record: a mapping's key, else an attribute; of records held by column, that column.
 
     Raises:
-        FieldValueError: The record has no such field (``invalid_edge_value``). Only a record whose type
-            declares no fields can lack one: a field a type declares is checked when the graph loads.
+        NoSuchFieldError: The record has no such field. Only a record whose type declares no fields can lack
+            one: a field a type declares is checked when the graph loads.
     """
     try:
         return value[name] if type(value) is dict or isinstance(value, Mapping) else getattr(value, name)
     except (KeyError, AttributeError):
-        raise FieldValueError(f"it has no field '{name}'", code="invalid_edge_value", field=name) from None
+        raise NoSuchFieldError(name) from None
+
+
+class NoSuchFieldError(Exception):
+    """A record an edge brings has no field by the name the edge reads.
+
+    Attributes:
+        field: The name.
+    """
+
+    def __init__(self, field: str) -> None:
+        super().__init__(field)
+        self.field = field
 
 

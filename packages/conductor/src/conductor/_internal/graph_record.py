@@ -52,7 +52,6 @@ from conductor._internal.fields import SET_HAS_NO_ORDER
 from conductor._internal.problem import (
     InvalidCallError,
     Problem,
-    make_problem,
 )
 
 
@@ -165,7 +164,7 @@ def typed_in(node_id: str, values: Mapping[str, Any]) -> tuple[dict[str, JsonVal
     for name, value in values.items():
         if _holds_a_set(value):
             errors: list[dict[str, JsonValue]] = [{"type": "set_has_no_order", "loc": [], "msg": SET_HAS_NO_ORDER}]
-            problems.append(make_problem("invalid_value", node_id, name, reason=SET_HAS_NO_ORDER, errors=errors))
+            problems.append(problem.invalid_value(node_id, name, reason=SET_HAS_NO_ORDER, errors=errors))
             continue
         try:
             typed[name] = from_json(to_json(value, inf_nan_mode="strings"))
@@ -173,7 +172,7 @@ def typed_in(node_id: str, values: Mapping[str, Any]) -> tuple[dict[str, JsonVal
             reason = "a value typed into a graph is saved with it as JSON"
             if isinstance(value, pl.DataFrame):
                 reason += "; give a table as a list of records"
-            problems.append(make_problem("invalid_value", node_id, name, reason=reason))
+            problems.append(problem.invalid_value(node_id, name, reason=reason))
     return typed, problems
 
 

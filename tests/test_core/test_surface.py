@@ -149,7 +149,7 @@ def test_a_problem_dumps_to_json_and_reads_back():
 
     dumped = json.loads(told.model_dump_json())
 
-    assert dumped == {"type": "unknown_input", "loc": ["s", "facter"], "msg": told.msg, "ctx": {"inputs": ["value", "factor"]}}
+    assert dumped == {"type": "unknown_input", "loc": ["s", "facter"], "msg": told.msg, "ctx": {"node_id": "s", "field": "facter", "inputs": ["value", "factor"]}}
     assert Problem.model_validate(dumped) == told
 
 

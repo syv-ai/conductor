@@ -52,6 +52,7 @@ from typing import Any, Literal
 
 from pydantic import JsonValue, TypeAdapter, ValidationError
 
+from conductor._internal.problem.catalogue import external_failed, failed
 from conductor._internal.problem.type import Problem
 
 _SAID_OF_A_VALIDATOR = "The value did not pass its type's own check."
@@ -158,6 +159,21 @@ class InvalidCallError(ConductorError, ValueError):
         return list(self._problems)
 
 
+class UnitFailedError(Exception):
+    """A unit's call ends on a problem conductor names itself: what the node was to be given, or what it returned, is refused.
+
+    Raised where the fault is met, which knows what is wrong and not which unit it is; the leg gives the problem
+    its place. Never met by a caller: the leg records it as the unit's failure.
+
+    Attributes:
+        problem: The problem, with no ``loc``.
+    """
+
+    def __init__(self, problem: Problem) -> None:
+        super().__init__(problem.msg)
+        self.problem = problem
+
+
 class NodeError(ConductorError):
     """One node failed: what a node raises for a failure of its own with a message for people.
 
@@ -180,7 +196,7 @@ class NodeError(ConductorError):
             traceback at its own ``raise``.
     """
 
-    def __init__(self, message: str, *, code: str = "failed", ctx: Mapping[str, JsonValue] = MappingProxyType({})) -> None:
+    def __init__(self, message: str, *, code: str = failed.code, ctx: Mapping[str, JsonValue] = MappingProxyType({})) -> None:
         super().__init__(message)
         self.code = code
         self.ctx = _CTX.validate_python(ctx)
@@ -200,5 +216,5 @@ class ExternalError(NodeError):
     value it cannot use: retrying those repeats the same failure.
     """
 
-    def __init__(self, message: str, *, code: str = "external_failed", ctx: Mapping[str, JsonValue] = MappingProxyType({})) -> None:
+    def __init__(self, message: str, *, code: str = external_failed.code, ctx: Mapping[str, JsonValue] = MappingProxyType({})) -> None:
         super().__init__(message, code=code, ctx=ctx)

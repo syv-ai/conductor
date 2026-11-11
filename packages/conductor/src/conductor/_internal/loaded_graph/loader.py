@@ -30,6 +30,7 @@ from typing import Annotated, Any, Literal, TypeVar
 
 import pydantic
 
+from conductor._internal import problem
 from conductor._internal.fields import REQUIRED, Field, FieldValueError, Param, Series, Type
 from conductor._internal.graph_record import GraphRecord, NodeRecord
 from conductor._internal.loaded_graph.describe import GraphInput
@@ -64,7 +65,6 @@ from conductor._internal.node_definition import (
     read_by_hooks,
 )
 from conductor._internal.problem import (
-    CtxValue,
     NodeDeclarationError,
     NodeError,
     Problem,
@@ -237,7 +237,7 @@ class _Loader:
                 if on_cycles is None:
                     stuck = {n for n in order if waiting[n]}
                     on_cycles = [n for n in order if n in stuck and _reaches(n, n, readers, stuck)]  # on a cycle, not only below one
-                    self.problems += [make_problem("cycle", n) for n in on_cycles]
+                    self.problems += [problem.cycle(n) for n in on_cycles]
                 first = next(n for n in on_cycles if waiting[n] > 0)
                 waiting[first] = 0
                 ready.append(position[first])
@@ -342,7 +342,7 @@ class _Loader:
             generic: Whether a field holds a type variable for the edges to bind.
         """
         for name in sorted({*record.values, *record.defaults, *edges} - fields.keys()):
-            self.problems.append(make_problem("unknown_input", record.id, name, inputs=list(fields)))
+            self.problems.append(problem.unknown_input(record.id, name, inputs=list(fields)))
         sources = {name: self._sources(record.id, name, edges[name]) for name in fields if name in edges}
         bound = None
         if generic:
@@ -355,7 +355,7 @@ class _Loader:
                 self.problems.append(make_problem("value_and_default", record.id, name))
             if name in edges:
                 if name in record.values or name in record.defaults:
-                    self.problems.append(make_problem("value_and_edge", record.id, name))
+                    self.problems.append(problem.value_and_edge(record.id, name))
                 brought = sources[name]
                 inputs[name] = Unset(spec) if brought is None else self._fed(record.id, spec, brought)
             elif name in record.values:
@@ -407,7 +407,7 @@ class _Loader:
             try:
                 typed[name] = spec.whole.read(record.values[name] if name in record.values else record.defaults[name])
             except FieldValueError as refused:
-                self.problems.append(make_problem("invalid_value", record.id, name, reason=refused.reason, **refused.ctx))
+                self.problems.append(problem.invalid_value(record.id, name, reason=refused.reason, errors=refused.errors, column=refused.column))
                 typed[name] = _REFUSED
         return typed
 
@@ -666,20 +666,18 @@ def _mismatch(node_id: str, spec: Field, source: Source) -> Problem:
     It says the fix where one mistake explains it: a whole table or list wired to an input of one value wants a
     Split first, and a table input fed records without a column it names wants that column.
     """
-    said: dict[str, CtxValue] = {
-        "source": source.address,
-        "got": f"Series[{source.type.text}]" if isinstance(source, Item) else source.type.text,
-        "expected": spec.whole.id,
-    }
+    address, expected = source.address, spec.whole.id
+    got = f"Series[{source.type.text}]" if isinstance(source, Item) else source.type.text
     split = _split_gives(source.type)
     if spec.whole.record is not None:
         has = (source.type.record or source.type).fields
         missing = [column for column in spec.whole.fields if column not in has]
         if has and missing:
-            said.update(hint="add_column", column=missing[0], column_type=Type(spec.whole.fields[missing[0]]).id, has=list(has))
+            column_type = Type(spec.whole.fields[missing[0]]).id
+            return problem.type_mismatch_add_column(node_id, spec.name, source=address, got=got, expected=expected, column=missing[0], column_type=column_type, has=list(has))
     elif split and not spec.many:
-        said.update(hint="split_first", whole=split[0], fields=split[1])
-    return make_problem("type_mismatch", node_id, spec.name, **said)
+        return problem.type_mismatch_split_first(node_id, spec.name, source=address, got=got, expected=expected, whole=split[0], fields=split[1])
+    return problem.type_mismatch(node_id, spec.name, source=address, got=got, expected=expected)
 
 
 def _fixed(spec: Field, typed: Any) -> Fixed | Unset:

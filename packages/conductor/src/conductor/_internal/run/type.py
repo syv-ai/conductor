@@ -34,6 +34,7 @@ from typing import TYPE_CHECKING, Any, cast, overload
 import pydantic_core
 from pydantic import ValidationError
 
+from conductor._internal import problem
 from conductor._internal.address import (
     ItemPath,
     NodePath,
@@ -200,7 +201,7 @@ class Run:
 
         def stop() -> RunState | None:
             if cancelled.is_set() or (cancel is not None and cancel.is_set()):
-                return EndedEarly("cancelled", make_problem("run_cancelled"))
+                return EndedEarly("cancelled", problem.run_cancelled())
             if hand_back is not None and hand_back.is_set():
                 return _RUNNING  # the leg stops and the run goes on elsewhere
             return deadline() if deadline is not None else None
@@ -287,18 +288,18 @@ class Run:
             try:
                 loc, nodes, key = _parse_place(place)
             except ValueError:  # a place in it isn't a number
-                problems.append(make_problem("not_waiting", unit_id.partition("@")[0], waiting_id=unit_id, status=self.status))
+                problems.append(problem.not_waiting(unit_id.partition("@")[0], waiting_id=unit_id, status=self.status))
                 continue
             node = self.graph._node_at.get(node_name(nodes))
             found = self._units[node.name].get(key) if type(node) is FunctionAtPath else None
             if type(node) is not FunctionAtPath or type(found) is not Asking:
-                moved = {"moved_to": went} if fingerprint and (went := self._moved_to(nodes, fingerprint)) else {}
-                problems.append(make_problem("not_waiting", *loc, waiting_id=unit_id, status=self.status, **moved))
+                moved_to = self._moved_to(nodes, fingerprint) if fingerprint else None
+                problems.append(problem.not_waiting(*loc, waiting_id=unit_id, status=self.status, moved_to=moved_to))
                 continue
             placed = node.placed
             if fingerprint and question_fingerprint(placed, found) != fingerprint:
-                moved = {"moved_to": went} if (went := self._moved_to(nodes, fingerprint)) else {}
-                problems.append(make_problem("answer_stale", *loc, waiting_id=unit_id, current=waiting_unit(placed, unit_loc(node, key), found).id, **moved))
+                current = waiting_unit(placed, unit_loc(node, key), found).id
+                problems.append(problem.answer_stale(*loc, waiting_id=unit_id, current=current, moved_to=self._moved_to(nodes, fingerprint)))
                 continue
             if (node, key) in answered:
                 problems.append(make_problem("invalid_answer", *loc, waiting_id=unit_id, reason="the unit is answered twice in one call"))
@@ -645,4 +646,4 @@ def _deadline(timeout: float | None) -> Callable[[], EndedEarly | None] | None:
     if timeout is None:
         return None
     end = time.monotonic() + timeout
-    return lambda: EndedEarly("timed_out", make_problem("run_timed_out", timeout=timeout)) if time.monotonic() > end else None
+    return lambda: EndedEarly("timed_out", problem.run_timed_out(timeout=timeout)) if time.monotonic() > end else None

@@ -554,7 +554,7 @@ def _fails_with(graph: Any) -> tuple[Any, ...]:
     """How a run of ``graph`` ended: its status, and its cause's code, place, input and field."""
     run = graph.run()
     cause = run.state.cause
-    return run.status, cause.type, cause.loc, cause.ctx["name"], cause.ctx["field"]
+    return run.status, cause.type, cause.loc, cause.ctx["name"], cause.ctx["record_field"]
 
 
 @pytest.mark.parametrize(("declared", "returned"), [(dict, {"other": 1}), (Any, 5), (Any, {"other": 1})])
