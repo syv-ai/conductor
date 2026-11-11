@@ -28,7 +28,7 @@ from conductor._internal.checked_graph.describe import (
     runs_on,
 )
 from conductor._internal.checked_graph.input_plans import InputFedByEdges, InputPlan, Scope
-from conductor._internal.fields import Field, FieldDescription
+from conductor._internal.field import Field, FieldDescription
 from conductor._internal.graph_record import GraphRecord
 from conductor._internal.node_definition import FunctionDefinition, StoredGraphDefinition
 from conductor._internal.problem import Problem

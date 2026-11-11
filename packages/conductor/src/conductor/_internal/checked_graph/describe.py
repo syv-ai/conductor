@@ -13,7 +13,7 @@ from conductor._internal.checked_graph.input_plans import (
     Scope,
 )
 from conductor._internal.conductor_model import ConductorModel
-from conductor._internal.fields import FieldDescription
+from conductor._internal.field import FieldDescription
 from conductor._internal.problem import Problem
 
 

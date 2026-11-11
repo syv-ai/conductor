@@ -54,7 +54,7 @@ from conductor._internal.checked_graph.type import (
     PlacedFunction,
     PlacedNode,
 )
-from conductor._internal.fields import Field
+from conductor._internal.field import Field
 from conductor._internal.graph_record import GraphRecord, NodeRecord
 from conductor._internal.node_definition import (
     FunctionDefinition,

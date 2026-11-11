@@ -50,7 +50,7 @@ from typing import Any, Literal
 
 from conductor._internal import kit_problem
 from conductor._internal.checked_graph import load_graph
-from conductor._internal.fields import Field
+from conductor._internal.field import Field
 from conductor._internal.graph import Graph
 from conductor._internal.graph_record import GraphRecord, NodeRecord, values_as_json
 from conductor._internal.node_definition import (

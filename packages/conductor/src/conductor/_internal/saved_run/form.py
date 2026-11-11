@@ -10,7 +10,7 @@ from typing import Any, NamedTuple
 from pydantic import TypeAdapter
 from pydantic_core import CoreConfig, CoreSchema, SchemaSerializer, SchemaValidator, core_schema
 
-from conductor._internal.fields import Field
+from conductor._internal.field import Field
 from conductor._internal.saved_run.read import earlier_of, units_of
 from conductor._internal.saved_run.type import (
     SavedEarlier,

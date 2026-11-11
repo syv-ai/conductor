@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Any, Final, final
 
 from conductor._internal.address import ItemPath
 from conductor._internal.ask import Question
-from conductor._internal.fields import Field
+from conductor._internal.field import Field
 from conductor._internal.sentinels import SKIPPED
 
 if TYPE_CHECKING:

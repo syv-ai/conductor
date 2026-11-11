@@ -10,7 +10,7 @@ import pydantic_core
 
 from conductor._internal import problem
 from conductor._internal.checked_graph import FunctionAtPath
-from conductor._internal.fields import Field
+from conductor._internal.field import Field
 from conductor._internal.node_definition import Returns
 from conductor._internal.problem import UnitFailedError
 from conductor._internal.sentinels import SKIPPED

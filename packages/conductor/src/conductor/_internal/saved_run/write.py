@@ -9,7 +9,7 @@ import pydantic_core
 
 from conductor._internal.ask import Question
 from conductor._internal.earlier_work import EarlierWork
-from conductor._internal.fields import Field
+from conductor._internal.field import Field
 from conductor._internal.saved_run.type import (
     SAVED_DONE,
     SAVED_SKIPPED,
