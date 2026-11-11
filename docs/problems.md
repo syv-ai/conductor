@@ -2,7 +2,7 @@
 
 Everything conductor reports has a stable code. A `Problem`'s `type` is one, and so is a `NodeDeclarationError`'s `code`. This page has each code: where you meet it, an example that makes it, and the fix. A host that translates messages keys on the code and fills its sentence from `ctx`. `PROBLEM_CODES` holds every code a `Problem` can have that conductor writes itself; a code not in it is a node's own, from `NodeError(code=)`.
 
-Every example on this page runs after this block. `problems(drawing)` loads a drawing and lists the codes of what is wrong with it; `refused(call)` makes a call and lists the codes it was refused for, and `said(call)` the sentence of each.
+Every example on this page runs after this block. `problems(drawing)` loads a drawing and lists the codes of what is wrong with it, and `told(drawing)` the sentence of each; `refused(call)` makes a call and lists the codes it was refused for, and `said(call)` the sentence of each.
 
 ```python
 import asyncio
@@ -366,8 +366,6 @@ Two mismatches have a sentence of their own, and `ctx.hint` says which.
 
 A whole table or list wired into an input of one value is `split_first`:
 
-> '{source}' is a whole {whole} and '{node_id}.{field}' takes one {expected}. To run '{node_id}' once for each record or item in it, put a Split between them and wire Split's result, or one field of it.
-
 ```python
 from typing import TypedDict
 
@@ -395,13 +393,12 @@ whole = registry.load({
     "edges": [["c.result", "u.text"]],
 }).problems[0]
 print(whole.type, whole.ctx["hint"], whole.ctx["fields"])  # type_mismatch split_first ['name', 'email']
+print(whole.msg)  # 'c.result' is a whole table and 'u.text' takes one str. To run 'u' once for each record or item in it, put a Split between them and wire Split's result, or one field of it.
 ```
 
 **Fix.** A table or a list is one value. Put a node between that gives its records or items as a `Series` (`split` in `syv-conductor-nodes`), and wire that node's result, or one field of it (`split.result.email`). `ctx.whole` is `table` or `list`, and `ctx.fields` lists a table's columns.
 
 A table wired into a `Table[R]` input that names a column the table lacks is `add_column`:
-
-> '{node_id}.{field}' needs the column '{column}' ({column_type}); '{source}' has {has}. Add the column in a node between, or connect a table that has it.
 
 ```python
 @registry.node("total", title="Total", description="Adds up the amounts on all invoices.")
@@ -414,6 +411,7 @@ lacking = registry.load({
     "edges": [["c.result", "t.invoices"]],
 }).problems[0]
 print(lacking.type, lacking.ctx["hint"], lacking.ctx["column"])  # type_mismatch add_column amount
+print(lacking.msg)  # 't.invoices' needs the column 'amount' (int); 'c.result' has name, email. Add the column in a node between, or connect a table that has it.
 ```
 
 **Fix.** Wire in a table that has every column the input names, add the column in a node between, or type the input as a bare `Table`, which takes any columns. `ctx.column` and `ctx.column_type` say what is missing, and `ctx.has` lists the columns the table has.
@@ -474,14 +472,13 @@ print(told(drawing)[0])  # 'a.text' is not something that node gives; it gives a
 
 A field named on a whole table or list has a sentence of its own, with `ctx.hint` set to `split_first`:
 
-> '{source}' names a field of a whole {whole}, which has no field to wire. Split it first: put a Split after it and wire the field from Split's result.
-
 ```python
 column = registry.load({
     "nodes": [{"id": "c", "node": "contacts"}, {"id": "u", "node": "upper"}],
     "edges": [["c.result.email", "u.text"]],
 }).problems[0]
 print(column.type, column.ctx["hint"])  # unknown_output split_first
+print(column.msg)  # 'c.result.email' names a field of a whole table, which has no field to wire. Split it first: put a Split after it and wire the field from Split's result.
 ```
 
 **Fix.** A table is one value, so it has no field to wire. Put a node after it that gives its records as a `Series` (`split` in `syv-conductor-nodes`), and wire the field from that node's result: `split.result.email`.
@@ -921,24 +918,25 @@ Its `ctx` keys are in the reference: `python -m conductor.about question-unwrita
 
 ### `run_cancelled`
 
-> The run was cancelled. Resume it to carry on, or start a new run.
-
 ```python
-async def cancelled() -> str:
+async def cancelled() -> tuple[str, str]:
     stop = asyncio.Event()
     stop.set()
     async for event in uppering.with_inputs(text="a").stream(cancel=stop):
         if event.type == "run_end":
             match event.run.state:
                 case EndedEarly(cause=cause):
-                    return cause.type
-    return ""
+                    return cause.type, cause.msg
+    return "", ""
 
 
-print(asyncio.run(cancelled()))  # run_cancelled
+print(asyncio.run(cancelled())[0])  # run_cancelled
+print(asyncio.run(cancelled())[1])  # The run was cancelled. Resume it to carry on, or start a new run.
 ```
 
 **Fix.** Store the run and `resume()` it to carry on. The calls made before the cancel are kept.
+
+Its `ctx` keys are in the reference: `python -m conductor.about run-cancelled`.
 
 ### `run_timed_out`
 
