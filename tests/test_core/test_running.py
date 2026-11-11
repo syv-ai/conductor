@@ -8,7 +8,6 @@ at a time, or on threads, with retries and a clock on each attempt.
 """
 
 import asyncio
-import json
 import math
 import threading
 import time
