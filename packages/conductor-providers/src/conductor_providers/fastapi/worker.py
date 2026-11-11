@@ -422,7 +422,7 @@ class Worker(Generic[C]):
         row, nodes = run.row, self._nodes_for(self.started_by(run.row))
         answered = await asyncio.to_thread(lambda: _loaded(row, nodes).answer(answers).to_json())
         state = run.state.model_copy(update={"run_state": _RUNNING})
-        if not await self._claim(run, state, {"run": answered, **state.columns()}):
+        if not await self._claim(run, state, answered=answered):
             raise RefusedError(_problem("run_changed"))
         return "started"
 
@@ -440,7 +440,7 @@ class Worker(Generic[C]):
         if not isinstance(run.state.run_state, EndedEarly):
             raise RefusedError(_problem("run_not_resumable", status=run.state.run_state.status))
         state = run.state.model_copy(update={"run_state": _RUNNING})
-        if not await self._claim(run, state, state.columns(), max_items):
+        if not await self._claim(run, state, ceiling=max_items):
             raise RefusedError(_problem("run_changed"))
 
     async def cancel(self, run: RunAsRead) -> bool:
@@ -464,7 +464,7 @@ class Worker(Generic[C]):
             if row.id not in held:
                 try:
                     run = RunAsRead.of(row)
-                    await self._claim(run, run.state, {})
+                    await self._claim(run, run.state)
                 except Exception:
                     log.exception("run %s, whose lease ran out, was not taken over; the next sweep tries again", row.id)
 
@@ -506,20 +506,23 @@ class Worker(Generic[C]):
         self._run_legs(row, state)
         return row.id
 
-    async def _claim(self, run: RunAsRead, state: StoredState, changes: RunChanges, ceiling: int | None = None) -> bool:
+    async def _claim(self, run: RunAsRead, state: StoredState, *, answered: str | None = None, ceiling: int | None = None) -> bool:
         """Take a run for this worker if it is still at the ``rev`` read, and run its next leg. Of two workers, one
         wins.
 
         Args:
             run: The run as read.
-            state: The row's state once ``changes`` are written.
-            changes: The columns to write beside the owner and the lease.
+            state: The state the row takes with the claim; its ``status`` and ``state`` are written from it.
+            answered: The run with a caller's answers given, as JSON, for a claim that an answer makes; the row's
+                ``run`` then. Left out, the row keeps the run it has.
             ceiling: A ceiling on the items of any one Series for the leg, where the run's own is to be raised.
 
         Returns:
             Whether this worker took the run.
         """
-        written: RunChanges = {**changes, **self._mine()}
+        written: RunChanges = {**state.columns(), **self._mine()}
+        if answered is not None:
+            written["run"] = answered
         if not await self._store.update(run.row.id, run.row.rev, written):
             return False
         self._run_legs(replace(run.row, **written, rev=run.row.rev + 1), state, ceiling)
