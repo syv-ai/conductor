@@ -303,7 +303,7 @@ class _Loader:
         if inner.problems:
             self.problems += [problem.model_copy(update={"loc": (record.id, *problem.loc)}) for problem in inner.problems]
             return
-        fields = {offered.name: Field(offered.name, offered.spec.hint, offered.spec.default) for offered in inner._input_fields.values()}
+        fields = {offered.name: Field(offered.name, offered.field.hint, offered.field.default) for offered in inner._input_fields.values()}
         outputs: dict[str, Field] = {}
         for address in inner.outputs:
             node_id, _, output = address.partition(".")
@@ -383,7 +383,7 @@ class _Loader:
         for name, plan in inputs.items():
             if isinstance(plan, InputGathersItems) and (made_in := plan.sources[0].read_in) == scope[: len(made_in)] and all(isinstance(s, WholeOutput) for s in plan.sources):
                 # its source makes one value where the node runs, for another input's sake: that one, never every item's
-                inputs[name] = InputGathersOneValue(plan.spec, typing.cast("tuple[WholeOutput, ...]", plan.sources))
+                inputs[name] = InputGathersOneValue(plan.field, typing.cast("tuple[WholeOutput, ...]", plan.sources))
         for name, plan in inputs.items():
             if isinstance(plan, InputFedByEdges) and scope[: len(plan.scope)] != plan.scope:  # items of two Series never pair up
                 series = [scope[-1], plan.scope[-1]]
@@ -393,7 +393,7 @@ class _Loader:
                     record.id, series=[str(s) for s in series], inputs=[reading, name],
                     wire_from=str(outer), wire_into=inner.node_id,
                 ))
-                inputs[name] = InputNotFed(plan.spec)
+                inputs[name] = InputNotFed(plan.field)
         return _Planned(inputs, scope, self._rests_on(inputs), bound)
 
     def _typed(self, record: NodeRecord, fields: Mapping[str, Field]) -> dict[str, Any]:
@@ -586,7 +586,7 @@ class _Loader:
                 refused.add(name)
         aligned = [
             (name, [self._branch(s) for s in plan.sources]) for name, plan in inputs.items()
-            if isinstance(plan, InputGathersItems) and not plan.spec.keeps_blanks and name not in refused
+            if isinstance(plan, InputGathersItems) and not plan.field.keeps_blanks and name not in refused
         ]
         for i, (a, behind_a) in enumerate(aligned):
             for b, behind_b in aligned[i + 1:]:

@@ -109,7 +109,7 @@ class Graph(CheckedGraph):
         """How this graph's runs are read from JSON and written as it, made when the first one is."""
         return save_form(
             self.fingerprint,
-            inputs={address: offered.spec.whole for address, offered in self._input_fields.items()},
+            inputs={address: offered.field.whole for address, offered in self._input_fields.items()},
             outputs={node.name: node.placed.outputs for node in self._tree},
             nodes=[node.name for node in self._tree],
         )
@@ -139,11 +139,11 @@ class Graph(CheckedGraph):
         problems, values = list(problems), dict[str, Any]()
         for address, offered in self._input_fields.items():
             if address not in given:
-                if offered.spec.default is REQUIRED:
+                if offered.field.default is REQUIRED:
                     problems.append(problem.missing_input("inputs", offered.name, name=offered.name))
-                values[address] = offered.spec.default
+                values[address] = offered.field.default
                 continue
-            value, spec = given[address], offered.spec
+            value, spec = given[address], offered.field
             try:
                 values[address] = spec.whole.read(value)
             except FieldValueError as refused:

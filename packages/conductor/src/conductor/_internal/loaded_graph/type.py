@@ -59,7 +59,7 @@ class _Placed:
     @functools.cached_property
     def plain_inputs(self) -> bool:
         """Whether no input can hold a mapping, so what a unit received needs no key sorting to hash."""
-        return all(plan.spec.type.hashes_plainly for plan in self.inputs.values())
+        return all(plan.field.type.hashes_plainly for plan in self.inputs.values())
 
 
 @typing.final
@@ -81,7 +81,7 @@ class PlacedFunction(_Placed):
         choice, or one that runs in another scope, is called again by ``run.again``. Code is read from the function's own bytecode and
         constants, not from what it calls.
         """
-        specs = (*(plan.spec for plan in self.inputs.values()), *self.outputs.values())
+        specs = (*(plan.field for plan in self.inputs.values()), *self.outputs.values())
         fields = [(spec.name, spec.whole.reads_as) for spec in specs]
         definition = self.definition
         written = repr((definition.id, definition.version, _code_text(inspect.unwrap(definition.function).__code__), fields, self.scope))
@@ -139,13 +139,13 @@ class InputField:
     Attributes:
         name: Its name in ``graph.inputs``: the input's own, or its address where two inputs share a name.
         address: Where the caller's value is kept, ``node.input``.
-        spec: Its field, whose default is what it holds when the caller gives nothing: the record's default, else
+        field: Its field, whose default is what it holds when the caller gives nothing: the record's default, else
             the node's, and ``REQUIRED`` when the caller must give one.
     """
 
     name: str
     address: str
-    spec: Field
+    field: Field
 
 
 @dataclass(frozen=True, eq=False)
@@ -223,7 +223,7 @@ class CheckedGraph:
                 continue
             nodes[record.id] = GraphNodeDescription(
                 node=record.node, version=record.version, loaded=True, problems=own, runs=_runs_on(placed.scope),
-                inputs=[PlacedFieldDescription(field=plan.spec.description, feed=_feed(placed.scope, plan)) for plan in placed.inputs.values()],
+                inputs=[PlacedFieldDescription(field=plan.field.description, feed=_feed(placed.scope, plan)) for plan in placed.inputs.values()],
                 outputs=[spec.description for spec in placed.outputs.values()],
             )
         return GraphDescription(nodes=nodes, inputs=dict(self.inputs), outputs=self.outputs, problems=list(self.problems))

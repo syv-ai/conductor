@@ -372,7 +372,7 @@ class AnyItemReader(Reader):
         blank receives the blank an edge brings, so it could hold one."""
         edges = plan.sources
         brought = self.cell(edges[0], self.item_path) if len(edges) == 1 else self.best_of(edges, self.item_path)
-        return COULD if brought is None and plan.spec.keeps_blanks else brought
+        return COULD if brought is None and plan.field.keeps_blanks else brought
 
 
 def field_of(value: Any, name: str) -> Any:

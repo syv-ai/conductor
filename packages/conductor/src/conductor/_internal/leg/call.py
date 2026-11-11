@@ -25,7 +25,7 @@ def call(node: FunctionAtPath, kwargs: dict[str, Any], from_run: Mapping[type, A
     definition = placed.definition
     try:
         for name in node.checked:
-            kwargs = {**kwargs, name: _checked(placed.inputs[name].spec, name, kwargs[name], returned=False)}
+            kwargs = {**kwargs, name: _checked(placed.inputs[name].field, name, kwargs[name], returned=False)}
         if definition.from_run:
             kwargs = {**kwargs, **{name: from_run[needed] for name, needed in definition.from_run.items()}}
         returned = definition.function(**kwargs)

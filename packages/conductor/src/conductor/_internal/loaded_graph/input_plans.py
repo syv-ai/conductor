@@ -156,11 +156,11 @@ class InputHoldsValue:
     """An input that holds one value on every call: typed into the node, or its default.
 
     Attributes:
-        spec: The input's field.
+        field: The input's field.
         value: The value, as the field's type read it.
     """
 
-    spec: Field
+    field: Field
     value: Any
 
 
@@ -172,10 +172,10 @@ class InputNotFed:
     known). The graph holds the problem, so it never runs; the node is still drawn, with this input to fill.
 
     Attributes:
-        spec: The input's field.
+        field: The input's field.
     """
 
-    spec: Field
+    field: Field
 
 
 @final
@@ -184,11 +184,11 @@ class InputFromCaller:
     """An input of a first node that nothing fills: the graph's input, which the caller gives.
 
     Attributes:
-        spec: The input's field.
+        field: The input's field.
         address: Where a run keeps the caller's value, ``node.input``.
     """
 
-    spec: Field
+    field: Field
     address: str
 
 
@@ -198,13 +198,13 @@ class InputReadsOneValue:
     """An input that edges bring one value on each call.
 
     Attributes:
-        spec: The input's field.
+        field: The input's field.
         reads: Every cell the input is made from: what each edge brings. Several are alternatives, on opposite
             branches of one decision: a call receives the one whose branch was taken.
         scope: The scope the value sits in.
     """
 
-    spec: Field
+    field: Field
     reads: tuple[Source, ...]
     scope: Scope
 
@@ -225,7 +225,7 @@ class InputGathersItems:
     """An input of many (a ``Series``, or a ``Table`` fed records) that receives the items of one map as a list.
 
     Attributes:
-        spec: The input's field.
+        field: The input's field.
         reads: Every cell the input is made from: the Series whose items are gathered, where it was made; where
             the items sit more than one map under it, each Series on the way down; then what each edge brings
             for an item. Several edges are alternatives, as for any input.
@@ -236,7 +236,7 @@ class InputGathersItems:
             outside the items. A checked graph's own plan names none.
     """
 
-    spec: Field
+    field: Field
     reads: tuple[OutputAtScope, ...]
     levels: int = 1
     through: tuple[FunctionAtPath, ...] = ()
@@ -269,12 +269,12 @@ class InputGathersOneValue:
     the node runs, or outside the items the node runs per. Each call receives that one value as a list of one.
 
     Attributes:
-        spec: The input's field.
+        field: The input's field.
         reads: Every cell the input is made from: what each edge brings. Several are alternatives, as for any
             input.
     """
 
-    spec: Field
+    field: Field
     reads: tuple[WholeOutput, ...]
 
     @property
@@ -287,7 +287,7 @@ class InputGathersOneValue:
         items take a blank, a blank is its one item."""
         reads = self.reads
         value = reader.cell(reads[0], item_path) if len(reads) == 1 else reader.best_of(reads, item_path)
-        if value is SKIPPED or value is NOT_SETTLED or (value is None and not self.spec.keeps_blanks):
+        if value is SKIPPED or value is NOT_SETTLED or (value is None and not self.field.keeps_blanks):
             return value
         return [value]
 
