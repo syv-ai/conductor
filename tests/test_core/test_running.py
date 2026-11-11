@@ -342,6 +342,38 @@ def test_an_instant_node_beside_forty_slow_items_does_not_time_out():
     assert run.status == "complete" and run.outputs["i.result"] == "now" and len(calls) == 40
 
 
+def test_units_recorded_as_threads_return_are_read_in_item_order_live_in_a_checkpoint_and_after_a_load():
+    """Calls on threads finish when they finish; what a run says of a node's units is in item order all the same."""
+
+    @node("first-is-last", title="First is last", description="", policy=Policy(concurrency=4))
+    def first_is_last(text: str) -> str | None:
+        if text == "0":
+            time.sleep(0.3)  # the first item returns after every other
+        return None
+
+    @node("needs-text", title="Needs text", description="")
+    def needs_text(text: str) -> str:
+        return text
+
+    graph = registry_of(split, first_is_last, needs_text).load(GraphRecord(
+        nodes=[NodeRecord(id="split", node="split", values={"text": _numbers(4)}), NodeRecord(id="slow", node="first-is-last"), NodeRecord(id="after", node="needs-text")],
+        edges=[("split.result", "slow.text"), ("slow.result", "after.text")],
+    ))
+    in_item_order = [("after", 0), ("after", 1), ("after", 2), ("after", 3)]
+
+    async def streamed() -> list[Any]:
+        return [event async for event in graph.with_inputs().stream(checkpoint_every=0.0001)]
+
+    events = asyncio.run(asyncio.wait_for(streamed(), BOUND))
+    run = events[-1].run
+    checkpoints = [event.run for event in events if event.type == "run_checkpoint"]
+
+    assert [call.loc for call in run.not_called] == in_item_order
+    assert [call.loc for call in graph.load_run(run.to_json()).not_called] == in_item_order
+    assert checkpoints and all([call.loc for call in held.not_called] == sorted(call.loc for call in held.not_called) for held in checkpoints)
+    assert any(len(held.not_called) > 1 for held in checkpoints)  # some checkpoint held the later items before the first
+
+
 def test_concurrency_one_with_an_attempt_timeout_never_has_two_calls_in_flight():
     """A timed-out attempt is final and its thread keeps the node's slot until it returns."""
     in_flight, most = 0, 0

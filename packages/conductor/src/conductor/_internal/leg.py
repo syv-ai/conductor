@@ -260,6 +260,8 @@ class Leg:
         self.nodes = run.graph._tree
         #: Each node's units by instance: the run's own, recorded into.
         self.units = units = {node: run._units[node.inside][node.placed.id] for node in self.nodes}
+        #: The nodes whose units were recorded out of instance order, as calls on threads finish when they finish.
+        self.out_of_order: set[NodeAtPath] = set()
         #: What each node may take from the run this one went on from, by its path.
         self.carried = run._earlier
         #: Whether nothing has ended the leg early; ``end`` is the one place that does.
@@ -380,7 +382,18 @@ class Leg:
         """Hand the listener a copy of the run as it stands, and set when the next is due."""
         assert self.emit is not None and self.checkpoint_every is not None
         self.next_checkpoint = time.monotonic() + self.checkpoint_every
+        self._put_in_order()
         self.emit(RunCheckpoint(run=self.run._copy()))
+
+    def _put_in_order(self) -> None:
+        """Put the units of each node recorded out of instance order back in it, so the run holds every node's
+        units in instance order whenever it leaves the leg: at its end, and as a checkpoint's copy."""
+        for node in self.out_of_order:
+            units = self.units[node]
+            in_order = sorted(units.items())
+            units.clear()
+            units.update(in_order)
+        self.out_of_order.clear()
 
     def _look_over(self) -> bool:
         """With nothing ready to try: start the gathering units nothing works under any more and say which nodes
@@ -453,6 +466,7 @@ class Leg:
     def _close(self) -> None:
         """Say how the run stands now the leg is over, and which of its nodes are finished."""
         run = self.run
+        self._put_in_order()
         # one look at every unit: a node already said complete has no unit waiting
         waiting = {node for node, units in self.units.items() if node not in self.complete and Asking in {type(unit) for unit in units.values()}}
         if self.going and not waiting:  # every unit of every node is finished, and nothing carried will be taken
@@ -565,7 +579,7 @@ class Leg:
             return
         units, placed = self.units[node], node.placed
         if units and key not in units and key < next(reversed(units)):
-            run._unordered.add(node.path)
+            self.out_of_order.add(node)
         units[key] = unit
         if not walking:
             self.recorded_since_walk += 1

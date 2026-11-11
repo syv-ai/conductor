@@ -264,15 +264,14 @@ class Run:
     inputs: dict[str, Any]
     max_items: int | None
     state: RunState
-    #: Each node's units by instance, by the node's id, for each graph of the tree by the path of the node that
-    #: embeds it: ``_units[()]["w"]`` for a node of the graph itself, ``_units[("e",)]["ask"]`` for one inside ``e``.
+    #: Each node's units by instance, in instance order, by the node's id, for each graph of the tree by the path of
+    #: the node that embeds it: ``_units[()]["w"]`` for a node of the graph itself, ``_units[("e",)]["ask"]`` for one
+    #: inside ``e``. Only a leg records out of that order, and it puts the units back in it before it hands the run on.
     _units: dict[NodePath, _UnitsOfAGraph]
     #: What each node may take from the run this one went on from.
     _earlier: dict[NodePath, Earlier]
     #: For a node whose units a saved run made with other code or another signature, what that code was; they are never carried.
     _ran_as: dict[NodePath, str]
-    #: The nodes whose units were recorded out of instance order (threads finish when they finish), sorted when read.
-    _unordered: set[NodePath]
     #: The nodes every unit of which was finished when the last leg ended, so a later leg doesn't say them complete again.
     _complete: frozenset[NodePath]
 
@@ -489,7 +488,7 @@ class Run:
                 continue
             placed = node.placed
             earlier = carried[node.path] = Earlier()
-            for key, unit in self._in_order(node):
+            for key, unit in self._units[node.inside][placed.id].items():
                 if not isinstance(unit, (Done, Asking)):
                     continue
                 fingerprint = _fingerprint(placed.reuse_digest, self._inputs(node, key), plain=placed.plain_inputs)
@@ -534,14 +533,9 @@ class Run:
         """Every unit waiting for a person, with its node and instance, in node then instance order."""
         for node in self.graph._tree:
             if isinstance(node, FunctionAtPath):
-                for key, unit in self._in_order(node):
+                for key, unit in self._units[node.inside][node.placed.id].items():
                     if isinstance(unit, Asking):
                         yield node, key, unit
-
-    def _in_order(self, node: NodeAtPath) -> Any:
-        """A node's units in instance order."""
-        units = self._units[node.inside][node.placed.id]
-        return sorted(units.items()) if node.path in self._unordered else units.items()
 
     @property
     def not_called(self) -> list[NotCalled]:
@@ -825,7 +819,7 @@ class Run:
         units = self._units[node.inside][node.placed.id]
         counted, _ = self._instances(node.maps, (), counted=True)
         if len(units) == ((counted[0][0] if counted else 0) if node.maps else 1):  # every instance ran: the units as they stand
-            return [unit for _, unit in sorted(units.items())] if node.path in self._unordered else list(units.values())
+            return list(units.values())
         return [units.get(instance) for instance in self._instances(node.maps, ())[0]]
 
     def _copy(self, *, share_units: bool = False, **changes: Any) -> Run:
@@ -839,7 +833,7 @@ class Run:
         if not share_units:
             for path, earlier in self._earlier.items():  # its own answers to take, as this run holds them too
                 copy._earlier[path] = Earlier(earlier.at, earlier.computed, {asked: list(units) for asked, units in earlier.asked.items()})
-        copy.state, copy._unordered = self.state, set(self._unordered)
+        copy.state = self.state
         copy._ran_as, copy._complete = self._ran_as, self._complete
         return copy
 
@@ -951,7 +945,6 @@ def start_run(graph: Graph, inputs: dict[str, Any], max_items: int | None, earli
     run.state = _READY
     run._earlier = earlier
     run._ran_as = {}
-    run._unordered = set()
     run._complete = frozenset()
     return run
 
