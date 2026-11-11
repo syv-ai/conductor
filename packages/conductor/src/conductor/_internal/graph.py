@@ -767,13 +767,14 @@ class _Planned:
         inputs: How each input gets its value, by name.
         scope: The scope the node runs in.
         rests_on: The branches the node rests on.
-        bound: What the node's type variables are bound to by what arrives on its edges.
+        bound: What the node's type variables are bound to by what arrives on its edges; ``None`` for a node whose
+            inputs hold no type variable, which is nearly every node, so nothing is bound or replaced for it.
     """
 
     inputs: dict[str, InputPlan]
     scope: Scope
     rests_on: frozenset[Branch]
-    bound: Mapping[TypeVar, Any]
+    bound: Mapping[TypeVar, Any] | None
 
 
 class _Loader:
@@ -916,7 +917,8 @@ class _Loader:
         planned = self._planned(record, fields, typed, read_by_hooks(definition), edges)
         if planned is None:
             return
-        outputs: dict[str, FieldSpec] | None = {name: spec.bind(planned.bound) for name, spec in definition.outputs.items()}
+        bound = planned.bound
+        outputs: dict[str, FieldSpec] | None = dict(definition.outputs) if bound is None else {name: spec.bind(bound) for name, spec in definition.outputs.items()}
         if definition.compute_outputs is not None:
             arriving = {name: plan.sources[0].type.bare for name, plan in planned.inputs.items() if isinstance(plan, Fed)}
             outputs = self._hook(record, definition, "compute_outputs", definition.compute_outputs, typed, arriving, tuple(added))
@@ -994,8 +996,10 @@ class _Loader:
         for name in sorted({*record.values, *record.defaults, *edges} - fields.keys()):
             self.problems.append(make_problem("unknown_input", record.id, name, inputs=list(fields)))
         sources = {name: self._sources(record.id, name, edges[name]) for name in fields if name in edges}
-        bound = _bound(fields, sources)
-        fields = {name: spec.bind(bound) for name, spec in fields.items()}  # a placed node's fields hold no type variable
+        bound = None
+        if any(spec.whole.variables for spec in fields.values()):
+            bound = _bound(fields, sources)
+            fields = {name: spec.bind(bound) for name, spec in fields.items()}  # a placed node's fields hold no type variable
         first = not any(name in fields for name in edges)  # a first node: nothing is wired into it, so the caller fills it
         inputs: dict[str, InputPlan] = {}
         broken = False  # an edge that brings nothing the input takes: the node is left out, once every input is looked at

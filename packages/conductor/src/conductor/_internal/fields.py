@@ -554,6 +554,8 @@ def _split(hint: Any) -> tuple[Any, Param, tuple[Any, ...]]:
         The hint with every ``Annotated`` taken off its members, the ``Param``s as one (an empty one for none),
         and whatever else ``Annotated`` held, which pydantic reads.
     """
+    if type(hint) is type and hint is not pl.DataFrame:  # a plain class has nothing to take off, and most hints are one
+        return hint, _NO_PARAM, ()
     options, params, others = [], list[Param](), list[Any]()
     for option in _options(hint):
         if get_origin(option) is Annotated:
@@ -912,6 +914,8 @@ class Type:
             Two places sharing a variable join, and a source outside a variable's bound does not fit.
         """
         bound: dict[TypeVar, Any] = {}
+        if self is source and not self.variables:  # the same hint, which is most edges
+            return bound
         return bound if _fit(self.hint, source.closed, bound, False) else None
 
     def holds(self, source: Type) -> bool:
