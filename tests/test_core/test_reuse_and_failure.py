@@ -170,6 +170,25 @@ def test_a_node_error_runs_once_and_keeps_its_message_code_and_ctx():
     assert failed.cause.model_dump(mode="json") == {"type": "unreadable", "loc": ["n"], "msg": "Dokumentet kunne ikke læses.", "ctx": {"pages": 0}}
 
 
+@pytest.mark.parametrize("ctx", [{"handle": object()}, {"pages": {1, 2}}, {"pages": (1, 2)}])
+def test_a_node_error_whose_ctx_has_no_json_form_is_refused_where_the_node_raises_it_so_the_run_still_saves(ctx: dict[str, Any]) -> None:
+    @node("read", title="Read", description="")
+    def read(path: str = "") -> str:
+        raise NodeError("The document could not be read.", code="unreadable", ctx=ctx)
+
+    with pytest.raises(pydantic.ValidationError):
+        NodeError("The document could not be read.", ctx=ctx)
+    with pytest.raises(pydantic.ValidationError):
+        ExternalError("The service did not answer.", ctx=ctx)
+
+    events = _events(_alone(read).with_inputs())
+    run = _alone(read).run()
+
+    assert (run.status, run.state.cause.type, run.state.cause.loc) == ("failed", "execution_failed", ("n",))
+    assert json.loads(run.to_json())["state"]["cause"]["ctx"] == {"error": "ValidationError"}
+    assert [json.loads(event.model_dump_json())["type"] for event in events][-2:] == ["node_failed", "run_end"]
+
+
 def test_a_validation_error_the_node_raised_is_never_retried():
     calls: list[int] = []
 

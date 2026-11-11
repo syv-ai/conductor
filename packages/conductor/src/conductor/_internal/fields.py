@@ -1080,13 +1080,13 @@ class Type:
                 else:
                     break
                 kept.append(step)
-            said["loc"] = tuple(kept)
+            said["loc"] = kept
             if column is not None:
                 columns.append(column)
                 said["msg"] = f"the column '{column}' its row type declares is missing" if raw["type"] == "missing" else f"column '{column}': {said['msg']}"
             elif whole := raw.get("ctx", {}).get("column"):  # a fault of a whole column of a frame
                 columns.append(whole)
-                said["loc"] = (whole,)
+                said["loc"] = [whole]
         return FieldValueError(errors[0]["msg"], errors=errors, **({"column": columns[0]} if columns else {}))
 
 

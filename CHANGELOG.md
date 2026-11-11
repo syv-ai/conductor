@@ -105,6 +105,11 @@ What changes in how you work, before the name-by-name tables:
   calling the nodes only for the items that changed (`run.again(...)`). A leg's `max_items` is a whole number of
   at least 1 and its `timeout` and `checkpoint_every` finite seconds above 0, a `bool` neither,
   refused at the call (`invalid_max_items`, `invalid_timeout`, `invalid_checkpoint_every`).
+- **A problem's `ctx` is JSON.** `Problem.ctx` is typed `Mapping[str, JsonValue]`, and
+  `NodeError(ctx=)` and `ExternalError(ctx=)` read theirs where the error is made: a value with no
+  JSON form (an object, a set, a tuple, a date) raises pydantic's `ValidationError` at the node's
+  own `raise`, so the node fails as `execution_failed` and the run still saves. The `loc` of each
+  entry in a problem's `ctx["errors"]` is a list, so a problem equals what its JSON reads back.
 - **Only an outside failure is retried.** `ExternalError`, or a class in `Policy(retry_on=)`;
   a `NodeError`, a wrong output or an `Ask` never is, whatever `retry_on` names.
   A node's own exception goes to the `conductor` logger, never to an event.

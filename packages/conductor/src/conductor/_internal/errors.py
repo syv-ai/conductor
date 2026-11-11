@@ -52,7 +52,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from types import MappingProxyType
 from typing import Any, TypeAlias, final
 
-from pydantic import Field, ValidationError
+from pydantic import Field, JsonValue, TypeAdapter, ValidationError
 
 from conductor._internal.conductor_model import ConductorModel
 
@@ -168,15 +168,19 @@ _SAID_OF_A_VALIDATOR = "The value did not pass its type's own check."
 def value_free_errors(invalid: ValidationError) -> list[dict[str, Any]]:
     """pydantic's errors as a problem may hold them: nothing of the value.
 
-    Each keeps its ``type``; its ``loc`` is empty, since a key of the value can stand in pydantic's, and a caller
+    Each keeps its ``type``; its ``loc`` is an empty list, since a key of the value can stand in pydantic's, and a caller
     that knows the type it read gives back the steps the type declares. ``msg`` is pydantic's own when that speaks of the type alone,
     such as a limit; a sentence built from what a validator raised or from the value's own tag is replaced, because
     it may quote the value.
     """
     return [
-        {"type": error["type"], "loc": (), "msg": _SAID_OF_A_VALIDATOR if {"error", "tag"} & error.get("ctx", {}).keys() else error["msg"]}
+        {"type": error["type"], "loc": [], "msg": _SAID_OF_A_VALIDATOR if {"error", "tag"} & error.get("ctx", {}).keys() else error["msg"]}
         for error in invalid.errors(include_url=False, include_input=False)
     ]
+
+
+#: Reads the ``ctx`` a node gives its error: JSON values only, since a problem is saved and streamed as JSON.
+_CTX = TypeAdapter(dict[str, JsonValue])
 
 
 @final
@@ -211,15 +215,18 @@ class Problem(ConductorModel):
     type: str
     loc: tuple[str | int, ...] = ()
     msg: str
-    ctx: Mapping[str, Any] = Field(default_factory=dict)
+    ctx: Mapping[str, JsonValue] = Field(default_factory=dict)
 
 
-#: A value a problem's ``ctx`` holds: JSON, written by the code that made the problem.
+#: A value ``make_problem`` is given for a problem's ``ctx``: JSON, written by the code that made the problem. Read-only
+#: where pydantic's ``JsonValue`` is a ``list``, so a caller's ``list[str]`` is one.
 CtxValue: TypeAlias = "str | int | float | bool | None | Sequence[CtxValue] | Mapping[str, CtxValue]"
 
 
 def make_problem(code: str, /, *loc: str | int, **ctx: CtxValue) -> Problem:
-    """The problem ``code`` at ``loc``, its message made from ``ctx``, which the record keeps as JSON values.
+    """The problem ``code`` at ``loc``, its message made from ``ctx``, which the record keeps as it is given.
+
+    ``ctx`` is conductor's own, typed as JSON where it is written, so the record is built without reading it again.
 
     A list in ``ctx`` stays a list, and the message writes it joined by
     commas (``none`` when empty); in a list of Series, ``None`` stands for a
@@ -235,7 +242,7 @@ def make_problem(code: str, /, *loc: str | int, **ctx: CtxValue) -> Problem:
         said["reason"] = reason.rstrip(".")  # the entry's own sentence goes on after it
     slots = {"reason": "", "node_id": loc[0] if loc else None, "field": loc[1] if len(loc) > 1 else None, **said}
     entry = HINTED_CATALOGUE[code, str(ctx["hint"])] if "hint" in ctx else PROBLEM_CATALOGUE[code]
-    return Problem(type=code, loc=loc, msg=entry.format_map(slots).rstrip(), ctx=ctx)
+    return Problem.model_construct(type=code, loc=loc, msg=entry.format_map(slots).rstrip(), ctx=ctx)
 
 
 def _said(value: CtxValue) -> CtxValue:
@@ -309,17 +316,22 @@ class NodeError(ConductorError):
     Attributes:
         code: The stable word a host keys on: the node's own, else ``failed`` (an ``ExternalError``'s
             ``external_failed``).
-        ctx: The values a host fills its own sentence from.
+        ctx: The values a host fills its own sentence from, as JSON.
+
+    Raises:
+        pydantic.ValidationError: When ``ctx`` holds a value that has no JSON form, such as an object, a set or a
+            tuple. It is raised where the error is made, so a node that does this fails as ``execution_failed`` with a
+            traceback at its own ``raise``.
     """
 
-    def __init__(self, message: str, *, code: str = "failed", ctx: Mapping[str, Any] = MappingProxyType({})) -> None:
+    def __init__(self, message: str, *, code: str = "failed", ctx: Mapping[str, JsonValue] = MappingProxyType({})) -> None:
         super().__init__(message)
         self.code = code
-        self.ctx = ctx
+        self.ctx = _CTX.validate_python(ctx)
 
     def _as_problem_at(self, *loc: str | int) -> Problem:
-        """The ``Problem`` this is at ``loc``."""
-        return Problem(type=self.code, loc=loc, msg=self.message, ctx=self.ctx)
+        """The ``Problem`` this is at ``loc``, built from what the error already read."""
+        return Problem.model_construct(type=self.code, loc=loc, msg=self.message, ctx=self.ctx)
 
 
 class ExternalError(NodeError):
@@ -332,5 +344,5 @@ class ExternalError(NodeError):
     value it cannot use: retrying those repeats the same failure.
     """
 
-    def __init__(self, message: str, *, code: str = "external_failed", ctx: Mapping[str, Any] = MappingProxyType({})) -> None:
+    def __init__(self, message: str, *, code: str = "external_failed", ctx: Mapping[str, JsonValue] = MappingProxyType({})) -> None:
         super().__init__(message, code=code, ctx=ctx)

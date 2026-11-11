@@ -470,6 +470,8 @@ match run.state:  # a run that failed, stopped or timed out says why
         print(status, cause.type, cause.msg)  # failed not_a_number The text is not a number.
 ```
 
+`ctx=` takes what a host needs beyond the text, as JSON values: text, numbers, `True`/`False`, `None`, lists and dicts of them. A problem is saved and streamed as JSON, so a `ctx` holding anything else (an object, a set, a tuple, a date) raises pydantic's `ValidationError` at your `raise`, and the node fails as `execution_failed`.
+
 Any other exception fails the node too. Its traceback goes to the `conductor` logger, and only its class name reaches the host, so a value your node handled never leaks into an event.
 
 Raise `ExternalError` when the outside world failed: a timeout, a rate limit, a server error. Only that is retried, under the node's `Policy`. A bug fails the same way every time, so it isn't retried:

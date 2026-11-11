@@ -738,7 +738,7 @@ match unread.state:
         print(cause.type)  # failed
 ```
 
-**Fix.** The node said why in `msg`. A node gives its own code with `NodeError(message, code=)`.
+**Fix.** The node said why in `msg`. A node gives its own code with `NodeError(message, code=)`, and what a host fills its sentence from with `ctx=`, JSON values only: a `ctx` holding anything else raises pydantic's `ValidationError` where the node raises the error, which is `execution_failed`.
 
 ### `invalid_ask`
 

@@ -297,6 +297,17 @@ def test_a_value_its_types_own_constructor_refuses_is_a_problem_where_it_was_typ
     assert "empty" not in problem.msg  # the type's own words may quote the value
 
 
+def test_a_problem_of_a_refused_value_equals_what_its_own_json_reads_back():
+    @node("total", title="Total", description="")
+    def total(numbers: list[int]) -> int:
+        return sum(numbers)
+
+    [problem] = registry_of(total).load({"nodes": [{"id": "t", "node": "total", "values": {"numbers": [1, "a"]}}]}).problems
+
+    assert (problem.type, problem.ctx["errors"][0]["loc"]) == ("invalid_value", [1])
+    assert Problem.model_validate_json(problem.model_dump_json()) == problem
+
+
 def test_a_single_value_typed_into_a_series_input_is_refused_not_wrapped_into_a_list_of_one():
     [problem] = REGISTRY.load({"nodes": [{"id": "j", "node": "join", "values": {"texts": "a"}}]}).problems
     assert (problem.type, problem.loc) == ("invalid_value", ("j", "texts"))
