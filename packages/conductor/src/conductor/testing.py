@@ -50,7 +50,7 @@ from typing import Any, Literal
 
 from conductor._internal import kit_problem
 from conductor._internal.checked_graph import load_graph
-from conductor._internal.fields import REQUIRED, Field, FieldValueError, Param, kind_of_value
+from conductor._internal.fields import Field
 from conductor._internal.graph import Graph
 from conductor._internal.graph_record import GraphRecord, NodeRecord, values_as_json
 from conductor._internal.node_definition import (
@@ -63,6 +63,8 @@ from conductor._internal.node_definition import (
 from conductor._internal.problem import PROBLEMS, InvalidCallError, Problem
 from conductor._internal.registry import NodeRegistry
 from conductor._internal.run_status import EndedEarly
+from conductor._internal.sentinels import REQUIRED
+from conductor._internal.value_type import FieldValueError, Param, kind_of_value
 
 #: One call's inputs, by name.
 _Example = Mapping[str, Any]

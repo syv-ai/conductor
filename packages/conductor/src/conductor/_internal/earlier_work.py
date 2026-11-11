@@ -10,8 +10,8 @@ from typing import TYPE_CHECKING, Any, Literal
 import pydantic_core
 
 from conductor._internal.canonical_json import canonical_json
-from conductor._internal.fields import untyped_as_json
 from conductor._internal.units import NOT_ITS_TURN, NotReady, Units
+from conductor._internal.value_type import untyped_as_json
 
 if TYPE_CHECKING:
     from conductor._internal.checked_graph.tree import FunctionAtPath

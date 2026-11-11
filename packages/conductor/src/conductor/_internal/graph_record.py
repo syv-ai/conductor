@@ -35,23 +35,14 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Annotated, Any
 
-from pydantic import (
-    AfterValidator,
-    ConfigDict,
-    Field,
-    JsonValue,
-    ValidationError,
-    field_validator,
-)
+from pydantic import AfterValidator, ConfigDict, Field, JsonValue, ValidationError, field_validator
 from pydantic_core import PydanticSerializationError, from_json, to_json
 
 from conductor._internal import problem
 from conductor._internal.conductor_model import ConductorModel
-from conductor._internal.fields import SET_HAS_NO_ORDER, kind_of_value
-from conductor._internal.problem import (
-    InvalidCallError,
-    Problem,
-)
+from conductor._internal.fields import SET_HAS_NO_ORDER
+from conductor._internal.problem import InvalidCallError, Problem
+from conductor._internal.value_type import kind_of_value
 
 
 def _checked_address(address: str) -> str:

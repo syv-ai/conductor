@@ -30,7 +30,7 @@ from conductor import (
     make_graph,
     node,
 )
-from conductor._internal.fields import FieldValueError
+from conductor._internal.value_type import FieldValueError
 from conductor.widgets import Dropdown, FileUpload, ListInput, Textarea, TextInput, Widget
 from pydantic import BaseModel, ValidationError
 

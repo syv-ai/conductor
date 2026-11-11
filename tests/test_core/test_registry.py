@@ -27,7 +27,7 @@ from conductor import (
     node,
 )
 from conductor._internal import registry as registry_module
-from conductor._internal.fields import REQUIRED
+from conductor._internal.sentinels import REQUIRED
 from conductor.widgets import Textarea
 
 from tests.test_core.nodes import ReadAsItsBuiltin

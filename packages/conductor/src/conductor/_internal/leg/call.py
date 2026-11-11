@@ -10,9 +10,11 @@ import pydantic_core
 
 from conductor._internal import problem
 from conductor._internal.checked_graph import FunctionAtPath
-from conductor._internal.fields import SKIPPED, Field, FieldValueError, untyped_as_json
+from conductor._internal.fields import Field
 from conductor._internal.node_definition import Returns
 from conductor._internal.problem import UnitFailedError
+from conductor._internal.sentinels import SKIPPED
+from conductor._internal.value_type import FieldValueError, untyped_as_json
 
 
 def call(node: FunctionAtPath, kwargs: dict[str, Any], from_run: Mapping[type, Any]) -> tuple[Any, BaseException | None]:

@@ -16,10 +16,11 @@ from conductor._internal.checked_graph import (
     PlacedFunction,
     nodes_at_paths,
 )
-from conductor._internal.fields import REQUIRED, FieldValueError
 from conductor._internal.problem import InvalidCallError, Problem
 from conductor._internal.run import Run, checked_leg, no_units, run_from_json
 from conductor._internal.saved_run import SaveForm, save_form
+from conductor._internal.sentinels import REQUIRED
+from conductor._internal.value_type import FieldValueError
 
 
 class Graph(CheckedGraph):

@@ -28,14 +28,9 @@ from pydantic import JsonValue
 from conductor._internal.address import Loc, loc_text
 from conductor._internal.canonical_json import canonical_json
 from conductor._internal.conductor_model import ConductorModel
-from conductor._internal.fields import (
-    REQUIRED,
-    SKIPPED,
-    Choice,
-    Field,
-    FieldDescription,
-    FieldValueError,
-)
+from conductor._internal.fields import Field, FieldDescription
+from conductor._internal.sentinels import REQUIRED, SKIPPED
+from conductor._internal.value_type import Choice, FieldValueError
 
 if TYPE_CHECKING:
     from conductor._internal.checked_graph import PlacedFunction

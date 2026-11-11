@@ -7,8 +7,8 @@ from typing import Any
 from pydantic_core import PydanticCustomError
 
 from conductor._internal.earlier_work import EarlierWork
-from conductor._internal.fields import SKIPPED
 from conductor._internal.saved_run.type import SAVED_DONE, SAVED_SKIPPED, SavedEarlier, SavedUnits
+from conductor._internal.sentinels import SKIPPED
 from conductor._internal.units import Answered, Asking, Blank, Done, Skipped, Unit
 
 

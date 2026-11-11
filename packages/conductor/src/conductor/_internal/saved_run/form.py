@@ -10,7 +10,7 @@ from typing import Any, NamedTuple
 from pydantic import TypeAdapter
 from pydantic_core import CoreConfig, CoreSchema, SchemaSerializer, SchemaValidator, core_schema
 
-from conductor._internal.fields import Field, Type
+from conductor._internal.fields import Field
 from conductor._internal.saved_run.read import earlier_of, units_of
 from conductor._internal.saved_run.type import (
     SavedEarlier,
@@ -20,6 +20,7 @@ from conductor._internal.saved_run.type import (
     SkippedSlots,
 )
 from conductor._internal.units import outputs_not_called, outputs_not_taken
+from conductor._internal.value_type import Type
 
 #: Each record's own schema, as pydantic makes it from the record: what a save's schema is composed from.
 _UNITS, _EARLIER, _RUN = (TypeAdapter(record).core_schema for record in (SavedUnits, SavedEarlier, SavedRun))

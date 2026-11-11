@@ -344,7 +344,7 @@ def test_a_host_type_names_the_other_classes_it_takes() -> None:
 
 
 def test_one_hint_is_read_once() -> None:
-    from conductor._internal.fields import Type
+    from conductor._internal.value_type import Type
 
     hint = Annotated[int, Param(ge=0)]
     assert Type(hint) is Type(Annotated[int, Param(ge=0)]) and Type(hint).adapter is Type(hint).adapter

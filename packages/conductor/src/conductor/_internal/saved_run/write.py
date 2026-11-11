@@ -9,7 +9,7 @@ import pydantic_core
 
 from conductor._internal.ask import Question
 from conductor._internal.earlier_work import EarlierWork
-from conductor._internal.fields import SKIPPED, Field, Type
+from conductor._internal.fields import Field
 from conductor._internal.saved_run.type import (
     SAVED_DONE,
     SAVED_SKIPPED,
@@ -18,7 +18,9 @@ from conductor._internal.saved_run.type import (
     SavedUnits,
     UnitState,
 )
+from conductor._internal.sentinels import SKIPPED
 from conductor._internal.units import Answered, Asking, Blank, Done, Skipped, Unit
+from conductor._internal.value_type import Type
 
 #: The state a save writes for a unit that holds outputs or is a branch not taken; any other has none.
 _STATE_WORD: Mapping[type, UnitState] = {Done: SAVED_DONE, Answered: SAVED_DONE, Skipped: SAVED_SKIPPED}
