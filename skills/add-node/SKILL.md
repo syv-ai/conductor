@@ -51,7 +51,7 @@ assert registry["greet"] is greet
 | A second version | `replaces=node("x", title="X", description="...")(run_v1), upgrade=Upgrade(renamed_inputs={...})` on `@node` |
 | A type that follows what arrives | a type variable: `def keep[T](value: T) -> T`, `def split[T](value: Table[T] \| list[T]) -> Series[T]`, a generic frozen dataclass of outputs. `T` is the type on the edge, bound when the graph loads |
 | Fields named by a setting | `compute_added_inputs=` / `compute_outputs=`: plain functions whose parameters name the inputs they read and that return `{name: type hint}`. Added inputs arrive on `**values` |
-| A text or number class of your own | `class Email(str)` with `type_id`, `type_title` and its own `__get_pydantic_core_schema__` (`core_schema.no_info_after_validator_function(cls, handler(str))`) |
+| A text or number class of your own | `@host_type("email", title="Email")` above `class Email(str)` |
 
 `@registry.node` takes `@node`'s arguments and adds the node; plain `@node` registers nothing, and `registry.add(node_a, node_b)` adds such nodes later. A module keeps a registry of its own (`NodeRegistry(category=, tags=, extra=)` set its nodes' defaults) and the host joins them with `registry.add_subregistry(module_registry)`. Two definitions under one id raise; `replace` and `remove` change one, and `registry.filter(predicate)` is a narrower registry. `extra=` is your own JSON about a node, which conductor keeps and never reads.
 

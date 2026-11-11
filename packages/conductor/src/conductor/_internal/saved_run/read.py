@@ -2,14 +2,23 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 from pydantic_core import PydanticCustomError
 
 from conductor._internal.earlier_work import EarlierWork
-from conductor._internal.fields import SKIPPED
-from conductor._internal.saved_run.type import SAVED_DONE, SAVED_SKIPPED, SavedEarlier, SavedUnits
+from conductor._internal.field import Field
+from conductor._internal.saved_run.type import (
+    SAVED_DONE,
+    SAVED_SKIPPED,
+    SavedEarlier,
+    SavedRun,
+    SavedUnits,
+)
+from conductor._internal.sentinels import SKIPPED
 from conductor._internal.units import Answered, Asking, Blank, Done, Skipped, Unit
+from conductor._internal.value_type import FieldValueError
 
 
 def units_of(not_taken: dict[str, Any], not_called: dict[str, Any], saved: SavedUnits) -> list[Unit | None]:
@@ -60,6 +69,41 @@ def units_of(not_taken: dict[str, Any], not_called: dict[str, Any], saved: Saved
     except (LookupError, TypeError, AttributeError):  # a slot the columns don't have, or one that holds another kind of unit
         raise PydanticCustomError("misplaced", "a skip, a question or a blank input is placed on a slot that can't hold one") from None
     return units
+
+
+def with_shared_tables(outputs: Mapping[str, Mapping[str, Field]], saved: SavedRun[list[Unit | None], EarlierWork]) -> SavedRun[list[Unit | None], EarlierWork]:
+    """Fills in the outputs a save wrote as ``null`` and listed under ``tables_written_once``.
+
+    Example: the save lists ``{"output": ["split", "result", 0], "same_as": ["people", "result", 0]}``. The table
+    read for ``people.result`` is validated by the type of ``split.result`` and stored there, so both outputs have
+    the same table object again.
+
+    Args:
+        outputs: The outputs of each node, by the node's name in a save.
+        saved: The save as read, each node's units in slot order.
+
+    Raises:
+        PydanticCustomError: An entry names an output or slot the save does not have, one that has no table
+            written in full, one whose own column is not ``null`` there, or a table its own type refuses
+            (``same_as_unreadable``).
+    """
+    for entry in saved.tables_written_once or ():
+        (node, output, slot), (from_node, from_output, from_slot) = entry.output, entry.same_as
+        try:
+            unit, source = saved.units[node][slot], saved.units[from_node][from_slot]
+            if not isinstance(unit, (Done, Answered)) or not isinstance(source, (Done, Answered)) or unit.out[output] is not None:
+                raise LookupError(slot)
+            table = outputs[from_node][from_output].whole.written_once(source.out[from_output])
+            if table is None:
+                raise LookupError(from_slot)
+            unit.out[output] = outputs[node][output].whole.read_returned(table)
+        except (LookupError, AttributeError, FieldValueError) as wrong:
+            reason = wrong.reason if isinstance(wrong, FieldValueError) else "that is not an output written in full before it"
+            raise PydanticCustomError(
+                "same_as_unreadable", "tables_written_once: '{output}' can't be read as the table at '{same_as}': {reason}",
+                {"output": f"{node}.{output}[{slot}]", "same_as": f"{from_node}.{from_output}[{from_slot}]", "reason": reason},
+            ) from None
+    return saved
 
 
 def earlier_of(saved: SavedEarlier[list[Unit | None]]) -> EarlierWork:

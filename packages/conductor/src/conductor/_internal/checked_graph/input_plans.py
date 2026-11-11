@@ -24,8 +24,10 @@ import dataclasses
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, NamedTuple, Protocol, final
 
-from conductor._internal.fields import SKIPPED, Field, Type
+from conductor._internal.field import Field
+from conductor._internal.sentinels import SKIPPED
 from conductor._internal.units import NOT_SETTLED, ItemPath
+from conductor._internal.value_type import Type
 
 if TYPE_CHECKING:
     from conductor._internal.checked_graph.tree import FunctionAtPath

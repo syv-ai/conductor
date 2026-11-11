@@ -189,6 +189,31 @@ def test_collect_types_its_table_by_the_records_and_what_arrives_on_each_new_col
     assert graph.run().results["table-collect"]["result"]["team"].to_list() == ["one two"] * 3
 
 
+def test_collect_takes_the_records_as_a_table_and_keeps_its_columns_as_they_are():
+    @_node("small-numbers")
+    def small_numbers() -> Table:
+        return pl.DataFrame({"n": pl.Series([1, 2], dtype=pl.Int32), "name": ["a", "b"]})
+
+    registry = NodeRegistry()
+    registry.add_subregistry(REGISTRY)
+    registry.add(small_numbers)
+    graph = registry.load(make_graph(small_numbers, series.split, shout, tables.collect, edges=[
+        ("small-numbers.result", "series-split.value"), ("series-split.result.name", "shout.text"), ("series-split.result", "table-collect.records"),
+        ("shout.result", "table-collect.loud"),
+    ], values={"table-collect.columns": ["loud"]}))
+    made = graph.run().results["table-collect"]["result"]
+
+    assert [i.field.type for i in graph.describe().nodes["table-collect"].inputs if i.field.name == "records"] == ["Table"]
+    assert made.schema == {"n": pl.Int32, "name": pl.String, "loud": pl.String} and made["loud"].to_list() == ["A", "B"]
+
+
+def test_collect_given_a_whole_table_types_its_result_by_that_tables_columns():
+    graph = load(contacts, sentence, tables.collect, edges=[("contacts.result", "table-collect.records"), ("sentence.result", "table-collect.team")], values={"table-collect.constant_columns": ["team"]})
+
+    assert graph.problems == [] and list(columns_of(output(graph, "table-collect"))) == ["name", "email", "team"]
+    assert graph.run().results["table-collect"]["result"]["team"].to_list() == ["one two"] * 3
+
+
 def test_collect_refuses_a_new_column_the_records_already_have_naming_it():
     graph = load(contacts, series.split, tables.collect, edges=[
         ("contacts.result", "series-split.value"), ("series-split.result", "table-collect.records"), ("series-split.result.name", "table-collect.email"),
@@ -260,7 +285,7 @@ def test_collect_of_records_of_unknown_columns_is_a_table_of_any_columns():
 
 def test_collect_takes_records_only():
     (problem,) = load(words, tables.collect, edges=[("words.result", "table-collect.records")]).problems
-    assert (problem.type, problem.loc, problem.ctx["got"], problem.ctx["expected"]) == ("type_mismatch", ("table-collect", "records"), "Series[str]", "Series[dict]")
+    assert (problem.type, problem.loc, problem.ctx["got"], problem.ctx["expected"]) == ("type_mismatch", ("table-collect", "records"), "Series[str]", "Table")
 
 
 # -- text-list and text-split -------------------------------------------------------------------------------

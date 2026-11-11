@@ -8,11 +8,12 @@ from collections.abc import Mapping
 from typing import Any
 
 from conductor._internal.checked_graph import CheckedGraph
-from conductor._internal.fields import REQUIRED, FieldValueError
 from conductor._internal.problem import InvalidCallError, Problem
 from conductor._internal.problem import catalogue as problem
 from conductor._internal.run import Run, checked_leg, no_units, run_from_json
 from conductor._internal.saved_run import SaveForm, save_form
+from conductor._internal.sentinels import REQUIRED
+from conductor._internal.value_type import FieldValueError
 
 
 class Graph(CheckedGraph):

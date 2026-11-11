@@ -12,7 +12,7 @@ import math
 import threading
 import time
 from collections.abc import Callable
-from typing import Any, ClassVar, TypedDict
+from typing import Any, TypedDict
 
 import polars as pl
 import pytest
@@ -28,6 +28,7 @@ from conductor import (
     Policy,
     Series,
     Table,
+    host_type,
     make_graph,
     node,
     stored_graph,
@@ -712,9 +713,8 @@ def test_a_cancel_set_while_a_leg_reuses_earlier_results_ends_the_leg_before_the
     leg there until the event loop has set it, so the cancel is set while 90 items are still to go."""
     reads: list[Callable[[], None]] = []
 
+    @host_type("Line", title="Line")
     class Line(BaseModel):
-        type_id: ClassVar[str] = "Line"
-        type_title: ClassVar[str] = "Line"
         text: str
 
         @model_serializer
@@ -866,9 +866,8 @@ def test_running_a_graph_under_a_running_event_loop_ends_as_it_does_outside_one(
 
 
 def test_a_float_that_is_not_finite_inside_a_model_survives_a_saved_run_and_the_run_goes_on():
+    @host_type("Reading", title="Reading")
     class Reading(BaseModel):
-        type_id: ClassVar[str] = "Reading"
-        type_title: ClassVar[str] = "Reading"
         value: float
         low: float
         high: float

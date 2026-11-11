@@ -16,7 +16,7 @@ import struct
 import subprocess
 import sys
 from decimal import Decimal
-from typing import Any, ClassVar, Literal, TypedDict
+from typing import Any, Literal, TypedDict
 
 import polars as pl
 import pytest
@@ -29,6 +29,7 @@ from conductor import (
     NotCalled,
     Series,
     Table,
+    host_type,
     make_graph,
     node,
     stored_graph,
@@ -213,9 +214,8 @@ def test_a_float_that_is_not_finite_in_a_tuple_reads_back_by_the_type_of_its_pla
     """A ``tuple`` inside a ``dict`` output or a model's field is a list in the save; a place declared ``float``
     reads the float back, and one declared ``Any`` its text."""
 
+    @host_type("Point", title="Point")
     class Point(BaseModel):
-        type_id: ClassVar[str] = "Point"
-        type_title: ClassVar[str] = "Point"
         xy: tuple[float, Any]
 
     @node("pair", title="Pair", description="For a test.")
@@ -238,9 +238,8 @@ def test_a_float_that_is_not_finite_where_its_type_does_not_say_float_reads_back
     """A ``dict``, ``Any`` or a model's ``Any`` field holding ``nan`` comes back from a save as the text it was
     written as, as a date under ``Any`` does: an author who wants the float back declares it."""
 
+    @host_type("Loose", title="Loose")
     class Loose(BaseModel):
-        type_id: ClassVar[str] = "Loose"
-        type_title: ClassVar[str] = "Loose"
         data: Any
 
     @node("loose", title="Loose", description="For a test.")
@@ -288,9 +287,8 @@ def test_a_float_or_text_field_reads_a_float_that_is_not_finite_back_as_the_text
     assert loaded.forget("down").resume().outputs["down.result"] == ["str", "str", "float"]
 
 
+@host_type("point", title="Point")
 class Point(BaseModel):
-    type_id: ClassVar[str] = "point"
-    type_title: ClassVar[str] = "Point"
     x: int
     y: int
 
@@ -409,10 +407,9 @@ def test_two_identical_runs_save_byte_identical_json():
 # -- what a save can't hold ------------------------------------------------------------------
 
 
+@host_type("_Opaque", title="Opaque")
 class _Opaque:
     """A value pydantic carries but has no JSON form for."""
-    type_id: ClassVar[str] = "_Opaque"
-    type_title: ClassVar[str] = "Opaque"
 
     @classmethod
     def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> Any:
@@ -724,9 +721,8 @@ def test_a_save_loaded_into_a_graph_that_lost_a_node_is_refused_with_the_graphs_
 
 
 def test_a_float_that_is_not_finite_in_a_model_reads_back_by_the_type_of_its_field():
+    @host_type("Reading", title="Reading")
     class Reading(BaseModel):
-        type_id: ClassVar[str] = "Reading"
-        type_title: ClassVar[str] = "Reading"
         value: float
         note: Any
         d: dict

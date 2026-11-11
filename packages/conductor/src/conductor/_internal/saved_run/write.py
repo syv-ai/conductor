@@ -2,23 +2,26 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from typing import Any, cast
 
 import pydantic_core
 
 from conductor._internal.ask import Question
 from conductor._internal.earlier_work import EarlierWork
-from conductor._internal.fields import SKIPPED, Field, Type
+from conductor._internal.field import Field
 from conductor._internal.saved_run.type import (
     SAVED_DONE,
     SAVED_SKIPPED,
+    SameAs,
     SavedEarlier,
     SavedRun,
     SavedUnits,
     UnitState,
 )
+from conductor._internal.sentinels import SKIPPED
 from conductor._internal.units import Answered, Asking, Blank, Done, Skipped, Unit
+from conductor._internal.value_type import Type
 
 #: The state a save writes for a unit that holds outputs or is a branch not taken; any other has none.
 _STATE_WORD: Mapping[type, UnitState] = {Done: SAVED_DONE, Answered: SAVED_DONE, Skipped: SAVED_SKIPPED}
@@ -52,9 +55,10 @@ def unit_columns(outputs: Mapping[str, Field], slots: list[Unit | None]) -> Save
                     column[slot] = None
             if output.many:
                 for slot, items in enumerate(column):
-                    if type(items) is list and (gaps := [place for place, item in enumerate(items) if item is SKIPPED]):
-                        skipped_items.setdefault(name, {})[slot] = gaps
-                        column[slot] = [None if item is SKIPPED else item for item in items]
+                    if items is not None:
+                        column[slot], gaps = items.for_saving()
+                        if gaps:
+                            skipped_items.setdefault(name, {})[slot] = gaps
     else:  # no unit holds outputs yet
         columns = {name: [None] * len(slots) for name in outputs}
     if Answered in kinds or Asking in kinds:
@@ -65,6 +69,40 @@ def unit_columns(outputs: Mapping[str, Field], slots: list[Unit | None]) -> Save
         states=list(map(_STATE_WORD.get, map(type, slots))), outputs=columns, questions=questions, blank_inputs=blank_inputs,
         skipped=skipped or None, skipped_items=skipped_items or None,
     )
+
+
+def tables_written_once(outputs: Mapping[str, Mapping[str, Field]], shareable: Iterable[tuple[str, str]], units: Mapping[str, SavedUnits]) -> list[SameAs] | None:
+    """Finds the outputs in ``units`` that have the very same table object as an output before them, replaces each
+    with ``None`` in its column, and returns where each one's table is written.
+
+    Example: ``read.result`` is a frame and ``split.result`` is ``Records`` of that same frame. The column of
+    ``split.result`` becomes ``[None]`` and the result is
+    ``[SameAs(output=("split", "result", 0), same_as=("read", "result", 0))]``.
+
+    Args:
+        outputs: The outputs of each node, by the node's name in a save.
+        shareable: The ``(node, output)`` pairs whose type can have such a table, in the order a save writes them.
+        units: The columns of each node, as ``unit_columns`` made them.
+
+    Returns:
+        The outputs left out, or ``None`` when there are none.
+    """
+    first: dict[int, tuple[Any, tuple[str, str, int]]] = {}  # by id() of a table alive in ``units`` during this call
+    same: list[SameAs] = []
+    for node, output in shareable:
+        of_node = units.get(node)
+        if of_node is None:
+            continue
+        written_once, column = outputs[node][output].whole.written_once, of_node.outputs[output]
+        for slot, stored in enumerate(column):
+            table = None if stored is None else written_once(stored)
+            if table is None:
+                continue
+            before = first.setdefault(id(table), (table, (node, output, slot)))
+            if before[1] != (node, output, slot) and before[0] is table:
+                column[slot] = None
+                same.append(SameAs(output=(node, output, slot), same_as=before[1]))
+    return same or None
 
 
 def earlier_columns(outputs: Mapping[str, Field], earlier: EarlierWork) -> SavedEarlier[SavedUnits]:

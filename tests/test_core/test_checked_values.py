@@ -13,7 +13,7 @@ import json
 import math
 import threading
 from dataclasses import dataclass
-from typing import Annotated, Any, ClassVar, Literal, TypedDict
+from typing import Annotated, Any, Literal, TypedDict
 
 import polars as pl
 import pytest
@@ -26,13 +26,14 @@ from conductor import (
     Policy,
     Series,
     Table,
+    host_type,
     make_graph,
     node,
 )
 from pydantic import BaseModel, Discriminator, Field, field_validator
 from pydantic_core import core_schema
 
-from tests.test_core.nodes import ReadAsItsBuiltin, registry_of
+from tests.test_core.nodes import registry_of
 
 SECRET = "cpr-1234567890"
 
@@ -91,14 +92,12 @@ def test_a_blank_taking_output_of_a_type_that_is_not_a_class_takes_its_value(ret
 def test_a_value_read_as_its_type_is_kept_as_the_type():
     """A model returned as a dict, an int for a float, a str for a ``class Text(str)``: each lands as its declared type."""
 
+    @host_type("Point", title="Point")
     class Point(BaseModel):
-        type_id: ClassVar[str] = "Point"
-        type_title: ClassVar[str] = "Point"
         x: int
 
-    class Text(ReadAsItsBuiltin, str):
-        type_id: ClassVar[str] = "Text"
-        type_title: ClassVar[str] = "Text"
+    @host_type("Text", title="Text")
+    class Text(str):
         pass
 
     assert _returning({"x": 1}, Point).results["g"]["result"] == Point(x=1)
@@ -110,10 +109,9 @@ class Shape(dict):  # type: ignore[type-arg]
     pass
 
 
+@host_type("Square", title="Square")
 class Square(Shape):
     """A type whose own check lets any ``Shape`` through as it is: in memory it accepts what it would never build."""
-    type_id: ClassVar[str] = "Square"
-    type_title: ClassVar[str] = "Square"
 
     @classmethod
     def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> Any:
@@ -265,10 +263,9 @@ def test_a_node_may_return_a_table_as_records_and_anything_else_fails_it():
 # -- what an edge brings -------------------------------------------------------------------
 
 
-class PickyId(ReadAsItsBuiltin, str):
+@host_type("PickyId", title="Picky id", accepts=[object])
+class PickyId(str):
     """A type whose own check quotes what it refuses, which is ordinary Python."""
-    type_id: ClassVar[str] = "PickyId"
-    type_title: ClassVar[str] = "Picky id"
 
     @classmethod
     def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> Any:
@@ -279,7 +276,6 @@ class PickyId(ReadAsItsBuiltin, str):
 
         return core_schema.no_info_plain_validator_function(check)
 
-    type_accepts: ClassVar[tuple[type, ...]] = (object,)
 
 
 def test_a_value_an_edge_brings_that_the_input_refuses_fails_the_node_it_reached_quoting_nothing():
@@ -393,15 +389,13 @@ class Dog(BaseModel):
     kind: Literal["dog"]
 
 
+@host_type("Pet", title="Pet")
 class Pet(BaseModel):
-    type_id: ClassVar[str] = "Pet"
-    type_title: ClassVar[str] = "Pet"
     pet: Annotated[Cat | Dog, Discriminator("kind")]
 
 
+@host_type("Asserting", title="Asserting")
 class Asserting(BaseModel):
-    type_id: ClassVar[str] = "Asserting"
-    type_title: ClassVar[str] = "Asserting"
     code: str
 
     @field_validator("code")
@@ -411,15 +405,13 @@ class Asserting(BaseModel):
         return value
 
 
+@host_type("ByPerson", title="By person")
 class ByPerson(BaseModel):
-    type_id: ClassVar[str] = "ByPerson"
-    type_title: ClassVar[str] = "By person"
     counts: dict[str, int]
 
 
+@host_type("Bounded", title="Bounded")
 class Bounded(BaseModel):
-    type_id: ClassVar[str] = "Bounded"
-    type_title: ClassVar[str] = "Bounded"
     number: int = Field(ge=5)
 
 
@@ -465,10 +457,9 @@ def test_a_key_of_a_dict_given_is_never_in_the_errors_and_a_declared_field_or_an
 # -- where the check runs ----------------------------------------------------------------------
 
 
-class _SlowOutput(ReadAsItsBuiltin, str):
+@host_type("_SlowOutput", title="Slow output")
+class _SlowOutput(str):
     """An output type whose check waits until the other node's completion has been streamed."""
-    type_id: ClassVar[str] = "_SlowOutput"
-    type_title: ClassVar[str] = "Slow output"
 
     check_began = threading.Event()
     other_reported = threading.Event()

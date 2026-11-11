@@ -12,7 +12,7 @@ import json
 import logging
 import random
 import time
-from typing import Annotated, Any, ClassVar, Literal, TypedDict
+from typing import Annotated, Any, Literal, TypedDict
 
 import polars as pl
 import pydantic
@@ -30,6 +30,7 @@ from conductor import (
     Policy,
     Series,
     Table,
+    host_type,
     make_graph,
     node,
     stored_graph,
@@ -474,10 +475,9 @@ def test_a_from_run_value_is_not_part_of_what_a_unit_received():
 def test_a_value_with_no_json_form_is_called_again_and_never_fails_the_run():
     calls: list[Any] = []
 
+    @host_type("Opaque", title="Opaque")
     class Opaque:
         """A host's value pydantic carries but has no JSON form for."""
-        type_id: ClassVar[str] = "Opaque"
-        type_title: ClassVar[str] = "Opaque"
 
         @classmethod
         def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> Any:

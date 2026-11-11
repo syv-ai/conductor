@@ -7,7 +7,7 @@ import re
 import time as t
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Annotated, Any, ClassVar, Literal, TypeAliasType
+from typing import Annotated, Any, Literal, TypeAliasType
 
 import pytest
 from conductor import (
@@ -20,13 +20,14 @@ from conductor import (
     Param,
     Policy,
     Series,
+    host_type,
     node,
     stored_graph,
 )
 from pydantic import AfterValidator, GetCoreSchemaHandler, JsonValue
 from pydantic_core import core_schema
 
-from tests.test_core.nodes import ReadAsItsBuiltin, place, registry_of
+from tests.test_core.nodes import place, registry_of
 
 
 def collect(run, **kw):
@@ -404,28 +405,25 @@ def test_outputs_typed_by_what_arrives():
 
 
 
-class Integer(ReadAsItsBuiltin, int):
-    type_id: ClassVar[str] = "integer"
-    type_title: ClassVar[str] = "Integer"
+@host_type("integer", title="Integer")
+class Integer(int):
+    pass
 
 
-class Number(ReadAsItsBuiltin, float):
+@host_type("number", title="Number", accepts=[Integer])
+class Number(float):
     """Reads the Danish decimal comma; takes an Integer."""
 
-    type_id: ClassVar[str] = "number"
-    type_title: ClassVar[str] = "Number"
 
     @classmethod
     def __get_pydantic_core_schema__(cls, source: Any, handler: GetCoreSchemaHandler) -> core_schema.CoreSchema:
         return core_schema.no_info_before_validator_function(
             lambda v: cls(v.replace(",", ".")) if isinstance(v, str) else cls(v), core_schema.float_schema())
 
-    type_accepts: ClassVar[tuple[type, ...]] = (Integer,)
 
 
+@host_type("file", title="File")
 class File:
-    type_id: ClassVar[str] = "file"
-    type_title: ClassVar[str] = "File"
 
     def __init__(self, name: str, content: bytes) -> None:
         self.name, self.content = name, content
@@ -703,9 +701,8 @@ def _fn(parameter: str, **names: Any) -> Any:
 def test_a_field_reads_as_its_author_wrote_it():
     from conductor import Table
 
-    class Whole(ReadAsItsBuiltin, int):
-        type_id: ClassVar[str] = "Whole"
-        type_title: ClassVar[str] = "Whole"
+    @host_type("Whole", title="Whole")
+    class Whole(int):
         pass
 
     @node("kinds", title="Kinds", description="For a test.")

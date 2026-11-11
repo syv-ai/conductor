@@ -2,7 +2,7 @@
 captured, a ``Series`` or ``Table`` input gathers, and declared types alone decide all of it."""
 
 from dataclasses import dataclass
-from typing import Annotated, Any, ClassVar, TypedDict
+from typing import Annotated, Any, TypedDict
 
 import pytest
 from conductor import (
@@ -13,6 +13,7 @@ from conductor import (
     Param,
     Series,
     Table,
+    host_type,
     node,
     stored_graph,
 )
@@ -140,10 +141,9 @@ def mappings(folder: str) -> Series[dict[str, int]]: ...
 def unknowns(folder: str) -> Series[Any]: ...
 
 
+@host_type("person", title="Person")
 @dataclass(frozen=True)
 class Person:
-    type_id: ClassVar[str] = "person"
-    type_title: ClassVar[str] = "Person"
     name: str
 
 

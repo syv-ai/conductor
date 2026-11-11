@@ -12,7 +12,7 @@ import json
 import threading
 import time
 from dataclasses import dataclass
-from typing import Annotated, Any, ClassVar, Literal, Optional, TypedDict
+from typing import Annotated, Any, Literal, Optional, TypedDict
 
 import polars as pl
 import pytest
@@ -28,12 +28,13 @@ from conductor import (
     RunsOn,
     Series,
     Table,
+    host_type,
     make_graph,
     node,
     stored_graph,
 )
 
-from tests.test_core.nodes import ReadAsItsBuiltin, registry_of
+from tests.test_core.nodes import registry_of
 
 # -- the nodes ---------------------------------------------------------------------------------
 
@@ -1059,10 +1060,9 @@ class Dated(TypedDict):
     when: datetime.date
 
 
-class Comma(ReadAsItsBuiltin, float):
+@host_type("Comma", title="Comma")
+class Comma(float):
     """A number written with a decimal comma, as a host's own type reads it."""
-    type_id: ClassVar[str] = "Comma"
-    type_title: ClassVar[str] = "Comma"
 
     @classmethod
     def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> Any:

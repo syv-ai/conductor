@@ -25,7 +25,8 @@ from typing import TYPE_CHECKING, Any, Final, final
 
 from conductor._internal.address import ItemPath
 from conductor._internal.ask import Question
-from conductor._internal.fields import SKIPPED, Field
+from conductor._internal.field import Field
+from conductor._internal.sentinels import SKIPPED
 
 if TYPE_CHECKING:
     from conductor._internal.checked_graph.tree import FunctionAtPath, Maps
@@ -56,8 +57,8 @@ class Done:
 
     Attributes:
         out: Its outputs by name: a value, ``None`` for a blank, ``SKIPPED`` for a branch not taken (every one
-            of them, when the node returned ``SKIPPED``), and for a ``Series`` a list, or ``Records`` when the
-            node returned a table for a ``Series`` of records.
+            of them, when the node returned ``SKIPPED``), and for a ``Series`` a ``StoredSeries`` (the
+            list the node returned, or the table it returned for a ``Series`` of records).
     """
 
     out: dict[str, Any]

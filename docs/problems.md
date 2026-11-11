@@ -8,11 +8,11 @@ Every example on this page runs after this block. `problems(drawing)` loads a dr
 import asyncio
 import time
 from dataclasses import dataclass
-from typing import Annotated, ClassVar
+from typing import Annotated
 
 from conductor import (
     Ask, EndedEarly, ExternalError, FromRun, GraphRecord, InvalidCallError, NodeDeclarationError,
-    NodeError, NodeRegistry, Param, Policy, Series, Upgrade, make_graph, node, stored_graph,
+    NodeError, NodeRegistry, Param, Policy, Series, Upgrade, host_type, make_graph, node, stored_graph,
 )
 from conductor.testing import check_registry
 
@@ -1030,7 +1030,7 @@ try:
     def narrow(number: Annotated[int, Param(ge="a")]) -> int:  # type: ignore[arg-type]
         return number
 except NodeDeclarationError as error:
-    print(str(error).splitlines()[0])  # @node('narrow') on narrow: number: the limits {'ge': 'a'} don't fit int, so change one: Error building "lax-or-strict" validator:
+    print(str(error).splitlines()[0])  # @node('narrow') on narrow: number: the limits {'ge': 'a'} don't fit int, so change one: Error building "json-or-python" validator:
 ```
 
 **Fix.** Use limits pydantic holds on the type: `ge`, `gt`, `le`, `lt` and `multiple_of` on numbers (a `Decimal` too), dates, times and durations; `min_length` and `max_length` on texts, bytes, lists, tuples, sets and dicts; `pattern` on texts. A table takes none. The same holds for a `Param` on a field of a model a node takes.
@@ -1132,17 +1132,15 @@ except NodeDeclarationError as error:
 ### `duplicate_type_id`
 
 ```python
+@host_type("money", title="Amount")
 @dataclass
 class Amount:
-    type_id: ClassVar[str] = "money"
-    type_title: ClassVar[str] = "Amount"
     kroner: int
 
 
+@host_type("money", title="Price")
 @dataclass
 class Price:
-    type_id: ClassVar[str] = "money"
-    type_title: ClassVar[str] = "Price"
     kroner: float
 
 
@@ -1153,7 +1151,7 @@ except NodeDeclarationError as error:
     print(error)  # type id 'money' is declared by both doc_docs_problems_md.Amount and doc_docs_problems_md.Price; one registry holds one type per id
 ```
 
-**Fix.** Give one of the classes another `type_id`.
+**Fix.** Give one of the classes another id in its `@host_type`.
 
 ### `empty_title_or_description`
 
@@ -1360,24 +1358,53 @@ except NodeDeclarationError as error:
 
 **Fix.** A version replaces an earlier `@node` of its own id. A different node gets no `replaces=`.
 
+### `type_declaration_invalid`
+
+```python
+try:
+    @host_type("str", title="My text")
+    class MyText(str):
+        pass
+except NodeDeclarationError as error:
+    print(error.code)  # type_declaration_invalid
+    print(str(error).partition(";")[0])  # @host_type('str'): id: Value error, 'str' is the id of one of conductor's own types
+```
+
+**Fix.** Give the type an id that is one word (letters, digits, `_`, `.` or `-`) and is not the id of one of conductor's own types, a title that is not empty, and only classes in `accepts`.
+
 ### `type_not_carried`
 
 ```python
-class Plain:
-    type_id: ClassVar[str] = "plain"
-    type_title: ClassVar[str] = "Plain"
+try:
+    @host_type("plain", title="Plain")
+    class Plain:
+        def __init__(self, path: str) -> None:
+            self.path = path
+except NodeDeclarationError as error:
+    print(error.code)  # type_not_carried
+    print(error)  # @host_type('plain') on Plain: pydantic can't validate it or write it as JSON; make it a pydantic model or a dataclass (with @host_type above @dataclass), or give it its own __get_pydantic_core_schema__
+```
+
+**Fix.** Use a type pydantic can validate and write as JSON: a pydantic model, a dataclass or a subclass of a builtin (`class Text(str)`), with `@host_type` above `@dataclass`. A class that needs its own way gives its own `__get_pydantic_core_schema__`.
+
+### `type_not_named`
+
+```python
+@dataclass
+class Unnamed:
+    kroner: int
 
 
 try:
-    @node("plain", title="Plain", description="Hands back an empty text.")
-    def plain(value: Plain) -> str:
+    @node("unnamed-type", title="Unnamed type", description="Hands back an empty text.")
+    def unnamed_type(values: list[Unnamed]) -> str:
         return ""
 except NodeDeclarationError as error:
-    print(error.code)  # type_not_carried
-    print(error)  # @node('plain') on plain: value: conductor can't check or write plain as JSON; use a type pydantic knows, such as a pydantic model or a dataclass, or give the class its own __get_pydantic_core_schema__
+    print(error.code)  # type_not_named
+    print(str(error).partition(" is the type")[2])  #  of a field and is not declared; write @host_type("...", title="...") above the class
 ```
 
-**Fix.** Use a type pydantic can check and write as JSON: a pydantic model, a dataclass or a builtin. A class of your own that subclasses a builtin (`class Text(str)`) says how pydantic reads it, in a `__get_pydantic_core_schema__` of its own. [Writing nodes](writing-nodes.md#a-text-or-a-number-of-your-own) has the three lines.
+**Fix.** Write `@host_type("...", title="...")` above the class. A subclass does not inherit its parent's declaration.
 
 ### `type_variable_constrained`
 

@@ -46,9 +46,11 @@ from conductor._internal.checked_graph.input_plans import (
     OutputAtScope,
     SeriesAsList,
 )
-from conductor._internal.fields import SKIPPED, Records
 from conductor._internal.problem import UnitFailedError
 from conductor._internal.problem import catalogue as problem
+from conductor._internal.record_field import NoSuchFieldError, field_of
+from conductor._internal.sentinels import SKIPPED
+from conductor._internal.series import places_of_none, without_places
 from conductor._internal.units import (
     NOT_SETTLED,
     Asking,
@@ -188,15 +190,18 @@ class ItemReader(Reader):
         value = unit.out[at.output]
         if value is None or value is SKIPPED or type(at) is OutputAtScope:
             return value
-        if type(at) is ItemOfSeries:
-            if type(value) is Records:  # held by column: the field an edge names, with no record built
-                wanted = at.record_field
-                return value[item_path[depth]] if wanted is None else field_of(value.columns, wanted)[item_path[depth]]
-            value = value[item_path[depth]]
-        elif type(at) is SeriesAsList:  # the list as a reader receives one: no mark of a branch not taken in it
-            return value.records() if type(value) is Records else [None if item is SKIPPED else item for item in value]
+        if type(at) is ItemOfSeries:  # ``value`` is a stored Series: one item of it, or one field of that item
+            wanted = at.record_field
+            if wanted is None:
+                return value[item_path[depth]]
+            cell = value.columns[wanted][item_path[depth]]
+            if type(cell) is NoSuchFieldError:
+                raise NoSuchFieldError(wanted)
+            return cell
+        if type(at) is SeriesAsList:
+            return value.as_list()
         field = at.record_field  # type: ignore[attr-defined]  # an edge brings a WholeOutput, an ItemOfSeries or a SeriesAsList, each with its record_field
-        return value if field is None or value is None or value is SKIPPED else field_of(value, field)
+        return value if field is None else field_of(value, field)
 
     def gathered(self, plan: InputGathersItems, item_path: ItemPath) -> Any:
         """The items the gathering input of ``plan`` gets for ``item_path``, with ``None`` for an item that has
@@ -219,11 +224,9 @@ class ItemReader(Reader):
         edges = plan.sources
         if len(edges) == 1 and type(edges[0]) is ItemOfSeries:  # the Series itself: its items, or one field of each
             wanted = edges[0].record_field
-            if type(series) is Records:
-                return series.records() if wanted is None else field_of(series.columns, wanted)
-            if wanted is None:
-                return [None if item is SKIPPED else item for item in series] if any(item is SKIPPED for item in series) else series
-            return [None if item is SKIPPED or item is None else field_of(item, wanted) for item in series]
+            if wanted is not None:
+                return series.field_as_list(wanted)
+            return series.as_table_input() if plan.field.whole.record is not None else series.as_list()
         item_paths = self._item_paths(series, plan.reads[1 : plan.levels], item_path)
         if item_paths is NOT_SETTLED:
             return NOT_SETTLED
@@ -263,12 +266,14 @@ class ItemReader(Reader):
         node that gathers the same Series, so those inputs stay in step; an input whose items may be blank
         keeps a blank in its place."""
         for inputs in node.gathered_in_step:
-            together = [(name, received[name], keeps_blanks) for name, keeps_blanks in inputs if received[name] is not None]
-            for name, items, keeps_blanks in together:
-                if len(together) == 1:  # by identity: an item may be a frame, which has no plain ==
-                    received[name] = items if keeps_blanks else [item for item in items if item is not None]
-                else:
-                    received[name] = [item for place, item in enumerate(items) if all(keeps or others[place] is not None for _, others, keeps in together)]
+            dropped: set[int] = set()  # the indexes at which an input that takes no None has one
+            for name, keeps_blanks in inputs:
+                if not keeps_blanks and received[name] is not None:
+                    dropped.update(places_of_none(received[name]))
+            if dropped:
+                for name, _ in inputs:
+                    if received[name] is not None:
+                        received[name] = without_places(received[name], dropped)
         return received
 
 
@@ -392,30 +397,3 @@ class AnyItemReader(Reader):
         edges = plan.sources
         brought = self.output(edges[0], self.item_path) if len(edges) == 1 else self.best_of(edges, self.item_path)
         return COULD if brought is None and plan.field.keeps_blanks else brought
-
-
-def field_of(value: Any, name: str) -> Any:
-    """One field of a record: a mapping's key, else an attribute; of records held by column, that column.
-
-    Raises:
-        NoSuchFieldError: The record has no such field. Only a record whose type declares no fields can lack
-            one: a field a type declares is checked when the graph loads.
-    """
-    try:
-        return value[name] if type(value) is dict or isinstance(value, Mapping) else getattr(value, name)
-    except (KeyError, AttributeError):
-        raise NoSuchFieldError(name) from None
-
-
-class NoSuchFieldError(Exception):
-    """A record an edge brings has no field by the name the edge reads.
-
-    Attributes:
-        field: The name.
-    """
-
-    def __init__(self, field: str) -> None:
-        super().__init__(field)
-        self.field = field
-
-

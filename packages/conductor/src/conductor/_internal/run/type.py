@@ -56,7 +56,6 @@ from conductor._internal.checked_graph import (
 )
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.earlier_work import EarlierWork, fingerprint_of, lineage
-from conductor._internal.fields import Type
 from conductor._internal.leg import Event, EventBase, Leg, RunCheckpoint, RunEnd, RunStart
 from conductor._internal.node_definition import from_run_values
 from conductor._internal.problem import InvalidCallError, Problem, value_free_errors
@@ -72,6 +71,7 @@ from conductor._internal.saved_run import (
     SavedRun,
     SavedUnits,
     earlier_columns,
+    tables_written_once,
     unit_columns,
     unwritable_at,
 )
@@ -85,6 +85,7 @@ from conductor._internal.units import (
     has_every_unit,
     instances,
 )
+from conductor._internal.value_type import Type
 
 if TYPE_CHECKING:
     from conductor._internal.graph import Graph
@@ -533,7 +534,9 @@ class Run:
         earlier = {node_name(path): earlier_columns(functions[path].outputs, of_node) for path, of_node in self._earlier_work.items() if of_node.computed or of_node.asked}
         code = {name: self._made_by_other_code.get(path) or placed.reuse_digest for path, placed in functions.items() if (name := node_name(path)) in units or name in earlier}
         complete = [node.name for node in self.graph._tree if node.path in self._finished_nodes]
-        return SavedRun(graph=self.graph.fingerprint, state=self.state, max_items=self.max_items, inputs=self.inputs, units=units, earlier=earlier, code=code, complete=complete)
+        form = self.graph._save_form
+        written_once = tables_written_once(form.outputs, form.shareable, units) if form.shareable else None
+        return SavedRun(graph=self.graph.fingerprint, state=self.state, max_items=self.max_items, inputs=self.inputs, units=units, earlier=earlier, code=code, complete=complete, tables_written_once=written_once)
 
     def _slots(self, node: FunctionAtPath) -> list[Unit | None]:
         """A node's units with a slot for each instance of the node, in instance order; ``None`` where the

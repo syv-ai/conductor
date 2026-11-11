@@ -16,9 +16,11 @@ from conductor._internal.checked_graph.input_plans import (
     OutputAddress,
     Scope,
 )
-from conductor._internal.fields import Field, FieldDescription, Series, Type
+from conductor._internal.field import Field, FieldDescription
 from conductor._internal.node_definition import FunctionDefinition, StoredGraphDefinition
+from conductor._internal.series import Series
 from conductor._internal.units import Skipped, outputs_not_called, outputs_not_taken
+from conductor._internal.value_type import Type
 
 if TYPE_CHECKING:
     from conductor._internal.checked_graph.type import CheckedGraph

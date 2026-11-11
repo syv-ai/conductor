@@ -9,7 +9,7 @@ by ``with_inputs`` all at once.
 import io
 import json
 from dataclasses import dataclass
-from typing import Annotated, Any, ClassVar, TypedDict
+from typing import Annotated, Any, TypedDict
 
 import polars as pl
 import pytest
@@ -25,6 +25,7 @@ from conductor import (
     Problem,
     Series,
     Table,
+    host_type,
     make_graph,
     node,
     stored_graph,
@@ -33,7 +34,7 @@ from conductor.widgets import Dropdown, Textarea
 from pydantic import ValidationError
 from pydantic_core import core_schema
 
-from tests.test_core.nodes import ReadAsItsBuiltin, registry_of
+from tests.test_core.nodes import registry_of
 
 
 class Person(TypedDict):
@@ -88,10 +89,9 @@ def styled(
     return mode
 
 
-class Name(ReadAsItsBuiltin, str):
+@host_type("Name", title="Name")
+class Name(str):
     """A ``str`` that lands wherever a ``str`` is asked for."""
-    type_id: ClassVar[str] = "Name"
-    type_title: ClassVar[str] = "Name"
 
 
 @node("name", title="Name of", description="For a test.")
@@ -99,9 +99,8 @@ def name_of(text: str) -> Name:
     return Name(text)
 
 
-class Nonempty(ReadAsItsBuiltin, str):
-    type_id: ClassVar[str] = "Nonempty"
-    type_title: ClassVar[str] = "Nonempty"
+@host_type("Nonempty", title="Nonempty")
+class Nonempty(str):
     def __new__(cls, value: str) -> "Nonempty":
         if not value:
             raise ValueError("empty")
@@ -264,9 +263,8 @@ def test_loading_one_record_twice_gives_the_same_graph():
 def test_a_typed_in_value_is_read_once_when_the_graph_loads_and_not_again_per_item():
     reads = []
 
-    class Counted(ReadAsItsBuiltin, str):
-        type_id: ClassVar[str] = "Counted"
-        type_title: ClassVar[str] = "Counted"
+    @host_type("Counted", title="Counted")
+    class Counted(str):
         @classmethod
         def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> Any:
             def read(value: str) -> "Counted":
@@ -893,9 +891,8 @@ def test_what_the_outside_gives_an_embedded_input_replaces_the_inner_default():
 def test_a_yes_or_no_never_lands_on_a_number_and_a_union_is_said_by_its_members_names():
     from conductor import NodeRegistry, node
 
-    class Text(ReadAsItsBuiltin, str):
-        type_id: ClassVar[str] = "Text"
-        type_title: ClassVar[str] = "Text"
+    @host_type("Text", title="Text")
+    class Text(str):
         pass
 
     @node("flag", title="Flag", description="For a test.")
@@ -972,11 +969,10 @@ def test_a_table_into_a_series_is_said_as_the_table_it_is():
 def test_a_yes_or_no_never_lands_on_a_hosts_number_type_whose_own_rule_lets_an_int_in():
     from conductor import Ask, NodeRegistry, make_graph
 
-    class Number(ReadAsItsBuiltin, float):
-        type_id: ClassVar[str] = "number"
-        type_title: ClassVar[str] = "Number"
+    @host_type("number", title="Number", accepts=[int])
+    class Number(float):
+        pass
 
-        type_accepts: ClassVar[tuple[type, ...]] = (int,)  # a host's rule that forgot bool
 
     registry = NodeRegistry(types=[Number, bool])
 

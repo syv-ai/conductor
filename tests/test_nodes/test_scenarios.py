@@ -3,7 +3,7 @@ host's own: how many boxes it takes, what runs how often, and what comes out."""
 
 import io
 from dataclasses import dataclass
-from typing import Annotated, Any, ClassVar, TypedDict
+from typing import Annotated, Any, TypedDict
 
 import conductor_nodes
 import polars as pl
@@ -15,6 +15,7 @@ from conductor import (
     Param,
     Series,
     Table,
+    host_type,
     make_graph,
     node,
     stored_graph,
@@ -27,9 +28,8 @@ from conductor_nodes.text import text_list
 from pydantic import BaseModel
 
 
+@host_type("file", title="File")
 class File(BaseModel):
-    type_id: ClassVar[str] = "file"
-    type_title: ClassVar[str] = "File"
     name: str
     text: str
 

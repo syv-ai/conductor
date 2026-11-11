@@ -56,7 +56,6 @@ from conductor._internal.checked_graph import (
     waits_on,
 )
 from conductor._internal.earlier_work import EarlierWork, taken
-from conductor._internal.fields import SKIPPED
 from conductor._internal.leg.call import call, jsonable
 from conductor._internal.leg.events import (
     EventBase,
@@ -71,6 +70,7 @@ from conductor._internal.leg.events import (
 from conductor._internal.problem import ExternalError, NodeError, Problem, UnitFailedError
 from conductor._internal.problem import catalogue as problem
 from conductor._internal.run_status import COMPLETE, RUNNING, WAITING, EndedEarly, RunState
+from conductor._internal.sentinels import SKIPPED
 from conductor._internal.units import (
     NOT_ITS_TURN,
     NOT_SETTLED,

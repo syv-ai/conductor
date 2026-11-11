@@ -7,7 +7,7 @@ import json
 import math
 import random
 from dataclasses import dataclass
-from typing import Any, ClassVar, TypedDict
+from typing import Any, TypedDict
 
 import polars as pl
 import pytest
@@ -20,6 +20,7 @@ from conductor import (
     NodeRegistry,
     Series,
     Table,
+    host_type,
     node,
     stored_graph,
 )
@@ -37,9 +38,8 @@ class Length:
     short: str
 
 
+@host_type("Reading", title="Reading")
 class Reading(BaseModel):
-    type_id: ClassVar[str] = "Reading"
-    type_title: ClassVar[str] = "Reading"
     value: float
     note: Any = None
 

@@ -304,3 +304,43 @@ def test_a_list_given_to_a_type_alias_whose_values_may_be_lists_is_one_value():
     graph = held.load(GraphRecord(nodes=[{"id": "d", "node": "depth"}]))
 
     assert graph.run(tree=[1, [2]]).outputs == {"d.result": "[1, [2]]"}
+
+
+def test_true_is_refused_for_a_number_alike_in_a_record_a_list_of_records_and_a_table():
+    """``True`` for an ``int`` field of a ``TypedDict`` was read as 1, where the same row in a ``Table`` was refused."""
+    from typing import TypedDict
+
+    from conductor import Table
+    from conductor._internal.value_type import FieldValueError, Type
+
+    class Row(TypedDict):
+        n: int
+        share: float
+
+    wrong, right = {"n": True, "share": 0.5}, {"n": 1, "share": 0.5}
+    for hint, value in ((Row, wrong), (list[Row], [right, wrong]), (dict[str, Row], {"a": wrong}), (Table[Row], [right, wrong]), (Row, {"n": 1, "share": False})):
+        with pytest.raises(FieldValueError) as refused:
+            Type(hint).read(value)
+        assert refused.value.errors[0]["type"] == "bool_is_not_a_number", hint
+    assert Type(Row).read(right) == right and Type(list[Row]).read([right]) == [right]
+    assert Type(Row).read_json(right) == right
+    with pytest.raises(FieldValueError, match="valid integer"):  # from JSON, strictly, the refusal is pydantic's own
+        Type(Row).read_json(wrong)
+
+
+def test_an_enum_of_numbers_is_a_type_and_refuses_true_alone_and_in_a_list():
+    import enum
+
+    from conductor._internal.value_type import FieldValueError, Type
+
+    class Level(enum.IntEnum):
+        LOW = 1
+
+    class Share(float, enum.Enum):
+        HALF = 0.5
+
+    assert Type(Level).read(1) is Level.LOW and Type(list[Level]).read([1]) == [Level.LOW] and Type(Share).read(0.5) is Share.HALF
+    for hint, value in ((Level, True), (list[Level], [True])):
+        with pytest.raises(FieldValueError) as refused:
+            Type(hint).read(value)
+        assert refused.value.errors[0]["type"] == "bool_is_not_a_number"

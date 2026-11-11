@@ -32,7 +32,7 @@ from conductor._internal.checked_graph.placed_node import (
     PlacedNode,
 )
 from conductor._internal.checked_graph.tree import FunctionAtPath, NodeAtPath, nodes_at_paths
-from conductor._internal.fields import Field
+from conductor._internal.field import Field
 from conductor._internal.graph_record import GraphRecord
 from conductor._internal.node_definition import FunctionDefinition
 from conductor._internal.problem import Problem

@@ -29,14 +29,9 @@ from pydantic import JsonValue
 from conductor._internal.address import Loc, loc_text
 from conductor._internal.canonical_json import canonical_json
 from conductor._internal.conductor_model import ConductorModel
-from conductor._internal.fields import (
-    REQUIRED,
-    SKIPPED,
-    Choice,
-    Field,
-    FieldDescription,
-    FieldValueError,
-)
+from conductor._internal.field import Field, FieldDescription
+from conductor._internal.sentinels import REQUIRED, SKIPPED
+from conductor._internal.value_type import Choice, FieldValueError
 
 if TYPE_CHECKING:
     from conductor._internal.checked_graph import PlacedFunction
@@ -340,7 +335,7 @@ def answer_outputs(placed: PlacedFunction, value: Any, overrides: Mapping[str, Q
             elif field.default is SKIPPED and "default" not in override:
                 read[name] = SKIPPED  # left out, a field whose default is SKIPPED is a branch not taken
             elif not _required(field, override, limited=offered is not None):
-                read[name] = field.whole.read_json(override.get("default", question.default))  # a default, or a blank where the type takes one
+                read[name] = field.whole.read_answer(override.get("default", question.default))  # a default, or a blank where the type takes one
             else:
                 faults.append((name, f"'{name}' was not answered"))
         except FieldValueError as refused:
@@ -360,7 +355,7 @@ def _checked_answer(field: Field, value: Any, offered: list[dict[str, Any]] | No
         FieldValueError: The answer is not a value of the output's type, not one of the choices, or, for a pick of several,
             picks a choice twice.
     """
-    read = field.whole.read_json(value)
+    read = field.whole.read_answer(value)
     if offered is not None:
         picked: Any = field.whole.to_json(read)
         picks = picked if field.many else [picked]
