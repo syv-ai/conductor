@@ -87,14 +87,17 @@ def test_a_node_built_from_a_graph_runs_its_example_as_any_node_does():
     assert found(registry_of(upper, shout), examples={"shout": [{"text": "hi"}]}) == []
 
 
-def test_a_from_run_value_of_a_subclass_fills_a_parameter_of_its_parent_in_the_kit_as_in_a_run():
+def test_a_from_run_value_is_taken_by_the_class_the_node_names_and_a_subclass_key_does_not_fill_it():
     class TestSession(Session):
         pass
 
     registry = registry_of(who)
-    assert found(registry, examples={"who": [{"text": "a"}]}, from_run={TestSession: TestSession()}) == []
+    assert found(registry, examples={"who": [{"text": "a"}]}, from_run={Session: TestSession()}) == []
     graph = registry.load(make_graph(who, values={"who.text": "a"}))
-    assert graph.run(from_run={TestSession: TestSession()}).outputs == {"who.result": "a"}
+    assert graph.run(from_run={Session: TestSession()}).outputs == {"who.result": "a"}
+    with pytest.raises(InvalidCallError) as refused:
+        graph.run(from_run={TestSession: TestSession()})
+    assert [(p.type, p.ctx["given"]) for p in refused.value.errors()] == [("from_run_missing", ["TestSession"])]
     with pytest.raises(InvalidCallError) as refused:
         graph.run(from_run={int: 3})
     assert [(p.type, p.ctx["given"]) for p in refused.value.errors()] == [("from_run_missing", ["int"])]

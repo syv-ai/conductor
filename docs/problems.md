@@ -497,26 +497,6 @@ print(refused(lambda: registry.upgrade(record, "upper", to=3)))  # ['cannot_move
 
 **Fix.** Move it to a version `ctx.versions` lists, or leave `to` out for the newest.
 
-### `from_run_ambiguous`
-
-> '{node_id}' needs a {needs} for '{parameter}', and from_run gives more than one ({given}); key the one to use by {needs}.
-
-```python
-@dataclass(frozen=True)
-class Admin(Caller):
-    pass
-
-
-@dataclass(frozen=True)
-class Guest(Caller):
-    pass
-
-
-print(refused(lambda: asking_who.run(from_run={Admin: Admin("Ida"), Guest: Guest("Bo")})))  # ['from_run_ambiguous']
-```
-
-**Fix.** Key the value to use by the class the node names: `from_run={Caller: ...}`.
-
 ### `from_run_missing`
 
 > '{node_id}' needs a {needs} for '{parameter}', and from_run gives none (it gives {given}); pass from_run={{{needs}: ...}}.

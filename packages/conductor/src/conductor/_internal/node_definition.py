@@ -64,7 +64,7 @@ from pydantic import ConfigDict, JsonValue
 from pydantic import Field as PydanticField
 
 from conductor._internal.conductor_model import ConductorModel
-from conductor._internal.errors import InvalidCallError, NodeDeclarationError, Problem, make_problem
+from conductor._internal.errors import InvalidCallError, NodeDeclarationError, make_problem
 from conductor._internal.fields import (
     REQUIRED,
     Field,
@@ -538,40 +538,28 @@ def is_node_id(value: str) -> bool:
 
 
 def from_run_values(definitions: Iterable[tuple[str, FunctionDefinition[..., Any]]], from_run: Mapping[type, Any]) -> dict[type, Any]:
-    """The value each ``FromRun`` parameter of these placed nodes takes, by the class it names; ``InvalidCallError`` listing
-    every parameter it can't fill.
+    """The value each ``FromRun`` parameter of these placed nodes takes, keyed by the class it names and no other;
+    ``InvalidCallError`` listing every parameter it can't fill.
 
-    A value keyed by the class itself is taken; else the one value given that is an instance of it, so a subclass
-    (a test double, a session of the host's own) is keyed by its own class or its parent's alike.
+    Args:
+        definitions: Each placed function node, as its id and definition.
+        from_run: The values the caller gave, by class.
+
+    Returns:
+        ``from_run`` as a dict, once every parameter is known to be filled.
+
+    Raises:
+        InvalidCallError: One ``from_run_missing`` problem per parameter whose class is not a key of ``from_run``.
     """
-    given = dict(from_run)
-    found: dict[type, Any] = {}
-    problems: list[Problem] = []
-    for node_id, definition in definitions:
-        for name, needed in definition.from_run.items():
-            if needed in found:
-                continue
-            if needed in given:
-                found[needed] = given[needed]
-                continue
-            fits = [value for key, value in given.items() if _fits(needed, key, value)]
-            if len(fits) == 1:
-                found[needed] = fits[0]
-                continue
-            names = [key.__name__ for key in given]
-            problems.append(make_problem("from_run_ambiguous" if fits else "from_run_missing", node_id, name, needs=needed.__name__, parameter=name, given=names))
+    problems = [
+        make_problem("from_run_missing", node_id, name, needs=needed.__name__, parameter=name, given=[key.__name__ for key in from_run])
+        for node_id, definition in definitions
+        for name, needed in definition.from_run.items()
+        if needed not in from_run
+    ]
     if problems:
         raise InvalidCallError(problems)
-    return found
-
-
-def _fits(needed: type, key: type, value: Any) -> bool:
-    """Whether ``value``, given under ``key``, is a ``needed``; a class no ``isinstance`` can ask about (a protocol not
-    runtime-checkable) is filled only under its own key."""
-    try:
-        return isinstance(value, needed) or issubclass(key, needed)
-    except TypeError:
-        return False
+    return dict(from_run)
 
 
 @dataclass(frozen=True, slots=True)
