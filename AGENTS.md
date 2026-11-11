@@ -1,6 +1,6 @@
 # Conductor
 
-A general-purpose Python library that runs graphs of typed nodes. It serves any host; nothing in it is fitted to one application. The user docs are `README.md` (the first page; `docs/index.md` includes it whole), `docs/writing-nodes.md` (for node authors), `docs/OVERVIEW.md`, `docs/serving-runs.md`, and the packaged reference `packages/conductor/src/conductor/about/llms.txt` (`python -m conductor.about`), the one complete reference. A rule is written out once, in the reference; the pages teach by example.
+A general-purpose Python library that runs graphs of typed nodes. It serves any host; nothing in it is fitted to one application. The user docs are `README.md` (the first page; `docs/index.md` includes it whole), `docs/writing-nodes.md` (for node authors), `docs/OVERVIEW.md`, `docs/serving-runs.md`, and the packaged reference `packages/conductor/src/conductor/about/llms.txt` (`python -m conductor.about`), the one complete reference. A rule is written out once, in the reference; the pages teach by example. The reference holds no list of public names: a line `<!-- names: conductor.events -->` stands where a module's names go, and `conductor.about` writes them there from the module's `__all__`, each with the first paragraph of its docstring, so a public name is described in its docstring and ordered in `__all__`.
 
 ## Layout
 

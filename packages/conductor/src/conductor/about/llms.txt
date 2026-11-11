@@ -270,17 +270,15 @@ A function node's `describe()` is a `FunctionNodeDescription`, a pydantic record
 
 ## API Reference
 
-Five public modules: `conductor`, `conductor.widgets`, `conductor.events`, `conductor.testing` and `conductor.about` (this reference). Each lists its names in `__all__`; import from nothing else.
+Five public modules: `conductor`, `conductor.widgets`, `conductor.events`, `conductor.testing` and `conductor.about` (this reference). Each lists its names in `__all__`, and the list under each module below is written from it when this reference is read; import from nothing else.
 
 ### conductor
 
-- Nodes: `node`, `NodeDefinition` (`FunctionDefinition | GraphDefinition`), `FunctionDefinition`, `GraphDefinition`, `Upgrade`, `Policy`, `Deprecation`, `Param`, `FromRun`, `Series`, `Table`, `NamedType` (a class that declares `type_id` and `type_title`)
-- In a node: `SKIPPED`, `Ask`, `Choice`, `NodeError`, `ExternalError`
-- Registry: `NodeRegistry(*, category="", tags=(), extra={}, types=())` (`@registry.node`, `add(*definitions)`, `replace(definition)`, `remove(node_id)`, `add_subregistry(registry)`, `filter(predicate)`, `load(record)`, `upgrade(record, node_id, to=None)`, `in`, `[]`, `len`, iteration over the definitions, `types`, `describe`). A node entering a registry takes its defaults: tags add up, outermost first; the node's own `category` and `extra` keys win. A second node under one id raises; a subregistry is copied in when added.
-- Graph: `GraphRecord`, `NodeRecord`, `make_graph`, `Graph`
-- A run: `Run`, `Waiting`, `NotCalled`, `RunState` (`Going | EndedEarly`), `Going`, `EndedEarly`, `RunStatus` (every status a run can have)
-- What an editor reads: `FieldDescription`, `NodeDescription` (`FunctionNodeDescription | StoredGraphDescription`), `FunctionNodeDescription`, `StoredGraphDescription`, `RegistryDescription`, `TypeDescription`, `GraphDescription`, `GraphInput`, `RunsOn`, `Feed`
-- Errors: `NodeDeclarationError`, `InvalidCallError`, `Problem`, `PROBLEM_CODES`
+<!-- names: conductor -->
+
+`NodeDefinition` is `FunctionDefinition | GraphDefinition`, `NodeDescription` is `FunctionNodeDescription | StoredGraphDescription`, `RunState` is `Going | EndedEarly`, and `RunStatus` is every status a run can have.
+
+`NodeRegistry(*, category="", tags=(), extra={}, types=())` has `@registry.node`, `add(*definitions)`, `replace(definition)`, `remove(node_id)`, `add_subregistry(registry)`, `filter(predicate)`, `load(record)`, `upgrade(record, node_id, to=None)`, `in`, `[]`, `len`, iteration over the definitions, `types`, `describe`. A node entering a registry takes its defaults: tags add up, outermost first; the node's own `category` and `extra` keys win. A second node under one id raises; a subregistry is copied in when added.
 
 ### Running
 
@@ -298,19 +296,11 @@ A `Problem`'s `type` is a stable code, and a host translates by it, filling its 
 
 Frozen models with a `type`, and a host subclasses `Widget` for a control of its own; loading and the engine never read one. `title`, `description` and the limits of a value (`ge`, `gt`, `le`, `lt`, `multiple_of`, `min_length`, `max_length`, `pattern`) belong to the `Param`, and a value outside its limits is refused. An untitled field reads as its name in everyday words. No type has a default widget. A `Param`'s widget is a `Widget`; a type checker refuses a class passed bare.
 
-| Widget | For | Options |
-|---|---|---|
-| `TextInput` | one line of text | none |
-| `Textarea` | several lines | `rows` |
-| `Dropdown` | one of the field's choices, from `Param(choices=)` or a `Literal`'s values | none |
-| `NumberInput` | a number typed in | `step` |
-| `Slider` | a number between the `Param`'s `ge` and `le` | `step` |
-| `Switch` | on or off | none |
-| `DatePicker` | a date | `initial` |
-| `FileUpload` | uploaded files | `accept`, `max_size_mb` |
-| `ListInput` | a list typed by hand | none |
+<!-- names: conductor.widgets -->
 
 ### conductor.testing
+
+<!-- names: conductor.testing -->
 
 `check_registry(registry, /, *, examples={}, from_run={})` is one test a node package or host runs in CI: `assert check_registry(registry, examples={"upper": [{"text": "hi"}]}) == []`.
 
@@ -321,7 +311,13 @@ Frozen models with a `type`, and a host subclasses `Widget` for a control of its
 
 ### conductor.events
 
-Every event record: `Event` (the union on `type`), `RunStart`, `NodeStart`, `NodeProgress`, `NodeComplete`, `NodeSkipped`, `NodeFailed`, `NodeRetry`, `UnitWaiting`, `RunCheckpoint`, `RunEnd`.
+Every event record, and `Event`, their union on `type`:
+
+<!-- names: conductor.events -->
+
+### conductor.about
+
+<!-- names: conductor.about -->
 
 ## Serving Runs
 
@@ -344,4 +340,4 @@ python -m conductor.about sections        # section slugs
 python -m conductor.about one-or-many     # one section (prefix or substring)
 ```
 
-Or `from conductor.about import get_content, list_sections, get_section`.
+From Python, import the same from `conductor.about`.

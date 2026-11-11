@@ -20,16 +20,17 @@ from conductor._internal.leg import (
     UnitWaiting,
 )
 
+# The order the reference lists them in: as a leg says them.
 __all__ = [
     "Event",
-    "NodeComplete",
-    "NodeFailed",
-    "NodeProgress",
-    "NodeRetry",
-    "NodeSkipped",
+    "RunStart",
     "NodeStart",
+    "NodeProgress",
+    "NodeComplete",
+    "NodeSkipped",
+    "NodeFailed",
+    "NodeRetry",
+    "UnitWaiting",
     "RunCheckpoint",
     "RunEnd",
-    "RunStart",
-    "UnitWaiting",
 ]

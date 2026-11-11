@@ -9,6 +9,7 @@ import subprocess
 import sys
 import typing
 
+import pytest
 from conductor import about
 
 
@@ -100,6 +101,50 @@ def test_cli_help_flag():
         capture_output=True, text=True, check=True,
     )
     assert "python -m conductor.about" in result.stdout
+
+
+PUBLIC_MODULES = ("conductor", "conductor.widgets", "conductor.events", "conductor.testing", "conductor.about")
+
+
+@pytest.mark.parametrize("module_name", PUBLIC_MODULES)
+def test_a_public_modules_section_lists_every_name_it_exports_in_the_order_it_exports_them(module_name):
+    section = about.get_section(module_name.replace(".", "-"))
+    assert section is not None
+
+    listed = re.findall(r"^- `(\w+)`", section, flags=re.MULTILINE)
+
+    assert listed == importlib.import_module(module_name).__all__
+
+
+def test_a_listed_class_or_function_is_followed_by_the_first_paragraph_of_its_docstring():
+    events = about.get_section("conductor-events")
+    assert events is not None
+    assert "- `NodeComplete`: Every unit of a node is done.\n" in events
+    assert (  # a paragraph over several lines is one line, and its code is in Markdown's single backticks
+        "- `NodeProgress`: How many units of a node that runs per item are done, at most four times a second; "
+        "`total` `None` until every Series above it is made.\n"
+    ) in events
+
+
+def test_a_summary_that_ends_by_introducing_an_example_ends_with_a_full_stop():
+    section = about.get_section("conductor")
+    assert section is not None
+    assert "- `make_graph`: A graph record written from Python, each node at its version.\n" in section
+
+
+def test_a_constant_or_a_type_alias_is_listed_by_its_name_alone():
+    section = about.get_section("conductor")
+    assert section is not None
+    assert "- `SKIPPED`\n" in section
+    assert "- `RunState`\n" in section
+
+
+def test_the_cli_prints_a_modules_names():
+    result = subprocess.run(
+        [sys.executable, "-m", "conductor.about", "conductor-testing"],
+        capture_output=True, text=True, check=True,
+    )
+    assert "- `check_registry`: " in result.stdout
 
 
 def _library_names() -> set[str]:

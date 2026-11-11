@@ -48,7 +48,7 @@ class TextInput(Widget):
 
 
 class Textarea(Widget):
-    """Multi-line text.
+    """Multi-line text, in a box ``rows`` lines high.
 
     Attributes:
         rows: How many lines of text the box shows before it scrolls.
@@ -65,7 +65,7 @@ class Dropdown(Widget):
 
 
 class Slider(Widget):
-    """A number picked on a slider, between the ``ge`` and ``le`` of its ``Param``.
+    """A number picked on a slider, between the ``ge`` and ``le`` of its ``Param``, in steps of ``step``.
 
     Attributes:
         step: How far one notch moves the value, as ``1`` for whole numbers; ``None`` leaves it to the editor.
@@ -76,7 +76,8 @@ class Slider(Widget):
 
 
 class FileUpload(Widget):
-    """Files a person uploads: one, or a series of them when the field is a ``Series``.
+    """Files a person uploads, of the kinds in ``accept`` and no larger than ``max_size_mb``: one, or a series of
+    them when the field is a ``Series``.
 
     Attributes:
         accept: The kinds of file offered, as an HTML file input's ``accept`` lists them: extensions (``".pdf"``)
@@ -90,7 +91,7 @@ class FileUpload(Widget):
 
 
 class NumberInput(Widget):
-    """A number typed in: a whole one when the field is an ``int``.
+    """A number typed in, a whole one when the field is an ``int``; its arrows move it by ``step``.
 
     Attributes:
         step: How far the editor's up and down arrows move the value; ``None`` leaves it to the editor.
@@ -107,7 +108,7 @@ class Switch(Widget):
 
 
 class DatePicker(Widget):
-    """A date picked from a calendar.
+    """A date picked from a calendar; ``initial="today"`` starts the field on today's date.
 
     Attributes:
         initial: ``"today"`` asks the editor to write today's date into the field when the node is added, a value no
@@ -125,15 +126,16 @@ class ListInput(Widget):
     type: Literal["list-input"] = "list-input"
 
 
+# The order the reference lists them in.
 __all__ = [
-    "DatePicker",
+    "Widget",
+    "TextInput",
+    "Textarea",
     "Dropdown",
-    "FileUpload",
-    "ListInput",
     "NumberInput",
     "Slider",
     "Switch",
-    "TextInput",
-    "Textarea",
-    "Widget",
+    "DatePicker",
+    "FileUpload",
+    "ListInput",
 ]
