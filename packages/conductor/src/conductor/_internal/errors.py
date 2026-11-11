@@ -67,7 +67,6 @@ PROBLEM_CATALOGUE: Mapping[str, str] = {
     "cycle": "The node is part of a cycle, so the graph cannot run; remove one of the edges that close it.",
     "duplicate_node_id": "Two nodes have the id '{node_id}'; rename one.",
     "edge_names_missing_node": "The edge from '{source}' to '{target}' names '{node_id}', which is not a node of the graph; add that node or remove the edge.",
-    "embedded_graph_broken": "The graph '{graph}' has {count} problem(s); fix them in that graph before it can be used here.",
     "embeds_itself": "The node '{node}' is a graph that contains itself; embed a graph that does not contain this one.",
     "default_on_later_node": "'{field}' is not an open input of the graph, so a caller can't change its default; make it a value.",
     "hook_needs_value": "'{field}' must be typed in: the node works out its fields from it when the graph loads.",
@@ -90,6 +89,10 @@ PROBLEM_CATALOGUE: Mapping[str, str] = {
     "series_not_nested": (
         "'{node_id}' reads items of {series}, and neither is made inside the other, so nothing says which item goes with which. "
         "Make one inside the other (wire '{wire_from}' into '{wire_into}', the node that makes the other), or give one of them whole to a Series input."
+    ),
+    "table_per_item_not_offered": (
+        "The graph '{node}' makes the table '{output}' once per item of {series}, and a graph used as a node can't offer a table per item. "
+        "Bring them into one table inside that graph, with a node that takes them as a Series."
     ),
     "type_mismatch": "'{source}' gives {got}, but '{node_id}.{field}' takes {expected}; connect an output that gives {expected}, or convert it in a node between.",
     "unbound_on_later_node": "Nothing feeds '{field}', and only a first node takes inputs from the caller; draw an edge into it or type a value in.",
@@ -191,9 +194,13 @@ class Problem(ConductorModel):
     who reported it, as it does between pydantic's body and query:
 
     ========================  ==================================================
-    a problem of a graph      ``(node_id)`` or ``(node_id, field)``
+    a problem of a graph      ``(node_id)`` or ``(node_id, field)``; of a graph
+                              embedded in it, the same with the id of the node
+                              that embeds it in front: ``("e", "upper", "text")``
     a node's failure          ``(node_id, *item)``: ``("b", 2, 0)`` is the first
-                              item inside the third of what ``b`` runs per
+                              item inside the third of what ``b`` runs per.
+                              Inside an embedded graph, each embedding node and
+                              its item come first: ``("e", 1, "b", 2)``
     a run stopped as a whole  ``()``
     a refused call            ``("inputs", name)``, ``(node_id, *item)`` for an
                               answer, ``("state",)``, ``("record", *where)``

@@ -1312,32 +1312,32 @@ def test_two_series_out_of_one_embedding_are_refused_where_they_meet():
         return Right(["p", "q"])
 
     inner = embedded("two-lists", {"id": "l", "node": "left"}, {"id": "r", "node": "right"})
-    assert problems({"id": "emb", "node": "two-lists"}, {"id": "after", "node": "pair"}, edges=(("emb.a", "after.a"), ("emb.b", "after.b")),
+    assert problems({"id": "emb", "node": "two-lists"}, {"id": "after", "node": "pair"}, edges=(("emb.l.a", "after.a"), ("emb.r.b", "after.b")),
                     registry=registry_of(left, right, pair, inner)) == ["series_not_nested"]
 
 
 def test_items_made_inside_an_embedding_are_named_by_the_output_it_offers_them_on():
     inner = embedded("splitup", {"id": "split", "node": "split"}, {"id": "upper", "node": "upper"}, edges=(("split.result", "upper.text"),))
     loaded = graph({"id": "e", "node": "splitup"}, {"id": "split", "node": "split"}, {"id": "u2", "node": "upper"},
-                   edges=(("e.result", "u2.text"),), registry=registry_of(split, upper, inner))
+                   edges=(("e.upper.result", "u2.text"),), registry=registry_of(split, upper, inner))
 
-    assert {k: v.msg for k, v in loaded.plan.items()} == {"e": "once", "split": "once", "u2": "per item of e.result"}
-    assert loaded.describe().nodes["u2"].inputs[0].feed.series == "e.result"
+    assert {k: v.msg for k, v in loaded.plan.items()} == {"e": "once", "split": "once", "u2": "per item of e.upper.result"}
+    assert loaded.describe().nodes["u2"].inputs[0].feed.series == "e.upper.result"
 
 
 def test_exclusive_groups_of_an_embedding_name_the_outputs_it_offers():
     inner = embedded("decider", {"id": "d", "node": "decide"})
     loaded = graph({"id": "e", "node": "decider"}, registry=registry_of(decide, inner))
 
-    assert loaded.exclusive_groups == {"e": {"answer": ["yes", "no"]}}
+    assert loaded.exclusive_groups == {"e": {"d.answer": ["d.yes", "d.no"]}}
 
 
 def test_two_decisions_inside_one_embedding_are_two_exclusive_groups():
     inner = embedded("two", {"id": "d1", "node": "decide"}, {"id": "d2", "node": "decide"})
     loaded = graph({"id": "e", "node": "two"}, registry=registry_of(decide, inner))
 
-    assert loaded.exclusive_groups == {"e": {"d1/answer": ["d1/yes", "d1/no"], "d2/answer": ["d2/yes", "d2/no"]}}
-    assert [f.exclusive_group for f in loaded.describe().nodes["e"].outputs] == ["d1/answer", "d1/answer", "d2/answer", "d2/answer"]
+    assert loaded.exclusive_groups == {"e": {"d1.answer": ["d1.yes", "d1.no"], "d2.answer": ["d2.yes", "d2.no"]}}
+    assert [f.exclusive_group for f in loaded.describe().nodes["e"].outputs] == ["d1.answer", "d1.answer", "d2.answer", "d2.answer"]
 
 
 @EMBEDDING_DOES_NOT_RUN
@@ -1360,9 +1360,9 @@ def test_a_nested_embedding_names_its_fields_as_each_record_says_them():
     outer = embedded("outer", {"id": "f", "node": "two"}, {"id": "z", "node": "upper"})
     loaded = graph({"id": "o", "node": "outer"}, registry=registry_of(upper, two, outer))
 
-    assert loaded.problems == [] and list(loaded.inputs) == ["x/text", "y/text", "text"]
+    assert loaded.problems == [] and list(loaded.inputs) == ["x.text", "y.text", "text"]
     assert all(i.address.startswith("o.") for i in loaded.inputs.values())
-    assert [o.name for o in loaded.describe().nodes["o"].outputs] == ["x/result", "y/result", "result"]
+    assert [o.name for o in loaded.describe().nodes["o"].outputs] == ["f.x.result", "f.y.result", "z.result"]
 
 
 @EMBEDDING_DOES_NOT_RUN

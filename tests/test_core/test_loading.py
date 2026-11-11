@@ -575,38 +575,32 @@ def test_an_input_a_hook_reads_is_fixed_when_the_graph_loads_and_never_a_graph_i
     assert BROKEN.load({"nodes": [{"id": "f", "node": "formula"}]}).problems[0].type == "hook_needs_value"
 
 
-def test_a_broken_graph_is_one_problem_where_it_is_embedded_with_its_own_problems_inside():
+def test_a_broken_graphs_problems_are_its_own_where_it_is_embedded_with_the_embedding_in_front():
     graph = BROKEN.load({"nodes": [{"id": "g", "node": "gone_inside"}]})
-    [problem] = graph.problems
-    assert (problem.type, problem.loc, problem.ctx["graph"], problem.ctx["count"]) == ("embedded_graph_broken", ("g",), "gone_inside", 1)
-    assert [(p["type"], p["loc"]) for p in problem.ctx["problems"]] == [("unknown_node", ["x"])]
+    assert [(p.type, p.loc) for p in graph.problems] == [("unknown_node", ("g", "x"))]
     assert not graph.is_runnable and graph.inputs == {}
 
 
 def test_a_broken_graph_two_levels_down_breaks_the_graph_around_it_where_it_is_embedded():
     [problem] = BROKEN.load({"nodes": [{"id": "a", "node": "around"}]}).problems
-    assert (problem.type, problem.loc) == ("embedded_graph_broken", ("a",))
-    [inside] = problem.ctx["problems"]
-    assert (inside["type"], inside["loc"], inside["ctx"]["problems"][0]["type"]) == ("embedded_graph_broken", ["b"], "unknown_node")
+    assert (problem.type, problem.loc) == ("unknown_node", ("a", "b", "x"))
 
 
 def test_an_invalid_value_typed_inside_makes_the_embedding_not_runnable():
     graph = BROKEN.load({"nodes": [{"id": "i", "node": "invalid_inside"}]})
-    assert [(p.type, p.loc) for p in graph.problems] == [("embedded_graph_broken", ("i",))]
-    assert graph.problems[0].ctx["problems"][0]["type"] == "invalid_value"
+    assert [(p.type, p.loc) for p in graph.problems] == [("invalid_value", ("i", "n", "text"))]
     with pytest.raises(InvalidCallError):
         graph.run()
 
 
 def test_a_graph_with_a_required_input_on_a_later_node_nobody_feeds_cannot_be_embedded():
     [problem] = BROKEN.load({"nodes": [{"id": "u", "node": "unfed_inside"}]}).problems
-    assert (problem.type, problem.loc) == ("embedded_graph_broken", ("u",))
-    assert [(p["type"], p["loc"]) for p in problem.ctx["problems"]] == [("unbound_on_later_node", ["pair", "b"])]
+    assert (problem.type, problem.loc) == ("unbound_on_later_node", ("u", "pair", "b"))
 
 
 def test_a_value_typed_on_a_broken_embedding_adds_no_second_problem():
     graph = BROKEN.load({"nodes": [{"id": "g", "node": "gone_inside", "values": {"text": "x"}}]})
-    assert [(p.type, p.loc) for p in graph.problems] == [("embedded_graph_broken", ("g",))]
+    assert [(p.type, p.loc) for p in graph.problems] == [("unknown_node", ("g", "x"))]
 
 
 @node("both_halves", title="Both halves", description="")
@@ -728,8 +722,8 @@ def test_an_embeddings_inputs_are_filled_by_its_own_address():
 
 
 def test_two_inner_inputs_sharing_a_name_are_offered_by_the_inner_records_ids():
-    assert [f.name for f in next(n for n in OUTSIDE.describe().nodes if n.id == "halves").inputs] == ["x/text", "y/text"]
-    graph = OUTSIDE.load({"nodes": [{"id": "s", "node": "upper"}, {"id": "c", "node": "halves", "values": {"y/text": "b"}}], "edges": [["s.result", "c.x/text"]]})
+    assert [f.name for f in next(n for n in OUTSIDE.describe().nodes if n.id == "halves").inputs] == ["x.text", "y.text"]
+    graph = OUTSIDE.load({"nodes": [{"id": "s", "node": "upper"}, {"id": "c", "node": "halves", "values": {"y.text": "b"}}], "edges": [["s.result", "c.x.text"]]})
     assert graph.problems == [] and list(graph.inputs) == ["text"]
 
 

@@ -179,20 +179,6 @@ print(problems({"nodes": [{"id": "a", "node": "upper"}], "edges": [["a.result", 
 
 **Fix.** Add the node the edge names, or remove the edge.
 
-### `embedded_graph_broken`
-
-> The graph '{graph}' has {count} problem(s); fix them in that graph before it can be used here.
-
-```python
-inner = node("inner", title="Inner", description="A graph that can't be run, since it uses a node that doesn't exist.")(GraphRecord.model_validate({"nodes": [{"id": "x", "node": "ghost"}]}))
-with_inner = NodeRegistry()
-with_inner.add_subregistry(registry)
-with_inner.add(inner)
-print([p.type for p in with_inner.load({"nodes": [{"id": "i", "node": "inner"}]}).problems])  # ['embedded_graph_broken']
-```
-
-**Fix.** Fix the embedded graph: `ctx` holds its own problems. Load it on its own to see them in place.
-
 ### `embeds_itself`
 
 > The node '{node}' is a graph that contains itself; embed a graph that does not contain this one.
@@ -203,10 +189,12 @@ itself = node("itself", title="Itself", description="A graph that contains itsel
 looping = NodeRegistry()
 looping.add(itself)
 broken = looping.load({"nodes": [{"id": "i", "node": "itself"}]}).problems[0]
-print(broken.type, [p["type"] for p in broken.ctx["problems"]])  # embedded_graph_broken ['embeds_itself']
+print(broken.type, broken.loc)  # embeds_itself ('i', 'again')
 ```
 
-**Fix.** A stored graph can't contain itself, directly or through another. Remove the node that leads back. From outside, the graph that uses it reports `embedded_graph_broken`, with this problem in its `ctx`.
+**Fix.** A stored graph can't contain itself, directly or through another. Remove the node that leads back. The problem
+sits on the node that closes the circle: a problem of a graph used as a node is that graph's own, with the id of the
+node that uses it in front of its `loc`.
 
 ### `hook_needs_value`
 
@@ -318,6 +306,15 @@ print(problems({
 ```
 
 **Fix.** Feed it from opposite branches of one decision (outputs of one `exclusive_group`), or write a node with an input for each and wire them there. A `Series` input takes several edges on the same terms.
+
+### `table_per_item_not_offered`
+
+> The graph '{node}' makes the table '{output}' once per item of {series}, and a graph used as a node can't offer a table per item. Bring them into one table inside that graph, with a node that takes them as a Series.
+
+A graph used as a node offers an output its graph makes per item as a `Series` of every item's value. A table made per
+item has no such type, so the node that uses the graph is refused.
+
+**Fix.** Inside the stored graph, end with a node that takes the tables as a `Series` and gives one table.
 
 ### `type_mismatch`
 

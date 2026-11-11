@@ -394,9 +394,7 @@ def test_a_stored_graph_with_problems_of_its_own_is_one_problem_where_it_is_used
     broken = node("broken", title="Broken", description="")(GraphRecord(nodes=[NodeRecord(id="x", node="gone")]))
     graph = registry_of(upper, broken).load(GraphRecord(nodes=[NodeRecord(id="b", node="broken"), NodeRecord(id="u", node="upper")], edges=[("b.result", "u.text")]))
 
-    (problem,) = graph.problems
-    assert (problem.type, problem.loc, problem.ctx["graph"]) == ("embedded_graph_broken", ("b",), "broken")
-    assert [p["type"] for p in problem.ctx["problems"]] == ["unknown_node"]
+    assert [(problem.type, problem.loc) for problem in graph.problems] == [("unknown_node", ("b", "x"))]
 
 
 def _a_table_read_by_one_text(source: str) -> Problem:
@@ -483,10 +481,10 @@ def test_a_wrong_address_on_an_embedding_is_a_problem_on_it_and_never_names_an_i
 
 def test_inner_fields_sharing_a_name_are_offered_by_the_inner_node_as_its_record_says_it():
     first = EMBEDDED.load({"nodes": [{"id": "c", "node": "pair"}]})
-    later = EMBEDDED.load({"nodes": [{"id": "s", "node": "upper"}, {"id": "c", "node": "pair"}], "edges": [["s.result", "c.x/text"]]})
+    later = EMBEDDED.load({"nodes": [{"id": "s", "node": "upper"}, {"id": "c", "node": "pair"}], "edges": [["s.result", "c.x.text"]]})
 
-    assert first.problems == [] and {n: i.address for n, i in first.inputs.items()} == {"x/text": "c.x/text", "y/text": "c.y/text"}
-    assert [(p.type, p.loc) for p in later.problems] == [("unbound_on_later_node", ("c", "y/text"))]  # an embedding is fed as any later node is
+    assert first.problems == [] and {n: i.address for n, i in first.inputs.items()} == {"x.text": "c.x.text", "y.text": "c.y.text"}
+    assert [(p.type, p.loc) for p in later.problems] == [("unbound_on_later_node", ("c", "y.text"))]  # an embedding is fed as any later node is
 
 
 @pytest.mark.skip(reason="embedding: nested run not built")
@@ -508,7 +506,7 @@ def test_a_graph_embedded_per_outer_item_gathers_inside_each_outer_item():
 def test_a_stored_graph_offers_its_fields_in_the_palette_of_the_registry_that_holds_its_nodes():
     described = next(n for n in EMBEDDED.describe().nodes if n.id == "pair")
 
-    assert [f.name for f in described.inputs] == ["x/text", "y/text"] and [f.name for f in described.outputs] == ["result"]
+    assert [f.name for f in described.inputs] == ["x.text", "y.text"] and [f.name for f in described.outputs] == ["b.result"]
 
 
 def test_a_gather_of_a_series_a_branch_never_made_is_skipped_not_called_on_nothing():

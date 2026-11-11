@@ -61,6 +61,7 @@ from conductor._internal.fields import (
     FieldValueError,
     accepts,
     already,
+    named_by,
     read_field,
     read_given,
     record_fields,
@@ -365,19 +366,18 @@ class PlacedFunction(_Placed):
 
 @dataclass(frozen=True, kw_only=True)
 class PlacedGraph(_Placed):
-    """A node of a loaded graph that is an embedded graph: a call of it runs ``inner``.
+    """A node of a loaded graph that is an embedded graph: a call of it is a run of ``inner``.
+
+    Its inputs are the inner graph's (``inner.inputs``) by their names there, and its outputs the inner graph's
+    (``inner.outputs``) by their addresses there.
 
     Attributes:
         definition: The node as its author declared it.
         inner: The embedded graph, loaded.
-        inner_inputs: The address in ``inner`` of each input this node offers, by the name it offers it under.
-        inner_outputs: The address in ``inner`` of each output this node offers, by the name it offers it under.
     """
 
     definition: GraphDefinition
     inner: Graph
-    inner_inputs: dict[str, str]
-    inner_outputs: dict[str, str]
 
     @property
     def policy(self) -> Policy:
@@ -896,12 +896,17 @@ class _Loader:
             ), planned.rests_on)
 
     def _place_graph(self, record: NodeRecord, definition: GraphDefinition, edges: dict[str, list[str]]) -> None:
-        """Place an embedded graph as one node: the inner graph loaded, its inputs and outputs this node's fields.
+        """Place an embedded graph as one node: the inner graph loaded alone, its inputs and outputs this node's fields.
 
-        An inner input or output is offered under its own name where no other shares it, else as ``node/field``,
-        as a name holds no dot. An output made per item inside is offered as a ``Series`` of them. A graph that
-        embeds itself, has problems of its own, or makes a ``Series`` or a table per item (which no one output can
-        carry) is a problem here, and the node is left out.
+        An input is offered under the name the inner graph gives it (``graph.inputs``), and an output under its
+        address in the inner graph (``graph.outputs``), so an edge reads ``e.upper.result``. An output made once
+        inside keeps its field. One made per item inside, at any depth, is a ``Series`` of every item's value in
+        order, as ``run.outputs`` gives it, and a ``Series`` made per item is a ``Series`` of lists. A table made
+        per item is refused (``table_per_item_not_offered``): a ``Series`` of tables has no declared type while a
+        table is not a type pydantic carries.
+
+        A graph that embeds itself is a problem here. The inner graph's own problems are this graph's, each with
+        this node's id in front of its place. Either way the node is left out.
         """
         if definition.id in self.embedded_in:
             self.problems.append(make_problem("embeds_itself", record.id, node=definition.id))
@@ -912,37 +917,28 @@ class _Loader:
             self.alone[key] = _Loader(self.definitions, stack, self.alone).load(definition.graph)
         inner = self.alone[key]
         if inner.problems:
-            problems = [p.model_dump(mode="json") for p in inner.problems]
-            self.problems.append(make_problem("embedded_graph_broken", record.id, graph=definition.id, count=len(problems), problems=problems))
+            self.problems += [problem.model_copy(update={"loc": (record.id, *problem.loc)}) for problem in inner.problems]
             return
-        fields: dict[str, FieldSpec] = {}
-        inner_inputs: dict[str, str] = {}
-        for offered in inner._input_fields.values():
-            name = offered.name.replace(".", "/")
-            fields[name] = dataclasses.replace(offered.spec, name=name, default=offered.default, default_json=inner.inputs[offered.name].default)
-            inner_inputs[name] = offered.address
-        last = [(address, inner._nodes[address.partition(".")[0]]) for address in inner.outputs]
-        names = [address.partition(".")[2] for address, _ in last]
-        deciding = {(at.id, spec.param.exclusive_group) for _, at in last for spec in at.outputs.values()}
+        fields = {
+            offered.name: dataclasses.replace(offered.spec, name=offered.name, default=offered.default, default_json=inner.inputs[offered.name].default)
+            for offered in inner._input_fields.values()
+        }
         outputs: dict[str, FieldSpec] = {}
-        inner_outputs: dict[str, str] = {}
-        for address, at in last:
-            output = address.partition(".")[2]
+        for address in inner.outputs:
+            node_id, _, output = address.partition(".")
+            at = inner._nodes[node_id]
             spec = at.outputs[output]
-            if at.scope and spec.shape != "one":
-                self.problems.append(make_problem("series_not_nested", record.id, series=[str(at.scope[-1]), address]))
+            if at.scope and spec.shape == "table":
+                self.problems.append(make_problem("table_per_item_not_offered", record.id, node=definition.id, output=address, series=str(at.scope[-1])))
                 return
-            name = output if names.count(output) == 1 else address.replace(".", "/")
             group = spec.param.exclusive_group
-            if group and sum(held == group for _, held in deciding) > 1:  # two decisions inside, each its own here
-                spec = dataclasses.replace(spec, param=dataclasses.replace(spec.param, exclusive_group=f"{at.id}/{group}"))
-            outputs[name] = dataclasses.replace(spec, name=name, shape="many", optional=False, item=spec.type) if at.scope else dataclasses.replace(spec, name=name)
-            inner_outputs[name] = address
+            if group:  # a decision inside is this node's, named by where it is made
+                spec = dataclasses.replace(spec, param=dataclasses.replace(spec.param, exclusive_group=f"{node_id}.{group}"))
+            outputs[address] = dataclasses.replace(_of_every_item(spec) if at.scope else spec, name=address)
         planned = self._planned(record, fields, self._typed(record, fields), frozenset(), edges)
         if planned is not None:
             self._keep(PlacedGraph(
-                id=record.id, scope=planned.scope, inputs=planned.inputs, outputs=outputs, definition=definition,
-                inner=inner, inner_inputs=inner_inputs, inner_outputs=inner_outputs,
+                id=record.id, scope=planned.scope, inputs=planned.inputs, outputs=outputs, definition=definition, inner=inner,
             ), planned.rests_on)
 
     def _keep(self, placed: PlacedNode, rests_on: frozenset[Branch]) -> None:
@@ -1130,15 +1126,21 @@ class _Loader:
     def _source(self, address: str, node_id: str, name: str) -> Source | None:
         """What an edge from ``address`` brings: ``node.output``, or ``node.output.field`` for one field of a record.
 
+        The output is the one of the node's whose name the address goes on with after the node's id: an embedded
+        graph's is itself an address, ``e.upper.result``.
+
         Returns:
             An item of a ``Series`` output, or an output's one value; ``None`` with the problem when the address
             names nothing its node gives, and ``None`` when its node didn't load.
         """
         source_id, _, rest = address.partition(".")
-        output, _, wanted = rest.partition(".")
         source = self.nodes.get(source_id)
         if source is None:  # a node that failed to load, or none: its own problem says why
             return None
+        output, _, wanted = rest.partition(".")
+        if output not in source.outputs:  # an embedded graph's output: the longest part of the address that names one
+            output = next((declared for declared in source.outputs if rest == declared or rest.startswith(f"{declared}.")), "")
+            wanted = rest[len(output) + 1 :]
         spec = source.outputs.get(output)
         if spec is None:
             self.problems.append(make_problem("unknown_output", node_id, name, source=address, outputs=[f"{source_id}.{o}" for o in source.outputs]))
@@ -1277,6 +1279,16 @@ def _mismatch(node_id: str, spec: FieldSpec, source: Source, wanted: Any) -> Pro
 def _fixed(spec: FieldSpec, typed: Any) -> Fixed | Unset:
     """The plan of an input holding a typed-in value, as its field read it."""
     return Unset(spec) if typed is _REFUSED else Fixed(spec, typed)
+
+
+def _of_every_item(spec: FieldSpec) -> FieldSpec:
+    """The field of an output made once per item, as the ``Series`` of every item's value: of each list, for an
+    output that is itself a ``Series``."""
+    if spec.shape == "one":
+        return dataclasses.replace(spec, shape="many", optional=False, item=spec.type)
+    lists = types.GenericAlias(list, (spec.type,))
+    list_id, classes = named_by(lists)
+    return dataclasses.replace(spec, type=lists, optional=False, item=lists, type_id=list_id, classes=classes)
 
 
 def _runs_on(scope: Scope) -> RunsOn:

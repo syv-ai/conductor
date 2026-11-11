@@ -684,7 +684,7 @@ def test_a_stored_graphs_fields_are_listed_by_the_registry_that_holds_its_nodes_
     alone = shout.describe()
     assert alone.is_graph and alone.inputs == [] and alone.outputs == []
     listed = next(n for n in registry.describe().nodes if n.id == "shout")
-    assert [f.name for f in listed.inputs] == ["text"] and [f.name for f in listed.outputs] == ["result"]
+    assert [f.name for f in listed.inputs] == ["text"] and [f.name for f in listed.outputs] == ["upper.result"]
 
 
 def test_a_stored_graph_is_described_once_until_the_registry_changes(monkeypatch: pytest.MonkeyPatch) -> None:

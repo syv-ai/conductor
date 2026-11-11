@@ -330,18 +330,18 @@ def _embedding(inner_nodes: dict[str, str], inner_edges: list[tuple[str, str]]) 
 
 def test_an_embedded_graph_is_one_node_with_the_inner_graphs_inputs_and_outputs():
     registry = _embedding({"u": "upper", "v": "upper"}, [("u.result", "v.text")])
-    graph = load({"d": "documents", "e": "inner", "c": "count"}, [("d.result", "e.text"), ("e.result", "c.items")], registry)
+    graph = load({"d": "documents", "e": "inner", "c": "count"}, [("d.result", "e.text"), ("e.v.result", "c.items")], registry)
     assert graph.is_runnable and list(graph._nodes) == ["d", "e", "c"]
     described = graph.describe().nodes["e"]
-    assert [i.name for i in described.inputs] == ["text"] and [o.name for o in described.outputs] == ["result"]
+    assert [i.name for i in described.inputs] == ["text"] and [o.name for o in described.outputs] == ["v.result"]
     assert graph.plan["e"].series == "d.result" and feeds(graph, "c") == {"items": ("gathered", "d.result")}
 
 
 def test_an_output_made_per_item_inside_an_embedded_graph_is_offered_as_a_series():
     registry = _embedding({"d": "documents", "u": "upper"}, [("d.result", "u.text")])
-    graph = load({"e": "inner", "c": "count"}, [("e.result", "c.items")], registry)
+    graph = load({"e": "inner", "c": "count"}, [("e.u.result", "c.items")], registry)
     assert graph.is_runnable and graph.describe().nodes["e"].outputs[0].shape == "many"
-    assert feeds(graph, "c") == {"items": ("gathered", "e.result")}
+    assert feeds(graph, "c") == {"items": ("gathered", "e.u.result")}
 
 
 def test_a_first_embedded_graphs_inputs_are_the_outer_graphs():
@@ -350,9 +350,9 @@ def test_a_first_embedded_graphs_inputs_are_the_outer_graphs():
     assert list(graph.inputs) == ["a", "b"] and graph.inputs["a"].address == "e.a"
 
 
-def test_an_embedded_graph_with_problems_is_broken_where_it_is_embedded():
+def test_an_embedded_graphs_problems_are_the_graphs_with_the_embedding_in_front():
     registry = _embedding({"p": "pair", "u": "upper"}, [("u.result", "p.a")])
-    assert problems(load({"e": "inner"}, [], registry)) == [("embedded_graph_broken", ("e",))]
+    assert problems(load({"e": "inner"}, [], registry)) == [("unbound_on_later_node", ("e", "p", "b"))]
 
 
 def test_the_fingerprint_follows_the_graphs_embedded_in_it():

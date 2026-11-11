@@ -191,7 +191,7 @@ from conductor import node
 
 shout = node("shout", title="Shout", description="Turns a text into capital letters.")(make_graph(upper))
 registry.add(shout)
-shouted = registry.load(make_graph(shout, join, edges=[("shout.result", "join.texts")]))
+shouted = registry.load(make_graph(shout, join, edges=[("shout.upper.result", "join.texts")]))
 print(list(shouted.inputs), shouted.outputs)  # ['text'] ['join.result']
 ```
 
