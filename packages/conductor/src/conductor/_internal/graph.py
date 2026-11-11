@@ -807,10 +807,11 @@ class Graph:
             n: self._entering_read(n, d, into) for n, (_, d) in known.items() if d is not None and "/" in n
         }
         extra = {n: {a.partition(".")[0] for a, _ in reads} for n, reads in self._floor_reads.items()}
-        for node_id in self._order(order, into, extra):
+        ordered, reads = self._order(order, into, extra)
+        for node_id in ordered:
             node_record, definition = known[node_id]
             if definition is not None:
-                self._compile_node(node_record, definition, into[node_id])
+                self._compile_node(node_record, definition, into[node_id], reads[node_id])
         self._fed = {}
         offered = [(self._outside(p, key), key, spec, default, listed) for p, key, spec, default, listed in self._graph_inputs]
         self._graph_inputs = []
@@ -828,10 +829,12 @@ class Graph:
             for source_id in placed.reads:
                 self._readers[source_id].append(placed)
 
-    def _order(self, order: list[str], into: dict[str, dict[str, list[str]]], extra: dict[str, set[str]]) -> list[str]:
-        """The nodes with each after what it reads, ties in drawing order; a node on a cycle is a problem."""
+    def _order(self, order: list[str], into: dict[str, dict[str, list[str]]], extra: dict[str, set[str]]) -> tuple[list[str], dict[str, frozenset[str]]]:
+        """The nodes with each after what it reads, ties in drawing order, and the nodes each one's edges read; a node
+        on a cycle is a problem."""
         position = {n: i for i, n in enumerate(order)}
         needs = {n: {s.partition(".")[0] for ss in into[n].values() for s in ss} & position.keys() for n in order}
+        reads = {n: frozenset(sources) for n, sources in needs.items()}
         for n, more in extra.items():
             if n in needs:
                 needs[n] |= more & position.keys()
@@ -854,9 +857,9 @@ class Graph:
         for n in order:
             if n in stuck and _reaches(n, n, readers, stuck):  # on the cycle, not only below it
                 self.problems.append(make_problem("cycle", n))
-        return done
+        return done, reads
 
-    def _compile_node(self, record: NodeRecord, definition: NodeDefinition[..., Any], edges: dict[str, list[str]]) -> None:
+    def _compile_node(self, record: NodeRecord, definition: NodeDefinition[..., Any], edges: dict[str, list[str]], reads: frozenset[str]) -> None:
         if definition.compute_added_inputs is not None:
             added = self._hook(record, definition, "compute_added_inputs", definition.compute_added_inputs, {})
             if added is None:
@@ -868,7 +871,7 @@ class Graph:
             definition = dataclasses.replace(definition, inputs={**definition.inputs, **added})
         placed = PlacedNode(record.id, definition, record)
         broken = False
-        read: set[str] = set()
+        checked: list[str] = []
         inputs = list(definition.inputs)
         for name in sorted({*record.values, *record.defaults, *edges} - definition.inputs.keys()):
             self.problems.append(make_problem("unknown_input", placed.id, name, inputs=inputs))
@@ -890,12 +893,13 @@ class Graph:
                         broken = True
                     else:
                         found.append((address, source))
-                        read.add(address.partition(".")[0])
                 if len(found) > 1:
                     found.sort(key=self._gather_order)
                 for address, source in found:
                     if self._fits(spec, source, address, placed.id, name):
                         plan.sources.append(source)
+                if any(not _settled(spec, s) for s in plan.sources):
+                    checked.append(name)
             elif name in record.values and given_as_items(spec, record.values[name]):
                 self._typed_list(placed, name, plan, record.values[name])
             elif name in record.values:
@@ -918,8 +922,8 @@ class Graph:
                     self._fixed_open.append(f"{placed.id}.{name}")
         if broken or not self._place(placed):
             return
-        placed.reads = frozenset(read)
-        placed.checked = tuple(name for name, plan in placed.inputs.items() if name in edges and any(not _settled(plan.spec, s) for s in plan.sources))
+        placed.reads = reads
+        placed.checked = tuple(checked)
         if definition.compute_outputs is not None:
             arriving = {name: _arriving(plan) for name, plan in placed.inputs.items() if plan.sources}
             outputs = self._hook(record, definition, "compute_outputs", definition.compute_outputs, arriving)
@@ -1012,7 +1016,7 @@ class Graph:
                         "alternatives_on_different_rows", placed.id, name, tables=[_table(levels[0]), _table(levels[1])],
                     ))
                     return True
-                taken |= branches[0].intersection(*branches[1:])
+                taken |= branches[0] if len(branches) == 1 else branches[0].intersection(*branches[1:])
         self._branches[placed.id] = frozenset(taken)
         series = [(n, [self._branch(s) for s in p.sources]) for n, p in placed.inputs.items() if p.spec.shape == "many" and p.sources and not takes_a_blank(p.spec.type)]
         for i, (a, on_a) in enumerate(series):
