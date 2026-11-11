@@ -37,11 +37,11 @@ from pydantic import ValidationError
 from conductor._internal import problem
 from conductor._internal.address import (
     ItemPath,
+    Loc,
     NodePath,
-    Path,
-    _parse_place,
     node_name,
     node_path,
+    parse_loc_text,
 )
 from conductor._internal.ask import (
     Waiting,
@@ -105,7 +105,7 @@ class NotCalled(ConductorModel):
         input: The input that got nothing.
     """
 
-    loc: Path
+    loc: Loc
     input: str
 
 
@@ -286,7 +286,7 @@ class Run:
         for unit_id, one in given.items():
             place, _, fingerprint = unit_id.partition("~")
             try:
-                loc, nodes, key = _parse_place(place)
+                loc, nodes, key = parse_loc_text(place)
             except ValueError:  # a place in it isn't a number
                 problems.append(problem.not_waiting(unit_id.partition("@")[0], waiting_id=unit_id, status=self.status))
                 continue

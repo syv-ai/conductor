@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Any, TypedDict
 import pydantic_core
 from pydantic import JsonValue
 
-from conductor._internal.address import Path, path_text
+from conductor._internal.address import Loc, loc_text
 from conductor._internal.canonical_json import canonical_json
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.fields import (
@@ -371,7 +371,7 @@ def _checked_answer(spec: Field, value: Any, offered: list[dict[str, Any]] | Non
     return read
 
 
-def waiting_unit(placed: PlacedFunction, loc: Path, unit: Asking) -> Waiting:
+def waiting_unit(placed: PlacedFunction, loc: Loc, unit: Asking) -> Waiting:
     """A waiting unit as a host shows it. Its id is where it is as text, then ``~`` and the fingerprint of the
     question asked there, as ``run.answer`` reads it.
 
@@ -382,7 +382,7 @@ def waiting_unit(placed: PlacedFunction, loc: Path, unit: Asking) -> Waiting:
     """
     question = unit.question
     return Waiting(
-        id=f"{path_text(loc)}~{question_fingerprint(placed, unit)}", loc=loc, prompt=question.prompt,
+        id=f"{loc_text(loc)}~{question_fingerprint(placed, unit)}", loc=loc, prompt=question.prompt,
         questions=waiting_questions(placed, question.overrides), inputs=question.inputs,
     )
 

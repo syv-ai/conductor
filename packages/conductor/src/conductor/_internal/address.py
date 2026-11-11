@@ -11,17 +11,17 @@ ItemPath = tuple[int, ...]
 
 #: Where something is in a run: a node's id, then the place of its item in each of its scope's maps; for what is
 #: inside an embedded graph, the embedding node and its item first, ``("e", 0, "ask", 2)``.
-Path = tuple[str | int, ...]
+Loc = tuple[str | int, ...]
 
 
-def path_text(path: Path) -> str:
-    """A path as a waiting id writes it: each node id, ``@`` before each place of its item, and ``/`` between
+def loc_text(loc: Loc) -> str:
+    """A loc as a waiting id writes it: each node id, ``@`` before each place of its item, and ``/`` between
     nodes, ``e@0/ask@2``."""
-    return "".join(f"@{step}" if isinstance(step, int) else f"/{step}" for step in path)[1:]
+    return "".join(f"@{step}" if isinstance(step, int) else f"/{step}" for step in loc)[1:]
 
 
-def _parse_place(place: str) -> tuple[Path, NodePath, ItemPath]:
-    """The place a waiting id names, ``e@0/ask@2``: as a path, then the ids of its nodes and the places of its
+def parse_loc_text(place: str) -> tuple[Loc, NodePath, ItemPath]:
+    """The place a waiting id names, ``e@0/ask@2``: as a loc, then the ids of its nodes and the places of its
     items apart, which name the node and its instance.
 
     Raises:

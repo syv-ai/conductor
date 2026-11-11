@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Annotated, Literal
 from pydantic import ConfigDict, Field, InstanceOf
 from pydantic.json_schema import SkipJsonSchema
 
-from conductor._internal.address import Path
+from conductor._internal.address import Loc
 from conductor._internal.ask import Waiting
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.problem import Problem
@@ -32,7 +32,7 @@ class _NodeEvent(_EventBase):
             the embedding node together, as a node that runs per item does.
     """
 
-    loc: Path
+    loc: Loc
 
 
 class RunStart(_EventBase):

@@ -15,7 +15,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from conductor._internal.address import NodePath, Path, node_name
+from conductor._internal.address import Loc, NodePath, node_name
 from conductor._internal.fields import REQUIRED, Field, Series
 from conductor._internal.loaded_graph.input_plans import (
     InputFedByEdges,
@@ -166,7 +166,7 @@ def waits_on(node: FunctionAtPath) -> frozenset[FunctionAtPath]:
     return node.waits_on
 
 
-def unit_loc(node: NodeAtPath, key: ItemPath) -> Path:
+def unit_loc(node: NodeAtPath, key: ItemPath) -> Loc:
     """Where the instance ``key`` of ``node`` is: the node's id, then the places of its own scope's items, after
     the same for each embedded graph's node it is inside, ``("e", 0, "ask", 2)``.
 
