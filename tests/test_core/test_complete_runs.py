@@ -109,9 +109,9 @@ GRAPHS: dict[str, tuple[dict[str, str], list[tuple[str, str]], str]] = {
     "every item's value gathered beside each item": (
         {"w": "words", "u": "upper", "b": "beside"}, [("w.result", "u.text"), ("w.result", "b.text"), ("u.result", "b.items")], "a b c",
     ),
-    "an embedded graph whose inner Series has no items, per line": ({"l": "lines", "e": "shout-words"}, [("l.result", "e.text")], "a b;;c"),
-    "an embedded graph per line, a node inside it reading nothing": ({"l": "lines", "e": "shout-and-stamp"}, [("l.result", "e.text")], "a;b"),
-    "an embedded graph that gathers a Series with no items": ({"e": "join-words", "u": "upper"}, [("e.j.result", "u.text")], ""),
+    "a subgraph whose inner Series has no items, per line": ({"l": "lines", "e": "shout-words"}, [("l.result", "e.text")], "a b;;c"),
+    "a subgraph per line, a node inside it reading nothing": ({"l": "lines", "e": "shout-and-stamp"}, [("l.result", "e.text")], "a;b"),
+    "a subgraph that gathers a Series with no items": ({"e": "join-words", "u": "upper"}, [("e.j.result", "u.text")], ""),
 }
 
 #: The nodes called on threads; every other is called on the leg's own thread.

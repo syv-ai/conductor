@@ -1,4 +1,4 @@
-"""Items and gathers through the public door: blanks, outer values, gathers, branches, tables and embedded graphs.
+"""Items and gathers through the public door: blanks, outer values, gathers, branches, tables and subgraphs.
 
 A node at the graph's own scope runs once. A ``Series`` output read by an input of one value runs the reader once
 per item, and everything that reads the reader with it; a value made outside those items is there on each call. A
@@ -1461,7 +1461,7 @@ def test_the_ceiling_stops_a_leg_whose_items_wait_for_a_thread_and_resuming_call
     assert stopped.with_max_items(100).resume().status == "complete" and sorted(calls) == list("abcdefghij")
 
 
-# -- an embedded graph is one node -------------------------------------------------------------
+# -- a subgraph is one node -------------------------------------------------------------
 
 def embedded(node_id: str, *nodes: dict[str, Any], edges: tuple[tuple[str, str], ...] = ()) -> Any:
     """A graph of ``nodes`` as one node ``node_id``: its inputs are the open inputs of its first nodes."""

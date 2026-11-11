@@ -35,7 +35,7 @@ class Problem(ConductorModel):
                               that embeds it in front: ``("e", "upper", "text")``
     a node's failure          ``(node_id, *item)``: ``("b", 2, 0)`` is the first
                               item inside the third of what ``b`` runs per.
-                              Inside an embedded graph, each embedding node and
+                              Inside a subgraph, each subgraph node and
                               its item come first: ``("e", 1, "b", 2)``
     a run stopped as a whole  ``()``
     a refused call            ``("inputs", name)``, ``(node_id, *item)`` for an

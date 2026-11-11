@@ -429,7 +429,7 @@ def test_a_series_of_tables_is_accepted_where_it_is_declared():
     assert tables.outputs["result"].type.id.startswith("Table")
 
 
-# -- an embedded graph is one node from outside -------------------------------------
+# -- a subgraph is one node from outside -------------------------------------
 
 
 @node("tail", title="Tail", description="For a test.")

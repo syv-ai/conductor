@@ -9,12 +9,12 @@ whose inputs exist, until nothing more can start. So a run can stop anywhere
 (a person to ask, a failure, the item ceiling, a timeout) and carry on from
 its JSON in another process.
 
-A node inside an embedded graph has units as any node has: one for each item
-its embedding node runs for, and under it for each item of its own scope. Its
-open inputs read what the embedding node is given, and what reads the
-embedding node reads the unit inside that holds the output. The embedding
+A node inside a subgraph has units as any node has: one for each item
+its subgraph node runs for, and under it for each item of its own scope. Its
+open inputs read what the subgraph node is given, and what reads the
+subgraph node reads the unit inside that holds the output. The subgraph
 node itself holds no unit: what a run says of it is read from the units
-inside. Where something is, at any depth of embedded graphs, is one path of
+inside. Where something is, at any depth of subgraphs, is one path of
 node ids and item positions: ``("e", 0, "ask", 2)`` is ``ask``'s third item
 inside ``e``'s first.
 """
@@ -50,8 +50,8 @@ from conductor._internal.ask import (
     waiting_record,
 )
 from conductor._internal.compiled import (
-    FlatEmbeddedGraph,
     FlatFunctionNode,
+    FlatSubgraph,
     host_reads,
     outcome_loc,
 )
@@ -106,7 +106,7 @@ class NotCalled(ConductorModel):
 
     Attributes:
         loc: Which call it was, as a ``Problem``'s ``loc`` says it: the node, then the place of its item in each
-            Series the node runs per item of; inside an embedded graph, the embedding node and its item first.
+            Series the node runs per item of; inside a subgraph, the subgraph node and its item first.
         input: The input that got nothing.
     """
 
@@ -374,7 +374,7 @@ class Run:
         if unknown:
             raise InvalidCallError([problem.node_not_in_graph(n, nodes=list(self.graph._nodes)) for n in unknown])
         fresh = self.with_inputs()
-        for path in [path for path in fresh._reusable_results if path[0] in node_ids]:  # an embedded graph's id forgets every node inside it
+        for path in [path for path in fresh._reusable_results if path[0] in node_ids]:  # a subgraph's id forgets every node inside it
             del fresh._reusable_results[path]
         return fresh
 
@@ -431,7 +431,7 @@ class Run:
 
     @property
     def waiting(self) -> list[Waiting]:
-        """Every unit waiting for a person, in node then item order; those inside an embedded graph where its
+        """Every unit waiting for a person, in node then item order; those inside a subgraph where its
         node stands."""
         return [waiting_record(node.compiled_node, outcome_loc(node, key), outcome) for node, key, outcome in self._asking()]
 
@@ -445,7 +445,7 @@ class Run:
     @property
     def not_called(self) -> list[NotCalled]:
         """The calls a node didn't get because an input was blank: which node, which item and which input; those
-        inside an embedded graph where its node stands."""
+        inside a subgraph where its node stands."""
         return [
             NotCalled(loc=outcome_loc(node, key), input=outcome.input)
             for node in self.graph._flat_function_nodes for key, outcome in self._outcomes[node.name].items() if type(outcome) is outcomes.NotCalled
@@ -503,7 +503,7 @@ class Run:
         stored graph, since the stored graph's node is never called itself."""
         node_id, _, output = address.partition(".")
         node = self.graph._node_at[node_id]
-        return node.output_sources[output] if type(node) is FlatEmbeddedGraph else (node, output)
+        return node.output_sources[output] if type(node) is FlatSubgraph else (node, output)
 
     # -- what a leg reads -------------------------------------------------------
 
@@ -529,8 +529,8 @@ class Run:
             raise InvalidCallError([problem.state_unwritable("state", at, at=at, reason="a value has no JSON form")]) from None
 
     def _saved(self) -> SavedRun[SavedOutcomes, SavedReusable[SavedOutcomes]]:
-        """The run as its graph's ``RunCodec`` writes it. A node inside an embedded graph is saved as any node,
-        under its path. An embedded graph's node holds no unit, so nothing is written of it."""
+        """The run as its graph's ``RunCodec`` writes it. A node inside a subgraph is saved as any node,
+        under its path. A subgraph's node holds no unit, so nothing is written of it."""
         functions = self.graph._functions
         outcomes = {
             node.name: outcome_columns(node.compiled_node.outputs, self._slots(node))

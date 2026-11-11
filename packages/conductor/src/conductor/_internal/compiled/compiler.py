@@ -120,9 +120,9 @@ class _Compiler:
 
     Attributes:
         definitions: The newest version of each node, by id.
-        embedded_in: The ids of the graph nodes this record sits in, outermost first, so one that embeds itself
+        inside_subgraphs: The ids of the graph nodes this record sits in, outermost first, so one that embeds itself
             is found.
-        alone: Each embedded graph already loaded, shared by every compiler one compile makes, so each loads once.
+        alone: Each subgraph already loaded, shared by every compiler one compile makes, so each loads once.
         problems: What is wrong with the record, as found.
         nodes: Each node placed so far, by id.
         branches: The ways decisions must go for each placed node to hold a value, as far as load can tell: what
@@ -131,8 +131,8 @@ class _Compiler:
         position: Each node's place in the record.
     """
 
-    def __init__(self, definitions: Mapping[str, NodeDefinition], embedded_in: tuple[str, ...], alone: dict[tuple[str, int, tuple[str, ...]], CompiledGraph]) -> None:
-        self.definitions, self.embedded_in, self.alone = definitions, embedded_in, alone
+    def __init__(self, definitions: Mapping[str, NodeDefinition], inside_subgraphs: tuple[str, ...], alone: dict[tuple[str, int, tuple[str, ...]], CompiledGraph]) -> None:
+        self.definitions, self.inside_subgraphs, self.alone = definitions, inside_subgraphs, alone
         self.problems: list[Problem] = []
         self.nodes: dict[str, CompiledNode] = {}
         self.branches: dict[str, frozenset[RequiredBranch]] = {}
@@ -274,7 +274,7 @@ class _Compiler:
             ), planned.required_branches)
 
     def _compile_subgraph_node(self, record: NodeRecord, definition: StoredGraphDefinition, edges: dict[str, list[str]]) -> None:
-        """Place an embedded graph as one node: the inner graph loaded alone, its inputs and outputs this node's fields.
+        """Place a subgraph as one node: the inner graph loaded alone, its inputs and outputs this node's fields.
 
         An input is offered under the name the inner graph gives it (``graph.inputs``), and an output under its
         address in the inner graph (``graph.outputs``), so an edge reads ``e.upper.result``. An output keeps the
@@ -285,10 +285,10 @@ class _Compiler:
         this node's id in front of its place. Either way the node is left out: what a graph with problems offers
         isn't known.
         """
-        if definition.id in self.embedded_in:
+        if definition.id in self.inside_subgraphs:
             self.problems.append(problem.embeds_itself(record.id, node=definition.id))
             return
-        stack = (*self.embedded_in, definition.id)
+        stack = (*self.inside_subgraphs, definition.id)
         key = (definition.id, definition.version, stack)
         if key not in self.alone:
             self.alone[key] = _Compiler(self.definitions, stack, self.alone).load(definition.graph, CompiledGraph)
@@ -384,7 +384,7 @@ class _Compiler:
                 reading = next(n for n, p in inputs.items() if isinstance(p, InputFromEdges) and p.loops == loops)
                 stored_graphs = list(dict.fromkeys(port.node_id for port in series if isinstance(self.nodes[port.node_id], CompiledSubgraphNode)))
                 if stored_graphs:  # an edge of this graph can't move a list inside a stored graph
-                    self.problems.append(problem.series_not_nested_inside_stored_graph(
+                    self.problems.append(problem.loops_not_nested_inside_subgraph(
                         record.id, series=[str(s) for s in series], inputs=[reading, name], stored_graphs=stored_graphs,
                     ))
                 else:
@@ -510,8 +510,8 @@ class _Compiler:
     def _source(self, address: str, node_id: str, name: str) -> EdgeSource | None:
         """What an edge from ``address`` brings: ``node.output``, or ``node.output.field`` for one field of a record.
 
-        The output is the one of the node's whose name the address goes on with after the node's id: an embedded
-        graph's is itself an address, ``e.upper.result``.
+        The output is the one of the node's whose name the address goes on with after the node's id: a
+        subgraph's is itself an address, ``e.upper.result``.
 
         Returns:
             An item of a ``Series`` output, or an output's one value; ``None`` with the problem when the address
@@ -522,7 +522,7 @@ class _Compiler:
         if source is None:  # a node whose fields aren't known, one placed later on a cycle, or none: its own problem says why
             return None
         output, _, wanted = rest.partition(".")
-        if output not in source.outputs:  # an embedded graph's output: the longest part of the address that names one
+        if output not in source.outputs:  # a subgraph's output: the longest part of the address that names one
             output = next((declared for declared in source.outputs if rest == declared or rest.startswith(f"{declared}.")), "")
             wanted = rest[len(output) + 1 :]
         field = source.outputs.get(output)

@@ -27,9 +27,9 @@ class _NodeEvent(EventBase):
     """Every event about one node, or one unit of it. Never made on its own.
 
     Attributes:
-        loc: Which node it is: its id, and for a node inside an embedded graph the id of each embedding node
-            first, ``("e", "upper")``. A node inside an embedded graph says its events once, for every item of
-            the embedding node together, as a node that runs per item does.
+        loc: Which node it is: its id, and for a node inside a subgraph the id of each subgraph node
+            first, ``("e", "upper")``. A node inside a subgraph says its events once, for every item of
+            the subgraph node together, as a node that runs per item does.
     """
 
     loc: Loc
@@ -83,7 +83,7 @@ class NodeSkipped(_NodeEvent):
 
 class NodeFailed(_NodeEvent):
     """A unit of the node failed, finally; ``cause`` says why, and its ``loc`` which unit: the node's id, then the
-    unit's item, and inside an embedded graph the embedding node and its item first, ``("e", 0, "upper")``."""
+    unit's item, and inside a subgraph the subgraph node and its item first, ``("e", 0, "upper")``."""
 
     type: Literal["node_failed"] = "node_failed"
     cause: Problem
@@ -92,7 +92,7 @@ class NodeFailed(_NodeEvent):
 class NodeRetry(_NodeEvent):
     """An attempt failed on the outside world and is tried again: attempt ``attempt`` of ``retries``, after
     ``delay`` seconds. Its ``loc`` is the unit's, as its ``cause`` has it: the node's id, then the place of the
-    unit's item in each Series the node runs per item of; inside an embedded graph, the embedding node and its
+    unit's item in each Series the node runs per item of; inside a subgraph, the subgraph node and its
     item first."""
 
     type: Literal["node_retry"] = "node_retry"

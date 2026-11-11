@@ -212,7 +212,7 @@ def test_a_run_that_waits_per_item_saves_and_loads_back_onto_the_same_items():
     assert done.outputs == {"q.result": [False, True]}
 
 
-# -- an embedded graph, per outer item -----------------------------------------------------------------------------
+# -- a subgraph, per outer item -----------------------------------------------------------------------------
 
 
 def test_an_embedded_graph_fed_one_file_per_outer_item_runs_per_item_whether_it_reviews_each_or_all():

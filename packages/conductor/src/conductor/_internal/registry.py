@@ -364,7 +364,7 @@ def _with_keys_renamed[V](by_name: Mapping[str, V], renames: Mapping[str, str]) 
 def _renamed_on(address: str, node_id: str, renames: Mapping[str, str]) -> str:
     """``address`` with its field renamed when it is on ``node_id`` and the step renames it.
 
-    A field of a record named after it (``result.email``) moves with it. An embedded graph's output is named by an
+    A field of a record named after it (``result.email``) moves with it. A subgraph's output is named by an
     inner address (``tail.result``), so the longest renamed name the address goes on with is the one it names.
     """
     owner, _, rest = address.partition(".")

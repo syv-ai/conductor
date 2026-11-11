@@ -386,14 +386,14 @@ def test_a_list_given_at_an_input_of_one_value_is_refused_saying_what_makes_a_gr
     assert "a node that makes a Series" in problem.msg
 
 
-# -- an embedded graph is one node -----------------------------------------------------------------------
+# -- a subgraph is one node -----------------------------------------------------------------------
 
 
 def _embedding(inner_nodes: dict[str, str], inner_edges: list[tuple[str, str]]) -> NodeRegistry:
     registry = NodeRegistry()
     registry.add_subregistry(REGISTRY)
     record = GraphRecord.model_validate({"nodes": [{"id": i, "node": n} for i, n in inner_nodes.items()], "edges": [list(edge) for edge in inner_edges]})
-    registry.add(stored_graph("inner", title="Inner", description="An embedded graph.")(record))
+    registry.add(stored_graph("inner", title="Inner", description="A subgraph.")(record))
     return registry
 
 

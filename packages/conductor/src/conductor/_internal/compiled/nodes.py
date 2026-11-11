@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, kw_only=True)
 class _CompiledNodeBase:
-    """What every node of a compiled graph has, whether it is a function or an embedded graph. Never made on its own.
+    """What every node of a compiled graph has, whether it is a function or a subgraph. Never made on its own.
 
     Attributes:
         id: The node's id in the record.
@@ -127,7 +127,7 @@ class CompiledSubgraphNode(_CompiledNodeBase):
 
     Attributes:
         definition: The node as its author declared it.
-        inner: The embedded graph, checked alone; it is never run alone.
+        inner: The subgraph, checked alone; it is never run alone.
     """
 
     definition: StoredGraphDefinition
@@ -170,7 +170,7 @@ class CompiledSubgraphNode(_CompiledNodeBase):
         return described
 
 
-#: One node of a compiled graph: a function, or an embedded graph.
+#: One node of a compiled graph: a function, or a subgraph.
 CompiledNode = CompiledFunctionNode | CompiledSubgraphNode
 
 

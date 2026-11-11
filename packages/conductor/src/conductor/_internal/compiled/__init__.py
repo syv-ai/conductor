@@ -8,9 +8,9 @@ Code outside this package imports from here only. ``compiler.py`` has ``compile_
 from conductor._internal.compiled.compiler import compile_graph
 from conductor._internal.compiled.describe import Feed, GraphDescription, GraphInput, RunsOn
 from conductor._internal.compiled.flat_nodes import (
-    FlatEmbeddedGraph,
     FlatFunctionNode,
     FlatNode,
+    FlatSubgraph,
     host_reads,
     outcome_loc,
     waits_on,

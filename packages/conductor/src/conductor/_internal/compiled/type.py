@@ -1,6 +1,6 @@
 """``CompiledGraph``: a stored graph checked against the nodes it uses.
 
-A table is one value. An embedded graph is one node: its inputs are the inner
+A table is one value. A subgraph is one node: its inputs are the inner
 graph's inputs, its outputs the inner graph's outputs. It loads once, alone,
 however many graphs embed it, and nothing of it is copied into the graph
 around it. An author and a host see that one node, and an edge names its
@@ -73,7 +73,7 @@ class CompiledGraph:
     _input_fields: dict[str, InputField]
     #: The nodes that read each node.
     _readers: dict[str, list[CompiledNode]]
-    #: The nodes with a ``FromRun`` parameter, an embedded graph's too, as ``from_run_values`` reads them.
+    #: The nodes with a ``FromRun`` parameter, a subgraph's too, as ``from_run_values`` reads them.
     _needs_from_run: list[tuple[str, FunctionDefinition[..., Any]]]
 
     def __repr__(self) -> str:
@@ -115,9 +115,9 @@ class CompiledGraph:
         node that reads it. A ``type_mismatch`` names the input in its ``loc``; a ``cycle`` and
         ``series_not_nested`` name the node. Only a node whose fields aren't known is there with ``loaded``
         false and no fields, its problems saying why: an unknown node or version, an id no address can say, a
-        graph that embeds itself, a hook that failed or wasn't called for a value it reads, an embedded graph
-        with problems of its own. An embedded graph is one node, with the fields it offers; one with problems
-        isn't placed, and its problems are this graph's, each ``loc`` the embedding node's id and then the
+        graph that embeds itself, a hook that failed or wasn't called for a value it reads, a subgraph
+        with problems of its own. A subgraph is one node, with the fields it offers; one with problems
+        isn't placed, and its problems are this graph's, each ``loc`` the subgraph node's id and then the
         place inside it.
         """
         nodes: dict[str, GraphNodeDescription] = {}
@@ -150,7 +150,7 @@ class CompiledGraph:
 
     @property
     def _node_at(self) -> dict[str, FlatNode]:
-        """Each node of the graph and of each graph embedded in it, a function or an embedded graph, by its
+        """Each node of the graph and of each graph embedded in it, a function or a subgraph, by its
         name (``e/ask``)."""
         return self._flat_nodes[1]
 
@@ -162,7 +162,7 @@ class CompiledGraph:
     @functools.cached_property
     def _threads(self) -> int:
         """How many calls a leg over the graph can have on threads at once: the ``concurrency`` of every node
-        called on a thread, those of each embedded graph with them."""
+        called on a thread, those of each subgraph with them."""
         return sum(policy.concurrency for compiled_node in self._functions.values() if (policy := compiled_node.definition.policy).threaded)
 
     @functools.cached_property
@@ -174,5 +174,5 @@ class CompiledGraph:
         A saved run names it, and loading a save into a graph whose fingerprint differs is refused.
         """
         own = self.record.model_dump(mode="json", exclude={"nodes": {"__all__": {"display"}}})
-        embedded = {p.id: p.inner.fingerprint for p in self._nodes.values() if isinstance(p, CompiledSubgraphNode)}
-        return hashlib.blake2b(canonical_json([own, embedded]), digest_size=8).hexdigest()
+        subgraph_fingerprints = {p.id: p.inner.fingerprint for p in self._nodes.values() if isinstance(p, CompiledSubgraphNode)}
+        return hashlib.blake2b(canonical_json([own, subgraph_fingerprints]), digest_size=8).hexdigest()

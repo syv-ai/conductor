@@ -1,4 +1,4 @@
-"""An embedded graph is one node outside, and embedding a graph changes nothing about how its nodes behave: every
+"""A subgraph is one node outside, and embedding a graph changes nothing about how its nodes behave: every
 test here holds a graph embedded against what the same nodes do drawn in the graph itself."""
 
 from __future__ import annotations
@@ -226,7 +226,7 @@ def chain(*nodes: tuple[str, str]) -> dict[str, Any]:
     return {"nodes": [{"id": i, "node": n} for i, n in nodes], "edges": [[f"{a[0]}.result", f"{b[0]}.text"] for a, b in zip(nodes, nodes[1:], strict=False)]}
 
 
-#: Each embedded graph, by the id of the node that embeds it.
+#: Each subgraph, by the id of the node that embeds it.
 INNER = {
     "shout-inner": chain(("up", "upper"), ("ex", "exclaim")),
     "greet-inner": chain(("g", "greet")),
@@ -241,7 +241,7 @@ INNER = {
     "upper-fetch-inner": chain(("up", "upper"), ("f", "fetch")),  # its last node is the one on threads
     "two-asks-inner": {"nodes": [{"id": "f", "node": "asking-inner"}, {"id": "g", "node": "asking-inner"}], "edges": []},
     "three-asks-inner": {"nodes": [{"id": n, "node": "asking-inner"} for n in ("f", "g", "h")], "edges": []},
-    "wrapping": chain(("in", "asking-inner")),  # an embedded graph inside an embedded graph
+    "wrapping": chain(("in", "asking-inner")),  # a subgraph inside a subgraph
     "deep-inner": chain(("w", "words"), ("c", "chars"), ("up", "upper")),  # its output sits two maps deep
     "series-per-item-inner": chain(("w", "words"), ("c", "chars")),  # a Series made per word
     "table-per-item-inner": chain(("w", "words"), ("t", "table")),
@@ -276,14 +276,14 @@ def load(nodes: dict[str, str | dict[str, Any]], edges: list[tuple[str, str]] = 
 
 
 def mapped(inner: str, splitter: str = "words"):
-    """``splitter`` into the embedded graph ``inner``, so the embedded graph runs once per item."""
+    """``splitter`` into the subgraph ``inner``, so the subgraph runs once per item."""
     graph = load({"w": splitter, "e": inner}, [("w.result", "e.text")])
     assert not graph.problems, graph.problems
     return graph
 
 
 def flat(inner: str, splitter: str = "words"):
-    """The nodes of the embedded graph ``inner`` drawn in the graph itself, after ``splitter``: what ``mapped``
+    """The nodes of the subgraph ``inner`` drawn in the graph itself, after ``splitter``: what ``mapped``
     must behave as."""
     record = INNER[inner]
     first = record["nodes"][0]["id"]
@@ -308,7 +308,7 @@ def problems(graph) -> list[tuple[str, tuple]]:
     return [(p.type, p.loc) for p in graph.problems]
 
 
-# -- loading: an embedded graph is one node with the inner graph's inputs and outputs ----------------------
+# -- loading: a subgraph is one node with the inner graph's inputs and outputs ----------------------
 
 
 def test_an_embedded_graph_offers_the_inner_graphs_inputs_by_name_and_outputs_by_address():
@@ -376,7 +376,7 @@ def test_a_decision_inside_is_the_embeddings_by_where_it_is_made():
 
 
 def chain_node(node_id: str) -> str:
-    """The id of an embedded graph of the one node ``node_id``, registered when first asked for."""
+    """The id of a subgraph of the one node ``node_id``, registered when first asked for."""
     embedded = f"only-{node_id}"
     if embedded not in REGISTRY:
         REGISTRY.add(stored_graph(embedded, title=embedded.capitalize(), description=f"The {embedded} node.")(GraphRecord.model_validate(chain(("d", node_id)))))
@@ -720,7 +720,7 @@ def test_work_carried_from_a_run_of_an_earlier_graph_is_taken_inside_where_the_n
         ({"e": "letters-per-word-inner", "h": "height"}, [("e.t.result", "h.table")], "e.w.result"),
         ({"s": "sheets", "h": "height"}, [("s.result", "h.table")], "s.result"),
     ],
-    ids=["drawn flat", "made inside an embedded graph", "returned as a Series of tables"],
+    ids=["drawn flat", "made inside a subgraph", "returned as a Series of tables"],
 )
 def test_tables_made_per_item_reach_a_table_input_one_table_per_item_wherever_they_are_made(nodes: dict[str, str], edges: list[tuple[str, str]], series: str):
     graph = load(nodes, edges)
@@ -729,7 +729,7 @@ def test_tables_made_per_item_reach_a_table_input_one_table_per_item_wherever_th
     assert (graph.runs_on["h"].mode, graph.runs_on["h"].series, run.status, run.results["h"]["result"]) == ("per_item", series, "complete", [2, 1])
 
 
-# -- an embedded graph's node reads alike on a run, on its copy and on either saved and loaded ---------------
+# -- a subgraph's node reads alike on a run, on its copy and on either saved and loaded ---------------
 
 
 def read(run) -> tuple[Any, ...]:
@@ -817,7 +817,7 @@ def test_every_word_answered_in_one_call_inside_one_embedded_graph_settles_it_on
         ({"w": "words", "r": "record", "h": "height"}, [("w.result", "r.text"), ("r.result", "h.table")]),
         ({"e": "record-per-word-inner", "h": "height"}, [("e.r.result", "h.table")]),
     ],
-    ids=["drawn flat", "made inside an embedded graph"],
+    ids=["drawn flat", "made inside a subgraph"],
 )
 def test_values_of_any_type_made_per_item_are_gathered_as_records_by_a_table_input_wherever_they_are_made(nodes: dict[str, str], edges: list[tuple[str, str]]):
     graph = load(nodes, edges)

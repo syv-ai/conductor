@@ -1,10 +1,10 @@
 """One leg of a run: start every unit whose inputs exist, record what comes of each, and say so as events.
 
 A leg walks every function of the run's graph and of the graphs embedded in
-it, each where it stands (``graph._flat_function_nodes``). A node inside an embedded graph is
-one of them, with a unit per item of the embedding node and of its own scope,
+it, each where it stands (``graph._flat_function_nodes``). A node inside a subgraph is
+one of them, with a unit per item of the subgraph node and of its own scope,
 so it is called, retried, timed out and cancelled as the same node drawn in
-the graph around it. An embedded graph's node is not among them: it is never
+the graph around it. A subgraph's node is not among them: it is never
 called and holds no unit, and a listener hears that it started and is
 complete from the nodes inside it.
 
@@ -49,9 +49,9 @@ from typing import Any, Literal
 from conductor._internal.address import ItemPath, NodePath
 from conductor._internal.ask import Ask, InvalidAskError, question_asked, waiting_record
 from conductor._internal.compiled import (
-    FlatEmbeddedGraph,
     FlatFunctionNode,
     FlatNode,
+    FlatSubgraph,
     outcome_loc,
     waits_on,
 )
@@ -177,7 +177,7 @@ class Scheduler:
         with_outcomes: set[FlatFunctionNode] = {node for node, held in self.outcomes.items() if held}
         self.started: set[FlatNode] = with_outcomes | {around for node in with_outcomes for around in _around(node)}
         #: The nodes said complete, on this leg or on an earlier one; a node an answer finished between legs is said on
-        #: this one. An embedded graph's node is complete when every node inside it is.
+        #: this one. A subgraph's node is complete when every node inside it is.
         self.complete: set[FlatNode] = {node for node in self.nodes if node.path in finished} if finished else set()
         if self.complete and emit is not None:
             for node in list(self.complete):
@@ -590,19 +590,19 @@ class Scheduler:
     def _stop_at_ceiling(self, node: FlatFunctionNode, key: ItemPath, output: str, items: int, ceiling: int) -> None:
         """Stop the leg at the item ceiling, unless it already ended for a failure, a cancel or its timeout, which
         stays the cause. The cause names the Series as the graph of the reader that works through it does,
-        inside the item of each embedded graph's node around that."""
+        inside the item of each subgraph's node around that."""
         if self.going:
             named, offered = node.looped_outputs[output]
-            loc = outcome_loc(named, key[: len(named.embedding.loops) if named.embedding is not None else 0])
+            loc = outcome_loc(named, key[: len(named.parent.loops) if named.parent is not None else 0])
             self.end(EndedEarly("stopped", problem.item_ceiling(*loc, series=f"{named.compiled_node.id}.{offered}", items=items, max_items=ceiling)))
 
     # -- what the leg says --------------------------------------------------------------------
 
     def _announce(self, node: FlatNode) -> None:
-        """Say that ``node`` started, once, after each embedded graph's node it is inside."""
+        """Say that ``node`` started, once, after each subgraph's node it is inside."""
         if node not in self.started:
-            if node.embedding is not None:
-                self._announce(node.embedding)
+            if node.parent is not None:
+                self._announce(node.parent)
             self.started.add(node)
             if self.emit:
                 self.emit(NodeStart(loc=node.path))
@@ -643,10 +643,10 @@ class Scheduler:
             self._complete_around(node, say=True)
 
     def _complete_around(self, node: FlatNode, say: bool) -> None:
-        """Count the embedded graph's node around ``node`` as complete once every node inside it is, and so on
+        """Count the subgraph's node around ``node`` as complete once every node inside it is, and so on
         outwards; with ``say``, tell the listener: skipped when every node inside was, else complete, with one
-        unit for each item the embedded graph's node runs for."""
-        around = node.embedding
+        unit for each item the subgraph's node runs for."""
+        around = node.parent
         while around is not None and around not in self.complete and all(inner in self.complete for inner in around.nodes):
             self.complete.add(around)
             if say and self.emit is not None:
@@ -656,7 +656,7 @@ class Scheduler:
                 else:
                     counted, _ = item_paths(self.all_outcomes, around.loops, (), counted=True)
                     self.emit(NodeComplete(loc=around.path, outcomes=(counted[0][0] if counted else 0) if around.loops else 1))
-            around = around.embedding
+            around = around.parent
 
     def _finished(self, node: FlatFunctionNode, may_wait: bool = True) -> bool:
         """Whether every unit of ``node`` is known and none of them is still to run or waiting; ``may_wait`` False
@@ -672,10 +672,10 @@ def _has_no_value(outcome: Outcome) -> bool:
     return type(outcome) is Skipped or ((type(outcome) is Done or type(outcome) is Answered) and bool(outcome.out) and all(value is SKIPPED for value in outcome.out.values()))
 
 
-def _around(node: FlatNode) -> list[FlatEmbeddedGraph]:
-    """The embedded graphs' nodes ``node`` is inside, innermost first."""
+def _around(node: FlatNode) -> list[FlatSubgraph]:
+    """The subgraphs' nodes ``node`` is inside, innermost first."""
     around = []
-    while node.embedding is not None:
-        node = node.embedding
+    while node.parent is not None:
+        node = node.parent
         around.append(node)
     return around

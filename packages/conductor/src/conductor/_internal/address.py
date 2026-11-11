@@ -1,6 +1,6 @@
 """Three ways to say where something is in a run, and the text form of each.
 
-The example used in this file: a graph has a node ``e``, which is an embedded graph (a stored graph used as
+The example used in this file: a graph has a node ``e``, which is a subgraph (a stored graph used as
 one node). ``e`` is called once per document. Inside it, a node ``ask`` is called once per line of the document.
 
 - A **node path** names a node: ``("e", "ask")``. As text it is ``"e/ask"``.
@@ -13,8 +13,8 @@ one node). ``e`` is called once per document. Inside it, a node ``ask`` is calle
 
 from __future__ import annotations
 
-#: The ids that name one node: its own id last, and before it the id of each embedded graph it is inside,
-#: outermost first. ``("e", "ask")`` is the node ``ask`` inside the embedded graph ``e``; ``("load",)`` is a
+#: The ids that name one node: its own id last, and before it the id of each subgraph it is inside,
+#: outermost first. ``("e", "ask")`` is the node ``ask`` inside the subgraph ``e``; ``("load",)`` is a
 #: node of the graph itself.
 NodePath = tuple[str, ...]
 

@@ -80,7 +80,7 @@ def reused_outcome(
 
 def lineage(outcomes: dict[str, dict[ItemPath, Outcome]], node: FlatFunctionNode, key: ItemPath) -> str:
     """A fingerprint of the item of each map above the innermost that the instance ``key`` of ``node`` sits
-    in, those of the embedded graphs' nodes around it included. A unit's innermost item is in what it
+    in, those of the subgraphs' nodes around it included. A unit's innermost item is in what it
     received."""
     above = [
         outcomes[series.name][key[:depth]].out[output][key[depth]]  # type: ignore[union-attr]  # a unit under an item of a Series holds that Series

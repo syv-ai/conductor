@@ -194,7 +194,7 @@ def series_not_nested(node_id: str, *, series: list[str], inputs: list[str], wir
 
 
 @PROBLEMS.problem("series_not_nested", hint="inside_stored_graph")
-def series_not_nested_inside_stored_graph(node_id: str, *, series: list[str], inputs: list[str], stored_graphs: list[str]) -> str:
+def loops_not_nested_inside_subgraph(node_id: str, *, series: list[str], inputs: list[str], stored_graphs: list[str]) -> str:
     """A node reads items of two Series, neither is made inside the other, and one of them is a list inside a
     stored graph, so no edge of this graph can put one inside the other.
 

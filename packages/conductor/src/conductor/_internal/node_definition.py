@@ -305,7 +305,7 @@ class FunctionDefinition[**P, R](_Version):
 
 @dataclass(frozen=True, eq=False, kw_only=True, repr=False)  # the version's own __repr__
 class StoredGraphDefinition(_Version):
-    """A graph record registered as a node, one version of it: ``stored_graph(...)(record)`` makes one. Loading a graph that uses it checks its record alone and places it there as an embedded graph, whose
+    """A graph record registered as a node, one version of it: ``stored_graph(...)(record)`` makes one. Loading a graph that uses it checks its record alone and places it there as a subgraph, whose
     nodes run where the node stands.
 
     It has no function, so calling it is a type error; its fields are the graph's, worked out at that load.

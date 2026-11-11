@@ -752,7 +752,7 @@ def test_the_last_progress_of_a_node_is_always_said():
     assert progress[-1] == (3000, 3000)
 
 
-# -- an embedded graph's nodes are reused as they would be drawn in the graph itself --------------
+# -- a subgraph's nodes are reused as they would be drawn in the graph itself --------------
 
 
 def test_again_with_one_of_an_embeddings_inputs_changed_calls_only_the_inner_node_that_reads_it_and_asks_nothing_again():

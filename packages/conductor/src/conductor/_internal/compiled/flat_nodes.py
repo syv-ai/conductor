@@ -2,9 +2,9 @@
 
 A graph loads once, alone, however many graphs embed it. What a run walks is every function of the graph and of
 each graph embedded in it, each a ``FlatFunctionNode``, with its inputs planned where it stands: an output of an
-embedded graph is by definition an output of a function inside it, so a reader's plan names that output, and an open
-input inside has the plan the embedded graph's node has for it. A call of an embedded graph therefore costs what
-its functions cost, and its node (an ``FlatEmbeddedGraph``) holds no unit of its own: it is a name and a boundary.
+subgraph is by definition an output of a function inside it, so a reader's plan names that output, and an open
+input inside has the plan the subgraph's node has for it. A call of a subgraph therefore costs what
+its functions cost, and its node (a ``FlatSubgraph``) holds no unit of its own: it is a name and a boundary.
 """
 
 from __future__ import annotations
@@ -49,22 +49,22 @@ if typing.TYPE_CHECKING:
 @dataclass(eq=False, slots=True, kw_only=True)
 class _FlatNodeBase:
     """A node where it stands among the graphs a run is of: a node of the graph itself, or of a graph embedded
-    in it, at any depth. Never made on its own: it is a ``FlatFunctionNode`` or an ``FlatEmbeddedGraph``.
+    in it, at any depth. Never made on its own: it is a ``FlatFunctionNode`` or a ``FlatSubgraph``.
 
     A graph loads once and may be embedded in many places; this is a node of it in one of them. A node inside an
-    embedded graph runs once for each item its embedding node runs for, and then once per item of its own scope,
-    so the maps it runs in are the embedding node's and then its own.
+    subgraph runs once for each item its subgraph node runs for, and then once per item of its own scope,
+    so the maps it runs in are the subgraph node's and then its own.
 
     Attributes:
-        embedding: The embedded graph's node it is directly inside; ``None`` for a node of the graph itself.
-        path: The ids of the embedded graphs' nodes it is inside, outermost first, then its own id.
+        parent: The subgraph's node it is directly inside; ``None`` for a node of the graph itself.
+        path: The ids of the subgraphs' nodes it is inside, outermost first, then its own id.
         name: The path as a run and a save name the node, ``e/ask``.
         loops: Every map it runs in, outermost first, each as the function whose ``Series`` output it is and
-            that output: those of the embedded graph's node it is inside, then those of its own scope. A loop
+            that output: those of the subgraph's node it is inside, then those of its own scope. A loop
             over a ``Series`` a stored graph offers is the loop inside that graph (``_series_looped_over``).
     """
 
-    embedding: FlatEmbeddedGraph | None
+    parent: FlatSubgraph | None
     path: NodePath
     name: str
     loops: tuple[tuple[FlatFunctionNode, str], ...]
@@ -73,7 +73,7 @@ class _FlatNodeBase:
 @typing.final
 @dataclass(eq=False, slots=True, kw_only=True)
 class FlatFunctionNode(_FlatNodeBase):
-    """A function node of a graph with its embedded graphs laid out flat. Built once per graph and shared by
+    """A function node of a graph with its subgraphs laid out flat. Built once per graph and shared by
     every run of it; it holds nothing from a run.
 
     The arguments of one call come from three places: ``constant_arguments`` (the values typed into the graph and
@@ -82,7 +82,7 @@ class FlatFunctionNode(_FlatNodeBase):
 
     How each input gets its value is written for where the node stands: every output of a plan names a function
     by its ``name``, so a plan is read the same wherever its node stands. An open input of a node inside an
-    embedded graph has the plan that graph's node has for it, and an edge from an embedded graph's output reads
+    subgraph has the plan that graph's node has for it, and an edge from a subgraph's output reads
     the output inside that holds it.
 
     Attributes:
@@ -101,7 +101,7 @@ class FlatFunctionNode(_FlatNodeBase):
             don't settle it.
         looped_outputs: The ``Series`` outputs some reader works through one item at a time where the node stands,
             which a run holds to ``max_items``, each with the node and the output its reader's graph names it
-            by: its own, for a reader in its graph; for a reader of an embedded graph's node around it, that
+            by: its own, for a reader in its graph; for a reader of a subgraph's node around it, that
             node and the output it offers, so the ceiling is said of what that graph's author drew. A reader
             placed after the node adds to it, as its plan is written (``_plan_at_path``).
         reads_from: Every function whose units its own are made from, each with how many places of an item
@@ -135,8 +135,8 @@ class FlatFunctionNode(_FlatNodeBase):
 
 @typing.final
 @dataclass(eq=False, slots=True, kw_only=True)
-class FlatEmbeddedGraph(_FlatNodeBase):
-    """A placed embedded graph where it stands among the graphs a run is of, made with the functions inside it
+class FlatSubgraph(_FlatNodeBase):
+    """A placed subgraph where it stands among the graphs a run is of, made with the functions inside it
     when a ``Graph``'s nodes are first walked. It is a name and a boundary: it is never called and a run
     holds no unit of it. Its inputs are handed to the open inputs inside as their plans, and each output it
     offers is the output of a function inside. What a run says of it (its results, that it started, that it is
@@ -148,7 +148,7 @@ class FlatEmbeddedGraph(_FlatNodeBase):
             is given for its own.
         nodes: The nodes of the graph inside, where they stand.
         output_sources: Each output it offers, by its address in the inner graph: the function inside that makes it, at
-            any depth of embedded graphs, and that function's output.
+            any depth of subgraphs, and that function's output.
     """
 
     compiled_node: CompiledSubgraphNode
@@ -157,8 +157,8 @@ class FlatEmbeddedGraph(_FlatNodeBase):
     output_sources: dict[str, tuple[FlatFunctionNode, str]] = dataclasses.field(default_factory=dict[str, tuple["FlatFunctionNode", str]])
 
 
-#: A node where it stands among the graphs a run is of: a function, or an embedded graph.
-FlatNode = FlatFunctionNode | FlatEmbeddedGraph
+#: A node where it stands among the graphs a run is of: a function, or a subgraph.
+FlatNode = FlatFunctionNode | FlatSubgraph
 
 
 
@@ -178,17 +178,17 @@ def waits_on(node: FlatFunctionNode) -> frozenset[FlatFunctionNode]:
 
 def outcome_loc(node: FlatNode, key: ItemPath) -> Loc:
     """Where the instance ``key`` of ``node`` is: the node's id, then the places of its own scope's items, after
-    the same for each embedded graph's node it is inside, ``("e", 0, "ask", 2)``.
+    the same for each subgraph's node it is inside, ``("e", 0, "ask", 2)``.
 
     Args:
         node: The node.
-        key: The instance; one cut off after the places of the embedded graph's node gives the node's id alone
+        key: The instance; one cut off after the places of the subgraph's node gives the node's id alone
             at the end, ``("e", 0, "ask")``.
     """
-    if node.embedding is None:
+    if node.parent is None:
         return (node.compiled_node.id, *key)
-    around = len(node.embedding.loops)  # the places of the embedded graph's node's own item
-    return (*outcome_loc(node.embedding, key[:around]), node.compiled_node.id, *key[around:])
+    around = len(node.parent.loops)  # the places of the subgraph's node's own item
+    return (*outcome_loc(node.parent, key[:around]), node.compiled_node.id, *key[around:])
 
 
 #: What a host is shown of an output made per item is what an input of this type wired to it would be given:
@@ -237,45 +237,45 @@ def flat_nodes(graph: CompiledGraph) -> tuple[list[FlatFunctionNode], dict[str, 
     return tree, node_at
 
 
-def _add_to_tree(graph: CompiledGraph, embedding: FlatEmbeddedGraph | None, tree: list[FlatFunctionNode], node_at: dict[str, FlatNode]) -> dict[str, FlatNode]:
+def _add_to_tree(graph: CompiledGraph, parent: FlatSubgraph | None, tree: list[FlatFunctionNode], node_at: dict[str, FlatNode]) -> dict[str, FlatNode]:
     """Add the functions of ``graph`` to ``tree``, each after the functions it reads, those of each graph
     embedded in it where that graph's node stands, and every node to ``node_at``.
 
     A plan of the compiled graph names the nodes of its own graph. Here each is written for where its node stands
-    (``_plan_at_path``): the one place an embedded graph's boundary is crossed, inwards for an open input and
+    (``_plan_at_path``): the one place a subgraph's boundary is crossed, inwards for an open input and
     outwards for an output.
 
     Args:
         graph: The graph: the one a run is of, or one embedded in it.
-        embedding: The embedded graph's node that ``graph`` is the inner graph of; ``None`` for the run's own.
+        parent: The subgraph's node that ``graph`` is the inner graph of; ``None`` for the run's own.
         tree: The functions so far, added to.
         node_at: Every node so far by its name, added to.
 
     Returns:
         The nodes of ``graph`` where they stand, by id.
     """
-    inside = embedding.path if embedding is not None else ()
-    above = embedding.loops if embedding is not None else ()
+    inside = parent.path if parent is not None else ()
+    above = parent.loops if parent is not None else ()
     here: dict[str, FlatNode] = {}
     functions = typing.cast("dict[str, FlatFunctionNode]", node_at)  # an output of a plan at a path names a function
     for compiled_node in graph._nodes.values():
         inputs: dict[str, InputPlan] = {}
         for name, plan in compiled_node.inputs.items():
-            if embedding is not None and isinstance(plan, InputFromGraphInput):  # the embedded graph's node is given it, as a caller would give it
-                inputs[name] = embedding.inputs[graph._input_fields[plan.address].name]
+            if parent is not None and isinstance(plan, InputFromGraphInput):  # the subgraph's node is given it, as a caller would give it
+                inputs[name] = parent.inputs[graph._input_fields[plan.address].name]
             else:
                 inputs[name] = _plan_at_path(plan, here, inside, functions)
         loops = (*above, *[_series_looped_over(loop, inside, node_at) for loop in compiled_node.loops])
         path = (*inside, compiled_node.id)
         if isinstance(compiled_node, CompiledSubgraphNode):
-            embedded = FlatEmbeddedGraph(compiled_node=compiled_node, embedding=embedding, path=path, name=node_name(path), loops=loops, inputs=inputs)
-            within = _add_to_tree(compiled_node.inner, embedded, tree, node_at)
-            embedded.nodes = list(within.values())
+            subgraph = FlatSubgraph(compiled_node=compiled_node, parent=parent, path=path, name=node_name(path), loops=loops, inputs=inputs)
+            within = _add_to_tree(compiled_node.inner, subgraph, tree, node_at)
+            subgraph.nodes = list(within.values())
             for address in compiled_node.inner.outputs:
                 made_by, _, output = address.partition(".")
                 last = within[made_by]
-                embedded.output_sources[address] = last.output_sources[output] if isinstance(last, FlatEmbeddedGraph) else (last, output)
-            here[compiled_node.id] = node_at[embedded.name] = embedded
+                subgraph.output_sources[address] = last.output_sources[output] if isinstance(last, FlatSubgraph) else (last, output)
+            here[compiled_node.id] = node_at[subgraph.name] = subgraph
             continue
         constant_arguments: dict[str, Any] = {}
         parameters_from_graph_inputs: list[tuple[str, str]] = []
@@ -305,7 +305,7 @@ def _add_to_tree(graph: CompiledGraph, embedding: FlatEmbeddedGraph | None, tree
             for read, places in read_at:
                 reads_from[read] = min(places, reads_from.get(read, places))
         node = FlatFunctionNode(
-            compiled_node=compiled_node, embedding=embedding, path=path, name=node_name(path), loops=loops, policy=compiled_node.definition.policy,
+            compiled_node=compiled_node, parent=parent, path=path, name=node_name(path), loops=loops, policy=compiled_node.definition.policy,
             constant_arguments=constant_arguments, parameters_from_graph_inputs=tuple(parameters_from_graph_inputs), wired_inputs=tuple(wired_inputs), lists_from_same_loop=tuple(map(tuple, gathering.values())),
             checked=tuple(name for name, plan in inputs.items() if _read_before_a_call(plan)), reads_from=reads_from,
         )
@@ -321,7 +321,7 @@ def _made_by(port: OutputAddress, here: Mapping[str, FlatNode]) -> tuple[FlatFun
     """The function that returns the output ``port`` names, and the output's name there: the node itself, or
     for a stored graph's node the function inside it that returns what the node offers."""
     made_by = here[port.node_id]
-    return made_by.output_sources[port.output] if isinstance(made_by, FlatEmbeddedGraph) else (made_by, port.output)
+    return made_by.output_sources[port.output] if isinstance(made_by, FlatSubgraph) else (made_by, port.output)
 
 
 def _series_looped_over(loop: OutputAddress, inside: NodePath, node_at: Mapping[str, FlatNode]) -> tuple[FlatFunctionNode, str]:
@@ -337,7 +337,7 @@ def _series_looped_over(loop: OutputAddress, inside: NodePath, node_at: Mapping[
         node_at: Every node placed so far, by its name.
     """
     made_by = node_at[node_name((*inside, loop.node_id))]
-    if isinstance(made_by, FlatEmbeddedGraph):
+    if isinstance(made_by, FlatSubgraph):
         inner_id, _, inner_output = loop.output.partition(".")
         return _series_looped_over(OutputAddress(inner_id, inner_output), made_by.path, node_at)
     return made_by, loop.output

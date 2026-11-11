@@ -134,14 +134,14 @@ class Waiting(ConductorModel):
     Attributes:
         id: What ``run.answer`` takes: the node's id, then ``@`` and each place
             of its item, then ``~`` and a fingerprint of the question asked
-            there, ``"approve@1~3fa2c0d1"``. Inside an embedded graph, the
-            embedding node and its item come first, ``"review@0/approve@1~3fa2c0d1"``.
+            there, ``"approve@1~3fa2c0d1"``. Inside a subgraph, the
+            subgraph node and its item come first, ``"review@0/approve@1~3fa2c0d1"``.
             An answer for an id whose place has since come to hold another
             question is refused as ``answer_stale``.
         loc: Which unit it is, as a ``Problem``'s ``loc`` says it: the node
             that asks, then the place of its item in each Series the node
-            runs per item of, ``("approve", 1)``; inside an embedded graph,
-            the embedding node and its item first, ``("review", 0, "approve", 1)``.
+            runs per item of, ``("approve", 1)``; inside a subgraph,
+            the subgraph node and its item first, ``("review", 0, "approve", 1)``.
         prompt: What the node's ``Ask`` said.
         questions: One per output: the ``FieldDescription`` its ``describe()``
             gives, with the ``choices`` and ``default`` the ``Ask`` set and
@@ -373,7 +373,7 @@ def waiting_record(compiled_node: CompiledFunctionNode, loc: Loc, asking: Asking
 
     Args:
         compiled_node: The node that asks.
-        loc: Where the unit is: the node and its item, behind those of each embedded graph's node around it.
+        loc: Where the unit is: the node and its item, behind those of each subgraph's node around it.
         unit: The unit.
     """
     question = asking.question

@@ -1,4 +1,4 @@
-"""Loading a graph record: what ``registry.load`` checks, what the graph offers a caller, and embedded graphs.
+"""Loading a graph record: what ``registry.load`` checks, what the graph offers a caller, and subgraphs.
 
 A record that says something impossible loads into a graph whose
 ``problems`` say what and where, never an exception; a graph with problems
@@ -464,7 +464,7 @@ def test_with_inputs_refuses_every_fault_at_once_listing_what_it_offers():
     assert [p.ctx["inputs"] for p in refused.value.errors() if p.type == "not_offered"] == [["mode"], ["mode"]]
 
 
-# -- embedded graphs -------------------------------------------------------------------------------
+# -- subgraphs -------------------------------------------------------------------------------
 
 
 def test_an_embedding_offers_its_inner_open_input_and_output_as_one_node():
@@ -827,7 +827,7 @@ def _nested_forty_deep() -> tuple[Any, str]:
 
 
 def test_graphs_embedded_forty_deep_load_at_once():
-    """Each embedded graph is loaded alone once per load, however deep it nests, so depth costs time in proportion."""
+    """Each subgraph is loaded alone once per load, however deep it nests, so depth costs time in proportion."""
     import time
 
     registry, outermost = _nested_forty_deep()

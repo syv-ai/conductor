@@ -196,7 +196,7 @@ def test_a_save_holds_a_slot_for_each_instance_and_no_instance_is_written() -> N
         "states": [None, "done", "done", "done", "done"], "outputs": {"result": [None, "bb", "ccc", "xax", "b"]},
         "questions": {"0": {"prompt": "What of a?", "inputs": {"text": "a"}}},
     }
-    assert saved["outcomes"]["e/q"]["states"] == [None, "done", "done", "done", "done"]  # a node inside an embedded graph, as any node
+    assert saved["outcomes"]["e/q"]["states"] == [None, "done", "done", "done", "done"]  # a node inside a subgraph, as any node
     assert saved["outcomes"]["e/m"]["states"] == [None, "done", "done", "done", "done"]  # the one that reads the waiting unit hasn't run
     assert "e" not in saved["outcomes"] and "keys" not in json.dumps(saved)
 

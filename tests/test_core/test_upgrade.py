@@ -283,7 +283,7 @@ def test_a_later_step_reusing_a_renamed_away_name_does_not_catch_an_older_edge()
 
 
 def test_a_definition_with_no_steps_only_has_its_version_set():
-    """An embedded graph arrives by value, one version per saved flow, with
+    """A subgraph arrives by value, one version per saved flow, with
     no ``@upgrade`` to run: the node moves to the new version with its
     values as saved, and compile says what the new version makes of them."""
 
