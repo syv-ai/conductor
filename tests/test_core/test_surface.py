@@ -234,7 +234,7 @@ def test_the_outputs_of_a_failed_run_are_refused_and_its_results_say_what_it_did
 
 def _codes_written_by_the_library() -> set[str]:
     """Every problem code a site in the library or its runs router writes: ``make_problem``'s first argument,
-    ``Problem(type=...)``, a ``code=`` on any call but a declaration error's, and each error's code when none is given."""
+    ``Problem(type=...)``, a ``code=`` on any call but a declaration error's, and each error's ``code`` default."""
     written: set[str] = set()
 
     def literals(expression: ast.expr) -> set[str]:
@@ -242,8 +242,9 @@ def _codes_written_by_the_library() -> set[str]:
 
     for path in [*LIBRARY.rglob("*.py"), *(LIBRARY.parents[2] / "conductor-providers" / "src").rglob("*.py")]:
         for found in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-            if isinstance(found, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "_code_when_none_given" for t in found.targets):
-                written |= literals(found.value)
+            if isinstance(found, ast.ClassDef) and found.name in ("NodeError", "ExternalError"):  # its code when none is given
+                (init,) = (f for f in found.body if isinstance(f, ast.FunctionDef) and f.name == "__init__")
+                written |= {code for a, d in zip(init.args.kwonlyargs, init.args.kw_defaults, strict=True) if a.arg == "code" and d for code in literals(d)}
             if not isinstance(found, ast.Call):
                 continue
             called = found.func.id if isinstance(found.func, ast.Name) else None

@@ -167,7 +167,7 @@ def pick(names: str) -> dict[str, str]:
 print(problems({"nodes": [{"id": "pick", "node": "pick", "values": {"names": ""}}]}))  # ['compute_hook_failed']
 ```
 
-**Fix.** Type in a value the node's hook can work its fields out from. The hook's own exception is in the `conductor` log. A hook that raises `NodeError` gives its `code` as `ctx.error` and its own `ctx` whole as `ctx.error_ctx`.
+**Fix.** Type in a value the node's hook can work its fields out from. The hook's own exception is in the `conductor` log. A hook that raises `NodeError` gives its `code` as `ctx.error` (`failed` when it names none, `external_failed` for an `ExternalError`) and its own `ctx` whole as `ctx.error_ctx`; any other exception gives its class name.
 
 ### `cycle`
 
