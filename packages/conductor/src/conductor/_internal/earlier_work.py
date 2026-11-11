@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, Literal
 import pydantic_core
 
 from conductor._internal.canonical_json import canonical_json
-from conductor._internal.fields import written_table
+from conductor._internal.fields import untyped_as_json
 from conductor._internal.units import NOT_ITS_TURN, NotReady, Units
 
 if TYPE_CHECKING:
@@ -96,7 +96,7 @@ def fingerprint_of(digest: str, kwargs: dict[str, Any], *, plain: bool = False) 
     """
     try:
         # No key of a plain node's inputs came from a store, so they need no canonical form: its inputs' order is the node's.
-        written = pydantic_core.to_json([digest, kwargs], fallback=written_table) if plain else canonical_json([digest, kwargs], fallback=written_table)
+        written = pydantic_core.to_json([digest, kwargs], fallback=untyped_as_json) if plain else canonical_json([digest, kwargs], fallback=untyped_as_json)
     except (TypeError, ValueError, pydantic_core.PydanticSerializationError):
         return None
     return hashlib.blake2b(written, digest_size=12).hexdigest()

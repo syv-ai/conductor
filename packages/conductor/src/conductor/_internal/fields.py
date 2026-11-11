@@ -21,6 +21,7 @@ import types
 import typing
 import uuid
 import weakref
+from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import (
@@ -301,6 +302,15 @@ class _NotABool:
         return guarded if self.strict_too else core_schema.lax_or_strict_schema(lax_schema=guarded, strict_schema=plain)
 
 
+#: How a value of a class that is no list is made the list of items it holds, by that class.
+_AS_LIST: dict[type, Callable[[Any], list[Any]]] = {tuple: list, range: list}
+
+
+def read_as_list(cls: type, as_list: Callable[[Any], list[Any]]) -> None:
+    """Declares that a value of ``cls`` given for a ``Series`` is the list ``as_list`` makes of it."""
+    _AS_LIST[cls] = as_list
+
+
 class _Series(Generic[_T]):
     """``Series[T]``: many values of ``T``, which a graph works through one at a time; a plain ``list[T]`` to the
     node and to a type checker."""
@@ -309,18 +319,18 @@ class _Series(Generic[_T]):
     def __get_pydantic_core_schema__(cls, source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
         """Gives the schema of a list of items.
 
-        From Python any sequence but a set is taken, as is a column of a frame, and an item that is ``SKIPPED``
-        is a gap kept where it is.
+        From Python any sequence but a set is taken, as is a value of a class declared with ``read_as_list``, and
+        an item that is ``SKIPPED`` is a gap kept where it is.
         """
         items = core_schema.list_schema(handler.generate_schema((get_args(source) or (Any,))[0]))
 
         def read(value: Any, read_items: Callable[[Any], list[Any]]) -> list[Any]:
             if isinstance(value, (set, frozenset)):
                 raise PydanticCustomError("set_has_no_order", SET_HAS_NO_ORDER)
-            if isinstance(value, (tuple, range)):
-                value = list(value)
-            elif isinstance(value, pl.Series):
-                value = value.to_list()
+            for cls, as_list in _AS_LIST.items():
+                if isinstance(value, cls):
+                    value = as_list(value)
+                    break
             if isinstance(value, list) and any(item is SKIPPED for item in value):
                 kept = iter(read_items([item for item in value if item is not SKIPPED]))
                 return [SKIPPED if item is SKIPPED else next(kept) for item in value]
@@ -359,17 +369,10 @@ _WRITTEN_TABLE = core_schema.typed_dict_schema({
 }, extra_behavior="forbid")
 
 
-def written_table(frame: Any) -> dict[str, Any]:
+def written_table(frame: pl.DataFrame) -> dict[str, Any]:
     """Gives a table as conductor writes one: each column's name, the word for the type of its cells, and the cells.
 
-    It is also what pydantic's ``to_json`` is given as its ``fallback``, to write a frame among values of no
-    declared type.
-
-    Raises:
-        TypeError: ``frame`` is no ``polars.DataFrame``, which is how a fallback says it can't write a value.
     """
-    if not isinstance(frame, pl.DataFrame):
-        raise TypeError(type(frame).__name__)
     return _written_columns(frame, frame.to_dict(as_series=False))
 
 
@@ -464,7 +467,41 @@ class _Table(Generic[_T]):
         )
 
 
-class Records(Generic[_T]):
+class HeldSeries(ABC):
+    """A way a run holds the items of a ``Series`` other than as the list a node returned, declared by subclassing::
+
+        class Records(HeldSeries, returned_as=Frame): ...
+
+    A node that returns a ``returned_as`` for a ``Series`` output has it held as the subclass, where the items'
+    type allows it.
+    """
+
+    __slots__ = ()
+
+    _by_class_returned: ClassVar[dict[type, type[HeldSeries]]] = {}
+
+    def __init_subclass__(cls, *, returned_as: type) -> None:
+        """Keeps the subclass as how a ``returned_as`` returned for a ``Series`` is held."""
+        super().__init_subclass__()
+        HeldSeries._by_class_returned[returned_as] = cls
+
+    @classmethod
+    @abstractmethod
+    def hint_of(cls, item: Type) -> Any | None:
+        """Gives the hint a saved run reads and writes a ``Series`` of ``item`` held this way by; ``None`` when a
+        ``Series`` of such items can't be held this way."""
+
+    @classmethod
+    @abstractmethod
+    def holding(cls, returned: Any, item: Type) -> HeldSeries:
+        """Holds what a node ``returned`` for a ``Series`` of ``item``, read strictly.
+
+        Raises:
+            FieldValueError: The items' type refuses what was returned.
+        """
+
+
+class Records(HeldSeries, Generic[_T], returned_as=pl.DataFrame):
     """A ``Series`` of records held by column: the table a node returned for it, read one record at a time.
 
     It is internal to a run. A node that takes a record, or the whole ``Series``, receives plain records, and
@@ -481,6 +518,21 @@ class Records(Generic[_T]):
     def __init__(self, frame: pl.DataFrame) -> None:
         """Holds ``frame``, a table already read as the type of the records' table."""
         self.frame, self.columns = frame, frame.to_dict(as_series=False)
+
+    @classmethod
+    def hint_of(cls, item: Type) -> Any | None:
+        """Gives ``Records[R]`` for items of a ``TypedDict`` ``R`` or of ``Any``; ``None`` for any other items,
+        those that carry a limit included."""
+        if item.limited or not (item.bare is Any or typing.is_typeddict(item.bare)):
+            return None
+        records: Any = cls
+        return records[item.bare]
+
+    @classmethod
+    def holding(cls, returned: Any, item: Type) -> Records[Any]:
+        """Holds the frame a node ``returned`` for a ``Series`` of ``item``, read as the table of such records."""
+        table: Any = _Table
+        return cls(Type(table[item.bare]).read(returned, strict=True))
 
     def __len__(self) -> int:
         return self.frame.height
@@ -530,21 +582,27 @@ class NamedType(Protocol):
     type_title: ClassVar[str]
 
 
-#: The id and title of each type conductor itself names. Every other class a field holds is a ``NamedType``.
+#: The id and title of each class conductor itself names. A kind of its own (``Series``, ``Table``) names itself, and
+#: every other class a field holds is a ``NamedType``.
 _NAMES: Mapping[Any, tuple[str, str]] = {
     Any: ("Any", "Any value"), object: ("object", "Any value"), type(None): ("None", "Nothing"), bool: ("bool", "Yes or no"),
     int: ("int", "Whole number"), float: ("float", "Number"), decimal.Decimal: ("Decimal", "Decimal number"), str: ("str", "Text"),
     bytes: ("bytes", "Bytes"), datetime.date: ("date", "Date"), datetime.datetime: ("datetime", "Date and time"),
     datetime.time: ("time", "Time of day"), datetime.timedelta: ("timedelta", "Duration"), uuid.UUID: ("UUID", "UUID"),
     dict: ("dict", "Mapping"), list: ("list", "List"), tuple: ("tuple", "Tuple"), set: ("set", "Set"), frozenset: ("frozenset", "Set"),
-    _Series: ("Series", "Series"), _Table: ("Table", "Table"),
 }
 
 #: The classes whose values are plain in JSON: no keys to order, and read back by their type as they were.
 _SCALARS = frozenset({str, int, float, bool, type(None), datetime.date, datetime.datetime, datetime.time, datetime.timedelta})
 
 #: The generic classes whose arguments ``Type`` reads as types of their own, so its rules reach their items.
-_CONTAINERS = (list, dict, tuple, set, frozenset, _Series)
+_CONTAINERS = (list, dict, tuple, set, frozenset)
+
+#: The class of ``Type`` that answers for each generic class carried in its own way, by that class.
+_KINDS: dict[Any, type[Type]] = {}
+
+#: The generic class a hint that is a class of its values is read as, by that class.
+_READ_AS: dict[type, Any] = {}
 
 
 def _options(hint: Any) -> tuple[Any, ...]:
@@ -611,13 +669,13 @@ def _split(hint: Any) -> tuple[Any, Param, tuple[Any, ...]]:
     """Takes a hint apart into its bare type, its ``Param`` and its other metadata.
 
     ``Annotated[X, Param(...)] | None`` is ``X | None`` with that ``Param``; several ``Param``s are one, each
-    argument the last one given. A ``polars.DataFrame`` is read as the ``Table`` of any columns it is.
+    argument the last one given. A class a kind declared as its values' is read as that kind's generic class.
 
     Returns:
         The hint with every ``Annotated`` taken off its members, the ``Param``s as one (an empty one for none),
         and whatever else ``Annotated`` held, which pydantic reads.
     """
-    if type(hint) is type and hint is not pl.DataFrame:  # a plain class has nothing to take off, and most hints are one
+    if type(hint) is type and hint not in _READ_AS:  # a plain class has nothing to take off, and most hints are one
         return hint, _NO_PARAM, ()
     options, params, others = [], list[Param](), list[Any]()
     for option in _options(hint):
@@ -627,7 +685,7 @@ def _split(hint: Any) -> tuple[Any, Param, tuple[Any, ...]]:
             others += [m for m in metadata if not isinstance(m, Param)]
             inner, inner_param, inner_others = _split(option)
             option, params, others = inner, [inner_param, *params], [*inner_others, *others]
-        options.append(_Table if option is pl.DataFrame else option)
+        options.append(_READ_AS.get(option, option) if type(option) is type else option)
     merged = {f.name: value for param in params for f in dataclasses.fields(param) if (value := getattr(param, f.name)) is not None}
     return _union(options), Param(**merged) if merged else _NO_PARAM, tuple(others)
 
@@ -711,21 +769,46 @@ class Type:
     The one object is kept for as long as something holds it (a field, a loaded graph), so a hint made while a
     graph loads is let go with the graph.
 
+    A generic class carried in its own way has a subclass that answers for it, declared with the class::
+
+        class SeriesType(Type, of=Series): ...
+
+    ``Type(hint)`` is then that subclass wherever the hint is the generic class, with or without ``| None``.
+    Every question the engine asks of a type it asks here, and a kind overrides the answers that differ.
+
     Attributes:
         hint: The annotation, with its ``Annotated`` metadata and its type variables as written.
+        keys_in_order: Whether the JSON of a value has its keys in one order whatever made it, so it hashes as
+            it is written.
+        typed_in_advice: What to give instead, said after the reason a value of the kind typed into a graph has
+            no JSON form; nothing for a plain value.
     """
 
     hint: Any
+    keys_in_order: ClassVar[bool] = False
+    typed_in_advice: ClassVar[str] = ""
     _made: ClassVar[weakref.WeakValueDictionary[Any, Type]] = weakref.WeakValueDictionary()
 
+    def __init_subclass__(cls, *, of: Any, value_class: type | None = None) -> None:
+        """Declares the subclass as the type of the generic class ``of``.
+
+        Args:
+            of: The generic class an author writes (``Series``, ``Table``).
+            value_class: A class its values are of that an author may write as the hint instead, and that is met
+                among values of no declared type, where the subclass says how it is written and compared.
+        """
+        _KINDS[of] = cls
+        if value_class is not None:
+            _READ_AS[value_class] = of
+
     def __new__(cls, hint: Any) -> Type:
-        """Gives the ``Type`` of ``hint``: the one in use for an equal hint, else a new one."""
+        """Gives the ``Type`` of ``hint``: the one in use for an equal hint, else a new one of its kind."""
         try:
-            return cls._made[hint]
+            return Type._made[hint]
         except KeyError:
-            made = cls._made[hint] = super().__new__(cls)
+            made = Type._made[hint] = super().__new__(_kind_of(hint))
         except TypeError:  # a hint that can't be hashed (a Param whose Choice holds a dict) is read each time
-            made = super().__new__(cls)
+            made = super().__new__(_kind_of(hint))
         made.hint = hint
         return made
 
@@ -792,7 +875,7 @@ class Type:
 
         A class is known by the id it declares, a union by its members' (``money | int``), a generic by its
         class and arguments (``list[int]``, a bare ``list`` for ``list[Any]``), a ``Literal`` by the types of its values, a ``TypedDict`` as
-        ``record``, a table by its columns and a type alias by its own name. A type variable is read as its bound,
+        ``record``, a kind of its own as it says itself and a type alias by its own name. A type variable is read as its bound,
         else ``Any``.
         """
         return self._named[0]
@@ -828,10 +911,7 @@ class Type:
         if typing.is_typeddict(one):  # a record declares no name of its own
             return "record", "Record", ()
         own_id, title = _NAMES[origin] if origin in _NAMES else (origin.type_id, origin.type_title)
-        own = () if origin in (Any, type(None), _Series, _Table) else (origin,)
-        if origin is _Table:  # a table is known by its columns, and names no class
-            columns = typing.get_type_hints(args[0]) if args and typing.is_typeddict(args[0]) else {}
-            return f"Table[{', '.join(f'{column}: {Type(hint).text}' for column, hint in columns.items())}]" if columns else own_id, title, ()
+        own = () if origin in (Any, type(None)) else (origin,)
         if all(arg is Any for arg in args):  # a generic that says nothing of its items is said bare
             return own_id, title, own
         inner = [Type(arg) for arg in args if arg is not Ellipsis]
@@ -852,7 +932,7 @@ class Type:
         bare, param, others = self._parts
         options = []
         for option in _options(bare):
-            if get_origin(option) in _CONTAINERS:
+            if get_origin(option) in _CONTAINERS or get_origin(option) in _KINDS:
                 option = get_origin(option)[tuple(arg if arg is Ellipsis else Type(arg).carried for arg in get_args(option))]
             options.append(option)
         read: Any = _union(options)
@@ -914,50 +994,41 @@ class Type:
         """The classes whose instances, of exactly that class, are taken as they are with no reading.
 
         Empty when a value must always be read: an option is no plain class (``list[int]``, a ``Literal``, a
-        ``TypedDict``, ``Any``, a table), or the type is ``limited``.
+        ``TypedDict``, ``Any``, a kind of its own), or the type is ``limited``.
         """
         options = _options(self.bare)
-        plain = all(isinstance(option, type) and not typing.is_typeddict(option) and option not in (Any, _Table, _Series) for option in options)
+        plain = all(isinstance(option, type) and not typing.is_typeddict(option) and option is not Any and option not in _KINDS for option in options)
         return options if plain and not self.limited else ()
 
     @functools.cached_property
     def hashes_plainly(self) -> bool:
         """Whether its values are plain in JSON: no keys to order, and no float beside a text it could be read as. So
         what a unit received hashes as it is written, and a float that isn't finite reads back from its text."""
-        classes = {option for option in _options(self.bare) if (get_origin(option) or option) is not _Table}  # a table is written by column, in order
+        classes = {option for option in _options(self.bare) if not _KINDS.get(get_origin(option) or option, Type).keys_in_order}
         return classes <= _SCALARS and not {float, str} <= classes
 
-    @functools.cached_property
-    def record(self) -> Type | None:
-        """The type of one record of a table (``| None`` aside), which is what a table input gathers: its row
-        type, and ``dict`` for a table of any columns, whose records are mappings of any keys. ``None`` for a
-        type that is no table."""
-        if len(self.options) != 1 or (get_origin(self.options[0]) or self.options[0]) is not _Table:
-            return None
-        row = (get_args(self.options[0]) or (Any,))[0]
-        return Type(dict if row is Any else row)
+    @property
+    def item(self) -> Type | None:
+        """The type of one item, for a type a graph works through one item at a time; ``None`` for a type that is
+        one value."""
+        return None
 
-    @functools.cached_property
-    def held_as_table(self) -> Type | None:
-        """For a ``Series`` of records, the type of the table a run holds it as when a node returns it as one:
-        ``Table[R]`` for items of a ``TypedDict`` ``R``, a table of any columns for items of ``Any``. ``None``
-        for any other type, a ``Series`` whose items carry a limit included."""
-        series = [option for option in self.options if get_origin(option) is _Series]
-        if len(series) != 1:
-            return None
-        item = Type(get_args(series[0])[0])
-        if item.limited or not (item.bare is Any or typing.is_typeddict(item.bare)):
-            return None
-        table: Any = _Table
-        return Type(table[item.bare])
+    @property
+    def record(self) -> Type | None:
+        """The type of one record, for a type whose input gathers records into one value; ``None`` for a type
+        that gathers nothing of the kind."""
+        return None
+
+    @property
+    def held_hint(self) -> Any:
+        """The hint of a value of the type as a unit holds it, which a saved run reads and writes it by."""
+        return self.hint
 
     @functools.cached_property
     def fields(self) -> Mapping[str, Any]:
-        """The hint of each field a record declares, by name: a model's, a dataclass's, a ``TypedDict``'s, and a
-        table's columns. None for any other type."""
+        """The hint of each field a record declares, by name: a model's, a dataclass's, a ``TypedDict``'s. None
+        for any other type."""
         one = self.options[0] if len(self.options) == 1 else None
-        if get_origin(one) is _Table:
-            one = get_args(one)[0]
         return {name: hint for name, hint in typing.get_type_hints(one).items() if get_origin(hint) is not ClassVar} if _is_record(one) else {}
 
     def read(self, value: Any, *, strict: bool = False) -> Any:
@@ -978,14 +1049,11 @@ class Type:
             raise self._refused(error) from None
 
     def read_returned(self, value: Any) -> Any:
-        """Reads what a node returned for the type, strictly. A table returned for a ``Series`` of records is read
-        as the table it is, each column by its type, and kept by column as ``Records``.
+        """Reads what a node returned for the type, strictly, as a unit holds it.
 
         Raises:
             FieldValueError: The type refuses the value.
         """
-        if isinstance(value, pl.DataFrame) and self.held_as_table is not None:
-            return Records(self.held_as_table.read(value, strict=True))
         return self.read(value, strict=True)
 
     def read_json(self, value: Any) -> Any:
@@ -998,7 +1066,7 @@ class Type:
             FieldValueError: The value has no JSON form, or the type refuses it.
         """
         try:
-            return self.adapter.validator.validate_json(to_json(value, inf_nan_mode="constants", fallback=written_table), strict=True)
+            return self.adapter.validator.validate_json(to_json(value, inf_nan_mode="constants", fallback=untyped_as_json), strict=True)
         except PydanticSerializationError:
             raise FieldValueError("the value has no JSON form") from None
         except ValidationError as error:
@@ -1058,38 +1126,98 @@ class Type:
     def _refused(self, error: ValidationError) -> FieldValueError:
         """Makes pydantic's ``error`` one that quotes nothing of the value.
 
-        Each ``loc`` is kept only as far as the type itself names: an index into a list, a field of a record, a
-        record and a column of a table. It stops at the first other step, such as a key of a dict, as a key is
-        the value's own. A fault in a table's column says which column.
+        Each ``loc`` is kept only as far as the types themselves name: an index into a list, a field of a record,
+        and whatever a kind of its own names. It stops at the first other step, such as a key of a dict, as a key
+        is the value's own. A fault in a part a kind names (a table's column) says which.
         """
         errors = value_free_errors(error)
         columns: list[str] = []
         for said, raw in zip(errors, error.errors(include_url=False, include_input=False), strict=True):
-            at, kept, column = self, list[int | str](), None
+            at, kept, column, owner = self, list[int | str](), None, self
             for step in raw["loc"]:
-                origin = (get_origin(at.options[0]) or at.options[0]) if len(at.options) == 1 else None
-                if origin is _Table and step in ("frame", "records", "written", "columns"):
-                    continue  # the form the table came in, which is no place in it
-                if origin is _Table and isinstance(step, str) and step in at.fields:
-                    at, column = Type(at.fields[step]), step
-                elif origin is _Table and isinstance(step, int):
-                    pass  # a record's place; its columns are the table's
-                elif isinstance(step, int) and isinstance(origin, type) and issubclass(origin, (list, tuple, set, frozenset, _Series)):
-                    args = [arg for arg in get_args(at.options[0]) if arg is not Ellipsis]
-                    at = Type(args[min(step, len(args) - 1)] if args else Any)
-                elif isinstance(step, str) and step in at.fields:
-                    at = Type(at.fields[step])
-                else:
+                walked = at._walked(step)
+                if walked is None:
                     break
-                kept.append(step)
+                inside, is_a_place, part = walked
+                if part is not None:
+                    column, owner = part, at
+                at = inside
+                if is_a_place:
+                    kept.append(step)
             said["loc"] = kept
             if column is not None:
                 columns.append(column)
-                said["msg"] = f"the column '{column}' its row type declares is missing" if raw["type"] == "missing" else f"column '{column}': {said['msg']}"
+                said["msg"] = owner._fault_in(column, raw["type"], said["msg"])
             elif whole := raw.get("ctx", {}).get("column"):  # a fault of a whole column of a frame
                 columns.append(whole)
                 said["loc"] = [whole]
         return FieldValueError(errors[0]["msg"], errors=errors, column=columns[0] if columns else None)
+
+    def _walked(self, step: int | str) -> tuple[Type, bool, str | None] | None:
+        """Follows one step of pydantic's ``loc`` into a value of the type.
+
+        Returns:
+            The type the step leads into, whether the step is a place in the value, and the part it names when a
+            fault inside is said by that part; ``None`` for a step the type doesn't name.
+        """
+        origin = (get_origin(self.options[0]) or self.options[0]) if len(self.options) == 1 else None
+        if isinstance(step, int) and isinstance(origin, type) and (issubclass(origin, (list, tuple, set, frozenset)) or origin in _KINDS):
+            args = [arg for arg in get_args(self.options[0]) if arg is not Ellipsis]
+            return Type(args[min(step, len(args) - 1)] if args else Any), True, None
+        if isinstance(step, str) and step in self.fields:
+            return Type(self.fields[step]), True, None
+        return None
+
+    def _fault_in(self, part: str, kind: str, msg: str) -> str:
+        """Says the fault ``msg``, of pydantic's ``kind``, as one in the ``part`` a step named."""
+        return msg
+
+    @staticmethod
+    def untyped_as_json(value: Any) -> Any:
+        """Writes a value of the kind met among values of no declared type; a plain value has no form but
+        pydantic's own.
+
+        Raises:
+            TypeError: Always, which is how a ``to_json`` fallback says it can't write a value.
+        """
+        raise TypeError(type(value).__name__)
+
+    @staticmethod
+    def untyped_equal(one: Any, other: Any) -> bool:
+        """Says whether two values met with no declared type are equal; one with no plain ``==`` only when they
+        are the same object."""
+        try:
+            return bool(one == other)
+        except (ValueError, TypeError):
+            return one is other
+
+
+def _kind_of(hint: Any) -> type[Type]:
+    """Gives the class of ``Type`` that answers for ``hint``: a kind's own where the hint is its generic class,
+    with or without ``| None``."""
+    if type(hint) is type and hint not in _READ_AS and hint not in _KINDS:
+        return Type
+    options = [option for option in _options(_split(_substituted(hint, {}))[0]) if option is not type(None)]
+    if len(options) != 1:
+        return Type
+    origin = get_origin(options[0]) or options[0]
+    return _KINDS.get(origin, Type) if isinstance(origin, type) else Type
+
+
+def kind_of_value(value: Any) -> type[Type]:
+    """Gives the class of ``Type`` that answers for a value met with no declared type: the kind that declared
+    the value's class as its own, else ``Type``."""
+    return _KINDS.get(_READ_AS.get(type(value)), Type)
+
+
+def untyped_as_json(value: Any) -> Any:
+    """Writes a value pydantic has no JSON form for, by the kind that declared its class. It is what pydantic's
+    ``to_json`` is given as its ``fallback`` among values of no declared type.
+
+    Raises:
+        TypeError: No kind declared the value's class.
+    """
+    return kind_of_value(value).untyped_as_json(value)
 
 
 class FieldValueError(Exception):
@@ -1104,6 +1232,100 @@ class FieldValueError(Exception):
     def __init__(self, reason: str, *, errors: list[dict[str, Any]] | None = None, column: str | None = None) -> None:
         super().__init__(reason)
         self.reason, self.errors, self.column = reason, errors, column
+
+
+class SeriesType(Type, of=_Series):
+    """The type of a ``Series[T]``, with or without ``| None``."""
+
+    @functools.cached_property
+    def item(self) -> Type:
+        """The type of one item."""
+        return Type((get_args(self.options[0]) or (Any,))[0])
+
+    @functools.cached_property
+    def _named(self) -> tuple[str, str, tuple[type, ...]]:
+        """The Series' id, which says its items' type unless that is ``Any``, its title, and the classes its
+        items name."""
+        return ("Series" if self.item.hint is Any else f"Series[{self.item.text}]"), "Series", self.item.classes
+
+    @functools.cached_property
+    def held_hint(self) -> Any:
+        """The hint of a Series as a unit holds it: a list whose item on a branch not taken is blank, or one of
+        the other ways a Series of its items may be held."""
+        other_ways = [hint for holder in HeldSeries._by_class_returned.values() if (hint := holder.hint_of(self.item)) is not None]
+        return _union((_list_of(_union((self.item.hint, type(None)))), *other_ways))
+
+    def read_returned(self, value: Any) -> Any:
+        """Reads what a node returned for the Series, strictly: a list of its items, or, for a value of a class
+        held another way, what holds it.
+
+        Raises:
+            FieldValueError: The type refuses the value.
+        """
+        for returned_as, holder in HeldSeries._by_class_returned.items():
+            if isinstance(value, returned_as) and holder.hint_of(self.item) is not None:
+                return holder.holding(value, self.item)
+        return self.read(value, strict=True)
+
+
+#: The words pydantic's ``loc`` names the form a table came in with, which are no place in the table.
+_TABLE_FORMS = ("frame", "records", "written", "columns")
+
+
+class TableType(Type, of=_Table, value_class=pl.DataFrame):
+    """The type of a ``Table[R]``, with or without ``| None``. A ``polars.DataFrame`` written as a hint is the
+    table of any columns it is."""
+
+    keys_in_order: ClassVar[bool] = True  # a table is written by column, in order
+    typed_in_advice: ClassVar[str] = "; give a table as a list of records"
+
+    @functools.cached_property
+    def _row(self) -> Any:
+        """The row type ``R``; ``Any`` for a table of any columns."""
+        return (get_args(self.options[0]) or (Any,))[0]
+
+    @functools.cached_property
+    def fields(self) -> Mapping[str, Any]:
+        """The hint of each column the row type declares, by name; none for a table of any columns."""
+        return Type(self._row).fields
+
+    @functools.cached_property
+    def _named(self) -> tuple[str, str, tuple[type, ...]]:
+        """The table's id, which names its columns, its title, and no class."""
+        columns = typing.get_type_hints(self._row) if typing.is_typeddict(self._row) else {}
+        return f"Table[{', '.join(f'{column}: {Type(hint).text}' for column, hint in columns.items())}]" if columns else "Table", "Table", ()
+
+    @functools.cached_property
+    def record(self) -> Type:
+        """The type of one record, which is what a table input gathers: the row type, and ``dict`` for a table of
+        any columns, whose records are mappings of any keys."""
+        return Type(dict if self._row is Any else self._row)
+
+    def _walked(self, step: int | str) -> tuple[Type, bool, str | None] | None:
+        """Follows one step of pydantic's ``loc`` into the table: the form it came in is no place, a record's
+        place keeps the table's columns, and a column is named."""
+        if step in _TABLE_FORMS:
+            return self, False, None
+        if isinstance(step, int):
+            return self, True, None
+        return (Type(self.fields[step]), True, step) if step in self.fields else None
+
+    def _fault_in(self, part: str, kind: str, msg: str) -> str:
+        """Says a fault in the column ``part``."""
+        return f"the column '{part}' its row type declares is missing" if kind == "missing" else f"column '{part}': {msg}"
+
+    @staticmethod
+    def untyped_as_json(value: Any) -> Any:
+        """Gives a frame met among values of no declared type as conductor writes a table."""
+        return written_table(value)
+
+    @staticmethod
+    def untyped_equal(one: Any, other: Any) -> bool:
+        """Says whether two frames hold the same cells; a frame has no plain ``==``."""
+        return isinstance(other, pl.DataFrame) and one.equals(other)
+
+
+read_as_list(pl.Series, pl.Series.to_list)  # a column of a frame given for a Series is the list of its cells
 
 
 class FieldDescription(ConductorModel):
@@ -1219,13 +1441,8 @@ class Field:
     @functools.cached_property
     def slot(self) -> Type:
         """The type of the field's value on one unit, as a saved run and a run's written outputs hold it: blank
-        where the unit gave none, and a ``Series``' item on a branch not taken blank. A ``Series`` of records
-        is its items or the table it is held as."""
-        one = _list_of(_union((self.type.hint, type(None)))) if self.many else self.whole.hint
-        if (table := self.whole.held_as_table) is not None:
-            held: Any = Records
-            one = _union((one, held[get_args(table.hint)[0]]))
-        return Type(_union((one, type(None))))
+        where the unit gave none, and otherwise as its type says a unit holds one."""
+        return Type(_union((self.whole.held_hint, type(None))))
 
     @functools.cached_property
     def column(self) -> Type:
@@ -1258,12 +1475,12 @@ def _field_parts(hint: Any) -> tuple[Param, Type, Type]:
     """
     bare, param, others = _split(hint)
     beside_param = others  # what Annotated holds that is no Param, on the field and on a Series' item
-    series = [option for option in _options(bare) if (get_origin(option) or option) is _Series]
-    optional = type(None) in _options(bare)  # of the whole Series, when it is one
-    if series:
-        bare, of_item, others = _split((get_args(series[0]) or (Any,))[0])
+    written, of_items = bare, Type(bare).item is not None
+    if of_items:  # the item as written, its type variables still open
+        (items,) = (option for option in _options(written) if option is not type(None))
+        bare, of_item, others = _split((get_args(items) or (Any,))[0])
         beside_param = (*beside_param, *others)
-        if any((get_origin(option) or option) is _Series for option in _options(bare)):
+        if Type(bare).item is not None:
             raise NodeDeclarationError("a Series of Series; a field holds one level of items, so return one Series", code="nested_series")
         param = dataclasses.replace(of_item, **{f.name: value for f in dataclasses.fields(param) if (value := getattr(param, f.name)) is not None})
     if any(isinstance(mark, Widget) for mark in beside_param):  # pydantic would pass it by, and the field would show no control
@@ -1271,8 +1488,7 @@ def _field_parts(hint: Any) -> tuple[Param, Type, Type]:
     kept = {**param.limits, **({} if param.choices is None else {"choices": param.choices})}
     metadata = (*others, *([Param(**kept)] if kept else []))
     one = Type(Annotated[(bare, *metadata)] if metadata else bare)
-    if not series:
+    if not of_items:
         return param, one, one
-    series_of: Any = _Series
-    whole: Any = series_of[one.hint]
-    return param, Type(_union((whole, type(None))) if optional else whole), one
+    whole = _union((get_origin(option) or option)[one.hint] if option is not type(None) else option for option in _options(written))
+    return param, Type(whole), one

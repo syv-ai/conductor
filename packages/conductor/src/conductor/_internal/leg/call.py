@@ -10,7 +10,7 @@ import pydantic_core
 
 from conductor._internal import problem
 from conductor._internal.checked_graph import FunctionAtPath
-from conductor._internal.fields import SKIPPED, Field, FieldValueError, written_table
+from conductor._internal.fields import SKIPPED, Field, FieldValueError, untyped_as_json
 from conductor._internal.node_definition import Returns
 from conductor._internal.problem import UnitFailedError
 
@@ -96,11 +96,11 @@ def jsonable(kwargs: dict[str, Any]) -> Any:
     """What a unit received, as JSON; a float that isn't finite as text. ``UnitFailedError`` as ``question_unwritable`` names
     the first input with no JSON form."""
     try:
-        return pydantic_core.from_json(pydantic_core.to_json(kwargs, fallback=written_table, inf_nan_mode="strings"))
+        return pydantic_core.from_json(pydantic_core.to_json(kwargs, fallback=untyped_as_json, inf_nan_mode="strings"))
     except (TypeError, ValueError, pydantic_core.PydanticSerializationError) as error:
         for name, value in kwargs.items():
             try:
-                pydantic_core.to_json(value, fallback=written_table, inf_nan_mode="strings")
+                pydantic_core.to_json(value, fallback=untyped_as_json, inf_nan_mode="strings")
             except (TypeError, ValueError, pydantic_core.PydanticSerializationError) as unwritable:
                 raise UnitFailedError(problem.question_unwritable(reason=str(unwritable), input=name)) from None
         raise error

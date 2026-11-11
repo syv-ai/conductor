@@ -35,7 +35,6 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Annotated, Any
 
-import polars as pl
 from pydantic import (
     AfterValidator,
     ConfigDict,
@@ -48,7 +47,7 @@ from pydantic_core import PydanticSerializationError, from_json, to_json
 
 from conductor._internal import problem
 from conductor._internal.conductor_model import ConductorModel
-from conductor._internal.fields import SET_HAS_NO_ORDER
+from conductor._internal.fields import SET_HAS_NO_ORDER, kind_of_value
 from conductor._internal.problem import (
     InvalidCallError,
     Problem,
@@ -169,9 +168,7 @@ def values_as_json(node_id: str, values: Mapping[str, Any]) -> tuple[dict[str, J
         try:
             typed[name] = from_json(to_json(value, inf_nan_mode="strings"))
         except PydanticSerializationError:
-            reason = "a value typed into a graph is saved with it as JSON"
-            if isinstance(value, pl.DataFrame):
-                reason += "; give a table as a list of records"
+            reason = "a value typed into a graph is saved with it as JSON" + kind_of_value(value).typed_in_advice
             problems.append(problem.invalid_value(node_id, name, reason=reason))
     return typed, problems
 

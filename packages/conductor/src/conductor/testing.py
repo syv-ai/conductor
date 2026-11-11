@@ -48,11 +48,9 @@ import typing
 from collections.abc import Mapping, Sequence
 from typing import Any, Literal
 
-import polars as pl
-
 from conductor._internal import kit_problem
 from conductor._internal.checked_graph import load_graph
-from conductor._internal.fields import REQUIRED, Field, FieldValueError, Param
+from conductor._internal.fields import REQUIRED, Field, FieldValueError, Param, kind_of_value
 from conductor._internal.graph import Graph
 from conductor._internal.graph_record import GraphRecord, NodeRecord, values_as_json
 from conductor._internal.node_definition import (
@@ -281,14 +279,9 @@ def _same(one: Any, other: Any) -> bool:
         return True
     if isinstance(one, Mapping) and isinstance(other, Mapping):
         return one.keys() == other.keys() and all(_same(one[key], other[key]) for key in one)
-    if isinstance(one, pl.DataFrame) and isinstance(other, pl.DataFrame):
-        return one.equals(other)
     if isinstance(one, list) and isinstance(other, list):
         return len(one) == len(other) and all(_same(a, b) for a, b in zip(one, other, strict=True))
-    try:
-        return bool(one == other)
-    except (ValueError, TypeError):
-        return one is other
+    return kind_of_value(one).untyped_equal(one, other)
 
 
 __all__ = ["check_registry"]
