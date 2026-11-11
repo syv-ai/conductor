@@ -10,7 +10,7 @@ The test suite runs this page as written: two uvicorn workers on one database, a
 
 ## A store
 
-The router keeps runs in a `RunStore`, six async methods you write against your database. A run is one row of plain values: text, numbers and a flag. Every change is `update(run_id, rev, changes)`, written only while the row is still at the `rev` the writer read. That one rule is what lets several workers act on one run.
+The router keeps runs in a `RunStore`, six async methods you write against your database. A run is one row of ten columns, text and numbers. Your store acts on four of them: `id`, `rev`, `owner` and `lease_until`. `status` and `caller` are columns for your own queries, such as a page of the runs that wait for one person. `graph`, `run`, `state` and `outcome` are JSON the router writes and reads, which you only keep. `state` is how the run stands (its status and why it ended early, the answers queued and refused, a cancel that was asked); it is small. `status` is there for your queries only: the router writes it in the same `update` as `state`, from it, and itself reads only `state`. `outcome` is what the last leg left for a reader: what waits and, once complete, the outputs. Every change is `update(run_id, rev, changes)`, written only while the row is still at the `rev` the writer read. That one rule is what lets several workers act on one run. The protocol has no delete: purge old runs with your own statement, and never a run whose `status` is `running`, which its worker and its followers read again and take to be there.
 
 This one is SQLite, for one machine with several workers. Write yours the same way for Postgres:
 
@@ -23,8 +23,6 @@ from typing import Any
 
 from conductor_providers.fastapi import RunChanges, StoredRun
 
-COLUMNS = [f.name for f in dataclasses.fields(StoredRun)]
-
 
 class SqliteRunStore:
     def __init__(self, path: str) -> None:
@@ -33,7 +31,7 @@ class SqliteRunStore:
             connection.execute("PRAGMA journal_mode = WAL")
             connection.executescript(
                 "CREATE TABLE IF NOT EXISTS runs (id TEXT PRIMARY KEY, graph TEXT, caller TEXT, run TEXT, status TEXT,"
-                " rev INTEGER, waiting TEXT, outputs TEXT, owner TEXT, lease_until REAL, cancel INTEGER, pending TEXT, refused TEXT, cause TEXT);"
+                " state TEXT, outcome TEXT, rev INTEGER, owner TEXT, lease_until REAL);"  # a StoredRun's fields, in their order
                 "CREATE TABLE IF NOT EXISTS events (run_id TEXT, seq INTEGER, body TEXT, PRIMARY KEY (run_id, seq));"
             )
 
@@ -49,16 +47,12 @@ class SqliteRunStore:
 
         return await asyncio.to_thread(execute)
 
-    def row(self, values: tuple[Any, ...]) -> StoredRun:
-        found = dict(zip(COLUMNS, values))
-        return StoredRun(**{**found, "cancel": bool(found["cancel"])})
-
     async def create(self, run: StoredRun) -> None:
-        await self.sql(f"INSERT INTO runs VALUES ({', '.join('?' * len(COLUMNS))})", *dataclasses.astuple(run))
+        await self.sql("INSERT INTO runs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", *dataclasses.astuple(run))
 
     async def get(self, run_id: str) -> StoredRun | None:
         found = await self.sql("SELECT * FROM runs WHERE id = ?", run_id)
-        return self.row(found[0]) if found else None
+        return StoredRun(*found[0]) if found else None
 
     async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
         assignments = "".join(f"{name} = ?, " for name in changes)
@@ -68,7 +62,7 @@ class SqliteRunStore:
         return bool(changed)
 
     async def expired(self, now: float) -> list[StoredRun]:
-        return [self.row(r) for r in await self.sql("SELECT * FROM runs WHERE lease_until < ?", now)]
+        return [StoredRun(*values) for values in await self.sql("SELECT * FROM runs WHERE lease_until < ?", now)]
 
     async def add_event(self, run_id: str, owner: str, body: str) -> bool:
         added = await self.sql(  # numbered after what is there, and only while `owner` holds the run
@@ -127,6 +121,7 @@ app.include_router(run_router(
     store=SqliteRunStore(database.path),
     registry=registry,
     caller=current_caller,
+    may_see=lambda caller, started_by: caller.name == started_by.name,
     from_run=lambda caller: {Caller: caller, Database: database},
     published=published,
 ))
@@ -142,18 +137,20 @@ That gives these routes:
 | `POST /graphs/{name}/runs` | Start a graph you offer, on its inputs alone. Only with `published=`. |
 | `GET /runs/{id}` | Its `status`, what is `waiting` for a person (as of the last leg's end, so while a leg runs it still lists what was just answered; a client hides the ones it answered), `outputs` once complete (each as its type writes it: a table as `{"columns": [{"name", "type", "values"}]}`, a float that isn't finite as its text, a host's type by its own schema), `refused` answers, and the `cause` of a run that failed, stopped, was cancelled or timed out (an `item_ceiling` cause says the `items` and `max_items`, for choosing a resume's ceiling). |
 | `GET /runs/{id}/events` | Its events as server-sent events, from any worker. |
-| `POST /runs/{id}/answers` | `{waiting_id: value}`; 202 `started` or `queued`, 422 listing every answer the run refuses, 409 for a complete run. A run that `failed`, `stopped` or `timed_out` takes answers to what waits in it. |
+| `POST /runs/{id}/answers` | `{waiting_id: value}`; 202 `started` or `queued`, 422 listing every answer the run refuses, 409 for a complete run. A run that `failed`, `stopped`, `timed_out` or was `cancelled` takes answers to what waits in it. |
 | `POST /runs/{id}/resume` | Go on with a run that `timed_out`, `stopped`, was `cancelled` or `failed`. |
 | `POST /runs/{id}/again` | A new run with some inputs changed; what didn't change isn't called again. |
 | `POST /runs/{id}/cancel` | Stop a running leg before its next unit. |
 
-Every refusal the router makes has one body, `{"detail": [problem, ...]}`, each problem a `{type, loc, msg, ctx}` to translate by its `type`. A 422 lists what the graph or the run refused, with conductor's codes. A 404 is `no_such_run`, and a 409 is one of the router's own: `already_answered`, `run_complete`, `run_not_resumable` or `run_changed`. A 404 your own `published` dependency raises is yours, as you wrote it. [The runs router](problems.md#the-runs-router) has each of the router's codes, and `ROUTER_PROBLEM_CODES` lists them for a test that pins your translations. The OpenAPI schema declares the 404 and the 409 as `Refused`.
+Every refusal the router makes has one body, `{"detail": [problem, ...]}`, each problem a `{type, loc, msg, ctx}` to translate by its `type`. A 422 lists what the graph or the run refused, with conductor's codes. A 404 is `no_such_run`, and a 409 is one of the router's own: `already_answered`, `run_complete`, `run_not_resumable` or `run_changed`. A 404 your own `published` dependency raises is yours, as you wrote it. [The runs router](problems.md#the-runs-router) has each of the router's codes, and `ROUTER_PROBLEMS` is their catalogue: `ROUTER_PROBLEMS.codes` for a test that pins your translations, and each kind's `sentence` and `ctx_type` to write them from. The OpenAPI schema declares the 404 and the 409 as `Refused`.
 
 ## What each part is for
 
 **Who can reach `POST /runs`.** That route takes any graph, so whoever reaches it runs any node on any value. It is an author's route: guard it, and `/nodes` and `/load`, with your own check, `app.include_router(router, dependencies=[Depends(...)])`. For an end user, offer saved graphs with `published=`: the body fills a graph's inputs and nothing else.
 
-**Who may see a run.** By default only the caller who started a run may read it or act on it. Anyone else gets 404, `no_such_run`, as for an id that names no run. `may_see=lambda caller, started_by: caller.team == started_by.team` widens that.
+**Who may see a run.** You say: `may_see(caller, started_by)` is asked on every route under `/runs/{id}`, and a caller it turns away gets 404, `no_such_run`, as for an id that names no run. Above, only the caller who started a run may read it or act on it; `may_see=lambda caller, started_by: caller.team == started_by.team` lets a team in. There is no default when you name a `caller`, because the obvious one, the same caller, compares everything your `caller` returns: a record with a `last_login` would lock Anna out of her own run the next time she logs in.
+
+**What `caller` returns.** What identifies the caller and nothing that changes: an id, a tenant. It is kept on the run as JSON when the run starts, and each leg's `from_run` and registry are made from it as it was then, whichever worker runs the leg.
 
 **A registry per tenant.** `registry=` takes a function of the caller instead of a registry. `registry.filter` gives each tenant the nodes it may use. The function is called for every request and every leg, so it builds each tenant's registry once:
 
@@ -195,13 +192,15 @@ A connection or session opened on the event loop and passed in either fails or i
 
 **Two workers answering one run.** Answering reads the run, checks the answers, then claims the run at the `rev` it read. Two workers that both read `waiting` both send an `update` at that `rev`, and only one of them changes the row. The other answers 409 (`run_changed`) and calls no node. An answer whose place has come to hold another question since the client read it is refused as `answer_stale` by its waiting id.
 
-**Answers during a leg.** While a leg runs, answers wait on the run as `pending`, and the route says `queued`. A second answer to a question already queued is a 409 (`already_answered`, with the `waiting_id` in its `ctx`). The write that ends the leg reads them, so none is dropped however the two cross. Each is then given to the run as `run.answer` takes one, on its own, whatever status the leg ended with: a wrong one, or one for something that isn't waiting (`not_waiting`, with the run's `status` in its `ctx`, as when the leg completed the run), stays in `refused` with its problems, for the client to show the person who gave it, and the others start the next leg. So a question answered while a leg ran that then failed on another item, stopped at its ceiling, timed out or was cancelled is answered all the same. A leg that raised left no run to answer, so its answers stay queued until the next leg ends. Checking an answer loads the run and writes it again; at 10,000 items that is about 60 ms and a 3 MB write, so a client with many single clicks does better to send them together.
+**Answers during a leg.** While a leg runs, answers wait in the run's `state`, and the route says `queued`. A second answer to a question already queued is a 409 (`already_answered`, with the `waiting_id` in its `ctx`). The write that ends the leg reads them, so none is dropped however the two cross. Each is then given to the run as `run.answer` takes one, on its own, whatever status the leg ended with: a wrong one, or one for something that isn't waiting (`not_waiting`, with the run's `status` in its `ctx`, as when the leg completed the run), stays in `refused` with its problems, for the client to show the person who gave it, and the others start the next leg. So a question answered while a leg ran that then failed on another item, stopped at its ceiling, timed out or was cancelled is answered all the same. A cancel ends the leg that hears it and no other: an answer queued during that leg starts the next one, which runs. A cancel that came too late for its leg to hear is kept for the next one when a queued answer starts it, and ends it before it calls anything. An answer that is taken clears what `refused` held for its question. A leg that raised ended with no run to give them to, so its answers stay queued until a leg ends with one; the run meanwhile lists their questions as waiting again, and an answer sent then is taken at once and replaces the queued one. An answer whose type's own check raises what is no refusal is in `refused` as [`answer_check_failed`](problems.md#answer_check_failed). Checking an answer loads the run and writes it again; at 10,000 items that waited that is about 100 ms and a 1 MB write, so a client with many single clicks does better to send them together.
 
-**A kill.** A leg saves its run every `checkpoint_every` seconds (5 by default), and its lease runs out `lease` seconds (30) after its worker stops renewing it. Then any worker takes the run and goes on from the checkpoint. Only the calls the checkpoint has no record of are made again: those in flight, and those finished since. A cancel sent while the dead worker held the run stays asked: the worker that takes it over ends it `cancelled` before calling anything, and only `resume` goes on. A worker that lost its lease writes nothing more, and its leg stops at the next renewal.
+**A kill.** A leg saves its run every `checkpoint_every` seconds (5 by default), and its lease runs out `lease` seconds (30) after its worker stops renewing it. Then any worker takes the run and goes on from the checkpoint. Only the calls the checkpoint has no record of are made again: those in flight, and those finished since. A cancel sent while the dead worker held the run stays asked: the worker that takes it over ends it `cancelled` before calling anything; a resume or an answer goes on from there. A worker that lost its lease writes nothing more, and its leg stops at its next renewal, checkpoint or event, whichever the store answers first: a renewal the store hasn't answered when the next is due is given up, so one that never returns holds nothing else back.
 
-**A deploy.** On shutdown, the router cancels every leg its worker runs. A cancel waits for the calls already made and keeps them. The run is then handed back, its lease already run out, and any worker goes on with it, repeating no call. A run that stopped running for any other reason (it waits, is complete, or ended early) has no `lease_until` at all, so `expired` is the one comparison and never returns it. A handed-back leg writes no `run_end`: the run did not end, so a follower's stream goes on into the next worker's events. A cancel asked of the run as its worker shuts down is kept: the run ends `cancelled`, not handed back.
+**A deploy.** On shutdown, the router hands back every leg its worker runs (`run.stream(hand_back=)`): the leg starts nothing more, waits for the calls already made and keeps them, and the run is stored as it stands, still `running`. The row is then handed back, its lease already run out, and any worker goes on with it. It repeats no call if the process is given the time to hand its legs back: a call on a thread is waited for as far as its `attempt_timeout`, and a process killed before that is a worker that died, whose run goes on from its last checkpoint. A run that stopped running for any other reason (it waits, is complete, or ended early) has no `lease_until` at all, so `expired` is the one comparison and never returns it. A handed-back leg writes no `run_end`: the run did not end, so a follower's stream goes on into the next worker's events. A cancel asked of the run before its worker shuts down ends the leg `cancelled`; one that lands as the run is handed back is kept in its `state`, and the worker that takes the run ends it `cancelled` before calling anything.
 
-**Resuming.** A leg can end `timed_out` (past `leg_timeout`, 300 seconds by default), `stopped` (a Series outgrew `max_items`), `cancelled` or `failed`. `POST /runs/{id}/resume` goes on from where it stopped and calls nothing that finished. It takes no body; `{"max_items": ...}`, a whole number of 1 or more (else 422), raises the ceiling for a stopped run, and the raised ceiling holds for every later leg of that run; the router's `max_items` is the ceiling a run starts with. Only `complete` is final. A run that ended early, a cancelled one included, still takes answers to what waits in it, as `run.answer` does, and they start its next leg: one item that keeps failing doesn't hold back the questions beside it, and an approver's answer carries a cancelled run on from where it stopped. A host that wants a cancelled run to stay ended marks its own row. A leg that raised outside any node (the store went away, `from_run` raised) is written `failed` with the cause [`leg_failed`](problems.md#leg_failed), in the row and on its `run_end`, so a run never stays `running` with nobody on it. A leg's `run_end` is stored once: if writing the end itself fails after that, nothing more is written, the row stays `running`, and a worker goes on from the last checkpoint once the lease runs out.
+**Resuming.** A leg can end `timed_out` (past `leg_timeout`, 300 seconds by default), `stopped` (a Series outgrew `max_items`), `cancelled` or `failed`. `POST /runs/{id}/resume` goes on from where it stopped and calls nothing that finished. It takes no body; `{"max_items": ...}`, a whole number of 1 or more (else 422), raises the ceiling for a stopped run, and the raised ceiling holds for every later leg of that run once the resumed leg has saved a checkpoint (a leg killed or given up before that is gone on with at the ceiling the run had, and stops there again); the router's `max_items` is the ceiling a run starts with. Only `complete` is final. A run that ended early, a cancelled one included, still takes answers to what waits in it, as `run.answer` does, and they start its next leg: one item that keeps failing doesn't hold back the questions beside it, and an approver's answer carries a cancelled run on from where it stopped. A host that wants a cancelled run to stay ended marks its own row. A leg that raised outside any node in a way that would raise again is written `failed`, in the run's state and on its `run_end`, so it doesn't stay `running` with nobody on it. Where conductor itself refused the leg, the cause is conductor's own problem, which says what to fix: [`from_run_missing`](problems.md#from_run_missing) for a `FromRun` value your `from_run` doesn't give, [`state_unreadable`](problems.md#state_unreadable) for a stored run that does not load. A cause is one problem, so of several it is the first, and the log has them all. For anything else (`from_run` or your registry function raised) the cause is [`leg_failed`](problems.md#leg_failed) and the exception is in the log. The run then lists as `waiting` what waits in it as stored, its last checkpoint, which is the run an answer is given to: those questions are answered without a resume. A run that could not be loaded lists nothing. The same holds for a leg whose run can't be written as JSON (a node gave a value with no JSON form): `failed` the first time, with [`state_unwritable`](problems.md#state_unwritable) as the cause, which names the output; the fix is the node's type. A leg's `run_end` is stored once, before the row says the run stopped running. If another worker takes the run between the two (its lease ran out just then), that worker's leg ends the run too, so a follower sees two `run_end`s and no call is made twice.
+
+**When your store raises.** A raise from your store never fails a run, wherever it comes: at an event, a checkpoint, a renewal or a leg's end. It is your outage. The worker logs it (`conductor_providers.fastapi`, with the run's id), stops the leg before its next unit and gives the run up as the store has it, `running`; once the lease runs out, any worker goes on from the last checkpoint. A renewal that raises is only tried again. Going on from the checkpoint calls again what the leg called after it, a call the given-up leg still has on a thread included (a node call longer than the lease can so run twice at once, as after any take-over), and a raise at a leg's end comes after its `run_end` is stored, so a follower then sees that leg end twice. That is once per lease for as long as the store fails: a store that refuses a write every time (a size limit, not an outage) costs those calls every lease, so alert on that log.
 
 **Following from any worker.** The leg's worker writes each event to the store, numbered in order. `GET /runs/{id}/events` streams them on whichever worker the client reached, until the run stops running, and goes on from `Last-Event-ID` after a reconnect. An open stream costs the store one `events` read per `poll`. It reads the run's row too only on a poll that found no event while the last event it sent was a `run_end`, or while it has sent none yet (a stream opened before the leg's first event, or after the run's last): that is when the run may have stopped running. A client that connects after the run ended gets every event, and `GET /runs/{id}` has the outputs. Each frame is the event's JSON as `conductor.events` defines it. `node_complete` carries counts only, and `run_end` its `status` and `cause` and leaves the run out, so a frame stays small whatever the size of the table.
 

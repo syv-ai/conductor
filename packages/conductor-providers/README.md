@@ -19,7 +19,10 @@ def current_caller() -> str:
 
 
 def mount(app: FastAPI, store: RunStore, registry: NodeRegistry) -> None:
-    app.include_router(run_router(store=store, registry=registry, caller=current_caller))
+    app.include_router(run_router(
+        store=store, registry=registry, caller=current_caller,
+        may_see=lambda caller, started_by: caller == started_by,
+    ))
 ```
 
 [`docs/serving-runs.md`](https://github.com/syv-ai/conductor/blob/main/docs/serving-runs.md) is the guide: a store on SQLite, the routes, a registry per tenant, and what happens when a worker dies or two people answer at once.
