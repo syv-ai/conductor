@@ -26,8 +26,9 @@ from conductor._internal.fields import (
     Series,
     Table,
 )
+from conductor._internal.graph import Graph
 from conductor._internal.graph_record import GraphRecord, NodeRecord
-from conductor._internal.loaded_graph import Feed, Graph, GraphDescription, GraphInput, RunsOn
+from conductor._internal.loaded_graph import Feed, GraphDescription, GraphInput, RunsOn
 from conductor._internal.make_graph import make_graph
 from conductor._internal.node_definition import (
     Deprecation,

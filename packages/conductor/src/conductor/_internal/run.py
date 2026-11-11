@@ -69,8 +69,8 @@ from conductor._internal.run_status import _READY, _RUNNING, EndedEarly, Going, 
 from conductor._internal.units import SKIPPED_UNIT, Answered, Asking, Blank, Done, Skipped, Unit
 
 if TYPE_CHECKING:
+    from conductor._internal.graph import Graph
     from conductor._internal.leg import Event, _EventBase
-    from conductor._internal.loaded_graph import Graph
 
 
 #: Each node's units by instance, for the nodes of one graph of the tree by id.

@@ -1,4 +1,4 @@
-"""Loading: a stored graph checked against the nodes it uses, into a ``Graph``.
+"""Loading: a stored graph checked against the nodes it uses, into a ``LoadedGraph``.
 
 Loading does everything once: every edge and value is checked, and each node
 gets the scope it runs in. What is wrong becomes a ``Problem`` with a place,
@@ -50,8 +50,8 @@ from conductor._internal.loaded_graph.input_plans import (
     Value,
 )
 from conductor._internal.loaded_graph.type import (
-    Graph,
     InputField,
+    LoadedGraph,
     PlacedFunction,
     PlacedGraph,
     PlacedNode,
@@ -75,9 +75,8 @@ from conductor._internal.problem import (
 _logger = logging.getLogger("conductor")
 
 
-def load_graph(record: GraphRecord, definitions: Mapping[str, NodeDefinition]) -> Graph:
-    """``record`` loaded against ``definitions``, the newest version of each node by id: the one way a host's
-    ``Graph`` is made."""
+def load_graph(record: GraphRecord, definitions: Mapping[str, NodeDefinition]) -> LoadedGraph:
+    """``record`` loaded against ``definitions``, the newest version of each node by id."""
     return _Loader(definitions, (), {}).load(record)
 
 
@@ -125,7 +124,7 @@ class _Loader:
         position: Each node's place in the record.
     """
 
-    def __init__(self, definitions: Mapping[str, NodeDefinition], embedded_in: tuple[str, ...], alone: dict[_AloneKey, Graph]) -> None:
+    def __init__(self, definitions: Mapping[str, NodeDefinition], embedded_in: tuple[str, ...], alone: dict[_AloneKey, LoadedGraph]) -> None:
         self.definitions, self.embedded_in, self.alone = definitions, embedded_in, alone
         self.problems: list[Problem] = []
         self.nodes: dict[str, PlacedNode] = {}
@@ -133,7 +132,7 @@ class _Loader:
         self.opened: list[tuple[GraphInput, Field]] = []
         self.position: dict[str, int] = {}
 
-    def load(self, record: GraphRecord) -> Graph:
+    def load(self, record: GraphRecord) -> LoadedGraph:
         """The graph of ``record``: every node whose fields are known placed, and every problem noted."""
         refused = {n.id for n in record.nodes if not is_node_id(n.id)}
         self.problems += [make_problem("invalid_node_id", node_id) for node_id in dict.fromkeys(n.id for n in record.nodes) if node_id in refused]
@@ -188,7 +187,7 @@ class _Loader:
                     needs_from_run += inner._needs_from_run
             for source_id in placed.reads:
                 readers[source_id].append(placed)
-        return Graph(record, self.problems, inputs, self.nodes, input_fields, readers, needs_from_run)
+        return LoadedGraph(record, self.problems, inputs, self.nodes, input_fields, readers, needs_from_run)
 
     def _resolve(self, record: NodeRecord) -> NodeDefinition | None:
         """The definition a node of the record names, at its version; ``None`` with the problem when there is none."""
