@@ -142,7 +142,7 @@ class NodeRegistry:
 
         def decorate(target: Callable[..., Any] | GraphRecord | str | bytes | Mapping[str, Any]) -> NodeDefinition:
             definition = declare(target)
-            if definition.replaces is not None and _same_version(self._nodes.get(definition.id), definition.replaces):
+            if definition.replaces is not None and self._nodes.get(definition.id) is definition.replaces:
                 self.replace(definition)
             else:
                 self.add(definition)
@@ -201,13 +201,14 @@ class NodeRegistry:
         return nodes
 
     def _with_defaults(self, definition: NodeDefinition) -> NodeDefinition:
-        """``definition`` under this registry's defaults: tags after the registry's, the node's own category and extra keys winning."""
+        """``definition`` and each version it replaces under this registry's defaults: tags after the registry's, the node's own category and extra keys winning."""
         tags = tuple(dict.fromkeys((*self._tags, *definition.tags)))
         category = definition.category or self._category
         extra = {**self._extra, **definition.extra}
-        if (tags, category, extra) == (definition.tags, definition.category, dict(definition.extra)):
+        replaces = None if definition.replaces is None else self._with_defaults(definition.replaces)
+        if (tags, category, extra, replaces) == (definition.tags, definition.category, dict(definition.extra), definition.replaces):
             return definition
-        return dataclasses.replace(definition, tags=tags, category=category, extra=MappingProxyType(extra))
+        return dataclasses.replace(definition, tags=tags, category=category, extra=MappingProxyType(extra), replaces=replaces)
 
     def _hold(self, nodes: dict[str, NodeDefinition], named_types: tuple[type, ...], declared: dict[str, type]) -> None:
         """Hold exactly ``nodes``, ``named_types`` and ``declared``, the types the nodes declare by id, once the named
@@ -372,21 +373,6 @@ def _by_id(types: Iterable[type], start: Mapping[str, type] = MappingProxyType({
                 code="duplicate_type_id",
             )
     return by_id
-
-
-def _same_version(held: NodeDefinition | None, replaced: NodeDefinition) -> bool:
-    """Whether ``held`` is ``replaced``, possibly with a registry's defaults applied."""
-    if held is None or held is replaced:
-        return held is not None
-    if held.version != replaced.version or held.replaces is not replaced.replaces:
-        return False
-    match held, replaced:
-        case FunctionDefinition(), FunctionDefinition():
-            return held.function is replaced.function
-        case GraphDefinition(), GraphDefinition():
-            return held.graph is replaced.graph
-        case _:  # one is a function and the other a graph
-            return False
 
 
 def _where_declared(definition: NodeDefinition) -> str:

@@ -256,6 +256,38 @@ def test_add_applies_the_defaults_to_a_plain_node_and_leaves_the_plain_one_as_it
     assert plain.category == ""
 
 
+def test_every_version_of_a_node_takes_the_registrys_defaults():
+    @node("split", title="Split", description="")
+    def split_v1(text: str) -> str:
+        return text
+
+    @node("split", title="Split", description="", replaces=split_v1)
+    def split(text: str) -> str:
+        return text
+
+    registry = NodeRegistry(category="text", tags=["builtin"], extra={"icon": "scissors"})
+    registry.add(split)
+
+    for version in (1, 2):
+        held = registry["split"].version_of(version)
+        assert (held.category, held.tags, dict(held.extra)) == ("text", ("builtin",), {"icon": "scissors"})
+
+
+def test_a_newer_version_declared_on_the_registry_replaces_the_one_it_holds():
+    registry = NodeRegistry(category="text")
+
+    @registry.node("up", title="Up", description="")
+    def up_v1(text: str) -> str:
+        return text
+
+    @registry.node("up", title="Up", description="", replaces=up_v1)
+    def up(text: str) -> str:
+        return text
+
+    assert registry["up"] is up
+    assert registry["up"].version_of(1) is up_v1
+
+
 def test_a_node_with_nothing_to_take_is_held_as_it_is():
     registry = NodeRegistry()
     registry.add(echo)
