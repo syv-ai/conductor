@@ -61,7 +61,7 @@ from conductor._internal.node_definition import (
 )
 from conductor._internal.record import GraphRecord, NodeRecord, typed_in
 from conductor._internal.registry import NodeRegistry
-from conductor._internal.run import EndedEarly
+from conductor._internal.run import EndedEarly, Going
 
 #: One call's inputs, by name.
 _Example = Mapping[str, Any]
@@ -215,10 +215,13 @@ def _run_problems(version: NodeDefinition, registry: NodeRegistry, example: _Exa
         _problem("changed_its_inputs", (version.id, version.version), f"the body changed {name!r}, a value it was given; several calls of a run can be given it, so copy the value before changing it", input=name)
         for name in changed
     ]
-    if isinstance(state := run.state, EndedEarly):
-        # a body's own exception reaches the problem as its class only; the message says which
-        said = f"the node raised {state.cause.ctx['error']}" if state.cause.type == "execution_failed" else state.cause.msg
-        found.append(_problem("run_failed", (version.id, version.version), f"the example ended {state.status}: {said}", **_causes([state.cause])))
+    match run.state:
+        case EndedEarly(status=status, cause=cause):
+            # a body's own exception reaches the problem as its class only; the message says which
+            said = f"the node raised {cause.ctx['error']}" if cause.type == "execution_failed" else cause.msg
+            found.append(_problem("run_failed", (version.id, version.version), f"the example ended {status}: {said}", **_causes([cause])))
+        case Going():
+            pass
     return found
 
 
