@@ -217,6 +217,19 @@ def run_router(
     router = APIRouter(lifespan=lambda _: worker.running(), route_class=_RefusingRoute)
 
     async def stored(run_id: str, who: Annotated[C, Depends(caller)]) -> StoredRun:
+        """The run of a route under ``/runs/{run_id}``, for the caller: the access rule of every such route.
+
+        Args:
+            run_id: The run's id, from the path.
+            who: The caller.
+
+        Returns:
+            The run as the store has it.
+
+        Raises:
+            NoSuchRunError: No run has the id, or ``may_see`` says the caller may not see it. The two read the
+                same (a 404), so a caller learns nothing about a run that isn't theirs.
+        """
         row = await worker.read(run_id)
         if not may_see(who, worker.started_by(row)):
             raise NoSuchRunError
