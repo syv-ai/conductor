@@ -354,15 +354,16 @@ def test_a_graph_that_embeds_itself_is_refused_at_the_node_that_closes_the_circl
 
 def test_an_output_returned_inside_loops_is_offered_as_one_series_per_loop():
     deep = load({"e": "deep-inner", "n": "count", "x": "exclaim"}, [("e.up.result", "n.items"), ("e.up.result", "x.text")])
-    assert deep.is_runnable and (deep.runs_on["n"].series, deep.runs_on["x"].series) == ("e.w.result", "e.up.result")
+    assert deep.is_runnable and (deep.runs_on["n"].series, deep.runs_on["x"].series) == ("e.w.result", "e.c.result")  # each loop by the list inside
     described = {inner: load({"e": inner}).describe().nodes["e"].outputs[0] for inner in ("lines-inner", "deep-inner", "series-per-item-inner")}
     assert [(output.many, output.type) for output in described.values()] == [(True, "str"), (True, "Series[str]"), (True, "Series[str]")]
+    assert [output.loops for output in described.values()] == [["w.result"], ["w.result", "c.result"], ["w.result", "c.result"]]
 
 
 def test_a_table_made_per_item_inside_is_a_series_of_tables():
     graph = load({"e": "table-per-item-inner"})
-    tables = graph._nodes["e"].outputs["t.result"]
-    assert graph.problems == [] and (tables.many, tables.type.record is not None) == (True, True)
+    tables = graph.describe().nodes["e"].outputs[0]
+    assert graph.problems == [] and (tables.many, tables.type, tables.loops) == (True, "Table", ["w.result"])
 
 
 def test_a_decision_inside_is_the_embeddings_by_where_it_is_made():
@@ -716,7 +717,7 @@ def test_work_carried_from_a_run_of_an_earlier_graph_is_taken_inside_where_the_n
     ("nodes", "edges", "series"),
     [
         ({"w": "words", "t": "letters", "h": "height"}, [("w.result", "t.text"), ("t.result", "h.table")], "w.result"),
-        ({"e": "letters-per-word-inner", "h": "height"}, [("e.t.result", "h.table")], "e.t.result"),
+        ({"e": "letters-per-word-inner", "h": "height"}, [("e.t.result", "h.table")], "e.w.result"),
         ({"s": "sheets", "h": "height"}, [("s.result", "h.table")], "s.result"),
     ],
     ids=["drawn flat", "made inside an embedded graph", "returned as a Series of tables"],

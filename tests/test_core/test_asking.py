@@ -742,7 +742,7 @@ def test_a_question_record_is_json_a_host_draws_from_with_no_graph_loaded():
     assert written == {
         "loc": ["q"], "prompt": "Who takes T-1?", "inputs": {"ticket": "T-1"},
         "questions": [{
-            "name": "result", "title": "Assignee", "many": False, "required": False, "type": "str", "type_variables": [], "schema": {"type": "string"},
+            "name": "result", "title": "Assignee", "many": False, "required": False, "type": "str", "type_variables": [], "schema": {"type": "string"}, "loops": [],
             "choices": [{"id": "ida", "title": "Ida B."}], "default": "ida", "widget": {"type": "textarea", "rows": 4},
             "description": None, "exclusive_group": None,
         }],

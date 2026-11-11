@@ -1499,13 +1499,13 @@ def test_two_series_out_of_one_embedding_are_refused_where_they_meet():
                     registry=registry_of(left, right, pair, inner)) == ["series_not_nested"]
 
 
-def test_items_made_inside_an_embedding_are_named_by_the_output_it_offers_them_on():
+def test_a_loop_over_items_made_inside_a_stored_graph_is_named_by_the_list_inside_it():
     inner = embedded("splitup", {"id": "split", "node": "split"}, {"id": "upper", "node": "upper"}, edges=(("split.result", "upper.text"),))
     loaded = graph({"id": "e", "node": "splitup"}, {"id": "split", "node": "split"}, {"id": "u2", "node": "upper"},
                    edges=(("e.upper.result", "u2.text"),), registry=registry_of(split, upper, inner))
 
-    assert {k: v.msg for k, v in loaded.runs_on.items()} == {"e": "once", "split": "once", "u2": "per item of e.upper.result"}
-    assert loaded.describe().nodes["u2"].inputs[0].feed.series == "e.upper.result"
+    assert {k: v.msg for k, v in loaded.runs_on.items()} == {"e": "once", "split": "once", "u2": "per item of e.split.result"}
+    assert loaded.describe().nodes["u2"].inputs[0].feed.series == "e.split.result"
 
 
 def test_exclusive_groups_of_an_embedding_name_the_outputs_it_offers():

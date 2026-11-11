@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from typing import Any
 
-import pytest
 from conductor import NodeRegistry, Series, make_graph
 
 REGISTRY = NodeRegistry()
@@ -171,7 +170,6 @@ REGISTRY.stored_graph("titled", title="Titled", description="Each document's tit
 )
 
 
-@pytest.mark.xfail(strict=True, reason="each Series a stored graph offers is a list of its own outside")
 def test_one_item_of_each_of_two_outputs_returned_in_the_same_loop_inside_reach_one_call_together() -> None:
     reads = [("shout.result", "pair.a"), ("whisper.result", "pair.b")]
     drawn = results([documents, lines, shout, whisper, title, pair], [*TITLE_EDGES, *reads], "pair", "A,b;;c")
@@ -179,9 +177,18 @@ def test_one_item_of_each_of_two_outputs_returned_in_the_same_loop_inside_reach_
     assert drawn == stored == [["Aa", "Bb"], None, ["Cc"]]
 
 
-@pytest.mark.xfail(strict=True, reason="each Series a stored graph offers is a list of its own outside")
 def test_one_value_per_document_beside_the_list_of_that_documents_lines_reach_one_call_together() -> None:
     reads = [("title.result", "label.heading"), ("shout.result", "label.values")]
     drawn = results([documents, lines, shout, whisper, title, label], [*TITLE_EDGES, *reads], "label", "a,b;;c")
     stored = results([REGISTRY["titled"], label], [(f"titled.{source}", target) for source, target in reads], "label", "a,b;;c")
     assert drawn == stored == ["T:a,b=A+B", None, "T:c=C"]
+
+
+def test_one_item_of_a_list_inside_a_stored_graph_and_of_a_list_outside_it_is_refused_with_what_the_author_can_do() -> None:
+    """``whisper`` runs once per line inside the stored graph; outside, each title is split into a list of its
+    own. A node that takes one item of each has two lists side by side, and no edge outside can nest them."""
+    edges = [("titled.title.result", "lines.document"), ("lines.result", "pair.b"), ("titled.whisper.result", "pair.a")]
+    refused = REGISTRY.load(make_graph(REGISTRY["titled"], lines, pair, edges=edges)).problems[0]
+    assert (refused.type, refused.ctx["hint"], refused.ctx["stored_graphs"]) == ("series_not_nested", "inside_stored_graph", ["titled"])
+    assert sorted(refused.ctx["series"]) == ["lines.result", "titled.lines.result"]
+    assert "wire '" not in refused.msg and "Give one of them whole to a Series input" in refused.msg

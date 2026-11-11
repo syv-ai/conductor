@@ -64,7 +64,6 @@ from conductor._internal.node_definition import (
 from conductor._internal.problem import NodeDeclarationError, NodeError, Problem
 from conductor._internal.problem import catalogue as problem
 from conductor._internal.sentinels import REQUIRED
-from conductor._internal.series import Series
 from conductor._internal.value_type import FieldValueError, Param, Type
 
 _logger = logging.getLogger("conductor")
@@ -280,12 +279,9 @@ class _Loader:
         """Place an embedded graph as one node: the inner graph loaded alone, its inputs and outputs this node's fields.
 
         An input is offered under the name the inner graph gives it (``graph.inputs``), and an output under its
-        address in the inner graph (``graph.outputs``), so an edge reads ``e.upper.result``. An output returned
-        once inside keeps its field. One returned inside loops is offered as one ``Series`` per loop: for
-        ``documents -> lines -> shout``, where ``shout`` is called once per line of each document,
-        ``shout.result`` is ``Series[Series[str]]``. The field kept here is the innermost ``Series[str]``, and
-        ``PlacedEmbeddedGraph.loops_around`` names the loops around it. A ``Series`` returned once per document
-        is ``Series[Series[str]]`` the same way, and a table returned once per document a ``Series`` of tables.
+        address in the inner graph (``graph.outputs``), so an edge reads ``e.upper.result``. An output keeps the
+        field its node inside declares, and is read outside as it would be with the same nodes drawn in this
+        graph: ``PlacedEmbeddedGraph.loops_around`` names the loops inside it is returned in.
 
         A graph that embeds itself is a problem here. The inner graph's own problems are this graph's, each with
         this node's id in front of its place. Either way the node is left out: what a graph with problems offers
@@ -304,7 +300,6 @@ class _Loader:
             return
         fields = {offered.name: Field(offered.name, offered.field.hint, offered.field.default) for offered in inner._input_fields.values()}
         outputs: dict[str, Field] = {}
-        series_of: Any = Series  # a hint built from a value, which a type checker reads no further
         for address in inner.outputs:
             node_id, _, output = address.partition(".")
             at = inner._nodes[node_id]
@@ -312,12 +307,7 @@ class _Loader:
             group = field.param.exclusive_group
             if group:  # a decision inside is this node's, named by where it is made
                 field = Field(field.name, Annotated[field.hint, Param(exclusive_group=f"{node_id}.{group}")], field.default)
-            if not at.loops_around(output):  # returned once
-                outputs[address] = Field(address, field.hint, field.default)
-            elif field.many:  # a Series returned in a loop: its own items are the innermost Series
-                outputs[address] = Field(address, field.hint)
-            else:  # one value returned in a loop: the values of the innermost loop are the Series
-                outputs[address] = Field(address, series_of[field.hint])
+            outputs[address] = Field(address, field.hint, field.default)
         planned = self._planned(record, fields, self._typed(record, fields), frozenset(), edges)
         self._keep(PlacedEmbeddedGraph(
             id=record.id, scope=planned.scope, inputs=planned.inputs, outputs=outputs, definition=definition, inner=inner,
@@ -394,10 +384,16 @@ class _Loader:
                 series = [scope[-1], plan.scope[-1]]
                 outer, inner = sorted(series, key=lambda port: list(self.nodes).index(port.node_id))  # the one placed later can read the other with no cycle
                 reading = next(n for n, p in inputs.items() if isinstance(p, InputFedByEdges) and p.scope == scope)
-                self.problems.append(problem.series_not_nested(
-                    record.id, series=[str(s) for s in series], inputs=[reading, name],
-                    wire_from=str(outer), wire_into=inner.node_id,
-                ))
+                stored_graphs = list(dict.fromkeys(port.node_id for port in series if isinstance(self.nodes[port.node_id], PlacedEmbeddedGraph)))
+                if stored_graphs:  # an edge of this graph can't move a list inside a stored graph
+                    self.problems.append(problem.series_not_nested_inside_stored_graph(
+                        record.id, series=[str(s) for s in series], inputs=[reading, name], stored_graphs=stored_graphs,
+                    ))
+                else:
+                    self.problems.append(problem.series_not_nested(
+                        record.id, series=[str(s) for s in series], inputs=[reading, name],
+                        wire_from=str(outer), wire_into=inner.node_id,
+                    ))
                 inputs[name] = InputNotFed(plan.field)
         return _Planned(inputs, scope, self._rests_on(inputs), bound)
 
