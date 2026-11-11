@@ -689,9 +689,13 @@ class Graph:
 
         Each node lists its own ``problems``, and ``problems`` beside the nodes lists every one. A node with a
         problem is drawn with its fields all the same, an input whose edge is refused fed ``unset``, and so is a
-        node that reads it. Only a node whose fields aren't known (an unknown node or version, a hook that
-        failed, an embedded graph with problems of its own) is there with ``loaded`` false and no fields, its problems saying
-        why. An embedded graph is one node, with the fields it offers.
+        node that reads it. A ``type_mismatch`` names the input in its ``loc``; a ``cycle`` and
+        ``series_not_nested`` name the node. Only a node whose fields aren't known is there with ``loaded``
+        false and no fields, its problems saying why: an unknown node or version, an id no address can say, a
+        graph that embeds itself, a hook that failed or wasn't called for a value it reads, an embedded graph
+        with problems of its own. An embedded graph is one node, with the fields it offers; one with problems
+        isn't placed, and its problems are this graph's, each ``loc`` the embedding node's id and then the
+        place inside it.
         """
         nodes: dict[str, GraphNodeDescription] = {}
         for record in self.record.nodes:
@@ -709,16 +713,15 @@ class Graph:
 
     @functools.cached_property
     def fingerprint(self) -> str:
-        """A short hash of what a run of this graph rests on: each node's id, node, version, values and defaults,
-        the edges, and the fingerprint of every graph embedded in it.
+        """A short hash of what a run of this graph rests on: the record, but for each node's ``display``, which
+        conductor never reads, and the fingerprint of every graph embedded in it.
 
         Keys are sorted first, so a record a JSON store gives back in another key order has the same fingerprint.
-        ``display`` is left out, as conductor never reads it. A saved run names it, and loading a save into a graph
-        whose fingerprint differs is refused.
+        A saved run names it, and loading a save into a graph whose fingerprint differs is refused.
         """
         from conductor._internal.run import canonical_json
 
-        own = self.record.model_dump(mode="json", include={"nodes": {"__all__": {"id", "node", "version", "values", "defaults"}}, "edges": True})
+        own = self.record.model_dump(mode="json", exclude={"nodes": {"__all__": {"display"}}})
         embedded = {p.id: p.inner.fingerprint for p in self._nodes.values() if isinstance(p, PlacedGraph)}
         return hashlib.blake2b(canonical_json([own, embedded]), digest_size=8).hexdigest()
 

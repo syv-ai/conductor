@@ -816,19 +816,19 @@ class Run:
         pending = False
         gathered: dict[str, tuple[Gather, _UnitsOfAGraph, list[Any]]] = {}
         own, own_base = self._units[node.inside], node.base
-        try:
-            for name, (plan, giver) in node.inputs.items():
-                kind = type(plan)
-                if kind is Fixed:
-                    kwargs[name] = plan.value  # type: ignore[union-attr]
-                    continue
-                if kind is Open:  # a first node of the graph itself, or of a graph embedded in one: the caller gives it
-                    kwargs[name] = self.inputs[plan.address]  # type: ignore[union-attr]
-                    continue
-                if giver is None:
-                    units, base = own, own_base
-                else:
-                    units, base = self._units[giver.inside], giver.base
+        for name, (plan, giver) in node.inputs.items():
+            kind = type(plan)
+            if kind is Fixed:
+                kwargs[name] = plan.value  # type: ignore[union-attr]
+                continue
+            if kind is Open:  # a first node of the graph itself, or of a graph embedded in one: the caller gives it
+                kwargs[name] = self.inputs[plan.address]  # type: ignore[union-attr]
+                continue
+            if giver is None:
+                units, base = own, own_base
+            else:
+                units, base = self._units[giver.inside], giver.base
+            try:
                 if kind is Gather:
                     value = self._gathered(node.inside if giver is None else giver.inside, base, plan, node.gathered_through[name], key)  # type: ignore[arg-type]
                 else:  # one value: the first edge whose branch was taken
@@ -839,20 +839,20 @@ class Run:
                             break
                     if kind is SeriesOfOne and value is not None and value is not SKIPPED and value is not PENDING:
                         value = [value]
-                if value is SKIPPED:
-                    return SKIPPED_UNIT
-                if value is PENDING:  # a later input may be skipped, which settles the unit whatever this one comes to
-                    pending = True
-                elif value is None:
-                    if not plan.spec.whole.optional and blank is None:
-                        blank = Blank(name)
-                    kwargs[name] = None
-                elif kind is Gather:
-                    gathered[name] = (plan, units, value)  # type: ignore[assignment]
-                else:
-                    kwargs[name] = value
-        except FieldValueError as missing:  # raised reading the input ``name``
-            return make_problem(missing.code, *unit_loc(node, key), name=name, reason=missing.reason, **missing.ctx)
+            except FieldValueError as missing:  # an edge into this input names a field its record doesn't have
+                return make_problem(missing.code, *unit_loc(node, key), name=name, reason=missing.reason, **missing.ctx)
+            if value is SKIPPED:
+                return SKIPPED_UNIT
+            if value is PENDING:  # a later input may be skipped, which settles the unit whatever this one comes to
+                pending = True
+            elif value is None:
+                if not plan.spec.whole.optional and blank is None:
+                    blank = Blank(name)
+                kwargs[name] = None
+            elif kind is Gather:
+                gathered[name] = (plan, units, value)  # type: ignore[assignment]
+            else:
+                kwargs[name] = value
         if pending:
             return PENDING
         if blank is not None:
@@ -1078,12 +1078,7 @@ def _cell(units: _UnitsOfAGraph, base: int, cell: Cell, key: Key) -> Any:
     if type(cell) is Item:
         if type(value) is Records:  # held by column: the cell an edge names, with no record built
             wanted = cell.field  # type: ignore[attr-defined]
-            if wanted is None:
-                return value[key[depth]]
-            try:
-                return value.columns[wanted][key[depth]]
-            except KeyError:
-                raise _no_such_field(wanted) from None
+            return value[key[depth]] if wanted is None else _field_of(value.columns, wanted)[key[depth]]
         value = value[key[depth]]
     field = cell.field  # type: ignore[attr-defined]
     return value if field is None or value is None or value is SKIPPED else _field_of(value, field)

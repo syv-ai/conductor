@@ -865,7 +865,7 @@ def test_a_cancelled_leg_between_two_runs_reuses_what_one_direct_leg_does():
 
 
 def test_a_call_that_returned_skipped_is_a_result_and_is_not_made_again_live_or_through_json():
-    """A node that returned ``SKIPPED`` was called: ``again`` takes that as it takes any result, and what reads it is skipped as before."""
+    """A node that returned ``SKIPPED`` was called: ``again`` takes that as it takes any result, and what reads it is skipped on the later run as on the first."""
     calls: list[str] = []
 
     @node("only-long", title="Only long", description="")

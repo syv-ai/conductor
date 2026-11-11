@@ -158,7 +158,7 @@ print(run.outputs["reachable.result"].to_dicts())  # [{'name': 'Ida', 'email': '
 
 The CSV had a `phone` column, and `Contact` doesn't name one, so it was cut: a `Table[Contact]` holds exactly the columns `Contact` names, whoever brings the table. A column that is missing is refused, and a column holds a blank only if its type says `| None`, as `email` does. A node that passes on columns it doesn't know declares a bare `Table`.
 
-A node may also return a table as a list of records, `[{"name": "Ida", "email": None}]`. And a table is a type like any other: `Table[Contact] | None` takes a blank, and `Series[Table[Contact]]` is a table per item.
+A node may also return a table as a list of records, `[{"name": "Ida", "email": None}]`. And a table is a type like any other: `Table[Contact] | None` takes a blank, and `Series[Table[Contact]]` is a table per item. Declare the table you return: an output typed `Any` says nothing, so a `Table` input takes it as a table only where there is nothing to gather, and as one record of a table wherever it is made per item.
 
 ### A text or a number of your own
 

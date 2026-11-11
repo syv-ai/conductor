@@ -186,6 +186,15 @@ def streamed(run: Any) -> list[Any]:
 # -- blanks ------------------------------------------------------------------------------------
 
 
+def test_a_node_with_no_output_that_returns_skipped_was_called_so_it_completes():
+    @node("log", title="Log", description="")
+    def log(text: str) -> None:
+        return SKIPPED
+
+    said = streamed(graph({"id": "l", "node": "log"}, registry=registry_of(log)).with_inputs(text="x"))
+    assert [(e.type, e.units) for e in said if e.type in ("node_complete", "node_skipped")] == [("node_complete", 1)]
+
+
 def test_a_series_that_may_be_nothing_reads_an_explicit_none_like_leaving_it_out():
     @node("maybe", title="Maybe", description="")
     def maybe(xs: Series[str] | None = None) -> str:
