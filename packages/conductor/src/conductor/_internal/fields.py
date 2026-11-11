@@ -78,7 +78,12 @@ if TYPE_CHECKING:
 
 
 class _Required:
+    """The type of ``REQUIRED``: one value whose repr is ``REQUIRED``, kept as itself by a copy or a pickle."""
+
     def __repr__(self) -> str:
+        return "REQUIRED"
+
+    def __reduce__(self) -> str:
         return "REQUIRED"
 
 
@@ -87,7 +92,7 @@ REQUIRED: Any = _Required()
 
 
 class _Skipped:
-    """The type of ``SKIPPED``: one falsy value whose repr is ``SKIPPED``."""
+    """The type of ``SKIPPED``: one falsy value whose repr is ``SKIPPED``, kept as itself by a copy or a pickle."""
 
     _instance: _Skipped | None = None
 

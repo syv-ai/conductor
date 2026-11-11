@@ -894,3 +894,14 @@ def test_a_declared_choice_is_answered_by_the_id_its_question_shows() -> None:
         shown = waiting.questions[0].choices
         assert shown is not None
         assert run.answer(waiting, shown[0]["id"]).resume().outputs == {f"{asking.id}.result": read}
+
+
+def test_an_ask_pickled_as_another_process_raises_it_still_proposes_no_default() -> None:
+    import pickle
+
+    @node("who", title="Who", description="Asks who takes a ticket.")
+    def who(ticket: str) -> str:
+        raise pickle.loads(pickle.dumps(Ask("Who takes it?")))  # a node whose body ran in a process of its own
+
+    _, run = _once(who, ticket="T-1")
+    assert run.status == "waiting" and run.waiting[0].questions[0].required
