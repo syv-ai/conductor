@@ -48,6 +48,7 @@ import pydantic
 
 from conductor._internal.address import NodePath
 from conductor._internal.ask import output_questions
+from conductor._internal.canonical_json import canonical_json
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.fields import (
     REQUIRED,
@@ -721,8 +722,6 @@ class Graph:
         Keys are sorted first, so a record a JSON store gives back in another key order has the same fingerprint.
         A saved run names it, and loading a save into a graph whose fingerprint differs is refused.
         """
-        from conductor._internal.run import canonical_json
-
         own = self.record.model_dump(mode="json", exclude={"nodes": {"__all__": {"display"}}})
         embedded = {p.id: p.inner.fingerprint for p in self._nodes.values() if isinstance(p, PlacedGraph)}
         return hashlib.blake2b(canonical_json([own, embedded]), digest_size=8).hexdigest()

@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import json
 import math
 import threading
 import time
@@ -45,6 +44,7 @@ from pydantic_core import (
 
 from conductor._internal.address import Key, NodePath, Path, _parse_place, path_text
 from conductor._internal.ask import Question, Waiting, answer_outputs, waiting_questions
+from conductor._internal.canonical_json import canonical_json
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.earlier_work import Earlier
 from conductor._internal.fields import SKIPPED, Field, FieldValueError, Records, Type, written_table
@@ -1496,17 +1496,6 @@ def _fingerprint(digest: str, kwargs: dict[str, Any], *, plain: bool = False) ->
     except (TypeError, ValueError, pydantic_core.PydanticSerializationError):
         return None
     return hashlib.blake2b(written, digest_size=12).hexdigest()
-
-
-def canonical_json(value: Any, fallback: Callable[[Any], Any] | None = None) -> bytes:
-    """``value`` as JSON to hash, with every object's keys sorted, so a value a JSON store gave back in another key order is written alike.
-
-    Every hash whose keys may come back from a store is written here. A hash of values that hold no mapping (a reuse
-    fingerprint of a node whose inputs can't, a question whose inputs are plain) is their plain JSON, hashed as it
-    is: there are no keys to sort, and those hashes are made on every call.
-    """
-    plain = pydantic_core.to_jsonable_python(value, fallback=fallback)
-    return json.dumps(plain, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
 
 
 def _question_fingerprint(placed: PlacedFunction, unit: Asking) -> str:
