@@ -377,24 +377,17 @@ async def test_an_answer_that_lands_as_a_legs_end_is_written_is_taken_and_the_ru
 async def test_a_leg_whose_run_takes_longer_than_the_lease_to_write_keeps_it_and_writes_its_end_once(monkeypatch: pytest.MonkeyPatch) -> None:
     registry, graph, gate, inputs, waiting_id = asking()
     gate.set()
-    made, slow = [], threading.Event()
+    made = []
     to_json = Run.to_json
 
     def slow_to_json(self: Run) -> str:
-        if slow.is_set() and threading.current_thread() is not threading.main_thread():
+        if self.status == "waiting":  # the run as the leg's end writes it
             made.append(self.status)
             time.sleep(0.5)  # a large run, longer than the lease
         return to_json(self)
 
     monkeypatch.setattr(Run, "to_json", slow_to_json)
-
-    class EndIsSlow(MemoryStore):
-        async def add_event(self, run_id: str, owner: str, body: str) -> bool:
-            if '"run_end"' in body:
-                slow.set()
-            return await super().add_event(run_id, owner, body)
-
-    store = EndIsSlow()
+    store = MemoryStore()
     one, other = _worker(store, registry, lease=0.3), _worker(store, registry, lease=0.3)
     async with one.running(), other.running():
         run_id = await _started(one, graph, inputs)
@@ -587,18 +580,16 @@ async def test_a_leg_that_raised_ended_with_no_run_so_its_run_lists_nothing_as_w
     assert (await store.ended(run_id)).outputs == {"busy.result": "x", "after.result": True}
 
 
-@pytest.mark.parametrize("fails", ["the write of the row", "the run as JSON"])
-async def test_a_leg_whose_end_fails_after_its_run_end_is_stored_stays_running_and_is_gone_on_with(fails: str, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize(("fails", "run_ends"), [("the write of the row", ["complete", "complete"]), ("the run as JSON", ["complete"])])
+async def test_a_leg_whose_end_fails_stays_running_and_is_gone_on_with_and_no_run_end_is_stored_twice_for_one_leg(
+    fails: str, run_ends: list[str], monkeypatch: pytest.MonkeyPatch,
+) -> None:
     registry, graph = _shout()
 
     class EndFailsOnce(MemoryStore):
-        """Raises once after a leg's ``run_end`` is stored: in the write that ends the leg, or as the run is written as JSON."""
+        """Raises once in the write that ends a leg, after its ``run_end`` is stored."""
 
-        end_stored = raised = False
-
-        async def add_event(self, run_id: str, owner: str, body: str) -> bool:
-            self.end_stored = self.end_stored or '"run_end"' in body
-            return await super().add_event(run_id, owner, body)
+        raised = False
 
         async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
             if fails == "the write of the row" and changes.get("status") == "complete" and not self.raised:
@@ -610,7 +601,7 @@ async def test_a_leg_whose_end_fails_after_its_run_end_is_stored_stays_running_a
     to_json = Run.to_json
 
     def failing_to_json(self: Run) -> str:
-        if fails == "the run as JSON" and store.end_stored and not store.raised:
+        if fails == "the run as JSON" and self.status == "complete" and not store.raised:  # before the run_end is stored
             store.raised = True
             raise RuntimeError("a value the run can't write")
         return to_json(self)
@@ -622,7 +613,8 @@ async def test_a_leg_whose_end_fails_after_its_run_end_is_stored_stays_running_a
         ended = await store.ended(run_id)  # once the lease ran out and a sweep took the run
 
     ends = [event["status"] for event in await store.stored_events(run_id) if event["type"] == "run_end"]
-    assert store.raised and (ended.status, ended.cause, ends) == ("complete", None, ["complete", "complete"])  # one for each leg
+    assert store.raised and (ended.status, ended.cause, ends) == ("complete", None, run_ends)
+    assert await _starts(store, run_id) == 2
 
 
 @pytest.mark.parametrize("call", ["answer", "cancel"])
