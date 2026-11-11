@@ -2,7 +2,7 @@
 
 A graph loads once, alone, however many graphs embed it. What a run walks is every function of the graph and of
 each graph embedded in it, each a ``FunctionAtPath``, with its inputs planned where it stands: an output of an
-embedded graph is by definition a cell of a function inside it, so a reader's plan names that cell, and an open
+embedded graph is by definition an output of a function inside it, so a reader's plan names that output, and an open
 input inside has the plan the embedded graph's node has for it. A call of an embedded graph therefore costs what
 its functions cost, and its node (a ``EmbeddedGraphAtPath``) holds no unit of its own: it is a name and a boundary.
 """
@@ -68,10 +68,10 @@ class _AtPath:
 class FunctionAtPath(_AtPath):
     """A function node where it stands: what a run holds units of and a leg calls.
 
-    How each input gets its value is written for where the node stands: every cell of a plan names a function
+    How each input gets its value is written for where the node stands: every output of a plan names a function
     by its ``name``, so a plan is read the same wherever its node stands. An open input of a node inside an
     embedded graph has the plan that graph's node has for it, and an edge from an embedded graph's output reads
-    the cell inside that holds it.
+    the output inside that holds it.
 
     Attributes:
         placed: The node, as its graph loaded it.
@@ -94,7 +94,7 @@ class FunctionAtPath(_AtPath):
             placed after the node adds to it, as its plan is written (``_plan_at_path``).
         made_from: Every function whose units its own are made from, each with how many places of an item
             path of this node say which of that function's units: the unit at those places, and where that
-            function runs deeper every unit under them. They are the cells its inputs' plans read (``reads``
+            function runs deeper every unit under them. They are the outputs its inputs' plans read (``reads``
             of each), no deeper than the input sits; for a gathering input also what the functions it gathers
             through read outside the items, which can settle it for every item at once; and, for a node that
             reads anything from outside the innermost map it runs in, or reads nothing, the Series of that
@@ -201,11 +201,11 @@ def host_reads(node: FunctionAtPath, output: str, under: int) -> InputReadsOneVa
     plan = node.shown_as.get((output, under))
     if plan is None:
         spec = node.placed.outputs[output]
-        cell = (WholeSeries if spec.many else WholeOutput)(node.name, output, _scope_at_path(node.maps), None, spec.type)
+        at = (WholeSeries if spec.many else WholeOutput)(node.name, output, _scope_at_path(node.maps), None, spec.type)
         if len(node.maps) == under:
-            plan = InputReadsOneValue(_SHOWN, (cell,), cell.scope)
+            plan = InputReadsOneValue(_SHOWN, (at,), at.scope)
         else:
-            plan = _gather_at_path(_SHOWN, node.maps[under:], (cell,), {made_by.name: made_by for made_by in (node, *(series for series, _ in node.maps))})
+            plan = _gather_at_path(_SHOWN, node.maps[under:], (at,), {made_by.name: made_by for made_by in (node, *(series for series, _ in node.maps))})
         node.shown_as[(output, under)] = plan
     return plan
 
@@ -242,7 +242,7 @@ def _add_to_tree(graph: CheckedGraph, embedding: EmbeddedGraphAtPath | None, tre
     inside = embedding.path if embedding is not None else ()
     above = embedding.maps if embedding is not None else ()
     here: dict[str, NodeAtPath] = {}
-    functions = typing.cast("dict[str, FunctionAtPath]", node_at)  # a cell of a plan at a path names a function
+    functions = typing.cast("dict[str, FunctionAtPath]", node_at)  # an output of a plan at a path names a function
     for placed in graph._nodes.values():
         inputs: dict[str, InputPlan] = {}
         for name, plan in placed.inputs.items():
@@ -278,7 +278,7 @@ def _add_to_tree(graph: CheckedGraph, embedding: EmbeddedGraphAtPath | None, tre
                     continue
                 case InputNotFed():
                     raise RuntimeError(f"'{node_name(path)}' has an input with no value to give: a graph with problems is never walked")
-            read_at = [(functions[cell.node_id], min(cell.depth, len(plan.scope))) for cell in plan.reads]  # no deeper than the input sits
+            read_at = [(functions[at.node_id], min(at.depth, len(plan.scope))) for at in plan.reads]  # no deeper than the input sits
             if isinstance(plan, InputGathersItems):
                 series = plan.series
                 items_of = (functions[series.node_id], series.output)  # what the functions it gathers through read outside the items can settle it too
@@ -326,10 +326,10 @@ def _scope_at_path(maps: Maps) -> Scope:
 
 
 def _plan_at_path(plan: InputPlan, here: Mapping[str, NodeAtPath], functions: Mapping[str, FunctionAtPath]) -> InputPlan:
-    """A plan of a checked graph as the plan of its node where it stands: each cell names the function that
+    """A plan of a checked graph as the plan of its node where it stands: each output names the function that
     holds it by its ``name``, in the maps that function runs in.
 
-    An output of an embedded graph is the output of a function inside it. One made once inside is that cell,
+    An output of an embedded graph is the output of a function inside it. One made once inside is that output,
     read as the edge reads it. One made per item inside is offered as the ``Series`` of every item's value, so
     an item of it is the inner unit's own value (a ``Series`` there read as the list it is), and an input that
     gathers it gathers every map inside that it is made in.
@@ -369,10 +369,10 @@ def _gather_at_path(spec: Field, gathered: Maps, sources: tuple[Source, ...], fu
         gathered: The maps gathered through, outermost first: one, but for an output an embedded graph offers
             of something made several maps deep inside it.
         sources: What each edge brings for an item, each naming a function by its name.
-        functions: The functions the plan's cells name, by name.
+        functions: The functions the plan's outputs name, by name.
     """
     levels = [OutputAtScope(made_by.name, output, _scope_at_path(made_by.maps)) for made_by, output in gathered]
-    through = _gathered_through(gathered[0], [functions[cell.node_id] for cell in (*levels[1:], *sources)])
+    through = _gathered_through(gathered[0], [functions[at.node_id] for at in (*levels[1:], *sources)])
     return InputGathersItems(spec, (*levels, *sources), len(levels), through)
 
 

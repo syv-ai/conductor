@@ -1,20 +1,20 @@
-"""How each input of a node gets its value: the plan kinds, and the cells a plan reads.
+"""How each input of a node gets its value: the plan kinds, and the outputs a plan reads.
 
-A cell (``OutputAtScope``) is one output of one node, in the scope its node runs in: what one
-unit of the node holds for it. An edge brings a cell's value (``WholeOutput``), one
+An ``OutputAtScope`` is one output of one node, in the scope its node runs in: what one
+unit of the node holds for it. An edge brings the output's value (``WholeOutput``), one
 item of a ``Series`` it holds (``ItemOfSeries``), or a ``Series`` it holds as the one
 list it is (``WholeSeries``).
 
 A plan is one of six kinds. ``InputHoldsValue`` holds a value, ``InputFromCaller`` is the
 caller's, ``InputNotFed`` has none. The three that edges feed (``InputReadsOneValue``, ``InputGathersItems``,
-``InputGathersOneValue``) each hold ``reads``: every cell the input is made from. It is
-the one declaration of what the input reads. A run reads those cells and no
+``InputGathersOneValue``) each hold ``reads``: every output the input is made from. It is
+the one declaration of what the input reads. A run reads those outputs and no
 other (``value``), and the units a node waits for are the units of those
-cells, so the two can't differ.
+outputs, so the two can't differ.
 
-A checked graph holds the plans of its own nodes, each cell naming a node of
+A checked graph holds the plans of its own nodes, each output naming a node of
 that graph by id. Where a node stands among the graphs a run is of, its plans
-are written again with every cell naming a function by the name a run keeps
+are written again with every output naming a function by the name a run keeps
 its units by (``e/ask``): see ``tree.py``.
 """
 
@@ -80,7 +80,7 @@ class OutputAtScope:
 
 @dataclass(frozen=True, slots=True)
 class _Brought(OutputAtScope):
-    """What an edge brings from a cell. Never made on its own: it is one of the three kinds of ``Source``.
+    """What an edge brings from an output. Never made on its own: it is one of the three kinds of ``Source``.
 
     Attributes:
         record_field: The field an edge names after the output (``split.result.email``); ``None`` for all of it.
@@ -136,12 +136,12 @@ Source = WholeOutput | ItemOfSeries | WholeSeries
 # -- how an input gets its value ----------------------------------------------------------------
 
 
-class ReadsCells(Protocol):
-    """What a plan asks of what reads for it: a way to read one cell, for one item or for an item nobody
+class ReadsOutputs(Protocol):
+    """What a plan asks of what reads for it: a way to read one output, for one item or for an item nobody
     knows. Each answer is a value, ``None`` for a blank, ``SKIPPED`` for a branch not taken, or ``NOT_SETTLED``."""
 
-    def cell(self, cell: OutputAtScope, item_path: ItemPath) -> Any:
-        """What ``cell`` holds for ``item_path``, as an edge brings it."""
+    def output(self, at: OutputAtScope, item_path: ItemPath) -> Any:
+        """What the output ``at`` holds for ``item_path``, as an edge brings it."""
 
     def best_of(self, reads: tuple[OutputAtScope, ...], item_path: ItemPath) -> Any:
         """What alternative edges bring one input: the best of what each brings."""
@@ -199,7 +199,7 @@ class InputReadsOneValue:
 
     Attributes:
         field: The input's field.
-        reads: Every cell the input is made from: what each edge brings. Several are alternatives, on opposite
+        reads: Every output the input is made from: what each edge brings. Several are alternatives, on opposite
             branches of one decision: a call receives the one whose branch was taken.
         scope: The scope the value sits in.
     """
@@ -213,10 +213,10 @@ class InputReadsOneValue:
         """What each edge brings."""
         return self.reads
 
-    def value(self, reader: ReadsCells, item_path: ItemPath) -> Any:
+    def value(self, reader: ReadsOutputs, item_path: ItemPath) -> Any:
         """What the input holds for ``item_path``: what its edge brings, or the best of alternative edges."""
         reads = self.reads
-        return reader.cell(reads[0], item_path) if len(reads) == 1 else reader.best_of(reads, item_path)
+        return reader.output(reads[0], item_path) if len(reads) == 1 else reader.best_of(reads, item_path)
 
 
 @final
@@ -226,7 +226,7 @@ class InputGathersItems:
 
     Attributes:
         field: The input's field.
-        reads: Every cell the input is made from: the Series whose items are gathered, where it was made; where
+        reads: Every output the input is made from: the Series whose items are gathered, where it was made; where
             the items sit more than one map under it, each Series on the way down; then what each edge brings
             for an item. Several edges are alternatives, as for any input.
         levels: How many of ``reads`` are a Series: one, but for what an embedded graph offers of an output
@@ -249,9 +249,9 @@ class InputGathersItems:
     @property
     def sources(self) -> tuple[Source, ...]:
         """What each edge brings for an item."""
-        return self.reads[self.levels :]  # type: ignore[return-value]  # every cell after the Series is what an edge brings
+        return self.reads[self.levels :]  # type: ignore[return-value]  # every output after the Series is what an edge brings
 
-    def value(self, reader: ReadsCells, item_path: ItemPath) -> Any:
+    def value(self, reader: ReadsOutputs, item_path: ItemPath) -> Any:
         """What the input holds for ``item_path``: the items of its Series, or what is outside them when that
         decides."""
         return reader.gathered(self, item_path)
@@ -270,7 +270,7 @@ class InputGathersOneValue:
 
     Attributes:
         field: The input's field.
-        reads: Every cell the input is made from: what each edge brings. Several are alternatives, as for any
+        reads: Every output the input is made from: what each edge brings. Several are alternatives, as for any
             input.
     """
 
@@ -282,11 +282,11 @@ class InputGathersOneValue:
         """What each edge brings."""
         return self.reads
 
-    def value(self, reader: ReadsCells, item_path: ItemPath) -> Any:
+    def value(self, reader: ReadsOutputs, item_path: ItemPath) -> Any:
         """What the input holds for ``item_path``: the one value its edge brings, as a list of one; where the
         items take a blank, a blank is its one item."""
         reads = self.reads
-        value = reader.cell(reads[0], item_path) if len(reads) == 1 else reader.best_of(reads, item_path)
+        value = reader.output(reads[0], item_path) if len(reads) == 1 else reader.best_of(reads, item_path)
         if value is SKIPPED or value is NOT_SETTLED or (value is None and not self.field.keeps_blanks):
             return value
         return [value]

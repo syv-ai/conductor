@@ -17,14 +17,14 @@ with two items as with none. When one could, each item answers for itself.
 Its node needs the Series itself as well, and reads it as one more input, so
 the node rule is what weighs a blank Series against a branch not taken.
 
-**The readers.** The rule reads cells, and there are two ways to read one:
+**The readers.** The rule reads outputs, and there are two ways to read one:
 
 - ``ItemReader`` reads what the units of a run hold for one item: the reader a
   leg calls a node with. ``AsItStandsReader`` is the same for a host, whose
   ``results`` are read in any state: what isn't settled reads as a blank.
 - ``AnyItemReader`` reads for an item of one Series that nobody knows, which is
-  how "could any item bring a value" is answered. A cell made outside the items
-  is read as it stands. A cell made per item is what its node comes to for any
+  how "could any item bring a value" is answered. An output made outside the items
+  is read as it stands. An output made per item is what its node comes to for any
   item, by the node rule again: a node that comes to skipped or blank for any
   item holds what such a unit holds, and one that could be called could hold a
   value, ``COULD``.
@@ -72,14 +72,14 @@ class _Could:
         return "COULD"
 
 
-#: What a cell holds for an item nobody knows, when it could hold a value. Beside it a cell holds ``SKIPPED`` (no
+#: What an output holds for an item nobody knows, when it could hold a value. Beside it an output holds ``SKIPPED`` (no
 #: item could bring a value, for a branch not taken) or ``None`` (none could, for a blank).
 COULD: Final = _Could()
 
 
 class Reader(abc.ABC):
     """Reads what a node's inputs hold, and says what the node comes to: the node rule, over a way to read a
-    cell.
+    output.
 
     Attributes:
         caller_inputs: The caller's inputs, by address.
@@ -90,8 +90,8 @@ class Reader(abc.ABC):
     caller_inputs: Mapping[str, Any]
 
     @abc.abstractmethod
-    def cell(self, cell: OutputAtScope, item_path: ItemPath) -> Any:
-        """What ``cell`` holds for ``item_path`` as an edge brings it: a value, ``None`` for a blank, ``SKIPPED``
+    def output(self, at: OutputAtScope, item_path: ItemPath) -> Any:
+        """What the output ``at`` holds for ``item_path`` as an edge brings it: a value, ``None`` for a blank, ``SKIPPED``
         for a branch not taken, or ``NOT_SETTLED``."""
 
     @abc.abstractmethod
@@ -150,8 +150,8 @@ class Reader(abc.ABC):
         For an item nobody knows several could, which is why this is the best of them and not the first.
         """
         best: Any = SKIPPED
-        for cell in reads:
-            value = self.cell(cell, item_path)
+        for at in reads:
+            value = self.output(at, item_path)
             if value is NOT_SETTLED:
                 best = NOT_SETTLED
             elif value is None:
@@ -174,28 +174,28 @@ class ItemReader(Reader):
     def __init__(self, units: Units, caller_inputs: Mapping[str, Any]) -> None:
         self.units, self.caller_inputs = units, caller_inputs
 
-    def cell(self, cell: OutputAtScope, item_path: ItemPath) -> Any:
-        """What ``cell`` holds for ``item_path``: an ``ItemOfSeries``'s is the item of ``item_path``, and a field named
+    def output(self, at: OutputAtScope, item_path: ItemPath) -> Any:
+        """What the output ``at`` holds for ``item_path``: an ``ItemOfSeries``'s is the item of ``item_path``, and a field named
         on the edge is read from it.
 
         Raises:
             NoSuchFieldError: The edge names a field the record doesn't have.
         """
-        depth = cell.depth
-        unit = self.units[cell.node_id].get(item_path[:depth])
+        depth = at.depth
+        unit = self.units[at.node_id].get(item_path[:depth])
         if unit is None or type(unit) is Asking:
             return NOT_SETTLED
-        value = unit.out[cell.output]
-        if value is None or value is SKIPPED or type(cell) is OutputAtScope:
+        value = unit.out[at.output]
+        if value is None or value is SKIPPED or type(at) is OutputAtScope:
             return value
-        if type(cell) is ItemOfSeries:
-            if type(value) is Records:  # held by column: the cell an edge names, with no record built
-                wanted = cell.record_field
+        if type(at) is ItemOfSeries:
+            if type(value) is Records:  # held by column: the field an edge names, with no record built
+                wanted = at.record_field
                 return value[item_path[depth]] if wanted is None else field_of(value.columns, wanted)[item_path[depth]]
             value = value[item_path[depth]]
-        elif type(cell) is WholeSeries:  # the list as a reader receives one: no mark of a branch not taken in it
+        elif type(at) is WholeSeries:  # the list as a reader receives one: no mark of a branch not taken in it
             return value.records() if type(value) is Records else [None if item is SKIPPED else item for item in value]
-        field = cell.record_field  # type: ignore[attr-defined]  # an edge brings a WholeOutput, an ItemOfSeries or a WholeSeries, each with its record_field
+        field = at.record_field  # type: ignore[attr-defined]  # an edge brings a WholeOutput, an ItemOfSeries or a WholeSeries, each with its record_field
         return value if field is None or value is None or value is SKIPPED else field_of(value, field)
 
     def gathered(self, plan: InputGathersItems, item_path: ItemPath) -> Any:
@@ -230,7 +230,7 @@ class ItemReader(Reader):
         items = []
         one_edge = edges[0] if len(edges) == 1 else None
         for under in item_paths:
-            value = self.cell(one_edge, under) if one_edge is not None else self.best_of(edges, under)
+            value = self.output(one_edge, under) if one_edge is not None else self.best_of(edges, under)
             if value is NOT_SETTLED:
                 return NOT_SETTLED
             items.append(None if value is SKIPPED else value)
@@ -242,7 +242,7 @@ class ItemReader(Reader):
         was never made, or isn't settled, is handed back as that too."""
         made = plan.reads[0]
         brought = AnyItemReader(self, made, item_path).could_bring(plan)
-        return brought if brought is not COULD else self.cell(made, item_path)
+        return brought if brought is not COULD else self.output(made, item_path)
 
     def _item_paths(self, series: Any, inner: tuple[OutputAtScope, ...], item_path: ItemPath) -> list[ItemPath] | Literal[NotReady.NOT_SETTLED]:
         """The path of each item of ``series`` under ``item_path``, and under each of those of each item of the
@@ -251,7 +251,7 @@ class ItemReader(Reader):
         for made in inner:
             deeper: list[ItemPath] = []
             for under in item_paths:
-                held = self.cell(made, under)
+                held = self.output(made, under)
                 if held is NOT_SETTLED:
                     return NOT_SETTLED
                 deeper.extend((*under, place) for place in range(length(held)))
@@ -273,15 +273,15 @@ class ItemReader(Reader):
 
 
 class AsItStandsReader(ItemReader):
-    """Reads what the units of a run hold as they stand, for a host that reads a run in any state: a cell that
+    """Reads what the units of a run hold as they stand, for a host that reads a run in any state: an output that
     isn't settled reads as a blank, where a call waits for it. So a host is shown the items so far, with a
     blank in the place of one that hasn't run or waits for a person."""
 
     __slots__ = ()
 
-    def cell(self, cell: OutputAtScope, item_path: ItemPath) -> Any:
-        """What ``cell`` holds for ``item_path``, a blank where it isn't settled."""
-        value = ItemReader.cell(self, cell, item_path)
+    def output(self, at: OutputAtScope, item_path: ItemPath) -> Any:
+        """What the output ``at`` holds for ``item_path``, a blank where it isn't settled."""
+        value = ItemReader.output(self, at, item_path)
         return None if value is NOT_SETTLED else value
 
     def shown(self, plan: InputReadsOneValue | InputGathersItems, item_path: ItemPath = ()) -> Any:
@@ -340,23 +340,23 @@ class AnyItemReader(Reader):
             self.came_to[node.name] = self.comes_to(node, self.item_path)
         return self._brought(plan)
 
-    def cell(self, cell: OutputAtScope, item_path: ItemPath) -> Any:
-        """What ``cell`` holds for an item nobody knows: what its node comes to for any item when it is made
+    def output(self, at: OutputAtScope, item_path: ItemPath) -> Any:
+        """What the output ``at`` holds for an item nobody knows: what its node comes to for any item when it is made
         per item, and as it stands when it is made outside the items, ``COULD`` for a value."""
-        came_to = self.came_to.get(cell.node_id)
+        came_to = self.came_to.get(at.node_id)
         if came_to is None:  # made outside the items
             series = self.series
-            if type(cell) is ItemOfSeries and cell.node_id == series.node_id and cell.output == series.output:
-                cell = series  # an item of the Series itself is what the Series is: one never made has none
-            value = self.items.cell(cell, self.item_path)
+            if type(at) is ItemOfSeries and at.node_id == series.node_id and at.output == series.output:
+                at = series  # an item of the Series itself is what the Series is: one never made has none
+            value = self.items.output(at, self.item_path)
             return value if value is NOT_SETTLED or value is SKIPPED or value is None else COULD
         if came_to is NOT_SETTLED:
             return NOT_SETTLED
-        return COULD if type(came_to) is dict else came_to.out[cell.output]  # type: ignore[union-attr]  # mypy doesn't narrow a union by ``type(x) is dict``
+        return COULD if type(came_to) is dict else came_to.out[at.output]  # type: ignore[union-attr]  # mypy doesn't narrow a union by ``type(x) is dict``
 
     def gathered(self, plan: InputGathersItems, item_path: ItemPath) -> Any:
         """What a gathering input met on the way holds for an item nobody knows. One whose Series is made per
-        item is asked what its edges bring for the same items; one whose Series is made outside them is a cell
+        item is asked what its edges bring for the same items; one whose Series is made outside them is an output
         outside like any other: its own, whole answer, read as it stands."""
         if plan.reads[0].node_id in self.came_to:
             return self._brought(plan)
@@ -371,7 +371,7 @@ class AnyItemReader(Reader):
         """What the edges of a gathering input bring for an item nobody knows; an input whose items take a
         blank receives the blank an edge brings, so it could hold one."""
         edges = plan.sources
-        brought = self.cell(edges[0], self.item_path) if len(edges) == 1 else self.best_of(edges, self.item_path)
+        brought = self.output(edges[0], self.item_path) if len(edges) == 1 else self.best_of(edges, self.item_path)
         return COULD if brought is None and plan.field.keeps_blanks else brought
 
 
