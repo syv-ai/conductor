@@ -59,7 +59,6 @@ from conductor._internal.units import (
     NotReady,
     Skipped,
     Units,
-    length,
 )
 
 if TYPE_CHECKING:
@@ -227,12 +226,10 @@ class ItemReader(Reader):
             if wanted is not None:
                 return series.field_as_list(wanted)
             return series.as_table_input() if plan.field.whole.record is not None else series.as_list()
-        item_paths = self._item_paths(series, plan.reads[1 : plan.levels], item_path)
-        if item_paths is NOT_SETTLED:
-            return NOT_SETTLED
         items = []
         one_edge = edges[0] if len(edges) == 1 else None
-        for under in item_paths:
+        for index in range(len(series)):
+            under = (*item_path, index)
             value = self.output(one_edge, under) if one_edge is not None else self.best_of(edges, under)
             if value is NOT_SETTLED:
                 return NOT_SETTLED
@@ -246,20 +243,6 @@ class ItemReader(Reader):
         made = plan.reads[0]
         brought = AnyItemReader(self, made, item_path).could_bring(plan)
         return brought if brought is not COULD else self.output(made, item_path)
-
-    def _item_paths(self, series: Any, inner: tuple[OutputAtScope, ...], item_path: ItemPath) -> list[ItemPath] | Literal[NotReady.NOT_SETTLED]:
-        """The path of each item of ``series`` under ``item_path``, and under each of those of each item of the
-        Series ``inner`` names, outermost first; ``NOT_SETTLED`` while one of those isn't settled."""
-        item_paths = [(*item_path, place) for place in range(len(series))]
-        for made in inner:
-            deeper: list[ItemPath] = []
-            for under in item_paths:
-                held = self.output(made, under)
-                if held is NOT_SETTLED:
-                    return NOT_SETTLED
-                deeper.extend((*under, place) for place in range(length(held)))
-            item_paths = deeper
-        return item_paths
 
     def kept_in_step(self, node: FunctionAtPath, received: CallInputs) -> CallInputs:
         """``received`` with each gathering input holding the items that have a value in every input of the
