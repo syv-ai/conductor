@@ -1013,3 +1013,16 @@ def test_a_leg_whose_end_fails_after_its_run_end_is_stored_stays_running_and_is_
             assert store.raised and (ended.status, ended.cause, ends) == ("complete", None, ["complete", "complete"])  # one for each leg
 
     asyncio.run(scenario())
+
+
+def test_the_problems_page_quotes_the_sentence_of_each_of_the_routers_codes() -> None:
+    import pathlib
+    import re
+
+    from conductor_providers.fastapi.router import _ROUTER_PROBLEMS
+
+    page = (pathlib.Path(__file__).parents[2] / "docs" / "problems.md").read_text()
+    section = page[page.index("## The runs router"):]
+    parts = re.split(r"^### `([a-z_]+)`$", section, flags=re.M)
+    quoted = {code: body.split("\n\n")[1] for code, body in zip(parts[1::2], parts[2::2])}
+    assert quoted == {code: f"> {sentence}" for code, sentence in _ROUTER_PROBLEMS.items()}

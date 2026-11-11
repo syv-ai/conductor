@@ -16,7 +16,7 @@ import types
 
 import pytest
 from conductor._internal.errors import PROBLEM_CATALOGUE
-from conductor_providers.fastapi.router import _ROUTER_PROBLEMS
+from conductor_providers.fastapi import ROUTER_PROBLEM_CODES
 
 _ROOT = pathlib.Path(__file__).parents[2]
 _PACKAGE = _ROOT / "packages" / "conductor" / "src" / "conductor"
@@ -69,7 +69,7 @@ def _wanted() -> dict[str, list[str]]:
     wanted = {code: [text] for code, text in PROBLEM_CATALOGUE.items()}
     for code, texts in _declaration_codes().items():
         wanted[code + _DECLARED if code in PROBLEM_CATALOGUE else code] = texts
-    return wanted | {code: [] for code in _kit_codes()} | {code: [text] for code, text in _ROUTER_PROBLEMS.items()}
+    return wanted | {code: [] for code in _kit_codes()} | {code: [] for code in ROUTER_PROBLEM_CODES}
 
 
 def test_every_code_has_one_section_and_no_section_names_another() -> None:
