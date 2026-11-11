@@ -107,13 +107,13 @@ class Reader(abc.ABC):
         Raises:
             CallRejectedError: An edge names a field the record it brings doesn't have (``invalid_edge_value``).
         """
-        arguments = node.constant_arguments.copy()
+        arguments = node.constants.copy()
         graph_inputs = self.graph_inputs
-        for name, address in node.parameters_from_graph_inputs:
+        for name, address in node.graph_inputs:
             arguments[name] = graph_inputs[address]
         blank: str | None = None
         settled = True
-        for name, plan, accepts_none in node.wired_inputs:
+        for name, plan, accepts_none in node.edge_inputs:
             try:
                 value = plan.value(self, item_path)
             except NoSuchFieldError as missing:

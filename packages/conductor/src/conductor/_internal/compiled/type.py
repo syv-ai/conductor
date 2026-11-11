@@ -23,7 +23,7 @@ from conductor._internal.compiled.describe import (
     GraphNodeDescription,
     NodeInputDescription,
     RunsOn,
-    feed_of,
+    input_source_of,
     runs_on,
 )
 from conductor._internal.compiled.flat_nodes import FlatFunctionNode, FlatNode, flat_nodes
@@ -129,7 +129,7 @@ class CompiledGraph:
                 continue
             nodes[record.id] = GraphNodeDescription(
                 node=record.node, version=record.version, loaded=True, problems=own, runs=runs_on(compiled_node.loops),
-                inputs=[NodeInputDescription(field=plan.field.description, feed=feed_of(compiled_node.loops, plan)) for plan in compiled_node.inputs.values()],
+                inputs=[NodeInputDescription(field=plan.field.description, feed=input_source_of(compiled_node.loops, plan)) for plan in compiled_node.inputs.values()],
                 outputs=compiled_node.described_outputs(),
             )
         return GraphDescription(nodes=nodes, inputs=dict(self.inputs), outputs=self.outputs, problems=list(self.problems))

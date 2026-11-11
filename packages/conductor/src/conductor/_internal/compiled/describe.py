@@ -122,7 +122,7 @@ def runs_on(loops: tuple[OutputAddress, ...]) -> RunsOn:
     return RunsOn(mode="per_item", series=str(loops[-1]), msg=f"per item of {loops[-1]}") if loops else RunsOn(mode="once", msg="once")
 
 
-def feed_of(loops: tuple[OutputAddress, ...], plan: InputPlan) -> Feed:
+def input_source_of(loops: tuple[OutputAddress, ...], plan: InputPlan) -> Feed:
     """How ``plan`` feeds its input on each call of a node that runs in ``loops``."""
     match plan:
         case InputCollectsLoopResults(series=series):

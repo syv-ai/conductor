@@ -43,9 +43,9 @@ class ReusableResults:
 
 
 def reused_outcome(
-    earlier: ReusableResults, node: FlatFunctionNode, key: ItemPath, kwargs: dict[str, Any], outcomes: dict[str, dict[ItemPath, Outcome]], in_turn: Callable[[], bool],
+    earlier: ReusableResults, node: FlatFunctionNode, key: ItemPath, arguments: dict[str, Any], outcomes: dict[str, dict[ItemPath, Outcome]], in_turn: Callable[[], bool],
 ) -> Done | Answered | Asking | Literal[NotReady.NOT_ITS_TURN] | None:
-    """The unit of ``earlier`` that ``node`` takes in ``key`` in place of a call on ``kwargs``; ``None`` when
+    """The unit of ``earlier`` that ``node`` takes in ``key`` in place of a call on ``arguments``; ``None`` when
     there is none.
 
     A person's answer, or a question still waiting, is taken once, in order: when one is there to take and
@@ -58,12 +58,12 @@ def reused_outcome(
         earlier: What the node may take: this run's own to take from.
         node: The node.
         key: The instance.
-        kwargs: What the unit received.
+        arguments: What the unit received.
         units: Each function's units, for the items above this one.
         in_turn: Whether every unit of the node before this one has been tried.
     """
     compiled_node = node.compiled_node
-    fingerprint = fingerprint_of(compiled_node.reuse_digest, kwargs, plain=compiled_node.plain_inputs)
+    fingerprint = fingerprint_of(compiled_node.reuse_digest, arguments, plain=compiled_node.plain_inputs)
     if fingerprint is None:
         return None
     if earlier.asked:
@@ -89,14 +89,14 @@ def lineage(outcomes: dict[str, dict[ItemPath, Outcome]], node: FlatFunctionNode
     return (fingerprint_of("", {"items": above}) or "") if above else ""
 
 
-def fingerprint_of(digest: str, kwargs: dict[str, Any], *, plain: bool = False) -> str | None:
+def fingerprint_of(digest: str, arguments: dict[str, Any], *, plain: bool = False) -> str | None:
     """What a unit of a node (its ``reuse_digest``) received, as a short hash; ``None`` for a value with no JSON form, which is never reused.
 
     ``plain`` says no input holds a mapping, so no key came from a store: the inputs' own order is the node's.
     """
     try:
         # No key of a plain node's inputs came from a store, so they need no canonical form: its inputs' order is the node's.
-        written = pydantic_core.to_json([digest, kwargs], fallback=untyped_to_hash) if plain else canonical_json([digest, kwargs], fallback=untyped_to_hash)
+        written = pydantic_core.to_json([digest, arguments], fallback=untyped_to_hash) if plain else canonical_json([digest, arguments], fallback=untyped_to_hash)
     except (TypeError, ValueError, pydantic_core.PydanticSerializationError):
         return None
     return hashlib.blake2b(written, digest_size=12).hexdigest()

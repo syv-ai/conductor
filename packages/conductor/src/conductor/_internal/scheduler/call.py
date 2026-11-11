@@ -17,7 +17,7 @@ from conductor._internal.sentinels import SKIPPED
 from conductor._internal.value_type import FieldValueError, untyped_as_json
 
 
-def call(node: FlatFunctionNode, kwargs: dict[str, Any], from_run: Mapping[type, Any]) -> tuple[Any, BaseException | None]:
+def call(node: FlatFunctionNode, arguments: dict[str, Any], from_run: Mapping[type, Any]) -> tuple[Any, BaseException | None]:
     """Call ``node`` on what a unit received: its outputs as a run keeps them, or what went wrong.
 
     A value an edge brings is checked against the input first where its source's type doesn't settle it, and what
@@ -27,10 +27,10 @@ def call(node: FlatFunctionNode, kwargs: dict[str, Any], from_run: Mapping[type,
     definition = compiled_node.definition
     try:
         for name in node.checked:
-            kwargs = {**kwargs, name: _checked(compiled_node.inputs[name].field, name, kwargs[name], returned=False)}
+            arguments = {**arguments, name: _checked(compiled_node.inputs[name].field, name, arguments[name], returned=False)}
         if definition.from_run:
-            kwargs = {**kwargs, **{name: from_run[needed] for name, needed in definition.from_run.items()}}
-        returned = definition.function(**kwargs)
+            arguments = {**arguments, **{name: from_run[needed] for name, needed in definition.from_run.items()}}
+        returned = definition.function(**arguments)
     except BaseException as error:  # noqa: BLE001  a node's own failure, or its Ask, is the run's to record
         if isinstance(error, (KeyboardInterrupt, SystemExit)):
             raise
@@ -94,13 +94,13 @@ def _checked(field: Field, name: str, value: Any, *, returned: bool) -> Any:
 
 
 
-def jsonable(kwargs: dict[str, Any]) -> Any:
+def jsonable(arguments: dict[str, Any]) -> Any:
     """What a unit received, as JSON; a float that isn't finite as text. ``CallRejectedError`` as ``question_unwritable`` names
     the first input with no JSON form."""
     try:
-        return pydantic_core.from_json(pydantic_core.to_json(kwargs, fallback=untyped_as_json, inf_nan_mode="strings"))
+        return pydantic_core.from_json(pydantic_core.to_json(arguments, fallback=untyped_as_json, inf_nan_mode="strings"))
     except (TypeError, ValueError, pydantic_core.PydanticSerializationError) as error:
-        for name, value in kwargs.items():
+        for name, value in arguments.items():
             try:
                 pydantic_core.to_json(value, fallback=untyped_as_json, inf_nan_mode="strings")
             except (TypeError, ValueError, pydantic_core.PydanticSerializationError) as unwritable:

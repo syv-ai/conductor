@@ -76,9 +76,9 @@ class FlatFunctionNode(_FlatNodeBase):
     """A function node of a graph with its subgraphs laid out flat. Built once per graph and shared by
     every run of it; it holds nothing from a run.
 
-    The arguments of one call come from three places: ``constant_arguments`` (the values typed into the graph and
-    the defaults, fixed when the graph is checked), the graph inputs (``parameters_from_graph_inputs``, fixed when
-    a run starts), and the values other nodes returned (``wired_inputs``, read for each call).
+    The arguments of one call come from three places: ``constants`` (the values typed into the graph and
+    the defaults, fixed when the graph is checked), the graph inputs (``graph_inputs``, fixed when
+    a run starts), and the values other nodes returned (``edge_inputs``, read for each call).
 
     How each input gets its value is written for where the node stands: every output of a plan names a function
     by its ``name``, so a plan is read the same wherever its node stands. An open input of a node inside an
@@ -88,10 +88,10 @@ class FlatFunctionNode(_FlatNodeBase):
     Attributes:
         compiled_node: The node, as its graph loaded it.
         policy: The node's policy, as its definition declares it.
-        constant_arguments: What the arguments of every call start as: each input by name, in the order declared,
+        constants: What the arguments of every call start as: each input by name, in the order declared,
             one that holds the same value on every call already holding it.
-        parameters_from_graph_inputs: The inputs the caller gives: the name, and the address a run keeps the caller's value by.
-        wired_inputs: What the node needs that edges bring, in the order declared: the input's name, a plan, and
+        graph_inputs: The inputs the caller gives: the name, and the address a run keeps the caller's value by.
+        edge_inputs: What the node needs that edges bring, in the order declared: the input's name, a plan, and
             whether the input takes a blank. A gathering input is two of them, as it needs two things: its
             Series, read as the one value it is, and then what its edges bring for the items (the plan
             itself, which names the functions it gathers through, ``InputCollectsLoopResults.loop_body``).
@@ -120,9 +120,9 @@ class FlatFunctionNode(_FlatNodeBase):
 
     compiled_node: CompiledFunctionNode
     policy: Policy
-    constant_arguments: dict[str, Any]
-    parameters_from_graph_inputs: tuple[tuple[str, str], ...]
-    wired_inputs: tuple[tuple[str, InputFromEdges, bool], ...]
+    constants: dict[str, Any]
+    graph_inputs: tuple[tuple[str, str], ...]
+    edge_inputs: tuple[tuple[str, InputFromEdges, bool], ...]
     lists_from_same_loop: tuple[tuple[tuple[str, bool], ...], ...]
     checked: tuple[str, ...]
     looped_outputs: dict[str, tuple[FlatNode, str]] = dataclasses.field(default_factory=dict[str, tuple["FlatNode", str]])
@@ -277,19 +277,19 @@ def _add_to_tree(graph: CompiledGraph, parent: FlatSubgraph | None, tree: list[F
                 subgraph.output_sources[address] = last.output_sources[output] if isinstance(last, FlatSubgraph) else (last, output)
             here[compiled_node.id] = node_at[subgraph.name] = subgraph
             continue
-        constant_arguments: dict[str, Any] = {}
-        parameters_from_graph_inputs: list[tuple[str, str]] = []
-        wired_inputs: list[tuple[str, InputFromEdges, bool]] = []
+        constants: dict[str, Any] = {}
+        graph_inputs: list[tuple[str, str]] = []
+        edge_inputs: list[tuple[str, InputFromEdges, bool]] = []
         reads_from: dict[FlatFunctionNode, int] = {}
         gathering: dict[OutputInLoops, list[tuple[str, bool]]] = {}
         for name, plan in inputs.items():
-            constant_arguments[name] = None
+            constants[name] = None
             match plan:
                 case InputConstant(value=value):
-                    constant_arguments[name] = value
+                    constants[name] = value
                     continue
                 case InputFromGraphInput(address=address):
-                    parameters_from_graph_inputs.append((name, address))
+                    graph_inputs.append((name, address))
                     continue
                 case InputMissing():
                     raise RuntimeError(f"'{node_name(path)}' has an input with no value to give: a graph with problems is never walked")
@@ -300,13 +300,13 @@ def _add_to_tree(graph: CompiledGraph, parent: FlatSubgraph | None, tree: list[F
                 read_at += [(read, places) for inner in plan.loop_body for read, places in inner.reads_from.items() if items_of not in read.loops]
                 gathering.setdefault(series, []).append((name, plan.field.accepts_none_items))
                 whole = WholeOutput(series.node_id, series.output, series.loops, None, functions[series.node_id].compiled_node.outputs[series.output].whole)
-                wired_inputs.append((name, InputReadsOneValue(plan.field, (whole,), series.loops), plan.field.whole.optional))  # it needs its Series, and then its items
-            wired_inputs.append((name, plan, plan.field.whole.optional))
+                edge_inputs.append((name, InputReadsOneValue(plan.field, (whole,), series.loops), plan.field.whole.optional))  # it needs its Series, and then its items
+            edge_inputs.append((name, plan, plan.field.whole.optional))
             for read, places in read_at:
                 reads_from[read] = min(places, reads_from.get(read, places))
         node = FlatFunctionNode(
             compiled_node=compiled_node, parent=parent, path=path, name=node_name(path), loops=loops, policy=compiled_node.definition.policy,
-            constant_arguments=constant_arguments, parameters_from_graph_inputs=tuple(parameters_from_graph_inputs), wired_inputs=tuple(wired_inputs), lists_from_same_loop=tuple(map(tuple, gathering.values())),
+            constants=constants, graph_inputs=tuple(graph_inputs), edge_inputs=tuple(edge_inputs), lists_from_same_loop=tuple(map(tuple, gathering.values())),
             checked=tuple(name for name, plan in inputs.items() if _read_before_a_call(plan)), reads_from=reads_from,
         )
         if loops and min(node.reads_from.values(), default=0) < len(loops):  # what it reads may be there before its items are

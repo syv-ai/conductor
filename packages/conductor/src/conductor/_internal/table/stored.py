@@ -81,8 +81,8 @@ class Records[T](StoredSeries, returned_as=pl.DataFrame):
         return self.frame
 
     @staticmethod
-    def without_rows(received: pl.DataFrame, places: set[int]) -> pl.DataFrame:
-        return received.filter([place not in places for place in range(received.height)])
+    def without_rows(value: pl.DataFrame, places: set[int]) -> pl.DataFrame:
+        return value.filter([place not in places for place in range(value.height)])
 
     def _as_json(self) -> dict[str, Any]:
         # Read through ``columns``, so a run saved at every checkpoint reads each column out of the frame once.

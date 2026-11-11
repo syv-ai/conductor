@@ -272,14 +272,14 @@ class Scheduler:
         """Put the node's waiting units on threads, as far as its ``concurrency`` allows."""
         waiting, policy = self.waiting_for_thread[node], node.policy
         while waiting and self.on_threads[node] < policy.concurrency and self.going:
-            key, kwargs, attempt = waiting.popleft()
+            key, arguments, attempt = waiting.popleft()
             self.on_threads[node] += 1
             self.attempts[(node, key)] = attempt
             if self.pool is None:
                 self.pool = ThreadPoolExecutor(self.threads, "conductor")
             if policy.attempt_timeout is not None:
                 self._after(policy.attempt_timeout, "deadline", node, key, attempt)
-            self.pool.submit(self._on_thread, node, key, kwargs, attempt)
+            self.pool.submit(self._on_thread, node, key, arguments, attempt)
 
     def _checkpoint(self) -> None:
         """Hand the listener a copy of the run as it stands, and set when the next is due."""
@@ -340,18 +340,18 @@ class Scheduler:
         if not walking and (key in self.outcomes[node] or (node, key) in self.running):
             return
         try:
-            kwargs = self.arguments_for(node, key)
+            arguments = self.arguments_for(node, key)
         except CallRejectedError as missing:  # an edge names a field the record it brings doesn't have
             self._record(node, key, self._failure(node, key, missing), walking)
             return
-        if kwargs is NotReady.NOT_READY:
+        if arguments is NotReady.NOT_READY:
             return
         policy = node.policy
-        if not isinstance(kwargs, dict):  # skipped or blank: it comes to that uncalled
-            self._record(node, key, kwargs, walking)
+        if not isinstance(arguments, dict):  # skipped or blank: it comes to that uncalled
+            self._record(node, key, arguments, walking)
         elif (
             (reusable_results := self.reusable_results) and policy.reuse_when_inputs_match and (of_node := reusable_results.get(node.path)) is not None
-            and (earlier := reused_outcome(of_node, node, key, kwargs, self.all_outcomes, lambda: self._in_turn(node, key))) is not None
+            and (earlier := reused_outcome(of_node, node, key, arguments, self.all_outcomes, lambda: self._in_turn(node, key))) is not None
         ):
             if earlier is NotReady.NOT_ITS_TURN:
                 self.out_of_turn = True  # a unit before it may take this answer; the next walk tries it again
@@ -362,9 +362,9 @@ class Scheduler:
             if self.emit:
                 self._announce(node)
             if policy.threaded or policy.retries:
-                self._attempt(node, key, kwargs, 0, walking)
+                self._attempt(node, key, arguments, 0, walking)
             else:
-                self._record(node, key, self._outcome(node, key, kwargs, *call(node, kwargs, self.from_run)), walking)
+                self._record(node, key, self._outcome(node, key, arguments, *call(node, arguments, self.from_run)), walking)
 
     def _close(self) -> None:
         """Say how the run stands now the leg is over, and which of its nodes are finished."""
@@ -397,23 +397,23 @@ class Scheduler:
                 if node.loops and node in self.progress_said:
                     self._progress(node, last=True)
 
-    def _attempt(self, node: FlatFunctionNode, key: ItemPath, kwargs: dict[str, Any], attempt: int, walking: bool = False) -> None:
+    def _attempt(self, node: FlatFunctionNode, key: ItemPath, arguments: dict[str, Any], attempt: int, walking: bool = False) -> None:
         if not node.policy.threaded:
-            out, error = call(node, kwargs, self.from_run)
-            if not self._retry(node, key, kwargs, attempt, error):
+            out, error = call(node, arguments, self.from_run)
+            if not self._retry(node, key, arguments, attempt, error):
                 if attempt:
                     self.running.pop((node, key), None)
-                self._record(node, key, self._outcome(node, key, kwargs, out, error), walking)
+                self._record(node, key, self._outcome(node, key, arguments, out, error), walking)
             return
-        self.running[(node, key)] = kwargs
-        self.waiting_for_thread[node].append((key, kwargs, attempt))
+        self.running[(node, key)] = arguments
+        self.waiting_for_thread[node].append((key, arguments, attempt))
         self._start_waiting_calls(node)
 
-    def _on_thread(self, node: FlatFunctionNode, key: ItemPath, kwargs: dict[str, Any], attempt: int) -> None:
+    def _on_thread(self, node: FlatFunctionNode, key: ItemPath, arguments: dict[str, Any], attempt: int) -> None:
         """Make the call and hand what it came to back to the leg. What ``call`` lets out (an exit, a defect in a
         type's own check) goes back too and is raised on the leg's thread, as it is for a node called there."""
         try:
-            out, error = call(node, kwargs, self.from_run)
+            out, error = call(node, arguments, self.from_run)
         except BaseException as raised:  # noqa: BLE001  a pool thread would keep it, and the leg would wait for the call for ever
             self.returned.put(raised)
         else:
@@ -441,12 +441,12 @@ class Scheduler:
                 self._record(node, key, self._outcome(node, key, {}, out, None))  # past its timeout, but the leg is draining: keep it, never call it again
             return  # timed out while the leg runs on, or the leg stopped
         self.attempts.pop((node, key))
-        kwargs = self.running[(node, key)]
-        if not self._retry(node, key, kwargs, attempt, error):
+        arguments = self.running[(node, key)]
+        if not self._retry(node, key, arguments, attempt, error):
             del self.running[(node, key)]
-            self._record(node, key, self._outcome(node, key, kwargs, out, error))
+            self._record(node, key, self._outcome(node, key, arguments, out, error))
 
-    def _retry(self, node: FlatFunctionNode, key: ItemPath, kwargs: dict[str, Any], attempt: int, error: BaseException | None) -> bool:
+    def _retry(self, node: FlatFunctionNode, key: ItemPath, arguments: dict[str, Any], attempt: int, error: BaseException | None) -> bool:
         """Put a failed attempt on a timer if the policy says to try again: an ``ExternalError``, or a class ``retry_on``
         names, never a node's own ``NodeError``, an output its type refused or an ``Ask``."""
         policy = node.policy
@@ -455,18 +455,18 @@ class Scheduler:
         if not isinstance(error, ExternalError) and (isinstance(error, _NEVER_RETRIED) or not isinstance(error, policy.retry_on)):
             return False
         delay = policy.retry_delay * 2**attempt
-        self.running[(node, key)] = kwargs
+        self.running[(node, key)] = arguments
         self._after(delay, "retry", node, key, attempt + 1)
         if self.emit:
             self.emit(NodeRetry(loc=outcome_loc(node, key), attempt=attempt + 1, retries=policy.retries, delay=delay, cause=self._failure(node, key, error)))
         return True
 
-    def _outcome(self, node: FlatFunctionNode, key: ItemPath, kwargs: dict[str, Any], out: Any, error: BaseException | None) -> Outcome | Problem:
+    def _outcome(self, node: FlatFunctionNode, key: ItemPath, arguments: dict[str, Any], out: Any, error: BaseException | None) -> Outcome | Problem:
         if error is None:
             return Done(out)
         if isinstance(error, Ask):
             try:
-                inputs = jsonable(kwargs)
+                inputs = jsonable(arguments)
             except CallRejectedError as unwritable:  # a person can't be shown what the node received
                 return self._failure(node, key, unwritable)
             try:

@@ -116,8 +116,8 @@ class StoredSeries:
         return None
 
     @staticmethod
-    def without_rows(received: Any, places: set[int]) -> Any:
-        """Returns ``received``, a value ``as_table_input`` returned that is not a list, without the rows at the
+    def without_rows(value: Any, places: set[int]) -> Any:
+        """Returns ``value``, a value ``as_table_input`` returned that is not a list, without the rows at the
         indexes ``places``: a three-row frame and ``{1}`` give a frame of its first and third row."""
         raise NotImplementedError
 
@@ -160,17 +160,17 @@ class SeriesItems(list[Any], StoredSeries):
         return core_schema.no_info_after_validator_function(cls, handler.generate_schema(list[get_args(source)[0]]))  # type: ignore[misc]  # the item type is known only here
 
 
-def places_of_none(received: Any) -> list[int]:
-    """Returns the indexes at which ``received``, the value of a ``Series`` or ``Table`` input, has ``None``.
+def places_of_none(value: Any) -> list[int]:
+    """Returns the indexes at which ``value``, the value of a ``Series`` or ``Table`` input, has ``None``.
     ``places_of_none(["a", None])`` is ``[1]``. A value that is not a list (a table) has a row for every item, so
     the result is ``[]``."""
-    return [place for place, item in enumerate(received) if item is None] if type(received) is list else []
+    return [place for place, item in enumerate(value) if item is None] if type(value) is list else []
 
 
-def without_places(received: Any, places: set[int]) -> Any:
-    """Returns ``received``, the value of a ``Series`` or ``Table`` input, without the items at the indexes
+def without_places(value: Any, places: set[int]) -> Any:
+    """Returns ``value``, the value of a ``Series`` or ``Table`` input, without the items at the indexes
     ``places``. ``without_places(["a", "b", "c"], {1})`` is ``["a", "c"]``; a value that is not a list is
     cut by the ``StoredSeries`` subclass registered for its class."""
-    if type(received) is list:
-        return [item for place, item in enumerate(received) if place not in places]
-    return StoredSeries.by_returned_class[type(received)].without_rows(received, places)
+    if type(value) is list:
+        return [item for place, item in enumerate(value) if place not in places]
+    return StoredSeries.by_returned_class[type(value)].without_rows(value, places)

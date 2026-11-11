@@ -249,10 +249,10 @@ class _Compiler:
         declared or as its hook makes them of the types arriving. A node a hook gives no fields for is left out;
         any other is kept, whatever problems its inputs have."""
         fields = dict(definition.inputs)
-        typed = self._typed(record, fields)
+        constants = self._constants_of(record, fields)
         added: dict[str, Field] = {}
         if definition.compute_added_inputs is not None:
-            made = self._hook(record, definition, "compute_added_inputs", definition.compute_added_inputs, typed, {}, ())
+            made = self._hook(record, definition, "compute_added_inputs", definition.compute_added_inputs, constants, {}, ())
             if made is None:
                 return
             added = made
@@ -261,13 +261,13 @@ class _Compiler:
                 self.problems.append(problem.compute_hook_failed(record.id, reason=f"it adds {taken[0]!r}, which the node already declares", error="added_input_taken"))
                 return
             fields.update(added)
-            typed.update(self._typed(record, added))
-        planned = self._plan_inputs(record, fields, typed, read_by_hooks(definition), edges, generic=definition.generic)
+            constants.update(self._constants_of(record, added))
+        planned = self._plan_inputs(record, fields, constants, read_by_hooks(definition), edges, generic=definition.generic)
         bound = planned.bound
         outputs: dict[str, Field] | None = dict(definition.outputs) if bound is None else {name: field.bind(bound) for name, field in definition.outputs.items()}
         if definition.compute_outputs is not None:
             arriving = {name: plan.sources[0].type.bare for name, plan in planned.inputs.items() if isinstance(plan, InputFromEdges)}
-            outputs = self._hook(record, definition, "compute_outputs", definition.compute_outputs, typed, arriving, tuple(added))
+            outputs = self._hook(record, definition, "compute_outputs", definition.compute_outputs, constants, arriving, tuple(added))
         if outputs is not None:
             self._add_node(CompiledFunctionNode(
                 id=record.id, loops=planned.loops, inputs=planned.inputs, outputs=outputs, definition=definition,
@@ -306,7 +306,7 @@ class _Compiler:
             if group:  # a decision inside is this node's, named by where it is made
                 field = Field(field.name, Annotated[field.hint, Param(exclusive_group=f"{node_id}.{group}")], field.default)
             outputs[address] = Field(address, field.hint, field.default)
-        planned = self._plan_inputs(record, fields, self._typed(record, fields), frozenset(), edges)
+        planned = self._plan_inputs(record, fields, self._constants_of(record, fields), frozenset(), edges)
         self._add_node(CompiledSubgraphNode(
             id=record.id, loops=planned.loops, inputs=planned.inputs, outputs=outputs, definition=definition, inner=inner,
         ), planned.required_branches)
@@ -317,7 +317,7 @@ class _Compiler:
         self.branches[compiled_node.id] = required_branches
 
     def _plan_inputs(
-        self, record: NodeRecord, fields: Mapping[str, Field], typed: Mapping[str, Any], constant_at_compile: frozenset[str],
+        self, record: NodeRecord, fields: Mapping[str, Field], constants: Mapping[str, Any], constant_at_compile: frozenset[str],
         edges: dict[str, list[str]], *, generic: bool = False,
     ) -> _InputPlans:
         """Plan every input of a node, and settle the scope it runs in.
@@ -328,7 +328,7 @@ class _Compiler:
         Args:
             record: The node in the record.
             fields: The node's inputs, by name.
-            typed: Each value and default typed into the record, as its field read it, by name.
+            constants: Each value and default typed into the record, as its field read it, by name.
             constant_at_compile: The inputs a hook reads when the graph loads, which a caller therefore never fills.
             edges: The addresses wired into each input, by name.
             generic: Whether a field holds a type variable for the edges to bind.
@@ -351,9 +351,9 @@ class _Compiler:
                 brought = sources[name]
                 inputs[name] = InputMissing(field) if brought is None else self._fed(record.id, field, brought)
             elif name in record.values:
-                inputs[name] = _fixed(field, typed[name])
+                inputs[name] = _constant_plan(field, constants[name])
             elif first and name not in constant_at_compile:
-                default = typed.get(name, field.default)
+                default = constants.get(name, field.default)
                 if default is _INVALID:
                     inputs[name] = InputMissing(field)
                     continue
@@ -363,7 +363,7 @@ class _Compiler:
                 inputs[name] = InputFromGraphInput(field, address)
             elif name in record.defaults:
                 self.problems.append(problem.default_on_later_node(record.id, name))
-                inputs[name] = _fixed(field, typed[name])
+                inputs[name] = _constant_plan(field, constants[name])
             elif field.default is REQUIRED and name not in constant_at_compile:  # a hook that reads it says so itself, as hook_needs_value
                 self.problems.append(problem.unbound_on_later_node(record.id, name))
                 inputs[name] = InputMissing(field)
@@ -395,23 +395,23 @@ class _Compiler:
                 inputs[name] = InputMissing(plan.field)
         return _InputPlans(inputs, loops, self._required_branches(inputs), bound)
 
-    def _typed(self, record: NodeRecord, fields: Mapping[str, Field]) -> dict[str, Any]:
+    def _constants_of(self, record: NodeRecord, fields: Mapping[str, Field]) -> dict[str, Any]:
         """Each value typed into the record for one of ``fields``, and else each default, as the field reads it;
         ``_INVALID``, with the problem, where it can't."""
-        typed: dict[str, Any] = {}
+        constants: dict[str, Any] = {}
         for name, field in fields.items():
             if name not in record.values and name not in record.defaults:
                 continue
             try:
-                typed[name] = field.whole.read(record.values[name] if name in record.values else record.defaults[name])
+                constants[name] = field.whole.read(record.values[name] if name in record.values else record.defaults[name])
             except FieldValueError as refused:
                 self.problems.append(problem.invalid_value(record.id, name, reason=refused.reason, errors=refused.errors, column=refused.column))
-                typed[name] = _INVALID
-        return typed
+                constants[name] = _INVALID
+        return constants
 
     def _hook(
         self, record: NodeRecord, definition: FunctionDefinition[..., Any], kind: HookName, hook: Callable[..., Mapping[Any, Any]],
-        typed: Mapping[str, Any], arriving: Mapping[str, Any], added: tuple[str, ...],
+        constants: Mapping[str, Any], arriving: Mapping[str, Any], added: tuple[str, ...],
     ) -> dict[str, Field] | None:
         """Call a hook with what its parameters read: its answer read as fields, or ``None`` with the problem.
 
@@ -420,7 +420,7 @@ class _Compiler:
             definition: The node's definition.
             kind: Which hook it is.
             hook: The hook.
-            typed: Each value and default typed into the record, as its field read it, by input.
+            constants: Each value and default typed into the record, as its field read it, by input.
             arriving: The type arriving on each input edges feed, by input; ``Any`` arrives on any other.
             added: The inputs ``compute_added_inputs`` added, which ``**added: type`` reads the arriving types of.
         """
@@ -432,7 +432,7 @@ class _Compiler:
                 case "added_arriving_types":
                     kwargs.update({input_name: arriving.get(input_name, Any) for input_name in added})
                 case "value":
-                    value = typed.get(name, definition.inputs[name].default)  # @node checked the parameter names a declared input
+                    value = constants.get(name, definition.inputs[name].default)  # @node checked the parameter names a declared input
                     if value is REQUIRED:
                         self.problems.append(problem.hook_needs_value(record.id, name))
                         return None
@@ -672,9 +672,9 @@ def _mismatch(node_id: str, field: Field, source: EdgeSource) -> Problem:
     return problem.type_mismatch(node_id, field.name, source=address, got=got, expected=expected)
 
 
-def _fixed(field: Field, typed: Any) -> InputConstant | InputMissing:
+def _constant_plan(field: Field, constants: Any) -> InputConstant | InputMissing:
     """The plan of an input holding a typed-in value, as its field read it."""
-    return InputMissing(field) if typed is _INVALID else InputConstant(field, typed)
+    return InputMissing(field) if constants is _INVALID else InputConstant(field, constants)
 
 
 def _field_type(record: Type, name: str) -> Type | None:
