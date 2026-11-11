@@ -12,10 +12,12 @@ import pytest
 from conductor import (
     Choice,
     Deprecation,
+    ExternalError,
     FromRun,
     GraphRecord,
     InvalidCallError,
     NodeDeclarationError,
+    NodeError,
     NodeRecord,
     NodeRegistry,
     Param,
@@ -1184,6 +1186,19 @@ def test_a_hooks_own_ctx_is_kept_whole_beside_the_reason_and_the_code(ctx: dict[
 
     (problem,) = registry_of(glue).load(GraphRecord(nodes=[NodeRecord(id="g", node="glue", values={"names": "a"})])).problems
     assert problem.ctx == {"reason": "No such column.", "error": "no_column", **({"error_ctx": ctx} if ctx else {})}
+
+
+@pytest.mark.parametrize(("raised", "code"), [(NodeError("No columns."), "failed"), (ExternalError("No columns."), "external_failed")])
+def test_a_hooks_error_without_a_code_of_its_own_says_the_code_its_class_gives_every_error_without_one(raised: NodeError, code: str) -> None:
+    def added(names: str) -> dict[str, Any]:
+        raise raised
+
+    @node("glue", title="Glue", description="", compute_added_inputs=added)
+    def glue(names: str, **columns: str) -> str:
+        return names
+
+    (problem,) = registry_of(glue).load(GraphRecord(nodes=[NodeRecord(id="g", node="glue", values={"names": "a"})])).problems
+    assert (raised.code, problem.ctx["error"]) == (code, code)
 
 
 def test_a_hook_reads_the_columns_gathered_into_a_table_input_as_a_table_of_them():

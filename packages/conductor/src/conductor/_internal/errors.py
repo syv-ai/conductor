@@ -49,6 +49,7 @@ ends with the status ``waiting``.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
+from types import MappingProxyType
 from typing import Any, TypeAlias
 
 from pydantic import ConfigDict, Field, ValidationError
@@ -223,18 +224,14 @@ def _said(value: CtxValue) -> CtxValue:
 
 
 class ConductorError(Exception):
-    """Base for every error conductor raises. One way to write one, whichever an author raises::
+    """Base for every error conductor raises; catching it catches each of them.
 
-        raise NodeError("The document could not be read.", code="unreadable", ctx={"pages": 0})
-
-    ``message`` is for a person. ``code`` is the stable word a host keys on
-    and ``ctx`` the values its own sentence is filled from.
+    Attributes:
+        message: What went wrong, for whoever meets the error.
     """
 
-    def __init__(self, message: str, *, code: str | None = None, ctx: Mapping[str, Any] | None = None) -> None:
+    def __init__(self, message: str) -> None:
         self.message = message
-        self.code = code
-        self.ctx = ctx or {}
         super().__init__(message)
 
 
@@ -245,7 +242,14 @@ class NodeDeclarationError(ConductorError, TypeError):
     ``Policy``, and by ``NodeRegistry``. Fixed in code, never by whoever draws
     a graph, so there is no ``Problem`` for it and the text stays English.
     ``code`` is stable, as pydantic's ``PydanticUserError`` has one.
+
+    Attributes:
+        code: The stable word for what was declared wrong; ``docs/problems.md`` has each.
     """
+
+    def __init__(self, message: str, *, code: str) -> None:
+        super().__init__(message)
+        self.code = code
 
 
 class InvalidCallError(ConductorError, ValueError):
@@ -276,15 +280,24 @@ class NodeError(ConductorError):
     a ``Problem`` of code ``failed`` with that text; ``code`` and ``ctx`` give it
     a code of the node's own and what the host needs beyond the text.
     The engine adds the node and the row. It never retries a ``NodeError``;
-    a failure the outside world caused is an ``ExternalError``.
+    a failure the outside world caused is an ``ExternalError``::
+
+        raise NodeError("The document could not be read.", code="unreadable", ctx={"pages": 0})
+
+    Attributes:
+        code: The stable word a host keys on: the node's own, else ``failed`` (an ``ExternalError``'s
+            ``external_failed``).
+        ctx: The values a host fills its own sentence from.
     """
 
-    #: The ``Problem`` code of one that names no ``code`` of its own.
-    _code_when_none_given = "failed"
+    def __init__(self, message: str, *, code: str = "failed", ctx: Mapping[str, Any] = MappingProxyType({})) -> None:
+        super().__init__(message)
+        self.code = code
+        self.ctx = ctx
 
     def _as_problem_at(self, *loc: str | int) -> Problem:
         """The ``Problem`` this is at ``loc``."""
-        return Problem(type=self.code or self._code_when_none_given, loc=loc, msg=self.message, ctx=self.ctx)
+        return Problem(type=self.code, loc=loc, msg=self.message, ctx=self.ctx)
 
 
 class ExternalError(NodeError):
@@ -297,4 +310,5 @@ class ExternalError(NodeError):
     value it cannot use: retrying those repeats the same failure.
     """
 
-    _code_when_none_given = "external_failed"
+    def __init__(self, message: str, *, code: str = "external_failed", ctx: Mapping[str, Any] = MappingProxyType({})) -> None:
+        super().__init__(message, code=code, ctx=ctx)
