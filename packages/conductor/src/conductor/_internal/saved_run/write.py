@@ -8,9 +8,9 @@ from typing import Any, cast
 import pydantic_core
 
 from conductor._internal.ask import Question
-from conductor._internal.earlier_work import EarlierWork
 from conductor._internal.field import Field
 from conductor._internal.outcomes import Answered, Asking, Done, NotCalled, Outcome, Skipped
+from conductor._internal.reusable_results import ReusableResults
 from conductor._internal.saved_run.type import (
     SAVED_DONE,
     SAVED_SKIPPED,
@@ -105,7 +105,7 @@ def tables_written_once(outputs: Mapping[str, Mapping[str, Field]], shareable: I
     return same or None
 
 
-def reusable_columns(outputs: Mapping[str, Field], earlier: EarlierWork) -> SavedReusable[SavedOutcomes]:
+def reusable_columns(outputs: Mapping[str, Field], earlier: ReusableResults) -> SavedReusable[SavedOutcomes]:
     """Gives what a node may take from an earlier run as a save holds it, each unit once: the computed units by
     the instance they stood in, then the ones only known by what they received, then the answers and the
     questions still waiting.

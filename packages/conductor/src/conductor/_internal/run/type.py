@@ -56,7 +56,6 @@ from conductor._internal.checked_graph import (
     outcome_loc,
 )
 from conductor._internal.conductor_model import ConductorModel
-from conductor._internal.earlier_work import EarlierWork, fingerprint_of, lineage
 from conductor._internal.node_definition import from_run_values
 from conductor._internal.outcomes import (
     Answered,
@@ -68,6 +67,7 @@ from conductor._internal.outcomes import (
 )
 from conductor._internal.problem import InvalidCallError, Problem, value_free_errors
 from conductor._internal.problem import catalogue as problem
+from conductor._internal.reusable_results import ReusableResults, fingerprint_of, lineage
 from conductor._internal.run.arguments import (
     CallInputs,
     DisplayReader,
@@ -141,7 +141,7 @@ class Run:
     #: the units back in it before it hands the run on.
     _outcomes: dict[str, dict[ItemPath, Outcome]]
     #: What each node may take from the run this one went on from.
-    _earlier_work: dict[NodePath, EarlierWork]
+    _reusable_results: dict[NodePath, ReusableResults]
     state: RunState = READY
     #: For a node whose units a saved run made with other code or another signature, what that code was; they are never earlier work for a later run.
     _made_by_other_code: dict[NodePath, str] = field(default_factory=dict[NodePath, str])
@@ -267,7 +267,7 @@ class Run:
 
         graph = self.graph
         run.state, run._finished_nodes = Scheduler(
-            nodes=graph._tree, threads=graph._threads, outcomes=run._outcomes, earlier_work=run._earlier_work, finished=run._finished_nodes,
+            nodes=graph._tree, threads=graph._threads, outcomes=run._outcomes, reusable_results=run._reusable_results, finished=run._finished_nodes,
             max_items=run.max_items, arguments_for=run._reader.arguments_for, emit=emit, stop=stop, from_run=from_run,
             checkpoint=checkpoint, checkpoint_every=checkpoint_every,
         ).go()
@@ -375,11 +375,11 @@ class Run:
         if unknown:
             raise InvalidCallError([problem.node_not_in_graph(n, nodes=list(self.graph._nodes)) for n in unknown])
         fresh = self.with_inputs()
-        for path in [path for path in fresh._earlier_work if path[0] in node_ids]:  # an embedded graph's id forgets every node inside it
-            del fresh._earlier_work[path]
+        for path in [path for path in fresh._reusable_results if path[0] in node_ids]:  # an embedded graph's id forgets every node inside it
+            del fresh._reusable_results[path]
         return fresh
 
-    def _as_earlier_work(self, into: Graph | None = None) -> dict[NodePath, EarlierWork]:
+    def _as_reusable_results(self, into: Graph | None = None) -> dict[NodePath, ReusableResults]:
         """What a run going on from this one may take, by node: each node's finished and waiting units, in
         instance order, then the earlier work this run held and didn't take.
 
@@ -387,13 +387,13 @@ class Run:
         ``reuse_digest``): the others' units could never be taken there, and kept they would only make its
         save larger.
         """
-        work: dict[NodePath, EarlierWork] = {}
+        work: dict[NodePath, ReusableResults] = {}
         reader = self._reader
         for node in self.graph._tree:
             if not node.policy.reuse_when_inputs_match or node.path in self._made_by_other_code:
                 continue
             placed = node.placed
-            of_node = work[node.path] = EarlierWork()
+            of_node = work[node.path] = ReusableResults()
             for key, outcome in self._outcomes[node.name].items():
                 if type(outcome) is Skipped or type(outcome) is outcomes.NotCalled:
                     continue
@@ -406,11 +406,11 @@ class Run:
                 else:
                     of_node.at[key] = (fingerprint, outcome)
                     of_node.computed.setdefault(fingerprint, outcome)
-        for path, untaken in self._earlier_work.items():  # the earlier work this run held and no unit of it took
-            of_node = work.setdefault(path, EarlierWork())
-            for fingerprint, done in untaken.computed.items():
+        for path, unused in self._reusable_results.items():  # the earlier work this run held and no unit of it took
+            of_node = work.setdefault(path, ReusableResults())
+            for fingerprint, done in unused.computed.items():
                 of_node.computed.setdefault(fingerprint, done)
-            for asked, units in untaken.asked.items():
+            for asked, units in unused.asked.items():
                 of_node.asked.setdefault(asked, []).extend(units)
         ours, theirs = self.graph._functions, (into or self.graph)._functions
         return {
@@ -537,7 +537,7 @@ class Run:
             node.name: outcome_columns(node.placed.outputs, self._slots(node))
             for node in self.graph._tree if self._outcomes[node.name]
         }
-        earlier = {node_name(path): reusable_columns(functions[path].outputs, of_node) for path, of_node in self._earlier_work.items() if of_node.computed or of_node.asked}
+        earlier = {node_name(path): reusable_columns(functions[path].outputs, of_node) for path, of_node in self._reusable_results.items() if of_node.computed or of_node.asked}
         code = {name: self._made_by_other_code.get(path) or placed.reuse_digest for path, placed in functions.items() if (name := node_name(path)) in units or name in earlier}
         complete = [node.name for node in self.graph._tree if node.path in self._finished_nodes]
         form = self.graph._save_form
@@ -560,11 +560,11 @@ class Run:
             share_outcomes: Whether the copy holds this run's own dict of units for each node.
         """
         if share_outcomes:
-            units, earlier = dict(self._outcomes), dict(self._earlier_work)
+            units, earlier = dict(self._outcomes), dict(self._reusable_results)
         else:  # its own answers to take, as this run holds them too
             units = {name: dict(held) for name, held in self._outcomes.items()}
-            earlier = {path: EarlierWork(of_node.at, of_node.computed, {asked: list(left) for asked, left in of_node.asked.items()}) for path, of_node in self._earlier_work.items()}
-        return dataclasses.replace(self, _outcomes=units, _earlier_work=earlier)
+            earlier = {path: ReusableResults(of_node.at, of_node.computed, {asked: list(left) for asked, left in of_node.asked.items()}) for path, of_node in self._reusable_results.items()}
+        return dataclasses.replace(self, _outcomes=units, _reusable_results=earlier)
 
 
 RunEnd.model_rebuild(_types_namespace={"Run": Run})
@@ -601,9 +601,9 @@ def run_from_json(graph: Graph, saved: str | bytes) -> Run:
     return _run_of(graph, read)
 
 
-def _run_of(graph: Graph, saved: SavedRun[list[Outcome | None], EarlierWork]) -> Run:
+def _run_of(graph: Graph, saved: SavedRun[list[Outcome | None], ReusableResults]) -> Run:
     """A run of ``graph`` from its save as the graph's ``RunCodec`` read it: each node's units in the order of
-    their slots, its earlier work an ``EarlierWork``.
+    their slots, its earlier work an ``ReusableResults``.
 
     Raises:
         InvalidCallError: A node doesn't hold one slot for each instance the saved run made of it
@@ -619,7 +619,7 @@ def _run_of(graph: Graph, saved: SavedRun[list[Outcome | None], EarlierWork]) ->
             run._outcomes[node.name] = {instance: outcome for instance, outcome in zip(made, slots, strict=True) if outcome is not None}
     functions = graph._functions
     run._made_by_other_code = {path: digest for name, digest in saved.code.items() if digest != functions[path := node_path(name)].reuse_digest}
-    run._earlier_work = {path: of_node for name, of_node in saved.earlier.items() if (path := node_path(name)) not in run._made_by_other_code}  # work of other code is never taken
+    run._reusable_results = {path: of_node for name, of_node in saved.earlier.items() if (path := node_path(name)) not in run._made_by_other_code}  # work of other code is never taken
     run._finished_nodes = frozenset(node_path(name) for name in saved.complete)
     return run
 

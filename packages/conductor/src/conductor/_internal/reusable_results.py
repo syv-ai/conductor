@@ -23,7 +23,7 @@ from conductor._internal.outcomes import Answered, Asking, Done, Outcome
 
 
 @dataclass(slots=True)
-class EarlierWork:
+class ReusableResults:
     """The work of one node that a run may take from the run it went on from, in place of calling the node.
 
     A person's answer, or a question still waiting, is taken once, by the next unit in order that received the
@@ -42,8 +42,8 @@ class EarlierWork:
     asked: dict[tuple[str, str], list[Answered | Asking]] = field(default_factory=dict[tuple[str, str], list["Answered | Asking"]])
 
 
-def taken(
-    earlier: EarlierWork, node: FunctionAtPath, key: ItemPath, kwargs: dict[str, Any], outcomes: dict[str, dict[ItemPath, Outcome]], in_turn: Callable[[], bool],
+def reused_outcome(
+    earlier: ReusableResults, node: FunctionAtPath, key: ItemPath, kwargs: dict[str, Any], outcomes: dict[str, dict[ItemPath, Outcome]], in_turn: Callable[[], bool],
 ) -> Done | Answered | Asking | Literal[NotReady.NOT_ITS_TURN] | None:
     """The unit of ``earlier`` that ``node`` takes in ``key`` in place of a call on ``kwargs``; ``None`` when
     there is none.

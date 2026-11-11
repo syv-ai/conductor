@@ -254,7 +254,7 @@ def test_a_table_input_loses_the_rows_another_input_of_the_same_series_has_no_va
 
 
 def test_a_table_a_node_received_is_written_once_to_fingerprint_it_however_many_times_it_is_asked(monkeypatch: pytest.MonkeyPatch) -> None:
-    from conductor._internal.earlier_work import fingerprint_of
+    from conductor._internal.reusable_results import fingerprint_of
     from conductor._internal.table import write
 
     written: list[int] = []

@@ -7,9 +7,9 @@ from typing import Any
 
 from pydantic_core import PydanticCustomError
 
-from conductor._internal.earlier_work import EarlierWork
 from conductor._internal.field import Field
 from conductor._internal.outcomes import Answered, Asking, Done, NotCalled, Outcome, Skipped
+from conductor._internal.reusable_results import ReusableResults
 from conductor._internal.saved_run.type import (
     SAVED_DONE,
     SAVED_SKIPPED,
@@ -71,7 +71,7 @@ def outcomes_of(not_taken: dict[str, Any], not_called: dict[str, Any], saved: Sa
     return units
 
 
-def with_shared_tables(outputs: Mapping[str, Mapping[str, Field]], saved: SavedRun[list[Outcome | None], EarlierWork]) -> SavedRun[list[Outcome | None], EarlierWork]:
+def with_shared_tables(outputs: Mapping[str, Mapping[str, Field]], saved: SavedRun[list[Outcome | None], ReusableResults]) -> SavedRun[list[Outcome | None], ReusableResults]:
     """Fills in the outputs a save wrote as ``null`` and listed under ``tables_written_once``.
 
     Example: the save lists ``{"output": ["split", "result", 0], "same_as": ["people", "result", 0]}``. The table
@@ -106,7 +106,7 @@ def with_shared_tables(outputs: Mapping[str, Mapping[str, Field]], saved: SavedR
     return saved
 
 
-def reusable_of(saved: SavedReusable[list[Outcome | None]]) -> EarlierWork:
+def reusable_of(saved: SavedReusable[list[Outcome | None]]) -> ReusableResults:
     """Makes the earlier work a node's save holds.
 
     Raises:
@@ -116,7 +116,7 @@ def reusable_of(saved: SavedReusable[list[Outcome | None]]) -> EarlierWork:
     if len(saved.fingerprints) != len(saved.units):
         raise PydanticCustomError("slots_differ", "it doesn't hold one fingerprint for each unit")
     places, lineages = saved.places or {}, saved.lineages or {}
-    earlier = EarlierWork()
+    earlier = ReusableResults()
     for slot, (fingerprint, outcome) in enumerate(zip(saved.fingerprints, saved.units, strict=True)):
         if type(outcome) is Done:
             earlier.computed.setdefault(fingerprint, outcome)
