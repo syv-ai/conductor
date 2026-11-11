@@ -40,10 +40,11 @@ assert registry["greet"] is greet
 | The node needs | Write (examples in REFERENCE.md) |
 |---|---|
 | Several outputs | a frozen dataclass as the return type, `Annotated[str, Param(title=...)]` on a field to say more |
-| A whole list in one call | a `Series[X]` input |
-| A whole table in or out | `Table[Contact]` (a `TypedDict` names the columns) or bare `Table`; it is a `polars.DataFrame` |
+| To run once per item | return `Series[X]`; what takes one `X` from it runs once per item, and so does everything after |
+| Every item in one call | a `Series[X]` input: it gathers them, in order |
+| A whole table in or out | `Table[Contact]` (a `TypedDict` names the columns) or bare `Table`; it is a `polars.DataFrame`, one value. A `Table` input fed records gathers them |
 | A branch | return `SKIPPED` on the output not taken; share an `exclusive_group` |
-| A blank (an empty cell) | `email: str \| None`; otherwise the node is not called for that row and its outputs are blank there |
+| A blank (an empty cell) | `email: str \| None`; otherwise the node is not called for that item and its outputs are blank there |
 | A person's answer | `raise Ask(prompt, choices=..., default=...)`; the return type says what the answer is and how to ask, its `Param` how it looks (`-> str` free text, `bool` yes or no, a frozen dataclass a form; every type in `python -m conductor.about legs-and-asking`). Each has the answer's shape: on several outputs it goes by output name; `Choice(id, title)` titles a choice |
 | A client, a clock, the caller | `FromRun[T]`, supplied by `run.resume(from_run={T: value})` |
 | Retries, a timeout, a concurrency bound | `@node("x", title="X", description="...", policy=Policy(retries=3, attempt_timeout=10, concurrency=4))` |

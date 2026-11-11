@@ -31,9 +31,44 @@ print(graph.run(text="a\nb").outputs)  # {'text-uppercase.result': ['A', 'B']}
 
 A module holds one category, so a module's `registry` and a filter by category pick the same nodes: `conductor_nodes.registry.filter(lambda d: d.category == "math")`.
 
-`split` takes a table or a list apart, so what follows runs once for each record or item; a field of a record is wired as `split.result.email`. `table-collect` puts records back into one table: each name in `columns` is an input taking one value per record (blank where a record got none), each name in `constant_columns` an input taking one value for every record. `text-split` splits on a newline unless given another separator. `text-list` gives the texts typed into it; wire a Series to `for_each` and it gives them once for each item of it.
+`split` takes a table or a list apart, so you work through it one record or item at a time. Everything after it runs once for each, and `table-collect` puts the records back into one table, with a new column for what was made beside them:
 
-`decision` gives its `value` on `if_true` or `if_false` by `when`, and what is wired to the other way doesn't run on that row. Its outputs take the type that arrives on `value`:
+```python
+import io
+
+import polars as pl
+from conductor import Table
+from conductor_nodes.tables import collect, split
+
+registry.add_subregistry(conductor_nodes.tables.registry)
+
+
+@registry.node("read-contacts", title="Read contacts", description="Reads contacts from a CSV text.")
+def read_contacts(csv: str) -> Table:
+    return pl.read_csv(io.StringIO(csv))
+
+
+@registry.node("greet", title="Greet", description="Greets a person by name.")
+def greet(name: str) -> str:
+    return f"Hello {name}"
+
+
+contacts = registry.load(make_graph(read_contacts, split, greet, collect, edges=[
+    ("read-contacts.result", "split.value"),
+    ("split.result.name", "greet.name"),
+    ("split.result", "table-collect.records"),
+    ("greet.result", "table-collect.greeting"),
+], values={"table-collect.columns": ["greeting"]}))
+print(contacts.run(csv="name\nIda\nBo\n").outputs["table-collect.result"].to_dicts())  # [{'name': 'Ida', 'greeting': 'Hello Ida'}, {'name': 'Bo', 'greeting': 'Hello Bo'}]
+```
+
+- `split.result.name` is one field of each record. `greet` takes one name, so it runs once per contact.
+- `table-collect` gathers: it runs once, with every record and every greeting. Each name in `columns` is an input taking one value per record, blank where a record got none.
+- Each name in `constant_columns` is an input taking one value made outside the records, written on every one of them: the file's name on each line.
+
+`text-split` splits a text into its lines, or at another separator. `text-list` gives the texts typed into it; wire a Series to `for_each` and it gives them once for each item of it, so each document gets every question.
+
+`decision` gives its `value` on `if_true` or `if_false` by `when`, and what is wired to the other way doesn't run for that item. Its outputs take the type that arrives on `value`:
 
 ```python
 from conductor_nodes.control import decision

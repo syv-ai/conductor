@@ -22,9 +22,9 @@ def route(text: Annotated[str, Param(title="Text", widget=Textarea())], go: Anno
     return Branches(yes=text, no=SKIPPED) if go else Branches(yes=SKIPPED, no=text)
 
 
-@node("words", title="Words", description="One row per word.", category="text")
+@node("words", title="Words", description="The words of a text.", category="text")
 def words(text: Annotated[str, Param(title="Text", widget=Textarea())]) -> Annotated[Series[str], Param(title="Words")]:
-    return [word for word in text.split()]      # a list on a Series output: one row per item
+    return [word for word in text.split()]      # a list on a Series output: what reads one word runs once per word
 
 
 class Caller:
