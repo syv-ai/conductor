@@ -200,7 +200,7 @@ def test_items_of_two_series_at_one_node_are_refused():
 
     graph = registry_of(split, pair).load({"nodes": record["nodes"], "edges": [["a.result", "r.a"], ["b.result", "r.b"]]})
     assert [(p.type, p.ctx["series"]) for p in graph.problems] == [("series_not_nested", ["a.result", "b.result"])], graph.problems
-    assert "gather one of them first" in graph.problems[0].msg
+    assert "wire 'a.result' into 'b'" in graph.problems[0].msg
 
 
 def test_branches_and_blanks():

@@ -48,7 +48,7 @@ def test_a_node_gives_its_result(node_id: str, values: dict[str, Any], expected:
 def test_a_node_that_gives_many_values_makes_an_item_of_each_and_a_series_input_takes_the_series_made_for_its_own_item_whole() -> None:
     graph = conductor_nodes.registry.load(make_graph(text.split, regex_ops.extract, text.join, edges=[
         ("text-split.result", "regex-extract.text"), ("regex-extract.result", "text-join.parts"),
-    ], values={"regex-extract.pattern": r"\d+"}))
+    ], values={"text-split.separator": ",", "regex-extract.pattern": r"\d+"}))
 
     assert graph.plan["regex-extract"].msg == "per item of text-split.result"
     assert graph.plan["text-join"].msg == "per item of text-split.result"

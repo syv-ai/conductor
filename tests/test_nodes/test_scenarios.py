@@ -240,12 +240,22 @@ def test_scenario_3_an_excel_per_document_with_the_documents_name_as_a_column():
     assert {n: graph.plan[n].series for n in ("find-invoices", "table-collect", "excel")} == dict.fromkeys(("find-invoices", "table-collect", "excel"), "upload.result")
     assert list(graph.describe().nodes["table-collect"].outputs[0].columns) == ["number", "vendor", "amount", "document"]
 
-    sheets = graph.run(files=[A_PDF, B_PDF, C_PDF]).results["excel"]["result"]
+    sheets = graph.run(files=[A_PDF, C_PDF]).results["excel"]["result"]
     assert [sheet.text for sheet in sheets] == [
         "number,vendor,amount,document\nA1,Acme,100.0,a.pdf\nA2,Bolt,900.0,a.pdf\n",
-        "number,vendor,amount,document\n",
         "number,vendor,amount,document\nC1,Core,300.0,c.pdf\nC2,Dune,700.0,c.pdf\nC3,Echo,50.0,c.pdf\n",
     ]
+
+
+def test_scenario_3_a_document_with_no_invoices_gets_an_excel_with_the_columns_and_no_lines():
+    graph = REGISTRY.load(make_graph(upload, find_invoices, collect, excel, edges=[
+        ("upload.result.text", "find-invoices.text"),
+        ("find-invoices.result", "table-collect.records"),
+        ("upload.result.name", "table-collect.document"),
+        ("table-collect.result", "excel.table"),
+    ], values={"table-collect.constant_columns": ["document"]}))
+    run = graph.run(files=[A_PDF, B_PDF])
+    assert run.status == "complete" and run.results["excel"]["result"][1].text == "number,vendor,amount,document\n"
 
 
 def test_scenario_3_without_the_name_a_table_input_takes_the_invoices_of_each_document():
@@ -313,7 +323,6 @@ def test_scenario_7_a_contact_without_an_email_gets_no_mail_and_stays_in_the_exc
 # -- 8. invoices, an approval each, an Excel per document of the approved ones: 5 boxes ---------------------
 
 
-@pytest.mark.xfail(strict=True, reason="a Table input of any columns keeps a skipped record's place as None, which is no record")
 def test_scenario_8_an_excel_per_document_of_the_approved_invoices():
     graph = REGISTRY.load(make_graph(upload, find_invoices, approve, decision, excel, edges=[
         ("upload.result.text", "find-invoices.text"),

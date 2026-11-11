@@ -1290,7 +1290,7 @@ def test_two_series_into_one_embedding_are_refused_once_with_the_authors_address
     loaded = graph({"id": "d1", "node": "split"}, {"id": "d2", "node": "split"}, {"id": "emb", "node": "pairs"},
                    edges=(("d1.result", "emb.a"), ("d2.result", "emb.b")), registry=registry_of(split, pair, inner))
     (problem,) = loaded.problems
-    assert (problem.type, problem.loc, problem.ctx) == ("series_not_nested", ("emb",), {"series": ["d1.result", "d2.result"]})
+    assert (problem.type, problem.loc, problem.ctx) == ("series_not_nested", ("emb",), {"series": ["d1.result", "d2.result"], "inputs": ["a", "b"], "wire_from": "d1.result", "wire_into": "d2"})
     assert "emb/" not in problem.msg
 
 

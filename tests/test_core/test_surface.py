@@ -429,14 +429,14 @@ def test_the_quick_start_runs_inside_a_running_loop_as_in_a_notebook():
 #: What each package may import besides the standard library (``pydantic_core`` comes with pydantic).
 IMPORTS = {
     "conductor": {"conductor", "pydantic", "pydantic_core", "polars"},
-    "conductor-nodes": {"conductor_nodes", "conductor", "pydantic", "regex"},
+    "conductor-nodes": {"conductor_nodes", "conductor", "pydantic", "polars", "regex"},
     "conductor-providers": {"conductor_providers", "conductor", "fastapi", "pydantic", "pydantic_core", "polars"},
 }
 
 #: What each ``pyproject.toml`` declares, extras included, so a host's package cannot arrive unseen.
 DISTRIBUTIONS = {
     "conductor": {"pydantic", "polars", "syv-conductor-nodes", "syv-conductor-providers"},
-    "conductor-nodes": {"syv-conductor", "pydantic", "regex"},
+    "conductor-nodes": {"syv-conductor", "pydantic", "polars", "regex"},
     "conductor-providers": {"syv-conductor", "fastapi", "pydantic", "polars"},
 }
 

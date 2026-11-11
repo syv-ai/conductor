@@ -423,7 +423,6 @@ def test_an_edge_naming_a_column_of_a_whole_table_is_unknown_output_as_a_table_i
     assert (problem.type, problem.loc, problem.ctx["field"]) == ("unknown_output", ("u", "text"), "name")
 
 
-@pytest.mark.xfail(reason="engine fault: no problem carries ctx.hint 'split_first' where a table meets an input of one value", strict=True)
 @pytest.mark.parametrize("source", ["r.result.name", "r.result"])
 def test_a_table_wired_where_one_value_is_read_says_to_split_it_first(source):
     assert _a_table_read_by_one_text(source).ctx["hint"] == "split_first"

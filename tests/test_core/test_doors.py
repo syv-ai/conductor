@@ -22,7 +22,7 @@ DOORS: dict[str, list[str]] = {
     "conductor": [
         "Ask", "Choice", "Deprecation", "EndedEarly", "ExternalError", "Feed", "FieldDescription", "FromRun", "FunctionDefinition", "Going", "Graph", "GraphDefinition", "GraphDescription", "GraphInput", "GraphRecord", "InvalidCallError", "NamedType", "NodeDeclarationError",
         "NodeDefinition", "NodeDescription", "NodeError", "NodeRecord", "NodeRegistry", "NotCalled", "PROBLEM_CODES", "Param", "Policy", "Problem", "RegistryDescription", "Run", "RunState", "RunStatus", "RunsOn",
-        "SKIPPED", "Series", "Table", "Upgrade", "Waiting", "make_graph", "node",
+        "SKIPPED", "Series", "Table", "Upgrade", "Waiting", "make_graph", "node", "row_type",
     ],
     "conductor.widgets": [
         "DatePicker", "Dropdown", "FileUpload", "ListInput", "NumberInput", "Slider", "Switch",

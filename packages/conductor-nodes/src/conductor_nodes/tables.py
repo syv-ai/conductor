@@ -79,10 +79,9 @@ def _table(records: type, columns: list[str], **added: type) -> dict[str, Any]:
     compute_added_inputs=_column_inputs, compute_outputs=_table,
 )
 def collect(records: Series[dict], columns: Names = [], constant_columns: Names = [], **values: Any) -> dict[str, Any]:
-    """Gives the records with each new column's value added, which the output reads as a table, so a table of no
-    records still has every column."""
+    """Gives a table of the records, each with its new columns' values added."""
     collected = [
         {**record, **{name: values[name][place] for name in columns}, **{name: values[name] for name in constant_columns}}
         for place, record in enumerate(records)
     ]
-    return {"result": collected}
+    return {"result": pl.DataFrame(collected, infer_schema_length=None)}
