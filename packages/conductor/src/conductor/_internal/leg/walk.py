@@ -49,7 +49,7 @@ from typing import Any, Literal
 from conductor._internal import problem
 from conductor._internal.address import ItemPath, NodePath
 from conductor._internal.ask import Ask, InvalidAskError, question_asked, waiting_unit
-from conductor._internal.earlier_work import Earlier, taken
+from conductor._internal.earlier_work import EarlierWork, taken
 from conductor._internal.fields import SKIPPED
 from conductor._internal.leg.call import call, jsonable
 from conductor._internal.leg.events import (
@@ -130,7 +130,7 @@ class Leg:
     """
 
     def __init__(
-        self, nodes: list[FunctionAtPath], threads: int, units: Units, earlier: dict[NodePath, Earlier], finished: frozenset[NodePath],
+        self, nodes: list[FunctionAtPath], threads: int, units: Units, earlier_work: dict[NodePath, EarlierWork], finished: frozenset[NodePath],
         max_items: int | None, comes_to: Callable[[FunctionAtPath, ItemPath], dict[str, Any] | Skipped | Blank | Literal[NotReady.NOT_SETTLED]],
         emit: Callable[[_EventBase], None] | None, stop: Callable[[], RunState | None] | None, from_run: dict[type, Any],
         checkpoint: Callable[[RunState], None] | None = None, checkpoint_every: float | None = None,
@@ -146,7 +146,7 @@ class Leg:
         #: The nodes whose units were recorded out of instance order, as calls on threads finish when they finish.
         self.out_of_order: set[FunctionAtPath] = set()
         #: What each node may take from the run this one went on from, by its path.
-        self.carried = earlier
+        self.earlier_work = earlier_work
         #: Whether nothing has ended the leg early; ``end`` is the one place that does.
         self.going = True
         self.checkpoint_every = checkpoint_every if checkpoint is not None else None
@@ -348,8 +348,8 @@ class Leg:
         if not isinstance(kwargs, dict):  # skipped or blank: it comes to that uncalled
             self._record(node, key, kwargs, walking)
         elif (
-            (carried := self.carried) and policy.reuse_when_inputs_match and (lent := carried.get(node.path)) is not None
-            and (earlier := taken(lent, node, key, kwargs, self.all_units, lambda: self._in_turn(node, key))) is not None
+            (earlier_work := self.earlier_work) and policy.reuse_when_inputs_match and (of_node := earlier_work.get(node.path)) is not None
+            and (earlier := taken(of_node, node, key, kwargs, self.all_units, lambda: self._in_turn(node, key))) is not None
         ):
             if earlier is NOT_ITS_TURN:
                 self.out_of_turn = True  # a unit before it may take this answer; the next walk tries it again
@@ -381,11 +381,11 @@ class Leg:
             if unfinished:  # a unit nothing made ready: the engine's own fault, never a run to hand on as complete
                 raise RuntimeError(f"the leg ended with nothing to try and no unit for every instance of {sorted(node.path for node in unfinished)}")
             self.state, self.finished = _COMPLETE, frozenset(node.path for node in self.nodes)
-            self.carried.clear()
+            self.earlier_work.clear()
         else:
             self.finished = frozenset(node.path for node in self.nodes if node not in waiting and node not in unfinished)
-            for path in [path for path in self.carried if path in self.finished]:  # what a finished node was carried and didn't take, no unit of this run will
-                del self.carried[path]
+            for path in [path for path in self.earlier_work if path in self.finished]:  # the earlier work a finished node didn't take, no unit of this run will
+                del self.earlier_work[path]
             if self.going:
                 self.state = _WAITING
         if self.emit:

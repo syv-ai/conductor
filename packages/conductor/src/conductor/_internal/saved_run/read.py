@@ -1,4 +1,4 @@
-"""Reading a save: the units and the carried work of a node, from their columns."""
+"""Reading a save: the units and the earlier work of a node, from their columns."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from typing import Any
 
 from pydantic_core import PydanticCustomError
 
-from conductor._internal.earlier_work import Earlier
+from conductor._internal.earlier_work import EarlierWork
 from conductor._internal.fields import SKIPPED
 from conductor._internal.saved_run.type import _DONE, _SKIPPED, SavedEarlier, SavedUnits
 from conductor._internal.units import Answered, Asking, Blank, Done, Skipped, Unit
@@ -62,8 +62,8 @@ def _units_of(not_taken: dict[str, Any], not_called: dict[str, Any], saved: Save
     return units
 
 
-def _earlier_of(saved: SavedEarlier[list[Unit | None]]) -> Earlier:
-    """Makes the carried work a node's save holds.
+def _earlier_of(saved: SavedEarlier[list[Unit | None]]) -> EarlierWork:
+    """Makes the earlier work a node's save holds.
 
     Raises:
         PydanticCustomError: It doesn't hold one fingerprint for each unit (``slots_differ``), or it carries a
@@ -72,7 +72,7 @@ def _earlier_of(saved: SavedEarlier[list[Unit | None]]) -> Earlier:
     if len(saved.fingerprints) != len(saved.units):
         raise PydanticCustomError("slots_differ", "it doesn't hold one fingerprint for each unit")
     places, lineages = saved.places or {}, saved.lineages or {}
-    earlier = Earlier()
+    earlier = EarlierWork()
     for slot, (fingerprint, unit) in enumerate(zip(saved.fingerprints, saved.units, strict=True)):
         if type(unit) is Done:
             earlier.computed.setdefault(fingerprint, unit)

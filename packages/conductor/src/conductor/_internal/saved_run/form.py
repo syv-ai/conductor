@@ -82,8 +82,8 @@ def save_form(fingerprint: str, inputs: Mapping[str, Type], outputs: Mapping[str
             shared[f"units:{block}"] = core_schema.no_info_after_validator_function(
                 functools.partial(_units_of, not_taken, not_called), of_block, ref=f"units:{block}",
             )
-            carried = _with_fields(earlier_record, units=core_schema.definition_reference_schema(f"units:{block}"))
-            shared[f"earlier:{block}"] = core_schema.no_info_after_validator_function(_earlier_of, carried, ref=f"earlier:{block}")
+            earlier_schema = _with_fields(earlier_record, units=core_schema.definition_reference_schema(f"units:{block}"))
+            shared[f"earlier:{block}"] = core_schema.no_info_after_validator_function(_earlier_of, earlier_schema, ref=f"earlier:{block}")
             blocks[columns] = core_schema.definition_reference_schema(f"units:{block}"), core_schema.definition_reference_schema(f"earlier:{block}")
         units[node], earlier[node] = blocks[columns]
     run = _with_fields(

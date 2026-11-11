@@ -23,7 +23,7 @@ from conductor._internal.units import Answered, Asking, Done
 
 
 @dataclass(slots=True)
-class Earlier:
+class EarlierWork:
     """The work of one node that a run may take from the run it went on from, in place of calling the node.
 
     A person's answer, or a question still waiting, is taken once, by the next unit in order that received the
@@ -43,7 +43,7 @@ class Earlier:
 
 
 def taken(
-    earlier: Earlier, node: FunctionAtPath, key: ItemPath, kwargs: dict[str, Any], units: Units, in_turn: Callable[[], bool],
+    earlier: EarlierWork, node: FunctionAtPath, key: ItemPath, kwargs: dict[str, Any], units: Units, in_turn: Callable[[], bool],
 ) -> Done | Answered | Asking | Literal[NotReady.NOT_ITS_TURN] | None:
     """The unit of ``earlier`` that ``node`` takes in ``key`` in place of a call on ``kwargs``; ``None`` when
     there is none.

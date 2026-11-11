@@ -87,7 +87,7 @@ class Graph(CheckedGraph):
             raise InvalidCallError(self.problems)
         checked_leg(max_items=max_items)
         checked = self._checked_inputs(*self._given_by_address({**inputs, **by_name}))
-        return Run(self, checked, max_items, no_units(self), earlier._carried(into=self) if earlier is not None else {})
+        return Run(self, checked, max_items, no_units(self), earlier._as_earlier_work(into=self) if earlier is not None else {})
 
     def run(
         self, inputs: Mapping[str, Any] = types.MappingProxyType({}), /, *, max_items: int | None = None,

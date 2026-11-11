@@ -50,7 +50,7 @@ from conductor._internal.ask import (
     waiting_unit,
 )
 from conductor._internal.conductor_model import ConductorModel
-from conductor._internal.earlier_work import Earlier, fingerprint_of, lineage
+from conductor._internal.earlier_work import EarlierWork, fingerprint_of, lineage
 from conductor._internal.leg import Event, Leg, RunCheckpoint, RunEnd, RunStart, _EventBase
 from conductor._internal.loaded_graph import (
     EmbeddedGraphAtPath,
@@ -135,9 +135,9 @@ class Run:
     #: the units back in it before it hands the run on.
     _units: Units
     #: What each node may take from the run this one went on from.
-    _earlier: dict[NodePath, Earlier]
+    _earlier_work: dict[NodePath, EarlierWork]
     state: RunState = _READY
-    #: For a node whose units a saved run made with other code or another signature, what that code was; they are never carried.
+    #: For a node whose units a saved run made with other code or another signature, what that code was; they are never earlier work for a later run.
     _ran_as: dict[NodePath, str] = field(default_factory=dict[NodePath, str])
     #: The nodes every unit of which was finished when the last leg ended, so a later leg doesn't say them complete again.
     _complete: frozenset[NodePath] = frozenset()
@@ -247,7 +247,7 @@ class Run:
                     listener(RunCheckpoint(run=dataclasses.replace(run._copy(), state=state)))
 
         graph = self.graph
-        leg = Leg(graph._tree, graph._threads, run._units, run._earlier, run._complete, run.max_items, run._reader.comes_to, emit, stop, from_run, checkpoint, checkpoint_every)
+        leg = Leg(graph._tree, graph._threads, run._units, run._earlier_work, run._complete, run.max_items, run._reader.comes_to, emit, stop, from_run, checkpoint, checkpoint_every)
         leg.go()
         run.state, run._complete = leg.state, leg.finished
         if emit is not None:  # a leg handed back left its run running: the run didn't end, and the host stores it as it stands
@@ -354,25 +354,25 @@ class Run:
         if unknown:
             raise InvalidCallError([problem.node_not_in_graph(n, nodes=list(self.graph._nodes)) for n in unknown])
         fresh = self.with_inputs()
-        for path in [path for path in fresh._earlier if path[0] in node_ids]:  # an embedded graph's id forgets every node inside it
-            del fresh._earlier[path]
+        for path in [path for path in fresh._earlier_work if path[0] in node_ids]:  # an embedded graph's id forgets every node inside it
+            del fresh._earlier_work[path]
         return fresh
 
-    def _carried(self, into: Graph | None = None) -> dict[NodePath, Earlier]:
+    def _as_earlier_work(self, into: Graph | None = None) -> dict[NodePath, EarlierWork]:
         """What a run going on from this one may take, by node: each node's finished and waiting units, in
-        instance order, then what this run carried and didn't take.
+        instance order, then the earlier work this run held and didn't take.
 
         ``into`` another graph keeps only the nodes it holds as they are here (by
-        ``reuse_digest``): the others' units could never be taken there, and carried they would only make its
+        ``reuse_digest``): the others' units could never be taken there, and kept they would only make its
         save larger.
         """
-        carried: dict[NodePath, Earlier] = {}
+        work: dict[NodePath, EarlierWork] = {}
         reader = self._reader
         for node in self.graph._tree:
             if not node.policy.reuse_when_inputs_match or node.path in self._ran_as:
                 continue
             placed = node.placed
-            earlier = carried[node.path] = Earlier()
+            of_node = work[node.path] = EarlierWork()
             for key, unit in self._units[node.name].items():
                 if type(unit) is Skipped or type(unit) is Blank:
                     continue
@@ -381,20 +381,20 @@ class Run:
                 if fingerprint is None:
                     continue
                 if type(unit) is Answered or type(unit) is Asking:
-                    earlier.asked.setdefault((fingerprint, lineage(self._units, node, key)), []).append(unit)
+                    of_node.asked.setdefault((fingerprint, lineage(self._units, node, key)), []).append(unit)
                 else:
-                    earlier.at[key] = (fingerprint, unit)
-                    earlier.computed.setdefault(fingerprint, unit)
-        for path, left in self._earlier.items():  # what this run was lent and no unit of it received
-            earlier = carried.setdefault(path, Earlier())
-            for fingerprint, done in left.computed.items():
-                earlier.computed.setdefault(fingerprint, done)
-            for asked, units in left.asked.items():
-                earlier.asked.setdefault(asked, []).extend(units)
+                    of_node.at[key] = (fingerprint, unit)
+                    of_node.computed.setdefault(fingerprint, unit)
+        for path, untaken in self._earlier_work.items():  # the earlier work this run held and no unit of it took
+            of_node = work.setdefault(path, EarlierWork())
+            for fingerprint, done in untaken.computed.items():
+                of_node.computed.setdefault(fingerprint, done)
+            for asked, units in untaken.asked.items():
+                of_node.asked.setdefault(asked, []).extend(units)
         ours, theirs = self.graph._functions, (into or self.graph)._functions
         return {
-            path: earlier for path, earlier in carried.items()
-            if (earlier.computed or earlier.asked) and (there := theirs.get(path)) is not None and there.reuse_digest == ours[path].reuse_digest
+            path: of_node for path, of_node in work.items()
+            if (of_node.computed or of_node.asked) and (there := theirs.get(path)) is not None and there.reuse_digest == ours[path].reuse_digest
         }
 
     def again(
@@ -526,7 +526,7 @@ class Run:
             node.name: _unit_columns(node.placed.outputs, self._slots(node))
             for node in self.graph._tree if self._units[node.name]
         }
-        earlier = {node_name(path): _earlier_columns(functions[path].outputs, lent) for path, lent in self._earlier.items() if lent.computed or lent.asked}
+        earlier = {node_name(path): _earlier_columns(functions[path].outputs, of_node) for path, of_node in self._earlier_work.items() if of_node.computed or of_node.asked}
         code = {name: self._ran_as.get(path) or placed.reuse_digest for path, placed in functions.items() if (name := node_name(path)) in units or name in earlier}
         complete = [node.name for node in self.graph._tree if node.path in self._complete]
         return SavedRun(graph=self.graph.fingerprint, state=self.state, max_items=self.max_items, inputs=self.inputs, units=units, earlier=earlier, code=code, complete=complete)
@@ -540,7 +540,7 @@ class Run:
         return [units.get(instance) for instance in instances(self._units, node.maps, ())[0]]
 
     def _copy(self, *, share_units: bool = False, max_items: int | None = None) -> Run:
-        """A copy to change: its own units to record into and its own carried answers to take from; or with
+        """A copy to change: its own units to record into and its own earlier work to take from; or with
         ``share_units`` this run's units of every node, for a caller that replaces whole nodes and takes nothing.
 
         Args:
@@ -548,11 +548,11 @@ class Run:
             max_items: The copy's item ceiling; this run's when ``None``.
         """
         if share_units:
-            units, earlier = dict(self._units), dict(self._earlier)
+            units, earlier = dict(self._units), dict(self._earlier_work)
         else:  # its own answers to take, as this run holds them too
             units = {name: dict(held) for name, held in self._units.items()}
-            earlier = {path: Earlier(lent.at, lent.computed, {asked: list(left) for asked, left in lent.asked.items()}) for path, lent in self._earlier.items()}
-        return dataclasses.replace(self, max_items=max_items if max_items is not None else self.max_items, _units=units, _earlier=earlier)
+            earlier = {path: EarlierWork(of_node.at, of_node.computed, {asked: list(left) for asked, left in of_node.asked.items()}) for path, of_node in self._earlier_work.items()}
+        return dataclasses.replace(self, max_items=max_items if max_items is not None else self.max_items, _units=units, _earlier_work=earlier)
 
 
 RunEnd.model_rebuild(_types_namespace={"Run": Run})
@@ -591,9 +591,9 @@ def run_from_json(graph: Graph, saved: str | bytes | Mapping[str, Any]) -> Run:
     return _run_of(graph, read)
 
 
-def _run_of(graph: Graph, saved: SavedRun[list[Unit | None], Earlier]) -> Run:
+def _run_of(graph: Graph, saved: SavedRun[list[Unit | None], EarlierWork]) -> Run:
     """A run of ``graph`` from its save as the graph's ``SaveForm`` read it: each node's units in the order of
-    their slots, its carried work an ``Earlier``.
+    their slots, its earlier work an ``EarlierWork``.
 
     Raises:
         InvalidCallError: A node doesn't hold one slot for each instance the saved run made of it
@@ -609,7 +609,7 @@ def _run_of(graph: Graph, saved: SavedRun[list[Unit | None], Earlier]) -> Run:
             run._units[node.name] = {instance: unit for instance, unit in zip(made, slots, strict=True) if unit is not None}
     functions = graph._functions
     run._ran_as = {path: digest for name, digest in saved.code.items() if digest != functions[path := node_path(name)].reuse_digest}
-    run._earlier = {path: lent for name, lent in saved.earlier.items() if (path := node_path(name)) not in run._ran_as}  # work of other code is never taken
+    run._earlier_work = {path: of_node for name, of_node in saved.earlier.items() if (path := node_path(name)) not in run._ran_as}  # work of other code is never taken
     run._complete = frozenset(node_path(name) for name in saved.complete)
     return run
 

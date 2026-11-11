@@ -1,4 +1,4 @@
-"""Writing a save: the units and the carried work of a node as columns, and where a run that could not be written holds the value with no JSON form."""
+"""Writing a save: the units and the earlier work of a node as columns, and where a run that could not be written holds the value with no JSON form."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from typing import Any, cast
 import pydantic_core
 
 from conductor._internal.ask import Question
-from conductor._internal.earlier_work import Earlier
+from conductor._internal.earlier_work import EarlierWork
 from conductor._internal.fields import SKIPPED, Field, Type
 from conductor._internal.saved_run.type import (
     _DONE,
@@ -67,14 +67,14 @@ def _unit_columns(outputs: Mapping[str, Field], slots: list[Unit | None]) -> Sav
     )
 
 
-def _earlier_columns(outputs: Mapping[str, Field], earlier: Earlier) -> SavedEarlier[SavedUnits]:
+def _earlier_columns(outputs: Mapping[str, Field], earlier: EarlierWork) -> SavedEarlier[SavedUnits]:
     """Gives what a node may take from an earlier run as a save holds it, each unit once: the computed units by
     the instance they stood in, then the ones only known by what they received, then the answers and the
     questions still waiting.
 
     Args:
         outputs: The node's outputs, by name.
-        earlier: The carried work.
+        earlier: The earlier work.
     """
     slots: list[Unit | None] = [done for _, done in earlier.at.values()]
     fingerprints = [fingerprint for fingerprint, _ in earlier.at.values()]
@@ -107,7 +107,7 @@ def _unwritable_at(inputs: Mapping[str, Type], outputs: Mapping[str, Mapping[str
         The input's address, or the node as a save names it and the output (``e/ask.result``).
     """
     columns = {address: (inputs[address], value) for address, value in saved.inputs.items()}
-    by_node = [*saved.units.items(), *((name, carried.units) for name, carried in saved.earlier.items())]
+    by_node = [*saved.units.items(), *((name, earlier.units) for name, earlier in saved.earlier.items())]
     for name, units in by_node:
         columns.update({f"{name}.{output}": (outputs[name][output].column, column) for output, column in units.outputs.items()})
     for at, (written_by, value) in columns.items():

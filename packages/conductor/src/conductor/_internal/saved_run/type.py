@@ -60,10 +60,10 @@ class SavedUnits:
 
 @dataclass(slots=True, kw_only=True)
 class SavedEarlier[UnitsT]:
-    """The work of one node carried from an earlier run, as a save holds it: each carried unit once.
+    """The work of one node carried from an earlier run, as a save holds it: each of its units once.
 
     Attributes:
-        units: The carried units, a slot for each: a ``SavedUnits`` when written, the units it holds when read.
+        units: Its units, a slot for each: a ``SavedUnits`` when written, the units it holds when read.
         fingerprints: For each slot, the fingerprint of what the unit received.
         places: By slot, the instance a computed unit stood in in the earlier run; ``None``, as for ``lineages``,
             when there is none, which leaves the key out of the save.
@@ -91,8 +91,8 @@ class SavedRun[UnitsT, EarlierT]:
         units: By node, the units of each function node that has any: a ``SavedUnits`` when written, the units
             it holds when read. An embedded graph's node has none of its own.
         earlier: By node, the work carried from an earlier run and not yet taken: a ``SavedEarlier`` when
-            written, an ``Earlier`` when read.
-        code: By node, the ``reuse_digest`` of the code that made its units and its carried work, so work made
+            written, an ``EarlierWork`` when read.
+        code: By node, the ``reuse_digest`` of the code that made its units and its earlier work, so work made
             by other code is never taken.
         complete: The nodes every unit of which was finished when the last leg ended.
     """
