@@ -361,10 +361,11 @@ def run_router(
                         await store.add_event(run_id, worker, ending.event)
                         end_stored = True
                     changes = {**written, "status": status, "owner": None, "lease_until": None, "cancel": False}
-                    if row.pending != "{}" and isinstance(ending, _Ended):
+                    queued = json.loads(row.pending)
+                    if queued and isinstance(ending, _Ended):
                         if answered_from != (row.pending, row.refused):
                             answered_from = (row.pending, row.refused)
-                            answered = await asyncio.to_thread(ending.answered, json.loads(row.pending), json.loads(row.refused))
+                            answered = await asyncio.to_thread(ending.answered, queued, json.loads(row.refused))
                         saved, refused = answered
                         changes.update({"pending": "{}", "refused": to_json(refused).decode()})
                     if saved is not None:  # a worker shutting down hands the next leg back rather than start it
