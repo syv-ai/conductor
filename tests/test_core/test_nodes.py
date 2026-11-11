@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Annotated, Any, ClassVar, Literal, TypedDict
 
 import polars as pl
+import pydantic
 import pytest
 from conductor import (
     Choice,
@@ -28,8 +29,11 @@ from conductor import (
     make_graph,
     node,
 )
+from conductor._internal.fields import FieldValueError
 from conductor.widgets import Dropdown, ListInput, Textarea, TextInput, Widget
 from pydantic import BaseModel, ValidationError
+
+from tests.test_core.nodes import ReadAsItsBuiltin
 
 
 def registry_of(*definitions):
@@ -61,13 +65,13 @@ def field_of(definition, name, side="inputs"):
     return next(f for f in getattr(definition.describe(), side) if f.name == name)
 
 
-class Text(str):
+class Text(ReadAsItsBuiltin, str):
     type_id: ClassVar[str] = "Text"
     type_title: ClassVar[str] = "Text"
     pass
 
 
-class Whole(int):
+class Whole(ReadAsItsBuiltin, int):
     type_id: ClassVar[str] = "Whole"
     type_title: ClassVar[str] = "Whole"
     pass
@@ -211,13 +215,12 @@ def test_a_class_pydantic_cannot_check_is_refused_at_declaration():
     assert raised.value.code == "type_not_carried"
 
 
-def test_a_series_of_tables_is_refused_since_a_table_is_already_many_rows():
+def test_a_series_of_tables_is_accepted_as_many_tables():
     def f(x: Series[Table[Invoice]]) -> int:
         return 1
 
-    with pytest.raises(NodeDeclarationError) as raised:
-        declared(f)
-    assert raised.value.code == "series_of_tables"
+    spec = declared(f).inputs["x"]
+    assert spec.many is True and spec.type.id == "Table[name: str, amount: int]"
 
 
 def test_a_definition_is_frozen():
@@ -479,6 +482,8 @@ def test_an_any_input_has_a_json_form_before_anything_is_wired():
 def test_describe_writes_each_default_as_its_type_writes_it_as_json():
     @dataclass
     class Point:
+        type_id: ClassVar[str] = "point"
+        type_title: ClassVar[str] = "Point"
         x: int
 
     @node("f", title="F", description="")
@@ -508,7 +513,7 @@ def test_a_series_input_takes_many_values_of_its_element_type_and_a_list_is_one_
     def f(texts: Series[Text], numbers: list[float]) -> str:
         return ""
 
-    assert [(i.shape, i.type) for i in f.describe().inputs] == [("many", "Text"), ("one", "list")]
+    assert [(i.shape, i.type) for i in f.describe().inputs] == [("many", "Text"), ("one", "list[float]")]
 
 
 def test_a_table_declares_its_columns_and_their_types():
@@ -846,11 +851,11 @@ def test_a_hook_is_not_called_while_its_source_is_broken():
     assert codes(graph) == ["unknown_output"]
 
 
-def test_a_series_of_tables_from_a_hook_is_the_hooks_problem():
+def test_a_series_of_tables_from_a_hook_loads_with_no_problems():
     def h(x: str) -> dict:
         return {}
 
-    assert codes(load(node("h", title="H", description="", compute_outputs=lambda: {"result": Series[Table]})(h))) == ["compute_hook_failed"]
+    assert codes(load(node("h", title="H", description="", compute_outputs=lambda: {"result": Series[Table]})(h))) == []
 
 
 def test_a_hint_from_a_hook_naming_a_class_that_declares_no_type_id_is_the_hooks_problem():
@@ -896,17 +901,19 @@ def test_a_default_reaches_the_function_as_its_declared_type():
     assert load(kind).run().results["kind"]["result"] == "Whole Text"
 
 
-def test_an_object_in_annotated_that_is_not_a_param_is_refused_naming_param():
-    def widget_alone(x: Annotated[int, TextInput()]) -> int:
+def test_annotated_metadata_that_is_not_a_param_is_pydantics_so_a_note_is_ignored_and_a_field_limit_is_held():
+    def noted(x: Annotated[int, "a note"]) -> int:
         return x
 
-    def text_alone(x: Annotated[int, "a note"]) -> int:
-        return x
+    def limited(x: Annotated[int, pydantic.Field(ge=0)]) -> str:
+        return str(x)
 
-    for wrong in (widget_alone, text_alone):
-        with pytest.raises(NodeDeclarationError, match="Param") as raised:
-            declared(wrong)
-        assert raised.value.code == "annotated_extra_unknown"
+    assert declared(noted).inputs["x"].type.bare is int
+    graph = load(
+        declared(limited),
+        record=GraphRecord(nodes=[placed("l", "x", values={"x": -1})]),
+    )
+    assert codes(graph) == ["invalid_value"]
 
 
 def test_params_stacked_on_an_alias_merge_as_pydantics_fields_do_the_later_one_winning():
@@ -916,9 +923,9 @@ def test_params_stacked_on_an_alias_merge_as_pydantics_fields_do_the_later_one_w
         return 1
 
     spec = declared(f).inputs["separator"]
-    assert (spec.title, spec.param.widget, spec.param.constraints) == ("Separator", TextInput(), {"min_length": 1})
-    with pytest.raises(ValidationError):
-        spec.lax_adapter.validate_python("")
+    assert (spec.describe().title, spec.param.widget, spec.param.limits) == ("Separator", TextInput(), {"min_length": 1})
+    with pytest.raises(FieldValueError):
+        spec.whole.read("")
 
 
 def test_a_param_on_a_series_item_is_the_fields_own_so_an_int_lands_and_a_bool_does_not():
@@ -939,25 +946,26 @@ def test_a_param_on_a_series_item_is_the_fields_own_so_an_int_lands_and_a_bool_d
 
     for name, blank in (("n", False), ("m", True)):
         spec = total.inputs[name]
-        assert (spec.type, spec.title, spec.param.constraints) == (int | None if blank else int, "Count", {"ge": 0})
+        assert (spec.type.bare, spec.describe().title, spec.param.limits) == (int | None if blank else int, "Count", {"ge": 0})
         for wrong in ([-1], [True]):
-            with pytest.raises(ValidationError):
-                spec.lax_adapter.validate_python(wrong)
+            with pytest.raises(FieldValueError):
+                spec.whole.read(wrong)
     graph = registry.load(make_graph(words, length, total, edges=[("words.result", "length.text"), ("length.result", "total.n")]))
     assert graph.problems == []
     assert graph.run(text="ab c").outputs == {"total.result": 3}
 
 
-def test_a_tables_column_annotated_is_refused_as_its_limits_would_go_unread():
+def test_a_tables_column_annotated_with_a_param_declares_and_its_limits_hold_on_what_the_node_returns():
     class Row(TypedDict):
         n: Annotated[int, Param(ge=0)]
 
-    def f(rows: Table[Row]) -> int:
-        return 1
+    @node("rows", title="Rows", description="")
+    def rows(text: str) -> Table[Row]:
+        return pl.DataFrame({"n": [-1]})
 
-    with pytest.raises(NodeDeclarationError, match="column 'n'") as raised:
-        declared(f)
-    assert raised.value.code == "annotated_extra_unknown"
+    assert registry_of(rows).load(GraphRecord(nodes=[placed("r", "rows")])).problems == []
+    run = registry_of(rows).load(GraphRecord(nodes=[placed("r", "rows")])).run(text="x")
+    assert (run.status, run.state.cause.type) == ("failed", "invalid_output")
 
 
 def test_a_params_choices_limit_a_hosts_own_model_as_they_limit_a_nodes_field():
@@ -1034,11 +1042,6 @@ def test_a_series_that_may_be_none_is_still_many_values():
     assert [(i.shape, i.type) for i in f.describe().inputs] == [("many", "int")]
 
 
-def test_table_is_only_a_type():
-    with pytest.raises(TypeError, match="polars.DataFrame"):
-        Table()
-
-
 def test_a_wrongly_typed_limit_is_refused_as_a_bound():
     def f(x: Annotated[int, Param(ge="a")]) -> int:
         return x
@@ -1064,7 +1067,7 @@ def test_a_hook_reads_a_whole_table_arriving_with_its_columns():
         return {"result": ",".join(rows.columns)}
 
     graph = load(read, look)
-    row_type = typing.get_args(seen[0])[1].row  # Table[R] carries R, a TypedDict of the arriving columns
+    row_type = typing.get_args(seen[0])[0]  # Table[R] carries R, a TypedDict of the arriving columns
     assert graph.problems == [] and typing.get_type_hints(row_type) == {"name": str, "amount": int}
     assert graph.run(text="Bo").results["look"]["result"] == "name,amount"
 
@@ -1112,7 +1115,7 @@ def test_a_bare_series_is_many_values_of_any_type() -> None:
     def count(items: Series) -> int:  # type: ignore[type-arg]
         return len(items)
 
-    assert count.inputs["items"].shape == "many" and count.inputs["items"].type is Any
+    assert count.inputs["items"].many and count.inputs["items"].type.hint is Any
 
 
 def test_a_literal_inputs_choices_are_in_its_record_and_a_widget_draws_them():
@@ -1298,10 +1301,10 @@ def test_a_limit_pydantic_holds_on_a_type_is_taken_and_one_it_cant_is_refused_in
         return 0
 
     spec = declared(held).inputs
-    with pytest.raises(Exception, match="greater than or equal"):
-        spec["price"].lax_adapter.validate_python(decimal.Decimal("-1"))
-    with pytest.raises(Exception, match="at least 1"):
-        spec["tags"].lax_adapter.validate_python([])
+    with pytest.raises(FieldValueError, match="greater than or equal"):
+        spec["price"].whole.read(decimal.Decimal("-1"))
+    with pytest.raises(FieldValueError, match="at least 1"):
+        spec["tags"].whole.read([])
 
     @dataclasses.dataclass(frozen=True)
     class Order:
@@ -1358,5 +1361,6 @@ def test_a_default_is_described_and_offered_by_a_loaded_graph_as_its_json():
     described = {field.name: field.default for field in t.describe().inputs}
     offered = {name: given.default for name, given in registry_of(t).load(make_graph(t)).inputs.items()}
 
-    assert described == {"rows": [{"n": 1}, {"n": 2}], "when": "2026-01-02"}
-    assert offered == {"rows": [{"n": 1}, {"n": 2}], "when": "2026-01-02"}
+    table = {"columns": [{"name": "n", "type": "int", "values": [1, 2]}]}
+    assert described == {"rows": table, "when": "2026-01-02"}
+    assert offered == {"rows": table, "when": "2026-01-02"}

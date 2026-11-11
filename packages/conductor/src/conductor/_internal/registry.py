@@ -46,13 +46,7 @@ from pydantic import JsonValue
 
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.errors import InvalidCallError, NodeDeclarationError, make_problem
-from conductor._internal.fields import (
-    FieldDescription,
-    NamedType,
-    accepts,
-    type_id,
-    type_name,
-)
+from conductor._internal.fields import FieldDescription, NamedType, Type
 from conductor._internal.node_definition import (
     FunctionDefinition,
     GraphDefinition,
@@ -241,7 +235,7 @@ class NodeRegistry:
         return RegistryDescription(
             nodes=[self._described(definition) for definition in self._nodes.values()],
             types=[
-                TypeDescription(id=type_id_, title=type_name(held).title, accepted_as=[landing for landing, target in types if accepts(target, held)])
+                TypeDescription(id=type_id_, title=Type(held).title, accepted_as=[landing for landing, target in types if Type(target).fits(Type(held)) is not None])
                 for type_id_, held in types
             ],
         )
@@ -368,10 +362,10 @@ def _by_id(types: Iterable[type], start: Mapping[str, type] = MappingProxyType({
     """``start``, then ``types``, by id; raises when one id names two classes."""
     by_id = dict(start)
     for held in types:
-        existing = by_id.setdefault(type_id(held), held)
+        existing = by_id.setdefault(Type(held).id, held)
         if existing is not held:
             raise NodeDeclarationError(
-                f"type id {type_id(held)!r} is declared by both {_qualified_name(existing)} and {_qualified_name(held)}; "
+                f"type id {Type(held).id!r} is declared by both {_qualified_name(existing)} and {_qualified_name(held)}; "
                 "one registry holds one type per id",
                 code="duplicate_type_id",
             )
@@ -421,7 +415,7 @@ def _types_declared_by(definitions: Iterable[NodeDefinition]) -> list[type]:
                     specs = (*step.inputs.values(), *step.outputs.values())
                 case GraphDefinition():  # a graph declares no classes of its own
                     continue
-            found.extend(cls for spec in specs for cls in spec.classes)
+            found.extend(cls for spec in specs for cls in spec.whole.classes)
     return list(dict.fromkeys(found))
 
 

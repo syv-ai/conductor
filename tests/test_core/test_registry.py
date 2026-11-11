@@ -24,10 +24,13 @@ from conductor import (
     Upgrade,
     node,
 )
+from conductor._internal.fields import REQUIRED
 from conductor.widgets import Textarea
 
+from tests.test_core.nodes import ReadAsItsBuiltin
 
-class Txt(str):
+
+class Txt(ReadAsItsBuiltin, str):
     type_id: ClassVar[str] = "registry-test-text"
     type_title: ClassVar[str] = "Text"
 
@@ -300,7 +303,7 @@ def test_one_id_in_two_subregistries_is_refused():
 
 
 def test_a_subregistrys_named_types_come_along():
-    class Money(float):
+    class Money(ReadAsItsBuiltin, float):
         type_id: ClassVar[str] = "money"
         type_title: ClassVar[str] = "Money"
 
@@ -366,12 +369,12 @@ def test_extra_is_json_kept_and_described_but_never_read():
 def test_inputs_extracted_from_signature():
     older = echo.replaces
     assert older is not None and list(older.inputs) == ["text"]
-    assert older.inputs["text"].title == "Input"
+    assert older.inputs["text"].describe().title == "Input"
 
 
 def test_outputs_extracted_from_return_type():
     assert list(echo.outputs) == ["result"]
-    assert echo.outputs["result"].title == "Output"
+    assert echo.outputs["result"].describe().title == "Output"
 
 
 def test_multi_input_node():
@@ -380,9 +383,9 @@ def test_multi_input_node():
 
 def test_default_values_captured():
     text, prefix = echo.inputs.values()
-    assert text.required is True
+    assert text.default is REQUIRED
     assert prefix.default == ""
-    assert prefix.required is False
+    assert prefix.default is not REQUIRED
 
 
 def test_var_keyword_is_where_added_inputs_arrive_and_needs_the_hook():
@@ -415,17 +418,17 @@ def test_var_positional_is_refused():
 # --- the types a registry holds ---------------------------------------------
 
 
-class Text(str):
+class Text(ReadAsItsBuiltin, str):
     type_id: ClassVar[str] = "text"
     type_title: ClassVar[str] = "Text"
 
 
-class Number(float):
+class Number(ReadAsItsBuiltin, float):
     type_id: ClassVar[str] = "number"
     type_title: ClassVar[str] = "Number"
 
 
-class AnotherText(str):
+class AnotherText(ReadAsItsBuiltin, str):
     """A second class claiming ``text``: what a second library, or a notebook cell run again, makes."""
 
     type_id: ClassVar[str] = "text"
@@ -435,7 +438,7 @@ class AnotherText(str):
 def _declare_text() -> type:
     """What a notebook cell does when it runs again: the same class body, a new class."""
 
-    class Text(str):
+    class Text(ReadAsItsBuiltin, str):
         type_id: ClassVar[str] = "text"
         type_title: ClassVar[str] = "Text"
 
@@ -458,7 +461,7 @@ def test_a_hosts_type_is_described_by_its_own_id_and_title():
 
 
 def test_a_hosts_type_is_described_by_the_id_and_title_it_declares_and_conductors_by_its_table():
-    class Money(float):
+    class Money(ReadAsItsBuiltin, float):
         type_id: ClassVar[str] = "money"
         type_title: ClassVar[str] = "Beløb"
 
@@ -503,14 +506,14 @@ def test_adding_a_node_adds_the_types_it_declares_a_series_giving_its_item_and_a
     registry = NodeRegistry()
     registry.add(weigh)
 
-    assert dict(registry.types) == {"text": Text, "number": Number, "list": list}
+    assert dict(registry.types) == {"text": Text, "number": Number, "list": list, "str": str}
 
 
 def test_every_type_a_field_is_described_by_is_one_the_registry_holds():
     """A union names each member, a ``Literal`` its values' types and a generic its class; ``None`` names no class a
     value is made of, and a table is described by its columns."""
 
-    class Cash(float):
+    class Cash(ReadAsItsBuiltin, float):
         type_id: ClassVar[str] = "cash"
         type_title: ClassVar[str] = "Cash"
 
@@ -526,7 +529,7 @@ def test_every_type_a_field_is_described_by_is_one_the_registry_holds():
 
     [described] = registry.describe().nodes
     shown = {named for field in (*described.inputs, *described.outputs) if field.type for named in field.type.split(" | ")}
-    assert shown == {"cash", "text", "str", "number", "list"}
+    assert shown == {"cash", "text", "str", "number", "list[str]"}
     assert dict(registry.types) == {"cash": Cash, "text": Text, "str": str, "number": Number, "list": list}
 
 
@@ -585,7 +588,7 @@ def test_a_type_clash_on_add_names_both_classes_and_adds_nothing():
 
     assert "Text" in str(raised.value) and "AnotherText" in str(raised.value)
     assert "whisper" not in registry
-    assert dict(registry.types) == {"text": Text, "number": Number, "list": list}
+    assert dict(registry.types) == {"text": Text, "number": Number, "list": list, "str": str}
 
 
 def test_a_subclass_without_its_own_id_cannot_sit_beside_its_parent():
@@ -608,7 +611,7 @@ def test_a_subclass_without_its_own_id_cannot_sit_beside_its_parent():
 
 
 def test_the_types_are_read_only_and_filter_keeps_the_named_ones():
-    class Score(float):
+    class Score(ReadAsItsBuiltin, float):
         type_id: ClassVar[str] = "score"
         type_title: ClassVar[str] = "Score"
 
@@ -620,21 +623,6 @@ def test_the_types_are_read_only_and_filter_keeps_the_named_ones():
 
     assert registry.filter(lambda definition: True).types == registry.types
     assert dict(registry.filter(lambda definition: False).types) == {"score": Score}
-
-
-def test_a_bug_in_a_types_accepts_is_not_swallowed():
-    class Broken(str):
-        type_id: ClassVar[str] = "broken"
-        type_title: ClassVar[str] = "Broken"
-
-        @classmethod
-        def accepts(cls, source: Any) -> bool:
-            raise TypeError("a bug in accepts")
-
-    registry = NodeRegistry(types=[Number, Broken])
-
-    with pytest.raises(TypeError, match="a bug in accepts"):
-        registry.describe()
 
 
 # --- what a registry is -----------------------------------------------------

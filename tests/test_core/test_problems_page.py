@@ -40,6 +40,8 @@ def _declaration_codes() -> dict[str, list[str]]:
         for call in ast.walk(ast.parse(path.read_text())):
             if isinstance(call, ast.Call) and isinstance(call.func, ast.Name) and call.func.id == "NodeDeclarationError":
                 code = next(k.value for k in call.keywords if k.arg == "code")
+                if isinstance(code, ast.Attribute) and code.attr == "code":  # an error raised again with its place in front
+                    continue
                 assert isinstance(code, ast.Constant), f"{path}:{call.lineno} raises NodeDeclarationError without a literal code"
                 found.setdefault(code.value, []).append(_template(call.args[0]))
     return found

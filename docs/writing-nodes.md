@@ -88,7 +88,7 @@ Pass an instance, `widget=Textarea()`: a type checker refuses the class passed b
 
 ## Types
 
-Any type pydantic can check and write as JSON can be an input or an output: `str`, `int`, `float`, `bool`, `date`, a pydantic model, a dataclass, a subclass of `str`. A pydantic model is the usual way to carry a record of your own:
+Any type pydantic can check and write as JSON can be an input or an output: `str`, `int`, `float`, `bool`, `date`, a pydantic model, a dataclass. A pydantic model is the usual way to carry a record of your own:
 
 ```python
 from typing import ClassVar

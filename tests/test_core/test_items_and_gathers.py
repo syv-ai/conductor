@@ -31,7 +31,7 @@ from conductor import (
     node,
 )
 
-from tests.test_core.nodes import registry_of
+from tests.test_core.nodes import ReadAsItsBuiltin, registry_of
 
 # -- the nodes ---------------------------------------------------------------------------------
 
@@ -939,7 +939,7 @@ class Dated(TypedDict):
     when: datetime.date
 
 
-class Comma(float):
+class Comma(ReadAsItsBuiltin, float):
     """A number written with a decimal comma, as a host's own type reads it."""
     type_id: ClassVar[str] = "Comma"
     type_title: ClassVar[str] = "Comma"

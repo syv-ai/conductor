@@ -1,8 +1,9 @@
 """What an author is told for the first mistakes with a table, a list or two Series: the problem, where, and the fix."""
 
+import typing
 from typing import Any, TypedDict
 
-from conductor import NodeRegistry, Series, Table, node, row_type
+from conductor import NodeRegistry, Series, Table, node
 
 
 class Contact(TypedDict):
@@ -183,18 +184,11 @@ def test_the_wire_it_names_nests_them():
 # -- the row type of a table type ---------------------------------------------------------------------------
 
 
-def test_row_type_reads_the_row_type_out_of_a_table_type_any_for_any_columns_and_none_for_no_table():
-    import polars
-
-    assert row_type(Table[Contact]) is Contact
-    assert row_type(polars.DataFrame) is Any and row_type(list[str]) is None and row_type(str) is None
-
-
 def test_a_hook_reads_the_row_type_of_the_table_arriving():
     seen: list[Any] = []
 
     def outputs(table: type) -> dict[str, Any]:
-        seen.append(row_type(table))
+        seen.append(typing.get_args(table))
         return {"result": int}
 
     @node("look", title="Look", description="Looks at a table.", compute_outputs=outputs)
@@ -205,4 +199,4 @@ def test_a_hook_reads_the_row_type_of_the_table_arriving():
     registry.add_subregistry(REGISTRY)
     registry.add(look)
     graph = registry.load({"nodes": [{"id": "read", "node": "contacts"}, {"id": "look", "node": "look"}], "edges": [["read.result", "look.table"]]})
-    assert graph.is_runnable and seen == [Contact]
+    assert graph.is_runnable and seen == [(Contact,)]

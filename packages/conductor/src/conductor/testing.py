@@ -53,11 +53,10 @@ from collections.abc import Callable, Mapping, Sequence
 from typing import Any, Literal
 
 import polars as pl
-from pydantic import ValidationError
 
 from conductor._internal.ask import Ask
 from conductor._internal.errors import InvalidCallError, Problem
-from conductor._internal.fields import FieldSpec, Param, without_none
+from conductor._internal.fields import REQUIRED, FieldSpec, FieldValueError, Param
 from conductor._internal.graph import load_graph
 from conductor._internal.node_definition import (
     FunctionDefinition,
@@ -170,7 +169,7 @@ def _hook_problems(version: NodeDefinition, registry: NodeRegistry) -> list[Prob
         case FunctionDefinition() | GraphDefinition():  # no hooks; a stored graph has none of its own
             return []
     read = sorted(read_by_hooks(version))
-    values = {name: _made_up(version.inputs[name]) for name in read if version.inputs[name].required}
+    values = {name: _made_up(version.inputs[name]) for name in read if version.inputs[name].default is REQUIRED}
     missing = [name for name, value in values.items() if value is _CANNOT]
     if missing:
         return [_problem("needs_example", (version.id, version.version), f"its hooks read {missing}, and no value could be made up; give an example", inputs=missing)]
@@ -276,12 +275,10 @@ def _watched(version: FunctionDefinition[..., Any]) -> tuple[FunctionDefinition[
 
 def _made_up(spec: FieldSpec) -> Any:
     """A value of the field within its limits, checked by the field; ``_CANNOT`` when there is no way to make one."""
-    if spec.shape == "table":
-        return _CANNOT
-    for item in _candidates(without_none(spec.type), spec.param):
+    for item in _candidates(spec.type.options[0] if len(spec.type.options) == 1 else None, spec.param):
         try:
-            return spec.adapter.validate_python([item, item] if spec.shape == "many" else item)
-        except ValidationError:  # outside a limit, or a pattern it doesn't match: the field says which it takes
+            return spec.whole.read([item, item] if spec.many else item)
+        except FieldValueError:  # outside a limit, or a pattern it doesn't match: the field says which it takes
             continue
     return _CANNOT
 

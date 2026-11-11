@@ -1,5 +1,5 @@
-"""``split``, ``table-collect``, ``text-list`` and ``text-split``: what each gives, how its hook types it, and what
-it refuses."""
+"""``split``, ``stack``, ``table-collect``, ``text-list`` and ``text-split``: what each gives, how it is typed, and
+what it refuses."""
 
 from typing import Any, TypedDict
 
@@ -63,6 +63,11 @@ def shout(text: str) -> str:
     return text.upper()
 
 
+@_node("one-row")
+def one_row(contact: Contact) -> Table[Contact]:
+    return pl.DataFrame([contact], schema={"name": pl.String, "email": pl.String})
+
+
 @_node("header")
 def header(table: Table) -> list[str]:
     return table.columns
@@ -70,7 +75,7 @@ def header(table: Table) -> list[str]:
 
 REGISTRY = NodeRegistry()
 REGISTRY.add_subregistry(conductor_nodes.registry)
-for _definition in (contacts, csv, tags, words, nobody, sentence, send, shout, header):
+for _definition in (contacts, csv, tags, words, nobody, sentence, send, shout, one_row, header):
     REGISTRY.add(_definition)
 
 
@@ -116,7 +121,7 @@ def test_a_node_reading_a_field_of_a_split_record_is_not_called_where_the_cell_i
 
 def test_split_gives_records_of_unknown_columns_for_a_table_of_any_and_a_field_of_one_is_read_when_it_arrives():
     graph = load(csv, tables.split, shout, edges=[("csv.result", "split.value"), ("split.result.name", "shout.text")])
-    assert graph.problems == [] and output(graph, "split").type == "dict"
+    assert graph.problems == [] and output(graph, "split").type == "Any"
     assert graph.run().results["shout"]["result"] == ["ANN", "BO"]
 
 
@@ -131,11 +136,20 @@ def test_a_list_typed_into_split_is_items_of_any_type():
     assert output(graph, "split").type == "Any" and graph.run().results["split"]["result"] == ["a", 1]
 
 
-def test_split_refuses_what_is_neither_a_table_nor_a_list_where_its_hook_reads_the_arriving_type():
-    graph = load(sentence, tables.split, edges=[("sentence.result", "split.value")])
-    (problem,) = graph.problems
-    assert (problem.type, problem.loc, problem.ctx["error"]) == ("compute_hook_failed", ("split",), "type_mismatch")
-    assert problem.ctx["reason"] == "'value' takes a table or a list, and what is wired to it is neither; wire a table or a list, or use Split text for a text"
+def test_what_is_neither_a_table_nor_a_list_is_a_type_mismatch_on_the_edge_into_split():
+    with pytest.raises(InvalidCallError) as refused:
+        load(sentence, tables.split, edges=[("sentence.result", "split.value")])
+    (problem,) = refused.value.errors()
+    assert (problem.type, problem.loc, problem.ctx["got"], problem.ctx["expected"]) == ("type_mismatch", ("split", "value"), "str", "Table | list")
+
+
+def test_stack_puts_the_tables_made_per_item_into_one_table_of_their_row_type():
+    graph = load(contacts, tables.split, one_row, tables.stack, edges=[
+        ("contacts.result", "split.value"), ("split.result", "one-row.contact"), ("one-row.result", "stack.tables"),
+    ])
+    assert graph.problems == [] and output(graph, "stack").shape == "table" and set(output(graph, "stack").columns) == {"name", "email"}
+    stacked = graph.run().results["stack"]["result"]
+    assert stacked.to_dicts() == graph.run().results["contacts"]["result"].to_dicts()
 
 
 # -- table-collect ---------------------------------------------------------------------------------------

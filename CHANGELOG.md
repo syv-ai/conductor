@@ -14,6 +14,15 @@ rule.
 
 What changes in how you work, before the name-by-name tables:
 
+- **A type means what it says, wherever it is read.** `Series[T]` and `Table[R]` are ordinary generic
+  types: a table stands in a union, a `Series` and a record, and `Table[R]` read anywhere holds exactly
+  `R`'s columns. A node may hold type variables (`def split[T](value: Table[T] | list[T]) -> Series[T]`),
+  bound from its edges when a graph loads. Generic arguments are compared (`list[int]` lands on
+  `list[float]`, never on `list[str]`) and shown in a type's id. `Annotated` metadata that is no `Param`
+  is pydantic's. A host type widens what lands on it with `type_accepts`, declared data, and a subclass
+  of a builtin carries its own pydantic schema. A table's one JSON form is
+  `{"columns": [{"name", "type", "values"}]}`. `syv-conductor-nodes` gains `stack`.
+
 - **Five modules.** Import from `conductor`, `conductor.widgets`, `conductor.events`,
   `conductor.testing` and `conductor.about`, the reference. Everything else is `conductor._internal`.
   A type's `accepted_as` is read from `registry.describe().types`.

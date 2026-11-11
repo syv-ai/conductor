@@ -24,10 +24,10 @@ from conductor import (
 )
 from conductor.widgets import Textarea
 
-from tests.test_core.nodes import registry_of
+from tests.test_core.nodes import ReadAsItsBuiltin, registry_of
 
 
-class Txt(str):
+class Txt(ReadAsItsBuiltin, str):
     type_id: ClassVar[str] = "upgrade-test-txt"
     type_title: ClassVar[str] = "Text"
 

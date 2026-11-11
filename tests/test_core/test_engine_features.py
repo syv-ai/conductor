@@ -23,7 +23,7 @@ from conductor import (
 from pydantic import GetCoreSchemaHandler, JsonValue
 from pydantic_core import core_schema
 
-from tests.test_core.nodes import place, registry_of
+from tests.test_core.nodes import ReadAsItsBuiltin, place, registry_of
 
 
 def collect(run, **kw):
@@ -351,12 +351,12 @@ def test_outputs_typed_by_what_arrives():
 
 
 
-class Integer(int):
+class Integer(ReadAsItsBuiltin, int):
     type_id: ClassVar[str] = "integer"
     type_title: ClassVar[str] = "Integer"
 
 
-class Number(float):
+class Number(ReadAsItsBuiltin, float):
     """Reads the Danish decimal comma; takes an Integer."""
 
     type_id: ClassVar[str] = "number"
@@ -367,9 +367,7 @@ class Number(float):
         return core_schema.no_info_before_validator_function(
             lambda v: cls(v.replace(",", ".")) if isinstance(v, str) else cls(v), core_schema.float_schema())
 
-    @classmethod
-    def accepts(cls, source: type) -> bool:
-        return issubclass(source, Integer)
+    type_accepts: ClassVar[tuple[type, ...]] = (Integer,)
 
 
 class File:
@@ -626,13 +624,11 @@ def test_a_timed_out_or_cancelled_leg_keeps_the_calls_already_on_threads():
 
 
 def test_what_a_signature_says_wrong_is_refused_at_node_with_its_code():
-    from conductor import NodeDeclarationError, Table
-    from conductor.widgets import TextInput
+    from conductor import NodeDeclarationError
 
     cases = {
         "default_invalid": lambda: node("a", title="A", description="")(_fn("x: int = None")),
         "nested_series": lambda: node("b", title="B", description="")(_fn("x: Series[Series[int]]")),
-        "annotated_extra_unknown": lambda: node("c", title="C", description="")(_fn("x: Annotated[int, TextInput()]", TextInput=TextInput)),
         "bound_invalid": lambda: node("d", title="D", description="")(_fn('x: Annotated[int, Param(ge="a")]')),
     }
     for code, declare in cases.items():
@@ -642,12 +638,6 @@ def test_what_a_signature_says_wrong_is_refused_at_node_with_its_code():
             assert error.code == code, (code, error.code)
         else:
             raise AssertionError(code)
-    try:
-        Table()
-    except TypeError:
-        pass
-    else:
-        raise AssertionError("Table() built an instance")
 
 
 def _fn(parameter: str, **names: Any) -> Any:
@@ -660,7 +650,7 @@ def _fn(parameter: str, **names: Any) -> Any:
 def test_a_field_reads_as_its_author_wrote_it():
     from conductor import Table
 
-    class Whole(int):
+    class Whole(ReadAsItsBuiltin, int):
         type_id: ClassVar[str] = "Whole"
         type_title: ClassVar[str] = "Whole"
         pass

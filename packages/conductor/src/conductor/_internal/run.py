@@ -22,8 +22,6 @@ depth of nested runs, is one path of node ids and item positions:
 from __future__ import annotations
 
 import asyncio
-import datetime
-import decimal
 import hashlib
 import json
 import math
@@ -34,7 +32,6 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Annotated, Any, Literal, overload
 
-import polars as pl
 import pydantic_core
 from pydantic import (
     BaseModel,
@@ -50,13 +47,7 @@ from pydantic import (
 from conductor._internal.ask import Question, Waiting, answer_outputs, waiting_questions
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.errors import InvalidCallError, Problem, make_problem, value_free_errors
-from conductor._internal.fields import (
-    SKIPPED,
-    FieldSpec,
-    FieldValueError,
-    carried_list,
-    read_value,
-)
+from conductor._internal.fields import SKIPPED, FieldSpec, FieldValueError, written_table
 from conductor._internal.graph import (
     Cell,
     Fixed,
@@ -663,7 +654,7 @@ class Run:
         for address in self.graph.outputs:
             node_id, _, output = address.partition(".")
             placed = self.graph._nodes[node_id]
-            lists = placed.outputs[output].shape == "many"
+            lists = placed.outputs[output].many
             values = []
             for key in self._instances(placed.scope, ())[0]:
                 unit = self._units[node_id][key]
@@ -842,7 +833,7 @@ class Run:
             if value is SKIPPED:
                 return SKIPPED_UNIT
             if value is None:
-                if not plan.spec.optional and blank is None:
+                if not plan.spec.whole.optional and blank is None:
                     blank = Blank(name)
                 kwargs[name] = None
             elif kind is Gather:
@@ -932,7 +923,7 @@ class Run:
         inputs = {address: _dump_input(self.graph, address, v) for address, v in self.inputs.items()}
         non_finite: dict[str, list[_Path]] = {}
         for address, written_input in inputs.items():
-            if not self.graph._input_fields[address].spec.plain:
+            if not self.graph._input_fields[address].spec.type.hashes_plainly:
                 _find_non_finite(written_input, [], non_finite.setdefault(address, []))
         code = {
             "/".join(path): self._ran_as.get(path[0]) or placed.reuse_digest if len(path) == 1 else placed.reuse_digest
@@ -1020,7 +1011,7 @@ def _aligned(name: str, plan: Gather, items: list[Any], gathered: Mapping[str, t
     the same Series, so those inputs stay in step; an input whose items may be blank keeps a blank in its place."""
     together = [(others, other.spec.keeps_blanks) for other, others in gathered.values() if other.series == plan.series]
     if len(together) == 1:
-        return items if together[0][1] or None not in items else [item for item in items if item is not None]
+        return items if together[0][1] else [item for item in items if item is not None]  # by identity: an item may be a frame, which has no plain ==
     return [item for place, item in enumerate(items) if all(keeps or others[place] is not None for others, keeps in together)]
 
 
@@ -1139,7 +1130,7 @@ def _seconds(value: float) -> bool:
 def kept_outputs(outputs: Mapping[str, FieldSpec], spread: dict[str, Any]) -> dict[str, Any]:
     """A node's checked outputs by name as a run keeps them: a ``Series`` as a list."""
     for name, spec in outputs.items():
-        if spec.shape == "many" and spread[name] is not SKIPPED and spread[name] is not None:
+        if spec.many and spread[name] is not SKIPPED and spread[name] is not None:
             spread[name] = list(spread[name])  # an item may be SKIPPED: a branch not taken for it
     return spread
 
@@ -1176,13 +1167,16 @@ def checked_outputs(returns: Returns, outputs: Mapping[str, FieldSpec], returned
 
 
 def _checked(spec: FieldSpec, name: str, value: Any, *, code: str) -> Any:
+    if value is SKIPPED:
+        return value
     try:
-        read = read_value(spec, value, strict=code == "invalid_output")
+        read = spec.whole.read(value, strict=code == "invalid_output")
     except FieldValueError as refused:
         refused.code, refused.ctx = code, {"name": name, **refused.ctx}
         raise
-    if code == "invalid_output" and spec.shape == "one" and spec.plain_classes and read is not SKIPPED and not isinstance(read, spec.plain_classes):
-        raise FieldValueError(f"its type's own check gave a {type(read).__name__}, not a {spec.type_id}", code="invalid_output", name=name)
+    exact = spec.whole.exact_classes
+    if code == "invalid_output" and exact and not isinstance(read, exact):
+        raise FieldValueError(f"its type's own check gave a {type(read).__name__}, not a {spec.whole.id}", code="invalid_output", name=name)
     return read
 
 
@@ -1232,15 +1226,12 @@ def _unit_columns(placed: PlacedNode, listed: list[Unit]) -> dict[str, Any]:
     for name, spec in placed.outputs.items():
         values = [u.out[name] for u in done]
         at = f"{placed.id}.{name}"
-        if spec.shape == "table":
-            dumped: Any = [None if v is SKIPPED or v is None else _dump_frame(spec, v, at) for v in values]
-        else:
-            plain = [None if v is SKIPPED or v is None else [None if i is SKIPPED else i for i in v] if spec.shape == "many" else v for v in values]
-            dumped = _written_as_json(spec.column_adapter, plain, at)
+        plain = [None if v is SKIPPED or v is None else [None if i is SKIPPED else i for i in v] if spec.many else v for v in values]
+        dumped = _written_as_json(spec.column.adapter, plain, at)
         non_finite: list[_Path] = []
-        if spec.shape != "table" and not spec.plain:
+        if not spec.type.hashes_plainly:
             _find_non_finite(dumped, [], non_finite)
-        items = {n: skips for n, v in enumerate(values) if spec.shape == "many" and v is not SKIPPED and v is not None and (skips := [i for i, item in enumerate(v) if item is SKIPPED])}
+        items = {n: skips for n, v in enumerate(values) if spec.many and v is not SKIPPED and v is not None and (skips := [i for i, item in enumerate(v) if item is SKIPPED])}
         outputs[name] = _SavedOutput.model_construct(values=dumped, skipped=[i for i, v in enumerate(values) if v is SKIPPED], skipped_items=items, non_finite=non_finite)
     return dict(
         states=[_STATE[type(u)] for u in listed], outputs=outputs,
@@ -1262,22 +1253,6 @@ _Paths = Annotated[list[_Path], _AS_IS]
 
 #: Every part of a save refuses what it doesn't declare, and writes a float that isn't finite as its text.
 _SAVE_CONFIG = ConfigDict(extra="forbid", ser_json_inf_nan="strings")
-
-
-class _SavedTable(BaseModel):
-    """A table in a save: a table output of one finished unit, or a caller's table input.
-
-    Attributes:
-        rows: How many rows the table has, which a run counts its rows by.
-        columns: Each column as ``(name, values)``, in the table's own order, each value as JSON.
-        types: For a column the row type doesn't name, the plain type its values were written from (``"date"``,
-            ``"decimal"``, ...), so they read back as that type and not as their JSON text.
-    """
-
-    model_config = _SAVE_CONFIG
-    rows: NonNegativeInt
-    columns: list[tuple[str, list[Any]]]
-    types: dict[str, str] = {}
 
 
 class _SavedOutput(BaseModel):
@@ -1348,7 +1323,7 @@ class _SavedRunBase(BaseModel):
     Attributes:
         graph: The fingerprint of the graph that ran, so another graph's save is refused.
         max_items: The item ceiling the run goes on under.
-        inputs: The caller's inputs by address, as JSON; a table as a ``_SavedTable``.
+        inputs: The caller's inputs by address, as JSON, each as its type writes it.
         non_finite_inputs: By address, the places of each float that isn't finite, as ``_SavedOutput.non_finite``.
         units: By node id, the units of each node with any; of an embedded graph, only the ones it came to
             uncalled, as a finished one is its nested run's outputs.
@@ -1402,7 +1377,6 @@ _SavedRun = Annotated[_SavedGoingRun | _SavedEndedRun, Field(discriminator="stat
 _SavedGoingRun.model_rebuild()
 _SavedEndedRun.model_rebuild()
 _SAVED: TypeAdapter[_SavedRun] = TypeAdapter(_SavedRun)
-_SAVED_TABLE = TypeAdapter(_SavedTable)
 
 
 class _SaveError(Exception):
@@ -1454,10 +1428,7 @@ def _load_units(placed: PlacedNode, dumped: _SavedUnitColumns) -> list[Unit]:
             continue
         values: list[Any]
         try:
-            if spec.shape == "table":
-                values = [None if v is None else _load_frame(spec, _SAVED_TABLE.validate_python(v), at) for v in column.values]
-            else:
-                values = spec.column_adapter.validate_python(_with_non_finite(column.values, column.non_finite, at))
+            values = spec.column.adapter.validate_python(_with_non_finite(column.values, column.non_finite, at))
         except ValidationError as error:
             raise _SaveError(at, value_free_errors(error)[0]["msg"]) from None
         if len(values) != done:
@@ -1471,7 +1442,7 @@ def _load_units(placed: PlacedNode, dumped: _SavedUnitColumns) -> list[Unit]:
                 raise _SaveError(at, f"it skips an item the value {n} doesn't hold")
             for i in positions:
                 values[n][i] = SKIPPED
-        if spec.shape == "many" and not spec.optional and any(v is None for v in values):
+        if spec.many and not spec.whole.optional and any(v is None for v in values):
             raise _SaveError(at, "a finished unit has no value on an output of many")
         columns[name] = values
     unknown = sorted(dumped.outputs.keys() - placed.outputs.keys())
@@ -1538,35 +1509,6 @@ def _with_non_finite(written: Any, paths: Any, at: str) -> Any:
 _NON_FINITE_TEXT = frozenset({"NaN", "Infinity", "-Infinity"})
 
 
-def _load_frame(spec: FieldSpec, saved: _SavedTable, at: str) -> pl.DataFrame:
-    """A saved table, each column read by its type; a column whose length isn't the row count is refused."""
-    rows, columns = saved.rows, {}
-    for c, values in saved.columns:
-        if len(values) != rows:
-            raise _SaveError(f"{at}.{c}", f"it holds {len(values)} cells for {rows} rows")
-        try:
-            columns[c] = _column_adapter(spec, c, saved.types.get(c)).validate_python(values)
-        except ValidationError as error:
-            raise _SaveError(f"{at}.{c}", value_free_errors(error)[0]["msg"]) from None
-    return pl.DataFrame(columns, strict=False)
-
-
-def _column_adapter(spec: FieldSpec, column: str, written_as: str | None = None) -> TypeAdapter[Any]:
-    """Checks and writes one column of a table output: by the column's type where the row type names it, else by the type its values were written as."""
-    return spec.column_adapters.get(column) or _COLUMN_OF.get(written_as or "", _ANY_COLUMN)
-
-
-def _dump_frame(spec: FieldSpec, frame: pl.DataFrame, at: str) -> dict[str, Any]:
-    """A table as JSON: its row count, its columns in order as ``[name, values]`` pairs, and the value type of each column its row type doesn't name, so it reads back as written."""
-    written, types = {}, {}
-    for c, values in frame.to_dict(as_series=False).items():
-        written_as = None if c in spec.column_adapters else _value_type(values)
-        if written_as is not None:
-            types[c] = written_as
-        written[c] = _written_as_json(_column_adapter(spec, c, written_as), values, f"{at}.{c}")
-    return {"rows": frame.height, "columns": [[c, v] for c, v in written.items()], **({"types": types} if types else {})}
-
-
 def _written_as_json(adapter: TypeAdapter[Any], values: list[Any], at: str) -> Any:
     """``values`` as JSON; a value with no JSON form raises ``_SaveError`` naming where, never quoting it."""
     try:
@@ -1576,62 +1518,33 @@ def _written_as_json(adapter: TypeAdapter[Any], values: list[Any], at: str) -> A
     return written
 
 
-def _value_type(values: list[Any]) -> str | None:
-    """The name of the plain type a column's values have, for one whose JSON doesn't say it (a date, a decimal, a float that isn't finite)."""
-    first = next((v for v in values if v is not None), None)
-    for name, kind in _PLAIN:
-        if isinstance(first, kind):
-            return name
-    return None
-
-
-#: The plain types a column's values can be written as and read back from, the narrower first.
-_PLAIN: tuple[tuple[str, type], ...] = (
-    ("bool", bool), ("int", int), ("float", float), ("datetime", datetime.datetime), ("date", datetime.date),
-    ("time", datetime.time), ("timedelta", datetime.timedelta), ("decimal", decimal.Decimal), ("str", str),
-)
-_COLUMN_OF = {name: carried_list(kind | None) for name, kind in _PLAIN}
-_ANY_COLUMN = carried_list(Any)
-
-
 def _dump_input(graph: Graph, address: str, value: Any) -> Any:
-    """A caller's input as JSON: a table as a saved table output is, anything else by its field.
+    """A caller's input as JSON, as its field writes it.
 
     Raises:
         _SaveError: The value has no JSON form; it names the input.
     """
-    spec = graph._input_fields[address].spec
-    if spec.shape == "table":
-        return None if value is None else _dump_frame(spec, value, address)
-    return _written_as_json(spec.column_adapter, [value], address)[0]  # as a column writes it: a float that isn't finite is kept
+    return _written_as_json(graph._input_fields[address].spec.column.adapter, [value], address)[0]  # as a column writes it: a float that isn't finite is kept
 
 
 def _load_input(graph: Graph, address: str, saved: Any) -> Any:
     """A caller's input from a save, read by its field."""
     spec = graph._input_fields[address].spec
     try:
-        if spec.shape == "table":
-            return None if saved is None else _load_frame(spec, _SAVED_TABLE.validate_python(saved), address)
-        return spec.adapter.validate_python(saved)
+        return spec.whole.adapter.validate_python(saved)
     except ValidationError as error:
         raise _SaveError(address, value_free_errors(error)[0]["msg"]) from None
-
-
-def _frame_json(value: Any) -> Any:
-    if isinstance(value, pl.DataFrame):
-        return value.to_dict(as_series=False)
-    raise TypeError(type(value).__name__)
 
 
 def jsonable(kwargs: dict[str, Any]) -> Any:
     """What a unit received, as JSON; a float that isn't finite as text. ``FieldValueError`` as ``question_unwritable`` names
     the first input with no JSON form."""
     try:
-        return pydantic_core.from_json(pydantic_core.to_json(kwargs, fallback=_frame_json, inf_nan_mode="strings"))
+        return pydantic_core.from_json(pydantic_core.to_json(kwargs, fallback=written_table, inf_nan_mode="strings"))
     except (TypeError, ValueError, pydantic_core.PydanticSerializationError) as error:
         for name, value in kwargs.items():
             try:
-                pydantic_core.to_json(value, fallback=_frame_json, inf_nan_mode="strings")
+                pydantic_core.to_json(value, fallback=written_table, inf_nan_mode="strings")
             except (TypeError, ValueError, pydantic_core.PydanticSerializationError) as unwritable:
                 raise FieldValueError(str(unwritable), code="question_unwritable", input=name) from None
         raise error
@@ -1652,7 +1565,7 @@ def _fingerprint(digest: str, kwargs: dict[str, Any], *, plain: bool = False) ->
     """
     try:
         # No key of a plain node's inputs came from a store, so they need no canonical form: its inputs' order is the node's.
-        written = pydantic_core.to_json([digest, kwargs], fallback=_frame_columns) if plain else canonical_json([digest, kwargs], fallback=_frame_columns)
+        written = pydantic_core.to_json([digest, kwargs], fallback=written_table) if plain else canonical_json([digest, kwargs], fallback=written_table)
     except (TypeError, ValueError, pydantic_core.PydanticSerializationError):
         return None
     return hashlib.blake2b(written, digest_size=12).hexdigest()
@@ -1667,13 +1580,6 @@ def canonical_json(value: Any, fallback: Callable[[Any], Any] | None = None) -> 
     """
     plain = pydantic_core.to_jsonable_python(value, fallback=fallback)
     return json.dumps(plain, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
-
-
-def _frame_columns(value: Any) -> Any:
-    """A table as its columns in order, for a fingerprint, where an object's keys are sorted."""
-    if isinstance(value, pl.DataFrame):
-        return [[c, s] for c, s in value.to_dict(as_series=False).items()]
-    raise TypeError(type(value).__name__)
 
 
 def _question_fingerprint(placed: PlacedFunction, unit: Asking) -> str:

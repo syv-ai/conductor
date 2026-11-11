@@ -1,12 +1,11 @@
-"""Nodes that take a table or a list apart and put records back into a table: ``split`` and ``table-collect``.
+"""Nodes that take a table or a list apart and put tables back together: ``split``, ``stack`` and ``table-collect``.
 
 ``split`` makes a ``Series`` of a table's records or a list's items, so what
-follows runs once for each. Its ``compute_outputs`` hook reads the type
-arriving on ``value``: a table gives its records, typed as its row type (a
-``dict`` of any fields for a table of any columns), and a list gives its
-items. The input is typed ``Any``,
-as a table can't stand in a union with a list, so the hook is what refuses a
-type that is neither.
+follows runs once for each. Its type variable is the record or the item: a
+table gives its records typed as its row type, a list gives its items, and
+anything else is a type mismatch on the edge.
+
+``stack`` puts the tables made once per item into one table, row after row.
 
 ``table-collect`` gathers records into one table and adds columns beside
 them. ``columns`` names the columns made one value per record, each a
@@ -20,35 +19,27 @@ import typing
 from typing import Annotated, Any, TypedDict
 
 import polars as pl
-from conductor import NodeError, NodeRegistry, Param, Series, Table, row_type
+from conductor import NodeError, NodeRegistry, Param, Series, Table
 from conductor.widgets import ListInput
 
 registry = NodeRegistry(category="table")
 
 Names = Annotated[list[str], Param(widget=ListInput())]
 
-#: ``Series`` and ``Table`` of a type known only when a graph loads, which a type checker can't follow.
-_Series: Any = Series
+#: ``Table`` of a row type known only when a graph loads, which a type checker can't follow.
 _Table: Any = Table
 
 
-def _items(value: type) -> dict[str, Any]:
-    """A ``Series`` of what arrives on ``value``, one item at a time: a table's records or a list's items; ``Any``
-    items until something is wired."""
-    row = row_type(value)
-    if row is not None:
-        return {"result": _Series[dict if row is Any else row]}
-    if value is Any or value is list:
-        return {"result": _Series[Any]}
-    if typing.get_origin(value) is list:
-        return {"result": _Series[typing.get_args(value)[0]]}
-    raise NodeError("'value' takes a table or a list, and what is wired to it is neither; wire a table or a list, or use Split text for a text", code="type_mismatch")
-
-
-@registry.node("split", title="Split", description="Takes a table or a list apart, so what follows runs once for each record or item.", compute_outputs=_items)
-def split(value: Any) -> dict[str, Any]:
+@registry.node("split", title="Split", description="Takes a table or a list apart, so what follows runs once for each record or item.")
+def split[T](value: Table[T] | list[T]) -> Series[T]:
     """Gives a table's records, or a list's items, as a Series."""
-    return {"result": value.to_dicts() if isinstance(value, pl.DataFrame) else value}
+    return typing.cast("list[T]", value.to_dicts()) if isinstance(value, pl.DataFrame) else value  # a frame's records are its row type's
+
+
+@registry.node("stack", title="Stack", description="Puts the tables made for each item into one table, one under the other.")
+def stack[R](tables: Series[Table[R]]) -> Table[R]:
+    """Gives one table of every table's rows, in the items' order."""
+    return pl.concat(tables, how="vertical_relaxed") if tables else pl.DataFrame()
 
 
 def _column_inputs(columns: list[str], constant_columns: list[str]) -> dict[str, Any]:

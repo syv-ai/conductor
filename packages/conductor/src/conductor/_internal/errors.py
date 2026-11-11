@@ -90,10 +90,6 @@ PROBLEM_CATALOGUE: Mapping[str, str] = {
         "'{node_id}' reads items of {series}, and neither is made inside the other, so nothing says which item goes with which. "
         "Make one inside the other (wire '{wire_from}' into '{wire_into}', the node that makes the other), or give one of them whole to a Series input."
     ),
-    "table_per_item_not_offered": (
-        "The graph '{node}' makes the table '{output}' once per item of {series}, and a graph used as a node can't offer a table per item. "
-        "Bring them into one table inside that graph, with a node that takes them as a Series."
-    ),
     "type_mismatch": "'{source}' gives {got}, but '{node_id}.{field}' takes {expected}; connect an output that gives {expected}, or convert it in a node between.",
     "unbound_on_later_node": "Nothing feeds '{field}', and only a first node takes inputs from the caller; draw an edge into it or type a value in.",
     "unknown_input": "'{node_id}' has no input '{field}'; it has {inputs}.",

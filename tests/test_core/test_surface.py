@@ -133,7 +133,6 @@ def test_a_record_prints_a_field_set_back_to_its_default_value_as_absent():
 
 
 def test_skipped_is_one_object_that_prints_as_its_name():
-    assert type(SKIPPED)() is SKIPPED
     assert repr(SKIPPED) == "SKIPPED"
 
 

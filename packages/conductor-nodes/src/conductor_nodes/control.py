@@ -8,14 +8,14 @@ more than two ways is a chain of them.
 is a yes or no, not an expression to parse: other nodes give one
 (``text-contains``, ``regex-match``, ``logic-not``), so the condition is wired
 in rather than written in a language this node would have to own. ``value``
-takes any value, since the node passes it on without reading it, and the
-``compute_outputs`` hook gives both outputs the type that arrives on it.
+takes any value, since the node passes it on without reading it: its type is
+a type variable, so both outputs have the type that arrives on it.
 
 The two ``logic-if`` nodes route a text by a test of their own.
 """
 
 from dataclasses import dataclass
-from typing import Annotated, Any
+from typing import Annotated
 
 from conductor import SKIPPED, NodeRegistry, Param
 
@@ -24,20 +24,16 @@ from conductor_nodes._inputs import Flag, Line, LongText
 registry = NodeRegistry(category="control")
 
 
-def _either_way(value: type) -> dict[str, Any]:
-    """Both outputs of the type arriving on ``value``, ``Any`` until it is wired; one holds a value on each call."""
-    return {
-        "if_true": Annotated[value, Param(title="If true", exclusive_group="when")],
-        "if_false": Annotated[value, Param(title="If false", exclusive_group="when")],
-    }
+@dataclass(frozen=True)
+class Decided[T]:
+    if_true: Annotated[T, Param(title="If true", exclusive_group="when")] = SKIPPED
+    if_false: Annotated[T, Param(title="If false", exclusive_group="when")] = SKIPPED
 
 
-@registry.node("decision", title="Decision", description="Sends the value one way when the switch is on and the other way when it is off.", compute_outputs=_either_way)
-def decision(value: Any, when: Flag = True) -> dict[str, Any]:
+@registry.node("decision", title="Decision", description="Sends the value one way when the switch is on and the other way when it is off.")
+def decision[T](value: T, when: Flag = True) -> Decided[T]:
     """Sends a value one of two ways by `when`."""
-    if when:
-        return {"if_true": value, "if_false": SKIPPED}
-    return {"if_true": SKIPPED, "if_false": value}
+    return Decided(if_true=value) if when else Decided(if_false=value)
 
 
 @dataclass(frozen=True)

@@ -321,12 +321,13 @@ def test_an_output_made_per_item_inside_is_a_series_and_a_series_made_per_item_a
     assert deep.is_runnable and deep.plan["x"].series == "e.up.result"
     assert deep.describe().nodes["e"].outputs[0].shape == "many"
     lists = load({"e": "series-per-item-inner"})._nodes["e"].outputs["c.result"]
-    assert (lists.shape, lists.type, lists.type_id) == ("many", list[str], "list")
+    assert (lists.many, lists.type.hint, lists.whole.id) == (True, list[str], "Series[list[str]]")
 
 
-def test_a_table_made_per_item_inside_is_refused_on_the_embedding():
-    refused = load({"e": "table-per-item-inner"}).problems
-    assert [(p.type, p.loc, p.ctx) for p in refused] == [("table_per_item_not_offered", ("e",), {"node": "table-per-item-inner", "output": "t.result", "series": "w.result"})]
+def test_a_table_made_per_item_inside_is_a_series_of_tables():
+    graph = load({"e": "table-per-item-inner"})
+    tables = graph._nodes["e"].outputs["t.result"]
+    assert graph.problems == [] and (tables.many, tables.type.record is not None) == (True, True)
 
 
 def test_a_decision_inside_is_the_embeddings_by_where_it_is_made():

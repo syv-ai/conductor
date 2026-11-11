@@ -37,6 +37,7 @@ EXAMPLES = {
     "regex-extract": [{"text": "a1b22", "pattern": r"\d+"}],
     "decision": [{"value": "x", "when": False}],
     "split": [{"value": ["a", "b"]}],
+    "stack": [{"tables": [[{"name": "Ann"}], [{"name": "Bo"}]]}],
     "table-collect": [{"records": [{"name": "Ann"}], "constant_columns": ["team"], "team": "red"}],
 }
 

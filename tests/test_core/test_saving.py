@@ -457,7 +457,7 @@ def test_saving_a_run_given_an_input_with_no_json_form_raises_naming_the_input()
     assert (problem.type, problem.ctx["at"]) == ("state_unwritable", "t.value")
 
 
-def test_a_column_json_cannot_keep_makes_the_save_raise_naming_the_output_and_column():
+def test_a_column_json_cannot_keep_makes_the_save_raise_naming_the_output():
     class Blob(TypedDict):
         data: bytes
 
@@ -471,7 +471,7 @@ def test_a_column_json_cannot_keep_makes_the_save_raise_naming_the_output_and_co
         run.to_json()
 
     (problem,) = refused.value.errors()
-    assert problem.type == "state_unwritable" and problem.ctx["at"].startswith("b.result") and "data" in problem.ctx["at"]
+    assert problem.type == "state_unwritable" and problem.ctx["at"].startswith("b.result")
     assert "\\xff" not in json.dumps(problem.model_dump(mode="json"))
 
 

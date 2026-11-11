@@ -32,7 +32,7 @@ from conductor._internal.fields import (
     NamedType,
     Param,
     Series,
-    row_type,
+    Table,
 )
 from conductor._internal.graph import Feed, Graph, GraphDescription, GraphInput, RunsOn
 from conductor._internal.node_definition import (
@@ -48,12 +48,6 @@ from conductor._internal.node_definition import (
 from conductor._internal.record import GraphRecord, NodeRecord, make_graph
 from conductor._internal.registry import NodeRegistry, RegistryDescription
 from conductor._internal.run import EndedEarly, Going, NotCalled, Run, RunState, RunStatus
-
-if TYPE_CHECKING:
-    # A node takes and returns frames; a type checker reads ``Table[R]`` as one that keeps its row type ``R``.
-    from conductor._internal.table_as_a_type_checker_reads_it import Table
-else:
-    from conductor._internal.fields import Table
 
 __all__ = [
     "PROBLEM_CODES",
@@ -96,5 +90,4 @@ __all__ = [
     "Waiting",
     "make_graph",
     "node",
-    "row_type",
 ]

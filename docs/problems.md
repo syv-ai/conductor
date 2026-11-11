@@ -307,15 +307,6 @@ print(problems({
 
 **Fix.** Feed it from opposite branches of one decision (outputs of one `exclusive_group`), or write a node with an input for each and wire them there. A `Series` input takes several edges on the same terms.
 
-### `table_per_item_not_offered`
-
-> The graph '{node}' makes the table '{output}' once per item of {series}, and a graph used as a node can't offer a table per item. Bring them into one table inside that graph, with a node that takes them as a Series.
-
-A graph used as a node offers an output its graph makes per item as a `Series` of every item's value. A table made per
-item has no such type, so the node that uses the graph is refused.
-
-**Fix.** Inside the stored graph, end with a node that takes the tables as a `Series` and gives one table.
-
 ### `type_mismatch`
 
 > '{source}' gives {got}, but '{node_id}.{field}' takes {expected}; connect an output that gives {expected}, or convert it in a node between.
@@ -937,23 +928,6 @@ An answer queued while a leg ran, when that leg ended `stopped`, `timed_out`, `c
 
 Raised as `NodeDeclarationError` when the module that declares the node is imported. `error.code` is the code. The text is English and for the developer.
 
-### `annotated_extra_unknown`
-
-> {name}: Annotated holds {unknown[0]}, which conductor doesn't read; a widget, a title or a limit goes on Param(...)
-
-> {name}: the column '{column}' is Annotated, which a table's column doesn't read; check its values in the node
-
-```python
-try:
-    @node("titled", title="Titled", description="Passes the text on as it is.")
-    def titled(text: Annotated[str, "Title"]) -> str:
-        return text
-except NodeDeclarationError as error:
-    print(error.code)  # annotated_extra_unknown
-```
-
-**Fix.** Put a title, a widget or a limit on `Param(...)`: `Annotated[str, Param(title="Title")]`. A table's row type names its columns by bare type; a column's limits are the node's to check.
-
 ### `arriving_on_compute_added_inputs`
 
 > compute_added_inputs parameter {name} reads an arriving type, but inputs are decided before anything arrives; read it in compute_outputs
@@ -990,11 +964,9 @@ except NodeDeclarationError as error:
 
 ### `bound_invalid`
 
-> {spec.name}: a table takes no limits; take them off
+> {unheld} can't apply to {Type(source).id}, as pydantic holds no such limit on it; take them off, or check the value in the node
 
-> {unheld} can't apply to {getattr(_bare(source), '__name__', source)}, as pydantic holds no such limit on it; take them off, or check the value in the node
-
-> {spec.name}: the limits {spec.param.constraints} don't fit {getattr(base, '__name__', base)}, so change one: {error}
+> the limits {param.limits} don't fit {self.id}, so change one: {error}
 
 ```python
 try:
@@ -1009,9 +981,13 @@ except NodeDeclarationError as error:
 
 ### `choices_invalid`
 
-> {spec.name}: a table takes no choices; take them off
+> the choices hold an id twice, or none; give each choice once, as a value of the field's type
 
-> {fault}; give each choice once, as a value of the field's type
+> on a Literal the choices title its values, one each: {literal}; give each choice once, as a value of the field's type
+
+> a choice has no JSON form; give each choice once, as a value of the field's type
+
+> a choice is not a value of the field's type: {value_free_errors(refused)[0]['msg']}; give each choice once, as a value of the field's type
 
 ```python
 from typing import Literal
@@ -1049,11 +1025,9 @@ except NodeDeclarationError as error:
 
 ### `default_invalid`
 
-> {spec.name}: the default None is a blank; write its type with | None
+> the default None is a blank; write its type with | None
 
-> {spec.name}: the default {spec.default} is not a {getattr(base, '__name__', base)}, so give one that is: {error}
-
-> {spec.name}: the default {spec.default} has no JSON form, so give one its type writes as JSON: {error}
+> the default {self.default} is not a value of {whole.id} that it writes as JSON, so give one that is: {error}
 
 ```python
 try:
@@ -1087,7 +1061,7 @@ except NodeDeclarationError as error:
 
 ### `duplicate_type_id`
 
-> type id {type_id(held)} is declared by both {_qualified_name(existing)} and {_qualified_name(held)}; one registry holds one type per id
+> type id {Type(held).id} is declared by both {_qualified_name(existing)} and {_qualified_name(held)}; one registry holds one type per id
 
 ```python
 class Amount(int):
@@ -1125,7 +1099,7 @@ except NodeDeclarationError as error:
 
 ### `from_run_misplaced`
 
-> {name}: FromRun is a whole parameter the host always gives, name: FromRun[Session]; anywhere else, a caller would fill it
+> FromRun is a whole parameter the host always gives, name: FromRun[Session]; anywhere else, a caller would fill it
 
 ```python
 class Session: ...
@@ -1211,7 +1185,7 @@ except NodeDeclarationError as error:
 
 ### `nested_series`
 
-> {name}: a Series of Series; a field holds one level of items, so return one Series
+> a Series of Series; a field holds one level of items, so return one Series
 
 ```python
 try:
@@ -1316,26 +1290,9 @@ except NodeDeclarationError as error:
 
 **Fix.** A version replaces an earlier `@node` of its own id. A different node gets no `replaces=`.
 
-### `series_of_tables`
-
-> {name}: a Series of tables; a table already holds many rows, so take or return one table
-
-```python
-import polars as pl
-
-try:
-    @node("frames", title="Frames", description="Hands back no tables.")
-    def frames(text: str) -> Series[pl.DataFrame]:
-        return []
-except NodeDeclarationError as error:
-    print(error.code)  # series_of_tables
-```
-
-**Fix.** Return one table: it already holds many rows.
-
 ### `type_not_carried`
 
-> {spec.name}: conductor can't check or write {getattr(base, '__name__', base)} as JSON; use a type pydantic knows, such as a pydantic model or a dataclass
+> conductor can't check or write {self.id} as JSON; use a type pydantic knows, such as a pydantic model or a dataclass, or give the class its own __get_pydantic_core_schema__
 
 ```python
 class Plain:
@@ -1351,7 +1308,37 @@ except NodeDeclarationError as error:
     print(error.code)  # type_not_carried
 ```
 
-**Fix.** Use a type pydantic can check and write as JSON: a pydantic model, a dataclass or a builtin.
+**Fix.** Use a type pydantic can check and write as JSON: a pydantic model, a dataclass or a builtin. A class of your own that subclasses a builtin (`class Text(str)`) says how pydantic reads it, in a `__get_pydantic_core_schema__` of its own.
+
+### `type_variable_constrained`
+
+> {spec.name}: the type variable {variable.__name__} is constrained to a few types; give it a bound, or write the union
+
+```python
+try:
+    @node("hand-on", title="Hand on", description="Hands a value on.")
+    def hand_on[T: (int, str)](value: T) -> T:
+        return value
+except NodeDeclarationError as error:
+    print(error.code)  # type_variable_constrained
+```
+
+**Fix.** Give the variable a bound (`T: int | str`), or write the union in the signature. A bound says what may arrive; the variable is then whatever does.
+
+### `type_variable_only_in_return`
+
+> {spec.name}: the type variable {variable.__name__} is on no input, so no edge can say what it is; put it on an input
+
+```python
+try:
+    @node("make", title="Make", description="Makes an empty list.")
+    def make[T](text: str) -> list[T]:
+        return []
+except NodeDeclarationError as error:
+    print(error.code)  # type_variable_only_in_return
+```
+
+**Fix.** A type variable is what arrives on an edge, so it stands on an input. An output whose type depends on a setting, not on an edge, is typed by a `compute_outputs` hook.
 
 ### `upgrade_missing`
 

@@ -426,17 +426,16 @@ def test_a_table_wired_where_one_value_is_read_says_to_split_it_first(source):
     assert _a_table_read_by_one_text(source).ctx["hint"] == "split_first"
 
 
-def test_a_series_of_tables_is_refused_where_it_is_declared():
+def test_a_series_of_tables_is_accepted_where_it_is_declared():
     import polars as pl
-    from conductor import NodeDeclarationError, Table
+    from conductor import Table
 
-    with pytest.raises(NodeDeclarationError) as raised:
+    @node("tables", title="Tables", description="")
+    def tables(text: str) -> Series[Table]:
+        return [pl.DataFrame()]
 
-        @node("tables", title="Tables", description="")
-        def tables(text: str) -> Series[Table]:
-            return [pl.DataFrame()]
-
-    assert raised.value.code == "series_of_tables"
+    assert tables.outputs["result"].many is True
+    assert tables.outputs["result"].type.id.startswith("Table")
 
 
 # -- an embedded graph is one node from outside -------------------------------------

@@ -301,7 +301,7 @@ def test_a_table_is_answered_as_records_which_are_its_rows_and_keep_through_json
     run = graph.run()
     (question,) = run.waiting[0].questions
     assert question.shape == "table" and set(question.columns) == {"sku", "qty"}
-    assert question.default == [{"sku": "A", "qty": 1}]  # what an answer looks like
+    assert question.default == {"columns": [{"name": "sku", "type": "str", "values": ["A"]}, {"name": "qty", "type": "int", "values": [1]}]}  # a table as conductor writes one
     answered = graph.load_run(graph.load_run(run.to_json()).answer("q", [{"sku": "B", "qty": 2}, {"sku": "C", "qty": 3}]).to_json())
     assert answered.resume().outputs == {"e.result": ["BB", "CCC"]}
 
@@ -331,7 +331,7 @@ def test_a_table_answer_is_read_as_a_callers_records_are_with_its_cells_read_str
     extra = run.answer("q", [{"sku": "B", "qty": 2, "colour": "red"}]).resume()
     assert extra.results["q"]["result"].columns == ["sku", "qty"] and extra.outputs == {"e.result": ["BB"]}
     assert _refused(lambda: run.answer("q", [{"sku": "B", "qty": True}, {"sku": "C", "qty": 1}]))[0].msg == (
-        "That is not a valid answer: column 'qty': a yes or no is not a number; give a number"
+        "That is not a valid answer: column 'qty': Input should be a valid integer"
     )
 
 
@@ -521,12 +521,12 @@ def _returning(returns: Any) -> Any:
     return asks
 
 
-def test_a_table_takes_no_choices():
+def test_a_choice_offered_for_a_table_is_a_table_like_any_choice_of_its_type():
     @node("wrong", title="Wrong", description="")
     def wrong() -> Table[Line]:
         raise Ask("?", choices=[1])
 
-    assert _once(wrong)[1].state.cause.ctx["reason"] == "'result' is a table, which takes no choices"
+    assert _once(wrong)[1].state.cause.ctx["reason"] == "a choice for 'result' is not what it returns: a table is a frame or a list of records, one object per row"
 
 
 # -- answering ----------------------------------------------------------------------------------
@@ -683,7 +683,7 @@ def test_a_waiting_unit_keeps_the_table_and_series_it_received_through_a_save():
         "edges": [["r.result", "i.table"], ["i.result.name", "q.names"], ["r.result", "q.table"]],
     })
     run = graph.run()
-    assert run.waiting[0].inputs == {"names": ["Ida", "Bo"], "table": {"name": ["Ida", "Bo"]}}
+    assert run.waiting[0].inputs == {"names": ["Ida", "Bo"], "table": {"columns": [{"name": "name", "type": "str", "values": ["Ida", "Bo"]}]}}
     assert graph.load_run(run.to_json()).waiting == run.waiting
 
 

@@ -50,7 +50,7 @@ from pydantic_core import PydanticSerializationError, from_json, to_json
 
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.errors import InvalidCallError, NodeDeclarationError, Problem, make_problem
-from conductor._internal.fields import SET_HAS_NO_ORDER
+from conductor._internal.fields import REQUIRED, SET_HAS_NO_ORDER
 
 if TYPE_CHECKING:
     from conductor._internal.node_definition import NodeDefinition
@@ -312,7 +312,7 @@ def _chain_edges(
         match before, after:
             case FunctionDefinition(), FunctionDefinition():
                 outputs = list(before.outputs)
-                open_inputs = [name for name, spec in after.inputs.items() if spec.required and name not in filled]
+                open_inputs = [name for name, spec in after.inputs.items() if spec.default is REQUIRED and name not in filled]
             case _:  # a stored graph's fields are known only when it loads, so a chain can't be drawn through it
                 outputs, open_inputs = [], []
         if len(outputs) != 1 or len(open_inputs) != 1:

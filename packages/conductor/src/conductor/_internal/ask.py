@@ -27,12 +27,10 @@ from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.fields import (
     REQUIRED,
     SKIPPED,
+    Choice,
     FieldDescription,
     FieldSpec,
     FieldValueError,
-    read_strictly,
-    read_table,
-    shown_choices,
 )
 
 if TYPE_CHECKING:
@@ -220,12 +218,14 @@ def _offered(spec: FieldSpec, choices: list[Any]) -> list[dict[str, Any]]:
         InvalidAskError: The output is a table, no choice is offered, a choice is offered twice, or one is not a
             value of the output's type.
     """
-    if spec.shape == "table":
-        raise InvalidAskError(f"'{spec.name}' is a table, which takes no choices")
     if not choices:
         raise InvalidAskError(f"'{spec.name}' is offered no choices")
     try:
-        shown = shown_choices(spec, choices)
+        shown = [
+            (choice if isinstance(choice, Choice) else Choice(choice, str(choice))).model_dump(mode="json")
+            | {"id": spec.type.to_json(spec.type.read_json(choice.id if isinstance(choice, Choice) else choice))}
+            for choice in choices
+        ]
     except FieldValueError as refused:
         raise InvalidAskError(f"a choice for '{spec.name}' is not what it returns: {refused.reason}") from None
     if len({repr(choice["id"]) for choice in shown}) != len(shown):
@@ -245,7 +245,7 @@ def _proposed(spec: FieldSpec, default: Any, offered: list[dict[str, Any]] | Non
         InvalidAskError: An answer could not be the default.
     """
     try:
-        proposed: JsonValue = spec.json_of(_checked_answer(spec, default, offered))
+        proposed: JsonValue = spec.whole.to_json(_checked_answer(spec, default, offered))
     except FieldValueError as refused:
         raise InvalidAskError(f"the default for '{spec.name}' is not an answer it takes: {refused.reason}") from None
     return proposed
@@ -299,8 +299,8 @@ def _required(spec: FieldSpec, overrides: QuestionOverrides, *, limited: bool) -
     It needn't when the question has a default (its field's, ``SKIPPED`` too, or one its ``Ask`` set), is one of an
     exclusive group, or its type takes a blank and no choices limit what it takes.
     """
-    defaulted = "default" in overrides or not spec.required
-    blank = spec.shape == "one" and spec.optional and not limited
+    defaulted = "default" in overrides or spec.default is not REQUIRED
+    blank = not spec.many and spec.whole.optional and not limited
     return not defaulted and spec.param.exclusive_group is None and not blank
 
 
@@ -341,7 +341,7 @@ def answer_outputs(placed: PlacedFunction, value: Any, overrides: Mapping[str, Q
             elif spec.default is SKIPPED and "default" not in override:
                 read[name] = SKIPPED  # left out, a field whose default is SKIPPED is a branch not taken
             elif not _required(spec, override, limited=offered is not None):
-                read[name] = read_answer(spec, override.get("default", question.default))  # a default, or a blank where the type takes one
+                read[name] = spec.whole.read_json(override.get("default", question.default))  # a default, or a blank where the type takes one
             else:
                 faults.append((name, f"'{name}' was not answered"))
         except FieldValueError as refused:
@@ -361,26 +361,13 @@ def _checked_answer(spec: FieldSpec, value: Any, offered: list[dict[str, Any]] |
         FieldValueError: The answer is not a value of the output's type, not one of the choices, or, for a pick of several,
             picks a choice twice.
     """
-    read = read_answer(spec, value)
+    read = spec.whole.read_json(value)
     if offered is not None:
-        picked = spec.json_of(read)
-        picks = picked if spec.shape == "many" else [picked]
+        picked: Any = spec.whole.to_json(read)
+        picks = picked if spec.many else [picked]
         ids = [choice["id"] for choice in offered]
         if any(item not in ids for item in picks):
             raise FieldValueError("the answer is not one of the choices")
         if len({repr(item) for item in picks}) != len(picks):
             raise FieldValueError("a choice is picked twice")
     return read
-
-
-def read_answer(spec: FieldSpec, value: Any) -> Any:
-    """Reads ``value`` as one value of the output ``spec``: a table from records or a frame, anything else by its type.
-
-    Raises:
-        FieldValueError: The value is not one the output takes.
-    """
-    if spec.shape == "table":
-        return None if value is None and spec.optional else read_table(spec, value, strict=True, given=True)  # a person's answer: its cells read strictly
-    return read_strictly(spec.adapter, value)
-
-

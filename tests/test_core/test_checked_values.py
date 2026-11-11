@@ -32,7 +32,7 @@ from conductor import (
 from pydantic import BaseModel, Discriminator, Field, field_validator
 from pydantic_core import core_schema
 
-from tests.test_core.nodes import registry_of
+from tests.test_core.nodes import ReadAsItsBuiltin, registry_of
 
 SECRET = "cpr-1234567890"
 
@@ -96,7 +96,7 @@ def test_a_value_read_as_its_type_is_kept_as_the_type():
         type_title: ClassVar[str] = "Point"
         x: int
 
-    class Text(str):
+    class Text(ReadAsItsBuiltin, str):
         type_id: ClassVar[str] = "Text"
         type_title: ClassVar[str] = "Text"
         pass
@@ -257,14 +257,15 @@ def test_an_output_is_read_strictly_never_from_text_that_spells_it(returned, ret
     assert _returning(returned, return_type).state.cause.type == "invalid_output"
 
 
-def test_a_table_that_is_not_a_frame_fails_its_node():
-    assert _returning([{"item": "a", "amount": 1}], Table[Line]).state.cause.type == "invalid_output"
+def test_a_node_may_return_a_table_as_records_and_anything_else_fails_it():
+    assert _returning([{"item": "a", "amount": 1}], Table[Line]).results["g"]["result"].to_dicts() == [{"item": "a", "amount": 1}]
+    assert _returning("item,amount", Table[Line]).state.cause.type == "invalid_output"
 
 
 # -- what an edge brings -------------------------------------------------------------------
 
 
-class PickyId(str):
+class PickyId(ReadAsItsBuiltin, str):
     """A type whose own check quotes what it refuses, which is ordinary Python."""
     type_id: ClassVar[str] = "PickyId"
     type_title: ClassVar[str] = "Picky id"
@@ -278,9 +279,7 @@ class PickyId(str):
 
         return core_schema.no_info_plain_validator_function(check)
 
-    @classmethod
-    def accepts(cls, source: Any) -> bool:
-        return True
+    type_accepts: ClassVar[tuple[type, ...]] = (object,)
 
 
 def test_a_value_an_edge_brings_that_the_input_refuses_fails_the_node_it_reached_quoting_nothing():
@@ -466,7 +465,7 @@ def test_a_key_of_a_dict_given_is_never_in_the_errors_and_a_declared_field_or_an
 # -- where the check runs ----------------------------------------------------------------------
 
 
-class _SlowOutput(str):
+class _SlowOutput(ReadAsItsBuiltin, str):
     """An output type whose check waits until the other node's completion has been streamed."""
     type_id: ClassVar[str] = "_SlowOutput"
     type_title: ClassVar[str] = "Slow output"

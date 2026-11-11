@@ -32,7 +32,7 @@ from conductor.widgets import Dropdown, Textarea
 from pydantic import ValidationError
 from pydantic_core import core_schema
 
-from tests.test_core.nodes import registry_of
+from tests.test_core.nodes import ReadAsItsBuiltin, registry_of
 
 
 class Person(TypedDict):
@@ -82,7 +82,7 @@ def styled(
     return mode
 
 
-class Name(str):
+class Name(ReadAsItsBuiltin, str):
     """A ``str`` that lands wherever a ``str`` is asked for."""
     type_id: ClassVar[str] = "Name"
     type_title: ClassVar[str] = "Name"
@@ -93,7 +93,7 @@ def name_of(text: str) -> Name:
     return Name(text)
 
 
-class Nonempty(str):
+class Nonempty(ReadAsItsBuiltin, str):
     type_id: ClassVar[str] = "Nonempty"
     type_title: ClassVar[str] = "Nonempty"
     def __new__(cls, value: str) -> "Nonempty":
@@ -258,7 +258,7 @@ def test_loading_one_record_twice_gives_the_same_graph():
 def test_a_typed_in_value_is_read_once_when_the_graph_loads_and_not_again_per_item():
     reads = []
 
-    class Counted(str):
+    class Counted(ReadAsItsBuiltin, str):
         type_id: ClassVar[str] = "Counted"
         type_title: ClassVar[str] = "Counted"
         @classmethod
@@ -819,7 +819,7 @@ def test_what_the_outside_gives_an_embedded_input_replaces_the_inner_default():
 def test_a_yes_or_no_never_lands_on_a_number_and_a_union_is_said_by_its_members_names():
     from conductor import NodeRegistry, node
 
-    class Text(str):
+    class Text(ReadAsItsBuiltin, str):
         type_id: ClassVar[str] = "Text"
         type_title: ClassVar[str] = "Text"
         pass
@@ -898,13 +898,11 @@ def test_a_table_into_a_series_is_said_as_the_table_it_is():
 def test_a_yes_or_no_never_lands_on_a_hosts_number_type_whose_own_rule_lets_an_int_in():
     from conductor import Ask, NodeRegistry, make_graph
 
-    class Number(float):
+    class Number(ReadAsItsBuiltin, float):
         type_id: ClassVar[str] = "number"
         type_title: ClassVar[str] = "Number"
 
-        @classmethod
-        def accepts(cls, source: type) -> bool:
-            return issubclass(source, int)  # a host's rule that forgot bool
+        type_accepts: ClassVar[tuple[type, ...]] = (int,)  # a host's rule that forgot bool
 
     registry = NodeRegistry(types=[Number, bool])
 
@@ -1007,7 +1005,7 @@ def test_a_typed_dict_on_a_field_is_a_record_with_its_fields_and_an_edge_may_nam
         return {"name": "Bo"}
 
     described = contact.describe().outputs[0]
-    assert (contact.outputs["result"].type_id, described.type, list(described.json_schema["properties"])) == ("record", "record", ["name"])
+    assert (contact.outputs["result"].whole.id, described.type, list(described.json_schema["properties"])) == ("record", "record", ["name"])
     graph = registry_of(contact, upper).load(make_graph(contact, upper, edges=[("contact.result.name", "upper.text")]))
     assert graph.problems == [] and graph.run().outputs == {"upper.result": "BO"}
 
