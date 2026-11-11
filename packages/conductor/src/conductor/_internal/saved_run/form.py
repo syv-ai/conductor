@@ -69,7 +69,7 @@ def save_form(fingerprint: str, inputs: Mapping[str, Type], outputs: Mapping[str
     shared: dict[str, CoreSchema] = {}
     outcomes_record, reusable_record = _inlined(_OUTCOMES, shared), _inlined(_REUSABLE, shared)
     blocks: dict[tuple[tuple[str, Type, bool, Any], ...], tuple[CoreSchema, CoreSchema]] = {}
-    units, earlier = {}, {}
+    outcomes, earlier = {}, {}
     for node, of_node in outputs.items():
         not_taken, not_called = outputs_when_skipped(of_node), outputs_when_not_called(of_node)
         columns = tuple((name, output.column, output.many, not_called[name]) for name, output in of_node.items())
@@ -81,20 +81,20 @@ def save_form(fingerprint: str, inputs: Mapping[str, Type], outputs: Mapping[str
                 skipped=_closed({}, {name: _SKIPPED_SLOTS for name, _, _, _ in columns}),
                 skipped_items=_closed({}, {name: _SKIPPED_ITEMS for name, _, many, _ in columns if many}),
             )
-            shared[f"units:{block}"] = core_schema.no_info_after_validator_function(
-                functools.partial(outcomes_of, not_taken, not_called), of_block, ref=f"units:{block}",
+            shared[f"outcomes:{block}"] = core_schema.no_info_after_validator_function(
+                functools.partial(outcomes_of, not_taken, not_called), of_block, ref=f"outcomes:{block}",
             )
-            reusable_schema = _with_fields(reusable_record, units=core_schema.definition_reference_schema(f"units:{block}"))
+            reusable_schema = _with_fields(reusable_record, outcomes=core_schema.definition_reference_schema(f"outcomes:{block}"))
             shared[f"earlier:{block}"] = core_schema.no_info_after_validator_function(reusable_of, reusable_schema, ref=f"earlier:{block}")
-            blocks[columns] = core_schema.definition_reference_schema(f"units:{block}"), core_schema.definition_reference_schema(f"earlier:{block}")
-        units[node], earlier[node] = blocks[columns]
+            blocks[columns] = core_schema.definition_reference_schema(f"outcomes:{block}"), core_schema.definition_reference_schema(f"earlier:{block}")
+        outcomes[node], earlier[node] = blocks[columns]
     run = _with_fields(
         _inlined(_RUN, shared),
         graph=core_schema.literal_schema([fingerprint]),
         inputs=_closed({address: _inlined(whole.saved_schema, shared) for address, whole in inputs.items()}),
-        units=_closed({}, units),
+        outcomes=_closed({}, outcomes),
         earlier=_closed({}, earlier),
-        code=_closed({}, dict.fromkeys(units, core_schema.str_schema())),
+        code=_closed({}, dict.fromkeys(outcomes, core_schema.str_schema())),
         complete=core_schema.list_schema(core_schema.literal_schema(names)) if (names := list(nodes)) else core_schema.list_schema(max_length=0),
     )
     shareable = tuple((node, name) for node, of_node in outputs.items() for name, output in of_node.items() if output.whole.may_write_once)

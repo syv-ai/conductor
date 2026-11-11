@@ -1016,7 +1016,7 @@ def test_waiting_items_and_a_saved_run_keep_node_then_item_order_whatever_thread
     for _ in range(3):
         run = graph.run(text=",".join("abcdefgh"))
         assert [place(w) for w in run.waiting] == [f"slow-ask@{i}" for i in range(8)]
-        assert [question["prompt"] for question in json.loads(run.to_json())["units"]["slow-ask"]["questions"].values()] == [f"{letter}?" for letter in "abcdefgh"]
+        assert [question["prompt"] for question in json.loads(run.to_json())["outcomes"]["slow-ask"]["questions"].values()] == [f"{letter}?" for letter in "abcdefgh"]
 
 
 def test_a_saved_run_that_does_not_fit_is_refused_naming_where_and_never_with_a_raw_error():
@@ -1031,10 +1031,10 @@ def test_a_saved_run_that_does_not_fit_is_refused_naming_where_and_never_with_a_
     graph = registry_of(split, echo).load(make_graph(split, echo))
     saved = json.loads(graph.run(text="a,b,c").to_json())
     for tamper, at in (
-        (lambda s: s["units"]["echo"]["states"].append(None), "units.echo"),
-        (lambda s: s["units"]["echo"]["outputs"]["result"].pop(), "units.echo"),
-        (lambda s: s["units"]["echo"]["outputs"].pop("result"), "units.echo.outputs.result"),
-        (lambda s: s["units"]["echo"]["outputs"]["result"].__setitem__(0, 5), "units.echo.outputs.result.0"),
+        (lambda s: s["outcomes"]["echo"]["states"].append(None), "outcomes.echo"),
+        (lambda s: s["outcomes"]["echo"]["outputs"]["result"].pop(), "outcomes.echo"),
+        (lambda s: s["outcomes"]["echo"]["outputs"].pop("result"), "outcomes.echo.outputs.result"),
+        (lambda s: s["outcomes"]["echo"]["outputs"]["result"].__setitem__(0, 5), "outcomes.echo.outputs.result.0"),
     ):
         copy = json.loads(json.dumps(saved))
         tamper(copy)
@@ -1420,7 +1420,7 @@ def test_a_table_nothing_holds_after_forget_is_not_written():
 
     written = json.loads(run.forget("s").to_json())
 
-    assert "s" not in written["units"] and "s" not in written.get("earlier", {})
+    assert "s" not in written["outcomes"] and "s" not in written.get("earlier", {})
 
 
 def test_identical_answered_items_keep_their_answers_across_a_cancelled_leg_as_on_a_direct_one():
@@ -1455,7 +1455,7 @@ def test_a_save_of_a_node_redeclared_so_it_runs_per_other_items_does_not_fit_and
     with pytest.raises(InvalidCallError) as refused:
         registry_of(split, count_all).load(record).load_run(saved)
 
-    assert [(p.type, p.ctx["at"]) for p in refused.value.errors()] == [("state_unreadable", "units.c")]
+    assert [(p.type, p.ctx["at"]) for p in refused.value.errors()] == [("state_unreadable", "outcomes.c")]
 
 
 def test_identical_items_take_earlier_answers_in_item_order_whatever_thread_finished_first():

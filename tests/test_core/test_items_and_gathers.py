@@ -344,7 +344,7 @@ def test_a_node_with_a_skipped_input_is_skipped_at_once_whichever_of_its_inputs_
                    registry=registry_of(decide, asking, pair, upper))
     run = loaded.run({"d.text": "ok", "q.text": "z"})
     assert run.status == "waiting" and run.results["u"]["result"] == "OK"
-    assert json.loads(run.to_json())["units"]["p"]["states"] == ["skipped"]  # settled on this leg, before the answer
+    assert json.loads(run.to_json())["outcomes"]["p"]["states"] == ["skipped"]  # settled on this leg, before the answer
     done = run.answer(run.waiting[0], "yes").resume()
     assert done.status == "complete" and done.results["p"]["result"] is None and done.results["u"]["result"] == "OK"
 

@@ -94,10 +94,10 @@ def test_a_series_returned_as_a_table_is_held_and_saved_as_that_table_with_only_
     assert type(held) is Records and held.frame.columns == ["name", "email"] and len(held) == 2
 
     saved = json.loads(run.to_json())
-    assert saved["units"]["c"]["outputs"]["result"] == [{"columns": [
+    assert saved["outcomes"]["c"]["outputs"]["result"] == [{"columns": [
         {"name": "name", "type": "str", "values": ["ida", "bo"]}, {"name": "email", "type": "str", "values": ["ida@x.dk", None]},
     ]}]
-    assert json.loads(_graph(listed).run(text="x").to_json())["units"]["c"]["outputs"]["result"] == [[{"name": "ida", "email": "ida@x.dk"}, {"name": "bo", "email": None}]]
+    assert json.loads(_graph(listed).run(text="x").to_json())["outcomes"]["c"]["outputs"]["result"] == [[{"name": "ida", "email": "ida@x.dk"}, {"name": "bo", "email": None}]]
 
     loaded = graph.load_run(run.to_json())
     assert type(loaded._outcomes["c"][()].out["result"]) is Records
@@ -293,7 +293,7 @@ def test_a_table_read_and_then_split_is_written_once_in_a_save_and_is_one_table_
     run = graph.run(text="x")
     saved = json.loads(run.to_json())
 
-    assert saved["units"]["series-split"]["outputs"]["result"] == [None]
+    assert saved["outcomes"]["series-split"]["outputs"]["result"] == [None]
     assert saved["tables_written_once"] == [{"output": ["series-split", "result", 0], "same_as": ["people", "result", 0]}]
     assert run.to_json().count('"ida@x.dk"') == 1
 
@@ -309,7 +309,7 @@ def test_a_table_with_equal_cells_that_is_another_object_is_written_in_full_and_
     run = graph.run(text="x")
     saved = json.loads(run.to_json())
 
-    assert "tables_written_once" not in saved and saved["units"]["copied"]["outputs"]["result"] == saved["units"]["people"]["outputs"]["result"]
+    assert "tables_written_once" not in saved and saved["outcomes"]["copied"]["outputs"]["result"] == saved["outcomes"]["people"]["outputs"]["result"]
     assert graph.load_run(run.to_json()).results["copied"]["result"].equals(run.results["copied"]["result"])
 
 
@@ -371,7 +371,7 @@ def test_a_save_whose_tables_written_once_names_a_table_of_other_columns_is_refu
     graph = registry_of(any_table, as_contacts).load(make_graph(any_table, as_contacts, edges=[("any-table.result", "as-contacts.table")]))
     saved = json.loads(graph.run(text="x").to_json())
     assert saved["tables_written_once"] == [{"output": ["as-contacts", "result", 0], "same_as": ["any-table", "result", 0]}]
-    saved["units"]["any-table"]["outputs"]["result"][0]["columns"][0]["name"] = "nom"  # a table of any columns takes it
+    saved["outcomes"]["any-table"]["outputs"]["result"][0]["columns"][0]["name"] = "nom"  # a table of any columns takes it
 
     with pytest.raises(InvalidCallError) as refused:
         graph.load_run(json.dumps(saved))

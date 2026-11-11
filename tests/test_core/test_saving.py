@@ -481,17 +481,17 @@ def _saved_mails() -> tuple[Any, dict[str, Any]]:
 
 def test_a_saved_value_its_type_does_not_read_is_refused_naming_where_and_quoting_nothing():
     graph, saved = _saved_mails()
-    saved["units"]["echo"]["outputs"]["result"][1] = {"secret": "value"}
+    saved["outcomes"]["echo"]["outputs"]["result"][1] = {"secret": "value"}
 
     problem = _refused(graph, saved)
 
-    assert problem.ctx["at"] == "units.echo.outputs.result.1"
+    assert problem.ctx["at"] == "outcomes.echo.outputs.result.1"
     assert "secret" not in json.dumps(problem.model_dump(mode="json"))
 
 
 def test_a_blank_saved_on_an_output_reads_back_as_none():
     graph, saved = _saved_mails()
-    saved["units"]["echo"]["outputs"]["result"][1] = None
+    saved["outcomes"]["echo"]["outputs"]["result"][1] = None
 
     assert graph.load_run(json.dumps(saved)).results["echo"]["result"] == ["secret-a", None, "secret-c"]
 
@@ -499,18 +499,18 @@ def test_a_blank_saved_on_an_output_reads_back_as_none():
 @pytest.mark.parametrize(
     ("damage", "at"),
     [
-        ("a slot more than the items made", "units.echo"),
-        ("a slot fewer than the items made", "units.echo"),
-        ("two slots on a node that runs once", "units.split"),
-        ("a missing value", "units.echo"),
-        ("a missing output", "units.echo.outputs.result"),
-        ("an output the node lacks", "units.echo.outputs.other"),
-        ("a node the graph lacks", "units.nowhere"),
+        ("a slot more than the items made", "outcomes.echo"),
+        ("a slot fewer than the items made", "outcomes.echo"),
+        ("two slots on a node that runs once", "outcomes.split"),
+        ("a missing value", "outcomes.echo"),
+        ("a missing output", "outcomes.echo.outputs.result"),
+        ("an output the node lacks", "outcomes.echo.outputs.other"),
+        ("a node the graph lacks", "outcomes.nowhere"),
     ],
 )
 def test_a_damaged_save_is_refused(damage: str, at: str) -> None:
     graph, saved = _saved_mails()
-    echo, splitting = saved["units"]["echo"], saved["units"]["split"]
+    echo, splitting = saved["outcomes"]["echo"], saved["outcomes"]["split"]
     if damage == "a slot more than the items made":
         echo["states"].append("done")
         echo["outputs"]["result"].append("x")
@@ -527,16 +527,16 @@ def test_a_damaged_save_is_refused(damage: str, at: str) -> None:
     elif damage == "an output the node lacks":
         echo["outputs"]["other"] = ["x", "y", "z"]
     else:
-        saved["units"]["nowhere"] = {"states": [], "outputs": {}}
+        saved["outcomes"]["nowhere"] = {"states": [], "outputs": {}}
 
     assert _refused(graph, saved).ctx["at"] == at
 
 
 def test_a_series_that_makes_items_saved_as_a_blank_leaves_its_readers_slots_without_an_instance_and_is_refused():
     graph, saved = _saved_mails()
-    saved["units"]["split"]["outputs"]["result"][0] = None
+    saved["outcomes"]["split"]["outputs"]["result"][0] = None
 
-    assert _refused(graph, saved).ctx["at"] == "units.echo"
+    assert _refused(graph, saved).ctx["at"] == "outcomes.echo"
 
 
 def _saved_table() -> tuple[Any, dict[str, Any]]:
@@ -559,9 +559,9 @@ def _saved_table() -> tuple[Any, dict[str, Any]]:
 
 def test_a_malformed_table_is_refused():
     graph, saved = _saved_table()
-    saved["units"]["n"]["outputs"]["result"][0] = {"rows": 2, "columns": {"name": ["ida"]}}
+    saved["outcomes"]["n"]["outputs"]["result"][0] = {"rows": 2, "columns": {"name": ["ida"]}}
 
-    assert _refused(graph, saved).ctx["at"].startswith("units.n.outputs.result.0")
+    assert _refused(graph, saved).ctx["at"].startswith("outcomes.n.outputs.result.0")
 
 
 def test_a_save_names_its_graph_and_an_edited_graph_refuses_it_while_display_alone_changes_nothing():
@@ -781,12 +781,12 @@ def test_a_save_missing_a_key_says_which_key_not_a_python_error():
         ("inputs", lambda s: s.__setitem__("inputs", [])),
         ("state", lambda s: s["state"].__setitem__("status", "banana")),
         ("max_items", lambda s: s.__setitem__("max_items", -1)),
-        ("units.split.states", lambda s: s["units"]["split"].__setitem__("states", {})),
-        ("units.split.states.0", lambda s: s["units"]["split"].__setitem__("states", ["waiting"])),  # a unit waits by its question, never by a word
-        ("units.split.keys", lambda s: s["units"]["split"].__setitem__("keys", [[]])),  # an instance is a slot, never written
-        ("units.split", lambda s: s["units"]["split"].__setitem__("skipped", {"result": [7]})),
-        ("units.split.skipped_items.result.0.0", lambda s: s["units"]["split"].__setitem__("skipped_items", {"result": {"0": [-1]}})),
-        ("units.split", lambda s: s["units"]["split"].__setitem__("skipped_items", {"result": {"0": [7]}})),
+        ("outcomes.split.states", lambda s: s["outcomes"]["split"].__setitem__("states", {})),
+        ("outcomes.split.states.0", lambda s: s["outcomes"]["split"].__setitem__("states", ["waiting"])),  # a unit waits by its question, never by a word
+        ("outcomes.split.keys", lambda s: s["outcomes"]["split"].__setitem__("keys", [[]])),  # an instance is a slot, never written
+        ("outcomes.split", lambda s: s["outcomes"]["split"].__setitem__("skipped", {"result": [7]})),
+        ("outcomes.split.skipped_items.result.0.0", lambda s: s["outcomes"]["split"].__setitem__("skipped_items", {"result": {"0": [-1]}})),
+        ("outcomes.split", lambda s: s["outcomes"]["split"].__setitem__("skipped_items", {"result": {"0": [7]}})),
     ],
 )
 def test_a_save_damaged_in_shape_is_refused_by_where(where: str, damaged: Any) -> None:
@@ -817,24 +817,24 @@ def ok_word(word: str) -> bool:
         ("state", lambda s: s["state"].__setitem__("status", "banana")),
         ("max_items", lambda s: s.__setitem__("max_items", "ten")),
         ("max_items", lambda s: s.__setitem__("max_items", -1)),
-        ("units.upper.states", lambda s: s["units"]["upper"].__setitem__("states", {})),
-        ("units.ok.questions", lambda s: s["units"]["ok"].__setitem__("questions", [])),
-        ("units.ok.questions.0.prompt", lambda s: s["units"]["ok"]["questions"].__setitem__("0", {"inputs": {}})),
-        ("units.upper.not_called_because.0", lambda s: s["units"]["upper"].__setitem__("not_called_because", {"0": 1})),
-        ("units.upper.undeclared", lambda s: s["units"]["upper"].__setitem__("undeclared", {"0": -1})),  # a save holds only what it declares
-        ("units.upper", lambda s: s["units"]["upper"].__setitem__("skipped", {"result": [7]})),
-        ("units.upper.skipped.other", lambda s: s["units"]["upper"].__setitem__("skipped", {"other": [0]})),  # no such output
-        ("units.upper.skipped_items.result", lambda s: s["units"]["upper"].__setitem__("skipped_items", {"result": {"0": [0]}})),  # only a Series has items
-        ("units.ok", lambda s: s["units"]["ok"]["questions"].__setitem__("7", {"prompt": "?", "inputs": {}})),
-        ("units.upper", lambda s: s["units"]["upper"].__setitem__("not_called_because", {"0": "word"})),  # a blank input on a unit that is done
-        ("units.ok", lambda s: s["units"]["ok"].__setitem__("not_called_because", {"0": "word"})),  # a blank input on a unit that asks
+        ("outcomes.upper.states", lambda s: s["outcomes"]["upper"].__setitem__("states", {})),
+        ("outcomes.ok.questions", lambda s: s["outcomes"]["ok"].__setitem__("questions", [])),
+        ("outcomes.ok.questions.0.prompt", lambda s: s["outcomes"]["ok"]["questions"].__setitem__("0", {"inputs": {}})),
+        ("outcomes.upper.not_called_because.0", lambda s: s["outcomes"]["upper"].__setitem__("not_called_because", {"0": 1})),
+        ("outcomes.upper.undeclared", lambda s: s["outcomes"]["upper"].__setitem__("undeclared", {"0": -1})),  # a save holds only what it declares
+        ("outcomes.upper", lambda s: s["outcomes"]["upper"].__setitem__("skipped", {"result": [7]})),
+        ("outcomes.upper.skipped.other", lambda s: s["outcomes"]["upper"].__setitem__("skipped", {"other": [0]})),  # no such output
+        ("outcomes.upper.skipped_items.result", lambda s: s["outcomes"]["upper"].__setitem__("skipped_items", {"result": {"0": [0]}})),  # only a Series has items
+        ("outcomes.ok", lambda s: s["outcomes"]["ok"]["questions"].__setitem__("7", {"prompt": "?", "inputs": {}})),
+        ("outcomes.upper", lambda s: s["outcomes"]["upper"].__setitem__("not_called_because", {"0": "word"})),  # a blank input on a unit that is done
+        ("outcomes.ok", lambda s: s["outcomes"]["ok"].__setitem__("not_called_because", {"0": "word"})),  # a blank input on a unit that asks
         ("the run", lambda s: s.clear()),  # an empty save: the graph's fingerprint, which says whose save it is, is read first
         ("inputs.split.text", lambda s: s["inputs"].__setitem__("split.text", ["a"])),
         ("inputs.nowhere.text", lambda s: s["inputs"].__setitem__("nowhere.text", "a")),
         ("code.nowhere", lambda s: s["code"].__setitem__("nowhere", "0")),
         ("complete.0", lambda s: s.__setitem__("complete", ["nowhere"])),
-        ("earlier.ok", lambda s: s["earlier"].__setitem__("ok", {"units": {"states": [None], "outputs": {"result": [None]}}, "fingerprints": ["f"]})),  # a unit never called
-        ("earlier.ok", lambda s: s["earlier"].__setitem__("ok", {"units": {"states": ["done"], "outputs": {"result": [True]}}, "fingerprints": []})),
+        ("earlier.ok", lambda s: s["earlier"].__setitem__("ok", {"outcomes": {"states": [None], "outputs": {"result": [None]}}, "fingerprints": ["f"]})),  # a unit never called
+        ("earlier.ok", lambda s: s["earlier"].__setitem__("ok", {"outcomes": {"states": ["done"], "outputs": {"result": [True]}}, "fingerprints": []})),
     ],
 )
 def test_a_save_of_a_waiting_run_damaged_in_shape_is_refused_by_where(where: str, damaged: Any) -> None:

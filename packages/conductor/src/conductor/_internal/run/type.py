@@ -148,7 +148,7 @@ class Run:
     _finished_nodes: frozenset[NodePath] = frozenset()
 
     def __repr__(self) -> str:
-        return f"<Run {self.status}: {sum(len(units) for units in self._outcomes.values())} units>"
+        return f"<Run {self.status}: {sum(len(outcomes) for outcomes in self._outcomes.values())} outcomes>"
 
     @property
     def status(self) -> RunStatus:
@@ -409,8 +409,8 @@ class Run:
             of_node = work.setdefault(path, ReusableResults())
             for fingerprint, done in unused.computed.items():
                 of_node.computed.setdefault(fingerprint, done)
-            for asked, units in unused.asked.items():
-                of_node.asked.setdefault(asked, []).extend(units)
+            for asked, answers in unused.asked.items():
+                of_node.asked.setdefault(asked, []).extend(answers)
         ours, theirs = self.graph._functions, (into or self.graph)._functions
         return {
             path: of_node for path, of_node in work.items()
@@ -532,24 +532,24 @@ class Run:
         """The run as its graph's ``RunCodec`` writes it. A node inside an embedded graph is saved as any node,
         under its path. An embedded graph's node holds no unit, so nothing is written of it."""
         functions = self.graph._functions
-        units = {
+        outcomes = {
             node.name: outcome_columns(node.placed.outputs, self._slots(node))
             for node in self.graph._tree if self._outcomes[node.name]
         }
         earlier = {node_name(path): reusable_columns(functions[path].outputs, of_node) for path, of_node in self._reusable_results.items() if of_node.computed or of_node.asked}
-        code = {name: self._made_by_other_code.get(path) or placed.reuse_digest for path, placed in functions.items() if (name := node_name(path)) in units or name in earlier}
+        code = {name: self._made_by_other_code.get(path) or placed.reuse_digest for path, placed in functions.items() if (name := node_name(path)) in outcomes or name in earlier}
         complete = [node.name for node in self.graph._tree if node.path in self._finished_nodes]
         form = self.graph._save_form
-        written_once = tables_written_once(form.outputs, form.shareable, units) if form.shareable else None
-        return SavedRun(graph=self.graph.fingerprint, state=self.state, max_items=self.max_items, inputs=self.inputs, units=units, earlier=earlier, code=code, complete=complete, tables_written_once=written_once)
+        written_once = tables_written_once(form.outputs, form.shareable, outcomes) if form.shareable else None
+        return SavedRun(graph=self.graph.fingerprint, state=self.state, max_items=self.max_items, inputs=self.inputs, outcomes=outcomes, earlier=earlier, code=code, complete=complete, tables_written_once=written_once)
 
     def _slots(self, node: FunctionAtPath) -> list[Outcome | None]:
         """A node's units with a slot for each instance of the node, in instance order; ``None`` where the
         instance hasn't run."""
-        units = self._outcomes[node.name]
+        outcomes = self._outcomes[node.name]
         if has_every_outcome(self._outcomes, node):  # the units as they stand
-            return list(units.values())
-        return [units.get(instance) for instance in item_paths(self._outcomes, node.maps, ())[0]]
+            return list(outcomes.values())
+        return [outcomes.get(instance) for instance in item_paths(self._outcomes, node.maps, ())[0]]
 
     def _copy(self, *, share_outcomes: bool = False) -> Run:
         """A copy to change: its own units to record into and its own earlier work to take from; or with
@@ -559,11 +559,11 @@ class Run:
             share_outcomes: Whether the copy holds this run's own dict of units for each node.
         """
         if share_outcomes:
-            units, earlier = dict(self._outcomes), dict(self._reusable_results)
+            outcomes, earlier = dict(self._outcomes), dict(self._reusable_results)
         else:  # its own answers to take, as this run holds them too
-            units = {name: dict(held) for name, held in self._outcomes.items()}
+            outcomes = {name: dict(held) for name, held in self._outcomes.items()}
             earlier = {path: ReusableResults(of_node.at, of_node.computed, {asked: list(left) for asked, left in of_node.asked.items()}) for path, of_node in self._reusable_results.items()}
-        return dataclasses.replace(self, _outcomes=units, _reusable_results=earlier)
+        return dataclasses.replace(self, _outcomes=outcomes, _reusable_results=earlier)
 
 
 RunEnd.model_rebuild(_types_namespace={"Run": Run})
@@ -610,10 +610,10 @@ def _run_of(graph: Graph, saved: SavedRun[list[Outcome | None], ReusableResults]
     """
     run = Run(graph, saved.inputs, saved.max_items, no_outcomes(graph), {}, state=saved.state)
     for node in graph._tree:  # each after the nodes it reads, so the Series its instances are of are in place
-        if (slots := saved.units.get(node.name)) is not None:
+        if (slots := saved.outcomes.get(node.name)) is not None:
             made, _ = item_paths(run._outcomes, node.maps, ())
             if len(slots) != len(made):
-                at, reason = f"units.{node.name}", f"it holds {len(slots)} slots for the {len(made)} instances the saved run made of the node"
+                at, reason = f"outcomes.{node.name}", f"it holds {len(slots)} slots for the {len(made)} instances the saved run made of the node"
                 raise InvalidCallError([problem.state_unreadable("state", at=at, reason=reason)])
             run._outcomes[node.name] = {instance: outcome for instance, outcome in zip(made, slots, strict=True) if outcome is not None}
     functions = graph._functions

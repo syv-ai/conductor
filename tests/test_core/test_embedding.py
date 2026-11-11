@@ -507,7 +507,7 @@ def test_pausing_inside_a_mapped_embedding_half_answered_in_a_fresh_process_and_
     assert done.status == "complete" and done.results["e"]["q.result"] == ["first", "second"]
     assert CALLS == {}
     assert graph.load_run(done.to_json()).outputs == done.outputs  # the embedding's unit is not saved: it is read back from the units inside
-    assert sorted(json.loads(done.to_json())["units"]) == ["e/q", "e/up", "w"]  # a node inside is saved as any node, under its path
+    assert sorted(json.loads(done.to_json())["outcomes"]) == ["e/q", "e/up", "w"]  # a node inside is saved as any node, under its path
 
 
 def test_an_answer_inside_is_refused_by_its_path():

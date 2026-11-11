@@ -186,19 +186,19 @@ def test_a_save_holds_a_slot_for_each_instance_and_no_instance_is_written() -> N
     saved = json.loads(_everything().run(_inputs("a,bb,ccc,xax,b")).to_json())
 
     assert saved["state"] == {"status": "waiting"}
-    assert saved["units"]["maybe"] == {"states": ["done"] * 5, "outputs": {"result": ["A", None, "CCC", "XAX", None]}}
-    assert saved["units"]["gate"] == {
+    assert saved["outcomes"]["maybe"] == {"states": ["done"] * 5, "outputs": {"result": ["A", None, "CCC", "XAX", None]}}
+    assert saved["outcomes"]["gate"] == {
         "states": ["done"] * 5, "outputs": {"long": [None, None, "ccc", "xax", None], "short": ["a", "bb", None, None, "b"]},
         "skipped": {"long": [0, 1, 4], "short": [2, 3]},
     }
-    assert saved["units"]["letters"]["skipped_items"] == {"result": {"3": [0, 2]}}
-    assert saved["units"]["ask"] == {
+    assert saved["outcomes"]["letters"]["skipped_items"] == {"result": {"3": [0, 2]}}
+    assert saved["outcomes"]["ask"] == {
         "states": [None, "done", "done", "done", "done"], "outputs": {"result": [None, "bb", "ccc", "xax", "b"]},
         "questions": {"0": {"prompt": "What of a?", "inputs": {"text": "a"}}},
     }
-    assert saved["units"]["e/q"]["states"] == [None, "done", "done", "done", "done"]  # a node inside an embedded graph, as any node
-    assert saved["units"]["e/m"]["states"] == [None, "done", "done", "done", "done"]  # the one that reads the waiting unit hasn't run
-    assert "e" not in saved["units"] and "keys" not in json.dumps(saved)
+    assert saved["outcomes"]["e/q"]["states"] == [None, "done", "done", "done", "done"]  # a node inside an embedded graph, as any node
+    assert saved["outcomes"]["e/m"]["states"] == [None, "done", "done", "done", "done"]  # the one that reads the waiting unit hasn't run
+    assert "e" not in saved["outcomes"] and "keys" not in json.dumps(saved)
 
 
 def test_a_run_stopped_part_way_holds_a_slot_for_each_instance_and_goes_on() -> None:
@@ -229,7 +229,7 @@ def test_random_edits_of_a_save_load_or_are_refused_as_unreadable() -> None:
     first = _finished(graph.run(_inputs("a,bb,ccc,xax,b")))
     waiting = first.with_inputs({"lines.text": "a,ccc,ab,xax"}).resume()  # it waits on "ab", holding the work of "bb" and "b" it didn't take
     saved = json.loads(waiting.to_json())
-    assert waiting.status == "waiting" and saved["earlier"] and saved["units"]
+    assert waiting.status == "waiting" and saved["earlier"] and saved["outcomes"]
     random.seed(7)
 
     def places(value: Any, path: tuple[Any, ...] = ()) -> list[tuple[Any, ...]]:
@@ -274,24 +274,24 @@ def test_a_float_that_is_not_finite_reads_back_by_its_declared_type() -> None:
 
 
 @pytest.mark.parametrize(("damage", "at"), [
-    (lambda s: s["units"]["maybe"]["outputs"]["result"].__setitem__(1, {"secret": 1}), "units.maybe.outputs.result.1"),
-    (lambda s: s["units"]["maybe"]["outputs"]["result"].append("X"), "units.maybe"),  # a column longer than its states
-    (lambda s: s["units"]["maybe"]["states"].append("done"), "units.maybe"),
-    (lambda s: s["units"]["maybe"]["states"].__setitem__(0, "gone"), "units.maybe.states.0"),
-    (lambda s: s["units"]["maybe"].pop("outputs"), "units.maybe.outputs"),
-    (lambda s: s["units"]["gate"]["outputs"].pop("long"), "units.gate.outputs.long"),
-    (lambda s: s["units"]["gate"]["outputs"].__setitem__("other", []), "units.gate.outputs.other"),
-    (lambda s: s["units"]["gate"]["skipped"]["long"].append(99), "units.gate"),
-    (lambda s: s["units"]["letters"]["skipped_items"]["result"].__setitem__("0", [99]), "units.letters"),
-    (lambda s: s["units"]["ask"]["questions"].__setitem__("77", {"prompt": "?", "inputs": {}}), "units.ask"),
-    (lambda s: s["units"].__setitem__("nowhere", {"states": [], "outputs": {}}), "units.nowhere"),
+    (lambda s: s["outcomes"]["maybe"]["outputs"]["result"].__setitem__(1, {"secret": 1}), "outcomes.maybe.outputs.result.1"),
+    (lambda s: s["outcomes"]["maybe"]["outputs"]["result"].append("X"), "outcomes.maybe"),  # a column longer than its states
+    (lambda s: s["outcomes"]["maybe"]["states"].append("done"), "outcomes.maybe"),
+    (lambda s: s["outcomes"]["maybe"]["states"].__setitem__(0, "gone"), "outcomes.maybe.states.0"),
+    (lambda s: s["outcomes"]["maybe"].pop("outputs"), "outcomes.maybe.outputs"),
+    (lambda s: s["outcomes"]["gate"]["outputs"].pop("long"), "outcomes.gate.outputs.long"),
+    (lambda s: s["outcomes"]["gate"]["outputs"].__setitem__("other", []), "outcomes.gate.outputs.other"),
+    (lambda s: s["outcomes"]["gate"]["skipped"]["long"].append(99), "outcomes.gate"),
+    (lambda s: s["outcomes"]["letters"]["skipped_items"]["result"].__setitem__("0", [99]), "outcomes.letters"),
+    (lambda s: s["outcomes"]["ask"]["questions"].__setitem__("77", {"prompt": "?", "inputs": {}}), "outcomes.ask"),
+    (lambda s: s["outcomes"].__setitem__("nowhere", {"states": [], "outputs": {}}), "outcomes.nowhere"),
     (lambda s: s["inputs"].__setitem__("nowhere.text", "x"), "inputs.nowhere.text"),
     (lambda s: s["inputs"].__setitem__("lines.text", 7), "inputs.lines.text"),
-    (lambda s: s["units"]["frame"]["outputs"]["result"][0]["columns"][0]["values"].append("more"), "units.frame.outputs.result.0.written"),
-    (lambda s: s["units"]["frame"]["outputs"]["result"][0]["columns"][1].__setitem__("name", "part"), "units.frame.outputs.result.0.written"),
-    (lambda s: s["units"]["frame"]["outputs"]["result"][0]["columns"][1]["values"].__setitem__(0, "soon"), "units.frame.outputs.result.0.written.columns.1.date.values.0"),
-    (lambda s: s["units"]["typed"]["outputs"]["result"][0]["columns"].pop(1), "units.typed.outputs.result.0.written"),  # the column its row type names
-    (lambda s: s["units"]["e/q"]["states"].__setitem__(0, 5), "units.e/q.states.0"),
+    (lambda s: s["outcomes"]["frame"]["outputs"]["result"][0]["columns"][0]["values"].append("more"), "outcomes.frame.outputs.result.0.written"),
+    (lambda s: s["outcomes"]["frame"]["outputs"]["result"][0]["columns"][1].__setitem__("name", "part"), "outcomes.frame.outputs.result.0.written"),
+    (lambda s: s["outcomes"]["frame"]["outputs"]["result"][0]["columns"][1]["values"].__setitem__(0, "soon"), "outcomes.frame.outputs.result.0.written.columns.1.date.values.0"),
+    (lambda s: s["outcomes"]["typed"]["outputs"]["result"][0]["columns"].pop(1), "outcomes.typed.outputs.result.0.written"),  # the column its row type names
+    (lambda s: s["outcomes"]["e/q"]["states"].__setitem__(0, 5), "outcomes.e/q.states.0"),
     (lambda s: s.pop("state"), "state"),
     (lambda s: s.__setitem__("keys", []), "keys"),
 ])
@@ -394,7 +394,7 @@ def test_a_field_added_to_a_saved_record_is_written_and_read_with_no_other_edit(
 def test_a_key_a_saved_record_does_not_declare_cannot_be_written() -> None:
     """Nothing reaches a save beside its records' fields, so a key can't be written that the reader doesn't know."""
     saved = _everything().run(_inputs("a,bb"))._saved()
-    for record in (saved, saved.units["ask"]):
+    for record in (saved, saved.outcomes["ask"]):
         with pytest.raises(AttributeError):
             record.undeclared = {0: "x"}
         with pytest.raises(TypeError):
@@ -412,10 +412,10 @@ def test_every_field_a_run_sets_in_its_save_is_a_key_of_the_json_and_reads_back(
         return {declared.name for declared in dataclasses.fields(record) if declared.default is dataclasses.MISSING or getattr(record, declared.name) is not None}
 
     assert set(written) == set_fields(saved)
-    for name, units in saved.units.items():
-        assert set(written["units"][name]) == set_fields(units), name
+    for name, units in saved.outcomes.items():
+        assert set(written["outcomes"][name]) == set_fields(units), name
     for name, carried in saved.earlier.items():
-        assert set(written["earlier"][name]) == set_fields(carried) and set(written["earlier"][name]["units"]) == set_fields(carried.units), name
+        assert set(written["earlier"][name]) == set_fields(carried) and set(written["earlier"][name]["outcomes"]) == set_fields(carried.outcomes), name
     assert graph.load_run(waiting.to_json()).to_json() == waiting.to_json()
 
 
@@ -431,12 +431,12 @@ def test_only_a_series_output_can_be_saved_with_items_on_a_branch_not_taken() ->
     graph = registry.load(GraphRecord(nodes=[NodeRecord(id="listed", node="listed"), NodeRecord(id="letters", node="letters")]))
     run = graph.run({"listed.text": "ax", "letters.text": "ax"})
     saved = json.loads(run.to_json())
-    assert saved["units"]["letters"]["skipped_items"] == {"result": {"0": [1]}} and "skipped_items" not in saved["units"]["listed"]
+    assert saved["outcomes"]["letters"]["skipped_items"] == {"result": {"0": [1]}} and "skipped_items" not in saved["outcomes"]["listed"]
     assert graph.load_run(json.dumps(saved)).to_json() == run.to_json()
 
-    saved["units"]["listed"]["skipped_items"] = {"result": {"0": [1]}}
+    saved["outcomes"]["listed"]["skipped_items"] = {"result": {"0": [1]}}
     with pytest.raises(InvalidCallError) as refused:
         graph.load_run(json.dumps(saved))
 
     (problem,) = refused.value.errors()
-    assert (problem.type, problem.ctx["at"]) == ("state_unreadable", "units.listed.skipped_items.result")
+    assert (problem.type, problem.ctx["at"]) == ("state_unreadable", "outcomes.listed.skipped_items.result")

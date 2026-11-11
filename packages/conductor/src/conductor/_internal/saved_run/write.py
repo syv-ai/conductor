@@ -71,8 +71,8 @@ def outcome_columns(outputs: Mapping[str, Field], slots: list[Outcome | None]) -
     )
 
 
-def tables_written_once(outputs: Mapping[str, Mapping[str, Field]], shareable: Iterable[tuple[str, str]], units: Mapping[str, SavedOutcomes]) -> list[SameAs] | None:
-    """Finds the outputs in ``units`` that have the very same table object as an output before them, replaces each
+def tables_written_once(outputs: Mapping[str, Mapping[str, Field]], shareable: Iterable[tuple[str, str]], outcomes: Mapping[str, SavedOutcomes]) -> list[SameAs] | None:
+    """Finds the outputs in ``outcomes`` that have the very same table object as an output before them, replaces each
     with ``None`` in its column, and returns where each one's table is written.
 
     Example: ``read.result`` is a frame and ``split.result`` is ``Records`` of that same frame. The column of
@@ -87,10 +87,10 @@ def tables_written_once(outputs: Mapping[str, Mapping[str, Field]], shareable: I
     Returns:
         The outputs left out, or ``None`` when there are none.
     """
-    first: dict[int, tuple[Any, tuple[str, str, int]]] = {}  # by id() of a table alive in ``units`` during this call
+    first: dict[int, tuple[Any, tuple[str, str, int]]] = {}  # by id() of a table alive in ``outcomes`` during this call
     same: list[SameAs] = []
     for node, output in shareable:
-        of_node = units.get(node)
+        of_node = outcomes.get(node)
         if of_node is None:
             continue
         written_once, column = outputs[node][output].whole.written_once, of_node.outputs[output]
@@ -129,7 +129,7 @@ def reusable_columns(outputs: Mapping[str, Field], earlier: ReusableResults) -> 
                 lineages[len(slots)] = lineage
             slots.append(outcome)
             fingerprints.append(fingerprint)
-    return SavedReusable(units=outcome_columns(outputs, slots), fingerprints=fingerprints, places=places or None, lineages=lineages or None)
+    return SavedReusable(outcomes=outcome_columns(outputs, slots), fingerprints=fingerprints, places=places or None, lineages=lineages or None)
 
 
 def unwritable_at(inputs: Mapping[str, Type], outputs: Mapping[str, Mapping[str, Field]], saved: SavedRun[SavedOutcomes, SavedReusable[SavedOutcomes]]) -> str:
@@ -145,9 +145,9 @@ def unwritable_at(inputs: Mapping[str, Type], outputs: Mapping[str, Mapping[str,
         The input's address, or the node as a save names it and the output (``e/ask.result``).
     """
     columns = {address: (inputs[address], value) for address, value in saved.inputs.items()}
-    by_node = [*saved.units.items(), *((name, earlier.units) for name, earlier in saved.earlier.items())]
-    for name, units in by_node:
-        columns.update({f"{name}.{output}": (outputs[name][output].column, column) for output, column in units.outputs.items()})
+    by_node = [*saved.outcomes.items(), *((name, earlier.outcomes) for name, earlier in saved.earlier.items())]
+    for name, outcomes in by_node:
+        columns.update({f"{name}.{output}": (outputs[name][output].column, column) for output, column in outcomes.outputs.items()})
     for at, (written_by, value) in columns.items():
         try:
             written_by.adapter.serializer.to_json(value)

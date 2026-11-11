@@ -53,22 +53,22 @@ def outcomes_of(not_taken: dict[str, Any], not_called: dict[str, Any], saved: Sa
             outs = [dict(zip(names, values, strict=True)) for values in zip(*outputs.values(), strict=True)] if outputs else [{} for _ in states]
         done, skipped = SAVED_DONE, SAVED_SKIPPED
         skipped_outcome = Skipped(not_taken)
-        units: list[Outcome | None] = [Done(out) if state == done else skipped_outcome if state == skipped else None for state, out in zip(states, outs, strict=True)]
+        outcomes: list[Outcome | None] = [Done(out) if state == done else skipped_outcome if state == skipped else None for state, out in zip(states, outs, strict=True)]
         for slot, question in (saved.questions or {}).items():
-            answered = units[slot]
+            answered = outcomes[slot]
             if states[slot] is None:
-                units[slot] = Asking(question)
+                outcomes[slot] = Asking(question)
             elif type(answered) is Done:
-                units[slot] = Answered(answered.out, question)
+                outcomes[slot] = Answered(answered.out, question)
             else:
                 raise LookupError(slot)
         for slot, blank in (saved.not_called_because or {}).items():
-            if units[slot] is not None:
+            if outcomes[slot] is not None:
                 raise LookupError(slot)
-            units[slot] = NotCalled(not_called, blank)
+            outcomes[slot] = NotCalled(not_called, blank)
     except (LookupError, TypeError, AttributeError):  # a slot the columns don't have, or one that holds another kind of unit
         raise PydanticCustomError("misplaced", "a skip, a question or a blank input is placed on a slot that can't hold one") from None
-    return units
+    return outcomes
 
 
 def with_shared_tables(outputs: Mapping[str, Mapping[str, Field]], saved: SavedRun[list[Outcome | None], ReusableResults]) -> SavedRun[list[Outcome | None], ReusableResults]:
@@ -90,7 +90,7 @@ def with_shared_tables(outputs: Mapping[str, Mapping[str, Field]], saved: SavedR
     for entry in saved.tables_written_once or ():
         (node, output, slot), (from_node, from_output, from_slot) = entry.output, entry.same_as
         try:
-            outcome, source = saved.units[node][slot], saved.units[from_node][from_slot]
+            outcome, source = saved.outcomes[node][slot], saved.outcomes[from_node][from_slot]
             if not isinstance(outcome, (Done, Answered)) or not isinstance(source, (Done, Answered)) or outcome.out[output] is not None:
                 raise LookupError(slot)
             table = outputs[from_node][from_output].whole.written_once(source.out[from_output])
@@ -113,11 +113,11 @@ def reusable_of(saved: SavedReusable[list[Outcome | None]]) -> ReusableResults:
         PydanticCustomError: It doesn't hold one fingerprint for each unit (``slots_differ``), or it carries a
             unit that was never called (``not_carried``).
     """
-    if len(saved.fingerprints) != len(saved.units):
+    if len(saved.fingerprints) != len(saved.outcomes):
         raise PydanticCustomError("slots_differ", "it doesn't hold one fingerprint for each unit")
     places, lineages = saved.places or {}, saved.lineages or {}
     earlier = ReusableResults()
-    for slot, (fingerprint, outcome) in enumerate(zip(saved.fingerprints, saved.units, strict=True)):
+    for slot, (fingerprint, outcome) in enumerate(zip(saved.fingerprints, saved.outcomes, strict=True)):
         if type(outcome) is Done:
             earlier.computed.setdefault(fingerprint, outcome)
             if slot in places:

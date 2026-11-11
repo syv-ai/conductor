@@ -66,7 +66,7 @@ class SavedReusable[OutcomesT]:
     """
 
     __pydantic_config__: ClassVar[ConfigDict] = _SAVED
-    units: OutcomesT
+    outcomes: OutcomesT
     fingerprints: list[str]
     places: dict[NonNegativeInt, tuple[NonNegativeInt, ...]] | None = None
     lineages: dict[NonNegativeInt, str] | None = None
@@ -109,7 +109,7 @@ class SavedRun[OutcomesT, ReusableT]:
         code: By node, the ``reuse_digest`` of the code that made its units and its earlier work, so work made
             by other code is never taken.
         complete: The nodes every unit of which was finished when the last leg ended.
-        tables_written_once: The outputs in ``units`` written as ``null`` because another output has the same
+        tables_written_once: The outputs in ``outcomes`` written as ``null`` because another output has the same
             table, each with the output that is written in full; ``None``, which leaves the key out, when there are none.
     """
 
@@ -118,7 +118,7 @@ class SavedRun[OutcomesT, ReusableT]:
     state: Annotated[Going | EndedEarly, PydanticField(discriminator="status")]
     max_items: PositiveInt | None
     inputs: dict[str, Any]
-    units: dict[str, OutcomesT]
+    outcomes: dict[str, OutcomesT]
     earlier: dict[str, ReusableT]
     code: dict[str, str]
     complete: list[str]
