@@ -12,6 +12,7 @@ import json
 import math
 import threading
 import time
+from collections.abc import Callable
 from typing import Any, ClassVar, TypedDict
 
 import polars as pl
@@ -32,7 +33,7 @@ from conductor import (
     node,
     stored_graph,
 )
-from pydantic import BaseModel
+from pydantic import BaseModel, model_serializer
 
 from tests.test_core.nodes import place, registry_of
 
@@ -706,37 +707,59 @@ def test_a_cancel_set_mid_run_ends_the_leg_cancelled_at_once():
     assert after < 0.3 and len(calls) < 20, (after, len(calls))
 
 
-def test_a_cancel_from_a_coroutine_lands_during_a_leg_that_only_reuses():
+def test_a_cancel_set_while_a_leg_reuses_earlier_results_ends_the_leg_before_the_remaining_items():
+    """The second run calls ``echo`` for no item: each one's earlier result is reused, which reads the item to
+    compare it with the earlier one. The test sets the cancel from inside the tenth such read, and holds the
+    leg there until the event loop has set it, so the cancel is set while 90 items are still to go."""
+    reads: list[Callable[[], None]] = []
+
+    class Line(BaseModel):
+        type_id: ClassVar[str] = "Line"
+        type_title: ClassVar[str] = "Line"
+        text: str
+
+        @model_serializer
+        def written(self) -> dict[str, str]:
+            for read in reads:
+                read()
+            return {"text": self.text}
+
     @node("echo", title="Echo", description="For a test.")
-    def echo(text: str) -> str:
-        return text
+    def echo(line: Line) -> str:
+        return line.text
 
     @node("source", title="Source", description="For a test.")
-    def source(tag: int = 0) -> Series[str]:
-        return [str(n) for n in range(20_000)]
+    def source(tag: int = 0) -> Series[Line]:
+        return [Line(text=str(n)) for n in range(100)]
 
     graph = registry_of(source, echo).load(make_graph(source, echo))
     prepared = graph.run(tag=0).with_inputs(tag=1)
 
     async def go() -> Any:
-        cancel = asyncio.Event()
+        loop, cancel, cancel_is_set = asyncio.get_running_loop(), asyncio.Event(), threading.Event()
+        read_so_far = 0
 
-        async def cancel_after_a_few_turns() -> None:
-            for _ in range(3):
-                await asyncio.sleep(0)
+        def set_the_cancel() -> None:
             cancel.set()
+            cancel_is_set.set()
 
-        beside = asyncio.create_task(cancel_after_a_few_turns())
+        def cancel_at_the_tenth_read() -> None:
+            nonlocal read_so_far
+            read_so_far += 1
+            if read_so_far == 10:
+                loop.call_soon_threadsafe(set_the_cancel)
+                assert cancel_is_set.wait(5)
+
+        reads.append(cancel_at_the_tenth_read)
         last = None
         async for event in prepared.stream(cancel=cancel):
             last = event
-        await beside
         return last
 
     ended = _bounded(go())
 
     assert ended.status == "cancelled"
-    assert len([r for r in ended.run.results["echo"]["result"] if r is not None]) < 20_000
+    assert len([r for r in ended.run.results["echo"]["result"] if r is not None]) == 10  # the item being read, and none after it
 
 
 def test_exactly_one_run_end_comes_last_when_a_call_returns_after_a_cancel():
