@@ -1,7 +1,10 @@
 """The problems conductor's core writes, one function each.
 
-``PROBLEMS.problem`` says how a function's signature is read. A caller makes a problem by calling the function:
-``not_a_chain(after_id, before=before_id, inputs=open_inputs, outputs=outputs)``.
+``@PROBLEMS.problem()`` makes the function under it a kind of problem: its name is the code, its positional
+parameters are the places of ``loc``, its keyword-only parameters are the keys of ``ctx``, and what it returns is
+the English. Calling it builds the ``Problem``, ``problem.unknown_input("upper", "txet", inputs=["text"])``, so a
+call that leaves a key out or gives one the wrong type is a type error where it is written.
+``ProblemCatalogue.problem`` has the rules in full.
 """
 
 from __future__ import annotations
@@ -742,3 +745,7 @@ def timeout(*loc: str | int, seconds: float) -> str:
         seconds: The policy's ``attempt_timeout``.
     """
     return "The node did not answer in time; its Policy(attempt_timeout=) sets how long it may take."
+
+
+#: Every code a ``Problem`` conductor's core writes can have, for a host that translates by code to cover.
+PROBLEM_CODES: frozenset[str] = PROBLEMS.codes

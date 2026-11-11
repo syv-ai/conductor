@@ -62,7 +62,7 @@ from conductor._internal.node_definition import (
     declared_inputs,
     read_by_hooks,
 )
-from conductor._internal.problem import InvalidCallError, Problem
+from conductor._internal.problem import PROBLEMS, InvalidCallError, Problem
 from conductor._internal.registry import NodeRegistry
 from conductor._internal.run_status import EndedEarly
 
@@ -71,7 +71,7 @@ _Example = Mapping[str, Any]
 
 
 #: The problems of loading that are a hook's.
-_HOOK_CODES = frozenset({"compute_hook_failed", "parameter_name_invalid"})
+_HOOK_CODES = frozenset(kind.code for kind in PROBLEMS if kind.of_a_hook)
 
 
 class _Cannot:

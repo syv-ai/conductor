@@ -1,11 +1,11 @@
 """A problem, the kinds of it conductor writes, and the exceptions that carry one.
 
 Code outside this package imports from here only. ``type.py`` has ``Problem`` and how a package declares its kinds,
-``catalogue.py`` the core's kinds, one function per code;
-``unconverted.py`` the codes still written from a table of sentences, and ``errors.py`` the exceptions.
+``catalogue.py`` the core's kinds, one function per code, and ``errors.py`` the exceptions.
 """
 
 from conductor._internal.problem.catalogue import (
+    PROBLEM_CODES,
     PROBLEMS,
     alternatives_in_different_series,
     answer_stale,
@@ -75,22 +75,14 @@ from conductor._internal.problem.errors import (
     value_free_errors,
 )
 from conductor._internal.problem.type import Problem, ProblemCatalogue, ProblemKind
-from conductor._internal.problem.unconverted import (
-    PROBLEM_CATALOGUE,
-    PROBLEM_CODES,
-    CtxValue,
-    make_problem,
-)
 
 __all__ = [
-    "CtxValue",
     "DeclarationCode",
     "ExternalError",
     "InvalidCallError",
     "NodeDeclarationError",
     "NodeError",
     "PROBLEMS",
-    "PROBLEM_CATALOGUE",
     "PROBLEM_CODES",
     "Problem",
     "ProblemCatalogue",
@@ -124,7 +116,6 @@ __all__ = [
     "invalid_timeout",
     "invalid_value",
     "item_ceiling",
-    "make_problem",
     "missing_input",
     "node_not_in_graph",
     "not_a_chain",

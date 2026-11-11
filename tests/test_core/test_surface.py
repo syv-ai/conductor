@@ -37,7 +37,6 @@ from conductor import (
     Waiting,
     node,
 )
-from conductor._internal.problem import PROBLEM_CATALOGUE
 from conductor.events import (
     Event,
     NodeComplete,
@@ -239,37 +238,6 @@ def test_the_outputs_of_a_failed_run_are_refused_and_its_results_say_what_it_did
     (refused,) = raised.value.errors()
     assert refused.type == "run_not_complete" and refused.ctx["status"] == "failed"
     assert run.results["e"]["result"][0] == 0
-
-
-def _codes_written_by_the_library() -> set[str]:
-    """Every problem code a site in the library or its runs router writes: ``make_problem``'s first argument,
-    ``Problem(type=...)``, a ``code=`` on any call but a declaration error's, and each error's ``code`` default."""
-    written: set[str] = set()
-
-    def literals(expression: ast.expr) -> set[str]:
-        return {found.value for found in ast.walk(expression) if isinstance(found, ast.Constant) and isinstance(found.value, str)}
-
-    for path in [*LIBRARY.rglob("*.py"), *(LIBRARY.parents[2] / "conductor-providers" / "src").rglob("*.py")]:
-        for found in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-            if isinstance(found, ast.ClassDef) and found.name in ("NodeError", "ExternalError"):  # its code when none is given
-                (init,) = (f for f in found.body if isinstance(f, ast.FunctionDef) and f.name == "__init__")
-                written |= {code for a, d in zip(init.args.kwonlyargs, init.args.kw_defaults, strict=True) if a.arg == "code" and d for code in literals(d)}
-            if not isinstance(found, ast.Call):
-                continue
-            called = found.func.id if isinstance(found.func, ast.Name) else None
-            if called == "make_problem" and found.args:
-                written |= literals(found.args[0])
-            if called != "NodeDeclarationError":
-                written |= {code for keyword in found.keywords if keyword.arg == "code" for code in literals(keyword.value)}
-            if called == "Problem":
-                written |= {code for keyword in found.keywords if keyword.arg == "type" for code in literals(keyword.value)}
-    return written
-
-
-def test_every_code_written_as_a_string_has_a_row_and_every_row_is_written():
-    """A code not yet declared as a function of a catalogue is a string where it is written and a row of sentences:
-    no such code goes out without a row, and no row is dead. A code declared as a function has neither."""
-    assert _codes_written_by_the_library() == frozenset(PROBLEM_CATALOGUE)
 
 
 # --- errors a caller catches ------------------------------------------------

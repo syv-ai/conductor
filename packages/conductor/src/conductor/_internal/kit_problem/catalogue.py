@@ -1,7 +1,12 @@
 """The problems ``check_registry`` returns, one function each.
 
-``KIT_PROBLEMS.problem`` says how a function's signature is read. Each is at ``(node_id, version)``, the version of a
-node it is about. A developer reads them in a test run; a host never meets them.
+``@KIT_PROBLEMS.problem()`` makes the function under it a kind of problem: its name is the code, its keyword-only
+parameters are the keys of ``ctx``, and what it returns is the English. Calling it builds the ``Problem``,
+``kit_problem.needs_example("upper", 1, inputs=["text"])``, so a call that leaves a key out or gives one the wrong
+type is a type error where it is written. ``ProblemCatalogue.problem`` has the rules in full.
+
+Each is at ``(node_id, version)``, the version of a node it is about. A developer reads them in a test run; a host
+never meets them.
 """
 
 from __future__ import annotations

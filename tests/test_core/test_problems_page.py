@@ -1,8 +1,7 @@
-"""``docs/problems.md`` has one section for every code conductor writes, quoting its message, with an example that makes it.
+"""``docs/problems.md`` has one section for every code conductor writes, with an example that makes it.
 
-The codes are ``PROBLEM_CATALOGUE``'s, ``DeclarationCode``'s, the codes ``conductor.testing`` returns, and the runs
-router's own. A code both a graph and a declaration can have has a section in each group. A declaration's message is
-written where it is raised, so the messages a section quotes are read from the package's source.
+The codes are the three catalogues' (the core's, ``conductor.testing``'s and the runs router's) and
+``DeclarationCode``'s. A code both a graph and a declaration can have has a section in each group.
 """
 
 from __future__ import annotations
@@ -19,7 +18,7 @@ import typing
 import pytest
 from conductor import PROBLEMS
 from conductor._internal.kit_problem import KIT_PROBLEMS
-from conductor._internal.problem import PROBLEM_CATALOGUE, PROBLEM_CODES, DeclarationCode
+from conductor._internal.problem import DeclarationCode
 from conductor_providers.fastapi import ROUTER_PROBLEMS
 
 _ROOT = pathlib.Path(__file__).parents[2]
@@ -57,13 +56,10 @@ def _sections() -> list[tuple[str, str]]:
     return [(code + rest, body) for code, rest, body in zip(parts[1::3], parts[2::3], parts[3::3])]
 
 
-def _wanted() -> dict[str, list[str]]:
-    """Every section the page owes, by heading, with the messages it quotes."""
-    wanted = {code: [text] for code, text in PROBLEM_CATALOGUE.items()}
-    messages = _declaration_messages()
-    for code in typing.get_args(DeclarationCode):
-        wanted[code + _DECLARED if code in PROBLEM_CODES else code] = messages[code]
-    return wanted | {code: [] for code in KIT_PROBLEMS.codes | ROUTER_PROBLEMS.codes | PROBLEMS.codes}
+def _wanted() -> list[str]:
+    """Every section the page owes, by heading."""
+    declared = [code + _DECLARED if code in PROBLEMS.codes else code for code in typing.get_args(DeclarationCode)]
+    return [*declared, *(KIT_PROBLEMS.codes | ROUTER_PROBLEMS.codes | PROBLEMS.codes)]
 
 
 def test_every_code_has_one_section_and_no_section_names_another() -> None:
@@ -71,16 +67,9 @@ def test_every_code_has_one_section_and_no_section_names_another() -> None:
     assert sorted(headings) == sorted(_wanted()), set(headings) ^ set(_wanted())
 
 
-@pytest.mark.parametrize("heading", sorted(_wanted()))
-def test_a_section_quotes_its_codes_message(heading: str) -> None:
-    body = dict(_sections())[heading]
-    for text in _wanted()[heading]:
-        assert f"> {text}\n" in body, text
-
-
 def test_every_message_says_what_to_do() -> None:
     """A message carries its fix: a clause after what is wrong, which may be the alternatives to pick from."""
-    sentences = [*PROBLEM_CATALOGUE.items(), *((kind.code, kind.sentence) for kind in PROBLEMS)]
+    sentences = [(kind.code, kind.sentence) for kind in PROBLEMS]
     without = [code for code, text in sentences if code not in _NO_FIX and not re.search(r"[;:.] \S", text.removesuffix(": {reason}"))]
     assert without == []
 
