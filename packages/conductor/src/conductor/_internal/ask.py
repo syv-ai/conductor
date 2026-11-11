@@ -367,7 +367,7 @@ def _checked_answer(field: Field, value: Any, offered: list[dict[str, Any]] | No
     return read
 
 
-def waiting_record(placed: PlacedFunction, loc: Loc, unit: Asking) -> Waiting:
+def waiting_record(placed: PlacedFunction, loc: Loc, asking: Asking) -> Waiting:
     """A waiting unit as a host shows it. Its id is where it is as text, then ``~`` and the fingerprint of the
     question asked there, as ``run.answer`` reads it.
 
@@ -376,16 +376,16 @@ def waiting_record(placed: PlacedFunction, loc: Loc, unit: Asking) -> Waiting:
         loc: Where the unit is: the node and its item, behind those of each embedded graph's node around it.
         unit: The unit.
     """
-    question = unit.question
+    question = asking.question
     return Waiting(
-        id=f"{loc_text(loc)}~{question_fingerprint(placed, unit)}", loc=loc, prompt=question.prompt,
+        id=f"{loc_text(loc)}~{question_fingerprint(placed, asking)}", loc=loc, prompt=question.prompt,
         questions=waiting_questions(placed, question.overrides), inputs=question.inputs,
     )
 
 
-def question_fingerprint(placed: PlacedFunction, unit: Asking) -> str:
+def question_fingerprint(placed: PlacedFunction, asking: Asking) -> str:
     """Eight hex digits of which node asks, as which code, and what it received, so a waiting id stops matching when its place holds another question."""
-    inputs = unit.question.inputs
+    inputs = asking.question.inputs
     values = [inputs[name] for name in sorted(inputs)]  # saved, so the names may come back from a store in any order
     hashed = [placed.id, placed.reuse_digest, values]
     written = canonical_json(hashed) if {type(v) for v in values} & {dict, list} else pydantic_core.to_json(hashed)  # plain values have no keys to sort

@@ -52,8 +52,8 @@ def units_of(not_taken: dict[str, Any], not_called: dict[str, Any], saved: Saved
             names = tuple(outputs)
             outs = [dict(zip(names, values, strict=True)) for values in zip(*outputs.values(), strict=True)] if outputs else [{} for _ in states]
         done, skipped = SAVED_DONE, SAVED_SKIPPED
-        not_taken_unit = Skipped(not_taken)
-        units: list[Outcome | None] = [Done(out) if state == done else not_taken_unit if state == skipped else None for state, out in zip(states, outs, strict=True)]
+        skipped_outcome = Skipped(not_taken)
+        units: list[Outcome | None] = [Done(out) if state == done else skipped_outcome if state == skipped else None for state, out in zip(states, outs, strict=True)]
         for slot, question in (saved.questions or {}).items():
             answered = units[slot]
             if states[slot] is None:
@@ -90,13 +90,13 @@ def with_shared_tables(outputs: Mapping[str, Mapping[str, Field]], saved: SavedR
     for entry in saved.tables_written_once or ():
         (node, output, slot), (from_node, from_output, from_slot) = entry.output, entry.same_as
         try:
-            unit, source = saved.units[node][slot], saved.units[from_node][from_slot]
-            if not isinstance(unit, (Done, Answered)) or not isinstance(source, (Done, Answered)) or unit.out[output] is not None:
+            outcome, source = saved.units[node][slot], saved.units[from_node][from_slot]
+            if not isinstance(outcome, (Done, Answered)) or not isinstance(source, (Done, Answered)) or outcome.out[output] is not None:
                 raise LookupError(slot)
             table = outputs[from_node][from_output].whole.written_once(source.out[from_output])
             if table is None:
                 raise LookupError(from_slot)
-            unit.out[output] = outputs[node][output].whole.read_returned(table)
+            outcome.out[output] = outputs[node][output].whole.read_returned(table)
         except (LookupError, AttributeError, FieldValueError) as wrong:
             reason = wrong.reason if isinstance(wrong, FieldValueError) else "that is not an output written in full before it"
             raise PydanticCustomError(
@@ -117,13 +117,13 @@ def earlier_of(saved: SavedEarlier[list[Outcome | None]]) -> EarlierWork:
         raise PydanticCustomError("slots_differ", "it doesn't hold one fingerprint for each unit")
     places, lineages = saved.places or {}, saved.lineages or {}
     earlier = EarlierWork()
-    for slot, (fingerprint, unit) in enumerate(zip(saved.fingerprints, saved.units, strict=True)):
-        if type(unit) is Done:
-            earlier.computed.setdefault(fingerprint, unit)
+    for slot, (fingerprint, outcome) in enumerate(zip(saved.fingerprints, saved.units, strict=True)):
+        if type(outcome) is Done:
+            earlier.computed.setdefault(fingerprint, outcome)
             if slot in places:
-                earlier.at[places[slot]] = (fingerprint, unit)
-        elif type(unit) is Answered or type(unit) is Asking:
-            earlier.asked.setdefault((fingerprint, lineages.get(slot, "")), []).append(unit)
+                earlier.at[places[slot]] = (fingerprint, outcome)
+        elif type(outcome) is Answered or type(outcome) is Asking:
+            earlier.asked.setdefault((fingerprint, lineages.get(slot, "")), []).append(outcome)
         else:
             raise PydanticCustomError("not_carried", "it carries a unit that was never called")
     return earlier

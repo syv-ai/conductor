@@ -46,7 +46,7 @@ def unit_columns(outputs: Mapping[str, Field], slots: list[Outcome | None]) -> S
     if kinds & _HOLDS_OUTPUTS:
         every = kinds <= _HOLDS_OUTPUTS  # every unit holds outputs, as those of a node that finished do
         for name, output in outputs.items():
-            column = [unit.out[name] for unit in cast("list[Done | Answered]", slots)] if every else [unit.out[name] if type(unit) is Done or type(unit) is Answered else None for unit in slots]
+            column = [outcome.out[name] for outcome in cast("list[Done | Answered]", slots)] if every else [outcome.out[name] if type(outcome) is Done or type(outcome) is Answered else None for outcome in slots]
             columns[name] = column
             gone = [slot for slot, value in enumerate(column) if value is SKIPPED]
             if gone:
@@ -62,9 +62,9 @@ def unit_columns(outputs: Mapping[str, Field], slots: list[Outcome | None]) -> S
     else:  # no unit holds outputs yet
         columns = {name: [None] * len(slots) for name in outputs}
     if Answered in kinds or Asking in kinds:
-        questions = {slot: unit.question for slot, unit in enumerate(slots) if type(unit) is Answered or type(unit) is Asking}
+        questions = {slot: outcome.question for slot, outcome in enumerate(slots) if type(outcome) is Answered or type(outcome) is Asking}
     if NotCalled in kinds:
-        blank_inputs = {slot: unit.input for slot, unit in enumerate(slots) if type(unit) is NotCalled}
+        blank_inputs = {slot: outcome.input for slot, outcome in enumerate(slots) if type(outcome) is NotCalled}
     return SavedUnits(
         states=list(map(_STATE_WORD.get, map(type, slots))), outputs=columns, questions=questions, blank_inputs=blank_inputs,
         skipped=skipped or None, skipped_items=skipped_items or None,
@@ -124,10 +124,10 @@ def earlier_columns(outputs: Mapping[str, Field], earlier: EarlierWork) -> Saved
             fingerprints.append(fingerprint)
     lineages: dict[int, str] = {}
     for (fingerprint, lineage), asked in earlier.asked.items():
-        for unit in asked:
+        for outcome in asked:
             if lineage:
                 lineages[len(slots)] = lineage
-            slots.append(unit)
+            slots.append(outcome)
             fingerprints.append(fingerprint)
     return SavedEarlier(units=unit_columns(outputs, slots), fingerprints=fingerprints, places=places or None, lineages=lineages or None)
 

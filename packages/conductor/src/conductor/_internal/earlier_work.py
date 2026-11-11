@@ -43,7 +43,7 @@ class EarlierWork:
 
 
 def taken(
-    earlier: EarlierWork, node: FunctionAtPath, key: ItemPath, kwargs: dict[str, Any], units: dict[str, dict[ItemPath, Outcome]], in_turn: Callable[[], bool],
+    earlier: EarlierWork, node: FunctionAtPath, key: ItemPath, kwargs: dict[str, Any], outcomes: dict[str, dict[ItemPath, Outcome]], in_turn: Callable[[], bool],
 ) -> Done | Answered | Asking | Literal[NotReady.NOT_ITS_TURN] | None:
     """The unit of ``earlier`` that ``node`` takes in ``key`` in place of a call on ``kwargs``; ``None`` when
     there is none.
@@ -67,7 +67,7 @@ def taken(
     if fingerprint is None:
         return None
     if earlier.asked:
-        answers = earlier.asked.get((fingerprint, lineage(units, node, key)))
+        answers = earlier.asked.get((fingerprint, lineage(outcomes, node, key)))
         if answers:
             if not in_turn():
                 return NOT_ITS_TURN
@@ -78,12 +78,12 @@ def taken(
     return earlier.computed.get(fingerprint)
 
 
-def lineage(units: dict[str, dict[ItemPath, Outcome]], node: FunctionAtPath, key: ItemPath) -> str:
+def lineage(outcomes: dict[str, dict[ItemPath, Outcome]], node: FunctionAtPath, key: ItemPath) -> str:
     """A fingerprint of the item of each map above the innermost that the instance ``key`` of ``node`` sits
     in, those of the embedded graphs' nodes around it included. A unit's innermost item is in what it
     received."""
     above = [
-        units[series.name][key[:depth]].out[output][key[depth]]  # type: ignore[union-attr]  # a unit under an item of a Series holds that Series
+        outcomes[series.name][key[:depth]].out[output][key[depth]]  # type: ignore[union-attr]  # a unit under an item of a Series holds that Series
         for depth, (series, output) in enumerate(node.maps[:-1])
     ]
     return (fingerprint_of("", {"items": above}) or "") if above else ""

@@ -267,7 +267,7 @@ class Run:
 
         graph = self.graph
         run.state, run._finished_nodes = Scheduler(
-            nodes=graph._tree, threads=graph._threads, units=run._outcomes, earlier_work=run._earlier_work, finished=run._finished_nodes,
+            nodes=graph._tree, threads=graph._threads, outcomes=run._outcomes, earlier_work=run._earlier_work, finished=run._finished_nodes,
             max_items=run.max_items, arguments_for=run._reader.arguments_for, emit=emit, stop=stop, from_run=from_run,
             checkpoint=checkpoint, checkpoint_every=checkpoint_every,
         ).go()
@@ -276,12 +276,12 @@ class Run:
         return run
 
     @overload
-    def answer(self, unit: Waiting | str, value: Any, /) -> Run: ...
+    def answer(self, waiting: Waiting | str, value: Any, /) -> Run: ...
 
     @overload
     def answer(self, answers: Mapping[str, Any], /) -> Run: ...
 
-    def answer(self, unit: Waiting | str | Mapping[str, Any], value: Any = _ONE_ANSWER, /) -> Run:
+    def answer(self, waiting: Waiting | str | Mapping[str, Any], value: Any = _ONE_ANSWER, /) -> Run:
         """Give waiting units their answers, checked against their questions; nothing runs until ``resume``.
 
         ``run.answer(unit, value)`` answers one, ``run.answer({unit_id: value, ...})``
@@ -297,9 +297,9 @@ class Run:
         answers as a waiting one does, a cancelled one included.
         """
         if value is not _ONE_ANSWER:
-            given: Mapping[str, Any] = {unit.id if isinstance(unit, Waiting) else str(unit): value}
-        elif isinstance(unit, Mapping):
-            given = {str(key): one for key, one in unit.items()}
+            given: Mapping[str, Any] = {waiting.id if isinstance(waiting, Waiting) else str(waiting): value}
+        elif isinstance(waiting, Mapping):
+            given = {str(key): one for key, one in waiting.items()}
         else:
             raise TypeError("run.answer takes a unit and its answer, or a mapping of unit ids to answers")
         problems: list[Problem] = []
@@ -332,7 +332,7 @@ class Run:
             answered[(node, key)] = Answered(read, found.question) if not faults else found
         if problems:
             raise InvalidCallError(problems)
-        run = self._copy(share_units=True)
+        run = self._copy(share_outcomes=True)
         for changed in {node for node, _ in answered}:  # its own units for each node it changes; every other node's are shared
             run._outcomes[changed.name] = dict(self._outcomes[changed.name])
         for (node, key), now in answered.items():
@@ -342,9 +342,9 @@ class Run:
     def _moved_to(self, nodes: NodePath, fingerprint: str) -> str | None:
         """The id of the unit where the question a stale id names now waits, if it waits elsewhere on the node at
         the path ``nodes``."""
-        for node, key, unit in self._asking():
-            if node.path == nodes and question_fingerprint(node.placed, unit) == fingerprint:
-                return waiting_record(node.placed, outcome_loc(node, key), unit).id
+        for node, key, outcome in self._asking():
+            if node.path == nodes and question_fingerprint(node.placed, outcome) == fingerprint:
+                return waiting_record(node.placed, outcome_loc(node, key), outcome).id
         return None
 
     def with_inputs(self, inputs: Mapping[str, Any] = MappingProxyType({}), /, *, max_items: int | None = None, **by_name: Any) -> Run:
@@ -394,18 +394,18 @@ class Run:
                 continue
             placed = node.placed
             of_node = work[node.path] = EarlierWork()
-            for key, unit in self._outcomes[node.name].items():
-                if type(unit) is Skipped or type(unit) is outcomes.NotCalled:
+            for key, outcome in self._outcomes[node.name].items():
+                if type(outcome) is Skipped or type(outcome) is outcomes.NotCalled:
                     continue
                 received = cast("CallInputs", reader.arguments_for(node, key))  # the unit was called, so what it reads is settled and it received a call's arguments
                 fingerprint = fingerprint_of(placed.reuse_digest, received, plain=placed.plain_inputs)
                 if fingerprint is None:
                     continue
-                if type(unit) is Answered or type(unit) is Asking:
-                    of_node.asked.setdefault((fingerprint, lineage(self._outcomes, node, key)), []).append(unit)
+                if type(outcome) is Answered or type(outcome) is Asking:
+                    of_node.asked.setdefault((fingerprint, lineage(self._outcomes, node, key)), []).append(outcome)
                 else:
-                    of_node.at[key] = (fingerprint, unit)
-                    of_node.computed.setdefault(fingerprint, unit)
+                    of_node.at[key] = (fingerprint, outcome)
+                    of_node.computed.setdefault(fingerprint, outcome)
         for path, untaken in self._earlier_work.items():  # the earlier work this run held and no unit of it took
             of_node = work.setdefault(path, EarlierWork())
             for fingerprint, done in untaken.computed.items():
@@ -434,22 +434,22 @@ class Run:
     def waiting(self) -> list[Waiting]:
         """Every unit waiting for a person, in node then item order; those inside an embedded graph where its
         node stands."""
-        return [waiting_record(node.placed, outcome_loc(node, key), unit) for node, key, unit in self._asking()]
+        return [waiting_record(node.placed, outcome_loc(node, key), outcome) for node, key, outcome in self._asking()]
 
     def _asking(self) -> Iterator[tuple[FunctionAtPath, ItemPath, Asking]]:
         """Every unit waiting for a person, with its node and instance, in node then instance order."""
         for node in self.graph._tree:
-            for key, unit in self._outcomes[node.name].items():
-                if type(unit) is Asking:
-                    yield node, key, unit
+            for key, outcome in self._outcomes[node.name].items():
+                if type(outcome) is Asking:
+                    yield node, key, outcome
 
     @property
     def not_called(self) -> list[NotCalled]:
         """The calls a node didn't get because an input was blank: which node, which item and which input; those
         inside an embedded graph where its node stands."""
         return [
-            NotCalled(loc=outcome_loc(node, key), input=unit.input)
-            for node in self.graph._tree for key, unit in self._outcomes[node.name].items() if type(unit) is outcomes.NotCalled
+            NotCalled(loc=outcome_loc(node, key), input=outcome.input)
+            for node in self.graph._tree for key, outcome in self._outcomes[node.name].items() if type(outcome) is outcomes.NotCalled
         ]
 
     @property
@@ -552,14 +552,14 @@ class Run:
             return list(units.values())
         return [units.get(instance) for instance in item_paths(self._outcomes, node.maps, ())[0]]
 
-    def _copy(self, *, share_units: bool = False) -> Run:
+    def _copy(self, *, share_outcomes: bool = False) -> Run:
         """A copy to change: its own units to record into and its own earlier work to take from; or with
-        ``share_units`` this run's units of every node, for a caller that replaces whole nodes and takes nothing.
+        ``share_outcomes`` this run's units of every node, for a caller that replaces whole nodes and takes nothing.
 
         Args:
-            share_units: Whether the copy holds this run's own dict of units for each node.
+            share_outcomes: Whether the copy holds this run's own dict of units for each node.
         """
-        if share_units:
+        if share_outcomes:
             units, earlier = dict(self._outcomes), dict(self._earlier_work)
         else:  # its own answers to take, as this run holds them too
             units = {name: dict(held) for name, held in self._outcomes.items()}
@@ -616,7 +616,7 @@ def _run_of(graph: Graph, saved: SavedRun[list[Outcome | None], EarlierWork]) ->
             if len(slots) != len(made):
                 at, reason = f"units.{node.name}", f"it holds {len(slots)} slots for the {len(made)} instances the saved run made of the node"
                 raise InvalidCallError([problem.state_unreadable("state", at=at, reason=reason)])
-            run._outcomes[node.name] = {instance: unit for instance, unit in zip(made, slots, strict=True) if unit is not None}
+            run._outcomes[node.name] = {instance: outcome for instance, outcome in zip(made, slots, strict=True) if outcome is not None}
     functions = graph._functions
     run._made_by_other_code = {path: digest for name, digest in saved.code.items() if digest != functions[path := node_path(name)].reuse_digest}
     run._earlier_work = {path: of_node for name, of_node in saved.earlier.items() if (path := node_path(name)) not in run._made_by_other_code}  # work of other code is never taken

@@ -170,10 +170,10 @@ class ResultReader(Reader):
         units: Each function's units.
     """
 
-    __slots__ = ("units",)
+    __slots__ = ("outcomes",)
 
-    def __init__(self, units: dict[str, dict[ItemPath, Outcome]], graph_inputs: Mapping[str, Any]) -> None:
-        self.units, self.graph_inputs = units, graph_inputs
+    def __init__(self, outcomes: dict[str, dict[ItemPath, Outcome]], graph_inputs: Mapping[str, Any]) -> None:
+        self.outcomes, self.graph_inputs = outcomes, graph_inputs
 
     def read_output(self, at: OutputAtScope, item_path: ItemPath) -> Any:
         """What the output ``at`` holds for ``item_path``: an ``ItemOfSeries``'s is the item of ``item_path``, and a field named
@@ -183,10 +183,10 @@ class ResultReader(Reader):
             NoSuchFieldError: The edge names a field the record doesn't have.
         """
         depth = at.depth
-        unit = self.units[at.node_id].get(item_path[:depth])
-        if unit is None or type(unit) is Asking:
+        outcome = self.outcomes[at.node_id].get(item_path[:depth])
+        if outcome is None or type(outcome) is Asking:
             return NOT_READY
-        value = unit.out[at.output]
+        value = outcome.out[at.output]
         if value is None or value is SKIPPED or type(at) is OutputAtScope:
             return value
         if type(at) is ItemOfSeries:  # ``value`` is a stored Series: one item of it, or one field of that item
