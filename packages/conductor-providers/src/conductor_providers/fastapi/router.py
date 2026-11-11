@@ -240,7 +240,7 @@ def run_router(
         store=store, nodes_for=nodes_for, caller_type=_caller_type(caller), from_run=from_run,
         max_items=max_items, lease=lease, checkpoint_every=checkpoint_every, leg_timeout=leg_timeout, poll=poll,
     )
-    router = APIRouter(lifespan=lambda _: worker.running(), route_class=_RefusingRoute)
+    router = APIRouter(lifespan=lambda _: worker.serving(), route_class=_RefusingRoute)
 
     async def stored(run_id: str, who: Annotated[C, Depends(caller)]) -> RunAsRead:
         """The run of a route under ``/runs/{run_id}``, for the caller: the access rule of every such route.

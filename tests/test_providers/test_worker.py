@@ -238,7 +238,7 @@ async def test_a_cancel_sent_while_a_dead_worker_held_the_run_is_kept_when_anoth
     ))
 
     assert await worker.cancel(await worker.read("taken"))
-    await worker.take_over()
+    await worker.sweep()
     assert (await store.ended("taken")).status == "cancelled" and calls == []
 
     await worker.resume(await worker.read("taken"))
@@ -333,7 +333,7 @@ async def test_an_answer_queued_during_a_leg_starts_the_next_leg_however_long_it
 
     store = SlowEnd()
     worker = _worker(store, registry, lease=0.3)
-    async with worker.running():
+    async with worker.serving():
         run_id = await _started(worker, graph, inputs)
         assert await worker.answer(await worker.read(run_id), {waiting_id: True}) == "queued"
         gate.set()
@@ -413,7 +413,7 @@ async def test_a_leg_whose_run_takes_longer_than_the_lease_to_write_keeps_it_and
     monkeypatch.setattr(Run, "to_json", slow_to_json)
     store = MemoryStore()
     one, other = _worker(store, registry, lease=0.3), _worker(store, registry, lease=0.3)
-    async with one.running(), other.running():
+    async with one.serving(), other.serving():
         run_id = await _started(one, graph, inputs)
         ended = await store.ended(run_id)
         await asyncio.sleep(0.4)  # a second worker that took the run would be running it again by now
@@ -620,7 +620,7 @@ async def test_a_leg_whose_end_the_store_fails_to_write_stays_running_and_is_gon
 
     store = EndFailsOnce()
     worker = _worker(store, registry, lease=0.15)
-    async with worker.running():
+    async with worker.serving():
         run_id = await _started(worker, graph, {"text": "a"})
         ended = await store.ended(run_id)  # once the lease ran out and a sweep took the run
 
@@ -654,7 +654,7 @@ async def test_a_leg_that_ends_with_a_run_that_cant_be_written_fails_with_that_p
 
     graph = make_graph(*(registry[node_id] for node_id in graph_of))
     worker = _worker(store, registry, lease=0.15)
-    async with worker.running():
+    async with worker.serving():
         run_id = await _started(worker, graph, {"text": "a"})
         ended = await store.ended(run_id)
         await asyncio.sleep(0.4)  # leases in which a leg retried would start again
@@ -753,7 +753,7 @@ async def test_a_run_handed_back_by_a_worker_shutting_down_reads_as_running_with
     store = MemoryStore()
     worker = _worker(store, registry)
 
-    async with worker.running():
+    async with worker.serving():
         run_id = await _started(worker, graph, {"n": 40})
         await asyncio.to_thread(called.wait, 5)
 
@@ -768,12 +768,12 @@ async def test_a_run_handed_back_at_shutdown_stores_no_run_end_and_the_worker_th
     store = MemoryStore()
     first, second = _worker(store, registry), _worker(store, registry)
 
-    async with first.running():
+    async with first.serving():
         run_id = await _started(first, graph, {"n": 40})
         await asyncio.to_thread(called.wait, 5)
     assert "run_end" not in [event["type"] for event in await store.stored_events(run_id)]
 
-    await second.take_over()
+    await second.sweep()
     assert (await store.ended(run_id)).outputs == {"slow.result": list(range(40))}
     events = [event["type"] for event in await store.stored_events(run_id)]
     assert (events.count("run_start"), events.count("run_end"), events[-1]) == (2, 1, "run_end")
@@ -797,7 +797,7 @@ async def test_a_cancel_from_another_worker_that_lands_as_a_worker_hands_the_run
     store = CancelAtHandBack()
     worker, other = _worker(store, registry), _worker(store, registry)
 
-    async with worker.running():
+    async with worker.serving():
         run_id = await _started(worker, graph, inputs)
         asyncio.get_running_loop().call_later(0.05, gate.set)
 
@@ -806,7 +806,7 @@ async def test_a_cancel_from_another_worker_that_lands_as_a_worker_hands_the_run
     assert (handed_back.row.status, handed_back.row.owner, handed_back.row.lease_until) == ("running", None, 0.0)
     assert "run_end" not in [event["type"] for event in await store.stored_events(run_id)]
 
-    await other.take_over()
+    await other.sweep()
     row = await store.until(run_id, lambda row: row.status != "running")
     assert (row.status, row.owner, row.lease_until) == ("cancelled", None, None)
     assert [event["status"] for event in await store.stored_events(run_id) if event["type"] == "run_end"] == ["cancelled"]
@@ -841,7 +841,7 @@ async def test_a_sweep_that_raises_is_logged_and_the_next_one_takes_the_run(fail
         await store.create(dataclasses.replace(left, id="broken", state="{"))
     await store.create(left)
 
-    async with worker.running():
+    async with worker.serving():
         ended = await store.ended("left")
 
     assert ended.outputs == {"shout.result": "A"}
@@ -863,7 +863,7 @@ async def test_a_renewal_that_raises_is_logged_and_the_next_one_keeps_the_lease_
 
     store = RenewalFailsOnce()
     holder, other = _worker(store, registry, lease=0.3), _worker(store, registry, lease=0.3)
-    async with other.running():
+    async with other.serving():
         run_id = await _started(holder, graph, {"n": 40})
         ended = await store.ended(run_id)
 
@@ -892,7 +892,7 @@ async def test_a_run_that_stopped_running_holds_no_lease_so_no_sweep_takes_it_ag
 
     row = (await worker.read(run_id)).row
     assert (row.owner, row.lease_until) == (None, None) and await store.expired(time.time()) == []
-    await worker.take_over()
+    await worker.sweep()
     assert (await worker.read(run_id)).row == row and await _starts(store, run_id) == 1
 
 
@@ -909,7 +909,7 @@ async def test_a_run_whose_worker_died_is_taken_by_one_of_two_workers_and_finish
         id="left", graph=graph.model_dump_json(), caller='"anna"', run=checkpoint.to_json(), **StoredState().columns(), outcome=Outcome().model_dump_json(), owner="a-dead-worker", lease_until=0.0,
     ))
 
-    await asyncio.gather(one.take_over(), other.take_over())
+    await asyncio.gather(one.sweep(), other.sweep())
 
     assert (await store.ended("left")).outputs == {"busy.result": "x", "hold.result": ["a", "b"]}
     assert calls == ["a", "b"] and await _starts(store, "left") == 1
@@ -921,11 +921,11 @@ async def test_a_worker_whose_run_another_took_stops_its_leg_and_writes_nothing_
     store = MemoryStore()
     slow, taker = _worker(store, registry, lease=0.15), _worker(store, registry)
 
-    async with slow.running():  # leaving it waits for the leg the slow worker still runs
+    async with slow.serving():  # leaving it waits for the leg the slow worker still runs
         run_id = await _started(slow, graph, inputs)
         row = (await slow.read(run_id)).row
         assert await store.update(run_id, row.rev, {"lease_until": 0.0})  # as when its lease ran out unrenewed
-        await taker.take_over()
+        await taker.sweep()
         taken = await taker.read(run_id)
         await asyncio.sleep(0.2)  # the slow worker's renewals would have landed by now
         assert taken.row.owner == taker.id and await taker.read(run_id) == taken

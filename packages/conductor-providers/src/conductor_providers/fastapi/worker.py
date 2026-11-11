@@ -44,7 +44,7 @@ C = TypeVar("C")
 log = logging.getLogger("conductor_providers.fastapi")
 
 #: The owner and lease of a row no leg is wanted for.
-_NOBODYS: RunChanges = {"owner": None, "lease_until": None}
+_UNHELD: RunChanges = {"owner": None, "lease_until": None}
 
 #: The owner and lease of a row handed back: its lease already run out, so the next sweep of any worker takes it.
 _HANDED_BACK: RunChanges = {"owner": None, "lease_until": 0.0}
@@ -208,7 +208,7 @@ class Worker(Generic[C]):
         if not isinstance(run.state.run_state, EndedEarly):
             raise RefusedError(router_problem.run_not_resumable(status=run.state.run_state.status))
         state = run.state.model_copy(update={"run_state": RUNNING})
-        if not await self._claim(run, state, ceiling=max_items):
+        if not await self._claim(run, state, max_items=max_items):
             raise RefusedError(router_problem.run_changed())
 
     async def cancel(self, run: RunAsRead) -> bool:
@@ -253,7 +253,7 @@ class Worker(Generic[C]):
             else:  # the row follows its run_end, so it may still say a leg is wanted for a poll or two
                 await asyncio.sleep(self._poll)
 
-    async def take_over(self) -> None:
+    async def sweep(self) -> None:
         """Go on with every run whose lease ran out: its worker died or handed it back. A run that can't be taken
         (its row can't be read, the store fails) is logged and left for the next call, and the others are taken."""
         held = {hold.run_id for hold in self._holds}
@@ -266,20 +266,20 @@ class Worker(Generic[C]):
                     log.exception("run %s, whose lease ran out, was not taken over; the next sweep tries again", row.id)
 
     @asynccontextmanager
-    async def running(self) -> AsyncGenerator[None]:
+    async def serving(self) -> AsyncGenerator[None]:
         """While entered, take over runs whose lease ran out, three times a lease. On leaving, stop every leg this
         worker runs and hand its run back: a leg handed back keeps the calls already made, so the next worker
         repeats none. A sweep that raises is logged and the next one runs."""
-        async def sweep() -> None:
+        async def keep_sweeping() -> None:
             while True:
                 try:
-                    await self.take_over()
+                    await self.sweep()
                 except Exception:
                     log.exception("the sweep for runs whose lease ran out failed; the next one tries again")
                 await asyncio.sleep(self._lease / 3)
 
         self._handing_back.clear()
-        sweeping = asyncio.create_task(sweep())
+        sweeping = asyncio.create_task(keep_sweeping())
         try:
             yield
         finally:
@@ -302,7 +302,7 @@ class Worker(Generic[C]):
         self._run_legs(row, state)
         return row.id
 
-    async def _claim(self, run: RunAsRead, state: StoredState, *, answered: str | None = None, ceiling: int | None = None) -> bool:
+    async def _claim(self, run: RunAsRead, state: StoredState, *, answered: str | None = None, max_items: int | None = None) -> bool:
         """Take a run for this worker if it is still at the ``rev`` read, and run its next leg. Of two workers, one
         wins.
 
@@ -311,7 +311,7 @@ class Worker(Generic[C]):
             state: The state the row takes with the claim; its ``status`` and ``state`` are written from it.
             answered: The run with a caller's answers given, as JSON, for a claim that an answer makes; the row's
                 ``run`` then. Left out, the row keeps the run it has.
-            ceiling: A ceiling on the items of any one Series for the leg, where the run's own is to be raised.
+            max_items: A ceiling on the items of any one Series for the leg, where the run's own is to be raised.
 
         Returns:
             Whether this worker took the run.
@@ -321,20 +321,20 @@ class Worker(Generic[C]):
             written["run"] = answered
         if not await self._store.update(run.row.id, run.row.rev, written):
             return False
-        self._run_legs(replace(run.row, **written, rev=run.row.rev + 1), state, ceiling)
+        self._run_legs(replace(run.row, **written, rev=run.row.rev + 1), state, max_items)
         return True
 
-    def _run_legs(self, row: StoredRun, state: StoredState, ceiling: int | None = None) -> None:
+    def _run_legs(self, row: StoredRun, state: StoredState, max_items: int | None = None) -> None:
         """Run the legs of ``row``, as this worker has just written it, in the background; a cancel asked of it the
         first leg hears before its first unit."""
         hold = _Hold(row.id, row.rev, state)
         if state.cancel_asked:
             hold.stop.set()
-        self._holds[hold] = asyncio.get_running_loop().create_task(self._legs(hold, row, ceiling))
+        self._holds[hold] = asyncio.get_running_loop().create_task(self._legs(hold, row, max_items))
 
     # -- a held run -------------------------------------------------------------------------------
 
-    async def _legs(self, hold: _Hold, row: StoredRun, ceiling: int | None) -> None:
+    async def _legs(self, hold: _Hold, row: StoredRun, max_items: int | None) -> None:
         """Run legs of a held run, renewing its lease, until the end of one gives the run up.
 
         A raise while a leg's end is written, which may come after its ``run_end`` is stored, is logged and writes
@@ -343,8 +343,8 @@ class Worker(Generic[C]):
         renewing = asyncio.create_task(self._renew(hold))
         try:
             while not hold.released:
-                end = await self._leg(hold, row, ceiling)
-                row, ceiling = await self._finish(hold, row, end), None
+                end = await self._leg(hold, row, max_items)
+                row, max_items = await self._finish(hold, row, end), None
         except Exception:
             log.exception("the end of the leg of run %s was not written; a worker goes on with the run once its lease runs out", row.id)
         finally:
@@ -361,7 +361,7 @@ class Worker(Generic[C]):
             except Exception:
                 log.exception("the lease of run %s was not renewed; the next renewal tries again", hold.run_id)
 
-    async def _leg(self, hold: _Hold, row: StoredRun, ceiling: int | None) -> LegEnd:
+    async def _leg(self, hold: _Hold, row: StoredRun, max_items: int | None) -> LegEnd:
         """Run one leg of ``row`` and store its events and checkpoints.
 
         Returns:
@@ -373,7 +373,7 @@ class Worker(Generic[C]):
             who = self.started_by(row)
             run = await asyncio.to_thread(_loaded, row, self._nodes_for(who))
             stream = run.stream(
-                from_run=self._from_run(who), max_items=ceiling, timeout=self._leg_timeout,
+                from_run=self._from_run(who), max_items=max_items, timeout=self._leg_timeout,
                 cancel=hold.stop, hand_back=self._handing_back, checkpoint_every=self._checkpoint_every,
             )
             end: LegEnd = HandedBack()
@@ -417,7 +417,7 @@ class Worker(Generic[C]):
                     break
                 end_stored = True
             goes_on = after.leg_wanted and not self._handing_back.is_set()
-            holder = self._mine() if goes_on else _HANDED_BACK if after.leg_wanted else _NOBODYS
+            holder = self._mine() if goes_on else _HANDED_BACK if after.leg_wanted else _UNHELD
             changes: RunChanges = {**after.state.columns(), **after.changes, **holder}
             async with hold.lock:  # no renewal lands after the write that gives the run up
                 if hold.reads == reads and await self._write_once(hold, changes):  # decided from the state as it still is
