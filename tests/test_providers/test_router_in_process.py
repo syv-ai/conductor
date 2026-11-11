@@ -17,8 +17,9 @@ import pytest
 
 httpx = pytest.importorskip("httpx")
 
-from conductor import FromRun, GraphRecord, NodeRecord, NodeRegistry, Problem, make_graph  # noqa: E402
+from conductor import FromRun, Going, GraphRecord, NodeRecord, NodeRegistry, Problem, make_graph  # noqa: E402
 from conductor_providers.fastapi import ROUTER_PROBLEM_CODES, RunChanges, StoredRun, run_router  # noqa: E402
+from conductor_providers.fastapi.worker import StoredState  # noqa: E402
 from fastapi import FastAPI, Header  # noqa: E402
 
 from tests.test_providers.in_memory import MemoryStore, asking  # noqa: E402
@@ -269,7 +270,7 @@ async def test_a_follower_that_sent_a_run_end_while_the_row_still_reads_running_
             row = await super().get(run_id)
             if row is not None and row.status == "complete" and self.lagged < 5:
                 self.lagged += 1
-                return dataclasses.replace(row, status="running")
+                return dataclasses.replace(row, **StoredState(run_state=Going("running")).columns())
             return row
 
     store = RowLags()

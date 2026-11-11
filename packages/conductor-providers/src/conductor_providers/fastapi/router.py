@@ -23,7 +23,13 @@ from fastapi.sse import EventSourceResponse, ServerSentEvent
 from pydantic import BaseModel, PositiveInt
 
 from conductor_providers.fastapi.store import RunStore, StoredRun
-from conductor_providers.fastapi.worker import NoSuchRunError, RefusedError, RunView, Worker
+from conductor_providers.fastapi.worker import (
+    NoSuchRunError,
+    RefusedError,
+    RunView,
+    StoredState,
+    Worker,
+)
 
 C = TypeVar("C")
 
@@ -266,7 +272,7 @@ def run_router(
                 continue
             if may_have_ended:  # the row follows its run_end, so it may still read running for a poll or two
                 read_again = await store.get(row.id)
-                if read_again is None or read_again.status != "running":
+                if read_again is None or StoredState.model_validate_json(read_again.state).run_state.status != "running":
                     for seq, body in await store.events(row.id, seen):  # written before the status changed
                         yield ServerSentEvent(raw_data=body, id=str(seq))
                     return

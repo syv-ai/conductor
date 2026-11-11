@@ -121,8 +121,9 @@ class StoredState(BaseModel):
     cancel_asked: bool = False
 
     def columns(self) -> RunChanges:
-        """The row's ``status`` and ``state`` for this state. Nothing else writes either column, so a row's
-        ``status`` is always the one its ``state`` holds."""
+        """The row's ``status`` and ``state`` for this state. Nothing else writes either column, so each write of
+        ``state`` writes the ``status`` it holds in the same statement. ``status`` is for the host's own queries:
+        the worker and the routes read ``state`` and never ``status``."""
         return {"status": self.run_state.status, "state": self.model_dump_json()}
 
 
@@ -394,11 +395,12 @@ class Worker(Generic[C]):
         if not_running is None:
             return "queued"
         row = not_running
-        if row.status == "complete":
+        state = StoredState.model_validate_json(row.state)
+        if state.run_state.status == "complete":
             raise RefusedError(_problem("run_complete"))
         nodes = self._nodes_for(self.started_by(row))
         answered = await asyncio.to_thread(lambda: _loaded(row, nodes).answer(answers).to_json())
-        state = StoredState.model_validate_json(row.state).model_copy(update={"run_state": _RUNNING})
+        state = state.model_copy(update={"run_state": _RUNNING})
         if not await self._claim(row, state, {"run": answered, **state.columns()}):
             raise RefusedError(_problem("run_changed"))
         return "started"
@@ -638,8 +640,8 @@ class Worker(Generic[C]):
         Returns:
             ``None`` once it is written; else the run as last read, which no leg runs.
         """
-        while row.status == "running":
-            if await self._store.update(row.id, row.rev, asked(StoredState.model_validate_json(row.state)).columns()):
+        while (state := StoredState.model_validate_json(row.state)).run_state == _RUNNING:
+            if await self._store.update(row.id, row.rev, asked(state).columns()):
                 return None
             row = await self.read(row.id)
         return row

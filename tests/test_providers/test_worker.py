@@ -258,6 +258,31 @@ async def test_a_run_that_isnt_running_has_no_leg_to_cancel() -> None:
     assert (await store.ended(run_id)).status == "waiting"
 
 
+async def test_the_worker_goes_by_a_runs_state_and_never_reads_the_status_column() -> None:
+    registry, graph, gate, inputs, waiting_id = asking()
+    gate.set()
+
+    class DropsStatus(MemoryStore):
+        """Writes every column but ``status``, as a host's store whose ``update`` misses the one it only queries."""
+
+        async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
+            return await super().update(run_id, rev, {name: value for name, value in changes.items() if name != "status"})
+
+    store = DropsStatus()
+    worker = _worker(store, registry)
+    run_id = await _started(worker, graph, inputs)
+    row = await store.until(run_id, lambda row: row.owner is None)
+    assert (row.status, RunView.of(row).status) == ("running", "waiting")
+
+    assert not await worker.cancel(row)
+    with pytest.raises(RefusedError) as refused:
+        await worker.resume(row)
+    assert [problem.ctx for problem in refused.value.problems] == [{"status": "waiting"}]
+    assert await worker.answer(row, {waiting_id: True}) == "started"
+    completed = await store.until(run_id, lambda row: row.owner is None)
+    assert RunView.of(completed).outputs == {"busy.result": "x", "after.result": True}
+
+
 # -- answers --------------------------------------------------------------------------------------
 
 
