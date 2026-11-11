@@ -16,7 +16,7 @@ from conductor.widgets import NumberInput, TextInput
 registry = NodeRegistry(category="text")   # its nodes' category, unless one sets its own
 
 
-@registry.node("greet", title="Greet", description="Produces a greeting.")                 # the id; a graph pins it with a version
+@registry.node("greet", title="Greet", description="Greets a person by name.")               # the id; a graph pins it with a version
 def greet(
     name: Annotated[str, Param(title="Name", widget=TextInput())],
     times: Annotated[int, Param(title="Times", widget=NumberInput())] = 1,

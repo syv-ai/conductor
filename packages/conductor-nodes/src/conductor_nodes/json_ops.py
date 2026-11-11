@@ -35,9 +35,9 @@ def stringify(
     return json.dumps(value, indent=indent or None, sort_keys=sort_keys)
 
 
-@registry.node("json-get", title="Get from JSON", description="Picks one value out of JSON by its path, such as user.name. It is blank when nothing is there.")
+@registry.node("json-get", title="Get from JSON", description="Picks one value out of JSON by its path, such as user.name. It gives null when nothing is there.")
 def get_path(value: JsonValue, path: Line) -> Annotated[JsonValue, Param(title="Extracted")]:
-    """Reads a dotted path from a JSON value, such as `user.name` or `items.0.id`; blank where there is nothing."""
+    """Reads a dotted path from a JSON value, such as `user.name` or `items.0.id`; JSON null where there is nothing."""
     current = value
     for segment in path.split(".") if path else ():
         if isinstance(current, dict):

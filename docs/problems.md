@@ -1040,7 +1040,7 @@ except NodeDeclarationError as error:
 twice = NodeRegistry()
 twice.add(upper)
 try:
-    @twice.node("upper", title="Upper again", description="Turns a text into capital letters.")
+    @twice.node("upper", title="Uppercase", description="Turns a text into capital letters.")
     def upper_again(text: str) -> str:
         return text
 except NodeDeclarationError as error:
