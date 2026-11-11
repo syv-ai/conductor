@@ -541,7 +541,7 @@ class Run:
         complete = [node.name for node in self.graph._tree if node.path in self._finished_nodes]
         form = self.graph._save_form
         written_once = tables_written_once(form.outputs, form.shareable, outcomes) if form.shareable else None
-        return SavedRun(graph=self.graph.fingerprint, state=self.state, max_items=self.max_items, inputs=self.inputs, outcomes=outcomes, earlier=earlier, code=code, complete=complete, tables_written_once=written_once)
+        return SavedRun(graph=self.graph.fingerprint, state=self.state, max_items=self.max_items, inputs=self.inputs, outcomes=outcomes, reusable_results=earlier, code=code, complete=complete, tables_written_once=written_once)
 
     def _slots(self, node: FunctionAtPath) -> list[Outcome | None]:
         """A node's units with a slot for each instance of the node, in instance order; ``None`` where the
@@ -618,7 +618,7 @@ def _run_of(graph: Graph, saved: SavedRun[list[Outcome | None], ReusableResults]
             run._outcomes[node.name] = {instance: outcome for instance, outcome in zip(made, slots, strict=True) if outcome is not None}
     functions = graph._functions
     run._made_by_other_code = {path: digest for name, digest in saved.code.items() if digest != functions[path := node_path(name)].reuse_digest}
-    run._reusable_results = {path: of_node for name, of_node in saved.earlier.items() if (path := node_path(name)) not in run._made_by_other_code}  # work of other code is never taken
+    run._reusable_results = {path: of_node for name, of_node in saved.reusable_results.items() if (path := node_path(name)) not in run._made_by_other_code}  # work of other code is never taken
     run._finished_nodes = frozenset(node_path(name) for name in saved.complete)
     return run
 

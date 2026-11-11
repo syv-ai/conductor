@@ -85,15 +85,15 @@ def save_form(fingerprint: str, inputs: Mapping[str, Type], outputs: Mapping[str
                 functools.partial(outcomes_of, not_taken, not_called), of_block, ref=f"outcomes:{block}",
             )
             reusable_schema = _with_fields(reusable_record, outcomes=core_schema.definition_reference_schema(f"outcomes:{block}"))
-            shared[f"earlier:{block}"] = core_schema.no_info_after_validator_function(reusable_of, reusable_schema, ref=f"earlier:{block}")
-            blocks[columns] = core_schema.definition_reference_schema(f"outcomes:{block}"), core_schema.definition_reference_schema(f"earlier:{block}")
+            shared[f"reusable_results:{block}"] = core_schema.no_info_after_validator_function(reusable_of, reusable_schema, ref=f"reusable_results:{block}")
+            blocks[columns] = core_schema.definition_reference_schema(f"outcomes:{block}"), core_schema.definition_reference_schema(f"reusable_results:{block}")
         outcomes[node], earlier[node] = blocks[columns]
     run = _with_fields(
         _inlined(_RUN, shared),
         graph=core_schema.literal_schema([fingerprint]),
         inputs=_closed({address: _inlined(whole.saved_schema, shared) for address, whole in inputs.items()}),
         outcomes=_closed({}, outcomes),
-        earlier=_closed({}, earlier),
+        reusable_results=_closed({}, earlier),
         code=_closed({}, dict.fromkeys(outcomes, core_schema.str_schema())),
         complete=core_schema.list_schema(core_schema.literal_schema(names)) if (names := list(nodes)) else core_schema.list_schema(max_length=0),
     )

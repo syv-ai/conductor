@@ -1420,7 +1420,7 @@ def test_a_table_nothing_holds_after_forget_is_not_written():
 
     written = json.loads(run.forget("s").to_json())
 
-    assert "s" not in written["outcomes"] and "s" not in written.get("earlier", {})
+    assert "s" not in written["outcomes"] and "s" not in written.get("reusable_results", {})
 
 
 def test_identical_answered_items_keep_their_answers_across_a_cancelled_leg_as_on_a_direct_one():

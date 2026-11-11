@@ -145,7 +145,7 @@ def unwritable_at(inputs: Mapping[str, Type], outputs: Mapping[str, Mapping[str,
         The input's address, or the node as a save names it and the output (``e/ask.result``).
     """
     columns = {address: (inputs[address], value) for address, value in saved.inputs.items()}
-    by_node = [*saved.outcomes.items(), *((name, earlier.outcomes) for name, earlier in saved.earlier.items())]
+    by_node = [*saved.outcomes.items(), *((name, earlier.outcomes) for name, earlier in saved.reusable_results.items())]
     for name, outcomes in by_node:
         columns.update({f"{name}.{output}": (outputs[name][output].column, column) for output, column in outcomes.outputs.items()})
     for at, (written_by, value) in columns.items():
