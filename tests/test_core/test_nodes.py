@@ -31,7 +31,7 @@ from conductor import (
     node,
 )
 from conductor._internal.fields import FieldValueError
-from conductor.widgets import Dropdown, ListInput, Textarea, TextInput, Widget
+from conductor.widgets import Dropdown, FileUpload, ListInput, Textarea, TextInput, Widget
 from pydantic import BaseModel, ValidationError
 
 from tests.test_core.nodes import ReadAsItsBuiltin
@@ -570,6 +570,13 @@ def test_a_widget_dumps_its_type_and_its_own_config_only():
     assert Dropdown().model_dump(mode="json") == {"type": "dropdown"}
     assert ListInput().model_dump(mode="json") == {"type": "list-input"}
     assert Textarea().type == "textarea"
+
+
+def test_a_file_upload_offers_every_kind_as_an_empty_tuple_and_takes_no_none():
+    assert FileUpload().accept == ()
+    assert FileUpload().model_dump(mode="json")["accept"] == []
+    with pytest.raises(ValidationError):
+        FileUpload(accept=None)  # type: ignore[arg-type]
 
 
 def test_a_host_declares_a_control_of_its_own_and_it_loads_runs_and_describes_whole():
