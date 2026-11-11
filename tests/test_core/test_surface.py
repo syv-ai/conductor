@@ -572,3 +572,9 @@ def test_every_description_is_a_typed_record_a_host_publishes_as_its_schema():
     for record in (RegistryDescription, GraphDescription):
         assert "schema" in json.dumps(record.model_json_schema(mode="serialization"))
     assert RegistryDescription.model_validate_json(described.model_dump_json()) == described
+
+
+def test_a_problem_read_back_refuses_a_key_it_does_not_have():
+    with pytest.raises(ValidationError):
+        Problem.model_validate({"type": "cycle", "loc": ["a"], "msg": "m", "ctx": {}, "unknown": 1})
+
