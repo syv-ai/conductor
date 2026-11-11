@@ -234,7 +234,7 @@ class Run:
             finally:
                 _hand_over(loop, events, None)
 
-        thread = threading.Thread(target=leg, name="conductor-leg", daemon=True)
+        thread = threading.Thread(target=leg, name="conductor-scheduler", daemon=True)
         thread.start()
         try:
             while (event := await events.get()) is not None:
