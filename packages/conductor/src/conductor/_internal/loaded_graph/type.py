@@ -9,7 +9,6 @@ output, never a node inside it. What a run walks of it is in ``tree.py``.
 
 from __future__ import annotations
 
-import dataclasses
 import functools
 import hashlib
 import inspect
@@ -45,15 +44,12 @@ class _Placed:
         scope: The scope it runs in.
         inputs: How each input gets its value, by name; the fields are the node's as its hooks made them.
         outputs: Each output's field, by name, as its hooks made them.
-        opens: The ``Series`` outputs some reader works through one item at a time, which a run holds to
-            ``max_items``. A reader placed after this node adds to it.
     """
 
     id: str
     scope: Scope
     inputs: dict[str, InputPlan]
     outputs: dict[str, Field]
-    opens: set[str] = dataclasses.field(default_factory=set[str])
 
     @functools.cached_property
     def reads(self) -> frozenset[str]:

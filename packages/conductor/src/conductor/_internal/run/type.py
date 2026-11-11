@@ -50,7 +50,6 @@ from conductor._internal.ask import (
 )
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.earlier_work import Earlier, fingerprint_of, lineage
-from conductor._internal.fields import SKIPPED
 from conductor._internal.leg import Event, Leg, RunCheckpoint, RunEnd, RunStart, _EventBase
 from conductor._internal.loaded_graph import (
     FunctionAtPath,
@@ -63,8 +62,6 @@ from conductor._internal.loaded_graph import (
 from conductor._internal.node_definition import from_run_values
 from conductor._internal.problem import InvalidCallError, Problem, make_problem, value_free_errors
 from conductor._internal.run.call_inputs import (
-    COULD,
-    AnyItemReader,
     AsItStandsReader,
     CallInputs,
     ItemReader,
@@ -79,7 +76,6 @@ from conductor._internal.saved_run import (
     _unwritable_at,
 )
 from conductor._internal.units import (
-    NOT_SETTLED,
     Answered,
     Asking,
     Blank,
@@ -436,8 +432,9 @@ class Run:
 
     @property
     def results(self) -> dict[str, dict[str, Any]]:
-        """Each node's outputs: one value on a node that ran once, else a list in item order, ``None`` where a
-        unit has none."""
+        """Each node's outputs as the run stands: one value on a node that runs once; for one that runs per
+        item, a list in item order with ``None`` where an item has none, or ``None`` in place of the list where
+        no item could bring a value or the Series isn't made yet."""
         nodes, reader = self.graph._node_at, self._reader_as_it_stands
         return {n: {o: self._shown(reader, nodes[n], o) for o in placed.outputs} for n, placed in self.graph._nodes.items()}
 
@@ -494,14 +491,8 @@ class Run:
         else:
             function, around = node, 0
         if 0 < around < len(function.maps):  # an embedded graph's node that runs per item, of an output made per item inside
-            whole = cast("Gather", host_reads(function, output, 0))  # made per item, so read as a gather
-            if AnyItemReader(reader, whole.series, ()).could_bring(whole) is not COULD or reader.cell(whole.series, ()) is None:
-                return None  # no item of the embedded graph's node could bring a value, or the Series it runs per item of was never made
-            each = host_reads(function, output, around)
-            offered = [each.value(reader, at) for at in instances(self._units, function.maps[:around], ())[0]]
-            return [None if value is SKIPPED else value for value in offered]
-        value = host_reads(function, output, 0).value(reader, ())
-        return None if value is SKIPPED or value is NOT_SETTLED else value
+            return reader.shown_for_each_item(cast("Gather", host_reads(function, output, 0)), around, host_reads(function, output, around))
+        return reader.shown(host_reads(function, output, 0))
 
     # -- what a leg reads -------------------------------------------------------
 

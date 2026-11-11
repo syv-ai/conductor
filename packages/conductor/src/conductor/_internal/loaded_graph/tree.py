@@ -90,7 +90,8 @@ class FunctionAtPath(_AtPath):
         opens: The ``Series`` outputs some reader works through one item at a time where the node stands,
             which a run holds to ``max_items``, each with the node and the output its reader's graph names it
             by: its own, for a reader in its graph; for a reader of an embedded graph's node around it, that
-            node and the output it offers, so the ceiling is said of what that graph's author drew.
+            node and the output it offers, so the ceiling is said of what that graph's author drew. A reader
+            placed after the node adds to it, as its plan is written (``_plan_at_path``).
         made_from: Every function whose units its own are made from, each with how many places of an item
             path of this node say which of that function's units: the unit at those places, and where that
             function runs deeper every unit under them. They are the cells its inputs' plans read (``reads``
@@ -203,10 +204,7 @@ def host_reads(node: FunctionAtPath, output: str, under: int) -> Read | Gather:
         if len(node.maps) == under:
             plan = Read(_SHOWN, (cell,), cell.scope)
         else:
-            levels = [Cell(made_by.name, of, _scope_at_path(made_by.maps)) for made_by, of in node.maps[under:]]
-            series, of = node.maps[under]
-            through, _ = _gathered_through((series, of), [node, *(made_by for made_by, _ in node.maps[under + 1 :])])
-            plan = Gather(_SHOWN, (*levels, cell), len(levels), through)
+            plan = _gather_at_path(_SHOWN, node.maps[under:], (cell,), {made_by.name: made_by for made_by in (node, *(series for series, _ in node.maps))})
         node.shown_as[(output, under)] = plan
     return plan
 
@@ -244,16 +242,13 @@ def _add_to_tree(graph: LoadedGraph, embedding: GraphAtPath | None, tree: list[F
     above = embedding.maps if embedding is not None else ()
     here: dict[str, NodeAtPath] = {}
     functions = typing.cast("dict[str, FunctionAtPath]", node_at)  # a cell of a plan at a path names a function
-    crosses_no_boundary = embedding is None and not any(isinstance(placed, PlacedGraph) for placed in graph._nodes.values())
     for placed in graph._nodes.values():
         inputs: dict[str, InputPlan] = {}
         for name, plan in placed.inputs.items():
-            if crosses_no_boundary:  # a node's name is its id and nothing it reads is inside another graph: the plan as loaded
-                inputs[name] = plan
-            elif embedding is not None and isinstance(plan, Open):  # the embedded graph's node is given it, as a caller would give it
+            if embedding is not None and isinstance(plan, Open):  # the embedded graph's node is given it, as a caller would give it
                 inputs[name] = embedding.inputs[graph._input_fields[plan.address].name]
             else:
-                inputs[name] = _plan_at_path(plan, here)
+                inputs[name] = _plan_at_path(plan, here, functions)
         maps = (*above, *(series for port in placed.scope for series in _maps_of(port, here)))
         path = (*inside, placed.id)
         if isinstance(placed, PlacedGraph):
@@ -270,7 +265,7 @@ def _add_to_tree(graph: LoadedGraph, embedding: GraphAtPath | None, tree: list[F
         from_caller: list[tuple[str, str]] = []
         fed: list[tuple[str, Fed, bool]] = []
         made_from: dict[FunctionAtPath, int] = {}
-        gathering: dict[Cell, list[tuple[str, bool]]] = {}
+        gathering: dict[tuple[Cell, ...], list[tuple[str, bool]]] = {}
         for name, plan in inputs.items():
             call_template[name] = None
             match plan:
@@ -285,10 +280,9 @@ def _add_to_tree(graph: LoadedGraph, embedding: GraphAtPath | None, tree: list[F
             read_at = [(functions[cell.node_id], min(cell.depth, len(plan.scope))) for cell in plan.reads]  # no deeper than the input sits
             if isinstance(plan, Gather):
                 series = plan.series
-                through, outside = _gathered_through((functions[series.node_id], series.output), [functions[cell.node_id] for cell in plan.reads[1:]])
-                plan = dataclasses.replace(plan, through=through)
-                read_at += outside.items()
-                gathering.setdefault(series, []).append((name, plan.spec.keeps_blanks))
+                items_of = (functions[series.node_id], series.output)  # what the functions it gathers through read outside the items can settle it too
+                read_at += [(read, places) for inner in plan.through for read, places in inner.made_from.items() if items_of not in read.maps]
+                gathering.setdefault(plan.reads[: plan.levels], []).append((name, plan.spec.keeps_blanks))
                 whole = Value(series.node_id, series.output, series.scope, None, functions[series.node_id].placed.outputs[series.output].whole)
                 fed.append((name, Read(plan.spec, (whole,), series.scope), plan.spec.whole.optional))  # it needs its Series, and then its items
             fed.append((name, plan, plan.spec.whole.optional))
@@ -299,7 +293,6 @@ def _add_to_tree(graph: LoadedGraph, embedding: GraphAtPath | None, tree: list[F
             call_template=call_template, from_caller=tuple(from_caller), fed=tuple(fed), gathered_in_step=tuple(map(tuple, gathering.values())),
             checked=tuple(name for name, plan in inputs.items() if _read_before_a_call(plan)), made_from=made_from,
         )
-        node.opens = {output: (node, output) for output in placed.opens}
         if maps and min(node.made_from.values(), default=0) < len(maps):  # what it reads may be there before its items are
             node.made_from.setdefault(maps[-1][0], len(maps) - 1)
         here[placed.id] = node_at[node.name] = node
@@ -308,7 +301,7 @@ def _add_to_tree(graph: LoadedGraph, embedding: GraphAtPath | None, tree: list[F
     return here
 
 
-def _offered(port: Port, here: Mapping[str, NodeAtPath]) -> tuple[FunctionAtPath, str, bool]:
+def _made_by(port: Port, here: Mapping[str, NodeAtPath]) -> tuple[FunctionAtPath, str, bool]:
     """The function that makes the output ``port`` names, and its output there: the node's own, or for an
     embedded graph's node the function inside that makes what it offers; with whether that function runs per
     item inside the embedded graph, so what is offered is every item's value."""
@@ -322,7 +315,7 @@ def _offered(port: Port, here: Mapping[str, NodeAtPath]) -> tuple[FunctionAtPath
 def _maps_of(port: Port, here: Mapping[str, NodeAtPath]) -> Maps:
     """The maps the Series ``port`` names opens for what reads it per item: the Series itself; for one an
     embedded graph offers of an output made per item inside, the maps inside that it is made in."""
-    last, output, per_item = _offered(port, here)
+    last, output, per_item = _made_by(port, here)
     return last.maps[len(here[port.node_id].maps) :] if per_item else ((last, output),)
 
 
@@ -331,7 +324,7 @@ def _scope_at_path(maps: Maps) -> Scope:
     return tuple([Port(series.name, output) for series, output in maps])
 
 
-def _plan_at_path(plan: InputPlan, here: Mapping[str, NodeAtPath]) -> InputPlan:
+def _plan_at_path(plan: InputPlan, here: Mapping[str, NodeAtPath], functions: Mapping[str, FunctionAtPath]) -> InputPlan:
     """A plan of a loaded graph as the plan of its node where it stands: each cell names the function that
     holds it by its ``name``, in the maps that function runs in.
 
@@ -343,10 +336,11 @@ def _plan_at_path(plan: InputPlan, here: Mapping[str, NodeAtPath]) -> InputPlan:
     Args:
         plan: The plan, as its graph loaded it.
         here: The nodes of that graph placed so far, where they stand, by id.
+        functions: Every function placed so far, by its name.
     """
 
     def at_path(source: Source, opened: bool) -> Source:
-        last, output, per_item = _offered(Port(source.node_id, source.output), here)
+        last, output, per_item = _made_by(Port(source.node_id, source.output), here)
         spec = last.placed.outputs[output]
         brought: type[Source] = type(source) if not per_item else WholeSeries if spec.many else Value
         if opened and brought is Item:
@@ -360,38 +354,46 @@ def _plan_at_path(plan: InputPlan, here: Mapping[str, NodeAtPath]) -> InputPlan:
         case SeriesOfOne(spec=spec, reads=reads):
             return SeriesOfOne(spec, tuple([typing.cast(Value, at_path(source, False)) for source in reads]))
         case Gather(spec=spec, series=series, sources=sources):
-            gathered = _maps_of(Port(series.node_id, series.output), here)
-            levels = [Cell(made_by.name, output, _scope_at_path(made_by.maps)) for made_by, output in gathered]
-            return Gather(spec, (*levels, *[at_path(source, False) for source in sources]), len(levels))
+            return _gather_at_path(spec, _maps_of(Port(series.node_id, series.output), here), tuple([at_path(source, False) for source in sources]), functions)
         case _:
             return plan
 
 
-def _gathered_through(series: tuple[FunctionAtPath, str], sources: list[FunctionAtPath]) -> tuple[tuple[FunctionAtPath, ...], dict[FunctionAtPath, int]]:
+def _gather_at_path(spec: Field, gathered: Maps, sources: tuple[Source, ...], functions: Mapping[str, FunctionAtPath]) -> Gather:
+    """The plan of an input that gathers the items of ``gathered``, where its node stands: the one way such a
+    plan is made, for a node's own input and for what a host is shown.
+
+    Args:
+        spec: The input's field.
+        gathered: The maps gathered through, outermost first: one, but for an output an embedded graph offers
+            of something made several maps deep inside it.
+        sources: What each edge brings for an item, each naming a function by its name.
+        functions: The functions the plan's cells name, by name.
+    """
+    levels = [Cell(made_by.name, output, _scope_at_path(made_by.maps)) for made_by, output in gathered]
+    through = _gathered_through(gathered[0], [functions[cell.node_id] for cell in (*levels[1:], *sources)])
+    return Gather(spec, (*levels, *sources), len(levels), through)
+
+
+def _gathered_through(series: tuple[FunctionAtPath, str], sources: list[FunctionAtPath]) -> tuple[FunctionAtPath, ...]:
     """Finds the functions made per item of ``series`` that a gathering input rests on, by what each one's
-    units are made from (``made_from``), and what those functions read outside the items.
+    units are made from (``made_from``).
 
     Args:
         series: The Series the input gathers: the function that makes it, and its output.
         sources: The functions whose outputs the input reads for an item.
 
     Returns:
-        The functions, in the order a leg tries them, each after the ones it reads; and each function outside
-        the items that one of them reads, with how many places of an item path say which of its units.
+        The functions, in the order a leg tries them, each after the ones it reads.
     """
     through: set[FunctionAtPath] = set()
-    outside: dict[FunctionAtPath, int] = {}
     stack = sources
     while stack:
         inner = stack.pop()
         if series in inner.maps and inner not in through:
             through.add(inner)
-            for read, places in inner.made_from.items():
-                if series in read.maps:
-                    stack.append(read)
-                else:
-                    outside[read] = min(places, outside.get(read, places))
-    return tuple(sorted(through, key=lambda inner: inner.position)), outside
+            stack.extend(inner.made_from)
+    return tuple(sorted(through, key=lambda inner: inner.position))
 
 
 def _read_before_a_call(plan: InputPlan) -> bool:

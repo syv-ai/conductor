@@ -117,9 +117,9 @@ class _Turn:
 
 
 class Leg:
-    """One leg over ``run``, which it changes in place.
+    """One leg over the units of a run, which it records into.
 
-    The leg walks every node of the run's graph and of the graphs embedded in it (``graph._tree``): it holds
+    The leg walks every function of the run's graph and of the graphs embedded in it, where they stand: it holds
     which of their units can start, the threads, each node's slots on them, the timers, ``stop``, the listener
     and the checkpoint clock. Only node functions run on threads; the run is changed on the leg's own thread.
 

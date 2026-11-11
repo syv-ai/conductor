@@ -37,10 +37,10 @@ from __future__ import annotations
 
 import abc
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, Final, Literal
+from typing import TYPE_CHECKING, Any, Final, Literal, cast
 
 from conductor._internal.fields import SKIPPED, FieldValueError, Records
-from conductor._internal.loaded_graph.input_plans import Cell, Gather, Item, WholeSeries
+from conductor._internal.loaded_graph.input_plans import Cell, Gather, Item, Read, WholeSeries
 from conductor._internal.units import (
     NOT_SETTLED,
     Asking,
@@ -205,12 +205,8 @@ class ItemReader(Reader):
             is settled; ``SKIPPED`` when no item could bring a value for a branch not taken outside the items;
             ``None`` when none could for a blank there.
         """
-        made = plan.reads[0]
-        item_path = item_path[: made.depth]
-        brought = AnyItemReader(self, made, item_path).could_bring(plan)
-        if brought is not COULD:
-            return brought
-        series = self.cell(made, item_path)
+        item_path = item_path[: plan.reads[0].depth]
+        series = self._series_gathered(plan, item_path)
         if series is None or series is SKIPPED or series is NOT_SETTLED:
             return series
         edges = plan.sources
@@ -221,15 +217,9 @@ class ItemReader(Reader):
             if wanted is None:
                 return [None if item is SKIPPED else item for item in series] if any(item is SKIPPED for item in series) else series
             return [None if item is SKIPPED or item is None else field_of(item, wanted) for item in series]
-        item_paths = [(*item_path, place) for place in range(len(series))]
-        for inner in plan.reads[1 : plan.levels]:  # what an embedded graph offers of an output made several maps deep inside it
-            deeper: list[ItemPath] = []
-            for under in item_paths:
-                held = self.cell(inner, under)
-                if held is NOT_SETTLED:
-                    return NOT_SETTLED
-                deeper.extend((*under, place) for place in range(length(held)))
-            item_paths = deeper
+        item_paths = self._item_paths(series, plan.reads[1 : plan.levels], item_path)
+        if item_paths is NOT_SETTLED:
+            return NOT_SETTLED
         items = []
         one_edge = edges[0] if len(edges) == 1 else None
         for under in item_paths:
@@ -238,6 +228,28 @@ class ItemReader(Reader):
                 return NOT_SETTLED
             items.append(None if value is SKIPPED else value)
         return items
+
+    def _series_gathered(self, plan: Gather, item_path: ItemPath) -> Any:
+        """The Series the input of ``plan`` gathers, where an item of it could bring a value; else what the
+        input holds whatever its items: ``SKIPPED``, ``None`` for a blank, or ``NOT_SETTLED``. A Series that
+        was never made, or isn't settled, is handed back as that too."""
+        made = plan.reads[0]
+        brought = AnyItemReader(self, made, item_path).could_bring(plan)
+        return brought if brought is not COULD else self.cell(made, item_path)
+
+    def _item_paths(self, series: Any, inner: tuple[Cell, ...], item_path: ItemPath) -> list[ItemPath] | Literal[NotReady.NOT_SETTLED]:
+        """The path of each item of ``series`` under ``item_path``, and under each of those of each item of the
+        Series ``inner`` names, outermost first; ``NOT_SETTLED`` while one of those isn't settled."""
+        item_paths = [(*item_path, place) for place in range(len(series))]
+        for made in inner:
+            deeper: list[ItemPath] = []
+            for under in item_paths:
+                held = self.cell(made, under)
+                if held is NOT_SETTLED:
+                    return NOT_SETTLED
+                deeper.extend((*under, place) for place in range(length(held)))
+            item_paths = deeper
+        return item_paths
 
     def kept_in_step(self, node: FunctionAtPath, received: CallInputs) -> CallInputs:
         """``received`` with each gathering input holding the items that have a value in every input of the
@@ -264,6 +276,31 @@ class AsItStandsReader(ItemReader):
         """What ``cell`` holds for ``item_path``, a blank where it isn't settled."""
         value = ItemReader.cell(self, cell, item_path)
         return None if value is NOT_SETTLED else value
+
+    def shown(self, plan: Read | Gather, item_path: ItemPath = ()) -> Any:
+        """An output as a host is shown it for ``item_path``, read by the plan an input wired to it would have:
+        its value, and ``None`` for a blank or a branch not taken."""
+        value = plan.value(self, item_path)
+        return None if value is SKIPPED else value
+
+    def shown_for_each_item(self, whole: Gather, around: int, each: Read | Gather) -> Any:
+        """An output an embedded graph's node offers of something made per item inside it, where that node
+        itself runs per item: a list for each of its items, as the type it declares says.
+
+        Args:
+            whole: The plan that gathers the output through every map it is made in.
+            around: How many of those maps are the embedded graph's node's own.
+            each: The plan that reads the output from under those maps, for one item of that node.
+
+        Returns:
+            ``None`` where no item of the node could bring a value, for a blank or a branch not taken outside
+            its items; else what ``each`` gives for each item, ``None`` for a blank or a branch not taken.
+        """
+        series = self._series_gathered(whole, ())
+        if series is None or series is SKIPPED:
+            return None
+        item_paths = cast("list[ItemPath]", self._item_paths(series, whole.reads[1:around], ()))  # nothing reads as not settled here
+        return [self.shown(each, under) for under in item_paths]
 
 
 class AnyItemReader(Reader):

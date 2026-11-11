@@ -320,12 +320,7 @@ class _Loader:
         ), planned.rests_on)
 
     def _keep(self, placed: PlacedNode, rests_on: frozenset[Branch]) -> None:
-        """Keep a node that placed, and note on each node whose ``Series`` it reads one item at a time that the
-        Series is worked through, so a run holds it to ``max_items``."""
-        for plan in placed.inputs.values():
-            for source in plan.sources if isinstance(plan, Read) else ():
-                if isinstance(source, Item):
-                    self.nodes[source.node_id].opens.add(source.output)
+        """Keep a node that placed."""
         self.nodes[placed.id] = placed
         self.branches[placed.id] = rests_on
 

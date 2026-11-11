@@ -432,3 +432,15 @@ def test_an_embedded_graph_run_per_item_shows_a_list_for_each_item_and_none_for_
     assert embedded.results["e"]["up.result"] == [["AB"], None, ["CD"]] == embedded.outputs["e.up.result"]
     never = ran({"t": "template", "s": "items", "e": "items-then-up"}, [("t.result", "s.text"), ("s.result", "e.text")], kind="blank")
     assert never.results["e"]["up.result"] is None and never.outputs["e.up.result"] is None and never.outputs_json() == '{"e.up.result":null}'
+
+
+REGISTRY.node("words-up-and-letters", title="Words and letters", description="Each word in capitals, and each letter of each word.")(
+    make_graph(items, up, chars, maybe, edges=[("items.result", "up.a"), ("items.result", "chars.a"), ("chars.result", "maybe.a")])
+)
+
+
+def test_two_series_inputs_fed_by_outputs_a_stored_graph_makes_per_word_and_per_letter_are_not_kept_in_step() -> None:
+    """They gather different Series, the words and the letters of every word, though both start at the words."""
+    graph = REGISTRY.load({"nodes": [{"id": "e", "node": "words-up-and-letters"}, {"id": "n", "node": "both"}], "edges": [["e.up.result", "n.a"], ["e.maybe.result", "n.b"]]})
+    assert not graph.problems
+    assert graph.run(text="ab cd").results["n"]["result"] == "AB|CD:ABCD"

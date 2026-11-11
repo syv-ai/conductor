@@ -66,10 +66,11 @@ def save_form(fingerprint: str, inputs: Mapping[str, Type], outputs: Mapping[str
     """
     shared: dict[str, CoreSchema] = {}
     units_record, earlier_record = _inlined(_UNITS, shared), _inlined(_EARLIER, shared)
-    blocks: dict[tuple[tuple[str, Type, bool, bool], ...], tuple[CoreSchema, CoreSchema]] = {}
+    blocks: dict[tuple[tuple[str, Type, bool, Any], ...], tuple[CoreSchema, CoreSchema]] = {}
     units, earlier = {}, {}
     for node, of_node in outputs.items():
-        columns = tuple((name, output.column, output.many, output.param.exclusive_group is not None) for name, output in of_node.items())
+        not_taken, not_called = outputs_not_taken(of_node), outputs_not_called(of_node)
+        columns = tuple((name, output.column, output.many, not_called[name]) for name, output in of_node.items())
         if columns not in blocks:  # nodes of the same outputs, which hold the same when they aren't called, share one schema
             block = len(blocks)
             of_block = _with_fields(
@@ -79,7 +80,7 @@ def save_form(fingerprint: str, inputs: Mapping[str, Type], outputs: Mapping[str
                 skipped_items=_closed({}, {name: _SKIPPED_ITEMS for name, _, many, _ in columns if many}),
             )
             shared[f"units:{block}"] = core_schema.no_info_after_validator_function(
-                functools.partial(_units_of, outputs_not_taken(of_node), outputs_not_called(of_node)), of_block, ref=f"units:{block}",
+                functools.partial(_units_of, not_taken, not_called), of_block, ref=f"units:{block}",
             )
             carried = _with_fields(earlier_record, units=core_schema.definition_reference_schema(f"units:{block}"))
             shared[f"earlier:{block}"] = core_schema.no_info_after_validator_function(_earlier_of, carried, ref=f"earlier:{block}")
