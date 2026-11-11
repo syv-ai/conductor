@@ -1,6 +1,6 @@
-"""Text nodes: ``text-uppercase``, ``text-split``, ``text-join`` and the rest."""
+"""Text nodes: ``text-uppercase``, ``text-split``, ``text-join``, ``text-list`` and the rest."""
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from conductor import NodeRegistry, Param, Series
 from conductor.widgets import ListInput, TextInput
@@ -58,10 +58,18 @@ def contains(text: LongText, needle: Line, case_sensitive: Flag = True) -> Annot
     return needle.lower() in text.lower()
 
 
-@registry.node("text-split", title="Split", description="Splits the text wherever the separator appears, one row for each part.")
-def split(text: LongText, separator: Annotated[Line, Param(min_length=1)] = ",") -> Annotated[Series[str], Param(title="Parts")]:
-    """Splits the text on a separator, a row per part."""
-    return text.split(separator)
+@registry.node("text-split", title="Split text", description="Splits the text wherever the separator appears, so what follows runs once for each part.")
+def split(text: LongText, separator: Annotated[Line, Param(min_length=1)] = "\n") -> Annotated[Series[str], Param(title="Parts")]:
+    """Splits the text on a separator, a newline unless another is given; each part is an item, and an empty text
+    has none."""
+    return text.split(separator) if text else []
+
+
+@registry.node("text-list", title="Text list", description="A list of texts you type in. Wire something to 'for each' to get the whole list once for each of those.")
+def text_list(items: Annotated[list[str], Param(widget=ListInput())], for_each: Any = None) -> Annotated[Series[str], Param(title="Texts")]:
+    """Gives the texts as a Series. `for_each` is read by no one: an edge into it runs the node once per item of what
+    is wired, so the texts are made inside each of those items."""
+    return items
 
 
 @registry.node("text-join", title="Join", description="Joins all the parts into one text, with a separator between them.")

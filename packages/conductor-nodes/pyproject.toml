@@ -18,6 +18,7 @@ classifiers = [
 dependencies = [
     "syv-conductor==2.0.0",
     "pydantic>=2.11",
+    "polars>=2.0",
     "regex>=2024.11.6",
 ]
 

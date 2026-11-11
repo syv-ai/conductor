@@ -79,9 +79,11 @@ What changes in how you work, before the name-by-name tables:
 - **Only an outside failure is retried.** `ExternalError`, or a class in `Policy(retry_on=)`;
   a `NodeError`, a wrong output or an `Ask` never is, whatever `retry_on` names.
   A node's own exception goes to the `conductor` logger, never to an event.
-- **Two companion packages, rebuilt on this API.** `syv-conductor-nodes` holds 29 nodes that only
+- **Two companion packages, rebuilt on this API.** `syv-conductor-nodes` holds 32 nodes that only
   compute, a registry per module (`conductor_nodes.text.registry`) and all of them in
-  `conductor_nodes.registry`. `math-round` rounds a half away from zero (2.5 to 3), and
+  `conductor_nodes.registry`. `split` takes a table or a list apart into a `Series`, `table-collect` puts records back into a
+  table with new columns, `text-list` gives typed-in texts, and `text-split` is titled "Split text" and splits on a newline.
+  `math-round` rounds a half away from zero (2.5 to 3), and
   `regex-replace` fails a replacement that refers to a missing group as `invalid_replacement`. `syv-conductor-providers` holds `run_router`, a FastAPI router that
   starts, follows, answers, resumes and cancels runs on several workers over a `RunStore` you
   write ([`docs/serving-runs.md`](docs/serving-runs.md)). An answer sent while a leg runs waits for it to

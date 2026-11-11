@@ -13,7 +13,8 @@ EXAMPLES = {
     "text-concat": [{"a": "a", "b": "b", "separator": "-"}],
     "text-replace": [{"text": "a b", "needle": "b", "replacement": "c"}],
     "text-contains": [{"text": "Hi", "needle": "hi", "case_sensitive": False}],
-    "text-split": [{"text": "a,b"}],
+    "text-split": [{"text": "a\nb"}],
+    "text-list": [{"items": ["a", "b"]}],
     "text-join": [{"parts": ["a", "b"]}],
     "text-reverse": [{"text": "ab"}],
     "math-add": [{"a": 1, "b": 2}],
@@ -35,6 +36,8 @@ EXAMPLES = {
     "regex-replace": [{"text": "a1b2", "pattern": r"\d", "replacement": "-"}],
     "regex-extract": [{"text": "a1b22", "pattern": r"\d+"}],
     "decision": [{"value": "x", "when": False}],
+    "split": [{"value": ["a", "b"]}],
+    "table-collect": [{"records": [{"name": "Ann"}], "constant_columns": ["team"], "team": "red"}],
 }
 
 
@@ -49,11 +52,11 @@ def test_every_node_has_an_example_so_no_body_goes_untried() -> None:
 def test_every_node_says_what_it_does_and_where_it_is_listed() -> None:
     for definition in conductor_nodes.registry:
         assert definition.description, definition.id
-        assert definition.category in {"control", "json", "logic", "math", "regex", "text"}, definition.id
+        assert definition.category in {"control", "json", "logic", "math", "regex", "table", "text"}, definition.id
 
 
 def test_each_module_offers_its_own_nodes_and_the_package_all_of_them() -> None:
-    modules = (conductor_nodes.text, conductor_nodes.math, conductor_nodes.logic, conductor_nodes.json_ops, conductor_nodes.regex_ops, conductor_nodes.control)
+    modules = (conductor_nodes.text, conductor_nodes.math, conductor_nodes.logic, conductor_nodes.json_ops, conductor_nodes.regex_ops, conductor_nodes.tables, conductor_nodes.control)
     assert sum(len(module.registry) for module in modules) == len(conductor_nodes.registry)
     for module in modules:
         (category,) = {d.category for d in module.registry}
