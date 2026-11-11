@@ -57,16 +57,17 @@ if TYPE_CHECKING:
 
 
 def _checked_address(address: str) -> str:
-    """``address`` once it reads ``node.field``, or ``node.output.column``; a column's own name may hold dots."""
+    """``address`` once it reads ``node.field``, or ``node.output.field`` for one field of a record an output
+    holds; that field's own name may hold dots."""
     node_id, _, rest = address.partition(".")
-    field, dot, column = rest.partition(".")
-    if not node_id or not field or (dot and not column):
-        raise ValueError(f"{address!r} is not an address; write 'node.field', or 'node.output.column' for a column of a table")
+    field, dot, of_record = rest.partition(".")
+    if not node_id or not field or (dot and not of_record):
+        raise ValueError(f"{address!r} is not an address; write 'node.field', or 'node.output.field' for one field of a record")
     return address
 
 
-#: An address, ``"node.field"`` or ``"node.output.column"``: node ids and field names hold no dot, so everything
-#: after the second is the column's name (``"read.result.Amount in USD."``).
+#: An address, ``"node.field"`` or ``"node.output.field"`` for one field of a record an output holds: node ids and
+#: a node's field names hold no dot, so everything after the second is the record's field (``"split.result.Amount in USD."``).
 Address = Annotated[str, AfterValidator(_checked_address)]
 
 

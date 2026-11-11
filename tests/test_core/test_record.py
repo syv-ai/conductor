@@ -771,3 +771,12 @@ def test_make_graph_checks_each_node_against_the_definition_it_was_given():
     with pytest.raises(NodeDeclarationError) as raised:
         make_graph(v1, other, edges=[])
     assert raised.value.code == "duplicate_node_id"
+
+
+def test_an_edge_that_is_no_address_is_told_the_two_forms_an_address_has():
+    """A third part names a field of a record, which is what loading takes; a table has no field to wire."""
+    with pytest.raises(InvalidCallError) as refused:
+        make_graph(_count, _hello, edges=[("count", "hello.name")])
+    [problem] = refused.value.errors()
+    assert problem.type == "invalid_record" and "'node.field'" in problem.msg and "'node.output.field' for one field of a record" in problem.msg
+    assert "column" not in problem.msg
