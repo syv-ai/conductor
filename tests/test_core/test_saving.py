@@ -748,7 +748,6 @@ def test_a_float_that_is_not_finite_in_a_models_any_field_reads_back_as_the_floa
     assert first.v == -math.inf and second.d == {"s": "NaN"}
 
 
-@pytest.mark.xfail(reason="engine fault: a caller's input is saved by its field's own adapter, which writes a float that isn't finite as null", strict=True)
 def test_a_float_that_is_not_finite_in_a_callers_dict_reads_back_as_the_float():
     @node("given", title="Given", description="")
     def given(options: dict, level: Any) -> str:

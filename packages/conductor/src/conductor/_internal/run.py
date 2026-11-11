@@ -162,7 +162,8 @@ class Answered(Done):
 
 @dataclass(frozen=True, slots=True)
 class Skipped:
-    """A unit on a branch not taken: its node wasn't called, and what reads it is skipped too."""
+    """A unit on a branch not taken: an input came only from branches not taken, or the node returned ``SKIPPED``.
+    What reads it is skipped too."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -1376,7 +1377,7 @@ def _dump_input(graph: Graph, address: str, value: Any) -> Any:
     spec = graph._input_fields[address].spec
     if spec.shape == "table":
         return None if value is None else _dump_frame(spec, value, address)
-    return _written_as_json(spec.adapter, value, address)
+    return _written_as_json(spec.column_adapter, [value], address)[0]  # as a column writes it: a float that isn't finite is kept
 
 
 def _load_input(graph: Graph, address: str, saved: Any) -> Any:
