@@ -16,258 +16,32 @@ import contextlib
 import logging
 import time
 import uuid
-from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator, Callable, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field, replace
 from typing import Any, Generic, Literal, TypeVar
 
-from conductor import (
-    EndedEarly,
-    Going,
-    GraphRecord,
-    InvalidCallError,
-    NodeRegistry,
-    Problem,
-    Run,
-    RunState,
-    RunStatus,
-    Waiting,
-)
+from conductor import EndedEarly, GraphRecord, NodeRegistry, Run
 from conductor.events import RunCheckpoint, RunEnd
-from pydantic import BaseModel, TypeAdapter
+from pydantic import TypeAdapter
 from pydantic_core import from_json
 
 from conductor_providers.fastapi import router_problem
-from conductor_providers.fastapi.store import RunChanges, RunStore, StoredRun
+from conductor_providers.fastapi.leg_end import HandedBack, LegEnd, Raised, end_of
+from conductor_providers.fastapi.router_problem import NoSuchRunError, RefusedError
+from conductor_providers.fastapi.store import RunStore
+from conductor_providers.fastapi.stored_run import (
+    RUNNING,
+    Outcome,
+    RunAsRead,
+    RunChanges,
+    StoredRun,
+    StoredState,
+)
 
 C = TypeVar("C")
 
 log = logging.getLogger("conductor_providers.fastapi")
-
-class RefusedError(Exception):
-    """A call the worker refused because of how the run stands.
-
-    Attributes:
-        problems: Why, each with one of the router's own codes.
-    """
-
-    def __init__(self, *problems: Problem) -> None:
-        super().__init__(" ".join(problem.msg for problem in problems))
-        self.problems = list(problems)
-
-
-class NoSuchRunError(RefusedError):
-    """No run has the id, or the caller may not see the one that has."""
-
-    def __init__(self) -> None:
-        super().__init__(router_problem.no_such_run())
-
-
-#: The state of a run a leg is wanted for.
-_RUNNING = Going("running")
-
-
-class Outcome(BaseModel):
-    """What a leg's end leaves for a reader, so that reading a run doesn't load it: a row's ``outcome``, as JSON.
-
-    Attributes:
-        waiting: What waits for a person.
-        outputs: The graph's outputs by address once the run is complete; ``None`` until then.
-    """
-
-    waiting: list[Waiting] = []
-    outputs: dict[str, Any] | None = None
-
-
-class StoredState(BaseModel):
-    """How a run stands and what was asked of its running leg: a row's ``state``, as JSON.
-
-    It is small whatever the run holds, so a route that queues an answer or asks a cancel reads and writes it
-    without touching the run's ``outcome``.
-
-    Attributes:
-        run_state: ``running`` while a leg is wanted; else how the last leg left the run, as the run itself says
-            it, with its cause when it ended early.
-        queued_answers: Answers that came while a leg ran, by waiting id; the run gets them when the leg ends.
-        refused: Queued answers the run refused when a leg ended, by waiting id, each with its problems.
-        cancel_asked: Whether someone asked the running leg to stop; a leg's end clears it.
-    """
-
-    run_state: RunState = _RUNNING
-    queued_answers: dict[str, Any] = {}
-    refused: dict[str, list[Problem]] = {}
-    cancel_asked: bool = False
-
-    @property
-    def leg_wanted(self) -> bool:
-        """Whether a leg is wanted for the run: a worker runs one, or the run waits for a worker to take it."""
-        return self.run_state == _RUNNING
-
-    def columns(self) -> RunChanges:
-        """The row's ``status`` and ``state`` for this state. Nothing else writes either column, so each write of
-        ``state`` writes the ``status`` it holds in the same statement. ``status`` is for the host's own queries:
-        the worker and the routes read ``state`` and never ``status``."""
-        return {"status": self.run_state.status, "state": self.model_dump_json()}
-
-
-@dataclass(frozen=True)
-class RunAsRead:
-    """A run as read from the store: its row, with the row's state read from its JSON once.
-
-    Attributes:
-        row: The row.
-        state: The row's ``state``.
-    """
-
-    row: StoredRun
-    state: StoredState
-
-    @classmethod
-    def of(cls, row: StoredRun) -> "RunAsRead":
-        """``row`` with its state read."""
-        return cls(row, StoredState.model_validate_json(row.state))
-
-
-class RunView(Outcome):
-    """The body of ``GET /runs/{id}``: a run as its last leg left it, read without loading the run.
-
-    Attributes:
-        waiting: What waits for a person, as of the last leg's end; each ``id`` is what
-            ``POST /runs/{id}/answers`` takes. Empty after a leg that raised, which ended with no run to ask.
-        outputs: The graph's outputs by address once the run is complete, each as its type writes it (a table as its
-            columns); ``None`` until then.
-        id: The run's id, as ``POST /runs`` gave it.
-        status: Where the run is: ``running`` while a leg runs, ``waiting`` for answers, ``complete``, or how its
-            last leg ended early, which ``POST /runs/{id}/resume`` goes on from.
-        refused: Answers sent while a leg ran that were refused when it ended, by waiting id, each with its problems.
-        cause: Why the run's last leg ended early; ``None`` while it runs, waits or once complete.
-    """
-
-    id: str
-    status: RunStatus
-    refused: dict[str, list[Problem]] = {}
-    cause: Problem | None = None
-
-    @classmethod
-    def of(cls, run: RunAsRead) -> "RunView":
-        """The view of ``run``, from its state and its row's ``outcome``."""
-        outcome = Outcome.model_validate_json(run.row.outcome)
-        cause = run.state.run_state.cause if isinstance(run.state.run_state, EndedEarly) else None
-        return cls(id=run.row.id, status=run.state.run_state.status, refused=run.state.refused, cause=cause, waiting=outcome.waiting, outputs=outcome.outputs)
-
-
-@dataclass(frozen=True)
-class _RowAfterALeg:
-    """What a row holds once the end of a leg is written.
-
-    Attributes:
-        state: The row's state.
-        changes: The row's ``run`` and ``outcome``, each where it changes.
-        run_end: The leg's ``run_end`` event to store, as JSON; ``None`` for a leg handed back, whose run did not end.
-        leg_wanted: Whether a next leg is wanted: the leg was handed back, or the run took an answer queued during it.
-    """
-
-    state: StoredState
-    changes: RunChanges
-    run_end: str | None
-    leg_wanted: bool
-
-
-class _LegEnd(ABC):
-    """How a leg ended."""
-
-    @abstractmethod
-    def row_after(self, state: StoredState) -> _RowAfterALeg:
-        """What a row holds after this end.
-
-        Args:
-            state: The row's state as last read.
-
-        Returns:
-            The row's state and the columns that change with it, the ``run_end`` to store, and whether a next leg
-            is wanted.
-        """
-
-
-@dataclass(frozen=True)
-class _Ended(_LegEnd):
-    """A leg that ended with a run.
-
-    Attributes:
-        run: The run the leg ended with.
-        saved: That run, as JSON.
-        outcome: The row's ``outcome`` after the leg, as JSON.
-        run_end: The leg's ``run_end`` event, as JSON.
-    """
-
-    run: Run
-    saved: str
-    outcome: str
-    run_end: str
-
-    def row_after(self, state: StoredState) -> _RowAfterALeg:
-        """What a row holds after this end, once the run has been given the answers queued during the leg.
-
-        Each queued answer is given to the run on its own, as ``run.answer`` takes one whatever the run's status:
-        one the run refuses stays in ``refused`` with its problems, and the ones it takes make the run the next
-        leg starts from.
-        """
-        run, refused, taken = self.run, dict(state.refused), False
-        for waiting_id, value in state.queued_answers.items():
-            try:
-                run, taken = run.answer(waiting_id, value), True
-            except InvalidCallError as error:
-                refused[waiting_id] = error.errors()
-        after = state.model_copy(update={"run_state": _RUNNING if taken else self.run.state, "queued_answers": {}, "refused": refused, "cancel_asked": False})
-        return _RowAfterALeg(after, {"run": run.to_json() if taken else self.saved, "outcome": self.outcome}, self.run_end, leg_wanted=taken)
-
-
-@dataclass(frozen=True)
-class _Raised(_LegEnd):
-    """A leg that raised outside a node, or whose run can't be written: it ended with no run to store.
-
-    Attributes:
-        cause: Why the run failed.
-    """
-
-    cause: Problem
-
-    def row_after(self, state: StoredState) -> _RowAfterALeg:
-        """What a row holds after this end: the run failed with nothing waiting and no outputs, and the row keeps
-        its last checkpoint and the answers queued during the leg, for the end of the next leg to deal with.
-
-        The ``run_end`` is made without validation: a ``RunEnd`` requires the run it ended with, which it never
-        writes, and a leg that raised has none.
-        """
-        after = state.model_copy(update={"run_state": EndedEarly("failed", self.cause), "cancel_asked": False})
-        run_end = RunEnd.model_construct(status="failed", cause=self.cause).model_dump_json()
-        return _RowAfterALeg(after, {"outcome": Outcome().model_dump_json()}, run_end, leg_wanted=False)
-
-
-class _HandedBack(_LegEnd):
-    """A leg its worker stopped to shut down: the run did not end, and the row holds it as the leg left it."""
-
-    def row_after(self, state: StoredState) -> _RowAfterALeg:
-        """What a row holds after this end: what it held, a cancel asked meanwhile included, for the worker that
-        takes the run to go on from."""
-        return _RowAfterALeg(state, {}, run_end=None, leg_wanted=True)
-
-
-def _end_of(run_end: RunEnd) -> _LegEnd:
-    """The end of a leg whose stream ended with ``run_end``: its run as JSON, what waits in it and, once complete,
-    its outputs, each written by its type as the run writes it.
-
-    A run that can't be written as JSON (``state_unwritable``: a value in it has no JSON form) can't be stored
-    however often it is tried, so its leg ended as one that raised, with that problem as the cause.
-    """
-    run = run_end.run
-    try:
-        outcome = Outcome(waiting=run.waiting, outputs=from_json(run.outputs_json()) if run.status == "complete" else None)
-        return _Ended(run, run.to_json(), outcome.model_dump_json(), run_end.model_dump_json())
-    except InvalidCallError as unwritable:
-        return _Raised(unwritable.errors()[0])
-
 
 #: The owner and lease of a row no leg is wanted for.
 _NOBODYS: RunChanges = {"owner": None, "lease_until": None}
@@ -415,7 +189,7 @@ class Worker(Generic[C]):
             raise RefusedError(router_problem.run_complete())
         row, nodes = run.row, self._nodes_for(self.started_by(run.row))
         answered = await asyncio.to_thread(lambda: _loaded(row, nodes).answer(answers).to_json())
-        state = run.state.model_copy(update={"run_state": _RUNNING})
+        state = run.state.model_copy(update={"run_state": RUNNING})
         if not await self._claim(run, state, answered=answered):
             raise RefusedError(router_problem.run_changed())
         return "started"
@@ -433,7 +207,7 @@ class Worker(Generic[C]):
         """
         if not isinstance(run.state.run_state, EndedEarly):
             raise RefusedError(router_problem.run_not_resumable(status=run.state.run_state.status))
-        state = run.state.model_copy(update={"run_state": _RUNNING})
+        state = run.state.model_copy(update={"run_state": RUNNING})
         if not await self._claim(run, state, ceiling=max_items):
             raise RefusedError(router_problem.run_changed())
 
@@ -587,7 +361,7 @@ class Worker(Generic[C]):
             except Exception:
                 log.exception("the lease of run %s was not renewed; the next renewal tries again", hold.run_id)
 
-    async def _leg(self, hold: _Hold, row: StoredRun, ceiling: int | None) -> _LegEnd:
+    async def _leg(self, hold: _Hold, row: StoredRun, ceiling: int | None) -> LegEnd:
         """Run one leg of ``row`` and store its events and checkpoints.
 
         Returns:
@@ -602,21 +376,21 @@ class Worker(Generic[C]):
                 from_run=self._from_run(who), max_items=ceiling, timeout=self._leg_timeout,
                 cancel=hold.stop, hand_back=self._handing_back, checkpoint_every=self._checkpoint_every,
             )
-            end: _LegEnd = _HandedBack()
+            end: LegEnd = HandedBack()
             async with contextlib.aclosing(stream):  # a raise in this loop ends the leg before its next unit
                 async for event in stream:
                     if isinstance(event, RunCheckpoint):
                         await self._write(hold, {"run": await asyncio.to_thread(event.run.to_json)})
                     elif isinstance(event, RunEnd):
-                        end = await asyncio.to_thread(_end_of, event)
+                        end = await asyncio.to_thread(end_of, event)
                     elif not await self._store.add_event(row.id, self.id, event.model_dump_json()):
                         hold.stop.set()  # another worker holds the run
             return end
         except Exception:
             log.exception("the leg of run %s failed", row.id)
-            return _Raised(router_problem.leg_failed())
+            return Raised(router_problem.leg_failed())
 
-    async def _finish(self, hold: _Hold, row: StoredRun, end: _LegEnd) -> StoredRun:
+    async def _finish(self, hold: _Hold, row: StoredRun, end: LegEnd) -> StoredRun:
         """Write how a leg ended, decided from the row's state as read for each try of the write, so a cancel or an
         answer that lands meanwhile is never written over.
 

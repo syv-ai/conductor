@@ -11,6 +11,7 @@ runs of a worker that died, and a worker that shuts down hands its runs back.
 
 from conductor_providers.fastapi.router import run_router
 from conductor_providers.fastapi.router_problem import ROUTER_PROBLEMS
-from conductor_providers.fastapi.store import RunChanges, RunStore, StoredRun
+from conductor_providers.fastapi.store import RunStore
+from conductor_providers.fastapi.stored_run import RunChanges, StoredRun
 
 __all__ = ["ROUTER_PROBLEMS", "RunChanges", "RunStore", "StoredRun", "run_router"]

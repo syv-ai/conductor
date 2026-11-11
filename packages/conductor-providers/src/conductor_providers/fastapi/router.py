@@ -8,26 +8,24 @@ from collections.abc import AsyncIterable, Callable, Coroutine, Mapping
 from typing import Annotated, Any, Literal, TypeVar, get_type_hints, overload
 
 from conductor import (
+    EndedEarly,
     GraphDescription,
     GraphRecord,
     InvalidCallError,
     NodeRegistry,
     Problem,
     RegistryDescription,
+    RunStatus,
 )
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request, Response
 from fastapi.routing import APIRoute
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 from pydantic import BaseModel, PositiveInt
 
+from conductor_providers.fastapi.router_problem import NoSuchRunError, RefusedError
 from conductor_providers.fastapi.store import RunStore
-from conductor_providers.fastapi.worker import (
-    NoSuchRunError,
-    RefusedError,
-    RunAsRead,
-    RunView,
-    Worker,
-)
+from conductor_providers.fastapi.stored_run import Outcome, RunAsRead
+from conductor_providers.fastapi.worker import Worker
 
 C = TypeVar("C")
 
@@ -97,6 +95,34 @@ class Cancelled(BaseModel):
     """Whether a running leg was asked to stop; a run that isn't running has nothing to cancel."""
 
     cancelled: bool
+
+
+class RunView(Outcome):
+    """The body of ``GET /runs/{id}``: a run as its last leg left it, read without loading the run.
+
+    Attributes:
+        waiting: What waits for a person, as of the last leg's end; each ``id`` is what
+            ``POST /runs/{id}/answers`` takes. Empty after a leg that raised, which ended with no run to ask.
+        outputs: The graph's outputs by address once the run is complete, each as its type writes it (a table as its
+            columns); ``None`` until then.
+        id: The run's id, as ``POST /runs`` gave it.
+        status: Where the run is: ``running`` while a leg runs, ``waiting`` for answers, ``complete``, or how its
+            last leg ended early, which ``POST /runs/{id}/resume`` goes on from.
+        refused: Answers sent while a leg ran that were refused when it ended, by waiting id, each with its problems.
+        cause: Why the run's last leg ended early; ``None`` while it runs, waits or once complete.
+    """
+
+    id: str
+    status: RunStatus
+    refused: dict[str, list[Problem]] = {}
+    cause: Problem | None = None
+
+    @classmethod
+    def of(cls, run: RunAsRead) -> "RunView":
+        """The view of ``run``, from its state and its row's ``outcome``."""
+        outcome = Outcome.model_validate_json(run.row.outcome)
+        cause = run.state.run_state.cause if isinstance(run.state.run_state, EndedEarly) else None
+        return cls(id=run.row.id, status=run.state.run_state.status, refused=run.state.refused, cause=cause, waiting=outcome.waiting, outputs=outcome.outputs)
 
 
 class _RefusingRoute(APIRoute):

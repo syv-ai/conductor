@@ -11,7 +11,8 @@ from typing import Any
 
 from conductor import Ask, GraphRecord, NodeRegistry, Series, make_graph
 from conductor_providers.fastapi import RunChanges, StoredRun
-from conductor_providers.fastapi.worker import RunAsRead, RunView
+from conductor_providers.fastapi.router import RunView
+from conductor_providers.fastapi.stored_run import RunAsRead
 
 
 class MemoryStore:
