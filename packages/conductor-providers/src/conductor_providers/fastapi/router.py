@@ -1,66 +1,31 @@
 """``run_router``: the routes that start, follow, read, answer, resume and cancel runs, on any number of workers.
 
-A worker runs each leg in the background, holds a lease on its run while it
-does, and writes a checkpoint every few seconds. Another worker takes over a
-run whose lease ran out, from its last checkpoint, and a worker that shuts
-down hands its runs back. Every write is a compare-and-set on the run's
-``rev``, so of two workers acting on one run, one goes on and the other is
-told so.
+Each route parses its call, asks the process's ``Worker`` and says what it
+answered; the worker runs the legs.
 """
 
 import asyncio
-import contextlib
 import json
-import logging
-import time
-import uuid
-from collections.abc import AsyncGenerator, AsyncIterable, Callable, Mapping
-from contextlib import asynccontextmanager
-from dataclasses import dataclass, field, replace
-from functools import cached_property
-from typing import Annotated, Any, Literal, TypeVar, Unpack, get_type_hints, overload
+from collections.abc import AsyncIterable, Callable, Coroutine, Mapping
+from typing import Annotated, Any, Literal, TypeVar, get_type_hints, overload
 
 from conductor import (
-    EndedEarly,
-    Going,
     GraphDescription,
     GraphRecord,
     InvalidCallError,
     NodeRegistry,
     Problem,
     RegistryDescription,
-    Run,
-    RunState,
-    RunStatus,
-    Waiting,
 )
-from conductor.events import RunCheckpoint, RunEnd
-from fastapi import APIRouter, Body, Depends, FastAPI, Header, HTTPException
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request, Response
+from fastapi.routing import APIRoute
 from fastapi.sse import EventSourceResponse, ServerSentEvent
-from pydantic import BaseModel, PositiveInt, TypeAdapter
-from pydantic_core import to_json
+from pydantic import BaseModel, PositiveInt
 
-from conductor_providers.fastapi.store import RunChanges, RunStore, StoredRun
+from conductor_providers.fastapi.store import RunStore, StoredRun
+from conductor_providers.fastapi.worker import NoSuchRunError, RefusedError, RunView, Worker
 
 C = TypeVar("C")
-
-log = logging.getLogger("conductor_providers.fastapi")
-
-#: A code the router itself writes, beside the codes of the runs it serves.
-_RouterCode = Literal["no_such_run", "already_answered", "run_complete", "run_not_resumable", "run_changed", "leg_failed"]
-
-#: The English of each of the router's codes.
-_ROUTER_PROBLEMS: dict[_RouterCode, str] = {
-    "no_such_run": "There is no run by that id that the caller may see; check the id and who is calling.",
-    "already_answered": "An answer to {waiting_id!r} already waits for the running leg to end; read the run once it has, and answer what still waits.",
-    "run_complete": "The run is complete, so nothing in it waits for an answer; start a new run to ask again.",
-    "run_not_resumable": "The run is {status}, and only a run whose last leg ended early is resumed; read the run to see what it needs.",
-    "run_changed": "The run changed since it was read, so nothing was done; read it again and repeat the call if it still applies.",
-    "leg_failed": "The run's worker failed before the leg could end; its operator finds why in the server log. Resume it to carry on.",
-}
-
-#: The codes the router itself writes, for a host translating by code to cover beside conductor's ``PROBLEM_CODES``.
-ROUTER_PROBLEM_CODES: frozenset[str] = frozenset(_ROUTER_PROBLEMS)
 
 
 class StartRun(BaseModel):
@@ -74,29 +39,6 @@ class StartRun(BaseModel):
 
     graph: GraphRecord
     inputs: dict[str, Any] = {}
-
-
-class RunView(BaseModel):
-    """The body of ``GET /runs/{id}``: a run as its last leg left it, read without loading the run.
-
-    Attributes:
-        id: The run's id, as ``POST /runs`` gave it.
-        status: Where the run is: ``running`` while a leg runs, ``waiting`` for answers, ``complete``, or how its
-            last leg ended early, which ``POST /runs/{id}/resume`` goes on from.
-        waiting: What waits for a person, as of the last leg's end; each ``id`` is what
-            ``POST /runs/{id}/answers`` takes.
-        outputs: The graph's outputs by address once the run is complete, each as its type writes it (a table as its
-            columns); ``None`` until then.
-        refused: Answers sent while a leg ran that were refused when it ended, by waiting id, each with its problems.
-        cause: Why the run's last leg ended early; ``None`` while it runs, waits or once complete.
-    """
-
-    id: str
-    status: RunStatus
-    waiting: list[Waiting] = []
-    outputs: dict[str, Any] | None = None
-    refused: dict[str, list[Problem]] = {}
-    cause: Problem | None = None
 
 
 class Refused(BaseModel):
@@ -153,13 +95,30 @@ class Cancelled(BaseModel):
     cancelled: bool
 
 
-@dataclass
-class _Leg:
-    """A leg this worker runs: what stops it, and the ``rev`` its checkpoints and renewals last wrote."""
+class _RefusingRoute(APIRoute):
+    """A route whose refused call answers with the problems: a 422 for what the graph or the run refused, a 404 for a
+    run that isn't there for the caller, a 409 for a run in a state that doesn't take the call."""
 
-    cancel: asyncio.Event = field(default_factory=asyncio.Event)
-    rev: int = 0
-    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    def get_route_handler(self) -> Callable[[Request], Coroutine[Any, Any, Response]]:
+        """The route's handler, with each refusal raised under it answered as its status and problems."""
+        handle = super().get_route_handler()
+
+        async def refusing(request: Request) -> Response:
+            try:
+                return await handle(request)
+            except InvalidCallError as error:
+                raise _refusal(422, error.errors()) from None
+            except NoSuchRunError as error:
+                raise _refusal(404, error.problems) from None
+            except RefusedError as error:
+                raise _refusal(409, error.problems) from None
+
+        return refusing
+
+
+def _refusal(status_code: int, problems: list[Problem]) -> HTTPException:
+    """The refusal of a call: ``problems`` as the ``detail`` of a response with ``status_code``."""
+    return HTTPException(status_code, [problem.model_dump(mode="json") for problem in problems])
 
 
 def _nobody() -> None:
@@ -168,6 +127,7 @@ def _nobody() -> None:
 
 
 def _same(caller: object, started_by: object) -> bool:
+    """Whether a caller is the one who started a run: who may see it when the host says nothing else."""
     return caller == started_by
 
 
@@ -243,227 +203,17 @@ def run_router(
       renewals; ``checkpoint_every`` the seconds between saves of a running leg; ``leg_timeout`` the seconds one leg
       may run; ``poll`` the seconds between a follower's reads of new events.
     """
-    worker = uuid.uuid4().hex
-    legs: dict[str, _Leg] = {}
-    tasks: set[asyncio.Task[None]] = set()
-    stopping = False
-    callers: TypeAdapter[C] = TypeAdapter(_caller_type(caller))
     nodes_for: Callable[[C], NodeRegistry] = (lambda who: registry) if isinstance(registry, NodeRegistry) else registry
+    worker: Worker[C] = Worker(
+        store=store, nodes_for=nodes_for, caller_type=_caller_type(caller), from_run=from_run,
+        max_items=max_items, lease=lease, checkpoint_every=checkpoint_every, leg_timeout=leg_timeout,
+    )
+    router = APIRouter(lifespan=lambda _: worker.running(), route_class=_RefusingRoute)
 
-    def started_by(row: StoredRun) -> C:
-        return callers.validate_json(row.caller)
-
-    def load(row: StoredRun, nodes: NodeRegistry) -> Run:
-        """The stored run, on ``nodes``."""
-        return nodes.load(row.graph).load_run(row.run)
-
-    # -- legs -------------------------------------------------------------------------------------
-
-    async def claim(row: StoredRun, ceiling: int | None = None, **changes: Unpack[RunChanges]) -> bool:
-        """Take ``row`` for this worker if it is still at the ``rev`` read, writing ``changes`` too, and run its next
-        leg. Of two workers, one wins. A cancel asked of the run stays asked: only a resume clears it."""
-        written: RunChanges = {**held(), **changes}
-        if not await store.update(row.id, row.rev, written):
-            return False
-        launch(replace(row, **written, rev=row.rev + 1), ceiling)
-        return True
-
-    def held() -> RunChanges:
-        """What a row says while this worker holds it: running, with no cause yet."""
-        return {**_standing(Going("running")), "owner": worker, "lease_until": time.time() + lease}
-
-    def launch(row: StoredRun, ceiling: int | None = None) -> None:
-        """Run the next leg of ``row``, as this worker has just written it, in the background; a cancel asked of it the
-        leg hears before its first unit."""
-        leg = legs[row.id] = _Leg(rev=row.rev)
-        if row.cancel:
-            leg.cancel.set()
-        task = asyncio.get_running_loop().create_task(drive(row, leg, ceiling))
-        tasks.add(task)
-        task.add_done_callback(tasks.discard)
-
-    async def write(run_id: str, leg: _Leg, changes: RunChanges) -> bool:
-        """Write a checkpoint or a renewal while this worker holds the run. Another writer (an answer queued, a
-        cancel) moves ``rev`` on: read again and go on. A run another worker took, or that stopped running, stops the
-        leg and writes nothing."""
-        async with leg.lock:
-            while True:
-                if await store.update(run_id, leg.rev, changes):
-                    leg.rev += 1
-                    return True
-                row = await store.get(run_id)
-                if row is None or row.owner != worker or row.status != "running":
-                    leg.cancel.set()
-                    return False
-                if row.cancel:
-                    leg.cancel.set()
-                leg.rev = row.rev
-
-    async def drive(row: StoredRun, leg: _Leg, ceiling: int | None) -> None:
-        """Run the leg and store its events, then have ``finish`` write its end while its lease is still renewed.
-
-        The leg is the stream: a raise while it runs ends the leg ``failed``. A raise while its end is written,
-        which may come after the ``run_end`` is stored, is logged and writes no second end: the row stays
-        ``running``, its lease runs out, and a worker goes on from the last checkpoint.
-        """
-        run_id = row.id
-        keep_lease = asyncio.create_task(hold(run_id, leg))
-        try:
-            ending: _Ended | _Raised
-            try:
-                who = started_by(row)
-                run = await asyncio.to_thread(load, row, nodes_for(who))
-                values = from_run(who)
-                stream = run.stream(
-                    from_run=values, max_items=ceiling, timeout=leg_timeout,
-                    cancel=leg.cancel, checkpoint_every=checkpoint_every,
-                )
-                async with contextlib.aclosing(stream):  # a raise in this loop ends the leg before its next unit
-                    async for event in stream:
-                        if isinstance(event, RunCheckpoint):
-                            await write(run_id, leg, {"run": await asyncio.to_thread(event.run.to_json)})
-                        elif isinstance(event, RunEnd):
-                            ending = await asyncio.to_thread(_Ended, event)
-                        elif not await store.add_event(run_id, worker, event.model_dump_json()):
-                            leg.cancel.set()  # another worker holds the run
-            except Exception:
-                log.exception("the leg of run %s failed", run_id)
-                ending = _Raised()
-            try:
-                await finish(run_id, leg, keep_lease, ending)
-            except Exception:
-                log.exception("the end of the leg of run %s was not written; a worker goes on with the run once its lease runs out", run_id)
-                raise
-        finally:
-            keep_lease.cancel()
-            if legs.get(run_id) is leg:  # the answers queued during this leg may have launched the next one already
-                del legs[run_id]
-
-    async def finish(run_id: str, leg: _Leg, keep_lease: asyncio.Task[None], ending: "_Ended | _Raised") -> None:
-        """Write how a leg ended, decided from the row as read for each try of
-        the write, so a cancel or an answer that lands meanwhile is never written over.
-
-        A leg this worker stopped to shut down, with no cancel asked of the run, is handed back for any worker to go on
-        with: the run did not end, so no ``run_end`` is stored for it. Otherwise the leg's ``run_end`` is stored, once
-        and before the row says the run stopped running, so a follower that reads the new status has the event to
-        read; then the answers queued during the leg are given to the run it ended with, and the next leg starts
-        on those it took; a leg that raised ended with no run, so its queued answers stay queued for the next leg's
-        end. A run another worker took is left as it is.
-
-        ``keep_lease`` renews the lease until the end is written, and each JSON of a run is made once, outside the
-        write's tries: a run however long it takes to write as JSON stays this worker's, and a try lost to a renewal
-        or a queued answer costs a read and a write."""
-        answered_from: tuple[str, str] | None = None
-        answered: tuple[str | None, dict[str, Any]] = (None, {})
-        end_stored = False
-        try:
-            while True:
-                row = await store.get(run_id)
-                if row is None or row.owner != worker or row.status != "running":
-                    return
-                saved = None
-                if stopping and ending.status == "cancelled" and not row.cancel:
-                    changes: RunChanges = {**ending.written, **_HANDED_BACK}
-                else:
-                    if not end_stored:  # a later try can't turn into a hand-back: only a resume clears a cancel
-                        if not await store.add_event(run_id, worker, ending.event):
-                            return  # another worker holds the run, so the write of the row would lose too
-                        end_stored = True
-                    changes = {**ending.written, "owner": None, "lease_until": None, "cancel": False}
-                    queued = json.loads(row.pending)
-                    if queued and isinstance(ending, _Ended):
-                        if answered_from != (row.pending, row.refused):
-                            answered_from = (row.pending, row.refused)
-                            answered = await asyncio.to_thread(ending.answered, queued, json.loads(row.refused))
-                        saved, refused = answered
-                        changes.update({"pending": "{}", "refused": to_json(refused).decode()})
-                    if saved is not None:  # a worker shutting down hands the next leg back rather than start it
-                        changes.update({"run": saved, **(_HANDED_BACK if stopping else held())})
-                if saved is None:
-                    changes.update(await asyncio.to_thread(lambda: ending.as_saved))
-                async with leg.lock:  # no renewal lands between this write and the lease's last renewal
-                    ended = await store.update(run_id, row.rev, changes)
-                    if ended:
-                        keep_lease.cancel()
-                if ended:
-                    await _stopped(keep_lease)
-                    if saved is not None and not stopping:
-                        launch(replace(row, **changes, rev=row.rev + 1))
-                    return
-        finally:
-            await _stopped(keep_lease)
-
-    async def hold(run_id: str, leg: _Leg) -> None:
-        """Renew the lease until the leg ends; a renewal that finds the run taken stops the leg."""
-        while True:
-            await asyncio.sleep(lease / 3)
-            if not await write(run_id, leg, {"lease_until": time.time() + lease}):
-                return
-
-    async def sweep() -> None:
-        """Go on with the runs whose worker died or handed them back."""
-        while True:
-            for row in await store.expired(time.time()):
-                if row.id not in legs:
-                    await claim(row)
-            await asyncio.sleep(lease / 3)
-
-    async def start(graph: GraphRecord, inputs: Mapping[str, Any], who: C) -> Started:
-        try:
-            saved = await asyncio.to_thread(lambda: nodes_for(who).load(graph).with_inputs(inputs, max_items=max_items).to_json())
-        except InvalidCallError as error:
-            raise _refused(422, *error.errors()) from None
-        return await begin(graph.model_dump_json(), who, saved)
-
-    async def begin(graph: str, who: C, saved: str) -> Started:
-        """Store a run of ``who``'s, held by this worker, and run its first leg."""
-        written: RunChanges = {**held(), "run": saved}
-        row = StoredRun(id=uuid.uuid4().hex, graph=graph, caller=callers.dump_json(who).decode(), **written)
-        await store.create(row)
-        launch(row)
-        return Started(id=row.id)
-
-    @asynccontextmanager
-    async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
-        nonlocal stopping
-        sweeping = asyncio.create_task(sweep())
-        yield
-        stopping = True
-        sweeping.cancel()
-        for leg in legs.values():
-            leg.cancel.set()  # a cancel keeps the calls already made, so the next worker repeats none
-        await asyncio.gather(*tasks, return_exceptions=True)
-
-    # -- routes -----------------------------------------------------------------------------------
-
-    router = APIRouter(lifespan=lifespan)
     async def stored(run_id: str, who: Annotated[C, Depends(caller)]) -> StoredRun:
-        row = await store.get(run_id)
-        if row is None or not may_see(who, started_by(row)):
-            raise _refused(404, _router_problem("no_such_run"))
-        return row
-
-    async def write_while_running(row: StoredRun, changes: Callable[[StoredRun], RunChanges]) -> StoredRun | None:
-        """Write a route's changes to a run for as long as a leg runs it, reading the run again each time another
-        writer moved its ``rev`` on first.
-
-        Args:
-            row: The run as the route read it.
-            changes: What to write, made from the run as read for each try.
-
-        Returns:
-            ``None`` once the changes are written; else the run as last read, which no leg runs.
-
-        Raises:
-            HTTPException: The run is gone when it is read again (404, ``no_such_run``).
-        """
-        while row.status == "running":
-            if await store.update(row.id, row.rev, changes(row)):
-                return None
-            read_again = await store.get(row.id)
-            if read_again is None:
-                raise _refused(404, _router_problem("no_such_run"))
-            row = read_again
+        row = await worker.read(run_id)
+        if not may_see(who, worker.started_by(row)):
+            raise NoSuchRunError
         return row
 
     @router.get("/nodes")
@@ -479,7 +229,7 @@ def run_router(
     @router.post("/runs", status_code=202)
     async def start_run(body: StartRun, who: Annotated[C, Depends(caller)]) -> Started:
         """Start a run of any graph; this is an author's route, so guard it with your own dependency."""
-        return await start(body.graph, body.inputs, who)
+        return Started(id=await worker.begin(body.graph, body.inputs, who))
 
     if published is not None:
         @router.post("/graphs/{name}/runs", status_code=202)
@@ -489,17 +239,13 @@ def run_router(
             who: Annotated[C, Depends(caller)],
         ) -> Started:
             """Start a graph you offer by name, on inputs alone."""
-            return await start(graph, inputs, who)
+            return Started(id=await worker.begin(graph, inputs, who))
 
     @router.get("/runs/{run_id}", responses=_NOT_FOUND)
     def read_run(row: Annotated[StoredRun, Depends(stored)]) -> RunView:
         """The run as its last leg left it: its status, what waits for a person, its outputs once complete, the
         queued answers that were refused, and why it ended early if it did."""
-        return RunView(
-            id=row.id, status=row.status, waiting=json.loads(row.waiting),
-            outputs=json.loads(row.outputs) if row.outputs is not None else None, refused=json.loads(row.refused),
-            cause=json.loads(row.cause) if row.cause is not None else None,
-        )
+        return RunView.of(row)
 
     @router.get("/runs/{run_id}/events", response_class=EventSourceResponse, responses=_NOT_FOUND_FOR_A_STREAM)
     async def follow_run(row: Annotated[StoredRun, Depends(stored)], last_event_id: Annotated[int, Header()] = -1) -> AsyncIterable[ServerSentEvent]:
@@ -538,34 +284,13 @@ def run_router(
         has nothing to answer and is a 409. While a leg runs, the answers wait for it to end, and a question
         answered once meanwhile is refused a second answer.
         """
-        def queued_with_these(running: StoredRun) -> RunChanges:
-            queued = json.loads(running.pending)
-            if twice := queued.keys() & answers.keys():
-                raise _refused(409, *(_router_problem("already_answered", waiting_id=waiting_id) for waiting_id in sorted(twice)))
-            return {"pending": to_json({**queued, **answers}).decode()}
-
-        not_running = await write_while_running(row, queued_with_these)
-        if not_running is None:
-            return Answered(answers="queued")  # the leg's end, written after this, reads them
-        row = not_running
-        if row.status == "complete":
-            raise _refused(409, _router_problem("run_complete"))
-        try:  # every answer the run refuses is refused at once
-            answered = await asyncio.to_thread(lambda: load(row, nodes_for(started_by(row))).answer(answers).to_json())
-        except InvalidCallError as error:
-            raise _refused(422, *error.errors()) from None
-        if not await claim(row, run=answered):
-            raise _refused(409, _router_problem("run_changed"))
-        return Answered(answers="started")
+        return Answered(answers=await worker.answer(row, answers))
 
     @router.post("/runs/{run_id}/resume", status_code=202, responses={**_NOT_FOUND, **_CONFLICT})
     async def resume_run(row: Annotated[StoredRun, Depends(stored)], body: Resume = Resume()) -> Started:
         """Go on with a run whose last leg ended early; nothing finished is called again. ``{"max_items": ...}`` raises
         the ceiling of a run that stopped at it; a resume needs no body."""
-        if row.cause is None:  # a run has a cause exactly when its last leg ended early, which is what a resume goes on from
-            raise _refused(409, _router_problem("run_not_resumable", status=row.status))
-        if not await claim(row, body.max_items, cancel=False):
-            raise _refused(409, _router_problem("run_changed"))
+        await worker.resume(row, body.max_items)
         return Started(id=row.id)
 
     @router.post("/runs/{run_id}/again", status_code=202, responses=_NOT_FOUND)
@@ -576,96 +301,14 @@ def run_router(
     ) -> Started:
         """A new run of the caller's with these inputs changed, on the caller's own nodes; a call that receives what it
         received before isn't made again."""
-        try:
-            saved = await asyncio.to_thread(lambda: load(row, nodes_for(who)).with_inputs(inputs).to_json())
-        except InvalidCallError as error:
-            raise _refused(422, *error.errors()) from None
-        return await begin(row.graph, who, saved)
+        return Started(id=await worker.again(row, inputs, who))
 
     @router.post("/runs/{run_id}/cancel", responses=_NOT_FOUND)
     async def cancel_run(row: Annotated[StoredRun, Depends(stored)]) -> Cancelled:
         """Stop a running leg before its next unit; the calls already made are kept, and ``resume`` goes on."""
-        if await write_while_running(row, lambda running: {"cancel": True}) is not None:
-            return Cancelled(cancelled=False)
-        if row.id in legs:  # on this worker at once; on another at its next renewal
-            legs[row.id].cancel.set()
-        return Cancelled(cancelled=True)
+        return Cancelled(cancelled=await worker.cancel(row))
 
     return router
-
-
-class _Ended:
-    """A leg that ended with a run: its status, its ``run_end`` event as JSON, and what its end writes of the run
-    beside the run itself (what waits for a person, its outputs once complete, each written by its type as the run
-    writes it, and its status and cause)."""
-
-    def __init__(self, end: RunEnd) -> None:
-        run = self.run = end.run
-        self.status: RunStatus = run.status
-        self.event = end.model_dump_json()
-        self.written: RunChanges = {
-            "waiting": to_json(run.waiting).decode(),
-            **_standing(run.state),
-        }
-        if run.status == "complete":
-            self.written["outputs"] = run.outputs_json()
-
-    @cached_property
-    def as_saved(self) -> RunChanges:
-        """The run as JSON, made once however many tries its write takes."""
-        return {"run": self.run.to_json()}
-
-    def answered(self, pending: dict[str, Any], refused: dict[str, Any]) -> tuple[str | None, dict[str, Any]]:
-        """The answers queued during the leg, each on its own: the run they give as JSON when any was taken, else
-        ``None``, and ``refused`` with the problems of each one that wasn't. The run decides, as ``run.answer`` does
-        whatever its status: a wrong answer, one for something that isn't waiting (``not_waiting``, as on a complete
-        run) or one to a cancelled run (``run_cancelled``) keeps its own problems."""
-        run, taken = self.run, False
-        for unit_id, value in pending.items():
-            try:
-                run, taken = run.answer(unit_id, value), True
-            except InvalidCallError as error:
-                refused[unit_id] = [problem.model_dump(mode="json") for problem in error.errors()]
-        return (run.to_json() if taken else None), refused
-
-
-class _Raised:
-    """A leg that raised: it ends ``failed`` with ``leg_failed`` as its cause and keeps the run as last saved; answers
-    queued during it stay queued."""
-
-    status: RunStatus = "failed"
-
-    def __init__(self) -> None:
-        cause = _router_problem("leg_failed")
-        self.written: RunChanges = _standing(EndedEarly("failed", cause))
-        self.as_saved: RunChanges = {}
-        # made without validation: a leg that raised has no run for the event's ``run`` field, which is never written
-        self.event = RunEnd.model_construct(status="failed", cause=cause).model_dump_json()
-
-
-def _standing(state: RunState) -> RunChanges:
-    """How a run stands, as the row's ``status`` and ``cause`` columns write it: a cause only for one that ended early."""
-    match state:
-        case EndedEarly(status=status, cause=cause):
-            return {"status": status, "cause": cause.model_dump_json()}
-        case Going(status=status):
-            return {"status": status, "cause": None}
-
-
-#: What a row says once its worker handed it back: still running, as it did not end early, with a lease already run
-#: out, so the next sweep of any worker takes it.
-_HANDED_BACK: RunChanges = {**_standing(Going("running")), "owner": None, "lease_until": 0.0}
-
-
-def _router_problem(code: _RouterCode, **ctx: Any) -> Problem:
-    """The problem ``code`` of the router's own, about the run as a whole, its message made from ``ctx``."""
-    return Problem(type=code, msg=_ROUTER_PROBLEMS[code].format(**ctx), ctx=ctx)
-
-
-async def _stopped(task: asyncio.Task[None]) -> None:
-    """Cancel ``task`` and wait until it has stopped."""
-    task.cancel()
-    await asyncio.wait([task])
 
 
 def _caller_type(caller: Callable[..., Any]) -> Any:
@@ -676,8 +319,3 @@ def _caller_type(caller: Callable[..., Any]) -> Any:
     if returns is None:
         raise TypeError(f"caller {caller!r} has no return annotation; annotate it with the type it gives, so a run keeps its caller as that type")
     return returns
-
-
-def _refused(status_code: int, *problems: Problem) -> HTTPException:
-    """The refusal of a call: ``problems`` as the ``detail`` of a response with ``status_code``."""
-    return HTTPException(status_code, [problem.model_dump(mode="json") for problem in problems])
