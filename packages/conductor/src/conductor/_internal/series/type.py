@@ -44,8 +44,8 @@ class SeriesType(Type, of=_Series):
 
     @functools.cached_property
     def _named(self) -> tuple[str, str, tuple[type, ...]]:
-        """The Series' id, which says its items' type unless that is ``Any``, its title, and the classes its
-        items name."""
+        """The id (``Series[int]``, or ``Series`` when the items are ``Any``), the title, and the classes named in
+        the items' type."""
         return ("Series" if self.item.hint is Any else f"Series[{self.item.text}]"), "Series", self.item.classes
 
     @functools.cached_property

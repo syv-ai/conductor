@@ -82,20 +82,21 @@ class Type:
     The one object is kept for as long as something holds it (a field, a loaded graph), so a hint made while a
     graph loads is let go with the graph.
 
-    A generic class carried in its own way has a subclass that answers for it, declared with the class::
+    ``Series`` and ``Table`` each have a subclass of ``Type``, registered with the class it is for::
 
         class SeriesType(Type, of=Series): ...
 
-    ``Type(hint)`` is then that subclass wherever the hint is the generic class, with or without ``| None``.
-    Every question the engine asks of a type it asks here, and a kind overrides the answers that differ.
+    ``Type(Series[int])`` and ``Type(Series[int] | None)`` then return a ``SeriesType``. Code that has a ``Type``
+    calls the same attributes and methods whichever class it is; a subclass overrides the ones whose answer
+    differs for its values, so no caller tests for a ``Series`` or a ``Table``.
 
     Attributes:
         hint: The annotation, with its ``Annotated`` metadata and its type variables as written.
-        keys_in_order: Whether the JSON of a value has its keys in one order whatever made it, so it hashes as
-            it is written.
+        keys_in_order: Whether the JSON of a value always has its object keys in the same order, so its JSON can
+            be hashed without sorting the keys. True for a table.
         may_write_once: Whether ``written_once`` can return an object for a stored value of the type.
-        typed_in_advice: What to give instead, said after the reason a value of the kind typed into a graph has
-            no JSON form; nothing for a plain value.
+        typed_in_advice: Text added to the error for a value of the type that was typed into a graph and has no
+            JSON form, saying what to give instead; empty for most types.
     """
 
     hint: Any
@@ -105,12 +106,13 @@ class Type:
     _made: ClassVar[weakref.WeakValueDictionary[Any, Type]] = weakref.WeakValueDictionary()
 
     def __init_subclass__(cls, *, of: Any, value_class: type | None = None) -> None:
-        """Declares the subclass as the type of the generic class ``of``.
+        """Registers the subclass as the ``Type`` of hints written with the generic class ``of``.
 
         Args:
-            of: The generic class an author writes (``Series``, ``Table``).
-            value_class: A class its values are of that an author may write as the hint instead, and that is met
-                among values of no declared type, where the subclass says how it is written and compared.
+            of: The generic class a node author writes in a hint (``Series``, ``Table``).
+            value_class: The class of the values at run time, when an author may write that class as the hint
+                too (``polars.DataFrame`` for ``Table``). A value of this class found where no type is declared
+                (inside an ``Any``) is written, hashed and compared by the subclass's ``untyped_`` methods.
         """
         _KINDS[of] = cls
         OWN_IDS.add(of.__qualname__)  # the generic class is named as a host imports it, which is its id
@@ -118,7 +120,8 @@ class Type:
             READ_AS[value_class] = of
 
     def __new__(cls, hint: Any) -> Type:
-        """Gives the ``Type`` of ``hint``: the one in use for an equal hint, else a new one of its kind."""
+        """Returns the ``Type`` of ``hint``: the existing object if an equal hint has one, else a new object of
+        the subclass registered for the hint."""
         try:
             return Type._made[hint]
         except KeyError:
@@ -321,14 +324,14 @@ class Type:
 
     @property
     def item(self) -> Type | None:
-        """The type of one item, for a type a graph works through one item at a time; ``None`` for a type that is
-        one value."""
+        """The type of one item when the type is a ``Series``; ``None`` for every other type."""
         return None
 
     @property
     def record(self) -> Type | None:
-        """The type of one record, for a type whose input gathers records into one value; ``None`` for a type
-        that gathers nothing of the kind."""
+        """The type of one row when the type is a table (its ``TypedDict``, or ``dict``); ``None`` for every other
+        type. An input of a table type wired to a ``Series`` of records is called with all the records as one
+        table, and each record must be valid for this type."""
         return None
 
     @property
@@ -480,11 +483,13 @@ class Type:
         return FieldValueError(errors[0]["msg"], errors=errors, column=columns[0] if columns else None)
 
     def _walked(self, step: int | str) -> tuple[Type, bool, str | None] | None:
-        """Follows one step of pydantic's ``loc`` into a value of the type.
+        """Takes one step of a pydantic error's ``loc`` (a list index or a field name) and returns where it leads.
+        For ``Type(list[Money])`` and the step ``0`` it leads to ``Type(Money)``.
 
         Returns:
-            The type the step leads into, whether the step is a place in the value, and the part it names when a
-            fault inside is said by that part; ``None`` for a step the type doesn't name.
+            A tuple of the type of the part the step leads to, whether the step is kept in the ``loc`` a host is
+            shown, and a column name when the step names a table's column. ``None`` when the step is not an index
+            or field of this type, such as a dict's key.
         """
         origin = (get_origin(self.options[0]) or self.options[0]) if len(self.options) == 1 else None
         if isinstance(step, int) and isinstance(origin, type) and (issubclass(origin, (list, tuple, set, frozenset)) or origin in _KINDS):
@@ -495,16 +500,18 @@ class Type:
         return None
 
     def _fault_in(self, part: str, kind: str, msg: str) -> str:
-        """Says the fault ``msg``, of pydantic's ``kind``, as one in the ``part`` a step named."""
+        """Returns the error message ``msg`` reworded to name ``part``, a column that ``_walked`` returned. ``kind``
+        is pydantic's error type. Only a table rewords; any other type returns ``msg``."""
         return msg
 
     @staticmethod
     def untyped_as_json(value: Any) -> Any:
-        """Writes a value of the kind met among values of no declared type; a plain value has no form but
-        pydantic's own.
+        """Returns the JSON form of ``value``, a value of this type's ``value_class`` found where no type is
+        declared. It is called as pydantic's ``to_json`` ``fallback``.
 
         Raises:
-            TypeError: Always, which is how a ``to_json`` fallback says it can't write a value.
+            TypeError: Always on ``Type`` itself, which is how a ``fallback`` says it can't write a value. A
+                subclass with a ``value_class`` overrides it.
         """
         raise TypeError(type(value).__name__)
 
@@ -520,8 +527,8 @@ class Type:
 
     @staticmethod
     def untyped_equal(one: Any, other: Any) -> bool:
-        """Says whether two values met with no declared type are equal; one with no plain ``==`` only when they
-        are the same object."""
+        """Returns whether two values found where no type is declared are equal. If ``==`` raises for them, they
+        are equal only when they are the same object."""
         try:
             return bool(one == other)
         except (ValueError, TypeError):
@@ -544,8 +551,8 @@ def _host_name(cls: type) -> tuple[str, str]:
 
 
 def _kind_of(hint: Any) -> type[Type]:
-    """Gives the class of ``Type`` that answers for ``hint``: a kind's own where the hint is its generic class,
-    with or without ``| None``."""
+    """Returns the class to make the ``Type`` of ``hint`` from: the subclass registered for ``Series`` or ``Table``
+    when the hint is that generic class, with or without ``| None``, else ``Type``."""
     if type(hint) is type and hint not in READ_AS and hint not in _KINDS:
         return Type
     options = [option for option in union_members(split_hint(substituted(hint, {}))[0]) if option is not type(None)]
@@ -556,17 +563,17 @@ def _kind_of(hint: Any) -> type[Type]:
 
 
 def kind_of_value(value: Any) -> type[Type]:
-    """Gives the class of ``Type`` that answers for a value met with no declared type: the kind that declared
-    the value's class as its own, else ``Type``."""
+    """Returns the ``Type`` subclass registered for the class of ``value`` (``TableType`` for a frame), else
+    ``Type``. Used for a value found where no type is declared, such as inside an ``Any``."""
     return _KINDS.get(READ_AS.get(type(value)), Type)
 
 
 def untyped_as_json(value: Any) -> Any:
-    """Writes a value pydantic has no JSON form for, by the kind that declared its class. It is what pydantic's
-    ``to_json`` is given as its ``fallback`` among values of no declared type.
+    """Returns the JSON form of a value pydantic can't write itself, such as a frame inside an ``Any``. It is
+    passed to pydantic's ``to_json`` as ``fallback``.
 
     Raises:
-        TypeError: No kind declared the value's class.
+        TypeError: No ``Type`` subclass is registered for the value's class.
     """
     return kind_of_value(value).untyped_as_json(value)
 

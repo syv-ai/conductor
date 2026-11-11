@@ -77,8 +77,7 @@ class TableType(Type, of=_Table, value_class=pl.DataFrame):
 
     @functools.cached_property
     def record(self) -> Type:
-        """The type of one record, which is what a table input gathers: the row type, and ``dict`` for a table of
-        any columns, whose records are mappings of any keys."""
+        """The type of one row as a record: the ``TypedDict`` ``R``, or ``dict`` for a table of any columns."""
         return Type(dict if self._row is Any else self._row)
 
     def written_once(self, stored: Any) -> Any | None:
@@ -86,8 +85,9 @@ class TableType(Type, of=_Table, value_class=pl.DataFrame):
         return stored
 
     def _walked(self, step: int | str) -> tuple[Type, bool, str | None] | None:
-        """Follows one step of pydantic's ``loc`` into the table: the form it came in is no place, a record's
-        place keeps the table's columns, and a column is named."""
+        """Takes one step of a pydantic error's ``loc`` inside a table. A word for the form the table was given in
+        (``"records"``) is dropped, a row index leads to the same table, and a column name leads to the column's
+        type and is returned as the column."""
         if step in _TABLE_FORMS:
             return self, False, None
         if isinstance(step, int):
@@ -95,12 +95,12 @@ class TableType(Type, of=_Table, value_class=pl.DataFrame):
         return (Type(self.fields[step]), True, step) if step in self.fields else None
 
     def _fault_in(self, part: str, kind: str, msg: str) -> str:
-        """Says a fault in the column ``part``."""
+        """Returns the error message ``msg`` with the column ``part`` named in it."""
         return f"the column '{part}' its row type declares is missing" if kind == "missing" else f"column '{part}': {msg}"
 
     @staticmethod
     def untyped_as_json(value: Any) -> Any:
-        """Gives a frame met among values of no declared type as conductor writes a table."""
+        """Returns the JSON form of a frame found where no type is declared, such as inside an ``Any``."""
         return written_table(value)
 
     @staticmethod
@@ -111,7 +111,7 @@ class TableType(Type, of=_Table, value_class=pl.DataFrame):
 
     @staticmethod
     def untyped_equal(one: Any, other: Any) -> bool:
-        """Says whether two frames hold the same cells; a frame has no plain ``==``."""
+        """Returns whether two frames have equal cells. ``==`` on frames returns a frame, not a bool."""
         return isinstance(other, pl.DataFrame) and one.equals(other)
 
 
