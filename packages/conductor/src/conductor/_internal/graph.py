@@ -227,10 +227,10 @@ class Open:
 
 #: One cell an input is made from, and how many of the maps its node runs in say which unit of the cell's node
 #: holds it: the unit at those places of an instance of the reading node, and for a gather every unit under them.
-Reads = tuple[Cell, int]
+CellRead = tuple[Cell, int]
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class Read:
     """An input that edges bring one value on each call.
 
@@ -245,13 +245,14 @@ class Read:
     sources: tuple[Source, ...]
     scope: Scope
 
-    @property
-    def reads(self) -> tuple[Reads, ...]:
-        """Every cell the input is made from: what each edge brings, read where its node runs."""
+    @functools.cached_property
+    def reads(self) -> tuple[tuple[Source, int], ...]:
+        """Every cell the input is made from, which is what a run reads and what makes its node ready: what
+        each edge brings, read where its node runs. Made when first asked for."""
         return tuple([(source, len(source.scope)) for source in self.sources])
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class Gather:
     """An input of many (a ``Series``, or a ``Table`` fed records) that receives the items of one map as a list.
 
@@ -265,10 +266,11 @@ class Gather:
     sources: tuple[Source, ...]
     series: Cell
 
-    @property
-    def reads(self) -> tuple[Reads, ...]:
-        """Every cell the input is made from: the Series, and what each edge brings for every item under one
-        unit of the Series, so each is read as deep as the Series was made."""
+    @functools.cached_property
+    def reads(self) -> tuple[CellRead, *tuple[tuple[Source, int], ...]]:
+        """Every cell the input is made from, which is what a run reads and what makes its node ready: the
+        Series first, then what each edge brings for every item under one unit of the Series, so each is read
+        as deep as the Series was made. Made when first asked for."""
         made_in = len(self.series.scope)
         return ((self.series, made_in), *[(source, made_in) for source in self.sources])
 
@@ -278,7 +280,7 @@ class Gather:
         return self.series.scope
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class SeriesOfOne:
     """An input of many fed by a source that runs once: each call receives its one value as a list of one.
 
@@ -290,9 +292,10 @@ class SeriesOfOne:
     spec: Field
     sources: tuple[Value, ...]
 
-    @property
-    def reads(self) -> tuple[Reads, ...]:
-        """Every cell the input is made from: what each edge brings, read where the graph itself runs."""
+    @functools.cached_property
+    def reads(self) -> tuple[tuple[Value, int], ...]:
+        """Every cell the input is made from, which is what a run reads and what makes its node ready: what
+        each edge brings, read where the graph itself runs. Made when first asked for."""
         return tuple([(source, 0) for source in self.sources])
 
     @property

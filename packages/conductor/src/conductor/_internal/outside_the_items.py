@@ -109,10 +109,11 @@ def _could_gather(inside: NodePath, base: int, plan: Gather, gathered: Gather, a
     """What the gathering input of ``plan`` could come to for the items ``gathered`` gathers: the worst of its
     Series and the best of its edges, as it needs the Series and one of the edges. An input whose items take a
     blank receives the blank an edge brings."""
-    brought = _best([_could_hold(inside, base, source, gathered, asked, node_at, stands) for source in plan.sources])
+    (series, _), *edges = plan.reads
+    brought = _best([_could_hold(inside, base, source, gathered, asked, node_at, stands) for source, _ in edges])
     if brought is None and plan.spec.keeps_blanks:
         brought = COULD
-    return _worst([_could_hold(inside, base, plan.series, gathered, asked, node_at, stands), brought])
+    return _worst([_could_hold(inside, base, series, gathered, asked, node_at, stands), brought])
 
 
 def _could_hold(inside: NodePath, base: int, cell: Cell, gathered: Gather, asked: dict[NodeAtPath, Any], node_at: Mapping[NodePath, NodeAtPath], stands: Stands) -> Any:
@@ -130,7 +131,7 @@ def _could_hold(inside: NodePath, base: int, cell: Cell, gathered: Gather, asked
     """
     made_by = node_at[(*inside, cell.node_id)]
     if made_by not in asked:
-        series = gathered.series
+        series = gathered.reads[0][0]
         if type(cell) is Item and cell.node_id == series.node_id and cell.output == series.output:
             return COULD  # an item of the Series itself
         return stands(inside, base, cell, ())
@@ -169,8 +170,8 @@ def _could_come_to(node: FunctionAtPath, gathered: Gather, asked: dict[NodeAtPat
             continue
         inside, base = (node.inside, node.base) if giver is None else (giver.inside, giver.base)
         if kind is not Gather:
-            answer = _best([_could_hold(inside, base, source, gathered, asked, node_at, stands) for source in plan.sources])  # type: ignore[union-attr]
-        elif node_at[(*inside, plan.series.node_id)] in asked:  # type: ignore[union-attr]
+            answer = _best([_could_hold(inside, base, source, gathered, asked, node_at, stands) for source, _ in plan.reads])  # type: ignore[union-attr]
+        elif node_at[(*inside, plan.reads[0][0].node_id)] in asked:  # type: ignore[union-attr]
             answer = _could_gather(inside, base, plan, gathered, asked, node_at, stands)  # type: ignore[arg-type]
         else:
             answer = stands(inside, base, plan, node.gathered_through[name])

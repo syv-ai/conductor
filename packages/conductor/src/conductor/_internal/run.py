@@ -834,7 +834,7 @@ class Run:
                     value = self._gathered(node.inside if giver is None else giver.inside, base, plan, node.gathered_through[name], key)  # type: ignore[arg-type]
                 else:  # one value: the first edge whose branch was taken
                     value = SKIPPED
-                    for source in plan.sources:  # type: ignore[union-attr]
+                    for source, _ in plan.reads:  # type: ignore[union-attr]
                         value = _cell(units, base, source, key)
                         if value is not SKIPPED:
                             break
@@ -883,9 +883,10 @@ class Run:
             settled; ``SKIPPED`` when no item could bring a value for a branch not taken outside the items;
             ``None`` when none could for a blank there.
         """
-        key = key[: base + len(plan.series.scope)]
+        (series_made, made_in), *edges = plan.reads
+        key = key[: base + made_in]
         units = self._units[inside]
-        series = _cell(units, base, plan.series, key)
+        series = _cell(units, base, series_made, key)
         if through:
 
             def stands(inside: NodePath, base: int, read: Any, through: tuple[NodeAtPath, ...]) -> Any:
@@ -899,9 +900,8 @@ class Run:
                 return certain
         elif series is PENDING or series is SKIPPED or series is None:  # nothing outside but the Series has a say
             return series
-        sources = plan.sources
-        if len(sources) == 1 and type(sources[0]) is Item:  # the Series itself: its items, or one field of each
-            wanted = sources[0].field
+        if len(edges) == 1 and type(edges[0][0]) is Item:  # the Series itself: its items, or one field of each
+            wanted = edges[0][0].field
             if type(series) is Records:
                 return series.records() if wanted is None else _field_of(series.columns, wanted)
             if wanted is None:
@@ -910,7 +910,7 @@ class Run:
         items = []
         for place in range(len(series)):
             value = SKIPPED
-            for source in sources:
+            for source, _ in edges:
                 value = _cell(units, base, source, (*key, place))
                 if value is PENDING:
                     return PENDING
@@ -1055,7 +1055,7 @@ def _aligned(plan: Gather, units: _UnitsOfAGraph, items: list[Any], gathered: Ma
         items: What the input gathered, one place per item of the Series.
         gathered: Every gathering input of the node, by name: its plan, the units of its plan's graph, its items.
     """
-    together = [(others, other.spec.keeps_blanks) for other, theirs, others in gathered.values() if other.series == plan.series and theirs is units]
+    together = [(others, other.spec.keeps_blanks) for other, theirs, others in gathered.values() if other.reads[0] == plan.reads[0] and theirs is units]
     if len(together) == 1:
         return items if together[0][1] else [item for item in items if item is not None]  # by identity: an item may be a frame, which has no plain ==
     return [item for place, item in enumerate(items) if all(keeps or others[place] is not None for others, keeps in together)]
