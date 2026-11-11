@@ -677,10 +677,11 @@ def _read_signature(function: Callable[..., Any], computed_outputs: bool) -> tup
     Raises:
         NodeDeclarationError: A parameter or the return type is declared in a way a node can't have.
     """
+    parameters = inspect.signature(function).parameters  # read first: for what is not a function it raises Python's "is not a callable object"
     hints = typing.get_type_hints(function, include_extras=True)
     inputs: dict[str, Field] = {}
     from_run: dict[str, type] = {}
-    for name, parameter in inspect.signature(function).parameters.items():
+    for name, parameter in parameters.items():
         if parameter.kind is parameter.VAR_KEYWORD:
             continue
         if parameter.kind in (parameter.VAR_POSITIONAL, parameter.POSITIONAL_ONLY):

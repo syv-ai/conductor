@@ -110,6 +110,12 @@ def test_a_node_id_must_have_something_in_it_and_no_mark_an_address_or_waiting_i
     assert node("Beløb i kr", title="Amount", description="For a test.")(amount).id == "Beløb i kr"
 
 
+def test_node_given_a_record_in_place_of_a_function_raises_pythons_own_error_that_it_is_not_callable():
+    with pytest.raises(TypeError, match="is not a callable object"):
+        node("enrich", title="Enrich", description="For a test.")(GraphRecord(nodes=[]))  # type: ignore[arg-type]
+
+
+
 @pytest.mark.parametrize(("title", "description", "empty"), [
     ("", "Does something.", "title"),
     ("Something", "", "description"),
