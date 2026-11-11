@@ -33,7 +33,6 @@ from conductor._internal.checked_graph.input_plans import (
     ItemOfSeries,
     OutputAddress,
     OutputInLoops,
-    Scope,
     SeriesAsList,
     WholeOutput,
 )
@@ -68,7 +67,7 @@ class _FlatNodeBase:
     embedding: FlatEmbeddedGraph | None
     path: NodePath
     name: str
-    loops: Maps
+    loops: tuple[tuple[FlatFunctionNode, str], ...]
 
 
 @typing.final
@@ -161,8 +160,6 @@ class FlatEmbeddedGraph(_FlatNodeBase):
 #: A node where it stands among the graphs a run is of: a function, or an embedded graph.
 FlatNode = FlatFunctionNode | FlatEmbeddedGraph
 
-#: The maps a node runs in, outermost first, each as the function and the output of its ``Series``.
-Maps = tuple[tuple["FlatFunctionNode", str], ...]
 
 
 def waits_on(node: FlatFunctionNode) -> frozenset[FlatFunctionNode]:
@@ -346,7 +343,7 @@ def _series_looped_over(loop: OutputAddress, inside: NodePath, node_at: Mapping[
     return made_by, loop.output
 
 
-def _loops_by_name(loops: Maps) -> Scope:
+def _loops_by_name(loops: tuple[tuple[FlatFunctionNode, str], ...]) -> tuple[OutputAddress, ...]:
     """``loops`` as the scope of a plan at a path, each Series named by the name of its function."""
     return tuple([OutputAddress(series.name, output) for series, output in loops])
 

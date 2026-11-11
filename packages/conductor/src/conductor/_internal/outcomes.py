@@ -41,7 +41,7 @@ from conductor._internal.field import Field
 from conductor._internal.sentinels import SKIPPED
 
 if TYPE_CHECKING:
-    from conductor._internal.checked_graph.flat_nodes import FlatFunctionNode, Maps
+    from conductor._internal.checked_graph.flat_nodes import FlatFunctionNode
 
 
 
@@ -170,7 +170,7 @@ def outputs_when_not_called(outputs: Mapping[str, Field]) -> dict[str, Any]:
     return {name: SKIPPED if output.param.exclusive_group is not None else None for name, output in outputs.items()}
 
 
-def item_paths(outcomes: dict[str, dict[ItemPath, Outcome]], loops: Maps, under: ItemPath, *, counted: bool = False) -> tuple[list[ItemPath], bool]:
+def item_paths(outcomes: dict[str, dict[ItemPath, Outcome]], loops: tuple[tuple[FlatFunctionNode, str], ...], under: ItemPath, *, counted: bool = False) -> tuple[list[ItemPath], bool]:
     """The item paths a node is called for, and whether that list is complete yet.
 
     In the example, ``clean`` is inside one loop, over ``load.result``. After ``load`` has returned two

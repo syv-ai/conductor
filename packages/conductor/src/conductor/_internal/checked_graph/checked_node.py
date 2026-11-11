@@ -14,7 +14,6 @@ from conductor._internal.checked_graph.input_plans import (
     InputFromEdges,
     InputPlan,
     OutputAddress,
-    Scope,
 )
 from conductor._internal.field import Field, FieldDescription
 from conductor._internal.node_definition import FunctionDefinition, StoredGraphDefinition
@@ -38,7 +37,7 @@ class _CheckedNodeBase:
     """
 
     id: str
-    loops: Scope
+    loops: tuple[OutputAddress, ...]
     inputs: dict[str, InputPlan]
     outputs: dict[str, Field]
 
@@ -52,7 +51,7 @@ class _CheckedNodeBase:
         """Whether no input can hold a mapping, so what a unit received needs no key sorting to hash."""
         return all(plan.field.type.hashes_plainly for plan in self.inputs.values())
 
-    def loops_around(self, output: str) -> Scope:
+    def loops_around(self, output: str) -> tuple[OutputAddress, ...]:
         """The lists looped over to make one value of ``output``, outermost first: the loops the node is called in."""
         return self.loops
 
@@ -134,7 +133,7 @@ class CheckedEmbeddedGraphNode(_CheckedNodeBase):
     definition: StoredGraphDefinition
     inner: CheckedGraph
 
-    def loops_around(self, output: str) -> Scope:
+    def loops_around(self, output: str) -> tuple[OutputAddress, ...]:
         """The lists looped over to make one value of ``output``, outermost first: the loops this node is called
         in, then the loops inside the stored graph.
 

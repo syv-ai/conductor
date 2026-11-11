@@ -46,8 +46,8 @@ from conductor._internal.checked_graph.input_plans import (
     InputReadsOneValue,
     InputWrapsOneValue,
     ItemOfSeries,
+    OutputAddress,
     OutputInLoops,
-    Scope,
     WholeOutput,
 )
 from conductor._internal.checked_graph.type import CheckedGraph, InputField
@@ -75,8 +75,6 @@ def load_graph[GraphT: CheckedGraph](record: GraphRecord, definitions: Mapping[s
     return _Loader(definitions, (), {}).load(record, graph_type)
 
 
-#: An embedded graph loaded alone, by its definition's id and version and the graphs it sits in.
-_AloneKey = tuple[str, int, tuple[str, ...]]
 
 #: What stands for a typed-in value its field's type refused, while a node is placed.
 _INVALID: Any = object()
@@ -112,7 +110,7 @@ class _Planned:
     """
 
     inputs: dict[str, InputPlan]
-    loops: Scope
+    loops: tuple[OutputAddress, ...]
     required_branches: frozenset[RequiredBranch]
     bound: Mapping[TypeVar, Any] | None
 
@@ -133,7 +131,7 @@ class _Loader:
         position: Each node's place in the record.
     """
 
-    def __init__(self, definitions: Mapping[str, NodeDefinition], embedded_in: tuple[str, ...], alone: dict[_AloneKey, CheckedGraph]) -> None:
+    def __init__(self, definitions: Mapping[str, NodeDefinition], embedded_in: tuple[str, ...], alone: dict[tuple[str, int, tuple[str, ...]], CheckedGraph]) -> None:
         self.definitions, self.embedded_in, self.alone = definitions, embedded_in, alone
         self.problems: list[Problem] = []
         self.nodes: dict[str, CheckedNode] = {}

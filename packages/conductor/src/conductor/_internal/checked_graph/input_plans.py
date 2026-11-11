@@ -49,8 +49,6 @@ class OutputAddress(NamedTuple):
         return f"{self.node_id}.{self.output}"
 
 
-#: A path of maps from the graph's own scope, each the ``Series`` output it works through.
-Scope = tuple[OutputAddress, ...]
 
 
 # -- what an edge brings ------------------------------------------------------------------------
@@ -69,7 +67,7 @@ class OutputInLoops:
 
     node_id: str
     output: str
-    loops: Scope
+    loops: tuple[OutputAddress, ...]
     depth: int = dataclasses.field(init=False, compare=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -99,7 +97,7 @@ class _EdgeSourceBase(OutputInLoops):
         return f"{self.node_id}.{self.output}.{self.record_field}" if self.record_field else f"{self.node_id}.{self.output}"
 
     @property
-    def read_in(self) -> Scope:
+    def read_in(self) -> tuple[OutputAddress, ...]:
         """The scope its values sit in: the one its node runs in."""
         return self.loops
 
@@ -116,7 +114,7 @@ class ItemOfSeries(_EdgeSourceBase):
     """One item of a ``Series`` output, read inside the map that Series opens."""
 
     @property
-    def read_in(self) -> Scope:
+    def read_in(self) -> tuple[OutputAddress, ...]:
         """The scope its values sit in: the map of the Series, under the scope its node runs in."""
         return (*self.loops, OutputAddress(self.node_id, self.output))
 
@@ -195,7 +193,7 @@ class InputReadsOneValue:
 
     field: Field
     reads: tuple[EdgeSource, ...]
-    loops: Scope
+    loops: tuple[OutputAddress, ...]
 
     @property
     def sources(self) -> tuple[EdgeSource, ...]:
@@ -242,7 +240,7 @@ class InputCollectsLoopResults:
         return reader.collect(self, item_path)
 
     @property
-    def loops(self) -> Scope:
+    def loops(self) -> tuple[OutputAddress, ...]:
         """The scope the list sits in: where the Series was made."""
         return self.reads[0].loops
 
@@ -277,7 +275,7 @@ class InputWrapsOneValue:
         return [value]
 
     @property
-    def loops(self) -> Scope:
+    def loops(self) -> tuple[OutputAddress, ...]:
         """The scope the value sits in: the one its source runs in."""
         return self.reads[0].loops
 

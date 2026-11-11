@@ -10,7 +10,7 @@ from conductor._internal.checked_graph.input_plans import (
     InputPlan,
     InputReadsOneValue,
     InputWrapsOneValue,
-    Scope,
+    OutputAddress,
 )
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.field import FieldDescription
@@ -117,12 +117,12 @@ class GraphDescription(ConductorModel):
     problems: list[Problem]
 
 
-def runs_on(loops: Scope) -> RunsOn:
+def runs_on(loops: tuple[OutputAddress, ...]) -> RunsOn:
     """Where a node of ``loops`` runs."""
     return RunsOn(mode="per_item", series=str(loops[-1]), msg=f"per item of {loops[-1]}") if loops else RunsOn(mode="once", msg="once")
 
 
-def feed_of(loops: Scope, plan: InputPlan) -> Feed:
+def feed_of(loops: tuple[OutputAddress, ...], plan: InputPlan) -> Feed:
     """How ``plan`` feeds its input on each call of a node that runs in ``loops``."""
     match plan:
         case InputCollectsLoopResults(series=series):
