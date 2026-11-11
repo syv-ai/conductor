@@ -1,4 +1,4 @@
-"""``split``, ``stack``, ``table-collect``, ``text-list`` and ``text-split``: what each gives, how it is typed, and
+"""``series-split``, ``series-stack``, ``series-gather``, ``table-collect``, ``text-list`` and ``text-split``: what each gives, how it is typed, and
 what it refuses."""
 
 from typing import Any, TypedDict
@@ -7,7 +7,7 @@ import conductor_nodes
 import polars as pl
 import pytest
 from conductor import NodeRegistry, Series, Table, make_graph, node
-from conductor_nodes import tables, text
+from conductor_nodes import series, tables, text
 
 
 class Contact(TypedDict):
@@ -37,6 +37,11 @@ def tags() -> list[str]:
 @_node("words")
 def words() -> Series[str]:
     return ["a", "b"]
+
+
+@_node("counts")
+def counts() -> Series[int]:
+    return [1, 2]
 
 
 @_node("nobody")
@@ -75,7 +80,7 @@ def header(table: Table) -> list[str]:
 
 REGISTRY = NodeRegistry()
 REGISTRY.add_subregistry(conductor_nodes.registry)
-for _definition in (contacts, csv, tags, words, nobody, sentence, send, shout, one_row, header):
+for _definition in (contacts, csv, tags, words, counts, nobody, sentence, send, shout, one_row, header):
     REGISTRY.add(_definition)
 
 
@@ -97,22 +102,22 @@ def columns_of(field) -> dict[str, Any]:
 
 
 def test_split_gives_a_tables_records_typed_as_its_row_type_declares_them():
-    graph = load(contacts, tables.split, edges=[("contacts.result", "split.value")])
-    described = output(graph, "split")
+    graph = load(contacts, series.split, edges=[("contacts.result", "series-split.value")])
+    described = output(graph, "series-split")
     assert graph.problems == [] and (described.many, described.type) == (True, "record")
     assert described.json_schema["properties"] == {
         "name": {"title": "Name", "type": "string"}, "email": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Email"},
     }
-    assert graph.run().results["split"]["result"] == [
+    assert graph.run().results["series-split"]["result"] == [
         {"name": "Ann", "email": "ann@x.dk"}, {"name": "Bo", "email": None}, {"name": "Cy", "email": "cy@x.dk"},
     ]
 
 
 def test_a_node_reading_a_field_of_a_split_record_is_not_called_where_the_cell_is_blank_and_collect_keeps_the_record():
     SENT.clear()
-    graph = load(contacts, tables.split, send, tables.collect, edges=[
-        ("contacts.result", "split.value"), ("split.result.email", "send.email"),
-        ("split.result", "table-collect.records"), ("send.result", "table-collect.sent"),
+    graph = load(contacts, series.split, send, tables.collect, edges=[
+        ("contacts.result", "series-split.value"), ("series-split.result.email", "send.email"),
+        ("series-split.result", "table-collect.records"), ("send.result", "table-collect.sent"),
     ], values={"table-collect.columns": ["sent"]})
     run = graph.run()
     assert run.status == "complete" and SENT == ["ann@x.dk", "cy@x.dk"]
@@ -125,42 +130,54 @@ def test_a_node_reading_a_field_of_a_split_record_is_not_called_where_the_cell_i
 
 
 def test_split_gives_records_of_unknown_columns_for_a_table_of_any_and_a_field_of_one_is_read_when_it_arrives():
-    graph = load(csv, tables.split, shout, edges=[("csv.result", "split.value"), ("split.result.name", "shout.text")])
-    assert graph.problems == [] and output(graph, "split").type == "Any"
+    graph = load(csv, series.split, shout, edges=[("csv.result", "series-split.value"), ("series-split.result.name", "shout.text")])
+    assert graph.problems == [] and output(graph, "series-split").type == "Any"
     assert graph.run().results["shout"]["result"] == ["ANN", "BO"]
 
 
 def test_split_gives_a_lists_items_of_the_lists_own_type():
-    graph = load(tags, tables.split, shout, edges=[("tags.result", "split.value"), ("split.result", "shout.text")])
-    assert graph.problems == [] and (output(graph, "split").many, output(graph, "split").type) == (True, "str")
-    assert graph.plan["shout"].series == "split.result" and graph.run().results["shout"]["result"] == ["RED", "BLUE"]
+    graph = load(tags, series.split, shout, edges=[("tags.result", "series-split.value"), ("series-split.result", "shout.text")])
+    assert graph.problems == [] and (output(graph, "series-split").many, output(graph, "series-split").type) == (True, "str")
+    assert graph.plan["shout"].series == "series-split.result" and graph.run().results["shout"]["result"] == ["RED", "BLUE"]
 
 
 def test_a_list_typed_into_split_is_items_of_any_type():
-    graph = load(tables.split, edges=[], values={"split.value": ["a", 1]})
-    assert output(graph, "split").type == "Any" and graph.run().results["split"]["result"] == ["a", 1]
+    graph = load(series.split, edges=[], values={"series-split.value": ["a", 1]})
+    assert output(graph, "series-split").type == "Any" and graph.run().results["series-split"]["result"] == ["a", 1]
 
 
 def test_what_is_neither_a_table_nor_a_list_is_a_type_mismatch_on_the_edge_into_split():
-    (problem,) = load(sentence, tables.split, edges=[("sentence.result", "split.value")]).problems
-    assert (problem.type, problem.loc, problem.ctx["got"], problem.ctx["expected"]) == ("type_mismatch", ("split", "value"), "str", "Table | list")
+    (problem,) = load(sentence, series.split, edges=[("sentence.result", "series-split.value")]).problems
+    assert (problem.type, problem.loc, problem.ctx["got"], problem.ctx["expected"]) == ("type_mismatch", ("series-split", "value"), "str", "Table | list")
 
 
 def test_stack_puts_the_tables_made_per_item_into_one_table_of_their_row_type():
-    graph = load(contacts, tables.split, one_row, tables.stack, edges=[
-        ("contacts.result", "split.value"), ("split.result", "one-row.contact"), ("one-row.result", "stack.tables"),
+    graph = load(contacts, series.split, one_row, series.stack, edges=[
+        ("contacts.result", "series-split.value"), ("series-split.result", "one-row.contact"), ("one-row.result", "series-stack.tables"),
     ])
-    assert graph.problems == [] and not output(graph, "stack").many and output(graph, "stack").type.startswith("Table") and set(columns_of(output(graph, "stack"))) == {"name", "email"}
-    stacked = graph.run().results["stack"]["result"]
+    assert graph.problems == [] and not output(graph, "series-stack").many and output(graph, "series-stack").type.startswith("Table") and set(columns_of(output(graph, "series-stack"))) == {"name", "email"}
+    stacked = graph.run().results["series-stack"]["result"]
     assert stacked.to_dicts() == graph.run().results["contacts"]["result"].to_dicts()
+
+
+def test_gather_gives_the_values_made_per_item_as_one_list():
+    graph = load(series.split, text.uppercase, series.gather, edges=[
+        ("series-split.result", "text-uppercase.text"), ("text-uppercase.result", "series-gather.values"),
+    ], values={"series-split.value": ["a", "b"]})
+    assert graph.problems == [] and graph.run().results["series-gather"]["result"] == ["A", "B"]
+
+
+def test_gather_takes_the_type_of_the_values_it_gathers():
+    graph = load(counts, series.gather, edges=[("counts.result", "series-gather.values")])
+    assert graph.problems == [] and output(graph, "series-gather").type == "int"
 
 
 # -- table-collect ---------------------------------------------------------------------------------------
 
 
 def test_collect_types_its_table_by_the_records_and_what_arrives_on_each_new_column():
-    graph = load(contacts, tables.split, send, sentence, tables.collect, edges=[
-        ("contacts.result", "split.value"), ("split.result.email", "send.email"), ("split.result", "table-collect.records"),
+    graph = load(contacts, series.split, send, sentence, tables.collect, edges=[
+        ("contacts.result", "series-split.value"), ("series-split.result.email", "send.email"), ("series-split.result", "table-collect.records"),
         ("send.result", "table-collect.sent"), ("sentence.result", "table-collect.team"),
     ], values={"table-collect.columns": ["sent"], "table-collect.constant_columns": ["team"]})
     assert graph.problems == []
@@ -173,8 +190,8 @@ def test_collect_types_its_table_by_the_records_and_what_arrives_on_each_new_col
 
 
 def test_collect_refuses_a_new_column_the_records_already_have_naming_it():
-    graph = load(contacts, tables.split, tables.collect, edges=[
-        ("contacts.result", "split.value"), ("split.result", "table-collect.records"), ("split.result.name", "table-collect.email"),
+    graph = load(contacts, series.split, tables.collect, edges=[
+        ("contacts.result", "series-split.value"), ("series-split.result", "table-collect.records"), ("series-split.result.name", "table-collect.email"),
     ], values={"table-collect.columns": ["email"]})
     (problem,) = graph.problems
     assert (problem.type, problem.loc, problem.ctx["error"], problem.ctx["error_ctx"]) == ("compute_hook_failed", ("table-collect",), "column_taken", {"column": "email"})
@@ -196,8 +213,8 @@ def test_collect_refuses_a_column_wired_from_another_series_than_its_records_nam
     held = NodeRegistry()
     held.add_subregistry(REGISTRY)
     held.add(people_table)
-    graph = held.load(make_graph(people_table, tables.split, words, tables.collect, edges=[
-        ("people.result", "split.value"), ("split.result", "table-collect.records"), ("words.result", "table-collect.word"),
+    graph = held.load(make_graph(people_table, series.split, words, tables.collect, edges=[
+        ("people.result", "series-split.value"), ("series-split.result", "table-collect.records"), ("words.result", "table-collect.word"),
     ], values={"table-collect.columns": ["word"]}))
     assert graph.problems == []
     cause = graph.run().state.cause
@@ -213,8 +230,8 @@ def test_collect_says_where_a_value_made_once_goes_when_it_is_wired_as_a_column_
     held = NodeRegistry()
     held.add_subregistry(REGISTRY)
     held.add(two_people)
-    graph = held.load(make_graph(two_people, tables.split, sentence, tables.collect, edges=[
-        ("two-people.result", "split.value"), ("split.result", "table-collect.records"), ("sentence.result", "table-collect.team"),
+    graph = held.load(make_graph(two_people, series.split, sentence, tables.collect, edges=[
+        ("two-people.result", "series-split.value"), ("series-split.result", "table-collect.records"), ("sentence.result", "table-collect.team"),
     ], values={"table-collect.columns": ["team"]}))
     assert graph.problems == []
     cause = graph.run().state.cause
@@ -232,8 +249,8 @@ def test_collect_of_no_records_is_a_table_with_every_column_and_no_lines():
 
 
 def test_collect_of_records_of_unknown_columns_is_a_table_of_any_columns():
-    graph = load(csv, tables.split, shout, tables.collect, edges=[
-        ("csv.result", "split.value"), ("split.result.name", "shout.text"), ("split.result", "table-collect.records"),
+    graph = load(csv, series.split, shout, tables.collect, edges=[
+        ("csv.result", "series-split.value"), ("series-split.result.name", "shout.text"), ("series-split.result", "table-collect.records"),
         ("shout.result", "table-collect.loud"),
     ], values={"table-collect.columns": ["loud"]})
     collected = output(graph, "table-collect")
@@ -260,4 +277,4 @@ def test_text_list_gives_its_texts_once_and_once_per_item_of_what_is_wired_to_fo
 def test_text_split_is_titled_split_text_splits_on_a_newline_and_an_empty_text_has_no_parts():
     assert text.split.title == "Split text" and text.split.inputs["separator"].default == "\n"
     assert text.split("a\nb") == ["a", "b"] and text.split("a,b", separator=",") == ["a", "b"] and text.split("") == []
-    assert tables.split.title == "Split" and tables.collect.title == "Collect into a table" and text.text_list.title == "Text list"
+    assert series.split.title == "Split" and tables.collect.title == "Collect into a table" and text.text_list.title == "Text list"

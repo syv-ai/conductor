@@ -21,7 +21,7 @@ What changes in how you work, before the name-by-name tables:
   `list[float]`, never on `list[str]`) and shown in a type's id. `Annotated` metadata that is no `Param`
   is pydantic's. A host type widens what lands on it with `type_accepts`, declared data, and a subclass
   of a builtin carries its own pydantic schema. A table's one JSON form is
-  `{"columns": [{"name", "type", "values"}]}`. `syv-conductor-nodes` gains `stack`.
+  `{"columns": [{"name", "type", "values"}]}`. `syv-conductor-nodes` gains `series-stack`.
 
 - **A field's description is one flat record.** It has `many`, `type`, `schema` (always set) and
   `type_variables`; there is no `shape` and no `columns`, a table's columns are in its type and its
@@ -73,9 +73,9 @@ What changes in how you work, before the name-by-name tables:
   that node once per item, and everything after it; the node never sees the difference. A
   `Series[X]` input gathers every item in one call, and a `Table[R]` input gathers records into a
   table. A value made outside the items is there on every call. A table (a whole
-  `polars.DataFrame`) and a list are each one value: `split` in `syv-conductor-nodes`, or any node
+  `polars.DataFrame`) and a list are each one value: `series-split` in `syv-conductor-nodes`, or any node
   that returns a `Series`, makes the items, and an edge may name one field of a record
-  (`split.result.email`). A list given to an input of one value is refused (`invalid_input`), and
+  (`series-split.result.email`). A list given to an input of one value is refused (`invalid_input`), and
   so is one typed in (`invalid_value`). Items of two Series meeting at one node are refused
   (`series_not_nested`) until one is made inside the other. `graph.plan` says how often each node
   runs, before any run. A blank keeps the node from being called for that item unless its input
@@ -130,9 +130,9 @@ What changes in how you work, before the name-by-name tables:
 - **Only an outside failure is retried.** `ExternalError`, or a class in `Policy(retry_on=)`;
   a `NodeError`, a wrong output or an `Ask` never is, whatever `retry_on` names.
   A node's own exception goes to the `conductor` logger, never to an event.
-- **Two companion packages, rebuilt on this API.** `syv-conductor-nodes` holds 33 nodes that only
+- **Two companion packages, rebuilt on this API.** `syv-conductor-nodes` holds 34 nodes that only
   compute, a registry per module (`conductor_nodes.text.registry`) and all of them in
-  `conductor_nodes.registry`. `split` takes a table or a list apart into a `Series` (a node may return a table for `Series[R]`, and a run keeps it by column), `stack` puts the tables made per item into one, `table-collect` puts records back into a
+  `conductor_nodes.registry`. `series-split` takes a table or a list apart into a `Series` (a node may return a table for `Series[R]`, and a run keeps it by column), `series-stack` puts the tables made per item into one, `table-collect` puts records back into a
   table with new columns, `text-list` gives typed-in texts, and `text-split` is titled "Split text" and splits on a newline.
   `math-round` rounds a half away from zero (2.5 to 3), and
   `regex-replace` fails a replacement that refers to a missing group as `invalid_replacement`. `syv-conductor-providers` holds `run_router`, a FastAPI router that
@@ -146,6 +146,11 @@ What changes in how you work, before the name-by-name tables:
   schema can write completes over HTTP as it does in the engine, a table reads as its columns and a float that isn't finite as `"Infinity"` or `"NaN"`;
   `syv-conductor-providers` no longer depends on polars.
   There is no canvas package.
+- **`syv-conductor-nodes` has a `series` category.** It holds `series-gather` ("Gather"), which runs once
+  and gives the value made for every item as one list. `split` and `stack` are `series-split` and
+  `series-stack` and live in `conductor_nodes.series`. `decision`, `logic-if-empty` and `logic-if-equals`
+  are `control-decide`, `control-if-empty` and `control-if-equals`. A stored graph that names an old id
+  needs the new one.
 - **A declared choice's `id` is the field type's JSON form.** `Decimal` choices show `"1"` and a `datetime` its seconds, so the id a question shows is an answer it takes.
 - **A table answer and a caller's records have one reader.** Extra columns are dropped for every table from outside, and a missing column is refused. An answer's cells are read strictly from their JSON form; a caller's records are read cell by cell, laxly, never from polars' dtype, so a bool among ints or a number among texts is `invalid_input`. A value that is neither a frame nor a list of records is refused as `invalid_answer` or `invalid_input` with the reason "a table is a frame or a list of records, one object per row".
 - **A default no caller reaches is a problem at load.** `make_graph(..., defaults={"pad.width": 8})` on a node that is not an open input of the graph writes the record, and `registry.load(record).problems` holds `default_on_later_node`.
@@ -211,7 +216,7 @@ Every public name of 1.12.2, by the module it was imported from. A name not list
 | **Widgets** | |
 | `conductor.widgets.Checkbox` | `Switch` |
 | `conductor.widgets.CodeEditor` | gone: a host subclasses `Widget` |
-| `conductor.widgets.ColumnSelect` | gone: an edge names one field of a record, `node.output.field`, after a node that gives a table's records one at a time (`split`) |
+| `conductor.widgets.ColumnSelect` | gone: an edge names one field of a record, `node.output.field`, after a node that gives a table's records one at a time (`series-split`) |
 | `conductor.widgets.ConditionBuilder` | gone: a host subclasses `Widget` |
 | `conductor.widgets.ConnectionList` | gone: a `Series[X]` input takes every edge into it |
 | `conductor.widgets.DatePicker` | `DatePicker` |
@@ -344,10 +349,10 @@ Every public name of 1.12.2, by the module it was imported from. A name not list
 | `conductor.about.get_content` | `get_content`, unchanged |
 | `conductor.about.get_section` | `get_section`, unchanged |
 | `conductor.about.list_sections` | `list_sections`, unchanged |
-| `conductor_nodes.control_operators`: `OPERATORS`, `OPERATORS_BY_ID`, `OPERATORS_BY_LABEL`, `OPERATORS_BY_TYPE`, `OperatorEvaluationError`, `OperatorSpec`, `UNARY_OPERATORS` | gone: a condition is a node that returns a `bool` (`text-contains`, `regex-match`), wired into `decision.when` |
+| `conductor_nodes.control_operators`: `OPERATORS`, `OPERATORS_BY_ID`, `OPERATORS_BY_LABEL`, `OPERATORS_BY_TYPE`, `OperatorEvaluationError`, `OperatorSpec`, `UNARY_OPERATORS` | gone: a condition is a node that returns a `bool` (`text-contains`, `regex-match`), wired into `control-decide.when` |
 | `conductor_nodes`: `get_default_registry`, `register_all` | `conductor_nodes.registry`, added with `registry.add_subregistry(...)` |
 | `conductor_nodes`: `CATEGORIES` | gone: each node has its `category`; `conductor_nodes.registry.filter(lambda d: d.category == "math")` |
-| `conductor_nodes`: `decision`, `json_ops`, `logic`, `math`, `regex_ops`, `text` | a module per category, each with a `registry` of its own nodes: `control` (`decision`, `logic-if-empty`, `logic-if-equals`), `json_ops`, `logic` (`logic-not`), `math`, `regex_ops`, `text`; node ids unchanged |
+| `conductor_nodes`: `decision`, `json_ops`, `logic`, `math`, `regex_ops`, `text` | a module per category, each with a `registry` of its own nodes: `control` (`control-decide`, `control-if-empty`, `control-if-equals`), `json_ops`, `logic` (`logic-not`), `math`, `regex_ops`, `text`; the ids of `decision`, `logic-if-empty` and `logic-if-equals` are the new ones, and the other node ids are unchanged |
 | `conductor_nodes`: `loop`, `while_loop`, `signal`, `subprocess` | gone: a node typed for one value runs once per item of a `Series` wired to it, and a pause is `raise Ask(...)` |
 | `conductor_providers.fastapi.conductor_router` | `conductor_providers.fastapi.run_router(store=, registry=, caller=, may_see=)`: runs by id, kept in a `RunStore`, on several workers; `/nodes` is `registry.describe()`, `/compile` is `POST /load` (`graph.describe()`), `/execute-stream` is `POST /runs` and `GET /runs/{id}/events` |
 | `conductor_providers.fastapi`: `ExecuteRequest`, `NodeInput`, `EdgeInput` | `StartRun`, a `GraphRecord` and its inputs |
@@ -399,7 +404,7 @@ A 1.x `Flow` becomes a `GraphRecord`, `{"nodes": [...], "edges": [[from, to], ..
 | `GraphEdge.id` | gone: an edge is its two addresses |
 | `GraphEdge.source` | the first address's node: `source.output` |
 | `GraphEdge.target` | the second address's node |
-| `GraphEdge.source_handle` | the first address's field, `source.output`, or `source.output.field` for one field of a record of a `Series` (a table's column is no address: `split` gives its records one at a time) |
+| `GraphEdge.source_handle` | the first address's field, `source.output`, or `source.output.field` for one field of a record of a `Series` (a table's column is no address: `series-split` gives its records one at a time) |
 | `GraphEdge.target_handle` | the second address's field, `target.input` |
 | `GraphEdge.when` | gone: a branch is an output of one `exclusive_group`; wire from that output |
 | `GraphEdge.priority` | gone: edges are kept sorted; several into one input are alternatives, opposite branches of one decision |

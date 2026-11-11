@@ -167,15 +167,15 @@ def test_a_series_of_records_made_per_item_inside_an_embedded_graph_is_offered_a
 
 
 def test_split_returns_the_table_it_was_given_and_the_run_holds_it_by_column() -> None:
-    from conductor_nodes.tables import split
+    from conductor_nodes.series import split
 
     @node("people", title="People", description="For a test.")
     def people(text: str) -> Table[Contact]:
         return FRAME
 
-    graph = registry_of(people, split, greet).load(make_graph(people, split, greet, edges=[("people.result", "split.value"), ("split.result.name", "greet.name")]))
+    graph = registry_of(people, split, greet).load(make_graph(people, split, greet, edges=[("people.result", "series-split.value"), ("series-split.result.name", "greet.name")]))
     run = graph.run(text="x")
 
     assert run.outputs == {"greet.result": ["hi ida", "hi bo"]}
-    assert type(run._units["split"][()].out["result"]) is Records
-    assert run.results["split"]["result"] == [{"name": "ida", "email": "ida@x.dk"}, {"name": "bo", "email": None}]
+    assert type(run._units["series-split"][()].out["result"]) is Records
+    assert run.results["series-split"]["result"] == [{"name": "ida", "email": "ida@x.dk"}, {"name": "bo", "email": None}]

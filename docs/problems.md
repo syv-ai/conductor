@@ -396,7 +396,7 @@ print(whole.type, whole.ctx["hint"], whole.ctx["fields"])  # type_mismatch split
 print(whole.msg)  # 'c.result' is a whole table and 'u.text' takes one str. To run 'u' once for each record or item in it, put a Split between them and wire Split's result, or one field of it.
 ```
 
-**Fix.** A table or a list is one value. Put a node between that gives its records or items as a `Series` (`split` in `syv-conductor-nodes`), and wire that node's result, or one field of it (`split.result.email`). `ctx.whole` is `table` or `list`, and `ctx.fields` lists a table's columns.
+**Fix.** A table or a list is one value. Put a node between that gives its records or items as a `Series` (`series-split` in `syv-conductor-nodes`), and wire that node's result, or one field of it (`series-split.result.email`). `ctx.whole` is `table` or `list`, and `ctx.fields` lists a table's columns.
 
 A table wired into a `Table[R]` input that names a column the table lacks is `add_column`:
 
@@ -481,7 +481,7 @@ print(column.type, column.ctx["hint"])  # unknown_output split_first
 print(column.msg)  # 'c.result.email' names a field of a whole table, which has no field to wire. Split it first: put a Split after it and wire the field from Split's result.
 ```
 
-**Fix.** A table is one value, so it has no field to wire. Put a node after it that gives its records as a `Series` (`split` in `syv-conductor-nodes`), and wire the field from that node's result: `split.result.email`.
+**Fix.** A table is one value, so it has no field to wire. Put a node after it that gives its records as a `Series` (`series-split` in `syv-conductor-nodes`), and wire the field from that node's result: `series-split.result.email`.
 
 Its `ctx` keys are in the reference: `python -m conductor.about unknown-output`.
 

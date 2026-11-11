@@ -20,7 +20,8 @@ from conductor import (
     stored_graph,
 )
 from conductor_nodes.control import decision
-from conductor_nodes.tables import collect, split
+from conductor_nodes.series import split
+from conductor_nodes.tables import collect
 from conductor_nodes.text import split as split_text
 from conductor_nodes.text import text_list
 from pydantic import BaseModel
@@ -190,13 +191,13 @@ def answered(run: Any, yes: set[str]) -> Any:
 
 def test_scenario_1_per_invoice_approval():
     graph = REGISTRY.load(make_graph(read_invoices, split, approve, approved_total, edges=[
-        ("read-invoices.result", "split.value"),
-        ("split.result.number", "approve.number"),
-        ("split.result.amount", "approve.amount"),
-        ("split.result.amount", "approved-total.amounts"),
+        ("read-invoices.result", "series-split.value"),
+        ("series-split.result.number", "approve.number"),
+        ("series-split.result.amount", "approve.amount"),
+        ("series-split.result.amount", "approved-total.amounts"),
         ("approve.result", "approved-total.approved"),
     ]))
-    assert graph.plan["approve"].series == "split.result" and graph.plan["approved-total"].mode == "once"
+    assert graph.plan["approve"].series == "series-split.result" and graph.plan["approved-total"].mode == "once"
 
     run = graph.run(file=INVOICES)
     assert run.status == "waiting" and [(w.loc[0], w.loc[1:], w.prompt) for w in run.waiting] == [("approve", (1,), "Approve A2 for 900.0?")]
@@ -211,8 +212,8 @@ COMPLAINTS = "id,text,amount\n1,late delivery,10\n2,broken lid,20\n3,wrong colou
 
 def _csv_llm_summary():
     return REGISTRY.load(make_graph(read_csv, split, llm, llm_all, edges=[
-        ("read-csv.result", "split.value"),
-        ("split.result.text", "llm.text"),
+        ("read-csv.result", "series-split.value"),
+        ("series-split.result.text", "llm.text"),
         ("llm.result", "llm-all.texts"),
     ], values={"llm.prompt": "Classify:", "llm-all.prompt": "Summarise"}))
 
@@ -318,9 +319,9 @@ def test_scenario_6_a_document_with_no_lines_counts_zero():
 @pytest.mark.parametrize("reader", [read_contacts, read_csv], ids=["a table whose email column may be blank", "a table of unknown columns"])
 def test_scenario_7_a_contact_without_an_email_gets_no_mail_and_stays_in_the_excel(reader: Any):
     graph = REGISTRY.load(make_graph(reader, split, send_mail, collect, excel, edges=[
-        (f"{reader.id}.result", "split.value"),
-        ("split.result.email", "send-mail.to"),
-        ("split.result", "table-collect.records"),
+        (f"{reader.id}.result", "series-split.value"),
+        ("series-split.result.email", "send-mail.to"),
+        ("series-split.result", "table-collect.records"),
         ("send-mail.result", "table-collect.sent"),
         ("table-collect.result", "excel.table"),
     ], values={"send-mail.body": "Hello", "table-collect.columns": ["sent"]}))
@@ -338,12 +339,12 @@ def test_scenario_8_an_excel_per_document_of_the_approved_invoices():
         ("upload.result.text", "find-invoices.text"),
         ("find-invoices.result.number", "approve.number"),
         ("find-invoices.result.amount", "approve.amount"),
-        ("find-invoices.result", "decision.value"),
-        ("approve.result", "decision.when"),
-        ("decision.if_true", "excel.table"),
+        ("find-invoices.result", "control-decide.value"),
+        ("approve.result", "control-decide.when"),
+        ("control-decide.if_true", "excel.table"),
         ("upload.result.name", "excel.name"),
     ]))
-    assert graph.plan["decision"].series == "find-invoices.result" and graph.plan["excel"].series == "upload.result"
+    assert graph.plan["control-decide"].series == "find-invoices.result" and graph.plan["excel"].series == "upload.result"
 
     only_large = File(name="d.pdf", text="D1,Dune,800")
     run = graph.run(files=[A_PDF, C_PDF, only_large])
@@ -362,8 +363,8 @@ def test_scenario_8_an_excel_per_document_of_the_approved_invoices():
 
 def test_scenario_9_a_branch_per_item_and_back_together_in_the_items_order():
     graph = REGISTRY.load(make_graph(read_invoices, split, by_size, review, book, report, edges=[
-        ("read-invoices.result", "split.value"),
-        ("split.result", "by-size.invoice"),
+        ("read-invoices.result", "series-split.value"),
+        ("series-split.result", "by-size.invoice"),
         ("by-size.large", "review.invoice"),
         ("by-size.small", "book.invoice"),
         ("review.result", "report.notes"),
@@ -402,9 +403,9 @@ def test_scenario_11_a_sub_graph_per_item():
         make_graph(llm, values={"llm.prompt": "Write a greeting for"})
     )
     graph = registry_with(enrich).load(make_graph(read_contacts, split, enrich, edges=[
-        ("read-contacts.result", "split.value"), ("split.result.name", "enrich.text"),
+        ("read-contacts.result", "series-split.value"), ("series-split.result.name", "enrich.text"),
     ]))
-    assert graph.plan["enrich"].series == "split.result"
+    assert graph.plan["enrich"].series == "series-split.result"
     assert graph.run(file=CONTACTS).outputs == {"enrich.llm.result": ["Write a greeting for Ann", "Write a greeting for Bo", "Write a greeting for Cy"]}
 
 
