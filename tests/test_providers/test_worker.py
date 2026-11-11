@@ -728,7 +728,7 @@ def _slow_items() -> tuple[NodeRegistry, GraphRecord, threading.Event, list[int]
     return registry, make_graph(many, slow, edges=[("many.result", "slow.x")]), called, calls
 
 
-async def test_a_run_handed_back_by_a_worker_shutting_down_reads_as_running_with_no_cause() -> None:
+async def test_a_run_handed_back_by_a_worker_shutting_down_reads_as_running_with_no_cause_and_so_does_the_run_saved_for_it() -> None:
     registry, graph, called, _ = _slow_items()
     store = MemoryStore()
     worker = _worker(store, registry)
@@ -740,6 +740,7 @@ async def test_a_run_handed_back_by_a_worker_shutting_down_reads_as_running_with
     run = await worker.read(run_id)
     view = RunView.of(run)
     assert (view.status, view.cause, run.row.owner, run.row.lease_until) == ("running", None, None, 0.0)
+    assert registry.load(run.row.graph).load_run(run.row.run).status == "running"
 
 
 async def test_a_run_handed_back_at_shutdown_stores_no_run_end_and_the_worker_that_takes_it_repeats_no_call() -> None:
@@ -759,7 +760,7 @@ async def test_a_run_handed_back_at_shutdown_stores_no_run_end_and_the_worker_th
     assert sorted(calls) == list(range(40))
 
 
-async def test_a_cancel_from_another_worker_that_lands_as_a_worker_shuts_down_keeps_the_run_cancelled() -> None:
+async def test_a_cancel_from_another_worker_that_lands_as_a_worker_hands_the_run_back_is_kept_for_the_worker_that_takes_it() -> None:
     registry, graph, gate, inputs, _ = asking()
 
     class CancelAtHandBack(MemoryStore):
@@ -780,8 +781,14 @@ async def test_a_cancel_from_another_worker_that_lands_as_a_worker_shuts_down_ke
         run_id = await _started(worker, graph, inputs)
         asyncio.get_running_loop().call_later(0.05, gate.set)
 
-    row = (await worker.read(run_id)).row
-    assert store.cancelled and (row.status, row.owner, row.lease_until) == ("cancelled", None, None)
+    handed_back = await worker.read(run_id)
+    assert store.cancelled and handed_back.state.cancel_asked
+    assert (handed_back.row.status, handed_back.row.owner, handed_back.row.lease_until) == ("running", None, 0.0)
+    assert "run_end" not in [event["type"] for event in await store.stored_events(run_id)]
+
+    await other.take_over()
+    row = await store.until(run_id, lambda row: row.status != "running")
+    assert (row.status, row.owner, row.lease_until) == ("cancelled", None, None)
     assert [event["status"] for event in await store.stored_events(run_id) if event["type"] == "run_end"] == ["cancelled"]
 
 

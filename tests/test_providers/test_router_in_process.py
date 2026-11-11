@@ -4,8 +4,10 @@ schema. ``test_worker.py`` has what the worker does."""
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 import json
+import threading
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Annotated, Any
@@ -14,7 +16,7 @@ import pytest
 
 httpx = pytest.importorskip("httpx")
 
-from conductor import FromRun, GraphRecord, NodeRecord, NodeRegistry, Problem, make_graph  # noqa: E402
+from conductor import Ask, FromRun, GraphRecord, NodeRecord, NodeRegistry, Problem, make_graph  # noqa: E402
 from conductor_providers.fastapi import ROUTER_PROBLEMS, RunChanges, run_router  # noqa: E402
 from fastapi import FastAPI, Header  # noqa: E402
 
@@ -150,6 +152,40 @@ async def test_a_route_answers_with_what_the_worker_did_and_the_run_reads_as_its
         answered = await client.post(f"/runs/{run_id}/answers", json={waiting_id: True})
         assert (answered.status_code, answered.json()) == (202, {"answers": "started"})
         assert (await store.ended(run_id)).outputs == {"busy.result": "x", "after.result": True}
+
+
+async def test_an_answer_to_a_question_that_waits_in_a_cancelled_run_starts_its_next_leg() -> None:
+    registry, asked, gate = NodeRegistry(), threading.Event(), threading.Event()
+
+    @registry.node("busy", title="Busy", description="")
+    def busy(text: str) -> str:
+        gate.wait(5)
+        return text
+
+    @registry.node("approve", title="Approve", description="")
+    def approve(text: str) -> bool:
+        asked.set()
+        raise Ask("Go on?")
+
+    @registry.node("then", title="Then", description="")
+    def then(text: str) -> str:
+        return text.upper()
+
+    nodes = [NodeRecord(id=name, node=name) for name in ("approve", "busy", "then")]
+    graph = GraphRecord(nodes=nodes, edges=[("busy.result", "then.text")]).model_dump(mode="json")
+    store = MemoryStore()
+
+    async with _serving(_app(store=store, registry=registry)) as client:
+        run_id = (await client.post("/runs", json={"graph": graph, "inputs": {"busy.text": "x", "approve.text": "y"}})).json()["id"]
+        await asyncio.to_thread(asked.wait, 5)
+        assert (await client.post(f"/runs/{run_id}/cancel")).json() == {"cancelled": True}
+        gate.set()
+        cancelled = await store.ended(run_id)
+        assert (cancelled.status, len(cancelled.waiting)) == ("cancelled", 1)
+
+        answered = await client.post(f"/runs/{run_id}/answers", json={cancelled.waiting[0].id: True})
+        assert (answered.status_code, answered.json()) == (202, {"answers": "started"})
+        assert (await store.ended(run_id)).outputs == {"then.result": "X", "approve.result": True}
 
 
 async def test_every_refusal_of_the_router_is_a_list_of_problems_with_a_code_of_its_own() -> None:

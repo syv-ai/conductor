@@ -164,40 +164,28 @@ class _RowAfterALeg:
     Attributes:
         state: The row's state.
         changes: The row's ``run`` and ``outcome``, each where it changes.
-        run_ended: Whether the leg ended, so that its ``run_end`` is stored; a leg handed back did not.
+        run_end: The leg's ``run_end`` event to store, as JSON; ``None`` for a leg handed back, whose run did not end.
         leg_wanted: Whether a next leg is wanted: the leg was handed back, or the run took an answer queued during it.
     """
 
     state: StoredState
     changes: RunChanges
-    run_ended: bool
+    run_end: str | None
     leg_wanted: bool
 
 
-@dataclass(frozen=True)
 class _LegEnd(ABC):
-    """How a leg ended.
-
-    Attributes:
-        run_state: How the leg left the run.
-        outcome: The row's ``outcome`` after the leg, as JSON.
-        event: The leg's ``run_end`` event, as JSON.
-    """
-
-    run_state: RunState
-    outcome: str
-    event: str
+    """How a leg ended."""
 
     @abstractmethod
-    def row_after(self, state: StoredState, *, shutting_down: bool) -> _RowAfterALeg:
-        """What a row holds after this end, once the answers queued during the leg are dealt with.
+    def row_after(self, state: StoredState) -> _RowAfterALeg:
+        """What a row holds after this end.
 
         Args:
             state: The row's state as last read.
-            shutting_down: Whether the worker is shutting down, so that a leg it stopped is handed back.
 
         Returns:
-            The row's state and the columns that change with it, whether the leg ended, and whether a next leg
+            The row's state and the columns that change with it, the ``run_end`` to store, and whether a next leg
             is wanted.
         """
 
@@ -208,9 +196,13 @@ class _Ended(_LegEnd):
 
     Attributes:
         run: The run the leg ended with.
+        outcome: The row's ``outcome`` after the leg, as JSON.
+        run_end: The leg's ``run_end`` event, as JSON.
     """
 
     run: Run
+    outcome: str
+    run_end: str
 
     @classmethod
     def of(cls, end: RunEnd) -> "_Ended":
@@ -218,46 +210,55 @@ class _Ended(_LegEnd):
         outputs, each written by its type as the run writes it."""
         run = end.run
         outcome = Outcome(waiting=run.waiting, outputs=from_json(run.outputs_json()) if run.status == "complete" else None)
-        return cls(run.state, outcome.model_dump_json(), end.model_dump_json(), run)
+        return cls(run, outcome.model_dump_json(), end.model_dump_json())
 
-    def row_after(self, state: StoredState, *, shutting_down: bool) -> _RowAfterALeg:
+    def row_after(self, state: StoredState) -> _RowAfterALeg:
         """What a row holds after this end, once the run has been given the answers queued during the leg.
 
-        A leg its worker stopped to shut down, with no cancel asked of the run, is handed back: the run did not
-        end, so the row keeps its state and its outcome and takes the run as a checkpoint. Otherwise each queued
-        answer is given to the run on its own, as ``run.answer`` takes one whatever the run's status: one the run
-        refuses stays in ``refused`` with its problems, and the ones it takes make the run the next leg starts
-        from.
+        Each queued answer is given to the run on its own, as ``run.answer`` takes one whatever the run's status:
+        one the run refuses stays in ``refused`` with its problems, and the ones it takes make the run the next
+        leg starts from.
         """
-        if shutting_down and self.run_state.status == "cancelled" and not state.cancel_asked:
-            return _RowAfterALeg(state, {"run": self.run.to_json()}, run_ended=False, leg_wanted=True)
         run, refused, taken = self.run, dict(state.refused), False
         for waiting_id, value in state.queued_answers.items():
             try:
                 run, taken = run.answer(waiting_id, value), True
             except InvalidCallError as error:
                 refused[waiting_id] = error.errors()
-        after = state.model_copy(update={"run_state": _RUNNING if taken else self.run_state, "queued_answers": {}, "refused": refused, "cancel_asked": False})
-        return _RowAfterALeg(after, {"run": run.to_json(), "outcome": self.outcome}, run_ended=True, leg_wanted=taken)
+        after = state.model_copy(update={"run_state": _RUNNING if taken else self.run.state, "queued_answers": {}, "refused": refused, "cancel_asked": False})
+        return _RowAfterALeg(after, {"run": run.to_json(), "outcome": self.outcome}, self.run_end, leg_wanted=taken)
 
 
 @dataclass(frozen=True)
 class _Raised(_LegEnd):
-    """A leg that raised outside a node: it ended with no run."""
+    """A leg that raised outside a node: it ended with no run.
 
-    def row_after(self, state: StoredState, *, shutting_down: bool) -> _RowAfterALeg:
-        """What a row holds after this end: the run failed, also when the worker is shutting down, and the row
-        keeps its last checkpoint and the answers queued during the leg, for the end of the next leg to deal with."""
-        after = state.model_copy(update={"run_state": self.run_state, "cancel_asked": False})
-        return _RowAfterALeg(after, {"outcome": self.outcome}, run_ended=True, leg_wanted=False)
+    Attributes:
+        cause: Why the run failed.
+    """
+
+    cause: Problem
+
+    def row_after(self, state: StoredState) -> _RowAfterALeg:
+        """What a row holds after this end: the run failed with nothing waiting and no outputs, and the row keeps
+        its last checkpoint and the answers queued during the leg, for the end of the next leg to deal with.
+
+        The ``run_end`` is made without validation: a ``RunEnd`` requires the run it ended with, which it never
+        writes, and a leg that raised has none.
+        """
+        after = state.model_copy(update={"run_state": EndedEarly("failed", self.cause), "cancel_asked": False})
+        run_end = RunEnd.model_construct(status="failed", cause=self.cause).model_dump_json()
+        return _RowAfterALeg(after, {"outcome": Outcome().model_dump_json()}, run_end, leg_wanted=False)
 
 
-_LEG_FAILED = router_problem.leg_failed()
+class _HandedBack(_LegEnd):
+    """A leg its worker stopped to shut down: the run did not end, and the row holds it as the leg left it."""
 
-#: The end of a leg that raised: ``failed`` with the cause ``leg_failed``, nothing waiting and no outputs. Its event
-#: is made without validation: a ``RunEnd`` requires the run it ended with, which it never writes, and a leg that
-#: raised has none.
-_RAISED = _Raised(EndedEarly("failed", _LEG_FAILED), Outcome().model_dump_json(), RunEnd.model_construct(status="failed", cause=_LEG_FAILED).model_dump_json())
+    def row_after(self, state: StoredState) -> _RowAfterALeg:
+        """What a row holds after this end: what it held, a cancel asked meanwhile included, for the worker that
+        takes the run to go on from."""
+        return _RowAfterALeg(state, {}, run_end=None, leg_wanted=True)
+
 
 #: The owner and lease of a row no leg is wanted for.
 _NOBODYS: RunChanges = {"owner": None, "lease_until": None}
@@ -333,7 +334,7 @@ class Worker(Generic[C]):
         self._leg_timeout = leg_timeout
         self._poll = poll
         self._holds: dict[_Hold, asyncio.Task[None]] = {}
-        self._stopping = False
+        self._handing_back = asyncio.Event()
 
     # -- what a route calls -----------------------------------------------------------------------
 
@@ -484,8 +485,8 @@ class Worker(Generic[C]):
     @asynccontextmanager
     async def running(self) -> AsyncGenerator[None]:
         """While entered, take over runs whose lease ran out, three times a lease. On leaving, stop every leg this
-        worker runs and hand its run back: a cancel keeps the calls already made, so the next worker repeats none.
-        A sweep that raises is logged and the next one runs."""
+        worker runs and hand its run back: a leg handed back keeps the calls already made, so the next worker
+        repeats none. A sweep that raises is logged and the next one runs."""
         async def sweep() -> None:
             while True:
                 try:
@@ -494,14 +495,13 @@ class Worker(Generic[C]):
                     log.exception("the sweep for runs whose lease ran out failed; the next one tries again")
                 await asyncio.sleep(self._lease / 3)
 
+        self._handing_back.clear()
         sweeping = asyncio.create_task(sweep())
         try:
             yield
         finally:
-            self._stopping = True
+            self._handing_back.set()
             sweeping.cancel()
-            for hold in self._holds:
-                hold.stop.set()
             await asyncio.gather(*self._holds.values(), return_exceptions=True)
 
     # -- taking a run -----------------------------------------------------------------------------
@@ -582,35 +582,38 @@ class Worker(Generic[C]):
         """Run one leg of ``row`` and store its events and checkpoints.
 
         Returns:
-            How the leg ended. A raise anywhere in it, outside a node, is logged and ends it as ``_RAISED``.
+            How the leg ended: with the run of its ``run_end``; handed back, when the worker shuts down and no
+            cancel was asked, its run stored as the leg's last checkpoint; or, for a raise anywhere in it outside
+            a node, which is logged, as a leg that raised.
         """
         try:
             who = self.started_by(row)
             run = await asyncio.to_thread(_loaded, row, self._nodes_for(who))
             stream = run.stream(
                 from_run=self._from_run(who), max_items=ceiling, timeout=self._leg_timeout,
-                cancel=hold.stop, checkpoint_every=self._checkpoint_every,
+                cancel=hold.stop, hand_back=self._handing_back, checkpoint_every=self._checkpoint_every,
             )
+            end: _LegEnd = _HandedBack()
             async with contextlib.aclosing(stream):  # a raise in this loop ends the leg before its next unit
                 async for event in stream:
                     if isinstance(event, RunCheckpoint):
                         await self._write(hold, {"run": await asyncio.to_thread(event.run.to_json)})
                     elif isinstance(event, RunEnd):
-                        end: _LegEnd = await asyncio.to_thread(_Ended.of, event)
+                        end = await asyncio.to_thread(_Ended.of, event)
                     elif not await self._store.add_event(row.id, self.id, event.model_dump_json()):
                         hold.stop.set()  # another worker holds the run
             return end
         except Exception:
             log.exception("the leg of run %s failed", row.id)
-            return _RAISED
+            return _Raised(router_problem.leg_failed())
 
     async def _finish(self, hold: _Hold, row: StoredRun, end: _LegEnd) -> StoredRun:
         """Write how a leg ended, decided from the row's state as read for each try of the write, so a cancel or an
         answer that lands meanwhile is never written over.
 
-        A leg that is handed back stores no ``run_end``: the run did not end. Otherwise the leg's ``run_end`` is
-        stored, once and before the row says the run stopped running, so a follower that reads that it stopped has
-        the event to read. A run another worker took is left as it is, and the hold is released.
+        A leg's ``run_end`` is stored once, and before the row says the run stopped running, so a follower that
+        reads that it stopped has the event to read. A run another worker took is left as it is, and the hold is
+        released. A next leg that is wanted as the worker shuts down is left for another worker.
 
         The lease is renewed until the end is written, and the run is made JSON outside the lock, so a run however
         long it takes to write stays this worker's.
@@ -624,13 +627,13 @@ class Worker(Generic[C]):
             await self._read_again(hold)
         while not hold.released:
             reads = hold.reads
-            after = await asyncio.to_thread(end.row_after, hold.state, shutting_down=self._stopping and not end_stored)
-            if after.run_ended and not end_stored:
-                if not await self._store.add_event(hold.run_id, self.id, end.event):
+            after = await asyncio.to_thread(end.row_after, hold.state)
+            if after.run_end is not None and not end_stored:
+                if not await self._store.add_event(hold.run_id, self.id, after.run_end):
                     hold.released = True  # another worker holds the run, so the write of the row would lose too
                     break
                 end_stored = True
-            goes_on = after.leg_wanted and not self._stopping
+            goes_on = after.leg_wanted and not self._handing_back.is_set()
             holder = self._mine() if goes_on else _HANDED_BACK if after.leg_wanted else _NOBODYS
             changes: RunChanges = {**after.state.columns(), **after.changes, **holder}
             async with hold.lock:  # no renewal lands after the write that gives the run up
