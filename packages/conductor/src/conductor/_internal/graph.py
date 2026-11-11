@@ -203,8 +203,9 @@ class Fixed:
 
 @dataclass(frozen=True, slots=True)
 class Unset:
-    """An input with no value to give: its typed-in value was refused by its type, or it must be fed and nothing
-    feeds it. The graph holds the problem, so it never runs; the node is still drawn, with this input to fill.
+    """An input with no value to give: its typed-in value was refused by its type, it must be fed and nothing
+    feeds it, or its edges bring nothing it can take (an edge refused, or one from a node whose fields aren't
+    known). The graph holds the problem, so it never runs; the node is still drawn, with this input to fill.
 
     Attributes:
         spec: The input's field.
@@ -496,14 +497,15 @@ class Feed(ConductorModel):
     Attributes:
         mode: ``one_value`` for a value typed in, a default or the caller's; ``per_item`` for one item of
             ``series``; ``outer_value`` for a value made outside the items the node runs per; ``gathered`` for
-            every item of ``series`` as one list.
+            every item of ``series`` as one list; ``unset`` for an input with no value to give, which a problem
+            of the graph says why.
         series: The address of the Series the mode names: for ``outer_value``, the one whose item the value
             belongs to. ``None`` for ``one_value``, for an ``outer_value`` made once in the graph, and for the
             one value of a source that runs once, ``gathered`` as a Series of one.
         msg: The same, in English.
     """
 
-    mode: Literal["one_value", "per_item", "outer_value", "gathered"]
+    mode: Literal["one_value", "per_item", "outer_value", "gathered", "unset"]
     series: str | None = None
     msg: str
 
@@ -526,11 +528,13 @@ class GraphNodeDescription(ConductorModel):
     Attributes:
         node: The id of the definition it uses.
         version: The version of that definition.
-        loaded: Whether it loaded; ``problems`` says why when it didn't.
-        problems: The problems placed on it.
-        runs: Where it runs, once loaded.
-        inputs: Its inputs as its hooks made them, once loaded.
-        outputs: Its outputs as its hooks made them, once loaded.
+        loaded: Whether its fields are known: its definition was found at its version and its hooks gave its
+            fields. ``problems`` says why when they aren't.
+        problems: The problems placed on it. A node whose fields are known may hold some: an input an edge is
+            refused for is fed ``unset``.
+        runs: Where it runs, when its fields are known.
+        inputs: Its inputs as its hooks made them, when its fields are known.
+        outputs: Its outputs as its hooks made them, when its fields are known.
     """
 
     node: str
@@ -605,7 +609,8 @@ class Graph:
     record: GraphRecord
     problems: list[Problem]
     inputs: dict[str, GraphInput]
-    #: Each node that loaded, by id, each after the nodes it reads.
+    #: Each node whose fields are known, by id, each after the nodes its inputs read. A graph with problems holds
+    #: the nodes they are on too, with ``Unset`` for an input that gets nothing, and never runs.
     _nodes: dict[str, PlacedNode]
     #: Each graph input as a run keeps it, by address.
     _input_fields: dict[str, InputField]
@@ -648,8 +653,10 @@ class Graph:
     def describe(self) -> GraphDescription:
         """The loaded graph as an editor draws it: every node of the record, with its fields and where it runs.
 
-        Each node lists its own ``problems``, and ``problems`` beside the nodes lists every one. A node that didn't
-        load (an unknown node, a broken edge, or one below it) is there with ``loaded`` false, its problems saying
+        Each node lists its own ``problems``, and ``problems`` beside the nodes lists every one. A node with a
+        problem is drawn with its fields all the same, an input whose edge is refused fed ``unset``, and so is a
+        node that reads it. Only a node whose fields aren't known (an unknown node or version, a hook that
+        failed, an embedded graph with problems of its own) is there with ``loaded`` false and no fields, its problems saying
         why. An embedded graph is one node, with the fields it offers.
         """
         nodes: dict[str, GraphNodeDescription] = {}
@@ -929,7 +936,7 @@ class _Loader:
         self.position: dict[str, int] = {}
 
     def load(self, record: GraphRecord) -> Graph:
-        """The graph of ``record``: every node that has no problem placed, and every problem noted."""
+        """The graph of ``record``: every node whose fields are known placed, and every problem noted."""
         refused = {n.id for n in record.nodes if not is_node_id(n.id)}
         self.problems += [make_problem("invalid_node_id", node_id) for node_id in dict.fromkeys(n.id for n in record.nodes) if node_id in refused]
         known: dict[str, NodeRecord] = {}
@@ -997,7 +1004,11 @@ class _Loader:
         return newest.version_of(record.version)
 
     def _order(self, order: list[str], into: dict[str, dict[str, list[str]]]) -> list[str]:
-        """The nodes with each after what its edges read, ties in the record's order; a node on a cycle is a problem."""
+        """The nodes with each after what its edges read, ties in the record's order.
+
+        A node on a cycle is a problem. The first of a cycle's nodes in the record is placed before the node
+        whose edge closes the cycle, so that edge brings it nothing, and the rest follow in order.
+        """
         position = self.position
         reads = {n: frozenset({s.partition(".")[0] for sources in into[n].values() for s in sources} & position.keys()) for n in order}
         readers: dict[str, list[str]] = {n: [] for n in order}
@@ -1008,25 +1019,30 @@ class _Loader:
         ready = [position[n] for n in order if not waiting[n]]
         heapq.heapify(ready)
         done: list[str] = []
-        while ready:
+        on_cycles: list[str] | None = None
+        while len(done) < len(order):
+            if not ready:  # every node left waits on a cycle
+                if on_cycles is None:
+                    stuck = {n for n in order if waiting[n]}
+                    on_cycles = [n for n in order if n in stuck and _reaches(n, n, readers, stuck)]  # on a cycle, not only below one
+                    self.problems += [make_problem("cycle", n) for n in on_cycles]
+                first = next(n for n in on_cycles if waiting[n] > 0)
+                waiting[first] = 0
+                ready.append(position[first])
             n = order[heapq.heappop(ready)]
             done.append(n)
             for reader in readers[n]:
                 waiting[reader] -= 1
                 if not waiting[reader]:
                     heapq.heappush(ready, position[reader])
-        stuck = {n for n in order if waiting[n]}
-        for n in order:
-            if n in stuck and _reaches(n, n, readers, stuck):  # on the cycle, not only below it
-                self.problems.append(make_problem("cycle", n))
         return done
 
     # -- placing a node ---------------------------------------------------------
 
     def _place_function(self, record: NodeRecord, definition: FunctionDefinition[..., Any], edges: dict[str, list[str]]) -> None:
         """Place a function node: its declared inputs and the ones its hook adds planned, then its outputs, as
-        declared or as its hook makes them of the types arriving. A node with a problem of its own is left out,
-        and so is every node that reads it."""
+        declared or as its hook makes them of the types arriving. A node a hook gives no fields for is left out;
+        any other is kept, whatever problems its inputs have."""
         fields = dict(definition.inputs)
         typed = self._typed(record, fields)
         added: dict[str, Field] = {}
@@ -1042,8 +1058,6 @@ class _Loader:
             fields.update(added)
             typed.update(self._typed(record, added))
         planned = self._planned(record, fields, typed, read_by_hooks(definition), edges, generic=definition.generic)
-        if planned is None:
-            return
         bound = planned.bound
         outputs: dict[str, Field] | None = dict(definition.outputs) if bound is None else {name: spec.bind(bound) for name, spec in definition.outputs.items()}
         if definition.compute_outputs is not None:
@@ -1064,7 +1078,8 @@ class _Loader:
         per item a ``Series`` of tables.
 
         A graph that embeds itself is a problem here. The inner graph's own problems are this graph's, each with
-        this node's id in front of its place. Either way the node is left out.
+        this node's id in front of its place. Either way the node is left out: what a graph with problems offers
+        isn't known.
         """
         if definition.id in self.embedded_in:
             self.problems.append(make_problem("embeds_itself", record.id, node=definition.id))
@@ -1088,10 +1103,9 @@ class _Loader:
                 spec = Field(spec.name, Annotated[spec.hint, Param(exclusive_group=f"{node_id}.{group}")], spec.default)
             outputs[address] = _of_every_item(address, spec) if at.scope else Field(address, spec.hint, spec.default)
         planned = self._planned(record, fields, self._typed(record, fields), frozenset(), edges)
-        if planned is not None:
-            self._keep(PlacedGraph(
-                id=record.id, scope=planned.scope, inputs=planned.inputs, outputs=outputs, definition=definition, inner=inner,
-            ), planned.rests_on)
+        self._keep(PlacedGraph(
+            id=record.id, scope=planned.scope, inputs=planned.inputs, outputs=outputs, definition=definition, inner=inner,
+        ), planned.rests_on)
 
     def _keep(self, placed: PlacedNode, rests_on: frozenset[Branch]) -> None:
         """Keep a node that placed, and note on each node whose ``Series`` it reads one item at a time that the
@@ -1106,8 +1120,11 @@ class _Loader:
     def _planned(
         self, record: NodeRecord, fields: Mapping[str, Field], typed: Mapping[str, Any], fixed_at_load: frozenset[str],
         edges: dict[str, list[str]], *, generic: bool = False,
-    ) -> _Planned | None:
+    ) -> _Planned:
         """Plan every input of a node, and settle the scope it runs in.
+
+        An input whose edges bring nothing it takes, or can't meet the node's other inputs in one scope, is
+        ``Unset``, with the problem: the node is kept, for an editor to draw, in a graph that never runs.
 
         Args:
             record: The node in the record.
@@ -1116,10 +1133,6 @@ class _Loader:
             fixed_at_load: The inputs a hook reads when the graph loads, which a caller therefore never fills.
             edges: The addresses wired into each input, by name.
             generic: Whether a field holds a type variable for the edges to bind.
-
-        Returns:
-            ``None``, with the problem, when an edge into an input brings nothing it takes, or its inputs can't
-            meet in one scope.
         """
         for name in sorted({*record.values, *record.defaults, *edges} - fields.keys()):
             self.problems.append(make_problem("unknown_input", record.id, name, inputs=list(fields)))
@@ -1130,7 +1143,6 @@ class _Loader:
             fields = {name: spec.bind(bound) for name, spec in fields.items()}  # a placed node's fields hold no type variable
         first = not any(name in fields for name in edges)  # a first node: nothing is wired into it, so the caller fills it
         inputs: dict[str, InputPlan] = {}
-        broken = False  # an edge that brings nothing the input takes: the node is left out, once every input is looked at
         for name, spec in fields.items():
             if name in record.values and name in record.defaults:
                 self.problems.append(make_problem("value_and_default", record.id, name))
@@ -1138,11 +1150,7 @@ class _Loader:
                 if name in record.values or name in record.defaults:
                     self.problems.append(make_problem("value_and_edge", record.id, name))
                 brought = sources[name]
-                fed = None if brought is None else self._fed(record.id, spec, brought)
-                if fed is None:
-                    broken = True
-                else:
-                    inputs[name] = fed
+                inputs[name] = Unset(spec) if brought is None else self._fed(record.id, spec, brought)
             elif name in record.values:
                 inputs[name] = _fixed(spec, typed[name])
             elif first and name not in fixed_at_load:
@@ -1162,8 +1170,8 @@ class _Loader:
                 inputs[name] = Unset(spec)
             else:
                 inputs[name] = Fixed(spec, spec.default)
-        if broken:
-            return None
+        for name in self._never_meet(record.id, inputs):
+            inputs[name] = Unset(fields[name])
         scopes = [plan.scope for plan in inputs.values() if isinstance(plan, Fed)]
         scope = max(scopes, key=len, default=())
         for name, plan in inputs.items():
@@ -1175,9 +1183,7 @@ class _Loader:
                     "series_not_nested", record.id, series=[str(s) for s in series], inputs=[reading, name],
                     wire_from=str(outer), wire_into=inner.node_id,
                 ))
-                return None
-        if not self._edges_meet(record.id, inputs):
-            return None
+                inputs[name] = Unset(plan.spec)
         return _Planned(inputs, scope, self._rests_on(inputs), bound)
 
     def _typed(self, record: NodeRecord, fields: Mapping[str, Field]) -> dict[str, Any]:
@@ -1253,7 +1259,8 @@ class _Loader:
         """What the edges from ``addresses`` bring one input, in the order their nodes and outputs have in the record.
 
         Returns:
-            ``None`` when an edge names nothing a node gives, with the problem, and ``None`` when its node didn't load.
+            ``None`` when an edge names nothing a node gives, with the problem, and ``None`` when its node's
+            fields aren't known or it is placed later, on a cycle.
         """
         sources: list[Source] = []
         for address in addresses:
@@ -1265,20 +1272,20 @@ class _Loader:
             sources.sort(key=self._edge_order)
         return sources
 
-    def _fed(self, node_id: str, spec: Field, sources: list[Source]) -> Fed | None:
+    def _fed(self, node_id: str, spec: Field, sources: list[Source]) -> Fed | Unset:
         """How edges bringing ``sources`` feed one input: one value on each call, or every value its source made.
 
         An input of one value reads, whatever its type: a ``Series`` reaches it one item at a time. A ``Series``
         input gathers. A ``Table`` input reads when every edge brings a table, and else gathers records.
 
         Returns:
-            ``None``, with the problem, when an edge brings a type the input doesn't take.
+            The input's plan; ``Unset``, with the problem, when an edge brings a type the input doesn't take.
         """
         gathers, wanted = _taken(spec, sources)
         for source in sources:
             if wanted is not source.type and wanted.fits(source.type) is None:  # the same type, which most edges join, fits
                 self.problems.append(_mismatch(node_id, spec, source))
-                return None
+                return Unset(spec)
         deepest = max((s.read_in for s in sources), key=len)
         if not gathers:
             return Read(spec, tuple(sources), deepest)
@@ -1296,11 +1303,11 @@ class _Loader:
 
         Returns:
             An item of a ``Series`` output, or an output's one value; ``None`` with the problem when the address
-            names nothing its node gives, and ``None`` when its node didn't load.
+            names nothing its node gives, and ``None`` when its node isn't placed.
         """
         source_id, _, rest = address.partition(".")
         source = self.nodes.get(source_id)
-        if source is None:  # a node that failed to load, or none: its own problem says why
+        if source is None:  # a node whose fields aren't known, one placed later on a cycle, or none: its own problem says why
             return None
         output, _, wanted = rest.partition(".")
         if output not in source.outputs:  # an embedded graph's output: the longest part of the address that names one
@@ -1354,7 +1361,7 @@ class _Loader:
         own = {Branch(source.node_id, group, source.output)} if group else set[Branch]()
         return self.branches[source.node_id] | own
 
-    def _edges_meet(self, node_id: str, inputs: Mapping[str, InputPlan]) -> bool:
+    def _never_meet(self, node_id: str, inputs: Mapping[str, InputPlan]) -> set[str]:
         """Refuse edges that can never bring a node a value together.
 
         Several edges into one input are alternatives: each on its own branch of one decision, so a call never has
@@ -1362,30 +1369,31 @@ class _Loader:
         inputs that keep no blanks, fed only from opposite branches, would lose every item.
 
         Returns:
-            False, with the problem, when an input's edges don't meet these.
+            The inputs whose edges don't meet these, each with its problem.
         """
+        refused: set[str] = set()
         for name, plan in inputs.items():
             if not isinstance(plan, Fed):
                 continue
             behind = [self._branch(s) for s in plan.sources]
+            scopes = list(dict.fromkeys(s.read_in for s in plan.sources))
             if not all(_opposed(a, b) for i, a in enumerate(behind) for b in behind[i + 1:]):
                 self.problems.append(make_problem("several_edges_into_one_input", node_id, name, sources=[s.address for s in plan.sources]))
-                return False
-            scopes = list(dict.fromkeys(s.read_in for s in plan.sources))
-            if len(scopes) > 1:
+                refused.add(name)
+            elif len(scopes) > 1:
                 series = [str(scope[-1]) if scope else None for scope in scopes[:2]]
                 self.problems.append(make_problem("alternatives_in_different_series", node_id, name, series=series))
-                return False
+                refused.add(name)
         aligned = [
             (name, [self._branch(s) for s in plan.sources]) for name, plan in inputs.items()
-            if isinstance(plan, Gather) and not plan.spec.keeps_blanks
+            if isinstance(plan, Gather) and not plan.spec.keeps_blanks and name not in refused
         ]
         for i, (a, behind_a) in enumerate(aligned):
             for b, behind_b in aligned[i + 1:]:
                 if all(_opposed(x, y) for x in behind_a for y in behind_b):
                     self.problems.append(make_problem("series_inputs_never_share_an_item", node_id, inputs=[a, b]))
-                    return False
-        return True
+                    refused.update((a, b))
+        return refused
 
     def _rests_on(self, inputs: Mapping[str, InputPlan]) -> frozenset[Branch]:
         """The branches a node rests on: for each input edges feed, what every edge into it rests on. A gather
@@ -1493,6 +1501,8 @@ def _feed(scope: Scope, plan: InputPlan) -> Feed:
             return Feed(mode="outer_value", series=str(fed_in[-1]) if fed_in else None, msg=f"the value of {f'the item of {fed_in[-1]}' if fed_in else 'the graph'}")
         case Read(scope=fed_in) if fed_in:
             return Feed(mode="per_item", series=str(fed_in[-1]), msg=f"per item of {fed_in[-1]}")
+        case Unset():
+            return Feed(mode="unset", msg="no value: a problem of the graph says why")
         case _:
             return Feed(mode="one_value", msg="one value")
 

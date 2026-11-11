@@ -845,13 +845,21 @@ def test_a_hook_that_raises_is_its_nodes_one_problem_never_an_exception():
         assert graph.problems[0].ctx["error"] == "ValueError"
 
 
-def test_a_hook_is_not_called_while_its_source_is_broken():
-    @node("outs", title="Outs", description="", compute_outputs=_refuses)
+def test_a_hook_is_given_any_for_an_input_whose_edge_is_refused_as_for_one_nothing_is_wired_to():
+    """No type arrives on a refused edge, so the hook answers as it does for a half-drawn graph and the node keeps its fields."""
+    arrived: list[Any] = []
+
+    def of_what_arrives(x: type) -> dict[str, Any]:
+        arrived.append(x)
+        return {"result": x}
+
+    @node("outs", title="Outs", description="", compute_outputs=of_what_arrives)
     def outs(x: str) -> dict:
         return {}
 
     graph = load(echo, outs, record=GraphRecord(nodes=[placed("e", "echo"), placed("n", "outs")], edges=[("e.nothing", "n.x")]))
-    assert codes(graph) == ["unknown_output"]
+    assert codes(graph) == ["unknown_output"] and arrived == [Any]
+    assert [o.type for o in graph.describe().nodes["n"].outputs] == ["Any"]
 
 
 def test_a_series_of_tables_from_a_hook_loads_with_no_problems():

@@ -55,6 +55,11 @@ def join(texts: Series[str]) -> str:
     return "+".join(texts)
 
 
+@node("both_ints", title="Both ints", description="")
+def both_ints(a: int, b: int) -> str:
+    return f"{a}{b}"
+
+
 @node("fan", title="Fan", description="")
 def fan() -> Series[int]:
     return [1, 2, 3]
@@ -163,7 +168,7 @@ team = node("team", title="Team", description="")(make_graph(people))
 wrapped = node("wrapped", title="Wrapped", description="", deprecation=Deprecation(header="Gone"))(make_graph(upper))
 
 REGISTRY = registry_of(
-    upper, tail, join, fan, maybe, greet, people, each_person, styled, name_of, nonempty, two, columns, anything, height, refuses,
+    upper, tail, join, fan, both_ints, maybe, greet, people, each_person, styled, name_of, nonempty, two, columns, anything, height, refuses,
     enrich, inner, top, defaulted, team, wrapped,
 )
 
@@ -650,7 +655,67 @@ def test_an_editor_reads_every_node_of_a_half_broken_graph_and_which_ones_loaded
     })
     drawn = json.loads(graph.describe().model_dump_json())["nodes"]
     assert list(drawn) == ["a", "b", "c", "x"]
-    assert {node_id: d["loaded"] for node_id, d in drawn.items()} == {"a": True, "b": False, "c": False, "x": False}
+    assert {node_id: d["loaded"] for node_id, d in drawn.items()} == {"a": True, "b": True, "c": True, "x": False}
+
+
+def _drawn(graph: Any, node_id: str) -> tuple[bool, str | None, dict[str, str], list[str], list[str]]:
+    """A node as an editor draws it: whether its fields are known, where it runs, how each input is fed, its
+    outputs, and its problems."""
+    described = graph.describe().nodes[node_id]
+    return (
+        described.loaded, described.runs.msg if described.runs else None, {i.field.name: i.feed.mode for i in described.inputs},
+        [o.name for o in described.outputs], [p.type for p in described.problems],
+    )
+
+
+def test_a_node_with_a_refused_edge_is_drawn_with_its_fields_and_so_is_a_sound_node_that_reads_it():
+    """The node its problem is on keeps its fields, the refused input marked; what reads it is planned as ever."""
+    graph = REGISTRY.load({
+        "nodes": [{"id": "f", "node": "fan"}, {"id": "u", "node": "upper"}, {"id": "t", "node": "tail"}, {"id": "j", "node": "join"}],
+        "edges": [["f.result", "u.text"], ["u.result", "t.text"], ["t.result", "j.texts"]],
+    })
+    assert [(p.type, p.loc) for p in graph.problems] == [("type_mismatch", ("u", "text"))]
+    assert _drawn(graph, "u") == (True, "once", {"text": "unset"}, ["result"], ["type_mismatch"])
+    assert _drawn(graph, "t") == (True, "once", {"text": "one_value"}, ["result"], [])
+    assert _drawn(graph, "j") == (True, "once", {"texts": "gathered"}, ["result"], [])
+    assert list(graph.plan) == ["f", "u", "t", "j"] and not graph.is_runnable
+    with pytest.raises(InvalidCallError) as refused:
+        graph.run()
+    assert [p.type for p in refused.value.errors()] == ["type_mismatch"]
+
+
+def test_the_nodes_on_a_cycle_and_a_node_below_it_are_drawn_with_their_fields():
+    graph = REGISTRY.load({
+        "nodes": [{"id": "c", "node": "tail"}, {"id": "a", "node": "upper"}, {"id": "b", "node": "upper"}],
+        "edges": [["a.result", "b.text"], ["b.result", "a.text"], ["b.result", "c.text"]],
+    })
+    assert [(p.type, p.loc) for p in graph.problems] == [("cycle", ("a",)), ("cycle", ("b",))]
+    assert _drawn(graph, "a") == (True, "once", {"text": "unset"}, ["result"], ["cycle"])  # the edge that closes the cycle brings it nothing
+    assert _drawn(graph, "b") == (True, "once", {"text": "one_value"}, ["result"], ["cycle"])
+    assert _drawn(graph, "c") == (True, "once", {"text": "one_value"}, ["result"], [])
+
+
+def test_an_input_whose_series_never_pairs_with_the_nodes_other_is_marked_and_the_node_is_drawn():
+    graph = REGISTRY.load({
+        "nodes": [{"id": "x", "node": "fan"}, {"id": "y", "node": "fan"}, {"id": "b", "node": "both_ints"}, {"id": "t", "node": "tail"}],
+        "edges": [["x.result", "b.a"], ["y.result", "b.b"], ["b.result", "t.text"]],
+    })
+    assert [(p.type, p.loc) for p in graph.problems] == [("series_not_nested", ("b",))]
+    assert _drawn(graph, "b") == (True, "per item of x.result", {"a": "per_item", "b": "unset"}, ["result"], ["series_not_nested"])
+    assert _drawn(graph, "t") == (True, "per item of x.result", {"text": "per_item"}, ["result"], [])
+
+
+def test_only_a_node_whose_definition_or_hook_gave_no_fields_is_drawn_without_them_and_its_reader_keeps_its_own():
+    graph = REGISTRY.load({
+        "nodes": [{"id": "gone", "node": "gone"}, {"id": "old", "node": "upper", "version": 9}, {"id": "r", "node": "refuses", "values": {"mode": "bad"}},
+                  {"id": "u", "node": "upper"}, {"id": "t", "node": "tail"}, {"id": "v", "node": "upper"}],
+        "edges": [["gone.result", "u.text"], ["old.result", "t.text"], ["r.result", "v.text"]],
+    })
+    assert [(p.type, p.loc) for p in graph.problems] == [("unknown_node", ("gone",)), ("unknown_version", ("old",)), ("compute_hook_failed", ("r",))]
+    for unknown in ("gone", "old", "r"):
+        assert _drawn(graph, unknown)[:4] == (False, None, {}, [])
+    for reader in ("u", "t", "v"):
+        assert _drawn(graph, reader) == (True, "once", {"text": "unset"}, ["result"], [])
 
 
 @pytest.mark.parametrize("declared", ["taken", "taken_from_run"])
