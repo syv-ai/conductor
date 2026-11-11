@@ -218,7 +218,7 @@ The node isn't called again for that row: the answer is its outputs. An answer t
 Raise `NodeError` for a failure you can explain to a person. Its message reaches the host as written, and `code` is yours to choose:
 
 ```python
-from conductor import NodeError
+from conductor import EndedEarly, NodeError
 
 
 @registry.node("parse", title="Parse", description="Reads a text as a whole number.")
@@ -229,8 +229,9 @@ def parse(text: str) -> int:
 
 
 run = registry.load(make_graph(parse)).run(text="twelve")
-assert run.cause is not None  # a run that failed, stopped or timed out says why
-print(run.status, run.cause.type, run.cause.msg)  # failed not_a_number The text is not a number.
+match run.state:  # a run that failed, stopped or timed out says why
+    case EndedEarly(status=status, cause=cause):
+        print(status, cause.type, cause.msg)  # failed not_a_number The text is not a number.
 ```
 
 Any other exception fails the node too. Its traceback goes to the `conductor` logger, and only its class name reaches the host, so a value your node handled never leaks into an event.

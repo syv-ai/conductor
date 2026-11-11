@@ -211,7 +211,7 @@ def test_a_list_on_an_open_input_is_rows_and_one_value_gathers_as_a_list_of_one(
 def test_max_rows():
     graph = registry.load({"nodes": [{"id": "s", "node": "split"}, {"id": "m", "node": "mail"}], "edges": [["s.result", "m.email"]]})
     (run, called) = calls(lambda: graph.run(text=",".join(f"x{i}" for i in range(50)), max_rows=10))
-    assert run.status == "stopped" and run.cause.type == "row_ceiling" and run.cause.ctx["rows"] == 50 and called == []
+    assert run.status == "stopped" and run.state.cause.type == "row_ceiling" and run.state.cause.ctx["rows"] == 50 and called == []
     saved = graph.load_run(run.to_json())
     (done, called) = calls(lambda: saved.resume(max_rows=100))
     assert done.status == "complete" and len(called) == 50

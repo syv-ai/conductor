@@ -696,7 +696,7 @@ def test_an_inner_nodes_own_error_is_said_of_its_embedding_with_its_ctx_as_its_a
     embedding = node("e", title="E", description="")(make_graph(unreadable))
     run = registry_of(unreadable, embedding).load(make_graph(embedding)).run(text="hi")
 
-    assert (run.cause.type, run.cause.loc, run.cause.ctx) == ("unreadable", ("e",), ctx)
+    assert (run.state.cause.type, run.state.cause.loc, run.state.cause.ctx) == ("unreadable", ("e",), ctx)
 
 
 def test_an_outer_edge_never_reads_inside_an_embedding_by_an_inner_id():

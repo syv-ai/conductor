@@ -1539,7 +1539,7 @@ def test_events_waiting_ids_and_failures_name_an_embedding_never_its_inner_nodes
 
     broken = embedded("breaker", {"id": "f", "node": "fails"})
     failed = graph({"id": "b", "node": "breaker"}, registry=registry_of(fails, broken)).run(text="x")
-    assert (failed.cause.type, failed.cause.loc) == ("execution_failed", ("b",))
+    assert (failed.state.cause.type, failed.state.cause.loc) == ("execution_failed", ("b",))
 
 
 def test_exclusive_groups_of_an_embedding_name_the_outputs_it_offers():
@@ -1690,7 +1690,7 @@ def test_a_node_filling_two_outputs_of_one_exclusive_group_fails_as_invalid_outp
 
     run = graph({"id": "b", "node": "both"}, registry=registry_of(both)).run(text="a")
 
-    assert (run.status, run.cause.type, run.cause.loc, run.cause.ctx["name"]) == ("failed", "invalid_output", ("b",), "no")
+    assert (run.status, run.state.cause.type, run.state.cause.loc, run.state.cause.ctx["name"]) == ("failed", "invalid_output", ("b",), "no")
 
 
 def test_the_row_ceiling_counts_a_typed_list_s_rows_under_every_row_it_goes_under_before_any_call():
@@ -1706,7 +1706,7 @@ def test_the_row_ceiling_counts_a_typed_list_s_rows_under_every_row_it_goes_unde
 
     stopped = loaded.run(text="x,y,z", max_rows=4)
 
-    assert (stopped.status, stopped.cause.ctx["table"], stopped.cause.ctx["rows"]) == ("stopped", "q.question", 9) and calls == []
+    assert (stopped.status, stopped.state.cause.ctx["table"], stopped.state.cause.ctx["rows"]) == ("stopped", "q.question", 9) and calls == []
     assert stopped.resume(max_rows=9).status == "complete" and len(calls) == 9
 
 
@@ -1723,7 +1723,7 @@ def test_the_row_ceiling_stops_a_leg_whose_rows_wait_for_a_thread_and_resuming_c
 
     stopped = loaded.run(text=",".join("abcdefghij"), max_rows=15)
 
-    assert (stopped.status, stopped.cause.type) == ("stopped", "row_ceiling") and len(calls) < 10
+    assert (stopped.status, stopped.state.cause.type) == ("stopped", "row_ceiling") and len(calls) < 10
     assert stopped.resume(max_rows=100).status == "complete" and sorted(calls) == list("abcdefghij")
 
 

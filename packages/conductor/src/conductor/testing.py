@@ -67,6 +67,7 @@ from conductor._internal.node_definition import (
 )
 from conductor._internal.record import GraphRecord, NodeRecord, typed_in
 from conductor._internal.registry import NodeRegistry
+from conductor._internal.run import EndedEarly, Going
 
 #: One call's inputs, by name.
 _Example = Mapping[str, Any]
@@ -233,11 +234,15 @@ def _run_problems(version: NodeDefinition, registry: NodeRegistry, example: _Exa
         _problem("changed_its_inputs", (version.id, version.version), f"the body changed {name!r}, a value it was given; rows of a run can share it, so copy the value before changing it", input=name)
         for name in changed
     ]
-    if run.status not in ("complete", "waiting"):
-        causes = [run.cause] if run.cause is not None else []
-        found.append(_problem("run_failed", (version.id, version.version), f"the example ended {run.status}: {run.cause.msg if run.cause else ''}".rstrip(": "), **_causes(causes)))
-    # an Ask the run refused was reached all the same; run_failed says what was wrong with it
-    return found, run.status == "waiting" or (run.cause is not None and run.cause.type == "invalid_ask")
+    match run.state:
+        case Going(status="waiting"):
+            return found, True
+        case Going():
+            return found, False
+        case EndedEarly(status=status, cause=cause):
+            found.append(_problem("run_failed", (version.id, version.version), f"the example ended {status}: {cause.msg}", **_causes([cause])))
+            # an Ask the run refused was reached all the same; run_failed says what was wrong with it
+            return found, cause.type == "invalid_ask"
 
 
 def _not_loaded(version: NodeDefinition, problems: Sequence[Problem]) -> list[Problem]:

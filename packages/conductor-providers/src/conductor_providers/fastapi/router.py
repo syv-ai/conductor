@@ -23,6 +23,8 @@ from typing import Annotated, Any, TypeVar, Unpack, overload
 
 import polars as pl
 from conductor import (
+    EndedEarly,
+    Going,
     GraphDescription,
     GraphRecord,
     InvalidCallError,
@@ -30,6 +32,7 @@ from conductor import (
     Problem,
     RegistryDescription,
     Run,
+    RunState,
     RunStatus,
     Waiting,
 )
@@ -226,7 +229,7 @@ def run_router(
 
     def held() -> RunChanges:
         """What a row says while this worker holds it: running, with no cause yet."""
-        return {"status": "running", "owner": worker, "lease_until": time.time() + lease, "cause": None}
+        return {**_standing(Going("running")), "owner": worker, "lease_until": time.time() + lease}
 
     def launch(row: StoredRun, ceiling: int | None = None) -> None:
         """Run the next leg of ``row``, as this worker has just written it, in the background; a cancel asked of it the
@@ -299,7 +302,7 @@ def run_router(
         or a queued answer costs a read and a write."""
         status = ending.status
         written = ending.written
-        handed_back: RunChanges = {"status": "running", "owner": None, "lease_until": 0.0, "cause": None}
+        handed_back: RunChanges = {**_standing(Going("running")), "owner": None, "lease_until": 0.0}  # it did not end early
         answered_from: tuple[str, str] | None = None
         answered: tuple[str | None, dict[str, Any]] = (None, {})
         try:
@@ -500,14 +503,14 @@ def _always(registry: NodeRegistry) -> Callable[[object], NodeRegistry]:
 class _Ended:
     """A leg that ended with ``run``: its status, and what its end writes of it beside the run itself (its waiting
     rows, its outputs once complete, a table as records wherever it sits, a float that isn't finite as text, as every
-    JSON conductor writes, and its cause)."""
+    JSON conductor writes, and its status and cause)."""
 
     def __init__(self, run: Run) -> None:
         self.run = run
         self.status: RunStatus = run.status
         self.written: RunChanges = {
             "waiting": to_json(run.waiting).decode(),
-            "cause": run.cause.model_dump_json() if run.cause is not None else None,
+            **_standing(run.state),
         }
         if run.status == "complete":
             self.written["outputs"] = to_json(run.outputs, fallback=_records, inf_nan_mode="strings").decode()
@@ -544,6 +547,15 @@ class _Raised:
 
     def answered(self, pending: dict[str, Any], refused: dict[str, Any]) -> tuple[str | None, dict[str, Any]]:
         return _refuse_all(self.status, pending, refused)
+
+
+def _standing(state: RunState) -> RunChanges:
+    """How a run stands, as the row's ``status`` and ``cause`` columns write it: a cause only for one that ended early."""
+    match state:
+        case EndedEarly(status=status, cause=cause):
+            return {"status": status, "cause": cause.model_dump_json()}
+        case Going(status=status):
+            return {"status": status, "cause": None}
 
 
 def _refuse_all(status: RunStatus, pending: dict[str, Any], refused: dict[str, Any]) -> tuple[None, dict[str, Any]]:

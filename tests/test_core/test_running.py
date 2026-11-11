@@ -365,7 +365,7 @@ def test_concurrency_one_with_an_attempt_timeout_never_has_two_calls_in_flight()
 
     assert most == 1
     assert not [e for e in events if e.type == "node_retry"]
-    assert events[-1].run.status == "failed" and events[-1].run.cause.type == "timeout"
+    assert events[-1].run.status == "failed" and events[-1].run.state.cause.type == "timeout"
 
 
 def test_a_run_has_no_deadline_by_default_and_a_slow_node_runs_to_the_end():
@@ -398,7 +398,7 @@ def test_anything_a_node_raises_fails_its_unit_and_the_leg_ends(raised):
     streamed = _events(graph.with_inputs(text="x"))[-1].run
 
     for ended in (run, streamed):
-        assert (ended.status, ended.cause.type, ended.cause.loc) == ("failed", "execution_failed", ("r",))
+        assert (ended.status, ended.state.cause.type, ended.state.cause.loc) == ("failed", "execution_failed", ("r",))
 
 
 def test_a_defect_in_the_engine_reaches_the_caller_rather_than_hanging_the_stream(monkeypatch):
@@ -477,7 +477,7 @@ def test_a_failed_leg_waits_for_a_call_still_running_no_longer_than_its_attempt_
         release.set()
     took = time.monotonic() - started
 
-    assert run.status == "failed" and run.cause.type == "execution_failed", "the first failure stands"
+    assert run.status == "failed" and run.state.cause.type == "execution_failed", "the first failure stands"
     assert 0.15 < took < 1.0, took
 
 
@@ -499,7 +499,7 @@ def test_an_ask_or_a_second_failure_while_a_failed_leg_drains_is_kept_or_logged(
     events = _releasing_on_failure(_per_row(mixed, 4).with_inputs(), release)
 
     run = events[-1].run
-    assert run.status == "failed" and run.cause.loc == ("slow", 0)
+    assert run.status == "failed" and run.state.cause.loc == ("slow", 0)
     assert [e.type for e in events].count("node_failed") == 1
     assert [place(w) for w in run.waiting] == ["slow@1"]
     assert run.results["slow"]["result"] == [None, None, None, "3"]
@@ -520,7 +520,7 @@ def test_no_retry_starts_once_the_leg_has_failed():
     events = _releasing_on_failure(_per_row(flaky, 2).with_inputs(), release)
 
     assert _settle(calls)[0] == 2 and sorted(calls) == ["0", "1"]
-    assert events[-1].run.cause.type == "execution_failed" and not [e for e in events if e.type == "node_retry"]
+    assert events[-1].run.state.cause.type == "execution_failed" and not [e for e in events if e.type == "node_retry"]
 
 
 # -- leaving, cancelling, timing out -----------------------------------------------------------
@@ -783,8 +783,8 @@ def test_a_table_missing_a_declared_column_at_run_time_fails_the_node_that_made_
 
     run = graph.run(text="x")
 
-    assert run.status == "failed" and (run.cause.type, run.cause.loc) == ("invalid_output", ("b",))
-    assert (run.cause.ctx["name"], run.cause.ctx["column"]) == ("result", "email")
+    assert run.status == "failed" and (run.state.cause.type, run.state.cause.loc) == ("invalid_output", ("b",))
+    assert (run.state.cause.ctx["name"], run.state.cause.ctx["column"]) == ("result", "email")
 
 
 def test_a_table_with_a_blank_cell_survives_a_saved_run():
@@ -864,7 +864,7 @@ def test_a_maker_over_the_row_ceiling_coming_back_after_a_failure_leaves_the_fai
     graph = registry_of(boom, many).load(GraphRecord(nodes=[NodeRecord(id="b", node="boom"), NodeRecord(id="m", node="many")]))
     run = graph.run({"b.text": "x", "m.text": "y"}, max_rows=2)
 
-    assert (run.status, run.cause.type) == ("failed", "execution_failed")
+    assert (run.status, run.state.cause.type) == ("failed", "execution_failed")
 
 
 def test_a_call_past_its_timeout_that_comes_back_while_the_leg_drains_is_kept_and_never_called_again():
@@ -883,7 +883,7 @@ def test_a_call_past_its_timeout_that_comes_back_while_the_leg_drains_is_kept_an
 
     graph = registry_of(late, long).load(GraphRecord(nodes=[NodeRecord(id="l", node="late"), NodeRecord(id="o", node="long")]))
     run = graph.run({"l.text": "mail", "o.text": "x"})
-    assert (run.status, run.cause.type) == ("failed", "timeout") and effects == ["mail"]
+    assert (run.status, run.state.cause.type) == ("failed", "timeout") and effects == ["mail"]
 
     resumed = run.resume()
 
@@ -997,7 +997,7 @@ def test_a_failed_leg_with_calls_on_threads_offers_a_checkpoint_saying_it_failed
 
     seen = _bounded(leg())
     (checkpoint,) = [e for e in seen if e.type == "run_checkpoint"]
-    assert (checkpoint.run.status, checkpoint.run.cause.type) == ("failed", "execution_failed")
+    assert (checkpoint.run.status, checkpoint.run.state.cause.type) == ("failed", "execution_failed")
     assert seen[-1].type == "run_end" and seen[-1].status == "failed"
 
 

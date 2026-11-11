@@ -46,7 +46,7 @@ from conductor._internal.node_definition import (
 )
 from conductor._internal.record import GraphRecord, NodeRecord, make_graph
 from conductor._internal.registry import NodeRegistry, RegistryDescription
-from conductor._internal.run import NotCalled, Run, RunStatus
+from conductor._internal.run import EndedEarly, Going, NotCalled, Run, RunState, RunStatus
 
 if TYPE_CHECKING:
     # A node takes and returns frames; a type checker reads ``Table[R]`` as one that keeps its row type ``R``.
@@ -60,11 +60,13 @@ __all__ = [
     "Ask",
     "Choice",
     "Deprecation",
+    "EndedEarly",
     "ExternalError",
     "Feed",
     "FieldDescription",
     "FromRun",
     "FunctionDefinition",
+    "Going",
     "Graph",
     "GraphDefinition",
     "GraphDescription",
@@ -84,6 +86,7 @@ __all__ = [
     "Problem",
     "RegistryDescription",
     "Run",
+    "RunState",
     "RunStatus",
     "RunsOn",
     "Series",
