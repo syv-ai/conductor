@@ -49,7 +49,7 @@ from conductor._internal.node_definition import (
 )
 from conductor._internal.record import GraphRecord, NodeRecord, make_graph
 from conductor._internal.registry import NodeRegistry, RegistryDescription, TypeDescription
-from conductor._internal.run import EndedEarly, EndedStatus, Going, NotCalled, Run, RunState, RunStatus
+from conductor._internal.run import EndedEarly, Going, NotCalled, Run, RunState, RunStatus
 
 # The reference lists these names in this order, so they are kept by subject.
 __all__ = [
@@ -86,7 +86,6 @@ __all__ = [
     "RunState",
     "Going",
     "EndedEarly",
-    "EndedStatus",
     "RunStatus",
     # What an editor reads
     "FieldDescription",

@@ -23,7 +23,6 @@ from typing import Annotated, Any, TypeVar, Unpack, overload
 
 from conductor import (
     EndedEarly,
-    EndedStatus,
     Going,
     GraphDescription,
     GraphRecord,
@@ -47,9 +46,6 @@ from conductor_providers.fastapi.store import RunChanges, RunStore, StoredRun
 C = TypeVar("C")
 
 log = logging.getLogger("conductor_providers.fastapi")
-
-#: The statuses a run can be resumed from: every one a leg can end early with.
-_RESUMABLE: tuple[RunStatus, ...] = typing.get_args(EndedStatus)
 
 #: The English of each code the router itself writes, beside the codes of the runs it serves.
 _ROUTER_PROBLEMS: dict[str, str] = {
@@ -530,7 +526,7 @@ def run_router(
     async def resume_run(row: Annotated[StoredRun, Depends(stored)], body: Resume = Resume()) -> Started:
         """Go on with a run that timed out, stopped at its ceiling, was cancelled or failed; nothing finished is called
         again. ``{"max_items": ...}`` raises the ceiling of a run that stopped at it; a resume needs no body."""
-        if row.status not in _RESUMABLE:
+        if row.cause is None:  # a run has a cause exactly when its last leg ended early, which is what a resume goes on from
             raise _refused(409, _router_problem("run_not_resumable", status=row.status))
         if not await claim(row, body.max_items, cancel=False):
             raise _refused(409, _router_problem("run_changed"))
@@ -612,7 +608,7 @@ class _Raised:
         cause = _router_problem("leg_failed")
         self.written: RunChanges = _standing(EndedEarly("failed", cause))
         self.as_saved: RunChanges = {}
-        # the event holds no run, which it never writes: a leg that raised left none
+        # made without validation: a leg that raised has no run for the event's ``run`` field, which is never written
         self.event = RunEnd.model_construct(status="failed", cause=cause).model_dump_json()
 
 
