@@ -30,7 +30,6 @@ from typing import Annotated, Any, Literal, TypeVar
 
 import pydantic
 
-from conductor._internal import problem
 from conductor._internal.checked_graph.describe import GraphInput
 from conductor._internal.checked_graph.input_plans import (
     InputFedByEdges,
@@ -68,6 +67,7 @@ from conductor._internal.problem import (
     NodeError,
     Problem,
 )
+from conductor._internal.problem import catalogue as problem
 
 _logger = logging.getLogger("conductor")
 

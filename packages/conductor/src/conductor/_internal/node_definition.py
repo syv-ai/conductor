@@ -63,7 +63,6 @@ from typing import Annotated, Any, Generic, Literal, ParamSpec, Protocol, TypeVa
 from pydantic import ConfigDict, JsonValue
 from pydantic import Field as PydanticField
 
-from conductor._internal import problem
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.fields import (
     REQUIRED,
@@ -74,6 +73,7 @@ from conductor._internal.fields import (
 )
 from conductor._internal.graph_record import GraphRecord, as_record
 from conductor._internal.problem import InvalidCallError, NodeDeclarationError, UnitFailedError
+from conductor._internal.problem import catalogue as problem
 
 _P = ParamSpec("_P")
 _R = TypeVar("_R")

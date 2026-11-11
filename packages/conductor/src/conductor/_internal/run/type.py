@@ -34,7 +34,6 @@ from typing import TYPE_CHECKING, Any, cast, overload
 import pydantic_core
 from pydantic import ValidationError
 
-from conductor._internal import problem
 from conductor._internal.address import (
     ItemPath,
     Loc,
@@ -61,6 +60,7 @@ from conductor._internal.fields import Type
 from conductor._internal.leg import Event, EventBase, Leg, RunCheckpoint, RunEnd, RunStart
 from conductor._internal.node_definition import from_run_values
 from conductor._internal.problem import InvalidCallError, Problem, value_free_errors
+from conductor._internal.problem import catalogue as problem
 from conductor._internal.run.call_inputs import (
     AsItStandsReader,
     CallInputs,

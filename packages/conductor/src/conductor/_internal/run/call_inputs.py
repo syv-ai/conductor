@@ -39,7 +39,6 @@ import abc
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Final, Literal, cast
 
-from conductor._internal import problem
 from conductor._internal.checked_graph.input_plans import (
     InputGathersItems,
     InputReadsOneValue,
@@ -49,6 +48,7 @@ from conductor._internal.checked_graph.input_plans import (
 )
 from conductor._internal.fields import SKIPPED, Records
 from conductor._internal.problem import UnitFailedError
+from conductor._internal.problem import catalogue as problem
 from conductor._internal.units import (
     NOT_SETTLED,
     Asking,

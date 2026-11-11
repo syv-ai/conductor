@@ -45,7 +45,6 @@ from typing import Any, Concatenate
 
 from pydantic import JsonValue
 
-from conductor._internal import problem
 from conductor._internal.checked_graph import load_graph
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.fields import NamedType, Type
@@ -62,6 +61,7 @@ from conductor._internal.node_definition import (
     stored_graph,
 )
 from conductor._internal.problem import InvalidCallError, NodeDeclarationError
+from conductor._internal.problem import catalogue as problem
 
 
 def _takes_the_arguments_of[**P, R](
