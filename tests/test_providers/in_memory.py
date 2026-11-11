@@ -11,7 +11,7 @@ from typing import Any
 
 from conductor import Ask, GraphRecord, NodeRegistry, Series, make_graph
 from conductor_providers.fastapi import RunChanges, StoredRun
-from conductor_providers.fastapi.worker import RunView
+from conductor_providers.fastapi.worker import RunAsRead, RunView
 
 
 class MemoryStore:
@@ -60,7 +60,7 @@ class MemoryStore:
 
     async def ended(self, run_id: str) -> RunView:
         """The run as its view once no leg is wanted for it."""
-        return RunView.of(await self.until(run_id, lambda row: row.status != "running"))
+        return RunView.of(RunAsRead.of(await self.until(run_id, lambda row: row.status != "running")))
 
     async def stored_events(self, run_id: str) -> list[dict[str, Any]]:
         """Every event stored for the run, in order."""

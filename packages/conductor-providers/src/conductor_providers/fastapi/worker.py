@@ -120,11 +120,34 @@ class StoredState(BaseModel):
     refused: dict[str, list[Problem]] = {}
     cancel_asked: bool = False
 
+    @property
+    def leg_wanted(self) -> bool:
+        """Whether a leg is wanted for the run: a worker runs one, or the run waits for a worker to take it."""
+        return self.run_state == _RUNNING
+
     def columns(self) -> RunChanges:
         """The row's ``status`` and ``state`` for this state. Nothing else writes either column, so each write of
         ``state`` writes the ``status`` it holds in the same statement. ``status`` is for the host's own queries:
         the worker and the routes read ``state`` and never ``status``."""
         return {"status": self.run_state.status, "state": self.model_dump_json()}
+
+
+@dataclass(frozen=True)
+class RunAsRead:
+    """A run as read from the store: its row, with the row's state read from its JSON once.
+
+    Attributes:
+        row: The row.
+        state: The row's ``state``.
+    """
+
+    row: StoredRun
+    state: StoredState
+
+    @classmethod
+    def of(cls, row: StoredRun) -> "RunAsRead":
+        """``row`` with its state read."""
+        return cls(row, StoredState.model_validate_json(row.state))
 
 
 class RunView(Outcome):
@@ -148,11 +171,11 @@ class RunView(Outcome):
     cause: Problem | None = None
 
     @classmethod
-    def of(cls, row: StoredRun) -> "RunView":
-        """The view of ``row``, read from its ``state`` and its ``outcome``."""
-        state, outcome = StoredState.model_validate_json(row.state), Outcome.model_validate_json(row.outcome)
-        cause = state.run_state.cause if isinstance(state.run_state, EndedEarly) else None
-        return cls(id=row.id, status=state.run_state.status, refused=state.refused, cause=cause, waiting=outcome.waiting, outputs=outcome.outputs)
+    def of(cls, run: RunAsRead) -> "RunView":
+        """The view of ``run``, from its state and its row's ``outcome``."""
+        outcome = Outcome.model_validate_json(run.row.outcome)
+        cause = run.state.run_state.cause if isinstance(run.state.run_state, EndedEarly) else None
+        return cls(id=run.row.id, status=run.state.run_state.status, refused=run.state.refused, cause=cause, waiting=outcome.waiting, outputs=outcome.outputs)
 
 
 @dataclass(frozen=True)
@@ -288,8 +311,8 @@ class _Hold:
 class Worker(Generic[C]):
     """Runs the legs of stored runs for one process, holding a lease on each run while it does.
 
-    Each method that takes a ``StoredRun`` takes it as the caller read it, and writes only if the run is still at
-    that ``rev``.
+    Each method that takes a run takes it as the caller read it (``read``), and writes only if the run is still
+    at that ``rev``.
     """
 
     def __init__(
@@ -331,10 +354,10 @@ class Worker(Generic[C]):
     # -- what a route calls -----------------------------------------------------------------------
 
     def started_by(self, row: StoredRun) -> C:
-        """The caller who started the run."""
+        """The caller who started the run of ``row``."""
         return self._callers.validate_json(row.caller)
 
-    async def read(self, run_id: str) -> StoredRun:
+    async def read(self, run_id: str) -> RunAsRead:
         """The run as the store has it.
 
         Raises:
@@ -343,7 +366,7 @@ class Worker(Generic[C]):
         row = await self._store.get(run_id)
         if row is None:
             raise NoSuchRunError
-        return row
+        return RunAsRead.of(row)
 
     async def begin(self, graph: GraphRecord, inputs: Mapping[str, Any], who: C) -> str:
         """Start a run of ``graph`` for ``who`` and run its first leg.
@@ -358,9 +381,9 @@ class Worker(Generic[C]):
         saved = await asyncio.to_thread(lambda: nodes.load(graph).with_inputs(inputs, max_items=self._max_items).to_json())
         return await self._create(graph.model_dump_json(), who, saved)
 
-    async def again(self, row: StoredRun, inputs: Mapping[str, Any], who: C) -> str:
-        """Start a run of ``who``'s, on ``who``'s own nodes, that is the run of ``row`` with ``inputs`` changed; a
-        call that receives what it received before isn't made again.
+    async def again(self, run: RunAsRead, inputs: Mapping[str, Any], who: C) -> str:
+        """Start a run of ``who``'s, on ``who``'s own nodes, that is ``run`` with ``inputs`` changed; a call that
+        receives what it received before isn't made again.
 
         Returns:
             The new run's id.
@@ -369,10 +392,10 @@ class Worker(Generic[C]):
             InvalidCallError: The graph can't run on ``who``'s nodes, or refuses the inputs.
         """
         nodes = self._nodes_for(who)
-        saved = await asyncio.to_thread(lambda: _loaded(row, nodes).with_inputs(inputs).to_json())
-        return await self._create(row.graph, who, saved)
+        saved = await asyncio.to_thread(lambda: _loaded(run.row, nodes).with_inputs(inputs).to_json())
+        return await self._create(run.row.graph, who, saved)
 
-    async def answer(self, row: StoredRun, answers: Mapping[str, Any]) -> Literal["started", "queued"]:
+    async def answer(self, run: RunAsRead, answers: Mapping[str, Any]) -> Literal["started", "queued"]:
         """Answer what waits in a run, by waiting id.
 
         While a leg runs, the answers are queued for its end. Otherwise the run takes them as ``run.answer`` does,
@@ -391,51 +414,47 @@ class Worker(Generic[C]):
                 raise RefusedError(*(_problem("already_answered", waiting_id=waiting_id) for waiting_id in sorted(twice)))
             return state.model_copy(update={"queued_answers": {**state.queued_answers, **answers}})
 
-        not_running = await self._ask_of_a_running_leg(row, queued_with_these)
-        if not_running is None:
+        run = await self._ask_of_a_running_leg(run, queued_with_these)
+        if run.state.leg_wanted:
             return "queued"
-        row = not_running
-        state = StoredState.model_validate_json(row.state)
-        if state.run_state.status == "complete":
+        if run.state.run_state.status == "complete":
             raise RefusedError(_problem("run_complete"))
-        nodes = self._nodes_for(self.started_by(row))
+        row, nodes = run.row, self._nodes_for(self.started_by(run.row))
         answered = await asyncio.to_thread(lambda: _loaded(row, nodes).answer(answers).to_json())
-        state = state.model_copy(update={"run_state": _RUNNING})
-        if not await self._claim(row, state, {"run": answered, **state.columns()}):
+        state = run.state.model_copy(update={"run_state": _RUNNING})
+        if not await self._claim(run, state, {"run": answered, **state.columns()}):
             raise RefusedError(_problem("run_changed"))
         return "started"
 
-    async def resume(self, row: StoredRun, max_items: int | None = None) -> None:
+    async def resume(self, run: RunAsRead, max_items: int | None = None) -> None:
         """Go on with a run whose last leg ended early; nothing finished is called again.
 
         Args:
-            row: The run as read.
+            run: The run as read.
             max_items: A higher ceiling on the items of any one Series, for a run that stopped at its ceiling.
 
         Raises:
             RefusedError: The run's last leg did not end early (``run_not_resumable``), or another call claimed
                 the run first (``run_changed``).
         """
-        state = StoredState.model_validate_json(row.state)
-        if not isinstance(state.run_state, EndedEarly):
-            raise RefusedError(_problem("run_not_resumable", status=state.run_state.status))
-        state = state.model_copy(update={"run_state": _RUNNING})
-        if not await self._claim(row, state, state.columns(), max_items):
+        if not isinstance(run.state.run_state, EndedEarly):
+            raise RefusedError(_problem("run_not_resumable", status=run.state.run_state.status))
+        state = run.state.model_copy(update={"run_state": _RUNNING})
+        if not await self._claim(run, state, state.columns(), max_items):
             raise RefusedError(_problem("run_changed"))
 
-    async def cancel(self, row: StoredRun) -> bool:
+    async def cancel(self, run: RunAsRead) -> bool:
         """Ask the running leg of a run to stop before its next unit: at once when this worker runs it, at its next
         renewal when another does.
 
         Returns:
             Whether a leg was running to ask.
         """
-        if await self._ask_of_a_running_leg(row, lambda state: state.model_copy(update={"cancel_asked": True})) is not None:
-            return False
+        run = await self._ask_of_a_running_leg(run, lambda state: state.model_copy(update={"cancel_asked": True}))
         for hold in self._holds:
-            if hold.run_id == row.id:
+            if hold.run_id == run.row.id:
                 hold.stop.set()
-        return True
+        return run.state.leg_wanted
 
     async def take_over(self) -> None:
         """Go on with every run whose lease ran out: its worker died or handed it back. A run that can't be taken
@@ -444,7 +463,8 @@ class Worker(Generic[C]):
         for row in await self._store.expired(time.time()):
             if row.id not in held:
                 try:
-                    await self._claim(row, StoredState.model_validate_json(row.state), {})
+                    run = RunAsRead.of(row)
+                    await self._claim(run, run.state, {})
                 except Exception:
                     log.exception("run %s, whose lease ran out, was not taken over; the next sweep tries again", row.id)
 
@@ -486,12 +506,12 @@ class Worker(Generic[C]):
         self._run_legs(row, state)
         return row.id
 
-    async def _claim(self, row: StoredRun, state: StoredState, changes: RunChanges, ceiling: int | None = None) -> bool:
-        """Take ``row`` for this worker if it is still at the ``rev`` read, and run its next leg. Of two workers, one
+    async def _claim(self, run: RunAsRead, state: StoredState, changes: RunChanges, ceiling: int | None = None) -> bool:
+        """Take a run for this worker if it is still at the ``rev`` read, and run its next leg. Of two workers, one
         wins.
 
         Args:
-            row: The run as read.
+            run: The run as read.
             state: The row's state once ``changes`` are written.
             changes: The columns to write beside the owner and the lease.
             ceiling: A ceiling on the items of any one Series for the leg, where the run's own is to be raised.
@@ -500,9 +520,9 @@ class Worker(Generic[C]):
             Whether this worker took the run.
         """
         written: RunChanges = {**changes, **self._mine()}
-        if not await self._store.update(row.id, row.rev, written):
+        if not await self._store.update(run.row.id, run.row.rev, written):
             return False
-        self._run_legs(replace(row, **written, rev=row.rev + 1), state, ceiling)
+        self._run_legs(replace(run.row, **written, rev=run.row.rev + 1), state, ceiling)
         return True
 
     def _run_legs(self, row: StoredRun, state: StoredState, ceiling: int | None = None) -> None:
@@ -632,30 +652,33 @@ class Worker(Generic[C]):
     async def _read_again(self, hold: _Hold) -> None:
         """Read the row of a held run, under the hold's lock, and take in what another writer changed: its state,
         a cancel asked of it, and whether another worker took it."""
-        row = await self.read(hold.run_id)
-        hold.rev, hold.state = row.rev, StoredState.model_validate_json(row.state)
-        hold.released = row.owner != self.id
+        run = await self.read(hold.run_id)
+        hold.rev, hold.state = run.row.rev, run.state
+        hold.released = run.row.owner != self.id
         if hold.released or hold.state.cancel_asked:
             hold.stop.set()
 
     # -- a run another worker may hold ------------------------------------------------------------
 
-    async def _ask_of_a_running_leg(self, row: StoredRun, asked: Callable[[StoredState], StoredState]) -> StoredRun | None:
-        """Write what a caller asks of a run's running leg into its state, reading the run again each time another
-        writer moved its ``rev`` on first, for as long as a leg runs it.
+    async def _ask_of_a_running_leg(self, run: RunAsRead, asked: Callable[[StoredState], StoredState]) -> RunAsRead:
+        """Write what a caller asks of a run's running leg into its state, for as long as a leg is wanted for the
+        run, reading the run again each time another writer moved its ``rev`` on first.
 
         Args:
-            row: The run as read.
+            run: The run as read.
             asked: The state to write, made from the state as read for each try.
 
         Returns:
-            ``None`` once it is written; else the run as last read, which no leg runs.
+            The run as it stands after the call: with what was asked written, a leg still wanted for it; or as last
+            read, with no leg wanted and nothing written.
         """
-        while (state := StoredState.model_validate_json(row.state)).run_state == _RUNNING:
-            if await self._store.update(row.id, row.rev, asked(state).columns()):
-                return None
-            row = await self.read(row.id)
-        return row
+        while run.state.leg_wanted:
+            state = asked(run.state)
+            changes = state.columns()
+            if await self._store.update(run.row.id, run.row.rev, changes):
+                return RunAsRead(replace(run.row, **changes, rev=run.row.rev + 1), state)
+            run = await self.read(run.row.id)
+        return run
 
 
 def _loaded(row: StoredRun, nodes: NodeRegistry) -> Run:

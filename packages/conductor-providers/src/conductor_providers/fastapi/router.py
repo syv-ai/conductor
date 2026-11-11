@@ -22,10 +22,11 @@ from fastapi.routing import APIRoute
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 from pydantic import BaseModel, PositiveInt
 
-from conductor_providers.fastapi.store import RunStore, StoredRun
+from conductor_providers.fastapi.store import RunStore
 from conductor_providers.fastapi.worker import (
     NoSuchRunError,
     RefusedError,
+    RunAsRead,
     RunView,
     StoredState,
     Worker,
@@ -216,7 +217,7 @@ def run_router(
     )
     router = APIRouter(lifespan=lambda _: worker.running(), route_class=_RefusingRoute)
 
-    async def stored(run_id: str, who: Annotated[C, Depends(caller)]) -> StoredRun:
+    async def stored(run_id: str, who: Annotated[C, Depends(caller)]) -> RunAsRead:
         """The run of a route under ``/runs/{run_id}``, for the caller: the access rule of every such route.
 
         Args:
@@ -230,10 +231,10 @@ def run_router(
             NoSuchRunError: No run has the id, or ``may_see`` says the caller may not see it. The two read the
                 same (a 404), so a caller learns nothing about a run that isn't theirs.
         """
-        row = await worker.read(run_id)
-        if not may_see(who, worker.started_by(row)):
+        run = await worker.read(run_id)
+        if not may_see(who, worker.started_by(run.row)):
             raise NoSuchRunError
-        return row
+        return run
 
     @router.get("/nodes")
     def list_nodes(who: Annotated[C, Depends(caller)]) -> RegistryDescription:
@@ -261,13 +262,13 @@ def run_router(
             return Started(id=await worker.begin(graph, inputs, who))
 
     @router.get("/runs/{run_id}", responses=_NOT_FOUND)
-    def read_run(row: Annotated[StoredRun, Depends(stored)]) -> RunView:
+    def read_run(run: Annotated[RunAsRead, Depends(stored)]) -> RunView:
         """The run as its last leg left it: its status, what waits for a person, its outputs once complete, the
         queued answers that were refused, and why it ended early if it did."""
-        return RunView.of(row)
+        return RunView.of(run)
 
     @router.get("/runs/{run_id}/events", response_class=EventSourceResponse, responses=_NOT_FOUND_FOR_A_STREAM)
-    async def follow_run(row: Annotated[StoredRun, Depends(stored)], last_event_id: Annotated[int, Header()] = -1) -> AsyncIterable[ServerSentEvent]:
+    async def follow_run(run: Annotated[RunAsRead, Depends(stored)], last_event_id: Annotated[int, Header()] = -1) -> AsyncIterable[ServerSentEvent]:
         """The run's events, from whichever worker runs it, until it stops running; ``Last-Event-ID`` goes on after a reconnect.
 
         A run stops running only after its leg's ``run_end`` is stored, so the stream reads the run itself only once
@@ -276,7 +277,7 @@ def run_router(
         seen = last_event_id
         may_have_ended = True
         while True:
-            new = await store.events(row.id, seen)
+            new = await store.events(run.row.id, seen)
             for seq, body in new:
                 seen = seq
                 yield ServerSentEvent(raw_data=body, id=str(seq))
@@ -284,16 +285,16 @@ def run_router(
                 may_have_ended = json.loads(new[-1][1])["type"] == "run_end"
                 continue
             if may_have_ended:  # the row follows its run_end, so it may still read running for a poll or two
-                read_again = await store.get(row.id)
+                read_again = await store.get(run.row.id)
                 if read_again is None or StoredState.model_validate_json(read_again.state).run_state.status != "running":
-                    for seq, body in await store.events(row.id, seen):  # written before the status changed
+                    for seq, body in await store.events(run.row.id, seen):  # written before the status changed
                         yield ServerSentEvent(raw_data=body, id=str(seq))
                     return
             await asyncio.sleep(poll)
 
     @router.post("/runs/{run_id}/answers", status_code=202, responses={**_NOT_FOUND, **_CONFLICT})
     async def answer_run(
-        row: Annotated[StoredRun, Depends(stored)],
+        run: Annotated[RunAsRead, Depends(stored)],
         answers: Annotated[dict[str, Any], Body(description="An answer for each waiting unit, by its `id` in the run's `waiting`.")],
     ) -> Answered:
         """Answer what waits by its ids, and start the next leg on the answers.
@@ -303,29 +304,29 @@ def run_router(
         has nothing to answer and is a 409. While a leg runs, the answers wait for it to end, and a question
         answered once meanwhile is refused a second answer.
         """
-        return Answered(answers=await worker.answer(row, answers))
+        return Answered(answers=await worker.answer(run, answers))
 
     @router.post("/runs/{run_id}/resume", status_code=202, responses={**_NOT_FOUND, **_CONFLICT})
-    async def resume_run(row: Annotated[StoredRun, Depends(stored)], body: Resume = Resume()) -> Started:
+    async def resume_run(run: Annotated[RunAsRead, Depends(stored)], body: Resume = Resume()) -> Started:
         """Go on with a run whose last leg ended early; nothing finished is called again. ``{"max_items": ...}`` raises
         the ceiling of a run that stopped at it; a resume needs no body."""
-        await worker.resume(row, body.max_items)
-        return Started(id=row.id)
+        await worker.resume(run, body.max_items)
+        return Started(id=run.row.id)
 
     @router.post("/runs/{run_id}/again", status_code=202, responses=_NOT_FOUND)
     async def run_again(
-        row: Annotated[StoredRun, Depends(stored)],
+        run: Annotated[RunAsRead, Depends(stored)],
         inputs: Annotated[dict[str, Any], Body(description="The inputs to change, each by its name or its address `node.input`; the rest stay as the run had them.")],
         who: Annotated[C, Depends(caller)],
     ) -> Started:
         """A new run of the caller's with these inputs changed, on the caller's own nodes; a call that receives what it
         received before isn't made again."""
-        return Started(id=await worker.again(row, inputs, who))
+        return Started(id=await worker.again(run, inputs, who))
 
     @router.post("/runs/{run_id}/cancel", responses=_NOT_FOUND)
-    async def cancel_run(row: Annotated[StoredRun, Depends(stored)]) -> Cancelled:
+    async def cancel_run(run: Annotated[RunAsRead, Depends(stored)]) -> Cancelled:
         """Stop a running leg before its next unit; the calls already made are kept, and ``resume`` goes on."""
-        return Cancelled(cancelled=await worker.cancel(row))
+        return Cancelled(cancelled=await worker.cancel(run))
 
     return router
 

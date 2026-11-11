@@ -28,6 +28,7 @@ from conductor_providers.fastapi.worker import (
     NoSuchRunError,
     Outcome,
     RefusedError,
+    RunAsRead,
     RunView,
     StoredState,
     Worker,
@@ -272,15 +273,15 @@ async def test_the_worker_goes_by_a_runs_state_and_never_reads_the_status_column
     store = DropsStatus()
     worker = _worker(store, registry)
     run_id = await _started(worker, graph, inputs)
-    row = await store.until(run_id, lambda row: row.owner is None)
-    assert (row.status, RunView.of(row).status) == ("running", "waiting")
+    waiting = RunAsRead.of(await store.until(run_id, lambda row: row.owner is None))
+    assert (waiting.row.status, RunView.of(waiting).status) == ("running", "waiting")
 
-    assert not await worker.cancel(row)
+    assert not await worker.cancel(waiting)
     with pytest.raises(RefusedError) as refused:
-        await worker.resume(row)
+        await worker.resume(waiting)
     assert [problem.ctx for problem in refused.value.problems] == [{"status": "waiting"}]
-    assert await worker.answer(row, {waiting_id: True}) == "started"
-    completed = await store.until(run_id, lambda row: row.owner is None)
+    assert await worker.answer(waiting, {waiting_id: True}) == "started"
+    completed = RunAsRead.of(await store.until(run_id, lambda row: row.owner is None))
     assert RunView.of(completed).outputs == {"busy.result": "x", "after.result": True}
 
 
@@ -388,7 +389,7 @@ async def test_an_answer_that_lands_as_a_legs_end_is_written_is_taken_and_the_ru
         async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
             if not self.answered and changes.get("status") == "waiting":
                 self.answered = True
-                assert await other.answer(self.rows[run_id], {waiting_id: True}) == "queued"
+                assert await other.answer(RunAsRead.of(self.rows[run_id]), {waiting_id: True}) == "queued"
             return await super().update(run_id, rev, changes)
 
     store = AnswerAtTheEnd()
@@ -698,9 +699,9 @@ async def test_a_run_handed_back_by_a_worker_shutting_down_reads_as_running_with
         run_id = await _started(worker, graph, {"n": 40})
         await asyncio.to_thread(called.wait, 5)
 
-    row = await worker.read(run_id)
-    view = RunView.of(row)
-    assert (view.status, view.cause, row.owner, row.lease_until) == ("running", None, None, 0.0)
+    run = await worker.read(run_id)
+    view = RunView.of(run)
+    assert (view.status, view.cause, run.row.owner, run.row.lease_until) == ("running", None, None, 0.0)
 
 
 async def test_a_run_handed_back_at_shutdown_stores_no_run_end_and_the_worker_that_takes_it_repeats_no_call() -> None:
@@ -731,7 +732,7 @@ async def test_a_cancel_from_another_worker_that_lands_as_a_worker_shuts_down_ke
         async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
             if not self.cancelled and changes.get("lease_until") == 0.0:
                 self.cancelled = True
-                assert await other.cancel(self.rows[run_id])
+                assert await other.cancel(RunAsRead.of(self.rows[run_id]))
             return await super().update(run_id, rev, changes)
 
     store = CancelAtHandBack()
@@ -741,7 +742,7 @@ async def test_a_cancel_from_another_worker_that_lands_as_a_worker_shuts_down_ke
         run_id = await _started(worker, graph, inputs)
         asyncio.get_running_loop().call_later(0.05, gate.set)
 
-    row = await worker.read(run_id)
+    row = (await worker.read(run_id)).row
     assert store.cancelled and (row.status, row.owner, row.lease_until) == ("cancelled", None, None)
     assert [event["status"] for event in await store.stored_events(run_id) if event["type"] == "run_end"] == ["cancelled"]
 
@@ -824,10 +825,10 @@ async def test_a_run_that_stopped_running_holds_no_lease_so_no_sweep_takes_it_ag
     run_id = await _started(worker, make_graph(shout if ends == "complete" else approve), {"text": "a"})
     assert (await store.ended(run_id)).status == ends
 
-    row = await worker.read(run_id)
+    row = (await worker.read(run_id)).row
     assert (row.owner, row.lease_until) == (None, None) and await store.expired(time.time()) == []
     await worker.take_over()
-    assert await worker.read(run_id) == row and await _starts(store, run_id) == 1
+    assert (await worker.read(run_id)).row == row and await _starts(store, run_id) == 1
 
 
 async def test_a_run_whose_worker_died_is_taken_by_one_of_two_workers_and_finished_from_its_checkpoint() -> None:
@@ -857,12 +858,12 @@ async def test_a_worker_whose_run_another_took_stops_its_leg_and_writes_nothing_
 
     async with slow.running():  # leaving it waits for the leg the slow worker still runs
         run_id = await _started(slow, graph, inputs)
-        row = await slow.read(run_id)
+        row = (await slow.read(run_id)).row
         assert await store.update(run_id, row.rev, {"lease_until": 0.0})  # as when its lease ran out unrenewed
         await taker.take_over()
         taken = await taker.read(run_id)
         await asyncio.sleep(0.2)  # the slow worker's renewals would have landed by now
-        assert taken.owner == taker.id and await taker.read(run_id) == taken
+        assert taken.row.owner == taker.id and await taker.read(run_id) == taken
         gates["first"].set()
         ended = await store.ended(run_id)
 
