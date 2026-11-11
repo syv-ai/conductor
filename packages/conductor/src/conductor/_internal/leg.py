@@ -197,6 +197,23 @@ class _Turn:
     passed: set[Key] = field(default_factory=set)
 
 
+@dataclass(slots=True, frozen=True)
+class _InnerComplete:
+    """What one node of an embedding came to once complete, for the embedding's own ``NodeComplete``.
+
+    Attributes:
+        skipped: Every row of the node was a branch not taken.
+        rows: How many rows the node has.
+        not_called: The rows a blank input kept the node from.
+        reused: How many rows took earlier work.
+    """
+
+    skipped: bool
+    rows: int
+    not_called: set[Key]
+    reused: int
+
+
 class Leg:
     """One leg over ``run``, which it changes in place. ``emit`` is None when nobody listens.
 
@@ -238,7 +255,7 @@ class Leg:
         # what only a listener needs
         self.started = {run.graph._outward(n) for n, units in run._units.items() if units}
         #: For an embedding, what each of its nodes came to once complete: all skipped, the rows not called, the rows reused.
-        self.inside: dict[str, dict[str, tuple[bool, int, set[Key], int]]] = {}
+        self.inside: dict[str, dict[str, _InnerComplete]] = {}
         self.touched: set[str] = set()
         #: The nodes said complete, on this leg or on an earlier one; a node an answer finished between legs is said on this one.
         self.complete: set[str] = set(run._complete)
@@ -248,7 +265,7 @@ class Leg:
             units = run._units[node_id].values()
             skipped = bool(units) and all(u.state == "skipped" for u in units)
             blank = {k for k, u in run._units[node_id].items() if u.state == "blank"}
-            self.inside.setdefault(run.graph._outward(node_id), {})[node_id] = (skipped, len(units), blank, 0)
+            self.inside.setdefault(run.graph._outward(node_id), {})[node_id] = _InnerComplete(skipped, len(units), blank, 0)
         self.reused = {p.id: 0 for p in self.nodes}
         self.progress_at: dict[str, float] = {}
         self.progress_said: dict[str, int] = {}
@@ -653,11 +670,12 @@ class Leg:
         graph = self.run.graph
         outer = graph._outward(node_id)
         inside = self.inside.setdefault(outer, {})
-        inside[node_id] = (skipped, rows, not_called, self.reused[node_id])
+        inside[node_id] = _InnerComplete(skipped, rows, not_called, self.reused[node_id])
         if len(inside) < len(graph._placed_as(outer)):
             return
-        if all(s for s, _, _, _ in inside.values()):
+        done = inside.values()
+        if all(d.skipped for d in done):
             self.emit(NodeSkipped(node_id=outer))
             return
-        counts = list(inside.values())
-        self.emit(NodeComplete(node_id=outer, rows=max(r for _, r, _, _ in counts), not_called=len(set().union(*(n for _, _, n, _ in counts))), reused_units=sum(u for _, _, _, u in counts)))
+        rows_not_called: set[Key] = set().union(*(d.not_called for d in done))
+        self.emit(NodeComplete(node_id=outer, rows=max(d.rows for d in done), not_called=len(rows_not_called), reused_units=sum(d.reused for d in done)))
