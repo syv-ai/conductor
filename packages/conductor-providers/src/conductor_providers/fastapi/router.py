@@ -451,20 +451,28 @@ def run_router(
 
     @router.get("/runs/{run_id}/events", response_class=EventSourceResponse, responses=_NOT_FOUND)
     async def follow(row: Annotated[StoredRun, Depends(stored)], last_event_id: Annotated[int, Header()] = -1) -> AsyncIterable[ServerSentEvent]:
-        """The run's events, from whichever worker runs it, until it stops running; ``Last-Event-ID`` goes on after a reconnect."""
+        """The run's events, from whichever worker runs it, until it stops running; ``Last-Event-ID`` goes on after a reconnect.
+
+        A run stops running only after its leg's ``run_end`` is stored, so the stream reads the run itself only once
+        it has sent a ``run_end`` or has had nothing to send, and otherwise reads events alone.
+        """
         seen = last_event_id
+        may_have_ended = True
         while True:
             new = await store.events(row.id, seen)
             for seq, body in new:
                 seen = seq
                 yield ServerSentEvent(raw_data=body, id=str(seq))
-            if not new:
+            if new:
+                may_have_ended = json.loads(new[-1][1])["type"] == "run_end"
+                continue
+            if may_have_ended:  # the row follows its run_end, so it may still read running for a poll or two
                 now = await store.get(row.id)
                 if now is None or now.status != "running":
                     for seq, body in await store.events(row.id, seen):  # written before the status changed
                         yield ServerSentEvent(raw_data=body, id=str(seq))
                     return
-                await asyncio.sleep(poll)
+            await asyncio.sleep(poll)
 
     @router.post("/runs/{run_id}/answers", status_code=202, responses=_CONFLICT)
     async def answer(row: Annotated[StoredRun, Depends(stored)], answers: dict[str, Any]) -> Answered:

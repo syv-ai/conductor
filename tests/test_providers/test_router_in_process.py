@@ -843,3 +843,34 @@ def test_a_run_that_stopped_running_holds_no_lease_so_no_sweep_takes_it_again(en
             assert (ended.owner, ended.lease_until) == (None, None) and await store.expired(time.time()) == []
 
     asyncio.run(scenario())
+
+
+def test_a_follower_reads_the_row_only_to_learn_whether_a_run_end_was_the_last() -> None:
+    registry, graph, gate, inputs, _ = _asking()
+
+    class CountsReads(MemoryStore):
+        reads = 0
+
+        async def get(self, run_id: str) -> StoredRun | None:
+            self.reads += 1
+            return await super().get(run_id)
+
+    store = CountsReads()
+    app = FastAPI()
+    app.include_router(run_router(store=store, registry=registry, caller=_caller, poll=0.01))
+
+    async def scenario() -> None:
+        async with app.router.lifespan_context(app), httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as client:
+            run_id = (await client.post("/runs", json={"graph": graph.model_dump(mode="json"), "inputs": inputs})).json()["id"]
+            following = asyncio.create_task(client.get(f"/runs/{run_id}/events"))
+            await asyncio.sleep(0.1)  # the follower has the leg's first events by now
+            before = store.reads
+            await asyncio.sleep(0.3)  # thirty polls that find no event
+            during = store.reads - before
+            gate.set()
+            frames = [json.loads(line.removeprefix("data: ")) for line in (await following).text.splitlines() if line.startswith("data: ")]
+            assert (during, frames[-1]["type"], frames[-1]["status"]) == (0, "run_end", "waiting")
+            again = (await client.get(f"/runs/{run_id}/events", headers={"Last-Event-ID": str(len(frames) - 1)})).text
+            assert "data: " not in again  # a follower that has every event of a run that waits is told so at once
+
+    asyncio.run(scenario())
