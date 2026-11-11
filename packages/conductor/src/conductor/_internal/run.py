@@ -895,7 +895,7 @@ def _gathered(units: _UnitsOfAGraph, base: int, plan: Gather, key: Key) -> Any:
         taken = True
         for cells in gate:
             held = [_cell(units, base, cell, key) for cell in cells]
-            if PENDING in held:
+            if any(value is PENDING for value in held):  # asked by identity: a cell may hold a table, which has no plain ==
                 return PENDING
             if all(value is SKIPPED for value in held):
                 taken = False

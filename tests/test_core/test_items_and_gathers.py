@@ -354,6 +354,18 @@ def test_a_decision_made_once_and_not_called_skips_the_readers_of_its_branches()
     assert [e.loc for e in said if e.type == "node_skipped"] == [("y",)]
 
 
+def test_a_gather_below_items_that_read_a_table_made_once_is_called_as_below_any_outer_value():
+    """Whether a gathering edge is skipped is asked of what holds the outer value, never by comparing the value: a table has no plain ``==``."""
+    @node("with-height", title="With height", description="")
+    def with_height(text: str, table: Table) -> str:
+        return f"{text}{table.height}"
+
+    run = ran({"id": "c", "node": "contacts"}, {"id": "s", "node": "split"}, {"id": "h", "node": "with-height"}, {"id": "j", "node": "join"},
+              edges=(("s.result", "h.text"), ("c.result", "h.table"), ("h.result", "j.texts")), registry=registry_of(contacts, split, with_height, join),
+              **{"c.text": CSV, "s.text": "a,b"})
+    assert run.status == "complete" and run.results["j"]["result"] == "a3+b3"
+
+
 def test_a_series_not_made_for_a_blank_item_is_not_an_empty_one_so_a_count_of_it_is_not_called_either():
     run = ran(*CONTACTS, {"id": "s", "node": "split"}, {"id": "n", "node": "count"},
               edges=(SPLIT_CONTACTS, ("r.result.email", "s.text"), ("s.result", "n.values")), text=CSV)
