@@ -21,7 +21,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field, replace
 from typing import Any, Generic, Literal, TypeVar
 
-from conductor import EndedEarly, GraphRecord, NodeRegistry, Run
+from conductor import GraphRecord, NodeRegistry, Run
 from conductor.events import RunCheckpoint, RunEnd
 from pydantic import TypeAdapter
 from pydantic_core import from_json
@@ -58,7 +58,8 @@ class _Hold:
         run_id: The run's id.
         rev: The row's ``rev`` as this worker last wrote or read it.
         state: The row's state at that ``rev``.
-        stop: Set to end the running leg before its next unit.
+        stop: Set to end the running leg before its next unit: a cancel is asked in ``state``, or another worker
+            took the run. Cleared when a leg's end leaves no cancel asked.
         lock: Held for each of this worker's writes to the row, so they land one at a time.
         released: Whether the row was given up or taken by another worker; this worker writes nothing more to it.
         reads: How many times this worker read the row again, each time taking in what another writer changed.
@@ -76,8 +77,9 @@ class _Hold:
 class Worker(Generic[C]):
     """Runs the legs of stored runs for one process, holding a lease on each run while it does.
 
-    Each method that takes a run takes it as the caller read it (``read``), and writes only if the run is still
-    at that ``rev``.
+    Each method that takes a run takes it as the caller read it (``read``). A call that starts a leg (an answer
+    to a run no leg runs for, a resume) writes only if the run is still at that ``rev``; what is asked of a running
+    leg (an answer to queue, a cancel) is written however the ``rev`` moved, for as long as the leg is wanted.
     """
 
     def __init__(
@@ -190,7 +192,8 @@ class Worker(Generic[C]):
         """Answer what waits in a run, by waiting id.
 
         While a leg runs, the answers are queued for its end. Otherwise the run takes them as ``run.answer`` does,
-        whatever its status, and its next leg starts.
+        whatever its status, and its next leg starts; an earlier answer to the same question that was refused, or
+        that stayed queued through a leg that raised, is then done with.
 
         Args:
             run: The run as read.
@@ -216,7 +219,9 @@ class Worker(Generic[C]):
             raise RefusedError(router_problem.run_complete())
         row, nodes = run.row, self._nodes_for(self.started_by(run.row))
         answered = await asyncio.to_thread(lambda: _loaded(row, nodes).answer(answers).to_json())
-        state = run.state.model_copy(update={"run_state": RUNNING})
+        unanswered = {"queued_answers": run.state.queued_answers, "refused": run.state.refused}
+        cleared = {name: {waiting_id: held for waiting_id, held in column.items() if waiting_id not in answers} for name, column in unanswered.items()}
+        state = run.state.model_copy(update={"run_state": RUNNING, **cleared})
         if not await self._claim(run, state, answered=answered):
             raise RefusedError(router_problem.run_changed())
         return "started"
@@ -232,7 +237,7 @@ class Worker(Generic[C]):
             RefusedError: The run's last leg did not end early (``run_not_resumable``), or another call claimed
                 the run first (``run_changed``).
         """
-        if not isinstance(run.state.run_state, EndedEarly):
+        if run.state.cause is None:
             raise RefusedError(router_problem.run_not_resumable(status=run.state.run_state.status))
         state = run.state.model_copy(update={"run_state": RUNNING})
         if not await self._claim(run, state, max_items=max_items):
@@ -300,8 +305,9 @@ class Worker(Generic[C]):
         """The context a worker serves in: a lifespan enters it.
 
         While entered, runs whose lease ran out are taken over, three times a lease; a sweep that raises is logged
-        and the next one runs. On leaving, every leg this worker runs is stopped and its run handed back: a leg
-        handed back keeps the calls already made, so the next worker repeats none.
+        and the next one runs. On leaving, every leg this worker runs is stopped and its run handed back, a run
+        begun or taken meanwhile included. A leg handed back keeps the calls already made, so the next worker
+        repeats none of them once the leg's last checkpoint is written.
 
         Yields:
             Nothing; the worker serves until the context is left.
@@ -321,7 +327,8 @@ class Worker(Generic[C]):
         finally:
             self._handing_back.set()
             sweeping.cancel()
-            await asyncio.gather(*self._holds.values())
+            while self._holds:  # a run begun or taken while the others were handed back is handed back too
+                await asyncio.gather(*self._holds.values())
 
     # -- taking a run -----------------------------------------------------------------------------
 
@@ -408,8 +415,10 @@ class Worker(Generic[C]):
             del self._holds[hold]
 
     async def _renew(self, hold: _Hold) -> None:
-        """Renew the lease three times a lease, until the run is given up or taken. A renewal that raises is logged
-        and the next one is tried, so one failed statement doesn't cost a leg its run.
+        """Renew the lease three times a lease, until the run is given up or taken. A renewal that raises, or that
+        the store hasn't answered when the next is due, is logged and the next one is tried: one failed statement
+        doesn't cost a leg its run, and one that never returns doesn't keep the leg's other writes waiting, so a
+        leg whose run another worker took meanwhile learns it at its next checkpoint or event.
 
         Args:
             hold: The hold on the run.
@@ -417,7 +426,8 @@ class Worker(Generic[C]):
         while not hold.released:
             await asyncio.sleep(self._lease / 3)
             try:
-                await self._write(hold, {"lease_until": time.time() + self._lease})
+                async with asyncio.timeout(self._lease / 3):
+                    await self._write(hold, {"lease_until": time.time() + self._lease})
             except Exception:
                 log.exception("the lease of run %s was not renewed; the next renewal tries again", hold.run_id)
 
@@ -453,7 +463,7 @@ class Worker(Generic[C]):
             return end
         except Exception:
             log.exception("the leg of run %s failed", row.id)
-            return Raised(router_problem.leg_failed())
+            return Raised.because(router_problem.leg_failed())
 
     async def _finish(self, hold: _Hold, row: StoredRun, end: LegEnd) -> StoredRun:
         """Write how a leg ended, decided from the row's state as read for each try of the write, so a cancel or an
@@ -475,23 +485,22 @@ class Worker(Generic[C]):
             ``row`` with the ``run`` and ``outcome`` that were written. The hold is released unless this worker
             goes on with a next leg of it.
         """
-        end_stored = False
+        if end.run_end is not None and not await self._store.add_event(hold.run_id, self.id, end.run_end):
+            hold.released = True  # another worker holds the run, so the write of the row would lose too
+            return row
         async with hold.lock:  # so no renewal moves the rev between this read and what is taken in from it
             await self._read_again(hold)
         while not hold.released:
             reads = hold.reads
             after = await asyncio.to_thread(end.row_after, hold.state)
-            if after.run_end is not None and not end_stored:
-                if not await self._store.add_event(hold.run_id, self.id, after.run_end):
-                    hold.released = True  # another worker holds the run, so the write of the row would lose too
-                    break
-                end_stored = True
-            goes_on = after.leg_wanted and not self._handing_back.is_set()
-            holder = self._mine() if goes_on else _HANDED_BACK if after.leg_wanted else _UNHELD
+            goes_on = after.state.leg_wanted and not self._handing_back.is_set()
+            holder = self._mine() if goes_on else _HANDED_BACK if after.state.leg_wanted else _UNHELD
             changes: RunChanges = {**after.state.columns(), **after.changes, **holder}
             async with hold.lock:  # no renewal lands after the write that gives the run up
                 if hold.reads == reads and await self._write_once(hold, changes):  # decided from the state as it still is
                     hold.state, hold.released = after.state, not goes_on
+                    if not after.state.cancel_asked:
+                        hold.stop.clear()  # the cancel this leg heard is not the next leg's
                     return replace(row, **after.changes)
         return row
 

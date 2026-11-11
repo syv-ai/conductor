@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, TypedDict
 
-from conductor import Going, Problem, RunState, RunStatus, Waiting
+from conductor import EndedEarly, Going, Problem, RunState, RunStatus, Waiting
 from pydantic import BaseModel
 
 
@@ -108,6 +108,11 @@ class StoredState(BaseModel):
     def leg_wanted(self) -> bool:
         """Whether a leg is wanted for the run: a worker runs one, or the run waits for a worker to take it."""
         return self.run_state == RUNNING
+
+    @property
+    def cause(self) -> Problem | None:
+        """Why the run's last leg ended early; ``None`` for a run whose last leg didn't, which is not resumed."""
+        return self.run_state.cause if isinstance(self.run_state, EndedEarly) else None
 
     def columns(self) -> RunChanges:
         """The row's ``status`` and ``state`` for this state.

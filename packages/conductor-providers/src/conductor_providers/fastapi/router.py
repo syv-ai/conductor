@@ -8,7 +8,6 @@ from collections.abc import AsyncIterable, Callable, Coroutine, Mapping
 from typing import Annotated, Any, Literal, TypeVar, get_type_hints, overload
 
 from conductor import (
-    EndedEarly,
     GraphDescription,
     GraphRecord,
     InvalidCallError,
@@ -128,8 +127,7 @@ class RunView(Outcome):
             What ``GET /runs/{id}`` answers for it.
         """
         outcome = Outcome.model_validate_json(run.row.outcome)
-        cause = run.state.run_state.cause if isinstance(run.state.run_state, EndedEarly) else None
-        return cls(id=run.row.id, status=run.state.run_state.status, refused=run.state.refused, cause=cause, waiting=outcome.waiting, outputs=outcome.outputs)
+        return cls(id=run.row.id, status=run.state.run_state.status, refused=run.state.refused, cause=run.state.cause, waiting=outcome.waiting, outputs=outcome.outputs)
 
 
 class _RefusingRoute(APIRoute):
@@ -333,8 +331,8 @@ def run_router(
     ) -> Answered:
         """Answer what waits by its ids, and start the next leg on the answers.
 
-        The run takes them as ``run.answer`` does, whatever its status: a run that failed, stopped or timed out with
-        questions waiting is answered and goes on, and every answer the run refuses is in the 422. A complete run
+        The run takes them as ``run.answer`` does, whatever its status: a run that failed, stopped, timed out or was
+        cancelled with questions waiting is answered and goes on, and every answer the run refuses is in the 422. A complete run
         has nothing to answer and is a 409. While a leg runs, the answers wait for it to end, and a question
         answered once meanwhile is refused a second answer.
         """

@@ -21,20 +21,22 @@ class RowAfterALeg:
     """What a row holds once the end of a leg is written.
 
     Attributes:
-        state: The row's state.
+        state: The row's state; a next leg is wanted when it says so.
         changes: The row's ``run`` and ``outcome``, each where it changes.
-        run_end: The leg's ``run_end`` event to store, as JSON; ``None`` for a leg handed back, whose run did not end.
-        leg_wanted: Whether a next leg is wanted: the leg was handed back, or the run took an answer queued during it.
     """
 
     state: StoredState
     changes: RunChanges
-    run_end: str | None
-    leg_wanted: bool
 
 
 class LegEnd(ABC):
-    """How a leg ended."""
+    """How a leg ended.
+
+    Attributes:
+        run_end: The leg's ``run_end`` event to store, as JSON; ``None`` for a leg handed back, whose run did not end.
+    """
+
+    run_end: str | None
 
     @abstractmethod
     def row_after(self, state: StoredState) -> RowAfterALeg:
@@ -44,8 +46,7 @@ class LegEnd(ABC):
             state: The row's state as last read.
 
         Returns:
-            The row's state and the columns that change with it, the ``run_end`` to store, and whether a next leg
-            is wanted.
+            The row's state and the columns that change with it.
         """
 
 
@@ -70,16 +71,19 @@ class Ended(LegEnd):
 
         Each queued answer is given to the run on its own, as ``run.answer`` takes one whatever the run's status:
         one the run refuses stays in ``refused`` with its problems, and the ones it takes make the run the next
-        leg starts from.
+        leg starts from. A cancel that was asked and that this leg did not end on is kept for that next leg, which
+        then ends before it calls anything; one the leg ended on, or that no leg is left to hear, is done with.
         """
         run, refused, taken = self.run, dict(state.refused), False
         for waiting_id, value in state.queued_answers.items():
             try:
                 run, taken = run.answer(waiting_id, value), True
+                refused.pop(waiting_id, None)
             except InvalidCallError as error:
                 refused[waiting_id] = error.errors()
-        after = state.model_copy(update={"run_state": RUNNING if taken else self.run.state, "queued_answers": {}, "refused": refused, "cancel_asked": False})
-        return RowAfterALeg(after, {"run": run.to_json() if taken else self.saved, "outcome": self.outcome}, self.run_end, leg_wanted=taken)
+        unheard = state.cancel_asked and taken and self.run.status != "cancelled"
+        after = state.model_copy(update={"run_state": RUNNING if taken else self.run.state, "queued_answers": {}, "refused": refused, "cancel_asked": unheard})
+        return RowAfterALeg(after, {"run": run.to_json() if taken else self.saved, "outcome": self.outcome})
 
 
 @dataclass(frozen=True)
@@ -88,29 +92,44 @@ class Raised(LegEnd):
 
     Attributes:
         cause: Why the run failed.
+        run_end: The leg's ``run_end`` event, as JSON.
     """
 
     cause: Problem
+    run_end: str
 
-    def row_after(self, state: StoredState) -> RowAfterALeg:
-        """What a row holds after this end: the run failed with nothing waiting and no outputs, and the row keeps
-        its last checkpoint and the answers queued during the leg, for the end of the next leg to deal with.
+    @classmethod
+    def because(cls, cause: Problem) -> Raised:
+        """The end of a leg that raised.
 
         The ``run_end`` is made without validation: a ``RunEnd`` requires the run it ended with, which it never
         writes, and a leg that raised has none.
+
+        Args:
+            cause: Why the run failed.
+
+        Returns:
+            The end, with its ``run_end`` saying ``failed`` and the cause.
         """
+        return cls(cause, RunEnd.model_construct(status="failed", cause=cause).model_dump_json())
+
+    def row_after(self, state: StoredState) -> RowAfterALeg:
+        """What a row holds after this end: the run failed with nothing waiting and no outputs, and the row keeps
+        its last checkpoint and the answers queued during the leg, for the end of the next leg to deal with."""
         after = state.model_copy(update={"run_state": EndedEarly("failed", self.cause), "cancel_asked": False})
-        run_end = RunEnd.model_construct(status="failed", cause=self.cause).model_dump_json()
-        return RowAfterALeg(after, {"outcome": Outcome.empty().model_dump_json()}, run_end, leg_wanted=False)
+        return RowAfterALeg(after, {"outcome": Outcome.empty().model_dump_json()})
 
 
+@dataclass(frozen=True)
 class HandedBack(LegEnd):
     """A leg its worker stopped to shut down: the run did not end, and the row holds it as the leg left it."""
+
+    run_end: None = None
 
     def row_after(self, state: StoredState) -> RowAfterALeg:
         """What a row holds after this end: what it held, a cancel asked meanwhile included, for the worker that
         takes the run to go on from."""
-        return RowAfterALeg(state, {}, run_end=None, leg_wanted=True)
+        return RowAfterALeg(state, {})
 
 
 def end_of(run_end: RunEnd) -> LegEnd:
@@ -131,4 +150,4 @@ def end_of(run_end: RunEnd) -> LegEnd:
         outcome = Outcome(waiting=run.waiting, outputs=from_json(run.outputs_json()) if run.status == "complete" else None)
         return Ended(run, run.to_json(), outcome.model_dump_json(), run_end.model_dump_json())
     except InvalidCallError as unwritable:
-        return Raised(unwritable.errors()[0])
+        return Raised.because(unwritable.errors()[0])

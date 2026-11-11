@@ -495,6 +495,108 @@ async def test_an_answer_queued_during_a_leg_that_raised_stays_queued_and_is_tak
     assert (completed.status, completed.refused, completed.outputs) == ("complete", {}, {"busy.result": "x", "after.result": True, "each.result": [0, 1, 2]})
 
 
+async def test_an_answer_that_is_taken_leaves_nothing_refused_or_queued_for_its_question() -> None:
+    registry, graph, gate, inputs, waiting_id = asking()
+    store = MemoryStore()
+    worker = _worker(store, registry)
+
+    run_id = await _started(worker, graph, inputs)
+    assert await worker.answer(await worker.read(run_id), {waiting_id: "not a bool"}) == "queued"
+    gate.set()
+    waiting = await store.ended(run_id)
+    assert (waiting.status, list(waiting.refused)) == ("waiting", [waiting_id])
+    queued_before = (await worker.read(run_id)).state.model_copy(update={"queued_answers": {waiting_id: False}})
+    store.rows[run_id] = dataclasses.replace(store.rows[run_id], **queued_before.columns())  # as a leg that raised leaves an answer queued
+
+    assert await worker.answer(await worker.read(run_id), {waiting_id: True}) == "started"
+    completed = await store.ended(run_id)
+    assert (completed.status, completed.refused, completed.outputs) == ("complete", {}, {"busy.result": "x", "after.result": True})
+
+
+def _asked_beside_a_chain() -> tuple[NodeRegistry, GraphRecord, dict[str, Any], dict[str, threading.Event], list[str], str]:
+    """A graph with a question beside a chain of three steps, its inputs, and the waiting id the question gets: the
+    first step waits on ``first`` and the second on ``second``, having set ``in_second``; ``calls`` lists the steps
+    called."""
+    registry, gates, calls = NodeRegistry(), {name: threading.Event() for name in ("first", "in_second", "second")}, []
+
+    @registry.node("approve", title="Approve", description="")
+    def approve(text: str) -> bool:
+        raise Ask("Go on?")
+
+    @registry.node("one", title="One", description="")
+    def one(text: str) -> str:
+        calls.append("one")
+        gates["first"].wait(5)
+        return text
+
+    @registry.node("two", title="Two", description="")
+    def two(text: str) -> str:
+        calls.append("two")
+        gates["in_second"].set()
+        gates["second"].wait(5)
+        return text
+
+    @registry.node("three", title="Three", description="")
+    def three(text: str) -> str:
+        calls.append("three")
+        return text
+
+    nodes = [NodeRecord(id=name, node=name) for name in ("approve", "one", "two", "three")]
+    graph = GraphRecord(nodes=nodes, edges=[("one.result", "two.text"), ("two.result", "three.text")])
+    inputs = {"approve.text": "y", "one.text": "x"}
+    for gate in gates.values():
+        gate.set()
+    (waiting,) = registry.load(graph).run(inputs).waiting
+    for gate in gates.values():
+        gate.clear()
+    calls.clear()
+    return registry, graph, inputs, gates, calls, waiting.id
+
+
+async def test_a_cancel_ends_the_leg_that_heard_it_and_not_the_leg_an_answer_queued_meanwhile_starts() -> None:
+    registry, graph, inputs, gates, calls, waiting_id = _asked_beside_a_chain()
+    store = MemoryStore()
+    worker = _worker(store, registry)
+
+    run_id = await _started(worker, graph, inputs)
+    gates["first"].set()
+    await asyncio.to_thread(gates["in_second"].wait, 5)
+    assert await worker.answer(await worker.read(run_id), {waiting_id: True}) == "queued"
+    assert await worker.cancel(await worker.read(run_id))
+    gates["second"].set()
+
+    completed = await store.until(run_id, lambda row: row.status not in ("running", "cancelled"))
+    ends = [event["status"] for event in await store.stored_events(run_id) if event["type"] == "run_end"]
+    assert (completed.status, ends, calls) == ("complete", ["cancelled", "complete"], ["one", "two", "three"])
+
+
+async def test_a_cancel_that_lands_as_a_leg_ends_is_heard_by_the_leg_an_answer_queued_meanwhile_starts() -> None:
+    registry, graph, gate, inputs, waiting_id = asking()
+
+    class CancelAtTheEnd(MemoryStore):
+        """Takes a cancel from another worker just before the write that ends the first leg."""
+
+        cancelled = False
+
+        async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
+            if not self.cancelled and "outcome" in changes:
+                self.cancelled = True
+                assert await other.cancel(RunAsRead.of(self.rows[run_id]))
+            return await super().update(run_id, rev, changes)
+
+    store = CancelAtTheEnd()
+    worker, other = _worker(store, registry), _worker(store, registry)
+
+    run_id = await _started(worker, graph, inputs)
+    assert await worker.answer(await worker.read(run_id), {waiting_id: True}) == "queued"
+    gate.set()
+
+    ended = await store.ended(run_id)
+    ends = [event["status"] for event in await store.stored_events(run_id) if event["type"] == "run_end"]
+    assert store.cancelled and (ended.status, ends, ended.outputs) == ("cancelled", ["waiting", "cancelled"], None)
+    assert not (await worker.read(run_id)).state.cancel_asked
+
+
 async def test_a_question_that_waits_in_a_failed_run_is_answered_without_a_resume() -> None:
     registry, store = NodeRegistry(), MemoryStore()
 
@@ -807,6 +909,60 @@ async def test_a_cancel_from_another_worker_that_lands_as_a_worker_hands_the_run
     row = await store.until(run_id, lambda row: row.status != "running")
     assert (row.status, row.owner, row.lease_until) == ("cancelled", None, None)
     assert [event["status"] for event in await store.stored_events(run_id) if event["type"] == "run_end"] == ["cancelled"]
+
+
+async def test_a_worker_whose_renewal_never_returns_stops_its_leg_once_another_took_the_run_and_can_shut_down() -> None:
+    registry, graph, called, calls = _slow_items()
+
+    class RenewalHangs(MemoryStore):
+        """Never answers the renewals of one worker, as a connection that went quiet."""
+
+        of: str | None = None
+
+        async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
+            if changes.keys() == {"lease_until"} and self.rows[run_id].owner == self.of:
+                await asyncio.Event().wait()
+            return await super().update(run_id, rev, changes)
+
+    store = RenewalHangs()
+    hung, other = _worker(store, registry, lease=0.15, checkpoint_every=0.02), _worker(store, registry, lease=0.15, checkpoint_every=0.02)
+    store.of = hung.id
+
+    async with asyncio.timeout(8):
+        async with hung.serving():
+            run_id = await _started(hung, graph, {"n": 40})
+            async with other.serving():
+                ended = await store.ended(run_id)
+        # leaving ``hung.serving()`` waits for its leg, which ends only if the leg learnt it lost the run
+
+    ends = [event["status"] for event in await store.stored_events(run_id) if event["type"] == "run_end"]
+    assert (ended.status, ends, ended.outputs) == ("complete", ["complete"], {"slow.result": list(range(40))})
+    assert len(calls) < 2 * 40  # the leg that lost the run stopped before it had called everything again
+
+
+async def test_a_run_begun_as_a_worker_shuts_down_is_handed_back_before_the_worker_has_shut_down() -> None:
+    registry, graph, called, _ = _slow_items()
+
+    class BeginsAtHandBack(MemoryStore):
+        """Starts a second run on the worker as it hands its first back."""
+
+        late: str | None = None
+
+        async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
+            if self.late is None and changes.get("lease_until") == 0.0:
+                self.late = await _started(worker, graph, {"n": 40})
+            return await super().update(run_id, rev, changes)
+
+    store = BeginsAtHandBack()
+    worker = _worker(store, registry)
+
+    async with worker.serving():
+        await _started(worker, graph, {"n": 40})
+        await asyncio.to_thread(called.wait, 5)
+
+    assert store.late is not None
+    late = store.rows[store.late]
+    assert (late.status, late.owner, late.lease_until) == ("running", None, 0.0)
 
 
 @pytest.mark.parametrize("fails", ["the read of the expired runs", "the claim of a run", "a row that can't be read"])
