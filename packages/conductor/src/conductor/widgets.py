@@ -80,12 +80,12 @@ class FileUpload(Widget):
 
     Attributes:
         accept: The kinds of file offered, as an HTML file input's ``accept`` lists them: extensions (``".pdf"``)
-            or media types (``"image/*"``); ``None`` offers every kind.
+            or media types (``"image/*"``); none offers every kind.
         max_size_mb: The largest file, in megabytes, the editor takes; ``None`` sets no limit of its own.
     """
 
     type: Literal["file-upload"] = "file-upload"
-    accept: tuple[str, ...] | None = None
+    accept: tuple[str, ...] = ()
     max_size_mb: float | None = None
 
 
