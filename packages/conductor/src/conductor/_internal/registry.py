@@ -41,13 +41,15 @@ import copy
 import dataclasses
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Concatenate
+from typing import Any, Concatenate
 
 from pydantic import JsonValue
 
+from conductor._internal import problem
 from conductor._internal.conductor_model import ConductorModel
-from conductor._internal.errors import InvalidCallError, NodeDeclarationError, make_problem
 from conductor._internal.fields import NamedType, Type
+from conductor._internal.graph import Graph, load_graph
+from conductor._internal.graph_record import GraphRecord, NodeRecord, as_record, typed_in
 from conductor._internal.node_definition import (
     FunctionDefinition,
     GraphDefinition,
@@ -57,10 +59,11 @@ from conductor._internal.node_definition import (
     declared_inputs,
     node,
 )
-from conductor._internal.record import GraphRecord, NodeRecord, as_record, typed_in
-
-if TYPE_CHECKING:
-    from conductor._internal.graph import Graph
+from conductor._internal.problem import (
+    InvalidCallError,
+    NodeDeclarationError,
+    make_problem,
+)
 
 
 def _takes_the_arguments_of[**P, R](
@@ -262,8 +265,6 @@ class NodeRegistry:
         ``graph.problems``. The graph keeps its own copy of the definitions
         as they are when it loads.
         """
-        from conductor._internal.graph import load_graph
-
         return load_graph(as_record(record), self._nodes)
 
     def upgrade(self, record: GraphRecord | str | bytes | Mapping[str, Any], node_id: str, *, to: int | None = None) -> GraphRecord:
@@ -297,8 +298,8 @@ class NodeRegistry:
         if target == placed.version:
             return graph
         if target < placed.version or target not in newest.versions or placed.version not in newest.versions:
-            raise InvalidCallError([make_problem(
-                "cannot_move_to_version", node_id,
+            raise InvalidCallError([problem.cannot_move_to_version(
+                node_id,
                 node=placed.node, version=placed.version, target=target, versions=sorted(newest.versions),
             )])
         lineage = newest.version_of(target).lineage

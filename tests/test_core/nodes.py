@@ -118,3 +118,14 @@ registry.add_subregistry(text)
 def place(waiting):
     """A waiting unit's place, ``node@item``: its id without the fingerprint of its question."""
     return waiting.id.partition("~")[0]
+
+
+def units_missing(run):
+    """Each instance of a node of ``run`` that holds no unit, as its node's path and the instance, with a node
+    whose instances aren't all known as its path alone. A complete run has none."""
+    missing = []
+    for node in run.graph._tree:
+        instances, known = run._instances(node.maps, ())
+        units = run._units[node.inside][node.placed.id]
+        missing += [(node.path, key) for key in instances if key not in units] + ([] if known else [node.path])
+    return missing

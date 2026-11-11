@@ -17,7 +17,9 @@ import types
 import typing
 
 import pytest
-from conductor._internal.errors import PROBLEM_CATALOGUE, DeclarationCode
+from conductor import PROBLEMS
+from conductor._internal.kit_problem import KIT_PROBLEMS
+from conductor._internal.problem import PROBLEM_CATALOGUE, DeclarationCode
 from conductor_providers.fastapi import ROUTER_PROBLEM_CODES
 
 _ROOT = pathlib.Path(__file__).parents[2]
@@ -49,16 +51,6 @@ def _declaration_messages() -> dict[str, list[str]]:
     return found
 
 
-def _kit_codes() -> set[str]:
-    found = set()
-    for call in ast.walk(ast.parse((_PACKAGE / "testing.py").read_text())):
-        if isinstance(call, ast.Call) and isinstance(call.func, ast.Name) and call.func.id == "_problem" and isinstance(call.args[0], ast.Constant):
-            found.add(call.args[0].value)
-        if isinstance(call, ast.IfExp) and isinstance(call.body, ast.Constant) and isinstance(call.orelse, ast.Constant):
-            found |= {call.body.value, call.orelse.value}
-    return found
-
-
 def _sections() -> list[tuple[str, str]]:
     """``(heading, text)`` for each ``### `code` `` section, the heading as it is after the backticks."""
     parts = re.split(r"^### `([a-z_]+)`(.*)$", _PAGE, flags=re.M)
@@ -71,7 +63,7 @@ def _wanted() -> dict[str, list[str]]:
     messages = _declaration_messages()
     for code in typing.get_args(DeclarationCode):
         wanted[code + _DECLARED if code in PROBLEM_CATALOGUE else code] = messages[code]
-    return wanted | {code: [] for code in _kit_codes()} | {code: [] for code in ROUTER_PROBLEM_CODES}
+    return wanted | {code: [] for code in KIT_PROBLEMS.codes | ROUTER_PROBLEM_CODES | PROBLEMS.codes}
 
 
 def test_every_code_has_one_section_and_no_section_names_another() -> None:
@@ -88,7 +80,8 @@ def test_a_section_quotes_its_codes_message(heading: str) -> None:
 
 def test_every_message_says_what_to_do() -> None:
     """A message carries its fix: a clause after what is wrong, which may be the alternatives to pick from."""
-    without = [code for code, text in PROBLEM_CATALOGUE.items() if code not in _NO_FIX and not re.search(r"[;:.] \S", text.removesuffix(": {reason}"))]
+    sentences = [*PROBLEM_CATALOGUE.items(), *((kind.code, kind.sentence) for kind in PROBLEMS)]
+    without = [code for code, text in sentences if code not in _NO_FIX and not re.search(r"[;:.] \S", text.removesuffix(": {reason}"))]
     assert without == []
 
 

@@ -23,7 +23,6 @@ import conductor
 import polars as pl
 import pytest
 from conductor import (
-    PROBLEM_CODES,
     SKIPPED,
     Deprecation,
     ExternalError,
@@ -38,6 +37,7 @@ from conductor import (
     Waiting,
     node,
 )
+from conductor._internal.problem import PROBLEM_CATALOGUE
 from conductor.events import (
     Event,
     NodeComplete,
@@ -266,9 +266,10 @@ def _codes_written_by_the_library() -> set[str]:
     return written
 
 
-def test_every_code_the_library_writes_is_a_problem_code_and_every_problem_code_is_written():
-    """``PROBLEM_CODES`` is what a host translating by code covers: no code goes out unlisted, and no row is dead."""
-    assert _codes_written_by_the_library() == PROBLEM_CODES
+def test_every_code_written_as_a_string_has_a_row_and_every_row_is_written():
+    """A code not yet declared as a function of a catalogue is a string where it is written and a row of sentences:
+    no such code goes out without a row, and no row is dead. A code declared as a function has neither."""
+    assert _codes_written_by_the_library() == frozenset(PROBLEM_CATALOGUE)
 
 
 # --- errors a caller catches ------------------------------------------------

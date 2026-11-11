@@ -178,3 +178,74 @@ def test_every_name_the_reference_puts_in_backticks_exists():
                 missing.add(name)
 
     assert missing == set()
+
+
+def test_the_reference_has_every_kind_of_problem_with_its_sentence_and_its_ctx_keys():
+    from conductor import PROBLEMS
+
+    text = about.get_content()
+
+    assert "<!-- problems:" not in text
+    for kind in PROBLEMS:
+        assert f"#### `{kind.code}`" in text and f"> {kind.sentence}" in text
+    entry = about.get_section("from-run-missing")
+    assert entry is not None
+    assert "> '{node_id}' needs a {needs} for '{parameter}', and from_run gives none (it gives {given}); pass from_run={{needs}: ...}." in entry
+    assert "| `node_id` | `str` | always | The node. |" in entry
+    assert "| `given` | `list[str]` | always | The names of the classes `from_run` has values for. |" in entry
+
+
+def test_a_key_that_may_be_left_out_and_a_hint_are_said_in_a_kinds_entry():
+    from conductor import ProblemCatalogue
+    from conductor.about import _problems
+
+    catalogue = ProblemCatalogue()
+
+    @catalogue.problem()
+    def room_closed(*loc: str | int, until: str, opener: str | None = None) -> str:
+        """A room is closed.
+
+        Args:
+            loc: The room and the door.
+            until: When it opens,
+                on the wall clock.
+            opener: Who opens it, when someone is named.
+        """
+        return f"The room is closed until {until}."
+
+    @catalogue.problem("room_closed", hint="holiday")
+    def room_closed_for_a_holiday(*loc: str | int, until: str) -> str:
+        """A room is closed for a holiday.
+
+        Args:
+            loc: The room and the door.
+            until: When it opens.
+        """
+        return f"The room is closed over the holiday, until {until}."
+
+    entries = _problems(catalogue)
+
+    assert "#### `room_closed`\n\nA room is closed.\n\n> The room is closed until {until}.\n\n`loc`: The room and the door." in entries
+    assert "| `until` | `str` | always | When it opens, on the wall clock. |" in entries
+    assert "| `opener` | `str` | when it applies | Who opens it, when someone is named. |" in entries
+    assert "#### `room_closed`, hint `holiday`" in entries
+    assert "| `hint` | `'holiday'` | always | Which of the code's sentences this is. |" in entries
+
+
+def test_a_kind_with_a_key_its_docstring_does_not_explain_fails_when_the_reference_is_read():
+    from conductor import ProblemCatalogue
+    from conductor.about import _problems
+
+    catalogue = ProblemCatalogue()
+
+    @catalogue.problem()
+    def room_closed(*loc: str | int, until: str) -> str:
+        """A room is closed.
+
+        Args:
+            loc: The room and the door.
+        """
+        return f"The room is closed until {until}."
+
+    with pytest.raises(LookupError, match="room_closed.*'until'"):
+        _problems(catalogue)

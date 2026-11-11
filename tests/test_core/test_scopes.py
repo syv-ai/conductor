@@ -1,9 +1,8 @@
 """Where each node of a loaded graph runs: a Series read one item at a time opens a map, a value from outside it is
 captured, a ``Series`` or ``Table`` input gathers, and declared types alone decide all of it."""
 
-import time
 from dataclasses import dataclass
-from typing import Annotated, Any, TypedDict
+from typing import Annotated, Any, ClassVar, TypedDict
 
 import pytest
 from conductor import SKIPPED, InvalidCallError, NodeRegistry, Param, Series, Table, node
@@ -107,8 +106,46 @@ def measure(text: str) -> Size: ...
 def anything(value: Any) -> Any: ...
 
 
+@_node("height")
+def height(table: Table) -> int: ...
+
+
+@_node("sheets")
+def sheets(folder: str) -> Series[Table[Contact]]: ...
+
+
+@_node("sheet")
+def sheet(text: str) -> Table[Contact]: ...
+
+
+@_node("stacked")
+def stacked(tables: Series[Table[Contact]]) -> Table[Contact]: ...
+
+
+@_node("mappings")
+def mappings(folder: str) -> Series[dict[str, int]]: ...
+
+
+@_node("unknowns")
+def unknowns(folder: str) -> Series[Any]: ...
+
+
+@dataclass(frozen=True)
+class Person:
+    type_id: ClassVar[str] = "person"
+    type_title: ClassVar[str] = "Person"
+    name: str
+
+
+@_node("people")
+def people(folder: str) -> Series[Person]: ...
+
+
 REGISTRY = NodeRegistry()
-for _definition in (contacts, rows, send, collect, names, ages, documents, lines, count, total, pair, pair_or_alone, upper, both, decide, measure, anything):
+for _definition in (
+    contacts, rows, send, collect, names, ages, documents, lines, count, total, pair, pair_or_alone, upper, both, decide, measure, anything,
+    height, sheets, sheet, stacked, mappings, unknowns, people,
+):
     REGISTRY.add(_definition)
 
 
@@ -238,6 +275,54 @@ def test_a_table_input_gathers_records_and_lines_up_with_a_series_input_on_the_s
     assert feeds(graph, "k") == {"records": ("gathered", "r.result"), "sent": ("gathered", "r.result")}
 
 
+@pytest.mark.parametrize("source", ["rows", "mappings", "unknowns"], ids=["records of declared columns", "mappings", "items of any type"])
+def test_a_table_input_of_any_columns_gathers_what_can_be_a_record(source: str):
+    graph = load({"c": "contacts", "s": source, "h": "height"}, [*([("c.result", "s.table")] if source == "rows" else []), ("s.result", "h.table")])
+    assert graph.is_runnable and graph.plan["h"].mode == "once" and feeds(graph, "h") == {"table": ("gathered", "s.result")}
+
+
+@pytest.mark.parametrize(
+    ("nodes", "edges", "got"),
+    [
+        ({"s": "upper"}, [("s.result", "h.table")], "str"),
+        ({"s": "documents"}, [("s.result", "h.table")], "Series[str]"),
+        ({"d": "documents", "s": "upper"}, [("d.result", "s.text"), ("s.result", "h.table")], "str"),
+        ({"s": "people"}, [("s.result", "h.table")], "Series[person]"),
+    ],
+    ids=["one text", "a series of texts", "a text made per item", "a series of a dataclass, which no table input gathers"],
+)
+def test_a_table_input_of_any_columns_refuses_what_is_no_record_as_one_of_declared_columns_does(nodes: dict, edges: list, got: str):
+    graph = load({**nodes, "h": "height"}, edges)
+    assert problems(graph) == [("type_mismatch", ("h", "table"))]
+    assert (graph.problems[0].ctx["got"], graph.problems[0].ctx["expected"]) == (got, "Table")
+
+
+def test_a_series_of_tables_is_read_one_table_per_item_by_a_table_input_as_any_series_is_by_an_input_of_one_value():
+    graph = load({"s": "sheets", "h": "height", "n": "names"}, [("s.result", "h.table"), ("s.result", "n.table")])
+    assert graph.is_runnable
+    assert {n: (graph.plan[n].mode, graph.plan[n].series, feeds(graph, n)["table"]) for n in ("h", "n")} == {
+        "h": ("per_item", "s.result", ("per_item", "s.result")), "n": ("per_item", "s.result", ("per_item", "s.result")),
+    }
+
+
+def test_a_table_made_per_item_is_read_per_item_and_a_series_of_tables_input_gathers_the_tables():
+    graph = load({"d": "documents", "t": "sheet", "h": "height", "k": "stacked"}, [("d.result", "t.text"), ("t.result", "h.table"), ("t.result", "k.tables")])
+    assert graph.is_runnable
+    assert (graph.plan["h"].mode, graph.plan["h"].series, graph.plan["k"].mode) == ("per_item", "d.result", "once")
+    assert feeds(graph, "k") == {"tables": ("gathered", "d.result")}
+    whole = load({"s": "sheets", "k": "stacked"}, [("s.result", "k.tables")])
+    assert whole.is_runnable and feeds(whole, "k") == {"tables": ("gathered", "s.result")}
+
+
+def test_a_value_of_any_type_is_read_as_a_table_only_where_there_is_nothing_to_gather():
+    once = load({"a": "anything", "h": "height"}, [("a.result", "h.table")])
+    assert once.is_runnable and feeds(once, "h") == {"table": ("one_value", None)}
+    per_item = load({"d": "documents", "a": "anything", "h": "height"}, [("d.result", "a.value"), ("a.result", "h.table")])
+    assert per_item.is_runnable and per_item.plan["h"].mode == "once" and feeds(per_item, "h") == {"table": ("gathered", "d.result")}
+    items = load({"u": "unknowns", "h": "height"}, [("u.result", "h.table")])
+    assert items.is_runnable and feeds(items, "h") == {"table": ("gathered", "u.result")}
+
+
 def test_an_edge_may_name_one_field_of_a_record_and_an_unknown_field_lists_the_ones_there_are():
     graph = load({"c": "contacts", "r": "rows", "s": "send"}, [("c.result", "r.table"), ("r.result.phone", "s.email")])
     assert problems(graph) == [("unknown_output", ("s", "email"))]
@@ -264,49 +349,6 @@ def test_alternatives_that_run_per_item_of_different_series_are_refused():
     graph = load({"w": "decide", "a": "documents", "b": "documents", "u": "upper"}, edges)
     assert problems(graph) == [("alternatives_in_different_series", ("u", "text"))]
     assert graph.problems[0].ctx["series"] == ["a.result", "b.result"]
-
-
-# -- what skips a gather for every item at once ------------------------------------------------------
-
-
-def gates(graph, node_id: str, name: str) -> list[list[set[str]]]:
-    plan = graph._nodes[node_id].inputs[name]
-    return [sorted((sorted(cell.address for cell in cells) for cells in gate.skips)) for gate in plan.gates]
-
-
-def test_a_gather_is_gated_by_its_series_and_by_each_branch_decided_outside_the_map():
-    edges = [("w.yes", "p.a"), ("d.result", "p.b"), ("p.result", "c.items")]
-    graph = load({"w": "decide", "d": "documents", "p": "pair", "c": "count"}, edges)
-    assert gates(graph, "c", "items") == [[["d.result"], ["w.yes"]]]
-
-
-def blanks(graph, node_id: str, name: str) -> list[list[str]]:
-    plan = graph._nodes[node_id].inputs[name]
-    return [sorted(cell.address for cell in gate.blanks) for gate in plan.gates]
-
-
-def test_a_gather_is_left_uncalled_by_a_blank_outside_the_map_that_reaches_it_through_inputs_taking_none():
-    edges = [("w.yes", "p.a"), ("d.result", "p.b"), ("p.result", "c.items")]
-    assert blanks(load({"w": "decide", "d": "documents", "p": "pair", "c": "count"}, edges), "c", "items") == [["d.result", "w.yes"]]
-    graph = load({"m": "upper", "d": "documents", "p": "pair-or-alone", "c": "count"}, [("d.result", "p.a"), ("m.result", "p.b"), ("p.result", "c.items")])
-    assert graph.is_runnable and blanks(graph, "c", "items") == [["d.result"]]  # p takes m.result's blank, so it is called for every item
-
-
-def test_a_decision_made_per_item_gates_nothing():
-    edges = [("d.result", "w.text"), ("w.yes", "u.text"), ("u.result", "c.items")]
-    graph = load({"d": "documents", "w": "decide", "u": "upper", "c": "count"}, edges)
-    assert gates(graph, "c", "items") == [[["d.result"]]]
-
-
-def test_alternatives_inside_the_map_gate_a_gather_only_when_every_one_of_them_is_skipped():
-    # x needs w.yes and m.small; y needs w.no and m.large; either feeds p, which runs per item and is gathered
-    edges = [
-        ("w.yes", "x.a"), ("m.small", "x.b"), ("w.no", "y.a"), ("m.large", "y.b"),
-        ("x.result", "p.a"), ("y.result", "p.a"), ("d.result", "p.b"), ("p.result", "c.items"),
-    ]
-    graph = load({"w": "decide", "m": "measure", "d": "documents", "x": "pair", "y": "pair", "p": "pair", "c": "count"}, edges)
-    assert graph.is_runnable
-    assert gates(graph, "c", "items") == [[["d.result"], ["x.result", "y.result"]]]
 
 
 # -- the graph's inputs ---------------------------------------------------------------------------------
@@ -376,34 +418,3 @@ def test_the_fingerprint_follows_the_graphs_embedded_in_it():
     one = load({"e": "inner"}, [], _embedding({"u": "upper"}, []))
     other = load({"e": "inner"}, [], _embedding({"u": "upper", "v": "upper"}, [("u.result", "v.text")]))
     assert one.fingerprint != other.fingerprint
-
-
-# -- a gate is worked out once per node -----------------------------------------------------------------
-
-
-def _staged(stages: int) -> Any:
-    """A map with ``stages`` stages inside it, each two nodes on opposite branches of a decision made outside
-    the map, both fed by both nodes of the stage before; a gather of the last stage."""
-    nodes: dict[str, str | dict] = {"d": "documents"}
-    edges: list[tuple[str, str]] = []
-    before = ["d.result"]
-    for stage in range(stages):
-        nodes.update({f"w{stage}": "decide", f"x{stage}": "pair", f"y{stage}": "pair"})
-        edges += [(source, f"{node_id}{stage}.a") for source in before for node_id in "xy"]
-        edges += [(f"w{stage}.yes", f"x{stage}.b"), (f"w{stage}.no", f"y{stage}.b")]
-        before = [f"x{stage}.result", f"y{stage}.result"]
-    nodes["c"] = "count"
-    return load(nodes, [*edges, *((source, "c.items") for source in before)])
-
-
-def test_a_gate_behind_a_chain_of_alternatives_is_worked_out_once_per_node_not_once_per_way_to_it():
-    """Each stage doubles the ways up to the stages before it; loading follows each node's gate once all the same."""
-    def seconds(stages: int) -> float:
-        started = time.perf_counter()
-        graph = _staged(stages)
-        took = time.perf_counter() - started
-        assert graph.is_runnable and [len(gate.skips) for gate in graph._nodes["c"].inputs["items"].gates] == [stages + 1, stages + 1]
-        return took
-
-    seconds(2)  # whatever a first load pays once
-    assert min(seconds(16) for _ in range(3)) < 8 * min(seconds(8) for _ in range(3))  # twice the nodes; 2**8 times the ways

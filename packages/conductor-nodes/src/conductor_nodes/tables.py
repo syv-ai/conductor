@@ -78,12 +78,14 @@ def collect(records: Series[dict], columns: Names = [], constant_columns: Names 
         NodeError: A column doesn't hold one value for each record (``columns_not_aligned``).
     """
     for name in columns:
-        if len(values[name]) != len(records):
+        held = len(values[name])
+        if held != len(records):
+            made_once = "; if it is one value for every record, name it in 'constant_columns', which writes it on each" if held == 1 else ""
             raise NodeError(
-                f"The column '{name}' holds {len(values[name])} values for {len(records)} record{'s' if len(records) != 1 else ''}; "
+                f"The column '{name}' holds {held} value{'s' if held != 1 else ''} for {len(records)} record{'s' if len(records) != 1 else ''}; "
                 "wire a column from a node that runs once per record "
-                "of the same Series as 'records'",
-                code="columns_not_aligned", ctx={"column": name, "records": len(records), "values": len(values[name])},
+                f"of the same Series as 'records'{made_once}",
+                code="columns_not_aligned", ctx={"column": name, "records": len(records), "values": held},
             )
     constants = {name: values[name] for name in constant_columns}
     collected = [

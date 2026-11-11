@@ -3,6 +3,7 @@
 Only an edge binds a variable, when the graph loads; after that the placed node has ordinary fields.
 """
 
+import asyncio
 from dataclasses import dataclass
 from typing import Annotated, Any, TypedDict
 
@@ -166,8 +167,13 @@ def test_a_bare_variable_binds_without_the_blank_so_a_blank_leaves_the_node_unca
 def test_an_uncalled_decision_gives_a_branch_not_taken_on_both_outputs_for_a_blank() -> None:
     graph = _loaded(blank, decision, maybe, edges=[["blank.result", "decision.value"], ["decision.if_true", "maybe.value"]])
     assert graph.problems == []
-    events_free = graph.run()
-    assert events_free.results["maybe"] == {"result": None} and [n.loc for n in events_free.not_called] == [("decision",)]
+    run = graph.run()
+    assert run.results["maybe"] == {"result": None} and [n.loc for n in run.not_called] == [("decision",)]
+
+    async def said() -> list[tuple[str, tuple[str, ...]]]:
+        return [(event.type, event.loc) async for event in graph.with_inputs().stream() if event.type in ("node_complete", "node_skipped")]
+
+    assert asyncio.run(said())[-2:] == [("node_complete", ("decision",)), ("node_skipped", ("maybe",))]  # skipped, where a blank would leave it not called
 
 
 def test_two_places_for_one_variable_join() -> None:

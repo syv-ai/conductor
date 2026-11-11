@@ -2,7 +2,10 @@
 
 The page holds the rules. The names of a public module are not written in it: a line
 ``<!-- names: conductor.events -->`` stands where they go, and reading the reference writes
-them there from the module's ``__all__``, each with the first paragraph of its docstring.
+them there from the module's ``__all__``, each with the first paragraph of its docstring. The
+kinds of problem a catalogue holds are not written in it either: a line
+``<!-- problems: conductor.PROBLEMS -->`` stands where they go, and reading the reference writes
+each kind there from the function that declares it.
 
 From a shell::
 
@@ -19,11 +22,16 @@ from __future__ import annotations
 
 import inspect
 import re
+import typing
 from importlib import import_module
 from importlib.resources import files
 
+from conductor._internal.problem import ProblemCatalogue
+
 _HEADING = re.compile(r"^(##+) (.+)$", re.MULTILINE)
 _NAMES = re.compile(r"^<!-- names: ([\w.]+) -->$", re.MULTILINE)
+_PROBLEMS = re.compile(r"^<!-- problems: ([\w.]+)\.(\w+) -->$", re.MULTILINE)
+_ARGUMENT = re.compile(r"^    (\w+): ", re.MULTILINE)
 
 
 def _names(module_name: str) -> str:
@@ -53,6 +61,46 @@ def _names(module_name: str) -> str:
     return "\n".join(lines)
 
 
+def _problems(catalogue: ProblemCatalogue) -> str:
+    """The kinds of problem a catalogue holds, each as a ``####`` section under its code.
+
+    A kind's section has the first paragraph of its docstring, its sentence with a slot for each ``ctx`` value, what
+    its ``*loc`` holds when it has one, and a table of its ``ctx`` keys: the type, whether the key is always given,
+    and the key's line under ``Args:`` in the docstring.
+
+    Args:
+        catalogue: The catalogue.
+
+    Returns:
+        The sections, in the order the kinds are declared.
+
+    Raises:
+        LookupError: A kind's docstring has no ``Args:`` line for one of its ``ctx`` keys.
+    """
+    sections = []
+    for kind in catalogue:
+        summary, _, arguments = inspect.cleandoc(kind.__doc__ or "").partition("\nArgs:\n")
+        pieces = _ARGUMENT.split(arguments)
+        told = {name: " ".join(text.split()).replace("``", "`") for name, text in zip(pieces[1::2], pieces[2::2])}
+        rows = []
+        for key, hint in typing.get_type_hints(kind.ctx_type).items():
+            if key == "hint":
+                rows.append(f"| `hint` | `'{kind.hint}'` | always | Which of the code's sentences this is. |")
+                continue
+            if key not in told:
+                raise LookupError(f"{kind.code}: the docstring of its function has no Args line for the ctx key '{key}'")
+            given = "always" if key in kind.ctx_type.__required_keys__ else "when it applies"
+            rows.append(f"| `{key}` | `{inspect.formatannotation(hint)}` | {given} | {told[key]} |")
+        sections.append("\n\n".join([
+            f"#### `{kind.code}`" + (f", hint `{kind.hint}`" if kind.hint else ""),
+            " ".join(summary.split("\n\n")[0].split()).replace("``", "`"),
+            f"> {kind.sentence}",
+            *([f"`loc`: {told['loc']}"] if "loc" in told else []),
+            "\n".join(["| `ctx` | type | given | holds |", "|---|---|---|---|", *rows]),
+        ]))
+    return "\n\n".join(sections)
+
+
 def _parse_sections(text: str) -> dict[str, str]:
     """Each ``##`` and ``###`` section by its slug.
 
@@ -76,9 +124,11 @@ def _parse_sections(text: str) -> dict[str, str]:
 
 
 def get_content() -> str:
-    """The whole reference, with each public module's names written in from its ``__all__``."""
+    """The whole reference, with each public module's names written in from its ``__all__`` and each catalogue's
+    kinds of problem from the functions that declare them."""
     page = files("conductor.about").joinpath("llms.txt").read_text(encoding="utf-8")
-    return _NAMES.sub(lambda marker: _names(marker[1]), page)
+    page = _NAMES.sub(lambda marker: _names(marker[1]), page)
+    return _PROBLEMS.sub(lambda marker: _problems(getattr(import_module(marker[1]), marker[2])), page)
 
 
 def list_sections() -> list[str]:

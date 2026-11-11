@@ -26,13 +26,13 @@ import json
 import math
 import threading
 import time
-from collections.abc import AsyncGenerator, Callable, Iterator, Mapping
+from collections.abc import AsyncGenerator, Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Literal, NamedTuple, overload
+from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Literal, NamedTuple, get_args, overload
 
 import pydantic_core
-from pydantic import ConfigDict, NonNegativeInt, TypeAdapter, ValidationError
+from pydantic import ConfigDict, NonNegativeInt, PositiveInt, TypeAdapter, ValidationError
 from pydantic import Field as PydanticField
 from pydantic_core import (
     CoreConfig,
@@ -45,10 +45,10 @@ from pydantic_core import (
 
 from conductor._internal.ask import Question, Waiting, answer_outputs, waiting_questions
 from conductor._internal.conductor_model import ConductorModel
-from conductor._internal.errors import InvalidCallError, Problem, make_problem, value_free_errors
 from conductor._internal.fields import SKIPPED, Field, FieldValueError, Records, Type, written_table
 from conductor._internal.graph import (
     Cell,
+    CellRead,
     Fixed,
     FunctionAtPath,
     Gather,
@@ -62,6 +62,8 @@ from conductor._internal.graph import (
     SeriesOfOne,
 )
 from conductor._internal.node_definition import Returns, from_run_values
+from conductor._internal.outside_the_items import COULD, could_bring
+from conductor._internal.problem import InvalidCallError, Problem, make_problem, value_free_errors
 
 if TYPE_CHECKING:
     from conductor._internal.graph import Graph
@@ -427,10 +429,19 @@ class Run:
         if problems:
             raise InvalidCallError(problems)
         run = self._copy(share_units=True)
-        for node in {changed for changed, _ in answered}:  # its own units for each node it changes; every other node's are shared
-            run._units[node.inside][node.placed.id] = dict(self._units[node.inside][node.placed.id])
+        around: dict[GraphAtPath, dict[Key, None]] = {}  # each embedded graph's node around an answered unit, and its instances there
+        for node, key in answered:
+            embedding = node.embedding
+            while embedding is not None:
+                around.setdefault(embedding, {})[key[: len(embedding.maps)]] = None
+                embedding = embedding.embedding
+        changes: list[NodeAtPath] = [*{node for node, _ in answered}, *around]
+        for changed in changes:  # its own units for each node it changes; every other node's are shared
+            run._units[changed.inside][changed.placed.id] = dict(self._units[changed.inside][changed.placed.id])
         for (node, key), now in answered.items():
             run._units[node.inside][node.placed.id][key] = now
+        for embedding in sorted(around, key=lambda node: node.position):  # each once, after every embedded graph's node inside it
+            run._settle(embedding, around[embedding])
         return run
 
     def _moved_to(self, nodes: NodePath, fingerprint: str) -> str | None:
@@ -608,14 +619,16 @@ class Run:
         An output made once inside is the inner unit's own: its value, ``SKIPPED`` for a branch not taken, ``None``
         for a blank, so what reads the embedded graph's node is skipped or left uncalled as it would be reading
         the node inside. One made per item inside, at any depth, is every item's in order, and a ``Series`` made
-        per item is a list of lists.
+        per item is a list of lists; where the Series those items are of was never made, for a blank or a branch
+        not taken, it is that blank or that branch not taken, as the nodes drawn in the graph itself hold.
 
         Returns:
-            The outputs by address, or ``PENDING`` until every one of them is settled for the instance.
+            The outputs by address, or ``PENDING`` until every one of them is settled for the instance, and
+            every node inside that ends the graph with no output.
         """
         units, base = self._units[node.path], len(key)
         out: dict[str, Any] = {}
-        for address, cell, maps, lists in node.offers:
+        for address, (cell, maps, lists, series) in node.offers.items():
             if len(maps) == base:  # made once inside: the inner unit's own
                 unit = units[cell.node_id].get(key)
                 kind = type(unit)
@@ -626,17 +639,68 @@ class Run:
                 else:
                     return PENDING
             else:
+                made = _cell(units, base, series, key)  # type: ignore[arg-type]  # an output made per item has its Series
+                if made is PENDING:
+                    return PENDING
+                if made is None or made is SKIPPED:  # the Series was never made, so nor was the output: no list of no items
+                    out[address] = made
+                    continue
                 instances, known = self._instances(maps, key)
                 if not known:
                     return PENDING
-                value = [_cell(units, base, cell, instance) for instance in instances]
+                value = [_cell(units, len(maps), cell, instance) for instance in instances]
                 for one in value:
                     if one is PENDING:
                         return PENDING
                 if lists:
                     value = [[None if item is SKIPPED else item for item in one] if type(one) is list else one.records() if type(one) is Records else one for one in value]
             out[address] = value
+        for last in node.ends_silently:  # nothing to offer, and still what the graph inside came to
+            instances, known = self._instances(last.maps, key)
+            if not known:
+                return PENDING
+            held = units[last.placed.id]
+            for instance in instances:
+                unit = held.get(instance)
+                if unit is None or type(unit) is Asking:
+                    return PENDING
         return out
+
+    def _settle(self, node: GraphAtPath, instances: Iterable[Key]) -> None:
+        """Gives the embedded graph's node ``node`` its unit in each of ``instances`` where every output of the
+        graph inside is settled.
+
+        The unit is what the units inside came to and nothing else (``_offered``), so it is made of them and
+        never saved. One an instance already holds is made again, to the same; the node's units stay in
+        instance order.
+
+        Args:
+            node: The embedded graph's node.
+            instances: The instances of it to look at.
+        """
+        units = self._units[node.inside][node.placed.id]
+        last = next(reversed(units), None)
+        in_order = True
+        for key in instances:
+            offered = self._offered(node, key)
+            if offered is not PENDING:
+                if last is None or key > last:
+                    last = key
+                elif key not in units:
+                    in_order = False
+                units[key] = Done(offered)
+        if not in_order:  # a run holds every node's units in instance order
+            held = sorted(units.items())
+            units.clear()
+            units.update(held)
+
+    def _settle_embedded(self) -> None:
+        """Settles every embedded graph's node in every instance that holds no unit (``_settle``), each after the
+        nodes inside it."""
+        for node in self.graph._tree:
+            if type(node) is GraphAtPath:
+                units = self._units[node.inside][node.placed.id]
+                self._settle(node, [key for key in self._instances(node.maps, ())[0] if key not in units])
 
     # -- what a leg reads -------------------------------------------------------
 
@@ -733,6 +797,15 @@ class Run:
             keys = below
         return keys, complete
 
+    def _has_every_unit(self, node: NodeAtPath) -> bool:
+        """Whether every instance of ``node`` holds a unit, one waiting for a person included, and every Series
+        it runs per item of is made, so no instance is still to come."""
+        units = self._units[node.inside][node.placed.id]
+        if not node.maps:
+            return bool(units)
+        counted, known = self._instances(node.maps, (), counted=True)
+        return known and len(units) == (counted[0][0] if counted else 0)
+
     def _inputs(self, node: FunctionAtPath, key: Key) -> Any:
         """What ``node`` receives in the instance ``key``.
 
@@ -740,58 +813,110 @@ class Run:
         that node's plan, in the graph that node is in.
 
         Returns:
-            The keyword arguments of the call; ``PENDING`` while something it reads hasn't run; or the unit it
-            comes to uncalled: ``Skipped`` when an input comes only from branches not taken, else ``Blank`` when
-            an input that takes no blank got one. Every input is read before a blank is the answer. When an
+            The keyword arguments of the call; or the unit it comes to uncalled: ``Skipped`` when an input comes
+            only from branches not taken, whatever the others hold; else ``PENDING`` while something it reads
+            hasn't run; else ``Blank`` when an input that takes no blank got one. Every input is read before
+            pending or a blank is the answer, so the order of a node's parameters decides nothing. When an
             edge names a field the record it brings doesn't have, the ``Problem`` the unit fails with
             (``invalid_edge_value``).
         """
         kwargs: dict[str, Any] = {}
         blank: Blank | None = None
-        gathered: dict[str, tuple[Gather, _UnitsOfAGraph, list[Any]]] = {}
-        own, own_base = self._units[node.inside], node.base
-        try:
-            for name, (plan, giver) in node.inputs.items():
-                kind = type(plan)
-                if kind is Fixed:
-                    kwargs[name] = plan.value  # type: ignore[union-attr]
-                    continue
-                if kind is Open:  # a first node of the graph itself, or of a graph embedded in one: the caller gives it
-                    kwargs[name] = self.inputs[plan.address]  # type: ignore[union-attr]
-                    continue
-                if giver is None:
-                    units, base = own, own_base
-                else:
-                    units, base = self._units[giver.inside], giver.base
+        pending = False
+        gathered: dict[str, tuple[Gather, _UnitsOfAGraph, CellRead, list[Any]]] = {}
+        own = self._units[node.inside]
+        for name, (plan, giver, cells) in node.inputs.items():
+            kind = type(plan)
+            if kind is Fixed:
+                kwargs[name] = plan.value  # type: ignore[union-attr]
+                continue
+            if kind is Open:  # a first node of the graph itself, or of a graph embedded in one: the caller gives it
+                kwargs[name] = self.inputs[plan.address]  # type: ignore[union-attr]
+                continue
+            units = own if giver is None else self._units[giver.inside]
+            try:
                 if kind is Gather:
-                    value = _gathered(units, base, plan, key)  # type: ignore[arg-type]
+                    value = self._gathered(node.inside if giver is None else giver.inside, plan, cells, node.gathered_through[name], key)  # type: ignore[arg-type]
                 else:  # one value: the first edge whose branch was taken
                     value = SKIPPED
-                    for source in plan.sources:  # type: ignore[union-attr]
-                        value = _cell(units, base, source, key)
+                    for source, depth in cells:
+                        value = _cell(units, depth, source, key)
                         if value is not SKIPPED:
                             break
-                    if kind is SeriesOfOne and value is not None and value is not SKIPPED and value is not PENDING:
-                        value = [value]
-                if value is PENDING:
-                    return PENDING
-                if value is SKIPPED:
-                    return SKIPPED_UNIT
-                if value is None:
-                    if not plan.spec.whole.optional and blank is None:
-                        blank = Blank(name)
-                    kwargs[name] = None
-                elif kind is Gather:
-                    gathered[name] = (plan, units, value)  # type: ignore[assignment]
-                else:
-                    kwargs[name] = value
-        except FieldValueError as missing:  # raised reading the input ``name``
-            return make_problem(missing.code, *unit_loc(node, key), name=name, reason=missing.reason, **missing.ctx)
+                    if kind is SeriesOfOne and value is not SKIPPED and value is not PENDING and (value is not None or plan.spec.keeps_blanks):
+                        value = [value]  # a Series of one, whose one item is blank where the items take a blank
+            except FieldValueError as missing:  # an edge into this input names a field its record doesn't have
+                return make_problem(missing.code, *unit_loc(node, key), name=name, reason=missing.reason, **missing.ctx)
+            if value is SKIPPED:
+                return SKIPPED_UNIT
+            if value is PENDING:  # a later input may be skipped, which settles the unit whatever this one comes to
+                pending = True
+            elif value is None:
+                if not plan.spec.whole.optional and blank is None:
+                    blank = Blank(name)
+                kwargs[name] = None
+            elif kind is Gather:
+                gathered[name] = (plan, units, cells[0], value)  # type: ignore[assignment]
+            else:
+                kwargs[name] = value
+        if pending:
+            return PENDING
         if blank is not None:
             return blank
-        for name, (plan, units, items) in gathered.items():
-            kwargs[name] = _aligned(plan, units, items, gathered)
+        for name, (plan, units, series, items) in gathered.items():
+            kwargs[name] = _aligned(plan, units, series, items, gathered)
         return kwargs
+
+    def _gathered(self, inside: NodePath, plan: Gather, cells: tuple[CellRead, ...], through: tuple[NodeAtPath, ...], key: Key) -> Any:
+        """The items a gathering input gets in the instance ``key``, with ``None`` for an item that has no value.
+
+        What is outside the items is asked first whether any item could bring a value (``could_bring``). When
+        none could, that is the answer for any number of items, none included. When one could, each item
+        answers for itself: one with no value, for a blank or a branch not taken, holds ``None``.
+
+        Args:
+            inside: The path of the embedded graph's node the plan was made in the graph of; ``()`` for the
+                run's own graph.
+            plan: The input's plan.
+            cells: The cells the input reads where its node stands: the Series, then what each edge brings.
+            through: The nodes the input gathers through, as the tree keeps them; none when nothing outside
+                the items but the Series itself has a say.
+            key: The instance of the node that gathers.
+
+        Returns:
+            The list, one place per item of the Series; ``PENDING`` until what is outside and every item is
+            settled; ``SKIPPED`` when no item could bring a value for a branch not taken outside the items;
+            ``None`` when none could for a blank there.
+        """
+        (series_made, gathered_in), *edges = cells
+        key = key[:gathered_in]
+        units = self._units[inside]
+        series = _cell(units, gathered_in, series_made, key)
+        if through:
+            certain = could_bring(plan, cells, through, inside, self.graph._node_at, _AsItStands(self, key))
+            if certain is not COULD:
+                return certain
+        elif series is PENDING or series is SKIPPED or series is None:  # nothing outside but the Series has a say
+            return series
+        if len(edges) == 1 and type(edges[0][0]) is Item:  # the Series itself: its items, or one field of each
+            wanted = edges[0][0].field
+            if type(series) is Records:
+                return series.records() if wanted is None else _field_of(series.columns, wanted)
+            if wanted is None:
+                return [None if item is SKIPPED else item for item in series] if any(item is SKIPPED for item in series) else series
+            return [None if item is SKIPPED or item is None else _field_of(item, wanted) for item in series]
+        items = []
+        per_item = [(source, gathered_in if type(source) is Item else gathered_in + 1) for source, _ in edges]  # an item of the Series' unit, or a unit made for the item
+        for place in range(len(series)):
+            value = SKIPPED
+            for source, depth in per_item:
+                value = _cell(units, depth, source, (*key, place))
+                if value is PENDING:
+                    return PENDING
+                if value is not SKIPPED:
+                    break
+            items.append(None if value is SKIPPED else value)
+        return items
 
     # -- JSON -------------------------------------------------------------------
 
@@ -804,7 +929,7 @@ class Run:
             at = _unwritable_at(self.graph, saved)
             raise InvalidCallError([make_problem("state_unwritable", "state", at, at=at, reason="a value has no JSON form")]) from None
 
-    def _saved(self) -> dict[str, Any]:
+    def _saved(self) -> SavedRun[SavedUnits, SavedEarlier[SavedUnits]]:
         """The run as its graph's ``SaveForm`` writes it. A node inside an embedded graph is saved as any node,
         under its path. The unit of an embedded graph's node is not written: it is what the units inside came
         to, and is read from them."""
@@ -814,18 +939,15 @@ class Run:
             for node in self.graph._tree if isinstance(node, FunctionAtPath) and self._units[node.inside][node.placed.id]
         }
         earlier = {"/".join(path): _earlier_columns(functions[path].outputs, lent) for path, lent in self._earlier.items() if lent.computed or lent.asked}
-        return {
-            "graph": self.graph.fingerprint, "state": self.state, "max_items": self.max_items, "inputs": self.inputs, "units": units, "earlier": earlier,
-            "code": {name: self._ran_as.get(path) or placed.reuse_digest for path, placed in functions.items() if (name := "/".join(path)) in units or name in earlier},
-            "complete": ["/".join(node.path) for node in self.graph._tree if node.path in self._complete],
-        }
+        code = {name: self._ran_as.get(path) or placed.reuse_digest for path, placed in functions.items() if (name := "/".join(path)) in units or name in earlier}
+        complete = ["/".join(node.path) for node in self.graph._tree if node.path in self._complete]
+        return SavedRun(graph=self.graph.fingerprint, state=self.state, max_items=self.max_items, inputs=self.inputs, units=units, earlier=earlier, code=code, complete=complete)
 
     def _slots(self, node: FunctionAtPath) -> list[Unit | None]:
         """A node's units with a slot for each instance of the node, in instance order; ``None`` where the
         instance hasn't run."""
         units = self._units[node.inside][node.placed.id]
-        counted, _ = self._instances(node.maps, (), counted=True)
-        if len(units) == ((counted[0][0] if counted else 0) if node.maps else 1):  # every instance ran: the units as they stand
+        if self._has_every_unit(node):  # the units as they stand
             return list(units.values())
         return [units.get(instance) for instance in self._instances(node.maps, ())[0]]
 
@@ -845,12 +967,39 @@ class Run:
         return copy
 
 
-def _cell(units: _UnitsOfAGraph, base: int, cell: Cell, key: Key) -> Any:
+class _AsItStands:
+    """What was made outside the items of a gathering input, as it stands for the instance the input gathers in:
+    the reader a run hands the question of what is outside the items.
+
+    Attributes:
+        run: The run.
+        key: The instance the input gathers in.
+    """
+
+    __slots__ = ("key", "run")
+
+    def __init__(self, run: Run, key: Key) -> None:
+        self.run, self.key = run, key
+
+    def cell(self, inside: NodePath, depth: int, cell: Cell) -> Any:
+        """What ``cell`` holds there: ``COULD`` for a value, else ``SKIPPED``, ``None`` or ``PENDING``."""
+        value = _cell(self.run._units[inside], depth, cell, self.key)
+        return value if value is PENDING or value is SKIPPED or value is None else COULD
+
+    def gathered(self, inside: NodePath, plan: Gather, cells: tuple[CellRead, ...], through: tuple[NodeAtPath, ...]) -> Any:
+        """What the gathering input of ``plan`` gathers there: ``COULD`` for a list, else ``SKIPPED``, ``None``
+        or ``PENDING``."""
+        value = self.run._gathered(inside, plan, cells, through, self.key)
+        return value if value is PENDING or value is SKIPPED or value is None else COULD
+
+
+def _cell(units: _UnitsOfAGraph, depth: int, cell: Cell, key: Key) -> Any:
     """What ``cell`` holds for the instance ``key`` or one under it, as an edge brings it.
 
     Args:
         units: The units of the graph the cell's node is in.
-        base: How many places of ``key`` are of the items of the embedded graph's node that graph is inside.
+        depth: How many places of ``key`` say which unit of the cell's node holds it, as the reading node's
+            ``inputs`` give it.
         cell: The cell.
         key: The instance of the node that reads.
 
@@ -859,7 +1008,6 @@ def _cell(units: _UnitsOfAGraph, base: int, cell: Cell, key: Key) -> Any:
         ``PENDING`` while its unit hasn't run or waits for a person; ``SKIPPED`` for a branch not taken, which
         an output of an exclusive group is where its node wasn't called; ``None`` for a blank.
     """
-    depth = base + len(cell.scope)
     unit = units[cell.node_id].get(key[:depth])
     kind = type(unit)
     if kind is Done or kind is Answered:
@@ -875,75 +1023,10 @@ def _cell(units: _UnitsOfAGraph, base: int, cell: Cell, key: Key) -> Any:
     if type(cell) is Item:
         if type(value) is Records:  # held by column: the cell an edge names, with no record built
             wanted = cell.field  # type: ignore[attr-defined]
-            if wanted is None:
-                return value[key[depth]]
-            try:
-                return value.columns[wanted][key[depth]]
-            except KeyError:
-                raise _no_such_field(wanted) from None
+            return value[key[depth]] if wanted is None else _field_of(value.columns, wanted)[key[depth]]
         value = value[key[depth]]
     field = cell.field  # type: ignore[attr-defined]
     return value if field is None or value is None or value is SKIPPED else _field_of(value, field)
-
-
-def _gathered(units: _UnitsOfAGraph, base: int, plan: Gather, key: Key) -> Any:
-    """The items a gathering input gets in the instance ``key``, with ``None`` for an item that has no value.
-
-    Args:
-        units: The units of the graph the plan was made in.
-        base: How many places of ``key`` are of the items of the embedded graph's node that graph is inside.
-        plan: The input's plan.
-        key: The instance of the node that gathers.
-
-    Returns:
-        The list, one place per item of the Series; ``PENDING`` until every item is settled; ``SKIPPED`` when
-        every edge is skipped where the node runs or above; ``None`` when the Series is blank, or an edge whose
-        branch was taken is blank where the node runs or above.
-    """
-    key = key[: base + len(plan.series.scope)]
-    live = []
-    blank = False
-    for source, gate in zip(plan.sources, plan.gates, strict=True):
-        taken = True
-        for cells in gate.skips:
-            held = [_cell(units, base, cell, key) for cell in cells]
-            if any(value is PENDING for value in held):  # asked by identity: a cell may hold a table, which has no plain ==
-                return PENDING
-            if all(value is SKIPPED for value in held):
-                taken = False
-        if taken:
-            live.append(source)
-            for cell in gate.blanks:
-                value = _cell(units, base, cell, key)
-                if value is PENDING:
-                    return PENDING
-                if value is None:
-                    blank = True
-    if not live:
-        return SKIPPED
-    if blank:
-        return None
-    series = _cell(units, base, plan.series, key)
-    if series is None:
-        return None
-    if len(live) == 1 and type(live[0]) is Item:  # the Series itself: its items, or one field of each
-        wanted = live[0].field
-        if type(series) is Records:
-            return series.records() if wanted is None else _field_of(series.columns, wanted)
-        if wanted is None:
-            return [None if item is SKIPPED else item for item in series] if any(item is SKIPPED for item in series) else series
-        return [None if item is SKIPPED or item is None else _field_of(item, wanted) for item in series]
-    items = []
-    for place in range(len(series)):
-        value = SKIPPED
-        for source in live:
-            value = _cell(units, base, source, (*key, place))
-            if value is PENDING:
-                return PENDING
-            if value is not SKIPPED:
-                break
-        items.append(None if value is SKIPPED else value)
-    return items
 
 
 def no_units(graph: Graph) -> dict[NodePath, _UnitsOfAGraph]:
@@ -987,17 +1070,19 @@ def waiting_unit(node: FunctionAtPath, key: Key, unit: Asking) -> Waiting:
     )
 
 
-def _aligned(plan: Gather, units: _UnitsOfAGraph, items: list[Any], gathered: Mapping[str, tuple[Gather, _UnitsOfAGraph, list[Any]]]) -> list[Any]:
+def _aligned(plan: Gather, units: _UnitsOfAGraph, series: CellRead, items: list[Any], gathered: Mapping[str, tuple[Gather, _UnitsOfAGraph, CellRead, list[Any]]]) -> list[Any]:
     """The items one gathering input receives: those that have a value in every input of the node that gathers
     the same Series, so those inputs stay in step; an input whose items may be blank keeps a blank in its place.
 
     Args:
         plan: The input's plan.
-        units: The units of the graph the plan was made in, which with the plan's Series says which Series it is.
+        units: The units of the graph the plan was made in, which with ``series`` says which Series it is.
+        series: The Series the input gathers, as the node's ``inputs`` give it.
         items: What the input gathered, one place per item of the Series.
-        gathered: Every gathering input of the node, by name: its plan, the units of its plan's graph, its items.
+        gathered: Every gathering input of the node, by name: its plan, the units of its plan's graph, its
+            Series, its items.
     """
-    together = [(others, other.spec.keeps_blanks) for other, theirs, others in gathered.values() if other.series == plan.series and theirs is units]
+    together = [(others, other.spec.keeps_blanks) for other, theirs, of, others in gathered.values() if of == series and theirs is units]
     if len(together) == 1:
         return items if together[0][1] else [item for item in items if item is not None]  # by identity: an item may be a frame, which has no plain ==
     return [item for place, item in enumerate(items) if all(keeps or others[place] is not None for others, keeps in together)]
@@ -1047,7 +1132,7 @@ def run_from_json(graph: Graph, saved: str | bytes | Mapping[str, Any]) -> Run:
     return _run_of(graph, read)
 
 
-def _run_of(graph: Graph, saved: dict[str, Any]) -> Run:
+def _run_of(graph: Graph, saved: SavedRun[list[Unit | None], Earlier]) -> Run:
     """A run of ``graph`` from its save as the graph's ``SaveForm`` read it: each node's units in the order of
     their slots, its carried work an ``Earlier``.
 
@@ -1055,25 +1140,21 @@ def _run_of(graph: Graph, saved: dict[str, Any]) -> Run:
         InvalidCallError: A node doesn't hold one slot for each instance the saved run made of it
             (``state_unreadable``).
     """
-    run = start_run(graph, saved["inputs"], saved["max_items"], {}, no_units(graph))
-    run.state = saved["state"]
+    run = start_run(graph, saved.inputs, saved.max_items, {}, no_units(graph))
+    run.state = saved.state
     for node in graph._tree:  # each after the nodes it reads, so the Series its instances are of are in place
-        units = run._units[node.inside][node.placed.id]
         instances, _ = run._instances(node.maps, ())
         if isinstance(node, GraphAtPath):  # its units are what the units inside it came to
-            for key in instances:
-                offered = run._offered(node, key)
-                if offered is not PENDING:
-                    units[key] = Done(offered)
-        elif (slots := saved["units"].get("/".join(node.path))) is not None:
+            run._settle(node, instances)
+        elif (slots := saved.units.get("/".join(node.path))) is not None:
             if len(slots) != len(instances):
                 at, reason = f"units.{'/'.join(node.path)}", f"it holds {len(slots)} slots for the {len(instances)} instances the saved run made of the node"
                 raise InvalidCallError([make_problem("state_unreadable", "state", at=at, reason=reason)])
             run._units[node.inside][node.placed.id] = {instance: unit for instance, unit in zip(instances, slots, strict=True) if unit is not None}
     functions = graph._functions
-    run._ran_as = {path: digest for name, digest in saved["code"].items() if digest != functions[path := tuple(name.split("/"))].reuse_digest}
-    run._earlier = {path: lent for name, lent in saved["earlier"].items() if (path := tuple(name.split("/"))) not in run._ran_as}  # work of other code is never taken
-    run._complete = frozenset(tuple(name.split("/")) for name in saved["complete"])
+    run._ran_as = {path: digest for name, digest in saved.code.items() if digest != functions[path := tuple(name.split("/"))].reuse_digest}
+    run._earlier = {path: lent for name, lent in saved.earlier.items() if (path := tuple(name.split("/"))) not in run._ran_as}  # work of other code is never taken
+    run._complete = frozenset(tuple(name.split("/")) for name in saved.complete)
     return run
 
 
@@ -1152,12 +1233,119 @@ def _length(value: Any) -> int:
 # -- the save -----------------------------------------------------------------------------------
 
 
+#: Every record of a save refuses a key it doesn't declare, and writes a float that isn't finite as its text.
+_SAVED = ConfigDict(extra="forbid", ser_json_inf_nan="strings")
+
+#: What a save says of a unit that holds outputs, and of one that is a branch not taken; a unit with neither
+#: word holds no outputs.
+UnitState = Literal["done", "skipped"]
+_DONE, _SKIPPED = get_args(UnitState)
+
+
+#: The slots of one output whose value is a branch not taken.
+SkippedSlots = list[NonNegativeInt]
+
+#: By slot, the items of a ``Series`` output there that are a branch not taken.
+SkippedItems = dict[NonNegativeInt, list[NonNegativeInt]]
+
+
+@dataclass(slots=True, kw_only=True)
+class SavedUnits:
+    """Units of one node as a save holds them: columns with a slot for each unit. A node's own units have a slot
+    for each instance of the node, in instance order, so an instance is a place in them and is never written.
+
+    The record is what is written and what is read: a key of a save is a field here and nowhere else.
+
+    Attributes:
+        states: What each unit came to; ``None`` for a unit that holds no outputs.
+        outputs: By output, its value in each slot, read and written by the output's own type (the one part
+            composed for each graph); ``None`` where the unit holds none.
+        questions: By slot, the question a unit asked; ``None``, as for each field after it, when there is none,
+            which leaves the key out of the save. On a slot that isn't done the unit waits for a person, so a
+            waiting unit can't be written without its question.
+        blank_inputs: By slot, the input that got a blank, for a unit that wasn't called for it.
+        skipped: By output, the slots whose value is a branch not taken (``SKIPPED``); ``None`` in the column.
+            A graph's form takes it for the node's own outputs only.
+        skipped_items: By output and slot, the items of a ``Series`` there that are a branch not taken; ``None``
+            in the column. A graph's form takes it for the node's ``Series`` outputs only, so an output of one
+            value can't be saved with any.
+    """
+
+    __pydantic_config__: ClassVar[ConfigDict] = _SAVED
+    states: list[UnitState | None]
+    outputs: dict[str, list[Any]]
+    questions: dict[NonNegativeInt, Question] | None = None
+    blank_inputs: dict[NonNegativeInt, str] | None = None
+    skipped: dict[str, SkippedSlots] | None = None
+    skipped_items: dict[str, SkippedItems] | None = None
+
+
+@dataclass(slots=True, kw_only=True)
+class SavedEarlier[UnitsT]:
+    """The work of one node carried from an earlier run, as a save holds it: each carried unit once.
+
+    Attributes:
+        units: The carried units, a slot for each: a ``SavedUnits`` when written, the units it holds when read.
+        fingerprints: For each slot, the fingerprint of what the unit received.
+        places: By slot, the instance a computed unit stood in in the earlier run; ``None``, as for ``lineages``,
+            when there is none, which leaves the key out of the save.
+        lineages: By slot, for an answer or a question still waiting, the fingerprint of the items above it.
+    """
+
+    __pydantic_config__: ClassVar[ConfigDict] = _SAVED
+    units: UnitsT
+    fingerprints: list[str]
+    places: dict[NonNegativeInt, tuple[NonNegativeInt, ...]] | None = None
+    lineages: dict[NonNegativeInt, str] | None = None
+
+
+@dataclass(slots=True, kw_only=True)
+class SavedRun[UnitsT, EarlierT]:
+    """A run as a save holds it. A node is named by its id after the ids of the embedded graphs' nodes it is
+    inside, joined by ``/`` (``e/ask``).
+
+    Attributes:
+        graph: The fingerprint of the run's graph, so a save of another graph is told apart before anything in
+            it is read.
+        state: How the run stands, with its cause when a leg ended early.
+        max_items: The item ceiling the run goes on under.
+        inputs: The caller's inputs by address, each read and written by its field's type.
+        units: By node, the units of each function node that has any: a ``SavedUnits`` when written, the units
+            it holds when read. An embedded graph's node has none of its own.
+        earlier: By node, the work carried from an earlier run and not yet taken: a ``SavedEarlier`` when
+            written, an ``Earlier`` when read.
+        code: By node, the ``reuse_digest`` of the code that made its units and its carried work, so work made
+            by other code is never taken.
+        complete: The nodes every unit of which was finished when the last leg ended.
+    """
+
+    __pydantic_config__: ClassVar[ConfigDict] = _SAVED
+    graph: str
+    state: Annotated[Going | EndedEarly, PydanticField(discriminator="status")]
+    max_items: PositiveInt | None
+    inputs: dict[str, Any]
+    units: dict[str, UnitsT]
+    earlier: dict[str, EarlierT]
+    code: dict[str, str]
+    complete: list[str]
+
+
+#: Each record's own schema, as pydantic makes it from the record: what a save's schema is composed from.
+_UNITS, _EARLIER, _RUN = (TypeAdapter(record).core_schema for record in (SavedUnits, SavedEarlier, SavedRun))
+
+#: The schemas of what ``SavedUnits`` holds for one output beside its column.
+_SKIPPED_SLOTS, _SKIPPED_ITEMS = TypeAdapter(SkippedSlots).core_schema, TypeAdapter(SkippedItems).core_schema
+
+#: The key of a save that names its graph, as ``SavedRun`` declares it.
+_GRAPH = SavedRun.__dataclass_fields__["graph"].name  # a KeyError where this is read, should the field be renamed
+
+
 class SaveForm(NamedTuple):
     """How the runs of one graph are read from JSON and written as it.
 
     Attributes:
-        validator: Reads a save into what ``_run_of`` makes a run of.
-        serializer: Writes what ``Run._saved`` gives.
+        validator: Reads a save into the ``SavedRun`` that ``_run_of`` makes a run of.
+        serializer: Writes the ``SavedRun`` that ``Run._saved`` gives.
     """
 
     validator: SchemaValidator
@@ -1167,96 +1355,67 @@ class SaveForm(NamedTuple):
 def save_form(graph: Graph) -> SaveForm:
     """Composes how the runs of ``graph`` are read from JSON and written as it.
 
-    A save is one JSON object:
-
-    - ``graph``: the graph's fingerprint, so a save of another graph is told apart before anything in it is read.
-    - ``state``: how the run stands, ``{"status"}``, with its ``cause`` when a leg ended early.
-    - ``max_items``: the item ceiling the run goes on under.
-    - ``inputs``: the caller's inputs by address, each read and written by its field's type.
-    - ``units``: by node, the units of each function node that has any. A node is named by its id after the ids
-      of the embedded graphs' nodes it is inside, ``e/ask``; an embedded graph's node has no units of its own.
-    - ``earlier``: by node, the work carried from an earlier run and not yet taken.
-    - ``code``: by node, the ``reuse_digest`` of the code that made its units and its carried work, so work made
-      by other code is never taken.
-    - ``complete``: the nodes every unit of which was finished when the last leg ended.
-
-    A node's units are columns with a slot for each instance of the node, in instance order, so an instance is a
-    place in them and is never written:
-
-    - ``states``: ``"done"``, ``"skipped"``, or ``null`` for a unit that holds no outputs.
-    - ``outputs``: by output, its value in each slot, read and written by the output's type; ``null`` where the
-      unit holds none.
-    - ``questions``: by slot, the question a unit asked. On a slot that isn't done the unit waits for a person, so
-      a waiting unit can't be written without its question.
-    - ``blank_inputs``: by slot, the input that got a blank, for a unit that wasn't called for it.
-    - ``skipped``: by output, the slots whose value is a branch not taken; ``skipped_items``, by output and slot,
-      the items of a ``Series`` there that are. Both are ``null`` in the column.
-
-    Carried work has the same columns, a slot for each carried unit, and beside them ``fingerprints`` (what each
-    unit received), ``places`` (by slot, the instance a computed unit stood in) and ``lineages`` (by slot, for an
-    answer or a question still waiting, the fingerprint of the items above it).
-
-    The parts are pydantic's own schemas of the types, put together as core schemas: generating a model of a
-    whole graph costs more than reading a small run. A graph's form is made the first time a run of it is saved
-    or loaded.
+    What a save holds is declared once, by ``SavedRun``, ``SavedUnits`` and ``SavedEarlier``, and their own
+    schemas are what is written and read by. Only what depends on the graph is put in here: each input's and
+    each output's own type, the nodes a save may name, and the graph's fingerprint. The parts are pydantic's own
+    schemas of those types, put together as core schemas, since generating a model of a whole graph costs more
+    than reading a small run. A graph's form is made the first time a run of it is saved or loaded.
     """
     shared: dict[str, CoreSchema] = {}
+    units_record, earlier_record = _inlined(_UNITS, shared), _inlined(_EARLIER, shared)
     blocks: dict[tuple[tuple[str, Type, bool], ...], tuple[CoreSchema, CoreSchema]] = {}
     units, earlier = {}, {}
     for path, placed in graph._functions.items():
         columns = tuple((name, output.column, output.many) for name, output in placed.outputs.items())
         if columns not in blocks:  # nodes of the same outputs share one schema
-            block = str(len(blocks))
-            _share_unit_schemas(block, columns, shared)
+            block = len(blocks)
+            of_block = _with_fields(
+                units_record,
+                outputs=_closed({name: _inlined(column.saved_schema, shared) for name, column, _ in columns}),
+                skipped=_closed({}, {name: _SKIPPED_SLOTS for name, _, _ in columns}),
+                skipped_items=_closed({}, {name: _SKIPPED_ITEMS for name, _, many in columns if many}),
+            )
+            shared[f"units:{block}"] = core_schema.no_info_after_validator_function(_units_of, of_block, ref=f"units:{block}")
+            carried = _with_fields(earlier_record, units=core_schema.definition_reference_schema(f"units:{block}"))
+            shared[f"earlier:{block}"] = core_schema.no_info_after_validator_function(_earlier_of, carried, ref=f"earlier:{block}")
             blocks[columns] = core_schema.definition_reference_schema(f"units:{block}"), core_schema.definition_reference_schema(f"earlier:{block}")
         units["/".join(path)], earlier["/".join(path)] = blocks[columns]
-    run = _closed({
-        "graph": core_schema.literal_schema([graph.fingerprint]),
-        "state": _inlined(_STATE, shared),
-        "max_items": core_schema.nullable_schema(core_schema.int_schema(ge=1)),
-        "inputs": _closed({address: _inlined(offered.spec.whole.saved_schema, shared) for address, offered in graph._input_fields.items()}),
-        "units": _closed({}, units),
-        "earlier": _closed({}, earlier),
-        "code": _closed({}, dict.fromkeys(units, core_schema.str_schema())),
-        "complete": core_schema.list_schema(core_schema.literal_schema(["/".join(node.path) for node in graph._tree])),
-    })
-    schema = core_schema.definitions_schema(core_schema.tagged_union_schema({graph.fingerprint: run}, discriminator="graph"), list(shared.values()))
+    run = _with_fields(
+        _inlined(_RUN, shared),
+        graph=core_schema.literal_schema([graph.fingerprint]),
+        inputs=_closed({address: _inlined(offered.spec.whole.saved_schema, shared) for address, offered in graph._input_fields.items()}),
+        units=_closed({}, units),
+        earlier=_closed({}, earlier),
+        code=_closed({}, dict.fromkeys(units, core_schema.str_schema())),
+        complete=core_schema.list_schema(core_schema.literal_schema(["/".join(node.path) for node in graph._tree])),
+    )
+    schema = core_schema.definitions_schema(core_schema.tagged_union_schema({graph.fingerprint: run}, discriminator=_GRAPH), list(shared.values()))
     config = CoreConfig(ser_json_inf_nan="strings")
     return SaveForm(SchemaValidator(schema, config), SchemaSerializer(schema, config))
 
 
-def _share_unit_schemas(block: str, columns: tuple[tuple[str, Type, bool], ...], shared: dict[str, CoreSchema]) -> None:
-    """Puts in ``shared`` what a save holds of a node with these outputs: its units as ``units:<block>``, read
-    into ``Unit``s, and its carried work as ``earlier:<block>``, read into an ``Earlier``.
+def _with_fields(record: Any, **schemas: CoreSchema) -> CoreSchema:
+    """Gives a record's schema with the schema of each named field replaced by the one composed for a graph.
 
     Args:
-        block: The name the two schemas are shared under.
-        columns: Each output's name, the type of its column, and whether it is a ``Series``.
-        shared: The definitions of the save's schema, added to.
+        record: The schema pydantic made of a record of a save.
+        **schemas: The schema of a field, by the field's name.
+
+    Raises:
+        KeyError: The record declares no field of a name given.
     """
-    places = core_schema.list_schema(_PLACE)
-    required = {
-        "states": core_schema.list_schema(core_schema.nullable_schema(core_schema.literal_schema(["done", "skipped"]))),
-        "outputs": _closed({name: _inlined(column.saved_schema, shared) for name, column, _ in columns}),
-    }
-    optional = {
-        "questions": _inlined(_QUESTIONS, shared),
-        "blank_inputs": core_schema.dict_schema(_PLACE, core_schema.str_schema()),
-        "skipped": _closed({}, {name: places for name, _, _ in columns}),
-        "skipped_items": _closed({}, {name: core_schema.dict_schema(_PLACE, places) for name, _, many in columns if many}),
-    }
-    shared[f"units:{block}"] = core_schema.no_info_after_validator_function(_units_of, _closed(required, optional), ref=f"units:{block}")
-    carried = {
-        "places": core_schema.dict_schema(_PLACE, core_schema.tuple_variable_schema(_PLACE)),
-        "lineages": core_schema.dict_schema(_PLACE, core_schema.str_schema()),
-    }
-    shared[f"earlier:{block}"] = core_schema.no_info_after_validator_function(
-        _earlier_of, _closed({**required, "fingerprints": core_schema.list_schema(core_schema.str_schema())}, {**optional, **carried}), ref=f"earlier:{block}",
-    )
+    fields = {declared["name"]: declared for declared in record["schema"]["fields"]}
+    for name, schema in schemas.items():
+        declared = fields[name]
+        fields[name] = {**declared, "schema": {**declared["schema"], "schema": schema} if declared["schema"]["type"] == "default" else schema}
+    composed = {**record, "schema": {**record["schema"], "fields": list(fields.values())}}
+    del composed["ref"]  # pydantic's name for the record as declared, which this no longer is
+    return composed  # type: ignore[return-value]  # a dataclass schema, as the record's was
 
 
 def _closed(required: Mapping[str, CoreSchema], optional: Mapping[str, CoreSchema] = MappingProxyType({})) -> CoreSchema:
-    """Gives the schema of an object of exactly these keys, each of ``required`` there."""
+    """Gives the schema of an object of exactly these keys, each of ``required`` there: the names a graph gives,
+    of its inputs, its nodes and a node's outputs."""
     # each field is written out: a graph makes three for every node, and pydantic's own helper costs more than the field
     fields: dict[str, Any] = {name: {"type": "typed-dict-field", "schema": schema} for name, schema in required.items()}
     fields.update((name, {"type": "typed-dict-field", "schema": schema, "required": False}) for name, schema in optional.items())
@@ -1272,23 +1431,14 @@ def _inlined(schema: CoreSchema, shared: dict[str, CoreSchema]) -> CoreSchema:
     return schema["schema"]
 
 
-#: A slot of a node's saved units, counted from 0.
-_PLACE = core_schema.int_schema(ge=0)
-
-#: The questions of a node's saved units, by slot.
-_QUESTIONS = TypeAdapter(dict[NonNegativeInt, Question]).core_schema
-
-#: How a saved run stands, read as the ``RunState`` it is: a status and a cause that disagree are refused.
-_STATE = TypeAdapter(Annotated[Going | EndedEarly, PydanticField(discriminator="status")]).core_schema
-
 #: The state a save writes for a unit that holds outputs or is a branch not taken; any other has none.
-_STATE_WORD: Mapping[type, str] = {Done: "done", Answered: "done", Skipped: "skipped"}
+_STATE_WORD: Mapping[type, UnitState] = {Done: _DONE, Answered: _DONE, Skipped: _SKIPPED}
 
 #: The kinds of unit that hold outputs.
 _HOLDS_OUTPUTS = frozenset({Done, Answered})
 
 
-def _unit_columns(outputs: Mapping[str, Field], slots: list[Unit | None]) -> dict[str, Any]:
+def _unit_columns(outputs: Mapping[str, Field], slots: list[Unit | None]) -> SavedUnits:
     """Gives units as the columns a save holds of them.
 
     Args:
@@ -1296,32 +1446,39 @@ def _unit_columns(outputs: Mapping[str, Field], slots: list[Unit | None]) -> dic
         slots: The units, in the order of their slots; ``None`` for an instance that hasn't run.
     """
     kinds = set(map(type, slots))
-    saved: dict[str, Any] = {"states": list(map(_STATE_WORD.get, map(type, slots))), "outputs": {}}
+    columns: dict[str, list[Any]] = {}
+    skipped: dict[str, list[int]] = {}
+    skipped_items: dict[str, dict[int, list[int]]] = {}
+    questions: dict[int, Question] | None = None
+    blank_inputs: dict[int, str] | None = None
     if kinds & _HOLDS_OUTPUTS:
         every = kinds <= _HOLDS_OUTPUTS  # every unit holds outputs, as those of a node that finished do
         for name, output in outputs.items():
             column = [unit.out[name] for unit in slots] if every else [unit.out[name] if type(unit) in _HOLDS_OUTPUTS else None for unit in slots]  # type: ignore[union-attr]
-            saved["outputs"][name] = column
-            skipped = [slot for slot, value in enumerate(column) if value is SKIPPED]
-            if skipped:
-                saved.setdefault("skipped", {})[name] = skipped
-                for slot in skipped:
+            columns[name] = column
+            gone = [slot for slot, value in enumerate(column) if value is SKIPPED]
+            if gone:
+                skipped[name] = gone
+                for slot in gone:
                     column[slot] = None
             if output.many:
                 for slot, items in enumerate(column):
                     if type(items) is list and (gaps := [place for place, item in enumerate(items) if item is SKIPPED]):
-                        saved.setdefault("skipped_items", {}).setdefault(name, {})[slot] = gaps
+                        skipped_items.setdefault(name, {})[slot] = gaps
                         column[slot] = [None if item is SKIPPED else item for item in items]
     else:  # no unit holds outputs yet
-        saved["outputs"] = {name: [None] * len(slots) for name in outputs}
+        columns = {name: [None] * len(slots) for name in outputs}
     if Answered in kinds or Asking in kinds:
-        saved["questions"] = {slot: unit.question for slot, unit in enumerate(slots) if type(unit) is Answered or type(unit) is Asking}  # type: ignore[union-attr]
+        questions = {slot: unit.question for slot, unit in enumerate(slots) if type(unit) is Answered or type(unit) is Asking}  # type: ignore[union-attr]
     if Blank in kinds:
-        saved["blank_inputs"] = {slot: unit.input for slot, unit in enumerate(slots) if type(unit) is Blank}  # type: ignore[union-attr]
-    return saved
+        blank_inputs = {slot: unit.input for slot, unit in enumerate(slots) if type(unit) is Blank}  # type: ignore[union-attr]
+    return SavedUnits(
+        states=list(map(_STATE_WORD.get, map(type, slots))), outputs=columns, questions=questions, blank_inputs=blank_inputs,
+        skipped=skipped or None, skipped_items=skipped_items or None,
+    )
 
 
-def _units_of(saved: dict[str, Any]) -> list[Unit | None]:
+def _units_of(saved: SavedUnits) -> list[Unit | None]:
     """Makes the units a node's saved columns hold, in the order of their slots; ``None`` for an instance that
     hasn't run.
 
@@ -1329,14 +1486,14 @@ def _units_of(saved: dict[str, Any]) -> list[Unit | None]:
         PydanticCustomError: An output doesn't hold one slot for each state (``slots_differ``); or a skip, a
             question or a blank input is placed on a slot that can't hold one (``misplaced``).
     """
-    states, outputs = saved["states"], saved["outputs"]
+    states, outputs = saved.states, saved.outputs
     if any(len(column) != len(states) for column in outputs.values()):
         raise PydanticCustomError("slots_differ", "an output doesn't hold one slot for each state")
     try:
-        for name, slots in saved.get("skipped", {}).items():
+        for name, slots in (saved.skipped or {}).items():
             for slot in slots:
                 outputs[name][slot] = SKIPPED
-        for name, by_slot in saved.get("skipped_items", {}).items():
+        for name, by_slot in (saved.skipped_items or {}).items():
             for slot, places in by_slot.items():
                 for place in places:
                     outputs[name][slot][place] = SKIPPED
@@ -1346,10 +1503,11 @@ def _units_of(saved: dict[str, Any]) -> list[Unit | None]:
         else:
             names = tuple(outputs)
             outs = [dict(zip(names, values, strict=True)) for values in zip(*outputs.values(), strict=True)] if outputs else [{} for _ in states]
-        units: list[Unit | None] = [Done(out) if state == "done" else SKIPPED_UNIT if state == "skipped" else None for state, out in zip(states, outs, strict=True)]
-        for slot, question in saved.get("questions", {}).items():
+        done, skipped = _DONE, _SKIPPED
+        units: list[Unit | None] = [Done(out) if state == done else SKIPPED_UNIT if state == skipped else None for state, out in zip(states, outs, strict=True)]
+        for slot, question in (saved.questions or {}).items():
             units[slot] = Asking(question) if states[slot] is None else Answered(units[slot].out, question)  # type: ignore[union-attr]
-        for slot, blank in saved.get("blank_inputs", {}).items():
+        for slot, blank in (saved.blank_inputs or {}).items():
             if units[slot] is not None:
                 raise LookupError(slot)
             units[slot] = Blank(blank)
@@ -1358,10 +1516,10 @@ def _units_of(saved: dict[str, Any]) -> list[Unit | None]:
     return units
 
 
-def _earlier_columns(outputs: Mapping[str, Field], earlier: Earlier) -> dict[str, Any]:
-    """Gives what a node may take from an earlier run as the columns a save holds of it, each unit once: the
-    computed units by the instance they stood in, then the ones only known by what they received, then the
-    answers and the questions still waiting.
+def _earlier_columns(outputs: Mapping[str, Field], earlier: Earlier) -> SavedEarlier[SavedUnits]:
+    """Gives what a node may take from an earlier run as a save holds it, each unit once: the computed units by
+    the instance they stood in, then the ones only known by what they received, then the answers and the
+    questions still waiting.
 
     Args:
         outputs: The node's outputs, by name.
@@ -1382,27 +1540,21 @@ def _earlier_columns(outputs: Mapping[str, Field], earlier: Earlier) -> dict[str
                 lineages[len(slots)] = lineage
             slots.append(unit)
             fingerprints.append(fingerprint)
-    saved = {**_unit_columns(outputs, slots), "fingerprints": fingerprints}
-    if places:
-        saved["places"] = places
-    if lineages:
-        saved["lineages"] = lineages
-    return saved
+    return SavedEarlier(units=_unit_columns(outputs, slots), fingerprints=fingerprints, places=places or None, lineages=lineages or None)
 
 
-def _earlier_of(saved: dict[str, Any]) -> Earlier:
-    """Makes the carried work a node's saved columns hold.
+def _earlier_of(saved: SavedEarlier[list[Unit | None]]) -> Earlier:
+    """Makes the carried work a node's save holds.
 
     Raises:
         PydanticCustomError: It doesn't hold one fingerprint for each unit (``slots_differ``), or it carries a
             unit that was never called (``not_carried``).
     """
-    units, fingerprints = _units_of(saved), saved["fingerprints"]
-    if len(fingerprints) != len(units):
+    if len(saved.fingerprints) != len(saved.units):
         raise PydanticCustomError("slots_differ", "it doesn't hold one fingerprint for each unit")
-    places, lineages = saved.get("places", {}), saved.get("lineages", {})
+    places, lineages = saved.places or {}, saved.lineages or {}
     earlier = Earlier()
-    for slot, (fingerprint, unit) in enumerate(zip(fingerprints, units, strict=True)):
+    for slot, (fingerprint, unit) in enumerate(zip(saved.fingerprints, saved.units, strict=True)):
         kind = type(unit)
         if kind is Done:
             earlier.computed.setdefault(fingerprint, unit)  # type: ignore[arg-type]
@@ -1415,7 +1567,7 @@ def _earlier_of(saved: dict[str, Any]) -> Earlier:
     return earlier
 
 
-def _unwritable_at(graph: Graph, saved: dict[str, Any]) -> str:
+def _unwritable_at(graph: Graph, saved: SavedRun[SavedUnits, SavedEarlier[SavedUnits]]) -> str:
     """Says where a run that pydantic refused to write holds a value with no JSON form: the first input, or
     output of a node, that isn't written alone either. It is looked for only once the whole save was refused.
 
@@ -1426,11 +1578,11 @@ def _unwritable_at(graph: Graph, saved: dict[str, Any]) -> str:
     Returns:
         The input's address, or the node as a save names it and the output (``e/ask.result``).
     """
-    columns = {address: (graph._input_fields[address].spec.whole, value) for address, value in saved["inputs"].items()}
-    for section in ("units", "earlier"):
-        for name, block in saved[section].items():
-            outputs = graph._functions[tuple(name.split("/"))].outputs
-            columns.update({f"{name}.{output}": (outputs[output].column, column) for output, column in block["outputs"].items()})
+    columns = {address: (graph._input_fields[address].spec.whole, value) for address, value in saved.inputs.items()}
+    by_node = [*saved.units.items(), *((name, carried.units) for name, carried in saved.earlier.items())]
+    for name, units in by_node:
+        outputs = graph._functions[tuple(name.split("/"))].outputs
+        columns.update({f"{name}.{output}": (outputs[output].column, column) for output, column in units.outputs.items()})
     for at, (written_by, value) in columns.items():
         try:
             written_by.adapter.serializer.to_json(value)
