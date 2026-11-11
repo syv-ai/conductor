@@ -99,10 +99,8 @@ class NodeRegistry:
         self._named_types = tuple(types)
         #: The definitions, by id, in the order they arrived.
         self._nodes: dict[str, NodeDefinition] = {}
-        #: The types the nodes declare, by id, in the order the nodes arrived.
-        self._declared: dict[str, type] = {}
         #: Every type, by id: the ones the nodes declare, then the named ones.
-        self._types: dict[str, type] = _by_id(self._named_types, {})
+        self._types: dict[str, type] = _by_id(self._named_types)
         #: Each stored graph's description, by id, as these nodes make it; emptied whenever what is held changes.
         self._graph_descriptions: dict[str, StoredGraphDescription] = {}
 
@@ -152,21 +150,21 @@ class NodeRegistry:
 
     def add(self, *definitions: NodeDefinition) -> None:
         """Add these nodes, each under its id; an id already here raises, naming where both were declared."""
-        self._set_contents(self._nodes_with(definitions), self._named_types, _by_id(_types_declared_by(definitions), self._declared))
+        self._set_contents(self._nodes_with(definitions), self._named_types)
 
     def replace(self, definition: NodeDefinition) -> None:
         """Put ``definition`` in place of the node registered under its id; an id not here is a ``KeyError``."""
         if definition.id not in self._nodes:
             raise self._not_here(definition.id)
         nodes = {**self._nodes, definition.id: self._with_defaults(definition)}
-        self._set_contents(nodes, self._named_types, _by_id(_types_declared_by(nodes.values())))
+        self._set_contents(nodes, self._named_types)
 
     def remove(self, node_id: str) -> None:
         """Take out the node registered under ``node_id``; an id not here is a ``KeyError``."""
         if node_id not in self._nodes:
             raise self._not_here(node_id)
         nodes = {held_id: definition for held_id, definition in self._nodes.items() if held_id != node_id}
-        self._set_contents(nodes, self._named_types, _by_id(_types_declared_by(nodes.values())))
+        self._set_contents(nodes, self._named_types)
 
     def add_subregistry(self, subregistry: NodeRegistry) -> None:
         """Add every node of ``subregistry`` as ``add`` does, and the types it names.
@@ -177,13 +175,13 @@ class NodeRegistry:
         """
         named = (*self._named_types, *(dtype for dtype in subregistry._named_types if dtype not in self._named_types))
         added = tuple(subregistry)
-        self._set_contents(self._nodes_with(added), named, _by_id(_types_declared_by(added), self._declared))
+        self._set_contents(self._nodes_with(added), named)
 
     def filter(self, predicate: Callable[[NodeDefinition], bool]) -> NodeRegistry:
         """A new registry with this one's defaults and named types, holding the nodes ``predicate`` keeps."""
         kept = copy.copy(self)
         nodes = {definition.id: definition for definition in self._nodes.values() if predicate(definition)}
-        kept._set_contents(nodes, self._named_types, _by_id(_types_declared_by(nodes.values())))
+        kept._set_contents(nodes, self._named_types)
         return kept
 
     def _nodes_with(self, definitions: Iterable[NodeDefinition]) -> dict[str, NodeDefinition]:
@@ -210,11 +208,10 @@ class NodeRegistry:
             return definition
         return dataclasses.replace(definition, tags=tags, category=category, extra=MappingProxyType(extra), replaces=replaces)
 
-    def _set_contents(self, nodes: dict[str, NodeDefinition], named_types: tuple[type, ...], declared: dict[str, type]) -> None:
-        """Hold exactly ``nodes``, ``named_types`` and ``declared``, the types the nodes declare by id, once the named
-        types give one class per id beside them. A caller adding nodes reads only theirs, on top of what is held."""
-        self._types = _by_id(named_types, declared)
-        self._nodes, self._named_types, self._declared = nodes, named_types, declared
+    def _set_contents(self, nodes: dict[str, NodeDefinition], named_types: tuple[type, ...]) -> None:
+        """Hold exactly ``nodes`` and ``named_types``, and the types they give: each node's declared ones in order, then the named ones."""
+        self._types = _by_id((*_types_declared_by(nodes.values()), *named_types))
+        self._nodes, self._named_types = nodes, named_types
         self._graph_descriptions = {}
 
     def _not_here(self, node_id: str) -> KeyError:
@@ -361,9 +358,9 @@ def _renamed_on(address: str, node_id: str, renames: Mapping[str, str]) -> str:
     return address
 
 
-def _by_id(types: Iterable[type], start: Mapping[str, type] = MappingProxyType({})) -> dict[str, type]:
-    """``start``, then ``types``, by id; raises when one id names two classes."""
-    by_id = dict(start)
+def _by_id(types: Iterable[type]) -> dict[str, type]:
+    """``types`` by id; raises when one id names two classes."""
+    by_id: dict[str, type] = {}
     for held in types:
         existing = by_id.setdefault(Type(held).id, held)
         if existing is not held:
