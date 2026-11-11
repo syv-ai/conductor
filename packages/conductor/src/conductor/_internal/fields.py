@@ -1166,7 +1166,7 @@ def read_table(spec: FieldSpec, value: Any, *, strict: bool, given: bool = False
         return value
     else:
         height, held = value.height, value.columns
-    missing = [c for c in spec.columns if c not in held and (height or not given)]
+    missing = [c for c in spec.columns if c not in held and height]  # a table of no rows holds every column, empty
     if missing:
         raise FieldValueError(f"the column '{missing[0]}' its row type declares is missing", column=missing[0])
     if isinstance(value, pl.DataFrame):  # a frame's column says how many blanks it holds without reading a cell
