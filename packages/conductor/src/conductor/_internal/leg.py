@@ -485,7 +485,7 @@ class Leg:
                 continue
             if Asking in {type(unit) for unit in units.values()}:
                 waiting.add(node)
-            elif not (run._has_every_unit(node) if node.maps else units):
+            elif not (run._has_every_unit(node) if node.maps else units):  # a node that runs once has its one unit or none: no count, on a leg of many nodes
                 unfinished.add(node)
         if self.going and not waiting:  # nothing more can start and nothing waits: every unit of every node is there
             if unfinished:  # a unit nothing made ready: the engine's own fault, never a run to hand on as complete
