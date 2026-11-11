@@ -33,7 +33,7 @@ from __future__ import annotations
 import enum
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Final, final
+from typing import TYPE_CHECKING, Any, final
 
 from conductor._internal.address import ItemPath
 from conductor._internal.ask import Question
@@ -64,9 +64,6 @@ class NotReady(enum.Enum):
     NOT_READY = "not_ready"
     NOT_ITS_TURN = "not_its_turn"
 
-
-NOT_READY: Final = NotReady.NOT_READY
-NOT_ITS_TURN: Final = NotReady.NOT_ITS_TURN
 
 
 @final

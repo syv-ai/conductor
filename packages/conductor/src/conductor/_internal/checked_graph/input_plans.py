@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, NamedTuple, final
 
 from conductor._internal.field import Field
-from conductor._internal.outcomes import NOT_READY, ItemPath
+from conductor._internal.outcomes import ItemPath, NotReady
 from conductor._internal.sentinels import SKIPPED
 from conductor._internal.value_type import Type
 
@@ -270,7 +270,7 @@ class InputWrapsOneValue:
         items take a blank, a blank is its one item."""
         reads = self.reads
         value = reader.read_output(reads[0], item_path) if len(reads) == 1 else reader.read_alternatives(reads, item_path)
-        if value is SKIPPED or value is NOT_READY or (value is None and not self.field.accepts_none_items):
+        if value is SKIPPED or value is NotReady.NOT_READY or (value is None and not self.field.accepts_none_items):
             return value
         return [value]
 

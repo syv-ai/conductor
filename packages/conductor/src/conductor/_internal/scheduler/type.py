@@ -56,8 +56,6 @@ from conductor._internal.checked_graph import (
     waits_on,
 )
 from conductor._internal.outcomes import (
-    NOT_ITS_TURN,
-    NOT_READY,
     Answered,
     Asking,
     Done,
@@ -346,7 +344,7 @@ class Scheduler:
         except CallRejectedError as missing:  # an edge names a field the record it brings doesn't have
             self._record(node, key, self._failure(node, key, missing), walking)
             return
-        if kwargs is NOT_READY:
+        if kwargs is NotReady.NOT_READY:
             return
         policy = node.policy
         if not isinstance(kwargs, dict):  # skipped or blank: it comes to that uncalled
@@ -355,7 +353,7 @@ class Scheduler:
             (reusable_results := self.reusable_results) and policy.reuse_when_inputs_match and (of_node := reusable_results.get(node.path)) is not None
             and (earlier := reused_outcome(of_node, node, key, kwargs, self.all_outcomes, lambda: self._in_turn(node, key))) is not None
         ):
-            if earlier is NOT_ITS_TURN:
+            if earlier is NotReady.NOT_ITS_TURN:
                 self.out_of_turn = True  # a unit before it may take this answer; the next walk tries it again
                 return
             self.reused[node] += 1

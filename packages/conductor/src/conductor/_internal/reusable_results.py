@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, Literal
 import pydantic_core
 
 from conductor._internal.canonical_json import canonical_json
-from conductor._internal.outcomes import NOT_ITS_TURN, NotReady
+from conductor._internal.outcomes import NotReady
 from conductor._internal.value_type import untyped_to_hash
 
 if TYPE_CHECKING:
@@ -70,7 +70,7 @@ def reused_outcome(
         answers = earlier.asked.get((fingerprint, lineage(outcomes, node, key)))
         if answers:
             if not in_turn():
-                return NOT_ITS_TURN
+                return NotReady.NOT_ITS_TURN
             return answers.pop(0)
     there = earlier.at.get(key)
     if there is not None and there[0] == fingerprint:

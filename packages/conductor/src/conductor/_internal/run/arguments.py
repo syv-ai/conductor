@@ -46,15 +46,7 @@ from conductor._internal.checked_graph.input_plans import (
     OutputInLoops,
     SeriesAsList,
 )
-from conductor._internal.outcomes import (
-    NOT_READY,
-    Asking,
-    ItemPath,
-    NotCalled,
-    NotReady,
-    Outcome,
-    Skipped,
-)
+from conductor._internal.outcomes import Asking, ItemPath, NotCalled, NotReady, Outcome, Skipped
 from conductor._internal.problem import CallRejectedError
 from conductor._internal.problem import catalogue as problem
 from conductor._internal.record_field import NoSuchFieldError, field_of
@@ -129,13 +121,13 @@ class Reader(abc.ABC):
                 raise CallRejectedError(problem.invalid_edge_value(name=name, reason=reason, record_field=missing.field)) from None
             if value is SKIPPED:
                 return node.checked_node.skipped
-            if value is NOT_READY:  # a later input may be skipped, which settles the node whatever this one comes to
+            if value is NotReady.NOT_READY:  # a later input may be skipped, which settles the node whatever this one comes to
                 settled = False
             elif value is None and blank is None and not accepts_none:
                 blank = name
             arguments[name] = value
         if not settled:
-            return NOT_READY
+            return NotReady.NOT_READY
         if blank is not None:
             return NotCalled(node.checked_node.outputs_when_not_called, blank)
         return self.align_lists(node, arguments) if node.lists_from_same_loop else arguments
@@ -150,8 +142,8 @@ class Reader(abc.ABC):
         best: Any = SKIPPED
         for at in reads:
             value = self.read_output(at, item_path)
-            if value is NOT_READY:
-                best = NOT_READY
+            if value is NotReady.NOT_READY:
+                best = NotReady.NOT_READY
             elif value is None:
                 if best is SKIPPED:
                     best = None
@@ -182,7 +174,7 @@ class ResultReader(Reader):
         depth = at.depth
         outcome = self.outcomes[at.node_id].get(item_path[:depth])
         if outcome is None or type(outcome) is Asking:
-            return NOT_READY
+            return NotReady.NOT_READY
         value = outcome.out[at.output]
         if value is None or value is SKIPPED or type(at) is OutputInLoops:
             return value
@@ -215,7 +207,7 @@ class ResultReader(Reader):
         """
         item_path = item_path[: plan.reads[0].depth]
         series = self._list_looped_over(plan, item_path)
-        if series is None or series is SKIPPED or series is NOT_READY:
+        if series is None or series is SKIPPED or series is NotReady.NOT_READY:
             return series
         edges = plan.sources
         if len(edges) == 1 and type(edges[0]) is ItemOfSeries:  # the Series itself: its items, or one field of each
@@ -228,8 +220,8 @@ class ResultReader(Reader):
         for index in range(len(series)):
             under = (*item_path, index)
             value = self.read_output(one_edge, under) if one_edge is not None else self.read_alternatives(edges, under)
-            if value is NOT_READY:
-                return NOT_READY
+            if value is NotReady.NOT_READY:
+                return NotReady.NOT_READY
             items.append(None if value is SKIPPED else value)
         return items
 
@@ -276,7 +268,7 @@ class DisplayReader(ResultReader):
             value = ResultReader.read_output(self, at, item_path)
         except NoSuchFieldError:
             return None
-        return None if value is NOT_READY else value
+        return None if value is NotReady.NOT_READY else value
 
     def collect(self, plan: InputCollectsLoopResults, item_path: ItemPath) -> Any:
         """The list a ``Series`` input with ``plan`` would be called with for the item at ``item_path``;
@@ -353,9 +345,9 @@ class LoopDryRun(Reader):
             if type(at) is ItemOfSeries and at.node_id == series.node_id and at.output == series.output:
                 at = series  # an item of the Series itself is what the Series is: one never made has none
             value = self.items.read_output(at, self.item_path)
-            return value if value is NOT_READY or value is SKIPPED or value is None else MAY_HAVE_VALUE
-        if dry_outcomes is NOT_READY:
-            return NOT_READY
+            return value if value is NotReady.NOT_READY or value is SKIPPED or value is None else MAY_HAVE_VALUE
+        if dry_outcomes is NotReady.NOT_READY:
+            return NotReady.NOT_READY
         return MAY_HAVE_VALUE if type(dry_outcomes) is dict else dry_outcomes.out[at.output]  # type: ignore[union-attr]  # mypy doesn't narrow a union by ``type(x) is dict``
 
     def collect(self, plan: InputCollectsLoopResults, item_path: ItemPath) -> Any:
@@ -365,7 +357,7 @@ class LoopDryRun(Reader):
         if plan.reads[0].node_id in self.dry_outcomes:
             return self._read_edges(plan)
         value = self.items.collect(plan, self.item_path)
-        return value if value is NOT_READY or value is SKIPPED or value is None else MAY_HAVE_VALUE
+        return value if value is NotReady.NOT_READY or value is SKIPPED or value is None else MAY_HAVE_VALUE
 
     def align_lists(self, node: FlatFunctionNode, arguments: dict[str, Any]) -> dict[str, Any]:
         """``arguments`` as it is: nothing is known of the items to keep in step."""
