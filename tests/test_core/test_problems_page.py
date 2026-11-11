@@ -1,7 +1,7 @@
 """``docs/problems.md`` has one section for every code conductor writes, quoting its message, with an example that makes it.
 
-The codes are ``PROBLEM_CATALOGUE``'s, every ``NodeDeclarationError(..., code=...)`` the package raises, and the codes
-``conductor.testing`` returns. A code both a graph and a declaration can have has a section in each group.
+The codes are ``PROBLEM_CATALOGUE``'s, every ``NodeDeclarationError(..., code=...)`` the package raises, the codes
+``conductor.testing`` returns, and the runs router's own. A code both a graph and a declaration can have has a section in each group.
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ import types
 
 import pytest
 from conductor._internal.errors import PROBLEM_CATALOGUE
+from conductor_providers.fastapi.router import _ROUTER_PROBLEMS
 
 _ROOT = pathlib.Path(__file__).parents[2]
 _PACKAGE = _ROOT / "packages" / "conductor" / "src" / "conductor"
@@ -68,7 +69,7 @@ def _wanted() -> dict[str, list[str]]:
     wanted = {code: [text] for code, text in PROBLEM_CATALOGUE.items()}
     for code, texts in _declaration_codes().items():
         wanted[code + _DECLARED if code in PROBLEM_CATALOGUE else code] = texts
-    return wanted | {code: [] for code in _kit_codes()}
+    return wanted | {code: [] for code in _kit_codes()} | {code: [text] for code, text in _ROUTER_PROBLEMS.items()}
 
 
 def test_every_code_has_one_section_and_no_section_names_another() -> None:

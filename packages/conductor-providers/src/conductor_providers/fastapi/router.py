@@ -50,6 +50,14 @@ log = logging.getLogger("conductor_providers.fastapi")
 #: The statuses a run can be resumed from; ``complete`` is the only one that is final.
 _RESUMABLE = ("timed_out", "stopped", "cancelled", "failed")
 
+#: The English of each code the router itself writes, beside the codes of the runs it serves.
+_ROUTER_PROBLEMS: dict[str, str] = {
+    "leg_failed": "The run's worker failed before the leg could end; its operator finds why in the server log. Resume it to carry on.",
+}
+
+#: The codes the router itself writes, for a host translating by code to cover beside conductor's ``PROBLEM_CODES``.
+ROUTER_PROBLEM_CODES: frozenset[str] = frozenset(_ROUTER_PROBLEMS)
+
 
 class StartRun(BaseModel):
     """The body of ``POST /runs``: a graph to run and the values it starts on.
@@ -257,7 +265,8 @@ def run_router(
                 leg.rev = row.rev
 
     async def drive(row: StoredRun, leg: _Leg, ceiling: int | None) -> None:
-        """Run the leg, and write its end while its lease is still renewed; a leg that raised ends ``failed``."""
+        """Run the leg and store its events, then have ``finish`` write its end while its lease is still renewed; a
+        leg that raised ends ``failed``."""
         run_id = row.id
         keep_lease = asyncio.create_task(hold(run_id, leg))
         try:
@@ -273,13 +282,12 @@ def run_router(
                     if isinstance(event, RunCheckpoint):
                         await write(run_id, leg, {"run": await asyncio.to_thread(event.run.to_json)})
                         continue
-                    if await store.add_event(run_id, worker, event.model_dump_json()) is None:
-                        leg.cancel.set()  # another worker holds the run
                     if isinstance(event, RunEnd):
-                        await finish(run_id, leg, keep_lease, await asyncio.to_thread(_Ended, event.run))
+                        await finish(run_id, leg, keep_lease, await asyncio.to_thread(_Ended, event))
+                    elif await store.add_event(run_id, worker, event.model_dump_json()) is None:
+                        leg.cancel.set()  # another worker holds the run
         except Exception:
             log.exception("the leg of run %s failed", run_id)
-            await store.add_event(run_id, worker, '{"type":"run_end","status":"failed","cause":null}')
             await finish(run_id, leg, keep_lease, _Raised())
         finally:
             keep_lease.cancel()
@@ -291,7 +299,9 @@ def run_router(
         the write, so a cancel or an answer that lands meanwhile is never written over.
 
         A leg this worker stopped to shut down, with no cancel asked of the run, is handed back for any worker to go on
-        with. Otherwise the answers queued during the leg are given to the run it ended with, and the next leg starts
+        with: the run did not end, so no ``run_end`` is stored for it. Otherwise the leg's ``run_end`` is stored, once
+        and before the row says the run stopped running, so a follower that reads the new status has the event to
+        read; then the answers queued during the leg are given to the run it ended with, and the next leg starts
         on those it took; a leg that raised ended with no run, so its queued answers stay queued for the next leg's
         end. A run another worker took is left as it is.
 
@@ -303,6 +313,7 @@ def run_router(
         handed_back: RunChanges = {**_standing(Going("running")), "owner": None, "lease_until": 0.0}  # it did not end early
         answered_from: tuple[str, str] | None = None
         answered: tuple[str | None, dict[str, Any]] = (None, {})
+        end_stored = False
         try:
             while True:
                 row = await store.get(run_id)
@@ -312,6 +323,9 @@ def run_router(
                 if stopping and status == "cancelled" and not row.cancel:
                     changes: RunChanges = {**written, **handed_back}
                 else:
+                    if not end_stored:  # a later try can't turn into a hand-back: only a resume clears a cancel
+                        await store.add_event(run_id, worker, ending.event)
+                        end_stored = True
                     changes = {**written, "status": status, "owner": None, "lease_until": 0.0, "cancel": False}
                     if row.pending != "{}" and isinstance(ending, _Ended):
                         if answered_from != (row.pending, row.refused):
@@ -503,13 +517,14 @@ def _always(registry: NodeRegistry) -> Callable[[object], NodeRegistry]:
 
 
 class _Ended:
-    """A leg that ended with ``run``: its status, and what its end writes of it beside the run itself (what waits
-    for a person, its outputs once complete, each written by its type as the run writes it, and its status and
-    cause)."""
+    """A leg that ended with a run: its status, its ``run_end`` event as JSON, and what its end writes of the run
+    beside the run itself (what waits for a person, its outputs once complete, each written by its type as the run
+    writes it, and its status and cause)."""
 
-    def __init__(self, run: Run) -> None:
-        self.run = run
+    def __init__(self, end: RunEnd) -> None:
+        run = self.run = end.run
         self.status: RunStatus = run.status
+        self.event = end.model_dump_json()
         self.written: RunChanges = {
             "waiting": to_json(run.waiting).decode(),
             **_standing(run.state),
@@ -537,14 +552,17 @@ class _Ended:
 
 
 class _Raised:
-    """A leg that raised: it ends ``failed`` with no cause and keeps the run as last saved; answers queued during it
-    stay queued."""
+    """A leg that raised: it ends ``failed`` with ``leg_failed`` as its cause and keeps the run as last saved; answers
+    queued during it stay queued."""
 
     status: RunStatus = "failed"
 
     def __init__(self) -> None:
-        self.written: RunChanges = {"cause": None}
+        cause = _router_problem("leg_failed")
+        self.written: RunChanges = _standing(EndedEarly("failed", cause))
         self.as_saved: RunChanges = {}
+        # the event holds no run, which it never writes: a leg that raised left none
+        self.event = RunEnd.model_construct(status="failed", cause=cause).model_dump_json()
 
 
 def _standing(state: RunState) -> RunChanges:
@@ -554,6 +572,11 @@ def _standing(state: RunState) -> RunChanges:
             return {"status": status, "cause": cause.model_dump_json()}
         case Going(status=status):
             return {"status": status, "cause": None}
+
+
+def _router_problem(code: str, **ctx: Any) -> Problem:
+    """The problem ``code`` of the router's own, about the run as a whole, its message made from ``ctx``."""
+    return Problem(type=code, msg=_ROUTER_PROBLEMS[code].format(**ctx), ctx=ctx)
 
 
 async def _stopped(task: asyncio.Task[None]) -> None:

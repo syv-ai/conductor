@@ -376,8 +376,9 @@ def test_a_leg_that_cannot_start_leaves_the_run_failed_and_its_follower_is_told(
     async def scenario() -> None:
         async with _workers(served, count=1) as (a,):
             run_id = await a.start(_chain("needs_missing"))
-            await a.until_status(run_id, "failed")
-            assert (await a.frames(run_id))[-1] == {"type": "run_end", "status": "failed", "cause": None}
+            failed = await a.until_status(run_id, "failed")
+            assert failed["cause"]["type"] == "leg_failed"
+            assert (await a.frames(run_id))[-1] == {"type": "run_end", "status": "failed", "cause": failed["cause"]}
 
     _run(scenario)
 

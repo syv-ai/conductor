@@ -713,3 +713,61 @@ def test_a_run_handed_back_by_a_worker_shutting_down_reads_as_running_with_no_ca
         assert (row.status, row.owner, row.cause) == ("running", None, None)
 
     asyncio.run(scenario())
+
+
+def test_a_run_handed_back_at_shutdown_stores_no_run_end_until_the_worker_that_takes_it_ends_it() -> None:
+    registry = NodeRegistry()
+
+    @registry.node("many", title="Many", description="Gives several items.")
+    def many(n: int) -> Series[int]:
+        return list(range(n))
+
+    @registry.node("slow", title="Slow", description="Waits before it answers.")
+    def slow(x: int) -> int:
+        time.sleep(0.02)
+        return x
+
+    graph = make_graph(registry["many"], registry["slow"], edges=[("many.result", "slow.x")]).model_dump(mode="json")
+    store = MemoryStore()
+    first, second = FastAPI(), FastAPI()
+    for app in (first, second):
+        app.include_router(run_router(store=store, registry=registry, caller=_caller, lease=0.3))
+
+    def stored_events(run_id: str) -> list[str]:
+        return [json.loads(body)["type"] for body in store.written[run_id]]
+
+    async def scenario() -> None:
+        async with first.router.lifespan_context(first), httpx.AsyncClient(transport=httpx.ASGITransport(app=first), base_url="http://t") as client:
+            run_id = (await client.post("/runs", json={"graph": graph, "inputs": {"n": 40}})).json()["id"]
+            await asyncio.sleep(0.2)
+        assert store.rows[run_id].status == "running" and "run_end" not in stored_events(run_id)
+        async with second.router.lifespan_context(second):
+            await _until_status(store, run_id, "complete")
+        events = stored_events(run_id)
+        assert (events.count("run_start"), events.count("run_end"), events[-1]) == (2, 1, "run_end")
+
+    asyncio.run(scenario())
+
+
+def test_a_leg_that_raised_outside_a_node_reads_failed_with_a_cause_that_its_run_end_carries_too() -> None:
+    registry = NodeRegistry()
+
+    @registry.node("shout", title="Shout", description="")
+    def shout(text: str) -> str:
+        return text.upper()
+
+    def no_values(caller: str) -> dict[type, Any]:
+        raise ConnectionError("the secrets service is down")
+
+    store = MemoryStore()
+    app = FastAPI()
+    app.include_router(run_router(store=store, registry=registry, caller=_caller, from_run=no_values))
+
+    async def scenario() -> None:
+        async with app.router.lifespan_context(app), httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as client:
+            run_id = (await client.post("/runs", json={"graph": make_graph(shout).model_dump(mode="json"), "inputs": {"text": "a"}})).json()["id"]
+            failed = await _until_ended(client, run_id, "anna")
+            assert (failed["status"], failed["cause"]["type"], failed["cause"]["loc"]) == ("failed", "leg_failed", [])
+            assert [json.loads(body) for body in store.written[run_id]] == [{"type": "run_end", "status": "failed", "cause": failed["cause"]}]
+
+    asyncio.run(scenario())

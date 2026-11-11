@@ -1483,3 +1483,15 @@ print([p.type for p in check_registry(checked)])  # ['upgrade_broken']
 ```
 
 **Fix.** Fix the `Upgrade`, so a node saved at the older version loads cleanly at the newer one.
+
+## The runs router
+
+Written by `conductor_providers.fastapi.run_router` itself, beside the codes of the runs it serves. `loc` is `()`: each is about the run as a whole. They aren't in `PROBLEM_CODES`; `conductor_providers.fastapi.ROUTER_PROBLEM_CODES` holds them.
+
+### `leg_failed`
+
+> The run's worker failed before the leg could end; its operator finds why in the server log. Resume it to carry on.
+
+The `cause` of a run that reads `failed` because its worker raised outside any node: the store went away, `from_run` raised, the run could not be loaded. It is in `GET /runs/{run_id}` and on the leg's `run_end` event. The run is kept as its last checkpoint, and answers queued during the leg stay queued.
+
+**Fix.** `POST /runs/{run_id}/resume`. The exception is in the log `conductor_providers.fastapi`, with the run's id.
