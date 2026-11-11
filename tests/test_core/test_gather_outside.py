@@ -338,9 +338,9 @@ def test_asking_an_embedded_graph_for_an_output_it_does_not_offer_fails_at_once(
 
     graph = REGISTRY.load({"nodes": [{"id": "s", "node": "items"}, {"id": "e", "node": "pair-then-up-or-none"}], "edges": [["s.result", "e.a"]]})
     node_at = graph._node_at
-    asking = _Asking(node_at[("s",)], Cell("s", "result", (), False), {node_at[("e",)]: None}, node_at, None)  # type: ignore[arg-type]
+    asking = _Asking(node_at[("s",)], Cell("s", "result", ()), {node_at[("e",)]: None}, node_at, None)  # type: ignore[arg-type]
     with pytest.raises(KeyError, match="no-such-output"):
-        _could_hold((), 1, Cell("e", "no-such-output", (), False), asking)
+        _could_hold((), 1, Cell("e", "no-such-output", ()), asking)
 
 
 @pytest.mark.parametrize("text", ["a b", ""])

@@ -57,11 +57,6 @@ from conductor._internal.run import (
     _COMPLETE,
     _RUNNING,
     _WAITING,
-    PENDING,
-    SKIPPED_UNIT,
-    Asking,
-    Blank,
-    Done,
     EndedEarly,
     Going,
     Key,
@@ -69,11 +64,20 @@ from conductor._internal.run import (
     Run,
     RunState,
     RunStatus,
-    Unit,
     _length,
     jsonable,
     unit_loc,
     waiting_unit,
+)
+from conductor._internal.units import (
+    NOT_ITS_TURN,
+    NOT_SETTLED,
+    Answered,
+    Asking,
+    Blank,
+    Done,
+    Skipped,
+    Unit,
 )
 
 #: What a call can raise that is never tried again, whatever a ``Policy``'s ``retry_on`` names: the node's own failure,
@@ -451,21 +455,21 @@ class Leg:
             return
         if type(node) is GraphAtPath:  # never called: its unit is what its inner graph's outputs came to
             offered = run._offered(node, key)
-            if offered is PENDING:
+            if offered is NOT_SETTLED:
                 return
             self._record(node, key, Done(offered), walking)
             return
         kwargs = run._inputs(node, key)
-        if kwargs is PENDING:
+        if kwargs is NOT_SETTLED:
             return
         policy = node.policy
-        if type(kwargs) is not dict:  # skipped or blank: it comes to that uncalled
+        if not isinstance(kwargs, dict):  # skipped or blank: it comes to that uncalled; or the problem it fails with
             self._record(node, key, kwargs, walking)
         elif (
             (carried := self.carried) and policy.reuse_when_inputs_match and (lent := carried.get(node.path)) is not None
             and (earlier := run._reused(lent, node, key, kwargs, lambda: self._in_turn(node, key))) is not None
         ):
-            if earlier is PENDING:
+            if earlier is NOT_ITS_TURN:
                 self.out_of_turn = True  # a unit before it may take this answer; the next walk tries it again
                 return
             self.reused[node] += 1
@@ -612,7 +616,7 @@ class Leg:
             self.changed = True
         if self.checkpoint_every is not None and time.monotonic() >= self.next_checkpoint:
             self._checkpoint()
-        if run.max_items is not None and placed.opens and isinstance(unit, Done):
+        if run.max_items is not None and placed.opens and type(unit) is not Asking:
             for output in placed.opens:
                 items = _length(unit.out[output])
                 if items > run.max_items:
@@ -620,7 +624,7 @@ class Leg:
                     return
         if self.emit:
             self.touched.add(node)
-            if unit is not SKIPPED_UNIT:
+            if type(unit) is not Skipped:
                 self._announce(node)  # a unit taken from earlier work, or a blank one, starts its node as a call does
             if isinstance(unit, Asking):
                 assert type(node) is FunctionAtPath  # only a function's unit asks
@@ -692,7 +696,7 @@ class Leg:
         for node in self.nodes:
             for output in node.placed.opens:
                 for key, unit in self.units[node].items():
-                    if isinstance(unit, Done) and _length(unit.out[output]) > ceiling:
+                    if type(unit) is not Asking and _length(unit.out[output]) > ceiling:
                         self._stop_at_ceiling(node, key, output, _length(unit.out[output]))
                         return
 
@@ -758,7 +762,7 @@ class Leg:
 def _came_to_no_value(unit: Unit) -> bool:
     """Whether a unit is a branch not taken: its node wasn't called for one above it, or was called and returned
     ``SKIPPED`` on every output."""
-    return unit is SKIPPED_UNIT or (isinstance(unit, Done) and bool(unit.out) and all(value is SKIPPED for value in unit.out.values()))
+    return type(unit) is Skipped or ((type(unit) is Done or type(unit) is Answered) and bool(unit.out) and all(value is SKIPPED for value in unit.out.values()))
 
 
 def _around(node: NodeAtPath) -> list[GraphAtPath]:

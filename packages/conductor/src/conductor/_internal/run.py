@@ -21,6 +21,7 @@ graphs, is one path of node ids and item positions: ``("e", 0, "ask", 2)`` is
 from __future__ import annotations
 
 import asyncio
+import functools
 import hashlib
 import json
 import math
@@ -64,6 +65,17 @@ from conductor._internal.graph import (
 from conductor._internal.node_definition import Returns, from_run_values
 from conductor._internal.outside_the_items import COULD, could_bring
 from conductor._internal.problem import InvalidCallError, Problem, make_problem, value_free_errors
+from conductor._internal.units import (
+    NOT_ITS_TURN,
+    NOT_SETTLED,
+    Answered,
+    Asking,
+    Blank,
+    Done,
+    NotReady,
+    Skipped,
+    Unit,
+)
 
 if TYPE_CHECKING:
     from conductor._internal.graph import Graph
@@ -142,14 +154,6 @@ RunState = Going | EndedEarly
 _READY, _RUNNING, _WAITING, _COMPLETE = Going("ready"), Going("running"), Going("waiting"), Going("complete")
 
 
-class _Pending:
-    def __repr__(self) -> str:
-        return "PENDING"
-
-
-#: What a unit's inputs are while something above it hasn't run yet.
-PENDING: Any = _Pending()
-
 #: ``run.answer``'s second argument when it is given a mapping of answers instead.
 _ONE_ANSWER: Any = object()
 
@@ -165,69 +169,6 @@ class NotCalled(ConductorModel):
 
     loc: Path
     input: str
-
-
-# -- what a unit came to ------------------------------------------------------------------------
-
-
-@dataclass(frozen=True, slots=True)
-class Done:
-    """A unit whose node was called and returned.
-
-    Attributes:
-        out: Its outputs by name: a value, ``None`` for a blank, ``SKIPPED`` for a branch not taken (every one
-            of them, when the node returned ``SKIPPED``), and for a ``Series`` a list, or ``Records`` when the
-            node returned a table for a ``Series`` of records.
-    """
-
-    out: dict[str, Any]
-
-
-@dataclass(frozen=True, slots=True)
-class Answered(Done):
-    """A unit a person answered: its outputs are the answer.
-
-    Attributes:
-        question: What the person was asked.
-    """
-
-    question: Question
-
-
-@dataclass(frozen=True, slots=True)
-class Skipped:
-    """A unit whose node wasn't called because a branch above it wasn't taken: an input came only from branches
-    not taken. What reads it is skipped too."""
-
-
-@dataclass(frozen=True, slots=True)
-class Blank:
-    """A unit whose node wasn't called because an input that takes no blank got one. Its outputs are blank,
-    except those of an exclusive group, which are a branch not taken: no branch was chosen.
-
-    Attributes:
-        input: The input that got nothing.
-    """
-
-    input: str
-
-
-@dataclass(frozen=True, slots=True)
-class Asking:
-    """A unit waiting for a person: its node raised ``Ask``.
-
-    Attributes:
-        question: What the person is asked.
-    """
-
-    question: Question
-
-
-#: What one node came to in one instance of its scope. A run and its copies share their units, so none is changed.
-Unit = Done | Answered | Skipped | Blank | Asking
-
-#: The one skipped unit: it holds nothing, so every node not called for a branch not taken shares it.
-SKIPPED_UNIT = Skipped()
 
 
 @dataclass(slots=True)
@@ -507,12 +448,14 @@ class Run:
             placed = node.placed
             earlier = carried[node.path] = Earlier()
             for key, unit in self._units[node.inside][placed.id].items():
-                if not isinstance(unit, (Done, Asking)):
+                if type(unit) is Skipped or type(unit) is Blank:
                     continue
-                fingerprint = _fingerprint(placed.reuse_digest, self._inputs(node, key), plain=placed.plain_inputs)
+                received = self._inputs(node, key)
+                assert isinstance(received, dict)  # the unit was called, so what it reads is settled and it received a call's arguments
+                fingerprint = _fingerprint(placed.reuse_digest, received, plain=placed.plain_inputs)
                 if fingerprint is None:
                     continue
-                if isinstance(unit, (Answered, Asking)):
+                if type(unit) is Answered or type(unit) is Asking:
                     earlier.asked.setdefault((fingerprint, self._lineage(node, key)), []).append(unit)
                 else:
                     earlier.at[key] = (fingerprint, unit)
@@ -609,7 +552,7 @@ class Run:
         values = []
         for key in self._instances(node.maps, ())[0]:
             unit = units.get(key)
-            value = unit.out[output] if isinstance(unit, Done) else None
+            value = None if unit is None or type(unit) is Asking else unit.out[output]
             if type(value) is list:
                 value = [None if item is SKIPPED else item for item in value]
             elif type(value) is Records:
@@ -628,7 +571,7 @@ class Run:
         not taken, it is that blank or that branch not taken, as the nodes drawn in the graph itself hold.
 
         Returns:
-            The outputs by address, or ``PENDING`` until every one of them is settled for the instance, and
+            The outputs by address, or ``NOT_SETTLED`` until every one of them is settled for the instance, and
             every node inside that ends the graph with no output.
         """
         units, base = self._units[node.path], len(key)
@@ -636,39 +579,35 @@ class Run:
         for address, (cell, maps, lists, series) in node.offers.items():
             if len(maps) == base:  # made once inside: the inner unit's own
                 unit = units[cell.node_id].get(key)
-                kind = type(unit)
-                if kind is Done or kind is Answered:
-                    value = unit.out[cell.output]  # type: ignore[union-attr]
-                elif kind is Skipped or kind is Blank:
-                    value = SKIPPED if kind is Skipped or cell.exclusive else None
-                else:
-                    return PENDING
+                if unit is None or type(unit) is Asking:
+                    return NOT_SETTLED
+                value = unit.out[cell.output]
             else:
                 made = _cell(units, base, series, key)  # type: ignore[arg-type]  # an output made per item has its Series
-                if made is PENDING:
-                    return PENDING
+                if made is NOT_SETTLED:
+                    return NOT_SETTLED
                 if made is None or made is SKIPPED:  # the Series was never made, so nor was the output: no list of no items
                     out[address] = made
                     continue
                 instances, known = self._instances(maps, key)
                 if not known:
-                    return PENDING
+                    return NOT_SETTLED
                 value = [_cell(units, len(maps), cell, instance) for instance in instances]
                 for one in value:
-                    if one is PENDING:
-                        return PENDING
+                    if one is NOT_SETTLED:
+                        return NOT_SETTLED
                 if lists:
                     value = [[None if item is SKIPPED else item for item in one] if type(one) is list else one.records() if type(one) is Records else one for one in value]
             out[address] = value
         for last in node.ends_silently:  # nothing to offer, and still what the graph inside came to
             instances, known = self._instances(last.maps, key)
             if not known:
-                return PENDING
+                return NOT_SETTLED
             held = units[last.placed.id]
             for instance in instances:
                 unit = held.get(instance)
                 if unit is None or type(unit) is Asking:
-                    return PENDING
+                    return NOT_SETTLED
         return out
 
     def _settle(self, node: GraphAtPath, instances: Iterable[Key]) -> None:
@@ -688,7 +627,7 @@ class Run:
         in_order = True
         for key in instances:
             offered = self._offered(node, key)
-            if offered is not PENDING:
+            if offered is not NOT_SETTLED:
                 if last is None or key > last:
                     last = key
                 elif key not in units:
@@ -709,12 +648,14 @@ class Run:
 
     # -- what a leg reads -------------------------------------------------------
 
-    def _reused(self, earlier: Earlier, node: FunctionAtPath, key: Key, kwargs: dict[str, Any], in_turn: Callable[[], bool]) -> Any:
+    def _reused(
+        self, earlier: Earlier, node: FunctionAtPath, key: Key, kwargs: dict[str, Any], in_turn: Callable[[], bool],
+    ) -> Done | Answered | Asking | Literal[NotReady.NOT_ITS_TURN] | None:
         """The unit of ``earlier`` that ``node`` takes in ``key`` in place of a call on ``kwargs``; ``None`` when
         there is none.
 
         A person's answer, or a question still waiting, is taken once, in order: when one is there to take and
-        ``in_turn`` says a unit before this one hasn't been tried yet, this is ``PENDING``, tried again once it
+        ``in_turn`` says a unit before this one hasn't been tried yet, this is ``NOT_ITS_TURN``, tried again once it
         has. It is taken only under the same items above, so two documents' identical lines keep each document's
         answers when the documents move. A node's own result is the one of the unit at the same place, when that
         received the same, and else one any earlier unit computed from the same.
@@ -734,7 +675,7 @@ class Run:
             answers = earlier.asked.get((fingerprint, self._lineage(node, key)))
             if answers:
                 if not in_turn():
-                    return PENDING
+                    return NOT_ITS_TURN
                 return answers.pop(0)
         there = earlier.at.get(key)
         if there is not None and there[0] == fingerprint:
@@ -794,7 +735,7 @@ class Run:
                 if unit is None or type(unit) is Asking:
                     complete = False
                     continue
-                count = _length(unit.out[output]) if isinstance(unit, Done) else 0
+                count = _length(unit.out[output])
                 if counted and depth == deepest - 1:
                     below = [(below[0][0] + count,)] if below else [(count,)]
                 else:
@@ -811,7 +752,7 @@ class Run:
         counted, known = self._instances(node.maps, (), counted=True)
         return known and len(units) == (counted[0][0] if counted else 0)
 
-    def _inputs(self, node: FunctionAtPath, key: Key) -> Any:
+    def _inputs(self, node: FunctionAtPath, key: Key) -> dict[str, Any] | Skipped | Blank | Literal[NotReady.NOT_SETTLED] | Problem:
         """What ``node`` receives in the instance ``key``.
 
         An open input of a node inside an embedded graph is read as the embedded graph's node is given it: by
@@ -819,14 +760,14 @@ class Run:
 
         Returns:
             The keyword arguments of the call; or the unit it comes to uncalled: ``Skipped`` when an input comes
-            only from branches not taken, whatever the others hold; else ``PENDING`` while something it reads
+            only from branches not taken, whatever the others hold; else ``NOT_SETTLED`` while something it reads
             hasn't run; else ``Blank`` when an input that takes no blank got one. Every input is read before
             pending or a blank is the answer, so the order of a node's parameters decides nothing. When an
             edge names a field the record it brings doesn't have, the ``Problem`` the unit fails with
             (``invalid_edge_value``).
         """
         kwargs: dict[str, Any] = {}
-        blank: Blank | None = None
+        blank: str | None = None
         pending = False
         gathered: dict[str, tuple[Gather, _UnitsOfAGraph, CellRead, list[Any]]] = {}
         own = self._units[node.inside]
@@ -848,26 +789,26 @@ class Run:
                         value = _cell(units, depth, source, key)
                         if value is not SKIPPED:
                             break
-                    if kind is SeriesOfOne and value is not SKIPPED and value is not PENDING and (value is not None or plan.spec.keeps_blanks):
+                    if kind is SeriesOfOne and value is not SKIPPED and value is not NOT_SETTLED and (value is not None or plan.spec.keeps_blanks):
                         value = [value]  # a Series of one, whose one item is blank where the items take a blank
             except FieldValueError as missing:  # an edge into this input names a field its record doesn't have
                 return make_problem(missing.code, *unit_loc(node, key), name=name, reason=missing.reason, **missing.ctx)
             if value is SKIPPED:
-                return SKIPPED_UNIT
-            if value is PENDING:  # a later input may be skipped, which settles the unit whatever this one comes to
+                return node.placed.skipped
+            if value is NOT_SETTLED:  # a later input may be skipped, which settles the unit whatever this one comes to
                 pending = True
             elif value is None:
                 if not plan.spec.whole.optional and blank is None:
-                    blank = Blank(name)
+                    blank = name
                 kwargs[name] = None
             elif kind is Gather:
                 gathered[name] = (plan, units, cells[0], value)  # type: ignore[assignment]
             else:
                 kwargs[name] = value
         if pending:
-            return PENDING
+            return NOT_SETTLED
         if blank is not None:
-            return blank
+            return Blank(node.placed.outputs_not_called, blank)
         for name, (plan, units, series, items) in gathered.items():
             kwargs[name] = _aligned(plan, units, series, items, gathered)
         return kwargs
@@ -889,7 +830,7 @@ class Run:
             key: The instance of the node that gathers.
 
         Returns:
-            The list, one place per item of the Series; ``PENDING`` until what is outside and every item is
+            The list, one place per item of the Series; ``NOT_SETTLED`` until what is outside and every item is
             settled; ``SKIPPED`` when no item could bring a value for a branch not taken outside the items;
             ``None`` when none could for a blank there.
         """
@@ -901,7 +842,7 @@ class Run:
             certain = could_bring(plan, cells, through, inside, self.graph._node_at, _AsItStands(self, key))
             if certain is not COULD:
                 return certain
-        elif series is PENDING or series is SKIPPED or series is None:  # nothing outside but the Series has a say
+        elif series is NOT_SETTLED or series is SKIPPED or series is None:  # nothing outside but the Series has a say
             return series
         if len(edges) == 1 and type(edges[0][0]) is Item:  # the Series itself: its items, or one field of each
             wanted = edges[0][0].field
@@ -916,8 +857,8 @@ class Run:
             value = SKIPPED
             for source, depth in per_item:
                 value = _cell(units, depth, source, (*key, place))
-                if value is PENDING:
-                    return PENDING
+                if value is NOT_SETTLED:
+                    return NOT_SETTLED
                 if value is not SKIPPED:
                     break
             items.append(None if value is SKIPPED else value)
@@ -987,15 +928,15 @@ class _AsItStands:
         self.run, self.key = run, key
 
     def cell(self, inside: NodePath, depth: int, cell: Cell) -> Any:
-        """What ``cell`` holds there: ``COULD`` for a value, else ``SKIPPED``, ``None`` or ``PENDING``."""
+        """What ``cell`` holds there: ``COULD`` for a value, else ``SKIPPED``, ``None`` or ``NOT_SETTLED``."""
         value = _cell(self.run._units[inside], depth, cell, self.key)
-        return value if value is PENDING or value is SKIPPED or value is None else COULD
+        return value if value is NOT_SETTLED or value is SKIPPED or value is None else COULD
 
     def gathered(self, inside: NodePath, plan: Gather, cells: tuple[CellRead, ...], through: tuple[NodeAtPath, ...]) -> Any:
         """What the gathering input of ``plan`` gathers there: ``COULD`` for a list, else ``SKIPPED``, ``None``
-        or ``PENDING``."""
+        or ``NOT_SETTLED``."""
         value = self.run._gathered(inside, plan, cells, through, self.key)
-        return value if value is PENDING or value is SKIPPED or value is None else COULD
+        return value if value is NOT_SETTLED or value is SKIPPED or value is None else COULD
 
 
 def _cell(units: _UnitsOfAGraph, depth: int, cell: Cell, key: Key) -> Any:
@@ -1010,19 +951,13 @@ def _cell(units: _UnitsOfAGraph, depth: int, cell: Cell, key: Key) -> Any:
 
     Returns:
         The value (an ``Item``'s is the item of ``key``, and a field named on the edge is read from it);
-        ``PENDING`` while its unit hasn't run or waits for a person; ``SKIPPED`` for a branch not taken, which
+        ``NOT_SETTLED`` while its unit hasn't run or waits for a person; ``SKIPPED`` for a branch not taken, which
         an output of an exclusive group is where its node wasn't called; ``None`` for a blank.
     """
     unit = units[cell.node_id].get(key[:depth])
-    kind = type(unit)
-    if kind is Done or kind is Answered:
-        value = unit.out[cell.output]  # type: ignore[union-attr]
-    elif kind is Skipped:
-        return SKIPPED
-    elif kind is Blank:  # not called: a blank, and for an output of an exclusive group no branch was chosen
-        return SKIPPED if cell.exclusive else None
-    else:
-        return PENDING
+    if unit is None or type(unit) is Asking:
+        return NOT_SETTLED
+    value = unit.out[cell.output]
     if value is None or value is SKIPPED or type(cell) is Cell:
         return value
     if type(cell) is Item:
@@ -1368,19 +1303,19 @@ def save_form(graph: Graph) -> SaveForm:
     """
     shared: dict[str, CoreSchema] = {}
     units_record, earlier_record = _inlined(_UNITS, shared), _inlined(_EARLIER, shared)
-    blocks: dict[tuple[tuple[str, Type, bool], ...], tuple[CoreSchema, CoreSchema]] = {}
+    blocks: dict[tuple[tuple[str, Type, bool, bool], ...], tuple[CoreSchema, CoreSchema]] = {}
     units, earlier = {}, {}
     for path, placed in graph._functions.items():
-        columns = tuple((name, output.column, output.many) for name, output in placed.outputs.items())
+        columns = tuple((name, output.column, output.many, output.param.exclusive_group is not None) for name, output in placed.outputs.items())
         if columns not in blocks:  # nodes of the same outputs share one schema
             block = len(blocks)
             of_block = _with_fields(
                 units_record,
-                outputs=_closed({name: _inlined(column.saved_schema, shared) for name, column, _ in columns}),
-                skipped=_closed({}, {name: _SKIPPED_SLOTS for name, _, _ in columns}),
-                skipped_items=_closed({}, {name: _SKIPPED_ITEMS for name, _, many in columns if many}),
+                outputs=_closed({name: _inlined(column.saved_schema, shared) for name, column, _, _ in columns}),
+                skipped=_closed({}, {name: _SKIPPED_SLOTS for name, _, _, _ in columns}),
+                skipped_items=_closed({}, {name: _SKIPPED_ITEMS for name, _, many, _ in columns if many}),
             )
-            shared[f"units:{block}"] = core_schema.no_info_after_validator_function(_units_of, of_block, ref=f"units:{block}")
+            shared[f"units:{block}"] = core_schema.no_info_after_validator_function(functools.partial(_units_of, placed.outputs_not_taken, placed.outputs_not_called), of_block, ref=f"units:{block}")
             carried = _with_fields(earlier_record, units=core_schema.definition_reference_schema(f"units:{block}"))
             shared[f"earlier:{block}"] = core_schema.no_info_after_validator_function(_earlier_of, carried, ref=f"earlier:{block}")
             blocks[columns] = core_schema.definition_reference_schema(f"units:{block}"), core_schema.definition_reference_schema(f"earlier:{block}")
@@ -1483,9 +1418,14 @@ def _unit_columns(outputs: Mapping[str, Field], slots: list[Unit | None]) -> Sav
     )
 
 
-def _units_of(saved: SavedUnits) -> list[Unit | None]:
+def _units_of(not_taken: dict[str, Any], not_called: dict[str, Any], saved: SavedUnits) -> list[Unit | None]:
     """Makes the units a node's saved columns hold, in the order of their slots; ``None`` for an instance that
     hasn't run.
+
+    Args:
+        not_taken: What a skipped unit of the node holds for its outputs.
+        not_called: What a unit of the node that wasn't called for a blank holds for its outputs.
+        saved: The columns.
 
     Raises:
         PydanticCustomError: An output doesn't hold one slot for each state (``slots_differ``); or a skip, a
@@ -1509,13 +1449,14 @@ def _units_of(saved: SavedUnits) -> list[Unit | None]:
             names = tuple(outputs)
             outs = [dict(zip(names, values, strict=True)) for values in zip(*outputs.values(), strict=True)] if outputs else [{} for _ in states]
         done, skipped = _DONE, _SKIPPED
-        units: list[Unit | None] = [Done(out) if state == done else SKIPPED_UNIT if state == skipped else None for state, out in zip(states, outs, strict=True)]
+        not_taken_unit = Skipped(not_taken)
+        units: list[Unit | None] = [Done(out) if state == done else not_taken_unit if state == skipped else None for state, out in zip(states, outs, strict=True)]
         for slot, question in (saved.questions or {}).items():
             units[slot] = Asking(question) if states[slot] is None else Answered(units[slot].out, question)  # type: ignore[union-attr]
         for slot, blank in (saved.blank_inputs or {}).items():
             if units[slot] is not None:
                 raise LookupError(slot)
-            units[slot] = Blank(blank)
+            units[slot] = Blank(not_called, blank)
     except (LookupError, TypeError, AttributeError):  # a slot the columns don't have, or one that holds another kind of unit
         raise PydanticCustomError("misplaced", "a skip, a question or a blank input is placed on a slot that can't hold one") from None
     return units

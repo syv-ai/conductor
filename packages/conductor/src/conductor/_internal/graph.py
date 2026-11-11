@@ -50,6 +50,7 @@ from conductor._internal.ask import output_questions
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.fields import (
     REQUIRED,
+    SKIPPED,
     Field,
     FieldDescription,
     FieldValueError,
@@ -75,6 +76,7 @@ from conductor._internal.problem import (
     Problem,
     make_problem,
 )
+from conductor._internal.units import Skipped
 
 if TYPE_CHECKING:
     from conductor._internal.run import Run, SaveForm
@@ -127,14 +129,11 @@ class Cell:
         node_id: The node.
         output: The output's name.
         scope: The scope the node runs in.
-        exclusive: Whether the output is one of an exclusive group. Where its node wasn't called for a blank,
-            no branch was chosen, so it is a branch not taken there and not a blank.
     """
 
     node_id: str
     output: str
     scope: Scope
-    exclusive: bool
 
     @property
     def address(self) -> str:
@@ -368,6 +367,22 @@ class PlacedFunction(_Placed):
         definition = self.definition
         written = repr((definition.id, definition.version, _code_text(inspect.unwrap(definition.function).__code__), fields, self.scope))
         return hashlib.blake2b(written.encode(), digest_size=8).hexdigest()
+
+    @functools.cached_property
+    def outputs_not_taken(self) -> dict[str, Any]:
+        """What a unit holds for each output where the node wasn't called for a branch not taken: ``SKIPPED``."""
+        return dict.fromkeys(self.outputs, SKIPPED)
+
+    @functools.cached_property
+    def outputs_not_called(self) -> dict[str, Any]:
+        """What a unit holds for each output where the node wasn't called for a blank: a blank, and for an output
+        of an exclusive group ``SKIPPED``, as no branch was chosen."""
+        return {name: SKIPPED if output.param.exclusive_group is not None else None for name, output in self.outputs.items()}
+
+    @functools.cached_property
+    def skipped(self) -> Skipped:
+        """The unit the node comes to where it wasn't called for a branch not taken; every such unit of it is this one."""
+        return Skipped(self.outputs_not_taken)
 
     @functools.cached_property
     def questions(self) -> dict[str, FieldDescription]:
@@ -903,8 +918,8 @@ def _add_to_tree(graph: Graph, embedding: GraphAtPath | None, tree: list[NodeAtP
                 series = None
                 if len(last.maps) > len(maps):  # made per item inside: of the first Series the inner graph makes on the way to it
                     maker, of = last.maps[len(maps)]
-                    series = Cell(maker.placed.id, of, (), maker.placed.outputs[of].param.exclusive_group is not None)
-                embedded.offers[address] = (Cell(last.placed.id, output, last.placed.scope, spec.param.exclusive_group is not None), last.maps, spec.many, series)
+                    series = Cell(maker.placed.id, of, ())
+                embedded.offers[address] = (Cell(last.placed.id, output, last.placed.scope), last.maps, spec.many, series)
             embedded.ends_silently = tuple(within[last.id] for last in placed.inner._nodes.values() if not last.outputs and not placed.inner._readers[last.id])
             made_from = [(within[cell.node_id], made_in) for cell, made_in, _, _ in embedded.offers.values()] + [(last, last.maps) for last in embedded.ends_silently]
             for last, made_in in made_from:  # each unit of it is made from every unit inside, under its instance
@@ -1389,7 +1404,7 @@ class _Loader:
         if not deepest:
             return SeriesOfOne(spec, tuple(s for s in sources if isinstance(s, Value)))
         made_by, output = deepest[-1]
-        series = Cell(made_by, output, deepest[:-1], self.nodes[made_by].outputs[output].param.exclusive_group is not None)
+        series = Cell(made_by, output, deepest[:-1])
         return Gather(spec, tuple(sources), series)
 
     def _source(self, address: str, node_id: str, name: str) -> Source | None:
@@ -1426,7 +1441,7 @@ class _Loader:
             self.problems.append(make_problem("unknown_output", node_id, name, source=address, outputs=fields, field=wanted))
             return None
         brought = Item if spec.many else Value
-        return brought(source_id, output, source.scope, spec.param.exclusive_group is not None, wanted or None, brings)
+        return brought(source_id, output, source.scope, wanted or None, brings)
 
     def _edge_order(self, source: Source) -> tuple[int, int, str]:
         """Where an edge into an input falls among several: its node's place in the record, then the output's in its node."""
