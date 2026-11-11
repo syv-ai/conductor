@@ -326,7 +326,7 @@ def test_a_value_of_any_type_is_read_as_a_table_only_where_there_is_nothing_to_g
 def test_an_edge_may_name_one_field_of_a_record_and_an_unknown_field_lists_the_ones_there_are():
     graph = load({"c": "contacts", "r": "rows", "s": "send"}, [("c.result", "r.table"), ("r.result.phone", "s.email")])
     assert problems(graph) == [("unknown_output", ("s", "email"))]
-    assert graph.problems[0].ctx["outputs"] == ["r.result.name", "r.result.email"] and graph.problems[0].ctx["field"] == "phone"
+    assert graph.problems[0].ctx["outputs"] == ["r.result.name", "r.result.email"] and graph.problems[0].ctx["record_field"] == "phone"
 
 
 # -- edges into one input are alternatives -----------------------------------------------------------

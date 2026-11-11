@@ -111,7 +111,7 @@ def test_a_whole_list_into_a_series_input_is_the_ordinary_mismatch():
 def test_a_field_named_on_a_whole_table_is_no_output_and_says_to_split_first():
     found = problem({"read": "contacts", "send": "send"}, [("read.result.email", "send.to")])
     assert (found.type, found.loc) == ("unknown_output", ("send", "to"))
-    assert found.ctx == {"source": "read.result.email", "outputs": ["read.result"], "field": "email", "hint": "split_first", "whole": "table", "fields": ["name", "email"]}
+    assert found.ctx == {"source": "read.result.email", "outputs": ["read.result"], "record_field": "email", "hint": "split_first", "whole": "table", "fields": ["name", "email"]}
     assert found.msg == (
         "'read.result.email' names a field of a whole table, which has no field to wire. Split it first: put a Split after it "
         "and wire the field from Split's result."
@@ -169,7 +169,7 @@ def test_a_column_of_another_type_is_the_ordinary_mismatch_naming_both_tables_co
 def test_two_series_that_do_not_nest_name_the_wire_that_would_nest_them():
     found = problem({"upload": "documents", "list": "questions", "ask": "ask"}, [("list.result", "ask.question"), ("upload.result", "ask.document")])
     assert (found.type, found.loc) == ("series_not_nested", ("ask",))
-    assert found.ctx == {"series": ["list.result", "upload.result"], "inputs": ["question", "document"], "wire_from": "upload.result", "wire_into": "list"}
+    assert found.ctx == {"node_id": "ask", "series": ["list.result", "upload.result"], "inputs": ["question", "document"], "wire_from": "upload.result", "wire_into": "list"}
     assert found.msg == (
         "'ask' reads items of list.result, upload.result, and neither is made inside the other, so nothing says which item goes with which. "
         "Make one inside the other (wire 'upload.result' into 'list', the node that makes the other), or give one of them whole to a Series input."

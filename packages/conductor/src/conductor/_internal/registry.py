@@ -289,7 +289,7 @@ class NodeRegistry:
         if placed is None:
             raise InvalidCallError([make_problem("node_not_in_graph", node_id, node_id=node_id, nodes=[n.id for n in graph.nodes])])
         if placed.node not in self._nodes:
-            raise InvalidCallError([make_problem("unknown_node", node_id, node=placed.node, choices=sorted(self._nodes))])
+            raise InvalidCallError([problem.unknown_node(node_id, node=placed.node, choices=sorted(self._nodes))])
         newest = self._nodes[placed.node]
         target = newest.version if to is None else to
         if target == placed.version:

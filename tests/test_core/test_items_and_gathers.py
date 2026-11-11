@@ -1164,7 +1164,7 @@ def test_two_edges_into_one_input_that_can_both_hold_a_value_are_a_problem_never
     loaded = graph({"id": "s", "node": "split"}, {"id": "a", "node": "upper"}, {"id": "b", "node": "upper"}, {"id": "m", "node": "upper"},
                    edges=(("s.result", "a.text"), ("s.result", "b.text"), ("a.result", "m.text"), ("b.result", "m.text")))
     (problem,) = loaded.problems
-    assert (problem.type, problem.loc, problem.ctx) == ("several_edges_into_one_input", ("m", "text"), {"sources": ["a.result", "b.result"]})
+    assert (problem.type, problem.loc, problem.ctx) == ("several_edges_into_one_input", ("m", "text"), {"node_id": "m", "field": "text", "sources": ["a.result", "b.result"]})
 
 
 def test_two_branches_wired_into_one_input_merge_back_per_item_and_the_chain_stays_per_item():
@@ -1406,7 +1406,7 @@ def test_two_series_into_one_embedding_are_refused_once_with_the_authors_address
     loaded = graph({"id": "d1", "node": "split"}, {"id": "d2", "node": "split"}, {"id": "emb", "node": "pairs"},
                    edges=(("d1.result", "emb.a"), ("d2.result", "emb.b")), registry=registry_of(split, pair, inner))
     (problem,) = loaded.problems
-    assert (problem.type, problem.loc, problem.ctx) == ("series_not_nested", ("emb",), {"series": ["d1.result", "d2.result"], "inputs": ["a", "b"], "wire_from": "d1.result", "wire_into": "d2"})
+    assert (problem.type, problem.loc, problem.ctx) == ("series_not_nested", ("emb",), {"node_id": "emb", "series": ["d1.result", "d2.result"], "inputs": ["a", "b"], "wire_from": "d1.result", "wire_into": "d2"})
     assert "emb/" not in problem.msg
 
 

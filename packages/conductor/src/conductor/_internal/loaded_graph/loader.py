@@ -68,7 +68,6 @@ from conductor._internal.problem import (
     NodeDeclarationError,
     NodeError,
     Problem,
-    make_problem,
 )
 
 _logger = logging.getLogger("conductor")
@@ -150,7 +149,7 @@ class _Loader:
         """The graph of ``record``, as a ``graph_type``: every node whose fields are known placed, and every
         problem noted."""
         refused = {n.id for n in record.nodes if not is_node_id(n.id)}
-        self.problems += [make_problem("invalid_node_id", node_id) for node_id in dict.fromkeys(n.id for n in record.nodes) if node_id in refused]
+        self.problems += [problem.invalid_node_id(node_id) for node_id in dict.fromkeys(n.id for n in record.nodes) if node_id in refused]
         known: dict[str, NodeRecord] = {}
         twice: set[str] = set()
         for node_record in record.nodes:
@@ -158,7 +157,7 @@ class _Loader:
                 twice.add(node_record.id)
             elif node_record.id not in refused:
                 known[node_record.id] = node_record
-        self.problems += [make_problem("duplicate_node_id", node_id) for node_id in sorted(twice)]
+        self.problems += [problem.duplicate_node_id(node_id) for node_id in sorted(twice)]
         self.position = {node_id: i for i, node_id in enumerate(known)}
         into: dict[str, dict[str, list[str]]] = {node_id: {} for node_id in known}
         seen: set[tuple[str, str]] = set()
@@ -167,12 +166,12 @@ class _Loader:
             if source.partition(".")[0] in refused or node_id in refused:
                 continue  # its own invalid_node_id says why
             if (source, target) in seen:
-                self.problems.append(make_problem("repeated_edge", node_id, name, source=source))
+                self.problems.append(problem.repeated_edge(node_id, name, source=source))
                 continue
             seen.add((source, target))
             missing = [n for n in (source.partition(".")[0], node_id) if n not in known]
             if missing:
-                self.problems.append(make_problem("edge_names_missing_node", node_id, name, node_id=missing[0], source=source, target=target))
+                self.problems.append(problem.edge_names_missing_node(node_id, name, missing=missing[0], source=source, target=target))
             if node_id in known:  # the input is drawn as fed, whether or not its source exists
                 into[node_id].setdefault(name, []).append(source)
         ordered = self._order(list(known), into)
@@ -208,10 +207,10 @@ class _Loader:
         """The definition a node of the record names, at its version; ``None`` with the problem when there is none."""
         newest = self.definitions.get(record.node)
         if newest is None:
-            self.problems.append(make_problem("unknown_node", record.id, node=record.node, choices=sorted(self.definitions)))
+            self.problems.append(problem.unknown_node(record.id, node=record.node, choices=sorted(self.definitions)))
             return None
         if record.version not in newest.versions:
-            self.problems.append(make_problem("unknown_version", record.id, node=record.node, version=record.version, newest=newest.version))
+            self.problems.append(problem.unknown_version(record.id, node=record.node, version=record.version, newest=newest.version))
             return None
         return newest.version_of(record.version)
 
@@ -265,7 +264,7 @@ class _Loader:
             added = made
             taken = sorted(added.keys() & (fields.keys() | definition.from_run.keys()))
             if taken:
-                self.problems.append(make_problem("compute_hook_failed", record.id, reason=f"it adds {taken[0]!r}, which the node already declares", error="added_input_taken"))
+                self.problems.append(problem.compute_hook_failed(record.id, reason=f"it adds {taken[0]!r}, which the node already declares", error="added_input_taken"))
                 return
             fields.update(added)
             typed.update(self._typed(record, added))
@@ -294,7 +293,7 @@ class _Loader:
         isn't known.
         """
         if definition.id in self.embedded_in:
-            self.problems.append(make_problem("embeds_itself", record.id, node=definition.id))
+            self.problems.append(problem.embeds_itself(record.id, node=definition.id))
             return
         stack = (*self.embedded_in, definition.id)
         key = (definition.id, definition.version, stack)
@@ -352,7 +351,7 @@ class _Loader:
         inputs: dict[str, InputPlan] = {}
         for name, spec in fields.items():
             if name in record.values and name in record.defaults:
-                self.problems.append(make_problem("value_and_default", record.id, name))
+                self.problems.append(problem.value_and_default(record.id, name))
             if name in edges:
                 if name in record.values or name in record.defaults:
                     self.problems.append(problem.value_and_edge(record.id, name))
@@ -370,10 +369,10 @@ class _Loader:
                 self.opened.append((GraphInput(address=address, node_id=record.id, field=opened.description), opened))
                 inputs[name] = Open(spec, address)
             elif name in record.defaults:
-                self.problems.append(make_problem("default_on_later_node", record.id, name))
+                self.problems.append(problem.default_on_later_node(record.id, name))
                 inputs[name] = _fixed(spec, typed[name])
             elif spec.default is REQUIRED and name not in fixed_at_load:  # a hook that reads it says so itself, as hook_needs_value
-                self.problems.append(make_problem("unbound_on_later_node", record.id, name))
+                self.problems.append(problem.unbound_on_later_node(record.id, name))
                 inputs[name] = Unset(spec)
             else:
                 inputs[name] = Fixed(spec, spec.default)
@@ -390,8 +389,8 @@ class _Loader:
                 series = [scope[-1], plan.scope[-1]]
                 outer, inner = sorted(series, key=lambda port: list(self.nodes).index(port.node_id))  # the one placed later can read the other with no cycle
                 reading = next(n for n, p in inputs.items() if isinstance(p, Fed) and p.scope == scope)
-                self.problems.append(make_problem(
-                    "series_not_nested", record.id, series=[str(s) for s in series], inputs=[reading, name],
+                self.problems.append(problem.series_not_nested(
+                    record.id, series=[str(s) for s in series], inputs=[reading, name],
                     wire_from=str(outer), wire_into=inner.node_id,
                 ))
                 inputs[name] = Unset(plan.spec)
@@ -436,7 +435,7 @@ class _Loader:
                 case "value":
                     value = typed.get(name, definition.inputs[name].default)  # @node checked the parameter names a declared input
                     if value is REQUIRED:
-                        self.problems.append(make_problem("hook_needs_value", record.id, name))
+                        self.problems.append(problem.hook_needs_value(record.id, name))
                         return None
                     if value is _REFUSED:
                         return None  # its own invalid_value says why
@@ -444,32 +443,31 @@ class _Loader:
         try:
             returned = hook(**kwargs)
         except NodeError as error:  # the hook's own account, with its own code and its ctx kept whole
-            own = {"error_ctx": dict(error.ctx)} if error.ctx else {}
-            self.problems.append(make_problem("compute_hook_failed", record.id, reason=error.message, error=error.code, **own))
+            self.problems.append(problem.compute_hook_failed(record.id, reason=error.message, error=error.code, error_ctx=dict(error.ctx) or None))
             return None
         except Exception as error:  # noqa: BLE001  the hook's failure is this node's problem
             _logger.error("the %s hook of node %r failed", kind, record.id, exc_info=error)
-            self.problems.append(make_problem("compute_hook_failed", record.id, reason=str(error), error=type(error).__name__))
+            self.problems.append(problem.compute_hook_failed(record.id, reason=str(error), error=type(error).__name__))
             return None
         try:
             hints = _HOOK_FIELDS.validate_python(returned)
         except pydantic.ValidationError as invalid:
             for fault in invalid.errors():
                 if fault["loc"]:  # a name refused: the place is the name
-                    self.problems.append(make_problem("parameter_name_invalid", record.id, str(fault["loc"][0])))
+                    self.problems.append(problem.parameter_name_invalid(record.id, str(fault["loc"][0])))
                 else:  # the value itself refused: it is no mapping
                     reason = f"its {kind} hook returned a {type(returned).__name__}; a hook returns its fields by name, as a mapping of each name to its type"
-                    self.problems.append(make_problem("compute_hook_failed", record.id, reason=reason, error="not_a_mapping"))
+                    self.problems.append(problem.compute_hook_failed(record.id, reason=reason, error="not_a_mapping"))
             return None
         try:
             return {name: Field(name, *_hint_and_default(hint)) for name, hint in hints.items()}
         except NodeDeclarationError as error:  # a hint conductor can't carry is the hook's failure
-            self.problems.append(make_problem("compute_hook_failed", record.id, reason=error.message, error=error.code))
+            self.problems.append(problem.compute_hook_failed(record.id, reason=error.message, error=error.code))
             return None
         except AttributeError as error:
             if error.name not in ("type_id", "type_title"):  # any other is a bug in the host's own code, as at @node
                 raise
-            self.problems.append(make_problem("compute_hook_failed", record.id, reason=str(error), error="AttributeError"))
+            self.problems.append(problem.compute_hook_failed(record.id, reason=str(error), error="AttributeError"))
             return None
 
     # -- edges ------------------------------------------------------------------
@@ -535,18 +533,18 @@ class _Loader:
             wanted = rest[len(output) + 1 :]
         spec = source.outputs.get(output)
         if spec is None:
-            self.problems.append(make_problem("unknown_output", node_id, name, source=address, outputs=[f"{source_id}.{o}" for o in source.outputs]))
+            self.problems.append(problem.unknown_output(node_id, name, source=address, outputs=[f"{source_id}.{o}" for o in source.outputs]))
             return None
         if wanted and (split := _split_gives(spec.type)):  # a table or a list is one value: only an item of a Series has a field to wire
-            self.problems.append(make_problem(
-                "unknown_output", node_id, name, source=address, outputs=[f"{source_id}.{o}" for o in source.outputs], field=wanted,
-                hint="split_first", whole=split[0], fields=split[1],
+            self.problems.append(problem.unknown_output_split_first(
+                node_id, name, source=address, outputs=[f"{source_id}.{o}" for o in source.outputs], record_field=wanted,
+                whole=split[0], fields=split[1],
             ))
             return None
         brings = _field_type(spec.type, wanted) if wanted else spec.type
         if brings is None:
             fields = [f"{source_id}.{output}.{f}" for f in spec.type.fields]
-            self.problems.append(make_problem("unknown_output", node_id, name, source=address, outputs=fields, field=wanted))
+            self.problems.append(problem.unknown_output(node_id, name, source=address, outputs=fields, record_field=wanted or None))
             return None
         brought = Item if spec.many else Value
         return brought(source_id, output, source.scope, wanted or None, brings)
@@ -580,11 +578,11 @@ class _Loader:
             behind = [self._branch(s) for s in plan.sources]
             scopes = list(dict.fromkeys(s.read_in for s in plan.sources))
             if not all(_opposed(a, b) for i, a in enumerate(behind) for b in behind[i + 1:]):
-                self.problems.append(make_problem("several_edges_into_one_input", node_id, name, sources=[s.address for s in plan.sources]))
+                self.problems.append(problem.several_edges_into_one_input(node_id, name, sources=[s.address for s in plan.sources]))
                 refused.add(name)
             elif len(scopes) > 1:
                 series = [str(scope[-1]) if scope else None for scope in scopes[:2]]
-                self.problems.append(make_problem("alternatives_in_different_series", node_id, name, series=series))
+                self.problems.append(problem.alternatives_in_different_series(node_id, name, series=series))
                 refused.add(name)
         aligned = [
             (name, [self._branch(s) for s in plan.sources]) for name, plan in inputs.items()
@@ -593,7 +591,7 @@ class _Loader:
         for i, (a, behind_a) in enumerate(aligned):
             for b, behind_b in aligned[i + 1:]:
                 if all(_opposed(x, y) for x in behind_a for y in behind_b):
-                    self.problems.append(make_problem("series_inputs_never_share_an_item", node_id, inputs=[a, b]))
+                    self.problems.append(problem.series_inputs_never_share_an_item(node_id, inputs=[a, b]))
                     refused.update((a, b))
         return refused
 

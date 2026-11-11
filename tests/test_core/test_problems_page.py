@@ -19,7 +19,7 @@ import typing
 import pytest
 from conductor import PROBLEMS
 from conductor._internal.kit_problem import KIT_PROBLEMS
-from conductor._internal.problem import PROBLEM_CATALOGUE, DeclarationCode
+from conductor._internal.problem import PROBLEM_CATALOGUE, PROBLEM_CODES, DeclarationCode
 from conductor_providers.fastapi import ROUTER_PROBLEMS
 
 _ROOT = pathlib.Path(__file__).parents[2]
@@ -62,7 +62,7 @@ def _wanted() -> dict[str, list[str]]:
     wanted = {code: [text] for code, text in PROBLEM_CATALOGUE.items()}
     messages = _declaration_messages()
     for code in typing.get_args(DeclarationCode):
-        wanted[code + _DECLARED if code in PROBLEM_CATALOGUE else code] = messages[code]
+        wanted[code + _DECLARED if code in PROBLEM_CODES else code] = messages[code]
     return wanted | {code: [] for code in KIT_PROBLEMS.codes | ROUTER_PROBLEMS.codes | PROBLEMS.codes}
 
 

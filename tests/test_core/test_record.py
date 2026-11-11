@@ -147,8 +147,8 @@ def test_an_edge_naming_a_node_the_graph_does_not_have_is_one_problem_at_either_
     into = REGISTRY.load(GraphRecord(nodes=[NodeRecord(id="a", node="text")], edges=[("a.result", "gone.text")]))
     out_of = REGISTRY.load(GraphRecord(nodes=[NodeRecord(id="b", node="upper")], edges=[("gone.result", "b.text")]))
 
-    assert [(p.type, p.loc, p.ctx["node_id"]) for p in into.problems] == [("edge_names_missing_node", ("gone", "text"), "gone")]
-    assert [(p.type, p.loc, p.ctx["node_id"]) for p in out_of.problems] == [("edge_names_missing_node", ("b", "text"), "gone")]
+    assert [(p.type, p.loc, p.ctx["missing"]) for p in into.problems] == [("edge_names_missing_node", ("gone", "text"), "gone")]
+    assert [(p.type, p.loc, p.ctx["missing"]) for p in out_of.problems] == [("edge_names_missing_node", ("b", "text"), "gone")]
 
 
 def test_an_input_set_two_ways_is_a_problem():
@@ -406,7 +406,7 @@ def _a_table_read_by_one_text(source: str) -> Problem:
 def test_an_edge_naming_a_column_of_a_whole_table_is_unknown_output_as_a_table_is_one_value():
     problem = _a_table_read_by_one_text("r.result.name")
 
-    assert (problem.type, problem.loc, problem.ctx["field"]) == ("unknown_output", ("u", "text"), "name")
+    assert (problem.type, problem.loc, problem.ctx["record_field"]) == ("unknown_output", ("u", "text"), "name")
 
 
 @pytest.mark.parametrize("source", ["r.result.name", "r.result"])

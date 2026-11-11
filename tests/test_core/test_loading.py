@@ -435,7 +435,7 @@ def test_an_edge_from_a_node_that_did_not_load_is_not_reported_again():
 
 def test_an_edge_from_a_slashed_name_under_a_plain_node_names_a_node_the_graph_lacks():
     problems = REGISTRY.load({"nodes": [{"id": "a", "node": "upper"}, {"id": "u", "node": "tail"}], "edges": [["a/b.result", "u.text"]]}).problems
-    assert [(p.type, p.loc, p.ctx["node_id"]) for p in problems] == [("edge_names_missing_node", ("u", "text"), "a/b")]
+    assert [(p.type, p.loc, p.ctx["missing"]) for p in problems] == [("edge_names_missing_node", ("u", "text"), "a/b")]
 
 
 # -- what a caller gives ---------------------------------------------------------------------------
@@ -760,12 +760,12 @@ def test_an_inner_nodes_own_error_is_said_where_it_is_inside_the_embedding_with_
 
 def test_an_outer_edge_never_reads_inside_an_embedding_by_an_inner_id():
     problems = OUTSIDE.load({"nodes": [{"id": "e", "node": "enrich"}, {"id": "u", "node": "upper"}], "edges": [["e/upper.result", "u.text"]]}).problems
-    assert [(p.type, p.loc, p.ctx["node_id"]) for p in problems] == [("edge_names_missing_node", ("u", "text"), "e/upper")]
+    assert [(p.type, p.loc, p.ctx["missing"]) for p in problems] == [("edge_names_missing_node", ("u", "text"), "e/upper")]
 
 
 def test_an_edge_from_a_missing_node_into_an_embedding_is_its_problem_at_the_field_it_offers():
     [problem] = OUTSIDE.load({"nodes": [{"id": "e", "node": "enrich"}], "edges": [["ghost.result", "e.text"]]}).problems
-    assert (problem.type, problem.loc, problem.ctx["node_id"]) == ("edge_names_missing_node", ("e", "text"), "ghost")
+    assert (problem.type, problem.loc, problem.ctx["missing"]) == ("edge_names_missing_node", ("e", "text"), "ghost")
     assert (problem.ctx["source"], problem.ctx["target"]) == ("ghost.result", "e.text")
 
 
