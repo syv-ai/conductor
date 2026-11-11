@@ -100,7 +100,7 @@ def save_form(fingerprint: str, inputs: Mapping[str, Type], outputs: Mapping[str
         complete=core_schema.list_schema(core_schema.literal_schema(names)) if (names := list(nodes)) else core_schema.list_schema(max_length=0),
     )
     shareable = tuple((node, name) for node, of_node in outputs.items() for name, output in of_node.items() if output.whole.may_write_once)
-    if shareable:  # a graph with no such output reads its saves with no step after
+    if shareable:  # skip the extra pass when no output can be a shared table
         run = core_schema.no_info_after_validator_function(functools.partial(with_shared_tables, outputs), run)
     schema = core_schema.definitions_schema(core_schema.tagged_union_schema({fingerprint: run}, discriminator=_GRAPH), list(shared.values()))
     config = CoreConfig(ser_json_inf_nan="strings")

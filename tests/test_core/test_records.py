@@ -347,17 +347,27 @@ def test_a_save_whose_tables_written_once_names_an_output_that_is_no_table_writt
     with pytest.raises(InvalidCallError) as refused:
         graph.load_run(json.dumps(saved))
     (found,) = refused.value.errors()
-    assert found.type == "state_unreadable" and "tables_written_once: 'split.result[0]' can't be read as the same table" in found.msg
+    assert found.type == "state_unreadable" and "tables_written_once: 'split.result[0]' can't be read as the table at" in found.msg and "not an output written in full" in found.msg
 
 
 def test_a_save_whose_tables_written_once_names_a_table_of_other_columns_is_refused_by_the_outputs_own_type() -> None:
-    graph = _read_then_split()
+    @node("any-table", title="Any table", description="")
+    def any_table(text: str) -> Table:
+        return FRAME.select("name", "email")
+
+    @node("as-contacts", title="As contacts", description="")
+    def as_contacts(table: Table) -> Series[Contact]:
+        return table  # type: ignore[return-value]
+
+    graph = registry_of(any_table, as_contacts).load(make_graph(any_table, as_contacts, edges=[("any-table.result", "as-contacts.table")]))
     saved = json.loads(graph.run(text="x").to_json())
-    saved["units"]["people"]["outputs"]["result"][0]["columns"][0]["name"] = "nom"
+    assert saved["tables_written_once"] == [{"output": ["as-contacts", "result", 0], "same_as": ["any-table", "result", 0]}]
+    saved["units"]["any-table"]["outputs"]["result"][0]["columns"][0]["name"] = "nom"  # a table of any columns takes it
 
     with pytest.raises(InvalidCallError) as refused:
         graph.load_run(json.dumps(saved))
-    assert refused.value.errors()[0].type == "state_unreadable"
+    (found,) = refused.value.errors()
+    assert found.type == "state_unreadable" and "the column 'name' its row type declares is missing" in found.msg
 
 
 def test_the_json_a_host_gets_for_a_table_goes_into_polars_and_into_pandas_in_one_line_each() -> None:

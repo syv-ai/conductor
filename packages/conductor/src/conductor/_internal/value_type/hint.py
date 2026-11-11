@@ -14,7 +14,7 @@ from typing import Any, TypeGuard, TypeVar, Union, get_args, get_origin
 
 from pydantic import BaseModel, JsonValue
 
-#: The generic class a hint that is a class of its values is read as, by that class.
+#: Maps a run-time class to the hint it means when written as a hint: ``polars.DataFrame`` to ``Table``.
 READ_AS: dict[type, Any] = {}
 
 

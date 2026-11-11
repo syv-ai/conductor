@@ -47,7 +47,8 @@ else:
     Table = _Table
 
 
-#: The words pydantic's ``loc`` names the form a table came in with, which are no place in the table.
+#: Words pydantic puts in an error's ``loc`` to say which form the table was given in. They are dropped, as they
+#: name no row or column.
 _TABLE_FORMS = ("frame", "records", "written", "columns")
 
 

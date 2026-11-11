@@ -161,7 +161,7 @@ def split_hint(hint: Any) -> tuple[Any, Param, tuple[Any, ...]]:
     """Takes a hint apart into its bare type, its ``Param`` and its other metadata.
 
     ``Annotated[X, Param(...)] | None`` is ``X | None`` with that ``Param``; several ``Param``s are one, each
-    argument the last one given. A class a kind declared as its values' is read as that kind's generic class.
+    argument the last one given. A ``polars.DataFrame`` written as a hint is read as ``Table``.
 
     Returns:
         The hint with every ``Annotated`` taken off its members, the ``Param``s as one (an empty one for none),

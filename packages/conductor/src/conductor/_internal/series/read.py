@@ -16,18 +16,19 @@ from conductor._internal.sentinels import SKIPPED
 SET_HAS_NO_ORDER = "a set has no order, so its items would come in another order in another process; give a list"
 
 
-#: How a value of a class that is no list is made the list of items it holds, by that class.
+#: Maps a class to the function that turns a value of it into a list: ``tuple`` to ``list``.
 _AS_LIST: dict[type, Callable[[Any], list[Any]]] = {tuple: list, range: list}
 
 
 def read_as_list(cls: type, as_list: Callable[[Any], list[Any]]) -> None:
-    """Declares that a value of ``cls`` given for a ``Series`` is the list ``as_list`` makes of it."""
+    """Registers ``as_list`` as how a value of ``cls`` given for a ``Series`` becomes a list.
+    ``read_as_list(polars.Series, polars.Series.to_list)`` lets a node return a frame's column for a ``Series``."""
     _AS_LIST[cls] = as_list
 
 
 def series_schema(source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
     """Returns the pydantic schema of ``Series[T]``, where ``source`` is that hint: a list whose items are each
-    validated as ``T``.
+    validated as ``T``. For ``Series[int]`` it validates ``[1, 2]`` and ``(1, 2)`` and returns ``[1, 2]``.
 
     From Python it also takes a tuple, a range and a value of a class registered with ``read_as_list``, and
     refuses a set. An item that is ``SKIPPED`` stays ``SKIPPED`` at its index.

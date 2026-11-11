@@ -318,3 +318,21 @@ def test_true_is_refused_for_a_number_alike_in_a_record_a_list_of_records_and_a_
     assert Type(Row).read_json(right) == right
     with pytest.raises(FieldValueError, match="valid integer"):  # from JSON, strictly, the refusal is pydantic's own
         Type(Row).read_json(wrong)
+
+
+def test_an_enum_of_numbers_is_a_type_and_refuses_true_alone_and_in_a_list():
+    import enum
+
+    from conductor._internal.value_type import FieldValueError, Type
+
+    class Level(enum.IntEnum):
+        LOW = 1
+
+    class Share(float, enum.Enum):
+        HALF = 0.5
+
+    assert Type(Level).read(1) is Level.LOW and Type(list[Level]).read([1]) == [Level.LOW] and Type(Share).read(0.5) is Share.HALF
+    for hint, value in ((Level, True), (list[Level], [True])):
+        with pytest.raises(FieldValueError) as refused:
+            Type(hint).read(value)
+        assert refused.value.errors[0]["type"] == "bool_is_not_a_number"

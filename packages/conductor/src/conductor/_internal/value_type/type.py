@@ -49,7 +49,7 @@ _SCALARS = frozenset({str, int, float, bool, type(None), datetime.date, datetime
 #: The generic classes whose arguments ``Type`` reads as types of their own, so its rules reach their items.
 _CONTAINERS = (list, dict, tuple, set, frozenset)
 
-#: The class of ``Type`` that answers for each generic class carried in its own way, by that class.
+#: Maps ``Series`` and ``Table`` to their ``Type`` subclass (``SeriesType``, ``TableType``).
 _KINDS: dict[Any, type[Type]] = {}
 
 
@@ -194,7 +194,8 @@ class Type:
 
         A host's class is known by the id its ``@host_type`` declares, a union by its members' (``money | int``), a generic by its
         class and arguments (``list[int]``, a bare ``list`` for ``list[Any]``), a ``Literal`` by the types of its values, a ``TypedDict`` as
-        ``record``, a kind of its own as it says itself and a type alias by its own name. A type variable is read as its bound,
+        ``record``, ``Series`` and ``Table`` by the id their own ``Type`` subclass gives (``Series[int]``), and a type alias
+        by its own name. A type variable is read as its bound,
         else ``Any``.
         """
         return self._named[0]
@@ -309,7 +310,7 @@ class Type:
         """The classes whose instances, of exactly that class, are taken as they are with no reading.
 
         Empty when a value must always be read: an option is no plain class (``list[int]``, a ``Literal``, a
-        ``TypedDict``, ``Any``, a kind of its own), or the type is ``limited``.
+        ``TypedDict``, ``Any``, a ``Series`` or a table), or the type is ``limited``.
         """
         options = union_members(self.bare)
         plain = all(isinstance(option, type) and not typing.is_typeddict(option) and option is not Any and option not in _KINDS for option in options)
@@ -336,8 +337,8 @@ class Type:
 
     @property
     def stored_hint(self) -> Any:
-        """The type hint a saved run reads and writes a stored value of the type by: the hint itself, unless a
-        subclass stores its values in a form of its own."""
+        """The type hint a saved run reads and writes a stored value of the type by. For ``Type(int)`` it is
+        ``int``; a ``Series`` type gives the hint of the classes a run stores a Series as."""
         return self.hint
 
     @functools.cached_property
@@ -374,11 +375,13 @@ class Type:
 
     def written_once(self, stored: Any) -> Any | None:
         """Returns the object inside ``stored``, a stored value of the type, that a save should write only once
-        when several outputs have that same object (a table); ``None`` when the type has no such object."""
+        when several outputs have that same object; ``None`` when the type has no such object. For a table
+        type it is the frame; for ``Type(int)`` and ``5`` it is ``None``."""
         return None
 
     def read_answer(self, value: Any) -> Any:
         """Validates a person's answer from its JSON form and returns it as the run stores it.
+        ``Type(int).read_answer(3)`` is ``3``; for a ``Series`` the list is returned as a ``SeriesItems``.
 
         Raises:
             FieldValueError: ``value`` has no JSON form, or is not valid for the type.
@@ -455,9 +458,8 @@ class Type:
     def _refused(self, error: ValidationError) -> FieldValueError:
         """Makes pydantic's ``error`` one that quotes nothing of the value.
 
-        Each ``loc`` is kept only as far as the types themselves name: an index into a list, a field of a record,
-        and whatever a kind of its own names. It stops at the first other step, such as a key of a dict, as a key
-        is the value's own. A fault in a part a kind names (a table's column) says which.
+        A ``loc`` keeps list indexes, record fields and table columns, and is cut at the first other step, such
+        as a dict key, which is part of the value. An error in a table's column names the column.
         """
         errors = value_free_errors(error)
         columns: list[str] = []
@@ -510,8 +512,8 @@ class Type:
         declared. It is called as pydantic's ``to_json`` ``fallback``.
 
         Raises:
-            TypeError: Always on ``Type`` itself, which is how a ``fallback`` says it can't write a value. A
-                subclass with a ``value_class`` overrides it.
+            TypeError: Always, unless a subclass overrides this. Pydantic's ``to_json`` expects ``fallback`` to
+                raise ``TypeError`` for a value it can't write.
         """
         raise TypeError(type(value).__name__)
 
@@ -563,8 +565,8 @@ def _kind_of(hint: Any) -> type[Type]:
 
 
 def kind_of_value(value: Any) -> type[Type]:
-    """Returns the ``Type`` subclass registered for the class of ``value`` (``TableType`` for a frame), else
-    ``Type``. Used for a value found where no type is declared, such as inside an ``Any``."""
+    """Returns the ``Type`` subclass registered for the class of ``value``, else ``Type``: ``TableType`` for a
+    frame, ``Type`` for ``5``. Used for a value found where no type is declared, such as inside an ``Any``."""
     return _KINDS.get(READ_AS.get(type(value)), Type)
 
 

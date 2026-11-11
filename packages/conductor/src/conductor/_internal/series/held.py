@@ -66,13 +66,14 @@ class StoredSeries:
     @classmethod
     def stored_hint(cls, item: Type) -> Any | None:
         """Returns the type hint a saved run reads and writes this class by, for a Series whose items have the
-        type ``item``; ``None`` if items of that type can't be stored as this class."""
+        type ``item``; ``None`` if items of that type can't be stored as this class. ``Records`` returns
+        ``Records[Row]`` for items of a ``TypedDict`` ``Row`` and ``None`` for items of ``str``."""
         raise NotImplementedError
 
     @classmethod
     def store(cls, returned: Any, item: Type) -> StoredSeries:
         """Validates what a node ``returned`` for a Series whose items have the type ``item``, and returns it
-        stored as this class.
+        stored as this class. ``Records.store(frame, Type(Row))`` checks the frame's columns against ``Row``.
 
         Raises:
             FieldValueError: ``returned`` is not valid for the items' type.
@@ -86,7 +87,8 @@ class StoredSeries:
 
     def as_table_input(self) -> Any:
         """Returns the items as a node with a ``Table`` input receives them, before the input's type validates
-        them: the list of ``as_list`` unless the subclass has a table already."""
+        them: the list of ``as_list``, such as ``[{"name": "Ann"}]``, unless the subclass has a table already,
+        which ``Records`` returns as it is."""
         return self.as_list()
 
     def field_as_list(self, name: str) -> list[Any]:
@@ -104,7 +106,8 @@ class StoredSeries:
 
     def for_saving(self) -> tuple[StoredSeries, list[int]]:
         """Returns the Series as a saved run writes it, and the indexes of its ``SKIPPED`` items, which the save
-        writes as ``None`` and lists beside the Series."""
+        writes as ``None`` and lists beside the Series. ``SeriesItems(["a", SKIPPED]).for_saving()`` is
+        ``(SeriesItems(["a", None]), [1])``."""
         return self, []
 
     def written_once(self) -> Any | None:
@@ -115,7 +118,7 @@ class StoredSeries:
     @staticmethod
     def without_rows(received: Any, places: set[int]) -> Any:
         """Returns ``received``, a value ``as_table_input`` returned that is not a list, without the rows at the
-        indexes ``places``."""
+        indexes ``places``: a three-row frame and ``{1}`` give a frame of its first and third row."""
         raise NotImplementedError
 
 

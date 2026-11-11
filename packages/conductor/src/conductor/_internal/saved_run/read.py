@@ -72,8 +72,11 @@ def units_of(not_taken: dict[str, Any], not_called: dict[str, Any], saved: Saved
 
 
 def with_shared_tables(outputs: Mapping[str, Mapping[str, Field]], saved: SavedRun[list[Unit | None], EarlierWork]) -> SavedRun[list[Unit | None], EarlierWork]:
-    """Gives each output a save wrote as ``null`` and listed under ``tables_written_once`` the table of the output it names, validated by
-    its own type, so both outputs have one table object again.
+    """Fills in the outputs a save wrote as ``null`` and listed under ``tables_written_once``.
+
+    Example: the save lists ``{"output": ["split", "result", 0], "same_as": ["people", "result", 0]}``. The table
+    read for ``people.result`` is validated by the type of ``split.result`` and stored there, so both outputs have
+    the same table object again.
 
     Args:
         outputs: The outputs of each node, by the node's name in a save.
@@ -94,10 +97,11 @@ def with_shared_tables(outputs: Mapping[str, Mapping[str, Field]], saved: SavedR
             if table is None:
                 raise LookupError(from_slot)
             unit.out[output] = outputs[node][output].whole.read_returned(table)
-        except (LookupError, AttributeError, FieldValueError):
+        except (LookupError, AttributeError, FieldValueError) as wrong:
+            reason = wrong.reason if isinstance(wrong, FieldValueError) else "that is not an output written in full before it"
             raise PydanticCustomError(
-                "same_as_unreadable", "tables_written_once: '{output}' can't be read as the same table as '{same_as}', which must be an output written in full before it",
-                {"output": f"{node}.{output}[{slot}]", "same_as": f"{from_node}.{from_output}[{from_slot}]"},
+                "same_as_unreadable", "tables_written_once: '{output}' can't be read as the table at '{same_as}': {reason}",
+                {"output": f"{node}.{output}[{slot}]", "same_as": f"{from_node}.{from_output}[{from_slot}]", "reason": reason},
             ) from None
     return saved
 

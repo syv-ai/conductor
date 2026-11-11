@@ -15,8 +15,9 @@ from __future__ import annotations
 
 import datetime
 import decimal
+import typing
 import uuid
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Mapping
 from typing import Annotated, Any
 
 from pydantic import Field as PydanticField
@@ -55,7 +56,7 @@ class TypeDeclaration:
     """
 
     id: Annotated[str, PydanticField(pattern=r"^[A-Za-z_][A-Za-z0-9_.-]*$")]
-    title: Annotated[str, PydanticField(min_length=1)]
+    title: Annotated[str, PydanticField(pattern=r"\S")]
     accepts: tuple[type, ...] = ()
 
     @field_validator("id")
@@ -66,7 +67,7 @@ class TypeDeclaration:
         return given
 
 
-def host_type[C: type](id: str, *, title: str, accepts: Iterable[type] = ()) -> Callable[[C], C]:  # noqa: A002  the word a type's id has in describe()
+def host_type[C: type](id: str, *, title: str, accepts: list[type] | tuple[type, ...] = ()) -> Callable[[C], C]:  # noqa: A002  the word a type's id has in describe()
     """Declares a class as a type of the host's. Write it above the class, and above ``@dataclass`` when there is
     one::
 
@@ -92,7 +93,7 @@ def host_type[C: type](id: str, *, title: str, accepts: Iterable[type] = ()) -> 
             (``type_declaration_invalid``); or pydantic can't validate the class (``type_not_carried``).
     """
     try:
-        declaration = TypeDeclaration(id=id, title=title, accepts=tuple(accepts))
+        declaration = TypeDeclaration(id=id, title=title, accepts=tuple(accepts) if isinstance(accepts, list) else accepts)
     except ValidationError as error:
         said = "; ".join(f"{fault['loc'][0]}: {fault['msg']}" for fault in error.errors())
         raise NodeDeclarationError(
@@ -101,6 +102,11 @@ def host_type[C: type](id: str, *, title: str, accepts: Iterable[type] = ()) -> 
         ) from None
 
     def declare(cls: C) -> C:
+        if not isinstance(cls, type) or typing.is_typeddict(cls):
+            raise NodeDeclarationError(
+                f"@host_type({id!r}) goes above a class, and {cls!r} is not one it can name; a TypedDict is a record and needs no declaration",
+                code="type_declaration_invalid",
+            )
         try:
             TypeAdapter(cls)
         except PydanticSchemaGenerationError:
@@ -126,7 +132,9 @@ def host_type[C: type](id: str, *, title: str, accepts: Iterable[type] = ()) -> 
 
 
 def declaration_of(cls: type) -> TypeDeclaration:
-    """Returns what ``@host_type`` stored on ``cls`` itself. A parent's declaration does not count.
+    """Returns what ``@host_type`` stored on ``cls`` itself. For a ``Money`` declared with
+    ``@host_type("money", title="Money")``, ``declaration_of(Money).id`` is ``"money"``. A parent's declaration
+    does not count.
 
     Raises:
         NodeDeclarationError: ``cls`` has none (``type_not_named``).
@@ -144,6 +152,7 @@ def declaration_of(cls: type) -> TypeDeclaration:
 
 def accepted_classes(cls: type) -> tuple[type, ...]:
     """Returns the other classes whose values an edge may pass to an input of the class ``cls``: what its
-    ``@host_type(accepts=...)`` lists, and none for a class with no declaration, such as ``int``."""
+    ``@host_type(accepts=...)`` lists, and none for a class with no declaration. For a ``Temperature`` declared
+    with ``accepts=[Celsius]`` it is ``(Celsius,)``; for ``int`` it is ``()``."""
     declared: TypeDeclaration | None = vars(cls).get("__conductor_type__")
     return () if declared is None else declared.accepts

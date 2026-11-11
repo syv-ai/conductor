@@ -207,3 +207,36 @@ def test_a_hook_that_returns_a_class_that_is_not_declared_is_the_hooks_failure()
     registry.add(made)
     (problem,) = registry.load({"nodes": [{"id": "m", "node": "made"}], "edges": []}).problems
     assert (problem.type, problem.ctx["error"]) == ("compute_hook_failed", "type_not_named")
+
+
+@pytest.mark.parametrize("accepts", [None, int, 5], ids=repr)
+def test_accepts_that_is_no_list_of_classes_fails_at_the_class_statement(accepts: Any) -> None:
+    def build() -> None:
+        @host_type("thing", title="Thing", accepts=accepts)
+        class Thing(BaseModel):
+            pass
+
+    assert _refused(build).code == "type_declaration_invalid"
+
+
+def test_a_title_of_only_spaces_fails_at_the_class_statement() -> None:
+    def build() -> None:
+        @host_type("thing", title="   ")
+        class Thing(BaseModel):
+            pass
+
+    assert _refused(build).code == "type_declaration_invalid"
+
+
+def test_host_type_on_something_that_is_no_class_or_is_a_typed_dict_is_refused() -> None:
+    from typing import TypedDict
+
+    class Row(TypedDict):
+        n: int
+
+    def a_function() -> None:
+        pass
+
+    for wrong in (42, list[int], a_function, Row):
+        refused = _refused(lambda wrong=wrong: host_type("thing", title="Thing")(wrong))
+        assert refused.code == "type_declaration_invalid", wrong
