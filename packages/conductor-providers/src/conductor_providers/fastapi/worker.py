@@ -471,12 +471,18 @@ class Worker(Generic[C]):
         Yields:
             Each event to store, as JSON; each checkpoint, as the row's ``run`` to write; and last, unless the leg
             is handed back, how the leg ended. A raise anywhere in the leg outside a node is logged and ends it
-            as a leg that raised.
+            as a leg that raised, which lists what waits in the run as the row holds it: the run as loaded, or
+            the last checkpoint the store was given.
         """
         try:
             who = self.started_by(row)
-            run = await asyncio.to_thread(_loaded, row, self._nodes_for(who))
-            stream = run.stream(
+            stored = await asyncio.to_thread(_loaded, row, self._nodes_for(who))
+        except Exception:
+            log.exception("the run %s could not be loaded for its leg", row.id)
+            yield Raised.because(router_problem.leg_failed(), waiting=[])
+            return
+        try:
+            stream = stored.stream(
                 from_run=self._from_run(who), max_items=max_items, timeout=self._leg_timeout,
                 cancel=hold.stop, hand_back=self._handing_back, checkpoint_every=self._checkpoint_every,
             )
@@ -484,13 +490,14 @@ class Worker(Generic[C]):
                 async for event in stream:
                     if isinstance(event, RunCheckpoint):
                         yield {"run": await asyncio.to_thread(event.run.to_json)}
+                        stored = event.run
                     elif isinstance(event, RunEnd):
-                        yield await asyncio.to_thread(end_of, event)
+                        yield await asyncio.to_thread(end_of, event, stored)
                     else:
                         yield event.model_dump_json()
         except Exception:
             log.exception("the leg of run %s failed", row.id)
-            yield Raised.because(router_problem.leg_failed())
+            yield Raised.because(router_problem.leg_failed(), stored.waiting)
 
     async def _finish(self, hold: _Hold, row: StoredRun, end: LegEnd) -> StoredRun:
         """Write how a leg ended, decided from the row's state as read for each try of the write, so a cancel or an

@@ -688,10 +688,16 @@ async def test_a_leg_that_raised_outside_a_node_reads_failed_with_a_cause_that_i
     assert await store.stored_events(run_id) == [{"type": "run_end", "status": "failed", "cause": failed.cause.model_dump(mode="json")}]
 
 
-async def test_a_leg_that_raised_ended_with_no_run_so_its_run_lists_nothing_as_waiting() -> None:
-    registry, graph, gate, inputs, waiting_id = asking()
-    gate.set()
-    legs = []
+async def test_a_run_whose_leg_raised_lists_what_waits_in_the_run_as_stored_and_takes_an_answer_to_it_without_a_resume() -> None:
+    registry, store, legs = NodeRegistry(), MemoryStore(), []
+
+    @registry.node("many", title="Many", description="")
+    def many(n: int) -> Series[int]:
+        return list(range(n))
+
+    @registry.node("approve", title="Approve", description="")
+    def approve(x: int) -> bool:
+        raise Ask(f"approve {x}?")
 
     def fails_on_the_second_leg(caller: str) -> dict[type, Any]:
         legs.append(caller)
@@ -699,17 +705,28 @@ async def test_a_leg_that_raised_ended_with_no_run_so_its_run_lists_nothing_as_w
             raise ConnectionError("the secrets service is down")
         return {}
 
-    store = MemoryStore()
     worker = _worker(store, registry, from_run=fails_on_the_second_leg)
-    run_id = await _started(worker, graph, inputs)
-    assert [unit.id for unit in (await store.ended(run_id)).waiting] == [waiting_id]
+    run_id = await _started(worker, make_graph(many, approve), {"n": 3})
+    first, second, third = (unit.id for unit in (await store.ended(run_id)).waiting)
 
-    assert await worker.answer(await worker.read(run_id), {waiting_id: True}) == "started"
+    assert await worker.answer(await worker.read(run_id), {first: True}) == "started"
     failed = await store.ended(run_id)
+    assert failed.cause is not None and (failed.status, failed.cause.type, [unit.id for unit in failed.waiting]) == ("failed", "leg_failed", [second, third])
 
+    assert await worker.answer(await worker.read(run_id), {second: True}) == "started"
+    assert [unit.id for unit in (await store.ended(run_id)).waiting] == [third]
+
+
+async def test_a_run_that_cant_be_loaded_fails_its_leg_and_lists_nothing_as_waiting() -> None:
+    registry, graph, gate, inputs, _ = asking()
+    gate.set()
+    store = MemoryStore()
+    worker = _worker(store, registry)
+    await store.create(dataclasses.replace(left_running("left", graph, registry.load(graph).run(inputs), owner="a-dead-worker"), run="{"))
+
+    await worker.sweep()
+    failed = await store.ended("left")
     assert failed.cause is not None and (failed.status, failed.cause.type, failed.waiting) == ("failed", "leg_failed", [])
-    await worker.resume(await worker.read(run_id))
-    assert (await store.ended(run_id)).outputs == {"busy.result": "x", "after.result": True}
 
 
 async def test_a_leg_whose_end_the_store_fails_to_write_stays_running_and_is_gone_on_with_once_its_lease_runs_out() -> None:

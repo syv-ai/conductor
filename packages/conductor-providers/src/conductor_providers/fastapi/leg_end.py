@@ -9,7 +9,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
-from conductor import EndedEarly, InvalidCallError, Problem, Run
+from conductor import EndedEarly, InvalidCallError, Problem, Run, Waiting
 from conductor.events import RunEnd
 from pydantic_core import from_json
 
@@ -92,14 +92,16 @@ class Raised(LegEnd):
 
     Attributes:
         cause: Why the run failed.
+        outcome: The row's ``outcome`` after the leg, as JSON.
         run_end: The leg's ``run_end`` event, as JSON.
     """
 
     cause: Problem
+    outcome: str
     run_end: str
 
     @classmethod
-    def because(cls, cause: Problem) -> Raised:
+    def because(cls, cause: Problem, waiting: list[Waiting]) -> Raised:
         """The end of a leg that raised.
 
         The ``run_end`` is made without validation: a ``RunEnd`` requires the run it ended with, which it never
@@ -107,17 +109,20 @@ class Raised(LegEnd):
 
         Args:
             cause: Why the run failed.
+            waiting: What waits in the run as the row holds it, its last checkpoint: the run an answer is given
+                to. Nothing, for a run that could not be loaded.
 
         Returns:
             The end, with its ``run_end`` saying ``failed`` and the cause.
         """
-        return cls(cause, RunEnd.model_construct(status="failed", cause=cause).model_dump_json())
+        outcome = Outcome(waiting=waiting, outputs=None)
+        return cls(cause, outcome.model_dump_json(), RunEnd.model_construct(status="failed", cause=cause).model_dump_json())
 
     def row_after(self, state: StoredState) -> RowAfterALeg:
-        """What a row holds after this end: the run failed with nothing waiting and no outputs, and the row keeps
-        its last checkpoint and the answers queued during the leg, for the end of the next leg to deal with."""
+        """What a row holds after this end: the run failed, and the row keeps its last checkpoint, lists what
+        waits in it, and keeps the answers queued during the leg for the end of the next leg to deal with."""
         after = state.model_copy(update={"run_state": EndedEarly("failed", self.cause), "cancel_asked": False})
-        return RowAfterALeg(after, {"outcome": Outcome.empty().model_dump_json()})
+        return RowAfterALeg(after, {"outcome": self.outcome})
 
 
 @dataclass(frozen=True)
@@ -132,7 +137,7 @@ class HandedBack(LegEnd):
         return RowAfterALeg(state, {})
 
 
-def end_of(run_end: RunEnd) -> LegEnd:
+def end_of(run_end: RunEnd, stored: Run) -> LegEnd:
     """The end of a leg whose stream ended with a ``run_end``.
 
     A run that can't be written as JSON (``state_unwritable``: a value in it has no JSON form) can't be stored
@@ -140,6 +145,7 @@ def end_of(run_end: RunEnd) -> LegEnd:
 
     Args:
         run_end: The leg's last event, with the run the leg ended with.
+        stored: The run as the row holds it, its last checkpoint, which stays when the run can't be written.
 
     Returns:
         The end with that run: the run as JSON, what waits in it and, once complete, its outputs, each written by
@@ -150,4 +156,4 @@ def end_of(run_end: RunEnd) -> LegEnd:
         outcome = Outcome(waiting=run.waiting, outputs=from_json(run.outputs_json()) if run.status == "complete" else None)
         return Ended(run, run.to_json(), outcome.model_dump_json(), run_end.model_dump_json())
     except InvalidCallError as unwritable:
-        return Raised.because(unwritable.errors()[0])
+        return Raised.because(unwritable.errors()[0], stored.waiting)

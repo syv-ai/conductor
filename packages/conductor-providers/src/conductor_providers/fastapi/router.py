@@ -101,7 +101,7 @@ class RunView(Outcome):
 
     Attributes:
         waiting: What waits for a person, as of the last leg's end; each ``id`` is what
-            ``POST /runs/{id}/answers`` takes. Empty after a leg that raised, which ended with no run to ask.
+            ``POST /runs/{id}/answers`` takes. After a leg that raised, what waits in the run's last checkpoint.
         outputs: The graph's outputs by address once the run is complete, each as its type writes it (a table as its
             columns); ``None`` until then.
         id: The run's id, as ``POST /runs`` gave it.
