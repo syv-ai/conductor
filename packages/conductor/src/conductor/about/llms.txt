@@ -61,7 +61,7 @@ run.results["join"]["result"]      # "A+B+C": Series[str] received every value, 
 
 ### Versions and Policies
 
-A newer version names the one it replaces, a `@node` of the same id, and the decorated function is the newest. A definition is one version, and each version names the one before it in `replaces`.
+A newer version names the one it replaces, a `@node` of the same id, and the decorated function is the newest. A definition is one version, and each version names the one before it in `replaces`. The older versions are plain `@node` definitions that are never registered; only the newest goes on a registry, and an id the registry already holds is `duplicate_node_id` whatever `replaces=` names (`registry.replace(newer)` swaps a held node).
 
 ```python
 @node("greet", title="Greet", description="Greets a person by name.")

@@ -1037,7 +1037,7 @@ except NodeDeclarationError as error:
     print(error.code)  # duplicate_node_id
 ```
 
-**Fix.** Swap one for the other with `registry.replace(definition)`, or give the new node an id of its own. A newer version of the same node names the older in `replaces=`.
+**Fix.** For a node the registry already holds, swap one for the other with `registry.replace(newer)`, or give the new node an id of its own. The older versions of a chain are plain `@node` definitions that are never registered; only the newest is declared on the registry, with `replaces=`.
 
 ### `duplicate_type_id`
 

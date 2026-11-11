@@ -134,19 +134,17 @@ class NodeRegistry:
     def node(self, *args: Any, **kwargs: Any) -> Any:
         """Declare a node as ``@node`` does, with the same arguments, and add it here.
 
-        A newer version whose ``replaces=`` is the node held under its id
-        takes that node's place; any other id already here raises. The
-        function's name is bound to the definition this registry holds,
+        An id already held raises, whatever ``replaces=`` names; ``replace``
+        swaps a held node. The older versions of a chain are plain ``@node``
+        definitions never registered, and only the newest is declared here.
+        The function's name is bound to the definition this registry holds,
         with the registry's defaults applied.
         """
         declare = node(*args, **kwargs)
 
         def decorate(target: Callable[..., Any] | GraphRecord | str | bytes | Mapping[str, Any]) -> NodeDefinition:
             definition = declare(target)
-            if definition.replaces is not None and self._nodes.get(definition.id) is definition.replaces:
-                self.replace(definition)
-            else:
-                self.add(definition)
+            self.add(definition)
             return self._nodes[definition.id]
 
         return decorate
@@ -202,11 +200,13 @@ class NodeRegistry:
         return nodes
 
     def _with_defaults(self, definition: NodeDefinition) -> NodeDefinition:
-        """A copy of ``definition`` and of each version it replaces, under this registry's defaults: tags after the registry's, the node's own category and extra keys winning."""
+        """``definition`` and each version it replaces under this registry's defaults: tags after the registry's, the node's own category and extra keys winning."""
         tags = tuple(dict.fromkeys((*self._tags, *definition.tags)))
         category = definition.category or self._category
         extra = {**self._extra, **definition.extra}
         replaces = None if definition.replaces is None else self._with_defaults(definition.replaces)
+        if (tags, category, extra, replaces) == (definition.tags, definition.category, dict(definition.extra), definition.replaces):
+            return definition
         return dataclasses.replace(definition, tags=tags, category=category, extra=MappingProxyType(extra), replaces=replaces)
 
     def _hold(self, nodes: dict[str, NodeDefinition], named_types: tuple[type, ...], declared: dict[str, type]) -> None:
