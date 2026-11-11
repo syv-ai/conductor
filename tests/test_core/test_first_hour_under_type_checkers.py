@@ -33,17 +33,17 @@ class Sale(TypedDict):
     amount: int
 
 
-@registry.node("sales")
+@registry.node("sales", title="Sales", description="")
 def sales() -> Table[Sale]:
     return pl.DataFrame({"region": ["north", "south"], "amount": [3, 9]})
 
 
-@registry.node("first-row")
+@registry.node("first-row", title="First row", description="")
 def first_row(table: Table[Sale]) -> Table[Sale]:
     return table.head(1)
 
 
-@registry.node("rows")
+@registry.node("rows", title="Rows", description="")
 def rows(table: Table) -> int:
     return table.height
 
@@ -58,19 +58,19 @@ _AN_EMBEDDED_GRAPH = """
 from conductor import NodeRegistry, make_graph, node
 
 
-@node("trim")
+@node("trim", title="Trim", description="")
 def trim(text: str) -> str:
     return text.strip()
 
 
-@node("upper")
+@node("upper", title="Upper", description="")
 def upper(text: str) -> str:
     return text.upper()
 
 
 base = NodeRegistry()
 base.add(trim, upper)
-clean = node("clean")(make_graph(trim, upper))
+clean = node("clean", title="Clean", description="")(make_graph(trim, upper))
 base.add(clean)
 outer = make_graph(clean, upper, edges=[("clean.result", "upper.text")], values={"clean.text": "  hi  "})
 assert base.load(outer).run().outputs == {"upper.result": "HI"}
@@ -89,12 +89,12 @@ class Sale(TypedDict):
     amount: int
 
 
-@node("sales")
+@node("sales", title="Sales", description="")
 def sales() -> Table[Sale]:
     return pl.DataFrame({"region": ["north", "south"], "amount": [3, 9]})
 
 
-@node("first-row")
+@node("first-row", title="First row", description="")
 def first_row(table: Table[Sale]) -> Table[Sale]:
     assert_type(table, Table[Sale])
     return table.head(1)

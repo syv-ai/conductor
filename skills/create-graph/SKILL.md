@@ -13,17 +13,17 @@ from conductor import GraphRecord, NodeRecord, NodeRegistry, Series
 registry = NodeRegistry(category="text")
 
 
-@registry.node("text-split")
+@registry.node("text-split", title="Split", description="Splits a text at a separator.")
 def split(text: str, separator: str = ",") -> Series[str]:
     return text.split(separator)
 
 
-@registry.node("text-uppercase")
+@registry.node("text-uppercase", title="Uppercase", description="Turns a text into capital letters.")
 def uppercase(text: str) -> str:
     return text.upper()
 
 
-@registry.node("text-join")
+@registry.node("text-join", title="Join", description="Joins the pieces into one text.")
 def join(parts: Series[str], separator: str = "") -> str:
     return separator.join(parts)
 

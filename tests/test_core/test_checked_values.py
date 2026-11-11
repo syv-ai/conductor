@@ -42,7 +42,7 @@ def _returning(returned: Any, return_type: Any) -> Any:
     def give() -> return_type:  # type: ignore[valid-type]
         return returned
 
-    made = node("give")(give)
+    made = node("give", title="Give", description="")(give)
     return registry_of(made).load(GraphRecord(nodes=[NodeRecord(id="g", node="give")])).run()
 
 
@@ -52,7 +52,7 @@ def _feeding(returned: Any, return_type: Any, sink: Any) -> Any:
     def give() -> return_type:  # type: ignore[valid-type]
         return returned
 
-    made = node("give")(give)
+    made = node("give", title="Give", description="")(give)
     (name,) = sink.inputs
     return registry_of(made, sink).load(GraphRecord(
         nodes=[NodeRecord(id="a", node="give"), NodeRecord(id="b", node=sink.id)], edges=[("a.result", f"b.{name}")],
@@ -161,7 +161,7 @@ def test_a_unit_whose_second_output_is_invalid_writes_none_of_its_outputs():
 
 
 def _computed(returned: Any) -> Any:
-    @node("computed", compute_outputs=lambda: {"name": str, "age": int})
+    @node("computed", title="Computed", description="", compute_outputs=lambda: {"name": str, "age": int})
     def computed() -> Any:
         return returned
 
@@ -206,7 +206,7 @@ def test_a_column_of_yes_or_no_is_never_an_int_column_returned_brought_or_given(
     yes_no = pl.DataFrame({"item": ["a", "b"], "amount": [True, False]})
     assert (_returning(yes_no, Table[Line]).cause.type, _returning(yes_no, Table[Line]).cause.ctx["column"]) == ("invalid_output", "amount")
 
-    @node("total")
+    @node("total", title="Total", description="")
     def total(lines: Table[Line]) -> int:
         return int(lines["amount"].sum())
 
@@ -227,7 +227,7 @@ def test_a_column_refuses_a_yes_or_no_wherever_a_field_of_its_type_does(column):
     """A column of a ``Literal`` of numbers or of a union holding a number and no ``bool`` refuses ``True``, as a field
     of that type does: Python counts ``True`` as 1, and both the field and the column read one rule."""
 
-    @node("count_rows")
+    @node("count_rows", title="Count rows", description="")
     def count_rows(rows: Table[Graded]) -> int:
         return rows.height
 
@@ -270,7 +270,7 @@ class PickyId(str):
 
 
 def test_a_value_an_edge_brings_that_the_input_refuses_fails_the_node_it_reached_quoting_nothing():
-    @node("sink")
+    @node("sink", title="Sink", description="")
     def sink(identifier: PickyId) -> str:
         return identifier
 
@@ -282,11 +282,11 @@ def test_a_value_an_edge_brings_that_the_input_refuses_fails_the_node_it_reached
 
 
 def test_a_value_on_an_edge_outside_its_bounds_fails_the_node_for_that_row():
-    @node("numbers")
+    @node("numbers", title="Numbers", description="")
     def numbers() -> Series[int]:
         return [5, 1, 7]
 
-    @node("at_least_five")
+    @node("at_least_five", title="At least five", description="")
     def at_least_five(n: Annotated[int, Param(ge=5)]) -> int:
         return n
 
@@ -299,7 +299,7 @@ def test_a_value_on_an_edge_outside_its_bounds_fails_the_node_for_that_row():
 
 
 def test_an_int_arriving_on_a_float_input_arrives_a_float():
-    @node("half")
+    @node("half", title="Half", description="")
     def half(x: float) -> str:
         return type(x).__name__
 
@@ -312,7 +312,7 @@ class Contacts(TypedDict):
 
 
 def test_a_table_input_given_a_table_without_a_column_it_declares_fails_naming_the_column():
-    @node("needs_email")
+    @node("needs_email", title="Needs email", description="")
     def needs_email(contacts: Table[Contacts]) -> int:
         return contacts.height
 
@@ -326,11 +326,11 @@ def test_a_column_of_a_known_type_its_input_wont_take_is_a_type_mismatch_when_th
     class Amounts(TypedDict):
         result: int
 
-    @node("texts")
+    @node("texts", title="Texts", description="")
     def texts() -> Series[str]:
         return ["1", "two"]
 
-    @node("total")
+    @node("total", title="Total", description="")
     def total(rows: Table[Amounts]) -> int:
         return int(rows["result"].sum())
 
@@ -346,7 +346,7 @@ def test_a_column_of_a_table_of_unknown_columns_its_input_wont_take_fails_that_n
     class Amounts(TypedDict):
         result: int
 
-    @node("total")
+    @node("total", title="Total", description="")
     def total(rows: Table[Amounts]) -> int:
         return int(rows["result"].sum())
 
@@ -422,7 +422,7 @@ def test_a_record_field_is_named_in_the_failure_of_an_output():
 
 
 def test_a_key_of_a_dict_given_is_never_in_the_errors_and_a_declared_field_or_an_index_is():
-    @node("tally")
+    @node("tally", title="Tally", description="")
     def tally(scores: dict[str, int], people: list[ByPerson]) -> str:
         return "ok"
 
@@ -459,11 +459,11 @@ class _SlowOutput(str):
 def test_a_slow_output_check_runs_on_its_nodes_thread_and_holds_up_no_other_unit():
     """The other node finishes only after the check began, and the check passes only once the stream reported it."""
 
-    @node("slow", policy=Policy(concurrency=2))
+    @node("slow", title="Slow", description="", policy=Policy(concurrency=2))
     def slow() -> _SlowOutput:
         return "x"  # type: ignore[return-value]  # not yet the type, so its check runs
 
-    @node("other", policy=Policy(concurrency=2))
+    @node("other", title="Other", description="", policy=Policy(concurrency=2))
     def other() -> int:
         assert _SlowOutput.check_began.wait(timeout=10)
         return 1
@@ -489,7 +489,7 @@ def test_a_value_already_of_its_type_is_kept_as_returned():
 @pytest.mark.parametrize("return_type", [Any, int | Any, Any | None])
 @pytest.mark.parametrize("returned", [1.5, "s", {"k": [1]}, None, 3])
 def test_a_node_typed_any_returns_anything_and_a_node_taking_any_receives_it(return_type: Any, returned: Any) -> None:
-    @node("take_any")
+    @node("take_any", title="Take any", description="")
     def take_any(value: Any) -> Any:
         return value
 

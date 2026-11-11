@@ -19,7 +19,7 @@ from conductor.widgets import NumberInput, TextInput
 text_nodes = NodeRegistry(category="text", tags=["acme"])
 
 
-@text_nodes.node("repeat", extra={"docs_url": "https://example.com/repeat"})
+@text_nodes.node("repeat", title="Repeat", description="Repeats a text.", extra={"docs_url": "https://example.com/repeat"})
 def repeat(
     text: Annotated[str, Param(title="Text", widget=TextInput())],
     times: Annotated[int, Param(title="Times", ge=1, le=10, widget=NumberInput())] = 2,
@@ -105,7 +105,7 @@ class Address(BaseModel):
     city: str
 
 
-@node("city")
+@node("city", title="City", description="Picks the city out of an address.")
 def city(address: Address) -> str:
     return address.city
 
@@ -142,14 +142,14 @@ class Routed:
 registry = NodeRegistry()
 
 
-@registry.node("route")
+@registry.node("route", title="Route", description="Sends an amount down one of two paths.")
 def route(amount: int) -> Routed:
     if amount >= 1000:
         return Routed(large=amount, small=SKIPPED)
     return Routed(large=SKIPPED, small=amount)
 
 
-@registry.node("notify")
+@registry.node("notify", title="Notify", description="Tells the manager about an amount.")
 def notify(amount: int) -> str:
     return f"told the manager about {amount}"
 
@@ -173,7 +173,7 @@ With no more than a prompt, `-> str` asks for a line of free text: `raise Ask(f"
 from conductor import Ask
 
 
-@registry.node("assign")
+@registry.node("assign", title="Assign", description="Asks a person who should take a ticket.")
 def assign(ticket: str) -> str:
     raise Ask(f"Who takes {ticket}?", choices=["ida", "bo"], default="ida")
 
@@ -196,7 +196,7 @@ class Review:
     note: Annotated[str | None, Param(widget=Textarea())] = None
 
 
-@registry.node("review")
+@registry.node("review", title="Review", description="Asks a person to review a proposal.")
 def review(proposal: str) -> Review:
     raise Ask(f"Review: {proposal}", choices={"owner": [Choice("ida", "Ida B."), Choice("bo", "Bo K.")]})
 
@@ -221,7 +221,7 @@ Raise `NodeError` for a failure you can explain to a person. Its message reaches
 from conductor import NodeError
 
 
-@registry.node("parse")
+@registry.node("parse", title="Parse", description="Reads a text as a whole number.")
 def parse(text: str) -> int:
     if not text.isdigit():
         raise NodeError("The text is not a number.", code="not_a_number")
@@ -243,7 +243,7 @@ from conductor import ExternalError, Policy
 attempts: list[str] = []
 
 
-@registry.node("fetch", policy=Policy(retries=2, retry_delay=0.01))
+@registry.node("fetch", title="Fetch", description="Fetches a page from an address.", policy=Policy(retries=2, retry_delay=0.01))
 def fetch(url: str) -> str:
     attempts.append(url)
     if len(attempts) < 3:
@@ -270,7 +270,7 @@ class Caller:
         self.name = name
 
 
-@registry.node("sign")
+@registry.node("sign", title="Sign", description="Signs a text with the name of the person running it.")
 def sign(text: str, who: FromRun[Caller]) -> str:
     return f"{text}, {who.name}"
 
@@ -287,12 +287,12 @@ Saved graphs name the version of each node they use. To change a node's inputs o
 from conductor import Upgrade, node
 
 
-@node("greet")
+@node("greet", title="Greet", description="Greets a person by name.")
 def greet_v1(name: str) -> str:
     return f"Hello {name}"
 
 
-@registry.node("greet", replaces=greet_v1, upgrade=Upgrade(renamed_inputs={"name": "person"}))
+@registry.node("greet", title="Greet", description="Greets a person by name.", replaces=greet_v1, upgrade=Upgrade(renamed_inputs={"name": "person"}))
 def greet(person: str, greeting: str = "Hello") -> str:
     return f"{greeting} {person}"
 

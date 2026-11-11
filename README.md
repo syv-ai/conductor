@@ -26,12 +26,12 @@ from conductor import NodeRegistry, Series, make_graph
 registry = NodeRegistry()
 
 
-@registry.node("upper")
+@registry.node("upper", title="Uppercase", description="Turns a text into capital letters.")
 def upper(text: str) -> str:
     return text.upper()
 
 
-@registry.node("join")
+@registry.node("join", title="Join", description="Joins the pieces into one text.")
 def join(texts: Series[str]) -> str:
     return "+".join(texts)
 
@@ -61,19 +61,19 @@ class Invoice(TypedDict):
     amount: int
 
 
-@registry.node("read")
+@registry.node("read", title="Read", description="Reads invoices from a CSV text.")
 def read(csv: str) -> Table[Invoice]:
     return pl.read_csv(io.StringIO(csv))
 
 
-@registry.node("approve")
+@registry.node("approve", title="Approve", description="Approves an invoice, or asks a person to.")
 def approve(name: str, amount: int) -> bool:
     if amount < 1000:
         return True
     raise Ask(f"Approve {name}, {amount} kr.?")
 
 
-@registry.node("summary")
+@registry.node("summary", title="Summary", description="Tells how many invoices were approved.")
 def summary(approved: Series[bool]) -> str:
     return f"{sum(approved)} of {len(approved)} approved"
 

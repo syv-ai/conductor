@@ -45,7 +45,7 @@ class Review:                         # a form: one question per field; a field'
     note: Annotated[str | None, Param(widget=Textarea())] = None
 
 
-@node("review", title="Review", category="review")
+@node("review", title="Review", description="Asks a person to review a proposal.", category="review")
 def review(proposal: str) -> Review:
     # several outputs: what only the run knows goes by output name
     raise Ask(f"Review {proposal}", choices={"owner": [Choice("ida", "Ida B."), Choice("bo", "Bo K.")]})
@@ -54,7 +54,7 @@ def review(proposal: str) -> Review:
 def fetch_v1(url: Annotated[str, Param(title="URL", widget=TextInput())]) -> Annotated[str, Param(title="Body")]:
     return f"<html>{url}</html>"
 
-@node("fetch", title="Fetch", description="Fetches a page.", category="http", policy=Policy(retries=3, retry_delay=0.5, attempt_timeout=10.0, concurrency=4, retry_on=(TimeoutError,)), replaces=node("fetch", deprecation=Deprecation(header="Use version 2"))(fetch_v1), upgrade=Upgrade(renamed_inputs={"url": "address"}))
+@node("fetch", title="Fetch", description="Fetches a web page.", category="http", policy=Policy(retries=3, retry_delay=0.5, attempt_timeout=10.0, concurrency=4, retry_on=(TimeoutError,)), replaces=node("fetch", title="Fetch v1", description="Fetches a web page.", deprecation=Deprecation(header="Use version 2"))(fetch_v1), upgrade=Upgrade(renamed_inputs={"url": "address"}))
 def fetch(address: Annotated[str, Param(title="Address", widget=TextInput())]) -> Annotated[str, Param(title="Body")]:
     if not address:
         raise ExternalError("no address")          # retried, like any retry_on class

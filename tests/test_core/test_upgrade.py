@@ -54,7 +54,7 @@ def rename_v2(
 ) -> Annotated[Txt, Param(title="R")]:
     return Txt(f"{first} {last}")
 
-@node("rename", title="Rename", description="d", category="test", replaces=node("rename", replaces=node("rename")(rename_v1), upgrade=Upgrade(rewrite=rename_upgrade_1))(rename_v2), upgrade=Upgrade(renamed_outputs={"result": "text"}))
+@node("rename", title="Rename", description="d", category="test", replaces=node("rename", title="Rename v2", description="", replaces=node("rename", title="Rename v1", description="")(rename_v1), upgrade=Upgrade(rewrite=rename_upgrade_1))(rename_v2), upgrade=Upgrade(renamed_outputs={"result": "text"}))
 def rename(
     first: Annotated[Txt, _param("First")] = Txt(""),
     last: Annotated[Txt, _param("Last")] = Txt(""),
@@ -94,22 +94,22 @@ def _newer_y(y: Annotated[Txt, _param("Y")]) -> Annotated[Txt, Param(title="R")]
 
 def test_an_input_gone_from_the_next_version_needs_an_upgrade():
     with pytest.raises(NodeDeclarationError) as raised:
-        node("two", replaces=node("two")(_older_x))(_newer_y)
+        node("two", title="Newer y", description="", replaces=node("two", title="Older x", description="")(_older_x))(_newer_y)
     assert raised.value.code == "upgrade_missing" and "two" in str(raised.value)
 
 
 def test_an_upgrade_must_say_where_a_gone_input_went():
     with pytest.raises(NodeDeclarationError, match="upgrade|Upgrade"):
-        node("two", replaces=node("two")(_older_x), upgrade=Upgrade(renamed_outputs={}))(_newer_y)
+        node("two", title="Newer y", description="", replaces=node("two", title="Older x", description="")(_older_x), upgrade=Upgrade(renamed_outputs={}))(_newer_y)
 
 
 def test_a_rename_or_a_rewrite_says_where_it_went():
-    assert node("two", replaces=node("two")(_older_x), upgrade=Upgrade(renamed_inputs={"x": "y"}))(_newer_y).version == 2
-    assert node("two", replaces=node("two")(_older_x), upgrade=Upgrade(rewrite=lambda v: {"y": v["x"]}))(_newer_y).version == 2
+    assert node("two", title="Newer y", description="", replaces=node("two", title="Older x", description="")(_older_x), upgrade=Upgrade(renamed_inputs={"x": "y"}))(_newer_y).version == 2
+    assert node("two", title="Newer y", description="", replaces=node("two", title="Older x", description="")(_older_x), upgrade=Upgrade(rewrite=lambda v: {"y": v["x"]}))(_newer_y).version == 2
 
 
 def test_a_version_keeping_its_fields_needs_no_upgrade():
-    assert node("two", replaces=node("two")(_older_x))(_older_x).version == 2
+    assert node("two", title="Older x", description="", replaces=node("two", title="Older x", description="")(_older_x))(_older_x).version == 2
 
 
 # --- registry.upgraded -----------------------------------------------------------
@@ -153,7 +153,7 @@ def test_an_edge_into_an_input_the_step_renames_moves_with_it():
     def carry_v1(name: Annotated[Txt, _param("Name")] = Txt("")) -> Annotated[Txt, Param(title="R")]:
         return name
 
-    @node("carry", title="Carry", description="d", category="test", replaces=node("carry")(carry_v1), upgrade=Upgrade(renamed_inputs={"name": "full"}))
+    @node("carry", title="Carry", description="d", category="test", replaces=node("carry", title="Carry v1", description="")(carry_v1), upgrade=Upgrade(renamed_inputs={"name": "full"}))
     def carry(full: Annotated[Txt, _param("Full")] = Txt("")) -> Annotated[Txt, Param(title="R")]:
         return full
 
@@ -168,11 +168,11 @@ def test_an_edge_into_an_input_a_rewrite_leaves_gone_goes_with_it_and_the_graph_
     def summed_v1(a: int, b: int) -> int:
         return a + b
 
-    @node("summed", replaces=node("summed")(summed_v1), upgrade=Upgrade(rewrite=lambda typed: {k: v for k, v in typed.items() if k != "b"}))
+    @node("summed", title="Summed", description="", replaces=node("summed", title="Summed v1", description="")(summed_v1), upgrade=Upgrade(rewrite=lambda typed: {k: v for k, v in typed.items() if k != "b"}))
     def summed(a: int) -> int:
         return a
 
-    @node("three")
+    @node("three", title="Three", description="")
     def three() -> int:
         return 3
 
@@ -188,7 +188,7 @@ def test_a_rewrite_sees_values_and_defaults_as_one_and_a_default_stays_one():
     def counted_v1(src: Annotated[Txt, _param("Source")] = Txt(""), n: int = 0) -> Annotated[Txt, Param(title="R")]:
         return src
 
-    @node("counted", replaces=node("counted")(counted_v1), upgrade=Upgrade(rewrite=lambda typed: {**typed, "n": typed.get("n", 0) + 1, "added": 1}))
+    @node("counted", title="Counted", description="", replaces=node("counted", title="Counted v1", description="")(counted_v1), upgrade=Upgrade(rewrite=lambda typed: {**typed, "n": typed.get("n", 0) + 1, "added": 1}))
     def counted(src: Annotated[Txt, _param("Source")] = Txt(""), n: int = 0, added: int = 0) -> Annotated[Txt, Param(title="R")]:
         return src
 
@@ -230,7 +230,7 @@ def test_compile_leaves_a_pinned_version_alone():
 def renames_v1(name: Annotated[Txt, _param("Name")] = Txt("")) -> Annotated[Txt, Param(title="R")]:
     return name
 
-@node("renames", title="Renames", description="d", category="test", replaces=node("renames")(renames_v1), upgrade=Upgrade(renamed_inputs={"name": "full"}, renamed_outputs={"result": "text"}))
+@node("renames", title="Renames", description="d", category="test", replaces=node("renames", title="Renames v1", description="")(renames_v1), upgrade=Upgrade(renamed_inputs={"name": "full"}, renamed_outputs={"result": "text"}))
 def renames(full: Annotated[Txt, _param("Full")] = Txt("")) -> Named:
     """Version 2 renames the input ``name`` to ``full`` and the output ``result`` to ``text``."""
     return Named(text=full)
@@ -265,7 +265,7 @@ def test_a_later_step_reusing_a_renamed_away_name_does_not_catch_an_older_edge()
     def reuse_v2() -> Mapping[str, Txt]:
         return {}
 
-    @node("reuse", title="Reuse", description="d", category="test", compute_outputs=reuse_outputs, replaces=node("reuse", compute_outputs=reuse_outputs, replaces=node("reuse")(reuse_v1), upgrade=Upgrade(renamed_outputs={"result": "first"}))(reuse_v2), upgrade=Upgrade(renamed_outputs={"result": "second"}))
+    @node("reuse", title="Reuse", description="d", category="test", compute_outputs=reuse_outputs, replaces=node("reuse", title="Reuse v2", description="", compute_outputs=reuse_outputs, replaces=node("reuse", title="Reuse v1", description="")(reuse_v1), upgrade=Upgrade(renamed_outputs={"result": "first"}))(reuse_v2), upgrade=Upgrade(renamed_outputs={"result": "second"}))
     def reuse() -> Mapping[str, Txt]:
         return {}
 
@@ -324,19 +324,19 @@ def _newer_out() -> _Y:
 def test_an_upgrade_that_leaves_an_output_gone_and_not_renamed_is_refused_where_it_is_declared(upgrade: Upgrade) -> None:
     """A rewrite reads what is typed into the node, never the edges out of it, so it can't say where an output went."""
     with pytest.raises(NodeDeclarationError, match="'x'") as raised:
-        node("o", replaces=node("o")(_older_out), upgrade=upgrade)(_newer_out)
+        node("o", title="Newer out", description="", replaces=node("o", title="Older out", description="")(_older_out), upgrade=upgrade)(_newer_out)
     assert raised.value.code == "upgrade_missing"
 
 
 def test_an_output_an_upgrade_renamed_is_accounted_for():
-    assert node("o", replaces=node("o")(_older_out), upgrade=Upgrade(renamed_outputs={"x": "y"}))(_newer_out).version == 2
+    assert node("o", title="Newer out", description="", replaces=node("o", title="Older out", description="")(_older_out), upgrade=Upgrade(renamed_outputs={"x": "y"}))(_newer_out).version == 2
 
 
 def test_a_rewrite_returning_a_set_is_set_has_no_order_at_the_node():
     def tagged_v1(tag: str) -> str:
         return tag
 
-    @node("tagged", replaces=node("tagged")(tagged_v1), upgrade=Upgrade(rewrite=lambda typed: {"tags": set(typed.values())}))
+    @node("tagged", title="Tagged", description="", replaces=node("tagged", title="Tagged v1", description="")(tagged_v1), upgrade=Upgrade(rewrite=lambda typed: {"tags": set(typed.values())}))
     def tagged(tags: list[str]) -> str:
         return ",".join(tags)
 
@@ -351,14 +351,14 @@ def test_a_rewrite_is_written_as_json_and_one_with_no_json_form_is_invalid_value
 
     import polars as pl
 
-    @node("when")
+    @node("when", title="When v1", description="")
     def when_v1(day: str) -> str:
         return day
 
     saved = GraphRecord.model_validate({"nodes": [{"id": "w", "node": "when", "values": {"day": "2026-01-02"}}]})
     for returned, written in ((datetime.date(2026, 1, 2), "2026-01-02"), (pl.DataFrame({"a": [1]}), None)):
 
-        @node("when", replaces=when_v1, upgrade=Upgrade(rewrite=lambda typed, r=returned: {"day": r}))
+        @node("when", title="When", description="", replaces=when_v1, upgrade=Upgrade(rewrite=lambda typed, r=returned: {"day": r}))
         def when(day: datetime.date) -> str:
             return day.isoformat()
 

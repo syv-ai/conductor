@@ -70,7 +70,7 @@ async def _until_ended(client: Any, run_id: str, who: str) -> dict[str, Any]:
 def test_again_by_another_caller_who_may_see_the_run_is_checked_on_that_callers_own_nodes() -> None:
     full, bare = NodeRegistry(), NodeRegistry()
 
-    @full.node("double")
+    @full.node("double", title="Double", description="")
     def double(x: int) -> int:
         return 2 * x
 
@@ -101,7 +101,7 @@ def _maybe_caller(x_user: Annotated[str | None, Header()] = None) -> str | None:
 def test_again_by_an_anonymous_caller_is_checked_on_the_nodes_of_no_caller_not_the_starters() -> None:
     full, bare = NodeRegistry(), NodeRegistry()
 
-    @full.node("double")
+    @full.node("double", title="Double", description="")
     def double(x: int) -> int:
         return 2 * x
 
@@ -125,7 +125,7 @@ def test_again_by_an_anonymous_caller_is_checked_on_the_nodes_of_no_caller_not_t
 def test_an_output_that_isnt_finite_reads_as_its_text() -> None:
     registry = NodeRegistry()
 
-    @registry.node("edges")
+    @registry.node("edges", title="Edges", description="")
     def edges(x: int) -> list[float]:
         return [float("inf"), float("-inf"), float("nan"), x]
 
@@ -144,7 +144,7 @@ def test_an_output_that_isnt_finite_reads_as_its_text() -> None:
 def test_a_run_stopped_at_its_ceiling_says_why_and_is_resumed_with_no_body_or_a_higher_ceiling() -> None:
     registry = NodeRegistry()
 
-    @registry.node("up")
+    @registry.node("up", title="Up", description="")
     def up(text: str) -> str:
         return text.upper()
 
@@ -182,11 +182,11 @@ def test_a_run_stopped_at_its_ceiling_says_why_and_is_resumed_with_no_body_or_a_
 def test_a_ceiling_raised_by_a_resume_holds_for_the_legs_after_it() -> None:
     registry = NodeRegistry()
 
-    @registry.node("split")
+    @registry.node("split", title="Split", description="")
     def split(n: int) -> Series[int]:
         return list(range(n))
 
-    @registry.node("ask")
+    @registry.node("ask", title="Ask", description="")
     def ask(x: int) -> int:
         raise Ask("ok?")
 
@@ -215,11 +215,11 @@ class Part(TypedDict):
 def test_a_table_made_on_each_row_reads_as_a_list_of_records_per_row() -> None:
     registry = NodeRegistry()
 
-    @registry.node("split")
+    @registry.node("split", title="Split", description="")
     def split(text: str) -> Series[str]:
         return text.split(",")
 
-    @registry.node("as-table")
+    @registry.node("as-table", title="As table", description="")
     def as_table(text: str) -> Table[Part]:
         return pl.DataFrame({"text": [text]})
 
@@ -241,20 +241,20 @@ def _gated() -> tuple[NodeRegistry, GraphRecord, dict[str, threading.Event], lis
     on its first row of two; ``held`` is set once that row is called."""
     registry, gates, calls = NodeRegistry(), {name: threading.Event() for name in ("first", "second", "held")}, []
 
-    @registry.node("items")
+    @registry.node("items", title="Items", description="")
     def items(text: str) -> Series[str]:
         return text.split(",")
 
-    @registry.node("busy")
+    @registry.node("busy", title="Busy", description="")
     def busy(text: str) -> str:
         gates["first"].wait(5)
         return text
 
-    @registry.node("approve")
+    @registry.node("approve", title="Approve", description="")
     def approve(text: str) -> bool:
         raise Ask("Go on?")
 
-    @registry.node("hold")
+    @registry.node("hold", title="Hold", description="")
     def hold(item: str, ok: bool) -> str:
         calls.append(item)
         gates["held"].set()
@@ -319,20 +319,20 @@ def _asking(rows: bool = False) -> tuple[NodeRegistry, GraphRecord, threading.Ev
     ``rows``, beside a table of three rows too, for a ceiling of 1 to stop."""
     registry, gate = NodeRegistry(), threading.Event()
 
-    @registry.node("busy")
+    @registry.node("busy", title="Busy", description="")
     def busy(text: str) -> str:
         gate.wait(5)
         return text
 
-    @registry.node("approve")
+    @registry.node("approve", title="Approve", description="")
     def approve(text: str) -> bool:
         raise Ask("Go on?")
 
-    @registry.node("after")
+    @registry.node("after", title="After", description="")
     def after(ok: bool) -> bool:
         return ok
 
-    @registry.node("items")
+    @registry.node("items", title="Items", description="")
     def items(n: int) -> Series[int]:
         return list(range(n))
 
@@ -499,11 +499,11 @@ def test_a_cancel_from_another_worker_that_lands_as_a_worker_shuts_down_keeps_th
 def test_a_leg_whose_event_the_store_fails_to_take_calls_no_node_once_the_run_reads_failed() -> None:
     registry, started = NodeRegistry(), []
 
-    @registry.node("first")
+    @registry.node("first", title="First", description="")
     def first(text: str) -> str:
         return text
 
-    @registry.node("slow")
+    @registry.node("slow", title="Slow", description="")
     def slow(text: str) -> str:
         started.append(text)
         time.sleep(0.01)
@@ -544,7 +544,7 @@ class _Member:
 def test_a_class_as_the_caller_is_kept_as_that_class_so_its_starter_sees_the_run() -> None:
     registry, seen = NodeRegistry(), []
 
-    @registry.node("whoami")
+    @registry.node("whoami", title="Whoami", description="")
     def whoami(text: str, who: FromRun[_Member]) -> str:
         seen.append(who)
         return who.x_user

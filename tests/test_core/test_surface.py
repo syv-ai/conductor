@@ -59,11 +59,11 @@ LIBRARY = Path(conductor.__file__).parent
 def _registry() -> NodeRegistry:
     registry = NodeRegistry()
 
-    @registry.node("hello")
+    @registry.node("hello", title="Hello", description="")
     def hello(name: str) -> str:
         return f"hello {name}"
 
-    @registry.node("scale")
+    @registry.node("scale", title="Scale", description="")
     def scale(value: float, factor: int = 1) -> float:
         return value * factor
 
@@ -74,7 +74,7 @@ def _registry() -> NodeRegistry:
 
 
 def test_a_node_prints_what_it_declares():
-    @node("greet", title="Greeting", category="text")
+    @node("greet", description="", title="Greeting", category="text")
     def greet(name: str) -> str:
         return name
 
@@ -82,11 +82,11 @@ def test_a_node_prints_what_it_declares():
 
 
 def test_a_node_prints_its_tags_only_when_it_has_them():
-    @node("old", title="Old", tags=("legacy",))
+    @node("old", description="", title="Old", tags=("legacy",))
     def old(name: str) -> str:
         return name
 
-    @node("plain", title="Plain")
+    @node("plain", description="", title="Plain")
     def plain(name: str) -> str:
         return name
 
@@ -98,11 +98,11 @@ def test_a_registry_prints_its_nodes_each_as_its_own_repr():
     registry = NodeRegistry()
     assert repr(registry) == "<NodeRegistry of 0 nodes>"
 
-    @registry.node("greet", title="Greeting")
+    @registry.node("greet", description="", title="Greeting")
     def greet(name: str) -> str:
         return name
 
-    @registry.node("shout", title="Shout")
+    @registry.node("shout", description="", title="Shout")
     def shout(name: str) -> str:
         return name
 
@@ -216,7 +216,7 @@ def test_a_refused_run_lists_each_problem_with_its_place_and_code():
 def test_the_outputs_of_a_failed_run_are_refused_and_its_results_say_what_it_did():
     registry = NodeRegistry()
 
-    @registry.node("each")
+    @registry.node("each", title="Each", description="")
     def each(n: int) -> int:
         if n == 1:
             raise ValueError("no")
@@ -333,11 +333,11 @@ def _streamed_events() -> list[Any]:
     """The events of a real run whose outputs are a frame holding NaN and a float that is not finite."""
     registry = NodeRegistry()
 
-    @registry.node("frame")
+    @registry.node("frame", title="Frame", description="")
     def frame(x: float) -> Table:
         return pl.DataFrame({"a": [x, 1.0], "b": ["x", None]})
 
-    @registry.node("same")
+    @registry.node("same", title="Same", description="")
     def same(x: float) -> float:
         return x
 
@@ -554,7 +554,7 @@ def test_every_description_is_a_typed_record_a_host_publishes_as_its_schema():
         node,
     )
 
-    @node("upper")
+    @node("upper", title="Upper", description="")
     def upper(text: str) -> str:
         return text.upper()
 

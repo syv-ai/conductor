@@ -55,7 +55,7 @@ def test_a_foreign_exception_runs_once_and_is_execution_failed_and_quotes_nothin
     """``{}['missing']`` under ``Policy(retries=3)`` is a bug, not weather: one call, no retry, and the problem says only that the node failed."""
     calls: list[int] = []
 
-    @node("buggy", policy=Policy(retries=3, retry_delay=0.01))
+    @node("buggy", title="Buggy", description="", policy=Policy(retries=3, retry_delay=0.01))
     def buggy(text: str = "") -> str:
         calls.append(1)
         return {}["the secret"]  # type: ignore[no-any-return]
@@ -76,17 +76,17 @@ def test_a_node_error_a_wrong_output_and_an_ask_are_never_retried_whatever_retry
     calls: list[str] = []
     policy = Policy(retries=3, retry_delay=0.01, retry_on=(BaseException,), concurrency=concurrency)
 
-    @node("own", policy=policy)
+    @node("own", title="Own", description="", policy=policy)
     def own(text: str = "") -> str:
         calls.append("own")
         raise NodeError("The document could not be read.", code="unreadable")
 
-    @node("wrong", policy=policy)
+    @node("wrong", title="Wrong", description="", policy=policy)
     def wrong(text: str = "") -> int:
         calls.append("wrong")
         return "not a number"  # type: ignore[return-value]
 
-    @node("asks", policy=policy)
+    @node("asks", title="Asks", description="", policy=policy)
     def asks(text: str = "") -> str:
         calls.append("asks")
         raise Ask("Which?")
@@ -100,7 +100,7 @@ def test_a_node_error_a_wrong_output_and_an_ask_are_never_retried_whatever_retry
 def test_a_foreign_exception_named_in_retry_on_is_external_and_retries():
     calls: list[int] = []
 
-    @node("flaky", policy=Policy(retries=2, retry_delay=0.01, retry_on=(ConnectionError,)))
+    @node("flaky", title="Flaky", description="", policy=Policy(retries=2, retry_delay=0.01, retry_on=(ConnectionError,)))
     def flaky(text: str = "") -> str:
         calls.append(1)
         if len(calls) < 3:
@@ -118,7 +118,7 @@ def test_a_foreign_exception_named_in_retry_on_is_external_and_retries():
 def test_an_exhausted_external_failure_is_external_failed_without_its_text():
     calls: list[int] = []
 
-    @node("down", policy=Policy(retries=2, retry_delay=0.01, retry_on=(ConnectionError,)))
+    @node("down", title="Down", description="", policy=Policy(retries=2, retry_delay=0.01, retry_on=(ConnectionError,)))
     def down(text: str = "") -> str:
         calls.append(1)
         raise ConnectionError("socket closed")
@@ -133,7 +133,7 @@ def test_an_external_failure_the_node_raised_retries_and_keeps_its_message():
     """A node that knows the outside world failed says so with ``ExternalError``; the message it wrote is what people read."""
     calls: list[int] = []
 
-    @node("bank", policy=Policy(retries=1, retry_delay=0.01))
+    @node("bank", title="Bank", description="", policy=Policy(retries=1, retry_delay=0.01))
     def bank(text: str = "") -> str:
         calls.append(1)
         raise ExternalError("Nationalbanken svarede ikke.")
@@ -147,7 +147,7 @@ def test_an_external_failure_the_node_raised_retries_and_keeps_its_message():
 def test_a_node_error_runs_once_and_keeps_its_message_code_and_ctx():
     calls: list[int] = []
 
-    @node("strict", policy=Policy(retries=3, retry_delay=0.01))
+    @node("strict", title="Strict", description="", policy=Policy(retries=3, retry_delay=0.01))
     def strict(text: str = "") -> str:
         calls.append(1)
         raise NodeError("Dokumentet kunne ikke læses.", code="unreadable", ctx={"pages": 0})
@@ -165,7 +165,7 @@ def test_a_validation_error_the_node_raised_is_never_retried():
     class Strict(BaseModel):
         n: int
 
-    @node("parse", policy=Policy(retries=3, retry_delay=0.01))
+    @node("parse", title="Parse", description="", policy=Policy(retries=3, retry_delay=0.01))
     def parse(text: str = "") -> int:
         calls.append(1)
         return Strict.model_validate({"n": text}).n
@@ -191,11 +191,11 @@ def test_a_failed_row_is_retried_alone():
     """A node that runs per row retries the row that failed; the rows that completed are not run again."""
     calls: list[str] = []
 
-    @node("split")
+    @node("split", title="Split", description="")
     def split(text: str) -> Series[str]:
         return text.split(",")
 
-    @node("flaky-on-b", policy=Policy(retries=2, retry_delay=0.01))
+    @node("flaky-on-b", title="Flaky on b", description="", policy=Policy(retries=2, retry_delay=0.01))
     def flaky_on_b(text: str) -> str:
         calls.append(text)
         if text == "b" and calls.count("b") == 1:
@@ -211,19 +211,19 @@ def test_a_failed_row_is_retried_alone():
 def test_a_flaky_node_in_one_branch_retries_while_the_other_branch_completes():
     calls = {"a": 0, "b": 0}
 
-    @node("flaky-a", policy=Policy(retries=2, retry_delay=0.01))
+    @node("flaky-a", title="Flaky a", description="", policy=Policy(retries=2, retry_delay=0.01))
     def flaky_a(text: str) -> str:
         calls["a"] += 1
         if calls["a"] == 1:
             raise ExternalError("first try")
         return f"A:{text}"
 
-    @node("fast-b")
+    @node("fast-b", title="Fast b", description="")
     def fast_b(text: str) -> str:
         calls["b"] += 1
         return f"B:{text}"
 
-    @node("join-two")
+    @node("join-two", title="Join two", description="")
     def join_two(a: str, b: str) -> str:
         return f"{a}+{b}"
 
@@ -240,11 +240,11 @@ def test_a_run_that_failed_resumes_from_its_json_calling_only_what_had_not_finis
     calls: list[str] = []
     broken = {"on": True}
 
-    @node("split")
+    @node("split", title="Split", description="")
     def split(text: str) -> Series[str]:
         return text.split(",")
 
-    @node("mail")
+    @node("mail", title="Mail", description="")
     def mail(to: str) -> str:
         calls.append(to)
         if to == "b" and broken["on"]:
@@ -264,11 +264,11 @@ def test_a_run_that_failed_resumes_from_its_json_calling_only_what_had_not_finis
 def test_a_cancelled_leg_keeps_what_it_finished_and_resuming_calls_none_of_it_again():
     calls: list[str] = []
 
-    @node("split")
+    @node("split", title="Split", description="")
     def split(text: str) -> Series[str]:
         return text.split(",")
 
-    @node("count-calls")
+    @node("count-calls", title="Count calls", description="")
     def count_calls(text: str) -> str:
         calls.append(text)
         return text
@@ -298,12 +298,12 @@ def _mails() -> tuple[Any, list[str]]:
     """A graph that mails each address of a list, and the calls it made."""
     sent: list[str] = []
 
-    @node("mail")
+    @node("mail", title="Mail", description="")
     def mail(to: str) -> str:
         sent.append(to)
         return f"sent {to}"
 
-    @node("confirm")
+    @node("confirm", title="Confirm", description="")
     def confirm(receipt: str) -> str:
         sent.append(f"confirm {receipt}")
         return receipt.upper()
@@ -353,7 +353,7 @@ def test_a_run_with_changed_inputs_streams_and_a_node_entirely_reused_says_how_m
 def test_a_series_reordered_is_new_work_and_one_unchanged_is_not():
     calls: list[list[str]] = []
 
-    @node("join-texts")
+    @node("join-texts", title="Join texts", description="")
     def join_texts(texts: Series[str]) -> str:
         calls.append(list(texts))
         return "+".join(texts)
@@ -370,7 +370,7 @@ def test_a_series_reordered_is_new_work_and_one_unchanged_is_not():
 def test_a_dict_given_again_in_another_key_order_is_the_same_work():
     calls: list[Any] = []
 
-    @node("take-mapping")
+    @node("take-mapping", title="Take mapping", description="")
     def take_mapping(value: dict[str, Any] | None) -> int:
         calls.append(value)
         return 1
@@ -385,7 +385,7 @@ def test_a_dict_given_again_in_another_key_order_is_the_same_work():
 def test_what_a_value_is_stays_apart_in_what_a_unit_received():
     calls: list[Any] = []
 
-    @node("echo-any")
+    @node("echo-any", title="Echo any", description="")
     def echo_any(value: Any) -> str:
         calls.append(value)
         return repr(value)
@@ -405,7 +405,7 @@ def test_a_from_run_value_is_not_part_of_what_a_unit_received():
         def __init__(self, name: str) -> None:
             self.name = name
 
-    @node("signed")
+    @node("signed", title="Signed", description="")
     def signed(text: str, who: FromRun[Caller]) -> str:
         calls.append(who.name)
         return f"{text} by {who.name}"
@@ -431,11 +431,11 @@ def test_a_value_with_no_json_form_is_called_again_and_never_fails_the_run():
 
             return core_schema.is_instance_schema(cls)
 
-    @node("make")
+    @node("make", title="Make", description="")
     def make(text: str) -> Opaque:
         return Opaque()
 
-    @node("use")
+    @node("use", title="Use", description="")
     def use(thing: Opaque) -> str:
         calls.append(thing)
         return "used"
@@ -451,20 +451,20 @@ def test_a_value_with_no_json_form_is_called_again_and_never_fails_the_run():
 def test_inner_units_of_an_embedded_graph_are_reused_like_any_others():
     sent: list[str] = []
 
-    @node("mail")
+    @node("mail", title="Mail", description="")
     def mail(to: str) -> str:
         sent.append(to)
         return f"sent {to}"
 
-    @node("upper")
+    @node("upper", title="Upper", description="")
     def upper(text: str) -> str:
         return text.upper()
 
-    @node("split")
+    @node("split", title="Split", description="")
     def split(text: str) -> Series[str]:
         return text.split(",")
 
-    inner = node("notify")(make_graph(upper, mail))
+    inner = node("notify", title="Notify", description="")(make_graph(upper, mail))
     graph = registry_of(split, upper, mail, inner).load(GraphRecord(nodes=[NodeRecord(id="s", node="split"), NodeRecord(id="n", node="notify")], edges=[("s.result", "n.text")]))
     first = graph.run(text="ida,bo")
     sent.clear()
@@ -475,7 +475,7 @@ def test_inner_units_of_an_embedded_graph_are_reused_like_any_others():
 
 
 def test_an_answer_stays_with_its_row_when_a_row_is_inserted_above_and_an_edited_row_asks_again():
-    @node("approve")
+    @node("approve", title="Approve", description="")
     def approve(name: str) -> bool:
         raise Ask(f"Approve {name}?")
 
@@ -509,7 +509,7 @@ def test_a_table_output_reads_back_by_its_own_column_types_whatever_graphs_came_
 
         return {"result": Table[Dated] if kind == "date" else Table[Texts]}
 
-    @node("mk", compute_outputs=outs)
+    @node("mk", title="Mk", description="", compute_outputs=outs)
     def mk(kind: str) -> dict[str, Any]:
         return {"result": pl.DataFrame({"v": [date(2020, 1, 1)] if kind == "date" else ["2020-01-01"]})}
 
@@ -526,7 +526,7 @@ def test_a_table_output_reads_back_by_its_own_column_types_whatever_graphs_came_
 # -- what again reuses, row by row -------------------------------------------------------------
 
 
-@node("docs")
+@node("docs", title="Docs", description="")
 def _docs(text: str) -> Series[str]:
     return text.split("|") if text else []
 
@@ -539,12 +539,12 @@ def test_a_document_inserted_at_the_top_reads_only_the_new_document_and_its_line
     read: list[str] = []
     upper_calls: list[str] = []
 
-    @node("lines")
+    @node("lines", title="Lines", description="")
     def lines(text: str) -> Table[_Line]:
         read.append(text)
         return pl.DataFrame({"word": text.split(",")})
 
-    @node("shout")
+    @node("shout", title="Shout", description="")
     def shout(word: str) -> str:
         upper_calls.append(word)
         return word.upper()
@@ -572,20 +572,20 @@ def _filtered(threshold_default: int = 2) -> tuple[Any, list[str], list[str]]:
         name: str
         age: int
 
-    @node("read-rows")
+    @node("read-rows", title="Read rows", description="")
     def read_rows(text: str) -> Table[Row]:
         return pl.read_csv(io.StringIO(text))
 
-    @node("threshold")
+    @node("threshold", title="Threshold", description="")
     def threshold(min: int = threshold_default) -> int:
         return min
 
-    @node("older-than")
+    @node("older-than", title="Older than", description="")
     def older_than(rows: pl.DataFrame, min: int) -> Table[Row]:
         filtered.append("called")
         return rows.filter(pl.col("age") > min)
 
-    @node("names")
+    @node("names", title="Names", description="")
     def names(rows: pl.DataFrame) -> str:
         counted.append("called")
         return ",".join(rows["name"])
@@ -621,15 +621,15 @@ def test_equal_tables_made_by_different_filters_are_the_same_work_for_the_reader
 
 
 def test_a_reused_table_and_a_column_called_afresh_line_up_row_by_row_after_a_document_is_inserted_above():
-    @node("lines")
+    @node("lines", title="Lines", description="")
     def lines(text: str) -> Table[_Line]:
         return pl.DataFrame({"word": text.split(",")})
 
-    @node("stamp", policy=Policy(reuse_when_inputs_match=False))
+    @node("stamp", title="Stamp", description="", policy=Policy(reuse_when_inputs_match=False))
     def stamp(word: str) -> str:
         return f"<{word}>"
 
-    @node("show")
+    @node("show", title="Show", description="")
     def show(rows: pl.DataFrame) -> str:
         return ";".join(f"{w}={s}" for w, s in zip(rows["word"], rows["result"], strict=True))
 
@@ -647,19 +647,19 @@ def test_a_reused_table_and_a_column_called_afresh_line_up_row_by_row_after_a_do
 
 @pytest.mark.parametrize("rows", ["a,b", "a,b,c,d", "x,y,z"], ids=["fewer", "more", "same-count"])
 def test_again_with_changed_rows_above_an_embedded_graph_gives_its_inner_fixed_value_node_on_every_row(rows):
-    @node("label")
+    @node("label", title="Label", description="")
     def label(prefix: str) -> str:
         return prefix + ":"
 
-    @node("pair")
+    @node("pair", title="Pair", description="")
     def pair(text: str, tag: str) -> str:
         return tag + text
 
-    @node("same")
+    @node("same", title="Same", description="")
     def same(text: str) -> str:
         return text
 
-    inner = node("tagged")(GraphRecord(
+    inner = node("tagged", title="Tagged", description="")(GraphRecord(
         nodes=[NodeRecord(id="same", node="same"), NodeRecord(id="label", node="label", values={"prefix": "p"}), NodeRecord(id="pair", node="pair")],
         edges=[("same.result", "pair.text"), ("label.result", "pair.tag")],
     ))
@@ -695,15 +695,15 @@ def _csv_mails() -> tuple[Any, list[str]]:
         name: str
         email: str
 
-    @node("read-people")
+    @node("read-people", title="Read people", description="")
     def read_people(text: str) -> Table[Person]:
         return pl.read_csv(io.StringIO(text))
 
-    @node("body")
+    @node("body", title="Body text", description="")
     def body_text(body: str = "hej") -> str:
         return body
 
-    @node("send-body")
+    @node("send-body", title="Send body", description="")
     def send_body(email: str, body: str) -> str:
         sent.append(email)
         return f"{body} {email}"
@@ -734,11 +734,11 @@ def test_a_sorted_csv_or_an_edit_to_a_column_nothing_reads_sends_no_mail_and_a_c
 def test_a_row_inserted_above_rows_split_from_rows_calls_only_the_new_rows():
     calls: list[str] = []
 
-    @node("words")
+    @node("words", title="Words", description="")
     def words(text: str) -> Series[str]:
         return text.split(",")
 
-    @node("shout")
+    @node("shout", title="Shout", description="")
     def shout(text: str) -> str:
         calls.append(text)
         return text.upper()
@@ -754,7 +754,7 @@ def test_a_row_inserted_above_rows_split_from_rows_calls_only_the_new_rows():
 
 
 def _approvals() -> Any:
-    @node("approve")
+    @node("approve", title="Approve", description="")
     def approve(name: str) -> bool:
         raise Ask(f"Approve {name}?")
 
@@ -774,7 +774,7 @@ def test_an_again_that_fails_before_it_reaches_the_old_rows_still_reuses_them_on
     broken = {"on": True}
     sent: list[str] = []
 
-    @node("mail-or-fail")
+    @node("mail-or-fail", title="Mail or fail", description="")
     def mail_or_fail(to: str) -> str:
         sent.append(to)
         if to == "eva" and broken["on"]:
@@ -810,11 +810,11 @@ def test_an_again_cancelled_before_the_node_runs_then_resumed_sends_only_the_new
 def test_after_an_answered_question_again_with_one_row_added_sends_one_mail():
     sent: list[str] = []
 
-    @node("approve")
+    @node("approve", title="Approve", description="")
     def approve(name: str) -> str:
         raise Ask(f"Mail {name}?")
 
-    @node("mail")
+    @node("mail", title="Mail", description="")
     def mail(to: str) -> str:
         sent.append(to)
         return f"sent {to}"
@@ -891,7 +891,7 @@ def test_a_run_with_changed_inputs_not_yet_started_shows_no_results():
 def test_a_typed_in_value_counts_as_its_type_writes_it_not_as_it_was_spelled():
     calls: list[float] = []
 
-    @node("half")
+    @node("half", title="Half", description="")
     def half(x: float) -> float:
         calls.append(x)
         return x / 2
@@ -911,7 +911,7 @@ def test_a_table_column_its_row_type_doesnt_name_reads_back_from_json_as_written
     import polars as pl
     from conductor import Table
 
-    @node("mixed")
+    @node("mixed", title="Mixed", description="")
     def mixed(text: str) -> Table:
         return pl.DataFrame({"when": [dt.date(2026, 1, 1)], "at": [dt.time(1, 2)], "x": [math.nan], "n": [1]})
 
@@ -933,7 +933,7 @@ def test_a_graph_and_a_run_each_have_one_way_in():
 
 
 def _alone_node() -> Any:
-    @node("n")
+    @node("n", title="N", description="")
     def n(text: str = "") -> str:
         return text
 
@@ -943,14 +943,14 @@ def _alone_node() -> Any:
 def test_waiting_rows_and_a_saved_run_keep_node_then_row_order_whatever_threads_did():
     import random
 
-    @node("slow-ask", policy=Policy(concurrency=4))
+    @node("slow-ask", title="Slow ask", description="", policy=Policy(concurrency=4))
     def slow_ask(text: str) -> str:
         import time
 
         time.sleep(random.random() * 0.02)
         raise Ask(f"{text}?")
 
-    @node("split")
+    @node("split", title="Split", description="")
     def split(text: str) -> Series[str]:
         return text.split(",")
 
@@ -962,11 +962,11 @@ def test_waiting_rows_and_a_saved_run_keep_node_then_row_order_whatever_threads_
 
 
 def test_a_saved_run_that_does_not_fit_is_refused_naming_where_and_never_with_a_raw_error():
-    @node("split")
+    @node("split", title="Split", description="")
     def split(text: str) -> Series[str]:
         return text.split(",")
 
-    @node("echo")
+    @node("echo", title="Echo", description="")
     def echo(text: str) -> str:
         return text
 
@@ -990,7 +990,7 @@ def test_a_saved_run_that_does_not_fit_is_refused_naming_where_and_never_with_a_
 
 
 def _answered(names: list[str], answers: list[bool]) -> Any:
-    @node("approve")
+    @node("approve", title="Approve", description="")
     def approve(name: str) -> bool:
         raise Ask(f"Mail {name}?")
 
@@ -1026,11 +1026,11 @@ def test_a_third_identical_row_is_asked_and_two_earlier_answers_cover_only_two_r
 
 
 def test_identical_lines_answered_differently_under_documents_keep_their_documents_when_the_documents_swap():
-    @node("lines")
+    @node("lines", title="Lines", description="")
     def lines(doc: str) -> Series[str]:
         return ["x", "x"]
 
-    @node("approve")
+    @node("approve", title="Approve", description="")
     def approve(line: str) -> bool:
         raise Ask(f"{line}?")
 
@@ -1050,7 +1050,7 @@ def test_identical_lines_answered_differently_under_documents_keep_their_documen
 def test_identical_rows_never_share_a_result_a_third_gets_a_call_of_its_own():
     calls: list[str] = []
 
-    @node("echo")
+    @node("echo", title="Echo", description="")
     def echo(text: str) -> str:
         calls.append(text)
         return text.upper()
@@ -1069,11 +1069,11 @@ def test_an_answer_survives_an_edit_and_its_revert_while_the_edited_row_still_wa
     """
     sent: list[str] = []
 
-    @node("approve")
+    @node("approve", title="Approve", description="")
     def approve(name: str) -> str:
         raise Ask(f"Mail {name}?")
 
-    @node("mail")
+    @node("mail", title="Mail", description="")
     def mail(to: str) -> str:
         sent.append(to)
         return f"sent {to}"
@@ -1095,7 +1095,7 @@ def test_an_answer_survives_an_edit_and_its_revert_while_the_edited_row_still_wa
 def test_a_second_edit_after_a_failed_leg_still_reuses_what_the_failed_leg_had_not_reached():
     calls: list[str] = []
 
-    @node("echo")
+    @node("echo", title="Echo", description="")
     def echo(text: str) -> str:
         calls.append(text)
         if text == "boom":
@@ -1116,7 +1116,7 @@ def test_a_second_edit_after_a_failed_leg_still_reuses_what_the_failed_leg_had_n
 def test_work_a_finished_node_did_not_take_is_dropped_so_an_edit_undone_two_runs_later_calls_it_again():
     calls: list[str] = []
 
-    @node("echo")
+    @node("echo", title="Echo", description="")
     def echo(text: str) -> str:
         calls.append(text)
         return text.upper()
@@ -1131,7 +1131,7 @@ def test_work_a_finished_node_did_not_take_is_dropped_so_an_edit_undone_two_runs
 def test_a_waiting_row_goes_on_waiting_at_its_new_row_with_no_new_question():
     asked: list[str] = []
 
-    @node("approve")
+    @node("approve", title="Approve", description="")
     def approve(name: str) -> bool:
         asked.append(name)
         raise Ask(f"Mail {name}?")
@@ -1148,7 +1148,7 @@ def test_a_waiting_row_goes_on_waiting_at_its_new_row_with_no_new_question():
 def test_a_waiting_row_carried_through_a_cancelled_again_waits_at_its_new_row():
     asked: list[str] = []
 
-    @node("approve", policy=Policy(concurrency=2))
+    @node("approve", title="Approve", description="", policy=Policy(concurrency=2))
     def approve(name: str) -> bool:
         asked.append(name)
         raise Ask(f"Mail {name}?")
@@ -1166,7 +1166,7 @@ def test_a_waiting_row_carried_through_a_cancelled_again_waits_at_its_new_row():
 
 
 def test_an_answer_for_a_place_that_now_holds_another_question_is_answer_stale_naming_the_current_one_and_where_its_own_went():
-    @node("approve")
+    @node("approve", title="Approve", description="")
     def approve(name: str) -> bool:
         raise Ask(f"Mail {name}?")
 
@@ -1185,11 +1185,11 @@ def test_an_answer_for_a_place_that_now_holds_another_question_is_answer_stale_n
 
 
 def test_a_changed_node_asks_again_with_its_new_prompt_and_its_old_unit_is_gone():
-    @node("approve")
+    @node("approve", title="Approve", description="")
     def approve(name: str) -> bool:
         raise Ask(f"Mail {name}?")
 
-    @node("approve", replaces=approve)
+    @node("approve", title="Approve v2", description="", replaces=approve)
     def approve_v2(name: str) -> bool:
         raise Ask(f"Send to {name}?")
 
@@ -1204,11 +1204,11 @@ def test_a_changed_node_asks_again_with_its_new_prompt_and_its_old_unit_is_gone(
 
 
 def test_a_node_redeclared_under_its_id_and_version_with_other_code_is_new_work_after_a_save():
-    @node("echo")
+    @node("echo", title="Echo", description="")
     def echo(text: str) -> str:
         return text.upper()
 
-    @node("echo")
+    @node("echo", title="Echo changed", description="")
     def echo_changed(text: str) -> str:
         return text.lower()
 
@@ -1233,7 +1233,7 @@ def test_a_node_redeclared_under_its_id_and_version_with_the_same_code_and_anoth
 
     def declared(input_type: Any) -> Any:
         made.__annotations__["value"] = input_type
-        return node("made")(made)
+        return node("made", title="Made", description="")(made)
 
     record = GraphRecord(nodes=[NodeRecord(id="m", node="made")])
     saved = registry_of(declared(before)).load(record).run(value=given).to_json()
@@ -1248,15 +1248,15 @@ def test_a_node_redeclared_to_take_a_blank_is_called_on_the_blank_row_it_skipped
         name: str
         email: str | None
 
-    @node("rows")
+    @node("rows", title="Rows", description="")
     def rows(text: str) -> Table[Row]:
         return pl.DataFrame({"name": ["ida", "bo"], "email": ["i@a.dk", None]}, schema={"name": pl.String, "email": pl.String})
 
-    @node("send")
+    @node("send", title="Send", description="")
     def send(email: str) -> str:
         return f"to {email}"
 
-    @node("send")
+    @node("send", title="Send blank", description="")
     def send_blank(email: str | None) -> str:
         return f"to {email}"
 
@@ -1271,22 +1271,22 @@ def test_a_node_redeclared_to_take_a_blank_is_called_on_the_blank_row_it_skipped
 def test_a_row_that_comes_back_before_an_identical_earlier_row_takes_its_earlier_work_once_that_row_has():
     calls: list[str] = []
 
-    @node("a", policy=Policy(concurrency=2))
+    @node("a", title="A", description="", policy=Policy(concurrency=2))
     def a(text: str) -> Series[str]:
         return ["x"]
 
-    @node("c", policy=Policy(concurrency=2))
+    @node("c", title="C", description="", policy=Policy(concurrency=2))
     def c(text: str) -> str:
         if text == "p":
             time.sleep(0.3)  # the second row's inputs are made first
         return "c"
 
-    @node("b")
+    @node("b", title="B", description="")
     def b(x: str, y: str) -> str:
         calls.append(x + y)
         return x + y
 
-    @node("split")
+    @node("split", title="Split", description="")
     def split(text: str) -> Series[str]:
         return text.split(",")
 
@@ -1305,12 +1305,12 @@ def test_a_row_that_comes_back_before_an_identical_earlier_row_takes_its_earlier
 def _counted() -> tuple[Any, list[str]]:
     calls: list[str] = []
 
-    @node("fetch")
+    @node("fetch", title="Fetch", description="")
     def fetch(text: str) -> str:
         calls.append(f"fetch {text}")
         return text.upper()
 
-    @node("show")
+    @node("show", title="Show", description="")
     def show(text: str) -> str:
         calls.append(f"show {text}")
         return f"<{text}>"
@@ -1348,12 +1348,12 @@ def test_forget_is_not_started_survives_json_and_refuses_a_node_the_graph_lacks(
 def test_forgetting_an_embedded_graph_forgets_its_inner_nodes():
     calls: list[str] = []
 
-    @node("fetch")
+    @node("fetch", title="Fetch", description="")
     def fetch(text: str) -> str:
         calls.append(text)
         return text.upper()
 
-    inner = node("inner")(GraphRecord(nodes=[NodeRecord(id="f", node="fetch")]))
+    inner = node("inner", title="Inner", description="")(GraphRecord(nodes=[NodeRecord(id="f", node="fetch")]))
     graph = registry_of(fetch, inner).load(GraphRecord(nodes=[NodeRecord(id="e", node="inner")]))
     run = graph.run(text="a")
     calls.clear()
@@ -1362,7 +1362,7 @@ def test_forgetting_an_embedded_graph_forgets_its_inner_nodes():
 
 
 def test_a_table_nothing_holds_after_forget_is_not_written():
-    @node("split")
+    @node("split", title="Split", description="")
     def split(text: str) -> Series[str]:
         return text.split(",")
 
@@ -1388,15 +1388,15 @@ def test_identical_answered_rows_keep_their_answers_across_a_cancelled_leg_as_on
 
 
 def test_a_save_of_a_node_redeclared_so_it_runs_on_other_rows_does_not_fit_and_is_refused_naming_the_node():
-    @node("count")
+    @node("count", title="Count", description="")
     def count(text: str) -> int:
         return len(text)
 
-    @node("count")
+    @node("count", title="Count all", description="")
     def count_all(text: Series[str]) -> int:
         return len(text)
 
-    @node("split")
+    @node("split", title="Split", description="")
     def split(text: str) -> Series[str]:
         return text.split(",")
 
@@ -1415,7 +1415,7 @@ def test_identical_rows_take_earlier_answers_in_row_order_whatever_thread_finish
 
     first_done = threading.Event()
 
-    @node("fetch", policy=Policy(concurrency=2, reuse_when_inputs_match=False))
+    @node("fetch", title="Fetch", description="", policy=Policy(concurrency=2, reuse_when_inputs_match=False))
     def fetch(name: str) -> str:
         if name == "bo-0":
             assert first_done.wait(timeout=10)  # row 0 comes back after row 1
@@ -1423,7 +1423,7 @@ def test_identical_rows_take_earlier_answers_in_row_order_whatever_thread_finish
             first_done.set()
         return "bo"
 
-    @node("approve")
+    @node("approve", title="Approve", description="")
     def approve(name: str) -> bool:
         raise Ask(f"Mail {name}?")
 
@@ -1444,16 +1444,16 @@ def test_again_keeps_every_waiting_question_when_an_earlier_row_waits_on_a_perso
     """split → ask_a → ask_b; a@0 still waits, b@1 and b@2 wait: ``again`` with the same inputs keeps all three, calling nothing."""
     calls: list[str] = []
 
-    @node("split")
+    @node("split", title="Split", description="")
     def split(text: str) -> Series[str]:
         return text.split()
 
-    @node("ask_a")
+    @node("ask_a", title="Ask a", description="")
     def ask_a(text: str) -> str:
         calls.append(f"a {text}")
         raise Ask(f"A {text}?")
 
-    @node("ask_b")
+    @node("ask_b", title="Ask b", description="")
     def ask_b(text: str) -> str:
         calls.append(f"b {text}")
         raise Ask(f"B {text}?")
@@ -1475,11 +1475,11 @@ def test_again_keeps_every_waiting_question_when_an_earlier_row_waits_on_a_perso
 
 
 def test_a_node_errors_own_code_inside_an_embedded_graph_fails_the_embedding_with_its_code_message_and_ctx():
-    @node("refuse")
+    @node("refuse", title="Refuse", description="")
     def refuse(text: str) -> str:
         raise NodeError("Dokumentet kan ikke læses.", code="document_unreadable", ctx={"pages": 0})
 
-    inner = node("reading")(make_graph(refuse))
+    inner = node("reading", title="Reading", description="")(make_graph(refuse))
     run = registry_of(refuse, inner).load(GraphRecord(nodes=[NodeRecord(id="r", node="reading")])).run(text="x")
 
     assert run.status == "failed"
@@ -1487,15 +1487,15 @@ def test_a_node_errors_own_code_inside_an_embedded_graph_fails_the_embedding_wit
 
 
 def test_an_inner_nodes_wrong_output_names_the_output_as_the_embedding_offers_it():
-    @node("a")
+    @node("a", title="A", description="")
     def a(x: str) -> int:
         return "not an int"  # type: ignore[return-value]
 
-    @node("b")
+    @node("b", title="B", description="")
     def b(y: str) -> int:
         return 1
 
-    box = node("emb")(make_graph(a, b, edges=[]))
+    box = node("emb", title="Emb", description="")(make_graph(a, b, edges=[]))
     graph = registry_of(a, b, box).load(make_graph(box))
     run = graph.run(x="q", y="w")
 
@@ -1510,11 +1510,11 @@ def test_a_saved_run_stays_the_same_size_over_one_row_edits_at_ten_thousand_rows
         name: str
         text: str
 
-    @node("read_lines")
+    @node("read_lines", title="Read lines", description="")
     def read_lines(csv: str) -> Table[Line]:
         return pl.read_csv(io.StringIO(csv))
 
-    @node("enrich")
+    @node("enrich", title="Enrich", description="")
     def enrich(name: str, text: str) -> str:
         return f"{name}: {text[:20]}"
 
@@ -1536,12 +1536,12 @@ def test_an_edited_graph_takes_an_earlier_runs_work_for_the_nodes_the_edit_left_
     """The author changes the last node's prompt: its rows run again, the 300 calls above it do not."""
     calls: list[str] = []
 
-    @node("enrich")
+    @node("enrich", title="Enrich", description="")
     def enrich(text: str) -> str:
         calls.append(f"enrich {text}")
         return text.upper()
 
-    @node("summarize")
+    @node("summarize", title="Summarize", description="")
     def summarize(text: str, prompt: str) -> str:
         calls.append(f"summarize {text}")
         return f"{prompt}: {text}"
@@ -1568,15 +1568,15 @@ def test_an_edited_graph_takes_an_earlier_runs_work_for_the_nodes_the_edit_left_
 
 
 def test_again_and_with_inputs_take_an_input_by_its_address_as_graph_run_does():
-    @node("upper")
+    @node("upper", title="Upper", description="")
     def upper(text: str) -> str:
         return text.upper()
 
-    @node("join")
+    @node("join", title="Join", description="")
     def join(a: str, b: str) -> str:
         return a + b
 
-    box = node("box")(GraphRecord(nodes=[NodeRecord(id="j", node="join")]))
+    box = node("box", title="Box", description="")(GraphRecord(nodes=[NodeRecord(id="j", node="join")]))
     graph = registry_of(upper, join, box).load(GraphRecord(nodes=[NodeRecord(id="u", node="upper"), NodeRecord(id="e", node="box")]))
     first = graph.run({"u.text": "a", "e.a": "x", "e.b": "y"})
 

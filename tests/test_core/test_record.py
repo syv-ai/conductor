@@ -27,17 +27,17 @@ from pydantic import ValidationError
 from tests.test_core.nodes import registry_of
 
 
-@node("text")
+@node("text", title="Text in", description="")
 def text_in(value: str = "") -> str:
     return value
 
 
-@node("upper")
+@node("upper", title="Upper", description="")
 def upper(text: str) -> str:
     return text.upper()
 
 
-@node("join")
+@node("join", title="Join", description="")
 def join(texts: Series[str]) -> str:
     return "+".join(texts)
 
@@ -48,12 +48,12 @@ class YesNo:
     no: Annotated[str, Param(exclusive_group="answer")]
 
 
-@node("decide")
+@node("decide", title="Decide", description="")
 def decide(text: str) -> YesNo:
     return YesNo(text, SKIPPED) if text.startswith("y") else YesNo(SKIPPED, text)
 
 
-@node("both")
+@node("both", title="Both", description="")
 def both(yes: str, no: str) -> str:
     return yes + no
 
@@ -64,7 +64,7 @@ class Two:
     alpha: str
 
 
-@node("two")
+@node("two", title="Two", description="")
 def two(text: str) -> Two:
     return Two(f"zed {text}", f"alpha {text}")
 
@@ -226,22 +226,22 @@ def test_a_list_given_to_an_open_input_of_one_value_is_a_row_per_item_and_one_va
 # -- a graph written from Python: make_graph -----------------------------------------------
 
 
-@node("hello")
+@node("hello", title="Hello", description="")
 def _hello(name: str) -> str:
     return f"hello {name}"
 
 
-@node("shout")
+@node("shout", title="Shout", description="")
 def _shout(text: str, times: int = 1) -> str:
     return text.upper() + "!" * times
 
 
-@node("email")
+@node("email", title="Email", description="")
 def _email() -> str:
     return "ida@x"
 
 
-@node("count")
+@node("count", title="Count", description="")
 def _count() -> int:
     return 3
 
@@ -268,7 +268,7 @@ def test_make_graph_numbers_a_node_used_twice():
 
 
 def test_make_graph_skips_an_id_another_node_already_has():
-    @node("hello-1")
+    @node("hello-1", title="Other", description="")
     def _other(name: str) -> str:
         return name
 
@@ -322,7 +322,7 @@ def test_make_graph_refuses_a_set_typed_in_as_set_has_no_order(value: object):
 
 
 def test_make_graph_refuses_a_type_mismatch_and_a_field_a_hook_does_not_give_at_the_call():
-    @node("fan", compute_outputs=lambda n: {f"o{i}": int for i in range(n)})
+    @node("fan", title="Fan", description="", compute_outputs=lambda n: {f"o{i}": int for i in range(n)})
     def fan(n: int = 2) -> dict:
         return {f"o{i}": i for i in range(n)}
 
@@ -353,7 +353,7 @@ def test_make_graph_writes_each_node_at_its_version():
     def older(name: str) -> str:
         return name
 
-    @node("v", replaces=node("v")(older), upgrade=Upgrade())
+    @node("v", title="Newer", description="", replaces=node("v", title="Older", description="")(older), upgrade=Upgrade())
     def _newer(name: str) -> str:
         return name
 
@@ -418,7 +418,7 @@ def test_an_input_given_by_name_and_by_address_and_a_ceiling_below_one_are_refus
 
 
 def test_a_stored_graph_with_problems_of_its_own_is_one_problem_where_it_is_used():
-    broken = node("broken")(GraphRecord(nodes=[NodeRecord(id="x", node="gone")]))
+    broken = node("broken", title="Broken", description="")(GraphRecord(nodes=[NodeRecord(id="x", node="gone")]))
     graph = registry_of(upper, broken).load(GraphRecord(nodes=[NodeRecord(id="b", node="broken"), NodeRecord(id="u", node="upper")], edges=[("b.result", "u.text")]))
 
     (problem,) = graph.problems
@@ -435,7 +435,7 @@ def test_an_edge_naming_a_column_a_table_does_not_declare_is_unknown_output_with
     class Row(TypedDict):
         name: str
 
-    @node("rows")
+    @node("rows", title="Rows", description="")
     def rows() -> Table[Row]:
         return pl.DataFrame({"name": ["a"]})
 
@@ -451,7 +451,7 @@ def test_a_series_of_tables_is_refused_where_it_is_declared():
 
     with pytest.raises(NodeDeclarationError) as raised:
 
-        @node("tables")
+        @node("tables", title="Tables", description="")
         def tables(text: str) -> Series[Table]:
             return [pl.DataFrame()]
 
@@ -461,20 +461,20 @@ def test_a_series_of_tables_is_refused_where_it_is_declared():
 # -- an embedded graph is one node from outside -------------------------------------
 
 
-@node("tail")
+@node("tail", title="Tail", description="")
 def tail(text: str) -> str:
     return text + "."
 
 
-@node("split")
+@node("split", title="Split", description="")
 def split(text: str) -> Series[str]:
     return text.split(",")
 
 
-ENRICH = node("enrich")(make_graph(upper, tail))
-PAIR = node("pair")(GraphRecord(nodes=[NodeRecord(id="x", node="upper"), NodeRecord(id="y", node="upper"), NodeRecord(id="b", node="both")],
+ENRICH = node("enrich", title="Enrich", description="")(make_graph(upper, tail))
+PAIR = node("pair", title="Pair", description="")(GraphRecord(nodes=[NodeRecord(id="x", node="upper"), NodeRecord(id="y", node="upper"), NodeRecord(id="b", node="both")],
                                 edges=[("x.result", "b.yes"), ("y.result", "b.no")]))
-GATHER = node("gather")(GraphRecord(nodes=[NodeRecord(id="hold", node="upper"), NodeRecord(id="all", node="join")], edges=[("hold.result", "all.texts")]))
+GATHER = node("gather", title="Gather", description="")(GraphRecord(nodes=[NodeRecord(id="hold", node="upper"), NodeRecord(id="all", node="join")], edges=[("hold.result", "all.texts")]))
 EMBEDDED = registry_of(upper, tail, split, join, both, ENRICH, PAIR, GATHER)
 
 
@@ -520,11 +520,11 @@ def test_a_stored_graph_offers_its_fields_in_the_palette_of_the_registry_that_ho
 def test_a_reduction_over_rows_a_branch_never_made_is_skipped_not_called_on_nothing():
     calls: list[list[str]] = []
 
-    @node("gate")
+    @node("gate", title="Gate", description="")
     def gate(text: str) -> YesNo:
         return YesNo(text, SKIPPED) if text.startswith("y") else YesNo(SKIPPED, text)
 
-    @node("count-all")
+    @node("count-all", title="Count all", description="")
     def count_all(texts: Series[str]) -> str:
         calls.append(list(texts))
         return str(len(texts))
@@ -537,7 +537,7 @@ def test_a_reduction_over_rows_a_branch_never_made_is_skipped_not_called_on_noth
 
 
 def test_a_skipped_item_of_a_series_output_is_a_gap_that_reads_back_from_json():
-    @node("some")
+    @node("some", title="Some", description="")
     def some(text: str) -> Series[str]:
         return ["a", SKIPPED, "c"]
 
@@ -561,19 +561,19 @@ def test_a_table_input_gets_its_declared_columns_and_a_source_lacking_one_is_ref
         name: str
         email: str
 
-    @node("contacts")
+    @node("contacts", title="Contacts", description="")
     def contacts() -> Table[Contacts]:
         return pl.DataFrame({"name": ["a"], "email": ["a@x"]})
 
-    @node("names")
+    @node("names", title="Names", description="")
     def names() -> Table[Names]:
         return pl.DataFrame({"name": ["a"]})
 
-    @node("columns")
+    @node("columns", title="Columns", description="")
     def columns(table: Table[Names]) -> str:
         return ",".join(table.columns)
 
-    @node("emails")
+    @node("emails", title="Emails", description="")
     def emails(table: Table[Contacts]) -> str:
         return ",".join(table.columns)
 
@@ -586,11 +586,11 @@ def test_a_table_input_gets_its_declared_columns_and_a_source_lacking_one_is_ref
 
 
 def test_a_node_gathering_two_series_of_different_depths_runs_above_the_shallower():
-    @node("parts")
+    @node("parts", title="Parts", description="")
     def parts(text: str) -> Series[str]:
         return text.split("|")
 
-    @node("pair-lists")
+    @node("pair-lists", title="Pair lists", description="")
     def pair_lists(a: Series[str], b: Series[str]) -> str:
         return f"{len(a)}/{len(b)}"
 
@@ -613,15 +613,15 @@ def test_an_authored_id_with_a_slash_beside_an_embedding_is_its_own_problem_and_
 def test_a_gather_whose_rows_were_all_skipped_by_a_decision_on_its_own_row_is_skipped():
     """A per-document decision copied down onto the lines skips every line of that document, so the per-document join is skipped too."""
 
-    @node("pair-two")
+    @node("pair-two", title="Pair two", description="")
     def pair_two(a: str, b: str) -> str:
         return f"{a}:{b}"
 
-    @node("decide-doc")
+    @node("decide-doc", title="Decide doc", description="")
     def decide_doc(text: str) -> YesNo:
         return YesNo(text, SKIPPED) if text.startswith("x") else YesNo(SKIPPED, text)
 
-    @node("docs")
+    @node("docs", title="Docs", description="")
     def docs(text: str) -> Series[str]:
         return text.split("|")
 
@@ -639,7 +639,7 @@ def test_a_gather_below_a_series_output_skipped_whole_is_skipped():
         full: Annotated[Series[str], Param(exclusive_group="size")]
         empty: Annotated[Series[str], Param(exclusive_group="size")]
 
-    @node("decide-list")
+    @node("decide-list", title="Decide list", description="")
     def decide_list(text: str) -> FullOrEmpty:
         return FullOrEmpty(text.split(","), SKIPPED) if text else FullOrEmpty(SKIPPED, [])
 
@@ -655,11 +655,11 @@ def test_a_column_whose_name_has_a_dot_is_wired_by_its_address():
     import polars as pl
     from conductor import Table
 
-    @node("sheet")
+    @node("sheet", title="Sheet", description="")
     def sheet() -> Table:
         return pl.DataFrame({"Amount in USD.": [3, 4]})
 
-    @node("double")
+    @node("double", title="Double", description="")
     def double(amount: int) -> int:
         return amount * 2
 
@@ -675,7 +675,7 @@ def test_a_node_display_is_the_hosts_own_kept_and_outside_the_fingerprint():
 
 
 def test_make_graph_refuses_a_value_beside_a_default_and_what_is_not_a_node():
-    @node("count")
+    @node("count", title="Count", description="")
     def count(items: Series[str]) -> int:
         return len(items)
 
@@ -695,7 +695,7 @@ def test_a_value_typed_in_from_python_is_its_json_so_the_record_equals_its_own_r
     class Color(Named, enum.Enum):
         RED = "red"
 
-    @node("typed")
+    @node("typed", title="Typed", description="")
     def typed(when: datetime.date, color: Color, pair: tuple[int, int]) -> str:
         return f"{when} {color.value} {pair[0]}"
 
@@ -711,7 +711,7 @@ def test_a_value_typed_in_from_python_is_its_json_so_the_record_equals_its_own_r
 def test_a_table_typed_in_is_refused_at_the_call_and_said_to_be_given_as_rows():
     import polars as pl
 
-    @node("count")
+    @node("count", title="Count", description="")
     def count(rows: Table) -> int:
         return rows.height
 
@@ -732,11 +732,11 @@ def test_a_record_holds_only_json_in_its_values_and_display():
 def test_a_float_that_isnt_finite_typed_in_is_written_as_its_text_so_a_record_equals_its_json():
     from conductor import Ask
 
-    @node("half")
+    @node("half", title="Half", description="")
     def half(n: float) -> float:
         return n / 2
 
-    @node("ask")
+    @node("ask", title="Ask", description="")
     def ask(x: float) -> str:
         raise Ask("ok?")
 
@@ -762,11 +762,11 @@ def test_make_graph_lists_the_faults_it_finds_itself_beside_the_ones_loading_fin
 
 
 def test_make_graph_checks_each_node_against_the_definition_it_was_given():
-    @node("v")
+    @node("v", title="V1", description="")
     def v1(text: str) -> str:
         return text
 
-    @node("v", replaces=v1)
+    @node("v", title="V2", description="", replaces=v1)
     def v2(text: str) -> str:
         return text
 
@@ -774,7 +774,7 @@ def test_make_graph_checks_each_node_against_the_definition_it_was_given():
         make_graph(v2, v1, edges=[], values={"v-1.nope": 1})
     assert [(p.type, p.loc) for p in refused.value.errors()] == [("unknown_input", ("v-1", "nope"))]
 
-    @node("v")
+    @node("v", title="Other", description="")
     def other(n: int) -> int:
         return n
 

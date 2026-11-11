@@ -18,55 +18,55 @@ CALLS: Counter[str] = Counter()
 registry = NodeRegistry()
 
 
-@registry.node("read")
+@registry.node("read", title="Read", description="Reads one file: run once per file when given several.")
 def read(file: str) -> str:
     """Reads one file: run once per file when given several."""
     CALLS["read"] += 1
     return file.upper()
 
 
-@registry.node("review")
+@registry.node("review", title="Review", description="Reviews one contract.")
 def review(text: str) -> str:
     """Reviews one contract."""
     CALLS["review"] += 1
     return f"rev({text})"
 
 
-@registry.node("overall")
+@registry.node("overall", title="Overall", description="Reviews every contract in one call.")
 def overall(texts: Series[str]) -> str:
     """Reviews every contract in one call."""
     CALLS["overall"] += 1
     return f"overall({len(texts)})"
 
 
-@registry.node("compare")
+@registry.node("compare", title="Compare", description="")
 def compare(contract: str, appendix: str) -> str:
     CALLS["compare"] += 1
     return f"{contract}~{appendix}"
 
 
-@registry.node("with_appendices")
+@registry.node("with_appendices", title="With appendices", description="")
 def with_appendices(contract: str, appendices: Series[str]) -> str:
     CALLS["with_appendices"] += 1
     return f"{contract}+{len(appendices)}"
 
 
-@registry.node("tags")
+@registry.node("tags", title="Tags", description="")
 def tags(tags: list[str]) -> int:
     return len(tags)
 
 
-@registry.node("anything")
+@registry.node("anything", title="Anything", description="")
 def anything(value: Any) -> str:
     return type(value).__name__
 
 
-@registry.node("split")
+@registry.node("split", title="Split", description="")
 def split(text: str) -> Series[str]:
     return text.split(",")
 
 
-@registry.node("approve")
+@registry.node("approve", title="Approve", description="")
 def approve(text: str) -> bool:
     raise Ask(f"approve {text}?")
 
@@ -202,7 +202,7 @@ def test_two_lists_typed_into_one_node_are_refused_as_lists_that_meet():
 def test_an_embedded_graph_fed_one_file_per_outer_row_runs_per_row_whether_it_reviews_each_or_all():
     reg = NodeRegistry()
     reg.add_subregistry(registry)
-    reg.add(node("per")(GraphRecord.model_validate(PER)), node("together")(GraphRecord.model_validate(TOGETHER)))
+    reg.add(node("per", title="Per", description="")(GraphRecord.model_validate(PER)), node("together", title="Together", description="")(GraphRecord.model_validate(TOGETHER)))
     for inner, results in (("per", ["rev(X)", "rev(Y)", "rev(Z)"]), ("together", ["overall(1)", "overall(1)", "overall(1)"])):
         outer = drawn(("s", "split"), ("e", inner), edges=(("s.result", "e.file"),))
         assert list(ran(outer, reg, text="x,y,z").outputs.values()) == [results]
@@ -248,15 +248,15 @@ def test_a_run_given_a_list_that_waits_saves_and_loads_back_into_the_same_rows()
 def _checked_registry() -> NodeRegistry:
     held = NodeRegistry()
 
-    @held.node("count")
+    @held.node("count", title="Count", description="")
     def count(n: Annotated[int, Param(ge=0)]) -> int:
         return n
 
-    @held.node("level")
+    @held.node("level", title="Level", description="")
     def level(n: Literal[1, 2, 3]) -> int:
         return n
 
-    @held.node("pick")
+    @held.node("pick", title="Pick", description="")
     def pick(s: Annotated[str, Param(choices=["a", "b"])]) -> str:
         return s
 
@@ -295,19 +295,19 @@ def test_a_yes_or_no_never_lands_on_a_literal_of_numbers():
 def test_a_yes_or_no_never_lands_on_a_union_a_number_is_in_and_a_yes_or_no_is_not():
     held = NodeRegistry()
 
-    @held.node("either")
+    @held.node("either", title="Either", description="")
     def either(n: int | float) -> str:
         return repr(n)
 
-    @held.node("or-text")
+    @held.node("or-text", title="Or text", description="")
     def or_text(n: int | str | None = None) -> str:
         return repr(n)
 
-    @held.node("or-flag")
+    @held.node("or-flag", title="Or flag", description="")
     def or_flag(n: int | bool) -> str:
         return repr(n)
 
-    @held.node("returns-yes")
+    @held.node("returns-yes", title="Returns yes", description="")
     def returns_yes(n: int) -> Literal[1, 2] | float:
         return True  # type: ignore[return-value]
 
@@ -336,7 +336,7 @@ Tree = TypeAliasType("Tree", "dict[str, Tree] | list[Tree] | int")
 def test_a_list_given_to_a_type_alias_whose_values_may_be_lists_is_one_value():
     held = NodeRegistry()
 
-    @held.node("depth")
+    @held.node("depth", title="Depth", description="")
     def depth(tree: Tree) -> str:
         return repr(tree)
 

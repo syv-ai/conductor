@@ -32,12 +32,12 @@ def registry_of(*definitions):
 invoices = NodeRegistry(category="invoices", tags=("finance",))
 
 
-@invoices.node("read-csv")
+@invoices.node("read-csv", title="Read csv", description="")
 def read_csv(text: str) -> Table[Invoice]:
     return pl.read_csv(io.StringIO(text))
 
 
-@invoices.node("approve")
+@invoices.node("approve", title="Approve", description="")
 def approve(name: str, amount: int) -> Literal["yes", "no", "auto"]:
     note_call(f"approve {name}")
     if amount < 1000:
@@ -45,12 +45,12 @@ def approve(name: str, amount: int) -> Literal["yes", "no", "auto"]:
     raise Ask(f"Approve {name} for {amount}?")
 
 
-@invoices.node("summary")
+@invoices.node("summary", title="Summary", description="")
 def summary(decisions: Series[str]) -> str:
     return " | ".join(decisions)
 
 
-@invoices.node("mail")
+@invoices.node("mail", title="Mail", description="")
 def mail(email: str) -> str:
     note_call(f"mail {email}")
     return f"sent to {email}"
@@ -59,32 +59,32 @@ def mail(email: str) -> str:
 text = NodeRegistry(category="text")
 
 
-@text.node("upper")
+@text.node("upper", title="Upper", description="")
 def upper(text: str) -> str:
     return text.upper()
 
 
-@text.node("lower")
+@text.node("lower", title="Lower", description="")
 def lower(text: str) -> str:
     return text.lower()
 
 
-@text.node("tail")
+@text.node("tail", title="Tail", description="")
 def tail(text: str) -> str:
     return text + "."
 
 
-@text.node("repeat")
+@text.node("repeat", title="Repeat", description="")
 def repeat(text: str, times: Annotated[int, Param(title="Times", ge=0)] = 1) -> str:
     return text * times
 
 
-@text.node("split")
+@text.node("split", title="Split", description="")
 def split(text: str, sep: str = ",") -> Series[str]:
     return text.split(sep)
 
 
-@text.node("join")
+@text.node("join", title="Join", description="")
 def join(texts: Series[str]) -> str:
     return "+".join(texts)
 
@@ -95,7 +95,7 @@ class Length:
     short: str
 
 
-@text.node("route")
+@text.node("route", title="Route", description="")
 def route(text: str) -> Length:
     return Length(text, SKIPPED) if len(text) > 3 else Length(SKIPPED, text)
 

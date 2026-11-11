@@ -36,46 +36,46 @@ def collect(run, **kw):
 # -- 1. events, concurrency, pipelining ----------------------------------------------------------
 
 
-@node("split")
+@node("split", title="Split", description="")
 def split(text: str) -> Series[str]:
     return text.split(",")
 
 
-@node("upper")
+@node("upper", title="Upper", description="")
 def upper(text: str) -> str:
     return text.upper()
 
 
-@node("join")
+@node("join", title="Join", description="")
 def join(texts: Series[str]) -> str:
     return "+".join(texts)
 
 
-@node("slow", policy=Policy(concurrency=8))
+@node("slow", title="Slow", description="", policy=Policy(concurrency=8))
 def slow(text: str) -> str:
     t.sleep(0.1)
     return text * 2
 
 
-@node("slow2", policy=Policy(concurrency=8))
+@node("slow2", title="Slow2", description="", policy=Policy(concurrency=8))
 def slow2(text: str) -> str:
     t.sleep(0.1)
     return text + "!"
 
 
-@node("gate")
+@node("gate", title="Gate", description="")
 def gate(text: str) -> str:
     if text == "b":
         raise Ask("ok?")
     return text
 
 
-@node("never")
+@node("never", title="Never", description="")
 def never(text: str) -> str:
     return SKIPPED
 
 
-@node("boom", policy=Policy(concurrency=4))
+@node("boom", title="Boom", description="", policy=Policy(concurrency=4))
 def boom(text: str) -> str:
     if text == "c":
         raise ValueError("no c")
@@ -162,7 +162,7 @@ def test_failure_keeps_calls_already_made():
     assert all(run._units["boom"].get((i,)) is not None for i in (0, 1, 3))  # d finished on its thread after c failed
     seen = []
 
-    @node("boom", policy=Policy(concurrency=4))
+    @node("boom", title="Fixed", description="", policy=Policy(concurrency=4))
     def fixed(text: str) -> str:
         seen.append(text)
         return text
@@ -193,7 +193,7 @@ def test_cancel_and_timeout():
 def test_gather_per_document_while_rows_run():
     """documents -> lines -> slow per line -> per-document join: each document gets its own lines."""
 
-    @node("docs")
+    @node("docs", title="Docs", description="")
     def docs(text: str) -> Series[str]:
         return text.split("|")
 
@@ -214,14 +214,14 @@ class Flaky(OSError):
 def test_retries_external_failures_then_succeeds():
     tries: dict[str, int] = {}
 
-    @node("fetch", policy=Policy(retries=2, retry_delay=0.01))
+    @node("fetch", title="Fetch", description="", policy=Policy(retries=2, retry_delay=0.01))
     def fetch(text: str) -> str:
         tries[text] = tries.get(text, 0) + 1
         if tries[text] < 3:
             raise ExternalError("busy")
         return text
 
-    @node("client", policy=Policy(retries=1, retry_delay=0.01, retry_on=(Flaky,), concurrency=2))
+    @node("client", title="Client", description="", policy=Policy(retries=1, retry_delay=0.01, retry_on=(Flaky,), concurrency=2))
     def client(text: str) -> str:
         tries["c" + text] = tries.get("c" + text, 0) + 1
         if tries["c" + text] < 2:
@@ -239,12 +239,12 @@ def test_retries_external_failures_then_succeeds():
 def test_retries_run_out_and_plain_errors_never_retry():
     calls = []
 
-    @node("down", policy=Policy(retries=1, retry_delay=0.01))
+    @node("down", title="Down", description="", policy=Policy(retries=1, retry_delay=0.01))
     def down(text: str) -> str:
         calls.append(text)
         raise ExternalError("down")
 
-    @node("bug", policy=Policy(retries=3, retry_delay=0.01))
+    @node("bug", title="Bug", description="", policy=Policy(retries=3, retry_delay=0.01))
     def bug(text: str) -> str:
         calls.append("bug")
         raise KeyError(text)
@@ -259,7 +259,7 @@ def test_retries_run_out_and_plain_errors_never_retry():
 def test_attempt_timeout_is_final():
     calls = []
 
-    @node("hang", policy=Policy(attempt_timeout=0.05, retries=2, retry_delay=0.01))
+    @node("hang", title="Hang", description="", policy=Policy(attempt_timeout=0.05, retries=2, retry_delay=0.01))
     def hang(text: str) -> str:
         calls.append(text)
         t.sleep(0.3)
@@ -273,7 +273,7 @@ def test_attempt_timeout_is_final():
 def test_reuse_when_inputs_match_false_calls_again():
     calls = []
 
-    @node("rate", policy=Policy(reuse_when_inputs_match=False))
+    @node("rate", title="Rate", description="", policy=Policy(reuse_when_inputs_match=False))
     def rate(text: str) -> str:
         calls.append(text)
         return text
@@ -293,7 +293,7 @@ def _formula_inputs(formula: str) -> dict[str, Any]:
     return {name: float for name in re.findall(r"{(\w+)}", formula)}
 
 
-@node("formula", compute_added_inputs=_formula_inputs)
+@node("formula", title="Formula", description="", compute_added_inputs=_formula_inputs)
 def formula(formula: str = "", **values: float) -> float:
     return eval(formula.format(**values))  # a check, not a calculator
 
@@ -306,18 +306,18 @@ def _branch_outputs(cases: list[str], value: type) -> dict[str, Any]:
     return {name: Annotated[value, Param(title=name.title(), exclusive_group="case")] for name in [*cases, "otherwise"]}
 
 
-@node("route", compute_outputs=_branch_outputs)
+@node("route", title="Route", description="", compute_outputs=_branch_outputs)
 def route(value: Any, cases: list[str] = []) -> Mapping[str, Any]:  # noqa: B006
     taken = next((c for c in cases if c in str(value)), "otherwise")
     return {name: value if name == taken else SKIPPED for name in [*cases, "otherwise"]}
 
 
-@node("number")
+@node("number", title="Number", description="")
 def number(text: str) -> int:
     return len(text)
 
 
-@node("half")
+@node("half", title="Half", description="")
 def half(x: float) -> float:
     return x / 2
 
@@ -386,22 +386,22 @@ class File:
             serialization=core_schema.plain_serializer_function_ser_schema(lambda f: {"name": f.name, "content": base64.b64encode(f.content).decode()}, when_used="json"))
 
 
-@node("count")
+@node("count", title="Count", description="")
 def count(text: str) -> Integer:
     return Integer(len(text))
 
 
-@node("double")
+@node("double", title="Double", description="")
 def double(x: Number) -> Number:
     return Number(x * 2)
 
 
-@node("attach")
+@node("attach", title="Attach", description="")
 def attach(x: Number) -> File:
     return File("x.txt", str(x).encode())
 
 
-@node("size")
+@node("size", title="Size", description="")
 def size(f: File) -> int:
     return len(f.content)
 
@@ -423,42 +423,42 @@ def test_own_types_accept_and_round_trip():
 Amount = TypeAliasType("Amount", int | float)
 
 
-@node("as-text")
+@node("as-text", title="As text", description="")
 def as_text(text: str) -> str:
     return text
 
 
-@node("as-yes")
+@node("as-yes", title="As yes", description="")
 def as_yes(text: str) -> bool:
     return bool(text)
 
 
-@node("as-count")
+@node("as-count", title="As count", description="")
 def as_count(text: str) -> int:
     return len(text)
 
 
-@node("as-low")
+@node("as-low", title="As low", description="")
 def as_low(text: str) -> Literal["low"]:
     return "low"
 
 
-@node("show-json")
+@node("show-json", title="Show json", description="")
 def show_json(value: JsonValue) -> str:
     return json.dumps(value)
 
 
-@node("show-number")
+@node("show-number", title="Show number", description="")
 def show_number(value: Amount) -> str:
     return repr(value)
 
 
-@node("show-level")
+@node("show-level", title="Show level", description="")
 def show_level(value: Literal["low", "high"]) -> str:
     return value
 
 
-@node("parse-json")
+@node("parse-json", title="Parse json", description="")
 def parse_json(text: str) -> JsonValue:
     return json.loads(text)
 
@@ -497,7 +497,7 @@ class Session:
         self.who = who
 
 
-@node("greet")
+@node("greet", title="Greet", description="")
 def greet(text: str, session: FromRun[Session]) -> str:
     return f"{text} from {session.who}"
 
@@ -529,17 +529,17 @@ class YesNo:
     no: Annotated[str, Param(exclusive_group="answer")]
 
 
-@node("decide")
+@node("decide", title="Decide", description="")
 def decide(text: str) -> YesNo:
     return YesNo(text, SKIPPED) if text.startswith("y") else YesNo(SKIPPED, text)
 
 
-@node("pair-lists")
+@node("pair-lists", title="Pair lists", description="")
 def pair_lists(a: Series[str], b: Series[str]) -> str:
     return f"{a}|{b}"
 
 
-@node("pair-optional")
+@node("pair-optional", title="Pair optional", description="")
 def pair_optional(a: Series[str | None], b: Series[str | None]) -> str:
     return f"{a}|{b}"
 
@@ -555,7 +555,7 @@ def test_two_series_on_opposite_branches_refused():
     assert not graph.problems and graph.exclusive_groups == {"d": {"answer": ["yes", "no"]}}
     assert graph.run(text="yes,no").outputs == {"p.result": "['YES', None]|[None, 'no']"}
     try:
-        @node("bad")
+        @node("bad", title="Bad", description="")
         def bad(x: Annotated[str, Param(exclusive_group="g")]) -> str:
             return x
         raise AssertionError
@@ -585,7 +585,7 @@ def test_a_hook_reading_a_value_nobody_typed_in_is_a_problem_and_its_node_does_n
     def added(n: int) -> dict[str, Any]:
         return {f"x{i}": str for i in range(n)}
 
-    @node("hooky", compute_added_inputs=added)
+    @node("hooky", title="Hooky", description="", compute_added_inputs=added)
     def hooky(n: int, **values: str) -> str:
         return "called"
 
@@ -595,7 +595,7 @@ def test_a_hook_reading_a_value_nobody_typed_in_is_a_problem_and_its_node_does_n
 
 
 def test_a_hook_naming_a_field_no_address_can_say_is_a_problem():
-    @node("dotted", compute_outputs=lambda: {"a.b": str})
+    @node("dotted", title="Dotted", description="", compute_outputs=lambda: {"a.b": str})
     def dotted() -> Mapping[str, Any]:
         return {"a.b": "x"}
 
@@ -607,7 +607,7 @@ def test_a_hook_naming_a_field_no_address_can_say_is_a_problem():
 def test_a_timed_out_or_cancelled_leg_keeps_the_calls_already_on_threads():
     sent: list[str] = []
 
-    @node("mail4", policy=Policy(concurrency=4))
+    @node("mail4", title="Mail4", description="", policy=Policy(concurrency=4))
     def mail4(text: str) -> str:
         t.sleep(0.2)
         sent.append(text)
@@ -626,10 +626,10 @@ def test_what_a_signature_says_wrong_is_refused_at_node_with_its_code():
     from conductor.widgets import TextInput
 
     cases = {
-        "default_invalid": lambda: node("a")(_fn("x: int = None")),
-        "nested_series": lambda: node("b")(_fn("x: Series[Series[int]]")),
-        "annotated_extra_unknown": lambda: node("c")(_fn("x: Annotated[int, TextInput()]", TextInput=TextInput)),
-        "bound_invalid": lambda: node("d")(_fn('x: Annotated[int, Param(ge="a")]')),
+        "default_invalid": lambda: node("a", title="A", description="")(_fn("x: int = None")),
+        "nested_series": lambda: node("b", title="B", description="")(_fn("x: Series[Series[int]]")),
+        "annotated_extra_unknown": lambda: node("c", title="C", description="")(_fn("x: Annotated[int, TextInput()]", TextInput=TextInput)),
+        "bound_invalid": lambda: node("d", title="D", description="")(_fn('x: Annotated[int, Param(ge="a")]')),
     }
     for code, declare in cases.items():
         try:
@@ -661,7 +661,7 @@ def test_a_field_reads_as_its_author_wrote_it():
         type_title: ClassVar[str] = "Whole"
         pass
 
-    @node("kinds")
+    @node("kinds", title="Kinds", description="")
     def kinds(
         whole: Whole = 3, maybe: Annotated[str, Param(title="Maybe")] | None = None, anything: Any = None,
         many: Series = (), some: Series[int] | None = None,
@@ -679,7 +679,7 @@ def test_a_field_reads_as_its_author_wrote_it():
 def test_a_failed_run_has_no_outputs_but_its_results_say_what_it_did():
     from conductor import InvalidCallError
 
-    @node("each")
+    @node("each", title="Each", description="")
     def each(n: int) -> int:
         if n == 1:
             raise ValueError("no")
@@ -712,17 +712,17 @@ def test_again_with_one_of_a_boxs_inputs_changed_calls_only_the_inner_node_that_
 
     calls = {"mark": 0, "confirm": 0}
 
-    @node("mark")
+    @node("mark", title="Mark", description="")
     def mark(a: str) -> str:
         calls["mark"] += 1
         return a + "!"
 
-    @node("confirm")
+    @node("confirm", title="Confirm", description="")
     def confirm(b: str) -> bool:
         calls["confirm"] += 1
         raise Ask(f"ok {b}?")
 
-    box = node("two")(GraphRecord(nodes=[NodeRecord(id="x", node="mark"), NodeRecord(id="y", node="confirm")]))
+    box = node("two", title="Two", description="")(GraphRecord(nodes=[NodeRecord(id="x", node="mark"), NodeRecord(id="y", node="confirm")]))
     graph = registry_of(mark, confirm, box).load({"nodes": [{"id": "e", "node": "two"}]})
     first = graph.run({"e.a": "1", "e.b": "2"})
     first = first.answer(first.waiting[0], True).resume()
@@ -741,7 +741,7 @@ def test_a_node_of_some_concurrency_inside_a_box_overlaps_that_many_calls_across
 
     lock, running, most = threading.Lock(), [0], [0]
 
-    @node("held", policy=Policy(concurrency=4))
+    @node("held", title="Held", description="", policy=Policy(concurrency=4))
     def held(text: str) -> str:
         with lock:
             running[0] += 1
@@ -751,7 +751,7 @@ def test_a_node_of_some_concurrency_inside_a_box_overlaps_that_many_calls_across
             running[0] -= 1
         return text
 
-    box = node("boxed-held")(GraphRecord(nodes=[NodeRecord(id="h", node="held")]))
+    box = node("boxed-held", title="Boxed held", description="")(GraphRecord(nodes=[NodeRecord(id="h", node="held")]))
     graph = registry_of(split, held, box).load({
         "nodes": [{"id": "sp", "node": "split", "values": {"text": ",".join(map(str, range(12)))}}, {"id": "e", "node": "boxed-held"}],
         "edges": [["sp.result", "e.text"]],
@@ -765,12 +765,12 @@ def test_a_box_calls_its_node_once_per_row_as_the_same_graph_drawn_flat_does():
 
     calls = [0]
 
-    @node("count-upper")
+    @node("count-upper", title="Count upper", description="")
     def count_upper(text: str) -> str:
         calls[0] += 1
         return text.upper()
 
-    box = node("boxed-upper")(GraphRecord(nodes=[NodeRecord(id="u", node="count-upper")]))
+    box = node("boxed-upper", title="Boxed upper", description="")(GraphRecord(nodes=[NodeRecord(id="u", node="count-upper")]))
     registry = registry_of(split, count_upper, box)
     rows = {"id": "sp", "node": "split", "values": {"text": "a,b,c,d,e"}}
     counted = []

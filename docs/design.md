@@ -21,12 +21,12 @@ from conductor import InvalidCallError, NodeRegistry, Series, make_graph
 text = NodeRegistry(category="Text", extra={"tier": "free"})
 
 
-@text.node("upper", tags=("case",))
+@text.node("upper", title="Uppercase", description="Turns a text into capital letters.", tags=("case",))
 def upper(text: str) -> str:
     return text.upper()
 
 
-@text.node("join")
+@text.node("join", title="Join", description="Joins the pieces into one text.")
 def join(texts: Series[str]) -> str:
     return "+".join(texts)
 
@@ -56,7 +56,7 @@ record = make_graph(upper, join)
 print(record.model_dump_json())  # {"nodes":[{"id":"upper","node":"upper"},{"id":"join","node":"join"}],"edges":[["upper.result","join.texts"]]}
 
 
-@registry.node("half")
+@registry.node("half", title="Half", description="Halves a number.")
 def half(n: float) -> float:
     return n / 2
 
@@ -99,7 +99,7 @@ print(graph.run(text=["a", "b"]).outputs)  # {'join.result': 'A+B'}
 print(graph.calls_for(text=11))  # {'upper': 11, 'join': 1}
 
 
-@registry.node("greet")
+@registry.node("greet", title="Greet", description="Greets a person by name.")
 def greet(name: str, greeting: str) -> str:
     return f"{greeting} {name}"
 
@@ -123,12 +123,12 @@ except InvalidCallError as e:
 middle = {"Ida": "Marie"}
 
 
-@registry.node("middle-name")
+@registry.node("middle-name", title="Middle name", description="Looks up a person's middle name, if there is one.")
 def middle_name(name: str) -> str | None:
     return middle.get(name)
 
 
-@registry.node("send")
+@registry.node("send", title="Send", description="Sends a message to a contact.")
 def send(middle: str) -> str:
     return f"sent {middle}"
 
@@ -153,7 +153,7 @@ from typing import Literal
 from conductor import Ask
 
 
-@registry.node("tone")
+@registry.node("tone", title="Tone", description="Asks a person which tone a text should have.")
 def tone(text: str) -> Literal["formal", "casual"]:
     raise Ask(f"Which tone for {text!r}?")
 
@@ -172,12 +172,12 @@ print(asked.answer(asked.waiting[0], "casual").resume().outputs)  # {'tone.resul
 - **Nodes run on the leg's own thread by default** (`Policy(concurrency=1)`). An author asks for threads with `concurrency` or `attempt_timeout`. Threads by default would surprise code that isn't thread-safe, and calling inline is most of the core's speed.
 - **Values are checked where it matters.** A node's return is read strictly against its type (`invalid_output`). An edge's value is read again only where its source's type doesn't settle it, decided at load, so a plain chain checks nothing at run time.
 - **Only `ExternalError`, or a class the node's `retry_on` names, is retried.** A `NodeError` of the node's own, an output its type refused and an `Ask` are never retried, whatever `retry_on` says: repeating the call repeats them. After a failure, calls already on threads finish and are kept, so resuming repeats none.
-- **A stored graph is a node:** `node("id")(record)`, taking no policy or hook, as its own nodes run by theirs. From outside it is one node with the inputs and outputs it offers, which are its graph's own loaded alone, as its hooks made them, running on each row its node runs on. Inner ids show only inside `embedded_graph_broken`.
+- **A stored graph is a node:** `node("id", title=..., description=...)(record)`, taking no policy or hook, as its own nodes run by theirs. From outside it is one node with the inputs and outputs it offers, which are its graph's own loaded alone, as its hooks made them, running on each row its node runs on. Inner ids show only inside `embedded_graph_broken`.
 
 ```python
 from conductor import node
 
-shout = node("shout")(make_graph(upper))
+shout = node("shout", title="Shout", description="Turns a text into capital letters.")(make_graph(upper))
 registry.add(shout)
 shouted = registry.load(make_graph(shout, join, edges=[("shout.result", "join.texts")]))
 print(list(shouted.inputs), shouted.run(text=["a"]).outputs)  # ['text'] {'join.result': 'A'}

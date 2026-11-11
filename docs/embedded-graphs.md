@@ -5,7 +5,7 @@ every graph that needs it, as one node.
 
 ## Make one
 
-`node("id")` wraps a function, and it wraps a `GraphRecord` the same way:
+`node("id", title=..., description=...)` wraps a function, and it wraps a `GraphRecord` the same way:
 
 ```python
 from conductor import NodeRegistry, Series, make_graph, node
@@ -13,27 +13,27 @@ from conductor import NodeRegistry, Series, make_graph, node
 registry = NodeRegistry()
 
 
-@registry.node("upper")
+@registry.node("upper", title="Uppercase", description="Turns a text into capital letters.")
 def upper(text: str) -> str:
     return text.upper()
 
 
-@registry.node("exclaim")
+@registry.node("exclaim", title="Exclaim", description="Adds an exclamation mark to a text.")
 def exclaim(text: str) -> str:
     return text + "!"
 
 
-@registry.node("split")
+@registry.node("split", title="Split", description="Splits a text into words.")
 def split(text: str) -> Series[str]:
     return text.split()
 
 
-@registry.node("join")
+@registry.node("join", title="Join", description="Joins the words into one text.")
 def join(texts: Series[str]) -> str:
     return " ".join(texts)
 
 
-shout = node("shout", title="Shout")(make_graph(upper, exclaim))
+shout = node("shout", title="Shout", description="Turns a text into capital letters.")(make_graph(upper, exclaim))
 registry.add(shout)
 ```
 
@@ -65,7 +65,7 @@ From outside, a stored graph is one node:
   one. With `upper` and `exclaim` side by side, the inputs are `upper/text` and `exclaim/text`.
 
 ```python
-side_by_side = node("both")(make_graph(upper, exclaim, edges=[]))
+side_by_side = node("both", title="Both", description="Runs the capital letters and the exclamation mark side by side.")(make_graph(upper, exclaim, edges=[]))
 registry.add(side_by_side)
 both = registry.load(make_graph(side_by_side))
 
@@ -107,7 +107,7 @@ saved_records = {"shout": make_graph(upper, exclaim)}  # your table of saved gra
 
 request_registry = NodeRegistry()
 request_registry.add_subregistry(registry)
-request_registry.add(*(node(name)(record) for name, record in saved_records.items() if name not in request_registry))
+request_registry.add(*(node(name, title=name, description="")(record) for name, record in saved_records.items() if name not in request_registry))
 ```
 
 A graph that embeds one of them then loads through `request_registry`. The loaded `Graph` keeps its own copy of what

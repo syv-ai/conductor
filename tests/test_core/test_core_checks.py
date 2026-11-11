@@ -148,7 +148,7 @@ def test_unrelated_tables_refused():
     assert [p.type for p in graph.problems] == ["type_mismatch"]
     record["nodes"][2] = {"id": "r", "node": "pair"}
 
-    @node("pair")
+    @node("pair", title="Pair", description="")
     def pair(a: str, b: str) -> str:
         return a + b
 
@@ -161,15 +161,15 @@ def test_table_input_combines_columns_copy_down():
     class Row(TypedDict):
         name: str
 
-    @node("names")
+    @node("names", title="Names", description="")
     def names(text: str) -> Table[Row]:
         return pl.DataFrame({"name": text.split(",")})
 
-    @node("label")
+    @node("label", title="Label", description="")
     def label(name: str) -> str:
         return name.upper()
 
-    @node("show")
+    @node("show", title="Show", description="")
     def show(rows: pl.DataFrame) -> str:
         return rows.write_csv()
 
@@ -182,7 +182,7 @@ def test_table_input_combines_columns_copy_down():
 
 
 def test_branches_and_blanks():
-    @node("pick")
+    @node("pick", title="Pick", description="")
     def pick(long: str | None = None, short: str | None = None) -> str:
         return long or short
 
@@ -219,8 +219,8 @@ def test_max_rows():
 def test_embedded_graph_and_versions():
     enrich_v1 = make_graph(upper, tail)
     enrich_v2 = make_graph(lower, tail, tail)
-    v1 = node("enrich", title="Enrich")(enrich_v1)
-    v2 = node("enrich", replaces=v1)(enrich_v2)
+    v1 = node("enrich", description="", title="Enrich")(enrich_v1)
+    v2 = node("enrich", title="Enrich", description="", replaces=v1)(enrich_v2)
     reg = registry_of(upper, lower, tail, v2)
     outer = {"nodes": [{"id": "e", "node": "enrich", "version": 1}, {"id": "u", "node": "upper"}], "edges": [["e.result", "u.text"]]}
     assert reg.load(outer).run(text="Hi").outputs == {"u.result": "HI."}
@@ -231,11 +231,11 @@ def test_embedded_graph_and_versions():
 
 
 def test_upgrade_renames():
-    @node("greet")
+    @node("greet", title="Greet v1", description="")
     def greet_v1(name: str) -> str:
         return f"hello {name}"
 
-    @node("greet", replaces=greet_v1, upgrade=Upgrade(renamed_inputs={"name": "who"}))
+    @node("greet", title="Greet", description="", replaces=greet_v1, upgrade=Upgrade(renamed_inputs={"name": "who"}))
     def greet(who: str, punct: str = "!") -> str:
         return f"hello {who}{punct}"
 
@@ -247,7 +247,7 @@ def test_upgrade_renames():
 
 
 def test_embedded_graph_runs_per_row():
-    enrich = node("enrich")(make_graph(upper, tail))
+    enrich = node("enrich", title="Enrich", description="")(make_graph(upper, tail))
     reg = registry_of(split, upper, tail, join, enrich)
     graph = reg.load({"nodes": [{"id": "s", "node": "split"}, {"id": "e", "node": "enrich"}, {"id": "j", "node": "join"}],
                       "edges": [["s.result", "e.text"], ["e.result", "j.texts"]]})
@@ -261,15 +261,15 @@ def test_ask_forms_and_several():
         approved: bool
         note: str
 
-    @node("review")
+    @node("review", title="Review", description="")
     def review(name: str) -> Review:
         raise Ask(f"Review {name}", default={"approved": True, "note": ""})
 
-    @node("tags")
+    @node("tags", title="Tags", description="")
     def tags(name: str) -> Series[str]:
         raise Ask(f"Tags for {name}", choices=["red", "green", "blue"])
 
-    @node("pick")
+    @node("pick", title="Pick", description="")
     def pick(name: str) -> bool:
         raise Ask(f"Keep {name}?")
 
@@ -289,7 +289,7 @@ def test_ask_forms_and_several():
 
 
 def test_pause_on_a_nested_row():
-    @node("check")
+    @node("check", title="Check", description="")
     def check(text: str) -> str:
         if text == "b":
             raise Ask("b?")
@@ -312,7 +312,7 @@ def test_concurrency():
 
     seen = set()
 
-    @node("slow", policy=Policy(concurrency=8))
+    @node("slow", title="Slow", description="", policy=Policy(concurrency=8))
     def slow(text: str) -> str:
         seen.add(threading.get_ident())
         t.sleep(0.05)
@@ -325,7 +325,7 @@ def test_concurrency():
 
 
 def test_again_paused_saved_and_resumed_keeps_earlier_rows():
-    @node("gate")
+    @node("gate", title="Gate", description="")
     def gate(name: str, email: str) -> str:
         if name.startswith("B"):
             raise Ask(f"Address for {name}?")

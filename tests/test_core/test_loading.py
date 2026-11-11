@@ -40,42 +40,42 @@ class Person(TypedDict):
     email: str
 
 
-@node("upper")
+@node("upper", title="Upper", description="")
 def upper(text: str) -> str:
     return text.upper()
 
 
-@node("tail")
+@node("tail", title="Tail", description="")
 def tail(text: str) -> str:
     return text + "."
 
 
-@node("join")
+@node("join", title="Join", description="")
 def join(texts: Series[str]) -> str:
     return "+".join(texts)
 
 
-@node("fan")
+@node("fan", title="Fan", description="")
 def fan() -> Series[int]:
     return [1, 2, 3]
 
 
-@node("maybe")
+@node("maybe", title="Maybe", description="")
 def maybe(text: str | None) -> str:
     return text or "blank"
 
 
-@node("greet")
+@node("greet", title="Greet", description="")
 def greet(text: str = "hello") -> str:
     return text
 
 
-@node("people")
+@node("people", title="People", description="")
 def people(text: str) -> Table[Person]:
     return pl.read_csv(io.StringIO(text))
 
 
-@node("styled")
+@node("styled", title="Styled", description="")
 def styled(
     mode: Annotated[str, Param(title="Mode", choices=[Choice(id="a", title="A"), Choice(id="b", title="B")], widget=Dropdown())] = "a",
 ) -> str:
@@ -88,7 +88,7 @@ class Name(str):
     type_title: ClassVar[str] = "Name"
 
 
-@node("name")
+@node("name", title="Name of", description="")
 def name_of(text: str) -> Name:
     return Name(text)
 
@@ -102,7 +102,7 @@ class Nonempty(str):
         return super().__new__(cls, value)
 
 
-@node("nonempty")
+@node("nonempty", title="Nonempty", description="")
 def nonempty(text: Nonempty) -> str:
     return text
 
@@ -113,7 +113,7 @@ class Two:
     alpha: str
 
 
-@node("two")
+@node("two", title="Two", description="")
 def two(text: str) -> Two:
     return Two(f"zed {text}", f"alpha {text}")
 
@@ -122,7 +122,7 @@ def _columns(names: list[str]) -> dict[str, Any]:
     return {name: Annotated[str, Param(title=name.title())] for name in names}
 
 
-@node("columns", compute_outputs=_columns)
+@node("columns", title="Columns", description="", compute_outputs=_columns)
 def columns(text: str, names: list[str] = []) -> dict[str, str]:  # noqa: B006
     return {name: text for name in names}
 
@@ -131,12 +131,12 @@ def _anything(n: int) -> dict[str, Any]:
     return {"items": Series[Any]}
 
 
-@node("anything", compute_outputs=_anything)
+@node("anything", title="Anything", description="", compute_outputs=_anything)
 def anything(n: int = 2) -> dict[str, Any]:
     return {"items": ["x"] * n}
 
 
-@node("height")
+@node("height", title="Height", description="")
 def height(rows: Table) -> int:
     return rows.height
 
@@ -145,17 +145,17 @@ def _refuses(mode: str) -> dict[str, Any]:
     raise ValueError("Not that mode.")
 
 
-@node("refuses", compute_outputs=_refuses)
+@node("refuses", title="Refuses", description="", compute_outputs=_refuses)
 def refuses(mode: str = "ok") -> dict[str, Any]:
     return {}
 
 
-enrich = node("enrich")(make_graph(upper, tail))
-inner = node("inner")(GraphRecord(nodes=[NodeRecord(id="up", node="upper")]))
-top = node("top")(GraphRecord(nodes=[NodeRecord(id="inner", node="inner")]))
-defaulted = node("defaulted")(GraphRecord(nodes=[NodeRecord(id="g", node="greet", defaults={"text": "inside"})]))
-team = node("team")(make_graph(people))
-wrapped = node("wrapped", deprecation=Deprecation(header="Gone"))(make_graph(upper))
+enrich = node("enrich", title="Enrich", description="")(make_graph(upper, tail))
+inner = node("inner", title="Inner", description="")(GraphRecord(nodes=[NodeRecord(id="up", node="upper")]))
+top = node("top", title="Top", description="")(GraphRecord(nodes=[NodeRecord(id="inner", node="inner")]))
+defaulted = node("defaulted", title="Defaulted", description="")(GraphRecord(nodes=[NodeRecord(id="g", node="greet", defaults={"text": "inside"})]))
+team = node("team", title="Team", description="")(make_graph(people))
+wrapped = node("wrapped", title="Wrapped", description="", deprecation=Deprecation(header="Gone"))(make_graph(upper))
 
 REGISTRY = registry_of(
     upper, tail, join, fan, maybe, greet, people, styled, name_of, nonempty, two, columns, anything, height, refuses,
@@ -264,7 +264,7 @@ def test_a_typed_in_value_is_read_once_when_the_graph_loads_and_not_again_per_ro
 
             return core_schema.no_info_plain_validator_function(read)
 
-    @node("use")
+    @node("use", title="Use", description="")
     def use(row: int, fixed: Counted) -> str:
         return f"{row}{fixed}"
 
@@ -378,7 +378,7 @@ def test_a_list_typed_into_an_input_a_hook_reads_is_refused_saying_why() -> None
     def named(names: str) -> dict[str, Any]:
         return {name: bool for name in names.split(",")}
 
-    @node("checks", compute_outputs=named)
+    @node("checks", title="Checks", description="", compute_outputs=named)
     def checks(names: str) -> dict[str, Any]:
         return {}
 
@@ -496,7 +496,7 @@ def test_a_graph_inside_a_graph_is_one_node_from_outside():
 
 
 def test_renaming_a_node_inside_an_embedding_breaks_no_caller():
-    renamed = node("enrich")(GraphRecord(nodes=[NodeRecord(id="shout", node="upper"), NodeRecord(id="end", node="tail")], edges=[("shout.result", "end.text")]))
+    renamed = node("enrich", title="Enrich", description="")(GraphRecord(nodes=[NodeRecord(id="shout", node="upper"), NodeRecord(id="end", node="tail")], edges=[("shout.result", "end.text")]))
     record = {"nodes": [{"id": "g", "node": "greet"}, {"id": "e", "node": "enrich"}], "edges": [["g.result", "e.text"]]}
     for embedded in (enrich, renamed):
         graph = registry_of(greet, upper, tail, embedded).load(record)
@@ -523,7 +523,7 @@ def test_a_node_built_from_a_graph_offers_its_inner_inputs_and_carries_its_depre
     assert REGISTRY.describe().nodes[[n.id for n in REGISTRY].index("wrapped")].deprecation.header == "Gone"
 
 
-@node("pair")
+@node("pair", title="Pair", description="")
 def pair(a: str, b: str) -> str:
     return a + b
 
@@ -532,15 +532,15 @@ def _hint_for(formula: str) -> dict[str, Any]:
     return {name: float for name in formula.split()}
 
 
-@node("formula", compute_added_inputs=_hint_for)
+@node("formula", title="Formula", description="", compute_added_inputs=_hint_for)
 def formula(formula: str, **values: float) -> float:
     return sum(values.values())
 
 
-gone_inside = node("gone_inside")(GraphRecord(nodes=[NodeRecord(id="x", node="gone")]))
-around = node("around")(GraphRecord(nodes=[NodeRecord(id="b", node="gone_inside")]))
-invalid_inside = node("invalid_inside")(GraphRecord(nodes=[NodeRecord(id="n", node="nonempty", values={"text": ""})]))
-unfed_inside = node("unfed_inside")(make_graph(upper, pair, edges=[("upper.result", "pair.a")]))
+gone_inside = node("gone_inside", title="Gone inside", description="")(GraphRecord(nodes=[NodeRecord(id="x", node="gone")]))
+around = node("around", title="Around", description="")(GraphRecord(nodes=[NodeRecord(id="b", node="gone_inside")]))
+invalid_inside = node("invalid_inside", title="Invalid inside", description="")(GraphRecord(nodes=[NodeRecord(id="n", node="nonempty", values={"text": ""})]))
+unfed_inside = node("unfed_inside", title="Unfed inside", description="")(make_graph(upper, pair, edges=[("upper.result", "pair.a")]))
 BROKEN = registry_of(upper, pair, nonempty, formula, gone_inside, around, invalid_inside, unfed_inside)
 
 
@@ -557,7 +557,7 @@ def test_an_input_a_hook_reads_is_fixed_when_the_graph_loads_and_never_a_graph_i
     def outputs(mode: str) -> dict[str, Any]:
         return {"a": int} if mode == "a" else {"b": str}
 
-    @node("by-mode", compute_outputs=outputs)
+    @node("by-mode", title="By mode", description="", compute_outputs=outputs)
     def by_mode(mode: str = "a") -> dict[str, Any]:
         return {"a": 1} if mode == "a" else {"b": "x"}
 
@@ -606,7 +606,7 @@ def test_a_value_typed_on_a_broken_embedding_adds_no_second_problem():
     assert [(p.type, p.loc) for p in graph.problems] == [("embedded_graph_broken", ("g",))]
 
 
-@node("both_halves")
+@node("both_halves", title="Both halves", description="")
 def both_halves(a: str, b: str) -> str:
     return a + b
 
@@ -615,7 +615,7 @@ def _taken(formula: str) -> dict[str, Any]:
     return {"formula": float}
 
 
-@node("taken", compute_added_inputs=_taken)
+@node("taken", title="Taken", description="", compute_added_inputs=_taken)
 def taken(formula: str = "", **values: float) -> float:
     return 0.0
 
@@ -628,7 +628,7 @@ def _taken_from_run(formula: str) -> dict[str, Any]:
     return {"service": str}
 
 
-@node("taken_from_run", compute_added_inputs=_taken_from_run)
+@node("taken_from_run", title="Taken from run", description="", compute_added_inputs=_taken_from_run)
 def taken_from_run(formula: str, service: FromRun[_Service], **values: str) -> str:
     return formula
 
@@ -639,16 +639,16 @@ def _refuses_bad(mode: str) -> dict[str, Any]:
     return {"result": str}
 
 
-@node("refuses_bad", compute_outputs=_refuses_bad)
+@node("refuses_bad", title="Refuses bad", description="", compute_outputs=_refuses_bad)
 def refuses_bad(mode: str = "ok") -> dict[str, Any]:
     return {"result": mode}
 
 
-halves = node("halves")(GraphRecord(
+halves = node("halves", title="Halves", description="")(GraphRecord(
     nodes=[NodeRecord(id="x", node="upper"), NodeRecord(id="y", node="upper"), NodeRecord(id="b", node="both_halves")],
     edges=[("x.result", "b.a"), ("y.result", "b.b")],
 ))
-picky = node("picky")(make_graph(refuses_bad))
+picky = node("picky", title="Picky", description="")(make_graph(refuses_bad))
 OUTSIDE = registry_of(upper, tail, refuses_bad, both_halves, taken, taken_from_run, enrich, halves, picky)
 
 
@@ -689,11 +689,11 @@ def test_a_wrong_address_on_an_embedding_is_unknown_output_or_unknown_input_on_i
 
 @pytest.mark.parametrize("ctx", [{"tables": [1, 2]}, {"source": "e/report.pdf", "node_id": "anything"}])
 def test_an_inner_nodes_own_error_is_said_of_its_embedding_with_its_ctx_as_its_author_wrote_it(ctx):
-    @node("unreadable")
+    @node("unreadable", title="Unreadable", description="")
     def unreadable(text: str) -> str:
         raise NodeError("The document could not be read.", code="unreadable", ctx=ctx)
 
-    embedding = node("e")(make_graph(unreadable))
+    embedding = node("e", title="E", description="")(make_graph(unreadable))
     run = registry_of(unreadable, embedding).load(make_graph(embedding)).run(text="hi")
 
     assert (run.cause.type, run.cause.loc, run.cause.ctx) == ("unreadable", ("e",), ctx)
@@ -738,7 +738,7 @@ def test_an_authored_id_with_a_slash_beside_an_embedding_is_refused_alone_and_st
 def test_a_set_given_for_an_input_of_one_value_is_refused_as_it_has_no_order():
     from conductor import NodeRegistry, make_graph, node
 
-    @node("send")
+    @node("send", title="Send", description="")
     def send(contact: str) -> str:
         return contact
 
@@ -759,13 +759,13 @@ def test_graphs_embedded_forty_deep_load_at_once():
 
     registry = NodeRegistry()
 
-    @registry.node("upper")
+    @registry.node("upper", title="Upper", description="")
     def upper(text: str) -> str:
         return text.upper()
 
     inner = "upper"
     for depth in range(40):
-        registry.add(node(f"nest-{depth}")(GraphRecord(nodes=[NodeRecord(id="n", node=inner)])))
+        registry.add(node(f"nest-{depth}", title=f"Nest {depth}", description="")(GraphRecord(nodes=[NodeRecord(id="n", node=inner)])))
         inner = f"nest-{depth}"
     started = time.monotonic()
     graph = registry.load({"nodes": [{"id": "top", "node": inner}]})
@@ -781,11 +781,11 @@ def test_describe_lists_each_nodes_problems_on_it():
 def test_a_type_mismatch_into_a_series_says_the_series_it_reads():
     from conductor import NodeRegistry, Series, make_graph, node
 
-    @node("words")
+    @node("words", title="Words", description="")
     def words(text: str) -> Series[str]:
         return text.split()
 
-    @node("count")
+    @node("count", title="Count", description="")
     def count(flags: Series[bool]) -> int:
         return sum(flags)
 
@@ -801,16 +801,16 @@ def test_a_type_mismatch_into_a_series_says_the_series_it_reads():
 def test_what_the_outside_gives_an_embedded_input_replaces_the_inner_default():
     from conductor import NodeRegistry, make_graph, node
 
-    @node("upper")
+    @node("upper", title="Upper", description="")
     def upper(text: str) -> str:
         return text.upper()
 
-    @node("hello")
+    @node("hello", title="Hello", description="")
     def hello() -> str:
         return "hi"
 
     registry = NodeRegistry()
-    registry.add(upper, hello, node("shout")(make_graph(upper, defaults={"upper.text": "inner"})))
+    registry.add(upper, hello, node("shout", title="Shout", description="")(make_graph(upper, defaults={"upper.text": "inner"})))
     shout = registry["shout"]
     assert registry.load(make_graph(shout)).run().outputs == {"shout.result": "INNER"}
     typed = registry.load(make_graph(shout, values={"shout.text": "outer"}))
@@ -829,15 +829,15 @@ def test_a_yes_or_no_never_lands_on_a_number_and_a_union_is_said_by_its_members_
         type_title: ClassVar[str] = "Text"
         pass
 
-    @node("flag")
+    @node("flag", title="Flag", description="")
     def flag() -> bool:
         return True
 
-    @node("maybe")
+    @node("maybe", title="Maybe", description="")
     def maybe() -> Text | None:
         return None
 
-    @node("double")
+    @node("double", title="Double", description="")
     def double(x: float) -> float:
         return x * 2
 
@@ -853,7 +853,7 @@ def test_a_graph_input_is_its_fields_record_and_writes_as_json():
 
     from conductor import GraphInput, NodeRegistry, make_graph, node
 
-    @node("u")
+    @node("u", title="U", description="")
     def u(t: str, n: int = 1) -> str:
         return t
 
@@ -868,7 +868,7 @@ def test_a_graph_input_is_its_fields_record_and_writes_as_json():
 def test_a_yes_or_no_typed_in_or_given_never_lands_on_a_number():
     from conductor import NodeRegistry, node
 
-    @node("double")
+    @node("double", title="Double", description="")
     def double(x: float) -> float:
         return x * 2
 
@@ -886,11 +886,11 @@ def test_a_table_into_a_series_is_said_as_the_table_it_is():
     import polars as pl
     from conductor import NodeRegistry, Series, Table, node
 
-    @node("sheet")
+    @node("sheet", title="Sheet", description="")
     def sheet() -> Table:
         return pl.DataFrame({"a": [1]})
 
-    @node("count")
+    @node("count", title="Count", description="")
     def count(items: Series[int]) -> int:
         return len(items)
 
@@ -913,15 +913,15 @@ def test_a_yes_or_no_never_lands_on_a_hosts_number_type_whose_own_rule_lets_an_i
 
     registry = NodeRegistry(types=[Number, bool])
 
-    @registry.node("yes")
+    @registry.node("yes", title="Yes", description="")
     def yes(value: bool = True) -> bool:
         return value
 
-    @registry.node("half")
+    @registry.node("half", title="Half", description="")
     def half(value: Number) -> Number:
         return Number(value / 2)
 
-    @registry.node("ask_number")
+    @registry.node("ask_number", title="Ask number", description="")
     def ask_number() -> Number:
         raise Ask("How many?")
 
@@ -945,7 +945,7 @@ def test_a_loaded_graph_is_compiled_once_and_freed_without_the_cycle_collector(d
 
     from conductor._internal import graph as graph_module
 
-    @node("upper")
+    @node("upper", title="Upper", description="")
     def upper(text: str) -> str:
         return text.upper()
 
@@ -975,11 +975,11 @@ def test_a_run_and_the_compile_it_ran_on_are_freed_without_the_cycle_collector(r
     import gc
     import weakref
 
-    @node("upper")
+    @node("upper", title="Upper", description="")
     def upper(text: str) -> str:
         return text.upper()
 
-    @node("join")
+    @node("join", title="Join", description="")
     def join(texts: Series[str]) -> str:
         return "+".join(texts)
 
@@ -1009,7 +1009,7 @@ def test_a_hosts_type_without_its_id_and_title_fails_its_node_where_it_is_declar
 
     with pytest.raises(AttributeError, match="type_id"):
 
-        @node("contact")
+        @node("contact", title="Contact", description="")
         def contact() -> Contact:
             return {"name": "Bo"}
 
@@ -1018,7 +1018,7 @@ def _named_inputs(names: list[str] = []) -> dict[str, Any]:  # noqa: B006
     return {name: str for name in names}
 
 
-@node("adds", compute_added_inputs=_named_inputs)
+@node("adds", title="Adds", description="", compute_added_inputs=_named_inputs)
 def adds(names: list[str] = [], **values: Any) -> str:  # noqa: B006
     return ",".join(f"{k}={v}" for k, v in values.items())
 
@@ -1026,7 +1026,7 @@ def adds(names: list[str] = [], **values: Any) -> str:  # noqa: B006
 def test_an_embedding_offers_the_fields_its_graph_offers_alone_as_its_hooks_made_them():
     added = GraphRecord(nodes=[NodeRecord(id="a", node="adds", values={"names": ["who"]})])
     made = GraphRecord(nodes=[NodeRecord(id="c", node="columns", values={"names": ["x", "y"]})])
-    registry = registry_of(adds, columns, node("box_in")(added), node("box_out")(made))
+    registry = registry_of(adds, columns, node("box_in", title="Box in", description="")(added), node("box_out", title="Box out", description="")(made))
     assert list(registry.load(added).inputs) == ["who"]
     graph = registry.load({"nodes": [{"id": "b", "node": "box_in"}]})
     assert graph.problems == [] and list(graph.inputs) == ["who"] and graph.run(who="x").outputs == {"b.result": "who=x"}

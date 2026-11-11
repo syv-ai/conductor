@@ -182,7 +182,7 @@ Pass `registry=nodes_of` and a `caller` that returns a `Member`. A graph that na
 from conductor import FromRun
 
 
-@registry.node("count_runs")
+@registry.node("count_runs", title="Count runs", description="Counts how many runs have a given status.")
 def count_runs(status: str, db: FromRun[Database]) -> int:
     with closing(sqlite3.connect(db.path)) as connection:
         count: int = connection.execute("SELECT COUNT(*) FROM runs WHERE status = ?", (status,)).fetchone()[0]

@@ -5,7 +5,7 @@ description: Declares a conductor node as a function under @node. Use when addin
 
 # Adding a conductor node
 
-A node is a function; its type hints are its interface, so `def greet(name: str) -> str` under `@node("greet")` is already a node. `Annotated` adds what a person sees in an editor. To wire and run nodes, use **create-graph**. The installed library is the authority: `python -m conductor.about node` (or `versions`, `field-hooks`, `types`).
+A node is a function; its type hints are its interface, so `def greet(name: str) -> str` under `@node("greet", title="Greet", description="Greets a person.")` is already a node. `Annotated` adds what a person sees in an editor. To wire and run nodes, use **create-graph**. The installed library is the authority: `python -m conductor.about node` (or `versions`, `field-hooks`, `types`).
 
 ```python
 from typing import Annotated
@@ -16,7 +16,7 @@ from conductor.widgets import NumberInput, TextInput
 registry = NodeRegistry(category="text")   # its nodes' category, unless one sets its own
 
 
-@registry.node("greet")                 # the id; a graph pins it with a version
+@registry.node("greet", title="Greet", description="Produces a greeting.")                 # the id; a graph pins it with a version
 def greet(
     name: Annotated[str, Param(title="Name", widget=TextInput())],
     times: Annotated[int, Param(title="Times", widget=NumberInput())] = 1,
@@ -46,8 +46,8 @@ assert registry["greet"] is greet
 | A blank (an empty cell) | `email: str \| None`; otherwise the node is not called for that row and its outputs are blank there |
 | A person's answer | `raise Ask(prompt, choices=..., default=...)`; the return type says what the answer is and how to ask, its `Param` how it looks (`-> str` free text, `bool` yes or no, a frozen dataclass a form; every type in `python -m conductor.about legs-and-asking`). Each has the answer's shape: on several outputs it goes by output name; `Choice(id, title)` titles a choice |
 | A client, a clock, the caller | `FromRun[T]`, supplied by `run.resume(from_run={T: value})` |
-| Retries, a timeout, a concurrency bound | `@node("x", policy=Policy(retries=3, attempt_timeout=10, concurrency=4))` |
-| A second version | `replaces=node("x")(run_v1), upgrade=Upgrade(renamed_inputs={...})` on `@node` |
+| Retries, a timeout, a concurrency bound | `@node("x", title="X", description="...", policy=Policy(retries=3, attempt_timeout=10, concurrency=4))` |
+| A second version | `replaces=node("x", title="X", description="...")(run_v1), upgrade=Upgrade(renamed_inputs={...})` on `@node` |
 | Fields that depend on configuration | `compute_added_inputs=` / `compute_outputs=`: plain functions whose parameters name the inputs they read and that return `{name: type hint}`; a parameter annotated `type` gets the type on an edge. Added inputs arrive on `**values` |
 
 `@registry.node` takes `@node`'s arguments and adds the node; plain `@node` registers nothing, and `registry.add(node_a, node_b)` adds such nodes later. A module keeps a registry of its own (`NodeRegistry(category=, tags=, extra=)` set its nodes' defaults) and the host joins them with `registry.add_subregistry(module_registry)`. Two definitions under one id raise; `replace` and `remove` change one, and `registry.filter(predicate)` is a narrower registry. `extra=` is your own JSON about a node, which conductor keeps and never reads.

@@ -12,12 +12,12 @@ One node takes a single value, the other many; that is all iteration is. A list 
 registry = NodeRegistry()
 
 
-@registry.node("upper")
+@registry.node("upper", title="Uppercase", description="Turns a text into capital letters.")
 def upper(text: str) -> str:
     return text.upper()
 
 
-@registry.node("join")
+@registry.node("join", title="Join", description="Joins every text it is given.")
 def join(texts: Series[str]) -> str:
     """Joins every text it is given."""
     return "+".join(texts)
@@ -59,7 +59,7 @@ run.results["join"]["result"]      # "A+B+C": Series[str] received every value o
 A newer version names the one it replaces, a `@node` of the same id, and the decorated function is the newest. A definition is one version, and each version names the one before it in `replaces`.
 
 ```python
-@node("greet")
+@node("greet", title="Greet", description="Greets a person by name.")
 def greet_v1(name: Annotated[str, Param(title="Name", widget=Textarea())]) -> str:
     return f"Hello {name}"
 
@@ -67,7 +67,7 @@ def _split_name(values: dict) -> dict:
     first, _, last = values.pop("name").partition(" ")
     return {**values, "first": first, "last": last}
 
-@node("greet", policy=Policy(retries=2, retry_delay=0.5, attempt_timeout=10, concurrency=4), replaces=greet_v1, upgrade=Upgrade(rewrite=_split_name))
+@node("greet", title="Greet", description="Greets a person by first and last name.", policy=Policy(retries=2, retry_delay=0.5, attempt_timeout=10, concurrency=4), replaces=greet_v1, upgrade=Upgrade(rewrite=_split_name))
 def greet(first: str, last: str) -> str:
     return f"Hello {first} {last}"
 
@@ -155,7 +155,7 @@ A unit is a node on a row; it starts once what it reads exists, so row 1 can fin
 One call of `run.resume()` is one leg. A run is its `Run`: every leg returns one, and `status` says how it ended (`complete`, `waiting`, `failed`, `stopped`, `cancelled`, `timed_out`), with `cause`, a `Problem`, for the last four. A node raises `Ask(prompt, choices=, default=)`: what is asked is what the node returns, so its return type says the answer's shape and how to ask, and how a question looks (title, description, widget) is its `Param`, as for an input. `-> str` with a bare `raise Ask(prompt)` is a free-text question. That row of it and what reads it wait, the rest of the graph runs on, and the leg ends `waiting`:
 
 ```python
-@registry.node("approve")
+@registry.node("approve", title="Approve", description="Asks a person whether to approve an invoice.")
 def approve(invoice: str) -> bool:
     raise Ask(f"Approve {invoice}?")
 
@@ -185,7 +185,7 @@ again = approving.load_run(finished.to_json())           # a run is JSON
 `run.again(**changed)` runs with changed inputs, the rest as before, and reuses what it can (`run.with_inputs(**changed)` is the same run not started, to `resume()` or `stream()`, as `graph.with_inputs` is to `graph.run`): a unit whose inputs match what an earlier unit of its node received takes that result, even if its row moved, and the node isn't called. Answers are reused the same way.
 
 ```python
-@registry.node("send")
+@registry.node("send", title="Send", description="Sends a message to a contact.")
 def send(contact: str) -> str:
     return f"sent to {contact}"
 

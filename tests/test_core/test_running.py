@@ -39,12 +39,12 @@ from tests.test_core.nodes import place, registry_of
 BOUND = 10.0
 
 
-@node("split")
+@node("split", title="Split", description="")
 def split(text: str) -> Series[str]:
     return text.split(",") if text else []
 
 
-@node("join")
+@node("join", title="Join", description="")
 def join(texts: Series[str]) -> str:
     return "+".join(texts)
 
@@ -83,12 +83,12 @@ def _settle(calls: list[Any]) -> tuple[int, int]:
 # -- what the events say ---------------------------------------------------------------------
 
 
-@node("addresses")
+@node("addresses", title="Addresses", description="")
 def addresses(text: str) -> Series[str | None]:
     return [part or None for part in text.split(",")]
 
 
-@node("send")
+@node("send", title="Send", description="")
 def send(email: str) -> str:
     return f"sent {email}"
 
@@ -109,22 +109,22 @@ def test_node_complete_counts_the_rows_a_blank_kept_the_node_from_and_a_saved_ru
 def test_a_diamond_runs_each_branch_once_and_joins_them():
     calls: list[str] = []
 
-    @node("source")
+    @node("source", title="Source", description="")
     def source(text: str) -> str:
         calls.append("source")
         return text
 
-    @node("left")
+    @node("left", title="Left", description="")
     def left(text: str) -> str:
         calls.append("left")
         return text.upper()
 
-    @node("right")
+    @node("right", title="Right", description="")
     def right(text: str) -> str:
         calls.append("right")
         return text[::-1]
 
-    @node("meet")
+    @node("meet", title="Meet", description="")
     def meet(a: str, b: str) -> str:
         return f"{a}|{b}"
 
@@ -141,7 +141,7 @@ def test_a_diamond_runs_each_branch_once_and_joins_them():
 
 
 def test_a_failed_row_fails_the_node_naming_the_row_and_the_gather_below_never_starts():
-    @node("picky")
+    @node("picky", title="Picky", description="")
     def picky(text: str) -> str:
         if text == "1":
             raise ValueError("not this one")
@@ -158,11 +158,11 @@ def test_a_failed_row_fails_the_node_naming_the_row_and_the_gather_below_never_s
 
 
 def test_outputs_leave_out_a_skipped_output_and_a_failed_run_keeps_what_it_made():
-    @node("only-short")
+    @node("only-short", title="Only short", description="")
     def only_short(text: str) -> str:
         return text if len(text) < 3 else SKIPPED
 
-    @node("fails-on-c")
+    @node("fails-on-c", title="Fails on c", description="")
     def fails_on_c(text: str) -> str:
         if text == "c":
             raise ValueError("no c")
@@ -178,7 +178,7 @@ def test_outputs_leave_out_a_skipped_output_and_a_failed_run_keeps_what_it_made(
 
 
 def test_progress_counts_rows_between_start_and_complete_with_the_total_once_the_rows_are_known():
-    @node("echo")
+    @node("echo", title="Echo", description="")
     def echo(text: str) -> str:
         return text
 
@@ -191,7 +191,7 @@ def test_progress_counts_rows_between_start_and_complete_with_the_total_once_the
 
 
 def test_a_fast_node_over_many_rows_reports_progress_a_few_times_a_second_ending_on_its_last_count():
-    @node("echo")
+    @node("echo", title="Echo", description="")
     def echo(text: str) -> str:
         return text
 
@@ -208,7 +208,7 @@ def test_a_fast_node_over_many_rows_reports_progress_a_few_times_a_second_ending
 
 
 def test_a_leg_that_ends_waiting_reports_the_last_count_of_the_node_still_waiting():
-    @node("maybe")
+    @node("maybe", title="Maybe", description="")
     def maybe(text: str) -> str:
         if text == "ask":
             raise Ask("Is this right?")
@@ -224,7 +224,7 @@ def test_a_leg_that_ends_waiting_reports_the_last_count_of_the_node_still_waitin
 
 
 def test_a_node_above_rows_that_were_never_made_reports_no_progress():
-    @node("echo")
+    @node("echo", title="Echo", description="")
     def echo(text: str) -> str:
         return text
 
@@ -240,14 +240,14 @@ def test_a_node_above_rows_that_were_never_made_reports_no_progress():
 def test_the_policy_of_the_version_the_graph_is_pinned_at_is_the_one_a_run_obeys():
     calls: list[int] = []
 
-    @node("fetch", policy=Policy(retries=2, retry_delay=0.01))
+    @node("fetch", title="Fetch one", description="", policy=Policy(retries=2, retry_delay=0.01))
     def fetch_one(text: str) -> str:
         calls.append(1)
         if len(calls) < 3:
             raise ExternalError("try again")
         return "one"
 
-    @node("fetch", replaces=fetch_one, policy=Policy(retries=0))
+    @node("fetch", title="Fetch two", description="", replaces=fetch_one, policy=Policy(retries=0))
     def fetch_two(text: str) -> str:
         calls.append(2)
         raise ExternalError("never retried")
@@ -265,7 +265,7 @@ def test_concurrency_one_calls_one_row_at_a_time():
     in_flight, most = 0, 0
     lock = threading.Lock()
 
-    @node("counted")
+    @node("counted", title="Counted", description="")
     def counted(text: str) -> str:
         nonlocal in_flight, most
         with lock:
@@ -284,7 +284,7 @@ def test_a_leg_of_nodes_at_concurrency_one_makes_no_threads_of_its_own():
     """Called in order on the leg's own thread: a 100-node chain over 20 rows runs on one thread."""
     seen: set[int] = set()
 
-    @node("step")
+    @node("step", title="Step", description="")
     def step(text: str) -> str:
         seen.add(threading.get_ident())
         return text
@@ -301,7 +301,7 @@ def test_the_retry_delay_doubles_each_time_and_another_row_takes_the_slot_while_
     tries: dict[str, int] = {}
     finished: list[str] = []
 
-    @node("flaky", policy=Policy(concurrency=1, retries=3, retry_delay=0.02))
+    @node("flaky", title="Flaky", description="", policy=Policy(concurrency=1, retries=3, retry_delay=0.02))
     def flaky(text: str) -> str:
         tries[text] = tries.get(text, 0) + 1
         if text == "flaky" and tries[text] <= 3:
@@ -321,13 +321,13 @@ def test_an_instant_node_beside_forty_slow_rows_does_not_time_out():
     """An attempt's clock starts when its call does, never while it waits for a thread."""
     calls: list[str] = []
 
-    @node("sleeper", policy=Policy(concurrency=40))
+    @node("sleeper", title="Sleeper", description="", policy=Policy(concurrency=40))
     def sleeper(text: str) -> str:
         calls.append(text)
         time.sleep(0.5)
         return text
 
-    @node("instant", policy=Policy(attempt_timeout=0.1))
+    @node("instant", title="Instant", description="", policy=Policy(attempt_timeout=0.1))
     def instant(texts: Series[str]) -> str:
         return "now"
 
@@ -346,7 +346,7 @@ def test_concurrency_one_with_an_attempt_timeout_never_has_two_calls_in_flight()
     in_flight, most = 0, 0
     lock = threading.Lock()
 
-    @node("slow-rows", policy=Policy(concurrency=1, attempt_timeout=0.2, retries=2, retry_delay=0.01))
+    @node("slow-rows", title="Slow rows", description="", policy=Policy(concurrency=1, attempt_timeout=0.2, retries=2, retry_delay=0.01))
     def slow_rows(text: str) -> str:
         nonlocal in_flight, most
         with lock:
@@ -368,7 +368,7 @@ def test_concurrency_one_with_an_attempt_timeout_never_has_two_calls_in_flight()
 
 
 def test_a_run_has_no_deadline_by_default_and_a_slow_node_runs_to_the_end():
-    @node("slow-second")
+    @node("slow-second", title="Slow second", description="")
     def slow_second(text: str) -> str:
         time.sleep(1.0)
         return "done"
@@ -387,7 +387,7 @@ def test_a_run_has_no_deadline_by_default_and_a_slow_node_runs_to_the_end():
     ids=lambda raised: type(raised).__name__,
 )
 def test_anything_a_node_raises_fails_its_unit_and_the_leg_ends(raised):
-    @node("raises")
+    @node("raises", title="Raises", description="")
     def raises(text: str) -> str:
         raise raised
 
@@ -401,7 +401,7 @@ def test_anything_a_node_raises_fails_its_unit_and_the_leg_ends(raised):
 
 
 def test_a_defect_in_the_engine_reaches_the_caller_rather_than_hanging_the_stream(monkeypatch):
-    @node("echo")
+    @node("echo", title="Echo", description="")
     def echo(text: str) -> str:
         return text
 
@@ -424,7 +424,7 @@ def _row_zero_fails_at_once(concurrency: int, **policy: Any) -> tuple[Any, list[
     calls: list[str] = []
     release = threading.Event()
 
-    @node("mail", policy=Policy(concurrency=concurrency, **policy))
+    @node("mail", title="Mail", description="", policy=Policy(concurrency=concurrency, **policy))
     def mail(text: str) -> str:
         calls.append(text)
         if text == "0":
@@ -462,7 +462,7 @@ def test_a_row_failing_at_concurrency_one_starts_no_later_row():
 def test_a_failed_leg_waits_for_a_call_still_running_no_longer_than_its_attempt_timeout():
     release = threading.Event()
 
-    @node("hangs-or-fails", policy=Policy(concurrency=2, attempt_timeout=0.2))
+    @node("hangs-or-fails", title="Hangs or fails", description="", policy=Policy(concurrency=2, attempt_timeout=0.2))
     def hangs_or_fails(text: str) -> str:
         if text == "0":
             raise ValueError("no")
@@ -484,7 +484,7 @@ def test_an_ask_or_a_second_failure_while_a_failed_leg_drains_is_kept_or_logged(
     """A person's question is kept like any finished call; a second failure goes to the log, not onto the run."""
     release = threading.Event()
 
-    @node("mixed", policy=Policy(concurrency=4))
+    @node("mixed", title="Mixed", description="", policy=Policy(concurrency=4))
     def mixed(text: str) -> str:
         if text == "0":
             raise ValueError("first")
@@ -508,7 +508,7 @@ def test_no_retry_starts_once_the_leg_has_failed():
     release = threading.Event()
     calls: list[str] = []
 
-    @node("flaky-beside-a-failure", policy=Policy(concurrency=2, retries=3, retry_delay=0.01))
+    @node("flaky-beside-a-failure", title="Flaky", description="", policy=Policy(concurrency=2, retries=3, retry_delay=0.01))
     def flaky(text: str) -> str:
         calls.append(text)
         if text == "0":
@@ -526,7 +526,7 @@ def test_no_retry_starts_once_the_leg_has_failed():
 
 
 def _sleeper(seconds: float, calls: list[str]) -> Any:
-    @node("sleeper")
+    @node("sleeper", title="Sleeper", description="")
     def sleeper(text: str) -> str:
         calls.append(text)
         time.sleep(seconds)
@@ -596,11 +596,11 @@ def test_a_cancel_set_mid_run_ends_the_leg_cancelled_at_once():
 
 
 def test_a_cancel_from_a_coroutine_lands_during_a_leg_that_only_reuses():
-    @node("echo")
+    @node("echo", title="Echo", description="")
     def echo(text: str) -> str:
         return text
 
-    @node("source")
+    @node("source", title="Source", description="")
     def source(tag: int = 0) -> Series[str]:
         return [str(n) for n in range(20_000)]
 
@@ -631,7 +631,7 @@ def test_a_cancel_from_a_coroutine_lands_during_a_leg_that_only_reuses():
 def test_exactly_one_run_end_comes_last_when_a_call_returns_after_a_cancel():
     release = threading.Event()
 
-    @node("late", policy=Policy(concurrency=2))
+    @node("late", title="Late", description="", policy=Policy(concurrency=2))
     def late(text: str) -> str:
         release.wait(BOUND)
         return text
@@ -660,7 +660,7 @@ def test_exactly_one_run_end_comes_last_when_a_call_returns_after_a_cancel():
 def test_a_cancel_during_a_retry_delay_ends_the_leg_before_every_attempt_has_run():
     calls: list[int] = []
 
-    @node("flaky", policy=Policy(retries=5, retry_delay=0.2))
+    @node("flaky", title="Flaky", description="", policy=Policy(retries=5, retry_delay=0.2))
     def flaky(text: str) -> str:
         calls.append(1)
         raise ExternalError("try again")
@@ -687,7 +687,7 @@ def test_a_stream_that_cannot_start_raises_at_the_call_before_any_event():
     class Caller:
         pass
 
-    @node("signed")
+    @node("signed", title="Signed", description="")
     def signed(text: str, who: FromRun[Caller]) -> str:
         return text
 
@@ -706,7 +706,7 @@ def test_a_type_no_node_needs_from_the_run_is_fine():
     class Unused:
         pass
 
-    @node("signed")
+    @node("signed", title="Signed", description="")
     def signed(text: str, who: FromRun[Caller]) -> str:
         return text
 
@@ -716,7 +716,7 @@ def test_a_type_no_node_needs_from_the_run_is_fine():
 
 
 def test_running_a_graph_under_a_running_event_loop_ends_as_it_does_outside_one():
-    @node("echo")
+    @node("echo", title="Echo", description="")
     def echo(text: str) -> str:
         return text
 
@@ -739,15 +739,15 @@ def test_a_float_that_is_not_finite_inside_a_model_survives_a_saved_run_and_the_
         low: float
         high: float
 
-    @node("measure")
+    @node("measure", title="Measure", description="")
     def measure(text: str) -> Reading:
         return Reading(value=math.nan, low=-math.inf, high=math.inf)
 
-    @node("check")
+    @node("check", title="Check", description="")
     def check(reading: Reading) -> str:
         raise Ask(f"Is {reading.low}..{reading.high} right?")
 
-    @node("width")
+    @node("width", title="Width", description="")
     def width(reading: Reading, checked: str) -> str:
         return f"{reading.low}..{reading.high} {checked}"
 
@@ -770,11 +770,11 @@ class Contact(TypedDict):
 
 
 def test_a_table_missing_a_declared_column_at_run_time_fails_the_node_that_made_it_naming_the_column():
-    @node("bare")
+    @node("bare", title="Bare", description="")
     def bare(text: str) -> Table[Contact]:
         return pl.DataFrame({"name": ["ida"]})
 
-    @node("greet")
+    @node("greet", title="Greet", description="")
     def greet(email: str) -> str:
         return email
 
@@ -787,7 +787,7 @@ def test_a_table_missing_a_declared_column_at_run_time_fails_the_node_that_made_
 
 
 def test_a_table_with_a_blank_cell_survives_a_saved_run():
-    @node("contacts")
+    @node("contacts", title="Contacts", description="")
     def contacts(text: str) -> Table[Contact]:
         return pl.DataFrame({"name": ["ida", "bo"], "email": ["ida@a.dk", None]})
 
@@ -805,11 +805,11 @@ def test_a_table_with_a_blank_cell_survives_a_saved_run():
 def test_a_node_starts_before_any_other_event_about_it_when_its_rows_are_taken_from_earlier_work():
     """A leg going on from an answered run takes the earlier rows before calling the new one; ``node_start`` comes first."""
 
-    @node("read")
+    @node("read", title="Read", description="")
     def read(text: str) -> Series[str]:
         return text.split(",")
 
-    @node("approve")
+    @node("approve", title="Approve", description="")
     def approve(name: str) -> bool:
         if name == "ida":
             return True
@@ -826,15 +826,15 @@ def test_a_node_starts_before_any_other_event_about_it_when_its_rows_are_taken_f
 
 
 def test_a_node_finished_on_an_earlier_leg_is_not_said_complete_again_and_an_embedding_completes_once():
-    @node("ask")
+    @node("ask", title="Ask", description="")
     def ask(text: str) -> str:
         raise Ask(f"{text}?")
 
-    @node("upper")
+    @node("upper", title="Upper", description="")
     def upper(text: str) -> str:
         return text.upper()
 
-    inner = node("checked")(make_graph(upper, ask))
+    inner = node("checked", title="Checked", description="")(make_graph(upper, ask))
     graph = registry_of(split, ask, upper, join, inner).load(GraphRecord(
         nodes=[NodeRecord(id="s", node="split"), NodeRecord(id="e", node="checked"), NodeRecord(id="j", node="join")],
         edges=[("s.result", "e.text"), ("e.result", "j.texts")],
@@ -851,11 +851,11 @@ def test_a_node_finished_on_an_earlier_leg_is_not_said_complete_again_and_an_emb
 
 
 def test_a_maker_over_the_row_ceiling_coming_back_after_a_failure_leaves_the_failure_the_cause():
-    @node("boom", policy=Policy(concurrency=2))
+    @node("boom", title="Boom", description="", policy=Policy(concurrency=2))
     def boom(text: str) -> str:
         raise ValueError("no")
 
-    @node("many", policy=Policy(concurrency=2))
+    @node("many", title="Many", description="", policy=Policy(concurrency=2))
     def many(text: str) -> Series[str]:
         time.sleep(0.2)
         return ["a", "b", "c", "d"]
@@ -869,13 +869,13 @@ def test_a_maker_over_the_row_ceiling_coming_back_after_a_failure_leaves_the_fai
 def test_a_call_past_its_timeout_that_comes_back_while_the_leg_drains_is_kept_and_never_called_again():
     effects: list[str] = []
 
-    @node("late", policy=Policy(attempt_timeout=0.2, concurrency=2))
+    @node("late", title="Late", description="", policy=Policy(attempt_timeout=0.2, concurrency=2))
     def late(text: str) -> str:
         time.sleep(0.4)
         effects.append(text)
         return text
 
-    @node("long", policy=Policy(concurrency=2))
+    @node("long", title="Long", description="", policy=Policy(concurrency=2))
     def long(text: str) -> str:
         time.sleep(0.9)
         return text
@@ -890,7 +890,7 @@ def test_a_call_past_its_timeout_that_comes_back_while_the_leg_drains_is_kept_an
 
 
 def _counting_llm(calls: list[int], seconds: float) -> Any:
-    @node("llm", policy=Policy(concurrency=4))
+    @node("llm", title="Llm", description="", policy=Policy(concurrency=4))
     def llm(n: int) -> int:
         time.sleep(seconds)
         calls.append(n)
@@ -982,7 +982,7 @@ def test_each_checkpoint_of_a_leg_that_reuses_earlier_work_resumes_without_a_cal
 
 
 def test_a_failed_leg_with_calls_on_threads_offers_a_checkpoint_saying_it_failed():
-    @node("flaky", policy=Policy(concurrency=4))
+    @node("flaky", title="Flaky", description="", policy=Policy(concurrency=4))
     def flaky(n: int) -> int:
         if n == 0:
             raise RuntimeError("boom")
@@ -1001,15 +1001,15 @@ def test_a_failed_leg_with_calls_on_threads_offers_a_checkpoint_saying_it_failed
 
 
 def test_an_embeddings_rows_not_called_count_once_however_many_of_its_nodes_were_not():
-    @node("words")
+    @node("words", title="Words", description="")
     def words(text: str) -> Series[str | None]:
         return [None if w == "_" else w for w in text.split()]
 
-    @node("upper")
+    @node("upper", title="Upper", description="")
     def upper(text: str) -> str:
         return text.upper()
 
-    inner = node("twice")(GraphRecord(nodes=[NodeRecord(id="u", node="upper"), NodeRecord(id="v", node="upper")], edges=[("u.result", "v.text")]))
+    inner = node("twice", title="Twice", description="")(GraphRecord(nodes=[NodeRecord(id="u", node="upper"), NodeRecord(id="v", node="upper")], edges=[("u.result", "v.text")]))
     graph = registry_of(words, upper, inner).load(GraphRecord(
         nodes=[NodeRecord(id="w", node="words"), NodeRecord(id="emb", node="twice")], edges=[("w.result", "emb.text")],
     ))

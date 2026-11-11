@@ -19,27 +19,27 @@ from conductor.testing import check_registry
 registry = NodeRegistry()
 
 
-@registry.node("upper")
+@registry.node("upper", title="Uppercase", description="Turns a text into capital letters.")
 def upper(text: str) -> str:
     return text.upper()
 
 
-@registry.node("greet")
+@registry.node("greet", title="Greet", description="Greets a person by name.")
 def greet(name: str, greeting: str) -> str:
     return f"{greeting} {name}"
 
 
-@registry.node("count")
+@registry.node("count", title="Count", description="Passes a number on as it is.")
 def count(n: int) -> int:
     return n
 
 
-@registry.node("split")
+@registry.node("split", title="Split", description="Splits a text into words.")
 def split(text: str) -> Series[str]:
     return text.split()
 
 
-@registry.node("join")
+@registry.node("join", title="Join", description="Joins the pieces into one text.")
 def join(texts: Series[str]) -> str:
     return "+".join(texts)
 
@@ -50,12 +50,12 @@ class Route:
     long: Annotated[str | None, Param(exclusive_group="length")] = None
 
 
-@registry.node("route")
+@registry.node("route", title="Route", description="Sends a text down the short or the long path.")
 def route(text: str) -> Route:
     return Route(short=text) if len(text) < 4 else Route(long=text)
 
 
-@registry.node("approve")
+@registry.node("approve", title="Approve", description="Asks a person to approve an amount in kroner.")
 def approve(amount: int) -> bool:
     raise Ask(f"Approve {amount} kr.?")
 
@@ -65,7 +65,7 @@ class Caller:
     name: str
 
 
-@registry.node("who")
+@registry.node("who", title="Who", description="Tells the name of the person running it.")
 def who(caller: FromRun[Caller]) -> str:
     return caller.name
 
@@ -130,12 +130,12 @@ class Invoice(TypedDict):
     amount: int
 
 
-@registry.node("names")
+@registry.node("names", title="Names", description="Splits a text into a table of names.")
 def names(text: str) -> Table[NameRow]:
     return pl.DataFrame({"name": text.split()})
 
 
-@registry.node("total")
+@registry.node("total", title="Total", description="Adds up the amounts on all invoices.")
 def total(invoices: Table[Invoice]) -> int:
     return int(invoices["amount"].sum())
 
@@ -159,7 +159,7 @@ def by_names(names: str) -> dict[str, type]:
     return {name: str for name in names.split(",")}
 
 
-@registry.node("pick", compute_outputs=by_names)
+@registry.node("pick", title="Pick", description="Turns a list of names into one answer per name.", compute_outputs=by_names)
 def pick(names: str) -> dict[str, str]:
     return {name: name for name in names.split(",")}
 
@@ -220,7 +220,7 @@ print(problems({"nodes": [{"id": "a", "node": "upper"}], "edges": [["a.result", 
 > The graph '{graph}' has {count} problem(s); fix them in that graph before it can be used here.
 
 ```python
-inner = node("inner")(GraphRecord.model_validate({"nodes": [{"id": "x", "node": "ghost"}]}))
+inner = node("inner", title="Inner", description="A graph that can't be run, since it uses a node that doesn't exist.")(GraphRecord.model_validate({"nodes": [{"id": "x", "node": "ghost"}]}))
 with_inner = NodeRegistry()
 with_inner.add_subregistry(registry)
 with_inner.add(inner)
@@ -235,7 +235,7 @@ print([p.type for p in with_inner.load({"nodes": [{"id": "i", "node": "inner"}]}
 
 ```python
 inner_record = GraphRecord.model_validate({"nodes": [{"id": "again", "node": "itself"}]})
-itself = node("itself")(inner_record)
+itself = node("itself", title="Itself", description="A graph that contains itself.")(inner_record)
 looping = NodeRegistry()
 looping.add(itself)
 broken = looping.load({"nodes": [{"id": "i", "node": "itself"}]}).problems[0]
@@ -297,7 +297,7 @@ def dotted(names: str) -> dict[str, type]:
     return {name: str for name in names.split(",")}
 
 
-@registry.node("fields", compute_outputs=dotted)
+@registry.node("fields", title="Fields", description="Gives one answer per name.", compute_outputs=dotted)
 def fields(names: str) -> dict[str, str]:
     return {}
 
@@ -338,7 +338,7 @@ print(problems({
 > {inputs} read branches that never both have a value on a row, so no row would reach the node. Write Series[X | None] on them to keep every row, or take the branches through one input.
 
 ```python
-@registry.node("pair")
+@registry.node("pair", title="Pair", description="Puts two lists of words side by side.")
 def pair(a: Series[str], b: Series[str]) -> str:
     return f"{a} {b}"
 
@@ -677,7 +677,7 @@ print(refused(lambda: uppering.load_run(tampered)))  # ['state_unreadable']
 > The run can't be written as JSON at '{at}': {reason}. Give that field a type pydantic writes as JSON.
 
 ```python
-@registry.node("raw")
+@registry.node("raw", title="Raw", description="Turns a text into raw bytes.")
 def raw(text: str) -> bytes:
     return b"\xff" + text.encode()
 
@@ -697,7 +697,7 @@ In `run.cause` and on `node_failed`. `loc` is `(node_id, *row)`, or `()` for the
 > The node failed; its developer finds why in the conductor log.
 
 ```python
-@registry.node("divide")
+@registry.node("divide", title="Divide", description="Divides one by a number.")
 def divide(n: int) -> float:
     return 1 / n
 
@@ -714,7 +714,7 @@ print(failed.cause.type)  # execution_failed
 > An outside service did not answer.
 
 ```python
-@registry.node("fetch", policy=Policy(retry_on=(ConnectionError,)))
+@registry.node("fetch", title="Fetch", description="Fetches a page from an address, and fails.", policy=Policy(retry_on=(ConnectionError,)))
 def fetch(url: str) -> str:
     raise ConnectionError(url)
 
@@ -731,7 +731,7 @@ print(cut_off.cause.type)  # external_failed
 > The node reported a failure.
 
 ```python
-@registry.node("read_pdf")
+@registry.node("read_pdf", title="Read PDF", description="Reads the text from a PDF file, and fails.")
 def read_pdf(path: str) -> str:
     raise NodeError("The document could not be read.")
 
@@ -748,7 +748,7 @@ print(unread.cause.type)  # failed
 > The node asked a question its outputs can't be answered with: {reason}. Fix the node's Ask.
 
 ```python
-@registry.node("confirm")
+@registry.node("confirm", title="Confirm", description="Asks a person to confirm.")
 def confirm(text: str) -> bool:
     raise Ask("Sure?", default="maybe")
 
@@ -765,12 +765,12 @@ print(misasked.cause.type)  # invalid_ask
 > The value an edge brought to '{name}' is not one it takes: {reason}. Fix the node that made it, or connect an output of the type the input takes.
 
 ```python
-@registry.node("letters")
+@registry.node("letters", title="Letters", description="Counts the letters in a text.")
 def letters(text: str) -> int:
     return len(text)
 
 
-@registry.node("small")
+@registry.node("small", title="Small", description="Passes on a small number.")
 def small(n: Annotated[int, Param(le=3)]) -> int:
     return n
 
@@ -787,7 +787,7 @@ print(too_big.cause.type)  # invalid_edge_value
 > The node returned a value that is not what it declares: {reason}. Fix what the node returns.
 
 ```python
-@registry.node("guess")
+@registry.node("guess", title="Guess", description="Hands back a text where a number is promised.")
 def guess(text: str) -> int:
     return text  # type: ignore[return-value]
 
@@ -804,7 +804,7 @@ print(wrong.cause.type)  # invalid_output
 > The node asked a person, but what it received at '{input}' has no JSON form to show them: {reason}. Give that input a type pydantic writes as JSON.
 
 ```python
-@registry.node("approve-file")
+@registry.node("approve-file", title="Approve file", description="Asks a person to approve sending a file.")
 def approve_file(data: bytes) -> bool:
     raise Ask("Send this file?")
 
@@ -854,7 +854,7 @@ print(asyncio.run(cancelled()))  # run_cancelled
 > The run took too long and was stopped; run.resume() carries on.
 
 ```python
-@registry.node("slow")
+@registry.node("slow", title="Slow", description="Waits a moment, then hands back the text.")
 def slow(text: str) -> str:
     time.sleep(0.2)
     return text
@@ -872,7 +872,7 @@ print(timed_out.cause.type)  # run_timed_out
 > The node did not answer in time; its Policy(attempt_timeout=) sets how long it may take.
 
 ```python
-@registry.node("stuck", policy=Policy(attempt_timeout=0.05))
+@registry.node("stuck", title="Stuck", description="Waits too long, then hands back the text.", policy=Policy(attempt_timeout=0.05))
 def stuck(text: str) -> str:
     time.sleep(0.2)
     return text
@@ -909,7 +909,7 @@ Raised as `NodeDeclarationError` when the module that declares the node is impor
 
 ```python
 try:
-    @node("titled")
+    @node("titled", title="Titled", description="Passes the text on as it is.")
     def titled(text: Annotated[str, "Title"]) -> str:
         return text
 except NodeDeclarationError as error:
@@ -928,7 +928,7 @@ def added(value: type) -> dict[str, type]:
 
 
 try:
-    @node("adds", compute_added_inputs=added)
+    @node("adds", title="Adds", description="Passes the text on as it is.", compute_added_inputs=added)
     def adds(value: str, **extra: str) -> str:
         return value
 except NodeDeclarationError as error:
@@ -943,7 +943,7 @@ except NodeDeclarationError as error:
 
 ```python
 try:
-    @node("fetch_async")
+    @node("fetch_async", title="Fetch async", description="Fetches a page from an address.")
     async def fetch_async(url: str) -> str:
         return url
 except NodeDeclarationError as error:
@@ -962,7 +962,7 @@ except NodeDeclarationError as error:
 
 ```python
 try:
-    @node("short")
+    @node("short", title="Short", description="Passes the text on as it is.")
     def short(text: Annotated[str, Param(ge=0)]) -> str:
         return text
 except NodeDeclarationError as error:
@@ -983,7 +983,7 @@ from typing import Literal
 from conductor import Choice
 
 try:
-    @node("size")
+    @node("size", title="Size", description="Hands back the chosen size.")
     def size(pick: Annotated[Literal["s", "m"], Param(choices=[Choice("s", "Small")])]) -> str:
         return pick
 except NodeDeclarationError as error:
@@ -1002,7 +1002,7 @@ def operands(count: int) -> dict[str, type]:
 
 
 try:
-    @node("sum_of", compute_added_inputs=operands)
+    @node("sum_of", title="Sum of", description="Adds up numbers.", compute_added_inputs=operands)
     def sum_of(count: int) -> float:
         return 0.0
 except NodeDeclarationError as error:
@@ -1019,7 +1019,7 @@ except NodeDeclarationError as error:
 
 ```python
 try:
-    @node("maybe")
+    @node("maybe", title="Maybe", description="Passes the text on as it is.")
     def maybe(text: str = None) -> str:  # type: ignore[assignment]
         return text
 except NodeDeclarationError as error:
@@ -1038,7 +1038,7 @@ except NodeDeclarationError as error:
 twice = NodeRegistry()
 twice.add(upper)
 try:
-    @twice.node("upper")
+    @twice.node("upper", title="Upper again", description="Turns a text into capital letters.")
     def upper_again(text: str) -> str:
         return text
 except NodeDeclarationError as error:
@@ -1076,7 +1076,7 @@ except NodeDeclarationError as error:
 
 ```python
 try:
-    @node("branchy")
+    @node("branchy", title="Branchy", description="Passes the text on as it is.")
     def branchy(text: Annotated[str, Param(exclusive_group="x")]) -> str:
         return text
 except NodeDeclarationError as error:
@@ -1093,7 +1093,7 @@ except NodeDeclarationError as error:
 class Session: ...
 
 try:
-    @node("maybe")
+    @node("maybe", title="Maybe", description="Passes the text on as it is.")
     def maybe(session: FromRun[Session] | None = None) -> str:
         return ""
 except NodeDeclarationError as error:
@@ -1109,7 +1109,7 @@ gives that value on every run, so a node can trust it; anywhere else it would be
 
 ```python
 try:
-    @node("listed")
+    @node("listed", title="Listed", description="Hands back an empty text.")
     def listed(names: FromRun[list[str]]) -> str:
         return ""
 except NodeDeclarationError as error:
@@ -1130,7 +1130,7 @@ def from_names(names: str) -> dict[str, type]:
 
 
 try:
-    @node("named", compute_outputs=from_names)
+    @node("named", title="Named", description="Gives one answer per label.", compute_outputs=from_names)
     def named(labels: str) -> dict[str, str]:
         return {}
 except NodeDeclarationError as error:
@@ -1145,7 +1145,7 @@ except NodeDeclarationError as error:
 
 ```python
 try:
-    @node("untyped")
+    @node("untyped", title="Untyped", description="Passes the text on as it is.")
     def untyped(text) -> str:  # type: ignore[no-untyped-def]
         return str(text)
 except NodeDeclarationError as error:
@@ -1160,7 +1160,7 @@ except NodeDeclarationError as error:
 
 ```python
 try:
-    @node("a.b")
+    @node("a.b", title="Dotted id", description="Passes the text on as it is.")
     def dotted_id(text: str) -> str:
         return text
 except NodeDeclarationError as error:
@@ -1175,7 +1175,7 @@ except NodeDeclarationError as error:
 
 ```python
 try:
-    @node("nested")
+    @node("nested", title="Nested", description="Wraps a text in lists.")
     def nested(text: str) -> Series[Series[str]]:
         return [[text]]
 except NodeDeclarationError as error:
@@ -1190,7 +1190,7 @@ except NodeDeclarationError as error:
 
 ```python
 try:
-    node("wrapped", policy=Policy(concurrency=4))(make_graph(upper))
+    node("wrapped", title="Wrapped", description="Turns a text into capital letters, as a saved graph.", policy=Policy(concurrency=4))(make_graph(upper))
 except NodeDeclarationError as error:
     print(error.code)  # not_for_a_graph
 ```
@@ -1203,7 +1203,7 @@ except NodeDeclarationError as error:
 
 ```python
 try:
-    @node("silent")
+    @node("silent", title="Silent", description="Passes the text on as it is.")
     def silent(text: str):  # type: ignore[no-untyped-def]
         return text
 except NodeDeclarationError as error:
@@ -1224,7 +1224,7 @@ class Parts:
 
 
 try:
-    @node("parts")
+    @node("parts", title="Parts", description="Splits a name into first and last name.")
     def parts(name: str) -> Parts:
         return Parts(*name.split(" ", 1))
 except NodeDeclarationError as error:
@@ -1239,7 +1239,7 @@ except NodeDeclarationError as error:
 
 ```python
 try:
-    @node("positional")
+    @node("positional", title="Positional", description="Passes the text on as it is.")
     def positional(text: str, /) -> str:
         return text
 except NodeDeclarationError as error:
@@ -1267,7 +1267,7 @@ except NodeDeclarationError as error:
 
 ```python
 try:
-    @node("lower", replaces=upper)
+    @node("lower", title="Lower", description="Turns a text into small letters.", replaces=upper)
     def lower(text: str) -> str:
         return text.lower()
 except NodeDeclarationError as error:
@@ -1284,7 +1284,7 @@ except NodeDeclarationError as error:
 import polars as pl
 
 try:
-    @node("frames")
+    @node("frames", title="Frames", description="Hands back no tables.")
     def frames(text: str) -> Series[pl.DataFrame]:
         return []
 except NodeDeclarationError as error:
@@ -1304,7 +1304,7 @@ class Plain:
 
 
 try:
-    @node("plain")
+    @node("plain", title="Plain", description="Hands back an empty text.")
     def plain(value: Plain) -> str:
         return ""
 except NodeDeclarationError as error:
@@ -1318,13 +1318,13 @@ except NodeDeclarationError as error:
 > the version it replaces has {sorted(unexplained)}, gone from this one; its Upgrade says where they went
 
 ```python
-@node("hello")
+@node("hello", title="Hello v1", description="Says hello to a person.")
 def hello_v1(name: str) -> str:
     return name
 
 
 try:
-    @node("hello", replaces=hello_v1)
+    @node("hello", title="Hello", description="Says hello to a person.", replaces=hello_v1)
     def hello(first: str) -> str:
         return first
 except NodeDeclarationError as error:
@@ -1339,7 +1339,7 @@ except NodeDeclarationError as error:
 
 ```python
 try:
-    @node("hi", upgrade=Upgrade(renamed_inputs={"name": "first"}))
+    @node("hi", title="Hi", description="Says hi to a person.", upgrade=Upgrade(renamed_inputs={"name": "first"}))
     def hi(first: str) -> str:
         return first
 except NodeDeclarationError as error:
@@ -1354,7 +1354,7 @@ except NodeDeclarationError as error:
 
 ```python
 try:
-    @node("loose")
+    @node("loose", title="Loose", description="Hands back an empty text.")
     def loose(**values: str) -> str:
         return ""
 except NodeDeclarationError as error:
@@ -1369,7 +1369,7 @@ except NodeDeclarationError as error:
 
 ```python
 try:
-    @node("hello", replaces=hello_v1, version=1)
+    @node("hello", title="Hello again", description="Says hello to a person.", replaces=hello_v1, version=1)
     def hello_again(name: str) -> str:
         return name
 except NodeDeclarationError as error:
@@ -1385,7 +1385,7 @@ Returned by `conductor.testing.check_registry`, in a test run. A host never meet
 ### `changed_its_inputs`
 
 ```python
-@node("sort_in_place")
+@node("sort_in_place", title="Sort", description="Sorts a list of texts.")
 def sort_in_place(texts: list[str]) -> list[str]:
     texts.sort()
     return texts
@@ -1415,7 +1415,7 @@ def no_names(names: str) -> dict[str, type]:
     raise KeyError(names)
 
 
-@node("unnamed", compute_outputs=no_names)
+@node("unnamed", title="Unnamed", description="Gives one answer per name.", compute_outputs=no_names)
 def unnamed(names: str) -> dict[str, str]:
     return {}
 
@@ -1434,7 +1434,7 @@ def by_code(code: str) -> dict[str, type]:
     return {f"field_{code}": str}
 
 
-@node("coded", compute_outputs=by_code)
+@node("coded", title="Coded", description="Gives one answer per code.", compute_outputs=by_code)
 def coded(code: Annotated[str, Param(pattern=r"^\d{4}$")]) -> dict[str, str]:
     return {}
 
@@ -1473,7 +1473,7 @@ def broken_rewrite(values: dict) -> dict:
     raise KeyError("first")
 
 
-@node("hello", replaces=hello_v1, upgrade=Upgrade(rewrite=broken_rewrite))
+@node("hello", title="Hello v2", description="Says hello to a person.", replaces=hello_v1, upgrade=Upgrade(rewrite=broken_rewrite))
 def hello_v2(first: str) -> str:
     return first
 

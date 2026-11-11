@@ -27,7 +27,7 @@ def _events(graph: GraphRecord, *nodes: Any) -> list[Any]:
     return asyncio.run(collect())
 
 
-@node("split")
+@node("split", title="Split", description="")
 def split(text: str) -> list[str]:
     return text.split(",")
 
@@ -40,7 +40,7 @@ def test_an_ending_says_its_status_and_cause_and_leaves_the_run_out():
 
 
 def test_a_waiting_units_question_and_a_failures_cause_are_records():
-    @node("ask")
+    @node("ask", title="Ask", description="")
     def ask(text: str) -> Annotated[str, Param(title="Svar", widget=Textarea())]:
         raise Ask("Hvad?", default="forslag")
 
@@ -66,7 +66,7 @@ class Emptiness:
     empty: Annotated[str, Param(exclusive_group="emptiness")]
 
 
-@node("if-empty")
+@node("if-empty", title="If empty", description="")
 def if_empty(text: str) -> Emptiness:
     return Emptiness(not_empty=text, empty=SKIPPED) if text.strip() else Emptiness(not_empty=SKIPPED, empty=text)
 

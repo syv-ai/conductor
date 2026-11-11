@@ -11,12 +11,12 @@ from conductor.widgets import Textarea
 registry = NodeRegistry(category="text")
 
 
-@registry.node("text-split")
+@registry.node("text-split", title="Split", description="Splits a text at a separator.")
 def split(text: str, separator: str = ",") -> Series[str]:
     return text.split(separator)
 
 
-@registry.node("text-uppercase")
+@registry.node("text-uppercase", title="Uppercase", description="Turns a text into capital letters.")
 def uppercase(text: str) -> str:
     return text.upper()
 

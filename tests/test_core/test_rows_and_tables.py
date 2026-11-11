@@ -45,52 +45,52 @@ class Invoice(TypedDict):
     amount: float
 
 
-@node("contacts")
+@node("contacts", title="Contacts", description="``Ida,ida@x;Bo,;Nina,nina@x``: a contact per ``;``, a blank email where nothing follows the comma.")
 def contacts(text: str) -> Table[Contact]:
     """``Ida,ida@x;Bo,;Nina,nina@x``: a contact per ``;``, a blank email where nothing follows the comma."""
     rows = [part.split(",") for part in text.split(";") if part]
     return pl.DataFrame({"name": [r[0] for r in rows], "email": [r[1] or None for r in rows]}, schema={"name": pl.String, "email": pl.String})
 
 
-@node("split")
+@node("split", title="Split", description="")
 def split(text: str, sep: str = ",") -> Series[str]:
     return [part for part in text.split(sep)] if text else []
 
 
-@node("upper")
+@node("upper", title="Upper", description="")
 def upper(text: str) -> str:
     CALLED.append(f"upper {text}")
     return text.upper()
 
 
-@node("join")
+@node("join", title="Join", description="")
 def join(texts: Series[str]) -> str:
     CALLED.append(f"join {texts}")
     return "+".join(texts)
 
 
-@node("count")
+@node("count", title="Count", description="")
 def count(values: Series[Any]) -> int:
     return len(values)
 
 
-@node("pair")
+@node("pair", title="Pair", description="")
 def pair(a: str, b: str) -> str:
     return f"{a}:{b}"
 
 
-@node("send")
+@node("send", title="Send", description="")
 def send(email: str) -> str:
     CALLED.append(f"send {email}")
     return f"sent to {email}"
 
 
-@node("send-or-say")
+@node("send-or-say", title="Send or say", description="")
 def send_or_say(email: str | None) -> str:
     return f"sent to {email}" if email else "no address"
 
 
-@node("show")
+@node("show", title="Show", description="")
 def show(table: Table) -> Table:
     return table
 
@@ -101,19 +101,19 @@ class YesNo:
     no: Annotated[str, Param(exclusive_group="answer")]
 
 
-@node("decide")
+@node("decide", title="Decide", description="``yes`` unless the text has ``no`` in it.")
 def decide(text: str) -> YesNo:
     """``yes`` unless the text has ``no`` in it."""
     return YesNo(SKIPPED, text) if "no" in text else YesNo(text, SKIPPED)
 
 
-@node("docs")
+@node("docs", title="Docs", description="Documents, one per ``|``.")
 def docs(text: str) -> Series[str]:
     """Documents, one per ``|``."""
     return text.split("|")
 
 
-@node("invoices")
+@node("invoices", title="Invoices", description="``acme:10,beta:5``: an invoice per ``,``; ``skip`` is a branch not taken.")
 def invoices(text: str) -> Table[Invoice]:
     """``acme:10,beta:5``: an invoice per ``,``; ``skip`` is a branch not taken."""
     if text == "skip":
@@ -122,12 +122,12 @@ def invoices(text: str) -> Table[Invoice]:
     return pl.DataFrame({"vendor": [r[0] for r in rows], "amount": [float(r[1]) for r in rows]}, schema={"vendor": pl.String, "amount": pl.Float64})
 
 
-@node("check")
+@node("check", title="Check", description="")
 def check(vendor: str) -> str:
     return SKIPPED if vendor == "unknown" else f"{vendor} ok"
 
 
-@node("total")
+@node("total", title="Total", description="")
 def total(amounts: Series[float]) -> float:
     return sum(amounts)
 
@@ -163,7 +163,7 @@ def through_json(run: Any) -> Any:
 
 
 def test_a_series_that_may_be_nothing_reads_an_explicit_none_like_leaving_it_out():
-    @node("maybe")
+    @node("maybe", title="Maybe", description="")
     def maybe(xs: Series[str] | None = None) -> str:
         return str(xs)
 
@@ -178,15 +178,15 @@ class Amount(TypedDict):
 
 
 def test_a_table_that_may_be_nothing_takes_a_callers_none_a_return_of_none_and_a_table_never_made():
-    @node("count-rows")
+    @node("count-rows", title="Count rows", description="")
     def count_rows(t: Table[Amount] | None = None) -> int:
         return -1 if t is None else t.height
 
-    @node("maybe-table")
+    @node("maybe-table", title="Maybe table", description="")
     def maybe_table(x: int) -> Table[Amount] | None:
         return None if x < 0 else pl.DataFrame({"a": [x]})
 
-    @node("may-be-blank")
+    @node("may-be-blank", title="May be blank", description="")
     def may_be_blank(y: int) -> int | None:
         return None
 
@@ -203,15 +203,15 @@ def test_a_table_that_may_be_nothing_takes_a_callers_none_a_return_of_none_and_a
 
 
 def test_a_series_that_may_be_nothing_takes_a_return_of_none_and_a_list_never_made_as_a_table_does():
-    @node("count-items")
+    @node("count-items", title="Count items", description="")
     def count_items(xs: Series[int] | None = None) -> int:
         return -1 if xs is None else len(xs)
 
-    @node("maybe-items")
+    @node("maybe-items", title="Maybe items", description="")
     def maybe_items(x: int) -> Series[int] | None:
         return None if x < 0 else [x]
 
-    @node("may-be-blank")
+    @node("may-be-blank", title="May be blank", description="")
     def may_be_blank(y: int) -> int | None:
         return None
 
@@ -239,7 +239,7 @@ def test_an_input_takes_a_blank_when_its_hint_says_so(annotation, takes_blank):
         return str(x)
 
     seen.__annotations__ = {"x": annotation, "return": str}
-    reader = node("seen")(seen)
+    reader = node("seen", title="Seen", description="")(seen)
     run = ran({"id": "c", "node": "contacts"}, {"id": "r", "node": "seen"}, edges=(("c.result.email", "r.x"),),
               registry=registry_of(contacts, reader), text=CSV)
     got = run.results["r"]["result"]
@@ -256,7 +256,7 @@ def test_an_input_saying_none_is_called_with_the_blank():
 
 
 def test_a_default_is_for_an_input_nothing_is_wired_to_not_for_a_blank():
-    @node("defaulted")
+    @node("defaulted", title="Defaulted", description="")
     def defaulted(email: str = "fallback") -> str:
         return email
 
@@ -267,7 +267,7 @@ def test_a_default_is_for_an_input_nothing_is_wired_to_not_for_a_blank():
 
 
 def test_a_node_all_blank_completes_it_is_never_skipped():
-    @node("nothing")
+    @node("nothing", title="Nothing", description="")
     def nothing() -> str | None:
         return None
 
@@ -288,7 +288,7 @@ def test_a_node_all_blank_completes_it_is_never_skipped():
 @pytest.mark.parametrize("blank_into", ["a", "b"])
 def test_a_node_with_a_skipped_input_is_skipped_whichever_of_its_inputs_is_blank(blank_into):
     """Whether a node is skipped or uncalled for a blank doesn't hang on the order of its parameters: a skip wins."""
-    @node("nothing")
+    @node("nothing", title="Nothing", description="")
     def nothing(text: str) -> str | None:
         return None
 
@@ -301,7 +301,7 @@ def test_a_node_with_a_skipped_input_is_skipped_whichever_of_its_inputs_is_blank
 
 
 def test_choice_outputs_are_skipped_when_not_called():
-    @node("branched")
+    @node("branched", title="Branched", description="")
     def branched(email: str) -> YesNo:
         return YesNo(email, SKIPPED)
 
@@ -332,7 +332,7 @@ def test_a_series_leaves_blanks_out():
 
 
 def test_a_series_saying_none_keeps_them():
-    @node("keep")
+    @node("keep", title="Keep", description="")
     def keep(values: Series[str | None]) -> int:
         return values.count(None)
 
@@ -341,7 +341,7 @@ def test_a_series_saying_none_keeps_them():
     assert run.results["k"]["result"] == 1
 
 
-@node("zipped")
+@node("zipped", title="Zipped", description="")
 def zipped(a: Series[str], b: Series[str]) -> str:
     return "|".join(x + y for x, y in zip(a, b, strict=True))
 
@@ -362,15 +362,15 @@ def test_a_reader_of_a_blank_chain_is_not_called_either():
 
 
 def test_a_blank_row_leaves_every_series_on_its_index_so_a_zip_stays_paired():
-    @node("blank-some")
+    @node("blank-some", title="Blank some", description="")
     def blank_some(text: str) -> Series[str | None]:
         return [None if x == "_" else x for x in text.split(",")]
 
-    @node("ask")
+    @node("ask", title="Ask", description="")
     def ask(text: str) -> str | None:
         return text + "?"
 
-    @node("paired")
+    @node("paired", title="Paired", description="")
     def paired(a: Series[str], b: Series[str | None]) -> str:
         return str(list(zip(a, b, strict=True)))
 
@@ -389,17 +389,17 @@ THREE_LEVELS = (
 THREE_EDGES = (("docs.result", "paras.text"), ("paras.result", "lines.text"))
 
 
-@node("labelled")
+@node("labelled", title="Labelled", description="")
 def labelled(label: str, texts: Series[str]) -> str:
     return f"{label}={','.join(texts)}"
 
 
-@node("labelled-table")
+@node("labelled-table", title="Labelled table", description="")
 def labelled_table(label: str, table: Table) -> str:
     return f"{label}={','.join(table['result'].to_list())}"
 
 
-@node("two-columns")
+@node("two-columns", title="Two columns", description="")
 def two_columns(a: Series[str], b: Series[str]) -> str:
     return f"{','.join(a)}+{','.join(b)}"
 
@@ -413,7 +413,7 @@ def test_each_series_output_makes_rows_on_an_index_of_its_own_and_of_its_own_len
         a: Series[str]
         b: Series[str]
 
-    @node("uneven")
+    @node("uneven", title="Uneven", description="")
     def uneven(text: str) -> Both:
         return Both(a=["x"], b=("y", "z"))  # any sequence will do
 
@@ -427,11 +427,11 @@ def test_each_series_output_makes_rows_on_an_index_of_its_own_and_of_its_own_len
 def test_a_node_receives_a_plain_list_and_may_return_any_sequence():
     seen = []
 
-    @node("tuple-split")
+    @node("tuple-split", title="Tuple split", description="")
     def tuple_split(text: str) -> Series[str]:
         return tuple(text.split(","))
 
-    @node("collect")
+    @node("collect", title="Collect", description="")
     def collect(parts: Series[str]) -> str:
         seen.append(type(parts))
         return "+".join(parts)
@@ -462,7 +462,7 @@ def test_one_once_value_into_a_series_input_is_a_list_of_one():
 
 
 def test_a_series_input_with_a_typed_in_list_or_its_default_gets_it_whole_once():
-    @node("join-or-nothing")
+    @node("join-or-nothing", title="Join or nothing", description="")
     def join_or_nothing(texts: Series[str] = ()) -> str:
         return "+".join(texts) or "nothing"
 
@@ -473,7 +473,7 @@ def test_a_series_input_with_a_typed_in_list_or_its_default_gets_it_whole_once()
 
 
 def test_a_closed_list_input_is_one_value_with_its_list_and_with_its_default():
-    @node("tags")
+    @node("tags", title="Tags", description="")
     def tags(tags: list[str] = ["x"]) -> str:  # noqa: B006
         return "|".join(tags)
 
@@ -483,7 +483,7 @@ def test_a_closed_list_input_is_one_value_with_its_list_and_with_its_default():
 
 
 def test_a_one_value_input_on_a_node_and_a_deep_column_run_the_node_per_row_of_the_node_input():
-    @node("deep")
+    @node("deep", title="Deep", description="")
     def deep(doc: str, lines: Series[str]) -> str:
         return f"{doc}:{len(lines)}"
 
@@ -519,7 +519,7 @@ def test_a_document_with_no_paragraphs_runs_with_an_empty_series():
 
 
 def test_a_gather_on_a_node_put_on_a_row_reads_only_the_rows_under_it_from_several_sources():
-    @node("joined-at-row")
+    @node("joined-at-row", title="Joined at row", description="")
     def joined_at_row(items: Series[str], at: str) -> str:
         return f"{at}:{'+'.join(items)}"
 
@@ -531,7 +531,7 @@ def test_a_gather_on_a_node_put_on_a_row_reads_only_the_rows_under_it_from_sever
 
 
 def test_a_gather_of_a_source_on_the_nodes_own_row_is_a_list_of_one():
-    @node("joined-at-row")
+    @node("joined-at-row", title="Joined at row", description="")
     def joined_at_row(items: Series[str], at: str) -> str:
         return f"{at}:{'+'.join(items)}"
 
@@ -541,7 +541,7 @@ def test_a_gather_of_a_source_on_the_nodes_own_row_is_a_list_of_one():
 
 
 def test_a_gather_reading_rows_that_are_not_under_the_nodes_row_is_refused():
-    @node("joined-at-row")
+    @node("joined-at-row", title="Joined at row", description="")
     def joined_at_row(items: Series[str], at: str) -> str:
         return at
 
@@ -568,12 +568,12 @@ def test_a_reduction_of_a_sibling_table_lands_beside_each_row_of_the_other_throu
         invoices: Series[str]
         keywords: Series[str]
 
-    @node("parts")
+    @node("parts", title="Parts", description="")
     def parts(text: str) -> Parts:
         head, _, tail = text.partition(":")
         return Parts(head.split(","), tail.split(","))
 
-    @node("beside")
+    @node("beside", title="Beside", description="")
     def beside(invoice: str, keywords: Series[str]) -> str:
         return f"{invoice}[{'/'.join(keywords)}]"
 
@@ -591,7 +591,7 @@ def test_a_reduction_of_a_sibling_table_lands_beside_each_row_of_the_other_throu
 
 
 def test_an_unconnected_series_input_takes_its_default():
-    @node("join-or-nothing")
+    @node("join-or-nothing", title="Join or nothing", description="")
     def join_or_nothing(texts: Series[str] = ()) -> str:
         return "+".join(texts)
 
@@ -621,7 +621,7 @@ def test_a_skipped_once_value_skips_what_hangs_off_it():
 
 
 def test_a_failing_node_on_the_branch_not_taken_never_runs():
-    @node("always-fail")
+    @node("always-fail", title="Always fail", description="")
     def always_fail(text: str) -> str:
         raise ValueError("never")
 
@@ -667,7 +667,7 @@ def sheet(run: Any, node_id: str = "x") -> Any:
 def test_a_table_wired_alone_into_a_table_input_reaches_the_node_as_that_table():
     seen = []
 
-    @node("hold")
+    @node("hold", title="Hold", description="")
     def hold(table: Table) -> Table:
         seen.append(table)
         return table
@@ -689,7 +689,7 @@ def test_a_table_and_a_column_of_it_wired_beside_it_are_one_table_with_no_column
 
 
 def test_a_node_filtering_every_row_away_returns_a_table_of_no_rows():
-    @node("none-left")
+    @node("none-left", title="None left", description="")
     def none_left(table: Table) -> Table:
         return table.filter(pl.lit(False))
 
@@ -698,7 +698,7 @@ def test_a_node_filtering_every_row_away_returns_a_table_of_no_rows():
 
 
 def test_a_filter_is_followed_by_a_per_row_node_on_its_columns_and_both_combine():
-    @node("with-email")
+    @node("with-email", title="With email", description="")
     def with_email(table: Table[Contact]) -> Table[Contact]:
         return table.filter(pl.col("email").is_not_null())
 
@@ -709,11 +709,11 @@ def test_a_filter_is_followed_by_a_per_row_node_on_its_columns_and_both_combine(
 
 
 def test_after_a_sort_and_a_column_choice_a_per_row_node_runs_in_the_new_order_and_a_blank_is_not_called():
-    @node("sort")
+    @node("sort", title="Sort", description="")
     def sort(table: Table) -> Table:
         return table.sort("name", descending=True)
 
-    @node("choose")
+    @node("choose", title="Choose", description="")
     def choose(table: Table, keep: str) -> Table:
         return table.select(keep.split(","))
 
@@ -827,7 +827,7 @@ def test_a_bare_table_offers_no_columns():
 # -- branches ----------------------------------------------------------------------------------
 
 
-@node("parity")
+@node("parity", title="Parity", description="")
 def parity(n: str) -> YesNo:
     return YesNo(n, SKIPPED) if int(n) % 2 == 0 else YesNo(SKIPPED, n)
 
@@ -859,7 +859,7 @@ def test_a_row_skipped_on_one_series_leaves_every_series_on_that_table():
 
 def embedded(node_id: str, *nodes: dict[str, Any], edges: tuple[tuple[str, str], ...] = ()) -> Any:
     """A graph of ``nodes`` as one node ``node_id``: its inputs are the open inputs of its first nodes."""
-    return node(node_id)(GraphRecord.model_validate({"nodes": [{"node": n["id"], **n} for n in nodes], "edges": [list(e) for e in edges]}))
+    return node(node_id, title=node_id.replace("-", " ").replace("_", " ").strip().capitalize(), description="")(GraphRecord.model_validate({"nodes": [{"node": n["id"], **n} for n in nodes], "edges": [list(e) for e in edges]}))
 
 
 def test_a_table_made_inside_per_outer_row_is_a_child_of_that_row_fed_or_not():
@@ -889,7 +889,7 @@ def test_an_inner_table_no_entering_edge_reaches_read_beside_an_entering_value_i
 def test_rows_not_related_inside_an_embedding_names_no_inner_id():
     """``x`` gathers the whole outer column and makes its own rows; ``p`` reads one of them beside each outer row."""
 
-    @node("each")
+    @node("each", title="Each", description="")
     def each(texts: Series[str]) -> Series[str]:
         return texts
 
@@ -901,7 +901,7 @@ def test_rows_not_related_inside_an_embedding_names_no_inner_id():
 
 
 def test_inputs_from_a_table_and_its_child_table_run_the_inner_nodes_on_the_deeper_rows():
-    @node("shout")
+    @node("shout", title="Shout", description="")
     def shout(word: str) -> str:
         return word.upper()
 
@@ -939,11 +939,11 @@ def test_two_unrelated_tables_out_of_one_embedding_are_refused_where_they_meet()
     class Right:
         b: Series[str]
 
-    @node("left")
+    @node("left", title="Left", description="")
     def left() -> Left:
         return Left(["x", "y"])
 
-    @node("right")
+    @node("right", title="Right", description="")
     def right() -> Right:
         return Right(["p", "q"])
 
@@ -953,7 +953,7 @@ def test_two_unrelated_tables_out_of_one_embedding_are_refused_where_they_meet()
 
 
 def test_a_table_input_from_rows_the_node_does_not_sit_on_is_refused_flat_and_embedded():
-    @node("merged-at-row")
+    @node("merged-at-row", title="Merged at row", description="")
     def merged_at_row(table: Table, at: str) -> str:
         return at
 
@@ -967,7 +967,7 @@ def test_a_table_input_from_rows_the_node_does_not_sit_on_is_refused_flat_and_em
 
 
 def test_a_gather_inside_a_per_row_graph_reads_only_its_own_rows_from_several_sources():
-    @node("shout")
+    @node("shout", title="Shout", description="")
     def shout(word: str) -> str:
         return word.upper()
 
@@ -1011,7 +1011,7 @@ def test_rows_made_inside_an_embedding_are_named_by_the_output_it_offers_on_them
 
 
 def test_a_table_inputs_columns_are_named_the_same_embedded_as_alone():
-    @node("columns")
+    @node("columns", title="Columns", description="")
     def columns(table: Table) -> str:
         return ",".join(table.columns)
 
@@ -1031,7 +1031,7 @@ def test_a_table_input_inside_an_embedded_graph_combines_its_inner_sources():
 
 
 def test_inside_an_embedding_a_rebuilt_table_and_a_column_made_per_row_of_it_combine():
-    @node("rebuild")
+    @node("rebuild", title="Rebuild", description="")
     def rebuild(table: Table) -> Table[Contact]:
         return table.filter(pl.col("email").is_not_null())
 
@@ -1079,7 +1079,7 @@ def test_a_reduction_waits_for_the_unit_above_its_group_before_it_runs_on_nothin
 
     release = threading.Event()
 
-    @node("held", policy=Policy(concurrency=2))
+    @node("held", title="Held", description="", policy=Policy(concurrency=2))
     def held(text: str) -> YesNo:
         release.wait(5)
         return YesNo(SKIPPED, text) if "no" in text else YesNo(text, SKIPPED)
@@ -1104,7 +1104,7 @@ def test_a_document_skipped_above_its_table_is_not_totalled_and_the_others_still
 
 
 def test_skipped_inside_a_returned_list_leaves_gaps_on_those_rows_through_json():
-    @node("sparse")
+    @node("sparse", title="Sparse", description="")
     def sparse() -> Series[str]:
         return ["a", SKIPPED, "c"]
 
@@ -1137,12 +1137,12 @@ class Scored(TypedDict):
     score: float
 
 
-@node("names-in")
+@node("names-in", title="Names in", description="")
 def names_in(table: Table[Names]) -> str:
     return ",".join(table.columns)
 
 
-@node("scored-in")
+@node("scored-in", title="Scored in", description="")
 def scored_in(table: Table[Scored]) -> Table[Scored]:
     return table
 
@@ -1192,7 +1192,7 @@ def test_a_decision_over_a_whole_column_gates_what_hangs_off_the_branch_not_take
         full: Annotated[Series[str], Param(exclusive_group="d")]
         empty: Annotated[Series[str], Param(exclusive_group="d")]
 
-    @node("decide-list")
+    @node("decide-list", title="Decide list", description="")
     def decide_list(texts: Series[str]) -> Decided:
         return Decided(full=list(texts), empty=SKIPPED) if texts else Decided(full=SKIPPED, empty=[])
 
@@ -1297,19 +1297,19 @@ class BigOrSmall:
     small: Annotated[Table[Line], Param(exclusive_group="size")]
 
 
-@node("sort-out")
+@node("sort-out", title="Sort out", description="A table of the text's words, as ``big`` when there are more than two, else ``small``.")
 def sort_out(text: str) -> BigOrSmall:
     """A table of the text's words, as ``big`` when there are more than two, else ``small``."""
     words = pl.DataFrame({"text": text.split()})
     return BigOrSmall(words, SKIPPED) if words.height > 2 else BigOrSmall(SKIPPED, words)
 
 
-@node("words")
+@node("words", title="Words", description="")
 def words(table: Table[Line]) -> str:
     return "-".join(table["text"])
 
 
-@node("lines-of")
+@node("lines-of", title="Lines of", description="")
 def lines_of(text: str) -> Table[Line]:
     return pl.DataFrame({"text": [text.upper()]})
 
@@ -1343,11 +1343,11 @@ def test_tables_hanging_off_two_branches_into_one_table_input_are_the_branch_tha
 
 
 def test_a_table_never_made_on_the_branch_that_ran_is_a_blank_as_it_is_from_one_maker():
-    @node("nothing")
+    @node("nothing", title="Nothing", description="")
     def nothing(text: str) -> str | None:
         return None
 
-    @node("lines-with")
+    @node("lines-with", title="Lines with", description="")
     def lines_with(text: str, extra: str) -> Table[Line]:
         return pl.DataFrame({"text": [text]})
 
@@ -1371,12 +1371,12 @@ def test_whole_tables_that_can_both_hold_rows_into_one_table_input_are_still_row
 # -- lists typed in ----------------------------------------------------------------------------
 
 
-@node("ask-each")
+@node("ask-each", title="Ask each", description="")
 def ask_each(doc: str, question: str) -> str:
     return f"{doc}?{question}"
 
 
-@node("answer")
+@node("answer", title="Answer", description="")
 def answer(doc: str, question: str) -> bool:
     raise Ask(f"{doc}: {question}")
 
@@ -1472,7 +1472,7 @@ def test_an_empty_table_above_a_typed_list_and_two_more_levels_ends_cleanly():
 def test_a_typed_in_value_is_received_once_and_a_typed_in_list_once_per_item():
     calls: list[str] = []
 
-    @node("note")
+    @node("note", title="Note", description="")
     def note(text: str, tag: str) -> str:
         calls.append(f"{tag}:{text}")
         return text
@@ -1487,7 +1487,7 @@ def test_two_series_outputs_of_one_node_and_two_children_of_one_parent_do_not_li
         a: Series[str]
         b: Series[str]
 
-    @node("two")
+    @node("two", title="Two", description="")
     def two(text: str) -> Two:
         return Two([text], [text])
 
@@ -1509,12 +1509,12 @@ def _streamed(run: Any) -> list[Any]:
     return asyncio.run(collect())
 
 
-@node("ask-ok")
+@node("ask-ok", title="Ask ok", description="")
 def ask_ok(text: str) -> bool:
     raise Ask(f"OK {text}?")
 
 
-@node("fails")
+@node("fails", title="Fails", description="")
 def fails(text: str) -> str:
     raise ValueError("inner trouble")
 
@@ -1598,12 +1598,12 @@ class Priced(TypedDict):
     price: Comma
 
 
-@node("describe-dated")
+@node("describe-dated", title="Describe dated", description="")
 def describe_dated(rows: Table[Dated]) -> str:
     return f"{rows.columns}:{rows['when'].to_list()}"
 
 
-@node("total-price")
+@node("total-price", title="Total price", description="")
 def total_price(rows: Table[Priced]) -> float:
     return float(rows["price"].sum())
 
@@ -1673,7 +1673,7 @@ def test_each_input_in_describe_says_how_it_receives_on_each_row_its_node_runs_o
 
 def test_alternatives_on_rows_of_different_tables_into_one_value_are_a_problem_never_a_value_lost():
     """``d.yes`` split into words and ``d.no`` as it is: a document that went ``no`` has no word rows to put its value on."""
-    @node("words-of")
+    @node("words-of", title="Words of", description="")
     def words_of(text: str) -> Series[str]:
         return text.split("+")
 
@@ -1683,7 +1683,7 @@ def test_alternatives_on_rows_of_different_tables_into_one_value_are_a_problem_n
 
 
 def test_a_node_filling_two_outputs_of_one_exclusive_group_fails_as_invalid_output():
-    @node("both")
+    @node("both", title="Both", description="")
     def both(text: str) -> YesNo:
         return YesNo(text, text)
 
@@ -1695,7 +1695,7 @@ def test_a_node_filling_two_outputs_of_one_exclusive_group_fails_as_invalid_outp
 def test_the_row_ceiling_counts_a_typed_list_s_rows_under_every_row_it_goes_under_before_any_call():
     calls: list[str] = []
 
-    @node("ask-each-counted")
+    @node("ask-each-counted", title="Ask each counted", description="")
     def ask_each_counted(doc: str, question: str) -> str:
         calls.append(question)
         return question
@@ -1713,7 +1713,7 @@ def test_the_row_ceiling_counts_a_typed_list_s_rows_under_every_row_it_goes_unde
 def test_the_row_ceiling_stops_a_leg_whose_rows_wait_for_a_thread_and_resuming_calls_each_row_once():
     calls: list[str] = []
 
-    @node("explode", policy=Policy(concurrency=2))
+    @node("explode", title="Explode", description="", policy=Policy(concurrency=2))
     def explode(letter: str) -> Series[str]:
         calls.append(letter)
         return [letter + str(i) for i in range(10)]
@@ -1732,11 +1732,11 @@ def test_a_sibling_gather_says_it_gathers_under_the_row_the_two_share():
         invoices: Series[str]
         keywords: Series[str]
 
-    @node("parts")
+    @node("parts", title="Parts", description="")
     def parts(text: str) -> Parts:
         return Parts([text], [text])
 
-    @node("beside")
+    @node("beside", title="Beside", description="")
     def beside(invoice: str, keywords: Series[str]) -> str:
         return invoice
 
@@ -1754,27 +1754,27 @@ def test_a_sibling_gather_says_it_gathers_under_the_row_the_two_share():
 def test_a_gather_over_rows_a_blank_kept_from_being_made_is_not_called_and_is_not_zero_rows():
     """A document that couldn't be read is not an empty document: its count is not made, and ``not_called`` says which input."""
 
-    @node("docs")
+    @node("docs", title="Docs", description="")
     def docs(text: str) -> Series[str | None]:
         return [None if x == "-" else x for x in text.split(";")]
 
-    @node("lines")
+    @node("lines", title="Lines", description="")
     def lines(text: str) -> Series[str]:
         return [x for x in text.split(",") if x]
 
-    @node("count")
+    @node("count", title="Count", description="")
     def count(items: Series[str]) -> int:
         return len(items)
 
-    @node("width")
+    @node("width", title="Width", description="")
     def width(table: Table) -> int:
         return table.width
 
-    @node("as_table")
+    @node("as_table", title="As table", description="")
     def as_table(text: str) -> Table:
         return pl.DataFrame({"part": text.split(",")})
 
-    @node("total")
+    @node("total", title="Total", description="")
     def total(ns: Series[int]) -> int:
         return sum(ns)
 
@@ -1794,7 +1794,7 @@ def test_a_gather_over_rows_a_blank_kept_from_being_made_is_not_called_and_is_no
 def test_a_polars_series_returned_for_a_series_output_is_its_values():
     import polars as pl
 
-    @node("lengths")
+    @node("lengths", title="Lengths", description="")
     def lengths(text: str) -> Series[int]:
         return pl.Series([len(word) for word in text.split()])
 
@@ -1802,23 +1802,23 @@ def test_a_polars_series_returned_for_a_series_output_is_its_values():
 
 
 def test_an_embedding_with_outputs_on_two_grains_runs_where_its_outermost_output_is_made():
-    @node("names")
+    @node("names", title="Names", description="")
     def names(text: str) -> Series[str]:
         return text.split()
 
-    @node("case")
+    @node("case", title="Case", description="")
     def case(value: str) -> str:
         return value
 
-    @node("greet")
+    @node("greet", title="Greet", description="")
     def greet(name: str, case: str) -> str:
         return f"{name} {case}"
 
-    @node("shout")
+    @node("shout", title="Shout", description="")
     def shout(text: str) -> str:
         return text.upper()
 
-    @node("count")
+    @node("count", title="Count", description="")
     def count(texts: Series[str]) -> int:
         return len(texts)
 
@@ -1828,7 +1828,7 @@ def test_an_embedding_with_outputs_on_two_grains_runs_where_its_outermost_output
         values={"names.text": "Ida Bo"},
     )
     registry = registry_of(split, names, case, greet, count, shout)
-    registry.add(node("inner")(inner))
+    registry.add(node("inner", title="Inner", description="")(inner))
     graph = registry.load(make_graph(split, registry["inner"], edges=[("split.result", "inner.value")], values={"split.text": "A-1,B-2"}))
     assert graph.plan["inner"].table == "split.result"
     assert graph.run().results["inner"]["count/result"] == [2, 2]
@@ -1837,11 +1837,11 @@ def test_an_embedding_with_outputs_on_two_grains_runs_where_its_outermost_output
 def test_an_embedded_graph_fed_per_outer_row_runs_per_row_and_alone_takes_a_list_from_its_caller():
     """A list from the caller is rows; fed by an outer edge per row, the inner input takes one value per row."""
 
-    @node("read")
+    @node("read", title="Read", description="")
     def read(file: str) -> str:
         return file.upper()
 
-    inner = node("each")(GraphRecord(nodes=[NodeRecord(id="r", node="read")]))
+    inner = node("each", title="Each", description="")(GraphRecord(nodes=[NodeRecord(id="r", node="read")]))
     registry = registry_of(split, read, inner)
     wired = ran({"id": "s", "node": "split"}, {"id": "e", "node": "each"}, edges=(("s.result", "e.file"),), registry=registry, text="x,y")
     assert wired.results["e"]["result"] == ["X", "Y"]
@@ -1859,12 +1859,12 @@ def test_two_decisions_inside_one_embedding_are_two_exclusive_groups():
     assert loaded.run({"e.d1/text": "yes", "e.d2/text": "yes"}).outputs == {"e.d1/yes": "yes", "e.d1/no": None, "e.d2/yes": "yes", "e.d2/no": None}
 
 
-@node("each")
+@node("each", title="Each", description="")
 def each(texts: Series[str]) -> Series[str]:
     return texts
 
 
-@node("both")
+@node("both", title="Both", description="")
 def both(a: Series[str], b: Series[str]) -> str:
     return f"{'+'.join(a)}|{'+'.join(b)}"
 

@@ -28,41 +28,41 @@ def wait_for_the_gate() -> None:
     raise AssertionError("the test never opened the gate")
 
 
-@served.node("gate")
+@served.node("gate", title="Gate", description="")
 def gate() -> float:
     called("gate")
     wait_for_the_gate()
     return 1.0
 
 
-@served.node("ask")
+@served.node("ask", title="Ask", description="")
 def ask(value: float) -> bool:
     raise Ask("Approve?")
 
 
-@served.node("greet")
+@served.node("greet", title="Greet", description="")
 def greet(name: str) -> str:
     return f"hi {name}"
 
 
-@served.node("rows")
+@served.node("rows", title="Rows", description="")
 def rows(n: int) -> Series[int]:
     return list(range(n))
 
 
-@served.node("work")
+@served.node("work", title="Work", description="")
 def work(i: int) -> int:
     called(f"work {i}")
     time.sleep(0.02)
     return i
 
 
-@served.node("approve_each")
+@served.node("approve_each", title="Approve each", description="")
 def approve_each(i: int) -> bool:
     raise Ask(f"Approve {i}?")
 
 
-@served.node("after")
+@served.node("after", title="After", description="")
 def after(approved: bool) -> bool:
     called("after")
     wait_for_the_gate()
@@ -74,6 +74,6 @@ class Missing:
     """A value no ``from_run`` gives."""
 
 
-@served.node("needs_missing")
+@served.node("needs_missing", title="Needs missing", description="")
 def needs_missing(value: FromRun[Missing]) -> str:
     return ""
