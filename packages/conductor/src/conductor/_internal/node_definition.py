@@ -696,6 +696,15 @@ def _declared_default(declared: dataclasses.Field[Any]) -> Any:
     return REQUIRED
 
 
+def declared_inputs(definition: NodeDefinition) -> Mapping[str, Field]:
+    """The inputs a version declares; a stored graph declares none of its own, its fields being known only when a graph using it loads."""
+    match definition:
+        case FunctionDefinition():
+            return definition.inputs
+        case GraphDefinition():
+            return {}
+
+
 def read_by_hooks(definition: FunctionDefinition[..., Any]) -> frozenset[str]:
     """The inputs a node's hooks read as values: fixed when the graph loads, so never open to a caller."""
     return frozenset(name for parameters in definition.hook_parameters.values() for name, receives in parameters.items() if receives == "value")

@@ -54,6 +54,7 @@ from conductor._internal.node_definition import (
     NodeDefinition,
     NodeDescription,
     StoredGraphDescription,
+    declared_inputs,
     node,
 )
 from conductor._internal.record import GraphRecord, NodeRecord, as_record, typed_in
@@ -315,7 +316,7 @@ class NodeRegistry:
                     raise InvalidCallError(faults)
                 defaults = {name: value for name, value in rewritten.items() if name in defaults and name not in values}
                 values = {name: value for name, value in rewritten.items() if name not in defaults}
-            gone = {f"{node_id}.{name}" for name in _input_names(older) - _input_names(step) - upgrade.renamed_inputs.keys()}
+            gone = {f"{node_id}.{name}" for name in declared_inputs(older).keys() - declared_inputs(step).keys() - upgrade.renamed_inputs.keys()}
             edges = [
                 (_renamed_on(source, node_id, upgrade.renamed_outputs), _renamed_on(target_, node_id, upgrade.renamed_inputs))
                 for source, target_ in edges
@@ -381,15 +382,6 @@ def _where_declared(definition: NodeDefinition) -> str:
             return f"{function.__module__}.{function.__qualname__}"
         case GraphDefinition():
             return f"a node that is a graph, titled {definition.title!r} (versions {', '.join(map(str, definition.versions))})"
-
-
-def _input_names(definition: NodeDefinition) -> frozenset[str]:
-    """The inputs a version declares by name; a stored graph declares none of its own."""
-    match definition:
-        case FunctionDefinition():
-            return frozenset(definition.inputs)
-        case GraphDefinition():
-            return frozenset()
 
 
 def _types_declared_by(definitions: Iterable[NodeDefinition]) -> list[type]:

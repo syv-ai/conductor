@@ -57,6 +57,7 @@ from conductor._internal.node_definition import (
     FunctionDefinition,
     GraphDefinition,
     NodeDefinition,
+    declared_inputs,
     read_by_hooks,
 )
 from conductor._internal.record import GraphRecord, NodeRecord, typed_in
@@ -164,7 +165,7 @@ def _upgrade_problems(older: NodeDefinition, registry: NodeRegistry, given: Sequ
     if given:
         values = dict(given[0])
     else:
-        values = {name: made for name, spec in _inputs_of(older).items() if (made := _made_up(spec)) is not _CANNOT}
+        values = {name: made for name, spec in declared_inputs(older).items() if (made := _made_up(spec)) is not _CANNOT}
     newest = registry[older.id].version
     try:
         placed = _one_node_graph(older, values)
@@ -179,15 +180,6 @@ def _upgrade_problems(older: NodeDefinition, registry: NodeRegistry, given: Sequ
         return []
     said = "; ".join(f"{p.type}: {p.msg}" for p in problems)
     return [_problem("upgrade_broken", (older.id, older.version), f"after moving to version {newest}: {said}", **_causes(problems))]
-
-
-def _inputs_of(version: NodeDefinition) -> Mapping[str, Field]:
-    """The inputs a version declares; a stored graph's are known only when a graph using it loads."""
-    match version:
-        case FunctionDefinition():
-            return version.inputs
-        case GraphDefinition():
-            return {}
 
 
 def _run_problems(version: NodeDefinition, registry: NodeRegistry, example: _Example, from_run: Mapping[type, Any]) -> list[Problem]:
