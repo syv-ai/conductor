@@ -207,6 +207,23 @@ def test_collect_refuses_a_column_wired_from_another_series_than_its_records_nam
     assert "'word' holds 2 values" in cause.msg and f"{people} record" in cause.msg and "once per record" in cause.msg
 
 
+def test_collect_says_where_a_value_made_once_goes_when_it_is_wired_as_a_column_per_record():
+    @_node("two-people")
+    def two_people() -> Table[Contact]:
+        return pl.DataFrame({"name": ["Ida", "Bo"], "email": [None, None]}, schema={"name": pl.String, "email": pl.String})
+
+    held = NodeRegistry()
+    held.add_subregistry(REGISTRY)
+    held.add(two_people)
+    graph = held.load(make_graph(two_people, tables.split, sentence, tables.collect, edges=[
+        ("two-people.result", "split.value"), ("split.result", "table-collect.records"), ("sentence.result", "table-collect.team"),
+    ], values={"table-collect.columns": ["team"]}))
+    assert graph.problems == []
+    cause = graph.run().state.cause
+    assert (cause.type, cause.ctx["values"]) == ("columns_not_aligned", 1)
+    assert "holds 1 value for" in cause.msg and "a value made once goes in 'constant_columns'" in cause.msg
+
+
 def test_collect_of_no_records_is_a_table_with_every_column_and_no_lines():
     graph = load(nobody, sentence, tables.collect, header, edges=[
         ("nobody.result", "table-collect.records"), ("sentence.result", "table-collect.team"), ("table-collect.result", "header.table"),
