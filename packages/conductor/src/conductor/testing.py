@@ -52,8 +52,9 @@ import polars as pl
 
 from conductor._internal import kit_problem
 from conductor._internal.fields import REQUIRED, Field, FieldValueError, Param
-from conductor._internal.graph import load_graph
+from conductor._internal.graph import Graph
 from conductor._internal.graph_record import GraphRecord, NodeRecord, typed_in
+from conductor._internal.loaded_graph import load_graph
 from conductor._internal.node_definition import (
     FunctionDefinition,
     GraphDefinition,
@@ -61,12 +62,9 @@ from conductor._internal.node_definition import (
     declared_inputs,
     read_by_hooks,
 )
-from conductor._internal.problem import (
-    InvalidCallError,
-    Problem,
-)
+from conductor._internal.problem import InvalidCallError, Problem
 from conductor._internal.registry import NodeRegistry
-from conductor._internal.run import EndedEarly
+from conductor._internal.run_status import EndedEarly
 
 #: One call's inputs, by name.
 _Example = Mapping[str, Any]
@@ -191,7 +189,7 @@ def _run_problems(version: NodeDefinition, registry: NodeRegistry, example: _Exa
         placed = _one_node_graph(version, dict(example))
     except InvalidCallError as refused:
         return _not_loaded(version, refused.errors())
-    graph = load_graph(placed, definitions)
+    graph = load_graph(placed, definitions, Graph)
     if graph.problems:
         return _not_loaded(version, graph.problems)
     try:

@@ -268,4 +268,4 @@ print(Settings.model_json_schema()["properties"]["temperature"])  # {'default': 
 
 ## Where to start reading
 
-Start at `packages/conductor/src/conductor/__init__.py`, then read `_internal/` from `fields` up through `record`, `input_plans`, `graph`, `units`, `call_inputs`, `run` and `leg`. The providers' `router.py` and `store.py` come after, and `conductor-nodes` last.
+Start at `packages/conductor/src/conductor/__init__.py`, then read `_internal/` from `fields` up through `graph_record`, `loaded_graph` (`input_plans`, then `tree`), `units`, `saved_run`, `leg`, `run` (`call_inputs`, then `type`) and `graph`. The providers' `router.py` and `store.py` come after, and `conductor-nodes` last.

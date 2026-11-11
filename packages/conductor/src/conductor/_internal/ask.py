@@ -34,7 +34,7 @@ from conductor._internal.fields import (
 )
 
 if TYPE_CHECKING:
-    from conductor._internal.graph import PlacedFunction
+    from conductor._internal.loaded_graph import PlacedFunction
 
 
 class Ask(BaseException):

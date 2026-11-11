@@ -26,8 +26,9 @@ from conductor._internal.fields import (
     Series,
     Table,
 )
-from conductor._internal.graph import Feed, Graph, GraphDescription, GraphInput, RunsOn
+from conductor._internal.graph import Graph
 from conductor._internal.graph_record import GraphRecord, NodeRecord
+from conductor._internal.loaded_graph import Feed, GraphDescription, GraphInput, RunsOn
 from conductor._internal.make_graph import make_graph
 from conductor._internal.node_definition import (
     Deprecation,
@@ -53,7 +54,8 @@ from conductor._internal.problem import (
     ProblemKind,
 )
 from conductor._internal.registry import NodeRegistry, RegistryDescription, TypeDescription
-from conductor._internal.run import EndedEarly, Going, NotCalled, Run, RunState, RunStatus
+from conductor._internal.run import NotCalled, Run
+from conductor._internal.run_status import EndedEarly, Going, RunState, RunStatus
 
 # The reference lists these names in this order, so they are kept by subject.
 __all__ = [

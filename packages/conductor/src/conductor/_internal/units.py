@@ -19,14 +19,15 @@ the units too: one for each item of each ``Series`` it runs per item of
 from __future__ import annotations
 
 import enum
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Final, final
 
 from conductor._internal.ask import Question
-from conductor._internal.fields import SKIPPED
+from conductor._internal.fields import SKIPPED, Field
 
 if TYPE_CHECKING:
-    from conductor._internal.graph import Maps
+    from conductor._internal.loaded_graph.tree import Maps
 
 #: The place of an item in each map a node runs in, outermost first; ``()`` for a node that runs once.
 ItemPath = tuple[int, ...]
@@ -127,6 +128,17 @@ Settled = Done | Answered | Skipped | Blank
 
 #: What one node came to in one instance of its scope. A run and its copies share their units, so none is changed.
 Unit = Settled | Asking
+
+def outputs_not_taken(outputs: Mapping[str, Field]) -> dict[str, Any]:
+    """What a ``Skipped`` unit of a node with these outputs holds: ``SKIPPED`` for each."""
+    return dict.fromkeys(outputs, SKIPPED)
+
+
+def outputs_not_called(outputs: Mapping[str, Field]) -> dict[str, Any]:
+    """What a ``Blank`` unit of a node with these outputs holds: a blank for each, and ``SKIPPED`` for an output
+    of an exclusive group, as no branch was chosen."""
+    return {name: SKIPPED if output.param.exclusive_group is not None else None for name, output in outputs.items()}
+
 
 #: Each function's units by item path, by the function's name (``e/ask``).
 Units = dict[str, dict[ItemPath, Unit]]

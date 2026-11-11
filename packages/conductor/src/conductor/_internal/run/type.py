@@ -22,53 +22,48 @@ inside ``e``'s first.
 from __future__ import annotations
 
 import asyncio
-import functools
 import hashlib
-import json
 import math
 import threading
 import time
 from collections.abc import AsyncGenerator, Callable, Iterator, Mapping
-from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import (
-    TYPE_CHECKING,
-    Annotated,
-    Any,
-    ClassVar,
-    Literal,
-    NamedTuple,
-    cast,
-    get_args,
-    overload,
-)
+from typing import TYPE_CHECKING, Any, Literal, cast, overload
 
 import pydantic_core
-from pydantic import ConfigDict, NonNegativeInt, PositiveInt, TypeAdapter, ValidationError
-from pydantic import Field as PydanticField
-from pydantic_core import (
-    CoreConfig,
-    CoreSchema,
-    PydanticCustomError,
-    SchemaSerializer,
-    SchemaValidator,
-    core_schema,
-)
+from pydantic import ValidationError
 
-from conductor._internal.ask import Question, Waiting, answer_outputs, waiting_questions
-from conductor._internal.call_inputs import AnyItemReader, CallInputs, ItemReader
+from conductor._internal.address import (
+    Key,
+    NodePath,
+    Path,
+    _parse_place,
+    path_text,
+)
+from conductor._internal.ask import Waiting, answer_outputs, waiting_questions
+from conductor._internal.canonical_json import canonical_json
 from conductor._internal.conductor_model import ConductorModel
-from conductor._internal.fields import SKIPPED, Field, FieldValueError, Type, written_table
-from conductor._internal.graph import (
+from conductor._internal.earlier_work import Earlier
+from conductor._internal.fields import SKIPPED, Field, FieldValueError, written_table
+from conductor._internal.loaded_graph import (
     FunctionAtPath,
     GraphAtPath,
     NodeAtPath,
-    NodePath,
     PlacedFunction,
     host_reads,
 )
 from conductor._internal.node_definition import Returns, from_run_values
 from conductor._internal.problem import InvalidCallError, Problem, make_problem, value_free_errors
+from conductor._internal.run.call_inputs import AnyItemReader, CallInputs, ItemReader
+from conductor._internal.run_status import _READY, _RUNNING, EndedEarly, Going, RunState, RunStatus
+from conductor._internal.saved_run import (
+    SavedEarlier,
+    SavedRun,
+    SavedUnits,
+    _earlier_columns,
+    _unit_columns,
+    _unwritable_at,
+)
 from conductor._internal.units import (
     NOT_ITS_TURN,
     NOT_SETTLED,
@@ -87,13 +82,6 @@ if TYPE_CHECKING:
     from conductor._internal.graph import Graph
     from conductor._internal.leg import Event, _EventBase
 
-#: An instance of a node: the place of its item in each map the node runs in, outermost first; ``()`` for a node
-#: that runs once.
-Key = tuple[int, ...]
-
-#: Where something is in a run: a node's id, then the place of its item in each of its scope's maps; for what is
-#: inside an embedded graph, the embedding node and its item first, ``("e", 0, "ask", 2)``.
-Path = tuple[str | int, ...]
 
 
 def unit_loc(node: NodeAtPath, key: Key) -> Path:
@@ -111,51 +99,6 @@ def unit_loc(node: NodeAtPath, key: Key) -> Path:
     return (*unit_loc(node.embedding, key[:around]), node.placed.id, *key[around:])
 
 
-def path_text(path: Path) -> str:
-    """A path as a waiting id writes it: each node id, ``@`` before each place of its item, and ``/`` between
-    nodes, ``e@0/ask@2``."""
-    return "".join(f"@{step}" if isinstance(step, int) else f"/{step}" for step in path)[1:]
-
-#: How a run stands while nothing has ended it early: not started, in a leg, waiting for a person, or done.
-GoingStatus = Literal["ready", "running", "complete", "waiting"]
-#: How a leg ended before the run was done: a node failed, a Series outgrew ``max_items``, a cancel, or the deadline.
-EndedStatus = Literal["failed", "stopped", "cancelled", "timed_out"]
-#: How a run stands after a leg.
-RunStatus = GoingStatus | EndedStatus
-
-
-@dataclass(frozen=True, slots=True)
-class Going:
-    """A run nothing has ended early.
-
-    Attributes:
-        status: Not started (``ready``), in a leg (``running``), waiting for a person, or ``complete``.
-    """
-
-    __pydantic_config__: ClassVar[ConfigDict] = ConfigDict(extra="forbid")  # a save that gives it a cause is refused
-    status: GoingStatus
-
-
-@dataclass(frozen=True, slots=True)
-class EndedEarly:
-    """A run whose last leg ended before it was done, and why; ``resume`` goes on from where it stopped.
-
-    Attributes:
-        status: ``failed`` (a node failed), ``stopped`` (a Series outgrew ``max_items``), ``cancelled`` or
-            ``timed_out``.
-        cause: Why, as a problem with its place and code.
-    """
-
-    __pydantic_config__: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
-    status: EndedStatus
-    cause: Problem
-
-
-#: How a run stands: going on, or ended early with a cause.
-RunState = Going | EndedEarly
-
-_READY, _RUNNING, _WAITING, _COMPLETE = Going("ready"), Going("running"), Going("waiting"), Going("complete")
-
 
 #: ``run.answer``'s second argument when it is given a mapping of answers instead.
 _ONE_ANSWER: Any = object()
@@ -172,26 +115,6 @@ class NotCalled(ConductorModel):
 
     loc: Path
     input: str
-
-
-@dataclass(slots=True)
-class Earlier:
-    """The work of one node that a run may take from the run it went on from, in place of calling the node.
-
-    A person's answer, or a question still waiting, is taken once, by the next unit in order that received the
-    same under the same items above it. A node's own result is taken by the unit at the same place when it
-    received the same there, and else by what was received, whichever unit made it.
-
-    Attributes:
-        at: Each result by the instance its unit stood in, with the fingerprint of what it received.
-        computed: A node's results by the fingerprint of what the unit received.
-        asked: A person's answers and the questions still waiting, by the fingerprint of what the unit received and
-            of the items above it, in the order they stood.
-    """
-
-    at: dict[Key, tuple[str, Done]] = field(default_factory=dict[Key, tuple[str, Done]])
-    computed: dict[str, Done] = field(default_factory=dict[str, Done])
-    asked: dict[tuple[str, str], list[Answered | Asking]] = field(default_factory=dict[tuple[str, str], list["Answered | Asking"]])
 
 
 class Run:
@@ -661,11 +584,11 @@ class Run:
 
     def to_json(self) -> str:
         """The run as JSON: its inputs, each node's units as a column per output, and what it went on from."""
-        saved = self._saved()
+        saved, form = self._saved(), self.graph._save_form
         try:
-            return self.graph._save_form.serializer.to_json(saved, exclude_defaults=True).decode()
+            return form.serializer.to_json(saved, exclude_defaults=True).decode()
         except pydantic_core.PydanticSerializationError:
-            at = _unwritable_at(self.graph, saved)
+            at = _unwritable_at(form.inputs, form.outputs, saved)
             raise InvalidCallError([make_problem("state_unwritable", "state", at, at=at, reason="a value has no JSON form")]) from None
 
     def _saved(self) -> SavedRun[SavedUnits, SavedEarlier[SavedUnits]]:
@@ -860,371 +783,6 @@ def _checked(spec: Field, name: str, value: Any, *, code: str) -> Any:
     return read
 
 
-# -- the save -----------------------------------------------------------------------------------
-
-
-#: Every record of a save refuses a key it doesn't declare, and writes a float that isn't finite as its text.
-_SAVED = ConfigDict(extra="forbid", ser_json_inf_nan="strings")
-
-#: What a save says of a unit that holds outputs, and of one that is a branch not taken; a unit with neither
-#: word holds no outputs.
-UnitState = Literal["done", "skipped"]
-_DONE, _SKIPPED = get_args(UnitState)
-
-
-#: The slots of one output whose value is a branch not taken.
-SkippedSlots = list[NonNegativeInt]
-
-#: By slot, the items of a ``Series`` output there that are a branch not taken.
-SkippedItems = dict[NonNegativeInt, list[NonNegativeInt]]
-
-
-@dataclass(slots=True, kw_only=True)
-class SavedUnits:
-    """Units of one node as a save holds them: columns with a slot for each unit. A node's own units have a slot
-    for each instance of the node, in instance order, so an instance is a place in them and is never written.
-
-    The record is what is written and what is read: a key of a save is a field here and nowhere else.
-
-    Attributes:
-        states: What each unit came to; ``None`` for a unit that holds no outputs.
-        outputs: By output, its value in each slot, read and written by the output's own type (the one part
-            composed for each graph); ``None`` where the unit holds none.
-        questions: By slot, the question a unit asked; ``None``, as for each field after it, when there is none,
-            which leaves the key out of the save. On a slot that isn't done the unit waits for a person, so a
-            waiting unit can't be written without its question.
-        blank_inputs: By slot, the input that got a blank, for a unit that wasn't called for it.
-        skipped: By output, the slots whose value is a branch not taken (``SKIPPED``); ``None`` in the column.
-            A graph's form takes it for the node's own outputs only.
-        skipped_items: By output and slot, the items of a ``Series`` there that are a branch not taken; ``None``
-            in the column. A graph's form takes it for the node's ``Series`` outputs only, so an output of one
-            value can't be saved with any.
-    """
-
-    __pydantic_config__: ClassVar[ConfigDict] = _SAVED
-    states: list[UnitState | None]
-    outputs: dict[str, list[Any]]
-    questions: dict[NonNegativeInt, Question] | None = None
-    blank_inputs: dict[NonNegativeInt, str] | None = None
-    skipped: dict[str, SkippedSlots] | None = None
-    skipped_items: dict[str, SkippedItems] | None = None
-
-
-@dataclass(slots=True, kw_only=True)
-class SavedEarlier[UnitsT]:
-    """The work of one node carried from an earlier run, as a save holds it: each carried unit once.
-
-    Attributes:
-        units: The carried units, a slot for each: a ``SavedUnits`` when written, the units it holds when read.
-        fingerprints: For each slot, the fingerprint of what the unit received.
-        places: By slot, the instance a computed unit stood in in the earlier run; ``None``, as for ``lineages``,
-            when there is none, which leaves the key out of the save.
-        lineages: By slot, for an answer or a question still waiting, the fingerprint of the items above it.
-    """
-
-    __pydantic_config__: ClassVar[ConfigDict] = _SAVED
-    units: UnitsT
-    fingerprints: list[str]
-    places: dict[NonNegativeInt, tuple[NonNegativeInt, ...]] | None = None
-    lineages: dict[NonNegativeInt, str] | None = None
-
-
-@dataclass(slots=True, kw_only=True)
-class SavedRun[UnitsT, EarlierT]:
-    """A run as a save holds it. A node is named by its id after the ids of the embedded graphs' nodes it is
-    inside, joined by ``/`` (``e/ask``).
-
-    Attributes:
-        graph: The fingerprint of the run's graph, so a save of another graph is told apart before anything in
-            it is read.
-        state: How the run stands, with its cause when a leg ended early.
-        max_items: The item ceiling the run goes on under.
-        inputs: The caller's inputs by address, each read and written by its field's type.
-        units: By node, the units of each function node that has any: a ``SavedUnits`` when written, the units
-            it holds when read. An embedded graph's node has none of its own.
-        earlier: By node, the work carried from an earlier run and not yet taken: a ``SavedEarlier`` when
-            written, an ``Earlier`` when read.
-        code: By node, the ``reuse_digest`` of the code that made its units and its carried work, so work made
-            by other code is never taken.
-        complete: The nodes every unit of which was finished when the last leg ended.
-    """
-
-    __pydantic_config__: ClassVar[ConfigDict] = _SAVED
-    graph: str
-    state: Annotated[Going | EndedEarly, PydanticField(discriminator="status")]
-    max_items: PositiveInt | None
-    inputs: dict[str, Any]
-    units: dict[str, UnitsT]
-    earlier: dict[str, EarlierT]
-    code: dict[str, str]
-    complete: list[str]
-
-
-#: Each record's own schema, as pydantic makes it from the record: what a save's schema is composed from.
-_UNITS, _EARLIER, _RUN = (TypeAdapter(record).core_schema for record in (SavedUnits, SavedEarlier, SavedRun))
-
-#: The schemas of what ``SavedUnits`` holds for one output beside its column.
-_SKIPPED_SLOTS, _SKIPPED_ITEMS = TypeAdapter(SkippedSlots).core_schema, TypeAdapter(SkippedItems).core_schema
-
-#: The key of a save that names its graph, as ``SavedRun`` declares it.
-_GRAPH = SavedRun.__dataclass_fields__["graph"].name  # a KeyError where this is read, should the field be renamed
-
-
-class SaveForm(NamedTuple):
-    """How the runs of one graph are read from JSON and written as it.
-
-    Attributes:
-        validator: Reads a save into the ``SavedRun`` that ``_run_of`` makes a run of.
-        serializer: Writes the ``SavedRun`` that ``Run._saved`` gives.
-    """
-
-    validator: SchemaValidator
-    serializer: SchemaSerializer
-
-
-def save_form(graph: Graph) -> SaveForm:
-    """Composes how the runs of ``graph`` are read from JSON and written as it.
-
-    What a save holds is declared once, by ``SavedRun``, ``SavedUnits`` and ``SavedEarlier``, and their own
-    schemas are what is written and read by. Only what depends on the graph is put in here: each input's and
-    each output's own type, the nodes a save may name, and the graph's fingerprint. The parts are pydantic's own
-    schemas of those types, put together as core schemas, since generating a model of a whole graph costs more
-    than reading a small run. A graph's form is made the first time a run of it is saved or loaded.
-    """
-    shared: dict[str, CoreSchema] = {}
-    units_record, earlier_record = _inlined(_UNITS, shared), _inlined(_EARLIER, shared)
-    blocks: dict[tuple[tuple[str, Type, bool, bool], ...], tuple[CoreSchema, CoreSchema]] = {}
-    units, earlier = {}, {}
-    for path, placed in graph._functions.items():
-        columns = tuple((name, output.column, output.many, output.param.exclusive_group is not None) for name, output in placed.outputs.items())
-        if columns not in blocks:  # nodes of the same outputs share one schema
-            block = len(blocks)
-            of_block = _with_fields(
-                units_record,
-                outputs=_closed({name: _inlined(column.saved_schema, shared) for name, column, _, _ in columns}),
-                skipped=_closed({}, {name: _SKIPPED_SLOTS for name, _, _, _ in columns}),
-                skipped_items=_closed({}, {name: _SKIPPED_ITEMS for name, _, many, _ in columns if many}),
-            )
-            shared[f"units:{block}"] = core_schema.no_info_after_validator_function(functools.partial(_units_of, placed.outputs_not_taken, placed.outputs_not_called), of_block, ref=f"units:{block}")
-            carried = _with_fields(earlier_record, units=core_schema.definition_reference_schema(f"units:{block}"))
-            shared[f"earlier:{block}"] = core_schema.no_info_after_validator_function(_earlier_of, carried, ref=f"earlier:{block}")
-            blocks[columns] = core_schema.definition_reference_schema(f"units:{block}"), core_schema.definition_reference_schema(f"earlier:{block}")
-        units["/".join(path)], earlier["/".join(path)] = blocks[columns]
-    run = _with_fields(
-        _inlined(_RUN, shared),
-        graph=core_schema.literal_schema([graph.fingerprint]),
-        inputs=_closed({address: _inlined(offered.spec.whole.saved_schema, shared) for address, offered in graph._input_fields.items()}),
-        units=_closed({}, units),
-        earlier=_closed({}, earlier),
-        code=_closed({}, dict.fromkeys(units, core_schema.str_schema())),
-        complete=core_schema.list_schema(core_schema.literal_schema([node.name for node in graph._tree])) if graph._tree else core_schema.list_schema(max_length=0),
-    )
-    schema = core_schema.definitions_schema(core_schema.tagged_union_schema({graph.fingerprint: run}, discriminator=_GRAPH), list(shared.values()))
-    config = CoreConfig(ser_json_inf_nan="strings")
-    return SaveForm(SchemaValidator(schema, config), SchemaSerializer(schema, config))
-
-
-def _with_fields(record: Any, **schemas: CoreSchema) -> CoreSchema:
-    """Gives a record's schema with the schema of each named field replaced by the one composed for a graph.
-
-    Args:
-        record: The schema pydantic made of a record of a save.
-        **schemas: The schema of a field, by the field's name.
-
-    Raises:
-        KeyError: The record declares no field of a name given.
-    """
-    fields = {declared["name"]: declared for declared in record["schema"]["fields"]}
-    for name, schema in schemas.items():
-        declared = fields[name]
-        fields[name] = {**declared, "schema": {**declared["schema"], "schema": schema} if declared["schema"]["type"] == "default" else schema}
-    composed = {**record, "schema": {**record["schema"], "fields": list(fields.values())}}
-    del composed["ref"]  # pydantic's name for the record as declared, which this no longer is
-    return composed  # type: ignore[return-value]  # a dataclass schema, as the record's was
-
-
-def _closed(required: Mapping[str, CoreSchema], optional: Mapping[str, CoreSchema] = MappingProxyType({})) -> CoreSchema:
-    """Gives the schema of an object of exactly these keys, each of ``required`` there: the names a graph gives,
-    of its inputs, its nodes and a node's outputs."""
-    # each field is written out: a graph makes three for every node, and pydantic's own helper costs more than the field
-    fields: dict[str, Any] = {name: {"type": "typed-dict-field", "schema": schema} for name, schema in required.items()}
-    fields.update((name, {"type": "typed-dict-field", "schema": schema, "required": False}) for name, schema in optional.items())
-    return core_schema.typed_dict_schema(fields, extra_behavior="forbid")
-
-
-def _inlined(schema: CoreSchema, shared: dict[str, CoreSchema]) -> CoreSchema:
-    """Gives ``schema`` as it stands inside another: what pydantic defined beside it (a model met twice, one that
-    holds itself) moves to ``shared``, since one validator takes each definition once."""
-    if schema["type"] != "definitions":
-        return schema
-    shared.update((definition["ref"], definition) for definition in schema["definitions"])  # type: ignore[typeddict-item]  # every definition has its ref
-    return schema["schema"]
-
-
-#: The state a save writes for a unit that holds outputs or is a branch not taken; any other has none.
-_STATE_WORD: Mapping[type, UnitState] = {Done: _DONE, Answered: _DONE, Skipped: _SKIPPED}
-
-#: The kinds of unit that hold outputs.
-_HOLDS_OUTPUTS = frozenset({Done, Answered})
-
-
-def _unit_columns(outputs: Mapping[str, Field], slots: list[Unit | None]) -> SavedUnits:
-    """Gives units as the columns a save holds of them.
-
-    Args:
-        outputs: The outputs of the units' node, by name.
-        slots: The units, in the order of their slots; ``None`` for an instance that hasn't run.
-    """
-    kinds = set(map(type, slots))
-    columns: dict[str, list[Any]] = {}
-    skipped: dict[str, list[int]] = {}
-    skipped_items: dict[str, dict[int, list[int]]] = {}
-    questions: dict[int, Question] | None = None
-    blank_inputs: dict[int, str] | None = None
-    if kinds & _HOLDS_OUTPUTS:
-        every = kinds <= _HOLDS_OUTPUTS  # every unit holds outputs, as those of a node that finished do
-        for name, output in outputs.items():
-            column = [unit.out[name] for unit in slots] if every else [unit.out[name] if type(unit) in _HOLDS_OUTPUTS else None for unit in slots]  # type: ignore[union-attr]
-            columns[name] = column
-            gone = [slot for slot, value in enumerate(column) if value is SKIPPED]
-            if gone:
-                skipped[name] = gone
-                for slot in gone:
-                    column[slot] = None
-            if output.many:
-                for slot, items in enumerate(column):
-                    if type(items) is list and (gaps := [place for place, item in enumerate(items) if item is SKIPPED]):
-                        skipped_items.setdefault(name, {})[slot] = gaps
-                        column[slot] = [None if item is SKIPPED else item for item in items]
-    else:  # no unit holds outputs yet
-        columns = {name: [None] * len(slots) for name in outputs}
-    if Answered in kinds or Asking in kinds:
-        questions = {slot: unit.question for slot, unit in enumerate(slots) if type(unit) is Answered or type(unit) is Asking}  # type: ignore[union-attr]
-    if Blank in kinds:
-        blank_inputs = {slot: unit.input for slot, unit in enumerate(slots) if type(unit) is Blank}  # type: ignore[union-attr]
-    return SavedUnits(
-        states=list(map(_STATE_WORD.get, map(type, slots))), outputs=columns, questions=questions, blank_inputs=blank_inputs,
-        skipped=skipped or None, skipped_items=skipped_items or None,
-    )
-
-
-def _units_of(not_taken: dict[str, Any], not_called: dict[str, Any], saved: SavedUnits) -> list[Unit | None]:
-    """Makes the units a node's saved columns hold, in the order of their slots; ``None`` for an instance that
-    hasn't run.
-
-    Args:
-        not_taken: What a skipped unit of the node holds for its outputs.
-        not_called: What a unit of the node that wasn't called for a blank holds for its outputs.
-        saved: The columns.
-
-    Raises:
-        PydanticCustomError: An output doesn't hold one slot for each state (``slots_differ``); or a skip, a
-            question or a blank input is placed on a slot that can't hold one (``misplaced``).
-    """
-    states, outputs = saved.states, saved.outputs
-    if any(len(column) != len(states) for column in outputs.values()):
-        raise PydanticCustomError("slots_differ", "an output doesn't hold one slot for each state")
-    try:
-        for name, slots in (saved.skipped or {}).items():
-            for slot in slots:
-                outputs[name][slot] = SKIPPED
-        for name, by_slot in (saved.skipped_items or {}).items():
-            for slot, places in by_slot.items():
-                for place in places:
-                    outputs[name][slot][place] = SKIPPED
-        if len(outputs) == 1:  # most nodes have one output
-            ((name, column),) = outputs.items()
-            outs = [{name: value} for value in column]
-        else:
-            names = tuple(outputs)
-            outs = [dict(zip(names, values, strict=True)) for values in zip(*outputs.values(), strict=True)] if outputs else [{} for _ in states]
-        done, skipped = _DONE, _SKIPPED
-        not_taken_unit = Skipped(not_taken)
-        units: list[Unit | None] = [Done(out) if state == done else not_taken_unit if state == skipped else None for state, out in zip(states, outs, strict=True)]
-        for slot, question in (saved.questions or {}).items():
-            units[slot] = Asking(question) if states[slot] is None else Answered(units[slot].out, question)  # type: ignore[union-attr]
-        for slot, blank in (saved.blank_inputs or {}).items():
-            if units[slot] is not None:
-                raise LookupError(slot)
-            units[slot] = Blank(not_called, blank)
-    except (LookupError, TypeError, AttributeError):  # a slot the columns don't have, or one that holds another kind of unit
-        raise PydanticCustomError("misplaced", "a skip, a question or a blank input is placed on a slot that can't hold one") from None
-    return units
-
-
-def _earlier_columns(outputs: Mapping[str, Field], earlier: Earlier) -> SavedEarlier[SavedUnits]:
-    """Gives what a node may take from an earlier run as a save holds it, each unit once: the computed units by
-    the instance they stood in, then the ones only known by what they received, then the answers and the
-    questions still waiting.
-
-    Args:
-        outputs: The node's outputs, by name.
-        earlier: The carried work.
-    """
-    slots: list[Unit | None] = [done for _, done in earlier.at.values()]
-    fingerprints = [fingerprint for fingerprint, _ in earlier.at.values()]
-    places = dict(enumerate(earlier.at))
-    stood = set(fingerprints)  # each of these is one of the units above: the first that received it
-    for fingerprint, done in earlier.computed.items():
-        if fingerprint not in stood:
-            slots.append(done)
-            fingerprints.append(fingerprint)
-    lineages: dict[int, str] = {}
-    for (fingerprint, lineage), asked in earlier.asked.items():
-        for unit in asked:
-            if lineage:
-                lineages[len(slots)] = lineage
-            slots.append(unit)
-            fingerprints.append(fingerprint)
-    return SavedEarlier(units=_unit_columns(outputs, slots), fingerprints=fingerprints, places=places or None, lineages=lineages or None)
-
-
-def _earlier_of(saved: SavedEarlier[list[Unit | None]]) -> Earlier:
-    """Makes the carried work a node's save holds.
-
-    Raises:
-        PydanticCustomError: It doesn't hold one fingerprint for each unit (``slots_differ``), or it carries a
-            unit that was never called (``not_carried``).
-    """
-    if len(saved.fingerprints) != len(saved.units):
-        raise PydanticCustomError("slots_differ", "it doesn't hold one fingerprint for each unit")
-    places, lineages = saved.places or {}, saved.lineages or {}
-    earlier = Earlier()
-    for slot, (fingerprint, unit) in enumerate(zip(saved.fingerprints, saved.units, strict=True)):
-        kind = type(unit)
-        if kind is Done:
-            earlier.computed.setdefault(fingerprint, unit)  # type: ignore[arg-type]
-            if slot in places:
-                earlier.at[places[slot]] = (fingerprint, unit)  # type: ignore[assignment]
-        elif kind is Answered or kind is Asking:
-            earlier.asked.setdefault((fingerprint, lineages.get(slot, "")), []).append(unit)  # type: ignore[arg-type]
-        else:
-            raise PydanticCustomError("not_carried", "it carries a unit that was never called")
-    return earlier
-
-
-def _unwritable_at(graph: Graph, saved: SavedRun[SavedUnits, SavedEarlier[SavedUnits]]) -> str:
-    """Says where a run that pydantic refused to write holds a value with no JSON form: the first input, or
-    output of a node, that isn't written alone either. It is looked for only once the whole save was refused.
-
-    Args:
-        graph: The run's graph.
-        saved: The run as ``Run._saved`` gives it.
-
-    Returns:
-        The input's address, or the node as a save names it and the output (``e/ask.result``).
-    """
-    columns = {address: (graph._input_fields[address].spec.whole, value) for address, value in saved.inputs.items()}
-    by_node = [*saved.units.items(), *((name, carried.units) for name, carried in saved.earlier.items())]
-    for name, units in by_node:
-        outputs = graph._functions[tuple(name.split("/"))].outputs
-        columns.update({f"{name}.{output}": (outputs[output].column, column) for output, column in units.outputs.items()})
-    for at, (written_by, value) in columns.items():
-        try:
-            written_by.adapter.serializer.to_json(value)
-        except pydantic_core.PydanticSerializationError:
-            return at
-    return "the run"
 
 
 def jsonable(kwargs: dict[str, Any]) -> Any:
@@ -1262,17 +820,6 @@ def _fingerprint(digest: str, kwargs: dict[str, Any], *, plain: bool = False) ->
     return hashlib.blake2b(written, digest_size=12).hexdigest()
 
 
-def canonical_json(value: Any, fallback: Callable[[Any], Any] | None = None) -> bytes:
-    """``value`` as JSON to hash, with every object's keys sorted, so a value a JSON store gave back in another key order is written alike.
-
-    Every hash whose keys may come back from a store is written here. A hash of values that hold no mapping (a reuse
-    fingerprint of a node whose inputs can't, a question whose inputs are plain) is their plain JSON, hashed as it
-    is: there are no keys to sort, and those hashes are made on every call.
-    """
-    plain = pydantic_core.to_jsonable_python(value, fallback=fallback)
-    return json.dumps(plain, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
-
-
 def _question_fingerprint(placed: PlacedFunction, unit: Asking) -> str:
     """Eight hex digits of which node asks, as which code, and what it received, so a waiting id stops matching when its place holds another question."""
     inputs = unit.question.inputs
@@ -1282,27 +829,8 @@ def _question_fingerprint(placed: PlacedFunction, unit: Asking) -> str:
     return hashlib.blake2b(written, digest_size=4).hexdigest()
 
 
-def _parse_place(place: str) -> tuple[Path, NodePath, Key]:
-    """The place a waiting id names, ``e@0/ask@2``: as a path, then the ids of its nodes and the places of its
-    items apart, which name the node and its instance.
-
-    Raises:
-        ValueError: A place in it isn't a number.
-    """
-    loc: list[str | int] = []
-    nodes: list[str] = []
-    key: list[int] = []
-    for step in place.split("/"):
-        node_id, *places = step.split("@")
-        nodes.append(node_id)
-        key += [int(i) for i in places]
-        loc += [node_id, *key[len(key) - len(places):]]
-    return tuple(loc), tuple(nodes), tuple(key)
-
-
 def _deadline(timeout: float | None) -> Callable[[], EndedEarly | None] | None:
     if timeout is None:
         return None
     end = time.monotonic() + timeout
     return lambda: EndedEarly("timed_out", make_problem("run_timed_out", timeout=timeout)) if time.monotonic() > end else None
-

@@ -509,7 +509,7 @@ def test_anything_a_node_raises_fails_its_unit_and_the_leg_ends(raised):
 
 
 def test_a_defect_in_the_engine_reaches_the_caller_rather_than_hanging_the_stream(monkeypatch):
-    from conductor._internal.call_inputs import ItemReader
+    from conductor._internal.run.call_inputs import ItemReader
 
     @node("echo", title="Echo", description="")
     def echo(text: str) -> str:

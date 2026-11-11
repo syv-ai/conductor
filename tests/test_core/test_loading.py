@@ -1008,7 +1008,7 @@ def test_a_loaded_graph_is_compiled_once_and_freed_without_the_cycle_collector(m
     import gc
     import weakref
 
-    from conductor._internal import graph as graph_module
+    from conductor._internal.loaded_graph import loader as graph_module
 
     @node("upper", title="Upper", description="")
     def upper(text: str) -> str:

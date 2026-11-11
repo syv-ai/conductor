@@ -37,7 +37,7 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Final, Literal
 
 from conductor._internal.fields import SKIPPED, FieldValueError, Records
-from conductor._internal.input_plans import Cell, Gather, Item, WholeSeries
+from conductor._internal.loaded_graph.input_plans import Cell, Gather, Item, WholeSeries
 from conductor._internal.units import (
     NOT_SETTLED,
     Asking,
@@ -50,7 +50,7 @@ from conductor._internal.units import (
 )
 
 if TYPE_CHECKING:
-    from conductor._internal.graph import FunctionAtPath, NodeAtPath
+    from conductor._internal.loaded_graph.tree import FunctionAtPath, NodeAtPath
 
 #: The arguments of one call of a node, by input name.
 CallInputs = dict[str, Any]

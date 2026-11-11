@@ -15,7 +15,7 @@ cells, so the two can't differ.
 A loaded graph holds the plans of its own nodes, each cell naming a node of
 that graph by id. Where a node stands among the graphs a run is of, its plans
 are written again with every cell naming a function by the name a run keeps
-its units by (``e/ask``): see ``loaded_graph``'s tree.
+its units by (``e/ask``): see ``tree.py``.
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ from conductor._internal.fields import SKIPPED, Field, Type
 from conductor._internal.units import NOT_SETTLED, ItemPath
 
 if TYPE_CHECKING:
-    from conductor._internal.graph import FunctionAtPath
+    from conductor._internal.loaded_graph.tree import FunctionAtPath
 
 
 class Port(NamedTuple):
