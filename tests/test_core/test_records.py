@@ -358,3 +358,17 @@ def test_a_save_whose_same_as_names_a_table_of_other_columns_is_refused_by_the_o
     with pytest.raises(InvalidCallError) as refused:
         graph.load_run(json.dumps(saved))
     assert refused.value.errors()[0].type == "state_unreadable"
+
+
+def test_the_json_a_host_gets_for_a_table_goes_into_polars_and_into_pandas_in_one_line_each() -> None:
+    import pandas as pd
+
+    graph = registry_of(people).load(make_graph(people))
+    table = json.loads(graph.run(text="x").outputs_json())["people.result"]
+
+    in_polars = pl.DataFrame({c["name"]: c["values"] for c in table["columns"]})
+    in_pandas = pd.DataFrame({c["name"]: c["values"] for c in table["columns"]})
+
+    assert in_polars.to_dicts() == [{"name": "ida", "email": "ida@x.dk"}, {"name": "bo", "email": None}]
+    assert list(in_pandas.columns) == ["name", "email"] and in_pandas["name"].tolist() == ["ida", "bo"]
+    assert in_pandas["email"][0] == "ida@x.dk" and pd.isna(in_pandas["email"][1])  # pandas shows a blank cell as its own missing value
