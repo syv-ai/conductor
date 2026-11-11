@@ -7,12 +7,12 @@ from typing import Literal
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.fields import FieldDescription
 from conductor._internal.loaded_graph.input_plans import (
-    Gather,
+    InputGathersItems,
+    InputGathersOneValue,
+    InputNotFed,
     InputPlan,
-    Read,
+    InputReadsOneValue,
     Scope,
-    SeriesOfOne,
-    Unset,
 )
 from conductor._internal.problem import Problem
 
@@ -125,15 +125,15 @@ def _runs_on(scope: Scope) -> RunsOn:
 def _feed(scope: Scope, plan: InputPlan) -> Feed:
     """How ``plan`` feeds its input on each call of a node that runs in ``scope``."""
     match plan:
-        case Gather(series=series):
+        case InputGathersItems(series=series):
             return Feed(mode="gathered", series=series.address, msg=f"every item of {series.address}")
-        case SeriesOfOne():
+        case InputGathersOneValue():
             return Feed(mode="gathered", msg="the one value, as a Series of one")
-        case Read(scope=fed_in) if fed_in != scope:
+        case InputReadsOneValue(scope=fed_in) if fed_in != scope:
             return Feed(mode="outer_value", series=str(fed_in[-1]) if fed_in else None, msg=f"the value of {f'the item of {fed_in[-1]}' if fed_in else 'the graph'}")
-        case Read(scope=fed_in) if fed_in:
+        case InputReadsOneValue(scope=fed_in) if fed_in:
             return Feed(mode="per_item", series=str(fed_in[-1]), msg=f"per item of {fed_in[-1]}")
-        case Unset():
+        case InputNotFed():
             return Feed(mode="unset", msg="no value: a problem of the graph says why")
         case _:
             return Feed(mode="one_value", msg="one value")

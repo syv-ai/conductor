@@ -8,12 +8,12 @@ Code outside this package imports from here only. ``loader.py`` has ``load_graph
 from conductor._internal.loaded_graph.describe import Feed, GraphDescription, GraphInput, RunsOn
 from conductor._internal.loaded_graph.input_plans import (
     Cell,
-    Fixed,
-    Gather,
+    InputFromCaller,
+    InputGathersItems,
+    InputGathersOneValue,
+    InputHoldsValue,
+    InputReadsOneValue,
     Item,
-    Open,
-    Read,
-    SeriesOfOne,
     Value,
     WholeSeries,
 )

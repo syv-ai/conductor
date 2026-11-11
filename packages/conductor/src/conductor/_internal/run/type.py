@@ -55,7 +55,7 @@ from conductor._internal.leg import Event, Leg, RunCheckpoint, RunEnd, RunStart,
 from conductor._internal.loaded_graph import (
     EmbeddedGraphAtPath,
     FunctionAtPath,
-    Gather,
+    InputGathersItems,
     NodeAtPath,
     host_reads,
     unit_loc,
@@ -492,7 +492,7 @@ class Run:
         else:
             function, around = node, 0
         if 0 < around < len(function.maps):  # an embedded graph's node that runs per item, of an output made per item inside
-            return reader.shown_for_each_item(cast("Gather", host_reads(function, output, 0)), around, host_reads(function, output, around))
+            return reader.shown_for_each_item(cast("InputGathersItems", host_reads(function, output, 0)), around, host_reads(function, output, around))
         return reader.shown(host_reads(function, output, 0))
 
     # -- what a leg reads -------------------------------------------------------

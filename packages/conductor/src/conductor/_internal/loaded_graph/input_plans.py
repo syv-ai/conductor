@@ -5,9 +5,9 @@ unit of the node holds for it. An edge brings a cell's value (``Value``), one
 item of a ``Series`` it holds (``Item``), or a ``Series`` it holds as the one
 list it is (``WholeSeries``).
 
-A plan is one of six kinds. ``Fixed`` holds a value, ``Open`` is the
-caller's, ``Unset`` has none. The three that edges feed (``Read``, ``Gather``,
-``SeriesOfOne``) each hold ``reads``: every cell the input is made from. It is
+A plan is one of six kinds. ``InputHoldsValue`` holds a value, ``InputFromCaller`` is the
+caller's, ``InputNotFed`` has none. The three that edges feed (``InputReadsOneValue``, ``InputGathersItems``,
+``InputGathersOneValue``) each hold ``reads``: every cell the input is made from. It is
 the one declaration of what the input reads. A run reads those cells and no
 other (``value``), and the units a node waits for are the units of those
 cells, so the two can't differ.
@@ -146,13 +146,13 @@ class ReadsCells(Protocol):
     def best_of(self, reads: tuple[Cell, ...], item_path: ItemPath) -> Any:
         """What alternative edges bring one input: the best of what each brings."""
 
-    def gathered(self, plan: Gather, item_path: ItemPath) -> Any:
+    def gathered(self, plan: InputGathersItems, item_path: ItemPath) -> Any:
         """What the gathering input of ``plan`` holds: its items, or what is outside them when that decides."""
 
 
 @final
 @dataclass(frozen=True, slots=True)
-class Fixed:
+class InputHoldsValue:
     """An input that holds one value on every call: typed into the node, or its default.
 
     Attributes:
@@ -166,7 +166,7 @@ class Fixed:
 
 @final
 @dataclass(frozen=True, slots=True)
-class Unset:
+class InputNotFed:
     """An input with no value to give: its typed-in value was refused by its type, it must be fed and nothing
     feeds it, or its edges bring nothing it can take (an edge refused, or one from a node whose fields aren't
     known). The graph holds the problem, so it never runs; the node is still drawn, with this input to fill.
@@ -180,7 +180,7 @@ class Unset:
 
 @final
 @dataclass(frozen=True, slots=True)
-class Open:
+class InputFromCaller:
     """An input of a first node that nothing fills: the graph's input, which the caller gives.
 
     Attributes:
@@ -194,7 +194,7 @@ class Open:
 
 @final
 @dataclass(frozen=True, slots=True)
-class Read:
+class InputReadsOneValue:
     """An input that edges bring one value on each call.
 
     Attributes:
@@ -221,7 +221,7 @@ class Read:
 
 @final
 @dataclass(frozen=True, slots=True)
-class Gather:
+class InputGathersItems:
     """An input of many (a ``Series``, or a ``Table`` fed records) that receives the items of one map as a list.
 
     Attributes:
@@ -264,7 +264,7 @@ class Gather:
 
 @final
 @dataclass(frozen=True, slots=True)
-class SeriesOfOne:
+class InputGathersOneValue:
     """An input of many fed by a source that makes one value for each call of the node: the source runs where
     the node runs, or outside the items the node runs per. Each call receives that one value as a list of one.
 
@@ -298,7 +298,7 @@ class SeriesOfOne:
 
 
 #: An input that edges feed.
-Fed = Read | Gather | SeriesOfOne
+InputFedByEdges = InputReadsOneValue | InputGathersItems | InputGathersOneValue
 
 #: How one input of a placed node gets its value.
-InputPlan = Fixed | Unset | Open | Fed
+InputPlan = InputHoldsValue | InputNotFed | InputFromCaller | InputFedByEdges

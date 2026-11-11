@@ -41,7 +41,13 @@ from typing import TYPE_CHECKING, Any, Final, Literal, cast
 
 from conductor._internal import problem
 from conductor._internal.fields import SKIPPED, Records
-from conductor._internal.loaded_graph.input_plans import Cell, Gather, Item, Read, WholeSeries
+from conductor._internal.loaded_graph.input_plans import (
+    Cell,
+    InputGathersItems,
+    InputReadsOneValue,
+    Item,
+    WholeSeries,
+)
 from conductor._internal.problem import UnitFailedError
 from conductor._internal.units import (
     NOT_SETTLED,
@@ -89,7 +95,7 @@ class Reader(abc.ABC):
         for a branch not taken, or ``NOT_SETTLED``."""
 
     @abc.abstractmethod
-    def gathered(self, plan: Gather, item_path: ItemPath) -> Any:
+    def gathered(self, plan: InputGathersItems, item_path: ItemPath) -> Any:
         """What the gathering input of ``plan`` holds for ``item_path``: its items, ``None`` for a blank,
         ``SKIPPED`` for a branch not taken, or ``NOT_SETTLED``."""
 
@@ -192,7 +198,7 @@ class ItemReader(Reader):
         field = cell.field  # type: ignore[attr-defined]  # an edge brings a Value, an Item or a WholeSeries, each with its field
         return value if field is None or value is None or value is SKIPPED else field_of(value, field)
 
-    def gathered(self, plan: Gather, item_path: ItemPath) -> Any:
+    def gathered(self, plan: InputGathersItems, item_path: ItemPath) -> Any:
         """The items the gathering input of ``plan`` gets for ``item_path``, with ``None`` for an item that has
         no value, for a blank or a branch not taken.
 
@@ -230,7 +236,7 @@ class ItemReader(Reader):
             items.append(None if value is SKIPPED else value)
         return items
 
-    def _series_gathered(self, plan: Gather, item_path: ItemPath) -> Any:
+    def _series_gathered(self, plan: InputGathersItems, item_path: ItemPath) -> Any:
         """The Series the input of ``plan`` gathers, where an item of it could bring a value; else what the
         input holds whatever its items: ``SKIPPED``, ``None`` for a blank, or ``NOT_SETTLED``. A Series that
         was never made, or isn't settled, is handed back as that too."""
@@ -278,13 +284,13 @@ class AsItStandsReader(ItemReader):
         value = ItemReader.cell(self, cell, item_path)
         return None if value is NOT_SETTLED else value
 
-    def shown(self, plan: Read | Gather, item_path: ItemPath = ()) -> Any:
+    def shown(self, plan: InputReadsOneValue | InputGathersItems, item_path: ItemPath = ()) -> Any:
         """An output as a host is shown it for ``item_path``, read by the plan an input wired to it would have:
         its value, and ``None`` for a blank or a branch not taken."""
         value = plan.value(self, item_path)
         return None if value is SKIPPED else value
 
-    def shown_for_each_item(self, whole: Gather, around: int, each: Read | Gather) -> Any:
+    def shown_for_each_item(self, whole: InputGathersItems, around: int, each: InputReadsOneValue | InputGathersItems) -> Any:
         """An output an embedded graph's node offers of something made per item inside it, where that node
         itself runs per item: a list for each of its items, as the type it declares says.
 
@@ -321,7 +327,7 @@ class AnyItemReader(Reader):
         self.items, self.series, self.item_path, self.caller_inputs = items, series, item_path, items.caller_inputs
         self.came_to: dict[str, CallInputs | Skipped | Blank | Literal[NotReady.NOT_SETTLED]] = {}
 
-    def could_bring(self, plan: Gather) -> Any:
+    def could_bring(self, plan: InputGathersItems) -> Any:
         """Whether any item of the Series could bring the gathering input of ``plan`` a value, going by what
         is outside the items. Each function the input gathers through is asked what it comes to for any item,
         in order, and then what the input's edges bring.
@@ -348,7 +354,7 @@ class AnyItemReader(Reader):
             return NOT_SETTLED
         return COULD if type(came_to) is dict else came_to.out[cell.output]  # type: ignore[union-attr]  # mypy doesn't narrow a union by ``type(x) is dict``
 
-    def gathered(self, plan: Gather, item_path: ItemPath) -> Any:
+    def gathered(self, plan: InputGathersItems, item_path: ItemPath) -> Any:
         """What a gathering input met on the way holds for an item nobody knows. One whose Series is made per
         item is asked what its edges bring for the same items; one whose Series is made outside them is a cell
         outside like any other: its own, whole answer, read as it stands."""
@@ -361,7 +367,7 @@ class AnyItemReader(Reader):
         """``received`` as it is: nothing is known of the items to keep in step."""
         return received
 
-    def _brought(self, plan: Gather) -> Any:
+    def _brought(self, plan: InputGathersItems) -> Any:
         """What the edges of a gathering input bring for an item nobody knows; an input whose items take a
         blank receives the blank an edge brings, so it could hold one."""
         edges = plan.sources

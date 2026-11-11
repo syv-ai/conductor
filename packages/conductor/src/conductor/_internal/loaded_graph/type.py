@@ -29,7 +29,7 @@ from conductor._internal.loaded_graph.describe import (
     _feed,
     _runs_on,
 )
-from conductor._internal.loaded_graph.input_plans import Fed, InputPlan, Scope
+from conductor._internal.loaded_graph.input_plans import InputFedByEdges, InputPlan, Scope
 from conductor._internal.node_definition import FunctionDefinition, StoredGraphDefinition
 from conductor._internal.problem import Problem
 from conductor._internal.units import Skipped, outputs_not_called, outputs_not_taken
@@ -54,7 +54,7 @@ class _Placed:
     @functools.cached_property
     def reads(self) -> frozenset[str]:
         """The nodes its inputs read."""
-        return frozenset(source.node_id for plan in self.inputs.values() if isinstance(plan, Fed) for source in plan.sources)
+        return frozenset(source.node_id for plan in self.inputs.values() if isinstance(plan, InputFedByEdges) for source in plan.sources)
 
     @functools.cached_property
     def plain_inputs(self) -> bool:
@@ -161,7 +161,7 @@ class CheckedGraph:
     problems: list[Problem]
     inputs: dict[str, GraphInput]
     #: Each node whose fields are known, by id, each after the nodes its inputs read. A graph with problems holds
-    #: the nodes they are on too, with ``Unset`` for an input that gets nothing, and never runs.
+    #: the nodes they are on too, with ``InputNotFed`` for an input that gets nothing, and never runs.
     _nodes: dict[str, PlacedNode]
     #: Each graph input as a run keeps it, by address.
     _input_fields: dict[str, InputField]
