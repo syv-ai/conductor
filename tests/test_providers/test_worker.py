@@ -4,6 +4,7 @@ on the store's own writes."""
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import threading
 import time
 from collections.abc import Mapping
@@ -743,6 +744,67 @@ async def test_a_cancel_from_another_worker_that_lands_as_a_worker_shuts_down_ke
     row = await worker.read(run_id)
     assert store.cancelled and (row.status, row.owner, row.lease_until) == ("cancelled", None, None)
     assert [event["status"] for event in await store.stored_events(run_id) if event["type"] == "run_end"] == ["cancelled"]
+
+
+@pytest.mark.parametrize("fails", ["the read of the expired runs", "the claim of a run", "a row that can't be read"])
+async def test_a_sweep_that_raises_is_logged_and_the_next_one_takes_the_run(fails: str, caplog: pytest.LogCaptureFixture) -> None:
+    registry, graph = _shout()
+
+    class SweepFailsOnce(MemoryStore):
+        raised = False
+
+        async def expired(self, now: float) -> list[StoredRun]:
+            if fails == "the read of the expired runs" and not self.raised:
+                self.raised = True
+                raise ConnectionError("the store is down for one statement")
+            return await super().expired(now)
+
+        async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
+            if fails == "the claim of a run" and not self.raised:
+                self.raised = True
+                raise ConnectionError("the store is down for one statement")
+            return await super().update(run_id, rev, changes)
+
+    store = SweepFailsOnce()
+    worker = _worker(store, registry, lease=0.15)
+    left = StoredRun(
+        id="left", graph=graph.model_dump_json(), caller='"anna"', run=registry.load(graph).with_inputs({"text": "a"}).to_json(),
+        **StoredState().columns(), outcome=Outcome().model_dump_json(), owner=None, lease_until=0.0,
+    )
+    if fails == "a row that can't be read":
+        await store.create(dataclasses.replace(left, id="broken", state="{"))
+    await store.create(left)
+
+    async with worker.running():
+        ended = await store.ended("left")
+
+    assert ended.outputs == {"shout.result": "A"}
+    logged = [record.exc_info is not None for record in caplog.records if record.name == "conductor_providers.fastapi"]
+    assert logged and all(logged)
+
+
+async def test_a_renewal_that_raises_is_logged_and_the_next_one_keeps_the_lease_so_no_other_worker_takes_the_run(caplog: pytest.LogCaptureFixture) -> None:
+    registry, graph, called, calls = _slow_items()
+
+    class RenewalFailsOnce(MemoryStore):
+        raised = False
+
+        async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
+            if changes.keys() == {"lease_until"} and not self.raised:
+                self.raised = True
+                raise ConnectionError("the store is down for one statement")
+            return await super().update(run_id, rev, changes)
+
+    store = RenewalFailsOnce()
+    holder, other = _worker(store, registry, lease=0.3), _worker(store, registry, lease=0.3)
+    async with other.running():
+        run_id = await _started(holder, graph, {"n": 40})
+        ended = await store.ended(run_id)
+
+    assert store.raised and ended.status == "complete"
+    assert sorted(calls) == list(range(40)) and await _starts(store, run_id) == 1
+    logged = [record.exc_info is not None for record in caplog.records if record.name == "conductor_providers.fastapi"]
+    assert logged and all(logged)
 
 
 @pytest.mark.parametrize("ends", ["complete", "waiting"])

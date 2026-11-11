@@ -438,19 +438,27 @@ class Worker(Generic[C]):
         return True
 
     async def take_over(self) -> None:
-        """Go on with every run whose lease ran out: its worker died or handed it back."""
+        """Go on with every run whose lease ran out: its worker died or handed it back. A run that can't be taken
+        (its row can't be read, the store fails) is logged and left for the next call, and the others are taken."""
         held = {hold.run_id for hold in self._holds}
         for row in await self._store.expired(time.time()):
             if row.id not in held:
-                await self._claim(row, StoredState.model_validate_json(row.state), {})
+                try:
+                    await self._claim(row, StoredState.model_validate_json(row.state), {})
+                except Exception:
+                    log.exception("run %s, whose lease ran out, was not taken over; the next sweep tries again", row.id)
 
     @asynccontextmanager
     async def running(self) -> AsyncGenerator[None]:
         """While entered, take over runs whose lease ran out, three times a lease. On leaving, stop every leg this
-        worker runs and hand its run back: a cancel keeps the calls already made, so the next worker repeats none."""
+        worker runs and hand its run back: a cancel keeps the calls already made, so the next worker repeats none.
+        A sweep that raises is logged and the next one runs."""
         async def sweep() -> None:
             while True:
-                await self.take_over()
+                try:
+                    await self.take_over()
+                except Exception:
+                    log.exception("the sweep for runs whose lease ran out failed; the next one tries again")
                 await asyncio.sleep(self._lease / 3)
 
         sweeping = asyncio.create_task(sweep())
@@ -525,11 +533,14 @@ class Worker(Generic[C]):
             del self._holds[hold]
 
     async def _renew(self, hold: _Hold) -> None:
-        """Renew the lease three times a lease, until the run is given up or taken."""
-        while True:
+        """Renew the lease three times a lease, until the run is given up or taken. A renewal that raises is logged
+        and the next one is tried, so one failed statement doesn't cost a leg its run."""
+        while not hold.released:
             await asyncio.sleep(self._lease / 3)
-            if not await self._write(hold, {"lease_until": time.time() + self._lease}):
-                return
+            try:
+                await self._write(hold, {"lease_until": time.time() + self._lease})
+            except Exception:
+                log.exception("the lease of run %s was not renewed; the next renewal tries again", hold.run_id)
 
     async def _leg(self, hold: _Hold, row: StoredRun, ceiling: int | None) -> _LegEnd:
         """Run one leg of ``row`` and store its events and checkpoints.
