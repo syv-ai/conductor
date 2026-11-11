@@ -100,7 +100,6 @@ PROBLEM_CATALOGUE: Mapping[str, str] = {
     "value_and_default": "Field '{field}' has both a value and a default; keep one.",
     "value_and_edge": "Field '{field}' has an edge and a typed-in value; keep one.",
     # -- what a call is refused for ----------------------------------------------
-    "invalid_record": "The record is not a graph record at '{at}': {reason}. Fix the record's JSON.",
     "answer_stale": "The answer was given for {waiting_id!r}, and another question waits at that place by now, {current!r}; show that one and answer it.",
     "cannot_move_to_version": "'{node}' cannot move from version {version} to {target}; it has {versions}.",
     "from_run_missing": "'{node_id}' needs a {needs} for '{parameter}', and from_run gives none (it gives {given}); pass from_run={{{needs}: ...}}.",
@@ -112,10 +111,6 @@ PROBLEM_CATALOGUE: Mapping[str, str] = {
     "invalid_checkpoint_every": "checkpoint_every is a number of seconds above 0; it was {checkpoint_every}.",
     "invalid_timeout": "timeout is a number of seconds above 0; it was {timeout}.",
     "missing_input": "'{name}' is required; give it in the call.",
-    "not_a_chain": (
-        "'{node_id}' can't follow '{before}' in a chain: a chain takes its one required open input (it has {inputs}) "
-        "from the one output of the node before it (that has {outputs}); pass edges= to make_graph."
-    ),
     "node_not_in_graph": "'{node_id}' is not a node of this graph; it has {nodes}.",
     "not_offered": "The graph has no input '{name}'; it has {inputs}.",
     "not_waiting": "Nothing is waiting on an answer as {waiting_id!r} in a run that is {status}; run.waiting lists what is.",

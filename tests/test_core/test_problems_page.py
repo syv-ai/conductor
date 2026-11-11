@@ -17,6 +17,7 @@ import types
 import typing
 
 import pytest
+from conductor import PROBLEMS
 from conductor._internal.errors import PROBLEM_CATALOGUE, DeclarationCode
 from conductor_providers.fastapi import ROUTER_PROBLEM_CODES
 
@@ -71,7 +72,7 @@ def _wanted() -> dict[str, list[str]]:
     messages = _declaration_messages()
     for code in typing.get_args(DeclarationCode):
         wanted[code + _DECLARED if code in PROBLEM_CATALOGUE else code] = messages[code]
-    return wanted | {code: [] for code in _kit_codes()} | {code: [] for code in ROUTER_PROBLEM_CODES}
+    return wanted | {code: [] for code in _kit_codes() | ROUTER_PROBLEM_CODES | PROBLEMS.codes}
 
 
 def test_every_code_has_one_section_and_no_section_names_another() -> None:
@@ -88,7 +89,8 @@ def test_a_section_quotes_its_codes_message(heading: str) -> None:
 
 def test_every_message_says_what_to_do() -> None:
     """A message carries its fix: a clause after what is wrong, which may be the alternatives to pick from."""
-    without = [code for code, text in PROBLEM_CATALOGUE.items() if code not in _NO_FIX and not re.search(r"[;:.] \S", text.removesuffix(": {reason}"))]
+    sentences = [*PROBLEM_CATALOGUE.items(), *((kind.code, kind.sentence) for kind in PROBLEMS)]
+    without = [code for code, text in sentences if code not in _NO_FIX and not re.search(r"[;:.] \S", text.removesuffix(": {reason}"))]
     assert without == []
 
 

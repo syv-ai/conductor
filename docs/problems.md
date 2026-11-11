@@ -2,7 +2,7 @@
 
 Everything conductor reports has a stable code. A `Problem`'s `type` is one, and so is a `NodeDeclarationError`'s `code`. This page has each code: where you meet it, an example that makes it, and the fix. A host that translates messages keys on the code and fills its sentence from `ctx`. `PROBLEM_CODES` holds every code a `Problem` can have that conductor writes itself; a code not in it is a node's own, from `NodeError(code=)`.
 
-Every example on this page runs after this block. `problems(drawing)` loads a drawing and lists the codes of what is wrong with it; `refused(call)` makes a call and lists the codes it was refused for.
+Every example on this page runs after this block. `problems(drawing)` loads a drawing and lists the codes of what is wrong with it; `refused(call)` makes a call and lists the codes it was refused for, and `said(call)` the sentence of each.
 
 ```python
 import asyncio
@@ -84,6 +84,15 @@ def refused(call) -> list[str]:
         call()
     except InvalidCallError as error:
         return [problem.type for problem in error.errors()]
+    return []
+
+
+def said(call) -> list[str]:
+    """What a refused call tells a person, a sentence for each problem."""
+    try:
+        call()
+    except InvalidCallError as error:
+        return [problem.msg for problem in error.errors()]
     return []
 ```
 
@@ -573,10 +582,9 @@ print(refused(lambda: uppering.with_inputs(text="a").resume(timeout=-1)))  # ['i
 
 ### `invalid_record`
 
-> The record is not a graph record at '{at}': {reason}. Fix the record's JSON.
-
 ```python
 print(refused(lambda: registry.load({"nodes": [{"id": "u", "type": "upper"}]})))  # ['invalid_record', 'invalid_record']: 1.x's 'type', and no 'node'
+print(said(lambda: registry.load({"nodes": [{"id": "u", "type": "upper"}]}))[0])  # The record is not a graph record at 'nodes.0.node': Field required. Fix the record's JSON.
 ```
 
 **Fix.** Fix the record's JSON: `ctx.at` says where it stopped being a graph record. A drawing that is well formed but unfinished loads, with its problems in `graph.problems`.
@@ -604,10 +612,9 @@ print(refused(lambda: done.forget("lower")))  # ['node_not_in_graph']
 
 ### `not_a_chain`
 
-> '{node_id}' can't follow '{before}' in a chain: a chain takes its one required open input (it has {inputs}) from the one output of the node before it (that has {outputs}); pass edges= to make_graph.
-
 ```python
 print(refused(lambda: make_graph(upper, greet)))  # ['not_a_chain']
+print(said(lambda: make_graph(upper, greet))[0])  # 'greet' can't follow 'upper' in a chain: a chain takes its one required open input (it has name, greeting) from the one output of the node before it (that has result); pass edges= to make_graph.
 ```
 
 **Fix.** Pass `edges=[("upper.result", "greet.name")]`. `make_graph` chains nodes only when each takes one required open input from the one output before it. A chain reads the fields each node declares; a stored graph, or a node whose fields a hook works out, takes `edges=`.
