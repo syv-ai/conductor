@@ -246,7 +246,7 @@ def run_router(
     tasks: set[asyncio.Task[None]] = set()
     stopping = False
     callers: TypeAdapter[C] = TypeAdapter(_caller_type(caller))
-    nodes_for: Callable[[C], NodeRegistry] = _always(registry) if isinstance(registry, NodeRegistry) else registry
+    nodes_for: Callable[[C], NodeRegistry] = (lambda who: registry) if isinstance(registry, NodeRegistry) else registry
 
     def started_by(row: StoredRun) -> C:
         return callers.validate_json(row.caller)
@@ -564,11 +564,6 @@ def run_router(
         return Cancelled(cancelled=False)
 
     return router
-
-
-def _always(registry: NodeRegistry) -> Callable[[object], NodeRegistry]:
-    """``registry``, whoever calls."""
-    return lambda caller: registry
 
 
 class _Ended:
