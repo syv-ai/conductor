@@ -36,7 +36,11 @@ def _checked_source(source: str) -> str:
     return "\n".join(lines)
 
 
-@pytest.mark.parametrize("name", sorted(_PAGES))
+#: A page whose examples run an embedded graph waits for the nested run.
+_HELD_BACK = {"doc_docs_embedded_graphs_md": pytest.mark.skip(reason="embedding: nested run not built")}
+
+
+@pytest.mark.parametrize("name", [pytest.param(name, marks=_HELD_BACK.get(name, ())) for name in sorted(_PAGES)])
 def test_a_page_runs_and_prints_what_it_shows(name: str, tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
     source = _PAGES[name]

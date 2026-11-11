@@ -4,7 +4,7 @@ From a shell::
 
     python -m conductor.about                  # the whole reference
     python -m conductor.about sections         # the section slugs
-    python -m conductor.about rows             # one section, by slug or a part of one
+    python -m conductor.about one-or-many      # one section, by slug or a part of one
 
 From Python::
 

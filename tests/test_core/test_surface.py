@@ -407,15 +407,10 @@ def _run_quick_start() -> Any:
     return namespace["run"].outputs
 
 
-_QUICK_START_IS_STALE = pytest.mark.xfail(reason="docs: llms.txt's quick start gives a list at an input of one value; the docs pass rewrites it", strict=True)
-
-
-@_QUICK_START_IS_STALE
 def test_the_quick_start_runs_as_written():
     assert _run_quick_start() == {"join.result": "A+B+C"}
 
 
-@_QUICK_START_IS_STALE
 def test_the_quick_start_runs_inside_a_running_loop_as_in_a_notebook():
     async def notebook() -> Any:
         return _run_quick_start()
