@@ -608,10 +608,7 @@ async def test_a_leg_that_raised_ended_with_no_run_so_its_run_lists_nothing_as_w
     assert (await store.ended(run_id)).outputs == {"busy.result": "x", "after.result": True}
 
 
-@pytest.mark.parametrize(("fails", "run_ends"), [("the write of the row", ["complete", "complete"]), ("the run as JSON", ["complete"])])
-async def test_a_leg_whose_end_fails_stays_running_and_is_gone_on_with_and_no_run_end_is_stored_twice_for_one_leg(
-    fails: str, run_ends: list[str], monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_a_leg_whose_end_the_store_fails_to_write_stays_running_and_is_gone_on_with_once_its_lease_runs_out() -> None:
     registry, graph = _shout()
 
     class EndFailsOnce(MemoryStore):
@@ -620,29 +617,56 @@ async def test_a_leg_whose_end_fails_stays_running_and_is_gone_on_with_and_no_ru
         raised = False
 
         async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
-            if fails == "the write of the row" and changes.get("status") == "complete" and not self.raised:
+            if changes.get("status") == "complete" and not self.raised:
                 self.raised = True
                 raise ConnectionError("the store went away for one statement")
             return await super().update(run_id, rev, changes)
 
     store = EndFailsOnce()
-    to_json = Run.to_json
-
-    def failing_to_json(self: Run) -> str:
-        if fails == "the run as JSON" and self.status == "complete" and not store.raised:  # before the run_end is stored
-            store.raised = True
-            raise RuntimeError("a value the run can't write")
-        return to_json(self)
-
-    monkeypatch.setattr(Run, "to_json", failing_to_json)
     worker = _worker(store, registry, lease=0.15)
     async with worker.running():
         run_id = await _started(worker, graph, {"text": "a"})
         ended = await store.ended(run_id)  # once the lease ran out and a sweep took the run
 
     ends = [event["status"] for event in await store.stored_events(run_id) if event["type"] == "run_end"]
-    assert store.raised and (ended.status, ended.cause, ends) == ("complete", None, run_ends)
+    assert store.raised and (ended.status, ended.cause, ends) == ("complete", None, ["complete", "complete"])
     assert await _starts(store, run_id) == 2
+
+
+class Opaque:
+    """A value pydantic carries but has no JSON form for."""
+
+    type_id: ClassVar[str] = "opaque"
+    type_title: ClassVar[str] = "Opaque"
+
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source: Any, handler: GetCoreSchemaHandler) -> core_schema.CoreSchema:
+        return core_schema.is_instance_schema(cls)
+
+
+@pytest.mark.parametrize(("graph_of", "at"), [(("opaque",), "opaque.result"), (("opaque", "shown"), "opaque.result")], ids=["an output of the graph", "a value inside the run"])
+async def test_a_leg_that_ends_with_a_run_that_cant_be_written_fails_with_that_problem_the_first_time(graph_of: tuple[str, ...], at: str) -> None:
+    registry, store = NodeRegistry(), MemoryStore()
+
+    @registry.node("opaque", title="Opaque", description="")
+    def opaque(text: str) -> Opaque:
+        return Opaque()
+
+    @registry.node("shown", title="Shown", description="")
+    def shown(value: Opaque) -> str:
+        return "shown"
+
+    graph = make_graph(*(registry[node_id] for node_id in graph_of))
+    worker = _worker(store, registry, lease=0.15)
+    async with worker.running():
+        run_id = await _started(worker, graph, {"text": "a"})
+        ended = await store.ended(run_id)
+        await asyncio.sleep(0.4)  # leases in which a leg retried would start again
+
+    ends = [(event["status"], event["cause"]["type"]) for event in await store.stored_events(run_id) if event["type"] == "run_end"]
+    assert ended.cause is not None
+    assert (ended.status, ended.cause.type, ended.cause.ctx["at"], ended.waiting, ends) == ("failed", "state_unwritable", at, [], [("failed", "state_unwritable")])
+    assert await _starts(store, run_id) == 1 and (await worker.read(run_id)).state.run_state.status == "failed"
 
 
 # -- a follower -----------------------------------------------------------------------------------

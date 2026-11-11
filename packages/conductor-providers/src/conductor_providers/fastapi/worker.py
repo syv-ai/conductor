@@ -196,21 +196,15 @@ class _Ended(_LegEnd):
 
     Attributes:
         run: The run the leg ended with.
+        saved: That run, as JSON.
         outcome: The row's ``outcome`` after the leg, as JSON.
         run_end: The leg's ``run_end`` event, as JSON.
     """
 
     run: Run
+    saved: str
     outcome: str
     run_end: str
-
-    @classmethod
-    def of(cls, end: RunEnd) -> "_Ended":
-        """The end of a leg whose stream ended with ``end``: what waits in its run and, once complete, its
-        outputs, each written by its type as the run writes it."""
-        run = end.run
-        outcome = Outcome(waiting=run.waiting, outputs=from_json(run.outputs_json()) if run.status == "complete" else None)
-        return cls(run, outcome.model_dump_json(), end.model_dump_json())
 
     def row_after(self, state: StoredState) -> _RowAfterALeg:
         """What a row holds after this end, once the run has been given the answers queued during the leg.
@@ -226,12 +220,12 @@ class _Ended(_LegEnd):
             except InvalidCallError as error:
                 refused[waiting_id] = error.errors()
         after = state.model_copy(update={"run_state": _RUNNING if taken else self.run.state, "queued_answers": {}, "refused": refused, "cancel_asked": False})
-        return _RowAfterALeg(after, {"run": run.to_json(), "outcome": self.outcome}, self.run_end, leg_wanted=taken)
+        return _RowAfterALeg(after, {"run": run.to_json() if taken else self.saved, "outcome": self.outcome}, self.run_end, leg_wanted=taken)
 
 
 @dataclass(frozen=True)
 class _Raised(_LegEnd):
-    """A leg that raised outside a node: it ended with no run.
+    """A leg that raised outside a node, or whose run can't be written: it ended with no run to store.
 
     Attributes:
         cause: Why the run failed.
@@ -258,6 +252,21 @@ class _HandedBack(_LegEnd):
         """What a row holds after this end: what it held, a cancel asked meanwhile included, for the worker that
         takes the run to go on from."""
         return _RowAfterALeg(state, {}, run_end=None, leg_wanted=True)
+
+
+def _end_of(run_end: RunEnd) -> _LegEnd:
+    """The end of a leg whose stream ended with ``run_end``: its run as JSON, what waits in it and, once complete,
+    its outputs, each written by its type as the run writes it.
+
+    A run that can't be written as JSON (``state_unwritable``: a value in it has no JSON form) can't be stored
+    however often it is tried, so its leg ended as one that raised, with that problem as the cause.
+    """
+    run = run_end.run
+    try:
+        outcome = Outcome(waiting=run.waiting, outputs=from_json(run.outputs_json()) if run.status == "complete" else None)
+        return _Ended(run, run.to_json(), outcome.model_dump_json(), run_end.model_dump_json())
+    except InvalidCallError as unwritable:
+        return _Raised(unwritable.errors()[0])
 
 
 #: The owner and lease of a row no leg is wanted for.
@@ -599,7 +608,7 @@ class Worker(Generic[C]):
                     if isinstance(event, RunCheckpoint):
                         await self._write(hold, {"run": await asyncio.to_thread(event.run.to_json)})
                     elif isinstance(event, RunEnd):
-                        end = await asyncio.to_thread(_Ended.of, event)
+                        end = await asyncio.to_thread(_end_of, event)
                     elif not await self._store.add_event(row.id, self.id, event.model_dump_json()):
                         hold.stop.set()  # another worker holds the run
             return end
