@@ -536,7 +536,7 @@ def test_an_answer_queued_for_a_question_a_timed_out_leg_never_asked_is_refused_
     asyncio.run(scenario())
 
 
-def test_an_answer_queued_during_a_leg_that_ends_cancelled_is_refused_as_run_cancelled_and_starts_nothing() -> None:
+def test_an_answer_queued_during_a_leg_that_ends_cancelled_before_its_question_is_asked_is_refused_as_not_waiting_and_starts_nothing() -> None:
     registry, graph, gate, inputs, waiting_id = _asking()
     runs = MemoryStore()
     app = FastAPI()
@@ -550,7 +550,7 @@ def test_an_answer_queued_during_a_leg_that_ends_cancelled_is_refused_as_run_can
             gate.set()
             await _until_status(runs, run_id, "cancelled")
             row = (await client.get(f"/runs/{run_id}")).json()
-            assert [problem["type"] for problem in row["refused"][waiting_id]] == ["run_cancelled"]
+            assert [(problem["type"], problem["ctx"]["status"]) for problem in row["refused"][waiting_id]] == [("not_waiting", "cancelled")]
             await asyncio.sleep(0.1)  # a leg started on the answer would be running by now
             assert (runs.rows[run_id].status, runs.rows[run_id].pending) == ("cancelled", "{}")
             assert [json.loads(body)["type"] for body in runs.written[run_id]].count("run_start") == 1

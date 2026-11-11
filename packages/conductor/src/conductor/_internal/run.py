@@ -386,12 +386,9 @@ class Run:
         once and the run is left as it was: a unit answered twice in one call,
         an id that names nothing waiting (``not_waiting``), or one whose place
         now holds another question (``answer_stale``, with ``ctx.moved_to``
-        when that question waits elsewhere). A cancelled run takes no answers
-        (``run_cancelled``): ``resume`` it, and it carries on and waits again,
-        or start a new run.
+        when that question waits elsewhere). A run that ended early takes
+        answers as a waiting one does, a cancelled one included.
         """
-        if self.status == "cancelled":
-            raise InvalidCallError([make_problem("run_cancelled", "status")])
         if value is not _ONE_ANSWER:
             given: Mapping[str, Any] = {unit.id if isinstance(unit, Waiting) else str(unit): value}
         elif isinstance(unit, Mapping):

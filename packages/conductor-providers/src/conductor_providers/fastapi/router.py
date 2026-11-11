@@ -618,8 +618,8 @@ class _Ended:
     def answered(self, pending: dict[str, Any], refused: dict[str, Any]) -> tuple[str | None, dict[str, Any]]:
         """The answers queued during the leg, each on its own: the run they give as JSON when any was taken, else
         ``None``, and ``refused`` with the problems of each one that wasn't. The run decides, as ``run.answer`` does
-        whatever its status: a wrong answer, one for something that isn't waiting (``not_waiting``, as on a complete
-        run) or one to a cancelled run (``run_cancelled``) keeps its own problems."""
+        whatever its status: a wrong answer, or one for something that isn't waiting (``not_waiting``, as on a complete
+        run), keeps its own problems."""
         run, taken = self.run, False
         for unit_id, value in pending.items():
             try:

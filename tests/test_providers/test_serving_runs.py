@@ -265,8 +265,6 @@ def test_a_cancel_sent_to_either_worker_stops_the_leg_and_a_resume_finishes_it(s
             served.open_the_gate()  # a cancel waits for the call already made, and keeps it
             await a.until_status(run_id, "cancelled")
 
-            refused = await b.client.post(f"/runs/{run_id}/answers", json={})
-            assert (refused.status_code, [problem["type"] for problem in refused.json()["detail"]]) == (422, ["run_cancelled"])
             assert (await b.client.post(f"/runs/{run_id}/resume", json={})).status_code == 202
             await b.until_status(run_id, "waiting")
             assert served.calls == ["gate"]
