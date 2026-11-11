@@ -84,6 +84,28 @@ print(both.run({"upper.text": "a", "exclaim.text": "b"}).outputs)
 # {'both.upper.result': 'A', 'both.exclaim.result': 'b!'}
 ```
 
+Outside, a `Series` a stored graph offers is a Series like any other, however it was made inside. An input of
+one value reads it one item at a time, and a `Series` input beside it receives the whole Series on each call:
+
+```python
+words = node("words", title="Words", description="The words of a text, in capital letters.")(make_graph(split, upper, edges=[("split.result", "upper.text")]))
+registry.add(words)
+
+
+@registry.node("place", title="Place", description="Says how many words a word stands among.")
+def place(word: str, among: Series[str]) -> str:
+    return f"{word} of {len(among)}"
+
+
+placed = registry.load(make_graph(words, place, edges=[("words.upper.result", "place.word"), ("words.upper.result", "place.among")]))
+print(placed.run(text="a b").results["place"]["result"])  # ['A of 2', 'B of 2']
+```
+
+`upper` runs once per word inside `words`, but what `words` offers is one Series of them, so `among` gathers it.
+The same four nodes drawn in one graph mean something else: there `place` would read `upper` where `upper` runs,
+once per word, and `among` would be that word's one text. A stored graph's boundary is where its per-item
+outputs become a Series; what the nodes inside do to each other is as drawn in the graph itself.
+
 ## A blank or a skip coming in
 
 Nothing is special about a blank that arrives at a stored graph. It reaches the nodes inside that read it, and they
