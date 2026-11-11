@@ -308,6 +308,8 @@ class FieldSpec:
         columns: A table's columns by name, from its row type; ``None`` for a table of any columns, and for a field
             that isn't a table.
         type_id: The id of one value's type, ``| None`` off, as an editor reads it; ``Table`` for a table.
+        classes: The classes ``type_id`` names, each once: what a registry holding the node offers by id. A table
+            names none.
         column_type_ids: The ids of a table's declared column types, by column.
     """
 
@@ -319,6 +321,7 @@ class FieldSpec:
     param: Param = field(default_factory=Param)
     columns: dict[str, Any] | None = None
     type_id: str = field(kw_only=True)
+    classes: tuple[type, ...] = field(kw_only=True)
     column_type_ids: Mapping[str, str] = field(kw_only=True, default_factory=dict[str, str])
     #: The default in its JSON form, written once when the node is declared; ``None`` where the field has no value
     #: to propose (it is required, or its default is ``SKIPPED``).
@@ -566,17 +569,19 @@ def read_field(name: str, hint: Any, default: Any = REQUIRED, where: str = "") -
                 raise NodeDeclarationError(f"{where}{name}: a Series of tables; a table already holds many rows, so take or return one table", code="series_of_tables")
             if marked(item, _ManyMarker):
                 raise NodeDeclarationError(f"{where}{name}: a Series of Series; rows are never nested in a field, so return one Series", code="nested_series")
-            return _checked(FieldSpec(name, "many", item, or_none, default, param, type_id=type_id(without_none(item))), where)
+            item_id, classes = named_by(without_none(item))
+            return _checked(FieldSpec(name, "many", item, or_none, default, param, type_id=item_id, classes=classes), where)
         if markers and isinstance(markers[0], _TableMarker):
             columns = _columns_of(markers[0].row, name, where)
             column_type_ids = {column: type_id(hint) for column, hint in columns.items()} if columns is not None else {}
-            return _checked(FieldSpec(name, "table", pl.DataFrame, or_none, default, param, columns, type_id="Table", column_type_ids=column_type_ids), where)
+            return _checked(FieldSpec(name, "table", pl.DataFrame, or_none, default, param, columns, type_id="Table", classes=(), column_type_ids=column_type_ids), where)
         hint = base
     if hint is pl.DataFrame or hint is Table:
-        return _checked(FieldSpec(name, "table", pl.DataFrame, or_none, default, param, None, type_id="Table"), where)
+        return _checked(FieldSpec(name, "table", pl.DataFrame, or_none, default, param, None, type_id="Table", classes=()), where)
     if or_none:
         hint = Union[hint, None]  # noqa: UP007
-    return _checked(FieldSpec(name, "one", hint, takes_a_blank(hint), default, param, type_id=type_id(without_none(hint))), where)
+    one_id, classes = named_by(without_none(hint))
+    return _checked(FieldSpec(name, "one", hint, takes_a_blank(hint), default, param, type_id=one_id, classes=classes), where)
 
 
 def _stacked(params: list[Param]) -> Param:
@@ -965,25 +970,41 @@ def type_name(cls: Any) -> TypeName:
 
 
 def type_id(hint: Any) -> str:
-    """The name an editor and a stored graph know a hint by.
+    """The name an editor and a stored graph know a hint by, as ``named_by`` gives it."""
+    return named_by(hint)[0]
+
+
+#: What a field may take that no value is made of: anything, and a blank.
+_NAMES_NO_CLASS: Final = frozenset({Any, type(None)})
+
+
+def named_by(hint: Any) -> tuple[str, tuple[type, ...]]:
+    """The name an editor and a stored graph know a hint by, and the classes that name is made of, each once.
 
     A class is known by its ``type_name``. A ``Literal`` is known by the types of its values (``Literal["low",
-    "high"]`` is ``str``), a union by its members (``Money | None`` is ``money | None``), a generic by its class
-    (``dict[str, int]`` is ``dict``), and a type alias by the name it is declared under.
+    "high"]`` is ``str``), a union by its members (``Money | None`` is ``money | None``, naming ``Money``), a generic
+    by its class (``dict[str, int]`` is ``dict``), and a type alias by the name it is declared under, which names no
+    class. ``Any`` and ``None`` name no class either.
     """
     match get_origin(hint):
         case typing.Literal:
-            return " | ".join(dict.fromkeys(type_id(type(value)) for value in get_args(hint)))
+            values: tuple[object, ...] = get_args(hint)
+            return _joined([named_by(cls) for cls in dict.fromkeys(type(value) for value in values)])
         case typing.Union | types.UnionType:
-            return " | ".join(type_id(member) for member in get_args(hint))
+            return _joined([named_by(member) for member in get_args(hint)])
         case typing.Annotated:
-            return type_id(get_args(hint)[0])
+            return named_by(get_args(hint)[0])
         case None if _is_alias(hint):
-            return hint.__name__
+            return hint.__name__, ()
         case None:
-            return type_name(hint).id
+            return type_name(hint).id, () if hint in _NAMES_NO_CLASS else (hint,)
         case generic:
-            return type_id(generic)
+            return named_by(generic)
+
+
+def _joined(named: list[tuple[str, tuple[type, ...]]]) -> tuple[str, tuple[type, ...]]:
+    """Members' names read as one: their ids joined by `` | ``, their classes each once."""
+    return " | ".join(name for name, _ in named), tuple(dict.fromkeys(cls for _, classes in named for cls in classes))
 
 
 # -- reading a value as its field ---------------------------------------------------------------

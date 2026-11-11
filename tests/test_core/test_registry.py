@@ -9,7 +9,7 @@ definitions.
 """
 
 from dataclasses import dataclass
-from typing import Annotated, Any, ClassVar
+from typing import Annotated, Any, ClassVar, Literal, TypedDict
 
 import pytest
 from conductor import (
@@ -20,6 +20,7 @@ from conductor import (
     NodeRegistry,
     Param,
     Series,
+    Table,
     Upgrade,
     node,
 )
@@ -498,11 +499,35 @@ def test_fields_named_id_and_title_are_the_records_own():
     assert Customer(id="c1", title="Ms").title == "Ms"
 
 
-def test_adding_a_node_adds_the_types_it_declares_a_series_giving_its_item():
+def test_adding_a_node_adds_the_types_it_declares_a_series_giving_its_item_and_a_generic_its_class():
     registry = NodeRegistry()
     registry.add(weigh)
 
-    assert dict(registry.types) == {"text": Text, "number": Number}
+    assert dict(registry.types) == {"text": Text, "number": Number, "list": list}
+
+
+def test_every_type_a_field_is_described_by_is_one_the_registry_holds():
+    """A union names each member, a ``Literal`` its values' types and a generic its class; ``None`` names no class a
+    value is made of, and a table is described by its columns."""
+
+    class Cash(float):
+        type_id: ClassVar[str] = "cash"
+        type_title: ClassVar[str] = "Cash"
+
+    class Row(TypedDict):
+        weight: Number
+
+    @node("mix", title="Mix", description="")
+    def mix(either: Cash | Text | None, level: Literal["low", "high"], weights: Series[Number], rows: Table[Row], tags: list[str] = []) -> Text:  # noqa: B006
+        return Text("")
+
+    registry = NodeRegistry()
+    registry.add(mix)
+
+    [described] = registry.describe().nodes
+    shown = {named for field in (*described.inputs, *described.outputs) if field.type for named in field.type.split(" | ")}
+    assert shown == {"cash", "text", "str", "number", "list"}
+    assert dict(registry.types) == {"cash": Cash, "text": Text, "str": str, "number": Number, "list": list}
 
 
 def test_an_any_input_adds_no_type():
@@ -560,7 +585,7 @@ def test_a_type_clash_on_add_names_both_classes_and_adds_nothing():
 
     assert "Text" in str(raised.value) and "AnotherText" in str(raised.value)
     assert "whisper" not in registry
-    assert dict(registry.types) == {"text": Text, "number": Number}
+    assert dict(registry.types) == {"text": Text, "number": Number, "list": list}
 
 
 def test_a_subclass_without_its_own_id_cannot_sit_beside_its_parent():

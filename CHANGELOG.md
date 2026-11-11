@@ -21,7 +21,9 @@ What changes in how you work, before the name-by-name tables:
   `id` and `title` its owner declared: conductor's own types from one fixed table (`str` is `Text`,
   `int` `Whole number`), a host's class from its `type_id` and `type_title` class attributes
   (`NamedType`); nothing falls back to the class's name. `NodeRegistry(types=)` takes only
-  `NamedType`s, so a type checker refuses a class without them there.
+  `NamedType`s, so a type checker refuses a class without them there. The types a registry holds are
+  every class a field's type id names: each member of a union, a `Literal`'s value types and a
+  generic's class (`list[str]` names `list`); `Any`, `None`, a type alias and a table name none.
 - **A node is a typed function.** `@node("id", title=, description=)` (registers nothing) or
   `@registry.node(...)` returns a frozen, callable `FunctionDefinition` (a `GraphDefinition` for a stored graph,
   with no function to call; `NodeDefinition` is either). Its title and description are

@@ -52,7 +52,6 @@ from conductor._internal.fields import (
     accepts,
     type_id,
     type_name,
-    without_none,
 )
 from conductor._internal.node_definition import (
     FunctionDefinition,
@@ -414,11 +413,8 @@ def _types_declared_by(definitions: Iterable[NodeDefinition]) -> list[type]:
                     specs = (*step.inputs.values(), *step.outputs.values())
                 case GraphDefinition():  # a graph declares no classes of its own
                     continue
-            for spec in specs:
-                held = without_none(spec.type)
-                if spec.shape != "table" and isinstance(held, type) and held is not Any and held not in found:
-                    found.append(held)
-    return found
+            found.extend(cls for spec in specs for cls in spec.classes)
+    return list(dict.fromkeys(found))
 
 
 def _qualified_name(held: type) -> str:
