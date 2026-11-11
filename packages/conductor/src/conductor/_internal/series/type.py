@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import functools
-from typing import TYPE_CHECKING, Any, Generic, TypeVar, get_args
+from typing import TYPE_CHECKING, Any, get_args
 
 from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema
@@ -12,10 +12,8 @@ from conductor._internal.series.read import series_schema
 from conductor._internal.series.stored import SeriesItems, StoredSeries
 from conductor._internal.value_type import Type, union_of
 
-_T = TypeVar("_T")
 
-
-class _Series(Generic[_T]):
+class _Series[T]:
     """``Series[T]``: many values of ``T``, which a graph works through one at a time; a plain ``list[T]`` to the
     node and to a type checker."""
 

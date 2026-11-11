@@ -58,7 +58,7 @@ import typing
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Annotated, Any, Generic, Literal, ParamSpec, Protocol, TypeVar
+from typing import Annotated, Any, Literal, Protocol
 
 from pydantic import ConfigDict, JsonValue
 from pydantic import Field as PydanticField
@@ -72,12 +72,8 @@ from conductor._internal.problem import catalogue as problem
 from conductor._internal.sentinels import REQUIRED
 from conductor._internal.value_type import Type
 
-_P = ParamSpec("_P")
-_R = TypeVar("_R")
-_R_co = TypeVar("_R_co", covariant=True)
 
-
-class NodeFunction(Protocol[_P, _R_co]):
+class NodeFunction[**P, R](Protocol):
     """A function a node is made of: called with its own signature, and named where it was written.
 
     Every function, method and static method has these names, so a node says where it was declared from them.
@@ -87,7 +83,7 @@ class NodeFunction(Protocol[_P, _R_co]):
     __module__: str
     __qualname__: str
 
-    def __call__(self, *args: _P.args, **kwargs: _P.kwargs) -> _R_co: ...
+    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R: ...
 
 #: The hooks a node may have, by the keyword ``@node`` takes each as.
 HookName = Literal["compute_added_inputs", "compute_outputs"]
@@ -248,7 +244,7 @@ class _Version:
 
 
 @dataclass(frozen=True, eq=False, kw_only=True, repr=False)  # the version's own __repr__
-class FunctionDefinition(_Version, Generic[_P, _R]):
+class FunctionDefinition[**P, R](_Version):
     """A version of a node that is a function: what it takes, what it gives, and how to call it.
 
     Frozen, and callable with the function's own signature, so a node is tested by calling it. ``@node`` on a
@@ -273,7 +269,7 @@ class FunctionDefinition(_Version, Generic[_P, _R]):
         generic: Whether an input's type holds a type variable, which a graph binds from its edges as it loads.
     """
 
-    function: NodeFunction[_P, _R]
+    function: NodeFunction[P, R]
     inputs: Mapping[str, Field]
     outputs: Mapping[str, Field]
     returns: ReturnShape
@@ -284,7 +280,7 @@ class FunctionDefinition(_Version, Generic[_P, _R]):
     hook_parameters: Mapping[HookName, Mapping[str, HookParameter]] = dataclasses.field(default_factory=dict[HookName, Mapping[str, HookParameter]])
     generic: bool = False
 
-    def __call__(self, *args: _P.args, **kwargs: _P.kwargs) -> _R:
+    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R:
         """Call the function, as a test or a host would."""
         return self.function(*args, **kwargs)
 
@@ -408,7 +404,7 @@ NodeDescription = Annotated[FunctionNodeDescription | StoredGraphDescription, Py
 class NodeDecorator(Protocol):
     """What ``@node(...)`` returns: a decorator that makes a node of the function under it."""
 
-    def __call__(self, function: NodeFunction[_P, _R], /) -> FunctionDefinition[_P, _R]: ...
+    def __call__[**P, R](self, function: NodeFunction[P, R], /) -> FunctionDefinition[P, R]: ...
 
 
 def node(
@@ -456,7 +452,7 @@ def node(
     """
     number = _version_number("@node", id, title, description, version, replaces, upgrade)
 
-    def make(target: NodeFunction[_P, _R], /) -> FunctionDefinition[_P, _R]:
+    def make[**P, R](target: NodeFunction[P, R], /) -> FunctionDefinition[P, R]:
         try:
             if inspect.iscoroutinefunction(target) or inspect.isasyncgenfunction(target):
                 raise NodeDeclarationError("a node is a plain def; the engine gives a slow one threads with Policy(concurrency=)", code="async_run")

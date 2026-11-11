@@ -12,7 +12,7 @@ from __future__ import annotations
 import inspect
 import typing
 from collections.abc import Callable, Iterator, Mapping, Sequence
-from typing import Any, Generic, Literal, NotRequired, ParamSpec, TypedDict, final
+from typing import Any, Literal, NotRequired, TypedDict, final
 
 from pydantic import Field, JsonValue
 
@@ -54,11 +54,10 @@ class Problem(ConductorModel):
     ctx: Mapping[str, JsonValue] = Field(default_factory=dict)
 
 
-_Said = ParamSpec("_Said")
 
 
 @final
-class ProblemKind(Generic[_Said]):
+class ProblemKind[**Said]:
     """One kind of problem, declared by the function that says it; calling it makes the ``Problem``.
 
     ``ProblemCatalogue.problem`` makes one and says how the function's signature is read.
@@ -72,7 +71,7 @@ class ProblemKind(Generic[_Said]):
         ctx_type: The ``ctx`` the kind writes, as a ``TypedDict``; a key that may be left out is not required.
     """
 
-    def __init__(self, say: Callable[_Said, str], code: str, hint: str | None, of_a_hook: bool) -> None:
+    def __init__(self, say: Callable[Said, str], code: str, hint: str | None, of_a_hook: bool) -> None:
         self.code, self.hint, self.of_a_hook = code, hint, of_a_hook
         self.__doc__ = say.__doc__
         self._say = say
@@ -93,7 +92,7 @@ class ProblemKind(Generic[_Said]):
             **({"hint": Literal[hint]} if hint else {}),
         })
 
-    def __call__(self, *loc: _Said.args, **ctx: _Said.kwargs) -> Problem:
+    def __call__(self, *loc: Said.args, **ctx: Said.kwargs) -> Problem:
         """The problem at ``loc``. What is given is conductor's own, typed where it is written, and is not read again."""
         given = {key: value for key, value in ctx.items() if value is not None} if self._may_leave_out else ctx
         return Problem.model_construct(type=self.code, loc=loc, msg=self._say(*loc, **ctx), ctx={**dict(zip(self._places, loc)), **given, **self._hint})
@@ -145,7 +144,7 @@ class ProblemCatalogue:
     def __init__(self) -> None:
         self._kinds: list[ProblemKind[...]] = []
 
-    def problem(self, code: str | None = None, *, hint: str | None = None, of_a_hook: bool = False) -> Callable[[Callable[_Said, str]], ProblemKind[_Said]]:
+    def problem[**Said](self, code: str | None = None, *, hint: str | None = None, of_a_hook: bool = False) -> Callable[[Callable[Said, str]], ProblemKind[Said]]:
         """Declares the function under it a kind of problem, and gives back what a caller calls to make one.
 
         The function returns the English a person reads, built from its parameters and nothing else. Each parameter
@@ -177,7 +176,7 @@ class ProblemCatalogue:
             TypeError: When the function is declared, for a parameter that is none of the three, a return type other
                 than ``str``, or a ``hint`` for a code the catalogue has not declared.
         """
-        def declared(say: Callable[_Said, str]) -> ProblemKind[_Said]:
+        def declared(say: Callable[Said, str]) -> ProblemKind[Said]:
             kind = ProblemKind(say, code or say.__name__, hint, of_a_hook)
             if hint and kind.code not in self.codes:
                 raise TypeError(f"{say.__name__}: a hint is a second sentence under a code, and '{kind.code}' is not declared before it")

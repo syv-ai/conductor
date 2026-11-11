@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import typing
-from typing import Any, Generic, TypeVar, get_args
+from typing import Any, get_args
 
 import polars as pl
 from pydantic import GetCoreSchemaHandler
@@ -15,10 +15,8 @@ from conductor._internal.table.type import _Table
 from conductor._internal.table.write import written_columns
 from conductor._internal.value_type import Type
 
-_T = TypeVar("_T")
 
-
-class Records(StoredSeries, Generic[_T], returned_as=pl.DataFrame):
+class Records[T](StoredSeries, returned_as=pl.DataFrame):
     """A ``Series`` of records stored as the table (a ``polars.DataFrame``) a node returned for it, one row per
     record. Only the frame is kept. A column is read out of it as a Python list the first time an edge reads a
     field of a record or the run is saved, and that list is then reused, so each column exists as a Python list at

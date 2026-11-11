@@ -5,7 +5,7 @@ from __future__ import annotations
 import functools
 import typing
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, ClassVar, Generic, TypeVar, get_args
+from typing import TYPE_CHECKING, Any, ClassVar, get_args
 
 import polars as pl
 from pydantic import GetCoreSchemaHandler
@@ -19,10 +19,8 @@ from conductor._internal.table.write import (
 )
 from conductor._internal.value_type import Type
 
-_T = TypeVar("_T")
 
-
-class _Table(Generic[_T]):
+class _Table[T]:
     """``Table[R]``: a whole table whose columns the ``TypedDict`` ``R`` names; a ``polars.DataFrame`` to the node
     and to a type checker.
 
