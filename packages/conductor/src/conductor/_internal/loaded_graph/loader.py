@@ -75,9 +75,10 @@ from conductor._internal.problem import (
 _logger = logging.getLogger("conductor")
 
 
-def load_graph(record: GraphRecord, definitions: Mapping[str, NodeDefinition]) -> LoadedGraph:
-    """``record`` loaded against ``definitions``, the newest version of each node by id."""
-    return _Loader(definitions, (), {}).load(record)
+def load_graph[GraphT: LoadedGraph](record: GraphRecord, definitions: Mapping[str, NodeDefinition], graph_type: type[GraphT]) -> GraphT:
+    """``record`` loaded against ``definitions``, the newest version of each node by id, as a ``graph_type``: the
+    ``Graph`` a host holds, which is the one way one is made."""
+    return _Loader(definitions, (), {}).load(record, graph_type)
 
 
 #: An embedded graph loaded alone, by its definition's id and version and the graphs it sits in.
@@ -132,8 +133,9 @@ class _Loader:
         self.opened: list[tuple[GraphInput, Field]] = []
         self.position: dict[str, int] = {}
 
-    def load(self, record: GraphRecord) -> LoadedGraph:
-        """The graph of ``record``: every node whose fields are known placed, and every problem noted."""
+    def load[GraphT: LoadedGraph](self, record: GraphRecord, graph_type: type[GraphT]) -> GraphT:
+        """The graph of ``record``, as a ``graph_type``: every node whose fields are known placed, and every
+        problem noted."""
         refused = {n.id for n in record.nodes if not is_node_id(n.id)}
         self.problems += [make_problem("invalid_node_id", node_id) for node_id in dict.fromkeys(n.id for n in record.nodes) if node_id in refused]
         known: dict[str, NodeRecord] = {}
@@ -187,7 +189,7 @@ class _Loader:
                     needs_from_run += inner._needs_from_run
             for source_id in placed.reads:
                 readers[source_id].append(placed)
-        return LoadedGraph(record, self.problems, inputs, self.nodes, input_fields, readers, needs_from_run)
+        return graph_type(record, self.problems, inputs, self.nodes, input_fields, readers, needs_from_run)
 
     def _resolve(self, record: NodeRecord) -> NodeDefinition | None:
         """The definition a node of the record names, at its version; ``None`` with the problem when there is none."""
@@ -284,7 +286,7 @@ class _Loader:
         stack = (*self.embedded_in, definition.id)
         key = (definition.id, definition.version, stack)
         if key not in self.alone:
-            self.alone[key] = _Loader(self.definitions, stack, self.alone).load(definition.graph)
+            self.alone[key] = _Loader(self.definitions, stack, self.alone).load(definition.graph, LoadedGraph)
         inner = self.alone[key]
         if inner.problems:
             self.problems += [problem.model_copy(update={"loc": (record.id, *problem.loc)}) for problem in inner.problems]

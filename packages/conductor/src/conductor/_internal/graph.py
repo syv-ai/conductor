@@ -2,17 +2,13 @@
 
 from __future__ import annotations
 
-import dataclasses
 import functools
 import types
 from collections.abc import Mapping
 from typing import Any
 
-from conductor._internal import loaded_graph
 from conductor._internal.fields import REQUIRED, FieldValueError
-from conductor._internal.graph_record import GraphRecord
 from conductor._internal.loaded_graph import LoadedGraph
-from conductor._internal.node_definition import NodeDefinition
 from conductor._internal.problem import InvalidCallError, Problem, make_problem
 from conductor._internal.run import Run, checked_leg, no_units, run_from_json, start_run
 from conductor._internal.saved_run import SaveForm, save_form
@@ -125,9 +121,3 @@ class Graph(LoadedGraph):
             raise InvalidCallError(problems)
         return values
 
-
-def load_graph(record: GraphRecord, definitions: Mapping[str, NodeDefinition]) -> Graph:
-    """``record`` loaded against ``definitions``, the newest version of each node by id: the one way a host's
-    ``Graph`` is made."""
-    loaded = loaded_graph.load_graph(record, definitions)
-    return Graph(**{held.name: getattr(loaded, held.name) for held in dataclasses.fields(loaded)})
