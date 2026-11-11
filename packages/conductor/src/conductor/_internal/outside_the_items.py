@@ -43,6 +43,7 @@ from conductor._internal.graph import (
     NodeAtPath,
     NodePath,
     Open,
+    SeriesOfOne,
 )
 
 #: An item could bring a value, so each item decides. The other answers are ``SKIPPED`` (none could, for a branch
@@ -180,7 +181,8 @@ def _could_come_to(node: FunctionAtPath, gathered: Gather, asked: dict[NodeAtPat
             answer = _could_gather(inside, base, plan, gathered, asked, node_at, stands)  # type: ignore[arg-type]
         else:
             answer = stands(inside, base, plan, node.gathered_through[name])
-        answers.append(COULD if answer is None and plan.spec.whole.optional else answer)
+        takes_a_blank = plan.spec.whole.optional or (kind is SeriesOfOne and plan.spec.keeps_blanks)
+        answers.append(COULD if answer is None and takes_a_blank else answer)
     return _worst(answers)
 
 

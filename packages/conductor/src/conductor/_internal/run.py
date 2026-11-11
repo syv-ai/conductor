@@ -838,8 +838,8 @@ class Run:
                         value = _cell(units, base, source, key)
                         if value is not SKIPPED:
                             break
-                    if kind is SeriesOfOne and value is not None and value is not SKIPPED and value is not PENDING:
-                        value = [value]
+                    if kind is SeriesOfOne and value is not SKIPPED and value is not PENDING and (value is not None or plan.spec.keeps_blanks):
+                        value = [value]  # a Series of one, whose one item is blank where the items take a blank
             except FieldValueError as missing:  # an edge into this input names a field its record doesn't have
                 return make_problem(missing.code, *unit_loc(node, key), name=name, reason=missing.reason, **missing.ctx)
             if value is SKIPPED:

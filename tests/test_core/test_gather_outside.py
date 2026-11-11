@@ -108,6 +108,11 @@ def with_all(a: str, values: Series[str]) -> str:
     return a + "".join(values)
 
 
+@_node("with-all-or-blanks")
+def with_all_or_blanks(a: str, values: Series[str | None]) -> str:
+    return a + "".join("-" if value is None else value for value in values)
+
+
 REGISTRY.node("pair-then-up-or-none", title="Pair then up", description="A pair, in capitals, or none.")(
     make_graph(pair, up_or_none, edges=[("pair.result", "up-or-none.a")])
 )
@@ -275,3 +280,16 @@ def test_a_series_never_made_is_the_gathers_own_blank_where_the_nodes_per_item_w
     nodes = {"t": "template", "s": "items", "u": "up-or-none", "n": "count", "o": "count-or-none"}
     run = ran(nodes, [("t.result", "s.text"), ("s.result", "u.a"), ("u.result", "n.values"), ("u.result", "o.values")], kind="blank")
     assert (came_to(run, "n"), came_to(run, "o")) == ("not called", "none")
+
+
+def test_a_series_of_one_whose_one_value_is_blank_is_received_by_a_series_that_takes_a_blank_per_item() -> None:
+    nodes = {"t": "template", "n": "count", "o": "count-or-none", "k": "count-with-blanks"}
+    run = ran(nodes, [("t.result", "n.values"), ("t.result", "o.values"), ("t.result", "k.values")], kind="blank")
+    assert (came_to(run, "n"), came_to(run, "o"), came_to(run, "k")) == ("not called", "none", "-")
+    assert came_to(ran({"t": "template", "k": "count-with-blanks"}, [("t.result", "k.values")], kind="skip"), "k") == "skipped"
+
+
+def test_a_node_in_the_items_whose_series_of_one_takes_a_blank_made_outside_lets_the_items_decide() -> None:
+    nodes, edges = {"s": "items", "t": "template", "x": "with-all", "n": "count"}, [("s.result", "x.a"), ("t.result", "x.values"), ("x.result", "n.values")]
+    assert came_to(ran(nodes, edges, kind="blank", text="a b"), "n") == "not called"  # with-all takes no blank in its Series of one
+    assert came_to(ran({**nodes, "x": "with-all-or-blanks"}, edges, kind="blank", text="a b"), "n") == 2
