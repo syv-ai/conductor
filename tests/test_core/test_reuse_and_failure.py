@@ -18,6 +18,7 @@ import polars as pl
 import pydantic
 import pytest
 from conductor import (
+    SKIPPED,
     Ask,
     ExternalError,
     FromRun,
@@ -861,6 +862,37 @@ def test_a_cancelled_leg_between_two_runs_reuses_what_one_direct_leg_does():
         through = graph.load_run(stopped.to_json()).resume()
         assert sorted(sent) == direct_calls and through.results == direct.results
         run, items = direct, edited
+
+
+def test_a_call_that_returned_skipped_is_a_result_and_is_not_made_again_live_or_through_json():
+    """A node that returned ``SKIPPED`` was called: ``again`` takes that as it takes any result, and what reads it is skipped as before."""
+    calls: list[str] = []
+
+    @node("only-long", title="Only long", description="")
+    def only_long(text: str) -> str:
+        calls.append(text)
+        return text if len(text) > 2 else SKIPPED
+
+    @node("shout", title="Shout", description="")
+    def shout(text: str) -> str:
+        return text.upper()
+
+    graph = registry_of(_each, only_long, shout).load(GraphRecord(
+        nodes=[_EACH, NodeRecord(id="o", node="only-long"), NodeRecord(id="s", node="shout")], edges=[("each.result", "o.text"), ("o.result", "s.text")],
+    ))
+    first = graph.run(items=["a", "abc", "b"])
+    assert first.results["o"] == {"result": [None, "abc", None]} and first.results["s"] == {"result": [None, "ABC", None]}
+    assert calls == ["a", "abc", "b"]
+
+    events = _events(first.with_inputs())
+    again = events[-1].run
+    loaded_again = graph.load_run(first.to_json()).again()
+
+    assert calls == ["a", "abc", "b"]
+    assert [(e.units, e.reused_units) for e in events if e.type == "node_complete" and e.loc == ("o",)] == [(3, 3)]
+    assert again.results == first.results == loaded_again.results and first.not_called == []
+    nothing_long = _events(graph.with_inputs(items=["a", "b"]))
+    assert [e.loc for e in nothing_long if e.type == "node_skipped"] == [("o",), ("s",)]  # every unit came to no value, called or not
 
 
 def test_a_first_run_reports_no_reuse():

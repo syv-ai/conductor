@@ -544,7 +544,7 @@ class Leg:
 
     def _outcome(self, node: FunctionAtPath, key: Key, kwargs: dict[str, Any], out: Any, error: BaseException | None) -> Unit | Problem:
         if error is None:
-            return SKIPPED_UNIT if out is SKIPPED else Done(out)
+            return Done(out)
         if isinstance(error, Ask):
             try:
                 inputs = jsonable(kwargs)
@@ -715,7 +715,7 @@ class Leg:
             self.complete.add(node)
             if node.maps and node in self.progress_said:
                 self._progress(node, last=True)
-            if units and all(unit is SKIPPED_UNIT for unit in units.values()):
+            if units and all(_came_to_no_value(unit) for unit in units.values()):
                 emit(NodeSkipped(loc=node.path))
             else:
                 not_called = sum(type(unit) is Blank for unit in units.values())
@@ -733,6 +733,12 @@ class Leg:
             return False
         counted, known = self.run._instances(node.maps, (), counted=True)
         return known and len(units) == (counted[0][0] if counted else 0)
+
+
+def _came_to_no_value(unit: Unit) -> bool:
+    """Whether a unit is a branch not taken: its node wasn't called for one above it, or was called and returned
+    ``SKIPPED`` on every output."""
+    return unit is SKIPPED_UNIT or (isinstance(unit, Done) and bool(unit.out) and all(value is SKIPPED for value in unit.out.values()))
 
 
 def _around(node: NodeAtPath) -> list[GraphAtPath]:

@@ -173,8 +173,9 @@ class Done:
     """A unit whose node was called and returned.
 
     Attributes:
-        out: Its outputs by name: a value, ``None`` for a blank, ``SKIPPED`` for a branch not taken, and for a
-            ``Series`` a list, or ``Records`` when the node returned a table for a ``Series`` of records.
+        out: Its outputs by name: a value, ``None`` for a blank, ``SKIPPED`` for a branch not taken (every one
+            of them, when the node returned ``SKIPPED``), and for a ``Series`` a list, or ``Records`` when the
+            node returned a table for a ``Series`` of records.
     """
 
     out: dict[str, Any]
@@ -193,8 +194,8 @@ class Answered(Done):
 
 @dataclass(frozen=True, slots=True)
 class Skipped:
-    """A unit on a branch not taken: an input came only from branches not taken, or the node returned ``SKIPPED``.
-    What reads it is skipped too."""
+    """A unit whose node wasn't called because a branch above it wasn't taken: an input came only from branches
+    not taken. What reads it is skipped too."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -222,7 +223,7 @@ class Asking:
 #: What one node came to in one instance of its scope. A run and its copies share their units, so none is changed.
 Unit = Done | Answered | Skipped | Blank | Asking
 
-#: The one skipped unit.
+#: The one skipped unit: it holds nothing, so every node not called for a branch not taken shares it.
 SKIPPED_UNIT = Skipped()
 
 
@@ -1062,8 +1063,9 @@ def _seconds(value: float) -> bool:
 # -- values -------------------------------------------------------------------------------------
 
 
-def checked_outputs(returns: Returns, outputs: Mapping[str, Field], returned: Any) -> Any:
-    """What a node returned, as its outputs by name as a run keeps them; ``SKIPPED`` for a whole branch not taken.
+def checked_outputs(returns: Returns, outputs: Mapping[str, Field], returned: Any) -> dict[str, Any]:
+    """What a node returned, as its outputs by name as a run keeps them; ``SKIPPED`` returned for the whole node
+    is ``SKIPPED`` on every output.
 
     Each is read strictly by its declared type (a value already of its class as it is, a model from a dict, never
     ``"12"`` for an ``int``), and of an ``exclusive_group`` at most one output holds a value.
@@ -1078,7 +1080,7 @@ def checked_outputs(returns: Returns, outputs: Mapping[str, Field], returned: An
             ``invalid_output``.
     """
     if returned is SKIPPED:
-        return SKIPPED
+        return dict.fromkeys(outputs, SKIPPED)
     spread, settled = returns.spread(returned, outputs)
     if settled:
         return spread
