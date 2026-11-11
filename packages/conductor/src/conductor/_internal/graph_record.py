@@ -46,12 +46,12 @@ from pydantic import (
 )
 from pydantic_core import PydanticSerializationError, from_json, to_json
 
+from conductor._internal import problem
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.fields import SET_HAS_NO_ORDER
 from conductor._internal.problem import (
     InvalidCallError,
     Problem,
-    invalid_record,
     make_problem,
 )
 
@@ -151,7 +151,7 @@ def as_record(record: GraphRecord | str | bytes | Mapping[str, Any]) -> GraphRec
 def not_a_record(invalid: ValidationError) -> list[Problem]:
     """Gives an ``invalid_record`` problem for each fault pydantic found reading a record, at ``("record", *where)``."""
     return [
-        invalid_record("record", *error["loc"], at=".".join(map(str, error["loc"])) or "the record", reason=error["msg"].removeprefix("Value error, "), error=error["type"])
+        problem.invalid_record("record", *error["loc"], at=".".join(map(str, error["loc"])) or "the record", reason=error["msg"].removeprefix("Value error, "), error=error["type"])
         for error in invalid.errors(include_url=False, include_input=False)  # a validator's own sentence, without pydantic's prefix
     ]
 

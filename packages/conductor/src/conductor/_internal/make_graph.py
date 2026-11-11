@@ -9,10 +9,11 @@ from typing import Any
 
 from pydantic import JsonValue, ValidationError
 
+from conductor._internal import problem
 from conductor._internal.fields import REQUIRED
 from conductor._internal.graph_record import GraphRecord, NodeRecord, not_a_record, typed_in
 from conductor._internal.node_definition import FunctionDefinition, NodeDefinition
-from conductor._internal.problem import InvalidCallError, Problem, make_problem, not_a_chain
+from conductor._internal.problem import InvalidCallError, Problem, make_problem
 
 
 def make_graph(
@@ -115,7 +116,7 @@ def _chain_edges(
             case _:  # a stored graph's fields are known only when it loads, so a chain can't be drawn through it
                 outputs, open_inputs = [], []
         if len(outputs) != 1 or len(open_inputs) != 1:
-            problems.append(not_a_chain(after_id, before=before_id, inputs=open_inputs, outputs=outputs))
+            problems.append(problem.not_a_chain(after_id, before=before_id, inputs=open_inputs, outputs=outputs))
         else:
             edges.append((f"{before_id}.{outputs[0]}", f"{after_id}.{open_inputs[0]}"))
     return edges, problems
