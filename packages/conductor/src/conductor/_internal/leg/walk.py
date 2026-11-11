@@ -239,7 +239,18 @@ class Leg:
         if self.stop is not None:
             timeout = 0.05 if timeout is None else min(timeout, 0.05)
         try:
-            self._returned(*self.returned.get(timeout=None if timeout is None else max(timeout, 0)))
+            if timeout is None:
+                came = self.returned.get()
+            else:
+                try:
+                    # CPython 3.12's SimpleQueue.get(timeout=) never returns when its timeout runs out before its first
+                    # look at an empty queue, so the first look is one that doesn't wait.
+                    came = self.returned.get(block=False)
+                except queue.Empty:
+                    if timeout <= 0:
+                        raise
+                    came = self.returned.get(timeout=timeout)
+            self._returned(*came)
         except queue.Empty:
             pass
         now = time.monotonic()

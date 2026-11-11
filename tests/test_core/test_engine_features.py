@@ -2,6 +2,7 @@
 import asyncio
 import base64
 import json
+import queue
 import re
 import time as t
 from collections.abc import Mapping
@@ -209,6 +210,31 @@ def test_gather_per_document_while_items_run():
 
 class Flaky(OSError):
     pass
+
+
+def test_a_leg_waiting_on_a_timer_looks_at_its_queue_without_waiting_before_it_waits_with_a_timeout(monkeypatch: pytest.MonkeyPatch):
+    """CPython 3.12's ``SimpleQueue.get(timeout=)`` can stay in the call for ever when it is the first look at an
+    empty queue, so a leg that waits for a retry never makes one: every timed wait follows a look that found nothing."""
+    looks: list[str] = []
+
+    class Watched(queue.SimpleQueue[Any]):
+        def get(self, block: bool = True, timeout: float | None = None) -> Any:
+            looks.append("no wait" if not block else "timed" if timeout is not None else "wait")
+            assert timeout is None or timeout > 0
+            return super().get(block, timeout)
+
+    monkeypatch.setattr(queue, "SimpleQueue", Watched)
+
+    @node("fetch", title="Fetch", description="", policy=Policy(retries=1, retry_delay=0.01))
+    def fetch(text: str) -> str:
+        if not looks:
+            raise ExternalError("busy")
+        return text
+
+    assert registry_of(fetch).load(chain("fetch")).run(text="a").outputs == {"fetch.result": "a"}
+    assert "timed" in looks
+    assert all(looks[i - 1] == "no wait" for i, look in enumerate(looks) if look == "timed")
+    assert looks[0] == "no wait"
 
 
 def test_retries_external_failures_then_succeeds():
