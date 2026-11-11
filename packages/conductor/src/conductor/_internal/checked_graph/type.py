@@ -31,7 +31,7 @@ from conductor._internal.checked_graph.describe import (
     feed_of,
     runs_on,
 )
-from conductor._internal.checked_graph.tree import FunctionAtPath, NodeAtPath, nodes_at_paths
+from conductor._internal.checked_graph.flat_nodes import FlatFunctionNode, FlatNode, flat_nodes
 from conductor._internal.field import Field
 from conductor._internal.graph_record import GraphRecord
 from conductor._internal.node_definition import FunctionDefinition
@@ -137,27 +137,27 @@ class CheckedGraph:
     # -- what a run walks -------------------------------------------------------
 
     @functools.cached_property
-    def _at_paths(self) -> tuple[list[FunctionAtPath], dict[str, NodeAtPath]]:
-        """The graph's nodes and those of each graph embedded in it, where they stand (``nodes_at_paths``),
+    def _flat_nodes(self) -> tuple[list[FlatFunctionNode], dict[str, FlatNode]]:
+        """The graph's nodes and those of each graph embedded in it, where they stand (``flat_nodes``),
         made when first read."""
-        return nodes_at_paths(self)
+        return flat_nodes(self)
 
     @property
-    def _tree(self) -> list[FunctionAtPath]:
+    def _flat_function_nodes(self) -> list[FlatFunctionNode]:
         """Every function of the graph and of each graph embedded in it, at any depth, each after the
         functions it reads: the order a leg tries them in."""
-        return self._at_paths[0]
+        return self._flat_nodes[0]
 
     @property
-    def _node_at(self) -> dict[str, NodeAtPath]:
+    def _node_at(self) -> dict[str, FlatNode]:
         """Each node of the graph and of each graph embedded in it, a function or an embedded graph, by its
         name (``e/ask``)."""
-        return self._at_paths[1]
+        return self._flat_nodes[1]
 
     @functools.cached_property
     def _functions(self) -> dict[NodePath, CheckedFunctionNode]:
-        """Every function node of ``_tree``, by its path."""
-        return {node.path: node.checked_node for node in self._tree}
+        """Every function node of ``_flat_function_nodes``, by its path."""
+        return {node.path: node.checked_node for node in self._flat_function_nodes}
 
     @functools.cached_property
     def _threads(self) -> int:

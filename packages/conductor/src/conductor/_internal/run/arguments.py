@@ -62,7 +62,7 @@ from conductor._internal.sentinels import SKIPPED
 from conductor._internal.series import places_of_none, without_places
 
 if TYPE_CHECKING:
-    from conductor._internal.checked_graph.tree import FunctionAtPath
+    from conductor._internal.checked_graph.flat_nodes import FlatFunctionNode
 
 
 class _MayHaveValue:
@@ -98,10 +98,10 @@ class Reader(abc.ABC):
         ``SKIPPED`` for a branch not taken, or ``NOT_READY``."""
 
     @abc.abstractmethod
-    def align_lists(self, node: FunctionAtPath, arguments: dict[str, Any]) -> dict[str, Any]:
+    def align_lists(self, node: FlatFunctionNode, arguments: dict[str, Any]) -> dict[str, Any]:
         """``arguments`` with the gathering inputs of ``node`` that gather one Series holding the same items."""
 
-    def arguments_for(self, node: FunctionAtPath, item_path: ItemPath) -> dict[str, Any] | Skipped | NotCalled | Literal[NotReady.NOT_READY]:
+    def arguments_for(self, node: FlatFunctionNode, item_path: ItemPath) -> dict[str, Any] | Skipped | NotCalled | Literal[NotReady.NOT_READY]:
         """What ``node`` comes to for ``item_path``: the node rule.
 
         Every input is read before not settled or a blank is the answer, so the order of a node's parameters
@@ -205,7 +205,7 @@ class ResultReader(Reader):
 
         What is outside the items is asked first whether any item could bring a value. When none could, that
         is the answer for any number of items, none included. When one could, each item answers for itself.
-        The input's node needs the Series too, and reads it as an input of its own (``FunctionAtPath.fed``),
+        The input's node needs the Series too, and reads it as an input of its own (``FlatFunctionNode.fed``),
         so the node rule weighs the two; here a Series that holds no list is only handed back.
 
         Returns:
@@ -241,7 +241,7 @@ class ResultReader(Reader):
         brought = LoopDryRun(self, made, item_path).result_for_every_item(plan)
         return brought if brought is not MAY_HAVE_VALUE else self.read_output(made, item_path)
 
-    def align_lists(self, node: FunctionAtPath, arguments: dict[str, Any]) -> dict[str, Any]:
+    def align_lists(self, node: FlatFunctionNode, arguments: dict[str, Any]) -> dict[str, Any]:
         """``arguments`` with each gathering input holding the items that have a value in every input of the
         node that gathers the same Series, so those inputs stay in step; an input whose items may be blank
         keeps a blank in its place."""
@@ -367,7 +367,7 @@ class LoopDryRun(Reader):
         value = self.items.collect(plan, self.item_path)
         return value if value is NOT_READY or value is SKIPPED or value is None else MAY_HAVE_VALUE
 
-    def align_lists(self, node: FunctionAtPath, arguments: dict[str, Any]) -> dict[str, Any]:
+    def align_lists(self, node: FlatFunctionNode, arguments: dict[str, Any]) -> dict[str, Any]:
         """``arguments`` as it is: nothing is known of the items to keep in step."""
         return arguments
 

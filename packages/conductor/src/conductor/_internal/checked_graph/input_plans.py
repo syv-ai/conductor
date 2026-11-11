@@ -30,7 +30,7 @@ from conductor._internal.sentinels import SKIPPED
 from conductor._internal.value_type import Type
 
 if TYPE_CHECKING:
-    from conductor._internal.checked_graph.tree import FunctionAtPath
+    from conductor._internal.checked_graph.flat_nodes import FlatFunctionNode
     from conductor._internal.run.arguments import Reader
 
 
@@ -224,7 +224,7 @@ class InputCollectsLoopResults:
 
     field: Field
     reads: tuple[OutputInLoops, ...]
-    loop_body: tuple[FunctionAtPath, ...] = ()
+    loop_body: tuple[FlatFunctionNode, ...] = ()
 
     @property
     def series(self) -> OutputInLoops:

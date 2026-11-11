@@ -1,7 +1,7 @@
 """One leg of a run: start every unit whose inputs exist, record what comes of each, and say so as events.
 
 A leg walks every function of the run's graph and of the graphs embedded in
-it, each where it stands (``graph._tree``). A node inside an embedded graph is
+it, each where it stands (``graph._flat_function_nodes``). A node inside an embedded graph is
 one of them, with a unit per item of the embedding node and of its own scope,
 so it is called, retried, timed out and cancelled as the same node drawn in
 the graph around it. An embedded graph's node is not among them: it is never
@@ -15,7 +15,7 @@ timeout is called on the spot; any other is handed to threads, at most
 back, the units that read it are tried at once: the reader's units under,
 at, or above the unit's instance. So item 1 can finish the chain while item
 10 is still being made. What reads a unit is every node whose units are made
-from it (a node's ``made_from``, which is what its inputs' plans read): a node
+from it (a node's ``reads_from``, which is what its inputs' plans read): a node
 that gathers reads the Series as well as what fills its items, so a Series
 of no items makes its gather ready as the last item of a long one does.
 
@@ -49,9 +49,9 @@ from typing import Any, Literal
 from conductor._internal.address import ItemPath, NodePath
 from conductor._internal.ask import Ask, InvalidAskError, question_asked, waiting_record
 from conductor._internal.checked_graph import (
-    EmbeddedGraphAtPath,
-    FunctionAtPath,
-    NodeAtPath,
+    FlatEmbeddedGraph,
+    FlatFunctionNode,
+    FlatNode,
     outcome_loc,
     waits_on,
 )
@@ -129,8 +129,8 @@ class Scheduler:
     """
 
     def __init__(
-        self, *, nodes: list[FunctionAtPath], threads: int, outcomes: dict[str, dict[ItemPath, Outcome]], reusable_results: dict[NodePath, ReusableResults], finished: frozenset[NodePath],
-        max_items: int | None, arguments_for: Callable[[FunctionAtPath, ItemPath], dict[str, Any] | Skipped | NotCalled | Literal[NotReady.NOT_READY]],
+        self, *, nodes: list[FlatFunctionNode], threads: int, outcomes: dict[str, dict[ItemPath, Outcome]], reusable_results: dict[NodePath, ReusableResults], finished: frozenset[NodePath],
+        max_items: int | None, arguments_for: Callable[[FlatFunctionNode, ItemPath], dict[str, Any] | Skipped | NotCalled | Literal[NotReady.NOT_READY]],
         emit: Callable[[EventBase], None] | None, stop: Callable[[], RunState | None] | None, from_run: dict[type, Any],
         checkpoint: Callable[[RunState], None] | None = None, checkpoint_every: float | None = None,
     ) -> None:
@@ -143,7 +143,7 @@ class Scheduler:
         #: Each node's units by instance: the run's own, recorded into.
         self.outcomes = {node: outcomes[node.name] for node in self.nodes}
         #: The nodes whose units were recorded out of instance order, as calls on threads finish when they finish.
-        self.out_of_order: set[FunctionAtPath] = set()
+        self.out_of_order: set[FlatFunctionNode] = set()
         #: What each node may take from the run this one went on from, by its path.
         self.reusable_results = reusable_results
         #: Whether nothing has ended the leg early; ``end`` is the one place that does.
@@ -156,40 +156,40 @@ class Scheduler:
         self.changed = True
         #: (node, an instance above its own): a node that gathers, started in the instances under that one once
         #: nothing it reads still works there.
-        self.collectors: set[tuple[FunctionAtPath, ItemPath]] = set()
-        self.running: dict[tuple[FunctionAtPath, ItemPath], dict[str, Any]] = {}  # units handed to threads, and their inputs
-        self.attempts: dict[tuple[FunctionAtPath, ItemPath], int] = {}  # the attempt each unit on a thread is on
+        self.collectors: set[tuple[FlatFunctionNode, ItemPath]] = set()
+        self.running: dict[tuple[FlatFunctionNode, ItemPath], dict[str, Any]] = {}  # units handed to threads, and their inputs
+        self.attempts: dict[tuple[FlatFunctionNode, ItemPath], int] = {}  # the attempt each unit on a thread is on
         #: Each node's units waiting for a thread: (instance, what it received, attempt).
-        self.waiting_for_thread: defaultdict[FunctionAtPath, deque[tuple[ItemPath, dict[str, Any], int]]] = defaultdict(deque)
+        self.waiting_for_thread: defaultdict[FlatFunctionNode, deque[tuple[ItemPath, dict[str, Any], int]]] = defaultdict(deque)
         #: How many of each node's calls are on threads, which its ``concurrency`` bounds.
-        self.on_threads: defaultdict[FunctionAtPath, int] = defaultdict(int)
+        self.on_threads: defaultdict[FlatFunctionNode, int] = defaultdict(int)
         #: What came back from threads: a call's (node, instance, attempt, outputs, what went wrong), or what ``call`` itself raised.
-        self.returned: queue.SimpleQueue[tuple[FunctionAtPath, ItemPath, int, Any, BaseException | None] | BaseException] = queue.SimpleQueue()
+        self.returned: queue.SimpleQueue[tuple[FlatFunctionNode, ItemPath, int, Any, BaseException | None] | BaseException] = queue.SimpleQueue()
         #: (when, order, what is due, node, instance, attempt): a retry of the attempt, or the deadline of the attempt on a thread.
-        self.timers: list[tuple[float, int, Literal["retry", "deadline"], FunctionAtPath, ItemPath, int, float]] = []
+        self.timers: list[tuple[float, int, Literal["retry", "deadline"], FlatFunctionNode, ItemPath, int, float]] = []
         self.timer_order = itertools.count()
         self.pool: ThreadPoolExecutor | None = None
         #: For a node taking a person's earlier answers, how far through its units in order the leg has tried.
-        self.answer_orders: dict[FunctionAtPath, _AnswerOrder] = {}
+        self.answer_orders: dict[FlatFunctionNode, _AnswerOrder] = {}
         #: Units recorded since the last walk over every unit ended.
         self.recorded_since_walk = 0
         #: Whether a unit was left untried because a unit before it may take the earlier answer it would take.
         self.out_of_turn = False
         # what only a listener needs
-        with_outcomes: set[FunctionAtPath] = {node for node, held in self.outcomes.items() if held}
-        self.started: set[NodeAtPath] = with_outcomes | {around for node in with_outcomes for around in _around(node)}
+        with_outcomes: set[FlatFunctionNode] = {node for node, held in self.outcomes.items() if held}
+        self.started: set[FlatNode] = with_outcomes | {around for node in with_outcomes for around in _around(node)}
         #: The nodes said complete, on this leg or on an earlier one; a node an answer finished between legs is said on
         #: this one. An embedded graph's node is complete when every node inside it is.
-        self.complete: set[NodeAtPath] = {node for node in self.nodes if node.path in finished} if finished else set()
+        self.complete: set[FlatNode] = {node for node in self.nodes if node.path in finished} if finished else set()
         if self.complete and emit is not None:
             for node in list(self.complete):
                 self._complete_around(node, say=False)
         #: The nodes said skipped: every unit a branch not taken.
-        self.skipped: set[NodeAtPath] = set()
+        self.skipped: set[FlatNode] = set()
         self.touched = with_outcomes - self.complete
-        self.reused: defaultdict[FunctionAtPath, int] = defaultdict(int)
-        self.progress_at: dict[FunctionAtPath, float] = {}
-        self.progress_said: dict[FunctionAtPath, int] = {}
+        self.reused: defaultdict[FlatFunctionNode, int] = defaultdict(int)
+        self.progress_at: dict[FlatFunctionNode, float] = {}
+        self.progress_said: dict[FlatFunctionNode, int] = {}
 
     def go(self) -> tuple[RunState, frozenset[NodePath]]:
         """Run the leg: try what is ready, look over the run when something happened in it, and wait for the
@@ -266,11 +266,11 @@ class Scheduler:
             _, _, due, node, key, attempt, seconds = heapq.heappop(self.timers)
             self._due(due, node, key, attempt, seconds)
 
-    def _after(self, seconds: float, due: Literal["retry", "deadline"], node: FunctionAtPath, key: ItemPath, attempt: int) -> None:
+    def _after(self, seconds: float, due: Literal["retry", "deadline"], node: FlatFunctionNode, key: ItemPath, attempt: int) -> None:
         """Set a timer: the retry of an attempt, or the deadline of the attempt on a thread."""
         heapq.heappush(self.timers, (time.monotonic() + seconds, next(self.timer_order), due, node, key, attempt, seconds))
 
-    def _start_waiting_calls(self, node: FunctionAtPath) -> None:
+    def _start_waiting_calls(self, node: FlatFunctionNode) -> None:
         """Put the node's waiting units on threads, as far as its ``concurrency`` allows."""
         waiting, policy = self.waiting_for_thread[node], node.policy
         while waiting and self.on_threads[node] < policy.concurrency and self.going:
@@ -304,9 +304,9 @@ class Scheduler:
         """With nothing ready to try: start the gathering units nothing works under any more and say which nodes
         are complete. Once nothing is working, walk every unit again if one was left out of its turn.
 
-        A unit is made ready by the units it is made from (a node's ``made_from``), so nothing else needs a walk
+        A unit is made ready by the units it is made from (a node's ``reads_from``), so nothing else needs a walk
         after the first. A unit that takes a person's earlier answer waits for the units of its node before it,
-        which no ``made_from`` holds: it is tried again by a walk, once a unit was recorded since the last one or
+        which no ``reads_from`` holds: it is tried again by a walk, once a unit was recorded since the last one or
         the units that can't be tried in this leg are counted as tried.
 
         Returns:
@@ -331,13 +331,13 @@ class Scheduler:
         running = self.running
         for node in self.nodes:
             outcomes = self.outcomes[node]
-            for key in item_paths(self.all_outcomes, node.maps, ())[0]:
+            for key in item_paths(self.all_outcomes, node.loops, ())[0]:
                 if key not in outcomes and (node, key) not in running:
                     if not self.going or (self.stop is not None and self.stop() is not None):
                         return
                     self._try(node, key, walking=True)
 
-    def _try(self, node: FunctionAtPath, key: ItemPath, walking: bool = False) -> None:
+    def _try(self, node: FlatFunctionNode, key: ItemPath, walking: bool = False) -> None:
         """Start ``node`` on ``key`` if what it reads exists."""
         if not walking and (key in self.outcomes[node] or (node, key) in self.running):
             return
@@ -372,14 +372,14 @@ class Scheduler:
         """Say how the run stands now the leg is over, and which of its nodes are finished."""
         self._put_in_order()
         # one look at every node not yet said complete: it waits for a person, or lacks a unit, or is finished
-        waiting: set[FunctionAtPath] = set()
-        unfinished: set[FunctionAtPath] = set()
+        waiting: set[FlatFunctionNode] = set()
+        unfinished: set[FlatFunctionNode] = set()
         for node, outcomes in self.outcomes.items():
             if node in self.complete:
                 continue
             if Asking in {type(outcome) for outcome in outcomes.values()}:
                 waiting.add(node)
-            elif not (has_every_outcome(self.all_outcomes, node) if node.maps else outcomes):  # a node that runs once has its one unit or none: no count, on a leg of many nodes
+            elif not (has_every_outcome(self.all_outcomes, node) if node.loops else outcomes):  # a node that runs once has its one unit or none: no count, on a leg of many nodes
                 unfinished.add(node)
         if self.going and not waiting:  # nothing more can start and nothing waits: every unit of every node is there
             if unfinished:  # a unit nothing made ready: the engine's own fault, never a run to hand on as complete
@@ -396,10 +396,10 @@ class Scheduler:
             self.touched.update(self.nodes)
             self._completions()
             for node in self.nodes:  # a node the leg left part done says how far it got
-                if node.maps and node in self.progress_said:
+                if node.loops and node in self.progress_said:
                     self._progress(node, last=True)
 
-    def _attempt(self, node: FunctionAtPath, key: ItemPath, kwargs: dict[str, Any], attempt: int, walking: bool = False) -> None:
+    def _attempt(self, node: FlatFunctionNode, key: ItemPath, kwargs: dict[str, Any], attempt: int, walking: bool = False) -> None:
         if not node.policy.threaded:
             out, error = call(node, kwargs, self.from_run)
             if not self._retry(node, key, kwargs, attempt, error):
@@ -411,7 +411,7 @@ class Scheduler:
         self.waiting_for_thread[node].append((key, kwargs, attempt))
         self._start_waiting_calls(node)
 
-    def _on_thread(self, node: FunctionAtPath, key: ItemPath, kwargs: dict[str, Any], attempt: int) -> None:
+    def _on_thread(self, node: FlatFunctionNode, key: ItemPath, kwargs: dict[str, Any], attempt: int) -> None:
         """Make the call and hand what it came to back to the leg. What ``call`` lets out (an exit, a defect in a
         type's own check) goes back too and is raised on the leg's thread, as it is for a node called there."""
         try:
@@ -421,7 +421,7 @@ class Scheduler:
         else:
             self.returned.put((node, key, attempt, out, error))
 
-    def _due(self, due: Literal["retry", "deadline"], node: FunctionAtPath, key: ItemPath, attempt: int, seconds: float) -> None:
+    def _due(self, due: Literal["retry", "deadline"], node: FlatFunctionNode, key: ItemPath, attempt: int, seconds: float) -> None:
         """A timer set for ``seconds`` fired: the retry of an attempt, or the deadline of the attempt on a thread."""
         if due == "retry":
             if self.going:
@@ -430,7 +430,7 @@ class Scheduler:
             del self.running[(node, key)]
             self._record(node, key, problem.timeout(*outcome_loc(node, key), seconds=seconds))
 
-    def _returned(self, node: FunctionAtPath, key: ItemPath, attempt: int, out: Any, error: BaseException | None) -> None:
+    def _returned(self, node: FlatFunctionNode, key: ItemPath, attempt: int, out: Any, error: BaseException | None) -> None:
         """A call came back from its thread: free its slot, and keep what it came to unless its attempt was
         given up."""
         self.on_threads[node] -= 1
@@ -448,7 +448,7 @@ class Scheduler:
             del self.running[(node, key)]
             self._record(node, key, self._outcome(node, key, kwargs, out, error))
 
-    def _retry(self, node: FunctionAtPath, key: ItemPath, kwargs: dict[str, Any], attempt: int, error: BaseException | None) -> bool:
+    def _retry(self, node: FlatFunctionNode, key: ItemPath, kwargs: dict[str, Any], attempt: int, error: BaseException | None) -> bool:
         """Put a failed attempt on a timer if the policy says to try again: an ``ExternalError``, or a class ``retry_on``
         names, never a node's own ``NodeError``, an output its type refused or an ``Ask``."""
         policy = node.policy
@@ -463,7 +463,7 @@ class Scheduler:
             self.emit(NodeRetry(loc=outcome_loc(node, key), attempt=attempt + 1, retries=policy.retries, delay=delay, cause=self._failure(node, key, error)))
         return True
 
-    def _outcome(self, node: FunctionAtPath, key: ItemPath, kwargs: dict[str, Any], out: Any, error: BaseException | None) -> Outcome | Problem:
+    def _outcome(self, node: FlatFunctionNode, key: ItemPath, kwargs: dict[str, Any], out: Any, error: BaseException | None) -> Outcome | Problem:
         if error is None:
             return Done(out)
         if isinstance(error, Ask):
@@ -477,7 +477,7 @@ class Scheduler:
                 return problem.invalid_ask(*outcome_loc(node, key), reason=str(invalid))
         return self._failure(node, key, error)
 
-    def _failure(self, node: FunctionAtPath, key: ItemPath, error: BaseException) -> Problem:
+    def _failure(self, node: FlatFunctionNode, key: ItemPath, error: BaseException) -> Problem:
         """The problem a node's exception is: its own words for a ``NodeError``; for any other, only its class, the text to the log."""
         loc = outcome_loc(node, key)
         if isinstance(error, NodeError):
@@ -489,7 +489,7 @@ class Scheduler:
             return problem.external_failed(*loc, error=type(error).__name__)
         return problem.execution_failed(*loc, error=type(error).__name__)
 
-    def _record(self, node: FunctionAtPath, key: ItemPath, outcome: Outcome | Problem, walking: bool = False) -> None:
+    def _record(self, node: FlatFunctionNode, key: ItemPath, outcome: Outcome | Problem, walking: bool = False) -> None:
         """Keep what a unit came to, and make ready what reads it."""
         if type(outcome) is Problem:  # its exact class, which nothing derives from: isinstance of a pydantic model costs four times as much
             if self.going:  # the first failure is the cause; a later one changes nothing
@@ -506,8 +506,8 @@ class Scheduler:
             self.changed = True
         if self.checkpoint_every is not None and time.monotonic() >= self.next_checkpoint:
             self._checkpoint()
-        if self.max_items is not None and node.opens and type(outcome) is not Asking:
-            for output in node.opens:
+        if self.max_items is not None and node.looped_outputs and type(outcome) is not Asking:
+            for output in node.looped_outputs:
                 items = length(outcome.out[output])
                 if items > self.max_items:
                     self._stop_at_ceiling(node, key, output, items, self.max_items)
@@ -518,7 +518,7 @@ class Scheduler:
                 self._announce(node)  # a unit taken from earlier work, or a blank one, starts its node as a call does
             if type(outcome) is Asking:
                 self.emit(NodeWaiting(waiting=waiting_record(node.checked_node, outcome_loc(node, key), outcome)))
-            if node.maps:
+            if node.loops:
                 self._progress(node)
         if walking or not self.going or type(outcome) is Asking:  # nothing reads a unit that waits for a person
             return
@@ -526,13 +526,13 @@ class Scheduler:
         for reader, places in node.readers:
             if places < depth:  # it is made from every unit under those places: tried once nothing it reads works under them
                 self.collectors.add((reader, key[:places]))
-            elif len(reader.maps) == depth:
+            elif len(reader.loops) == depth:
                 heapq.heappush(self.ready, (reader.position, key))
             else:
-                for instance in item_paths(self.all_outcomes, reader.maps, key)[0]:
+                for instance in item_paths(self.all_outcomes, reader.loops, key)[0]:
                     heapq.heappush(self.ready, (reader.position, instance))
 
-    def _in_turn(self, node: FunctionAtPath, key: ItemPath) -> bool:
+    def _in_turn(self, node: FlatFunctionNode, key: ItemPath) -> bool:
         """Whether every unit of ``node`` before ``key`` has been tried, so a person's answers are taken in order,
         whatever thread finished first.
 
@@ -541,7 +541,7 @@ class Scheduler:
         """
         turn = self.answer_orders.get(node)
         if turn is None or key not in turn.place:
-            order = item_paths(self.all_outcomes, node.maps, ())[0]
+            order = item_paths(self.all_outcomes, node.loops, ())[0]
             turn = self.answer_orders[node] = _AnswerOrder(order, {k: i for i, k in enumerate(order)})
         order, outcomes, passed, reached = turn.order, self.outcomes[node], turn.passed, turn.reached
         while reached < len(order) and ((instance := order[reached]) in outcomes or (node, instance) in self.running or instance in passed):
@@ -572,7 +572,7 @@ class Scheduler:
             if not any(n in above and k[: len(key)] == key for n, k in working):
                 self.collectors.discard((node, key))
                 released = True
-                for instance in item_paths(self.all_outcomes, node.maps, key)[0] if len(key) < len(node.maps) else (key,):
+                for instance in item_paths(self.all_outcomes, node.loops, key)[0] if len(key) < len(node.loops) else (key,):
                     heapq.heappush(self.ready, (node.position, instance))
         return released
 
@@ -583,24 +583,24 @@ class Scheduler:
         if ceiling is None:
             return
         for node in self.nodes:
-            for output in node.opens:
+            for output in node.looped_outputs:
                 for key, outcome in self.outcomes[node].items():
                     if type(outcome) is not Asking and length(outcome.out[output]) > ceiling:
                         self._stop_at_ceiling(node, key, output, length(outcome.out[output]), ceiling)
                         return
 
-    def _stop_at_ceiling(self, node: FunctionAtPath, key: ItemPath, output: str, items: int, ceiling: int) -> None:
+    def _stop_at_ceiling(self, node: FlatFunctionNode, key: ItemPath, output: str, items: int, ceiling: int) -> None:
         """Stop the leg at the item ceiling, unless it already ended for a failure, a cancel or its timeout, which
         stays the cause. The cause names the Series as the graph of the reader that works through it does,
         inside the item of each embedded graph's node around that."""
         if self.going:
-            named, offered = node.opens[output]
-            loc = outcome_loc(named, key[: len(named.embedding.maps) if named.embedding is not None else 0])
+            named, offered = node.looped_outputs[output]
+            loc = outcome_loc(named, key[: len(named.embedding.loops) if named.embedding is not None else 0])
             self.end(EndedEarly("stopped", problem.item_ceiling(*loc, series=f"{named.checked_node.id}.{offered}", items=items, max_items=ceiling)))
 
     # -- what the leg says --------------------------------------------------------------------
 
-    def _announce(self, node: NodeAtPath) -> None:
+    def _announce(self, node: FlatNode) -> None:
         """Say that ``node`` started, once, after each embedded graph's node it is inside."""
         if node not in self.started:
             if node.embedding is not None:
@@ -609,7 +609,7 @@ class Scheduler:
             if self.emit:
                 self.emit(NodeStart(loc=node.path))
 
-    def _progress(self, node: FunctionAtPath, last: bool = False) -> None:
+    def _progress(self, node: FlatFunctionNode, last: bool = False) -> None:
         """Say how far a node running per item has got, at most four times a second; ``last`` says its final count, unless already said."""
         now = time.monotonic()
         emit = self.emit
@@ -618,7 +618,7 @@ class Scheduler:
         done = sum(1 for outcome in self.outcomes[node].values() if type(outcome) is not Asking)  # counted only when said, at most four times a second
         if self.progress_said.get(node) != done:
             self.progress_at[node], self.progress_said[node] = now, done
-            keys, known = item_paths(self.all_outcomes, node.maps, ())
+            keys, known = item_paths(self.all_outcomes, node.loops, ())
             emit(NodeProgress(loc=node.path, done=done, total=len(keys) if known else None))
 
     def _completions(self) -> None:
@@ -634,7 +634,7 @@ class Scheduler:
             if node in self.complete or not self._finished(node):
                 continue
             self.complete.add(node)
-            if node.maps and node in self.progress_said:
+            if node.loops and node in self.progress_said:
                 self._progress(node, last=True)
             if outcomes and all(_has_no_value(outcome) for outcome in outcomes.values()):
                 self.skipped.add(node)
@@ -644,7 +644,7 @@ class Scheduler:
                 emit(NodeComplete(loc=node.path, outcomes=len(outcomes), not_called=not_called, reused=self.reused[node]))
             self._complete_around(node, say=True)
 
-    def _complete_around(self, node: NodeAtPath, say: bool) -> None:
+    def _complete_around(self, node: FlatNode, say: bool) -> None:
         """Count the embedded graph's node around ``node`` as complete once every node inside it is, and so on
         outwards; with ``say``, tell the listener: skipped when every node inside was, else complete, with one
         unit for each item the embedded graph's node runs for."""
@@ -656,11 +656,11 @@ class Scheduler:
                     self.skipped.add(around)
                     self.emit(NodeSkipped(loc=around.path))
                 else:
-                    counted, _ = item_paths(self.all_outcomes, around.maps, (), counted=True)
-                    self.emit(NodeComplete(loc=around.path, outcomes=(counted[0][0] if counted else 0) if around.maps else 1))
+                    counted, _ = item_paths(self.all_outcomes, around.loops, (), counted=True)
+                    self.emit(NodeComplete(loc=around.path, outcomes=(counted[0][0] if counted else 0) if around.loops else 1))
             around = around.embedding
 
-    def _finished(self, node: FunctionAtPath, may_wait: bool = True) -> bool:
+    def _finished(self, node: FlatFunctionNode, may_wait: bool = True) -> bool:
         """Whether every unit of ``node`` is known and none of them is still to run or waiting; ``may_wait`` False
         when the caller already knows none waits."""
         if may_wait and Asking in {type(outcome) for outcome in self.outcomes[node].values()}:
@@ -674,7 +674,7 @@ def _has_no_value(outcome: Outcome) -> bool:
     return type(outcome) is Skipped or ((type(outcome) is Done or type(outcome) is Answered) and bool(outcome.out) and all(value is SKIPPED for value in outcome.out.values()))
 
 
-def _around(node: NodeAtPath) -> list[EmbeddedGraphAtPath]:
+def _around(node: FlatNode) -> list[FlatEmbeddedGraph]:
     """The embedded graphs' nodes ``node`` is inside, innermost first."""
     around = []
     while node.embedding is not None:

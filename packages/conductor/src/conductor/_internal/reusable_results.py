@@ -14,7 +14,7 @@ from conductor._internal.outcomes import NOT_ITS_TURN, NotReady
 from conductor._internal.value_type import untyped_to_hash
 
 if TYPE_CHECKING:
-    from conductor._internal.checked_graph.tree import FunctionAtPath
+    from conductor._internal.checked_graph.flat_nodes import FlatFunctionNode
 
 from dataclasses import dataclass, field
 
@@ -43,7 +43,7 @@ class ReusableResults:
 
 
 def reused_outcome(
-    earlier: ReusableResults, node: FunctionAtPath, key: ItemPath, kwargs: dict[str, Any], outcomes: dict[str, dict[ItemPath, Outcome]], in_turn: Callable[[], bool],
+    earlier: ReusableResults, node: FlatFunctionNode, key: ItemPath, kwargs: dict[str, Any], outcomes: dict[str, dict[ItemPath, Outcome]], in_turn: Callable[[], bool],
 ) -> Done | Answered | Asking | Literal[NotReady.NOT_ITS_TURN] | None:
     """The unit of ``earlier`` that ``node`` takes in ``key`` in place of a call on ``kwargs``; ``None`` when
     there is none.
@@ -78,13 +78,13 @@ def reused_outcome(
     return earlier.computed.get(fingerprint)
 
 
-def lineage(outcomes: dict[str, dict[ItemPath, Outcome]], node: FunctionAtPath, key: ItemPath) -> str:
+def lineage(outcomes: dict[str, dict[ItemPath, Outcome]], node: FlatFunctionNode, key: ItemPath) -> str:
     """A fingerprint of the item of each map above the innermost that the instance ``key`` of ``node`` sits
     in, those of the embedded graphs' nodes around it included. A unit's innermost item is in what it
     received."""
     above = [
         outcomes[series.name][key[:depth]].out[output][key[depth]]  # type: ignore[union-attr]  # a unit under an item of a Series holds that Series
-        for depth, (series, output) in enumerate(node.maps[:-1])
+        for depth, (series, output) in enumerate(node.loops[:-1])
     ]
     return (fingerprint_of("", {"items": above}) or "") if above else ""
 

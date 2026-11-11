@@ -41,7 +41,7 @@ from conductor._internal.field import Field
 from conductor._internal.sentinels import SKIPPED
 
 if TYPE_CHECKING:
-    from conductor._internal.checked_graph.tree import FunctionAtPath, Maps
+    from conductor._internal.checked_graph.flat_nodes import FlatFunctionNode, Maps
 
 
 
@@ -170,7 +170,7 @@ def outputs_when_not_called(outputs: Mapping[str, Field]) -> dict[str, Any]:
     return {name: SKIPPED if output.param.exclusive_group is not None else None for name, output in outputs.items()}
 
 
-def item_paths(outcomes: dict[str, dict[ItemPath, Outcome]], maps: Maps, under: ItemPath, *, counted: bool = False) -> tuple[list[ItemPath], bool]:
+def item_paths(outcomes: dict[str, dict[ItemPath, Outcome]], loops: Maps, under: ItemPath, *, counted: bool = False) -> tuple[list[ItemPath], bool]:
     """The item paths a node is called for, and whether that list is complete yet.
 
     In the example, ``clean`` is inside one loop, over ``load.result``. After ``load`` has returned two
@@ -180,7 +180,7 @@ def item_paths(outcomes: dict[str, dict[ItemPath, Outcome]], maps: Maps, under: 
 
     Args:
         outcomes: The run's outcomes, by node name and then by item path.
-        maps: The loops the node is inside, outermost first. Each is the node that returns the list and the
+        loops: The loops the node is inside, outermost first. Each is the node that returns the list and the
             name of the output that is the list.
         under: Return only the item paths that start with this one. ``()`` returns all of them. With two
             nested loops, ``(1,)`` returns the paths inside item 1 of the outer list: ``(1, 0)``, ``(1, 1)``, ...
@@ -190,12 +190,12 @@ def item_paths(outcomes: dict[str, dict[ItemPath, Outcome]], maps: Maps, under: 
     Returns:
         The item paths, and ``True`` when every list the node loops over exists.
     """
-    start, deepest = len(under), len(maps)
+    start, deepest = len(under), len(loops)
     if start >= deepest:
         return [under[:deepest]], True
     paths, complete = [under], True
     for depth in range(start, deepest):
-        series_node, output = maps[depth]
+        series_node, output = loops[depth]
         of_series_node = outcomes[series_node.name]
         below: list[ItemPath] = []
         for parent in paths:
@@ -212,16 +212,16 @@ def item_paths(outcomes: dict[str, dict[ItemPath, Outcome]], maps: Maps, under: 
     return paths, complete
 
 
-def has_every_outcome(outcomes: dict[str, dict[ItemPath, Outcome]], node: FunctionAtPath) -> bool:
+def has_every_outcome(outcomes: dict[str, dict[ItemPath, Outcome]], node: FlatFunctionNode) -> bool:
     """Whether ``node`` has an outcome for every item path it will ever have.
 
     In the example, ``clean`` has every outcome when ``load`` has returned and ``clean`` has one outcome per
     document. An ``Asking`` outcome counts: the call was made, though its answer has not come.
     """
     of_node = outcomes[node.name]
-    if not node.maps:
+    if not node.loops:
         return bool(of_node)
-    counted, complete = item_paths(outcomes, node.maps, (), counted=True)
+    counted, complete = item_paths(outcomes, node.loops, (), counted=True)
     return complete and len(of_node) == (counted[0][0] if counted else 0)
 
 

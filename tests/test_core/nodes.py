@@ -115,8 +115,8 @@ def units_missing(run):
     """Each instance of a node of ``run`` that holds no unit, as its node's path and the instance, with a node
     whose item_paths aren't all known as its path alone. A complete run has none."""
     missing = []
-    for node in run.graph._tree:
-        made, known = item_paths(run._outcomes, node.maps, ())
+    for node in run.graph._flat_function_nodes:
+        made, known = item_paths(run._outcomes, node.loops, ())
         units = run._outcomes[node.name]
         missing += [(node.path, key) for key in made if key not in units] + ([] if known else [node.path])
     return missing

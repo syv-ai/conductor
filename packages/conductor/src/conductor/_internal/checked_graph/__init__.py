@@ -7,6 +7,15 @@ Code outside this package imports from here only. ``loader.py`` has ``load_graph
 
 from conductor._internal.checked_graph.checked_node import CheckedFunctionNode
 from conductor._internal.checked_graph.describe import Feed, GraphDescription, GraphInput, RunsOn
+from conductor._internal.checked_graph.flat_nodes import (
+    FlatEmbeddedGraph,
+    FlatFunctionNode,
+    FlatNode,
+    Maps,
+    host_reads,
+    outcome_loc,
+    waits_on,
+)
 from conductor._internal.checked_graph.input_plans import (
     InputCollectsLoopResults,
     InputConstant,
@@ -19,13 +28,4 @@ from conductor._internal.checked_graph.input_plans import (
     WholeOutput,
 )
 from conductor._internal.checked_graph.loader import load_graph
-from conductor._internal.checked_graph.tree import (
-    EmbeddedGraphAtPath,
-    FunctionAtPath,
-    Maps,
-    NodeAtPath,
-    host_reads,
-    outcome_loc,
-    waits_on,
-)
 from conductor._internal.checked_graph.type import CheckedGraph

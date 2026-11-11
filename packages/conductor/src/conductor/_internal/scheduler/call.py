@@ -8,7 +8,7 @@ from typing import Any
 
 import pydantic_core
 
-from conductor._internal.checked_graph import FunctionAtPath
+from conductor._internal.checked_graph import FlatFunctionNode
 from conductor._internal.field import Field
 from conductor._internal.node_definition import ReturnShape
 from conductor._internal.problem import CallRejectedError
@@ -17,7 +17,7 @@ from conductor._internal.sentinels import SKIPPED
 from conductor._internal.value_type import FieldValueError, untyped_as_json
 
 
-def call(node: FunctionAtPath, kwargs: dict[str, Any], from_run: Mapping[type, Any]) -> tuple[Any, BaseException | None]:
+def call(node: FlatFunctionNode, kwargs: dict[str, Any], from_run: Mapping[type, Any]) -> tuple[Any, BaseException | None]:
     """Call ``node`` on what a unit received: its outputs as a run keeps them, or what went wrong.
 
     A value an edge brings is checked against the input first where its source's type doesn't settle it, and what
