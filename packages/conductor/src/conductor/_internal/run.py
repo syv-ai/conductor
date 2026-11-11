@@ -824,7 +824,7 @@ class Run:
         instance hasn't run."""
         units = self._units[node.inside][node.placed.id]
         counted, _ = self._instances(node.maps, (), counted=True)
-        if len(units) == (counted[0][0] if counted and node.maps else 1):  # every instance ran: the units as they stand
+        if len(units) == ((counted[0][0] if counted else 0) if node.maps else 1):  # every instance ran: the units as they stand
             return [unit for _, unit in sorted(units.items())] if node.path in self._unordered else list(units.values())
         return [units.get(instance) for instance in self._instances(node.maps, ())[0]]
 
@@ -1172,15 +1172,15 @@ def save_form(graph: Graph) -> SaveForm:
     or loaded.
     """
     shared: dict[str, CoreSchema] = {}
-    blocks: dict[tuple[tuple[str, Type, bool], ...], str] = {}
+    blocks: dict[tuple[tuple[str, Type, bool], ...], tuple[CoreSchema, CoreSchema]] = {}
     units, earlier = {}, {}
     for path, placed in graph._functions.items():
         columns = tuple((name, output.column, output.many) for name, output in placed.outputs.items())
         if columns not in blocks:  # nodes of the same outputs share one schema
-            blocks[columns] = str(len(blocks))
-            _share_unit_schemas(blocks[columns], columns, shared)
-        units["/".join(path)] = core_schema.definition_reference_schema(f"units:{blocks[columns]}")
-        earlier["/".join(path)] = core_schema.definition_reference_schema(f"earlier:{blocks[columns]}")
+            block = str(len(blocks))
+            _share_unit_schemas(block, columns, shared)
+            blocks[columns] = core_schema.definition_reference_schema(f"units:{block}"), core_schema.definition_reference_schema(f"earlier:{block}")
+        units["/".join(path)], earlier["/".join(path)] = blocks[columns]
     run = _closed({
         "graph": core_schema.literal_schema([graph.fingerprint]),
         "state": _inlined(_STATE, shared),
@@ -1228,8 +1228,9 @@ def _share_unit_schemas(block: str, columns: tuple[tuple[str, Type, bool], ...],
 
 def _closed(required: Mapping[str, CoreSchema], optional: Mapping[str, CoreSchema] = MappingProxyType({})) -> CoreSchema:
     """Gives the schema of an object of exactly these keys, each of ``required`` there."""
-    fields = {name: core_schema.typed_dict_field(schema) for name, schema in required.items()}
-    fields.update((name, core_schema.typed_dict_field(schema, required=False)) for name, schema in optional.items())
+    # each field is written out: a graph makes three for every node, and pydantic's own helper costs more than the field
+    fields: dict[str, Any] = {name: {"type": "typed-dict-field", "schema": schema} for name, schema in required.items()}
+    fields.update((name, {"type": "typed-dict-field", "schema": schema, "required": False}) for name, schema in optional.items())
     return core_schema.typed_dict_schema(fields, extra_behavior="forbid")
 
 
