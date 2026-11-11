@@ -30,9 +30,9 @@ from conductor._internal.loaded_graph.input_plans import (
     OutputAddress,
     OutputAtScope,
     Scope,
+    SeriesAsList,
     Source,
     WholeOutput,
-    WholeSeries,
 )
 from conductor._internal.loaded_graph.type import CheckedGraph, PlacedEmbeddedGraph, PlacedFunction
 from conductor._internal.node_definition import Policy
@@ -201,7 +201,7 @@ def host_reads(node: FunctionAtPath, output: str, under: int) -> InputReadsOneVa
     plan = node.shown_as.get((output, under))
     if plan is None:
         spec = node.placed.outputs[output]
-        at = (WholeSeries if spec.many else WholeOutput)(node.name, output, _scope_at_path(node.maps), None, spec.type)
+        at = (SeriesAsList if spec.many else WholeOutput)(node.name, output, _scope_at_path(node.maps), None, spec.type)
         if len(node.maps) == under:
             plan = InputReadsOneValue(_SHOWN, (at,), at.scope)
         else:
@@ -343,7 +343,7 @@ def _plan_at_path(plan: InputPlan, here: Mapping[str, NodeAtPath], functions: Ma
     def at_path(source: Source, opened: bool) -> Source:
         last, output, per_item = _made_by(OutputAddress(source.node_id, source.output), here)
         spec = last.placed.outputs[output]
-        brought: type[Source] = type(source) if not per_item else WholeSeries if spec.many else WholeOutput
+        brought: type[Source] = type(source) if not per_item else SeriesAsList if spec.many else WholeOutput
         if opened and brought is ItemOfSeries:
             last.opens.setdefault(output, (here[source.node_id], source.output))
         return brought(last.name, output, _scope_at_path(last.maps), source.record_field, source.type)

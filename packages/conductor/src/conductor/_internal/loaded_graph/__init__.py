@@ -14,8 +14,8 @@ from conductor._internal.loaded_graph.input_plans import (
     InputReadsOneValue,
     ItemOfSeries,
     OutputAtScope,
+    SeriesAsList,
     WholeOutput,
-    WholeSeries,
 )
 from conductor._internal.loaded_graph.loader import load_graph
 from conductor._internal.loaded_graph.tree import (

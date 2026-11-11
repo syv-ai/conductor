@@ -46,7 +46,7 @@ from conductor._internal.loaded_graph.input_plans import (
     InputReadsOneValue,
     ItemOfSeries,
     OutputAtScope,
-    WholeSeries,
+    SeriesAsList,
 )
 from conductor._internal.problem import UnitFailedError
 from conductor._internal.units import (
@@ -193,9 +193,9 @@ class ItemReader(Reader):
                 wanted = at.record_field
                 return value[item_path[depth]] if wanted is None else field_of(value.columns, wanted)[item_path[depth]]
             value = value[item_path[depth]]
-        elif type(at) is WholeSeries:  # the list as a reader receives one: no mark of a branch not taken in it
+        elif type(at) is SeriesAsList:  # the list as a reader receives one: no mark of a branch not taken in it
             return value.records() if type(value) is Records else [None if item is SKIPPED else item for item in value]
-        field = at.record_field  # type: ignore[attr-defined]  # an edge brings a WholeOutput, an ItemOfSeries or a WholeSeries, each with its record_field
+        field = at.record_field  # type: ignore[attr-defined]  # an edge brings a WholeOutput, an ItemOfSeries or a SeriesAsList, each with its record_field
         return value if field is None or value is None or value is SKIPPED else field_of(value, field)
 
     def gathered(self, plan: InputGathersItems, item_path: ItemPath) -> Any:

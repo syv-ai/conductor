@@ -3,7 +3,7 @@
 An ``OutputAtScope`` is one output of one node, in the scope its node runs in: what one
 unit of the node holds for it. An edge brings the output's value (``WholeOutput``), one
 item of a ``Series`` it holds (``ItemOfSeries``), or a ``Series`` it holds as the one
-list it is (``WholeSeries``).
+list it is (``SeriesAsList``).
 
 A plan is one of six kinds. ``InputHoldsValue`` holds a value, ``InputFromCaller`` is the
 caller's, ``InputNotFed`` has none. The three that edges feed (``InputReadsOneValue``, ``InputGathersItems``,
@@ -120,7 +120,7 @@ class ItemOfSeries(_Brought):
 
 @final
 @dataclass(frozen=True, slots=True)
-class WholeSeries(_Brought):
+class SeriesAsList(_Brought):
     """A ``Series`` output read as the one list it is.
 
     Only a plan written where a node stands holds one. An embedded graph offers an output made per item inside
@@ -130,7 +130,7 @@ class WholeSeries(_Brought):
 
 
 #: What an edge brings its input.
-Source = WholeOutput | ItemOfSeries | WholeSeries
+Source = WholeOutput | ItemOfSeries | SeriesAsList
 
 
 # -- how an input gets its value ----------------------------------------------------------------
