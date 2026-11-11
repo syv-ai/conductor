@@ -46,7 +46,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from conductor._internal.address import Key, NodePath
+from conductor._internal.address import ItemPath, NodePath
 from conductor._internal.ask import Ask, InvalidAskError, question_asked, waiting_unit
 from conductor._internal.earlier_work import Earlier, taken
 from conductor._internal.fields import SKIPPED, FieldValueError
@@ -110,10 +110,10 @@ class _Turn:
         passed: Instances counted as tried because nothing in the leg could start them (they wait on a person).
     """
 
-    order: list[Key]
-    place: dict[Key, int]
+    order: list[ItemPath]
+    place: dict[ItemPath, int]
     reached: int = 0
-    passed: set[Key] = field(default_factory=set)
+    passed: set[ItemPath] = field(default_factory=set)
 
 
 class Leg:
@@ -130,7 +130,7 @@ class Leg:
 
     def __init__(
         self, nodes: list[FunctionAtPath], threads: int, units: Units, earlier: dict[NodePath, Earlier], finished: frozenset[NodePath],
-        max_items: int | None, comes_to: Callable[[FunctionAtPath, Key], dict[str, Any] | Skipped | Blank | Literal[NotReady.NOT_SETTLED]],
+        max_items: int | None, comes_to: Callable[[FunctionAtPath, ItemPath], dict[str, Any] | Skipped | Blank | Literal[NotReady.NOT_SETTLED]],
         emit: Callable[[_EventBase], None] | None, stop: Callable[[], RunState | None] | None, from_run: dict[type, Any],
         checkpoint: Callable[[RunState], None] | None = None, checkpoint_every: float | None = None,
     ) -> None:
@@ -151,21 +151,21 @@ class Leg:
         self.checkpoint_every = checkpoint_every if checkpoint is not None else None
         self.next_checkpoint = time.monotonic() + checkpoint_every if checkpoint_every is not None else 0.0
         #: (node position, instance): the units to try, in that order.
-        self.ready: list[tuple[int, Key]] = []
+        self.ready: list[tuple[int, ItemPath]] = []
         #: Whether a walk ended or a unit was recorded outside one since the leg last looked over the run.
         self.changed = True
         #: (node, an instance above its own): a node that gathers, started in the instances under that one once
         #: nothing it reads still works there.
-        self.gathers: set[tuple[FunctionAtPath, Key]] = set()
-        self.running: dict[tuple[FunctionAtPath, Key], dict[str, Any]] = {}  # units handed to threads, and their inputs
-        self.attempts: dict[tuple[FunctionAtPath, Key], int] = {}  # the attempt each unit on a thread is on
+        self.gathers: set[tuple[FunctionAtPath, ItemPath]] = set()
+        self.running: dict[tuple[FunctionAtPath, ItemPath], dict[str, Any]] = {}  # units handed to threads, and their inputs
+        self.attempts: dict[tuple[FunctionAtPath, ItemPath], int] = {}  # the attempt each unit on a thread is on
         #: Each node's units waiting for a thread: (instance, what it received, attempt).
-        self.slots_waiting: defaultdict[FunctionAtPath, deque[tuple[Key, dict[str, Any], int]]] = defaultdict(deque)
+        self.slots_waiting: defaultdict[FunctionAtPath, deque[tuple[ItemPath, dict[str, Any], int]]] = defaultdict(deque)
         #: How many of each node's calls are on threads, which its ``concurrency`` bounds.
         self.on_threads: defaultdict[FunctionAtPath, int] = defaultdict(int)
-        self.returned: queue.SimpleQueue[tuple[FunctionAtPath, Key, int, Any, BaseException | None]] = queue.SimpleQueue()
+        self.returned: queue.SimpleQueue[tuple[FunctionAtPath, ItemPath, int, Any, BaseException | None]] = queue.SimpleQueue()
         #: (when, order, what is due, node, instance, attempt): a retry of the attempt, or the deadline of the attempt on a thread.
-        self.timers: list[tuple[float, int, Literal["retry", "deadline"], FunctionAtPath, Key, int]] = []
+        self.timers: list[tuple[float, int, Literal["retry", "deadline"], FunctionAtPath, ItemPath, int]] = []
         self.timer_order = itertools.count()
         self.pool: ThreadPoolExecutor | None = None
         #: For a node taking a person's earlier answers, how far through its units in order the leg has tried.
@@ -247,7 +247,7 @@ class Leg:
             _, _, due, node, key, attempt = heapq.heappop(self.timers)
             self._due(due, node, key, attempt)
 
-    def _after(self, seconds: float, due: Literal["retry", "deadline"], node: FunctionAtPath, key: Key, attempt: int) -> None:
+    def _after(self, seconds: float, due: Literal["retry", "deadline"], node: FunctionAtPath, key: ItemPath, attempt: int) -> None:
         """Set a timer: the retry of an attempt, or the deadline of the attempt on a thread."""
         heapq.heappush(self.timers, (time.monotonic() + seconds, next(self.timer_order), due, node, key, attempt))
 
@@ -318,7 +318,7 @@ class Leg:
                         return
                     self._try(node, key, walking=True)
 
-    def _try(self, node: FunctionAtPath, key: Key, walking: bool = False) -> None:
+    def _try(self, node: FunctionAtPath, key: ItemPath, walking: bool = False) -> None:
         """Start ``node`` on ``key`` if what it reads exists."""
         if not walking and (key in self.units[node] or (node, key) in self.running):
             return
@@ -380,7 +380,7 @@ class Leg:
                 if node.maps and node in self.progress_said:
                     self._progress(node, last=True)
 
-    def _attempt(self, node: FunctionAtPath, key: Key, kwargs: dict[str, Any], attempt: int, walking: bool = False) -> None:
+    def _attempt(self, node: FunctionAtPath, key: ItemPath, kwargs: dict[str, Any], attempt: int, walking: bool = False) -> None:
         if not node.policy.threaded:
             out, error = call(node, kwargs, self.from_run)
             if not self._retry(node, key, kwargs, attempt, error):
@@ -392,10 +392,10 @@ class Leg:
         self.slots_waiting[node].append((key, kwargs, attempt))
         self._fill_slots(node)
 
-    def _on_thread(self, node: FunctionAtPath, key: Key, kwargs: dict[str, Any], attempt: int) -> None:
+    def _on_thread(self, node: FunctionAtPath, key: ItemPath, kwargs: dict[str, Any], attempt: int) -> None:
         self.returned.put((node, key, attempt, *call(node, kwargs, self.from_run)))
 
-    def _due(self, due: Literal["retry", "deadline"], node: FunctionAtPath, key: Key, attempt: int) -> None:
+    def _due(self, due: Literal["retry", "deadline"], node: FunctionAtPath, key: ItemPath, attempt: int) -> None:
         """A timer fired: the retry of an attempt, or the deadline of the attempt on a thread."""
         if due == "retry":
             if self.going:
@@ -404,7 +404,7 @@ class Leg:
             del self.running[(node, key)]
             self._record(node, key, make_problem("timeout", *unit_loc(node, key), seconds=node.policy.attempt_timeout))
 
-    def _returned(self, node: FunctionAtPath, key: Key, attempt: int, out: Any, error: BaseException | None) -> None:
+    def _returned(self, node: FunctionAtPath, key: ItemPath, attempt: int, out: Any, error: BaseException | None) -> None:
         """A call came back from its thread: free its slot, and keep what it came to unless its attempt was
         given up."""
         self.on_threads[node] -= 1
@@ -422,7 +422,7 @@ class Leg:
             del self.running[(node, key)]
             self._record(node, key, self._outcome(node, key, kwargs, out, error))
 
-    def _retry(self, node: FunctionAtPath, key: Key, kwargs: dict[str, Any], attempt: int, error: BaseException | None) -> bool:
+    def _retry(self, node: FunctionAtPath, key: ItemPath, kwargs: dict[str, Any], attempt: int, error: BaseException | None) -> bool:
         """Put a failed attempt on a timer if the policy says to try again: an ``ExternalError``, or a class ``retry_on``
         names, never a node's own ``NodeError``, an output its type refused or an ``Ask``."""
         policy = node.policy
@@ -437,7 +437,7 @@ class Leg:
             self.emit(NodeRetry(loc=unit_loc(node, key), attempt=attempt + 1, retries=policy.retries, delay=delay, cause=self._failure(node, key, error)))
         return True
 
-    def _outcome(self, node: FunctionAtPath, key: Key, kwargs: dict[str, Any], out: Any, error: BaseException | None) -> Unit | Problem:
+    def _outcome(self, node: FunctionAtPath, key: ItemPath, kwargs: dict[str, Any], out: Any, error: BaseException | None) -> Unit | Problem:
         if error is None:
             return Done(out)
         if isinstance(error, Ask):
@@ -451,19 +451,19 @@ class Leg:
                 return make_problem("invalid_ask", *unit_loc(node, key), reason=str(invalid))
         return self._failure(node, key, error)
 
-    def _failure(self, node: FunctionAtPath, key: Key, error: BaseException) -> Problem:
+    def _failure(self, node: FunctionAtPath, key: ItemPath, error: BaseException) -> Problem:
         """The problem a node's exception is: its own words for a ``NodeError``; for any other, only its class, the text to the log."""
         loc = unit_loc(node, key)
         if isinstance(error, NodeError):
             return error._as_problem_at(*loc)
         if isinstance(error, FieldValueError):
             return make_problem(error.code, *loc, reason=error.reason, **error.ctx)
-        _logger.error("node %r failed for item %r", "/".join(node.path), key, exc_info=error)
+        _logger.error("node %r failed for item %r", node.name, key, exc_info=error)
         if isinstance(error, node.policy.retry_on):
             return make_problem("external_failed", *loc, error=type(error).__name__)
         return make_problem("execution_failed", *loc, error=type(error).__name__)
 
-    def _record(self, node: FunctionAtPath, key: Key, unit: Unit | Problem, walking: bool = False) -> None:
+    def _record(self, node: FunctionAtPath, key: ItemPath, unit: Unit | Problem, walking: bool = False) -> None:
         """Keep what a unit came to, and make ready what reads it."""
         if type(unit) is Problem:  # its exact class, which nothing derives from: isinstance of a pydantic model costs four times as much
             if self.going:  # the first failure is the cause; a later one changes nothing
@@ -506,7 +506,7 @@ class Leg:
                 for instance in instances(self.all_units, reader.maps, key)[0]:
                     heapq.heappush(self.ready, (reader.position, instance))
 
-    def _in_turn(self, node: FunctionAtPath, key: Key) -> bool:
+    def _in_turn(self, node: FunctionAtPath, key: ItemPath) -> bool:
         """Whether every unit of ``node`` before ``key`` has been tried, so a person's answers are taken in order,
         whatever thread finished first.
 
@@ -563,7 +563,7 @@ class Leg:
                         self._stop_at_ceiling(node, key, output, length(unit.out[output]))
                         return
 
-    def _stop_at_ceiling(self, node: FunctionAtPath, key: Key, output: str, items: int) -> None:
+    def _stop_at_ceiling(self, node: FunctionAtPath, key: ItemPath, output: str, items: int) -> None:
         """Stop the leg at the item ceiling, unless it already ended for a failure, a cancel or its timeout, which
         stays the cause. The cause names the Series as the graph of the reader that works through it does,
         inside the item of each embedded graph's node around that."""

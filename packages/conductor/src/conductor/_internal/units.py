@@ -23,14 +23,13 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Final, final
 
+from conductor._internal.address import ItemPath
 from conductor._internal.ask import Question
 from conductor._internal.fields import SKIPPED, Field
 
 if TYPE_CHECKING:
     from conductor._internal.loaded_graph.tree import FunctionAtPath, Maps
 
-#: The place of an item in each map a node runs in, outermost first; ``()`` for a node that runs once.
-ItemPath = tuple[int, ...]
 
 
 class NotReady(enum.Enum):

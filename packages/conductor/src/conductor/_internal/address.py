@@ -6,9 +6,8 @@ from __future__ import annotations
 #: first, ``("e", "ask")``.
 NodePath = tuple[str, ...]
 
-#: An instance of a node: the place of its item in each map the node runs in, outermost first; ``()`` for a node
-#: that runs once.
-Key = tuple[int, ...]
+#: The place of an item in each map a node runs in, outermost first; ``()`` for a node that runs once.
+ItemPath = tuple[int, ...]
 
 #: Where something is in a run: a node's id, then the place of its item in each of its scope's maps; for what is
 #: inside an embedded graph, the embedding node and its item first, ``("e", 0, "ask", 2)``.
@@ -21,7 +20,7 @@ def path_text(path: Path) -> str:
     return "".join(f"@{step}" if isinstance(step, int) else f"/{step}" for step in path)[1:]
 
 
-def _parse_place(place: str) -> tuple[Path, NodePath, Key]:
+def _parse_place(place: str) -> tuple[Path, NodePath, ItemPath]:
     """The place a waiting id names, ``e@0/ask@2``: as a path, then the ids of its nodes and the places of its
     items apart, which name the node and its instance.
 

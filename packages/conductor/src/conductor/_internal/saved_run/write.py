@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, cast
 
 import pydantic_core
 
@@ -43,7 +43,7 @@ def _unit_columns(outputs: Mapping[str, Field], slots: list[Unit | None]) -> Sav
     if kinds & _HOLDS_OUTPUTS:
         every = kinds <= _HOLDS_OUTPUTS  # every unit holds outputs, as those of a node that finished do
         for name, output in outputs.items():
-            column = [unit.out[name] for unit in slots] if every else [unit.out[name] if type(unit) in _HOLDS_OUTPUTS else None for unit in slots]  # type: ignore[union-attr]
+            column = [unit.out[name] for unit in cast("list[Done | Answered]", slots)] if every else [unit.out[name] if type(unit) is Done or type(unit) is Answered else None for unit in slots]
             columns[name] = column
             gone = [slot for slot, value in enumerate(column) if value is SKIPPED]
             if gone:
@@ -58,9 +58,9 @@ def _unit_columns(outputs: Mapping[str, Field], slots: list[Unit | None]) -> Sav
     else:  # no unit holds outputs yet
         columns = {name: [None] * len(slots) for name in outputs}
     if Answered in kinds or Asking in kinds:
-        questions = {slot: unit.question for slot, unit in enumerate(slots) if type(unit) is Answered or type(unit) is Asking}  # type: ignore[union-attr]
+        questions = {slot: unit.question for slot, unit in enumerate(slots) if type(unit) is Answered or type(unit) is Asking}
     if Blank in kinds:
-        blank_inputs = {slot: unit.input for slot, unit in enumerate(slots) if type(unit) is Blank}  # type: ignore[union-attr]
+        blank_inputs = {slot: unit.input for slot, unit in enumerate(slots) if type(unit) is Blank}
     return SavedUnits(
         states=list(map(_STATE_WORD.get, map(type, slots))), outputs=columns, questions=questions, blank_inputs=blank_inputs,
         skipped=skipped or None, skipped_items=skipped_items or None,

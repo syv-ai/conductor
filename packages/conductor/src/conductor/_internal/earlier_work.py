@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
 from dataclasses import dataclass, field
 
-from conductor._internal.address import Key
+from conductor._internal.address import ItemPath
 from conductor._internal.units import Answered, Asking, Done
 
 
@@ -37,13 +37,13 @@ class Earlier:
             of the items above it, in the order they stood.
     """
 
-    at: dict[Key, tuple[str, Done]] = field(default_factory=dict[Key, tuple[str, Done]])
+    at: dict[ItemPath, tuple[str, Done]] = field(default_factory=dict[ItemPath, tuple[str, Done]])
     computed: dict[str, Done] = field(default_factory=dict[str, Done])
     asked: dict[tuple[str, str], list[Answered | Asking]] = field(default_factory=dict[tuple[str, str], list["Answered | Asking"]])
 
 
 def taken(
-    earlier: Earlier, node: FunctionAtPath, key: Key, kwargs: dict[str, Any], units: Units, in_turn: Callable[[], bool],
+    earlier: Earlier, node: FunctionAtPath, key: ItemPath, kwargs: dict[str, Any], units: Units, in_turn: Callable[[], bool],
 ) -> Done | Answered | Asking | Literal[NotReady.NOT_ITS_TURN] | None:
     """The unit of ``earlier`` that ``node`` takes in ``key`` in place of a call on ``kwargs``; ``None`` when
     there is none.
@@ -78,7 +78,7 @@ def taken(
     return earlier.computed.get(fingerprint)
 
 
-def lineage(units: Units, node: FunctionAtPath, key: Key) -> str:
+def lineage(units: Units, node: FunctionAtPath, key: ItemPath) -> str:
     """A fingerprint of the item of each map above the innermost that the instance ``key`` of ``node`` sits
     in, those of the embedded graphs' nodes around it included. A unit's innermost item is in what it
     received."""

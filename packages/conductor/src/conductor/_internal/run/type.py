@@ -35,10 +35,12 @@ import pydantic_core
 from pydantic import ValidationError
 
 from conductor._internal.address import (
-    Key,
+    ItemPath,
     NodePath,
     Path,
     _parse_place,
+    node_name,
+    node_path,
 )
 from conductor._internal.ask import (
     Waiting,
@@ -283,7 +285,7 @@ class Run:
         else:
             raise TypeError("run.answer takes a unit and its answer, or a mapping of unit ids to answers")
         problems: list[Problem] = []
-        answered: dict[tuple[FunctionAtPath, Key], Unit] = {}
+        answered: dict[tuple[FunctionAtPath, ItemPath], Unit] = {}
         for unit_id, one in given.items():
             place, _, fingerprint = unit_id.partition("~")
             try:
@@ -291,7 +293,7 @@ class Run:
             except ValueError:  # a place in it isn't a number
                 problems.append(make_problem("not_waiting", unit_id.partition("@")[0], waiting_id=unit_id, status=self.status))
                 continue
-            node = self.graph._node_at.get("/".join(nodes))
+            node = self.graph._node_at.get(node_name(nodes))
             found = self._units[node.name].get(key) if type(node) is FunctionAtPath else None
             if type(node) is not FunctionAtPath or type(found) is not Asking:
                 moved = {"moved_to": went} if fingerprint and (went := self._moved_to(nodes, fingerprint)) else {}
@@ -416,7 +418,7 @@ class Run:
         node stands."""
         return [waiting_unit(node.placed, unit_loc(node, key), unit) for node, key, unit in self._asking()]
 
-    def _asking(self) -> Iterator[tuple[FunctionAtPath, Key, Asking]]:
+    def _asking(self) -> Iterator[tuple[FunctionAtPath, ItemPath, Asking]]:
         """Every unit waiting for a person, with its node and instance, in node then instance order."""
         for node in self.graph._tree:
             for key, unit in self._units[node.name].items():
@@ -532,9 +534,9 @@ class Run:
             node.name: _unit_columns(node.placed.outputs, self._slots(node))
             for node in self.graph._tree if self._units[node.name]
         }
-        earlier = {"/".join(path): _earlier_columns(functions[path].outputs, lent) for path, lent in self._earlier.items() if lent.computed or lent.asked}
-        code = {name: self._ran_as.get(path) or placed.reuse_digest for path, placed in functions.items() if (name := "/".join(path)) in units or name in earlier}
-        complete = ["/".join(node.path) for node in self.graph._tree if node.path in self._complete]
+        earlier = {node_name(path): _earlier_columns(functions[path].outputs, lent) for path, lent in self._earlier.items() if lent.computed or lent.asked}
+        code = {name: self._ran_as.get(path) or placed.reuse_digest for path, placed in functions.items() if (name := node_name(path)) in units or name in earlier}
+        complete = [node.name for node in self.graph._tree if node.path in self._complete]
         return SavedRun(graph=self.graph.fingerprint, state=self.state, max_items=self.max_items, inputs=self.inputs, units=units, earlier=earlier, code=code, complete=complete)
 
     def _slots(self, node: FunctionAtPath) -> list[Unit | None]:
@@ -614,9 +616,9 @@ def _run_of(graph: Graph, saved: SavedRun[list[Unit | None], Earlier]) -> Run:
                 raise InvalidCallError([make_problem("state_unreadable", "state", at=at, reason=reason)])
             run._units[node.name] = {instance: unit for instance, unit in zip(made, slots, strict=True) if unit is not None}
     functions = graph._functions
-    run._ran_as = {path: digest for name, digest in saved.code.items() if digest != functions[path := tuple(name.split("/"))].reuse_digest}
-    run._earlier = {path: lent for name, lent in saved.earlier.items() if (path := tuple(name.split("/"))) not in run._ran_as}  # work of other code is never taken
-    run._complete = frozenset(tuple(name.split("/")) for name in saved.complete)
+    run._ran_as = {path: digest for name, digest in saved.code.items() if digest != functions[path := node_path(name)].reuse_digest}
+    run._earlier = {path: lent for name, lent in saved.earlier.items() if (path := node_path(name)) not in run._ran_as}  # work of other code is never taken
+    run._complete = frozenset(node_path(name) for name in saved.complete)
     return run
 
 

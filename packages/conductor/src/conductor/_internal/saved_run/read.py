@@ -46,7 +46,13 @@ def _units_of(not_taken: dict[str, Any], not_called: dict[str, Any], saved: Save
         not_taken_unit = Skipped(not_taken)
         units: list[Unit | None] = [Done(out) if state == done else not_taken_unit if state == skipped else None for state, out in zip(states, outs, strict=True)]
         for slot, question in (saved.questions or {}).items():
-            units[slot] = Asking(question) if states[slot] is None else Answered(units[slot].out, question)  # type: ignore[union-attr]
+            answered = units[slot]
+            if states[slot] is None:
+                units[slot] = Asking(question)
+            elif type(answered) is Done:
+                units[slot] = Answered(answered.out, question)
+            else:
+                raise LookupError(slot)
         for slot, blank in (saved.blank_inputs or {}).items():
             if units[slot] is not None:
                 raise LookupError(slot)
@@ -68,13 +74,12 @@ def _earlier_of(saved: SavedEarlier[list[Unit | None]]) -> Earlier:
     places, lineages = saved.places or {}, saved.lineages or {}
     earlier = Earlier()
     for slot, (fingerprint, unit) in enumerate(zip(saved.fingerprints, saved.units, strict=True)):
-        kind = type(unit)
-        if kind is Done:
-            earlier.computed.setdefault(fingerprint, unit)  # type: ignore[arg-type]
+        if type(unit) is Done:
+            earlier.computed.setdefault(fingerprint, unit)
             if slot in places:
-                earlier.at[places[slot]] = (fingerprint, unit)  # type: ignore[assignment]
-        elif kind is Answered or kind is Asking:
-            earlier.asked.setdefault((fingerprint, lineages.get(slot, "")), []).append(unit)  # type: ignore[arg-type]
+                earlier.at[places[slot]] = (fingerprint, unit)
+        elif type(unit) is Answered or type(unit) is Asking:
+            earlier.asked.setdefault((fingerprint, lineages.get(slot, "")), []).append(unit)
         else:
             raise PydanticCustomError("not_carried", "it carries a unit that was never called")
     return earlier
