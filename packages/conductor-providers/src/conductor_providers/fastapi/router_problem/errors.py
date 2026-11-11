@@ -1,4 +1,4 @@
-"""The exceptions a refused call to the worker raises, each holding the router's problems it was refused for."""
+"""The exceptions of a call to the worker that names no run or that the run's standing refuses, each holding its problems."""
 
 from __future__ import annotations
 
@@ -19,8 +19,14 @@ class RefusedError(Exception):
         self.problems = list(problems)
 
 
-class NoSuchRunError(RefusedError):
-    """No run has the id, or the caller may not see the one that has."""
+class NoSuchRunError(Exception):
+    """No run has the id, or the caller may not see the one that has.
+
+    Attributes:
+        problems: The one problem, ``no_such_run``.
+    """
 
     def __init__(self) -> None:
-        super().__init__(no_such_run())
+        problem = no_such_run()
+        super().__init__(problem.msg)
+        self.problems = [problem]

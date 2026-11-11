@@ -29,7 +29,7 @@ from conductor_providers.fastapi.router import RunView
 from conductor_providers.fastapi.router_problem import RefusedError
 from conductor_providers.fastapi.stored_run import RunAsRead, StoredState
 from conductor_providers.fastapi.worker import Worker
-from pydantic import GetCoreSchemaHandler
+from pydantic import GetCoreSchemaHandler, TypeAdapter
 from pydantic_core import core_schema
 
 from tests.test_providers.in_memory import MemoryStore, asking, gated, left_running
@@ -38,7 +38,7 @@ from tests.test_providers.in_memory import MemoryStore, asking, gated, left_runn
 def _worker(store: MemoryStore, registry: NodeRegistry, **settings: Any) -> Worker[str]:
     """A worker on ``store`` whose callers are names, with the router's own defaults where ``settings`` name none."""
     defaults: dict[str, Any] = {"from_run": lambda who: {}, "max_items": None, "lease": 30.0, "checkpoint_every": 5.0, "leg_timeout": 300.0, "poll": 0.1}
-    return Worker(store=store, nodes_for=lambda who: registry, caller_type=str, **{**defaults, **settings})
+    return Worker(store=store, nodes_for=lambda who: registry, callers=TypeAdapter(str), **{**defaults, **settings})
 
 
 async def _started(worker: Worker[str], graph: GraphRecord, inputs: Mapping[str, Any]) -> str:

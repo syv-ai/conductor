@@ -20,7 +20,7 @@ from conductor import (
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request, Response
 from fastapi.routing import APIRoute
 from fastapi.sse import EventSourceResponse, ServerSentEvent
-from pydantic import BaseModel, PositiveInt
+from pydantic import BaseModel, PositiveInt, TypeAdapter
 
 from conductor_providers.fastapi.router_problem import NoSuchRunError, RefusedError
 from conductor_providers.fastapi.store import RunStore
@@ -237,7 +237,7 @@ def run_router(
         raise TypeError("run_router(caller=...) needs may_see=: say who may see a run, as lambda caller, started_by: caller.id == started_by.id")
     nodes_for: Callable[[C], NodeRegistry] = (lambda who: registry) if isinstance(registry, NodeRegistry) else registry
     worker: Worker[C] = Worker(
-        store=store, nodes_for=nodes_for, caller_type=_caller_type(caller), from_run=from_run,
+        store=store, nodes_for=nodes_for, callers=TypeAdapter(_caller_type(caller)), from_run=from_run,
         max_items=max_items, lease=lease, checkpoint_every=checkpoint_every, leg_timeout=leg_timeout, poll=poll,
     )
     router = APIRouter(lifespan=lambda _: worker.serving(), route_class=_RefusingRoute)

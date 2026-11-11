@@ -85,7 +85,7 @@ class Worker(Generic[C]):
         *,
         store: RunStore,
         nodes_for: Callable[[C], NodeRegistry],
-        caller_type: Any,
+        callers: TypeAdapter[C],
         from_run: Callable[[C], Mapping[type, Any]],
         max_items: int | None,
         lease: float,
@@ -98,7 +98,7 @@ class Worker(Generic[C]):
         Args:
             store: Where runs and their events are kept.
             nodes_for: The nodes a caller's graphs may use; called for every call and every leg.
-            caller_type: The type of a caller, which a run keeps as JSON.
+            callers: Reads and writes a caller as the JSON a run keeps.
             from_run: The ``FromRun`` values of a leg, from the caller who started its run.
             max_items: The ceiling on the items of any one Series that a run starts with.
             lease: The seconds this worker holds a run between renewals.
@@ -109,7 +109,7 @@ class Worker(Generic[C]):
         self.id = uuid.uuid4().hex
         self._store = store
         self._nodes_for = nodes_for
-        self._callers: TypeAdapter[C] = TypeAdapter(caller_type)
+        self._callers = callers
         self._from_run = from_run
         self._max_items = max_items
         self._lease = lease
@@ -285,7 +285,7 @@ class Worker(Generic[C]):
         finally:
             self._handing_back.set()
             sweeping.cancel()
-            await asyncio.gather(*self._holds.values(), return_exceptions=True)
+            await asyncio.gather(*self._holds.values())
 
     # -- taking a run -----------------------------------------------------------------------------
 
