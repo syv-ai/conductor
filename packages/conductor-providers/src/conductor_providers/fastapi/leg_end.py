@@ -6,6 +6,7 @@ record that says, from the row's state as last read, what the row holds after it
 
 from __future__ import annotations
 
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
@@ -13,7 +14,10 @@ from conductor import EndedEarly, InvalidCallError, Problem, Run, Waiting
 from conductor.events import RunEnd
 from pydantic_core import from_json
 
+from conductor_providers.fastapi import router_problem
 from conductor_providers.fastapi.stored_run import RUNNING, Outcome, RunChanges, StoredState
+
+log = logging.getLogger("conductor_providers.fastapi")
 
 
 @dataclass(frozen=True)
@@ -71,18 +75,26 @@ class Ended(LegEnd):
 
         Each queued answer is given to the run on its own, as ``run.answer`` takes one whatever the run's status:
         one the run refuses stays in ``refused`` with its problems, and the ones it takes make the run the next
-        leg starts from. A cancel that was asked and that this leg did not end on is kept for that next leg, which
-        then ends before it calls anything; one the leg ended on, or that no leg is left to hear, is done with.
+        leg starts from. An answer whose check raises what is no refusal (a fault in a host's type) is logged and
+        refused as ``answer_check_failed``, so one such answer doesn't cost the leg its end. A cancel that was
+        asked and that this leg did not end on is kept for that next leg, which then ends before it calls
+        anything; one the leg ended on, or that no leg is left to hear, is done with.
         """
-        run, refused, taken = self.run, dict(state.refused), False
+        run, taken, refused = self.run, [], {}
         for waiting_id, value in state.queued_answers.items():
             try:
-                run, taken = run.answer(waiting_id, value), True
-                refused.pop(waiting_id, None)
+                run = run.answer(waiting_id, value)
+                taken.append(waiting_id)
             except InvalidCallError as error:
                 refused[waiting_id] = error.errors()
-        unheard = state.cancel_asked and taken and self.run.status != "cancelled"
-        after = state.model_copy(update={"run_state": RUNNING if taken else self.run.state, "queued_answers": {}, "refused": refused, "cancel_asked": unheard})
+            except Exception as error:
+                log.exception("the answer queued for %s could not be checked", waiting_id)
+                refused[waiting_id] = [router_problem.answer_check_failed(waiting_id=waiting_id, error=type(error).__name__)]
+        settled = state.answered(taken)
+        unheard = state.cancel_asked and bool(taken) and self.run.status != "cancelled"
+        after = settled.model_copy(update={
+            "run_state": RUNNING if taken else self.run.state, "queued_answers": {}, "refused": {**settled.refused, **refused}, "cancel_asked": unheard,
+        })
         return RowAfterALeg(after, {"run": run.to_json() if taken else self.saved, "outcome": self.outcome})
 
 
@@ -153,7 +165,7 @@ class HandedBack(LegEnd):
         return RowAfterALeg(state, {})
 
 
-def end_of(run_end: RunEnd, stored: Run) -> LegEnd:
+def end_of(run_end: RunEnd, stored: list[Waiting]) -> LegEnd:
     """The end of a leg whose stream ended with a ``run_end``.
 
     A run that can't be written as JSON (``state_unwritable``: a value in it has no JSON form) can't be stored
@@ -161,7 +173,8 @@ def end_of(run_end: RunEnd, stored: Run) -> LegEnd:
 
     Args:
         run_end: The leg's last event, with the run the leg ended with.
-        stored: The run as the row holds it, its last checkpoint, which stays when the run can't be written.
+        stored: What waits in the run as the row holds it, its last checkpoint, which stays when the run can't
+            be written.
 
     Returns:
         The end with that run: the run as JSON, what waits in it and, once complete, its outputs, each written by
@@ -172,4 +185,4 @@ def end_of(run_end: RunEnd, stored: Run) -> LegEnd:
         outcome = Outcome(waiting=run.waiting, outputs=from_json(run.outputs_json()) if run.status == "complete" else None)
         return Ended(run, run.to_json(), outcome.model_dump_json(), run_end.model_dump_json())
     except InvalidCallError as unwritable:
-        return Raised.refused(unwritable, stored.waiting)
+        return Raised.refused(unwritable, stored)

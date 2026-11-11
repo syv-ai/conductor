@@ -1,7 +1,8 @@
 """The problems the runs router writes itself, beside those of the runs it serves, one function each.
 
 ``ROUTER_PROBLEMS.problem`` says how a function's signature is read. Each is about a run as a whole, so its ``loc``
-is ``()``. Five are the ``detail`` of a 404 or a 409; ``leg_failed`` is the ``cause`` of a run.
+is ``()``. Five are the ``detail`` of a 404 or a 409, ``answer_check_failed`` is in a run's ``refused``, and
+``leg_failed`` is the ``cause`` of a run.
 """
 
 from __future__ import annotations
@@ -26,6 +27,18 @@ def already_answered(*, waiting_id: str) -> str:
         waiting_id: The waiting id answered twice.
     """
     return f"An answer to '{waiting_id}' already waits for the running leg to end; read the run once it has, and answer what still waits."
+
+
+@ROUTER_PROBLEMS.problem()
+def answer_check_failed(*, waiting_id: str, error: str) -> str:
+    """An answer queued while a leg ran could not be checked when the leg ended: the check of its type raised
+    what is no refusal of the value, a fault in the host's type.
+
+    Args:
+        waiting_id: The waiting id the answer was for.
+        error: The class of what the check raised.
+    """
+    return f"The answer queued for '{waiting_id}' could not be checked: its type's own check raised {error}; the operator finds why in the server log. Send it again once that is fixed."
 
 
 @ROUTER_PROBLEMS.problem()

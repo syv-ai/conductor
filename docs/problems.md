@@ -1503,7 +1503,7 @@ print([p.msg for p in check_registry(checked)][0])  # moving to version 2 raised
 
 ## The runs router
 
-Written by `conductor_providers.fastapi.run_router` itself, beside the codes of the runs it serves: the `detail` of a 404 or a 409 is a list of these, and `leg_failed` is a run's `cause`. `loc` is `()`: each is about the run as a whole. They aren't in `PROBLEM_CODES`: `conductor_providers.fastapi.ROUTER_PROBLEMS` is their catalogue, and each kind in it has its `code`, its `sentence` and the type of its `ctx`, as the kinds of `PROBLEMS` have. The examples below print each kind's sentence from it.
+Written by `conductor_providers.fastapi.run_router` itself, beside the codes of the runs it serves: the `detail` of a 404 or a 409 is a list of these, `answer_check_failed` is in a run's `refused`, and `leg_failed` is a run's `cause`. `loc` is `()`: each is about the run as a whole. They aren't in `PROBLEM_CODES`: `conductor_providers.fastapi.ROUTER_PROBLEMS` is their catalogue, and each kind in it has its `code`, its `sentence` and the type of its `ctx`, as the kinds of `PROBLEMS` have. The examples below print each kind's sentence from it.
 
 ### `no_such_run`
 
@@ -1527,6 +1527,16 @@ print("already_answered:", router_sentence["already_answered"])  # already_answe
 A 409 from `POST /runs/{run_id}/answers` while a leg runs: an earlier call queued an answer for the same waiting id, and nothing of this call was queued. `ctx.waiting_id` is the id; there is one problem for each id sent twice.
 
 **Fix.** Wait for the leg to end. The queued answer is taken then, or is in `refused` with why; answer what still waits.
+
+### `answer_check_failed`
+
+```python
+print("answer_check_failed:", router_sentence["answer_check_failed"])  # answer_check_failed: The answer queued for '{waiting_id}' could not be checked: its type's own check raised {error}; the operator finds why in the server log. Send it again once that is fixed.
+```
+
+In a run's `refused`, under the waiting id: an answer queued while a leg ran was given to the run when the leg ended, and the check of the answer's type raised something that is no refusal of the value (a `KeyError` in a host type's validator, where a `ValueError` would refuse it). `ctx.waiting_id` is the id and `ctx.error` the class of what was raised. The leg's end is written as it stands and the question still waits. The same fault on an answer sent while no leg runs is the request's own 500.
+
+**Fix.** The fault is in the type: the traceback is in the log `conductor_providers.fastapi`. Answer again once it is fixed.
 
 ### `run_complete`
 
@@ -1564,6 +1574,6 @@ A 409 from `POST /runs/{run_id}/answers` or `/resume`: between the read of the r
 print("leg_failed:", router_sentence["leg_failed"])  # leg_failed: The run's worker failed before the leg could end; its operator finds why in the server log. Resume it to carry on.
 ```
 
-The `cause` of a run that reads `failed` because its worker raised outside any node in a way that would raise again and that conductor has no problem of its own for: `from_run` raised, the function that gives a caller's registry raised. A leg conductor itself refused has conductor's problem as its cause (`from_run_missing`, `state_unreadable`, `state_unwritable`). A raise from the store is not one: it fails no run, and the run is gone on with once its lease runs out. It is in `GET /runs/{run_id}` and on the leg's `run_end` event. The run is kept as its last checkpoint, and answers queued during the leg stay queued. `waiting` lists what waits in that checkpoint, the run an answer is given to; nothing, when the run could not be loaded.
+The `cause` of a run that reads `failed` because its worker raised outside any node in a way that would raise again and that conductor has no problem of its own for: `from_run` raised, the function that gives a caller's registry raised. A leg conductor itself refused has conductor's problem as its cause (`from_run_missing`, `state_unreadable`, `state_unwritable`). A raise from the store is not one: it fails no run, and the run is gone on with once its lease runs out. It is in `GET /runs/{run_id}` and on the leg's `run_end` event. The run is kept as its last checkpoint, and answers queued during the leg stay queued until a leg ends with a run. `waiting` lists what waits in that checkpoint, the run an answer is given to; nothing, when the run could not be loaded.
 
 **Fix.** `POST /runs/{run_id}/resume`. The exception is in the log `conductor_providers.fastapi`, with the run's id.

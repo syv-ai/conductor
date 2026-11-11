@@ -21,7 +21,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field, replace
 from typing import Any, Generic, Literal, TypeVar
 
-from conductor import GraphRecord, InvalidCallError, NodeRegistry, Run
+from conductor import GraphRecord, InvalidCallError, NodeRegistry, Run, Waiting
 from conductor.events import RunCheckpoint, RunEnd
 from pydantic import TypeAdapter
 from pydantic_core import from_json
@@ -58,8 +58,8 @@ class _Hold:
         run_id: The run's id.
         rev: The row's ``rev`` as this worker last wrote or read it.
         state: The row's state at that ``rev``.
-        stop: Set to end the running leg before its next unit: a cancel is asked in ``state``, or another worker
-            took the run. Cleared when a leg's end leaves no cancel asked.
+        stop: Set to end the running leg before its next unit, from the row as this worker reads it: a cancel is
+            asked in its state, or another worker holds it. Cleared when a leg's end leaves no cancel asked.
         lock: Held for each of this worker's writes to the row, so they land one at a time.
         released: Whether the row was given up or taken by another worker; this worker writes nothing more to it.
         reads: How many times this worker read the row again, each time taking in what another writer changed.
@@ -219,9 +219,7 @@ class Worker(Generic[C]):
             raise RefusedError(router_problem.run_complete())
         row, nodes = run.row, self._nodes_for(self.started_by(run.row))
         answered = await asyncio.to_thread(lambda: _loaded(row, nodes).answer(answers).to_json())
-        unanswered = {"queued_answers": run.state.queued_answers, "refused": run.state.refused}
-        cleared = {name: {waiting_id: held for waiting_id, held in column.items() if waiting_id not in answers} for name, column in unanswered.items()}
-        state = run.state.model_copy(update={"run_state": RUNNING, **cleared})
+        state = run.state.answered(answers.keys()).model_copy(update={"run_state": RUNNING})
         if not await self._claim(run, state, answered=answered):
             raise RefusedError(router_problem.run_changed())
         return "started"
@@ -247,16 +245,20 @@ class Worker(Generic[C]):
         """Ask the running leg of a run to stop before its next unit: at once when this worker runs it, at its next
         renewal when another does.
 
+        The cancel is written to the run's state, and a leg is stopped only by what its row says: this worker's
+        leg reads the row again here, where another worker's reads it at its next renewal.
+
         Args:
             run: The run as read.
 
         Returns:
-            Whether a leg was running to ask.
+            Whether a leg was wanted for the run as read, or since, so that the cancel was written.
         """
         run = await self._ask_of_a_running_leg(run, lambda state: state.model_copy(update={"cancel_asked": True}))
-        for hold in self._holds:
-            if hold.run_id == run.row.id:
-                hold.stop.set()
+        if run.state.leg_wanted:
+            for hold in [hold for hold in self._holds if hold.run_id == run.row.id]:
+                async with hold.lock:
+                    await self._read_again(hold)
         return run.state.leg_wanted
 
     async def events(self, run: RunAsRead, after: int = -1) -> AsyncGenerator[tuple[int, str]]:
@@ -395,9 +397,11 @@ class Worker(Generic[C]):
     async def _legs(self, hold: _Hold, row: StoredRun, max_items: int | None) -> None:
         """Run legs of a held run, renewing its lease, until the end of one gives the run up.
 
-        A raise that reaches here is the store's, at an event, a checkpoint or a leg's end. It is the host's
-        outage and never fails the run: it is logged, the leg stops before its next unit and the run is given up
-        as it is in the store, ``running``. Its lease runs out, and a worker goes on from the last checkpoint.
+        What a host's code raises and what conductor refuses are dealt with where they are met (``_leg_steps``,
+        ``Ended.row_after``), so a raise that reaches here is the store's, at an event, a checkpoint or a leg's
+        end. It is the host's outage and never fails the run: it is logged, the leg starts nothing more and the
+        run is given up as it is in the store, ``running``. Its lease runs out, and a worker goes on from the last
+        checkpoint; a call the given-up leg still has on a thread then may be made again while it runs.
 
         Args:
             hold: The hold on the run.
@@ -416,19 +420,27 @@ class Worker(Generic[C]):
             del self._holds[hold]
 
     async def _renew(self, hold: _Hold) -> None:
-        """Renew the lease three times a lease, until the run is given up or taken. A renewal that raises, or that
-        the store hasn't answered when the next is due, is logged and the next one is tried: one failed statement
-        doesn't cost a leg its run, and one that never returns doesn't keep the leg's other writes waiting, so a
-        leg whose run another worker took meanwhile learns it at its next checkpoint or event.
+        """Renew the lease three times a lease, until the run is given up or taken.
+
+        A renewal that raises is logged and the next one is tried, so one failed statement doesn't cost a leg its
+        run. One the store hasn't answered a third of a lease on is given up and the next is made at once: it
+        doesn't keep the leg's other writes waiting, so a leg whose run another worker took meanwhile learns it at
+        its next checkpoint or event, and a single statement that never returns leaves a third of the lease to
+        renew in.
 
         Args:
             hold: The hold on the run.
         """
+        wait = self._lease / 3
         while not hold.released:
-            await asyncio.sleep(self._lease / 3)
+            await asyncio.sleep(wait)
+            wait = self._lease / 3
             try:
                 async with asyncio.timeout(self._lease / 3):
                     await self._write(hold, {"lease_until": time.time() + self._lease})
+            except TimeoutError:
+                log.error("the store did not answer a renewal of the lease of run %s; the next is made at once", hold.run_id)
+                wait = 0.0
             except Exception:
                 log.exception("the lease of run %s was not renewed; the next renewal tries again", hold.run_id)
 
@@ -472,23 +484,16 @@ class Worker(Generic[C]):
             Each event to store, as JSON; each checkpoint, as the row's ``run`` to write; and last, unless the leg
             is handed back, how the leg ended. A raise anywhere in the leg outside a node is logged and ends it
             as a leg that raised, which lists what waits in the run as the row holds it: the run as loaded, or
-            the last checkpoint the store was given. Its cause is conductor's own problem where conductor
-            refused the leg (a ``FromRun`` value nobody gives, a run that can't be read or written), the first
-            of them where there are several, with all of them in the log; else ``leg_failed``.
+            the last checkpoint the store was given; nothing, for a run that could not be loaded. Its cause is
+            conductor's own problem where conductor refused the leg (a ``FromRun`` value nobody gives, a run
+            that can't be read or written), the first of them where there are several; else ``leg_failed``.
         """
+        waiting: list[Waiting] = []  # in the run as the row holds it; nothing, until the run is loaded
         try:
             who = self.started_by(row)
-            stored = await asyncio.to_thread(_loaded, row, self._nodes_for(who))
-        except InvalidCallError as refusal:
-            log.error("the run %s could not be loaded for its leg: %s", row.id, refusal)
-            yield Raised.refused(refusal, waiting=[])
-            return
-        except Exception:
-            log.exception("the run %s could not be loaded for its leg", row.id)
-            yield Raised.because(router_problem.leg_failed(), waiting=[])
-            return
-        try:
-            stream = stored.stream(
+            run = await asyncio.to_thread(_loaded, row, self._nodes_for(who))
+            waiting = run.waiting
+            stream = run.stream(
                 from_run=self._from_run(who), max_items=max_items, timeout=self._leg_timeout,
                 cancel=hold.stop, hand_back=self._handing_back, checkpoint_every=self._checkpoint_every,
             )
@@ -496,17 +501,18 @@ class Worker(Generic[C]):
                 async for event in stream:
                     if isinstance(event, RunCheckpoint):
                         yield {"run": await asyncio.to_thread(event.run.to_json)}
-                        stored = event.run
+                        waiting = event.run.waiting
                     elif isinstance(event, RunEnd):
-                        yield await asyncio.to_thread(end_of, event, stored)
+                        yield await asyncio.to_thread(end_of, event, waiting)
                     else:
                         yield event.model_dump_json()
         except InvalidCallError as refusal:
-            log.error("the leg of run %s was refused: %s", row.id, refusal)
-            yield Raised.refused(refusal, stored.waiting)
+            every = "; ".join(f"{problem.type} at {'.'.join(map(str, problem.loc))}: {problem.msg}" for problem in refusal.errors())
+            log.error("the leg of run %s was refused: %s", row.id, every, exc_info=True)  # a cause holds the first only
+            yield Raised.refused(refusal, waiting)
         except Exception:
             log.exception("the leg of run %s failed", row.id)
-            yield Raised.because(router_problem.leg_failed(), stored.waiting)
+            yield Raised.because(router_problem.leg_failed(), waiting)
 
     async def _finish(self, hold: _Hold, row: StoredRun, end: LegEnd) -> StoredRun:
         """Write how a leg ended, decided from the row's state as read for each try of the write, so a cancel or an

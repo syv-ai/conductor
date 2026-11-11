@@ -6,6 +6,7 @@ Code outside this package imports from here only, and calls a kind as ``router_p
 from conductor_providers.fastapi.router_problem.catalogue import (
     ROUTER_PROBLEMS,
     already_answered,
+    answer_check_failed,
     leg_failed,
     no_such_run,
     run_changed,
@@ -19,6 +20,7 @@ __all__ = [
     "NoSuchRunError",
     "RefusedError",
     "already_answered",
+    "answer_check_failed",
     "leg_failed",
     "no_such_run",
     "run_changed",

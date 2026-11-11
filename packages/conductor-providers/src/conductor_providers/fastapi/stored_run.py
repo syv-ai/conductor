@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from dataclasses import dataclass
 from typing import Any, TypedDict
 
@@ -76,7 +77,7 @@ class Outcome(BaseModel):
 
     @classmethod
     def empty(cls) -> Outcome:
-        """The outcome of a run no leg has ended, and of one whose last leg raised: nothing waits, no outputs."""
+        """The outcome of a run no leg has ended: nothing waits, no outputs."""
         return cls(waiting=[], outputs=None)
 
 
@@ -91,7 +92,8 @@ class StoredState(BaseModel):
             it, with its cause when it ended early.
         queued_answers: Answers that came while a leg ran, by waiting id; the run gets them when the leg ends.
         refused: Queued answers the run refused when a leg ended, by waiting id, each with its problems.
-        cancel_asked: Whether someone asked the running leg to stop; a leg's end clears it.
+        cancel_asked: Whether someone asked the running leg to stop. The end of the leg that stopped for it clears
+            it; one that came too late for its leg is kept for the next leg, when a queued answer starts one.
     """
 
     run_state: RunState
@@ -108,6 +110,21 @@ class StoredState(BaseModel):
     def leg_wanted(self) -> bool:
         """Whether a leg is wanted for the run: a worker runs one, or the run waits for a worker to take it."""
         return self.run_state == RUNNING
+
+    def answered(self, waiting_ids: Collection[str]) -> StoredState:
+        """This state once answers to some questions are taken: nothing is refused or queued for them any more.
+
+        Args:
+            waiting_ids: The waiting ids whose answers the run took.
+
+        Returns:
+            The state without them in ``refused`` and ``queued_answers``.
+        """
+        left = {
+            name: {waiting_id: held for waiting_id, held in column.items() if waiting_id not in waiting_ids}
+            for name, column in (("queued_answers", self.queued_answers), ("refused", self.refused))
+        }
+        return self.model_copy(update=left)
 
     @property
     def cause(self) -> Problem | None:

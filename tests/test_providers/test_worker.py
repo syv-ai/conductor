@@ -511,6 +511,69 @@ async def test_an_answer_that_is_taken_leaves_nothing_refused_or_queued_for_its_
     assert (completed.status, completed.refused, completed.outputs) == ("complete", {}, {"busy.result": "x", "after.result": True})
 
 
+class Fragile:
+    """A host's type whose own check has a bug: it raises what is no refusal of the value."""
+
+    type_id: ClassVar[str] = "fragile"
+    type_title: ClassVar[str] = "Fragile"
+
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source: Any, handler: GetCoreSchemaHandler) -> core_schema.CoreSchema:
+        def check(value: Any) -> Fragile:
+            raise KeyError("a lookup the host's type forgot to guard")
+
+        return core_schema.no_info_plain_validator_function(check, serialization=core_schema.plain_serializer_function_ser_schema(lambda held: "fragile"))
+
+
+async def test_a_queued_answer_whose_check_raises_is_refused_as_not_checked_and_the_leg_ends_once() -> None:
+    registry, store, gate = NodeRegistry(), MemoryStore(), threading.Event()
+
+    @registry.node("ask", title="Ask", description="")
+    def ask(text: str) -> Fragile:
+        raise Ask("Which?")
+
+    @registry.node("busy", title="Busy", description="")
+    def busy(text: str) -> str:
+        gate.wait(5)
+        return text
+
+    graph = GraphRecord(nodes=[NodeRecord(id="ask", node="ask"), NodeRecord(id="busy", node="busy")])
+    inputs = {"ask.text": "y", "busy.text": "x"}
+    gate.set()
+    (waiting,) = registry.load(graph).run(inputs).waiting
+    gate.clear()
+    worker = _worker(store, registry, lease=0.15)
+
+    async with worker.serving():
+        run_id = await _started(worker, graph, inputs)
+        assert await worker.answer(await worker.read(run_id), {waiting.id: "anything"}) == "queued"
+        gate.set()
+        ended = await store.ended(run_id)
+        await asyncio.sleep(0.4)  # leases in which a leg given up would start again
+
+    assert (ended.status, [(problem.type, problem.ctx) for problem in ended.refused[waiting.id]]) == (
+        "waiting", [("answer_check_failed", {"waiting_id": waiting.id, "error": "KeyError"})],
+    )
+    assert await _starts(store, run_id) == 1 and (await worker.read(run_id)).state.queued_answers == {}
+
+
+async def test_a_cancel_made_with_a_run_read_before_its_leg_started_cancels_nothing() -> None:
+    registry, graph, gates, calls = gated()
+    store = MemoryStore()
+    worker = _worker(store, registry)
+
+    run_id = await _started(worker, graph, {"items.text": "a,b", "busy.text": "x", "approve.text": "y"})
+    gates["first"].set()
+    waiting = await store.ended(run_id)
+    read_while_it_waited = await worker.read(run_id)
+    assert await worker.answer(await worker.read(run_id), {waiting.waiting[0].id: True}) == "started"
+    await asyncio.to_thread(gates["held"].wait, 5)
+
+    assert not await worker.cancel(read_while_it_waited)
+    gates["second"].set()
+    assert (await store.ended(run_id)).status == "complete" and calls == ["a", "b"]
+
+
 def _asked_beside_a_chain() -> tuple[NodeRegistry, GraphRecord, dict[str, Any], dict[str, threading.Event], list[str], str]:
     """A graph with a question beside a chain of three steps, its inputs, and the waiting id the question gets: the
     first step waits on ``first`` and the second on ``second``, having set ``in_second``; ``calls`` lists the steps
@@ -707,10 +770,39 @@ async def test_a_leg_conductor_refuses_to_start_fails_with_the_first_of_its_own_
     run_id = await _started(_worker(store, registry), make_graph(stamp), {"text": "a"})
     failed = await store.ended(run_id)
 
-    assert failed.cause is not None and (failed.status, failed.cause.type, failed.cause.loc, failed.cause.ctx["needs"]) == ("failed", "from_run_missing", ("stamp", "tenant"), "Tenant")
+    assert failed.cause is not None and (failed.status, failed.cause.type, failed.cause.loc) == ("failed", "from_run_missing", ("stamp", "tenant"))
+    assert failed.cause.ctx["needs"] == "Tenant"
     assert await store.stored_events(run_id) == [{"type": "run_end", "status": "failed", "cause": failed.cause.model_dump(mode="json")}]
     (logged,) = [record.getMessage() for record in caplog.records if run_id in record.getMessage()]
-    assert "Tenant" in logged and "Clock" in logged
+    assert "Tenant" in logged and "Clock" in logged and "\n" not in logged
+
+
+async def test_a_run_whose_leg_raised_after_a_checkpoint_lists_what_waits_in_that_checkpoint() -> None:
+    registry, store, gate = NodeRegistry(), MemoryStore(), threading.Event()
+
+    @registry.node("approve", title="Approve", description="")
+    def approve(text: str) -> bool:
+        raise Ask("Go on?")
+
+    @registry.node("busy", title="Busy", description="")
+    def busy(text: str) -> str:
+        gate.wait(5)
+        return text
+
+    @registry.node("opaque", title="Opaque", description="")
+    def opaque(text: str) -> Opaque:
+        return Opaque()
+
+    nodes = [NodeRecord(id=name, node=name) for name in ("approve", "busy", "opaque")]
+    graph = GraphRecord(nodes=nodes, edges=[("busy.result", "opaque.text")])
+    run_id = await _started(_worker(store, registry, checkpoint_every=0.01), graph, {"approve.text": "y", "busy.text": "x"})
+    await asyncio.sleep(0.05)  # a checkpoint is due by the time the busy step ends
+    gate.set()
+    failed = await store.ended(run_id)
+
+    assert failed.cause is not None and (failed.status, failed.cause.type) == ("failed", "state_unwritable")
+    stored = registry.load(graph).load_run(store.rows[run_id].run)
+    assert [unit.id for unit in failed.waiting] == [unit.id for unit in stored.waiting] and len(failed.waiting) == 1
 
 
 async def test_a_run_whose_leg_raised_lists_what_waits_in_the_run_as_stored_and_takes_an_answer_to_it_without_a_resume() -> None:
@@ -960,6 +1052,31 @@ async def test_a_cancel_from_another_worker_that_lands_as_a_worker_hands_the_run
     row = await store.until(run_id, lambda row: row.status != "running")
     assert (row.status, row.owner, row.lease_until) == ("cancelled", None, None)
     assert [event["status"] for event in await store.stored_events(run_id) if event["type"] == "run_end"] == ["cancelled"]
+
+
+async def test_one_renewal_the_store_never_answers_is_followed_at_once_by_the_next_so_the_leg_keeps_its_run() -> None:
+    registry, graph, called, calls = _slow_items()
+
+    class OneRenewalHangs(MemoryStore):
+        """Never answers the first renewal, as one statement on a connection that went quiet."""
+
+        hung = False
+
+        async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
+            if changes.keys() == {"lease_until"} and not self.hung:
+                self.hung = True
+                await asyncio.Event().wait()
+            return await super().update(run_id, rev, changes)
+
+    store = OneRenewalHangs()
+    worker, other = _worker(store, registry, lease=0.45), _worker(store, registry, lease=0.45)
+
+    async with worker.serving(), other.serving():
+        run_id = await _started(worker, graph, {"n": 40})
+        ended = await store.ended(run_id)
+
+    assert store.hung and (ended.status, sorted(calls)) == ("complete", list(range(40)))
+    assert await _starts(store, run_id) == 1
 
 
 async def test_a_worker_whose_renewal_never_returns_stops_its_leg_once_another_took_the_run_and_can_shut_down() -> None:
