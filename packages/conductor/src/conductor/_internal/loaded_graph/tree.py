@@ -78,8 +78,10 @@ class FunctionAtPath(_AtPath):
         call_template: What the arguments of every call start as: each input by name, in the order declared,
             one that holds the same value on every call already holding it.
         from_caller: The inputs the caller gives: the name, and the address a run keeps the caller's value by.
-        fed: The inputs edges feed, in the order declared: the name, the plan, and whether the input takes a
-            blank. A gathering input's plan names the functions it gathers through (``Gather.through``).
+        fed: What the node needs that edges bring, in the order declared: the input's name, a plan, and
+            whether the input takes a blank. A gathering input is two of them, as it needs two things: its
+            Series, read as the one value it is, and then what its edges bring for the items (the plan
+            itself, which names the functions it gathers through, ``Gather.through``).
         gathered_in_step: The gathering inputs that gather one Series, for each such Series: each input's name
             and whether its items may be blank. They receive the same items.
         checked: The inputs whose value is read by the input's type before a call, as the types the edges bring
@@ -271,6 +273,8 @@ def _add_to_tree(graph: LoadedGraph, embedding: GraphAtPath | None, tree: list[F
                 plan = dataclasses.replace(plan, through=through)
                 read_at += outside.items()
                 gathering.setdefault(series, []).append((name, plan.spec.keeps_blanks))
+                whole = Value(series.node_id, series.output, series.scope, None, functions[series.node_id].placed.outputs[series.output].whole)
+                fed.append((name, Read(plan.spec, (whole,), series.scope), plan.spec.whole.optional))  # it needs its Series, and then its items
             fed.append((name, plan, plan.spec.whole.optional))
             for read, places in read_at:
                 made_from[read] = min(places, made_from.get(read, places))

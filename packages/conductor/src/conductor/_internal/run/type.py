@@ -47,6 +47,7 @@ from conductor._internal.earlier_work import Earlier
 from conductor._internal.fields import SKIPPED, Field, FieldValueError, written_table
 from conductor._internal.loaded_graph import (
     FunctionAtPath,
+    Gather,
     GraphAtPath,
     NodeAtPath,
     PlacedFunction,
@@ -54,7 +55,13 @@ from conductor._internal.loaded_graph import (
 )
 from conductor._internal.node_definition import Returns, from_run_values
 from conductor._internal.problem import InvalidCallError, Problem, make_problem, value_free_errors
-from conductor._internal.run.call_inputs import AnyItemReader, CallInputs, ItemReader
+from conductor._internal.run.call_inputs import (
+    COULD,
+    AnyItemReader,
+    AsItStandsReader,
+    CallInputs,
+    ItemReader,
+)
 from conductor._internal.run_status import _READY, _RUNNING, EndedEarly, Going, RunState, RunStatus
 from conductor._internal.saved_run import (
     SavedEarlier,
@@ -461,7 +468,7 @@ class Run:
                 raise InvalidCallError([make_problem("state_unwritable", "outputs", address, at=address, reason="a value has no JSON form")]) from None
         return pydantic_core.to_json(written).decode()
 
-    def _shown(self, reader: ItemReader, node: NodeAtPath, output: str) -> Any:
+    def _shown(self, reader: AsItStandsReader, node: NodeAtPath, output: str) -> Any:
         """One output of a node as a host is shown it: what a node reading it would be given (``host_reads``),
         as the run stands.
 
@@ -472,7 +479,7 @@ class Run:
         made per item inside is a list for each of its items.
 
         Args:
-            reader: Reads the run's units as they stand, waiting for nothing.
+            reader: Reads the run's units as they stand.
             node: The node, one of the run's own graph.
             output: The output's name.
         """
@@ -482,10 +489,9 @@ class Run:
         else:
             function, around = node, 0
         if 0 < around < len(function.maps):  # an embedded graph's node that runs per item, of an output made per item inside
-            whole = host_reads(function, output, 0)
-            certain = AnyItemReader(reader, whole.reads[0], ()).could_bring(whole)  # type: ignore[arg-type]  # made per item, so read as a gather
-            if certain is SKIPPED or certain is None:
-                return None
+            whole = cast("Gather", host_reads(function, output, 0))  # made per item, so read as a gather
+            if AnyItemReader(reader, whole.series, ()).could_bring(whole) is not COULD or reader.cell(whole.series, ()) is None:
+                return None  # no item of the embedded graph's node could bring a value, or the Series it runs per item of was never made
             each = host_reads(function, output, around)
             offered = [each.value(reader, at) for at in instances(self._units, function.maps[:around], ())[0]]
             return [None if value is SKIPPED else value for value in offered]
@@ -564,12 +570,12 @@ class Run:
     @property
     def _reader(self) -> ItemReader:
         """Reads what this run's units hold for one item: what a call of a node receives there."""
-        return ItemReader(self._units, self.inputs, self.graph._node_at)
+        return ItemReader(self._units, self.inputs)
 
     @property
-    def _reader_as_it_stands(self) -> ItemReader:
+    def _reader_as_it_stands(self) -> AsItStandsReader:
         """Reads what this run's units hold as they stand, waiting for nothing: what a host is shown."""
-        return ItemReader(self._units, self.inputs, self.graph._node_at, waits=False)
+        return AsItStandsReader(self._units, self.inputs)
 
     def _has_every_unit(self, node: FunctionAtPath) -> bool:
         """Whether every instance of ``node`` holds a unit, one waiting for a person included, and every Series

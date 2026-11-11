@@ -930,7 +930,7 @@ def test_a_run_with_changed_inputs_not_yet_started_shows_no_results():
     prepared = first.with_inputs(items=["ida", "bo"])
 
     assert prepared.status == "ready" and sent == []
-    assert prepared.results == {"each": {"result": None}, "mail": {"result": []}, "confirm": {"result": []}}  # no Series made yet, so no items
+    assert prepared.results == {"each": {"result": None}, "mail": {"result": None}, "confirm": {"result": None}}  # no Series made yet: nothing so far
 
 
 def test_a_typed_in_value_counts_as_its_type_writes_it_not_as_it_was_spelled():
@@ -1388,7 +1388,7 @@ def test_forget_is_not_started_survives_json_and_refuses_a_node_the_graph_lacks(
     forgotten = run.forget("f")
     calls.clear()
 
-    assert forgotten.status == "ready" and forgotten.results["f"] == {"result": []}
+    assert forgotten.status == "ready" and forgotten.results["f"] == {"result": None}
     assert graph.load_run(forgotten.to_json()).resume().status == "complete" and calls == ["fetch a"]
     with pytest.raises(InvalidCallError) as refused:
         run.forget("nope")

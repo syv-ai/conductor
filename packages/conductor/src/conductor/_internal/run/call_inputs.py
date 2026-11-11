@@ -14,11 +14,14 @@ records) receives the items of one Series, and first asks what was settled
 outside the items one thing: could any item bring a value here? When none
 could, for a branch not taken or for a blank, that is what the input holds,
 with two items as with none. When one could, each item answers for itself.
+Its node needs the Series itself as well, and reads it as one more input, so
+the node rule is what weighs a blank Series against a branch not taken.
 
-**Two readers.** The rule reads cells, and there are two ways to read one:
+**The readers.** The rule reads cells, and there are two ways to read one:
 
 - ``ItemReader`` reads what the units of a run hold for one item: the reader a
-  leg calls a node with, and the one a host's ``results`` are read through.
+  leg calls a node with. ``AsItStandsReader`` is the same for a host, whose
+  ``results`` are read in any state: what isn't settled reads as a blank.
 - ``AnyItemReader`` reads for an item of one Series that nobody knows, which is
   how "could any item bring a value" is answered. A cell made outside the items
   is read as it stands. A cell made per item is what its node comes to for any
@@ -46,11 +49,11 @@ from conductor._internal.units import (
     NotReady,
     Skipped,
     Units,
-    instances,
+    length,
 )
 
 if TYPE_CHECKING:
-    from conductor._internal.loaded_graph.tree import FunctionAtPath, NodeAtPath
+    from conductor._internal.loaded_graph.tree import FunctionAtPath
 
 #: The arguments of one call of a node, by input name.
 CallInputs = dict[str, Any]
@@ -153,20 +156,16 @@ class Reader(abc.ABC):
 
 
 class ItemReader(Reader):
-    """Reads what the units of a run hold for one item.
+    """Reads what the units of a run hold for one item: what a call of a node receives.
 
     Attributes:
         units: Each function's units.
-        node_at: Each node of the run's graph, by its name.
-        waits: Whether a gathering input waits until what is outside its items and every item is settled, as a
-            call must. A host that reads a run as it stands doesn't: it is shown the items so far, with a blank
-            where one isn't settled.
     """
 
-    __slots__ = ("node_at", "units", "waits")
+    __slots__ = ("units",)
 
-    def __init__(self, units: Units, caller_inputs: Mapping[str, Any], node_at: Mapping[str, NodeAtPath], *, waits: bool = True) -> None:
-        self.units, self.caller_inputs, self.node_at, self.waits = units, caller_inputs, node_at, waits
+    def __init__(self, units: Units, caller_inputs: Mapping[str, Any]) -> None:
+        self.units, self.caller_inputs = units, caller_inputs
 
     def cell(self, cell: Cell, item_path: ItemPath) -> Any:
         """What ``cell`` holds for ``item_path``: an ``Item``'s is the item of ``item_path``, and a field named
@@ -198,21 +197,21 @@ class ItemReader(Reader):
 
         What is outside the items is asked first whether any item could bring a value. When none could, that
         is the answer for any number of items, none included. When one could, each item answers for itself.
+        The input's node needs the Series too, and reads it as an input of its own (``FunctionAtPath.fed``),
+        so the node rule weighs the two; here a Series that holds no list is only handed back.
 
         Returns:
             The list, one place per item of the Series; ``NOT_SETTLED`` until what is outside and every item
             is settled; ``SKIPPED`` when no item could bring a value for a branch not taken outside the items;
             ``None`` when none could for a blank there.
         """
-        series_made = plan.reads[0]
-        item_path = item_path[: series_made.depth]
-        certain = AnyItemReader(self, series_made, item_path).could_bring(plan)
-        if certain is not COULD and (self.waits or certain is not NOT_SETTLED):
-            return certain
-        series = self.cell(series_made, item_path)
-        if series is NOT_SETTLED:  # a host reads the run as it stands: no item so far
-            return []
-        if series is None or series is SKIPPED:  # and what is outside isn't settled: the Series' own blank or branch not taken, so far
+        made = plan.reads[0]
+        item_path = item_path[: made.depth]
+        brought = AnyItemReader(self, made, item_path).could_bring(plan)
+        if brought is not COULD:
+            return brought
+        series = self.cell(made, item_path)
+        if series is None or series is SKIPPED or series is NOT_SETTLED:
             return series
         edges = plan.sources
         if len(edges) == 1 and type(edges[0]) is Item:  # the Series itself: its items, or one field of each
@@ -222,20 +221,21 @@ class ItemReader(Reader):
             if wanted is None:
                 return [None if item is SKIPPED else item for item in series] if any(item is SKIPPED for item in series) else series
             return [None if item is SKIPPED or item is None else field_of(item, wanted) for item in series]
-        if plan.levels == 1:
-            item_paths = [(*item_path, place) for place in range(len(series))]
-        else:  # what an embedded graph offers of an output made several maps deep inside it: every item of every one
-            item_paths, known = instances(self.units, self.node_at[edges[0].node_id].maps, item_path)
-            if not known and self.waits:
-                return NOT_SETTLED
+        item_paths = [(*item_path, place) for place in range(len(series))]
+        for inner in plan.reads[1 : plan.levels]:  # what an embedded graph offers of an output made several maps deep inside it
+            deeper: list[ItemPath] = []
+            for under in item_paths:
+                held = self.cell(inner, under)
+                if held is NOT_SETTLED:
+                    return NOT_SETTLED
+                deeper.extend((*under, place) for place in range(length(held)))
+            item_paths = deeper
         items = []
         one_edge = edges[0] if len(edges) == 1 else None
         for under in item_paths:
             value = self.cell(one_edge, under) if one_edge is not None else self.best_of(edges, under)
             if value is NOT_SETTLED:
-                if self.waits:
-                    return NOT_SETTLED
-                value = None
+                return NOT_SETTLED
             items.append(None if value is SKIPPED else value)
         return items
 
@@ -251,6 +251,19 @@ class ItemReader(Reader):
                 else:
                     received[name] = [item for place, item in enumerate(items) if all(keeps or others[place] is not None for _, others, keeps in together)]
         return received
+
+
+class AsItStandsReader(ItemReader):
+    """Reads what the units of a run hold as they stand, for a host that reads a run in any state: a cell that
+    isn't settled reads as a blank, where a call waits for it. So a host is shown the items so far, with a
+    blank in the place of one that hasn't run or waits for a person."""
+
+    __slots__ = ()
+
+    def cell(self, cell: Cell, item_path: ItemPath) -> Any:
+        """What ``cell`` holds for ``item_path``, a blank where it isn't settled."""
+        value = ItemReader.cell(self, cell, item_path)
+        return None if value is NOT_SETTLED else value
 
 
 class AnyItemReader(Reader):
@@ -273,7 +286,7 @@ class AnyItemReader(Reader):
     def could_bring(self, plan: Gather) -> Any:
         """Whether any item of the Series could bring the gathering input of ``plan`` a value, going by what
         is outside the items. Each function the input gathers through is asked what it comes to for any item,
-        in order, and then the input itself.
+        in order, and then what the input's edges bring.
 
         Returns:
             ``COULD``; ``SKIPPED`` when none could for a branch not taken; ``None`` when none could for a
@@ -281,7 +294,7 @@ class AnyItemReader(Reader):
         """
         for node in plan.through:
             self.came_to[node.name] = self.comes_to(node, self.item_path)
-        return self._could_gather(plan)
+        return self._brought(plan)
 
     def cell(self, cell: Cell, item_path: ItemPath) -> Any:
         """What ``cell`` holds for an item nobody knows: what its node comes to for any item when it is made
@@ -299,10 +312,10 @@ class AnyItemReader(Reader):
 
     def gathered(self, plan: Gather, item_path: ItemPath) -> Any:
         """What a gathering input met on the way holds for an item nobody knows. One whose Series is made per
-        item is asked the same of the same items; one whose Series is made outside them is a cell outside like
-        any other: its own, whole answer, read as it stands."""
+        item is asked what its edges bring for the same items; one whose Series is made outside them is a cell
+        outside like any other: its own, whole answer, read as it stands."""
         if plan.reads[0].node_id in self.came_to:
-            return self._could_gather(plan)
+            return self._brought(plan)
         value = self.items.gathered(plan, self.item_path)
         return value if value is NOT_SETTLED or value is SKIPPED or value is None else COULD
 
@@ -310,19 +323,12 @@ class AnyItemReader(Reader):
         """``received`` as it is: nothing is known of the items to keep in step."""
         return received
 
-    def _could_gather(self, plan: Gather) -> Any:
-        """What a gathering input holds for an item nobody knows. It needs its Series and what its edges bring
-        for an item, so it holds the worst of them, in the order the node rule has for a node's inputs. An
-        input whose items take a blank receives the blank an edge brings."""
+    def _brought(self, plan: Gather) -> Any:
+        """What the edges of a gathering input bring for an item nobody knows; an input whose items take a
+        blank receives the blank an edge brings, so it could hold one."""
         edges = plan.sources
         brought = self.cell(edges[0], self.item_path) if len(edges) == 1 else self.best_of(edges, self.item_path)
-        if brought is None and plan.spec.keeps_blanks:
-            brought = COULD
-        needed = [*[self.cell(series, self.item_path) for series in plan.reads[: plan.levels]], brought]
-        for worst in (SKIPPED, NOT_SETTLED, None):
-            if any(answer is worst for answer in needed):
-                return worst
-        return COULD
+        return COULD if brought is None and plan.spec.keeps_blanks else brought
 
 
 def field_of(value: Any, name: str) -> Any:
