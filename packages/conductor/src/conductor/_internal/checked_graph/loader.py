@@ -463,11 +463,6 @@ class _Loader:
         except NodeDeclarationError as error:  # a hint conductor can't carry is the hook's failure
             self.problems.append(problem.compute_hook_failed(record.id, reason=error.message, error=error.code))
             return None
-        except AttributeError as error:
-            if error.name not in ("type_id", "type_title"):  # any other is a bug in the host's own code, as at @node
-                raise
-            self.problems.append(problem.compute_hook_failed(record.id, reason=str(error), error="AttributeError"))
-            return None
 
     # -- edges ------------------------------------------------------------------
 

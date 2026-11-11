@@ -8,14 +8,12 @@ packages.
 from __future__ import annotations
 
 import datetime
-import decimal
 import functools
 import types
 import typing
-import uuid
 import weakref
 from collections.abc import Callable, Mapping
-from typing import Annotated, Any, ClassVar, Literal, Protocol, TypeVar, Union, get_args, get_origin
+from typing import Annotated, Any, ClassVar, Literal, TypeVar, Union, get_args, get_origin
 
 from pydantic import ConfigDict, JsonValue, TypeAdapter, ValidationError
 from pydantic.errors import PydanticInvalidForJsonSchema, PydanticSchemaGenerationError
@@ -40,37 +38,10 @@ from conductor._internal.value_type.hint import (
     union_members,
     union_of,
 )
+from conductor._internal.value_type.host_type import NAMES, OWN_IDS, declaration_of
 from conductor._internal.value_type.not_a_bool import NUMBERS_REFUSE_BOOLS
 from conductor._internal.value_type.param import Param, split_hint
 from conductor._internal.value_type.refused import FieldValueError
-
-
-class NamedType(Protocol):
-    """A host's own type, as people see it. Every class of a host's that a node's field holds, and every class in
-    ``NodeRegistry(types=)``, declares its id and title.
-
-    A type may also declare ``type_accepts: ClassVar[tuple[type, ...]]``, the other classes whose values may land
-    where it is asked for; it reads each such value itself. It is no member here, as a class that widens nothing
-    declares none.
-
-    Attributes:
-        type_id: The name an editor and a stored graph know the type by, such as ``"money"``.
-        type_title: What a person reads for the type, such as ``"Money"``.
-    """
-
-    type_id: ClassVar[str]
-    type_title: ClassVar[str]
-
-
-#: The id and title of each class conductor itself names. A kind of its own (``Series``, ``Table``) names itself, and
-#: every other class a field holds is a ``NamedType``.
-_NAMES: Mapping[Any, tuple[str, str]] = {
-    Any: ("Any", "Any value"), object: ("object", "Any value"), type(None): ("None", "Nothing"), bool: ("bool", "Yes or no"),
-    int: ("int", "Whole number"), float: ("float", "Number"), decimal.Decimal: ("Decimal", "Decimal number"), str: ("str", "Text"),
-    bytes: ("bytes", "Bytes"), datetime.date: ("date", "Date"), datetime.datetime: ("datetime", "Date and time"),
-    datetime.time: ("time", "Time of day"), datetime.timedelta: ("timedelta", "Duration"), uuid.UUID: ("UUID", "UUID"),
-    dict: ("dict", "Mapping"), list: ("list", "List"), tuple: ("tuple", "Tuple"), set: ("set", "Set"), frozenset: ("frozenset", "Set"),
-}
 
 #: The classes whose values are plain in JSON: no keys to order, and read back by their type as they were.
 _SCALARS = frozenset({str, int, float, bool, type(None), datetime.date, datetime.datetime, datetime.time, datetime.timedelta})
@@ -142,6 +113,7 @@ class Type:
                 among values of no declared type, where the subclass says how it is written and compared.
         """
         _KINDS[of] = cls
+        OWN_IDS.add(of.__qualname__)  # the generic class is named as a host imports it, which is its id
         if value_class is not None:
             _READ_AS[value_class] = of
 
@@ -217,7 +189,7 @@ class Type:
     def id(self) -> str:
         """The name an editor and a stored graph know the type by, ``| None`` off.
 
-        A class is known by the id it declares, a union by its members' (``money | int``), a generic by its
+        A host's class is known by the id its ``@host_type`` declares, a union by its members' (``money | int``), a generic by its
         class and arguments (``list[int]``, a bare ``list`` for ``list[Any]``), a ``Literal`` by the types of its values, a ``TypedDict`` as
         ``record``, a kind of its own as it says itself and a type alias by its own name. A type variable is read as its bound,
         else ``Any``.
@@ -254,7 +226,7 @@ class Type:
             return Type(union_of(dict.fromkeys(type(value) for value in args)))._named
         if typing.is_typeddict(one):  # a record declares no name of its own
             return "record", "Record", ()
-        own_id, title = _NAMES[origin] if origin in _NAMES else (origin.type_id, origin.type_title)
+        own_id, title = NAMES[origin] if origin in NAMES else _host_name(origin)
         own = () if origin in (Any, type(None)) else (origin,)
         if all(arg is Any for arg in args):  # a generic that says nothing of its items is said bare
             return own_id, title, own
@@ -554,6 +526,21 @@ class Type:
             return bool(one == other)
         except (ValueError, TypeError):
             return one is other
+
+
+def _host_name(cls: type) -> tuple[str, str]:
+    """Returns the id and title of a host's class: what its ``@host_type`` declared. ``Box[int]``, the class
+    pydantic makes of a generic model ``Box``, is ``box[int]`` with ``Box``'s title.
+
+    Raises:
+        NodeDeclarationError: The class is not declared (``type_not_named``).
+    """
+    generic = vars(cls).get("__pydantic_generic_metadata__")
+    if generic is not None and generic["origin"] is not None:
+        declared = declaration_of(generic["origin"])
+        return f"{declared.id}[{', '.join(Type(arg).text for arg in generic['args'])}]", declared.title
+    declared = declaration_of(cls)
+    return declared.id, declared.title
 
 
 def _kind_of(hint: Any) -> type[Type]:

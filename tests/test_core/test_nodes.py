@@ -6,7 +6,7 @@ import logging
 import typing
 import warnings
 from dataclasses import dataclass
-from typing import Annotated, Any, ClassVar, Literal, TypedDict
+from typing import Annotated, Any, Literal, TypedDict
 
 import polars as pl
 import pydantic
@@ -27,14 +27,13 @@ from conductor import (
     Series,
     Table,
     Upgrade,
+    host_type,
     make_graph,
     node,
 )
 from conductor._internal.value_type import FieldValueError
 from conductor.widgets import Dropdown, FileUpload, ListInput, Textarea, TextInput, Widget
 from pydantic import BaseModel, ValidationError
-
-from tests.test_core.nodes import ReadAsItsBuiltin
 
 
 def registry_of(*definitions):
@@ -66,15 +65,13 @@ def field_of(definition, name, side="inputs"):
     return next(f for f in getattr(definition.describe(), side) if f.name == name)
 
 
-class Text(ReadAsItsBuiltin, str):
-    type_id: ClassVar[str] = "Text"
-    type_title: ClassVar[str] = "Text"
+@host_type("Text", title="Text")
+class Text(str):
     pass
 
 
-class Whole(ReadAsItsBuiltin, int):
-    type_id: ClassVar[str] = "Whole"
-    type_title: ClassVar[str] = "Whole"
+@host_type("Whole", title="Whole")
+class Whole(int):
     pass
 
 
@@ -203,16 +200,13 @@ def test_a_dict_returned_is_one_output_and_only_a_loose_dataclass_is_refused():
     assert raised.value.code == "outputs_not_frozen"
 
 
-def test_a_class_pydantic_cannot_check_is_refused_at_declaration():
-    class Thing:
-        type_id: ClassVar[str] = "thing"
-        type_title: ClassVar[str] = "Thing"
-
-    def f(x: Thing) -> int:
-        return 1
-
+def test_a_class_pydantic_cannot_check_is_refused_where_the_class_is_declared():
     with pytest.raises(NodeDeclarationError) as raised:
-        declared(f)
+
+        @host_type("thing", title="Thing")
+        class Thing:
+            pass
+
     assert raised.value.code == "type_not_carried"
 
 
@@ -449,9 +443,8 @@ def test_each_plain_type_carries_its_own_value():
 
 
 def test_a_pydantic_model_travels_on_an_edge_and_through_json():
+    @host_type("Visit", title="Visit")
     class Visit(BaseModel):
-        type_id: ClassVar[str] = "Visit"
-        type_title: ClassVar[str] = "Visit"
         who: str
         when: datetime.date
 
@@ -481,10 +474,9 @@ def test_an_any_input_has_a_json_form_before_anything_is_wired():
 
 
 def test_describe_writes_each_default_as_its_type_writes_it_as_json():
+    @host_type("point", title="Point")
     @dataclass
     class Point:
-        type_id: ClassVar[str] = "point"
-        type_title: ClassVar[str] = "Point"
         x: int
 
     @node("f", title="F", description="")
@@ -877,7 +869,7 @@ def test_a_series_of_tables_from_a_hook_loads_with_no_problems():
     assert codes(load(node("h", title="H", description="", compute_outputs=lambda: {"result": Series[Table]})(h))) == []
 
 
-def test_a_hint_from_a_hook_naming_a_class_that_declares_no_type_id_is_the_hooks_problem():
+def test_a_hint_from_a_hook_naming_a_class_that_is_not_declared_is_the_hooks_problem():
     class Sheet(Table):
         pass
 
@@ -910,18 +902,16 @@ def test_a_hook_that_names_a_field_with_no_text_is_refused_by_that_name():
     assert [(p.type, p.loc) for p in _computing(lambda: {1: int}).problems] == [("parameter_name_invalid", ("h", "1"))]
 
 
-def test_a_bug_in_a_host_types_own_schema_hook_raises_out_of_load_as_it_does_at_the_decorator():
-    """Only a class that declares no ``type_id`` or ``type_title`` is the hook's failure; any other ``AttributeError`` is the host's bug."""
-    class Buggy:
-        type_id: ClassVar[str] = "buggy"
-        type_title: ClassVar[str] = "Buggy"
-
-        @classmethod
-        def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> Any:
-            return handler.no_such_method(str)
-
+def test_a_bug_in_a_host_types_own_schema_hook_raises_as_itself_where_the_class_is_declared():
+    """Only a class with no ``@host_type`` is a hook's failure; an ``AttributeError`` in a host's own code is the host's bug."""
     with pytest.raises(AttributeError, match="no_such_method"):
-        _computing(lambda: {"result": Buggy})
+
+        @host_type("buggy", title="Buggy")
+        class Buggy:
+
+            @classmethod
+            def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> Any:
+                return handler.no_such_method(str)
 
 
 def test_a_hooks_own_exception_is_logged_with_its_traceback_as_a_nodes_own_failure_is(caplog):
@@ -1058,10 +1048,9 @@ def test_a_value_an_edge_brings_is_held_to_the_inputs_choices_as_to_its_limits()
 
 
 def test_a_params_choices_hold_on_a_field_of_a_dataclass_a_node_takes_as_its_limits_do():
+    @host_type("Order", title="Order")
     @dataclass(frozen=True)
     class Order:
-        type_id: ClassVar[str] = "Order"
-        type_title: ClassVar[str] = "Order"
         colour: Annotated[str, Param(choices=["red", "blue"])]
         n: Annotated[int, Param(ge=0)]
 
@@ -1323,11 +1312,8 @@ def test_a_declared_choice_is_read_strictly_and_held_to_the_fields_limits(choice
 def test_a_declared_choice_is_read_as_an_answer_is_so_an_enums_value_or_its_member_is_a_choice() -> None:
     import enum
 
-    class Named:
-        type_id: ClassVar[str] = "color"
-        type_title: ClassVar[str] = "Color"
-
-    class Color(Named, enum.Enum):
+    @host_type("color", title="Color")
+    class Color(enum.Enum):
         RED = "red"
         BLUE = "blue"
 
@@ -1378,37 +1364,32 @@ def test_a_limit_pydantic_holds_on_a_type_is_taken_and_one_it_cant_is_refused_in
     with pytest.raises(FieldValueError, match="at least 1"):
         spec["tags"].whole.read([])
 
-    @dataclasses.dataclass(frozen=True)
-    class Order:
-        type_id: ClassVar[str] = "Order"
-        type_title: ClassVar[str] = "Order"
-        code: Annotated[str, Param(ge=0)]
-
-    def takes(order: Order) -> int:
-        return 0
-
     with pytest.raises(NodeDeclarationError) as raised:
-        declared(takes)
+
+        @host_type("Order", title="Order")
+        @dataclasses.dataclass(frozen=True)
+        class Order:
+            code: Annotated[str, Param(ge=0)]
+
     assert raised.value.code == "bound_invalid"
 
 
 def test_a_param_whose_choices_are_not_values_of_its_type_is_refused_at_node_in_a_model_a_node_takes_and_on_a_table():
-    @dataclasses.dataclass(frozen=True)
-    class Order:
-        type_id: ClassVar[str] = "Order"
-        type_title: ClassVar[str] = "Order"
-        n: Annotated[int, Param(choices=["one", "two"])]
+    with pytest.raises(NodeDeclarationError) as raised:
 
-    def takes(order: Order) -> int:
-        return 0
+        @host_type("Order", title="Order")
+        @dataclasses.dataclass(frozen=True)
+        class Order:
+            n: Annotated[int, Param(choices=["one", "two"])]
+
+    assert raised.value.code == "choices_invalid"
 
     def on_table(x: Annotated[Table, Param(choices=["a"])]) -> int:
         return 0
 
-    for wrong in (takes, on_table):
-        with pytest.raises(NodeDeclarationError) as raised:
-            declared(wrong)
-        assert raised.value.code == "choices_invalid"
+    with pytest.raises(NodeDeclarationError) as raised:
+        declared(on_table)
+    assert raised.value.code == "choices_invalid"
 
 
 @pytest.mark.parametrize("default", [b"\xff\xfe", object()], ids=["bytes-not-utf-8", "any-object"])

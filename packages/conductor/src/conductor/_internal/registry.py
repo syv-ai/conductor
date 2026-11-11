@@ -22,7 +22,7 @@ copied in when it is added, so changing it afterwards changes nothing here.
 The registry also holds which value types exist: the ones its nodes
 declare on their inputs and outputs, plus the ``types`` a host names, each
 under its id: conductor's own types from a fixed table, a host's class by
-the ``type_id`` it declares. Nothing about a type is process-wide, so two
+the id its ``@host_type`` declares. Nothing about a type is process-wide, so two
 registries in one process may each hold a ``text`` of their own; one id
 claimed by two classes in one registry raises where the second arrives,
 naming both. ``describe()`` is what an editor reads: every node and every
@@ -60,7 +60,7 @@ from conductor._internal.node_definition import (
     node,
 )
 from conductor._internal.problem import InvalidCallError, NodeDeclarationError
-from conductor._internal.value_type import NamedType, Type
+from conductor._internal.value_type import Type
 
 
 def _takes_the_arguments_of[**P, R](
@@ -88,7 +88,7 @@ class NodeRegistry:
         category: str = "",
         tags: list[str] | tuple[str, ...] = (),
         extra: Mapping[str, JsonValue] = MappingProxyType({}),
-        types: Iterable[type[NamedType]] = (),
+        types: Iterable[type] = (),
     ) -> None:
         """An empty registry whose nodes default to ``category``, ``tags`` and ``extra``, holding the host's types in
         ``types`` whether or not a node uses them."""

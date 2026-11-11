@@ -7,16 +7,6 @@ from typing import Annotated, Literal, TypedDict
 import polars as pl
 from conductor import SKIPPED, Ask, NodeRegistry, Param, Series, Table
 from conductor._internal.units import instances
-from pydantic_core import core_schema
-
-
-class ReadAsItsBuiltin:
-    """What a host writes on its subclass of a builtin, ``class Text(ReadAsItsBuiltin, str)``, so pydantic reads a
-    value as the builtin and then makes it the subclass."""
-
-    @classmethod
-    def __get_pydantic_core_schema__(cls, source, handler):
-        return core_schema.no_info_after_validator_function(cls, handler(cls.__mro__[-2]))
 
 
 class Invoice(TypedDict):

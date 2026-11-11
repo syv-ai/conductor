@@ -91,16 +91,13 @@ Pass an instance, `widget=Textarea()`: a type checker refuses the class passed b
 Any type pydantic can check and write as JSON can be an input or an output: `str`, `int`, `float`, `bool`, `date`, a pydantic model, a dataclass. A pydantic model is the usual way to carry a record of your own:
 
 ```python
-from typing import ClassVar
-
 from pydantic import BaseModel
 
-from conductor import node
+from conductor import host_type, node
 
 
+@host_type("address", title="Address")
 class Address(BaseModel):
-    type_id: ClassVar[str] = "address"
-    type_title: ClassVar[str] = "Address"
     street: str
     city: str
 
@@ -113,9 +110,11 @@ def city(address: Address) -> str:
 print(city(Address(street="Nørregade 1", city="Aarhus")))  # Aarhus
 ```
 
-A type of your own is shown to people, so it declares the id an editor knows it by and the title a person reads as class attributes, `type_id` and `type_title`, as `Address` does. They are read when the node is declared, so a type missing one fails at import. A `TypedDict` is a record of plain fields and declares nothing. Conductor's own types (`str`, `int`, `date` and the rest) take theirs from conductor's table. A class pydantic can't check, such as a plain class with only an `__init__`, is refused when the node is declared, as `type_not_carried`.
+A type of your own is shown to people, so you declare it with `@host_type`: the id an editor knows it by and the title a person reads, as `Address` does. Write it above the class, and above `@dataclass` when there is one; a library's class takes the same call, `host_type("ip", title="IP address")(ipaddress.IPv4Address)`. The declaration is checked when the class statement ends, so a mistake fails at import, on the class: an empty title, an id that is not one word or is one of conductor's own, or a class pydantic can't validate, such as a plain class with only an `__init__` (`type_not_carried`). A class used as a field's type without a declaration fails where its node is declared, as `type_not_named`. A subclass does not inherit its parent's declaration; declare it too. A `TypedDict` is a record of plain fields and declares nothing. Conductor's own types (`str`, `int`, `date` and the rest) take their names from conductor's table.
 
-An editor reads a field's type as an id, and the id says what is inside: a `list[Address]` input has the type `list[address]`. So a class of your own inside a list or a dict declares its id and title too.
+An editor reads a field's type as an id, and the id says what is inside: a `list[Address]` input has the type `list[address]`, and a generic pydantic model `Box[int]` declared as `box` is `box[int]`. So a class of your own inside a list or a dict is declared too.
+
+Why a decorator and not a base class: a base class would run before the class is finished, and that breaks correct code. Pydantic's `Box[int]` and `@dataclass(slots=True)` each make the class a second time without the base's keywords, an enum must list such a base first or Python refuses it, and a library's class can't be given a base at all. A decorator runs once the class is finished, on any class, and a type checker flags a missing title on every kind of class.
 
 - `X | None` takes a blank. An input receives a blank only if its type says so, with `| None` or as `Any`. Otherwise the node isn't called where the input is blank, and its outputs are blank there too. Outputs that share an `exclusive_group` are a branch not taken there, since no branch was chosen.
 - `Series[X]` is many values of `X`, a plain list to your function.
@@ -162,22 +161,12 @@ A node may also return a table as a list of records, `[{"name": "Ida", "email": 
 
 ### A text or a number of your own
 
-A subclass of `str`, `int` or another builtin says how pydantic reads it. Three lines do it: read a `str`, then make it an `Email`:
+A subclass of `str`, `int` or another builtin needs only its declaration. A value is validated as the builtin and then made your class, so a check in its `__new__` runs:
 
 ```python
-from typing import Any
-
-from pydantic import GetCoreSchemaHandler
-from pydantic_core import core_schema
-
-
+@host_type("email", title="Email")
 class Email(str):
-    type_id: ClassVar[str] = "email"
-    type_title: ClassVar[str] = "Email"
-
-    @classmethod
-    def __get_pydantic_core_schema__(cls, source: Any, handler: GetCoreSchemaHandler) -> core_schema.CoreSchema:
-        return core_schema.no_info_after_validator_function(cls, handler(str))
+    pass
 
 
 @node("domain", title="Domain", description="Gives the part of an email after the @.")
@@ -188,27 +177,24 @@ def domain(email: Annotated[Email, Param(max_length=254)]) -> str:
 print(domain.describe().inputs[0].type)  # email
 ```
 
-Without the method, `Email` is refused as `type_not_carried`.
+A class that needs another way to be validated or written as JSON gives its own `__get_pydantic_core_schema__`, which `@host_type` leaves alone.
 
 ### A type that takes another
 
-An output wires to an input of its own class, or of a parent class. A `Celsius` is no `Temperature`, so that edge is a `type_mismatch` until `Temperature` lists `Celsius` in `type_accepts`:
+An output wires to an input of its own class, or of a parent class. A `Celsius` is no `Temperature`, so that edge is a `type_mismatch` until `Temperature` lists `Celsius` in `accepts`:
 
 ```python
 from pydantic import ConfigDict
 
 
+@host_type("celsius", title="Celsius")
 class Celsius(BaseModel):
-    type_id: ClassVar[str] = "celsius"
-    type_title: ClassVar[str] = "Celsius"
     degrees: float
 
 
+@host_type("temperature", title="Temperature", accepts=[Celsius])
 class Temperature(BaseModel):
     model_config = ConfigDict(from_attributes=True)  # how it reads a Celsius: by its attributes
-    type_id: ClassVar[str] = "temperature"
-    type_title: ClassVar[str] = "Temperature"
-    type_accepts: ClassVar[tuple[type, ...]] = (Celsius,)
     degrees: float
 
 
@@ -225,7 +211,7 @@ def report(temperature: Temperature) -> str:
 print(tables.load(make_graph(measure, report)).run().outputs)  # {'report.result': '21.5 degrees'}
 ```
 
-`type_accepts` only lets the edge be drawn. Your class reads the value itself, so it has to be able to: here `from_attributes` does it.
+`accepts` only lets the edge be drawn. Your class reads the value itself, so it has to be able to: here `from_attributes` does it.
 
 ## One or many
 

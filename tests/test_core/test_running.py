@@ -12,7 +12,7 @@ import json
 import math
 import threading
 import time
-from typing import Any, ClassVar, TypedDict
+from typing import Any, TypedDict
 
 import polars as pl
 import pytest
@@ -28,6 +28,7 @@ from conductor import (
     Policy,
     Series,
     Table,
+    host_type,
     make_graph,
     node,
 )
@@ -843,9 +844,8 @@ def test_running_a_graph_under_a_running_event_loop_ends_as_it_does_outside_one(
 
 
 def test_a_float_that_is_not_finite_inside_a_model_survives_a_saved_run_and_the_run_goes_on():
+    @host_type("Reading", title="Reading")
     class Reading(BaseModel):
-        type_id: ClassVar[str] = "Reading"
-        type_title: ClassVar[str] = "Reading"
         value: float
         low: float
         high: float

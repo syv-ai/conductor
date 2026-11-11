@@ -19,8 +19,8 @@ What changes in how you work, before the name-by-name tables:
   `R`'s columns. A node may hold type variables (`def split[T](value: Table[T] | list[T]) -> Series[T]`),
   bound from its edges when a graph loads. Generic arguments are compared (`list[int]` lands on
   `list[float]`, never on `list[str]`) and shown in a type's id. `Annotated` metadata that is no `Param`
-  is pydantic's. A host type widens what lands on it with `type_accepts`, declared data, and a subclass
-  of a builtin carries its own pydantic schema. A table's one JSON form is
+  is pydantic's. A host type is declared with `@host_type("money", title="Money", accepts=[...])` above the class, checked when the class statement ends;
+  `accepts` widens what lands on it, and a subclass of a builtin needs no schema of its own. A table's one JSON form is
   `{"columns": [{"name", "type", "values"}]}`. `syv-conductor-nodes` gains `stack`.
 
 - **A field's description is one flat record.** It has `many`, `type`, `schema` (always set) and
@@ -35,9 +35,8 @@ What changes in how you work, before the name-by-name tables:
   A type's `accepted_as` is read from `registry.describe().types`.
 - **What a person sees for a type is declared.** Each entry of `registry.describe().types` has the
   `id` and `title` its owner declared: conductor's own types from one fixed table (`str` is `Text`,
-  `int` `Whole number`), a host's class from its `type_id` and `type_title` class attributes
-  (`NamedType`); nothing falls back to the class's name. `NodeRegistry(types=)` takes only
-  `NamedType`s, so a type checker refuses a class without them there. The types a registry holds are
+  `int` `Whole number`), a host's class from its `@host_type` declaration;
+  nothing falls back to the class's name, and a class with no declaration is `type_not_named` where its node is declared. The types a registry holds are
   every class a field's type id names: each member of a union, a `Literal`'s value types and a
   generic's class (`list[str]` names `list`); `Any`, `None`, a type alias and a table name none.
 - **A node is a typed function.** `@node("id", title=, description=)` (registers nothing) or
@@ -142,7 +141,7 @@ What changes in how you work, before the name-by-name tables:
 - **A `Series` input fed one value made where its node runs receives that value, as a Series of one.** A node that runs per document, because another input gathers the document's lines, and whose `Series[str]` input is wired to the document's summary, receives its own document's summary. It received every document's summaries on each call, and the same nodes inside a stored graph received one.
 - **`run.not_called` is a list of `NotCalled` records** (`loc`, `input`), exported from `conductor`, not a list of dicts. It is in item order on a live run, in a checkpoint and after a load.
 - **A graph with problems is still drawn.** `graph.describe()` gives a node with a problem its fields and where it runs (`loaded` true), and the nodes that read it too; an input whose edge is refused is fed `unset`, a mode `Feed.mode` gains. `loaded` is false only where a node's fields aren't known.
-- **Faults say more.** `invalid_edge_value` carries `ctx.record_field` when an edge names a field its record lacks. A hook that returns no mapping is `compute_hook_failed` with `error: not_a_mapping`; an `AttributeError` in a hook's hint, other than a type with no `type_id` or `type_title`, is the host's own bug and raises out of `load`. `table-collect` fails with `columns_not_aligned` (`column`, `records`, `values`) when a column doesn't hold one value per record.
+- **Faults say more.** `invalid_edge_value` carries `ctx.record_field` when an edge names a field its record lacks. A hook that returns no mapping is `compute_hook_failed` with `error: not_a_mapping`; an `AttributeError` in a hook's hint is the host's own bug and raises out of `load`. `table-collect` fails with `columns_not_aligned` (`column`, `records`, `values`) when a column doesn't hold one value per record.
 - **`SKIPPED` returned is a result.** A function that returns `SKIPPED` was called: `again` reuses it and a save writes its unit as `done`. `node_skipped` is said for a node whose every unit is a branch not taken, a decision whose every output is `SKIPPED` included; a node with no output that returns `SKIPPED` says `node_complete`.
 - **A run handed back at shutdown has no `cause`.** The row's `cause` is null and its status `running`: the run did not end early, so it is `Going`. The run saved in the row says `running` too: the router hands a leg back with `run.stream(hand_back=)`, where it cancelled the leg and stored a run that said `cancelled`.
 - **The runs router takes an answer whenever the run does.** `POST /runs/{id}/answers` on a run that `failed`, `stopped`, `timed_out` or was `cancelled` gives the answers to `run.answer` and starts the next leg, so one item that keeps failing doesn't make the questions beside it unanswerable; what the run refuses is a 422 with its problems (`not_waiting`, `invalid_answer`), and only a `complete` run is a 409. Answers queued during a leg are given to the run that leg ended with, whatever its status; a leg that raised keeps them queued. The code `run_not_waiting` is gone.

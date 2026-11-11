@@ -232,7 +232,7 @@ asyncio.run(follow())
 - **A node may be written for any type.** `def split[T](value: Table[T] | list[T]) -> Series[T]` takes the type that arrives on its edge, bound when the graph loads; after that the placed node has ordinary fields. Split, stack and the decision are written this way and have no hooks. A hook stays for what a type can't say: fields named by a setting.
 - **One flat record per field.** A `FieldDescription` always has a `type` and a `schema`, `many` says one or many, and a table's columns are in its schema. Where a field stands it is held, not copied: an input of a placed node is `{field, feed}`, a graph's input `{address, node_id, field}`.
 - **`Policy` is a strict pydantic model.** `Policy(retries="2")` raises pydantic's own error where it is written.
-- **What a person sees for a type is declared.** Conductor's own types take their id and title from one fixed table; a host's type shown to people declares `type_id` and `type_title` as class attributes (`NamedType`). Nothing falls back to a class's name. A type's id shows its generic arguments (`list[address]`), so a mismatch can say them, and a class inside a generic declares its id and title too. A host shows its own words for type ids in its editor. Every Python block in the docs is type-checked under mypy and pyright.
+- **What a person sees for a type is declared.** Conductor's own types take their id and title from one fixed table; a host's type shown to people is declared with `@host_type("id", title="Title")` above the class, checked when the class statement ends. Nothing falls back to a class's name. A type's id shows its generic arguments (`list[address]`), so a mismatch can say them, and a class inside a generic declares its id and title too. A host shows its own words for type ids in its editor. Every Python block in the docs is type-checked under mypy and pyright.
 
 ```python
 from typing import Annotated
@@ -249,9 +249,9 @@ class Settings(BaseModel):
 print(Settings.model_json_schema()["properties"]["temperature"])  # {'default': 1.0, 'maximum': 2, 'minimum': 0, 'title': 'Temperature', 'type': 'number'}
 ```
 
-**Worth questioning:** a host's subclass of a builtin (`class Email(str)`) needs three lines of its own, a `__get_pydantic_core_schema__`, or it is refused as `type_not_carried`. This holds because conductor knows no host type: reading it as a `str` for the host dropped a limit on it and refused `list[Email]`.
+**Worth questioning:** `@host_type` is a decorator, not a base class. A base class runs before the class is finished, which breaks pydantic's `Box[int]`, `@dataclass(slots=True)` and enums, and a library's class can't be given one. The decorator gives a subclass of a builtin (`class Email(str)`) the schema it lacks, on the class, so conductor still knows no host type.
 
-**Worth questioning:** `type_accepts` is a list of classes, so a rule that isn't a list of classes can't be said. A list is data an editor can show before anything runs.
+**Worth questioning:** `accepts` is a list of classes, so a rule that isn't a list of classes can't be said. A list is data an editor can show before anything runs.
 
 **Worth questioning:** a type checker accepts a `Table[Sale]` where a `Table[Order]` is expected. A distinct generic would refuse it, but it would make every plain `polars.DataFrame` return a type error.
 

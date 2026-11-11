@@ -9,7 +9,7 @@ import json
 import threading
 import time
 from collections.abc import Mapping
-from typing import Any, ClassVar, TypedDict
+from typing import Any, TypedDict
 
 import polars as pl
 import pytest
@@ -23,6 +23,7 @@ from conductor import (
     Run,
     Series,
     Table,
+    host_type,
     make_graph,
 )
 from conductor_providers.fastapi import RunChanges, StoredRun
@@ -66,11 +67,10 @@ async def test_an_output_that_isnt_finite_reads_as_its_text() -> None:
     assert (await store.ended(run_id)).outputs == {"edges.result": ["Infinity", "-Infinity", "NaN", 1.0]}
 
 
+@host_type("cents", title="Cents")
 class Cents:
     """A host's type that only its own schema writes as JSON."""
 
-    type_id: ClassVar[str] = "cents"
-    type_title: ClassVar[str] = "Cents"
 
     def __init__(self, cents: int) -> None:
         self.cents = cents
@@ -511,11 +511,10 @@ async def test_an_answer_that_is_taken_leaves_nothing_refused_or_queued_for_its_
     assert (completed.status, completed.refused, completed.outputs) == ("complete", {}, {"busy.result": "x", "after.result": True})
 
 
+@host_type("fragile", title="Fragile")
 class Fragile:
     """A host's type whose own check has a bug: it raises what is no refusal of the value."""
 
-    type_id: ClassVar[str] = "fragile"
-    type_title: ClassVar[str] = "Fragile"
 
     @classmethod
     def __get_pydantic_core_schema__(cls, source: Any, handler: GetCoreSchemaHandler) -> core_schema.CoreSchema:
@@ -871,11 +870,10 @@ async def test_a_leg_whose_end_the_store_fails_to_write_stays_running_and_is_gon
     assert await _starts(store, run_id) == 2
 
 
+@host_type("opaque", title="Opaque")
 class Opaque:
     """A value pydantic carries but has no JSON form for."""
 
-    type_id: ClassVar[str] = "opaque"
-    type_title: ClassVar[str] = "Opaque"
 
     @classmethod
     def __get_pydantic_core_schema__(cls, source: Any, handler: GetCoreSchemaHandler) -> core_schema.CoreSchema:

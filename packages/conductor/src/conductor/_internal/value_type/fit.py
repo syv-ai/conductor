@@ -8,6 +8,7 @@ import typing
 from typing import Any, Literal, TypeVar, get_args, get_origin
 
 from conductor._internal.value_type.hint import _aliased, _is_alias, union_members
+from conductor._internal.value_type.host_type import accepted_classes
 from conductor._internal.value_type.not_a_bool import _a_number
 from conductor._internal.value_type.param import split_hint
 
@@ -64,8 +65,7 @@ def _fit(target: Any, source: Any, bound: dict[TypeVar, Any], exact: bool) -> bo
         return False
     if issubclass(source_class, bool) and _a_number(target_class):
         return False
-    # a host's type may name other classes it takes; a class that names none has no such attribute
-    widened = not exact and ((target_class is float and issubclass(source_class, int)) or issubclass(source_class, getattr(target_class, "type_accepts", ())))
+    widened = not exact and ((target_class is float and issubclass(source_class, int)) or issubclass(source_class, accepted_classes(target_class)))
     if not (issubclass(source_class, target_class) or widened):
         return False
     wanted_args, held_args = get_args(target), get_args(source)

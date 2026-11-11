@@ -9,7 +9,7 @@ version runs that version.
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Annotated, ClassVar
+from typing import Annotated
 
 import pytest
 from conductor import (
@@ -20,16 +20,17 @@ from conductor import (
     NodeRegistry,
     Param,
     Upgrade,
+    host_type,
     node,
 )
 from conductor.widgets import Textarea
 
-from tests.test_core.nodes import ReadAsItsBuiltin, registry_of
+from tests.test_core.nodes import registry_of
 
 
-class Txt(ReadAsItsBuiltin, str):
-    type_id: ClassVar[str] = "upgrade-test-txt"
-    type_title: ClassVar[str] = "Text"
+@host_type("upgrade-test-txt", title="Text")
+class Txt(str):
+    pass
 
 
 def _param(title: str):

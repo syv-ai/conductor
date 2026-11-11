@@ -4,11 +4,11 @@ Each test names one place where reading an annotation a second way gave a second
 """
 
 import datetime
-from typing import Annotated, Any, ClassVar, Literal, TypedDict
+from typing import Annotated, Any, Literal, TypedDict
 
 import polars as pl
 import pytest
-from conductor import Ask, NodeDeclarationError, NodeRegistry, Param, Series, Table, node
+from conductor import Ask, NodeDeclarationError, NodeRegistry, Param, Series, Table, host_type, node
 from conductor.widgets import Widget
 from pydantic import BaseModel, GetCoreSchemaHandler, JsonValue, model_validator
 from pydantic_core import CoreSchema, PydanticSerializationError, core_schema
@@ -16,22 +16,20 @@ from pydantic_core import CoreSchema, PydanticSerializationError, core_schema
 from tests.test_core.nodes import registry_of
 
 
+@host_type("text", title="Text")
 class Text(str):
     """A host's own text, which says itself how pydantic reads it: as a ``str``, then made a ``Text``."""
 
-    type_id: ClassVar[str] = "text"
-    type_title: ClassVar[str] = "Text"
 
     @classmethod
     def __get_pydantic_core_schema__(cls, source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
         return core_schema.no_info_after_validator_function(cls, handler(str))
 
 
+@host_type("money", title="Money")
 class Money(BaseModel):
     """A host's own record."""
 
-    type_id: ClassVar[str] = "money"
-    type_title: ClassVar[str] = "Money"
     amount: float = 0
 
 
@@ -86,9 +84,8 @@ def test_a_model_does_not_land_on_a_json_value() -> None:
 
 
 def test_a_hosts_own_method_named_accepts_is_nothing_to_conductor() -> None:
+    @host_type("offer", title="Offer")
     class Offer(BaseModel):
-        type_id: ClassVar[str] = "offer"
-        type_title: ClassVar[str] = "Offer"
         price: float = 0
 
         def accepts(self, counter: float) -> bool:
@@ -110,19 +107,14 @@ def test_a_hosts_own_method_named_accepts_is_nothing_to_conductor() -> None:
 
 
 def test_a_bug_in_a_hosts_schema_hook_is_raised_as_itself() -> None:
-    class Buggy:
-        type_id: ClassVar[str] = "buggy"
-        type_title: ClassVar[str] = "Buggy"
-
-        @classmethod
-        def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> Any:
-            return cls.no_such_helper()  # type: ignore[attr-defined]
-
     with pytest.raises(AttributeError, match="no_such_helper"):
 
-        @node("buggy", title="Buggy", description="")
-        def buggy(value: Buggy) -> str:
-            return ""
+        @host_type("buggy", title="Buggy")
+        class Buggy:
+
+            @classmethod
+            def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> Any:
+                return cls.no_such_helper()  # type: ignore[attr-defined]
 
 
 def test_a_widget_with_no_json_form_fails_where_the_node_is_declared() -> None:
@@ -182,19 +174,14 @@ def test_a_limit_spelled_as_pydantic_spells_it_is_carried() -> None:
     assert _run(count, times=3).outputs == {"q.result": 6}
 
 
-def test_a_subclass_of_a_builtin_with_no_schema_of_its_own_is_not_carried() -> None:
+def test_a_subclass_of_a_builtin_with_no_schema_of_its_own_is_validated_as_the_builtin_and_made_the_subclass() -> None:
+    @host_type("bare", title="Bare")
     class Bare(str):
-        type_id: ClassVar[str] = "bare"
-        type_title: ClassVar[str] = "Bare"
+        pass
 
-    with pytest.raises(NodeDeclarationError) as raised:
+    from conductor._internal.value_type import Type
 
-        @node("bare", title="Bare", description="")
-        def bare(text: Bare) -> str:
-            return text
-
-    assert raised.value.code == "type_not_carried"
-    assert "__get_pydantic_core_schema__" in raised.value.message
+    assert type(Type(Bare).read("x")) is Bare and Type(list[Bare]).read(["x"]) == ["x"]
 
 
 # -- a table is a type like any other -------------------------------------------------------------
@@ -287,9 +274,8 @@ def test_a_record_with_a_date_is_no_json_value() -> None:
 
 
 def test_a_models_class_variables_are_not_its_fields() -> None:
+    @host_type("address", title="Address")
     class Address(BaseModel):
-        type_id: ClassVar[str] = "address"
-        type_title: ClassVar[str] = "Address"
         city: str = "Aarhus"
 
     @node("address", title="Address", description="")
@@ -310,15 +296,12 @@ def test_a_models_class_variables_are_not_its_fields() -> None:
 
 
 def test_a_host_type_names_the_other_classes_it_takes() -> None:
+    @host_type("celsius", title="Celsius")
     class Celsius(BaseModel):
-        type_id: ClassVar[str] = "celsius"
-        type_title: ClassVar[str] = "Celsius"
         degrees: float
 
+    @host_type("kelvin", title="Kelvin", accepts=[Celsius])
     class Kelvin(BaseModel):
-        type_id: ClassVar[str] = "kelvin"
-        type_title: ClassVar[str] = "Kelvin"
-        type_accepts: ClassVar[tuple[type, ...]] = (Celsius,)
         degrees: float
 
         @model_validator(mode="before")

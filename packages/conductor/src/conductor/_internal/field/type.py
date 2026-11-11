@@ -71,7 +71,7 @@ class Field:
             keep("type", one)
             keep("many", one is not whole)
             whole.adapter  # noqa: B018  a type pydantic can't carry fails here
-            whole.id  # noqa: B018  a class that declares no type_id fails here, as Python's own AttributeError
+            whole.id  # noqa: B018  a class with no @host_type fails here (type_not_named)
             if self.default is None and not whole.optional:
                 raise NodeDeclarationError("the default None is a blank; write its type with | None", code="default_invalid")
             if self.default is not REQUIRED and self.default is not SKIPPED and self.default is not None:

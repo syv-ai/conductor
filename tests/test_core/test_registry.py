@@ -11,7 +11,7 @@ definitions.
 import itertools
 import textwrap
 from dataclasses import dataclass
-from typing import Annotated, Any, ClassVar, Literal, TypedDict
+from typing import Annotated, Any, Literal, TypedDict
 
 import pytest
 from conductor import (
@@ -24,18 +24,17 @@ from conductor import (
     Series,
     Table,
     Upgrade,
+    host_type,
     node,
 )
 from conductor._internal import registry as registry_module
 from conductor._internal.sentinels import REQUIRED
 from conductor.widgets import Textarea
 
-from tests.test_core.nodes import ReadAsItsBuiltin
 
-
-class Txt(ReadAsItsBuiltin, str):
-    type_id: ClassVar[str] = "registry-test-text"
-    type_title: ClassVar[str] = "Text"
+@host_type("registry-test-text", title="Text")
+class Txt(str):
+    pass
 
 
 Out = Annotated[Txt, Param(title="Output")]
@@ -366,9 +365,9 @@ def test_one_id_in_two_subregistries_is_refused():
 
 
 def test_a_subregistrys_named_types_come_along():
-    class Money(ReadAsItsBuiltin, float):
-        type_id: ClassVar[str] = "money"
-        type_title: ClassVar[str] = "Money"
+    @host_type("money", title="Money")
+    class Money(float):
+        pass
 
     top = NodeRegistry()
     top.add_subregistry(NodeRegistry(types=[Money]))
@@ -481,29 +480,28 @@ def test_var_positional_is_refused():
 # --- the types a registry holds ---------------------------------------------
 
 
-class Text(ReadAsItsBuiltin, str):
-    type_id: ClassVar[str] = "text"
-    type_title: ClassVar[str] = "Text"
+@host_type("text", title="Text")
+class Text(str):
+    pass
 
 
-class Number(ReadAsItsBuiltin, float):
-    type_id: ClassVar[str] = "number"
-    type_title: ClassVar[str] = "Number"
+@host_type("number", title="Number")
+class Number(float):
+    pass
 
 
-class AnotherText(ReadAsItsBuiltin, str):
+@host_type("text", title="Text")
+class AnotherText(str):
     """A second class claiming ``text``: what a second library, or a notebook cell run again, makes."""
 
-    type_id: ClassVar[str] = "text"
-    type_title: ClassVar[str] = "Text"
 
 
 def _declare_text() -> type:
     """What a notebook cell does when it runs again: the same class body, a new class."""
 
-    class Text(ReadAsItsBuiltin, str):
-        type_id: ClassVar[str] = "text"
-        type_title: ClassVar[str] = "Text"
+    @host_type("text", title="Text")
+    class Text(str):
+        pass
 
     return Text
 
@@ -524,9 +522,9 @@ def test_a_hosts_type_is_described_by_its_own_id_and_title():
 
 
 def test_a_hosts_type_is_described_by_the_id_and_title_it_declares_and_conductors_by_its_table():
-    class Money(ReadAsItsBuiltin, float):
-        type_id: ClassVar[str] = "money"
-        type_title: ClassVar[str] = "Beløb"
+    @host_type("money", title="Beløb")
+    class Money(float):
+        pass
 
     @node("price", title="Price", description="")
     def price(text: str) -> Money:
@@ -538,18 +536,16 @@ def test_a_hosts_type_is_described_by_the_id_and_title_it_declares_and_conductor
     assert {t.id: t.title for t in registry.describe().types} == {"str": "Text", "money": "Beløb"}
 
 
+@host_type("customer", title="Customer")
 @dataclass(frozen=True)
 class Customer:
-    type_id: ClassVar[str] = "customer"
-    type_title: ClassVar[str] = "Customer"
     id: str = ""
     title: str = ""
 
 
+@host_type("money", title="Money")
 @dataclass(frozen=True)
 class Money:
-    type_id: ClassVar[str] = "money"
-    type_title: ClassVar[str] = "Money"
     amount: float = 0.0
 
 
@@ -576,9 +572,9 @@ def test_every_class_a_fields_type_names_is_one_the_registry_holds_and_a_table_n
     """A union names each member, a ``Literal`` its values' types and a generic its class and its arguments'. ``None``
     names no class a value is made of, and a table is known by its columns, so its id is no class a registry holds."""
 
-    class Cash(ReadAsItsBuiltin, float):
-        type_id: ClassVar[str] = "cash"
-        type_title: ClassVar[str] = "Cash"
+    @host_type("cash", title="Cash")
+    class Cash(float):
+        pass
 
     class Row(TypedDict):
         weight: Number
@@ -654,11 +650,12 @@ def test_a_type_clash_on_add_names_both_classes_and_adds_nothing():
     assert dict(registry.types) == {"text": Text, "number": Number, "list": list, "str": str}
 
 
-def test_a_subclass_without_its_own_id_cannot_sit_beside_its_parent():
+def test_a_subclass_that_declares_its_parents_id_cannot_sit_beside_its_parent():
     """A subclass is a type of its own; under its parent's id it would travel as the parent."""
 
+    @host_type("text", title="Short")
     class Short(Text):
-        type_title: ClassVar[str] = "Short"
+        pass
 
     @node("cut", title="Cut", description="")
     def cut(text: Short) -> Short:
@@ -674,9 +671,9 @@ def test_a_subclass_without_its_own_id_cannot_sit_beside_its_parent():
 
 
 def test_the_types_are_read_only_and_filter_keeps_the_named_ones():
-    class Score(ReadAsItsBuiltin, float):
-        type_id: ClassVar[str] = "score"
-        type_title: ClassVar[str] = "Score"
+    @host_type("score", title="Score")
+    class Score(float):
+        pass
 
     registry = NodeRegistry(types=[Score])
     registry.add(weigh)

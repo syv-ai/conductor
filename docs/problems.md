@@ -8,11 +8,11 @@ Every example on this page runs after this block. `problems(drawing)` loads a dr
 import asyncio
 import time
 from dataclasses import dataclass
-from typing import Annotated, ClassVar
+from typing import Annotated
 
 from conductor import (
     Ask, EndedEarly, ExternalError, FromRun, GraphRecord, InvalidCallError, NodeDeclarationError,
-    NodeError, NodeRegistry, Param, Policy, Series, Upgrade, make_graph, node,
+    NodeError, NodeRegistry, Param, Policy, Series, Upgrade, host_type, make_graph, node,
 )
 from conductor.testing import check_registry
 
@@ -1116,17 +1116,15 @@ except NodeDeclarationError as error:
 > type id {Type(held).id} is declared by both {_qualified_name(existing)} and {_qualified_name(held)}; one registry holds one type per id
 
 ```python
+@host_type("money", title="Amount")
 @dataclass
 class Amount:
-    type_id: ClassVar[str] = "money"
-    type_title: ClassVar[str] = "Amount"
     kroner: int
 
 
+@host_type("money", title="Price")
 @dataclass
 class Price:
-    type_id: ClassVar[str] = "money"
-    type_title: ClassVar[str] = "Price"
     kroner: float
 
 
@@ -1136,7 +1134,7 @@ except NodeDeclarationError as error:
     print(error.code)  # duplicate_type_id
 ```
 
-**Fix.** Give one of the classes another `type_id`.
+**Fix.** Give one of the classes another id in its `@host_type`.
 
 ### `exclusive_group_on_input`
 
@@ -1333,25 +1331,60 @@ except NodeDeclarationError as error:
 
 **Fix.** A version replaces an earlier `@node` of its own id. A different node gets no `replaces=`.
 
+### `type_declaration_invalid`
+
+> @host_type({id}): {said}; give an id that is one word and not one of conductor's own, a title, and classes in accepts
+
+> @host_type({id}) on {cls.__qualname__}: Python lets nobody write on this class; put its value in a class of your own and declare that
+
+```python
+try:
+    @host_type("str", title="My text")
+    class MyText(str):
+        pass
+except NodeDeclarationError as error:
+    print(error.code)  # type_declaration_invalid
+```
+
+**Fix.** Give the type an id that is one word (letters, digits, `_`, `.` or `-`) and is not the id of one of conductor's own types, a title that is not empty, and only classes in `accepts`.
+
 ### `type_not_carried`
+
+> @host_type({id}) on {cls.__qualname__}: pydantic can't validate it or write it as JSON; make it a pydantic model or a dataclass (with @host_type above @dataclass), or give it its own __get_pydantic_core_schema__
 
 > conductor can't check or write {self.id} as JSON; use a type pydantic knows, such as a pydantic model or a dataclass, or give the class its own __get_pydantic_core_schema__
 
 ```python
-class Plain:
-    type_id: ClassVar[str] = "plain"
-    type_title: ClassVar[str] = "Plain"
-
-
 try:
-    @node("plain", title="Plain", description="Hands back an empty text.")
-    def plain(value: Plain) -> str:
-        return ""
+    @host_type("plain", title="Plain")
+    class Plain:
+        def __init__(self, path: str) -> None:
+            self.path = path
 except NodeDeclarationError as error:
     print(error.code)  # type_not_carried
 ```
 
-**Fix.** Use a type pydantic can check and write as JSON: a pydantic model, a dataclass or a builtin. A class of your own that subclasses a builtin (`class Text(str)`) says how pydantic reads it, in a `__get_pydantic_core_schema__` of its own. [Writing nodes](writing-nodes.md#a-text-or-a-number-of-your-own) has the three lines.
+**Fix.** Use a type pydantic can validate and write as JSON: a pydantic model, a dataclass or a subclass of a builtin (`class Text(str)`), with `@host_type` above `@dataclass`. A class that needs its own way gives its own `__get_pydantic_core_schema__`.
+
+### `type_not_named`
+
+> {cls.__module__}.{cls.__qualname__} is the type of a field and is not declared; write @host_type("...", title="...") above the class{why}
+
+```python
+@dataclass
+class Unnamed:
+    kroner: int
+
+
+try:
+    @node("unnamed-type", title="Unnamed type", description="Hands back an empty text.")
+    def unnamed_type(values: list[Unnamed]) -> str:
+        return ""
+except NodeDeclarationError as error:
+    print(error.code)  # type_not_named
+```
+
+**Fix.** Write `@host_type("...", title="...")` above the class. A subclass does not inherit its parent's declaration.
 
 ### `type_variable_constrained`
 

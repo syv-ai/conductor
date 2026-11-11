@@ -51,7 +51,7 @@ from conductor._internal.run_status import EndedEarly, Going, RunState, RunStatu
 from conductor._internal.sentinels import SKIPPED
 from conductor._internal.series import Series
 from conductor._internal.table import Table
-from conductor._internal.value_type import Choice, NamedType, Param
+from conductor._internal.value_type import Choice, Param, host_type
 
 # The reference lists these names in this order, so they are kept by subject.
 __all__ = [
@@ -67,7 +67,7 @@ __all__ = [
     "FromRun",
     "Series",
     "Table",
-    "NamedType",
+    "host_type",
     # Inside a node
     "SKIPPED",
     "Ask",
