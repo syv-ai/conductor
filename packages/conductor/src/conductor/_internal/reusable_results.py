@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 from dataclasses import dataclass, field
 
 from conductor._internal.address import ItemIndexes
-from conductor._internal.outcomes import Answered, Asking, Done, Outcome
+from conductor._internal.outcomes import Answered, Done, Outcome, Waiting
 
 
 @dataclass(slots=True)
@@ -39,12 +39,12 @@ class ReusableResults:
 
     at: dict[ItemIndexes, tuple[str, Done]] = field(default_factory=dict[ItemIndexes, tuple[str, Done]])
     computed: dict[str, Done] = field(default_factory=dict[str, Done])
-    asked: dict[tuple[str, str], list[Answered | Asking]] = field(default_factory=dict[tuple[str, str], list["Answered | Asking"]])
+    asked: dict[tuple[str, str], list[Answered | Waiting]] = field(default_factory=dict[tuple[str, str], list["Answered | Waiting"]])
 
 
 def reused_outcome(
     earlier: ReusableResults, node: FlatFunctionNode, item_indexes: ItemIndexes, arguments: dict[str, Any], outcomes: dict[str, dict[ItemIndexes, Outcome]], in_turn: Callable[[], bool],
-) -> Done | Answered | Asking | Literal[NotReady.NOT_ITS_TURN] | None:
+) -> Done | Answered | Waiting | Literal[NotReady.NOT_ITS_TURN] | None:
     """The unit of ``earlier`` that ``node`` takes in ``item_indexes`` in place of a call on ``arguments``; ``None`` when
     there is none.
 
@@ -83,7 +83,7 @@ def lineage(outcomes: dict[str, dict[ItemIndexes, Outcome]], node: FlatFunctionN
     in, those of the subgraphs' nodes around it included. A unit's innermost item is in what it
     received."""
     above = [
-        outcomes[series.name][item_indexes[:depth]].out[output][item_indexes[depth]]  # type: ignore[union-attr]  # a unit under an item of a Series holds that Series
+        outcomes[series.name][item_indexes[:depth]].outputs[output][item_indexes[depth]]  # type: ignore[union-attr]  # a unit under an item of a Series holds that Series
         for depth, (series, output) in enumerate(node.loops[:-1])
     ]
     return (fingerprint_of("", {"items": above}) or "") if above else ""

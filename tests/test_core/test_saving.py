@@ -35,7 +35,7 @@ from conductor import (
     stored_graph,
 )
 from conductor._internal import outcomes
-from conductor._internal.outcomes import Asking, Done, Skipped
+from conductor._internal.outcomes import Done, Skipped
 from conductor._internal.run import Run
 from pydantic import BaseModel
 
@@ -876,7 +876,7 @@ def test_a_blank_and_a_skipped_unit_come_back_from_a_save_and_a_resumed_run_name
     run = graph.run(text="ab,,long,cd")
     assert run.status == "waiting"
     assert list(run._outcomes["s"].values()) == [Done({"result": "ab"}), outcomes.NotCalled({"result": None}, "email"), Done({"result": SKIPPED}), Done({"result": "cd"})]
-    assert [type(u) for u in run._outcomes["c"].values()] == [Asking, outcomes.NotCalled, Skipped, Asking]
+    assert [type(u) for u in run._outcomes["c"].values()] == [outcomes.Waiting, outcomes.NotCalled, Skipped, outcomes.Waiting]
     assert run._outcomes["c"][(1,)] == outcomes.NotCalled({"result": None}, "email")
     loaded = graph.load_run(run.to_json())
     assert loaded._outcomes == run._outcomes

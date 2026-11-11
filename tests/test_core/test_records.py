@@ -90,7 +90,7 @@ def test_a_node_receives_plain_records_whichever_way_the_series_was_returned(sou
 def test_a_series_returned_as_a_table_is_held_and_saved_as_that_table_with_only_its_declared_columns() -> None:
     graph = _graph()
     run = graph.run(text="x")
-    held = run._outcomes["c"][()].out["result"]
+    held = run._outcomes["c"][()].outputs["result"]
     assert type(held) is Records and held.frame.columns == ["name", "email"] and len(held) == 2
 
     saved = json.loads(run.to_json())
@@ -100,7 +100,7 @@ def test_a_series_returned_as_a_table_is_held_and_saved_as_that_table_with_only_
     assert json.loads(_graph(listed).run(text="x").to_json())["outcomes"]["c"]["outputs"]["result"] == [[{"name": "ida", "email": "ida@x.dk"}, {"name": "bo", "email": None}]]
 
     loaded = graph.load_run(run.to_json())
-    assert type(loaded._outcomes["c"][()].out["result"]) is Records
+    assert type(loaded._outcomes["c"][()].outputs["result"]) is Records
     assert loaded.to_json() == run.to_json() and loaded.results == run.results
     RECEIVED.clear()
     assert loaded.forget("one").resume().outputs == run.outputs and RECEIVED == [{"name": "ida", "email": "ida@x.dk"}, {"name": "bo", "email": None}]
@@ -186,7 +186,7 @@ def test_split_returns_the_table_it_was_given_and_the_run_holds_it_by_column() -
     run = graph.run(text="x")
 
     assert run.outputs == {"greet.result": ["hi ida", "hi bo"]}
-    assert type(run._outcomes["series-split"][()].out["result"]) is Records
+    assert type(run._outcomes["series-split"][()].outputs["result"]) is Records
     assert run.results["series-split"]["result"] == [{"name": "ida", "email": "ida@x.dk"}, {"name": "bo", "email": None}]
 
 
@@ -211,7 +211,7 @@ def test_the_column_of_a_field_is_made_once_per_stored_series_and_only_for_a_fie
     graph = registry_of(source, greet).load(make_graph(source, greet, edges=[(f"{source.id}.result.name", "greet.name")]))
     run = graph.run(text="x")
 
-    stored = run._outcomes[source.id][()].out["result"]
+    stored = run._outcomes[source.id][()].outputs["result"]
     assert dict(stored.columns) == {"name": ["ida", "bo"]}  # "email" was never read, so no list was made of it
     assert stored.columns["name"] is stored.columns["name"]
     assert (len(stored), stored[1], stored.as_list()) == (2, {"name": "bo", "email": None}, [{"name": "ida", "email": "ida@x.dk"}, {"name": "bo", "email": None}])
@@ -228,7 +228,7 @@ def test_a_table_input_wired_to_a_series_stored_as_a_table_is_called_with_that_t
     graph = registry_of(contacts, rows).load(make_graph(contacts, rows, edges=[("contacts.result", "rows.table")]))
     run = graph.run(text="x")
 
-    stored = run._outcomes["contacts"][()].out["result"]
+    stored = run._outcomes["contacts"][()].outputs["result"]
     assert run.outputs == {"rows.result": 2} and got[0] is stored.frame and dict(stored.columns) == {}
 
 
@@ -298,7 +298,7 @@ def test_a_table_read_and_then_split_is_written_once_in_a_save_and_is_one_table_
     assert run.to_json().count('"ida@x.dk"') == 1
 
     loaded = graph.load_run(run.to_json())
-    table, records = loaded._outcomes["people"][()].out["result"], loaded._outcomes["series-split"][()].out["result"]
+    table, records = loaded._outcomes["people"][()].outputs["result"], loaded._outcomes["series-split"][()].outputs["result"]
     assert type(records) is Records and records.frame is table
     assert loaded.to_json() == run.to_json() and loaded.outputs == run.outputs
     assert loaded.forget("greet").resume().outputs == {"greet.result": ["hi ida", "hi bo"]}

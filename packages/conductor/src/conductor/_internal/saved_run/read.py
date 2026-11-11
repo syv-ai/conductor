@@ -8,7 +8,7 @@ from typing import Any
 from pydantic_core import PydanticCustomError
 
 from conductor._internal.field import Field
-from conductor._internal.outcomes import Answered, Asking, Done, NotCalled, Outcome, Skipped
+from conductor._internal.outcomes import Answered, Done, NotCalled, Outcome, Skipped, Waiting
 from conductor._internal.reusable_results import ReusableResults
 from conductor._internal.saved_run.type import (
     SAVED_DONE,
@@ -21,12 +21,12 @@ from conductor._internal.sentinels import SKIPPED
 from conductor._internal.value_type import FieldValueError
 
 
-def outcomes_of(not_taken: dict[str, Any], not_called: dict[str, Any], saved: SavedOutcomes) -> list[Outcome | None]:
+def outcomes_of(skipped_outputs: dict[str, Any], not_called: dict[str, Any], saved: SavedOutcomes) -> list[Outcome | None]:
     """Makes the units a node's saved columns hold, in the order of their slots; ``None`` for an instance that
     hasn't run.
 
     Args:
-        not_taken: What a skipped unit of the node holds for its outputs.
+        skipped_outputs: What a skipped unit of the node holds for its outputs.
         not_called: What a unit of the node that wasn't called for a blank holds for its outputs.
         saved: The columns.
 
@@ -52,14 +52,14 @@ def outcomes_of(not_taken: dict[str, Any], not_called: dict[str, Any], saved: Sa
             names = tuple(outputs)
             outs = [dict(zip(names, values, strict=True)) for values in zip(*outputs.values(), strict=True)] if outputs else [{} for _ in states]
         done, skipped = SAVED_DONE, SAVED_SKIPPED
-        skipped_outcome = Skipped(not_taken)
+        skipped_outcome = Skipped(skipped_outputs)
         outcomes: list[Outcome | None] = [Done(out) if state == done else skipped_outcome if state == skipped else None for state, out in zip(states, outs, strict=True)]
         for slot, question in (saved.questions or {}).items():
             answered = outcomes[slot]
             if states[slot] is None:
-                outcomes[slot] = Asking(question)
+                outcomes[slot] = Waiting(question)
             elif type(answered) is Done:
-                outcomes[slot] = Answered(answered.out, question)
+                outcomes[slot] = Answered(answered.outputs, question)
             else:
                 raise LookupError(slot)
         for slot, blank in (saved.not_called_because or {}).items():
@@ -91,12 +91,12 @@ def with_shared_tables(outputs: Mapping[str, Mapping[str, Field]], saved: SavedR
         (node, output, slot), (from_node, from_output, from_slot) = entry.output, entry.same_as
         try:
             outcome, source = saved.outcomes[node][slot], saved.outcomes[from_node][from_slot]
-            if not isinstance(outcome, (Done, Answered)) or not isinstance(source, (Done, Answered)) or outcome.out[output] is not None:
+            if not isinstance(outcome, (Done, Answered)) or not isinstance(source, (Done, Answered)) or outcome.outputs[output] is not None:
                 raise LookupError(slot)
-            table = outputs[from_node][from_output].whole.written_once(source.out[from_output])
+            table = outputs[from_node][from_output].whole.written_once(source.outputs[from_output])
             if table is None:
                 raise LookupError(from_slot)
-            outcome.out[output] = outputs[node][output].whole.read_returned(table)
+            outcome.outputs[output] = outputs[node][output].whole.read_returned(table)
         except (LookupError, AttributeError, FieldValueError) as wrong:
             reason = wrong.reason if isinstance(wrong, FieldValueError) else "that is not an output written in full before it"
             raise PydanticCustomError(
@@ -122,7 +122,7 @@ def reusable_of(saved: SavedReusable[list[Outcome | None]]) -> ReusableResults:
             earlier.computed.setdefault(fingerprint, outcome)
             if slot in places:
                 earlier.at[places[slot]] = (fingerprint, outcome)
-        elif type(outcome) is Answered or type(outcome) is Asking:
+        elif type(outcome) is Answered or type(outcome) is Waiting:
             earlier.asked.setdefault((fingerprint, lineages.get(slot, "")), []).append(outcome)
         else:
             raise PydanticCustomError("not_carried", "it carries a unit that was never called")

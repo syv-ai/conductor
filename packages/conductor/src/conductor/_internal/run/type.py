@@ -3,7 +3,7 @@
 A unit is one node in one instance of its scope: the node's one call, or its
 call for one item. A unit is ``Done`` (its outputs kept), ``Answered`` (done
 by a person), ``Skipped`` (a branch not taken), ``NotCalled`` (an input got
-nothing, so the node wasn't called) or ``Asking`` (it waits for a person). A
+nothing, so the node wasn't called) or ``outcomes.Waiting`` (it waits for a person). A
 unit with no entry hasn't run yet. Going on is one leg: start every unit
 whose inputs exist, until nothing more can start. So a run can stop anywhere
 (a person to ask, a failure, the item ceiling, a timeout) and carry on from
@@ -59,7 +59,6 @@ from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.node_definition import from_run_values
 from conductor._internal.outcomes import (
     Answered,
-    Asking,
     Outcome,
     Skipped,
     all_item_indexes,
@@ -312,7 +311,7 @@ class Run:
                 continue
             node = self.graph._nodes_by_name.get(node_path_text(nodes))
             found = self._outcomes[node.name].get(item_indexes) if type(node) is FlatFunctionNode else None
-            if type(node) is not FlatFunctionNode or type(found) is not Asking:
+            if type(node) is not FlatFunctionNode or type(found) is not outcomes.Waiting:
                 moved_to = self._moved_to(nodes, fingerprint) if fingerprint else None
                 problems.append(problem.not_waiting(*loc, waiting_id=unit_id, status=self.status, moved_to=moved_to))
                 continue
@@ -341,7 +340,7 @@ class Run:
     def _moved_to(self, nodes: NodePath, fingerprint: str) -> str | None:
         """The id of the unit where the question a stale id names now waits, if it waits elsewhere on the node at
         the path ``nodes``."""
-        for node, item_indexes, outcome in self._asking():
+        for node, item_indexes, outcome in self._waiting_outcomes():
             if node.node_path == nodes and question_fingerprint(node.compiled_node, outcome) == fingerprint:
                 return waiting_record(node.compiled_node, outcome_loc(node, item_indexes), outcome).id
         return None
@@ -400,7 +399,7 @@ class Run:
                 fingerprint = fingerprint_of(compiled_node.reuse_digest, arguments, plain=compiled_node.plain_inputs)
                 if fingerprint is None:
                     continue
-                if type(outcome) is Answered or type(outcome) is Asking:
+                if type(outcome) is Answered or type(outcome) is outcomes.Waiting:
                     of_node.asked.setdefault((fingerprint, lineage(self._outcomes, node, item_indexes)), []).append(outcome)
                 else:
                     of_node.at[item_indexes] = (fingerprint, outcome)
@@ -433,13 +432,13 @@ class Run:
     def waiting(self) -> list[Waiting]:
         """Every unit waiting for a person, in node then item order; those inside a subgraph where its
         node stands."""
-        return [waiting_record(node.compiled_node, outcome_loc(node, item_indexes), outcome) for node, item_indexes, outcome in self._asking()]
+        return [waiting_record(node.compiled_node, outcome_loc(node, item_indexes), outcome) for node, item_indexes, outcome in self._waiting_outcomes()]
 
-    def _asking(self) -> Iterator[tuple[FlatFunctionNode, ItemIndexes, Asking]]:
+    def _waiting_outcomes(self) -> Iterator[tuple[FlatFunctionNode, ItemIndexes, outcomes.Waiting]]:
         """Every unit waiting for a person, with its node and instance, in node then instance order."""
         for node in self.graph._flat_function_nodes:
             for item_indexes, outcome in self._outcomes[node.name].items():
-                if type(outcome) is Asking:
+                if type(outcome) is outcomes.Waiting:
                     yield node, item_indexes, outcome
 
     @property

@@ -49,7 +49,7 @@ def upper(text: str) -> str:
     return text.upper()
 
 
-def _asking(definition: Any, *more: Any, text: str = "a,b") -> Any:
+def _waiting_outcomes(definition: Any, *more: Any, text: str = "a,b") -> Any:
     """``split`` making its items of ``text``, each item read by ``definition`` as node ``q``; the graph and its first run."""
     graph = registry_of(split, definition, *more).load(GraphRecord.model_validate({
         "nodes": [{"id": "s", "node": "split", "values": {"text": text}}, {"id": "q", "node": definition.id}],
@@ -226,7 +226,7 @@ def review(name: str) -> Review:
 
 
 def test_a_frozen_dataclass_is_a_form_of_one_question_per_field():
-    _, run = _asking(review)
+    _, run = _waiting_outcomes(review)
     approved, amount, note, due = run.waiting[0].questions
     assert [q.name for q in (approved, amount, note, due)] == ["approved", "amount", "note", "due"]
     assert (approved.required, amount.default, amount.required, note.required, note.widget) == (True, 100.0, False, False, {"type": "textarea", "rows": 6})
@@ -234,7 +234,7 @@ def test_a_frozen_dataclass_is_a_form_of_one_question_per_field():
 
 
 def test_a_form_left_short_takes_its_defaults_and_blanks_and_refuses_what_has_neither():
-    graph, run = _asking(review)
+    graph, run = _waiting_outcomes(review)
     answered = run.answer({"q@0": {"approved": True}, "q@1": {"approved": False, "amount": 5, "note": "late", "due": "2027-01-01"}}).resume()
     assert answered.results["q"] == {
         "approved": [True, False], "amount": [100.0, 5.0], "note": [None, "late"], "due": [datetime.date(2026, 12, 1), datetime.date(2027, 1, 1)],
@@ -260,7 +260,7 @@ def route(text: str) -> Routed:
 
 
 def test_a_form_field_whose_default_is_skipped_proposes_nothing_and_left_out_is_a_branch_not_taken():
-    _, run = _asking(route)
+    _, run = _waiting_outcomes(route)
     note, escalate = run.waiting[0].questions
     assert (note.required, escalate.required, escalate.default) == (True, False, None)
     run.to_json()
@@ -550,7 +550,7 @@ def _counted() -> tuple[Any, list[str]]:
 
 def test_answer_runs_nothing_and_leaves_the_run_it_was_given_as_it_was():
     gate, called = _counted()
-    _, run = _asking(gate, text="a,b1,b2")
+    _, run = _waiting_outcomes(gate, text="a,b1,b2")
     before, calls = run.to_json(), list(called)
     answered = run.answer("q@1", "B1")
     assert called == calls and run.to_json() == before and [place(w) for w in run.waiting] == ["q@1", "q@2"]
@@ -559,7 +559,7 @@ def test_answer_runs_nothing_and_leaves_the_run_it_was_given_as_it_was():
 
 def test_every_fault_of_one_answer_call_is_refused_at_once_and_nothing_is_answered():
     gate, _ = _counted()
-    _, run = _asking(gate, text="a,b1,b2")
+    _, run = _waiting_outcomes(gate, text="a,b1,b2")
     faults = _refused(lambda: run.answer({"q@1": 1, "q@0": "A", "nope@3": "x", "q@2": "B2"}))
     assert [(f.type, f.loc, f.ctx["waiting_id"]) for f in faults] == [
         ("invalid_answer", ("q", 1), "q@1"), ("not_waiting", ("q", 0), "q@0"), ("not_waiting", ("nope", 3), "nope@3"),
@@ -569,7 +569,7 @@ def test_every_fault_of_one_answer_call_is_refused_at_once_and_nothing_is_answer
 
 def test_answering_with_ids_that_are_no_waiting_id_is_refused_as_problems():
     gate, _ = _counted()
-    _, run = _asking(gate, text="b1,b2")
+    _, run = _waiting_outcomes(gate, text="b1,b2")
     faults = _refused(lambda: run.answer({0: "B1", None: "B2", "q@x": "B", "q": "B", "q@0@1": "B"}))  # type: ignore[dict-item]
     assert [(f.type, f.loc) for f in faults] == [
         ("not_waiting", ("0",)), ("not_waiting", ("None",)), ("not_waiting", ("q",)), ("not_waiting", ("q",)), ("not_waiting", ("q", 0, 1)),
@@ -578,7 +578,7 @@ def test_answering_with_ids_that_are_no_waiting_id_is_refused_as_problems():
 
 def test_one_answer_is_a_unit_and_its_value_and_several_a_mapping():
     gate, _ = _counted()
-    _, run = _asking(gate, text="b1,b2")
+    _, run = _waiting_outcomes(gate, text="b1,b2")
     assert run.answer(run.waiting[0], "1").answer("q@1", "2").to_json() == run.answer({"q@0": "1", "q@1": "2"}).to_json()
     with pytest.raises(TypeError):
         run.answer("q@0")  # type: ignore[call-overload]
@@ -586,13 +586,13 @@ def test_one_answer_is_a_unit_and_its_value_and_several_a_mapping():
 
 def test_an_answer_is_given_once():
     gate, _ = _counted()
-    _, run = _asking(gate, text="b")
+    _, run = _waiting_outcomes(gate, text="b")
     answered = run.answer("q@0", "B")
     assert [f.type for f in _refused(lambda: answered.answer("q@0", "B"))] == ["not_waiting"]
 
 
 def test_a_value_no_question_can_read_is_refused_as_a_problem_never_an_exception_of_its_own():
-    _, run = _asking(review)
+    _, run = _waiting_outcomes(review)
     for value in (object(), {"approved": object()}, {"approved": True, "amount": float("nan"), "due": object()}):
         assert {f.type for f in _refused(lambda value=value: run.answer("q@0", value))} == {"invalid_answer"}
     graph = _lines_graph()
@@ -709,7 +709,7 @@ def test_an_answer_names_an_item_by_its_place_so_one_for_an_item_that_no_longer_
 
 def test_a_saved_waiting_unit_the_graph_never_made_is_refused_on_load():
     gate, _ = _counted()
-    graph, run = _asking(gate, text="a,b")
+    graph, run = _waiting_outcomes(gate, text="a,b")
     saved = json.loads(run.to_json())
     asked = saved["outcomes"]["q"]
     asked["states"].append(None)
@@ -722,7 +722,7 @@ def test_a_saved_waiting_unit_the_graph_never_made_is_refused_on_load():
 def test_a_save_cannot_hold_a_waiting_unit_without_its_question():
     """A unit waits by the question its slot holds, so with the question taken out of a save the unit hasn't run."""
     gate, _ = _counted()
-    graph, run = _asking(gate, text="a,b")
+    graph, run = _waiting_outcomes(gate, text="a,b")
     saved = json.loads(run.to_json())
     assert saved["outcomes"]["q"]["states"] == ["done", None] and list(saved["outcomes"]["q"]["questions"]) == ["1"]
     del saved["outcomes"]["q"]["questions"]
@@ -762,7 +762,7 @@ def test_a_literal_says_the_type_of_its_values_on_an_input_and_on_a_question():
 
 def test_one_item_answered_twice_in_one_call_is_refused_and_nothing_is_answered():
     gate, _ = _counted()
-    _, run = _asking(gate, text="b1,b2")
+    _, run = _waiting_outcomes(gate, text="b1,b2")
     faults = _refused(lambda: run.answer({"q@0": "one", run.waiting[0].id: "two"}))
     assert [(f.type, f.loc) for f in faults] == [("invalid_answer", ("q", 0))]
     assert [place(w) for w in run.waiting] == ["q@0", "q@1"]
@@ -782,7 +782,7 @@ async def test_a_cancelled_run_takes_an_answer_to_what_waits_in_it_as_every_run_
     import asyncio
 
     gate, called = _counted()
-    _, run = _asking(gate, text="b1,b2")
+    _, run = _waiting_outcomes(gate, text="b1,b2")
     cancel = asyncio.Event()
     cancel.set()
     async for event in run.stream(cancel=cancel):

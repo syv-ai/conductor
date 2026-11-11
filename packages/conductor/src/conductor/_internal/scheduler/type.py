@@ -57,12 +57,12 @@ from conductor._internal.compiled import (
 )
 from conductor._internal.outcomes import (
     Answered,
-    Asking,
     Done,
     NotCalled,
     NotReady,
     Outcome,
     Skipped,
+    Waiting,
     all_item_indexes,
     has_every_outcome,
     length,
@@ -375,7 +375,7 @@ class Scheduler:
         for node, outcomes in self.outcomes.items():
             if node in self.complete:
                 continue
-            if Asking in {type(outcome) for outcome in outcomes.values()}:
+            if Waiting in {type(outcome) for outcome in outcomes.values()}:
                 waiting.add(node)
             elif not (has_every_outcome(self.all_outcomes, node) if node.loops else outcomes):  # a node that runs once has its one unit or none: no count, on a leg of many nodes
                 unfinished.add(node)
@@ -470,7 +470,7 @@ class Scheduler:
             except CallRejectedError as unwritable:  # a person can't be shown what the node received
                 return self._failure(node, item_indexes, unwritable)
             try:
-                return Asking(question_asked(error, node.compiled_node.outputs, inputs))
+                return Waiting(question_asked(error, node.compiled_node.outputs, inputs))
             except InvalidAskError as invalid:
                 return problem.invalid_ask(*outcome_loc(node, item_indexes), reason=str(invalid))
         return self._failure(node, item_indexes, error)
@@ -504,9 +504,9 @@ class Scheduler:
             self.changed = True
         if self.checkpoint_every is not None and time.monotonic() >= self.next_checkpoint:
             self._checkpoint()
-        if self.max_items is not None and node.looped_outputs and type(outcome) is not Asking:
+        if self.max_items is not None and node.looped_outputs and type(outcome) is not Waiting:
             for output in node.looped_outputs:
-                items = length(outcome.out[output])
+                items = length(outcome.outputs[output])
                 if items > self.max_items:
                     self._stop_at_item_limit(node, item_indexes, output, items, self.max_items)
                     return
@@ -514,11 +514,11 @@ class Scheduler:
             self.touched.add(node)
             if type(outcome) is not Skipped:
                 self._announce(node)  # a unit taken from earlier work, or a blank one, starts its node as a call does
-            if type(outcome) is Asking:
+            if type(outcome) is Waiting:
                 self.emit(NodeWaiting(waiting=waiting_record(node.compiled_node, outcome_loc(node, item_indexes), outcome)))
             if node.loops:
                 self._progress(node)
-        if walking or not self.going or type(outcome) is Asking:  # nothing reads a unit that waits for a person
+        if walking or not self.going or type(outcome) is Waiting:  # nothing reads a unit that waits for a person
             return
         depth = len(item_indexes)
         for reader, places in node.downstream:
@@ -583,8 +583,8 @@ class Scheduler:
         for node in self.nodes:
             for output in node.looped_outputs:
                 for item_indexes, outcome in self.outcomes[node].items():
-                    if type(outcome) is not Asking and length(outcome.out[output]) > item_limit:
-                        self._stop_at_item_limit(node, item_indexes, output, length(outcome.out[output]), item_limit)
+                    if type(outcome) is not Waiting and length(outcome.outputs[output]) > item_limit:
+                        self._stop_at_item_limit(node, item_indexes, output, length(outcome.outputs[output]), item_limit)
                         return
 
     def _stop_at_item_limit(self, node: FlatFunctionNode, item_indexes: ItemIndexes, output: str, items: int, item_limit: int) -> None:
@@ -613,7 +613,7 @@ class Scheduler:
         emit = self.emit
         if not emit or not (last or now - self.progress_at.get(node, -1.0) >= _SECONDS_BETWEEN_PROGRESS):
             return
-        done = sum(1 for outcome in self.outcomes[node].values() if type(outcome) is not Asking)  # counted only when said, at most four times a second
+        done = sum(1 for outcome in self.outcomes[node].values() if type(outcome) is not Waiting)  # counted only when said, at most four times a second
         if self.progress_said.get(node) != done:
             self.progress_at[node], self.progress_said[node] = now, done
             every_item_indexes, known = all_item_indexes(self.all_outcomes, node.loops, ())
@@ -634,7 +634,7 @@ class Scheduler:
             self.complete.add(node)
             if node.loops and node in self.progress_said:
                 self._progress(node, last=True)
-            if outcomes and all(_has_no_value(outcome) for outcome in outcomes.values()):
+            if outcomes and all(_is_skipped_or_not_called(outcome) for outcome in outcomes.values()):
                 self.skipped.add(node)
                 emit(NodeSkipped(loc=node.node_path))
             else:
@@ -661,15 +661,15 @@ class Scheduler:
     def _finished(self, node: FlatFunctionNode, may_wait: bool = True) -> bool:
         """Whether every unit of ``node`` is known and none of them is still to run or waiting; ``may_wait`` False
         when the caller already knows none waits."""
-        if may_wait and Asking in {type(outcome) for outcome in self.outcomes[node].values()}:
+        if may_wait and Waiting in {type(outcome) for outcome in self.outcomes[node].values()}:
             return False
         return has_every_outcome(self.all_outcomes, node)
 
 
-def _has_no_value(outcome: Outcome) -> bool:
+def _is_skipped_or_not_called(outcome: Outcome) -> bool:
     """Whether a unit is a branch not taken: its node wasn't called for one above it, or was called and returned
     ``SKIPPED`` on every output."""
-    return type(outcome) is Skipped or ((type(outcome) is Done or type(outcome) is Answered) and bool(outcome.out) and all(value is SKIPPED for value in outcome.out.values()))
+    return type(outcome) is Skipped or ((type(outcome) is Done or type(outcome) is Answered) and bool(outcome.outputs) and all(value is SKIPPED for value in outcome.outputs.values()))
 
 
 def _around(node: FlatNode) -> list[FlatSubgraph]:

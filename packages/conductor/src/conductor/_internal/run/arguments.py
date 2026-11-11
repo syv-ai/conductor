@@ -46,7 +46,7 @@ from conductor._internal.compiled.input_plans import (
     OutputInLoops,
     SeriesAsList,
 )
-from conductor._internal.outcomes import Asking, ItemIndexes, NotCalled, NotReady, Outcome, Skipped
+from conductor._internal.outcomes import ItemIndexes, NotCalled, NotReady, Outcome, Skipped, Waiting
 from conductor._internal.problem import CallRejectedError
 from conductor._internal.problem import catalogue as problem
 from conductor._internal.record_field import NoSuchFieldError, field_of
@@ -111,8 +111,8 @@ class Reader(abc.ABC):
         graph_inputs = self.graph_inputs
         for name, address in node.graph_inputs:
             arguments[name] = graph_inputs[address]
-        blank: str | None = None
-        settled = True
+        none_input: str | None = None
+        ready = True
         for name, plan, accepts_none in node.edge_inputs:
             try:
                 value = plan.value(self, item_indexes)
@@ -122,14 +122,14 @@ class Reader(abc.ABC):
             if value is SKIPPED:
                 return node.compiled_node.skipped
             if value is NotReady.NOT_READY:  # a later input may be skipped, which settles the node whatever this one comes to
-                settled = False
-            elif value is None and blank is None and not accepts_none:
-                blank = name
+                ready = False
+            elif value is None and none_input is None and not accepts_none:
+                none_input = name
             arguments[name] = value
-        if not settled:
+        if not ready:
             return NotReady.NOT_READY
-        if blank is not None:
-            return NotCalled(node.compiled_node.outputs_when_not_called, blank)
+        if none_input is not None:
+            return NotCalled(node.compiled_node.outputs_when_not_called, none_input)
         return self.align_lists(node, arguments) if node.lists_from_same_loop else arguments
 
     def read_alternatives(self, reads: tuple[OutputInLoops, ...], item_indexes: ItemIndexes) -> Any:
@@ -173,9 +173,9 @@ class ResultReader(Reader):
         """
         depth = at.depth
         outcome = self.outcomes[at.node_id].get(item_indexes[:depth])
-        if outcome is None or type(outcome) is Asking:
+        if outcome is None or type(outcome) is Waiting:
             return NotReady.NOT_READY
-        value = outcome.out[at.output]
+        value = outcome.outputs[at.output]
         if value is None or value is SKIPPED or type(at) is OutputInLoops:
             return value
         if type(at) is ItemOfSeries:  # ``value`` is a stored Series: one item of it, or one field of that item
@@ -348,7 +348,7 @@ class LoopDryRun(Reader):
             return value if value is NotReady.NOT_READY or value is SKIPPED or value is None else MAY_HAVE_VALUE
         if dry_outcomes is NotReady.NOT_READY:
             return NotReady.NOT_READY
-        return MAY_HAVE_VALUE if type(dry_outcomes) is dict else dry_outcomes.out[at.output]  # type: ignore[union-attr]  # mypy doesn't narrow a union by ``type(x) is dict``
+        return MAY_HAVE_VALUE if type(dry_outcomes) is dict else dry_outcomes.outputs[at.output]  # type: ignore[union-attr]  # mypy doesn't narrow a union by ``type(x) is dict``
 
     def collect(self, plan: InputCollectsLoopResults, item_indexes: ItemIndexes) -> Any:
         """What a gathering input met on the way holds for an item nobody knows. One whose Series is made per

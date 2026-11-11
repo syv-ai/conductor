@@ -9,7 +9,7 @@ import pydantic_core
 
 from conductor._internal.ask import Question
 from conductor._internal.field import Field
-from conductor._internal.outcomes import Answered, Asking, Done, NotCalled, Outcome, Skipped
+from conductor._internal.outcomes import Answered, Done, NotCalled, Outcome, Skipped, Waiting
 from conductor._internal.reusable_results import ReusableResults
 from conductor._internal.saved_run.type import (
     SAVED_DONE,
@@ -46,7 +46,7 @@ def outcome_columns(outputs: Mapping[str, Field], slots: list[Outcome | None]) -
     if kinds & _HOLDS_OUTPUTS:
         every = kinds <= _HOLDS_OUTPUTS  # every unit holds outputs, as those of a node that finished do
         for name, output in outputs.items():
-            column = [outcome.out[name] for outcome in cast("list[Done | Answered]", slots)] if every else [outcome.out[name] if type(outcome) is Done or type(outcome) is Answered else None for outcome in slots]
+            column = [outcome.outputs[name] for outcome in cast("list[Done | Answered]", slots)] if every else [outcome.outputs[name] if type(outcome) is Done or type(outcome) is Answered else None for outcome in slots]
             columns[name] = column
             gone = [slot for slot, value in enumerate(column) if value is SKIPPED]
             if gone:
@@ -61,8 +61,8 @@ def outcome_columns(outputs: Mapping[str, Field], slots: list[Outcome | None]) -
                             skipped_items.setdefault(name, {})[slot] = gaps
     else:  # no unit holds outputs yet
         columns = {name: [None] * len(slots) for name in outputs}
-    if Answered in kinds or Asking in kinds:
-        questions = {slot: outcome.question for slot, outcome in enumerate(slots) if type(outcome) is Answered or type(outcome) is Asking}
+    if Answered in kinds or Waiting in kinds:
+        questions = {slot: outcome.question for slot, outcome in enumerate(slots) if type(outcome) is Answered or type(outcome) is Waiting}
     if NotCalled in kinds:
         not_called_because = {slot: outcome.input for slot, outcome in enumerate(slots) if type(outcome) is NotCalled}
     return SavedOutcomes(

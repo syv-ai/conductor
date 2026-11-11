@@ -21,10 +21,10 @@ An outcome is one of five classes:
 - ``Skipped``: the function was not called, because the node is on a branch that was not chosen.
 - ``NotCalled``: the function was not called, because an argument was ``None`` and the parameter does not
   accept ``None``.
-- ``Asking``: the function asked a person a question, and the answer has not come yet.
+- ``Waiting``: the function asked a person a question, and the answer has not come yet.
 
 The first four have ``out``, the node's outputs by name. Code that needs an output reads ``outcome.out[name]``
-and does not look at which of the four classes it has. ``Asking`` has no outputs yet, so a node that needs
+and does not look at which of the four classes it has. ``Waiting`` has no outputs yet, so a node that needs
 one of them has to wait.
 """
 
@@ -72,13 +72,13 @@ class Done:
     """The function was called and returned. In the example: ``Done({"result": "C"})`` for ``clean`` at ``(1,)``.
 
     Attributes:
-        out: The node's outputs by name. An output is usually the value the function returned for it, which
+        outputs: The node's outputs by name. An output is usually the value the function returned for it, which
             may be ``None``. It is the marker ``SKIPPED`` when the function returned ``SKIPPED`` for that
             output, to say that the branch the output leads to is not chosen. For an output declared as a
             ``Series`` it is a ``StoredSeries``: an object that wraps the returned list and has ``len()``.
     """
 
-    out: dict[str, Any]
+    outputs: dict[str, Any]
 
 
 @final
@@ -87,11 +87,11 @@ class Answered:
     """The function asked a person a question, and the person answered. The answer is the node's outputs.
 
     Attributes:
-        out: The node's outputs by name, read from the answer.
+        outputs: The node's outputs by name, read from the answer.
         question: What the person was asked.
     """
 
-    out: dict[str, Any]
+    outputs: dict[str, Any]
     question: Question
 
 
@@ -103,15 +103,15 @@ class Skipped:
     Example: a node ``decide`` has the outputs ``yes`` and ``no`` and returns a value for ``yes`` only. A node
     wired to ``decide.no`` is skipped, and so is every node that needs that node's output.
 
-    ``Skipped`` and ``NotCalled`` are read the same way, through ``out``. They are two classes because the
+    ``Skipped`` and ``NotCalled`` are read the same way, through ``outputs``. They are two classes because the
     caller of the graph is told about them differently: a run lists its ``NotCalled`` outcomes for the
     caller and not its ``Skipped`` ones, and a saved run records which of the two an outcome was.
 
     Attributes:
-        out: The node's outputs by name. Each is ``SKIPPED``.
+        outputs: The node's outputs by name. Each is ``SKIPPED``.
     """
 
-    out: dict[str, Any]
+    outputs: dict[str, Any]
 
 
 @final
@@ -123,19 +123,19 @@ class NotCalled:
     ``NotCalled({"result": None}, input="document")``, as ``document: str`` does not accept ``None``.
 
     Attributes:
-        out: The node's outputs by name. Each is ``None``. The exception is an output in an exclusive group
+        outputs: The node's outputs by name. Each is ``None``. The exception is an output in an exclusive group
             (outputs of which the function picks one, like ``yes`` and ``no``): it is ``SKIPPED``, since the
             function never picked.
         input: The name of the input that was ``None``.
     """
 
-    out: dict[str, Any]
+    outputs: dict[str, Any]
     input: str
 
 
 @final
 @dataclass(frozen=True, slots=True)
-class Asking:
+class Waiting:
     """The function asked a person a question (it raised ``Ask``), and the answer has not come yet.
 
     There are no outputs yet, so a node that needs one of them is not ready.
@@ -148,10 +148,10 @@ class Asking:
 
 
 #: What happened to one node for one set of item indexes. An outcome is never changed after it is made.
-Outcome = Done | Answered | Skipped | NotCalled | Asking
+Outcome = Done | Answered | Skipped | NotCalled | Waiting
 
 def outputs_when_skipped(outputs: Mapping[str, Field]) -> dict[str, Any]:
-    """The ``out`` of a ``Skipped`` outcome for a node with these outputs: ``SKIPPED`` for each.
+    """The ``outputs`` of a ``Skipped`` outcome for a node with these outputs: ``SKIPPED`` for each.
 
     For ``clean``: ``{"result": SKIPPED}``.
     """
@@ -159,7 +159,7 @@ def outputs_when_skipped(outputs: Mapping[str, Field]) -> dict[str, Any]:
 
 
 def outputs_when_not_called(outputs: Mapping[str, Field]) -> dict[str, Any]:
-    """The ``out`` of a ``NotCalled`` outcome for a node with these outputs.
+    """The ``outputs`` of a ``NotCalled`` outcome for a node with these outputs.
 
     For ``clean``: ``{"result": None}``. For a node with the outputs ``yes`` and ``no`` in one exclusive group
     and an output ``note`` in none: ``{"yes": SKIPPED, "no": SKIPPED, "note": None}``.
@@ -197,10 +197,10 @@ def all_item_indexes(outcomes: dict[str, dict[ItemIndexes, Outcome]], loops: tup
         below: list[ItemIndexes] = []
         for parent in paths:
             outcome = of_series_node.get(parent)
-            if outcome is None or type(outcome) is Asking:
+            if outcome is None or type(outcome) is Waiting:
                 complete = False
                 continue
-            count = length(outcome.out[output])
+            count = length(outcome.outputs[output])
             if counted and depth == deepest - 1:
                 below = [(below[0][0] + count,)] if below else [(count,)]
             else:
@@ -213,7 +213,7 @@ def has_every_outcome(outcomes: dict[str, dict[ItemIndexes, Outcome]], node: Fla
     """Whether ``node`` has an outcome for every call it will ever have.
 
     In the example, ``clean`` has every outcome when ``load`` has returned and ``clean`` has one outcome per
-    document. An ``Asking`` outcome counts: the call was made, though its answer has not come.
+    document. An ``Waiting`` outcome counts: the call was made, though its answer has not come.
     """
     of_node = outcomes[node.name]
     if not node.loops:
