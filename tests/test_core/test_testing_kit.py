@@ -213,6 +213,16 @@ def test_an_example_that_does_not_run_to_the_end_or_a_pause_is_run_failed():
     ]
 
 
+def test_a_run_failed_that_a_body_raised_names_the_error_class():
+    @node("divides", title="Divides", description="")
+    def divides(n: int) -> float:
+        return 1 / n
+
+    [problem] = check_registry(registry_of(divides), examples={"divides": [{"n": 0}]})
+    assert problem.type == "run_failed"
+    assert problem.msg.endswith("raised ZeroDivisionError")
+
+
 # -- pauses ----------------------------------------------------------------------------------------
 
 
@@ -248,12 +258,6 @@ def test_an_older_versions_pause_does_not_test_the_newest():
 def test_an_example_for_a_node_or_version_not_there_is_example_for_no_node():
     examples = {"nope": [{}], ("upper", 7): [{}]}
     assert found(registry_of(upper), examples=examples) == [("example_for_no_node", ("nope",)), ("example_for_no_node", ("upper", 7))]
-
-
-def test_a_waiver_hides_its_failure_and_one_that_no_longer_fails_is_a_problem():
-    assert found(registry_of(breaks), expected_failures={"breaks:hook_failed": "the service is mocked in CI"}) == []
-    stale = check_registry(registry_of(upper), expected_failures={"upper:run_failed": "fixed since"})
-    assert [(p.type, p.loc, p.ctx["waiver"]) for p in stale] == [("waiver_not_needed", ("upper",), "upper:run_failed")]
 
 
 def test_a_value_unequal_to_its_own_copy_is_never_called_changed():
@@ -307,16 +311,3 @@ def test_a_protocol_from_run_given_under_another_key_is_from_run_missing():
     with pytest.raises(InvalidCallError) as refused:
         graph.run(from_run={str: "a session"})
     assert [p.type for p in refused.value.errors()] == ["from_run_missing"]
-
-
-def test_a_stale_waiver_names_a_node_whose_id_holds_a_colon():
-    from conductor import NodeRegistry, node
-
-    @node("ns:upper", title="Upper", description="")
-    def upper(text: str) -> str:
-        return text.upper()
-
-    registry = NodeRegistry()
-    registry.add(upper)
-    stale = check_registry(registry, expected_failures={"ns:upper:run_failed": "fixed since"})
-    assert [(p.type, p.loc) for p in stale] == [("waiver_not_needed", ("ns:upper",))]

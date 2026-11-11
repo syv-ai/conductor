@@ -15,7 +15,7 @@ one node, its inputs typed in, given ``from_run={T: value}`` as ``graph.run``
 is.
 
 Every problem is a ``Problem``. Its ``loc`` is ``(node_id, version)``, except for
-``example_for_no_node`` without a version and ``waiver_not_needed``, which are ``(node_id,)``:
+``example_for_no_node`` without a version, which is ``(node_id,)``:
 
 ``hook_failed``
     a ``compute_added_inputs`` or ``compute_outputs`` hook fails on the
@@ -33,12 +33,11 @@ Every problem is a ``Problem``. Its ``loc`` is ``(node_id, version)``, except fo
 ``pause_untested``
     the body raises ``Ask``, itself or through a function it calls, and no
     example made it pause.
-``example_for_no_node``, ``waiver_not_needed``
-    an example or a waiver names a node or a failure that isn't there.
+``example_for_no_node``
+    an example names a node or a version that isn't there.
 
-``expected_failures`` maps ``"id:code"`` to why it is accepted; it lives in
-the test, not on the node, and a waiver for a check that passes is itself a problem.
-These codes are ``check_registry``'s, not in ``PROBLEM_CODES``: a developer reads
+A node known to fail goes in a test of its own, marked ``pytest.mark.xfail(strict=True)``,
+that checks ``registry.filter(...)`` down to it. These codes are ``check_registry``'s, not in ``PROBLEM_CODES``: a developer reads
 them in a test run, a host never meets them.
 """
 
@@ -88,7 +87,6 @@ def check_registry(
     /,
     *,
     examples: Mapping[str | tuple[str, int], Sequence[_Example]] = types.MappingProxyType({}),
-    expected_failures: Mapping[str, str] = types.MappingProxyType({}),
     from_run: Mapping[type, Any] = types.MappingProxyType({}),
 ) -> list[Problem]:
     """Every way a node of ``registry`` breaks what a host relies on, all at once; ``[]`` when none does."""
@@ -109,7 +107,7 @@ def check_registry(
         by_version.setdefault(place, []).extend(calls)
     for definition in registry:
         found += _problems_of(definition, registry, by_version, from_run)
-    return _without_waived(found, expected_failures)
+    return found
 
 
 def _problems_of(
@@ -239,7 +237,9 @@ def _run_problems(version: NodeDefinition, registry: NodeRegistry, example: _Exa
         case Going():
             return found, False
         case EndedEarly(status=status, cause=cause):
-            found.append(_problem("run_failed", (version.id, version.version), f"the example ended {status}: {cause.msg}", **_causes([cause])))
+            # a body's own exception reaches the problem as its class only; the message says which
+            said = f"the node raised {cause.ctx['error']}" if cause.type == "execution_failed" else cause.msg
+            found.append(_problem("run_failed", (version.id, version.version), f"the example ended {status}: {said}", **_causes([cause])))
             # an Ask the run refused was reached all the same; run_failed says what was wrong with it
             return found, cause.type == "invalid_ask"
 
@@ -359,17 +359,6 @@ def _same(one: Any, other: Any) -> bool:
         return bool(one == other)
     except (ValueError, TypeError):
         return one is other
-
-
-def _without_waived(found: list[Problem], waived: Mapping[str, str]) -> list[Problem]:
-    # a code holds no ':', and a node id may, so the id is all before the last one
-    by_place = {(node_id, code): key for key in waived for node_id, _, code in [key.rpartition(":")]}
-    used = {place for problem in found if (place := (problem.loc[0], problem.type)) in by_place}
-    kept = [problem for problem in found if (problem.loc[0], problem.type) not in by_place]
-    for place in sorted(by_place.keys() - used):
-        key = by_place[place]
-        kept.append(_problem("waiver_not_needed", (place[0],), f"{key} no longer fails; remove the waiver ({waived[key]})", waiver=key))
-    return kept
 
 
 __all__ = ["check_registry"]

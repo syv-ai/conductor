@@ -1479,7 +1479,7 @@ checked.add(divide)
 print([p.type for p in check_registry(checked, examples={"divide": [{"n": 0}]})])  # ['run_failed']
 ```
 
-**Fix.** Fix the node or the example. `ctx.cause` has the run's own problem.
+**Fix.** Fix the node or the example. `ctx.cause` has the run's own problem, and the message names the exception class a body raised. A node that is known to fail goes in a test of its own marked `@pytest.mark.xfail(strict=True)`, over `registry.filter(...)`.
 
 ### `upgrade_broken`
 
@@ -1499,13 +1499,3 @@ print([p.type for p in check_registry(checked)])  # ['upgrade_broken']
 ```
 
 **Fix.** Fix the `Upgrade`, so a node saved at the older version loads cleanly at the newer one.
-
-### `waiver_not_needed`
-
-```python
-checked = NodeRegistry()
-checked.add(upper)
-print([p.type for p in check_registry(checked, expected_failures={"upper:run_failed": "flaky"})])  # ['waiver_not_needed']
-```
-
-**Fix.** Remove the waiver: the check it accepted passes.

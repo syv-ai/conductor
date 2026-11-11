@@ -312,12 +312,12 @@ Frozen models with a `type`, and a host subclasses `Widget` for a control of its
 
 ### conductor.testing
 
-`check_registry(registry, /, *, examples={}, expected_failures={}, from_run={})` is one test a node package or host runs in CI: `assert check_registry(registry, examples={"upper": [{"text": "hi"}]}) == []`.
+`check_registry(registry, /, *, examples={}, from_run={})` is one test a node package or host runs in CI: `assert check_registry(registry, examples={"upper": [{"text": "hi"}]}) == []`.
 
-- It returns every problem at once as `Problem`s, `loc` `(node_id, version)`. For `waiver_not_needed`, and for `example_for_no_node` given without a version, `loc` is `(node_id,)`.
+- It returns every problem at once as `Problem`s, `loc` `(node_id, version)`. For `example_for_no_node` given without a version, `loc` is `(node_id,)`.
 - A body is called only for a node given an example, once per example, through the engine as a graph of that one node. `(id, version)` keys an older version's examples, and `from_run={T: value}` gives every example's `FromRun` values, as `graph.run` takes them.
-- The checks are `hook_failed`, `needs_example`, `upgrade_broken`, `changed_its_inputs`, `run_failed`, `pause_untested`, `example_for_no_node` and `waiver_not_needed`; `docs/problems.md` says what each means and how to fix it. These codes are `check_registry`'s, not in `PROBLEM_CODES`.
-- `expected_failures={"id:code": "why"}` accepts a failure in the test; one that no longer fails is reported.
+- The checks are `hook_failed`, `needs_example`, `upgrade_broken`, `changed_its_inputs`, `run_failed`, `pause_untested` and `example_for_no_node`; `docs/problems.md` says what each means and how to fix it. These codes are `check_registry`'s, not in `PROBLEM_CODES`.
+- A node known to fail goes in a test of its own marked `pytest.mark.xfail(strict=True)`, checking `registry.filter(...)` down to it.
 
 ### conductor.events
 
