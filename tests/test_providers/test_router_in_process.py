@@ -905,3 +905,38 @@ def test_the_package_exports_what_a_host_writes_and_calls() -> None:
     import conductor_providers.fastapi as provider
 
     assert sorted(provider.__all__) == ["ROUTER_PROBLEM_CODES", "RunChanges", "RunStore", "StoredRun", "run_router"]
+
+
+def test_a_follower_that_sent_a_run_end_while_the_row_still_reads_running_keeps_asking_until_it_changes() -> None:
+    registry = NodeRegistry()
+
+    @registry.node("shout", title="Shout", description="")
+    def shout(text: str) -> str:
+        return text.upper()
+
+    class RowLags(MemoryStore):
+        """Reads a run that has ended as still running a few times, as a reader between the ``run_end`` and the row's write does."""
+
+        lagged = 0
+
+        async def get(self, run_id: str) -> StoredRun | None:
+            row = await super().get(run_id)
+            if row is not None and row.status == "complete" and self.lagged < 5:
+                self.lagged += 1
+                return dataclasses.replace(row, status="running")
+            return row
+
+    store = RowLags()
+    app = FastAPI()
+    app.include_router(run_router(store=store, registry=registry, caller=_caller, poll=0.01))
+
+    async def scenario() -> None:
+        async with app.router.lifespan_context(app), httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as client:
+            run_id = (await client.post("/runs", json={"graph": make_graph(shout).model_dump(mode="json"), "inputs": {"text": "a"}})).json()["id"]
+            await _until_status(store, run_id, "complete")
+            followed = await asyncio.wait_for(client.get(f"/runs/{run_id}/events"), 5)
+            frames = [json.loads(line.removeprefix("data: ")) for line in followed.text.splitlines() if line.startswith("data: ")]
+            assert [frame["type"] for frame in frames].count("run_end") == 1 and frames[-1]["type"] == "run_end"
+            assert store.lagged == 5
+
+    asyncio.run(scenario())
