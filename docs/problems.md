@@ -558,7 +558,7 @@ Its `ctx` keys are in the reference: `python -m conductor.about cannot-move-to-v
 
 ```python
 print(refused(lambda: asking_who.run()))  # ['from_run_missing']
-print(said(lambda: asking_who.run())[0])  # 'who' needs a Caller for 'caller', and from_run gives none (it gives none); pass from_run={Caller: ...}.
+print(said(lambda: asking_who.run())[0])  # 'who' needs a Caller for 'caller', and from_run gives none (it gives none); pass from_run with a value for Caller.
 ```
 
 **Fix.** Pass the value by its type: `graph.run(from_run={Caller: Caller("Ida")})`. It is never saved with the run, so pass it again on each `resume`.

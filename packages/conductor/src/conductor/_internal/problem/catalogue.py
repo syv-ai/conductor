@@ -399,7 +399,7 @@ def from_run_missing(node_id: str, parameter: str, *, needs: str, given: list[st
         needs: The name of the class the parameter names.
         given: The names of the classes ``from_run`` has values for.
     """
-    return f"'{node_id}' needs a {needs} for '{parameter}', and from_run gives none (it gives {listed(given)}); pass from_run={{{needs}: ...}}."
+    return f"'{node_id}' needs a {needs} for '{parameter}', and from_run gives none (it gives {listed(given)}); pass from_run with a value for {needs}."
 
 
 @PROBLEMS.problem()
