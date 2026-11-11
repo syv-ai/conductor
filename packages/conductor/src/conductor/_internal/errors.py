@@ -63,7 +63,7 @@ from conductor._internal.conductor_model import ConductorModel
 #: translates by code covers ``PROBLEM_CODES``.
 PROBLEM_CATALOGUE: Mapping[str, str] = {
     # -- what loading finds in a graph -----------------------------------------
-    "compute_hook_failed": "The node could not work out its fields from what it was given: {reason}. Check what is typed into the node and what is wired to it.",
+    "compute_hook_failed": "The node could not work out its fields from what it was given: {reason}. Check what is typed into the node.",
     "cycle": "The node is part of a cycle, so the graph cannot run; remove one of the edges that close it.",
     "duplicate_node_id": "Two nodes have the id '{node_id}'; rename one.",
     "edge_names_missing_node": "The edge from '{source}' to '{target}' names '{node_id}', which is not a node of the graph; add that node or remove the edge.",

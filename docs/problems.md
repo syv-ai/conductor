@@ -1137,6 +1137,8 @@ except NodeDeclarationError as error:
 
 > {kind} parameter {name} names no input of the node; it has {sorted(inputs)}
 
+> {kind} parameter **{name}: a hook takes ** only as **{name}: type on compute_outputs, for the types arriving on the inputs compute_added_inputs added; annotate it type and give the node that hook, or name each parameter after an input
+
 ```python
 def from_names(names: str) -> dict[str, type]:
     return {name: str for name in names.split(",")}
