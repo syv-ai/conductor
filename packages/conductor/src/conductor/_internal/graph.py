@@ -478,10 +478,13 @@ class GraphAtPath(_AtPath):
         placed: The node, as its graph loaded it.
         offers: Each output it offers: its address in the inner graph, the cell of the inner graph that holds
             it, the maps that cell's node runs in, and whether it is a ``Series``.
+        ends_silently: The nodes inside that nothing inside reads and that have no output. Its unit waits for
+            theirs as for the outputs it offers, so it is done when the graph inside is.
     """
 
     placed: PlacedGraph
     offers: tuple[tuple[str, Cell, Maps, bool], ...] = ()
+    ends_silently: tuple[NodeAtPath, ...] = ()
 
 
 #: A node where it stands in the tree of graphs a run walks: a function, or an embedded graph.
@@ -890,8 +893,10 @@ def _add_to_tree(graph: Graph, embedding: GraphAtPath | None, tree: list[NodeAtP
                 for address in placed.inner.outputs
                 for last, output in [(within[address.partition(".")[0]], address.partition(".")[2])] for spec in [last.placed.outputs[output]]
             )
-            for _, cell, made_in, _ in embedded.offers:  # each unit of it is made from every unit inside, under its instance
-                for read in (within[cell.node_id], *(series for series, _ in made_in[len(maps):])):
+            embedded.ends_silently = tuple(within[last.id] for last in placed.inner._nodes.values() if not last.outputs and not placed.inner._readers[last.id])
+            made_from = [(within[cell.node_id], made_in) for _, cell, made_in, _ in embedded.offers] + [(last, last.maps) for last in embedded.ends_silently]
+            for last, made_in in made_from:  # each unit of it is made from every unit inside, under its instance
+                for read in (last, *(series for series, _ in made_in[len(maps):])):
                     node.reads[read] = len(maps)
         else:
             node = FunctionAtPath(

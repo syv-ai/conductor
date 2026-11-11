@@ -625,7 +625,8 @@ class Run:
         per item is a list of lists.
 
         Returns:
-            The outputs by address, or ``PENDING`` until every one of them is settled for the instance.
+            The outputs by address, or ``PENDING`` until every one of them is settled for the instance, and
+            every node inside that ends the graph with no output.
         """
         units, base = self._units[node.path], len(key)
         out: dict[str, Any] = {}
@@ -645,6 +646,15 @@ class Run:
                 if lists:
                     value = [[None if item is SKIPPED else item for item in one] if type(one) is list else one.records() if type(one) is Records else one for one in value]
             out[address] = value
+        for last in node.ends_silently:  # nothing to offer, and still what the graph inside came to
+            instances, known = self._instances(last.maps, key)
+            if not known:
+                return PENDING
+            held = units[last.placed.id]
+            for instance in instances:
+                unit = held.get(instance)
+                if unit is None or type(unit) is Asking:
+                    return PENDING
         return out
 
     def _settle(self, node: GraphAtPath, instances: Iterable[Key]) -> None:
