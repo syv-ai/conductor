@@ -529,12 +529,12 @@ def node(
 
 #: What a node id never holds: each means something in an address (``node.field``, ``embedding/inner``) or a waiting id
 #: (``node@item~fingerprint``).
-_MARKS = frozenset("./@~")
+_RESERVED_ID_CHARACTERS = frozenset("./@~")
 
 
 def is_node_id(value: str) -> bool:
     """Whether ``value`` can be a node id, of a definition or of a node in a record: a non-empty text without ``. / @ ~``."""
-    return bool(value) and not _MARKS & set(value)
+    return bool(value) and not _RESERVED_ID_CHARACTERS & set(value)
 
 
 def from_run_values(definitions: Iterable[tuple[str, FunctionDefinition[..., Any]]], from_run: Mapping[type, Any]) -> dict[type, Any]:

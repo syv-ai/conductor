@@ -128,7 +128,7 @@ def _problem(code: str, loc: tuple[str] | tuple[str, int], message: str, **ctx: 
     return Problem(type=code, loc=loc, msg=message, ctx=ctx)
 
 
-def _placed(version: NodeDefinition, values: Mapping[str, Any]) -> GraphRecord:
+def _one_node_graph(version: NodeDefinition, values: Mapping[str, Any]) -> GraphRecord:
     """A graph of this one node, at its version, with ``values`` typed in, placed under its own id.
 
     A value with no JSON form can't be typed into a graph: ``InvalidCallError``, ``invalid_value`` at the node and input.
@@ -155,7 +155,7 @@ def _hook_problems(version: NodeDefinition, registry: NodeRegistry) -> list[Prob
     missing = [name for name, value in values.items() if value is _CANNOT]
     if missing:
         return [_problem("needs_example", (version.id, version.version), f"its hooks read {missing}, and no value could be made up; give an example", inputs=missing)]
-    failed = [p for p in registry.load(_placed(version, values)).problems if p.type in _HOOK_CODES]
+    failed = [p for p in registry.load(_one_node_graph(version, values)).problems if p.type in _HOOK_CODES]
     return [_problem("hook_failed", (version.id, version.version), f"a hook failed on the node's defaults and made-up values: {p.msg}", **_causes([p])) for p in failed]
 
 
@@ -167,7 +167,7 @@ def _upgrade_problems(older: NodeDefinition, registry: NodeRegistry, given: Sequ
         values = {name: made for name, spec in _inputs_of(older).items() if (made := _made_up(spec)) is not _CANNOT}
     newest = registry[older.id].version
     try:
-        placed = _placed(older, values)
+        placed = _one_node_graph(older, values)
     except InvalidCallError:
         return []  # the example's own run says what can't be typed in
     try:
@@ -201,7 +201,7 @@ def _run_problems(version: NodeDefinition, registry: NodeRegistry, example: _Exa
             watched, changed = _watched(version)
             definitions = {version.id: watched}
     try:
-        placed = _placed(version, dict(example))
+        placed = _one_node_graph(version, dict(example))
     except InvalidCallError as refused:
         return _not_loaded(version, refused.errors())
     graph = load_graph(placed, definitions)
