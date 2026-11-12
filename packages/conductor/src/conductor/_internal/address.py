@@ -60,7 +60,7 @@ def loc_text(loc: Loc) -> str:
     ``loc_text(("loud", 1, "shout"))`` returns ``"loud@1/shout"``, and ``loc_text(("shout", 0, 2))`` returns
     ``"shout@0@2"``. A loc starts with a node id.
     """
-    return "".join(f"@{step}" if isinstance(step, int) else f"/{step}" for step in loc)[1:]
+    return "".join(f"@{part}" if isinstance(part, int) else f"/{part}" for part in loc)[1:]
 
 
 def parse_loc_text(text: str) -> tuple[Loc, NodePath, ItemIndexes]:
@@ -74,11 +74,11 @@ def parse_loc_text(text: str) -> tuple[Loc, NodePath, ItemIndexes]:
     loc: list[str | int] = []
     node_ids: list[str] = []
     item_indexes: list[int] = []
-    for step in text.split("/"):
-        node_id, *positions = step.split("@")
+    for part in text.split("/"):
+        node_id, *indexes = part.split("@")
         node_ids.append(node_id)
-        item_indexes += [int(i) for i in positions]
-        loc += [node_id, *item_indexes[len(item_indexes) - len(positions):]]
+        item_indexes += [int(i) for i in indexes]
+        loc += [node_id, *item_indexes[len(item_indexes) - len(indexes):]]
     return tuple(loc), tuple(node_ids), tuple(item_indexes)
 
 

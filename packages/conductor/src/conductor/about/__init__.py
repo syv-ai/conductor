@@ -85,21 +85,21 @@ def _problems(catalogue: ProblemCatalogue) -> str:
     for kind in catalogue:
         summary, _, arguments = inspect.cleandoc(kind.__doc__ or "").partition("\nArgs:\n")
         pieces = _ARGUMENT.split(arguments)
-        told = {name: " ".join(text.split()).replace("``", "`") for name, text in zip(pieces[1::2], pieces[2::2])}
+        explained = {name: " ".join(text.split()).replace("``", "`") for name, text in zip(pieces[1::2], pieces[2::2])}
         rows = []
         for key, hint in typing.get_type_hints(kind.ctx_type).items():
             if key == "variant":
                 rows.append(f"| `variant` | `'{kind.variant}'` | always | Which of the code's sentences this is. |")
                 continue
-            if key not in told:
+            if key not in explained:
                 raise LookupError(f"{kind.code}: the docstring of its function has no Args line for the ctx key '{key}'")
             given = "always" if key in kind.ctx_type.__required_keys__ else "when it applies"
-            rows.append(f"| `{key}` | `{inspect.formatannotation(hint)}` | {given} | {told[key]} |")
+            rows.append(f"| `{key}` | `{inspect.formatannotation(hint)}` | {given} | {explained[key]} |")
         sections.append("\n\n".join([
             f"#### `{kind.code}`" + (f", variant `{kind.variant}`" if kind.variant else ""),
             " ".join(summary.split("\n\n")[0].split()).replace("``", "`"),
             f"> {kind.sentence}",
-            *([f"`loc`: {told['loc']}"] if "loc" in told else []),
+            *([f"`loc`: {explained['loc']}"] if "loc" in explained else []),
             "\n".join(["| `ctx` | type | given | holds |", "|---|---|---|---|", *rows]),
         ]))
     return "\n\n".join(sections)
