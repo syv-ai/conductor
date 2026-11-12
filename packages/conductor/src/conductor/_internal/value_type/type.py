@@ -235,8 +235,8 @@ class Type:
         if all(arg is Any for arg in args):  # a generic that says nothing of its items is said bare
             return own_id, title, own
         inner = [Type(arg) for arg in args if arg is not Ellipsis]
-        said = ", ".join("..." if arg is Ellipsis else Type(arg).text for arg in args)
-        return f"{own_id}[{said}]", title, tuple(dict.fromkeys((*own, *(c for of in inner for c in of.classes))))
+        arguments_text = ", ".join("..." if arg is Ellipsis else Type(arg).text for arg in args)
+        return f"{own_id}[{arguments_text}]", title, tuple(dict.fromkeys((*own, *(c for of in inner for c in of.classes))))
 
     @functools.cached_property
     def _built(self) -> tuple[Any, TypeAdapter[Any]]:
@@ -463,7 +463,7 @@ class Type:
         """
         errors = value_free_errors(error)
         columns: list[str] = []
-        for said, raw in zip(errors, error.errors(include_url=False, include_input=False), strict=True):
+        for error_record, raw in zip(errors, error.errors(include_url=False, include_input=False), strict=True):
             at, kept, column, owner = self, list[int | str](), None, self
             for step in raw["loc"]:
                 walked = at._walked(step)
@@ -475,13 +475,13 @@ class Type:
                 at = inside
                 if is_a_place:
                     kept.append(step)
-            said["loc"] = kept
+            error_record["loc"] = kept
             if column is not None:
                 columns.append(column)
-                said["msg"] = owner._fault_in(column, raw["type"], said["msg"])
+                error_record["msg"] = owner._fault_in(column, raw["type"], error_record["msg"])
             elif whole := raw.get("ctx", {}).get("column"):  # a fault of a whole column of a frame
                 columns.append(whole)
-                said["loc"] = [whole]
+                error_record["loc"] = [whole]
         return FieldValueError(errors[0]["msg"], errors=errors, column=columns[0] if columns else None)
 
     def _walked(self, step: int | str) -> tuple[Type, bool, str | None] | None:

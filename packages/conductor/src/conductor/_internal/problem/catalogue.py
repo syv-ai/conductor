@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from conductor._internal.problem.type import ProblemCatalogue, listed
+from conductor._internal.problem.type import ProblemCatalogue, comma_separated
 
 #: The kinds of problem conductor's core writes.
 PROBLEMS = ProblemCatalogue()
@@ -29,9 +29,9 @@ def alternatives_in_different_series(node_id: str, field: str, *, series: list[s
         field: The input.
         series: The Series the alternatives run per item of, ``None`` for one that runs once.
     """
-    said = listed(["none (it runs once)" if one is None else one for one in series])
+    series_text = comma_separated(["none (it runs once)" if one is None else one for one in series])
     return (
-        f"'{field}' takes alternatives that run per item of different Series, {said}, so a call for an item of one has no place "
+        f"'{field}' takes alternatives that run per item of different Series, {series_text}, so a call for an item of one has no place "
         "for the other's value. Bring them to items of one Series first."
     )
 
@@ -171,7 +171,7 @@ def series_inputs_never_share_an_item(*loc: str | int, inputs: list[str]) -> str
         inputs: The two inputs.
     """
     return (
-        f"{listed(inputs)} read branches that never both have a value for an item, so no item would reach the node. "
+        f"{comma_separated(inputs)} read branches that never both have a value for an item, so no item would reach the node. "
         "Write Series[X | None] on them to keep every item, or take the branches through one input."
     )
 
@@ -188,7 +188,7 @@ def series_not_nested(node_id: str, *, series: list[str], inputs: list[str], wir
         wire_into: The id of the node that makes the other Series.
     """
     return (
-        f"'{node_id}' reads items of {listed(series)}, and neither is made inside the other, so nothing says which item goes with which. "
+        f"'{node_id}' reads items of {comma_separated(series)}, and neither is made inside the other, so nothing says which item goes with which. "
         f"Make one inside the other (wire '{wire_from}' into '{wire_into}', the node that makes the other), or give one of them whole to a Series input."
     )
 
@@ -206,8 +206,8 @@ def loops_not_nested_inside_subgraph(node_id: str, *, series: list[str], inputs:
         stored_graphs: The ids of the stored graphs' nodes a list of the two is inside.
     """
     return (
-        f"'{node_id}' reads items of {listed(series)}, and neither is made inside the other, so nothing says which item goes with which. "
-        f"A list inside a stored graph ({listed(stored_graphs)}) is looped over where that graph loops over it, so no edge here can change that. "
+        f"'{node_id}' reads items of {comma_separated(series)}, and neither is made inside the other, so nothing says which item goes with which. "
+        f"A list inside a stored graph ({comma_separated(stored_graphs)}) is looped over where that graph loops over it, so no edge here can change that. "
         "Give one of them whole to a Series input, or change the stored graph so it returns both outputs from the same loop."
     )
 
@@ -222,7 +222,7 @@ def several_edges_into_one_input(node_id: str, field: str, *, sources: list[str]
         sources: The addresses the edges come from.
     """
     return (
-        f"More than one of the edges into '{field}', from {listed(sources)}, can hold a value on the same call. "
+        f"More than one of the edges into '{field}', from {comma_separated(sources)}, can hold a value on the same call. "
         "Feed it from opposite branches of one decision, or put a node between that has an input for each."
     )
 
@@ -274,7 +274,7 @@ def type_mismatch_add_column(node_id: str, field: str, *, source: str, got: str,
         column_type: The id of that column's type.
         has: The columns the source has.
     """
-    return f"'{node_id}.{field}' needs the column '{column}' ({column_type}); '{source}' has {listed(has)}. Add the column in a node between, or connect a table that has it."
+    return f"'{node_id}.{field}' needs the column '{column}' ({column_type}); '{source}' has {comma_separated(has)}. Add the column in a node between, or connect a table that has it."
 
 
 @PROBLEMS.problem()
@@ -297,7 +297,7 @@ def unknown_input(node_id: str, field: str, *, inputs: list[str]) -> str:
         field: The name that is no input of it.
         inputs: The inputs the node has.
     """
-    return f"'{node_id}' has no input '{field}'; it has {listed(inputs)}."
+    return f"'{node_id}' has no input '{field}'; it has {comma_separated(inputs)}."
 
 
 @PROBLEMS.problem()
@@ -309,7 +309,7 @@ def unknown_node(*loc: str | int, node: str, choices: list[str]) -> str:
         node: The id of the definition it names.
         choices: The ids the registry has.
     """
-    return f"There is no node '{node}'; the nodes are {listed(choices)}."
+    return f"There is no node '{node}'; the nodes are {comma_separated(choices)}."
 
 
 @PROBLEMS.problem()
@@ -322,7 +322,7 @@ def unknown_output(*loc: str | int, source: str, outputs: list[str], record_fiel
         outputs: What the source gives.
         record_field: The field of a record the edge reads, when the record has none by that name.
     """
-    return f"'{source}' is not something that node gives; it gives {listed(outputs)}."
+    return f"'{source}' is not something that node gives; it gives {comma_separated(outputs)}."
 
 
 @PROBLEMS.problem("unknown_output", hint="split_first")
@@ -405,7 +405,7 @@ def cannot_move_to_version(*loc: str | int, node: str, version: int, target: int
         target: The version asked for.
         versions: The versions the definition has.
     """
-    return f"'{node}' cannot move from version {version} to {target}; it has {listed(versions)}."
+    return f"'{node}' cannot move from version {version} to {target}; it has {comma_separated(versions)}."
 
 
 @PROBLEMS.problem()
@@ -418,7 +418,7 @@ def from_run_missing(node_id: str, parameter: str, *, needs: str, given: list[st
         needs: The name of the class the parameter names.
         given: The names of the classes ``from_run`` has values for.
     """
-    return f"'{node_id}' needs a {needs} for '{parameter}', and from_run gives none (it gives {listed(given)}); pass from_run with a value for {needs}."
+    return f"'{node_id}' needs a {needs} for '{parameter}', and from_run gives none (it gives {comma_separated(given)}); pass from_run with a value for {needs}."
 
 
 @PROBLEMS.problem()
@@ -541,7 +541,7 @@ def node_not_in_graph(node_id: str, *, nodes: list[str]) -> str:
         node_id: The id given.
         nodes: The ids the graph has.
     """
-    return f"'{node_id}' is not a node of this graph; it has {listed(nodes)}."
+    return f"'{node_id}' is not a node of this graph; it has {comma_separated(nodes)}."
 
 
 @PROBLEMS.problem()
@@ -555,8 +555,8 @@ def not_a_chain(node_id: str, *, before: str, inputs: list[str], outputs: list[s
         outputs: The outputs ``before`` has, where a chain takes exactly one.
     """
     return (
-        f"'{node_id}' can't follow '{before}' in a chain: a chain takes its one required open input (it has {listed(inputs)}) "
-        f"from the one output of the node before it (that has {listed(outputs)}); pass edges= to make_graph."
+        f"'{node_id}' can't follow '{before}' in a chain: a chain takes its one required open input (it has {comma_separated(inputs)}) "
+        f"from the one output of the node before it (that has {comma_separated(outputs)}); pass edges= to make_graph."
     )
 
 
@@ -569,7 +569,7 @@ def not_offered(*loc: str | int, name: str, inputs: list[str]) -> str:
         name: The name the value was given under.
         inputs: The inputs the graph has.
     """
-    return f"The graph has no input '{name}'; it has {listed(inputs)}."
+    return f"The graph has no input '{name}'; it has {comma_separated(inputs)}."
 
 
 @PROBLEMS.problem()

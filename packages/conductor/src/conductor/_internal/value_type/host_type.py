@@ -95,9 +95,9 @@ def host_type[C: type](id: str, *, title: str, accepts: list[type] | tuple[type,
     try:
         declaration = TypeDeclaration(id=id, title=title, accepts=tuple(accepts) if isinstance(accepts, list) else accepts)
     except ValidationError as error:
-        said = "; ".join(f"{fault['loc'][0]}: {fault['msg']}" for fault in error.errors())
+        faults = "; ".join(f"{fault['loc'][0]}: {fault['msg']}" for fault in error.errors())
         raise NodeDeclarationError(
-            f"@host_type({id!r}): {said}; give an id that is one word and not one of conductor's own, a title, and classes in accepts",
+            f"@host_type({id!r}): {faults}; give an id that is one word and not one of conductor's own, a title, and classes in accepts",
             code="type_declaration_invalid",
         ) from None
 

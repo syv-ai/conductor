@@ -57,7 +57,7 @@ class Problem(ConductorModel):
 
 
 @final
-class ProblemKind[**Said]:
+class ProblemKind[**Params]:
     """One kind of problem, declared by the function that says it; calling it makes the ``Problem``.
 
     ``ProblemCatalogue.problem`` makes one and says how the function's signature is read.
@@ -71,34 +71,34 @@ class ProblemKind[**Said]:
         ctx_type: The ``ctx`` the kind writes, as a ``TypedDict``; a key that may be left out is not required.
     """
 
-    def __init__(self, say: Callable[Said, str], code: str, hint: str | None, of_a_hook: bool) -> None:
+    def __init__(self, write_message: Callable[Params, str], code: str, hint: str | None, of_a_hook: bool) -> None:
         self.code, self.hint, self.of_a_hook = code, hint, of_a_hook
-        self.__doc__ = say.__doc__
-        self._say = say
-        signature = inspect.signature(say, eval_str=True)
+        self.__doc__ = write_message.__doc__
+        self._message = write_message
+        signature = inspect.signature(write_message, eval_str=True)
         parameters = list(signature.parameters.values())
         for parameter in parameters:
-            _refuse_outside_the_rules(say.__name__, parameter)
+            _check_parameter(write_message.__name__, parameter)
         if signature.return_annotation is not str:
-            raise TypeError(f"{say.__name__}: 'return' is the English a person reads; annotate it -> str")
-        self._places = tuple(p.name for p in parameters if p.kind is p.POSITIONAL_OR_KEYWORD)
-        self._hint = {"hint": hint} if hint else {}
-        self._may_leave_out = any(p.default is None for p in parameters)
+            raise TypeError(f"{write_message.__name__}: 'return' is the English a person reads; annotate it -> str")
+        self._loc_parameters = tuple(p.name for p in parameters if p.kind is p.POSITIONAL_OR_KEYWORD)
+        self._variant_ctx = {"hint": hint} if hint else {}
+        self._has_optional_ctx = any(p.default is None for p in parameters)
         keys = [p for p in parameters if p.kind is not p.VAR_POSITIONAL]
-        slots = {p.name: ["{" + p.name + "}"] if typing.get_origin(p.annotation) is list else "{" + p.name + "}" for p in keys if p.default is not None}
-        self.sentence = typing.cast("Callable[..., str]", say)(**slots)
+        placeholders = {p.name: ["{" + p.name + "}"] if typing.get_origin(p.annotation) is list else "{" + p.name + "}" for p in keys if p.default is not None}
+        self.sentence = typing.cast("Callable[..., str]", write_message)(**placeholders)
         self.ctx_type: Any = typing.cast("Any", TypedDict)(code, {  # the fields are read off a signature, which a type checker takes only as a literal
             **{p.name: NotRequired[_without_none(p.annotation)] if p.default is None else p.annotation for p in keys},
             **({"hint": Literal[hint]} if hint else {}),
         })
 
-    def __call__(self, *loc: Said.args, **ctx: Said.kwargs) -> Problem:
+    def __call__(self, *loc: Params.args, **ctx: Params.kwargs) -> Problem:
         """The problem at ``loc``. What is given is conductor's own, typed where it is written, and is not read again."""
-        given = {key: value for key, value in ctx.items() if value is not None} if self._may_leave_out else ctx
-        return Problem.model_construct(type=self.code, loc=loc, msg=self._say(*loc, **ctx), ctx={**dict(zip(self._places, loc)), **given, **self._hint})
+        given = {key: value for key, value in ctx.items() if value is not None} if self._has_optional_ctx else ctx
+        return Problem.model_construct(type=self.code, loc=loc, msg=self._message(*loc, **ctx), ctx={**dict(zip(self._loc_parameters, loc)), **given, **self._variant_ctx})
 
 
-def _refuse_outside_the_rules(function: str, parameter: inspect.Parameter) -> None:
+def _check_parameter(function: str, parameter: inspect.Parameter) -> None:
     """Refuses a parameter of a kind's function that is none of a place, ``*loc`` and a ``ctx`` key.
 
     Args:
@@ -108,25 +108,25 @@ def _refuse_outside_the_rules(function: str, parameter: inspect.Parameter) -> No
     Raises:
         TypeError: The parameter fits none of the three rules ``ProblemCatalogue.problem`` states.
     """
-    said = f"{function}: parameter '{parameter.name}'"
+    prefix = f"{function}: parameter '{parameter.name}'"
     match parameter.kind:
         case parameter.POSITIONAL_ONLY:
-            raise TypeError(f"{said} is positional-only; a place in loc is a named positional parameter, so drop the /")
+            raise TypeError(f"{prefix} is positional-only; a place in loc is a named positional parameter, so drop the /")
         case parameter.VAR_KEYWORD:
-            raise TypeError(f"{said} is **{parameter.name}; a ctx key is a keyword-only parameter of its own, with its type")
+            raise TypeError(f"{prefix} is **{parameter.name}; a ctx key is a keyword-only parameter of its own, with its type")
         case parameter.VAR_POSITIONAL:
             if parameter.annotation != str | int:
-                raise TypeError(f"{said} holds places of loc; annotate it *{parameter.name}: str | int")
+                raise TypeError(f"{prefix} holds places of loc; annotate it *{parameter.name}: str | int")
         case parameter.POSITIONAL_OR_KEYWORD:
             if parameter.annotation not in (str, int):
-                raise TypeError(f"{said} is a place in loc, which is a str or an int; annotate it so, or make it keyword-only for a ctx key")
+                raise TypeError(f"{prefix} is a place in loc, which is a str or an int; annotate it so, or make it keyword-only for a ctx key")
             if parameter.default is not parameter.empty:
-                raise TypeError(f"{said} is a place in loc and has a default; a place is always given")
+                raise TypeError(f"{prefix} is a place in loc and has a default; a place is always given")
         case parameter.KEYWORD_ONLY:
             if parameter.annotation is parameter.empty:
-                raise TypeError(f"{said} is a ctx key without a type; annotate it")
+                raise TypeError(f"{prefix} is a ctx key without a type; annotate it")
             if parameter.default is not parameter.empty and parameter.default is not None:
-                raise TypeError(f"{said} defaults to {parameter.default!r}; a ctx key is always given, or defaults to None and may be left out")
+                raise TypeError(f"{prefix} defaults to {parameter.default!r}; a ctx key is always given, or defaults to None and may be left out")
 
 
 def _without_none(annotation: Any) -> Any:
@@ -144,7 +144,7 @@ class ProblemCatalogue:
     def __init__(self) -> None:
         self._kinds: list[ProblemKind[...]] = []
 
-    def problem[**Said](self, code: str | None = None, *, hint: str | None = None, of_a_hook: bool = False) -> Callable[[Callable[Said, str]], ProblemKind[Said]]:
+    def problem[**Params](self, code: str | None = None, *, hint: str | None = None, of_a_hook: bool = False) -> Callable[[Callable[Params, str]], ProblemKind[Params]]:
         """Declares the function under it a kind of problem, and gives back what a caller calls to make one.
 
         The function returns the English a person reads, built from its parameters and nothing else. Each parameter
@@ -176,10 +176,10 @@ class ProblemCatalogue:
             TypeError: When the function is declared, for a parameter that is none of the three, a return type other
                 than ``str``, or a ``hint`` for a code the catalogue has not declared.
         """
-        def declared(say: Callable[Said, str]) -> ProblemKind[Said]:
-            kind = ProblemKind(say, code or say.__name__, hint, of_a_hook)
+        def declared(write_message: Callable[Params, str]) -> ProblemKind[Params]:
+            kind = ProblemKind(write_message, code or write_message.__name__, hint, of_a_hook)
             if hint and kind.code not in self.codes:
-                raise TypeError(f"{say.__name__}: a hint is a second sentence under a code, and '{kind.code}' is not declared before it")
+                raise TypeError(f"{write_message.__name__}: a hint is a second sentence under a code, and '{kind.code}' is not declared before it")
             self._kinds.append(kind)
             return kind
 
@@ -194,6 +194,6 @@ class ProblemCatalogue:
         return frozenset(kind.code for kind in self._kinds)
 
 
-def listed(items: Sequence[object]) -> str:
+def comma_separated(items: Sequence[object]) -> str:
     """Items as a sentence writes them: joined by commas, ``none`` when there are none."""
     return ", ".join(str(item) for item in items) or "none"

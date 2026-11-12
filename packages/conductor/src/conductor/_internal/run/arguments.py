@@ -80,8 +80,8 @@ class Reader(abc.ABC):
     graph_inputs: Mapping[str, Any]
 
     @abc.abstractmethod
-    def read_output(self, at: OutputInLoops, item_indexes: ItemIndexes) -> Any:
-        """What the output ``at`` holds for ``item_indexes`` as an edge brings it: a value, ``None`` for a blank, ``SKIPPED``
+    def read_output(self, source: OutputInLoops, item_indexes: ItemIndexes) -> Any:
+        """What the output ``source`` holds for ``item_indexes`` as an edge brings it: a value, ``None`` for a blank, ``SKIPPED``
         for a branch not taken, or ``NOT_READY``."""
 
     @abc.abstractmethod
@@ -140,8 +140,8 @@ class Reader(abc.ABC):
         For an item nobody knows several could, which is why this is the best of them and not the first.
         """
         best: Any = SKIPPED
-        for at in reads:
-            value = self.read_output(at, item_indexes)
+        for source in reads:
+            value = self.read_output(source, item_indexes)
             if value is NotReady.NOT_READY:
                 best = NotReady.NOT_READY
             elif value is None:
@@ -164,31 +164,31 @@ class ResultReader(Reader):
     def __init__(self, outcomes: dict[str, dict[ItemIndexes, Outcome]], graph_inputs: Mapping[str, Any]) -> None:
         self.outcomes, self.graph_inputs = outcomes, graph_inputs
 
-    def read_output(self, at: OutputInLoops, item_indexes: ItemIndexes) -> Any:
-        """What the output ``at`` holds for ``item_indexes``: an ``ItemOfSeries``'s is the item of ``item_indexes``, and a field named
+    def read_output(self, source: OutputInLoops, item_indexes: ItemIndexes) -> Any:
+        """What the output ``source`` holds for ``item_indexes``: an ``ItemOfSeries``'s is the item of ``item_indexes``, and a field named
         on the edge is read from it.
 
         Raises:
             NoSuchFieldError: The edge names a field the record doesn't have.
         """
-        depth = at.depth
-        outcome = self.outcomes[at.node_id].get(item_indexes[:depth])
+        depth = source.depth
+        outcome = self.outcomes[source.node_id].get(item_indexes[:depth])
         if outcome is None or type(outcome) is Waiting:
             return NotReady.NOT_READY
-        value = outcome.outputs[at.output]
-        if value is None or value is SKIPPED or type(at) is OutputInLoops:
+        value = outcome.outputs[source.output]
+        if value is None or value is SKIPPED or type(source) is OutputInLoops:
             return value
-        if type(at) is ItemOfSeries:  # ``value`` is a stored Series: one item of it, or one field of that item
-            record_field = at.record_field
+        if type(source) is ItemOfSeries:  # ``value`` is a stored Series: one item of it, or one field of that item
+            record_field = source.record_field
             if record_field is None:
                 return value[item_indexes[depth]]
             cell = value.columns[record_field][item_indexes[depth]]
             if type(cell) is NoSuchFieldError:
                 raise NoSuchFieldError(record_field)
             return cell
-        if type(at) is SeriesAsList:
+        if type(source) is SeriesAsList:
             return value.as_list()
-        field = at.record_field  # type: ignore[attr-defined]  # an edge brings a WholeOutput, an ItemOfSeries or a SeriesAsList, each with its record_field
+        field = source.record_field  # type: ignore[attr-defined]  # an edge brings a WholeOutput, an ItemOfSeries or a SeriesAsList, each with its record_field
         return value if field is None else field_of(value, field)
 
     def collect(self, plan: InputCollectsLoopResults, item_indexes: ItemIndexes) -> Any:
@@ -261,11 +261,11 @@ class DisplayReader(ResultReader):
 
     __slots__ = ()
 
-    def read_output(self, at: OutputInLoops, item_indexes: ItemIndexes) -> Any:
-        """The value of the output ``at`` for the item at ``item_indexes``; ``None`` when the node hasn't
+    def read_output(self, source: OutputInLoops, item_indexes: ItemIndexes) -> Any:
+        """The value of the output ``source`` for the item at ``item_indexes``; ``None`` when the node hasn't
         returned yet, or when the edge names a field the record doesn't have."""
         try:
-            value = ResultReader.read_output(self, at, item_indexes)
+            value = ResultReader.read_output(self, source, item_indexes)
         except NoSuchFieldError:
             return None
         return None if value is NotReady.NOT_READY else value
@@ -336,19 +336,19 @@ class LoopDryRun(Reader):
             self.dry_outcomes[node.name] = self.arguments_for(node, self.item_indexes)
         return self._read_edges(plan)
 
-    def read_output(self, at: OutputInLoops, item_indexes: ItemIndexes) -> Any:
-        """What the output ``at`` holds for an item nobody knows: what its node comes to for any item when it is made
+    def read_output(self, source: OutputInLoops, item_indexes: ItemIndexes) -> Any:
+        """What the output ``source`` holds for an item nobody knows: what its node comes to for any item when it is made
         per item, and as it stands when it is made outside the items, ``MAY_HAVE_VALUE`` for a value."""
-        dry_outcomes = self.dry_outcomes.get(at.node_id)
+        dry_outcomes = self.dry_outcomes.get(source.node_id)
         if dry_outcomes is None:  # made outside the items
             series = self.series
-            if type(at) is ItemOfSeries and at.node_id == series.node_id and at.output == series.output:
-                at = series  # an item of the Series itself is what the Series is: one never made has none
-            value = self.items.read_output(at, self.item_indexes)
+            if type(source) is ItemOfSeries and source.node_id == series.node_id and source.output == series.output:
+                source = series  # an item of the Series itself is what the Series is: one never made has none
+            value = self.items.read_output(source, self.item_indexes)
             return value if value is NotReady.NOT_READY or value is SKIPPED or value is None else MAY_HAVE_VALUE
         if dry_outcomes is NotReady.NOT_READY:
             return NotReady.NOT_READY
-        return MAY_HAVE_VALUE if type(dry_outcomes) is dict else dry_outcomes.outputs[at.output]  # type: ignore[union-attr]  # mypy doesn't narrow a union by ``type(x) is dict``
+        return MAY_HAVE_VALUE if type(dry_outcomes) is dict else dry_outcomes.outputs[source.output]  # type: ignore[union-attr]  # mypy doesn't narrow a union by ``type(x) is dict``
 
     def collect(self, plan: InputCollectsLoopResults, item_indexes: ItemIndexes) -> Any:
         """What a gathering input met on the way holds for an item nobody knows. One whose Series is made per

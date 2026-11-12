@@ -181,7 +181,7 @@ class Scheduler:
         self.complete: set[FlatNode] = {node for node in self.nodes if node.node_path in finished} if finished else set()
         if self.complete and emit is not None:
             for node in list(self.complete):
-                self._complete_around(node, say=False)
+                self._complete_around(node, announce=False)
         #: The nodes said skipped: every unit a branch not taken.
         self.skipped: set[FlatNode] = set()
         self.touched = with_outcomes - self.complete
@@ -640,16 +640,16 @@ class Scheduler:
             else:
                 not_called = sum(type(outcome) is NotCalled for outcome in outcomes.values())
                 emit(NodeComplete(loc=node.node_path, outcomes=len(outcomes), not_called=not_called, reused=self.reused[node]))
-            self._complete_around(node, say=True)
+            self._complete_around(node, announce=True)
 
-    def _complete_around(self, node: FlatNode, say: bool) -> None:
+    def _complete_around(self, node: FlatNode, announce: bool) -> None:
         """Count the subgraph's node around ``node`` as complete once every node inside it is, and so on
-        outwards; with ``say``, tell the listener: skipped when every node inside was, else complete, with one
+        outwards; with ``announce``, tell the listener: skipped when every node inside was, else complete, with one
         unit for each item the subgraph's node runs for."""
         around = node.parent
         while around is not None and around not in self.complete and all(inner in self.complete for inner in around.nodes):
             self.complete.add(around)
-            if say and self.emit is not None:
+            if announce and self.emit is not None:
                 if all(inner in self.skipped for inner in around.nodes):
                     self.skipped.add(around)
                     self.emit(NodeSkipped(loc=around.node_path))

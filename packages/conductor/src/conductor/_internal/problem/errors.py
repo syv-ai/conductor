@@ -55,7 +55,7 @@ from pydantic import JsonValue, TypeAdapter, ValidationError
 from conductor._internal.problem.catalogue import external_failed, failed
 from conductor._internal.problem.type import Problem
 
-_SAID_OF_A_VALIDATOR = "The value did not pass its type's own check."
+_VALIDATOR_PREFIX = "The value did not pass its type's own check."
 
 
 def value_free_errors(invalid: ValidationError) -> list[dict[str, Any]]:
@@ -67,7 +67,7 @@ def value_free_errors(invalid: ValidationError) -> list[dict[str, Any]]:
     it may quote the value.
     """
     return [
-        {"type": error["type"], "loc": [], "msg": _SAID_OF_A_VALIDATOR if {"error", "tag"} & error.get("ctx", {}).keys() else error["msg"]}
+        {"type": error["type"], "loc": [], "msg": _VALIDATOR_PREFIX if {"error", "tag"} & error.get("ctx", {}).keys() else error["msg"]}
         for error in invalid.errors(include_url=False, include_input=False)
     ]
 

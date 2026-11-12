@@ -171,8 +171,8 @@ def _upgrade_problems(older: NodeDefinition, registry: NodeRegistry, given: Sequ
     problems = registry.load(upgraded).problems
     if not problems:
         return []
-    said = "; ".join(f"{p.type}: {p.msg}" for p in problems)
-    return [kit_problem.upgrade_broken(older.id, older.version, newest=newest, reason=said, cause=[p.type for p in problems], problems=[p.model_dump(mode="json") for p in problems])]
+    reason = "; ".join(f"{p.type}: {p.msg}" for p in problems)
+    return [kit_problem.upgrade_broken(older.id, older.version, newest=newest, reason=reason, cause=[p.type for p in problems], problems=[p.model_dump(mode="json") for p in problems])]
 
 
 def _run_problems(version: NodeDefinition, registry: NodeRegistry, example: _Example, from_run: Mapping[type, Any]) -> list[Problem]:
@@ -206,18 +206,18 @@ def _run_problems(version: NodeDefinition, registry: NodeRegistry, example: _Exa
     match run.state:
         case EndedEarly(status=status, cause=cause):
             # a body's own exception reaches the problem as its class only; the message says which
-            said = f"the node raised {cause.ctx['error']}" if cause.type == "execution_failed" else cause.msg
-            found.append(kit_problem.run_failed(version.id, version.version, status=status, reason=said, cause=[cause.type], problems=[cause.model_dump(mode="json")]))
+            reason = f"the node raised {cause.ctx['error']}" if cause.type == "execution_failed" else cause.msg
+            found.append(kit_problem.run_failed(version.id, version.version, status=status, reason=reason, cause=[cause.type], problems=[cause.model_dump(mode="json")]))
     return found
 
 
 def _not_loaded(version: NodeDefinition, problems: Sequence[Problem]) -> list[Problem]:
     """The one problem of an example that doesn't load: a hook's when every cause is, else the run's."""
-    said = "; ".join(p.msg for p in problems)
+    reason = "; ".join(p.msg for p in problems)
     cause, written = [p.type for p in problems], [p.model_dump(mode="json") for p in problems]
     if all(p.type in _HOOK_CODES for p in problems):
-        return [kit_problem.hook_failed_on_an_example(version.id, version.version, reason=said, cause=cause, problems=written)]
-    return [kit_problem.example_not_loaded(version.id, version.version, reason=said, cause=cause, problems=written)]
+        return [kit_problem.hook_failed_on_an_example(version.id, version.version, reason=reason, cause=cause, problems=written)]
+    return [kit_problem.example_not_loaded(version.id, version.version, reason=reason, cause=cause, problems=written)]
 
 
 def _watched(version: FunctionDefinition[..., Any]) -> tuple[FunctionDefinition[..., Any], list[str]]:
