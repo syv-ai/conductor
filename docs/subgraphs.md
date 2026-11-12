@@ -45,7 +45,7 @@ version 1 keeps running version 1 until [`registry.upgrade`](writing-nodes.md#a-
 
 Wire it like any node. Its inputs are its graph's inputs, by their names there, and its outputs are its graph's
 outputs, by their addresses there, so an edge from it reads `shout.exclaim.result`. `make_graph` wants its `edges=` written
-out: with a subgraph in the list and no `edges=`, it raises `not_a_chain`:
+out: a chain from or to a subgraph raises `not_a_chain`:
 
 ```python
 graph = Graph.compile(make_graph(split, shout, join, edges=[("split.result", "shout.text"), ("shout.exclaim.result", "join.texts")]), registry)

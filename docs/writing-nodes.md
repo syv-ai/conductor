@@ -2,7 +2,7 @@
 
 This page is for you if you write nodes that other people use in their graphs: a package of nodes, or the nodes your own editor offers. The [first page](https://github.com/syv-ai/conductor#readme) shows a host (the application that runs graphs) compiling and running a graph. Here every example builds its own small graph with `make_graph`, so you can see what a node does in one. The blocks run in order as one script.
 
-`make_graph(a, b)` writes a graph record from Python. Each node goes under its own id, `upper-1` and `upper-2` when one is used twice. With no `edges`, the nodes form a chain: each takes its one required input from the one output of the node before it. `edges=[("a.result", "b.text")]` names the edges instead; an output of one value is named `result`. `constants={"a.text": "hi"}` gives an input a constant, a value it has on every call of every run, and `defaults=` gives one a value the caller may change. Every key is an address, `"node.input"`. `make_graph` only writes the record. It raises for what it can't write: a value for a node it wasn't given, a value with no JSON form, an edge that is no address, a chain it can't draw. Everything else is found when the record is compiled, in `Graph.compile(record, registry).problems`: an input a node doesn't have, a value of the wrong type, a default on an input that isn't a graph input (a caller gives only the inputs with no edge on the nodes no edge leads into), an edge between types that don't fit.
+`make_graph(a, b)` writes a graph record from Python. Each node goes under its own id, `upper-1` and `upper-2` when one is used twice. With no `edges`, the nodes form a chain: each takes its one required input from the one output of the node before it. `edges=[("a.result", "b.text")]` names the edges instead; an output of one value is named `result`. `constants={"a.text": "hi"}` gives an input a constant, a value it has on every call of every run, and `defaults=` gives one a value the caller may change. Every key is an address, `"node.input"`. `make_graph` only writes the record. It raises for what it can't write: a value for a node it wasn't given, a value with no JSON form, an edge that is no address, a chain it can't draw. Everything else is found when the record is compiled, in `Graph.compile(record, registry).problems`: an input a node doesn't have, a value of the wrong type, a default on an input that isn't a graph input (a caller gives only the inputs with no edge on the nodes no edge leads into; a required input with no edge on any other node is `unbound_on_later_node`), an edge between types that don't fit.
 
 The rules in full are in the reference: `python -m conductor.about`.
 
@@ -84,7 +84,7 @@ print(EntityDropdown(entity_kind="customer").model_dump(mode="json"))
 # {'type': 'entity-dropdown', 'entity_kind': 'customer'}
 ```
 
-Pass an instance, `widget=Textarea()`: a type checker refuses the class passed bare, `widget=Textarea`.
+Pass an instance, `widget=Textarea()`: the class passed bare, `widget=Textarea`, is refused by a type checker and raises a `TypeError` where the node is declared.
 
 ## Types
 
@@ -489,7 +489,7 @@ match run.state:  # a run that failed, stopped or timed out says why
 
 `ctx=` takes what a host needs beyond the text, as JSON values: text, numbers, `True`/`False`, `None`, lists and dicts of them. The host reads it as `cause.ctx`. A problem is saved and streamed as JSON, so a `ctx` with anything else in it (an object, a set, a tuple, a date) raises pydantic's `ValidationError` at your `raise`, and the node fails as `execution_failed`. A run's `state` is `Going(status)` while nothing ended it early, and `EndedEarly(status, cause)` when it failed, stopped, was cancelled or timed out.
 
-Any other exception fails the node too. Its traceback goes to the `conductor` logger, and only its class name reaches the host, so a value your node handled never leaks into an event.
+Any other exception fails the node too. Its traceback goes to the `conductor` logger, and the host gets a fixed message with only the exception's class name, in `cause.ctx["error"]`, so a value your node handled never leaks into an event.
 
 Raise `ExternalError` (a subclass of `NodeError`) when the outside world failed: a timeout, a rate limit, a server error. Only that is retried, under the node's `Policy`. A bug fails the same way every time, so it isn't retried:
 
