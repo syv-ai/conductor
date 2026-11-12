@@ -38,7 +38,8 @@ def json_hash(value: Any, size: int, *, keys_sorted: bool, fallback: Callable[[A
     Raises:
         PydanticSerializationError: A value has no JSON form, and ``fallback`` gave none.
     """
-    if not keys_sorted:
-        return short_hash(to_json(value, fallback=fallback), size)
-    plain = to_jsonable_python(value, fallback=fallback)
-    return short_hash(json.dumps(plain, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode(), size)
+    if keys_sorted:
+        text = json.dumps(to_jsonable_python(value, fallback=fallback), sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+    else:
+        text = to_json(value, fallback=fallback)
+    return hashlib.blake2b(text, digest_size=size).hexdigest()  # short_hash's one line, written out: a call less on every waiting question
