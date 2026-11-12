@@ -143,6 +143,21 @@ class _Timer:
     seconds: float = field(compare=False)
 
 
+@dataclass(slots=True)
+class _Checkpoints:
+    """Hands the host a copy of the run at most every ``every`` seconds, while outcomes are recorded.
+
+    Attributes:
+        save: Called with the run's state; it copies the run and hands the copy to the host.
+        every: The least number of seconds between two checkpoints.
+        next_at: The ``time.monotonic()`` from which the next recorded outcome is followed by a checkpoint.
+    """
+
+    save: Callable[[RunState], None]
+    every: float
+    next_at: float
+
+
 class Scheduler:
     """One leg over the units of a run, which it records into.
 
@@ -162,7 +177,7 @@ class Scheduler:
         checkpoint: Callable[[RunState], None] | None = None, checkpoint_every: float | None = None,
     ) -> None:
         self.nodes, self.threads, self.all_outcomes, self.max_items, self.arguments_for = nodes, threads, outcomes, max_items, arguments_for
-        self.stop, self.context, self.checkpoint = stop, context, checkpoint
+        self.stop, self.context = stop, context
         #: What tells the listener about each node; None when nobody listens.
         self.node_events = NodeEvents(emit, nodes, outcomes, finished) if emit is not None else None
         #: How the run stands for this leg: running, until the leg ends it early or closes.
@@ -177,8 +192,12 @@ class Scheduler:
         self.reusable = reusable
         #: Whether nothing has ended the leg early; ``end`` is the one place that does.
         self.going = True
-        self.checkpoint_every = checkpoint_every if checkpoint is not None else None
-        self.next_checkpoint = time.monotonic() + checkpoint_every if checkpoint_every is not None else 0.0
+        #: When the host is handed a copy of the run; None when it asked for none.
+        self.checkpoints = (
+            _Checkpoints(checkpoint, checkpoint_every, time.monotonic() + checkpoint_every)
+            if checkpoint is not None and checkpoint_every is not None
+            else None
+        )
         #: (node position, instance): the units to try, in that order.
         self.ready: list[tuple[int, ItemIndexes]] = []
         #: Whether a walk ended or a unit was recorded outside one since the leg last looked over the run.
@@ -186,7 +205,10 @@ class Scheduler:
         #: (node, an instance above its own): a node that gathers, started in the instances under that one once
         #: nothing it reads still works there.
         self.collectors: set[tuple[FlatFunctionNode, ItemIndexes]] = set()
-        self.running: dict[tuple[FlatFunctionNode, ItemIndexes], dict[str, Any]] = {}  # units handed to threads, and their inputs
+        #: The calls with an attempt on a thread, waiting for a thread, or waiting to be retried, each with that attempt.
+        #: speed only: a dict where a set would do. It is listed whenever nothing is ready, and a set that had 2,000 calls
+        #: in it is slow to list for the rest of its life: 18% of a run of 6,000 calls on threads.
+        self.running: dict[tuple[FlatFunctionNode, ItemIndexes], _Attempt] = {}
         self.attempts: dict[tuple[FlatFunctionNode, ItemIndexes], int] = {}  # the attempt each unit on a thread is on
         #: Each node's tries waiting for a thread, first come first.
         self.waiting_for_thread: defaultdict[FlatFunctionNode, deque[_Attempt]] = defaultdict(deque)
@@ -227,8 +249,8 @@ class Scheduler:
                         break
                 else:
                     self._wait()
-            if self.checkpoint_every is not None and self.running:  # stopped with calls on threads: the drain may outlast the process
-                self._checkpoint()
+            if self.checkpoints is not None and self.running:  # stopped with calls on threads: the drain may outlast the process
+                self._checkpoint(self.checkpoints)
             while self.running:  # calls already made had their effect: keep them, as long as their timeouts allow
                 self._wait()
         finally:
@@ -272,14 +294,14 @@ class Scheduler:
                     returned = self.returned.get(timeout=timeout)
             if isinstance(returned, BaseException):
                 raise returned
-            self._returned(returned)
+            self._call_returned(returned)
         except Empty:
             pass
         now = time.monotonic()
         while self.timers and self.timers[0].when <= now:
             self._due(heapq.heappop(self.timers))
 
-    def _after(self, seconds: float, kind: Literal["retry", "deadline"], attempt: _Attempt) -> None:
+    def _set_timer(self, seconds: float, kind: Literal["retry", "deadline"], attempt: _Attempt) -> None:
         """Set a timer ``seconds`` from now: the retry ``attempt``, or the deadline of ``attempt``, which is on a thread."""
         heapq.heappush(self.timers, _Timer(time.monotonic() + seconds, next(self.timer_order), kind, attempt, seconds))
 
@@ -293,15 +315,14 @@ class Scheduler:
             if self.pool is None:
                 self.pool = ThreadPoolExecutor(self.threads, "conductor")
             if policy.attempt_timeout is not None:
-                self._after(policy.attempt_timeout, "deadline", attempt)
+                self._set_timer(policy.attempt_timeout, "deadline", attempt)
             self.pool.submit(self._on_thread, attempt)
 
-    def _checkpoint(self) -> None:
+    def _checkpoint(self, checkpoints: _Checkpoints) -> None:
         """Hand the listener a copy of the run as it stands, and set when the next is due."""
-        assert self.checkpoint is not None and self.checkpoint_every is not None
-        self.next_checkpoint = time.monotonic() + self.checkpoint_every
+        checkpoints.next_at = time.monotonic() + checkpoints.every
         self._put_in_order()
-        self.checkpoint(self.state)
+        checkpoints.save(self.state)
 
     def _put_in_order(self) -> None:
         """Put the units of each node recorded out of instance order back in it, so the run holds every node's
@@ -378,7 +399,7 @@ class Scheduler:
             if self.node_events is not None:
                 self.node_events.call_starts(node)
             if policy.threaded or policy.retries:
-                self._make(_Attempt(node, item_indexes, arguments, 0), trying_every_call)
+                self._make_attempt(_Attempt(node, item_indexes, arguments, 0), trying_every_call)
             else:
                 self._record(node, item_indexes, self._outcome(node, item_indexes, arguments, *call(node, arguments, self.context)), trying_every_call)
 
@@ -409,7 +430,7 @@ class Scheduler:
         if self.node_events is not None:
             self.node_events.scheduler_ended()
 
-    def _make(self, attempt: _Attempt, trying_every_call: bool = False) -> None:
+    def _make_attempt(self, attempt: _Attempt, trying_every_call: bool = False) -> None:
         """Make one try of a call: on the spot for a node that is not called on threads, else on a thread as soon as
         the node's ``concurrency`` allows."""
         node, item_indexes, arguments = attempt.node, attempt.item_indexes, attempt.arguments
@@ -420,7 +441,7 @@ class Scheduler:
                     self.running.pop((node, item_indexes), None)
                 self._record(node, item_indexes, self._outcome(node, item_indexes, arguments, out, error), trying_every_call)
             return
-        self.running[(node, item_indexes)] = arguments
+        self.running[(node, item_indexes)] = attempt
         self.waiting_for_thread[node].append(attempt)
         self._start_waiting_calls(node)
 
@@ -440,12 +461,12 @@ class Scheduler:
         node, item_indexes = attempt.node, attempt.item_indexes
         if timer.kind == "retry":
             if self.going:
-                self._make(attempt)
+                self._make_attempt(attempt)
         elif self.attempts.get((node, item_indexes)) == attempt.number and (node, item_indexes) in self.running:  # the attempt still runs
             del self.running[(node, item_indexes)]
             self._record(node, item_indexes, problem.timeout(*outcome_loc(node, item_indexes), seconds=timer.seconds))
 
-    def _returned(self, returned: _Returned) -> None:
+    def _call_returned(self, returned: _Returned) -> None:
         """A call came back from its thread: free its slot, and keep what it came to unless its attempt was
         given up."""
         attempt, out, error = returned.attempt, returned.outputs, returned.error
@@ -474,8 +495,9 @@ class Scheduler:
         if not isinstance(error, ExternalError) and (isinstance(error, _NEVER_RETRIED) or not isinstance(error, policy.retry_on)):
             return False
         delay = policy.retry_delay * 2**attempt.number
-        self.running[(node, item_indexes)] = attempt.arguments
-        self._after(delay, "retry", _Attempt(node, item_indexes, attempt.arguments, attempt.number + 1))
+        retry = _Attempt(node, item_indexes, attempt.arguments, attempt.number + 1)
+        self.running[(node, item_indexes)] = retry
+        self._set_timer(delay, "retry", retry)
         if self.node_events is not None:
             self.node_events.call_retries(node, item_indexes, attempt.number + 1, delay, self._failure(node, item_indexes, error))
         return True
@@ -518,8 +540,8 @@ class Scheduler:
         if not trying_every_call:
             self.recorded_since_last_pass += 1
             self.changed = True
-        if self.checkpoint_every is not None and time.monotonic() >= self.next_checkpoint:
-            self._checkpoint()
+        if (checkpoints := self.checkpoints) is not None and time.monotonic() >= checkpoints.next_at:
+            self._checkpoint(checkpoints)
         if self.max_items is not None and node.looped_outputs and outcome.has_outputs and self._stop_if_over_item_limit(node, item_indexes, outcome, self.max_items):
             return
         if self.node_events is not None:
