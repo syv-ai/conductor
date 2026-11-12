@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import functools
-import types
 from collections.abc import Mapping
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Self
 
 from conductor._internal.compiled import CompiledGraph, compile_graph
@@ -43,7 +43,7 @@ class Graph(CompiledGraph):
         return compile_graph(as_record(record), registry._nodes, cls)
 
     def with_inputs(
-        self, inputs: Mapping[str, Any] = types.MappingProxyType({}), /, *, max_items: int | None = None, previous: Run | None = None, **by_name: Any,
+        self, inputs: Mapping[str, Any] = MappingProxyType({}), /, *, max_items: int | None = None, previous: Run | None = None, **by_name: Any,
     ) -> Run:
         """A run with the caller's inputs checked, not started; ``run.resume()`` starts it.
 
@@ -69,8 +69,8 @@ class Graph(CompiledGraph):
         return Run(self, checked, max_items, no_outcomes(self), previous._reusable_outcomes(into=self) if previous is not None else {})
 
     def run(
-        self, inputs: Mapping[str, Any] = types.MappingProxyType({}), /, *, max_items: int | None = None,
-        context: Mapping[type, Any] = types.MappingProxyType({}), timeout: float | None = None, **by_name: Any,
+        self, inputs: Mapping[str, Any] = MappingProxyType({}), /, *, max_items: int | None = None,
+        context: Mapping[type, Any] = MappingProxyType({}), timeout: float | None = None, **by_name: Any,
     ) -> Run:
         """Run the graph with these inputs until it is done, waits for a person, fails or stops."""
         return self.with_inputs(inputs, max_items=max_items, **by_name).resume(context=context, timeout=timeout)

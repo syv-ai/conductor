@@ -14,11 +14,11 @@ The decorator checks the declaration when the class statement ends and stores it
 from __future__ import annotations
 
 import datetime
-import decimal
 import typing
-import uuid
 from collections.abc import Callable, Mapping
+from decimal import Decimal
 from typing import Annotated, Any
+from uuid import UUID
 
 from pydantic import Field as PydanticField
 from pydantic import TypeAdapter, ValidationError, field_validator
@@ -32,9 +32,9 @@ from conductor._internal.problem import NodeDeclarationError
 #: packages, and every other class a field has is declared with ``@host_type``.
 NAMES: Mapping[Any, tuple[str, str]] = {
     Any: ("Any", "Any value"), object: ("object", "Any value"), type(None): ("None", "Nothing"), bool: ("bool", "Yes or no"),
-    int: ("int", "Whole number"), float: ("float", "Number"), decimal.Decimal: ("Decimal", "Decimal number"), str: ("str", "Text"),
+    int: ("int", "Whole number"), float: ("float", "Number"), Decimal: ("Decimal", "Decimal number"), str: ("str", "Text"),
     bytes: ("bytes", "Bytes"), datetime.date: ("date", "Date"), datetime.datetime: ("datetime", "Date and time"),
-    datetime.time: ("time", "Time of day"), datetime.timedelta: ("timedelta", "Duration"), uuid.UUID: ("UUID", "UUID"),
+    datetime.time: ("time", "Time of day"), datetime.timedelta: ("timedelta", "Duration"), UUID: ("UUID", "UUID"),
     dict: ("dict", "Mapping"), list: ("list", "List"), tuple: ("tuple", "Tuple"), set: ("set", "Set"), frozenset: ("frozenset", "Set"),
 }
 

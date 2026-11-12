@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from typing import Any, cast
 
-import pydantic_core
+from pydantic_core import PydanticSerializationError
 
 from conductor._internal.ask import Question
 from conductor._internal.field import Field
@@ -151,6 +151,6 @@ def first_unwritable_value(inputs: Mapping[str, Type], outputs: Mapping[str, Map
     for at, (written_by, value) in columns.items():
         try:
             written_by.adapter.serializer.to_json(value)
-        except pydantic_core.PydanticSerializationError:
+        except PydanticSerializationError:
             return at
     return "the run"

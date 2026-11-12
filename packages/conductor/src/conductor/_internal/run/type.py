@@ -24,15 +24,19 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import math
-import threading
 import time
+from asyncio import AbstractEventLoop, Queue
+from asyncio import Event as AsyncioEvent
 from collections.abc import AsyncGenerator, Callable, Iterator, Mapping
 from dataclasses import dataclass, field
+from threading import Event as ThreadEvent
+from threading import Thread
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, cast, overload
 
 import pydantic_core
 from pydantic import ValidationError
+from pydantic_core import PydanticSerializationError
 
 from conductor._internal import outcomes
 from conductor._internal.address import (
@@ -187,8 +191,8 @@ class Run:
         return self._run_scheduler(context_values(self.graph._needs_context, context), None, _deadline(timeout))
 
     def stream(
-        self, *, context: Mapping[type, Any] = MappingProxyType({}), timeout: float | None = None, cancel: asyncio.Event | None = None,
-        hand_back: asyncio.Event | None = None, checkpoint_every: float | None = None,
+        self, *, context: Mapping[type, Any] = MappingProxyType({}), timeout: float | None = None, cancel: AsyncioEvent | None = None,
+        hand_back: AsyncioEvent | None = None, checkpoint_every: float | None = None,
     ) -> AsyncGenerator[Event]:
         """``resume``, saying what happens as it happens: ``async for event in run.stream(): ...``.
 
@@ -213,11 +217,11 @@ class Run:
         return self._stream(context_values(self.graph._needs_context, context), timeout, cancel, hand_back, checkpoint_every)
 
     async def _stream(
-        self, context: dict[type, Any], timeout: float | None, cancel: asyncio.Event | None, hand_back: asyncio.Event | None,
+        self, context: dict[type, Any], timeout: float | None, cancel: AsyncioEvent | None, hand_back: AsyncioEvent | None,
         checkpoint_every: float | None,
     ) -> AsyncGenerator[Event]:
-        loop, events = asyncio.get_running_loop(), asyncio.Queue["Event | None"]()
-        cancelled = threading.Event()
+        loop, events = asyncio.get_running_loop(), Queue["Event | None"]()
+        cancelled = ThreadEvent()
         deadline = _deadline(timeout)
 
         def stop() -> RunState | None:
@@ -237,7 +241,7 @@ class Run:
             finally:
                 _hand_over(loop, events, None)
 
-        thread = threading.Thread(target=leg, name="conductor-scheduler", daemon=True)
+        thread = Thread(target=leg, name="conductor-scheduler", daemon=True)
         thread.start()
         try:
             while (event := await events.get()) is not None:
@@ -496,7 +500,7 @@ class Run:
                 hint = list[hint] | None
             try:
                 written[address] = Type(hint).to_json(value)
-            except pydantic_core.PydanticSerializationError:
+            except PydanticSerializationError:
                 raise InvalidCallError([problem.run_unwritable("outputs", address, where=address, reason="a value has no JSON form")]) from None
         return pydantic_core.to_json(written).decode()
 
@@ -551,7 +555,7 @@ class Run:
         saved, codec = self._to_saved(), self.graph._run_codec
         try:
             return codec.serializer.to_json(saved, exclude_defaults=True).decode()
-        except pydantic_core.PydanticSerializationError:
+        except PydanticSerializationError:
             at = first_unwritable_value(codec.inputs, codec.outputs, saved)
             raise InvalidCallError([problem.run_unwritable("state", at, where=at, reason="a value has no JSON form")]) from None
 
@@ -646,7 +650,7 @@ def _seconds(value: float) -> bool:
 # -- values -------------------------------------------------------------------------------------
 
 
-def _hand_over(loop: asyncio.AbstractEventLoop, events: asyncio.Queue[Any], event: Any) -> None:
+def _hand_over(loop: AbstractEventLoop, events: Queue[Any], event: Any) -> None:
     """Put an event on the listener's queue from the leg's thread; a listener whose loop has closed is gone, and hears nothing."""
     try:
         loop.call_soon_threadsafe(events.put_nowait, event)

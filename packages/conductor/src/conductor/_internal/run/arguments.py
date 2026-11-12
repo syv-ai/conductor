@@ -36,6 +36,7 @@ and no rule is written for "any item" that isn't the rule for one.
 from __future__ import annotations
 
 import abc
+from abc import ABC
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Final, Literal, cast
 
@@ -67,7 +68,7 @@ class _MayHaveValue:
 MAY_HAVE_VALUE: Final = _MayHaveValue()
 
 
-class Reader(abc.ABC):
+class Reader(ABC):
     """Reads what a node's inputs hold, and says what the node comes to: the node rule, over a way to read a
     output.
 

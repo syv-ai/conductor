@@ -7,10 +7,10 @@ from __future__ import annotations
 import dataclasses
 import functools
 import operator
-import types
 import typing
 from collections.abc import Iterable, Mapping
-from typing import Any, TypeGuard, TypeVar, Union, get_args, get_origin
+from types import GenericAlias, UnionType
+from typing import Any, TypeAliasType, TypeGuard, TypeVar, Union, get_args, get_origin
 
 from pydantic import BaseModel, JsonValue
 
@@ -20,12 +20,12 @@ READ_AS: dict[type, Any] = {}
 
 def union_members(hint: Any) -> tuple[Any, ...]:
     """Gives the members of a union, or the hint itself as the one member of any other type."""
-    return get_args(hint) if get_origin(hint) in (Union, types.UnionType) else (hint,)
+    return get_args(hint) if get_origin(hint) in (Union, UnionType) else (hint,)
 
 
 def list_of(item: Any) -> Any:
     """Gives ``list[item]`` for an ``item`` known only when a hint is read."""
-    return types.GenericAlias(list, (item,))
+    return GenericAlias(list, (item,))
 
 
 def union_of(options: Iterable[Any]) -> Any:
@@ -33,9 +33,9 @@ def union_of(options: Iterable[Any]) -> Any:
     return functools.reduce(operator.or_, options)
 
 
-def is_alias(hint: Any) -> TypeGuard[typing.TypeAliasType]:
+def is_alias(hint: Any) -> TypeGuard[TypeAliasType]:
     """Says whether ``hint`` is a named type alias (``type X = ...``): typing's, or the one pydantic's own aliases are."""
-    return isinstance(hint, (typing.TypeAliasType, type(JsonValue)))
+    return isinstance(hint, (TypeAliasType, type(JsonValue)))
 
 
 def is_record(cls: Any) -> bool:

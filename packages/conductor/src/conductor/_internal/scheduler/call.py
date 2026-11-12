@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from typing import Any
 
 import pydantic_core
+from pydantic_core import PydanticSerializationError
 
 from conductor._internal.compiled import FlatFunctionNode
 from conductor._internal.field import Field
@@ -99,10 +100,10 @@ def jsonable(arguments: dict[str, Any]) -> Any:
     the first input with no JSON form."""
     try:
         return pydantic_core.from_json(pydantic_core.to_json(arguments, fallback=untyped_as_json, inf_nan_mode="strings"))
-    except (TypeError, ValueError, pydantic_core.PydanticSerializationError) as error:
+    except (TypeError, ValueError, PydanticSerializationError) as error:
         for name, value in arguments.items():
             try:
                 pydantic_core.to_json(value, fallback=untyped_as_json, inf_nan_mode="strings")
-            except (TypeError, ValueError, pydantic_core.PydanticSerializationError) as unwritable:
+            except (TypeError, ValueError, PydanticSerializationError) as unwritable:
                 raise CallRejectedError(problem.question_unwritable(reason=str(unwritable), input=name)) from None
         raise error

@@ -16,6 +16,7 @@ import contextlib
 import logging
 import time
 import uuid
+from asyncio import Event, Lock, Task
 from collections.abc import AsyncGenerator, Callable, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field, replace
@@ -68,8 +69,8 @@ class _Hold:
     run_id: str
     rev: int
     state: StoredState
-    stop: asyncio.Event = field(default_factory=asyncio.Event)
-    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    stop: Event = field(default_factory=Event)
+    lock: Lock = field(default_factory=Lock)
     released: bool = False
     reads: int = 0
 
@@ -118,8 +119,8 @@ class Worker(Generic[C]):
         self._checkpoint_every = checkpoint_every
         self._leg_timeout = leg_timeout
         self._poll = poll
-        self._holds: dict[_Hold, asyncio.Task[None]] = {}
-        self._handing_back = asyncio.Event()
+        self._holds: dict[_Hold, Task[None]] = {}
+        self._handing_back = Event()
 
     # -- what a route calls -----------------------------------------------------------------------
 

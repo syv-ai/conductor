@@ -6,9 +6,9 @@ from __future__ import annotations
 
 import dataclasses
 import datetime
-import decimal
 import functools
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Annotated, Any, Literal, get_args, get_origin
 
 from pydantic import Field as PydanticField
@@ -31,7 +31,7 @@ from conductor.widgets import Widget
 _LIMITS = ("ge", "gt", "le", "lt", "multiple_of", "min_length", "max_length", "pattern")
 
 #: What a bound may be: a number's, a date's, a time's or a duration's.
-_Bound = float | decimal.Decimal | datetime.date | datetime.time | datetime.timedelta
+_Bound = float | Decimal | datetime.date | datetime.time | datetime.timedelta
 
 
 @dataclass(frozen=True, kw_only=True)

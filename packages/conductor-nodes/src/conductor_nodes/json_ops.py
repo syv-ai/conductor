@@ -2,6 +2,7 @@
 
 import json
 import re
+from json import JSONDecodeError
 from typing import Annotated
 
 from conductor import NodeError, NodeRegistry, Param
@@ -20,7 +21,7 @@ def parse(text: JsonText) -> Annotated[JsonValue, Param(title="Parsed")]:
     """Reads a JSON text into a value; fails on text that isn't JSON."""
     try:
         parsed: JsonValue = json.loads(text)
-    except json.JSONDecodeError as error:
+    except JSONDecodeError as error:
         raise NodeError(f"The text is not JSON: {error.msg}, at character {error.pos}.", code="not_json") from None
     return parsed
 

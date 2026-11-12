@@ -15,6 +15,8 @@ from typing import Annotated
 
 import regex
 from conductor import NodeError, NodeRegistry, Param, Series
+from regex import Pattern
+from regex import error as RegexError
 
 from conductor_nodes._inputs import Flag, Line, LongText
 
@@ -36,11 +38,11 @@ def _pattern_faults(invalid: str = "invalid_pattern", what: str = "pattern") -> 
         yield
     except TimeoutError:
         raise NodeError("The pattern took too long.", code="pattern_timeout") from None
-    except regex.error as error:
+    except RegexError as error:
         raise NodeError(f"The {what} is not valid: {error}.", code=invalid) from None
 
 
-def _compiled(pattern: str, ignore_case: bool) -> regex.Pattern[str]:
+def _compiled(pattern: str, ignore_case: bool) -> Pattern[str]:
     with _pattern_faults():
         return regex.compile(pattern, flags=regex.IGNORECASE if ignore_case else 0)
 

@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import datetime
-import decimal
 import hashlib
 import weakref
 from collections.abc import Mapping
+from decimal import Decimal
 from typing import Any
 
 import polars as pl
@@ -19,7 +19,7 @@ CELLS: Mapping[type, tuple[Any, CoreSchema]] = {
     bool: (pl.Boolean, core_schema.bool_schema()), int: (pl.Int64, core_schema.int_schema()), float: (pl.Float64, core_schema.float_schema()),
     str: (pl.String, core_schema.str_schema()), datetime.date: (pl.Date, core_schema.date_schema()),
     datetime.datetime: (pl.Datetime, core_schema.datetime_schema()), datetime.time: (pl.Time, core_schema.time_schema()),
-    datetime.timedelta: (pl.Duration, core_schema.timedelta_schema()), decimal.Decimal: (pl.Decimal, core_schema.decimal_schema()),
+    datetime.timedelta: (pl.Duration, core_schema.timedelta_schema()), Decimal: (pl.Decimal, core_schema.decimal_schema()),
 }
 
 #: The polars dtype of a written column, by the word it says its type with.

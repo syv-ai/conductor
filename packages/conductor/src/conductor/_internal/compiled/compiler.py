@@ -25,9 +25,9 @@ import logging
 import typing
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Annotated, Any, Literal, TypeVar
+from typing import Annotated, Any, Literal, NamedTuple, TypeVar
 
-import pydantic
+from pydantic import StringConstraints, TypeAdapter, ValidationError
 
 from conductor._internal.compiled.describe import GraphInput
 from conductor._internal.compiled.input_plans import (
@@ -80,10 +80,10 @@ def compile_graph[GraphT: CompiledGraph](record: GraphRecord, definitions: Mappi
 _INVALID: Any = object()
 
 #: Reads what a hook returns: fields by name, a name holding none of the marks an address is written with.
-_HOOK_FIELDS = pydantic.TypeAdapter(dict[Annotated[str, pydantic.StringConstraints(min_length=1, pattern=r"^[^./@]+$")], Any])
+_HOOK_FIELDS = TypeAdapter(dict[Annotated[str, StringConstraints(min_length=1, pattern=r"^[^./@]+$")], Any])
 
 
-class RequiredBranch(typing.NamedTuple):
+class RequiredBranch(NamedTuple):
     """One way a decision must go for a node to hold a value.
 
     Attributes:
@@ -450,7 +450,7 @@ class _Compiler:
             return None
         try:
             hints = _HOOK_FIELDS.validate_python(returned)
-        except pydantic.ValidationError as invalid:
+        except ValidationError as invalid:
             for fault in invalid.errors():
                 if fault["loc"]:  # a name refused: the place is the name
                     self.problems.append(problem.parameter_name_invalid(record.id, str(fault["loc"][0])))

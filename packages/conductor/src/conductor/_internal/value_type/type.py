@@ -9,11 +9,11 @@ from __future__ import annotations
 
 import datetime
 import functools
-import types
 import typing
-import weakref
 from collections.abc import Callable, Mapping
+from types import UnionType
 from typing import Annotated, Any, ClassVar, Literal, TypeVar, Union, get_args, get_origin
+from weakref import WeakValueDictionary
 
 from pydantic import ConfigDict, JsonValue, TypeAdapter, ValidationError
 from pydantic.errors import PydanticInvalidForJsonSchema, PydanticSchemaGenerationError
@@ -70,7 +70,7 @@ def _written(hint: Any) -> str:
     if is_alias(hint):
         return f"{hint.__module__}.{hint.__name__}"
     if args:
-        name = "Union" if origin in (Union, types.UnionType) else _written(origin)
+        name = "Union" if origin in (Union, UnionType) else _written(origin)
         return f"{name}[{', '.join(map(_written, args))}]"
     return f"{hint.__module__}.{hint.__qualname__}" if isinstance(hint, type) else repr(hint)
 
@@ -103,7 +103,7 @@ class Type:
     keys_in_order: ClassVar[bool] = False
     may_write_once: bool = False
     typed_in_advice: ClassVar[str] = ""
-    _made: ClassVar[weakref.WeakValueDictionary[Any, Type]] = weakref.WeakValueDictionary()
+    _made: ClassVar[WeakValueDictionary[Any, Type]] = WeakValueDictionary()
 
     def __init_subclass__(cls, *, of: Any, value_class: type | None = None) -> None:
         """Registers the subclass as the ``Type`` of hints written with the generic class ``of``.

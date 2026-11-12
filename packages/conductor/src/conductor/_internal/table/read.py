@@ -9,6 +9,7 @@ from collections.abc import Callable, Iterable, Mapping
 from typing import Any, get_args
 
 import polars as pl
+from polars.exceptions import PolarsError
 from pydantic import GetCoreSchemaHandler, GetJsonSchemaHandler
 from pydantic.json_schema import JsonSchemaValue
 from pydantic_core import CoreSchema, PydanticCustomError, core_schema
@@ -26,7 +27,7 @@ def _frame_of(columns: Iterable[tuple[str, list[Any], Any]]) -> pl.DataFrame:
     """
     try:
         return pl.DataFrame([pl.Series(name, cells, dtype=dtype, strict=False) for name, cells, dtype in columns])
-    except (pl.exceptions.PolarsError, TypeError):  # polars' own account may quote a cell
+    except (PolarsError, TypeError):  # polars' own account may quote a cell
         raise PydanticCustomError("not_a_table", "the columns don't make a table: one name twice, lengths that differ, or cells of no one type") from None
 
 

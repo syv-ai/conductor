@@ -30,9 +30,9 @@ one of them has to wait.
 
 from __future__ import annotations
 
-import enum
 from collections.abc import Mapping
 from dataclasses import dataclass
+from enum import Enum
 from typing import TYPE_CHECKING, Any, final
 
 from conductor._internal.address import ItemIndexes
@@ -45,7 +45,7 @@ if TYPE_CHECKING:
 
 
 
-class NotReady(enum.Enum):
+class NotReady(Enum):
     """Why a node cannot be called yet for one set of item indexes.
 
     Nothing in this file returns these. The code that works out the arguments of a call returns one of them

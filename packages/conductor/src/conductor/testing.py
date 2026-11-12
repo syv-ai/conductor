@@ -43,9 +43,9 @@ from __future__ import annotations
 import copy
 import dataclasses
 import datetime
-import types
 import typing
 from collections.abc import Mapping, Sequence
+from types import MappingProxyType
 from typing import Any, Literal
 
 from conductor._internal import kit_problem
@@ -85,8 +85,8 @@ def check_registry(
     registry: NodeRegistry,
     /,
     *,
-    examples: Mapping[str | tuple[str, int], Sequence[_Example]] = types.MappingProxyType({}),
-    context: Mapping[type, Any] = types.MappingProxyType({}),
+    examples: Mapping[str | tuple[str, int], Sequence[_Example]] = MappingProxyType({}),
+    context: Mapping[type, Any] = MappingProxyType({}),
 ) -> list[Problem]:
     """Every way a node of ``registry`` breaks what a host relies on, all at once; ``[]`` when none does."""
     found: list[Problem] = []

@@ -12,7 +12,8 @@ from __future__ import annotations
 import inspect
 import typing
 from collections.abc import Callable, Iterator, Mapping, Sequence
-from typing import Any, Literal, NotRequired, TypedDict, final
+from inspect import Parameter
+from typing import Any, Literal, NotRequired, TypedDict, Union, final
 
 from pydantic import Field, JsonValue
 
@@ -98,7 +99,7 @@ class ProblemKind[**Params]:
         return Problem.model_construct(type=self.code, loc=loc, msg=self._message(*loc, **ctx), ctx={**dict(zip(self._loc_parameters, loc)), **given, **self._variant_ctx})
 
 
-def _check_parameter(function: str, parameter: inspect.Parameter) -> None:
+def _check_parameter(function: str, parameter: Parameter) -> None:
     """Refuses a parameter of a kind's function that is none of a place, ``*loc`` and a ``ctx`` key.
 
     Args:
@@ -131,7 +132,7 @@ def _check_parameter(function: str, parameter: inspect.Parameter) -> None:
 
 def _without_none(annotation: Any) -> Any:
     """``X | None`` as ``X``: a key that may be left out is absent, never ``None``."""
-    return typing.Union[tuple(option for option in typing.get_args(annotation) if option is not type(None))]
+    return Union[tuple(option for option in typing.get_args(annotation) if option is not type(None))]
 
 
 @final

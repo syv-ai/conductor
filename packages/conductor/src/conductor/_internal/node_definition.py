@@ -56,7 +56,9 @@ import functools
 import inspect
 import typing
 from collections.abc import Callable, Iterable, Mapping
+from dataclasses import Field as DataclassField
 from dataclasses import dataclass
+from inspect import Parameter
 from types import MappingProxyType
 from typing import Annotated, Any, Literal, Protocol
 
@@ -681,7 +683,7 @@ def _read_signature(function: Callable[..., Any], computed_outputs: bool) -> tup
             raise NodeDeclarationError(f"{name}: a node's inputs are passed by name; drop the / and *args", code="parameter_not_by_name")
         if name not in hints:
             raise NodeDeclarationError(f"{name}: an input needs a type hint; write one, as it is the input's interface", code="input_without_type")
-        default = REQUIRED if parameter.default is inspect.Parameter.empty else parameter.default
+        default = REQUIRED if parameter.default is Parameter.empty else parameter.default
         hint = hints[name]
         if typing.get_origin(hint) is Annotated and any(isinstance(mark, _Context) for mark in typing.get_args(hint)[1:]):
             needed = typing.get_args(hint)[0]
@@ -727,7 +729,7 @@ def _read_signature(function: Callable[..., Any], computed_outputs: bool) -> tup
     return inputs, context, outputs, kind
 
 
-def _declared_default(declared: dataclasses.Field[Any]) -> Any:
+def _declared_default(declared: DataclassField[Any]) -> Any:
     """A dataclass field's default, which a person asked for the output sees proposed; ``REQUIRED`` when it has none."""
     if declared.default is not dataclasses.MISSING:
         return declared.default

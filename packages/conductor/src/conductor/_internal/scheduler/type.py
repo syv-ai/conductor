@@ -44,6 +44,7 @@ from collections import defaultdict, deque
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from queue import Empty
 from typing import Any, Literal
 
 from conductor._internal.address import ItemIndexes, NodePath
@@ -250,14 +251,14 @@ class Scheduler:
                     # CPython 3.12's SimpleQueue.get(timeout=) never returns when its timeout runs out before its first
                     # look at an empty queue, so the first look is one that doesn't wait.
                     returned = self.returned.get(block=False)
-                except queue.Empty:
+                except Empty:
                     if timeout <= 0:
                         raise
                     returned = self.returned.get(timeout=timeout)
             if isinstance(returned, BaseException):
                 raise returned
             self._returned(*returned)
-        except queue.Empty:
+        except Empty:
             pass
         now = time.monotonic()
         while self.timers and self.timers[0][0] <= now:
