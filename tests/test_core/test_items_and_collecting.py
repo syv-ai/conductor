@@ -53,7 +53,7 @@ class Invoice(TypedDict):
     amount: float
 
 
-@node("contacts", title="Contacts", description="``Ida,ida@x;Bo,;Nina,nina@x``: a contact per ``;``, a blank email where nothing follows the comma.")
+@node("contacts", title="Contacts", description="``Ida,ida@x;Bo,;Nina,nina@x``: a contact per ``;``, the email ``None`` where nothing follows the comma.")
 def contacts(text: str) -> Table[Contact]:
     """``Ida,ida@x;Bo,;Nina,nina@x``: a contact per ``;``, the email ``None`` where nothing follows the comma."""
     rows = [part.split(",") for part in text.split(";") if part]
@@ -127,7 +127,7 @@ def docs(text: str) -> Series[str]:
     return text.split("|")
 
 
-@node("invoices", title="Invoices", description="``acme:10,beta:5``: an invoice per ``,``; ``skip`` is a branch not taken.")
+@node("invoices", title="Invoices", description="``acme:10,beta:5``: an invoice per ``,``; ``skip`` returns ``SKIPPED``.")
 def invoices(text: str) -> Table[Invoice]:
     """``acme:10,beta:5``: an invoice per ``,``; ``skip`` returns ``SKIPPED``."""
     if text == "skip":
@@ -223,7 +223,7 @@ def test_an_optional_table_input_gets_none_from_the_caller_from_a_return_and_fro
     def maybe_table(x: int) -> Table[Amount] | None:
         return None if x < 0 else pl.DataFrame({"a": [x]})
 
-    @node("always-none", title="May be blank", description="For a test.")
+    @node("always-none", title="Always none", description="For a test.")
     def always_none(y: int) -> int | None:
         return None
 
@@ -248,7 +248,7 @@ def test_an_optional_series_input_gets_none_from_a_return_and_from_a_node_not_ca
     def maybe_items(x: int) -> Series[int] | None:
         return None if x < 0 else [x]
 
-    @node("always-none", title="May be blank", description="For a test.")
+    @node("always-none", title="Always none", description="For a test.")
     def always_none(y: int) -> int | None:
         return None
 
@@ -401,7 +401,7 @@ def test_a_node_collecting_calls_that_read_a_table_from_outside_the_loop_is_call
     assert run.status == "complete" and run.results["j"]["result"] == "a3+b3"
 
 
-@node("maybe-template", title="Maybe template", description="``nothing`` gives a nothing, ``skip`` a branch not taken.")
+@node("maybe-template", title="Maybe template", description="``nothing`` returns ``None``, ``skip`` returns ``SKIPPED``.")
 def maybe_template(kind: str) -> str | None:
     return SKIPPED if kind == "skip" else None if kind == "nothing" else kind
 
@@ -506,7 +506,7 @@ def test_a_node_downstream_of_one_not_called_is_not_called_either():
 
 
 def test_a_none_item_is_left_out_of_every_collecting_input_so_they_stay_paired():
-    @node("none-for-underscore", title="Blank some", description="For a test.")
+    @node("none-for-underscore", title="None for underscore", description="For a test.")
     def none_for_underscore(text: str) -> Series[str | None]:
         return [None if x == "_" else x for x in text.split(",")]
 
@@ -889,7 +889,7 @@ def test_a_document_on_the_branch_not_chosen_has_no_lines_and_collecting_them_is
 def test_collecting_waits_for_the_branch_upstream_of_its_loop_before_it_is_called_with_nothing():
     release = Event()
 
-    @node("delayed", title="Held", description="For a test.", policy=Policy(concurrency=2))
+    @node("delayed", title="Delayed", description="For a test.", policy=Policy(concurrency=2))
     def delayed(text: str) -> YesNo:
         release.wait(5)
         return YesNo(SKIPPED, text) if "no" in text else YesNo(text, SKIPPED)
@@ -948,7 +948,7 @@ READ_EDGES = (("docs.result", "read.text"), ("read.result", "lines.table"))
 def test_a_table_wired_into_a_table_input_reaches_the_node_as_that_table():
     seen = []
 
-    @node("relay", title="Hold", description="For a test.")
+    @node("relay", title="Relay", description="For a test.")
     def relay(table: Table) -> Table:
         seen.append(table)
         return table
@@ -1316,7 +1316,7 @@ def test_two_tables_that_can_both_have_a_value_into_one_table_input_are_a_proble
 # -- a list node per document ------------------------------------------------------------------
 
 
-@node("questions", title="Questions", description="The questions typed in, as a Series; ``for_each`` makes it once per item wired there.")
+@node("questions", title="Questions", description="The constant questions, as a Series; wired to ``for_each``, it is called once per item.")
 def questions(items: list[str], for_each: Any = None) -> Series[str]:
     return items
 
