@@ -71,9 +71,9 @@ def run_from_json(run_type: type[Run], saved: str | bytes, graph: Graph) -> Run:
     except ValidationError as error:
         first = error.errors(include_url=False, include_input=False)[0]
         if first["type"] == "union_tag_invalid" and not first["loc"]:  # the fingerprint under "graph" is not this graph's
-            raise InvalidCallError([problem.saved_run_of_another_graph("state", saved=first["ctx"]["tag"], graph=graph.fingerprint)]) from None
+            raise InvalidCallError([problem.saved_run_of_another_graph("saved_run", saved=first["ctx"]["tag"], graph=graph.fingerprint)]) from None
         where = ".".join(str(step) for step in first["loc"][1:]) or "the run"  # pydantic's loc starts with the graph's fingerprint
-        raise InvalidCallError([problem.saved_run_unreadable("state", where=where, reason=value_free_errors(error)[0]["msg"])]) from None
+        raise InvalidCallError([problem.saved_run_unreadable("saved_run", where=where, reason=value_free_errors(error)[0]["msg"])]) from None
     outcomes: dict[str, dict[ItemIndexes, Outcome]] = {}
     for node in graph._flat_function_nodes:
         outcomes[node.name] = {}
@@ -81,7 +81,7 @@ def run_from_json(run_type: type[Run], saved: str | bytes, graph: Graph) -> Run:
             every_item_indexes, _ = all_item_indexes(outcomes, node.loops, ())
             if len(in_call_order) != len(every_item_indexes):
                 reason = f"its lists have {len(in_call_order)} entries, but the saved series give the node {len(every_item_indexes)} calls"
-                raise InvalidCallError([problem.saved_run_unreadable("state", where=f"outcomes.{node.name}", reason=reason)])
+                raise InvalidCallError([problem.saved_run_unreadable("saved_run", where=f"outcomes.{node.name}", reason=reason)])
             outcomes[node.name] = {
                 item_indexes: outcome for item_indexes, outcome in zip(every_item_indexes, in_call_order, strict=True) if outcome is not None
             }

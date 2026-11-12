@@ -40,7 +40,7 @@ class Problem(ConductorModel):
                               its item come first: ``("e", 1, "b", 2)``
     a run stopped as a whole  ``()``
     a refused call            ``("inputs", name)``, ``(node_id, *item)`` for an
-                              answer, ``("state",)``, ``("record", *where)``
+                              answer, ``("saved_run",)``, ``("record", *where)``
                               for a record that isn't one; a graph that can't
                               run is refused with its own problems
     ========================  ==================================================

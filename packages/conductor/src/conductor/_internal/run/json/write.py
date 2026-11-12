@@ -66,7 +66,7 @@ def run_to_json(run: Run) -> str:
         return codec.serializer.to_json(saved, exclude_defaults=True).decode()
     except PydanticSerializationError:
         where = first_unwritable_value(codec.inputs, codec.outputs, saved)
-        raise InvalidCallError([problem.run_unwritable("state", where, where=where, reason="a value has no JSON form")]) from None
+        raise InvalidCallError([problem.run_unwritable("saved_run", where, where=where, reason="a value has no JSON form")]) from None
 
 
 def outputs_to_json(run: Run) -> str:

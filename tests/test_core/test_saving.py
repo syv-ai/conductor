@@ -65,7 +65,7 @@ def _refused(graph: Any, saved: dict[str, Any]) -> Any:
     with pytest.raises(InvalidCallError) as refused:
         Run.from_json(json.dumps(saved), graph)
     (problem,) = refused.value.errors()
-    assert problem.type == "saved_run_unreadable"
+    assert (problem.type, problem.loc) == ("saved_run_unreadable", ("saved_run",))
     return problem
 
 
@@ -432,7 +432,7 @@ def test_saving_a_run_that_holds_a_value_with_no_json_form_raises_naming_the_out
         run.to_json()
 
     (problem,) = refused.value.errors()
-    assert (problem.type, problem.ctx["where"]) == ("run_unwritable", "o.result")
+    assert (problem.type, problem.loc, problem.ctx["where"]) == ("run_unwritable", ("saved_run", "o.result"), "o.result")
 
 
 def test_saving_a_run_given_an_input_with_no_json_form_raises_naming_the_input():
@@ -581,7 +581,7 @@ def test_a_save_names_its_graph_and_an_edited_graph_refuses_it_while_display_alo
     with pytest.raises(InvalidCallError) as refused:
         Run.from_json(saved, Graph.compile(edited, registry_of(shout)))
     (problem,) = refused.value.errors()
-    assert problem.type == "saved_run_of_another_graph" and set(problem.ctx) == {"saved", "graph"}
+    assert (problem.type, problem.loc) == ("saved_run_of_another_graph", ("saved_run",)) and set(problem.ctx) == {"saved", "graph"}
     assert Run.from_json(saved, Graph.compile(drawn, registry_of(shout))).results == {"s": {"result": "A"}}
 
 

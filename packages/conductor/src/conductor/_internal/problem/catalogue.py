@@ -603,7 +603,7 @@ def saved_run_of_another_graph(*loc: str | int, saved: str, graph: str) -> str:
     """A saved run is of another graph than the one it is loaded into.
 
     Args:
-        loc: ``"state"``.
+        loc: ``"saved_run"``.
         saved: The fingerprint the save names.
         graph: The fingerprint of the graph.
     """
@@ -615,7 +615,7 @@ def saved_run_unreadable(*loc: str | int, where: str, reason: str) -> str:
     """A saved run doesn't fit the graph it is loaded into.
 
     Args:
-        loc: ``"state"``.
+        loc: ``"saved_run"``.
         where: The place in the save, its steps joined by dots; ``the run`` for the save as a whole.
         reason: What is wrong there.
     """
@@ -627,7 +627,7 @@ def run_unwritable(*loc: str | int, where: str, reason: str) -> str:
     """A run holds a value that can't be written as JSON.
 
     Args:
-        loc: ``"state"``, or ``"outputs"`` and the output's address.
+        loc: ``"saved_run"`` and where the value is, or ``"outputs"`` and the output's address.
         where: Where the value is.
         reason: Why it can't be written.
     """
