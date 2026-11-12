@@ -7,7 +7,7 @@ problem of that graph, never an exception.
 
 import json
 from dataclasses import dataclass
-from typing import Annotated
+from typing import Annotated, Any
 
 import pytest
 from conductor import (
@@ -364,6 +364,34 @@ def test_a_default_on_a_later_node_is_a_problem_since_no_caller_reaches_it():
     record = GraphRecord(nodes=[NodeRecord(id="a", node="text"), NodeRecord(id="b", node="both", defaults={"no": "n"})], edges=[("a.result", "b.yes")])
 
     assert _problems(record) == [("default_on_later_node", ("b", "no"))]
+
+
+def test_every_fault_in_a_callers_inputs_is_refused_at_once_the_names_first_in_the_order_given_then_the_inputs_in_order():
+    graph = Graph.compile(GraphRecord(nodes=[NodeRecord(id="u", node="upper"), NodeRecord(id="b", node="both")]), REGISTRY)
+    offered = ["text", "yes", "no"]
+
+    def refused(given: dict[Any, Any]) -> list[tuple[str, tuple[str | int, ...], dict[str, Any]]]:
+        with pytest.raises(InvalidCallError) as raised:
+            graph.with_inputs(given)
+        return [(p.type, p.loc, p.ctx) for p in raised.value.errors()]
+
+    assert refused({"nope": 1, "u.text": "b", "text": "a", "zz": 2}) == [
+        ("not_offered", ("inputs", "nope"), {"name": "nope", "inputs": offered}),
+        ("input_given_twice", ("inputs", "text"), {"name": "text", "address": "u.text"}),
+        ("not_offered", ("inputs", "zz"), {"name": "zz", "inputs": offered}),
+        ("missing_input", ("inputs", "yes"), {"name": "yes"}),
+        ("missing_input", ("inputs", "no"), {"name": "no"}),
+    ]
+    not_a_text = {"name": "no", "reason": "Input should be a valid string", "errors": [{"type": "string_type", "loc": [], "msg": "Input should be a valid string"}]}
+    assert refused({"b.no": 1, "u.text": ["a", "b"], 1: "x"}) == [
+        ("not_offered", ("inputs", 1), {"name": 1, "inputs": offered}),
+        ("invalid_input", ("inputs", "text"), {"name": "text", "expected": "str", "length": 2, "variant": "make_a_series"}),
+        ("missing_input", ("inputs", "yes"), {"name": "yes"}),
+        ("invalid_input", ("inputs", "no"), not_a_text),
+    ]
+    run = graph.with_inputs(text="a", yes="y", no="n")
+    assert run.with_inputs({"u.text": "b"}).inputs == {"u.text": "b", "b.yes": "y", "b.no": "n"}
+    assert refused({"text": "a", "yes": "y", "no": "n", "b.no": "m"}) == [("input_given_twice", ("inputs", "no"), {"name": "no", "address": "b.no"})]
 
 
 def test_an_input_given_by_name_and_by_address_and_a_ceiling_below_one_are_refused_at_the_call():

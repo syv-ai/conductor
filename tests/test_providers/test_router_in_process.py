@@ -163,7 +163,10 @@ async def test_a_route_answers_with_what_the_worker_did_and_the_run_reads_as_its
 
         below_one = await client.post(f"/runs/{run_id}/resume", json={"max_items": 0})
         assert below_one.status_code == 422
-        assert [(problem["type"], problem["loc"]) for problem in below_one.json()["detail"]] == [("greater_than", ["body", "max_items"])]
+        assert [(problem["type"], problem["loc"]) for problem in below_one.json()["detail"]] == [("invalid_max_items", ["max_items"])]
+        for not_a_whole_number in (True, 2.5, "5"):
+            refused = await client.post(f"/runs/{run_id}/resume", json={"max_items": not_a_whole_number})
+            assert (refused.status_code, [problem["type"] for problem in refused.json()["detail"]]) == (422, ["int_type"])
         assert (await client.get(f"/runs/{run_id}")).json()["status"] == "cancelled"
         resumed = await client.post(f"/runs/{run_id}/resume")
         assert (resumed.status_code, resumed.json()) == (202, {"id": run_id})

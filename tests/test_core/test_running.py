@@ -1082,7 +1082,7 @@ def test_a_cancel_set_with_a_hand_back_ends_the_run_cancelled():
     assert last.type == "run_end" and last.run.status == "cancelled"
 
 
-@pytest.mark.parametrize("every", [0, -1])
+@pytest.mark.parametrize("every", [0, -1, math.inf, True, "5"])
 def test_checkpoint_every_is_a_number_of_seconds_above_zero(every: Any) -> None:
     graph = Graph.compile(make_graph(split), registry_of(split))
     with pytest.raises(InvalidCallError) as refused:
@@ -1090,7 +1090,7 @@ def test_checkpoint_every_is_a_number_of_seconds_above_zero(every: Any) -> None:
     assert [p.type for p in refused.value.errors()] == ["invalid_checkpoint_every"]
 
 
-@pytest.mark.parametrize("timeout", [0, -1, math.nan])
+@pytest.mark.parametrize("timeout", [0, -1, math.nan, True, "5"])
 def test_a_legs_timeout_is_a_number_of_seconds_above_zero_refused_at_the_call(timeout: Any) -> None:
     graph = Graph.compile(make_graph(split), registry_of(split))
     for call in (lambda run: run.resume(timeout=timeout), lambda run: run.stream(timeout=timeout)):

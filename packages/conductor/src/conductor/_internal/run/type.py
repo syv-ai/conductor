@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
-import math
 import time
 from asyncio import AbstractEventLoop, Queue
 from asyncio import Event as AsyncioEvent
@@ -55,6 +54,7 @@ from conductor._internal.compiled import (
     outcome_loc,
 )
 from conductor._internal.conductor_model import ConductorModel
+from conductor._internal.gate import RefusedError, check_limits
 from conductor._internal.outcomes import (
     Answered,
     Outcome,
@@ -159,9 +159,9 @@ class Run[C]:
         ``run.with_max_items(100).resume()``. The limit is saved by ``to_json()``.
 
         Raises:
-            InvalidCallError: ``max_items`` is below 1 (``invalid_max_items``).
+            InvalidCallError: ``max_items`` is not a whole number of at least 1 (``invalid_max_items``).
         """
-        check_run_limits(max_items=max_items)
+        _check_limits(max_items=max_items)
         return dataclasses.replace(self, max_items=max_items)
 
     def resume(self, *, context: C | None = None, timeout: float | None = None) -> Run[C]:
@@ -174,11 +174,11 @@ class Run[C]:
         than ``timeout``, and a call that returned is never made again.
 
         Raises:
-            InvalidCallError: ``timeout`` is not above 0 (``invalid_timeout``); ``context`` is not an instance of
+            InvalidCallError: ``timeout`` is not a number of seconds above 0 (``invalid_timeout``); ``context`` is not an instance of
                 the registry's ``context_type`` (``invalid_context``), or is ``None`` while a node takes it
                 (``context_missing``).
         """
-        check_run_limits(timeout=timeout)
+        _check_limits(timeout=timeout)
         return self._run_scheduler(self.graph._checked_context(context), None, _deadline(timeout))
 
     def stream(
@@ -201,10 +201,10 @@ class Run[C]:
           calls in flight if the process dies.
 
         Raises:
-            InvalidCallError: As ``resume`` does, and for a ``checkpoint_every`` not above 0, at this call, before
-                any event.
+            InvalidCallError: As ``resume`` does, and for a ``checkpoint_every`` that is not a number of seconds
+                above 0 (``invalid_checkpoint_every``), at this call, before any event.
         """
-        check_run_limits(timeout=timeout, checkpoint_every=checkpoint_every)
+        _check_limits(timeout=timeout, checkpoint_every=checkpoint_every)
         return self._stream(self.graph._checked_context(context), timeout, cancel, hand_back, checkpoint_every)
 
     async def _stream(
@@ -356,7 +356,7 @@ class Run[C]:
         same way.
         """
         changed = {**inputs, **by_name}
-        named = self.graph._given_by_address(changed)[0]
+        named = self.graph._inputs_door.addresses(changed)
         given = {graph_input.name: self.inputs[address] for address, graph_input in self.graph._input_fields.items() if address not in named}
         return self.graph.with_inputs({**given, **changed}, max_items=max_items if max_items is not None else self.max_items, previous=self)
 
@@ -559,26 +559,17 @@ def no_outcomes(graph: Graph) -> dict[str, dict[ItemIndexes, Outcome]]:
     return {node.name: {} for node in graph._flat_function_nodes}
 
 
-def check_run_limits(*, max_items: int | None = None, timeout: float | None = None, checkpoint_every: float | None = None) -> None:
-    """Raise ``InvalidCallError`` for a limit a caller gave that no run can have.
+def _check_limits(*, max_items: int | None = None, timeout: float | None = None, checkpoint_every: float | None = None) -> None:
+    """Raises ``InvalidCallError`` with the problems of the limits a public method was given that no run can have.
 
-    ``check_run_limits(max_items=0)`` raises with the problem ``invalid_max_items``. ``max_items`` must be at least
-    1. ``timeout`` and ``checkpoint_every`` are seconds and must be finite and above 0. ``None`` is a limit the
-    caller did not give, and is not checked.
+    Raises:
+        InvalidCallError: The problems ``check_limits`` found (``invalid_max_items``, ``invalid_timeout``,
+            ``invalid_checkpoint_every``).
     """
-    problems = []
-    if max_items is not None and max_items < 1:
-        problems.append(problem.invalid_max_items("max_items", max_items=max_items))
-    if timeout is not None and not _is_positive_and_finite(timeout):
-        problems.append(problem.invalid_timeout("timeout", timeout=timeout))
-    if checkpoint_every is not None and not _is_positive_and_finite(checkpoint_every):
-        problems.append(problem.invalid_checkpoint_every("checkpoint_every", checkpoint_every=checkpoint_every))
-    if problems:
-        raise InvalidCallError(problems)
-
-
-def _is_positive_and_finite(value: float) -> bool:
-    return math.isfinite(value) and value > 0
+    try:
+        check_limits(max_items=max_items, timeout=timeout, checkpoint_every=checkpoint_every)
+    except RefusedError as refused:
+        raise InvalidCallError(refused.problems) from None
 
 
 # -- values -------------------------------------------------------------------------------------

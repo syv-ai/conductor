@@ -7,15 +7,11 @@ from collections.abc import Mapping
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
-from pydantic import ValidationError
-
 from conductor._internal.compiled import CompiledGraph, compile_graph
-from conductor._internal.gate import ContextDoor, RefusedError
+from conductor._internal.gate import ContextDoor, InputsDoor, RefusedError, check_limits
 from conductor._internal.graph_record import GraphRecord, as_record
-from conductor._internal.markers import REQUIRED
-from conductor._internal.problem import InvalidCallError, Problem
-from conductor._internal.problem import catalogue as problem
-from conductor._internal.run import Run, check_run_limits, no_outcomes
+from conductor._internal.problem import InvalidCallError
+from conductor._internal.run import Run, no_outcomes
 from conductor._internal.run.json import RunCodec, run_codec
 
 if TYPE_CHECKING:
@@ -64,13 +60,18 @@ class Graph[C](CompiledGraph):
             The run, ``ready``.
 
         Raises:
-            InvalidCallError: The graph has problems, or an input is missing, unknown or not of its type.
+            InvalidCallError: The graph has problems; ``max_items`` is not a whole number of at least 1
+                (``invalid_max_items``); or an input is missing, unknown, given twice or not of its type (the inputs
+                door's problems, every one).
         """
         if self.problems:
             raise InvalidCallError(self.problems)
-        check_run_limits(max_items=max_items)
-        checked = self._checked_inputs(*self._given_by_address({**inputs, **by_name}))
-        return Run(self, checked, max_items, no_outcomes(self), previous._reusable_outcomes(into=self) if previous is not None else {})
+        try:
+            check_limits(max_items=max_items)
+            values = self._inputs_door({**inputs, **by_name})
+        except RefusedError as refused:
+            raise InvalidCallError(refused.problems) from None
+        return Run(self, values, max_items, no_outcomes(self), previous._reusable_outcomes(into=self) if previous is not None else {})
 
     def run(
         self, inputs: Mapping[str, Any] = MappingProxyType({}), /, *, max_items: int | None = None,
@@ -101,6 +102,11 @@ class Graph[C](CompiledGraph):
         return checked
 
     @functools.cached_property
+    def _inputs_door(self) -> InputsDoor:
+        """Reads the graph inputs of each call that makes a run: built when the first run is made."""
+        return InputsDoor({address: (graph_input.name, graph_input.field) for address, graph_input in self._input_fields.items()})
+
+    @functools.cached_property
     def _run_codec(self) -> RunCodec:
         """How this graph's runs are read from JSON and written as it, made when the first one is."""
         return run_codec(
@@ -109,47 +115,3 @@ class Graph[C](CompiledGraph):
             outputs={node.name: node.compiled_node.outputs for node in self._flat_function_nodes},
             nodes=[node.name for node in self._flat_function_nodes],
         )
-
-    def _given_by_address(self, given: Mapping[str, Any]) -> tuple[dict[str, Any], list[Problem]]:
-        """What a caller gave by name or by address, by address; with a problem for each name the graph doesn't
-        offer and each input given by both its name and its address."""
-        fields = {**{f.address: f for f in self._input_fields.values()}, **{f.name: f for f in self._input_fields.values()}}
-        by_address: dict[str, Any] = {}
-        problems: list[Problem] = []
-        for name, value in given.items():
-            graph_input = fields.get(name)
-            if graph_input is None:
-                problems.append(problem.not_offered("inputs", name, name=name, inputs=list(self.inputs)))
-            elif graph_input.address in by_address:
-                problems.append(problem.input_given_twice("inputs", graph_input.name, name=graph_input.name, address=graph_input.address))
-            else:
-                by_address[graph_input.address] = value
-        return by_address, problems
-
-    def _checked_inputs(self, given: Mapping[str, Any], problems: list[Problem]) -> dict[str, Any]:
-        """The value of every graph input, by address: the caller's, read by the input's field, else its default.
-
-        Raises:
-            InvalidCallError: With ``problems`` and then every input that is missing or not of its type.
-        """
-        problems, values = list(problems), dict[str, Any]()
-        for address, graph_input in self._input_fields.items():
-            if address not in given:
-                if graph_input.field.default is REQUIRED:
-                    problems.append(problem.missing_input("inputs", graph_input.name, name=graph_input.name))
-                values[address] = graph_input.field.default
-                continue
-            value, field = given[address], graph_input.field
-            try:
-                values[address] = field.whole.read(value)
-            except ValidationError as error:
-                refused = field.whole.refusal(error.errors(include_url=False, include_input=False))
-                whole = all(not error["loc"] for error in refused.errors)  # the list itself was refused, not an item of it
-                if not field.is_series and type(value) is list and whole:  # the one mistake whose fix is in the graph
-                    problems.append(problem.invalid_input_make_a_series("inputs", graph_input.name, name=graph_input.name, expected=field.whole.id, length=len(value)))
-                else:
-                    problems.append(problem.invalid_input("inputs", graph_input.name, name=graph_input.name, reason=refused.reason, errors=refused.errors, column=refused.column))
-        if problems:
-            raise InvalidCallError(problems)
-        return values
-

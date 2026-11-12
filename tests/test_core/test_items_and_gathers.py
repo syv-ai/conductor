@@ -1436,6 +1436,23 @@ def test_with_max_items_is_the_same_run_with_its_ceiling_raised_and_starts_nothi
             leg(max_items=3)
 
 
+@pytest.mark.parametrize("max_items", [0, -1, True, False, 2.5, "5"])
+def test_a_ceiling_is_a_whole_number_of_at_least_one_and_a_yes_or_no_is_not_one(max_items: Any) -> None:
+    loaded = graph({"id": "s", "node": "split"}, {"id": "u", "node": "upper"}, edges=(("s.result", "u.text"),))
+    calls = [
+        lambda: loaded.with_inputs(text="a", max_items=max_items),
+        lambda: loaded.run(text="a", max_items=max_items),
+        lambda: loaded.with_inputs(text="a").with_max_items(max_items),
+        lambda: loaded.with_inputs(text="a").with_inputs(max_items=max_items),
+        lambda: loaded.with_inputs(text="a").again(max_items=max_items),
+    ]
+    for call in calls:
+        with pytest.raises(InvalidCallError) as refused:
+            call()
+        assert [(p.type, p.loc, p.ctx) for p in refused.value.errors()] == [("invalid_max_items", ("max_items",), {"max_items": max_items})]
+    assert refused.value.errors()[0].msg == f"max_items must be a whole number of at least 1; it was {max_items}."
+
+
 def test_the_ceiling_is_on_each_series_made_never_on_the_items_of_all_of_them_together():
     loaded = graph({"id": "d", "node": "split", "constants": {"sep": "|"}}, {"id": "l", "node": "split"}, {"id": "u", "node": "upper"},
                    edges=(("d.result", "l.text"), ("l.result", "u.text")))

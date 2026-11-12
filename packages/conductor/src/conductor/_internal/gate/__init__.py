@@ -17,7 +17,7 @@ in the file named; they move here one by one.
                                                             invalid_value
     what a compute_added_inputs or compute_outputs hook     hook (not yet: compiled/compiler.py)
         returns                                             parameter_name_invalid, compute_hook_failed
-    a caller's graph inputs, max_items, timeout and         inputs (not yet: graph.py, run/type.py)
+    a caller's graph inputs, max_items, timeout and         inputs
         checkpoint_every                                    not_offered, input_given_twice, missing_input,
                                                             invalid_input, invalid_input_make_a_series,
                                                             invalid_max_items, invalid_timeout,
@@ -42,7 +42,8 @@ declared, by the type they are declared on.
 
 from conductor._internal.gate.context import ContextDoor
 from conductor._internal.gate.edge import EdgeDoor, demands_more
+from conductor._internal.gate.inputs import InputsDoor, check_limits
 from conductor._internal.gate.refused import RefusedError
 from conductor._internal.gate.returned import ReturnDoor
 
-__all__ = ["ContextDoor", "EdgeDoor", "RefusedError", "ReturnDoor", "demands_more"]
+__all__ = ["ContextDoor", "EdgeDoor", "InputsDoor", "RefusedError", "ReturnDoor", "check_limits", "demands_more"]

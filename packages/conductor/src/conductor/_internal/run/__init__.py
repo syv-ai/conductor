@@ -8,6 +8,5 @@ early; ``json/`` writes a run as JSON and reads it back.
 from conductor._internal.run.type import (
     NotCalled,
     Run,
-    check_run_limits,
     no_outcomes,
 )

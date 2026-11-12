@@ -837,7 +837,7 @@ def invalid_answer(*loc: str | int, waiting_id: str, reason: str, question: str 
 
 @PROBLEMS.problem()
 def invalid_checkpoint_every(*loc: str | int, checkpoint_every: float) -> str:
-    """A call gives ``checkpoint_every`` a number of seconds that is not above 0.
+    """A call gives ``checkpoint_every`` a value that is not a number of seconds above 0: ``0``, ``inf`` or ``True``.
 
     Give a number above 0, or leave it out for no checkpoints.
 
@@ -931,9 +931,9 @@ def invalid_input_make_a_series(*loc: str | int, name: str, expected: str, lengt
 
 @PROBLEMS.problem()
 def invalid_max_items(*loc: str | int, max_items: int) -> str:
-    """A call gives ``max_items`` below 1.
+    """A call gives ``max_items`` a value that is not a whole number of at least 1: ``0``, ``2.5`` or ``True``.
 
-    Give 1 or more, or leave it out for no item limit.
+    Give a whole number of 1 or more, or leave it out for no item limit.
 
     Args:
         loc: ``"max_items"``.
@@ -942,7 +942,7 @@ def invalid_max_items(*loc: str | int, max_items: int) -> str:
     Example:
         refused(lambda: Graph.compile(make_graph(upper), registry).run(text="a", max_items=0))
     """
-    return f"max_items must be at least 1; it was {max_items}."
+    return f"max_items must be a whole number of at least 1; it was {max_items}."
 
 
 @PROBLEMS.problem()
@@ -967,7 +967,7 @@ def invalid_record(*loc: str | int, where: str, reason: str, error: str) -> str:
 
 @PROBLEMS.problem()
 def invalid_timeout(*loc: str | int, timeout: float) -> str:
-    """A call gives ``timeout`` a number of seconds that is not above 0.
+    """A call gives ``timeout`` a value that is not a number of seconds above 0: ``0``, ``nan`` or ``True``.
 
     Give a number above 0, or leave it out for no time limit.
 

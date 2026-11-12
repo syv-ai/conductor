@@ -20,7 +20,7 @@ from conductor import (
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request, Response
 from fastapi.routing import APIRoute
 from fastapi.sse import EventSourceResponse, ServerSentEvent
-from pydantic import BaseModel, PositiveInt, TypeAdapter
+from pydantic import BaseModel, StrictInt, TypeAdapter
 
 from conductor_providers.fastapi.router_problems import NoSuchRunError, RefusedError
 from conductor_providers.fastapi.store import RunStore
@@ -88,10 +88,12 @@ class Resume(BaseModel):
 
     Attributes:
         max_items: A higher ceiling on the items of any one Series, for a run that stopped at its ceiling; it
-            holds for the run from then on. Left out, the run keeps the ceiling it has.
+            holds for the run from then on. Left out, the run keeps the ceiling it has. The body says only that it
+            is an integer (``true`` is not one); that it is at least 1 is conductor's rule, so ``0`` is refused
+            as ``Run.with_max_items`` refuses it, with ``invalid_max_items``.
     """
 
-    max_items: PositiveInt | None = None
+    max_items: StrictInt | None = None
 
 
 class Cancelled(BaseModel):
