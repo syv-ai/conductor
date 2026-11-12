@@ -17,9 +17,10 @@ from pydantic import ValidationError
 
 from conductor._internal.base import REQUIRED, SKIPPED
 from conductor._internal.field import Field
-from conductor._internal.gate.rules import validator_of
 from conductor._internal.problem import NodeDeclarationError
 from conductor._internal.problem import declarations as declaration
+
+from .rules import validator_of
 
 
 def declared_field(name: str, hint: Any, default: Any) -> Field:

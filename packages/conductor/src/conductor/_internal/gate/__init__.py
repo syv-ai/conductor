@@ -46,17 +46,17 @@ A type's own declarations are read where the type is declared: ``Param`` reads i
 (``types/param.py``), and ``@host_type`` its arguments.
 """
 
-from conductor._internal.gate.answer import AnswerDoor
-from conductor._internal.gate.constants import bound_field, read_constant
-from conductor._internal.gate.context import ContextDoor
-from conductor._internal.gate.declared import declared_field
-from conductor._internal.gate.edge import EdgeDoor, demands_more
-from conductor._internal.gate.hook import read_hook_fields
-from conductor._internal.gate.inputs import InputsDoor, check_limits
-from conductor._internal.gate.raised import AskDoor, undeclared_ask
-from conductor._internal.gate.record import read_record, record_values
-from conductor._internal.gate.refused import RefusedError
-from conductor._internal.gate.returned import (
+from .answer import AnswerDoor
+from .constants import bound_field, read_constant
+from .context import ContextDoor
+from .declared import declared_field
+from .edge import EdgeDoor, demands_more
+from .hook import read_hook_fields
+from .inputs import InputsDoor, check_limits
+from .raised import AskDoor, undeclared_ask
+from .record import read_record, record_values
+from .refused import RefusedError
+from .returned import (
     AskedValueDoor,
     HookOutputs,
     NoOutputs,
@@ -65,7 +65,7 @@ from conductor._internal.gate.returned import (
     ReturnDoor,
     ReturnShape,
 )
-from conductor._internal.gate.rules import numbers_refuse_bools, output_validator_of, validator_of
+from .rules import numbers_refuse_bools, output_validator_of, validator_of
 
 __all__ = [
     "AnswerDoor", "AskDoor", "AskedValueDoor", "ContextDoor", "EdgeDoor", "HookOutputs", "InputsDoor", "NoOutputs", "OneResult", "OutputsClass",

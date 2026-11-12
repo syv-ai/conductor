@@ -8,17 +8,17 @@ reports one imports it as ``from conductor._internal.problem import catalogue as
 ``errors.py`` is the exceptions.
 """
 
-from conductor._internal.problem import catalogue, declarations
-from conductor._internal.problem.catalogue import PROBLEMS
-from conductor._internal.problem.declarations import DECLARATION_PROBLEMS
-from conductor._internal.problem.errors import (
+from . import catalogue, declarations
+from .catalogue import PROBLEMS
+from .declarations import DECLARATION_PROBLEMS
+from .errors import (
     ExternalError,
     InvalidCallError,
     NodeDeclarationError,
     NodeError,
     value_free_errors,
 )
-from conductor._internal.problem.type import Problem, ProblemCatalogue, ProblemKind
+from .type import Problem, ProblemCatalogue, ProblemKind
 
 __all__ = [
     "DECLARATION_PROBLEMS",

@@ -1,6 +1,6 @@
 """``Context[X]``, the run's context a node takes as its first parameter: ``type.py``."""
 
-from conductor._internal.context.type import (
+from .type import (
     Context,
     ContextParameter,
     is_context,

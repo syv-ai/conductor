@@ -5,14 +5,14 @@ is what they make, ``FunctionDefinition`` and ``SubgraphDefinition``; ``policy.p
 ``Deprecation``; ``describe.py`` is a node as an editor's palette shows it.
 """
 
-from conductor._internal.node.declare import node, subgraph
-from conductor._internal.node.describe import (
+from .declare import node, subgraph
+from .describe import (
     FunctionNodeDescription,
     NodeDescription,
     SubgraphDescription,
 )
-from conductor._internal.node.policy import Deprecation, Policy
-from conductor._internal.node.type import (
+from .policy import Deprecation, Policy
+from .type import (
     AskedParameter,
     FunctionDefinition,
     HookName,

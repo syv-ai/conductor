@@ -28,5 +28,5 @@ compiles it into a ``Graph``, and what the record says that cannot be meant (a r
 the graph does not have, an input given both a constant and a default) is a problem of that graph.
 """
 
-from conductor._internal.record.graph import GraphRecord
-from conductor._internal.record.node import NodeRecord
+from .graph import GraphRecord
+from .node import NodeRecord

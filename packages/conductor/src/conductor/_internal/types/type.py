@@ -31,9 +31,10 @@ from pydantic_core import (
 from conductor._internal.base import plain_json, qualified_name
 from conductor._internal.problem import NodeDeclarationError, value_free_errors
 from conductor._internal.problem import declarations as declaration
-from conductor._internal.types.choice import Choice
-from conductor._internal.types.fit import fit
-from conductor._internal.types.hint import (
+
+from .choice import Choice
+from .fit import fit
+from .hint import (
     READ_AS,
     aliased,
     is_alias,
@@ -42,8 +43,8 @@ from conductor._internal.types.hint import (
     union_members,
     union_of,
 )
-from conductor._internal.types.host_type import NAMES, OWN_IDS, declaration_of
-from conductor._internal.types.param import Param, read_choice_ids, split_hint
+from .host_type import NAMES, OWN_IDS, declaration_of
+from .param import Param, read_choice_ids, split_hint
 
 #: The classes whose values are plain in JSON: no keys to order, and read back by their type as they were.
 _SCALARS = frozenset({str, int, float, bool, type(None), datetime.date, datetime.datetime, datetime.time, datetime.timedelta})

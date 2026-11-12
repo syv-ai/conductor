@@ -11,7 +11,10 @@ from __future__ import annotations
 from typing import Literal, assert_never
 
 from conductor._internal.base import ConductorModel
-from conductor._internal.compiled.input import (
+from conductor._internal.field import FieldDescription
+from conductor._internal.problem import Problem
+
+from .input import (
     CollectingInput,
     ConstantInput,
     EdgeInput,
@@ -20,8 +23,6 @@ from conductor._internal.compiled.input import (
     MissingInput,
     OutputAddress,
 )
-from conductor._internal.field import FieldDescription
-from conductor._internal.problem import Problem
 
 
 class RunsOn(ConductorModel):

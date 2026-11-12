@@ -47,7 +47,8 @@ from collections.abc import Callable, Iterable
 from conductor._internal.base import SKIPPED, ItemIndexes, NodePath
 from conductor._internal.compiled import FlatFunctionNode, FlatNode, all_upstream, outcome_loc
 from conductor._internal.problem import Problem
-from conductor._internal.run.events import (
+
+from .events import (
     EventBase,
     NodeComplete,
     NodeFailed,
@@ -57,9 +58,9 @@ from conductor._internal.run.events import (
     NodeStart,
     NodeWaiting,
 )
-from conductor._internal.run.outcome import Answered, Done, NoneInput, Outcome, Skipped, Unanswered
-from conductor._internal.run.progress import call_count, calls_expected, has_every_outcome
-from conductor._internal.run.waiting import waiting_record
+from .outcome import Answered, Done, NoneInput, Outcome, Skipped, Unanswered
+from .progress import call_count, calls_expected, has_every_outcome
+from .waiting import waiting_record
 
 #: The least time between two ``NodeProgress`` of one node.
 _SECONDS_BETWEEN_PROGRESS = 0.25

@@ -75,10 +75,11 @@ from conductor._internal.compiled import FlatFunctionNode, all_upstream, outcome
 from conductor._internal.gate import RefusedError
 from conductor._internal.problem import ExternalError, NodeError, Problem
 from conductor._internal.problem import catalogue as problem
-from conductor._internal.run.call import call, jsonable
-from conductor._internal.run.events import EventBase
-from conductor._internal.run.node_events import NodeEvents
-from conductor._internal.run.outcome import (
+
+from .call import call, jsonable
+from .events import EventBase
+from .node_events import NodeEvents
+from .outcome import (
     Answered,
     Done,
     NoneInput,
@@ -87,9 +88,9 @@ from conductor._internal.run.outcome import (
     Skipped,
     Unanswered,
 )
-from conductor._internal.run.progress import all_item_indexes, has_every_outcome, length
-from conductor._internal.run.reuse import ReusableOutcomes, reused_outcome
-from conductor._internal.run.state import COMPLETE, READY, RUNNING, WAITING, EndedEarly, RunState
+from .progress import all_item_indexes, has_every_outcome, length
+from .reuse import ReusableOutcomes, reused_outcome
+from .state import COMPLETE, READY, RUNNING, WAITING, EndedEarly, RunState
 
 #: The exceptions of a call that is never retried, whatever the ``retry_on`` of its ``Policy`` names: the node's
 #: own failure, an output its type refuses, a question for a person. Calling again would raise the same.

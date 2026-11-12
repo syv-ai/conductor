@@ -20,11 +20,12 @@ from pydantic import JsonValue, ValidationError
 from pydantic_core import PydanticSerializationError
 
 from conductor._internal.base import plain_json
-from conductor._internal.gate.refused import RefusedError
 from conductor._internal.problem import catalogue as problem
 from conductor._internal.record import GraphRecord
 from conductor._internal.series import set_has_no_order
 from conductor._internal.types import kind_of_value
+
+from .refused import RefusedError
 
 
 def read_record(record: GraphRecord | str | bytes | Mapping[str, Any]) -> GraphRecord:

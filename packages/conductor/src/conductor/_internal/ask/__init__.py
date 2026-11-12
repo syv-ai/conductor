@@ -16,7 +16,7 @@ A host is shown a waiting call as a ``Waiting`` (``run/waiting.py``). The ``Ask`
 door (``gate/answer.py``).
 """
 
-from conductor._internal.ask.question import (
+from .question import (
     NOTHING_SET,
     Answer,
     Question,
@@ -24,4 +24,4 @@ from conductor._internal.ask.question import (
     answer_required,
     field_questions,
 )
-from conductor._internal.ask.type import Ask, Asked
+from .type import Ask, Asked

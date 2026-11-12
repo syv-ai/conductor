@@ -44,9 +44,10 @@ from conductor._internal.compiled import (
 )
 from conductor._internal.gate import RefusedError
 from conductor._internal.problem import catalogue as problem
-from conductor._internal.run.outcome import NoneInput, NotReady, Outcome, Skipped
 from conductor._internal.series import places_of_none, without_places
 from conductor._internal.types import NoSuchFieldError, field_of
+
+from .outcome import NoneInput, NotReady, Outcome, Skipped
 
 
 class _MayHaveValue:

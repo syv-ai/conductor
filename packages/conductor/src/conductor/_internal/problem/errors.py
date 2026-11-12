@@ -41,8 +41,8 @@ from typing import Any
 from pydantic import JsonValue, TypeAdapter
 from pydantic_core import ErrorDetails
 
-from conductor._internal.problem.catalogue import external_failed, failed
-from conductor._internal.problem.type import Problem
+from .catalogue import external_failed, failed
+from .type import Problem
 
 _VALIDATOR_PREFIX = "The value did not pass its type's own check."
 

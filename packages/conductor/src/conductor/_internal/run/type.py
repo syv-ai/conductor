@@ -39,31 +39,32 @@ from conductor._internal.compiled import (
 from conductor._internal.gate import RefusedError, check_limits
 from conductor._internal.problem import InvalidCallError, Problem
 from conductor._internal.problem import catalogue as problem
-from conductor._internal.run.arguments import ResultReader
-from conductor._internal.run.events import (
+
+from .arguments import ResultReader
+from .events import (
     Event,
     EventBase,
     RunCheckpoint,
     RunEnd,
     RunStart,
 )
-from conductor._internal.run.json import codec_of, outputs_to_json, run_from_json, run_to_json
-from conductor._internal.run.outcome import (
+from .json import codec_of, outputs_to_json, run_from_json, run_to_json
+from .outcome import (
     Answered,
     NoneInput,
     Outcome,
     Skipped,
     Unanswered,
 )
-from conductor._internal.run.progress import Progress, progress_of
-from conductor._internal.run.results import outputs_of, results_of
-from conductor._internal.run.reuse import (
+from .progress import Progress, progress_of
+from .results import outputs_of, results_of
+from .reuse import (
     ReusableOutcomes,
     arguments_fingerprint,
     outer_items_fingerprint,
 )
-from conductor._internal.run.scheduler import Scheduler
-from conductor._internal.run.state import (
+from .scheduler import Scheduler
+from .state import (
     READY,
     RUNNING,
     EndedEarly,
@@ -72,8 +73,8 @@ from conductor._internal.run.state import (
     RunStatus,
     deadline,
 )
-from conductor._internal.run.stream import stream
-from conductor._internal.run.waiting import Waiting, question_fingerprint, waiting_record
+from .stream import stream
+from .waiting import Waiting, question_fingerprint, waiting_record
 
 if TYPE_CHECKING:
     from conductor._internal.graph import Graph

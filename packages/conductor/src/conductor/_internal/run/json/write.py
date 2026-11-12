@@ -17,8 +17,14 @@ from conductor._internal.compiled import FlatFunctionNode
 from conductor._internal.field import Field
 from conductor._internal.problem import InvalidCallError
 from conductor._internal.problem import catalogue as problem
-from conductor._internal.run.json.codec import codec_of
-from conductor._internal.run.json.type import (
+from conductor._internal.types import Type
+
+from ..outcome import Answered, Done, NoneInput, Outcome, Skipped, Unanswered
+from ..progress import all_item_indexes, has_every_outcome
+from ..results import function_of
+from ..reuse import ReusableOutcomes
+from .codec import codec_of
+from .type import (
     SAVED_DONE,
     SAVED_SKIPPED,
     SameAs,
@@ -27,14 +33,9 @@ from conductor._internal.run.json.type import (
     SavedReusable,
     SavedRun,
 )
-from conductor._internal.run.outcome import Answered, Done, NoneInput, Outcome, Skipped, Unanswered
-from conductor._internal.run.progress import all_item_indexes, has_every_outcome
-from conductor._internal.run.results import function_of
-from conductor._internal.run.reuse import ReusableOutcomes
-from conductor._internal.types import Type
 
 if TYPE_CHECKING:
-    from conductor._internal.run.type import Run
+    from ..type import Run
 
 #: What ``states`` says for an outcome of each class; an outcome of any other class, and a call with no outcome,
 #: is written as ``None``.

@@ -24,15 +24,16 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 
 from conductor._internal.ask import Ask, Question, field_questions
 from conductor._internal.base import SKIPPED, short_hash
-from conductor._internal.compiled.input import Input, OutputAddress
 from conductor._internal.field import Field, FieldDescription
 from conductor._internal.gate import AnswerDoor, AskDoor, ReturnDoor, undeclared_ask
 from conductor._internal.node import FunctionDefinition, SubgraphDefinition
 from conductor._internal.series import Series
 from conductor._internal.types import Type
 
+from .input import Input, OutputAddress
+
 if TYPE_CHECKING:
-    from conductor._internal.compiled.type import CompiledGraph
+    from .type import CompiledGraph
 
 
 class RequiredBranch(NamedTuple):

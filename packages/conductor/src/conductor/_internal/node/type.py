@@ -20,10 +20,11 @@ from conductor._internal.base import qualified_name
 from conductor._internal.context import ContextParameter
 from conductor._internal.field import Field
 from conductor._internal.gate import AskedValueDoor, RefusedError, ReturnShape
-from conductor._internal.node.describe import FunctionNodeDescription, SubgraphDescription
-from conductor._internal.node.policy import Deprecation, Policy
 from conductor._internal.problem import catalogue as problem
 from conductor._internal.record import GraphRecord
+
+from .describe import FunctionNodeDescription, SubgraphDescription
+from .policy import Deprecation, Policy
 
 
 class NodeFunction[**P, R](Protocol):

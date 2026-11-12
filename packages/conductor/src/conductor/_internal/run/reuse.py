@@ -25,8 +25,9 @@ from pydantic_core import PydanticSerializationError
 
 from conductor._internal.base import ItemIndexes, canonical_json, short_hash
 from conductor._internal.compiled import FlatFunctionNode
-from conductor._internal.run.outcome import Answered, Done, NotReady, Outcome, Unanswered
 from conductor._internal.types import untyped_to_hash
+
+from .outcome import Answered, Done, NotReady, Outcome, Unanswered
 
 
 @dataclass(slots=True)

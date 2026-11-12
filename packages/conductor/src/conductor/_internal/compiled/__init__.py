@@ -5,14 +5,14 @@ Code outside this package imports from here only. ``compile.py`` has ``compile_g
 ``flat.py`` the flat graph, which a run works on; ``describe.py`` what a host is shown of a compiled graph.
 """
 
-from conductor._internal.compiled.compile import compile_graph
-from conductor._internal.compiled.describe import (
+from .compile import compile_graph
+from .describe import (
     GraphDescription,
     GraphInputDescription,
     InputSource,
     RunsOn,
 )
-from conductor._internal.compiled.flat import (
+from .flat import (
     FlatFunctionNode,
     FlatNode,
     FlatSubgraph,
@@ -20,16 +20,16 @@ from conductor._internal.compiled.flat import (
     display_inputs_of,
     outcome_loc,
 )
-from conductor._internal.compiled.input import (
+from .input import (
     CollectingInput,
     ConstantInput,
     Edge,
     EdgeInput,
     GraphInput,
 )
-from conductor._internal.compiled.node import (
+from .node import (
     CompiledFunctionNode,
     outputs_when_not_called,
     outputs_when_skipped,
 )
-from conductor._internal.compiled.type import CompiledGraph
+from .type import CompiledGraph

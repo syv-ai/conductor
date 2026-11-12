@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from conductor._internal.problem.type import ProblemCatalogue
+from .type import ProblemCatalogue
 
 #: Every kind of problem a declaration can have.
 DECLARATION_PROBLEMS = ProblemCatalogue()

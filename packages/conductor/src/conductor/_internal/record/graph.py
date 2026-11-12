@@ -12,7 +12,8 @@ from typing import Annotated
 from pydantic import AfterValidator, field_validator
 
 from conductor._internal.base import ConductorModel, split_address
-from conductor._internal.record.node import JSON_ONLY, NodeRecord
+
+from .node import JSON_ONLY, NodeRecord
 
 
 def _checked_address(address: str) -> str:

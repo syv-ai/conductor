@@ -16,8 +16,9 @@ from typing import Any
 
 from conductor._internal.base import NodePath
 from conductor._internal.context import ContextParameter
-from conductor._internal.gate.refused import RefusedError
 from conductor._internal.problem import catalogue as problem
+
+from .refused import RefusedError
 
 
 class ContextDoor:

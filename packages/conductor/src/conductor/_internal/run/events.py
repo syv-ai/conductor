@@ -42,11 +42,12 @@ from pydantic.json_schema import SkipJsonSchema
 
 from conductor._internal.base import ConductorModel, Loc
 from conductor._internal.problem import Problem
-from conductor._internal.run.state import EndedEarly, Going, RunStatus
-from conductor._internal.run.waiting import Waiting
+
+from .state import EndedEarly, Going, RunStatus
+from .waiting import Waiting
 
 if TYPE_CHECKING:
-    from conductor._internal.run import Run
+    from . import Run
 
 
 class EventBase(ConductorModel):

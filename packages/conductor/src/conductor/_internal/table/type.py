@@ -12,12 +12,13 @@ from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema
 
 from conductor._internal.series import read_as_list
-from conductor._internal.table.read import table_schema
-from conductor._internal.table.write import (
+from conductor._internal.types import Type
+
+from .read import table_schema
+from .write import (
     table_digest,
     written_table,
 )
-from conductor._internal.types import Type
 
 
 class _Table[T]:
@@ -40,7 +41,7 @@ class _Table[T]:
 
 
 if TYPE_CHECKING:  # to a type checker a Table is the frame a node gets, which keeps its row type
-    from conductor._internal.table.table_as_a_type_checker_reads_it import Table
+    from .table_as_a_type_checker_reads_it import Table
 else:
     Table = _Table
 

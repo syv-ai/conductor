@@ -10,7 +10,7 @@ says whether a run is going on or has ended early; ``waiting.py`` is ``Waiting``
 a host is shown it; ``json/`` writes a run as JSON and reads it back.
 """
 
-from conductor._internal.run.events import (
+from .events import (
     Event,
     NodeComplete,
     NodeFailed,
@@ -23,11 +23,11 @@ from conductor._internal.run.events import (
     RunEnd,
     RunStart,
 )
-from conductor._internal.run.progress import CallCount, Progress
-from conductor._internal.run.state import EndedEarly, Going, RunState, RunStatus
-from conductor._internal.run.type import (
+from .progress import CallCount, Progress
+from .state import EndedEarly, Going, RunState, RunStatus
+from .type import (
     NotCalled,
     Run,
     no_outcomes,
 )
-from conductor._internal.run.waiting import Waiting
+from .waiting import Waiting

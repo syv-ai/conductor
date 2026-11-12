@@ -22,13 +22,20 @@ extend-exclude = ["examples/*.ipynb", "node.ipynb", "**/table_as_a_type_checker_
 
 [tool.ruff.lint]
 # Conservative baseline: pyflakes + pycodestyle + isort. Expand later if desired.
-select = ["E", "F", "I", "W"]
+select = ["E", "F", "I", "W", "TID252"]
 # E501 (line-too-long) is noisy for prose-ish docstrings and long strings.
 ignore = ["E501"]
 
 [tool.ruff.lint.per-file-ignores]
 # A package's __init__.py re-exports; its imports are its public surface.
 "__init__.py" = ["F401"]
+# run/json/ is the one package inside a package: its files import run/'s modules as ..outcome
+"packages/conductor/src/conductor/_internal/run/json/*.py" = ["TID252"]
+
+[tool.ruff.lint.flake8-tidy-imports]
+# a module imports a module of its own package as .outcome; another package by its absolute name, through its
+# __init__ (the pre-commit hook "a package is imported only through its __init__" refuses the rest)
+ban-relative-imports = "parents"
 
 [dependency-groups]
 dev = [
@@ -64,7 +71,6 @@ docs = [
 # table, field and context on those.
 [tool.importlinter]
 root_packages = ["conductor"]
-contract_types = ["through_init: tests.import_contracts.ThroughInitContract"]
 
 [[tool.importlinter.contracts]]
 name = "conductor._internal is in layers"
@@ -87,10 +93,3 @@ layers = [
 # The one import up a layer, an annotation only (under TYPE_CHECKING): a run names the graph it is a run of,
 # Run.graph: Graph, and Graph is the layer on top because it makes runs.
 ignore_imports = ["conductor._internal.run.type -> conductor._internal.graph"]
-
-[[tool.importlinter.contracts]]
-name = "a package of conductor._internal is imported only through its __init__"
-type = "through_init"
-container = "conductor._internal"
-# a module of functions that callers write through the module: `from conductor._internal.problem import catalogue as problem`
-modules_imported_by_name = ["conductor._internal.problem.catalogue", "conductor._internal.problem.declarations"]

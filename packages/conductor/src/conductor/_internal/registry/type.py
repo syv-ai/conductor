@@ -67,9 +67,10 @@ from conductor._internal.node import (
 from conductor._internal.problem import NodeDeclarationError
 from conductor._internal.problem import declarations as declaration
 from conductor._internal.record import GraphRecord, NodeRecord
-from conductor._internal.registry.describe import RegistryDescription, TypeDescription
-from conductor._internal.registry.upgrade import upgraded
 from conductor._internal.types import Type
+
+from .describe import RegistryDescription, TypeDescription
+from .upgrade import upgraded
 
 
 def _takes_the_arguments_of[**P, R](

@@ -30,7 +30,8 @@ from typing import Any
 
 from conductor._internal.base import SKIPPED, ConductorModel, ItemIndexes
 from conductor._internal.compiled import CompiledGraph, FlatFunctionNode, FlatSubgraph
-from conductor._internal.run.outcome import Outcome, Unanswered
+
+from .outcome import Outcome, Unanswered
 
 
 class CallCount(ConductorModel):

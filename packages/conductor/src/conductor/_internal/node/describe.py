@@ -11,7 +11,8 @@ from pydantic import JsonValue
 
 from conductor._internal.base import ConductorModel
 from conductor._internal.field import FieldDescription
-from conductor._internal.node.policy import Deprecation, Policy
+
+from .policy import Deprecation, Policy
 
 
 class _NodeDescription(ConductorModel):

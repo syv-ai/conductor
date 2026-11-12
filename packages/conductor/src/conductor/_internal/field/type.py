@@ -11,7 +11,6 @@ from pydantic import JsonValue
 from pydantic_core import PydanticSerializationError
 
 from conductor._internal.base import REQUIRED, SKIPPED
-from conductor._internal.field.describe import FieldDescription
 from conductor._internal.problem import NodeDeclarationError
 from conductor._internal.problem import declarations as declaration
 from conductor._internal.types import (
@@ -23,6 +22,8 @@ from conductor._internal.types import (
     union_of,
 )
 from conductor.widgets import Widget
+
+from .describe import FieldDescription
 
 
 @dataclass(frozen=True)

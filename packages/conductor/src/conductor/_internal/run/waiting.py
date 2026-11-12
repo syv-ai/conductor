@@ -17,7 +17,8 @@ from conductor._internal.ask import QuestionOverrides, answer_required
 from conductor._internal.base import ConductorModel, Loc, canonical_json, loc_text, short_hash
 from conductor._internal.compiled import CompiledFunctionNode
 from conductor._internal.field import Field, FieldDescription
-from conductor._internal.run.outcome import Unanswered
+
+from .outcome import Unanswered
 
 
 class Waiting(ConductorModel):

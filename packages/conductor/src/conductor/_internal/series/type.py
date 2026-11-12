@@ -8,9 +8,10 @@ from typing import TYPE_CHECKING, Any, get_args
 from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema, core_schema
 
-from conductor._internal.series.read import series_schema
-from conductor._internal.series.stored import SeriesItems, StoredSeries
 from conductor._internal.types import Type, union_of
+
+from .read import series_schema
+from .stored import SeriesItems, StoredSeries
 
 
 class _Series[T]:

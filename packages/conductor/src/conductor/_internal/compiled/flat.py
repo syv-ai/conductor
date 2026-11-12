@@ -41,7 +41,12 @@ from conductor._internal.base import (
     node_path_text,
     split_address,
 )
-from conductor._internal.compiled.input import (
+from conductor._internal.field import Field
+from conductor._internal.gate import EdgeDoor, demands_more
+from conductor._internal.node import Policy
+from conductor._internal.series import Series
+
+from .input import (
     CollectingInput,
     ConstantInput,
     Edge,
@@ -51,17 +56,13 @@ from conductor._internal.compiled.input import (
     MissingInput,
     OutputAddress,
 )
-from conductor._internal.compiled.node import (
+from .node import (
     CompiledFunctionNode,
     CompiledSubgraphNode,
 )
-from conductor._internal.field import Field
-from conductor._internal.gate import EdgeDoor, demands_more
-from conductor._internal.node import Policy
-from conductor._internal.series import Series
 
 if typing.TYPE_CHECKING:
-    from conductor._internal.compiled.type import CompiledGraph
+    from .type import CompiledGraph
 
 
 class EdgeArgument(NamedTuple):

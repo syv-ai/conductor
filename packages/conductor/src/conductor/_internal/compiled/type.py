@@ -28,7 +28,13 @@ from dataclasses import dataclass
 from typing import Annotated
 
 from conductor._internal.base import NodePath, canonical_json, plural, short_hash, split_address
-from conductor._internal.compiled.describe import (
+from conductor._internal.field import Field
+from conductor._internal.gate import ContextDoor, InputsDoor, RefusedError
+from conductor._internal.problem import InvalidCallError, Problem
+from conductor._internal.record import GraphRecord
+from conductor._internal.types import Param
+
+from .describe import (
     GraphDescription,
     GraphInputDescription,
     GraphNodeDescription,
@@ -37,19 +43,14 @@ from conductor._internal.compiled.describe import (
     input_source_of,
     runs_on,
 )
-from conductor._internal.compiled.flat import FlatFunctionNode, FlatNode, flat_nodes
-from conductor._internal.compiled.input import OutputAddress
-from conductor._internal.compiled.node import (
+from .flat import FlatFunctionNode, FlatNode, flat_nodes
+from .input import OutputAddress
+from .node import (
     CompiledFunctionNode,
     CompiledNode,
     CompiledSubgraphNode,
     RequiredBranch,
 )
-from conductor._internal.field import Field
-from conductor._internal.gate import ContextDoor, InputsDoor, RefusedError
-from conductor._internal.problem import InvalidCallError, Problem
-from conductor._internal.record import GraphRecord
-from conductor._internal.types import Param
 
 
 @dataclass(frozen=True, slots=True)

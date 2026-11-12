@@ -9,7 +9,8 @@ from pydantic import ConfigDict, NonNegativeInt, PositiveInt
 from pydantic import Field as PydanticField
 
 from conductor._internal.ask import Question
-from conductor._internal.run.state import EndedEarly, Going
+
+from ..state import EndedEarly, Going
 
 #: Every class here refuses a key it does not declare, and writes ``inf`` and ``nan`` as text.
 _SAVED = ConfigDict(extra="forbid", ser_json_inf_nan="strings")

@@ -2,5 +2,5 @@
 palette reads it; ``upgrade.py`` moves one node of a graph record to a newer version (``registry.upgrade``).
 """
 
-from conductor._internal.registry.describe import RegistryDescription, TypeDescription
-from conductor._internal.registry.type import NodeRegistry
+from .describe import RegistryDescription, TypeDescription
+from .type import NodeRegistry

@@ -41,24 +41,6 @@ from dataclasses import dataclass
 from typing import Any, Literal, TypeVar
 
 from conductor._internal.base import REQUIRED, is_name, split_address
-from conductor._internal.compiled.describe import GraphInputDescription
-from conductor._internal.compiled.input import (
-    CollectingInput,
-    ConstantInput,
-    Edge,
-    EdgeInput,
-    GraphInput,
-    Input,
-    MissingInput,
-    OutputAddress,
-)
-from conductor._internal.compiled.node import (
-    CompiledFunctionNode,
-    CompiledNode,
-    CompiledSubgraphNode,
-    RequiredBranch,
-)
-from conductor._internal.compiled.type import CompiledGraph, InputField
 from conductor._internal.context import ContextParameter, is_protocol, what_the_context_lacks
 from conductor._internal.field import Field
 from conductor._internal.gate import RefusedError, bound_field, read_constant, read_hook_fields
@@ -73,6 +55,25 @@ from conductor._internal.problem import NodeError, Problem
 from conductor._internal.problem import catalogue as problem
 from conductor._internal.record import GraphRecord, NodeRecord
 from conductor._internal.types import Type
+
+from .describe import GraphInputDescription
+from .input import (
+    CollectingInput,
+    ConstantInput,
+    Edge,
+    EdgeInput,
+    GraphInput,
+    Input,
+    MissingInput,
+    OutputAddress,
+)
+from .node import (
+    CompiledFunctionNode,
+    CompiledNode,
+    CompiledSubgraphNode,
+    RequiredBranch,
+)
+from .type import CompiledGraph, InputField
 
 _logger = logging.getLogger("conductor")
 

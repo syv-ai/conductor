@@ -16,8 +16,9 @@ from pydantic_core import CoreSchema, PydanticCustomError, core_schema
 
 from conductor._internal.problem import NodeDeclarationError
 from conductor._internal.problem import declarations as declaration
-from conductor._internal.table.write import CELLS, DTYPES, WRITTEN_TABLE, written_table
 from conductor._internal.types import Type
+
+from .write import CELLS, DTYPES, WRITTEN_TABLE, written_table
 
 
 def _frame_of(columns: Iterable[tuple[str, list[Any], Any]]) -> pl.DataFrame:

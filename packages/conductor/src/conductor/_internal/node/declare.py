@@ -78,8 +78,13 @@ from conductor._internal.gate import (
     declared_field,
     read_record,
 )
-from conductor._internal.node.policy import Deprecation, Policy
-from conductor._internal.node.type import (
+from conductor._internal.problem import InvalidCallError, NodeDeclarationError
+from conductor._internal.problem import declarations as declaration
+from conductor._internal.record import GraphRecord
+from conductor._internal.types import Type, split_hint
+
+from .policy import Deprecation, Policy
+from .type import (
     AskedParameter,
     FunctionDefinition,
     HookName,
@@ -89,10 +94,6 @@ from conductor._internal.node.type import (
     SubgraphDefinition,
     Upgrade,
 )
-from conductor._internal.problem import InvalidCallError, NodeDeclarationError
-from conductor._internal.problem import declarations as declaration
-from conductor._internal.record import GraphRecord
-from conductor._internal.types import Type, split_hint
 
 
 class NodeDecorator(Protocol):

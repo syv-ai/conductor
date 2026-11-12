@@ -4,3 +4,11 @@ repos:
     hooks:
       - id: nbstripout
         files: \.ipynb$
+  - repo: local
+    hooks:
+      - id: imported-only-through-init
+        name: a package is imported only through its __init__
+        language: pygrep
+        files: ^packages/conductor/src/conductor/
+        # an absolute import of another package's file, or a relative import that climbs out of a package
+        entry: '^\s*from (conductor\._internal\.\w+\.\w+|\.\.\.)'

@@ -14,8 +14,9 @@ from threading import Thread
 from typing import Any
 
 from conductor._internal.problem import catalogue as problem
-from conductor._internal.run.events import Event, EventBase
-from conductor._internal.run.state import RUNNING, EndedEarly, RunState, deadline
+
+from .events import Event, EventBase
+from .state import RUNNING, EndedEarly, RunState, deadline
 
 
 async def stream(

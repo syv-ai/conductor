@@ -10,9 +10,10 @@ from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema, core_schema
 
 from conductor._internal.series import ColumnsOnDemand, StoredSeries
-from conductor._internal.table.type import _Table
-from conductor._internal.table.write import written_columns
 from conductor._internal.types import NoSuchFieldError, Type
+
+from .type import _Table
+from .write import written_columns
 
 
 class Records[T](StoredSeries, returned_as=pl.DataFrame):

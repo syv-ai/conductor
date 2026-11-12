@@ -22,10 +22,11 @@ from pydantic_core import PydanticCustomError
 from conductor._internal.ask import NOTHING_SET, Ask, Question, QuestionOverrides
 from conductor._internal.base import REQUIRED, comma_separated
 from conductor._internal.field import Field
-from conductor._internal.gate.answer import answer_value, from_json
-from conductor._internal.gate.refused import RefusedError
 from conductor._internal.problem import catalogue as problem
 from conductor._internal.types import Choice
+
+from .answer import answer_value, from_json
+from .refused import RefusedError
 
 
 class AskDoor:

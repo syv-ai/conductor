@@ -38,7 +38,7 @@ from conductor._internal.field import Field
 from conductor._internal.types import Type
 
 if TYPE_CHECKING:
-    from conductor._internal.compiled.flat import FlatFunctionNode
+    from .flat import FlatFunctionNode
 
 
 class OutputAddress(NamedTuple):

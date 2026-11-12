@@ -3,5 +3,5 @@
 compiled from is ``record/``.
 """
 
-from conductor._internal.graph.make import make_graph
-from conductor._internal.graph.type import Graph
+from .make import make_graph
+from .type import Graph

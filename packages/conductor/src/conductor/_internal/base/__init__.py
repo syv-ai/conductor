@@ -6,7 +6,7 @@ text to hash; ``hashing.py`` is ``short_hash``; ``text.py`` the English messages
 is ``REQUIRED`` and ``SKIPPED``.
 """
 
-from conductor._internal.base.address import (
+from .address import (
     NAME_PATTERN,
     ItemIndexes,
     Loc,
@@ -18,8 +18,8 @@ from conductor._internal.base.address import (
     parse_node_path,
     split_address,
 )
-from conductor._internal.base.hashing import short_hash
-from conductor._internal.base.json import canonical_json, plain_json
-from conductor._internal.base.markers import REQUIRED, SKIPPED
-from conductor._internal.base.model import ConductorModel
-from conductor._internal.base.text import comma_separated, plural, qualified_name
+from .hashing import short_hash
+from .json import canonical_json, plain_json
+from .markers import REQUIRED, SKIPPED
+from .model import ConductorModel
+from .text import comma_separated, plural, qualified_name
