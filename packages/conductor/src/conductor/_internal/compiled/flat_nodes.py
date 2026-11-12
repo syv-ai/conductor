@@ -33,7 +33,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, assert_never
 
-from conductor._internal.address import Loc, NodePath, node_path_text
+from conductor._internal.address import Loc, NodePath, node_path_text, split_address
 from conductor._internal.compiled.input_plans import (
     EdgeSource,
     InputCollectsLoopResults,
@@ -173,7 +173,7 @@ class FlatSubgraph(_FlatNodeBase):
         ``(loud/shout, "result")``. When the node inside is itself a subgraph, the answer is a function node
         inside that one.
         """
-        node_id, _, inner_output = output.partition(".")
+        node_id, inner_output = split_address(output)
         return self.inner_nodes[node_id].source_of(inner_output)
 
 

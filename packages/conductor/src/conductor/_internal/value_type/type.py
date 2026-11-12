@@ -24,11 +24,12 @@ from pydantic_core import (
     PydanticSerializationError,
     SchemaError,
     core_schema,
-    from_json,
     to_json,
 )
 
+from conductor._internal.plain_json import plain_json
 from conductor._internal.problem import NodeDeclarationError, value_free_errors
+from conductor._internal.text import qualified_name
 from conductor._internal.value_type.choice import Choice
 from conductor._internal.value_type.fit import fit
 from conductor._internal.value_type.hint import (
@@ -74,7 +75,7 @@ def _written(hint: Any) -> str:
     if args:
         name = "Union" if origin in (Union, UnionType) else _written(origin)
         return f"{name}[{', '.join(map(_written, args))}]"
-    return f"{hint.__module__}.{hint.__qualname__}" if isinstance(hint, type) else repr(hint)
+    return qualified_name(hint) if isinstance(hint, type) else repr(hint)
 
 
 def _written_metadata(mark: Any) -> str:
@@ -449,8 +450,7 @@ class Type:
         Raises:
             PydanticSerializationError: The value has no JSON form.
         """
-        written: JsonValue = from_json(to_json(self.adapter.serializer.to_python(value, mode="json"), inf_nan_mode="strings"))
-        return written
+        return plain_json(self.adapter.serializer.to_python(value, mode="json"))
 
     @functools.cached_property
     def saved_schema(self) -> CoreSchema:

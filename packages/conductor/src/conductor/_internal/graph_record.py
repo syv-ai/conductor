@@ -36,10 +36,11 @@ from collections.abc import Mapping, Sequence
 from typing import Annotated, Any
 
 from pydantic import AfterValidator, ConfigDict, Field, JsonValue, ValidationError, field_validator
-from pydantic_core import PydanticSerializationError, from_json, to_json
+from pydantic_core import PydanticSerializationError
 
 from conductor._internal.address import split_address
 from conductor._internal.conductor_model import ConductorModel
+from conductor._internal.plain_json import plain_json
 from conductor._internal.problem import InvalidCallError, Problem
 from conductor._internal.problem import catalogue as problem
 from conductor._internal.series import SET_HAS_NO_ORDER
@@ -158,7 +159,7 @@ def values_as_json(node_id: str, values: Mapping[str, Any]) -> tuple[dict[str, J
             problems.append(problem.invalid_value(node_id, name, reason=SET_HAS_NO_ORDER, errors=errors))
             continue
         try:
-            typed[name] = from_json(to_json(value, inf_nan_mode="strings"))
+            typed[name] = plain_json(value)
         except PydanticSerializationError:
             reason = "a value typed into a graph is saved with it as JSON" + kind_of_value(value).typed_in_advice
             problems.append(problem.invalid_value(node_id, name, reason=reason))

@@ -41,6 +41,7 @@ from conductor._internal.address import (
     NodePath,
     node_path_text,
     parse_loc_text,
+    split_address,
 )
 from conductor._internal.ask import (
     Waiting,
@@ -483,7 +484,7 @@ class Run:
         """The function node that returns the output at ``address`` (``node.output``), and the output's name on
         that function. For a subgraph (``e.upper.result``) it is the function inside the
         subgraph, since the subgraph's node is never called itself."""
-        node_id, _, output = address.partition(".")
+        node_id, output = split_address(address)
         return self.graph._nodes_by_name[node_id].source_of(output)
 
     # -- what a leg reads -------------------------------------------------------

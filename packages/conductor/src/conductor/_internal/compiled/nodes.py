@@ -187,7 +187,7 @@ class CompiledSubgraphNode(_CompiledNodeBase):
         wired to both, as it may with the same nodes drawn in the outer graph. A branch inside is named by this
         node's id, with the group and the output as addresses inside the subgraph.
         """
-        node_id, _, inner_output = output.partition(".")
+        node_id, inner_output = split_address(output)
         inside = self.inner._nodes[node_id].branches_required_for(inner_output)
         depth = len(self.loops)
         return self.required_branches | {

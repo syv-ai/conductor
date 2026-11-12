@@ -27,6 +27,7 @@ from pydantic.errors import PydanticSchemaGenerationError
 from pydantic_core import core_schema
 
 from conductor._internal.problem import NodeDeclarationError
+from conductor._internal.text import qualified_name
 
 #: The id and title of each class conductor itself names. ``Series`` and ``Table`` name themselves in their own
 #: packages, and every other class a field has is declared with ``@host_type``.
@@ -144,7 +145,7 @@ def declaration_of(cls: type) -> TypeDeclaration:
         parent = next((base for base in cls.__mro__[1:] if "__conductor_type__" in vars(base)), None)
         why = f"; {parent.__qualname__}'s declaration is its own and is not inherited" if parent else ""
         raise NodeDeclarationError(
-            f'{cls.__module__}.{cls.__qualname__} is the type of a field and is not declared; write @host_type("...", title="...") above the class{why}',
+            f'{qualified_name(cls)} is the type of a field and is not declared; write @host_type("...", title="...") above the class{why}',
             code="type_not_named",
         )
     return declared

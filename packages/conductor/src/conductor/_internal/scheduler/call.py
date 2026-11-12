@@ -6,13 +6,13 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-import pydantic_core
 from pydantic_core import PydanticSerializationError
 
 from conductor._internal.compiled import FlatFunctionNode
 from conductor._internal.field import Field
 from conductor._internal.markers import SKIPPED
 from conductor._internal.node_definition import ReturnShape
+from conductor._internal.plain_json import plain_json
 from conductor._internal.problem import CallRejectedError
 from conductor._internal.problem import catalogue as problem
 from conductor._internal.value_type import FieldValueError, untyped_as_json
@@ -99,11 +99,11 @@ def jsonable(arguments: dict[str, Any]) -> Any:
     """What a unit received, as JSON; a float that isn't finite as text. ``CallRejectedError`` as ``question_unwritable`` names
     the first input with no JSON form."""
     try:
-        return pydantic_core.from_json(pydantic_core.to_json(arguments, fallback=untyped_as_json, inf_nan_mode="strings"))
+        return plain_json(arguments, fallback=untyped_as_json)
     except (TypeError, ValueError, PydanticSerializationError) as error:
         for name, value in arguments.items():
             try:
-                pydantic_core.to_json(value, fallback=untyped_as_json, inf_nan_mode="strings")
+                plain_json(value, fallback=untyped_as_json)
             except (TypeError, ValueError, PydanticSerializationError) as unwritable:
                 raise CallRejectedError(problem.question_unwritable(reason=str(unwritable), input=name)) from None
         raise error
