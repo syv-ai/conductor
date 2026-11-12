@@ -272,7 +272,7 @@ class Run:
             nodes=graph._flat_function_nodes, threads=graph._threads, outcomes=run._outcomes, reusable_results=run._reusable, finished=run._finished_nodes,
             max_items=run.max_items, arguments_for=run._reader.arguments_for, emit=emit, stop=stop, from_run=from_run,
             checkpoint=checkpoint, checkpoint_every=checkpoint_every,
-        ).go()
+        ).run()
         if emit is not None:  # a leg handed back left its run running: the run didn't end, and the host stores it as it stands
             emit(RunCheckpoint(run=run) if run.state is RUNNING else RunEnd.of(run))
         return run

@@ -170,18 +170,18 @@ class Scheduler:
         #: For a node taking a person's earlier answers, how far through its units in order the leg has tried.
         self.answer_orders: dict[FlatFunctionNode, _AnswerOrder] = {}
         #: Units recorded since the last walk over every unit ended.
-        self.recorded_since_walk = 0
+        self.recorded_since_last_pass = 0
         #: Whether a unit was left untried because a unit before it may take the earlier answer it would take.
         self.out_of_turn = False
         # what only a listener needs
         with_outcomes: set[FlatFunctionNode] = {node for node, held in self.outcomes.items() if held}
-        self.started: set[FlatNode] = with_outcomes | {around for node in with_outcomes for around in _around(node)}
+        self.started: set[FlatNode] = with_outcomes | {around for node in with_outcomes for around in _parents(node)}
         #: The nodes said complete, on this leg or on an earlier one; a node an answer finished between legs is said on
         #: this one. A subgraph's node is complete when every node inside it is.
         self.complete: set[FlatNode] = {node for node in self.nodes if node.node_path in finished} if finished else set()
         if self.complete and emit is not None:
             for node in list(self.complete):
-                self._complete_around(node, announce=False)
+                self._complete_parents(node, announce=False)
         #: The nodes said skipped: every unit a branch not taken.
         self.skipped: set[FlatNode] = set()
         self.touched = with_outcomes - self.complete
@@ -189,7 +189,7 @@ class Scheduler:
         self.progress_at: dict[FlatFunctionNode, float] = {}
         self.progress_said: dict[FlatFunctionNode, int] = {}
 
-    def go(self) -> tuple[RunState, frozenset[NodePath]]:
+    def run(self) -> tuple[RunState, frozenset[NodePath]]:
         """Run the leg: try what is ready, look over the run when something happened in it, and wait for the
         threads, until nothing more can start or something ends the leg early.
 
@@ -198,16 +198,16 @@ class Scheduler:
         """
         try:
             self._check_item_limit()
-            self._walk()
+            self._try_every_call()
             while self.going:
                 if self.stop is not None and (stopped := self.stop()) is not None:
                     self.end(stopped)
                 elif self.ready:
                     position, item_indexes = heapq.heappop(self.ready)
-                    self._try(self.nodes[position], item_indexes)
+                    self._start_if_ready(self.nodes[position], item_indexes)
                 elif self.changed:
                     self.changed = False
-                    if not self._look_over():
+                    if not self._when_nothing_is_ready():
                         break
                 else:
                     self._wait()
@@ -244,19 +244,19 @@ class Scheduler:
             timeout = 0.05 if timeout is None else min(timeout, 0.05)
         try:
             if timeout is None:
-                came = self.returned.get()
+                returned = self.returned.get()
             else:
                 try:
                     # CPython 3.12's SimpleQueue.get(timeout=) never returns when its timeout runs out before its first
                     # look at an empty queue, so the first look is one that doesn't wait.
-                    came = self.returned.get(block=False)
+                    returned = self.returned.get(block=False)
                 except queue.Empty:
                     if timeout <= 0:
                         raise
-                    came = self.returned.get(timeout=timeout)
-            if isinstance(came, BaseException):
-                raise came
-            self._returned(*came)
+                    returned = self.returned.get(timeout=timeout)
+            if isinstance(returned, BaseException):
+                raise returned
+            self._returned(*returned)
         except queue.Empty:
             pass
         now = time.monotonic()
@@ -298,7 +298,7 @@ class Scheduler:
             outcomes.update(in_order)
         self.out_of_order.clear()
 
-    def _look_over(self) -> bool:
+    def _when_nothing_is_ready(self) -> bool:
         """With nothing ready to try: start the gathering units nothing works under any more and say which nodes
         are complete. Once nothing is working, walk every unit again if one was left out of its turn.
 
@@ -317,15 +317,15 @@ class Scheduler:
             self._completions()
         if self.running:
             return True
-        if self.out_of_turn and (self.recorded_since_walk or self._pass_untried()):
-            self._walk()
+        if self.out_of_turn and (self.recorded_since_last_pass or self._skip_calls_that_cannot_start()):
+            self._try_every_call()
             self.changed = True
             return True
         return False
 
-    def _walk(self) -> None:
+    def _try_every_call(self) -> None:
         """Try every unit of every node, in order: as a leg begins, and again for units left out of their turn."""
-        self.out_of_turn, self.recorded_since_walk = False, 0
+        self.out_of_turn, self.recorded_since_last_pass = False, 0
         running = self.running
         for node in self.nodes:
             outcomes = self.outcomes[node]
@@ -333,22 +333,22 @@ class Scheduler:
                 if item_indexes not in outcomes and (node, item_indexes) not in running:
                     if not self.going or (self.stop is not None and self.stop() is not None):
                         return
-                    self._try(node, item_indexes, walking=True)
+                    self._start_if_ready(node, item_indexes, trying_every_call=True)
 
-    def _try(self, node: FlatFunctionNode, item_indexes: ItemIndexes, walking: bool = False) -> None:
+    def _start_if_ready(self, node: FlatFunctionNode, item_indexes: ItemIndexes, trying_every_call: bool = False) -> None:
         """Start ``node`` on ``item_indexes`` if what it reads exists."""
-        if not walking and (item_indexes in self.outcomes[node] or (node, item_indexes) in self.running):
+        if not trying_every_call and (item_indexes in self.outcomes[node] or (node, item_indexes) in self.running):
             return
         try:
             arguments = self.arguments_for(node, item_indexes)
         except CallRejectedError as missing:  # an edge names a field the record it brings doesn't have
-            self._record(node, item_indexes, self._failure(node, item_indexes, missing), walking)
+            self._record(node, item_indexes, self._failure(node, item_indexes, missing), trying_every_call)
             return
         if arguments is NotReady.NOT_READY:
             return
         policy = node.policy
         if not isinstance(arguments, dict):  # skipped or blank: it comes to that uncalled
-            self._record(node, item_indexes, arguments, walking)
+            self._record(node, item_indexes, arguments, trying_every_call)
         elif (
             (reusable_results := self.reusable_results) and policy.reuse_when_inputs_match and (of_node := reusable_results.get(node.node_path)) is not None
             and (earlier := reused_outcome(of_node, node, item_indexes, arguments, self.all_outcomes, lambda: self._in_turn(node, item_indexes))) is not None
@@ -357,14 +357,14 @@ class Scheduler:
                 self.out_of_turn = True  # a unit before it may take this answer; the next walk tries it again
                 return
             self.reused[node] += 1
-            self._record(node, item_indexes, earlier, walking)
+            self._record(node, item_indexes, earlier, trying_every_call)
         else:
             if self.emit:
                 self._announce(node)
             if policy.threaded or policy.retries:
-                self._attempt(node, item_indexes, arguments, 0, walking)
+                self._attempt(node, item_indexes, arguments, 0, trying_every_call)
             else:
-                self._record(node, item_indexes, self._outcome(node, item_indexes, arguments, *call(node, arguments, self.from_run)), walking)
+                self._record(node, item_indexes, self._outcome(node, item_indexes, arguments, *call(node, arguments, self.from_run)), trying_every_call)
 
     def _close(self) -> None:
         """Say how the run stands now the leg is over, and which of its nodes are finished."""
@@ -397,13 +397,13 @@ class Scheduler:
                 if node.loops and node in self.progress_said:
                     self._progress(node, last=True)
 
-    def _attempt(self, node: FlatFunctionNode, item_indexes: ItemIndexes, arguments: dict[str, Any], attempt: int, walking: bool = False) -> None:
+    def _attempt(self, node: FlatFunctionNode, item_indexes: ItemIndexes, arguments: dict[str, Any], attempt: int, trying_every_call: bool = False) -> None:
         if not node.policy.threaded:
             out, error = call(node, arguments, self.from_run)
             if not self._retry(node, item_indexes, arguments, attempt, error):
                 if attempt:
                     self.running.pop((node, item_indexes), None)
-                self._record(node, item_indexes, self._outcome(node, item_indexes, arguments, out, error), walking)
+                self._record(node, item_indexes, self._outcome(node, item_indexes, arguments, out, error), trying_every_call)
             return
         self.running[(node, item_indexes)] = arguments
         self.waiting_for_thread[node].append((item_indexes, arguments, attempt))
@@ -487,7 +487,7 @@ class Scheduler:
             return problem.external_failed(*loc, error=type(error).__name__)
         return problem.execution_failed(*loc, error=type(error).__name__)
 
-    def _record(self, node: FlatFunctionNode, item_indexes: ItemIndexes, outcome: Outcome | Problem, walking: bool = False) -> None:
+    def _record(self, node: FlatFunctionNode, item_indexes: ItemIndexes, outcome: Outcome | Problem, trying_every_call: bool = False) -> None:
         """Keep what a unit came to, and make ready what reads it."""
         if type(outcome) is Problem:  # its exact class, which nothing derives from: isinstance of a pydantic model costs four times as much
             if self.going:  # the first failure is the cause; a later one changes nothing
@@ -499,8 +499,8 @@ class Scheduler:
         if outcomes and item_indexes not in outcomes and item_indexes < next(reversed(outcomes)):
             self.out_of_order.add(node)
         outcomes[item_indexes] = outcome
-        if not walking:
-            self.recorded_since_walk += 1
+        if not trying_every_call:
+            self.recorded_since_last_pass += 1
             self.changed = True
         if self.checkpoint_every is not None and time.monotonic() >= self.next_checkpoint:
             self._checkpoint()
@@ -518,7 +518,7 @@ class Scheduler:
                 self.emit(NodeWaiting(waiting=waiting_record(node.compiled_node, outcome_loc(node, item_indexes), outcome)))
             if node.loops:
                 self._progress(node)
-        if walking or not self.going or type(outcome) is Waiting:  # nothing reads a unit that waits for a person
+        if trying_every_call or not self.going or type(outcome) is Waiting:  # nothing reads a unit that waits for a person
             return
         depth = len(item_indexes)
         for reader, places in node.downstream:
@@ -535,7 +535,7 @@ class Scheduler:
         whatever thread finished first.
 
         The k-th of identical units is the k-th in order among those the leg could try: one that waits on a person
-        counts as tried once nothing else can start (``_pass_untried``).
+        counts as tried once nothing else can start (``_skip_calls_that_cannot_start``).
         """
         turn = self.answer_orders.get(node)
         if turn is None or item_indexes not in turn.place:
@@ -547,7 +547,7 @@ class Scheduler:
         turn.reached = reached
         return turn.place.get(item_indexes, 0) <= reached
 
-    def _pass_untried(self) -> bool:
+    def _skip_calls_that_cannot_start(self) -> bool:
         """With nothing left to start, count every unit a node taking earlier answers hasn't tried as tried, so the
         ones after it take theirs.
 
@@ -640,9 +640,9 @@ class Scheduler:
             else:
                 not_called = sum(type(outcome) is NotCalled for outcome in outcomes.values())
                 emit(NodeComplete(loc=node.node_path, outcomes=len(outcomes), not_called=not_called, reused=self.reused[node]))
-            self._complete_around(node, announce=True)
+            self._complete_parents(node, announce=True)
 
-    def _complete_around(self, node: FlatNode, announce: bool) -> None:
+    def _complete_parents(self, node: FlatNode, announce: bool) -> None:
         """Count the subgraph's node around ``node`` as complete once every node inside it is, and so on
         outwards; with ``announce``, tell the listener: skipped when every node inside was, else complete, with one
         unit for each item the subgraph's node runs for."""
@@ -672,7 +672,7 @@ def _is_skipped_or_not_called(outcome: Outcome) -> bool:
     return type(outcome) is Skipped or ((type(outcome) is Done or type(outcome) is Answered) and bool(outcome.outputs) and all(value is SKIPPED for value in outcome.outputs.values()))
 
 
-def _around(node: FlatNode) -> list[FlatSubgraph]:
+def _parents(node: FlatNode) -> list[FlatSubgraph]:
     """The subgraphs' nodes ``node`` is inside, innermost first."""
     around = []
     while node.parent is not None:
