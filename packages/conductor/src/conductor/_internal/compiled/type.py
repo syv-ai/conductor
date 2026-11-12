@@ -85,7 +85,7 @@ class CompiledGraph:
     #: For each node id, the nodes that an edge from it leads to.
     _downstream: dict[str, list[CompiledNode]]
     #: The id and definition of every function node with a ``Context`` parameter, those inside subgraphs too. A run
-    #: reads it (``context_values``) to check it was given every ``Context`` value.
+    #: reads it to check that the caller gave a value for every ``Context`` class.
     _needs_context: list[tuple[str, FunctionDefinition[..., Any]]]
 
     def __repr__(self) -> str:
@@ -133,10 +133,10 @@ class CompiledGraph:
 
         Only a node that could not be compiled has ``found`` false and no inputs or outputs, and its problems say
         why: its definition or version is not in the registry, its id cannot be written in an address, a hook
-        failed or needs a value it was not given, or it is a subgraph that contains itself or has problems of its
-        own. A subgraph node is one node, with the inputs and outputs of its subgraph. Each problem of a subgraph
-        is a problem of this graph, with a ``loc`` that starts with the subgraph node's id and goes on with the
-        place inside the subgraph.
+        (``compute_added_inputs`` or ``compute_outputs``) failed or needs a constant it was not given, or it is a
+        subgraph that contains itself or has problems of its own. A subgraph node is one node, with the inputs and
+        outputs of its subgraph. Each problem of a subgraph is a problem of this graph, with a ``loc`` that starts
+        with the subgraph node's id and goes on with the place inside the subgraph.
         """
         nodes: dict[str, GraphNodeDescription] = {}
         for record in self.record.nodes:

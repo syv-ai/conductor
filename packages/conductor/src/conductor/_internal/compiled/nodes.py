@@ -129,7 +129,7 @@ class CompiledFunctionNode(_CompiledNodeBase):
         specs = (*(plan.field for plan in self.inputs.values()), *self.outputs.values())
         fields = [(spec.name, spec.whole.reads_as) for spec in specs]
         definition = self.definition
-        # as text: a waiting call's id and a saved run contain the hash, so no class's repr may change it
+        # as text: the id of a call waiting for a person's answer and a saved run contain the hash, so no repr may change it
         loops = tuple([str(series) for series in self.loops])
         written = repr((definition.id, definition.version, _code_text(inspect.unwrap(definition.function).__code__), fields, loops))
         return short_hash(written.encode(), 8)
@@ -171,9 +171,9 @@ class CompiledSubgraphNode(_CompiledNodeBase):
     on its own, as ``inner``, and the run calls the function nodes inside it in this node's loops.
 
     Its inputs are the inner graph's inputs (``inner.inputs``), by their names there, and its outputs are the inner
-    graph's outputs (``inner.outputs``), by their addresses there. It has no policy, and its outputs are never
-    reused as a whole: each node inside is called by its own policy, and a later run reuses the outputs of the
-    nodes inside one by one, as it would if they were drawn in the graph itself.
+    graph's outputs (``inner.outputs``), by their addresses there. It has no policy (retries, threads, timeouts),
+    and its outputs are never reused as a whole: each node inside is called by its own policy, and a later run
+    reuses the outputs of the nodes inside one by one, as it would if they were drawn in the graph itself.
 
     An output is read outside as it would be if the subgraph's nodes were drawn in the outer graph. Example: the
     subgraph ``documents -> lines -> shout``, used as the node ``e``. ``lines`` is called once per document and

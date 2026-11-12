@@ -528,7 +528,7 @@ class _Compiler:
         """
         collects, expected = _collects_and_expected_type(field, sources)
         for source in sources:
-            if expected is not source.type and expected.fits(source.type) is None:  # the same type, which most edges join, fits
+            if expected is not source.type and expected.fits(source.type) is None:  # the identity test first: most edges read exactly the input's type
                 self.problems.append(_mismatch(node_id, field, source))
                 return InputMissing(field)
         deepest = max((s.loops_of_value for s in sources), key=len)

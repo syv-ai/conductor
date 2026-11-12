@@ -168,7 +168,7 @@ def input_source_of(loops: tuple[OutputAddress, ...], plan: InputPlan) -> InputS
         case InputWrapsOneValue():
             return InputSource(mode="collected", msg="the one value, as a Series of one")
         case InputReadsOneValue(loops=value_loops):
-            if value_loops != loops:  # the value is returned outside the node's innermost loop
+            if value_loops != loops:  # the value's node is inside fewer loops than this node: the same value for every item
                 made_for = f"the item of {value_loops[-1]}" if value_loops else "the graph"
                 return InputSource(mode="outer_value", series=str(value_loops[-1]) if value_loops else None, msg=f"the value of {made_for}")
             if value_loops:
