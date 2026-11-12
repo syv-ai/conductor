@@ -110,7 +110,7 @@ class FlatFunctionNode(_FlatNodeBase):
     """A function node of the flat graph: what a run calls and keeps outcomes of.
 
     The arguments of one call come from three places: ``constants`` (known when the graph is compiled),
-    ``graph_inputs`` (known when a run starts) and ``edge_inputs`` (read from the run's outcomes for each call).
+    ``graph_inputs`` (known when a run starts) and ``edge_arguments`` (read from the run's outcomes for each call).
     In every input here, a source names a function node by its ``name``.
 
     Attributes:
@@ -120,10 +120,9 @@ class FlatFunctionNode(_FlatNodeBase):
             ``None`` for every other input. The arguments of a call start as a copy of it.
         graph_inputs: The inputs the caller gives a value for: the input's name, and the key the run keeps the
             caller's value under (``"lines.text"``).
-        edge_inputs: The inputs that edges lead to, in the order declared, each an ``EdgeArgument``. A collecting input
-            is here twice: first with an input that reads
-            the list it collects as one value (so a list that is ``None``, skipped or not made yet is seen
-            before any item is read), then as itself.
+        edge_arguments: The inputs that edges lead to, in the order declared, each an ``EdgeArgument``. A
+            collecting input is here twice: first with an input that reads the list it collects as one value (so a
+            list that is ``None``, skipped or not made yet is seen before any item is read), then as itself.
         lists_from_same_loop: The collecting inputs, grouped by the loop they collect: each input's name and
             whether it accepts ``None`` items. An item that is ``None`` for an input that does not accept it is
             left out of every list of its group, so the lists of one group have the same items.
@@ -152,7 +151,7 @@ class FlatFunctionNode(_FlatNodeBase):
     policy: Policy
     constants: dict[str, Any]
     graph_inputs: tuple[tuple[str, str], ...]
-    edge_inputs: tuple[EdgeArgument, ...]
+    edge_arguments: tuple[EdgeArgument, ...]
     lists_from_same_loop: tuple[tuple[tuple[str, bool], ...], ...]
     edge_door: EdgeDoor | None
     function: Callable[..., Any]
@@ -313,7 +312,7 @@ def _add_flat_nodes(
             continue
         constants: dict[str, Any] = {}
         graph_inputs: list[tuple[str, str]] = []
-        edge_inputs: list[EdgeArgument] = []
+        edge_arguments: list[EdgeArgument] = []
         upstream: dict[FlatFunctionNode, int] = {}
         collecting: dict[OutputAddress, list[tuple[str, bool]]] = {}
         for name, node_input in inputs.items():
@@ -342,10 +341,10 @@ def _add_flat_nodes(
                     series_type = series_node.compiled_node.outputs[series.output].whole
                     whole_list = Edge(series.node_id, series.output, node_input.loops, None, series_type, item=False)
                     # the list first, then (below) its items
-                    edge_inputs.append(EdgeArgument(name, EdgeInput(field, (whole_list,), node_input.loops), field.whole.optional))
+                    edge_arguments.append(EdgeArgument(name, EdgeInput(field, (whole_list,), node_input.loops), field.whole.optional))
                 case _:
                     assert_never(node_input)
-            edge_inputs.append(EdgeArgument(name, node_input, node_input.field.whole.optional))
+            edge_arguments.append(EdgeArgument(name, node_input, node_input.field.whole.optional))
             depth = len(node_input.loops)
             for upstream_node, shared_indexes in (*[(functions[node_id], min(read_depth, depth)) for node_id, read_depth in read], *outside_the_loop):
                 upstream[upstream_node] = min(shared_indexes, upstream.get(upstream_node, shared_indexes))
@@ -353,7 +352,7 @@ def _add_flat_nodes(
         definition = compiled_node.definition
         node = FlatFunctionNode(
             compiled_node=compiled_node, parent=parent, node_path=node_path, name=node_path_text(node_path), loops=loops, policy=compiled_node.definition.policy,
-            constants=constants, graph_inputs=tuple(graph_inputs), edge_inputs=tuple(edge_inputs), lists_from_same_loop=tuple(map(tuple, collecting.values())),
+            constants=constants, graph_inputs=tuple(graph_inputs), edge_arguments=tuple(edge_arguments), lists_from_same_loop=tuple(map(tuple, collecting.values())),
             edge_door=EdgeDoor(read_by_door) if read_by_door else None,
             function=definition.function if definition.asked is None else definition.asked.filling(definition.function),
             upstream=upstream, position=len(functions),

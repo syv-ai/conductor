@@ -631,6 +631,40 @@ def test_a_field_an_item_or_untyped_column_lacks_fails_the_target_at_that_item_o
     assert _fails_with(column_collected) == ("failed", "invalid_edge_value", ("all-of",), "values", "name")
 
 
+@dataclass(frozen=True)
+class _YesNo:
+    yes: Annotated[str, Param(exclusive_group="answer")]
+    no: Annotated[str, Param(exclusive_group="answer")]
+
+
+@node("decide", title="Decide", description="For a test.")
+def _decide(text: str) -> _YesNo:
+    return _YesNo(text, SKIPPED)
+
+
+@pytest.mark.parametrize(("values_first", "ended"), [(True, ("failed", "invalid_edge_value")), (False, ("complete", None))])
+def test_a_field_a_record_lacks_fails_the_call_when_its_input_is_read_before_a_skipped_one(values_first: bool, ended: tuple[Any, ...]):
+    """both collects give.result.name from records one of which has no name, and takes one from a
+    branch not chosen. The inputs are read in the order of the signature, and the first that settles the call wins:
+    with values first the run fails with invalid_edge_value; with one first the call is skipped, and
+    values is never read."""
+    items = _giving([{"name": "a"}, {"other": "b"}], Series[dict])
+    if values_first:
+        @node("both", title="Both", description="For a test.")
+        def both(values: Series[Any], one: str) -> int:
+            return len(values)
+    else:
+        @node("both", title="Both", description="For a test.")
+        def both(one: str, values: Series[Any]) -> int:
+            return len(values)
+    edges = [("give.result.name", "both.values"), ("decide.no", "both.one")]
+    graph = Graph.compile(make_graph(_decide, items, both, edges=edges), registry_of(_decide, items, both))
+    run = graph.run({"decide.text": "ok"})
+    cause = run.state.cause.type if run.status == "failed" else None
+    states = json.loads(run.to_json())["outcomes"].get("both", {}).get("states")
+    assert ((run.status, cause), states) == (ended, None if values_first else ["skipped"])
+
+
 @node("words", title="Words", description="For a test.")
 def _words(text: str) -> Series[str]:
     return text.split()

@@ -105,7 +105,7 @@ class ResultReader:
             arguments[name] = graph_inputs[address]
         none_input: str | None = None
         ready = True
-        for name, node_input, accepts_none in node.edge_inputs:
+        for name, node_input, accepts_none in node.edge_arguments:
             try:
                 value = self.read_input(node_input, item_indexes)
             except NoSuchFieldError as missing:

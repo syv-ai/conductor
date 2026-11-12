@@ -332,6 +332,40 @@ def test_a_skipped_input_wins_over_a_none_input_whichever_parameter_comes_first(
     assert run.not_called == []
 
 
+@pytest.mark.parametrize("collecting_first", [False, True])
+@pytest.mark.parametrize(("one_reads", "many_reads", "outcome"), [
+    ("skipped", "none", "skipped"), ("none", "skipped", "skipped"), ("none", "none", "not called"),
+])
+def test_an_input_read_from_one_edge_and_a_collecting_input_keep_the_order_a_skip_and_a_none_are_seen_in(collecting_first, one_reads, many_reads, outcome):
+    """``mixed`` takes ``one`` through one edge and ``many`` collected over the loop over ``docs.result``, in both
+    orders of its signature. ``many`` is ``None`` or skipped because the node in the loop, ``pair``, reads ``None`` or
+    a branch not chosen from outside the loop. A skip wins over a ``None`` whichever input has it; two ``None``
+    arguments name the first in the signature."""
+    @node("nothing", title="Nothing", description="For a test.")
+    def nothing(text: str) -> str | None:
+        return None
+
+    if collecting_first:
+        @node("mixed", title="Mixed", description="For a test.")
+        def mixed(many: Series[str], one: str) -> str:
+            return one + "".join(many)
+    else:
+        @node("mixed", title="Mixed", description="For a test.")
+        def mixed(one: str, many: Series[str]) -> str:
+            return one + "".join(many)
+
+    sources = {"skipped": ("decide", "no"), "none": ("nothing", "result")}
+    (one_node, one_output), (outside_node, outside_output) = sources[one_reads], sources[many_reads]
+    run = ran({"id": "o", "node": one_node}, {"id": "x", "node": outside_node}, {"id": "s", "node": "docs"}, {"id": "p", "node": "pair"},
+              {"id": "m", "node": "mixed"},
+              edges=((f"o.{one_output}", "m.one"), ("s.result", "p.a"), (f"x.{outside_output}", "p.b"), ("p.result", "m.many")),
+              registry=registry_of(decide, nothing, docs, pair, mixed), **{"o.text": "ok", "x.text": "ok", "s.text": "a|b"})
+    first = "many" if collecting_first else "one"
+    states = json.loads(run.to_json())["outcomes"]["m"]["states"]  # a call not made for a None is saved as no state
+    not_called = [n for n in run.not_called if n.loc == ("m",)]
+    assert (states, not_called) == ((["skipped"], []) if outcome == "skipped" else ([None], [NotCalled(loc=("m",), input=first)]))
+
+
 @pytest.mark.parametrize("waiting_into", ["a", "b"])
 def test_a_skipped_input_skips_the_node_at_once_while_its_other_input_waits_for_a_person(waiting_into):
     """One input skipped and the other waiting for a person: the node is skipped in the same ``resume()`` call,
