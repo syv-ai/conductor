@@ -25,10 +25,10 @@ class each. The examples add one small node to the graph above.
 - **answered** (``Answered``): the function asked a person, and the person answered. The answer is the call's
   outputs: when the person answers ``False``, the call of ``approve`` is ``Answered({"result": False}, ...)``.
 - **skipped** (``Skipped``): the function was not called, because the node is downstream of a branch that was
-  not chosen. A **branch** is one of several outputs of which a node returns exactly one per call; the others
-  get the value ``SKIPPED``. A node ``route(line)`` with the outputs ``short`` and ``long`` returns ``long`` for
-  ``"longer"`` and ``short`` for ``"a"``. With ``shout`` wired to ``route.long``, the call of ``shout`` for
-  ``"a"`` is ``Skipped({"result": SKIPPED})``.
+  not chosen. A **branch** is one of several outputs, declared with the same ``Param(exclusive_group=...)``, of
+  which a node gives a value to exactly one per call and ``SKIPPED`` to the others. A node ``route(line)`` with
+  the branches ``short`` and ``long`` gives ``long`` a value for ``"longer"`` and ``short`` one for ``"a"``. With
+  ``shout`` wired to ``route.long``, the call of ``shout`` for ``"a"`` is ``Skipped({"result": SKIPPED})``.
 - **not called** (``NotCalled``): the function was not called, because an argument was ``None`` and the
   parameter does not accept ``None``. A node ``strip(line: str) -> str | None`` between ``lines`` and ``shout``
   returns ``None`` for the line ``" "``. ``shout``'s ``line: str`` does not accept ``None``, so that call of
@@ -75,7 +75,7 @@ class NotReady(Enum):
             node has to reuse its answer first. Answers to the same question are reused in the order of the
             calls. Say a previous run of ``lines -> approve`` had the lines ``"longer"`` and ``"longer"``, and a
             person answered ``True`` for the first and ``False`` for the second. Both calls ask the same question,
-            so a new run on the same text gives ``True`` to ``(0,)`` and ``False`` to ``(1,)``. If ``(1,)`` is
+            since they have the same arguments, so a new run on the same text gives ``True`` to ``(0,)`` and ``False`` to ``(1,)``. If ``(1,)`` is
             ready first, it is ``NOT_ITS_TURN`` until ``(0,)`` has taken its answer.
     """
 
@@ -92,7 +92,8 @@ class Done:
     Attributes:
         outputs: The call's outputs by name. An output is the value the function returned for it, which may be
             ``None``, or ``SKIPPED`` for an output on a branch that was not chosen. The value of a ``Series``
-            output is a ``StoredSeries``: the returned list, wrapped.
+            output is a ``StoredSeries``, the form in which a run keeps a series: it reads as the returned list,
+            and ``len()`` gives its number of items.
         has_outputs: ``True``.
     """
 
@@ -106,7 +107,7 @@ class Answered:
     """The function asked a person a question, and the person answered: ``Answered({"result": False}, question)``.
 
     Attributes:
-        outputs: The call's outputs by name: the person's answer.
+        outputs: The call's outputs by name, read from the person's answer: ``{"result": False}``.
         question: What the person was asked.
         has_outputs: ``True``.
     """
@@ -122,7 +123,8 @@ class Skipped:
     """The function was not called, because the node is downstream of a branch that was not chosen.
 
     With ``shout`` wired to ``route.long``, the call of ``shout`` for the line ``"a"`` is
-    ``Skipped({"result": SKIPPED})``, and so is the call of any node wired to ``shout.result`` for that line.
+    ``Skipped({"result": SKIPPED})``, and so is the call for that line of any node in the loop that is wired to
+    ``shout.result``.
 
     ``Skipped`` and ``NotCalled`` have the same ``outputs``. They are two classes because a run reports them
     differently: ``run.not_called`` lists the calls that were not called, and no list has the skipped ones.

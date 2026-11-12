@@ -6,8 +6,9 @@ A node author gives an input a widget on its ``Param``, inside ``Annotated``::
     def shout(line: str, mark: Annotated[str, Param(widget=Dropdown(), choices=["!", "?"])] = "!") -> str: ...
 
 An editor then shows ``mark`` as a dropdown with the choices ``!`` and ``?``. The input's description, which an
-editor reads, has the widget as JSON: ``{"type": "dropdown"}``. A widget is a frozen pydantic model with a
-``type``: its class name in lower case, with a hyphen between words (``TextInput`` is ``"text-input"``).
+editor reads, has the widget as JSON: ``{"type": "dropdown"}``. A widget is a frozen pydantic model. Each class
+writes its ``type`` by hand: its name in lower case, with a hyphen between words (``TextInput`` is
+``"text-input"``).
 
 Conductor itself never reads a widget, when it compiles a graph or runs it. A widget says only how an editor draws
 the control: the input's title, description, choices and limits (such as ``ge`` and ``le``) are on its ``Param``,
@@ -73,8 +74,8 @@ class Slider(Widget):
 
 
 class FileUpload(Widget):
-    """A file a person uploads, of a kind in ``accept`` and no larger than ``max_size_mb``. Several files for an input
-    whose type is a ``Series``.
+    """A file a person uploads, of a kind in ``accept`` and no larger than ``max_size_mb``. An input whose type is a
+    ``Series`` takes several files.
 
     Attributes:
         accept: The kinds of file the editor offers, written as for the ``accept`` of an HTML file input: extensions
@@ -118,8 +119,8 @@ class DatePicker(Widget):
 
 
 class ListInput(Widget):
-    """A list a person types one item at a time. The editor chooses the control for each item from the type of the
-    list's items, so this widget has no settings."""
+    """A list a person types one item at a time. The host's editor decides how an item is typed, from the type of
+    the list's items, so this widget has no settings."""
 
     type: Literal["list-input"] = "list-input"
 

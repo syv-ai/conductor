@@ -39,7 +39,7 @@ from conductor._internal.outcomes import Answered, Done, Outcome, Waiting
 class ReusableOutcomes:
     """The outcomes of one node in the previous run that a run may reuse.
 
-    A run gets its own copy, and takes answers out of it as it reuses them. For ``shout`` after the first run above,
+    A run makes these from the previous run's outcomes, and takes answers out of them as it reuses them. For ``shout`` after the first run above,
     ``by_item_indexes`` is ``{(0,): (fp_a, Done({"result": "A!"})), (1,): (fp_b, ...), (2,): (fp_c, ...)}``, where
     ``fp_a`` is the arguments fingerprint of the call for ``"a"``.
 
@@ -101,9 +101,10 @@ def outer_items_fingerprint(outcomes: dict[str, dict[ItemIndexes, Outcome]], nod
     It keeps a person's answers with the item they were given for. In ``pages -> lines -> approve``, two pages may
     have the same line; the outer-items fingerprint of each call of ``approve`` is a hash of its page, so a page
     keeps its own answers when the pages are reordered. The innermost item, the line, is one of the call's
-    arguments, so it is not hashed again. A node inside fewer than two loops gets ``""``.
+    arguments, so it is not hashed again. A node inside fewer than two loops gets ``""``, and so does a call whose
+    outer items have no JSON form.
     """
-    # A call inside a loop exists only once the series it loops over does, so that outcome has outputs.
+    # The outcome of the node that returned the series has outputs: a call inside a loop is made only after the series exists.
     above = [
         outcomes[series.name][item_indexes[:depth]].outputs[output][item_indexes[depth]]  # type: ignore[union-attr]
         for depth, (series, output) in enumerate(node.loops[:-1])

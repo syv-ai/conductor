@@ -13,9 +13,10 @@ registered as a node definition. The subgraph ``loud`` is the graph ``strip -> s
   is ``("loud", "shout")``, written ``"loud/shout"``; ``lines`` is ``("lines",)``, written ``"lines"``.
 - **Item indexes** say which call of a node: one index per loop the node is inside, outermost first. The call of
   ``loud/shout`` for the line ``" "`` has the item indexes ``(1,)``.
-- A **loc** names one call: the node path and the item indexes in one tuple, each index after the id of the node
-  whose loop it counts. That call is ``("loud", 1, "shout")``, written ``"loud@1/shout"``: the subgraph node
-  ``loud`` is inside the loop over ``lines.result``, so the index follows ``"loud"``. A host is given a loc when it
+- A **loc** names one call: the node path and the item indexes in one tuple. Each index is written after the id
+  of the node that is inside its loop in the graph where the loop is. That call is ``("loud", 1, "shout")``,
+  written ``"loud@1/shout"``: the loop over ``lines.result`` is in the outer graph, where the node inside it is
+  ``loud``, so the index follows ``"loud"``. A host is given a loc when it
   is told about one call, as in ``run.not_called``: ``NotCalled(loc=("loud", 1, "shout"), input="line")``.
 - An **address** names one input or output of a node: ``"lines.result"``, ``"shout.line"``. A graph record
   writes its edges and its constants with addresses.
@@ -32,9 +33,10 @@ NodePath = tuple[str, ...]
 #: and then over the lines of each page, ``(0, 2)`` is line 2 of page 0. A node inside no loop has ``()``.
 ItemIndexes = tuple[int, ...]
 
-#: A node path and item indexes in one tuple, each index after the id of the node whose loop it counts.
-#: ``("loud", 1, "shout")`` is the node path ``("loud", "shout")`` with the item indexes ``(1,)``. A node inside
-#: two loops of its own graph has two indexes after its id: ``("shout", 0, 2)``.
+#: A node path and item indexes in one tuple, each index after the id of the node inside its loop.
+#: ``("loud", 1, "shout")`` is the node path ``("loud", "shout")`` with the item indexes ``(1,)``. In
+#: ``pages -> lines -> shout``, where ``lines`` returns the lines of each page, ``shout`` is inside two loops of
+#: its own graph, so both indexes follow its id: ``("shout", 0, 2)`` is line 2 of page 0.
 Loc = tuple[str | int, ...]
 
 
@@ -42,8 +44,10 @@ def split_address(address: str) -> tuple[str, str]:
     """Split an address at its first dot into the node id and the name after it.
 
     ``split_address("shout.line")`` returns ``("shout", "line")``. A node id has no dot in it, so everything after
-    the first dot is the name: ``split_address("read.result.name")`` returns ``("read", "result.name")``, the
-    field ``name`` of the record the output ``result`` gives. Text with no dot is a node id alone:
+    the first dot is the name, which may have dots of its own: ``split_address("read.result.name")`` returns
+    ``("read", "result.name")``, the field ``name`` of the record the output ``result`` gives, and
+    ``split_address("loud.shout.result")`` returns ``("loud", "shout.result")``, the output of the inner node
+    ``shout`` of the subgraph node ``loud``. Text with no dot is a node id alone:
     ``split_address("shout")`` returns ``("shout", "")``.
     """
     node_id, _, name = address.partition(".")
