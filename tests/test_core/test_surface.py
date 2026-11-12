@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import copy
 import json
 import math
+import pickle
 import re
 import sys
 import tomllib
@@ -136,10 +138,9 @@ def test_a_record_prints_a_field_set_back_to_its_default_value_as_absent():
 
 def test_skipped_is_one_object_that_prints_as_its_name():
     assert repr(SKIPPED) == "SKIPPED"
-
-
-def test_skipped_is_falsy():
-    assert not SKIPPED
+    assert pickle.loads(pickle.dumps(SKIPPED)) is SKIPPED
+    assert copy.copy(SKIPPED) is SKIPPED
+    assert copy.deepcopy({"long": SKIPPED})["long"] is SKIPPED
 
 
 # --- a problem as a record --------------------------------------------------
@@ -399,14 +400,14 @@ def test_the_quick_start_runs_inside_a_running_loop_as_in_a_notebook():
 
 #: What each package may import besides the standard library (``pydantic_core`` comes with pydantic).
 IMPORTS = {
-    "conductor": {"conductor", "pydantic", "pydantic_core", "polars"},
+    "conductor": {"conductor", "pydantic", "pydantic_core", "polars", "typing_extensions"},
     "conductor-nodes": {"conductor_nodes", "conductor", "pydantic", "polars", "regex"},
     "conductor-providers": {"conductor_providers", "conductor", "fastapi", "pydantic", "pydantic_core", "polars"},
 }
 
 #: What each ``pyproject.toml`` declares, extras included, so a host's package cannot arrive unseen.
 DISTRIBUTIONS = {
-    "conductor": {"pydantic", "polars", "syv-conductor-nodes", "syv-conductor-providers"},
+    "conductor": {"pydantic", "polars", "typing-extensions", "syv-conductor-nodes", "syv-conductor-providers"},
     "conductor-nodes": {"syv-conductor", "pydantic", "polars", "regex"},
     "conductor-providers": {"syv-conductor", "fastapi", "pydantic"},
 }

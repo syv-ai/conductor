@@ -2,7 +2,7 @@
 
 ``model.py`` is ``ConductorModel``, the base class of every record a host saves or sends as JSON; ``address.py``
 names a place in a graph or a run, as tuples and as text; ``json.py`` writes a value as plain JSON, or as JSON
-text to hash; ``hashing.py`` is ``short_hash``; ``text.py`` the English messages are written with; ``markers.py``
+text to hash; ``hashing.py`` is ``short_hash``; ``text.py`` the English messages are written with; ``sentinels.py``
 is ``REQUIRED`` and ``SKIPPED``.
 """
 
@@ -20,6 +20,6 @@ from .address import (
 )
 from .hashing import short_hash
 from .json import canonical_json, plain_json
-from .markers import REQUIRED, SKIPPED
 from .model import ConductorModel
+from .sentinels import REQUIRED, SKIPPED
 from .text import comma_separated, plural, qualified_name

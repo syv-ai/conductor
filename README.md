@@ -10,7 +10,7 @@
 
 You write the functions. Someone else draws the graph in an editor, and it reaches you as JSON. Conductor compiles it, tells you what's wrong with it, and runs it: once per item wherever a node returns a list, pausing where a node asks a person. A run is JSON too, so it can wait days for an answer.
 
-The core depends on pydantic and polars. It has no web framework, database or login in it: those are yours.
+The core depends on pydantic, polars and typing-extensions. It has no web framework, database or login in it: those are yours.
 
 ```bash
 uv add syv-conductor
