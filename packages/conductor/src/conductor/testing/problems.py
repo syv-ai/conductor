@@ -236,8 +236,8 @@ def example_not_compiled(*loc: str | int, reason: str, cause: list[str], problem
 def example_refused(*loc: str | int, reason: str, cause: list[str], problems: list[dict[str, Any]]) -> str:
     """A node's example compiles, and running it is refused.
 
-    Give the run what it needs: in the example, a value for the node's ``Context[Caller]``, with
-    ``check_registry(checked, context={Caller: Caller("Ida")})``.
+    Give the run what it needs: in the example, the run's context for the node's ``Context[HostContext]``, with
+    ``check_registry(checked, context=HostContext(caller=Caller("Ida")))``.
 
     Args:
         loc: The node and its version.
@@ -246,9 +246,9 @@ def example_refused(*loc: str | int, reason: str, cause: list[str], problems: li
         problems: Those problems, as JSON.
 
     Example:
-        checked = NodeRegistry()
-        checked.add(who)
-        check_registry(checked, examples={"who": [{}]})
+        served = NodeRegistry(context_type=HostContext)
+        served.add(who)
+        check_registry(served, examples={"who": [{}]})
     """
     return f"the example was refused: {reason}"
 

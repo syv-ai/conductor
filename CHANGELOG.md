@@ -32,6 +32,15 @@ What changes in how you work, before the name-by-name tables:
   fields are listed by `registry.describe()` only. `Policy` is a pydantic model, a policy out of bounds
   raises pydantic's validation error, and `PolicyDescription` is gone.
 
+- **The run's context is one object of the host's class.** Name the class once,
+  `NodeRegistry(context_type=AppContext)`, and pass an instance to each run,
+  `graph.run(context=AppContext(...))`. A node that needs it takes it as its first parameter,
+  `def sign(ctx: Context[AppContext], text: str)`, and a test calls `sign(app_context, "Done")`. A node may
+  name the class, a base of it, or a `Protocol` the class satisfies. Compiling checks each node against the
+  class (`context_does_not_fit`, at the node and parameter); starting a run checks the object
+  (`invalid_context`, `context_missing`). `NodeRegistry`, `Graph` and `Run` are generic in the class, so a
+  type checker refuses a `context=` of another class. The context is never saved with a run.
+
 - **Five modules.** Import from `conductor`, `conductor.widgets`, `conductor.events`,
   `conductor.testing` and `conductor.about`, the reference. Everything else is `conductor._internal`.
   A type's `accepted_as` is read from `registry.describe().types`.
@@ -218,7 +227,7 @@ Every public name of 1.12.2, by the module it was imported from. A name not list
 | `conductor.types.NodeResult` | gone: a node returns its value; a run's are `run.results` and `run.outputs` |
 | `conductor.types.OUTPUT_PREFIX` | gone: outputs are named by their fields |
 | `conductor.types.RESULT_KEY` | an output of `-> X` is named `result`; a frozen dataclass names several |
-| `FlowStore` | a parameter typed `Context[T]`, filled from `context={T: value}` |
+| `FlowStore` | the run's context: a node's first parameter `Context[AppContext]`, the class named by `NodeRegistry(context_type=)`, the object passed as `context=` |
 | `NodeCategory` | a plain string, `@node("id", title=, description=, category="text")` |
 | `NodeRegistry` | `NodeRegistry(category=, tags=, extra=, types=)`, empty until nodes are added |
 | `ResultFormat` | gone: a node returns its value, typed by its return hint |
@@ -369,7 +378,7 @@ Every public name of 1.12.2, by the module it was imported from. A name not list
 | `conductor_providers.fastapi`: `ExecuteRequest`, `NodeInput`, `EdgeInput` | `StartRun`, a `GraphRecord` and its inputs |
 | `conductor_providers.fastapi`: `CompileResult`, `CompileWarning` | `GraphDescription`, whose problems name each node |
 | `conductor_providers.fastapi.sse_frame` | gone: each frame is an event's own JSON |
-| `conductor_providers.fastapi` (`context_factory=`, `entity_resolver=`) | `context=`, built from the caller who started the run; an entity list is a route of your own |
+| `conductor_providers.fastapi` (`context_factory=`, `entity_resolver=`) | `context=`, a function of the caller who started the run that returns the run's context; an entity list is a route of your own |
 | `conductor_providers.react`: `graph_to_react`, `palette_from_registry`, `react_to_graph`, `topological_positions` | gone: a canvas stores the `GraphRecord` as it is, a node's position in `display` |
 | `conductor_providers`: `PROVIDERS`, `react` | gone |
 
@@ -390,7 +399,7 @@ Every public name of 1.12.2, by the module it was imported from. A name not list
 | `actor` | gone with `Actor` |
 | `timeout` | `Policy(attempt_timeout=)` |
 | `idempotency_key` | gone: `again` reuses a unit whose inputs match, `Policy(reuse_when_inputs_match=)` |
-| `uses` | gone: a parameter typed `Context[T]` says what the node needs from the run |
+| `uses` | gone: a first parameter typed `Context[...]` says what the node needs from the run |
 | `is_decision` | `Param(exclusive_group=)` on the outputs that are branches |
 | `is_signal` | gone: `raise Ask(...)` |
 | `dynamic_handles` | gone: `compute_added_inputs=` and `compute_outputs=` |

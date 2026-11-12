@@ -20,7 +20,6 @@ import pytest
 from conductor import (
     SKIPPED,
     Ask,
-    Context,
     ExternalError,
     Graph,
     GraphRecord,
@@ -175,16 +174,6 @@ def decide(text: str) -> Way:
     return Way(short=text) if len(text) < 3 else Way(long=text)
 
 
-class Session:
-    def __init__(self, name: str) -> None:
-        self.name = name
-
-
-@_node("signed")
-def signed(text: str, session: Context[Session]) -> str:
-    return f"{text} by {session.name}"
-
-
 def _columns(names: str) -> dict[str, Any]:
     return {name: str for name in names.split(",")}
 
@@ -262,7 +251,6 @@ INNER = {
     "record-per-word-inner": chain(("w", "words"), ("r", "record")),  # each word's value is declared Any
     "columns-inner": chain(("c", "columns")),  # its first node has an input a hook reads
     "broken-inner": chain(("up", "upper"), ("x", "no-such-node")),
-    "signed-inner": chain(("s", "signed")),
     "stamped-inner": chain(("s", "stamp"), ("up", "upper")),
     "staggered-inner": chain(("s", "stagger"), ("q", "ask")),
     "count-inner": chain(("n", "count")),  # its one node gathers
@@ -284,7 +272,7 @@ INNER = {
 }
 
 REGISTRY = NodeRegistry()
-for _definition in (words, sentences, chars, upper, exclaim, greet, count, ask, fetch, flaky, stuck, boom, maybe, decide, signed, columns, table, stamp, stagger, letters, height, sheets, record, note, show, pair):
+for _definition in (words, sentences, chars, upper, exclaim, greet, count, ask, fetch, flaky, stuck, boom, maybe, decide, columns, table, stamp, stagger, letters, height, sheets, record, note, show, pair):
     REGISTRY.add(_definition)
 for _id, _record in INNER.items():
     REGISTRY.add(subgraph(_id, title=_id.capitalize(), description=f"The {_id} node.")(GraphRecord.model_validate(_record)))
@@ -509,14 +497,6 @@ def test_a_blank_inside_is_listed_as_not_called_by_its_path():
     assert [(n.loc, n.input) for n in blank_in.not_called] == [(("e", 1, "up"), "text"), (("e", 1, "ex"), "text")]  # the nodes inside, as drawn flat
     drawn_flat = load({"w": "words", "m": "maybe", "up": "upper", "ex": "exclaim"}, [("w.result", "m.text"), ("m.result", "up.text"), ("up.result", "ex.text")]).run(text="a none")
     assert [(n.loc, n.input) for n in drawn_flat.not_called] == [(("up", 1), "text"), (("ex", 1), "text")]
-
-
-def test_a_node_inside_takes_what_the_host_gives_every_run():
-    graph = mapped("signed-inner")
-    assert graph.run(text="a b", context={Session: Session("ida")}).results["e"]["s.result"] == ["a by ida", "b by ida"]
-    with pytest.raises(InvalidCallError) as refused:
-        graph.run(text="a b")
-    assert [p.type for p in refused.value.errors()] == ["context_missing"]
 
 
 def test_the_item_ceiling_holds_inside_and_is_raised_by_resume():

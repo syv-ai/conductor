@@ -41,9 +41,9 @@ from pytest import LogCaptureFixture, MonkeyPatch
 from tests.test_providers.in_memory import MemoryStore, asking, gated, left_running
 
 
-def _worker(store: MemoryStore, registry: NodeRegistry, **settings: Any) -> Worker[str]:
+def _worker(store: MemoryStore, registry: NodeRegistry[Any], **settings: Any) -> Worker[str]:
     """A worker on ``store`` whose callers are names, with the router's own defaults where ``settings`` name none."""
-    defaults: dict[str, Any] = {"context": lambda who: {}, "max_items": None, "lease": 30.0, "checkpoint_every": 5.0, "resume_timeout": 300.0, "poll": 0.1}
+    defaults: dict[str, Any] = {"context": lambda who: None, "max_items": None, "lease": 30.0, "checkpoint_every": 5.0, "resume_timeout": 300.0, "poll": 0.1}
     return Worker(store=store, nodes_for=lambda who: registry, callers=TypeAdapter(str), **{**defaults, **settings})
 
 
@@ -499,11 +499,10 @@ async def test_an_answer_queued_during_a_leg_that_raised_stays_queued_and_is_tak
     gate.set()
     legs = []
 
-    def fails_on_the_first_leg(caller: str) -> dict[type, Any]:
+    def fails_on_the_first_leg(caller: str) -> None:
         legs.append(caller)
         if len(legs) == 1:
             raise ConnectionError("the secrets service is down")
-        return {}
 
     store = MemoryStore()
     worker = _worker(store, registry, context=fails_on_the_first_leg)
@@ -763,7 +762,7 @@ def _shout() -> tuple[NodeRegistry, GraphRecord]:
     return registry, make_graph(shout)
 
 
-def _no_values(caller: str) -> dict[type, Any]:
+def _context_raises(caller: str) -> None:
     raise ConnectionError("the secrets service is down")
 
 
@@ -771,7 +770,7 @@ async def test_a_leg_that_raised_outside_a_node_reads_failed_with_a_cause_that_i
     registry, graph = _shout()
     store = MemoryStore()
 
-    run_id = await _started(_worker(store, registry, context=_no_values), graph, {"text": "a"})
+    run_id = await _started(_worker(store, registry, context=_context_raises), graph, {"text": "a"})
     failed = await store.ended(run_id)
 
     assert failed.cause is not None and (failed.status, failed.cause.type, failed.cause.loc) == ("failed", "resume_failed", ())
@@ -779,28 +778,28 @@ async def test_a_leg_that_raised_outside_a_node_reads_failed_with_a_cause_that_i
 
 
 class Tenant:
-    """A value a leg's ``context`` is to give."""
-
-
-class Clock:
-    """Another."""
+    """The run's context, which the worker's ``context`` does not give."""
 
 
 async def test_a_leg_conductor_refuses_to_start_fails_with_the_first_of_its_own_problems_and_the_log_has_them_all(caplog: LogCaptureFixture) -> None:
-    registry, store = NodeRegistry(), MemoryStore()
+    registry, store = NodeRegistry(context_type=Tenant), MemoryStore()
 
     @registry.node("stamp", title="Stamp", description="For a test.")
-    def stamp(text: str, tenant: Context[Tenant], clock: Context[Clock]) -> str:
+    def stamp(tenant: Context[Tenant], text: str) -> str:
         return text
 
-    run_id = await _started(_worker(store, registry), make_graph(stamp), {"text": "a"})
+    @registry.node("seal", title="Seal", description="For a test.")
+    def seal(tenant: Context[Tenant], text: str) -> str:
+        return text
+
+    run_id = await _started(_worker(store, registry), make_graph(stamp, seal), {"text": "a"})
     failed = await store.ended(run_id)
 
     assert failed.cause is not None and (failed.status, failed.cause.type, failed.cause.loc) == ("failed", "context_missing", ("stamp", "tenant"))
     assert failed.cause.ctx["needs"] == "Tenant"
     assert await store.stored_events(run_id) == [{"type": "run_end", "status": "failed", "cause": failed.cause.model_dump(mode="json")}]
     (logged,) = [record.getMessage() for record in caplog.records if run_id in record.getMessage()]
-    assert "Tenant" in logged and "Clock" in logged and "\n" not in logged
+    assert "stamp.tenant" in logged and "seal.tenant" in logged and "\n" not in logged
 
 
 async def test_a_run_whose_leg_raised_after_a_checkpoint_lists_what_waits_in_that_checkpoint() -> None:
@@ -842,11 +841,10 @@ async def test_a_run_whose_leg_raised_lists_what_waits_in_the_run_as_stored_and_
     def approve(x: int) -> bool:
         raise Ask(f"approve {x}?")
 
-    def fails_on_the_second_leg(caller: str) -> dict[type, Any]:
+    def fails_on_the_second_leg(caller: str) -> None:
         legs.append(caller)
         if len(legs) == 2:
             raise ConnectionError("the secrets service is down")
-        return {}
 
     worker = _worker(store, registry, context=fails_on_the_second_leg)
     run_id = await _started(worker, make_graph(many, approve), {"n": 3})

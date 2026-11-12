@@ -4,7 +4,7 @@ Each route parses its call, asks the process's ``Worker`` and says what it
 answered; the worker resumes the runs.
 """
 
-from collections.abc import AsyncIterable, Callable, Coroutine, Mapping
+from collections.abc import AsyncIterable, Callable, Coroutine
 from typing import Annotated, Any, Literal, TypeVar, get_type_hints, overload
 
 from conductor import (
@@ -28,6 +28,8 @@ from conductor_providers.fastapi.stored_run import Outcome, RunAsRead
 from conductor_providers.fastapi.worker import Worker
 
 C = TypeVar("C")
+#: The class of the run's context that the registry names.
+X = TypeVar("X")
 
 
 class StartRun(BaseModel):
@@ -183,19 +185,19 @@ def _everyone(caller: None, started_by: None) -> bool:
     return True
 
 
-def _no_values(caller: object) -> Mapping[type, Any]:
-    """The ``Context`` values when the host gives none."""
-    return {}
+def _no_context(caller: object) -> None:
+    """The run's context when the host gives none: none, for a registry that names no ``context_type``."""
+    return None
 
 
 @overload
 def run_router(
     *,
     store: RunStore,
-    registry: NodeRegistry | Callable[[C], NodeRegistry],
+    registry: NodeRegistry[X] | Callable[[C], NodeRegistry[X]],
     caller: Callable[..., C],
     may_see: Callable[[C, C], bool],
-    context: Callable[[C], Mapping[type, Any]] = ...,
+    context: Callable[[C], X] = ...,
     published: Callable[..., GraphRecord] | None = None,
     max_items: int | None = None,
     lease: float = 30.0,
@@ -209,8 +211,8 @@ def run_router(
 def run_router(
     *,
     store: RunStore,
-    registry: NodeRegistry | Callable[[None], NodeRegistry],
-    context: Callable[[None], Mapping[type, Any]] = ...,
+    registry: NodeRegistry[X] | Callable[[None], NodeRegistry[X]],
+    context: Callable[[None], X] = ...,
     published: Callable[..., GraphRecord] | None = None,
     max_items: int | None = None,
     lease: float = 30.0,
@@ -223,10 +225,10 @@ def run_router(
 def run_router(
     *,
     store: RunStore,
-    registry: NodeRegistry | Callable[[C], NodeRegistry],
+    registry: NodeRegistry[Any] | Callable[[C], NodeRegistry[Any]],
     caller: Callable[..., Any] = _nobody,
     may_see: Callable[[Any, Any], bool] = _everyone,
-    context: Callable[[C], Mapping[type, Any]] = _no_values,
+    context: Callable[[C], Any] = _no_context,
     published: Callable[..., GraphRecord] | None = None,
     max_items: int | None = None,
     lease: float = 30.0,
@@ -246,9 +248,9 @@ def run_router(
             run keeps its caller as they were when it started.
         may_see: ``may_see(caller, started_by)`` says whether a caller may read and act on a run. Given whenever
             ``caller`` is: ``lambda caller, started_by: caller.id == started_by.id`` for the starter alone.
-        context: Gives a run its ``Context`` values, from the caller who started it, each time it is resumed. A
-            run's nodes are called on threads of their own, so a value is a way to connect, never an open
-            connection.
+        context: Gives a run its context, an instance of the registry's ``context_type``, from the caller who
+            started it, each time it is resumed: ``def context_of(caller: Member) -> HostContext``. A run's nodes
+            are called on threads of their own, so the object holds a way to connect, never an open connection.
         published: A FastAPI dependency taking the path's ``name`` and giving a ``GraphRecord``, raising
             ``HTTPException(404)`` for one it doesn't offer; with it, ``POST /graphs/{name}/runs`` starts that
             graph on inputs alone.
@@ -267,7 +269,7 @@ def run_router(
     """
     if caller is not _nobody and may_see is _everyone:
         raise TypeError("run_router(caller=...) needs may_see=: say who may see a run, as lambda caller, started_by: caller.id == started_by.id")
-    nodes_for: Callable[[C], NodeRegistry] = (lambda who: registry) if isinstance(registry, NodeRegistry) else registry
+    nodes_for: Callable[[C], NodeRegistry[Any]] = (lambda who: registry) if isinstance(registry, NodeRegistry) else registry
     worker: Worker[C] = Worker(
         store=store, nodes_for=nodes_for, callers=TypeAdapter(_caller_type(caller)), context=context,
         max_items=max_items, lease=lease, checkpoint_every=checkpoint_every, resume_timeout=resume_timeout, poll=poll,

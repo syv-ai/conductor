@@ -515,25 +515,58 @@ print(run.status, len(attempts))  # complete 3
 
 ## What the host gives the run
 
-Some values come from the host, not from the graph: who runs it, a database session, a client. They are the run's context: values the host passes for this run, keyed by type, never saved. A node asks for one with a parameter typed `Context[T]`, and the host passes `context={T: value}` to `graph.run` or `run.resume`:
+Some things come from the host, not from the graph: who runs it, a database, a client. They are the run's context: one object of a class of yours, which the host passes for each run and which is never saved with it. Name the class on the registry, and a node that needs it takes it as its first parameter, typed `Context[...]`:
 
 ```python
+from dataclasses import dataclass
+
 from conductor import Context
 
 
+@dataclass(frozen=True)
 class Caller:
-    def __init__(self, name: str) -> None:
-        self.name = name
+    name: str
 
 
-@registry.node("sign", title="Sign", description="Signs a text with the name of the person running it.")
-def sign(text: str, who: Context[Caller]) -> str:
-    return f"{text}, {who.name}"
+@dataclass(frozen=True)
+class AppContext:
+    caller: Caller
 
 
-run = Graph.compile(make_graph(sign), registry).run(text="Done", context={Caller: Caller("Ida")})
-print(run.outputs)  # {'sign.result': 'Done, Ida'}
+signing = NodeRegistry(context_type=AppContext)
+
+
+@signing.node("sign", title="Sign", description="Signs a text with the name of the person running it.")
+def sign(ctx: Context[AppContext], text: str) -> str:
+    return f"{text}, {ctx.caller.name}"
+
+
+ida = AppContext(caller=Caller("Ida"))
+print(sign(ida, "Done"))  # Done, Ida
+
+signed = Graph.compile(make_graph(sign), signing).run(text="Done", context=ida)
+print(signed.outputs)  # {'sign.result': 'Done, Ida'}
 ```
+
+`ctx` is not an input: no edge reaches it and no caller fills it, and a call whose inputs are the same as before reuses its outcome whatever the context is. Pass `context=` again to each `run.resume`, `run.stream` and `run.again`. A graph compiled against `signing` is a `Graph[AppContext]`, so a type checker refuses a `context=` of another class; the run refuses one too, as `invalid_context`, and refuses a run with no context when a node takes it (`context_missing`).
+
+A node may also name a base of the class, or a `Protocol` with the members it reads. That is how a node that doesn't know your class, such as one from a package of nodes, asks for what it needs:
+
+```python
+from typing import Protocol
+
+
+class HasCaller(Protocol):
+    @property
+    def caller(self) -> Caller: ...
+
+
+@signing.node("greet_caller", title="Greet the caller", description="Greets the person running it.")
+def greet_caller(ctx: Context[HasCaller]) -> str:
+    return f"Hello {ctx.caller.name}"
+```
+
+Declare a member as a read-only property, as here: a frozen dataclass can't satisfy a Protocol whose member is a plain attribute. Compiling checks every node's `Context[...]` against the registry's class: a node asking for something the class lacks, or for a context on a registry that names no class, has the problem `context_does_not_fit` at that node and parameter. A registry added with `add_subregistry` names the same class or none.
 
 ## A second version
 
@@ -573,7 +606,6 @@ problems = check_registry(registry, examples={
     "review": [{"proposal": "Move the server"}],
     "parse": [{"text": "12"}],
     "fetch": [{"url": "https://example.com"}],
-    "sign": [{"text": "Done"}],
     "greet": [{"person": "Ida"}],
     "route": [{"amount": 5}],
     "assign": [{"ticket": "T-1"}],
@@ -582,8 +614,9 @@ problems = check_registry(registry, examples={
     "tag": [{"line": "hello", "sender": "Ida"}],
     "count": [{"texts": ["hello"]}],
     "cells": [{"line": "Ida,Aarhus", "names": ["name", "city"]}],
-}, context={Caller: Caller("Ida")})
+})
 print(problems)  # []
+print(check_registry(signing, examples={"sign": [{"text": "Done"}]}, context=ida))  # []
 ```
 
 Put it in your test suite as `assert check_registry(registry, examples=...) == []`. A node's body is called only when you give it an example, since a node may send mail. A node with no example is still checked for everything that needs no call, such as its upgrades and its hooks; a hook that reads an input whose value can't be made up, such as one with a `pattern`, needs an example (`needs_example`). `python -m conductor.about testing` lists every check.

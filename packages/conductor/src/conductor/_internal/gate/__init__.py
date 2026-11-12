@@ -29,7 +29,9 @@ in the file named; they move here one by one.
     a value an edge gives an input that demands more        edge
         than the edge's source declares                     invalid_edge_value
     what a node raises: NodeError's ctx, an Ask's choices   raised (not yet: problem/errors.py, ask.py)
-        and default; and the context= values of a run       invalid_ask, context_missing
+        and default                                         invalid_ask
+    the context= a host passes to start or resume a run     context
+                                                            invalid_context, context_missing
     a saved run                                             run/json/read.py, which stays there: its reader
                                                             and its writer are one schema
                                                             saved_run_unreadable, saved_run_of_another_graph
@@ -38,8 +40,9 @@ A node author's declarations (a default, ``Param``'s choices, a host type's chec
 declared, by the type they are declared on.
 """
 
+from conductor._internal.gate.context import ContextDoor
 from conductor._internal.gate.edge import EdgeDoor, demands_more
 from conductor._internal.gate.refused import RefusedError
 from conductor._internal.gate.returned import ReturnDoor
 
-__all__ = ["EdgeDoor", "RefusedError", "ReturnDoor", "demands_more"]
+__all__ = ["ContextDoor", "EdgeDoor", "RefusedError", "ReturnDoor", "demands_more"]

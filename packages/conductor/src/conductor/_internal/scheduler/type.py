@@ -202,7 +202,7 @@ class Scheduler:
         arguments_for: Callable[[FlatFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NotCalled | Literal[NotReady.NOT_READY]],
         emit: Callable[[EventBase], None] | None,
         stop: Callable[[], RunState | None] | None,
-        context: dict[type, Any],
+        context: Any,
         checkpoint: Callable[[RunState], None] | None = None,
         checkpoint_every: float | None = None,
     ) -> None:
@@ -221,7 +221,7 @@ class Scheduler:
             stop: Asked before each call and while waiting for threads. It returns the state the run ends with
                 when the scheduler must stop now: an ``EndedEarly`` (cancelled, timed out), or ``RUNNING`` when
                 the host takes the run back to resume it elsewhere. Otherwise it returns None.
-            context: The value of each ``Context`` type, for the nodes that take one.
+            context: The run's context, passed to each node that takes it; ``None`` when the host passed none.
             checkpoint: Called with the run's state to hand the host a copy of the run.
             checkpoint_every: The least number of seconds between two checkpoints. None for no checkpoints.
         """

@@ -64,6 +64,7 @@ from conductor._internal.compiled.nodes import (
     RequiredBranch,
 )
 from conductor._internal.compiled.type import CompiledGraph, InputField
+from conductor._internal.context import ContextParameter, is_protocol, what_the_context_lacks
 from conductor._internal.field import Field
 from conductor._internal.graph_record import GraphRecord, NodeRecord
 from conductor._internal.markers import REQUIRED
@@ -82,18 +83,21 @@ from conductor._internal.value_type import Param, Type
 _logger = logging.getLogger("conductor")
 
 
-def compile_graph[GraphT: CompiledGraph](record: GraphRecord, definitions: Mapping[str, NodeDefinition], graph_type: type[GraphT]) -> GraphT:
+def compile_graph[GraphT: CompiledGraph](
+    record: GraphRecord, definitions: Mapping[str, NodeDefinition], context_type: type | None, graph_type: type[GraphT],
+) -> GraphT:
     """Compiles ``record`` and returns it as a ``graph_type``. Every compiled graph a host gets is made here.
 
     Args:
         record: The graph record.
         definitions: The newest version of each node definition, by id. An older version a node asks for is found
             through it.
+        context_type: The class of the run's context, as the registry names it; ``None`` when it names none.
         graph_type: The class of the graph to return: ``Graph``, the class a host uses.
 
     Never raises for a wrong graph: the returned graph's ``problems`` say what is wrong.
     """
-    return _Compiler(definitions, (), {}).compile(record, graph_type)
+    return _Compiler(definitions, context_type, (), {}).compile(record, graph_type)
 
 
 
@@ -131,6 +135,8 @@ class _Compiler:
 
     Attributes:
         definitions: The newest version of each node definition, by id.
+        context_type: The class of the run's context, which each node's ``Context[X]`` is checked against; ``None``
+            when the registry names none.
         inside_subgraphs: The ids of the subgraph definitions whose records contain this record, outermost first.
             A subgraph found among them contains itself.
         compiled_subgraphs: Each subgraph compiled so far, by its id, its version and the subgraphs it is inside.
@@ -142,8 +148,12 @@ class _Compiler:
         position: Each node's index in the record, which breaks ties in the order of the nodes.
     """
 
-    def __init__(self, definitions: Mapping[str, NodeDefinition], inside_subgraphs: tuple[str, ...], compiled_subgraphs: dict[tuple[str, int, tuple[str, ...]], CompiledGraph]) -> None:
-        self.definitions, self.inside_subgraphs, self.compiled_subgraphs = definitions, inside_subgraphs, compiled_subgraphs
+    def __init__(
+        self, definitions: Mapping[str, NodeDefinition], context_type: type | None, inside_subgraphs: tuple[str, ...],
+        compiled_subgraphs: dict[tuple[str, int, tuple[str, ...]], CompiledGraph],
+    ) -> None:
+        self.definitions, self.context_type = definitions, context_type
+        self.inside_subgraphs, self.compiled_subgraphs = inside_subgraphs, compiled_subgraphs
         self.problems: list[Problem] = []
         self.nodes: dict[str, CompiledNode] = {}
         self.graph_inputs: list[tuple[GraphInput, Field]] = []
@@ -199,12 +209,10 @@ class _Compiler:
             inputs[name] = graph_input
             input_fields[graph_input.address] = InputField(name, graph_input.address, field)
         downstream: dict[str, list[CompiledNode]] = {node_id: [] for node_id in self.nodes}
-        needs_context: list[tuple[str, FunctionDefinition[..., Any]]] = []
         for compiled_node in self.nodes.values():
-            needs_context += compiled_node.functions_with_context
             for source_id in compiled_node.upstream_ids:
                 downstream[source_id].append(compiled_node)
-        return graph_type(record, self.problems, inputs, self.nodes, input_fields, downstream, needs_context)
+        return graph_type(record, self.problems, inputs, self.nodes, input_fields, downstream, self.context_type)
 
     def _resolve(self, record: NodeRecord) -> NodeDefinition | None:
         """Returns the node definition a node of the record names, at the record's version; ``None``, with a
@@ -264,6 +272,8 @@ class _Compiler:
         returns, given the types its edges read. When a hook fails, the node is left out and the graph has the
         problem. Every other node is added, even when some of its inputs have problems.
         """
+        if definition.context is not None:
+            self._check_context(record.id, definition.context)
         fields = dict(definition.inputs)
         constants = self._constants_of(record, fields)
         added: dict[str, Field] = {}
@@ -272,7 +282,7 @@ class _Compiler:
             if made is None:
                 return
             added = made
-            taken = sorted(added.keys() & (fields.keys() | definition.context.keys()))
+            taken = sorted(added.keys() & (fields.keys() | ({definition.context.name} if definition.context is not None else set())))
             if taken:
                 self.problems.append(problem.compute_hook_failed(record.id, reason=f"it adds {taken[0]!r}, which the node already declares", error="added_input_taken"))
                 return
@@ -289,6 +299,24 @@ class _Compiler:
                 id=record.id, loops=planned.loops, inputs=planned.inputs, outputs=outputs, required_branches=planned.required_branches,
                 definition=definition,
             )
+
+    def _check_context(self, node_id: str, context: ContextParameter) -> None:
+        """Adds a problem when the registry's context class is not what the node's ``Context[X]`` asks for.
+
+        Example: ``sign(ctx: Context[HostContext], text: str)`` fits a registry that names ``HostContext`` or a
+        subclass of it. ``fetch(ctx: Context[HasHttpClient], url: str)`` fits one whose class has an
+        ``http_client``. On a registry that names no class, neither fits.
+        """
+        needs = context.cls.__name__
+        if self.context_type is None:
+            self.problems.append(problem.context_does_not_fit_no_context_type(node_id, context.name, needs=needs))
+            return
+        context_type = self.context_type.__name__
+        if not is_protocol(context.cls):
+            if not issubclass(self.context_type, context.cls):
+                self.problems.append(problem.context_does_not_fit(node_id, context.name, needs=needs, context_type=context_type))
+        elif lacks := what_the_context_lacks(self.context_type, context.cls):
+            self.problems.append(problem.context_does_not_fit_lacks(node_id, context.name, needs=needs, context_type=context_type, lacks=lacks))
 
     def _compile_subgraph_node(self, record: NodeRecord, definition: SubgraphDefinition, edges: dict[str, list[str]]) -> None:
         """Compiles a node whose definition is a subgraph, and adds it to ``nodes``.
@@ -310,7 +338,7 @@ class _Compiler:
         stack = (*self.inside_subgraphs, definition.id)
         key = (definition.id, definition.version, stack)
         if key not in self.compiled_subgraphs:
-            self.compiled_subgraphs[key] = _Compiler(self.definitions, stack, self.compiled_subgraphs).compile(definition.graph, CompiledGraph)
+            self.compiled_subgraphs[key] = _Compiler(self.definitions, self.context_type, stack, self.compiled_subgraphs).compile(definition.graph, CompiledGraph)
         inner = self.compiled_subgraphs[key]
         if inner.problems:
             self.problems += [inner_problem.model_copy(update={"loc": (record.id, *inner_problem.loc)}) for inner_problem in inner.problems]

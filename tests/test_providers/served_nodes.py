@@ -71,7 +71,7 @@ def after(approved: bool) -> bool:
 
 @dataclass(frozen=True)
 class Missing:
-    """A value no ``context`` gives."""
+    """A class the page's run context is not, so a graph with ``needs_missing`` has a problem when it is compiled."""
 
 
 @served.node("needs_missing", title="Needs missing", description="For a test.")

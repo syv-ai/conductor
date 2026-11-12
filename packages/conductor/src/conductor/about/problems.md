@@ -10,7 +10,7 @@ import json
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Annotated, TypedDict
+from typing import Annotated, Protocol, TypedDict
 
 import polars as pl
 from conductor import (
@@ -19,7 +19,18 @@ from conductor import (
 )
 from conductor.testing import check_registry
 
-registry = NodeRegistry()
+
+@dataclass(frozen=True)
+class Caller:
+    name: str
+
+
+@dataclass(frozen=True)
+class HostContext:
+    caller: Caller
+
+
+registry = NodeRegistry(context_type=HostContext)
 
 
 @registry.node("upper", title="Uppercase", description="Turns a text into capital letters.")
@@ -63,14 +74,9 @@ def approve(amount: int) -> bool:
     raise Ask(f"Approve {amount} kr.?")
 
 
-@dataclass(frozen=True)
-class Caller:
-    name: str
-
-
 @registry.node("who", title="Who", description="Returns the name of the person running it.")
-def who(caller: Context[Caller]) -> str:
-    return caller.name
+def who(ctx: Context[HostContext]) -> str:
+    return ctx.caller.name
 
 
 def by_names(names: str) -> dict[str, type]:
@@ -324,33 +330,51 @@ except NodeDeclarationError as error:
 ### `context_misplaced`
 
 ```python
-class Session: ...
-
 try:
     @node("maybe", title="Maybe", description="Passes the text on as it is.")
-    def maybe(session: Context[Session] | None = None) -> str:
-        return ""
+    def maybe(text: str, ctx: Context[HostContext]) -> str:
+        return text
 except NodeDeclarationError as error:
     print(error.code)  # context_misplaced
-    print(error)  # @node('maybe') on maybe: session: Context is a whole parameter the host always gives, name: Context[Session]; anywhere else, a caller would fill it
+    print(error)  # @node('maybe') on maybe: ctx: Context is the whole first parameter, def sign(ctx: Context[HostContext], text: str); anywhere else a caller would give its value
 ```
 
-**Fix.** Write the parameter as `name: Context[Session]`, never inside `| None`, a list or a return type. The host
-gives that value on every run, so a node can trust it; anywhere else it would be an input a caller fills.
+**Fix.** Make the context the node's first parameter, `def maybe(ctx: Context[HostContext], text: str)`, never a later
+one, a keyword-only one, inside `| None`, a list or a return type. The host passes it on every run, so a node can
+trust it; anywhere else it would be an input a caller fills.
 
 ### `context_not_a_class`
 
 ```python
 try:
     @node("listed", title="Listed", description="Hands back an empty text.")
-    def listed(names: Context[list[str]]) -> str:
+    def listed(ctx: Context[list[str]]) -> str:
         return ""
 except NodeDeclarationError as error:
     print(error.code)  # context_not_a_class
-    print(error)  # @node('listed') on listed: names: Context names the class of the value the run is given, Context[Session]
+    print(error)  # @node('listed') on listed: ctx: Context names the class of the object the host passes, Context[HostContext]
 ```
 
-**Fix.** Name a class, `Context[Session]`: the run is given its value by that class, `context={Session: ...}`.
+**Fix.** Name a class: the registry's `context_type`, a base of it, or a `Protocol` it satisfies.
+
+### `context_type_differs`
+
+```python
+@dataclass(frozen=True)
+class OtherContext:
+    caller: Caller
+
+
+try:
+    registry.add_subregistry(NodeRegistry(context_type=OtherContext))  # type: ignore[arg-type]
+except NodeDeclarationError as error:
+    print(error.code)  # context_type_differs
+    print(error)  # the subregistry names context_type=OtherContext, and this registry names context_type=HostContext; a registry and its subregistries name one class, or the subregistry names none
+```
+
+**Fix.** Name one class on a registry and on each registry added to it, or none on a subregistry, as a registry of
+nodes that do not know the host does. A registry that names none takes no subregistry that names one: name the class
+on it too.
 
 ### `hook_parameter_unknown`
 

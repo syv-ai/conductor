@@ -95,9 +95,9 @@ class Worker(Generic[C]):
         self,
         *,
         store: RunStore,
-        nodes_for: Callable[[C], NodeRegistry],
+        nodes_for: Callable[[C], NodeRegistry[Any]],
         callers: TypeAdapter[C],
-        context: Callable[[C], Mapping[type, Any]],
+        context: Callable[[C], Any],
         max_items: int | None,
         lease: float,
         checkpoint_every: float,
@@ -110,7 +110,7 @@ class Worker(Generic[C]):
             store: Where runs and their events are kept.
             nodes_for: The nodes a caller's graphs may use; called for every method call and every resume call.
             callers: Reads and writes a caller as the JSON a run keeps.
-            context: The ``Context`` values a resume call is given, from the caller who started the run.
+            context: The run's context a resume call is given, from the caller who started the run.
             max_items: The ceiling on the items of any one Series that a run starts with.
             lease: The seconds this worker holds a run between renewals.
             checkpoint_every: The seconds between saves of a running run.
@@ -499,8 +499,8 @@ class Worker(Generic[C]):
             is handed back, how the resume call ended (a ``ResumeEnd``). An exception raised outside a node is
             logged and ends the call as ``Raised``, which lists what waits in the run as the row has it: the run
             as loaded, or the last checkpoint yielded; nothing, for a run that could not be loaded. Its cause is
-            conductor's own problem where conductor refused the call (a ``Context`` value nobody gives, a run
-            that can't be read or written), the first of them where there are several; else ``resume_failed``.
+            conductor's own problem where conductor refused the call (a context missing or of another class, a
+            run that can't be read or written), the first of them where there are several; else ``resume_failed``.
         """
         waiting: list[Waiting] = []  # in the run as the row holds it; nothing, until the run is loaded
         try:
@@ -639,7 +639,7 @@ class Worker(Generic[C]):
         return run
 
 
-def _loaded(row: StoredRun, nodes: NodeRegistry) -> Run:
+def _loaded(row: StoredRun, nodes: NodeRegistry[Any]) -> Run[Any]:
     """A stored run, loaded.
 
     Args:

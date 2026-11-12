@@ -141,6 +141,5 @@ def test_every_node_of_the_setup_runs(monkeypatch: MonkeyPatch) -> None:
         "join": [{"texts": ["a", "b"]}], "route": [{"text": "ab"}, {"text": "abcdef"}], "approve": [{"amount": 5}], "who": [{}],
         "pick": [{"names": "a,b"}], "contacts": [{"text": "Ida ida@example.com"}],
     }
-    caller = page.Caller("Ida")
     assert set(examples) == {definition.id for definition in page.registry}
-    assert page.check_registry(page.registry, examples=examples, context={type(caller): caller}) == []
+    assert page.check_registry(page.registry, examples=examples, context=page.HostContext(page.Caller("Ida"))) == []

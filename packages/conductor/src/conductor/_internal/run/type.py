@@ -55,7 +55,6 @@ from conductor._internal.compiled import (
     outcome_loc,
 )
 from conductor._internal.conductor_model import ConductorModel
-from conductor._internal.node_definition import context_values
 from conductor._internal.outcomes import (
     Answered,
     Outcome,
@@ -106,8 +105,11 @@ class NotCalled(ConductorModel):
 
 
 @dataclass(eq=False, repr=False)
-class Run:
+class Run[C]:
     """One run of a graph. Every call returns a new ``Run``; ``to_json`` is all of it.
+
+    ``C`` is the class of the run's context, as the graph's (``Run[HostContext]`` for a ``Graph[HostContext]``): the
+    object ``resume``, ``stream`` and ``again`` take as ``context=``. A run never saves it.
 
     A run is made by ``graph.with_inputs(...)``, ``graph.run(...)`` or ``Run.from_json(saved, graph)``, which check
     what it is made of.
@@ -123,7 +125,7 @@ class Run:
             ``timed_out``) with the ``Problem`` that caused it.
     """
 
-    graph: Graph
+    graph: Graph[C]
     inputs: dict[str, Any]
     max_items: int | None
     #: Each function's units by instance, in instance order, by the function's name: ``_outcomes["w"]`` for a node of
@@ -148,7 +150,7 @@ class Run:
 
     # -- going on ---------------------------------------------------------------
 
-    def with_max_items(self, max_items: int) -> Run:
+    def with_max_items(self, max_items: int) -> Run[C]:
         """A copy of this run with ``max_items`` as its item limit. No node is called; ``resume`` goes on.
 
         A run stops with status ``stopped`` when a list that a node is called
@@ -162,46 +164,51 @@ class Run:
         check_run_limits(max_items=max_items)
         return dataclasses.replace(self, max_items=max_items)
 
-    def resume(self, *, context: Mapping[type, Any] = MappingProxyType({}), timeout: float | None = None) -> Run:
-        """Go on: start every unit whose inputs exist, until the run is done, waits, fails, reaches its ceiling or its ``timeout``.
+    def resume(self, *, context: C | None = None, timeout: float | None = None) -> Run[C]:
+        """Go on: call every node that is ready, until the run is complete, waits for a person, fails, reaches its
+        item limit or its ``timeout``, and return the run as it then is.
 
-        ``context`` gives each ``Context`` type its value. Past its
-        ``timeout`` a leg starts nothing more but waits for the calls already
-        on threads, as far as their ``attempt_timeout``, and keeps them; so it
-        can end later than ``timeout``, and a call that came back is never made
-        again.
+        ``context`` is the run's context, the object every node that takes ``Context[...]`` is given; a run never
+        saves it, so it is passed again on every call. Past ``timeout`` no more calls start, but the calls already
+        on threads are waited for, as long as their ``attempt_timeout``, and kept: so ``resume`` can return later
+        than ``timeout``, and a call that returned is never made again.
+
+        Raises:
+            InvalidCallError: ``timeout`` is not above 0 (``invalid_timeout``); ``context`` is not an instance of
+                the registry's ``context_type`` (``invalid_context``), or is ``None`` while a node takes it
+                (``context_missing``).
         """
         check_run_limits(timeout=timeout)
-        return self._run_scheduler(context_values(self.graph._needs_context, context), None, _deadline(timeout))
+        return self._run_scheduler(self.graph._checked_context(context), None, _deadline(timeout))
 
     def stream(
-        self, *, context: Mapping[type, Any] = MappingProxyType({}), timeout: float | None = None, cancel: AsyncioEvent | None = None,
+        self, *, context: C | None = None, timeout: float | None = None, cancel: AsyncioEvent | None = None,
         hand_back: AsyncioEvent | None = None, checkpoint_every: float | None = None,
     ) -> AsyncGenerator[Event]:
-        """``resume``, saying what happens as it happens: ``async for event in run.stream(): ...``.
+        """``resume``, with an event for each thing that happens: ``async for event in run.stream(context=...): ...``.
 
-        The leg runs on its own thread, so a slow node never holds the event
-        loop. The last event is ``RunEnd``, whose ``run`` is the run as the leg
-        left it. Setting ``cancel`` ends the leg before its next unit, and so
-        does leaving the loop early once the stream is closed, which Python
-        does for an async generator only when it is collected: hold it with
-        ``async with contextlib.aclosing(run.stream()) as events:`` and loop
-        over ``events``. Setting ``hand_back`` stops the leg the same way and
-        leaves the run going, for a host that shuts down and lets another
-        process go on: the calls on threads are waited for and kept, and the
-        last event is a ``RunCheckpoint`` whose ``run`` is ``running``, with
-        no ``RunEnd``, since the run didn't end. A ``cancel`` set as well
-        wins. With ``checkpoint_every`` (seconds), a
-        ``RunCheckpoint`` comes at most that often while units finish, and once
-        when the leg is stopped with calls still on threads: a host that stores
-        its ``run`` loses only the calls in flight if the process dies. A call
-        that can't start raises here, before anything is iterated.
+        It takes ``context`` and ``timeout`` as ``resume`` does. The nodes are called on a thread of their own, so a
+        slow node never blocks the event loop. The last event is ``RunEnd``, whose ``run`` is the run as it then is.
+
+        - Setting ``cancel`` stops before the next call, as does leaving the loop early once the stream is closed.
+          Python closes an async generator only when it is collected, so hold it with
+          ``async with contextlib.aclosing(run.stream()) as events:`` and loop over ``events``.
+        - Setting ``hand_back`` stops the same way and leaves the run running, for a host that shuts down and lets
+          another process go on: the calls on threads are waited for and kept, and the last event is a
+          ``RunCheckpoint`` whose ``run`` is ``running``, with no ``RunEnd``. A ``cancel`` set as well wins.
+        - With ``checkpoint_every`` (seconds), a ``RunCheckpoint`` comes at most that often while calls return, and
+          once when the stream stops with calls still on threads: a host that stores its ``run`` loses only the
+          calls in flight if the process dies.
+
+        Raises:
+            InvalidCallError: As ``resume`` does, and for a ``checkpoint_every`` not above 0, at this call, before
+                any event.
         """
         check_run_limits(timeout=timeout, checkpoint_every=checkpoint_every)
-        return self._stream(context_values(self.graph._needs_context, context), timeout, cancel, hand_back, checkpoint_every)
+        return self._stream(self.graph._checked_context(context), timeout, cancel, hand_back, checkpoint_every)
 
     async def _stream(
-        self, context: dict[type, Any], timeout: float | None, cancel: AsyncioEvent | None, hand_back: AsyncioEvent | None,
+        self, context: C | None, timeout: float | None, cancel: AsyncioEvent | None, hand_back: AsyncioEvent | None,
         checkpoint_every: float | None,
     ) -> AsyncGenerator[Event]:
         loop, events = asyncio.get_running_loop(), Queue["Event | None"]()
@@ -236,9 +243,9 @@ class Run:
             cancelled.set()
 
     def _run_scheduler(
-        self, context: dict[type, Any], emit: Callable[[EventBase], None] | None, stop: Callable[[], RunState | None] | None,
+        self, context: C | None, emit: Callable[[EventBase], None] | None, stop: Callable[[], RunState | None] | None,
         checkpoint_every: float | None = None,
-    ) -> Run:
+    ) -> Run[C]:
         """One leg over a copy of this run, which is handed back as the leg left it.
 
         The leg is given what it changes and reads (the copy's units and earlier work, the graph's functions
@@ -266,12 +273,12 @@ class Run:
         return run
 
     @overload
-    def answer(self, waiting: Waiting | str, value: Any, /) -> Run: ...
+    def answer(self, waiting: Waiting | str, value: Any, /) -> Run[C]: ...
 
     @overload
-    def answer(self, answers: Mapping[str, Any], /) -> Run: ...
+    def answer(self, answers: Mapping[str, Any], /) -> Run[C]: ...
 
-    def answer(self, waiting: Waiting | str | Mapping[str, Any], value: Any = _NOT_GIVEN, /) -> Run:
+    def answer(self, waiting: Waiting | str | Mapping[str, Any], value: Any = _NOT_GIVEN, /) -> Run[C]:
         """Give waiting units their answers, checked against their questions; nothing runs until ``resume``.
 
         ``run.answer(unit, value)`` answers one, ``run.answer({unit_id: value, ...})``
@@ -337,7 +344,7 @@ class Run:
                 return waiting_record(node.compiled_node, outcome_loc(node, item_indexes), outcome).id
         return None
 
-    def with_inputs(self, inputs: Mapping[str, Any] = MappingProxyType({}), /, *, max_items: int | None = None, **by_name: Any) -> Run:
+    def with_inputs(self, inputs: Mapping[str, Any] = MappingProxyType({}), /, *, max_items: int | None = None, **by_name: Any) -> Run[C]:
         """A run of these changed inputs, the rest as before, ready to ``resume`` or ``stream``.
 
         It carries this run's work, and what this run carried and didn't use
@@ -353,7 +360,7 @@ class Run:
         given = {graph_input.name: self.inputs[address] for address, graph_input in self.graph._input_fields.items() if address not in named}
         return self.graph.with_inputs({**given, **changed}, max_items=max_items if max_items is not None else self.max_items, previous=self)
 
-    def forget(self, *node_ids: str) -> Run:
+    def forget(self, *node_ids: str) -> Run[C]:
         """A run of the same inputs that has forgotten these nodes' work, ready to ``resume`` or ``stream``.
 
         Every other unit is carried as ``with_inputs`` carries it, so only the
@@ -409,12 +416,13 @@ class Run:
         }
 
     def again(
-        self, inputs: Mapping[str, Any] = MappingProxyType({}), /, *, max_items: int | None = None, context: Mapping[type, Any] = MappingProxyType({}),
+        self, inputs: Mapping[str, Any] = MappingProxyType({}), /, *, max_items: int | None = None, context: C | None = None,
         timeout: float | None = None, **by_name: Any,
-    ) -> Run:
-        """Run again with changed inputs, the rest as before: ``run.with_inputs(...).resume(...)``.
+    ) -> Run[C]:
+        """Run again with changed inputs, the rest as before: ``run.with_inputs(...).resume(context=context, timeout=timeout)``.
 
-        A unit that receives what it received before is not called again.
+        A call whose arguments are the ones it had before is not made again: its outcome is reused, whatever the
+        context is.
         """
         return self.with_inputs(inputs, max_items=max_items, **by_name).resume(context=context, timeout=timeout)
 
@@ -502,7 +510,7 @@ class Run:
     # -- JSON -------------------------------------------------------------------
 
     @classmethod
-    def from_json(cls, saved: str | bytes, graph: Graph) -> Run:
+    def from_json[R](cls, saved: str | bytes, graph: Graph[R]) -> Run[R]:
         """Returns the run that ``run.to_json()`` wrote as ``saved``, on the same ``graph``.
 
         ``Run.from_json(run.to_json(), graph)`` has the inputs, the outcomes and the state of ``run``, also in
@@ -526,7 +534,7 @@ class Run:
         """
         return run_to_json(self)
 
-    def _copy(self, *, share_outcomes: bool = False) -> Run:
+    def _copy(self, *, share_outcomes: bool = False) -> Run[C]:
         """A copy to change: its own units to record into and its own earlier work to take from; or with
         ``share_outcomes`` this run's units of every node, for a caller that replaces whole nodes and takes nothing.
 

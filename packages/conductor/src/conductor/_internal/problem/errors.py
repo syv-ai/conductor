@@ -93,6 +93,7 @@ DeclarationCode = Literal[
     "exclusive_group_on_input",
     "context_misplaced",
     "context_not_a_class",
+    "context_type_differs",
     "hook_parameter_unknown",
     "input_without_type",
     "invalid_node_id",

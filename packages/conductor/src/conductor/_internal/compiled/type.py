@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import functools
 from dataclasses import dataclass
-from typing import Any
 
 from conductor._internal.address import NodePath
 from conductor._internal.compiled.describe import (
@@ -42,7 +41,6 @@ from conductor._internal.compiled.nodes import (
 from conductor._internal.field import Field
 from conductor._internal.graph_record import GraphRecord
 from conductor._internal.hashing import canonical_json, short_hash
-from conductor._internal.node_definition import FunctionDefinition
 from conductor._internal.problem import Problem
 from conductor._internal.text import plural
 
@@ -84,9 +82,9 @@ class CompiledGraph:
     _input_fields: dict[str, InputField]
     #: For each node id, the nodes that an edge from it leads to.
     _downstream: dict[str, list[CompiledNode]]
-    #: The id and definition of every function node with a ``Context`` parameter, those inside subgraphs too. A run
-    #: reads it to check that the caller gave a value for every ``Context`` class.
-    _needs_context: list[tuple[str, FunctionDefinition[..., Any]]]
+    #: The class the registry names with ``context_type``, which every node's ``Context[X]`` was checked against;
+    #: the ``context=`` of a run is an instance of it. ``None`` when the registry names none.
+    _context_type: type | None
 
     def __repr__(self) -> str:
         state = "runnable" if self.is_runnable else plural(len(self.problems), "problem")

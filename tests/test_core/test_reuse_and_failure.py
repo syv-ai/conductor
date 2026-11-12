@@ -20,7 +20,6 @@ import pytest
 from conductor import (
     SKIPPED,
     Ask,
-    Context,
     ExternalError,
     Graph,
     GraphRecord,
@@ -454,25 +453,6 @@ def test_what_a_value_is_stays_apart_in_what_a_unit_received():
         run = run.again(value=value)
 
     assert calls == [1, "1", True, 1.0, [1], {"a": 1}]
-
-
-def test_a_context_value_is_not_part_of_what_a_unit_received():
-    calls: list[str] = []
-
-    class Caller:
-        def __init__(self, name: str) -> None:
-            self.name = name
-
-    @node("signed", title="Signed", description="For a test.")
-    def signed(text: str, who: Context[Caller]) -> str:
-        calls.append(who.name)
-        return f"{text} by {who.name}"
-
-    graph = Graph.compile(GraphRecord(nodes=[NodeRecord(id="s", node="signed")]), registry_of(signed))
-    first = graph.run(text="hi", context={Caller: Caller("ida")})
-    again = first.again(context={Caller: Caller("bo")})
-
-    assert calls == ["ida"] and again.outputs == {"s.result": "hi by ida"}
 
 
 def test_a_value_with_no_json_form_is_called_again_and_never_fails_the_run():

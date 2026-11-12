@@ -13,7 +13,6 @@ import pytest
 from annotated_types import Ge
 from conductor import (
     Choice,
-    Context,
     Deprecation,
     ExternalError,
     Graph,
@@ -1156,44 +1155,6 @@ def test_a_hook_reads_a_whole_table_arriving_with_its_columns():
     row_type = typing.get_args(seen[0])[0]  # Table[R] carries R, a TypedDict of the arriving columns
     assert graph.problems == [] and typing.get_type_hints(row_type) == {"name": str, "amount": int}
     assert graph.run(text="Bo").results["look"]["result"] == "name,amount"
-
-
-def test_context_names_a_class() -> None:
-    from conductor import Context
-
-    with pytest.raises(NodeDeclarationError, match="Context names the class") as raised:
-
-        @node("bare", title="Bare", description="For a test.")
-        def bare(who: Context) -> str:  # type: ignore[type-arg]
-            return "x"
-
-    assert raised.value.code == "context_not_a_class"
-
-
-@dataclass
-class _Session:
-    user: str
-
-
-def _optional_session(session: Context[_Session] | None = None) -> str:
-    return "x"
-
-
-def _sessions(sessions: list[Context[_Session]]) -> str:
-    return "x"
-
-
-def _returns_a_session() -> Context[_Session]:
-    return _Session("x")
-
-
-@pytest.mark.parametrize("function", [_optional_session, _sessions, _returns_a_session])
-def test_context_is_only_a_whole_parameter_so_a_caller_never_fills_it(function: Any) -> None:
-    # Anywhere else the value would be an input a caller fills, and a node trusts what the host hands it.
-    with pytest.raises(NodeDeclarationError, match="Context") as raised:
-        node("who", title="Who", description="For a test.")(function)
-
-    assert raised.value.code == "context_misplaced"
 
 
 def test_a_bare_series_is_many_values_of_any_type() -> None:

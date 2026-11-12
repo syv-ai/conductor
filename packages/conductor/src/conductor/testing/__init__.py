@@ -11,8 +11,8 @@ It checks what ``@node`` can't see in a declaration. A body is called only
 for a node given an example, since a node may send mail; ``examples`` maps a
 node id to the inputs of its calls, by name, and ``(id, version)`` to those
 of an older version. Each example runs through the engine as a graph of that
-one node, its inputs typed in, given ``context={T: value}`` as ``graph.run``
-is.
+one node, its inputs typed in, given ``context`` as ``graph.run`` is: the
+run's context, an instance of the registry's ``context_type``.
 
 Every problem is a ``Problem``. Its ``loc`` is ``(node_id, version)``, except for
 ``example_for_no_node`` without a version, which is ``(node_id,)``:
@@ -83,12 +83,12 @@ class _Cannot:
 _CANNOT = _Cannot()
 
 
-def check_registry(
-    registry: NodeRegistry,
+def check_registry[C](
+    registry: NodeRegistry[C],
     /,
     *,
     examples: Mapping[str | tuple[str, int], Sequence[_Example]] = MappingProxyType({}),
-    context: Mapping[type, Any] = MappingProxyType({}),
+    context: C | None = None,
 ) -> list[Problem]:
     """Every way a node of ``registry`` breaks what a host relies on, all at once; ``[]`` when none does."""
     found: list[Problem] = []
@@ -111,7 +111,7 @@ def check_registry(
 
 
 def _problems_of(
-    definition: NodeDefinition, registry: NodeRegistry, examples: Mapping[tuple[str, int], Sequence[_Example]], context: Mapping[type, Any],
+    definition: NodeDefinition, registry: NodeRegistry[Any], examples: Mapping[tuple[str, int], Sequence[_Example]], context: Any,
 ) -> list[Problem]:
     found = _version_problems(definition, registry, examples.get((definition.id, definition.version), ()), context)
     for older in definition.version_chain[1:]:
@@ -121,7 +121,7 @@ def _problems_of(
     return found
 
 
-def _version_problems(version: NodeDefinition, registry: NodeRegistry, given: Sequence[_Example], context: Mapping[type, Any]) -> list[Problem]:
+def _version_problems(version: NodeDefinition, registry: NodeRegistry[Any], given: Sequence[_Example], context: Any) -> list[Problem]:
     """The hooks checked when there is no example, else each example run: what went wrong."""
     if not given:
         return _hook_problems(version, registry)
@@ -139,7 +139,7 @@ def _one_node_graph(version: NodeDefinition, constants: Mapping[str, Any]) -> Gr
     return GraphRecord(nodes=[NodeRecord(id=version.id, node=version.id, version=version.version, constants=typed)])
 
 
-def _hook_problems(version: NodeDefinition, registry: NodeRegistry) -> list[Problem]:
+def _hook_problems(version: NodeDefinition, registry: NodeRegistry[Any]) -> list[Problem]:
     """Load the node with its defaults and a made-up value for each required input its hooks read."""
     match version:
         case FunctionDefinition(hook_parameters=hooks) if hooks:
@@ -155,7 +155,7 @@ def _hook_problems(version: NodeDefinition, registry: NodeRegistry) -> list[Prob
     return [problems.hook_failed(version.id, version.version, reason=_reason([p]), cause=[p.type], problems=[p.model_dump(mode="json")]) for p in failed]
 
 
-def _upgrade_problems(older: NodeDefinition, registry: NodeRegistry, given: Sequence[_Example]) -> list[Problem]:
+def _upgrade_problems(older: NodeDefinition, registry: NodeRegistry[Any], given: Sequence[_Example]) -> list[Problem]:
     """Place the node at ``older`` with an example's values, or made-up ones, move it to the newest version and load it."""
     if given:
         values = dict(given[0])
@@ -176,7 +176,7 @@ def _upgrade_problems(older: NodeDefinition, registry: NodeRegistry, given: Sequ
     return [problems.upgrade_broken(older.id, older.version, newest=newest, reason=_reason(graph_problems), cause=[p.type for p in graph_problems], problems=[p.model_dump(mode="json") for p in graph_problems])]
 
 
-def _run_problems(version: NodeDefinition, registry: NodeRegistry, example: _Example, context: Mapping[type, Any]) -> list[Problem]:
+def _run_problems(version: NodeDefinition, registry: NodeRegistry[Any], example: _Example, context: Any) -> list[Problem]:
     """Run one example through the engine: what went wrong."""
     definitions: dict[str, NodeDefinition]
     match version:
@@ -190,7 +190,7 @@ def _run_problems(version: NodeDefinition, registry: NodeRegistry, example: _Exa
         record = _one_node_graph(version, dict(example))
     except InvalidCallError as refused:
         return _not_compiled(version, refused.errors())
-    graph = compile_graph(record, definitions, Graph)
+    graph = compile_graph(record, definitions, registry.context_type, Graph)
     if graph.problems:
         return _not_compiled(version, graph.problems)
     try:
@@ -229,22 +229,22 @@ def _reason(behind: Sequence[Problem]) -> str:
 
 
 def _watched(version: FunctionDefinition[..., Any]) -> tuple[FunctionDefinition[..., Any], list[str]]:
-    """``version``, called once per unit as before, noting each input the call changed; never retried."""
+    """``version``, called as before, noting each input a call changed; never retried. The run's context, which a
+    node that takes it gets first, is passed on and not watched."""
     function = version.function
     changed: list[str] = []
 
-    def watched(**kwargs: Any) -> Any:
+    def watched(*context: Any, **kwargs: Any) -> Any:
         before: dict[str, object] = {}
         for name, value in kwargs.items():
-            if name not in version.context:
-                try:
-                    kept = copy.deepcopy(value)
-                except Exception:  # noqa: BLE001, S112  a value that can't be copied can't be compared
-                    continue
-                if _same(kept, value):  # a value unequal to its own copy (NaN, no __eq__) can't be compared
-                    before[name] = kept
+            try:
+                kept = copy.deepcopy(value)
+            except Exception:  # noqa: BLE001, S112  a value that can't be copied can't be compared
+                continue
+            if _same(kept, value):  # a value unequal to its own copy (NaN, no __eq__) can't be compared
+                before[name] = kept
         try:
-            return function(**kwargs)
+            return function(*context, **kwargs)
         finally:
             changed.extend(name for name, value in before.items() if name not in changed and not _same(value, kwargs[name]))
 

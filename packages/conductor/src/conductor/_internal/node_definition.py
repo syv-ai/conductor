@@ -55,7 +55,7 @@ import dataclasses
 import functools
 import inspect
 import typing
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import Field as DataclassField
 from dataclasses import dataclass
 from inspect import Parameter
@@ -66,12 +66,11 @@ from pydantic import ConfigDict, JsonValue
 from pydantic import Field as PydanticField
 
 from conductor._internal.conductor_model import ConductorModel
-from conductor._internal.context import _Context
+from conductor._internal.context import ContextParameter, is_context
 from conductor._internal.field import Field, FieldDescription
 from conductor._internal.graph_record import GraphRecord, as_record
 from conductor._internal.markers import REQUIRED
-from conductor._internal.problem import InvalidCallError, NodeDeclarationError
-from conductor._internal.problem import catalogue as problem
+from conductor._internal.problem import NodeDeclarationError
 from conductor._internal.text import qualified_name
 from conductor._internal.value_type import Type
 
@@ -255,8 +254,8 @@ class FunctionDefinition[**P, R](_Version):
 
     Attributes:
         function: What each call runs.
-        inputs: Each input by name, as its signature declares it. A ``Context`` parameter is not an input: it is in
-            ``context``. An input a hook adds is not here either; a loaded graph's node holds it.
+        inputs: Each input by name, as its signature declares it. The ``Context`` parameter is not an input: it is
+            ``context``. An input a hook adds is not here either; a compiled graph's node has it.
         outputs: Each output by name: ``result`` for one value, a field each for a frozen dataclass returned.
         returns: What the function returns: one ``result``, a frozen dataclass of outputs, the mapping of outputs a
             ``compute_outputs`` hook gave, or nothing.
@@ -265,7 +264,8 @@ class FunctionDefinition[**P, R](_Version):
             them as ``**kwargs``.
         compute_outputs: A hook run at load that gives every output, from the values typed in and the types
             arriving; the function returns them as a mapping.
-        context: The ``Context`` parameters: the type whose value goes under each name in a call.
+        context: The first parameter when it is ``Context[X]``: the run's context, passed first by position on each
+            call. ``None`` for a node that takes no context.
         hook_parameters: Each hook's parameters, by the hook's name (``compute_added_inputs``, ``compute_outputs``)
             and then the parameter's: what the parameter receives. Read from the hooks' signatures once, at
             ``@node``.
@@ -279,7 +279,7 @@ class FunctionDefinition[**P, R](_Version):
     policy: Policy = Policy()
     compute_added_inputs: Callable[..., Mapping[Any, Any]] | None = None
     compute_outputs: Callable[..., Mapping[Any, Any]] | None = None
-    context: Mapping[str, type] = dataclasses.field(default_factory=dict[str, type])
+    context: ContextParameter | None = None
     hook_parameters: Mapping[HookName, Mapping[str, HookParameter]] = dataclasses.field(default_factory=dict[HookName, Mapping[str, HookParameter]])
     generic: bool = False
 
@@ -597,31 +597,6 @@ def is_node_id(value: str) -> bool:
     return bool(value) and not _RESERVED_ID_CHARACTERS & set(value)
 
 
-def context_values(definitions: Iterable[tuple[str, FunctionDefinition[..., Any]]], context: Mapping[type, Any]) -> dict[type, Any]:
-    """The value each ``Context`` parameter of these placed nodes takes, keyed by the class it names and no other;
-    ``InvalidCallError`` listing every parameter it can't fill.
-
-    Args:
-        definitions: Each placed function node, as its id and definition.
-        context: The values the caller gave, by class.
-
-    Returns:
-        ``context`` as a dict, once every parameter is known to be filled.
-
-    Raises:
-        InvalidCallError: One ``context_missing`` problem per parameter whose class is not a key of ``context``.
-    """
-    problems = [
-        problem.context_missing(node_id, name, needs=needed.__name__, given=[key.__name__ for key in context])
-        for node_id, definition in definitions
-        for name, needed in definition.context.items()
-        if needed not in context
-    ]
-    if problems:
-        raise InvalidCallError(problems)
-    return dict(context)
-
-
 @dataclass(frozen=True, slots=True)
 class OneResult:
     """The function returns one value, its output ``result``."""
@@ -652,14 +627,14 @@ class NoOutputs:
 ReturnShape = OneResult | OutputsClass | HookOutputs | NoOutputs
 
 
-def _read_signature(function: Callable[..., Any], computed_outputs: bool) -> tuple[dict[str, Field], dict[str, type], dict[str, Field], ReturnShape]:
+def _read_signature(function: Callable[..., Any], computed_outputs: bool) -> tuple[dict[str, Field], ContextParameter | None, dict[str, Field], ReturnShape]:
     """Reads a function's signature.
 
     A type variable in it (``def keep[T](value: T) -> T``) stays in the field's hint, to be bound when a graph loads.
 
     Returns:
-        The inputs by name, the ``Context`` parameters (the class each takes), the outputs by name, and what kind
-        of value the function returns them as.
+        The inputs by name, the ``Context`` parameter (``None`` when the first parameter is not one), the outputs
+        by name, and what kind of value the function returns them as.
 
     Raises:
         NodeDeclarationError: A parameter or the return type is declared in a way a node can't have.
@@ -667,8 +642,15 @@ def _read_signature(function: Callable[..., Any], computed_outputs: bool) -> tup
     parameters = inspect.signature(function).parameters  # read first: for what is not a function it raises Python's "is not a callable object"
     hints = typing.get_type_hints(function, include_extras=True)
     inputs: dict[str, Field] = {}
-    context: dict[str, type] = {}
-    for name, parameter in parameters.items():
+    context: ContextParameter | None = None
+    for position, (name, parameter) in enumerate(parameters.items()):
+        # A Context anywhere else is read as an input below, and its type refuses to be read (context_misplaced).
+        if position == 0 and name in hints and is_context(hints[name]) and parameter.kind in (parameter.POSITIONAL_ONLY, parameter.POSITIONAL_OR_KEYWORD):
+            needs = typing.get_args(hints[name])[0]
+            if not isinstance(needs, type):
+                raise NodeDeclarationError(f"{name}: Context names the class of the object the host passes, Context[HostContext]", code="context_not_a_class")
+            context = ContextParameter(name, needs)
+            continue
         if parameter.kind is parameter.VAR_KEYWORD:
             continue
         if parameter.kind in (parameter.VAR_POSITIONAL, parameter.POSITIONAL_ONLY):
@@ -676,14 +658,7 @@ def _read_signature(function: Callable[..., Any], computed_outputs: bool) -> tup
         if name not in hints:
             raise NodeDeclarationError(f"{name}: an input needs a type hint; write one, as it is the input's interface", code="input_without_type")
         default = REQUIRED if parameter.default is Parameter.empty else parameter.default
-        hint = hints[name]
-        if typing.get_origin(hint) is Annotated and any(isinstance(mark, _Context) for mark in typing.get_args(hint)[1:]):
-            needed = typing.get_args(hint)[0]
-            if not isinstance(needed, type):
-                raise NodeDeclarationError(f"{name}: Context names the class of the value the run is given, Context[Session]", code="context_not_a_class")
-            context[name] = needed
-            continue
-        inputs[name] = Field(name, hint, default)
+        inputs[name] = Field(name, hints[name], default)
         if inputs[name].param.exclusive_group is not None:
             raise NodeDeclarationError(f"{name}: exclusive_group is for outputs; put it on an output's Param", code="exclusive_group_on_input")
     if "return" not in hints:

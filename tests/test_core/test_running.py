@@ -22,7 +22,6 @@ import pytest
 from conductor import (
     SKIPPED,
     Ask,
-    Context,
     ExternalError,
     Graph,
     GraphRecord,
@@ -816,42 +815,6 @@ def test_a_cancel_during_a_retry_delay_ends_the_leg_before_every_attempt_has_run
     ended = _bounded(go())
 
     assert ended.status == "cancelled" and len(calls) < 6
-
-
-# -- calling the door --------------------------------------------------------------------------
-
-
-def test_a_stream_that_cannot_start_raises_at_the_call_before_any_event():
-    class Caller:
-        pass
-
-    @node("signed", title="Signed", description="For a test.")
-    def signed(text: str, who: Context[Caller]) -> str:
-        return text
-
-    prepared = Graph.compile(GraphRecord(nodes=[NodeRecord(id="s", node="signed")]), registry_of(signed)).with_inputs(text="x")
-
-    with pytest.raises(InvalidCallError) as refused:
-        prepared.stream()
-
-    assert [p.type for p in refused.value.errors()] == ["context_missing"]
-    assert refused.value.errors()[0].ctx == {"node_id": "s", "parameter": "who", "needs": "Caller", "given": []}
-
-
-def test_a_type_no_node_needs_from_the_run_is_fine():
-    class Caller:
-        pass
-
-    class Unused:
-        pass
-
-    @node("signed", title="Signed", description="For a test.")
-    def signed(text: str, who: Context[Caller]) -> str:
-        return text
-
-    graph = Graph.compile(GraphRecord(nodes=[NodeRecord(id="s", node="signed")]), registry_of(signed))
-
-    assert graph.run(text="x", context={Caller: Caller(), Unused: Unused()}).outputs == {"s.result": "x"}
 
 
 def test_running_a_graph_under_a_running_event_loop_ends_as_it_does_outside_one():

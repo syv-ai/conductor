@@ -99,6 +99,80 @@ def compute_hook_failed(*loc: str | int, reason: str, error: str, error_ctx: dic
 
 
 @PROBLEMS.problem()
+def context_does_not_fit(node_id: str, parameter: str, /, *, needs: str, context_type: str) -> str:
+    """A node takes the run's context as a class that the registry's ``context_type`` is not.
+
+    A node's ``Context[X]`` fits when ``X`` is the registry's class, a base of it, or a ``Protocol`` whose members the
+    class has. Ask for one of those, or name another class on the registry. In the example, ``count`` asks for an
+    ``int``.
+
+    Args:
+        node_id: The node.
+        parameter: The node's ``Context`` parameter, its first.
+        needs: The name of the class inside ``Context[...]``.
+        context_type: The name of the registry's class.
+
+    Example:
+        @registry.node("count_it", title="Count it", description="Returns the number the run is given.")
+        def count_it(ctx: Context[int]) -> int:
+            return ctx
+
+        problems({"nodes": [{"id": "count", "node": "count_it"}]})
+    """
+    return f"'{node_id}' takes the run's context as a {needs}, and the registry's context class {context_type} is not a {needs}; ask for {context_type}, a base of it or a Protocol it satisfies."
+
+
+@PROBLEMS.problem("context_does_not_fit", variant="lacks")
+def context_does_not_fit_lacks(node_id: str, parameter: str, /, *, needs: str, context_type: str, lacks: list[str]) -> str:
+    """A node takes the run's context as a ``Protocol`` whose members the registry's ``context_type`` does not all have.
+
+    Give the registry's class what the node reads, with the classes the Protocol declares, or change what the node asks
+    for. In the example, ``HostContext`` has no ``database``.
+
+    Args:
+        node_id: The node.
+        parameter: The node's ``Context`` parameter, its first.
+        needs: The name of the ``Protocol`` inside ``Context[...]``.
+        context_type: The name of the registry's class.
+        lacks: Each member the class does not have, as its name, or as ``"name as a X"`` when the class declares it
+            as another class.
+
+    Example:
+        class HasDatabase(Protocol):
+            @property
+            def database(self) -> str: ...
+
+        @registry.node("tables", title="Tables", description="Names the database it reads.")
+        def tables(ctx: Context[HasDatabase]) -> str:
+            return ctx.database
+
+        problems({"nodes": [{"id": "tables", "node": "tables"}]})
+    """
+    return f"'{node_id}' takes the run's context as a {needs}, and the registry's context class {context_type} lacks {comma_separated(lacks)}; give {context_type} what the node reads, or change what it asks for."
+
+
+@PROBLEMS.problem("context_does_not_fit", variant="no_context_type")
+def context_does_not_fit_no_context_type(node_id: str, parameter: str, /, *, needs: str) -> str:
+    """A node takes the run's context, and the registry names no ``context_type``.
+
+    Name the class of the object your runs get on the registry, ``NodeRegistry(context_type=HostContext)``. A
+    registry of nodes that do not know the host, such as a package of nodes, names none; add it to yours with
+    ``add_subregistry``, and its nodes are checked against your class.
+
+    Args:
+        node_id: The node.
+        parameter: The node's ``Context`` parameter, its first.
+        needs: The name of the class inside ``Context[...]``.
+
+    Example:
+        plain = NodeRegistry()
+        plain.add(who)
+        Graph.compile(make_graph(who), plain).problems
+    """
+    return f"'{node_id}' takes the run's context as a {needs}, and the registry names no context class; name one with NodeRegistry(context_type=...)."
+
+
+@PROBLEMS.problem()
 def cycle(*loc: str | int) -> str:
     """A node is on a cycle of edges.
 
@@ -707,22 +781,22 @@ def cannot_move_to_version(*loc: str | int, node: str, version: int, target: int
 
 
 @PROBLEMS.problem()
-def context_missing(node_id: str, parameter: str, /, *, needs: str, given: list[str]) -> str:
-    """A node takes a ``Context[X]`` value, and the call's ``context`` has no value for ``X``.
+def context_missing(*loc: str | int, parameter: str, needs: str) -> str:
+    """A node takes the run's context, and the call that starts or resumes the run gives no ``context``.
 
-    Pass the value by its class: ``graph.run(context={Caller: Caller("Ida")})``. A context value is never saved with
-    a run, so pass it again on each ``resume``.
+    Pass the object on every call that goes on with the run: ``graph.run(context=HostContext(...))``,
+    ``run.resume(context=...)``, ``run.stream(context=...)``. A run never saves its context. Every node that takes it
+    has this problem.
 
     Args:
-        node_id: The node.
-        parameter: The node's ``Context`` parameter.
-        needs: The name of the class the parameter takes.
-        given: The names of the classes ``context`` has values for.
+        loc: The node's path, then its ``Context`` parameter.
+        parameter: The node's ``Context`` parameter, its first.
+        needs: The name of the class inside ``Context[...]``.
 
     Example:
         refused(lambda: Graph.compile(make_graph(who), registry).run())
     """
-    return f"'{node_id}' needs a {needs} for '{parameter}', and context has none (it has {comma_separated(given)}); give one in context."
+    return f"The node takes the run's context, a {needs}, as '{parameter}', and the call gave none; pass context= on every call that starts or resumes the run."
 
 
 @PROBLEMS.problem()
@@ -775,6 +849,41 @@ def invalid_checkpoint_every(*loc: str | int, checkpoint_every: float) -> str:
         refused(lambda: Graph.compile(make_graph(upper), registry).with_inputs(text="a").stream(checkpoint_every=0))
     """
     return f"checkpoint_every must be a number of seconds above 0; it was {checkpoint_every}."
+
+
+@PROBLEMS.problem()
+def invalid_context(*loc: str | int, expected: str, got: str) -> str:
+    """A call gives ``context`` an object that is not an instance of the class the registry names.
+
+    Pass an instance of the registry's ``context_type``, or of a subclass of it.
+
+    Args:
+        loc: ``"context"``.
+        expected: The name of the registry's class.
+        got: The name of the class of the object given.
+
+    Example:
+        refused(lambda: Graph.compile(make_graph(who), registry).run(context=Caller("Ida")))  # type: ignore[arg-type]
+    """
+    return f"context was given a {got}; pass a {expected}, the class the registry names."
+
+
+@PROBLEMS.problem("invalid_context", variant="no_context_type")
+def invalid_context_no_context_type(*loc: str | int, got: str) -> str:
+    """A call gives ``context`` to a run of a graph whose registry names no ``context_type``.
+
+    Pass no context, or name the class on the registry, ``NodeRegistry(context_type=HostContext)``.
+
+    Args:
+        loc: ``"context"``.
+        got: The name of the class of the object given.
+
+    Example:
+        plain = NodeRegistry()
+        plain.add(upper)
+        refused(lambda: Graph.compile(make_graph(upper), plain).run(text="a", context=Caller("Ida")))  # type: ignore[arg-type]
+    """
+    return f"context was given a {got}, and the graph's registry names no context class; pass no context, or name one with NodeRegistry(context_type=...)."
 
 
 @PROBLEMS.problem()

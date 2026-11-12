@@ -27,15 +27,15 @@ def words(text: Annotated[str, Param(title="Text", widget=Textarea())]) -> Annot
     return [word for word in text.split()]      # a list on a Series output: what reads one word runs once per word
 
 
-class Caller:
-    def __init__(self, name: str) -> None:
-        self.name = name
+@dataclass(frozen=True)
+class AppContext:                     # the run's context: one object the host passes, its class named on the registry
+    caller_name: str
 
 
 @node("approve", title="Approve", description="Asks a person to approve or rewrite the proposal.", category="review")
-def approve(proposal: Annotated[str, Param(title="Proposal", widget=Textarea())], who: Context[Caller]) -> Annotated[str, Param(title="Decision", widget=Textarea())]:
-    # what is asked is what the node returns, and how it looks is its Param; a default proposes an answer
-    raise Ask(f"{who.name}, approve?", default=proposal)
+def approve(ctx: Context[AppContext], proposal: Annotated[str, Param(title="Proposal", widget=Textarea())]) -> Annotated[str, Param(title="Decision", widget=Textarea())]:
+    # the context is the first parameter; what is asked is what the node returns, and how it looks is its Param
+    raise Ask(f"{ctx.caller_name}, approve?", default=proposal)
 
 
 @dataclass(frozen=True)
@@ -82,7 +82,7 @@ def check[T](value: T, ok: bool) -> Checked[T]:        # a node for any type: T 
     return Checked(passed=value, failed=SKIPPED) if ok else Checked(passed=SKIPPED, failed=value)
 
 
-assert approve.context == {"who": Caller}
+assert approve.context is not None and approve.context.cls is AppContext and list(approve.inputs) == ["proposal"]
 ```
 
 - A pydantic model a node returns is one value, not one output per field.

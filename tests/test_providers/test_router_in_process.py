@@ -102,15 +102,15 @@ class _Member:
 
 
 async def test_a_class_as_the_caller_is_kept_as_that_class_so_its_starter_sees_the_run() -> None:
-    registry, seen = NodeRegistry(), []
+    registry, seen = NodeRegistry(context_type=_Member), []
 
     @registry.node("whoami", title="Whoami", description="For a test.")
-    def whoami(text: str, who: Context[_Member]) -> str:
+    def whoami(who: Context[_Member], text: str) -> str:
         seen.append(who)
         return who.x_user
 
     store = MemoryStore()
-    app = _app(store=store, registry=registry, caller=_Member, context=lambda caller: {_Member: caller})
+    app = _app(store=store, registry=registry, caller=_Member, context=lambda caller: caller)
 
     async with _serving(app) as client:
         started = await client.post("/runs", json={"graph": make_graph(whoami).model_dump(mode="json"), "inputs": {"text": "hi"}}, headers={"x-user": "bo"})

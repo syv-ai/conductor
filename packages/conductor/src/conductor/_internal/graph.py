@@ -5,11 +5,12 @@ from __future__ import annotations
 import functools
 from collections.abc import Mapping
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Self
+from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
 
 from conductor._internal.compiled import CompiledGraph, compile_graph
+from conductor._internal.gate import ContextDoor, RefusedError
 from conductor._internal.graph_record import GraphRecord, as_record
 from conductor._internal.markers import REQUIRED
 from conductor._internal.problem import InvalidCallError, Problem
@@ -21,10 +22,12 @@ if TYPE_CHECKING:
     from conductor._internal.registry import NodeRegistry
 
 
-class Graph(CompiledGraph):
+class Graph[C](CompiledGraph):
     """A graph record checked against a registry's nodes, which can start a run: ``Graph.compile(record, registry)`` makes one.
 
-    ``problems`` is everything wrong with it, and a graph with none runs: ``graph.run(**inputs)``.
+    ``problems`` is everything wrong with it, and a graph with none runs: ``graph.run(**inputs)``. ``C`` is the class
+    of the run's context the registry names (``NodeRegistry(context_type=HostContext)`` compiles a
+    ``Graph[HostContext]``), and ``None`` for a registry that names none.
 
     Attributes:
         record: The graph record it was compiled from.
@@ -33,19 +36,19 @@ class Graph(CompiledGraph):
             caller fills.
     """
 
-    @classmethod
-    def compile(cls, record: GraphRecord | str | bytes, registry: NodeRegistry) -> Self:
+    @staticmethod
+    def compile[R](record: GraphRecord | str | bytes, registry: NodeRegistry[R]) -> Graph[R]:
         """Compile a graph record, given as a ``GraphRecord`` or as its JSON text, against the node definitions of ``registry``.
 
         Compiling never raises for a wrong graph, a half-finished one included: what is wrong is in
         ``graph.problems``, and a graph with problems does not run. The graph keeps its own copy of the
-        definitions as they are when it is compiled.
+        definitions as they are when it is compiled, and the registry's ``context_type``.
         """
-        return compile_graph(as_record(record), registry._nodes, cls)
+        return compile_graph(as_record(record), registry._nodes, registry.context_type, Graph)
 
     def with_inputs(
-        self, inputs: Mapping[str, Any] = MappingProxyType({}), /, *, max_items: int | None = None, previous: Run | None = None, **by_name: Any,
-    ) -> Run:
+        self, inputs: Mapping[str, Any] = MappingProxyType({}), /, *, max_items: int | None = None, previous: Run[Any] | None = None, **by_name: Any,
+    ) -> Run[C]:
         """A run with the caller's inputs checked, not started; ``run.resume()`` starts it.
 
         Args:
@@ -71,10 +74,31 @@ class Graph(CompiledGraph):
 
     def run(
         self, inputs: Mapping[str, Any] = MappingProxyType({}), /, *, max_items: int | None = None,
-        context: Mapping[type, Any] = MappingProxyType({}), timeout: float | None = None, **by_name: Any,
-    ) -> Run:
-        """Run the graph with these inputs until it is done, waits for a person, fails or stops."""
+        context: C | None = None, timeout: float | None = None, **by_name: Any,
+    ) -> Run[C]:
+        """Run the graph with these inputs until it is done, waits for a person, fails or stops:
+        ``graph.with_inputs(...).resume(context=context, timeout=timeout)``."""
         return self.with_inputs(inputs, max_items=max_items, **by_name).resume(context=context, timeout=timeout)
+
+    @functools.cached_property
+    def _context_door(self) -> ContextDoor:
+        """Checks the ``context=`` of each call that starts or resumes a run: built once, from the registry's
+        ``context_type`` and every node that takes the context."""
+        takers = [(node.node_path, context) for node in self._flat_function_nodes if (context := node.compiled_node.definition.context) is not None]
+        return ContextDoor(self._context_type, takers)
+
+    def _checked_context(self, context: C | None) -> C | None:
+        """``context`` as the host passed it, once the context door let it in.
+
+        Raises:
+            InvalidCallError: The door refused it: of another class (``invalid_context``), or none for a graph with a
+                node that takes it (``context_missing``).
+        """
+        try:
+            checked: C | None = self._context_door(context)
+        except RefusedError as refused:
+            raise InvalidCallError(refused.problems) from None
+        return checked
 
     @functools.cached_property
     def _run_codec(self) -> RunCodec:

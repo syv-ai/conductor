@@ -109,7 +109,7 @@ def resume_failed() -> str:
 
     The ``cause`` of a run whose status is ``failed``: the ``context`` function given to ``run_router`` raised, or the function that returns a caller's
     registry raised. A run conductor itself refused to resume has conductor's problem as its cause
-    (``context_missing``, ``saved_run_unreadable``, ``run_unwritable``). An exception from the store fails no run: the
+    (``context_missing``, ``invalid_context``, ``saved_run_unreadable``, ``run_unwritable``). An exception from the store fails no run: the
     run is resumed again once its lease runs out. The run is kept as its last checkpoint, and answers queued meanwhile
     stay queued until it is resumed and stops again. The exception is in the log ``conductor_providers.fastapi``, with
     the run's id. Fix the cause, then ``POST /runs/{run_id}/resume``.

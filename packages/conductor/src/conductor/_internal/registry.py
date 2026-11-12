@@ -29,6 +29,13 @@ naming both. ``describe()`` is what an editor reads: every node and every
 type, once, as a ``RegistryDescription``, each type with the ids of every
 type here that admits it (``accepted_as``).
 
+A registry may name the class of the run's context, the one object a host
+passes to each run (``NodeRegistry(context_type=HostContext)``). A node that
+takes the context names the class, a base of it or a ``Protocol`` it
+satisfies, and a graph compiled here has a problem at any node whose
+``Context[X]`` the class does not satisfy. A subregistry names the same
+class or none.
+
 ``Graph.compile(record, registry)`` compiles a graph record against the
 registry's definitions into a ``Graph`` that keeps its own copy of the
 definitions it resolved, so a later change to the registry doesn't reach it.
@@ -42,7 +49,7 @@ import copy
 import dataclasses
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from types import MappingProxyType
-from typing import Any, Concatenate
+from typing import Any, Concatenate, overload
 
 from pydantic import JsonValue
 
@@ -77,13 +84,29 @@ def _takes_the_arguments_of[**P, R](
     return typed
 
 
-class NodeRegistry:
-    """The nodes a host offers, by id, and the types they use.
+class NodeRegistry[C]:
+    """The nodes a host offers, by id, the types they use, and the class of the context a run of its graphs is given.
 
     ``"upper" in registry`` and ``registry["upper"]`` look a node up by id;
     looping yields the definitions in the order they arrived. It is not a
     ``Mapping``: there is no ``get`` to answer a misspelled id with ``None``.
+
+    ``NodeRegistry(context_type=HostContext)`` is a ``NodeRegistry[HostContext]``: every graph compiled against it is
+    a ``Graph[HostContext]``, whose runs take ``context=HostContext(...)``. ``NodeRegistry()`` names no class and is a
+    ``NodeRegistry[None]``.
     """
+
+    @overload
+    def __init__(
+        self: NodeRegistry[None], *, category: str = "", tags: list[str] | tuple[str, ...] = (),
+        extra: Mapping[str, JsonValue] = MappingProxyType({}), types: Iterable[type] = (), context_type: None = None,
+    ) -> None: ...
+
+    @overload
+    def __init__(
+        self: NodeRegistry[C], *, category: str = "", tags: list[str] | tuple[str, ...] = (),
+        extra: Mapping[str, JsonValue] = MappingProxyType({}), types: Iterable[type] = (), context_type: type[C],
+    ) -> None: ...
 
     def __init__(
         self,
@@ -92,9 +115,15 @@ class NodeRegistry:
         tags: list[str] | tuple[str, ...] = (),
         extra: Mapping[str, JsonValue] = MappingProxyType({}),
         types: Iterable[type] = (),
+        context_type: type[C] | None = None,
     ) -> None:
         """An empty registry whose nodes default to ``category``, ``tags`` and ``extra``, holding the host's types in
-        ``types`` whether or not a node uses them."""
+        ``types`` whether or not a node uses them.
+
+        ``context_type`` is the class of the object the host passes as ``context=`` to every run of a graph compiled
+        here. Each node's ``Context[X]`` is checked against it when a graph is compiled.
+        """
+        self._context_type = context_type
         self._category = category
         self._tags = tuple(tags)
         self._extra = dict(extra)
@@ -188,19 +217,32 @@ class NodeRegistry:
         nodes = {held_id: definition for held_id, definition in self._nodes.items() if held_id != node_id}
         self._set_contents(nodes, self._named_types)
 
-    def add_subregistry(self, subregistry: NodeRegistry) -> None:
+    def add_subregistry(self, subregistry: NodeRegistry[C] | NodeRegistry[None]) -> None:
         """Add every node of ``subregistry`` as ``add`` does, and the types it names.
 
         Its nodes arrive with its defaults applied, and this registry's go
         over them. They are copied in, so a later change to ``subregistry``
         does not reach this one.
+
+        ``subregistry`` names this registry's ``context_type`` or none, as a
+        registry of pre-built nodes does; its nodes are checked against this
+        registry's class when a graph is compiled. Naming another class
+        raises, and so does naming one when this registry names none: name it
+        here too.
         """
+        if subregistry._context_type not in (None, self._context_type):
+            here = "no context_type" if self._context_type is None else f"context_type={self._context_type.__name__}"
+            raise NodeDeclarationError(
+                f"the subregistry names context_type={subregistry._context_type.__name__}, and this registry names {here}; "
+                "a registry and its subregistries name one class, or the subregistry names none",
+                code="context_type_differs",
+            )
         named = (*self._named_types, *(dtype for dtype in subregistry._named_types if dtype not in self._named_types))
         added = tuple(subregistry)
         self._set_contents(self._nodes_with(added), named)
 
-    def filter(self, predicate: Callable[[NodeDefinition], bool]) -> NodeRegistry:
-        """A new registry with this one's defaults and named types, holding the nodes ``predicate`` keeps."""
+    def filter(self, predicate: Callable[[NodeDefinition], bool]) -> NodeRegistry[C]:
+        """A new registry with this one's defaults, named types and ``context_type``, holding the nodes ``predicate`` keeps."""
         kept = copy.copy(self)
         nodes = {definition.id: definition for definition in self._nodes.values() if predicate(definition)}
         kept._set_contents(nodes, self._named_types)
@@ -242,6 +284,11 @@ class NodeRegistry:
     # -- the types ---------------------------------------------------------------
 
     @property
+    def context_type(self) -> type[C] | None:
+        """The class of the run's context that every graph compiled here takes; ``None`` when the registry names none."""
+        return self._context_type
+
+    @property
     def types(self) -> Mapping[str, type]:
         """Every type by its id: the ones the nodes declare, then the ones a host named. Read-only."""
         return MappingProxyType(self._types)
@@ -270,7 +317,7 @@ class NodeRegistry:
                 pass
         if definition.id not in self._graph_descriptions:
             record = GraphRecord(nodes=[NodeRecord(id="node", node=definition.id, version=definition.version)])
-            described = compile_graph(record, self._nodes, CompiledGraph).describe().nodes["node"]
+            described = compile_graph(record, self._nodes, self._context_type, CompiledGraph).describe().nodes["node"]
             self._graph_descriptions[definition.id] = definition.described_as(
                 SubgraphDescription, inputs=[described_input.field for described_input in described.inputs], outputs=described.outputs,
             )

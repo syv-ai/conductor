@@ -41,8 +41,8 @@ registry.add_subregistry(served)
 
 
 @registry.node("who", title="Who", description="For a test.")
-def who(caller: Context[Caller]) -> str:
-    return caller.name
+def who(ctx: Context[AppContext]) -> str:
+    return ctx.caller.name
 
 
 def header_caller(x_user: Annotated[str, Header()] = "anna") -> Caller:
@@ -371,13 +371,14 @@ def test_an_answer_sent_while_a_leg_runs_that_ends_the_run_is_refused_when_it_en
     _run(scenario)
 
 
-def test_a_leg_that_cannot_start_leaves_the_run_failed_and_its_follower_is_told(served: Served) -> None:
+def test_a_node_the_run_context_does_not_fit_is_shown_at_compile_and_its_run_is_refused_before_it_starts(served: Served) -> None:
     async def scenario() -> None:
         async with _workers(served, count=1) as (a,):
-            run_id = await a.start(_chain("needs_missing"))
-            failed = await a.until_status(run_id, "failed")
-            assert (failed["cause"]["type"], failed["cause"]["loc"]) == ("context_missing", ["needs_missing", "value"])
-            assert (await a.frames(run_id))[-1] == {"type": "run_end", "status": "failed", "cause": failed["cause"]}
+            drawn = (await a.client.post("/compile", json=_chain("needs_missing"))).json()
+            assert [(p["type"], p["loc"]) for p in drawn["problems"]] == [("context_does_not_fit", ["needs_missing", "value"])]
+            created = await a.client.post("/runs", json={"graph": _chain("needs_missing"), "inputs": {}})
+            assert created.status_code == 422
+            assert [(p["type"], p["loc"]) for p in created.json()["detail"]] == [("context_does_not_fit", ["needs_missing", "value"])]
 
     _run(scenario)
 

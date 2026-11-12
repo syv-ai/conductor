@@ -165,11 +165,6 @@ class CompiledFunctionNode(_CompiledNodeBase):
         output's type; the ``Ask`` can add a prompt, choices and a default to it."""
         return output_questions(self.outputs)
 
-    @property
-    def functions_with_context(self) -> list[tuple[str, FunctionDefinition[..., Any]]]:
-        """The node's id and definition when the function has a ``Context`` parameter; else an empty list."""
-        return [(self.id, self.definition)] if self.definition.context else []
-
 
 @typing.final
 @dataclass(frozen=True, kw_only=True)
@@ -227,12 +222,6 @@ class CompiledSubgraphNode(_CompiledNodeBase):
             RequiredBranch(self.id, f"{branch.node_id}.{branch.group}", f"{branch.node_id}.{branch.output}", depth + branch.depth)
             for branch in inside
         }
-
-    @property
-    def functions_with_context(self) -> list[tuple[str, FunctionDefinition[..., Any]]]:
-        """The id and definition of each function node inside the subgraph, at any depth, with a ``Context``
-        parameter."""
-        return self.inner._needs_context
 
     def described_outputs(self) -> list[FieldDescription]:
         """Returns each output as an editor shows it: as a list with one level per loop inside the subgraph, with
