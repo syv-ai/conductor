@@ -72,7 +72,7 @@ from conductor._internal.graph_record import GraphRecord, as_record
 from conductor._internal.markers import REQUIRED
 from conductor._internal.problem import CallRejectedError, InvalidCallError, NodeDeclarationError
 from conductor._internal.problem import catalogue as problem
-from conductor._internal.text import comma_separated
+from conductor._internal.text import comma_separated, qualified_name
 from conductor._internal.value_type import Type
 
 
@@ -297,6 +297,13 @@ class FunctionDefinition[**P, R](_Version):
         there are when it has none. ``version in definition.versions`` asks first."""
         return _version_of(self.version_chain, version)
 
+    def _where_declared(self) -> str:
+        """Returns where this node was written, for a message that names it: its function's module and name.
+
+        For ``def shout(...)`` in the module ``readme``, it is ``readme.shout``.
+        """
+        return qualified_name(self.function)
+
     def describe(self) -> FunctionNodeDescription:
         """The node as an editor's palette shows it."""
         return self.described_as(
@@ -328,6 +335,15 @@ class SubgraphDefinition(_Version):
         """This node at ``version``, walking back through what each version replaces; a ``KeyError`` naming the versions
         there are when it has none. ``version in definition.versions`` asks first."""
         return _version_of(self.version_chain, version)
+
+    def _where_declared(self) -> str:
+        """Returns where this node was written, for a message that names it: a subgraph has no module, so its title
+        and versions.
+
+        For ``subgraph("loud", title="Loud lines")`` at its second version, it is ``the subgraph titled 'Loud lines'
+        (versions 2, 1)``.
+        """
+        return f"the subgraph titled {self.title!r} (versions {', '.join(map(str, self.versions))})"
 
 #: One version of a node: a function, or a subgraph.
 type NodeDefinition = FunctionDefinition[..., Any] | SubgraphDefinition

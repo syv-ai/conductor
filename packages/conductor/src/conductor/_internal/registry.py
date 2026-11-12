@@ -213,7 +213,7 @@ class NodeRegistry:
             held = nodes.get(definition.id)
             if held is not None:
                 raise NodeDeclarationError(
-                    f"two nodes have the id {definition.id!r}: {_where_declared(held)} and {_where_declared(definition)}; "
+                    f"two nodes have the id {definition.id!r}: {held._where_declared()} and {definition._where_declared()}; "
                     "ids are unique, so swap one for the other with registry.replace(...)",
                     code="duplicate_node_id",
                 )
@@ -382,15 +382,6 @@ def _by_id(types: Iterable[type]) -> dict[str, type]:
                 code="duplicate_type_id",
             )
     return by_id
-
-
-def _where_declared(definition: NodeDefinition) -> str:
-    """Where a node was written: its function's module and name, or the graph it is."""
-    match definition:
-        case FunctionDefinition(function=function):
-            return qualified_name(function)
-        case SubgraphDefinition():
-            return f"a node that is a graph, titled {definition.title!r} (versions {', '.join(map(str, definition.versions))})"
 
 
 def _types_declared_by(definitions: Iterable[NodeDefinition]) -> list[type]:

@@ -144,7 +144,7 @@ def test_two_nodes_built_from_graphs_under_one_id_are_told_apart_by_title():
     registry = NodeRegistry()
     registry.add(subgraph("g", description="For a test.", title="First")(inner))
 
-    with pytest.raises(NodeDeclarationError, match="titled 'First'.*titled 'Second'"):
+    with pytest.raises(NodeDeclarationError, match=r"the subgraph titled 'First' \(versions 1\) and the subgraph titled 'Second' \(versions 1\)"):
         registry.add(subgraph("g", description="For a test.", title="Second")(inner))
 
 
