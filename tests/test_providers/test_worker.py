@@ -732,7 +732,7 @@ async def test_a_leg_the_store_raises_in_is_given_up_and_gone_on_with_once_its_l
             return await super().add_event(run_id, owner, body)
 
         async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
-            if fails == "the write of a checkpoint" and changes.keys() == {"run"} and self.down():
+            if fails == "the write of a checkpoint" and changes.keys() == {"run", "outcome"} and self.down():
                 raise ConnectionError("the store is down for one statement")
             return await super().update(run_id, rev, changes)
 
@@ -1013,6 +1013,25 @@ def _slow_items() -> tuple[NodeRegistry, GraphRecord, ThreadEvent, list[int]]:
     return registry, make_graph(many, slow, edges=[("many.result", "slow.x")]), called, calls
 
 
+async def test_a_checkpoint_writes_the_runs_progress_with_the_outcome_as_the_run_last_stopped() -> None:
+    registry, graph, _, _ = _slow_items()
+    written: list[dict[str, Any]] = []
+
+    class Recording(MemoryStore):
+        async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
+            if changes.keys() == {"run", "outcome"}:
+                written.append(json.loads(changes["outcome"]))
+            return await super().update(run_id, rev, changes)
+
+    store = Recording()
+    run_id = await _started(_worker(store, registry, checkpoint_every=0.01), graph, {"n": 20})
+    await store.ended(run_id)
+
+    assert written and {outcome["waiting"] == [] and outcome["outputs"] is None for outcome in written} == {True}
+    done = [outcome["progress"]["nodes"]["slow"]["done"] for outcome in written]
+    assert done == sorted(done) and done[0] < 20 and written[0]["progress"]["nodes"]["slow"]["total"] == 20
+
+
 async def test_a_run_handed_back_by_a_worker_shutting_down_reads_as_running_with_no_cause_and_so_does_the_run_saved_for_it() -> None:
     registry, graph, called, _ = _slow_items()
     store = MemoryStore()
@@ -1140,7 +1159,7 @@ async def test_a_deploy_whose_last_checkpoint_the_store_fails_to_take_leaves_the
         armed = raised = False
 
         async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
-            if self.armed and not self.raised and changes.keys() == {"run"}:
+            if self.armed and not self.raised and changes.keys() == {"run", "outcome"}:
                 self.raised = True
                 raise ConnectionError("the store is down for one statement")
             return await super().update(run_id, rev, changes)

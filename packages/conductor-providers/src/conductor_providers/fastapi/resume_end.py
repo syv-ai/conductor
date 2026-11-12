@@ -12,9 +12,8 @@ import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
-from conductor import EndedEarly, InvalidCallError, Problem, Run, Waiting
+from conductor import EndedEarly, InvalidCallError, Problem, Run
 from conductor.events import RunEnd
-from pydantic_core import from_json
 
 from conductor_providers.fastapi import router_problems
 from conductor_providers.fastapi.stored_run import RUNNING, Outcome, RunChanges, StoredState
@@ -116,7 +115,7 @@ class Raised(ResumeEnd):
     run_end: str
 
     @classmethod
-    def because(cls, cause: Problem, waiting: list[Waiting]) -> Raised:
+    def because(cls, cause: Problem, held: Outcome) -> Raised:
         """The end of a resume call that raised.
 
         The ``run_end`` is made without validation: a ``RunEnd`` requires the run it ended with, which it never
@@ -124,17 +123,16 @@ class Raised(ResumeEnd):
 
         Args:
             cause: Why the run failed.
-            waiting: What waits in the run as the row has it, its last checkpoint: the run an answer is given
-                to. Nothing, for a run that could not be loaded.
+            held: What waits in the run as the row has it, its last checkpoint (the run an answer is given to),
+                and its progress there. ``Outcome.empty()``, for a run that could not be loaded.
 
         Returns:
             The end, with its ``run_end`` saying ``failed`` and the cause.
         """
-        outcome = Outcome(waiting=waiting, outputs=None)
-        return cls(cause, outcome.model_dump_json(), RunEnd.model_construct(status="failed", cause=cause).model_dump_json())
+        return cls(cause, held.model_dump_json(), RunEnd.model_construct(status="failed", cause=cause).model_dump_json())
 
     @classmethod
-    def refused(cls, refusal: InvalidCallError, waiting: list[Waiting]) -> Raised:
+    def refused(cls, refusal: InvalidCallError, held: Outcome) -> Raised:
         """The end of a resume call that conductor refused: the run can't be resumed, or can't be read or written.
 
         Trying again would be refused again, so the run fails with conductor's own problem as its cause. A cause
@@ -142,17 +140,17 @@ class Raised(ResumeEnd):
 
         Args:
             refusal: What conductor raised.
-            waiting: What waits in the run as the row has it.
+            held: The outcome of the run as the row has it.
 
         Returns:
             The end, its cause the first of the refusal's problems.
         """
-        return cls.because(refusal.errors()[0], waiting)
+        return cls.because(refusal.errors()[0], held)
 
     def row_after(self, state: StoredState) -> RowAfterResume:
         """What to write to the row: the run failed. The row keeps its last checkpoint as ``run``, its ``outcome``
-        lists what waits in that checkpoint, and the answers queued while the run was running stay queued until
-        the run is resumed and stops again."""
+        lists what waits in that checkpoint and its progress there, and the answers queued while the run was
+        running stay queued until the run is resumed and stops again."""
         after = state.model_copy(update={"run_state": EndedEarly("failed", self.cause), "cancel_asked": False})
         return RowAfterResume(after, {"outcome": self.outcome})
 
@@ -169,7 +167,7 @@ class HandedBack(ResumeEnd):
         return RowAfterResume(state, {})
 
 
-def end_of(run_end: RunEnd, stored: list[Waiting]) -> ResumeEnd:
+def end_of(run_end: RunEnd, held: Outcome) -> ResumeEnd:
     """The end of a resume call whose stream ended with a ``run_end``.
 
     A run that can't be written as JSON (``run_unwritable``: a value in it has no JSON form) can't be stored
@@ -177,16 +175,15 @@ def end_of(run_end: RunEnd, stored: list[Waiting]) -> ResumeEnd:
 
     Args:
         run_end: The stream's last event, with the run the call returned.
-        stored: What waits in the run as the row has it, its last checkpoint, which stays when the run can't
-            be written.
+        held: The outcome of the run as the row has it, its last checkpoint, which stays when the run can't be
+            written.
 
     Returns:
-        The end with that run: the run as JSON, what waits in it and, once complete, its outputs, each written by
-        its type as the run writes it. Or ``Raised``, for a run that can't be written.
+        The end with that run: the run as JSON and its outcome (``Outcome.of``). Or ``Raised``, for a run that
+        can't be written.
     """
     run = run_end.run
     try:
-        outcome = Outcome(waiting=run.waiting, outputs=from_json(run.outputs_to_json()) if run.status == "complete" else None)
-        return Ended(run, run.to_json(), outcome.model_dump_json(), run_end.model_dump_json())
+        return Ended(run, run.to_json(), Outcome.of_stopped(run).model_dump_json(), run_end.model_dump_json())
     except InvalidCallError as unwritable:
-        return Raised.refused(unwritable, stored)
+        return Raised.refused(unwritable, held)

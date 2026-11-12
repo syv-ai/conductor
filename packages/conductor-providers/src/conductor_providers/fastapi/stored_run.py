@@ -9,8 +9,9 @@ from collections.abc import Collection
 from dataclasses import dataclass
 from typing import Any, TypedDict
 
-from conductor import EndedEarly, Going, Problem, RunState, RunStatus, Waiting
+from conductor import EndedEarly, Going, Problem, Progress, Run, RunState, RunStatus, Waiting
 from pydantic import BaseModel
+from pydantic_core import from_json
 
 
 @dataclass(frozen=True)
@@ -33,8 +34,9 @@ class StoredRun:
             queries: the router writes it in the same ``update`` as ``state``, from it, and reads only ``state``.
         state: The run's status and what was asked of it while it was running, as JSON: its status and why it
             ended early, the answers queued and refused, a cancel that was asked. Small however large the run is.
-        outcome: What a reader gets without loading the run, as JSON: what waits for a person and, once the run is
-            complete, its outputs. Written each time the run stops running.
+        outcome: What a reader gets without loading the run, as JSON: what waits for a person, how far the run is
+            and, once the run is complete, its outputs. Written each time the run stops running, and its progress
+            with each checkpoint.
         rev: Moved one on by every ``update``.
         owner: The worker resuming it.
         lease_until: Until when the owner's lease holds, as seconds since the epoch; a time already past for a run
@@ -74,15 +76,48 @@ class Outcome(BaseModel):
     Attributes:
         waiting: What waits for a person.
         outputs: The graph's outputs by address once the run is complete; ``None`` until then.
+        progress: ``run.progress``: how many calls of each node have an outcome, and how many there will be. Written
+            also with each checkpoint, so it is as of the last checkpoint while the run is running. ``None`` for a
+            run whose row could not be read as a run.
     """
 
     waiting: list[Waiting]
     outputs: dict[str, Any] | None
+    progress: Progress | None
 
     @classmethod
     def empty(cls) -> Outcome:
-        """The outcome of a run that has not stopped running yet: nothing waits, no outputs."""
-        return cls(waiting=[], outputs=None)
+        """The outcome of a run whose row could not be read as a run: nothing waits, no outputs, no progress."""
+        return cls(waiting=[], outputs=None, progress=None)
+
+    @classmethod
+    def so_far(cls, run: Run[Any]) -> Outcome:
+        """The outcome of a run that has not stopped, or ended without outputs: what waits in it and its progress.
+
+        Args:
+            run: The run.
+
+        Returns:
+            Its outcome, with no outputs.
+        """
+        return cls(waiting=run.waiting, outputs=None, progress=run.progress)
+
+    @classmethod
+    def of_stopped(cls, run: Run[Any]) -> Outcome:
+        """The outcome of a run that stopped: what waits in it, its progress and, once it is complete, its outputs,
+        each written by its type as the run writes it.
+
+        Args:
+            run: The run.
+
+        Returns:
+            Its outcome.
+
+        Raises:
+            InvalidCallError: An output can't be written as JSON (``run_unwritable``).
+        """
+        outputs = from_json(run.outputs_to_json()) if run.status == "complete" else None
+        return cls(waiting=run.waiting, outputs=outputs, progress=run.progress)
 
 
 class StoredState(BaseModel):

@@ -28,7 +28,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field, replace
 from typing import Any, Generic, Literal, TypeVar
 
-from conductor import Graph, GraphRecord, InvalidCallError, NodeRegistry, Run, Waiting
+from conductor import Graph, GraphRecord, InvalidCallError, NodeRegistry, Progress, Run
 from conductor.events import RunCheckpoint, RunEnd
 from pydantic import TypeAdapter
 from pydantic_core import from_json
@@ -175,8 +175,34 @@ class Worker(Generic[C]):
             InvalidCallError: The graph can't run on ``who``'s nodes, or refuses the inputs.
         """
         nodes = self._nodes_for(who)
-        saved = await asyncio.to_thread(lambda: Graph.compile(graph, nodes).with_inputs(inputs, max_items=self._max_items).to_json())
-        return await self._create(graph.model_dump_json(), who, saved)
+        run = await asyncio.to_thread(lambda: Graph.compile(graph, nodes).with_inputs(inputs, max_items=self._max_items))
+        return await self._create(graph.model_dump_json(), who, run)
+
+    async def estimate(self, graph: GraphRecord, inputs: Mapping[str, Any], who: C) -> Progress:
+        """How many calls a run of ``graph`` on ``inputs`` will make, from one call of ``resume()`` that calls only
+        the nodes that cost nothing; nothing is stored.
+
+        The call is made as a stored run's is: with the caller's context and the router's ``resume_timeout`` and
+        ``max_items``.
+
+        Args:
+            graph: The graph to run.
+            inputs: Values for the graph's open inputs, by name or by address.
+            who: The caller, on whose nodes the graph is loaded.
+
+        Returns:
+            The run's progress after that call.
+
+        Raises:
+            InvalidCallError: The graph can't run on ``who``'s nodes, or refuses the inputs.
+        """
+        nodes = self._nodes_for(who)
+
+        def estimated() -> Progress:
+            ready = Graph.compile(graph, nodes).with_inputs(inputs, max_items=self._max_items)
+            return ready.resume(context=self._context(who), timeout=self._resume_timeout, only_costs_nothing=True).progress
+
+        return await asyncio.to_thread(estimated)
 
     async def again(self, run: RunAsRead, inputs: Mapping[str, Any], who: C) -> str:
         """Start a run that is another with some inputs changed; a call that receives what it received before
@@ -194,8 +220,8 @@ class Worker(Generic[C]):
             InvalidCallError: The graph can't run on ``who``'s nodes, or refuses the inputs.
         """
         nodes = self._nodes_for(who)
-        saved = await asyncio.to_thread(lambda: _loaded(run.row, nodes).with_inputs(inputs).to_json())
-        return await self._create(run.row.graph, who, saved)
+        again = await asyncio.to_thread(lambda: _loaded(run.row, nodes).with_inputs(inputs))
+        return await self._create(run.row.graph, who, again)
 
     async def answer(self, run: RunAsRead, answers: Mapping[str, Any]) -> Literal["started", "queued"]:
         """Answer what waits in a run, by waiting id.
@@ -354,19 +380,20 @@ class Worker(Generic[C]):
         """The owner and lease of a row this worker holds."""
         return {"owner": self.id, "lease_until": time.time() + self._lease}
 
-    async def _create(self, graph: str, who: C, saved: str) -> str:
+    async def _create(self, graph: str, who: C, run: Run[Any]) -> str:
         """Store a run, held by this worker, and make its first resume call in the background.
 
         Args:
             graph: The run's graph, as JSON.
             who: The caller who starts it.
-            saved: The run with its inputs, as JSON.
+            run: The run with its inputs, ready.
 
         Returns:
             The run's id.
         """
+        saved, outcome = await asyncio.to_thread(lambda: (run.to_json(), Outcome.so_far(run).model_dump_json()))
         state = StoredState.started()
-        written: RunChanges = {"run": saved, **state.columns(), "outcome": Outcome.empty().model_dump_json(), **self._mine()}
+        written: RunChanges = {"run": saved, **state.columns(), "outcome": outcome, **self._mine()}
         row = StoredRun(id=uuid.uuid4().hex, graph=graph, caller=self._callers.dump_json(who).decode(), rev=0, **written)
         await self._store.create(row)
         self._resume_in_background(row, state)
@@ -495,18 +522,20 @@ class Worker(Generic[C]):
             row: The row, whose ``run`` is loaded and resumed.
 
         Yields:
-            Each event to store, as JSON; each checkpoint, as the row's ``run`` to write; and last, unless the run
+            Each event to store, as JSON; each checkpoint, as the row's ``run`` and ``outcome`` to write (the
+            outcome as the run last stopped, with the checkpoint's progress); and last, unless the run
             is handed back, how the resume call ended (a ``ResumeEnd``). An exception raised outside a node is
-            logged and ends the call as ``Raised``, which lists what waits in the run as the row has it: the run
-            as loaded, or the last checkpoint yielded; nothing, for a run that could not be loaded. Its cause is
+            logged and ends the call as ``Raised``, with the outcome of the run as the row has it: the run as
+            loaded, or the last checkpoint yielded; ``Outcome.empty()``, for a run that could not be loaded. Its cause is
             conductor's own problem where conductor refused the call (a context missing or of another class, a
             run that can't be read or written), the first of them where there are several; else ``resume_failed``.
         """
-        waiting: list[Waiting] = []  # in the run as the row holds it; nothing, until the run is loaded
+        stopped = Outcome.model_validate_json(row.outcome)  # as the run last stopped: a checkpoint changes its progress only
+        held = Outcome.empty()  # the run as the row holds it; nothing, until the run is loaded
         try:
             who = self.started_by(row)
             run = await asyncio.to_thread(_loaded, row, self._nodes_for(who))
-            waiting = run.waiting
+            held = await asyncio.to_thread(Outcome.so_far, run)
             stream = run.stream(
                 context=self._context(who), timeout=self._resume_timeout,
                 cancel=hold.stop, hand_back=self._handing_back, checkpoint_every=self._checkpoint_every,
@@ -514,19 +543,20 @@ class Worker(Generic[C]):
             async with contextlib.aclosing(stream):
                 async for event in stream:
                     if isinstance(event, RunCheckpoint):
-                        yield {"run": await asyncio.to_thread(event.run.to_json)}
-                        waiting = event.run.waiting
+                        saved = await asyncio.to_thread(event.run.to_json)
+                        held = await asyncio.to_thread(Outcome.so_far, event.run)
+                        yield {"run": saved, "outcome": stopped.model_copy(update={"progress": held.progress}).model_dump_json()}
                     elif isinstance(event, RunEnd):
-                        yield await asyncio.to_thread(end_of, event, waiting)
+                        yield await asyncio.to_thread(end_of, event, held)
                     else:
                         yield event.model_dump_json()
         except InvalidCallError as refusal:
             every = "; ".join(f"{problem.type} at {'.'.join(map(str, problem.loc))}: {problem.msg}" for problem in refusal.errors())
             log.error("resuming run %s was refused: %s", row.id, every, exc_info=True)  # the cause is the first problem only
-            yield Raised.refused(refusal, waiting)
+            yield Raised.refused(refusal, held)
         except Exception:
             log.exception("resuming run %s failed", row.id)
-            yield Raised.because(router_problems.resume_failed(), waiting)
+            yield Raised.because(router_problems.resume_failed(), held)
 
     async def _finish(self, hold: _Hold, row: StoredRun, end: ResumeEnd) -> StoredRun:
         """Write how a resume call ended. What is written is worked out from the row's state as read for each try

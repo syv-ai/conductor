@@ -14,6 +14,7 @@ from conductor import (
     InvalidCallError,
     NodeRegistry,
     Problem,
+    Progress,
     RegistryDescription,
     RunStatus,
 )
@@ -111,6 +112,8 @@ class RunView(Outcome):
             run's last checkpoint.
         outputs: The graph's outputs by address once the run is complete, each as its type writes it (a table as its
             columns); ``None`` until then.
+        progress: How many calls of each node have an outcome, and how many there will be, as ``run.progress``
+            says it: as of the last checkpoint while the run is running.
         id: The run's id, as ``POST /runs`` gave it.
         status: Where the run is: ``running`` while a worker resumes it, ``waiting`` for answers, ``complete``, or
             how it ended early (``failed``, ``stopped``, ``cancelled``, ``timed_out``), which
@@ -136,7 +139,7 @@ class RunView(Outcome):
             What ``GET /runs/{id}`` answers for it.
         """
         outcome = Outcome.model_validate_json(run.row.outcome)
-        return cls(id=run.row.id, status=run.state.run_state.status, refused=run.state.refused, cause=run.state.cause, waiting=outcome.waiting, outputs=outcome.outputs)
+        return cls(id=run.row.id, status=run.state.run_state.status, refused=run.state.refused, cause=run.state.cause, waiting=outcome.waiting, outputs=outcome.outputs, progress=outcome.progress)
 
 
 class _RefusingRoute(APIRoute):
@@ -313,6 +316,13 @@ def run_router(
         """Start a run of any graph; this is an author's route, so guard it with your own dependency."""
         return Started(id=await worker.begin(body.graph, body.inputs, who))
 
+    @router.post("/estimate")
+    async def estimate_run(body: StartRun, who: Annotated[C, Depends(caller)]) -> Progress:
+        """How many calls a run of the graph on these inputs will make: the nodes whose ``Policy`` says
+        ``costs_nothing`` are called, and nothing is stored. A node's ``total`` is ``null`` where it depends on a
+        call that costs something."""
+        return await worker.estimate(body.graph, body.inputs, who)
+
     if published is not None:
         @router.post("/graphs/{name}/runs", status_code=202)
         async def start_published(
@@ -322,6 +332,15 @@ def run_router(
         ) -> Started:
             """Start a graph you offer by name, on inputs alone."""
             return Started(id=await worker.begin(graph, inputs, who))
+
+        @router.post("/graphs/{name}/estimate")
+        async def estimate_published(
+            graph: Annotated[GraphRecord, Depends(published)],
+            inputs: Annotated[dict[str, Any], Body(description="Values for the graph's open inputs, each by its name or its address `node.input`.")],
+            who: Annotated[C, Depends(caller)],
+        ) -> Progress:
+            """How many calls a run of a graph you offer by name will make on these inputs, as ``POST /estimate``."""
+            return await worker.estimate(graph, inputs, who)
 
     @router.get("/runs/{run_id}", responses=_NOT_FOUND)
     def read_run(run: Annotated[RunAsRead, Depends(stored)]) -> RunView:

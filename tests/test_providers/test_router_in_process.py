@@ -16,7 +16,17 @@ import pytest
 
 httpx = pytest.importorskip("httpx")
 
-from conductor import Ask, Context, GraphRecord, NodeRecord, NodeRegistry, Problem, make_graph  # noqa: E402
+from conductor import (  # noqa: E402
+    Ask,
+    Context,
+    GraphRecord,
+    NodeRecord,
+    NodeRegistry,
+    Policy,
+    Problem,
+    Series,
+    make_graph,
+)
 from conductor_providers.fastapi import ROUTER_PROBLEMS, RunChanges, run_router  # noqa: E402
 from fastapi import FastAPI, Header  # noqa: E402
 
@@ -152,9 +162,12 @@ async def test_a_route_answers_with_what_the_worker_did_and_the_run_reads_as_its
     async with _serving(_app(store=store, registry=registry)) as client:
         started = await client.post("/runs", json={"graph": graph.model_dump(mode="json"), "inputs": inputs})
         run_id = started.json()["id"]
-        assert (started.status_code, (await client.get(f"/runs/{run_id}")).json()) == (
+        view = (await client.get(f"/runs/{run_id}")).json()
+        progress = view.pop("progress")
+        assert (started.status_code, view) == (
             202, {"id": run_id, "status": "running", "waiting": [], "outputs": None, "refused": {}, "cause": None},
         )
+        assert (progress["done"], progress["waiting"]) == (0, 0)  # the run as it was stored, before any call
         cancelled = await client.post(f"/runs/{run_id}/cancel")
         assert (cancelled.status_code, cancelled.json()) == (200, {"cancelled": True})
         gate.set()
@@ -281,6 +294,62 @@ async def test_a_follower_gets_each_event_as_a_frame_with_its_number_and_last_ev
         assert "data: " not in (await client.get(f"/runs/{run_id}/events", headers={"Last-Event-ID": str(len(frames) - 1)})).text
 
 
+# -- progress -------------------------------------------------------------------------------------
+
+
+def _uploads() -> tuple[NodeRegistry, dict[str, Any], list[str]]:
+    """A graph whose first node costs nothing and hands on the files it is given, then a node per file."""
+    registry, calls = NodeRegistry(), []
+
+    @registry.node("upload", title="Upload", description="For a test.", policy=Policy(costs_nothing=True))
+    def upload(files: list[str]) -> Series[str]:
+        calls.append("upload")
+        return files
+
+    @registry.node("review", title="Review", description="For a test.")
+    def review(file: str) -> str:
+        calls.append("review")
+        return file
+
+    return registry, make_graph(upload, review).model_dump(mode="json"), calls
+
+
+async def test_estimate_calls_only_the_nodes_that_cost_nothing_and_stores_nothing() -> None:
+    registry, graph, calls = _uploads()
+    store = MemoryStore()
+
+    async with _serving(_app(store=store, registry=registry, published=lambda name: GraphRecord.model_validate(graph))) as client:
+        estimated = await client.post("/estimate", json={"graph": graph, "inputs": {"files": ["a", "b", "c"]}})
+        published = await client.post("/graphs/uploads/estimate", json={"files": ["a"]})
+
+    assert estimated.status_code == 200
+    assert estimated.json()["nodes"]["review"] == {"done": 0, "waiting": 0, "known": 3, "total": 3}
+    assert published.json()["nodes"]["review"]["total"] == 1
+    assert calls == ["upload", "upload"] and store.rows == {}
+
+
+async def test_estimate_refuses_inputs_the_graph_refuses() -> None:
+    registry, graph, _ = _uploads()
+
+    async with _serving(_app(store=MemoryStore(), registry=registry)) as client:
+        refused = await client.post("/estimate", json={"graph": graph, "inputs": {}})
+
+    assert refused.status_code == 422 and [problem["type"] for problem in refused.json()["detail"]] == ["missing_input"]
+
+
+async def test_a_run_read_once_it_stopped_has_its_progress() -> None:
+    registry, graph, _ = _uploads()
+    store = MemoryStore()
+
+    async with _serving(_app(store=store, registry=registry)) as client:
+        run_id = (await client.post("/runs", json={"graph": graph, "inputs": {"files": ["a", "b"]}})).json()["id"]
+        await store.ended(run_id)
+        view = (await client.get(f"/runs/{run_id}")).json()
+
+    assert (view["progress"]["done"], view["progress"]["total"]) == (3, 3)
+    assert view["progress"]["nodes"]["review"] == {"done": 2, "waiting": 0, "known": 2, "total": 2}
+
+
 # -- the schema, the surface, the page ------------------------------------------------------------
 
 
@@ -292,7 +361,9 @@ def test_the_schema_names_each_operation_and_body_as_a_generated_client_reads_th
         ("get", "/nodes"): "List Nodes",
         ("post", "/compile"): "Compile Graph",
         ("post", "/runs"): "Start Run",
+        ("post", "/estimate"): "Estimate Run",
         ("post", "/graphs/{name}/runs"): "Start Published",
+        ("post", "/graphs/{name}/estimate"): "Estimate Published",
         ("get", "/runs/{run_id}"): "Read Run",
         ("get", "/runs/{run_id}/events"): "Follow Run",
         ("post", "/runs/{run_id}/answers"): "Answer Run",
