@@ -1043,7 +1043,7 @@ def test_a_saved_run_that_does_not_fit_is_refused_naming_where_and_never_with_a_
         with pytest.raises(InvalidCallError) as refused:
             Run.from_json(json.dumps(copy), graph)
         (problem,) = refused.value.errors()
-        assert (problem.type, problem.ctx["at"]) == ("state_unreadable", at), problem
+        assert (problem.type, problem.ctx["where"]) == ("state_unreadable", at), problem
 
 
 # -- identical items, generations, waiting items and forgetting --------------------------------
@@ -1457,7 +1457,7 @@ def test_a_save_of_a_node_redeclared_so_it_runs_per_other_items_does_not_fit_and
     with pytest.raises(InvalidCallError) as refused:
         Run.from_json(saved, Graph.compile(record, registry_of(split, count_all)))
 
-    assert [(p.type, p.ctx["at"]) for p in refused.value.errors()] == [("state_unreadable", "outcomes.c")]
+    assert [(p.type, p.ctx["where"]) for p in refused.value.errors()] == [("state_unreadable", "outcomes.c")]
 
 
 def test_identical_items_take_earlier_answers_in_item_order_whatever_thread_finished_first():

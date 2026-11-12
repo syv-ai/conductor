@@ -334,7 +334,7 @@ print(unpaired.msg)  # 'g' reads items of names.result, greetings.result, and ne
 
 Its `ctx` keys are in the reference: `python -m conductor.about series-not-nested`.
 
-When one of the two lists is inside a subgraph, no edge of the outer graph can put one inside the other. The problem then has `ctx.hint` set to `inside_subgraph` and `ctx.subgraphs` in place of `wire_from` and `wire_into`, and its message says to give one of them whole to a `Series` input or to change the subgraph so it returns both outputs from the same loop.
+When one of the two lists is inside a subgraph, no edge of the outer graph can put one inside the other. The problem then has `ctx.variant` set to `inside_subgraph` and `ctx.subgraphs` in place of `wire_from` and `wire_into`, and its message says to give one of them whole to a `Series` input or to change the subgraph so it returns both outputs from the same loop.
 
 ### `several_edges_into_one_input`
 
@@ -364,7 +364,7 @@ print(told(drawing)[0])  # 'c.result' gives int, but 'u.text' takes str; connect
 
 **Fix.** Wire an output of the type the input takes, or put a node between that turns one into the other.
 
-Two mismatches have a sentence of their own, and `ctx.hint` says which.
+Two mismatches have a sentence of their own, and `ctx.variant` says which.
 
 A whole table or list wired into an input of one value is `split_first`:
 
@@ -394,7 +394,7 @@ whole = Graph.compile(GraphRecord.model_validate({
     "nodes": [{"id": "c", "node": "contacts"}, {"id": "u", "node": "upper"}],
     "edges": [["c.result", "u.text"]],
 }), registry).problems[0]
-print(whole.type, whole.ctx["hint"], whole.ctx["fields"])  # type_mismatch split_first ['name', 'email']
+print(whole.type, whole.ctx["variant"], whole.ctx["fields"])  # type_mismatch split_first ['name', 'email']
 print(whole.msg)  # 'c.result' is a whole table and 'u.text' takes one str. To run 'u' once for each record or item in it, put a Split between them and wire Split's result, or one field of it.
 ```
 
@@ -412,7 +412,7 @@ lacking = Graph.compile(GraphRecord.model_validate({
     "nodes": [{"id": "c", "node": "contacts"}, {"id": "t", "node": "total"}],
     "edges": [["c.result", "t.invoices"]],
 }), registry).problems[0]
-print(lacking.type, lacking.ctx["hint"], lacking.ctx["column"])  # type_mismatch add_column amount
+print(lacking.type, lacking.ctx["variant"], lacking.ctx["column"])  # type_mismatch add_column amount
 print(lacking.msg)  # 't.invoices' needs the column 'amount' (int); 'c.result' has name, email. Add the column in a node between, or connect a table that has it.
 ```
 
@@ -472,14 +472,14 @@ print(told(drawing)[0])  # 'a.text' is not something that node gives; it gives a
 
 **Fix.** Wire from one of the addresses `ctx.outputs` lists. An edge may name one field of a record an output gives, `node.output.field`; `ctx.outputs` lists those too.
 
-A field named on a whole table or list has a sentence of its own, with `ctx.hint` set to `split_first`:
+A field named on a whole table or list has a sentence of its own, with `ctx.variant` set to `split_first`:
 
 ```python
 column = Graph.compile(GraphRecord.model_validate({
     "nodes": [{"id": "c", "node": "contacts"}, {"id": "u", "node": "upper"}],
     "edges": [["c.result.email", "u.text"]],
 }), registry).problems[0]
-print(column.type, column.ctx["hint"])  # unknown_output split_first
+print(column.type, column.ctx["variant"])  # unknown_output split_first
 print(column.msg)  # 'c.result.email' names a field of a whole table, which has no field to wire. Split it first: put a Split after it and wire the field from Split's result.
 ```
 
@@ -644,7 +644,7 @@ print(refused(lambda: Graph.compile('{"nodes": [{"id": "u", "type": "upper"}]}',
 print(said(lambda: Graph.compile('{"nodes": [{"id": "u", "type": "upper"}]}', registry))[0])  # The record is not a graph record at 'nodes.0.node': Field required. Fix the record's JSON.
 ```
 
-**Fix.** Fix the record's JSON: `ctx.at` says where it stopped being a graph record. A drawing that is well formed but unfinished loads, with its problems in `graph.problems`.
+**Fix.** Fix the record's JSON: `ctx.where` says where it stopped being a graph record. A drawing that is well formed but unfinished loads, with its problems in `graph.problems`.
 
 Its `ctx` keys are in the reference: `python -m conductor.about invalid-record`.
 
@@ -737,7 +737,7 @@ print(refused(lambda: Run.from_json(json.dumps(tampered), uppering)))  # ['state
 print(said(lambda: Run.from_json(json.dumps(tampered), uppering))[0])  # The saved run does not fit this graph at 'outcomes.upper': Input should be an object. Load it into the graph it was saved from.
 ```
 
-**Fix.** Load what `run.to_json()` wrote, unchanged. `ctx.at` says where it stopped fitting.
+**Fix.** Load what `run.to_json()` wrote, unchanged. `ctx.where` says where it stopped fitting.
 
 Its `ctx` keys are in the reference: `python -m conductor.about state-unreadable`.
 
@@ -754,7 +754,7 @@ print(refused(lambda: unwritable.to_json()))  # ['state_unwritable']
 print(said(lambda: unwritable.to_json())[0])  # The run can't be written as JSON at 'raw.result': a value has no JSON form. Give that field a type pydantic writes as JSON.
 ```
 
-**Fix.** Return a type pydantic writes as JSON. `ctx.at` names the output that couldn't be written.
+**Fix.** Return a type pydantic writes as JSON. `ctx.where` names the output that couldn't be written.
 
 ## Why a node or a run stopped
 

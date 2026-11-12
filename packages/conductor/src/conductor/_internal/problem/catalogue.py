@@ -193,7 +193,7 @@ def series_not_nested(node_id: str, *, series: list[str], inputs: list[str], wir
     )
 
 
-@PROBLEMS.problem("series_not_nested", hint="inside_subgraph")
+@PROBLEMS.problem("series_not_nested", variant="inside_subgraph")
 def loops_not_nested_inside_subgraph(node_id: str, *, series: list[str], inputs: list[str], subgraphs: list[str]) -> str:
     """A node reads items of two Series, neither is made inside the other, and one of them is a list inside a
     subgraph, so no edge of this graph can put one inside the other.
@@ -241,7 +241,7 @@ def type_mismatch(node_id: str, field: str, *, source: str, got: str, expected: 
     return f"'{source}' gives {got}, but '{node_id}.{field}' takes {expected}; connect an output that gives {expected}, or convert it in a node between."
 
 
-@PROBLEMS.problem("type_mismatch", hint="split_first")
+@PROBLEMS.problem("type_mismatch", variant="split_first")
 def type_mismatch_split_first(node_id: str, field: str, *, source: str, got: str, expected: str, whole: Literal["table", "list"], fields: list[str]) -> str:
     """A whole table or list is wired into an input of one value.
 
@@ -260,7 +260,7 @@ def type_mismatch_split_first(node_id: str, field: str, *, source: str, got: str
     )
 
 
-@PROBLEMS.problem("type_mismatch", hint="add_column")
+@PROBLEMS.problem("type_mismatch", variant="add_column")
 def type_mismatch_add_column(node_id: str, field: str, *, source: str, got: str, expected: str, column: str, column_type: str, has: list[str]) -> str:
     """A table input is fed records without a column it names.
 
@@ -325,7 +325,7 @@ def unknown_output(*loc: str | int, source: str, outputs: list[str], record_fiel
     return f"'{source}' is not something that node gives; it gives {comma_separated(outputs)}."
 
 
-@PROBLEMS.problem("unknown_output", hint="split_first")
+@PROBLEMS.problem("unknown_output", variant="split_first")
 def unknown_output_split_first(*loc: str | int, source: str, outputs: list[str], record_field: str, whole: Literal["table", "list"], fields: list[str]) -> str:
     """An edge reads a field of a whole table or list.
 
@@ -471,7 +471,7 @@ def invalid_input(*loc: str | int, name: str, reason: str, errors: list[dict[str
     return f"The value given for '{name}' is not valid: {reason.rstrip('.')}. Give a value of the type the input takes."
 
 
-@PROBLEMS.problem("invalid_input", hint="make_a_series")
+@PROBLEMS.problem("invalid_input", variant="make_a_series")
 def invalid_input_make_a_series(*loc: str | int, name: str, expected: str, length: int) -> str:
     """A call gives a list to an input that takes one value.
 
@@ -499,16 +499,16 @@ def invalid_max_items(*loc: str | int, max_items: int) -> str:
 
 
 @PROBLEMS.problem()
-def invalid_record(*loc: str | int, at: str, reason: str, error: str) -> str:
+def invalid_record(*loc: str | int, where: str, reason: str, error: str) -> str:
     """What was given as a graph record is not one.
 
     Args:
         loc: ``"record"``, then where in the record the fault is.
-        at: That place as one text, its steps joined by dots; ``the record`` for the record as a whole.
+        where: That place as one text, its steps joined by dots; ``the record`` for the record as a whole.
         reason: What is wrong there.
         error: The type of pydantic's error, such as ``extra_forbidden``.
     """
-    return f"The record is not a graph record at '{at}': {reason.rstrip('.')}. Fix the record's JSON."
+    return f"The record is not a graph record at '{where}': {reason.rstrip('.')}. Fix the record's JSON."
 
 
 @PROBLEMS.problem()
@@ -610,27 +610,27 @@ def state_of_another_graph(*loc: str | int, saved: str, graph: str) -> str:
 
 
 @PROBLEMS.problem()
-def state_unreadable(*loc: str | int, at: str, reason: str) -> str:
+def state_unreadable(*loc: str | int, where: str, reason: str) -> str:
     """A saved run doesn't fit the graph it is loaded into.
 
     Args:
         loc: ``"state"``.
-        at: The place in the save, its steps joined by dots; ``the run`` for the save as a whole.
+        where: The place in the save, its steps joined by dots; ``the run`` for the save as a whole.
         reason: What is wrong there.
     """
-    return f"The saved run does not fit this graph at '{at}': {reason.rstrip('.')}. Load it into the graph it was saved from."
+    return f"The saved run does not fit this graph at '{where}': {reason.rstrip('.')}. Load it into the graph it was saved from."
 
 
 @PROBLEMS.problem()
-def state_unwritable(*loc: str | int, at: str, reason: str) -> str:
+def state_unwritable(*loc: str | int, where: str, reason: str) -> str:
     """A run holds a value that can't be written as JSON.
 
     Args:
         loc: ``"state"``, or ``"outputs"`` and the output's address.
-        at: Where the value is.
+        where: Where the value is.
         reason: Why it can't be written.
     """
-    return f"The run can't be written as JSON at '{at}': {reason.rstrip('.')}. Give that field a type pydantic writes as JSON."
+    return f"The run can't be written as JSON at '{where}': {reason.rstrip('.')}. Give that field a type pydantic writes as JSON."
 
 
 # -- why a node or a run stopped -----------------------------------------------

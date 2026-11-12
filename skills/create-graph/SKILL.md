@@ -74,7 +74,7 @@ An input takes an edge, a value or a default, never two: `constants` are fixed, 
 | `try` around `Graph.compile` | it never raises for a bad graph: read `is_runnable` and `problems` |
 | Rebuilding the record to change a value per run | `graph.run(**inputs)`, or a `defaults` entry the caller may change |
 | A loop node, or a `for` around `run` | wire a `Series` output to the node; the engine runs it once per item |
-| A table wired to an input of one value (`type_mismatch`, hint `split_first`) | put a Split between them and wire a field of its result; to join two tables on a key, wire both whole into one node |
+| A table wired to an input of one value (`type_mismatch`, variant `split_first`) | put a Split between them and wire a field of its result; to join two tables on a key, wire both whole into one node |
 | Items of two Series at one node (`series_not_nested`) | make one inside the other: wire the first into the node that makes the second; or give one whole to a `Series` input |
 | `except` around `run` for a pause, error or timeout | they are statuses: read `run.status`, and `match run.state` for an `EndedEarly`'s `cause` |
 | `graph.run` in a server's event loop | `async for event in run.stream()`: the leg runs on a thread of its own |

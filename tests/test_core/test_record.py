@@ -416,7 +416,7 @@ def test_an_edge_naming_a_column_of_a_whole_table_is_unknown_output_as_a_table_i
 
 @pytest.mark.parametrize("source", ["r.result.name", "r.result"])
 def test_a_table_wired_where_one_value_is_read_says_to_split_it_first(source):
-    assert _a_table_read_by_one_text(source).ctx["hint"] == "split_first"
+    assert _a_table_read_by_one_text(source).ctx["variant"] == "split_first"
 
 
 def test_a_series_of_tables_is_accepted_where_it_is_declared():
@@ -780,4 +780,4 @@ def test_make_graph_says_an_edge_that_is_no_address_as_loading_the_same_record_s
         Graph.compile(json.dumps({"nodes": [{"id": "count", "node": "count"}, {"id": "hello", "node": "hello"}], "edges": [["count.result", "hello.name"], ["count", "hello.name"]]}), PLAIN)
 
     assert written.value.errors() == loaded.value.errors()
-    assert [(p.loc, p.ctx["at"]) for p in written.value.errors()] == [(("record", "edges", 1, 0), "edges.1.0")]
+    assert [(p.loc, p.ctx["where"]) for p in written.value.errors()] == [(("record", "edges", 1, 0), "edges.1.0")]

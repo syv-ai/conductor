@@ -64,15 +64,15 @@ class ProblemKind[**Params]:
 
     Attributes:
         code: The problem's ``type``.
-        hint: What ``ctx.hint`` says when the kind is a code said for one mistake, else ``None``.
+        variant: What ``ctx.variant`` says when the kind is a code said for one mistake, else ``None``.
         of_a_hook: Whether the fault is in a node's ``compute_...`` hook, which the node's developer fixes, where any
             other fault of loading is fixed in the graph.
         sentence: The English with ``{key}`` where a ``ctx`` value goes.
         ctx_type: The ``ctx`` the kind writes, as a ``TypedDict``; a key that may be left out is not required.
     """
 
-    def __init__(self, write_message: Callable[Params, str], code: str, hint: str | None, of_a_hook: bool) -> None:
-        self.code, self.hint, self.of_a_hook = code, hint, of_a_hook
+    def __init__(self, write_message: Callable[Params, str], code: str, variant: str | None, of_a_hook: bool) -> None:
+        self.code, self.variant, self.of_a_hook = code, variant, of_a_hook
         self.__doc__ = write_message.__doc__
         self._message = write_message
         signature = inspect.signature(write_message, eval_str=True)
@@ -82,14 +82,14 @@ class ProblemKind[**Params]:
         if signature.return_annotation is not str:
             raise TypeError(f"{write_message.__name__}: 'return' is the English a person reads; annotate it -> str")
         self._loc_parameters = tuple(p.name for p in parameters if p.kind is p.POSITIONAL_OR_KEYWORD)
-        self._variant_ctx = {"hint": hint} if hint else {}
+        self._variant_ctx = {"variant": variant} if variant else {}
         self._has_optional_ctx = any(p.default is None for p in parameters)
         keys = [p for p in parameters if p.kind is not p.VAR_POSITIONAL]
         placeholders = {p.name: ["{" + p.name + "}"] if typing.get_origin(p.annotation) is list else "{" + p.name + "}" for p in keys if p.default is not None}
         self.sentence = typing.cast("Callable[..., str]", write_message)(**placeholders)
         self.ctx_type: Any = typing.cast("Any", TypedDict)(code, {  # the fields are read off a signature, which a type checker takes only as a literal
             **{p.name: NotRequired[_without_none(p.annotation)] if p.default is None else p.annotation for p in keys},
-            **({"hint": Literal[hint]} if hint else {}),
+            **({"variant": Literal[variant]} if variant else {}),
         })
 
     def __call__(self, *loc: Params.args, **ctx: Params.kwargs) -> Problem:
@@ -144,7 +144,7 @@ class ProblemCatalogue:
     def __init__(self) -> None:
         self._kinds: list[ProblemKind[...]] = []
 
-    def problem[**Params](self, code: str | None = None, *, hint: str | None = None, of_a_hook: bool = False) -> Callable[[Callable[Params, str]], ProblemKind[Params]]:
+    def problem[**Params](self, code: str | None = None, *, variant: str | None = None, of_a_hook: bool = False) -> Callable[[Callable[Params, str]], ProblemKind[Params]]:
         """Declares the function under it a kind of problem, and gives back what a caller calls to make one.
 
         The function returns the English a person reads, built from its parameters and nothing else. Each parameter
@@ -169,16 +169,16 @@ class ProblemCatalogue:
 
         Args:
             code: The problem's ``type``; the function's name when left out.
-            hint: What ``ctx.hint`` says, for a second sentence under a code the catalogue has declared.
+            variant: What ``ctx.variant`` says, for a second sentence under a code the catalogue has declared.
             of_a_hook: Whether the fault is in a node's ``compute_...`` hook.
 
         Raises:
             TypeError: When the function is declared, for a parameter that is none of the three, a return type other
-                than ``str``, or a ``hint`` for a code the catalogue has not declared.
+                than ``str``, or a ``variant`` for a code the catalogue has not declared.
         """
         def declared(write_message: Callable[Params, str]) -> ProblemKind[Params]:
-            kind = ProblemKind(write_message, code or write_message.__name__, hint, of_a_hook)
-            if hint and kind.code not in self.codes:
+            kind = ProblemKind(write_message, code or write_message.__name__, variant, of_a_hook)
+            if variant and kind.code not in self.codes:
                 raise TypeError(f"{write_message.__name__}: a hint is a second sentence under a code, and '{kind.code}' is not declared before it")
             self._kinds.append(kind)
             return kind

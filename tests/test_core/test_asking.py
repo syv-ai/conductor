@@ -718,7 +718,7 @@ def test_a_saved_waiting_unit_the_graph_never_made_is_refused_on_load():
     asked["outputs"]["result"].append(None)
     asked["questions"]["2"] = asked["questions"]["1"]
     (fault,) = _refused(lambda: Run.from_json(json.dumps(saved), graph))
-    assert (fault.type, fault.ctx["at"]) == ("state_unreadable", "outcomes.q")
+    assert (fault.type, fault.ctx["where"]) == ("state_unreadable", "outcomes.q")
 
 
 def test_a_save_cannot_hold_a_waiting_unit_without_its_question():

@@ -431,7 +431,7 @@ def test_saving_a_run_that_holds_a_value_with_no_json_form_raises_naming_the_out
         run.to_json()
 
     (problem,) = refused.value.errors()
-    assert (problem.type, problem.ctx["at"]) == ("state_unwritable", "o.result")
+    assert (problem.type, problem.ctx["where"]) == ("state_unwritable", "o.result")
 
 
 def test_saving_a_run_given_an_input_with_no_json_form_raises_naming_the_input():
@@ -445,7 +445,7 @@ def test_saving_a_run_given_an_input_with_no_json_form_raises_naming_the_input()
         run.to_json()
 
     (problem,) = refused.value.errors()
-    assert (problem.type, problem.ctx["at"]) == ("state_unwritable", "t.value")
+    assert (problem.type, problem.ctx["where"]) == ("state_unwritable", "t.value")
 
 
 def test_a_column_json_cannot_keep_makes_the_save_raise_naming_the_output():
@@ -462,7 +462,7 @@ def test_a_column_json_cannot_keep_makes_the_save_raise_naming_the_output():
         run.to_json()
 
     (problem,) = refused.value.errors()
-    assert problem.type == "state_unwritable" and problem.ctx["at"].startswith("b.result")
+    assert problem.type == "state_unwritable" and problem.ctx["where"].startswith("b.result")
     assert "\\xff" not in json.dumps(problem.model_dump(mode="json"))
 
 
@@ -486,7 +486,7 @@ def test_a_saved_value_its_type_does_not_read_is_refused_naming_where_and_quotin
 
     problem = _refused(graph, saved)
 
-    assert problem.ctx["at"] == "outcomes.echo.outputs.result.1"
+    assert problem.ctx["where"] == "outcomes.echo.outputs.result.1"
     assert "secret" not in json.dumps(problem.model_dump(mode="json"))
 
 
@@ -530,14 +530,14 @@ def test_a_damaged_save_is_refused(damage: str, at: str) -> None:
     else:
         saved["outcomes"]["nowhere"] = {"states": [], "outputs": {}}
 
-    assert _refused(graph, saved).ctx["at"] == at
+    assert _refused(graph, saved).ctx["where"] == at
 
 
 def test_a_series_that_makes_items_saved_as_a_blank_leaves_its_readers_slots_without_an_instance_and_is_refused():
     graph, saved = _saved_mails()
     saved["outcomes"]["split"]["outputs"]["result"][0] = None
 
-    assert _refused(graph, saved).ctx["at"] == "outcomes.echo"
+    assert _refused(graph, saved).ctx["where"] == "outcomes.echo"
 
 
 def _saved_table() -> tuple[Any, dict[str, Any]]:
@@ -562,7 +562,7 @@ def test_a_malformed_table_is_refused():
     graph, saved = _saved_table()
     saved["outcomes"]["n"]["outputs"]["result"][0] = {"rows": 2, "columns": {"name": ["ida"]}}
 
-    assert _refused(graph, saved).ctx["at"].startswith("outcomes.n.outputs.result.0")
+    assert _refused(graph, saved).ctx["where"].startswith("outcomes.n.outputs.result.0")
 
 
 def test_a_save_names_its_graph_and_an_edited_graph_refuses_it_while_display_alone_changes_nothing():
@@ -769,10 +769,10 @@ def test_a_save_missing_a_key_says_which_key_not_a_python_error():
 
     graph = Graph.compile(make_graph(same), registry_of(same))
     problem = _refused(graph, {})
-    assert problem.ctx["at"] == "the run" and "'graph'" in problem.msg and "KeyError" not in problem.msg  # a save is read as one of its graph, so the fingerprint is read first
+    assert problem.ctx["where"] == "the run" and "'graph'" in problem.msg and "KeyError" not in problem.msg  # a save is read as one of its graph, so the fingerprint is read first
     saved = json.loads(graph.run(text="x").to_json())
     del saved["inputs"]
-    assert _refused(graph, saved).ctx["at"] == "inputs"
+    assert _refused(graph, saved).ctx["where"] == "inputs"
 
 
 @pytest.mark.parametrize(
@@ -794,7 +794,7 @@ def test_a_save_damaged_in_shape_is_refused_by_where(where: str, damaged: Any) -
     graph = Graph.compile(make_graph(split), registry_of(split))
     saved = json.loads(graph.run(text="a,b").to_json())
     damaged(saved)
-    assert _refused(graph, saved).ctx["at"] == where
+    assert _refused(graph, saved).ctx["where"] == where
 
 
 @node("upper_word", title="Upper word", description="For a test.")
@@ -849,7 +849,7 @@ def test_a_save_of_a_waiting_run_damaged_in_shape_is_refused_by_where(where: str
     assert run.status == "waiting"
     saved = json.loads(run.to_json())
     damaged(saved)
-    assert _refused(graph, saved).ctx["at"] == where
+    assert _refused(graph, saved).ctx["where"] == where
 
 
 @node("addresses", title="Addresses", description="For a test.")
@@ -956,5 +956,5 @@ def test_a_save_whose_status_and_cause_disagree_is_refused_at_the_cause():
     graph = Graph.compile(make_graph(boom), registry_of(boom))
     failed, complete = json.loads(graph.run(text="x").to_json()), json.loads(graph.run(text="y").to_json())
     assert failed["state"]["status"] == "failed" and complete["state"] == {"status": "complete"}
-    assert _refused(graph, {**failed, "state": {"status": "failed"}}).ctx["at"] == "state.failed.cause"
-    assert _refused(graph, {**complete, "state": {"status": "complete", "cause": failed["state"]["cause"]}}).ctx["at"] == "state.complete.cause"
+    assert _refused(graph, {**failed, "state": {"status": "failed"}}).ctx["where"] == "state.failed.cause"
+    assert _refused(graph, {**complete, "state": {"status": "complete", "cause": failed["state"]["cause"]}}).ctx["where"] == "state.complete.cause"

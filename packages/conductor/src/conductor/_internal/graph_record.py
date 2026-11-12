@@ -140,7 +140,7 @@ def as_record(record: GraphRecord | str | bytes) -> GraphRecord:
 def not_a_record(invalid: ValidationError) -> list[Problem]:
     """Gives an ``invalid_record`` problem for each fault pydantic found reading a record, at ``("record", *where)``."""
     return [
-        problem.invalid_record("record", *error["loc"], at=".".join(map(str, error["loc"])) or "the record", reason=error["msg"].removeprefix("Value error, "), error=error["type"])
+        problem.invalid_record("record", *error["loc"], where=".".join(map(str, error["loc"])) or "the record", reason=error["msg"].removeprefix("Value error, "), error=error["type"])
         for error in invalid.errors(include_url=False, include_input=False)  # a validator's own sentence, without pydantic's prefix
     ]
 

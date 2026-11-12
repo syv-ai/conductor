@@ -27,7 +27,7 @@ def unknown_shelf(room: str, shelf: str, *, shelves: list[str], nearest: str | N
     return f"'{room}' has no shelf '{shelf}'; it has {', '.join(shelves)}."
 
 
-@catalogue.problem("unknown_shelf", hint="another_room")
+@catalogue.problem("unknown_shelf", variant="another_room")
 def unknown_shelf_in_another_room(room: str, shelf: str, *, other: str) -> str:
     """A book is put on a shelf that is in another room.
 
@@ -62,10 +62,10 @@ def test_a_key_that_may_be_left_out_is_in_ctx_only_when_it_is_given() -> None:
     assert unknown_shelf("study", "top", shelves=[], nearest="tip").ctx["nearest"] == "tip"
 
 
-def test_a_hint_is_a_second_sentence_under_the_code_and_says_so_in_ctx() -> None:
+def test_a_variant_is_a_second_sentence_under_the_code_and_says_so_in_ctx() -> None:
     made = unknown_shelf_in_another_room("study", "top", other="hall")
 
-    assert (made.type, made.msg, made.ctx) == ("unknown_shelf", "'top' is a shelf of 'hall', not of 'study'.", {"room": "study", "shelf": "top", "other": "hall", "hint": "another_room"})
+    assert (made.type, made.msg, made.ctx) == ("unknown_shelf", "'top' is a shelf of 'hall', not of 'study'.", {"room": "study", "shelf": "top", "other": "hall", "variant": "another_room"})
 
 
 def test_a_place_the_sentence_does_not_read_is_in_loc_alone() -> None:
@@ -76,14 +76,14 @@ def test_a_place_the_sentence_does_not_read_is_in_loc_alone() -> None:
 
 def test_a_catalogue_lists_its_kinds_and_their_codes() -> None:
     assert catalogue.codes == {"unknown_shelf", "room_closed"}
-    assert [(kind.code, kind.hint) for kind in catalogue] == [("unknown_shelf", None), ("unknown_shelf", "another_room"), ("room_closed", None)]
+    assert [(kind.code, kind.variant) for kind in catalogue] == [("unknown_shelf", None), ("unknown_shelf", "another_room"), ("room_closed", None)]
 
 
 def test_a_kind_says_its_sentence_with_a_slot_for_each_key_and_types_its_ctx() -> None:
     assert unknown_shelf.sentence == "'{room}' has no shelf '{shelf}'; it has {shelves}."
     assert typing.get_type_hints(unknown_shelf.ctx_type) == {"room": str, "shelf": str, "shelves": list[str], "nearest": str}
     assert unknown_shelf.ctx_type.__required_keys__ == {"room", "shelf", "shelves"}
-    assert typing.get_type_hints(unknown_shelf_in_another_room.ctx_type)["hint"] == Literal["another_room"]
+    assert typing.get_type_hints(unknown_shelf_in_another_room.ctx_type)["variant"] == Literal["another_room"]
 
 
 def _positional_only(room: str, /, *, shelf: str) -> str:
@@ -141,12 +141,12 @@ def test_a_signature_outside_the_three_rules_is_refused_where_it_is_declared(say
         ProblemCatalogue().problem()(say)
 
 
-def test_a_hint_for_a_code_the_catalogue_has_not_declared_is_refused() -> None:
+def test_a_variant_for_a_code_the_catalogue_has_not_declared_is_refused() -> None:
     def lonely(*loc: str | int, shelf: str) -> str:
         return ""
 
     with pytest.raises(TypeError, match="lonely.*'no_such_code'"):
-        ProblemCatalogue().problem("no_such_code", hint="near")(lonely)
+        ProblemCatalogue().problem("no_such_code", variant="near")(lonely)
 
 
 def test_every_kinds_sentence_fills_from_its_ctx_keys_and_leaves_no_brace() -> None:

@@ -189,6 +189,6 @@ def test_one_item_of_a_list_inside_a_stored_graph_and_of_a_list_outside_it_is_re
     own. A node that takes one item of each has two lists side by side, and no edge outside can nest them."""
     edges = [("titled.title.result", "lines.document"), ("lines.result", "pair.b"), ("titled.whisper.result", "pair.a")]
     refused = Graph.compile(make_graph(REGISTRY["titled"], lines, pair, edges=edges), REGISTRY).problems[0]
-    assert (refused.type, refused.ctx["hint"], refused.ctx["subgraphs"]) == ("series_not_nested", "inside_subgraph", ["titled"])
+    assert (refused.type, refused.ctx["variant"], refused.ctx["subgraphs"]) == ("series_not_nested", "inside_subgraph", ["titled"])
     assert sorted(refused.ctx["series"]) == ["lines.result", "titled.lines.result"]
     assert "wire '" not in refused.msg and "Give one of them whole to a Series input" in refused.msg

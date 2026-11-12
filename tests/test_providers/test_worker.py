@@ -926,7 +926,7 @@ async def test_a_leg_that_ends_with_a_run_that_cant_be_written_fails_with_that_p
 
     ends = [(event["status"], event["cause"]["type"]) for event in await store.stored_events(run_id) if event["type"] == "run_end"]
     assert ended.cause is not None
-    assert (ended.status, ended.cause.type, ended.cause.ctx["at"], ended.waiting, ends) == ("failed", "state_unwritable", at, [], [("failed", "state_unwritable")])
+    assert (ended.status, ended.cause.type, ended.cause.ctx["where"], ended.waiting, ends) == ("failed", "state_unwritable", at, [], [("failed", "state_unwritable")])
     assert await _starts(store, run_id) == 1 and (await worker.read(run_id)).state.run_state.status == "failed"
 
 
