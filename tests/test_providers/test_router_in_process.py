@@ -287,7 +287,7 @@ def test_the_schema_names_each_operation_and_body_as_a_generated_client_reads_th
 
     assert {key: operation["summary"] for key, operation in operations.items()} == {
         ("get", "/nodes"): "List Nodes",
-        ("post", "/load"): "Load Graph",
+        ("post", "/compile"): "Compile Graph",
         ("post", "/runs"): "Start Run",
         ("post", "/graphs/{name}/runs"): "Start Published",
         ("get", "/runs/{run_id}"): "Read Run",

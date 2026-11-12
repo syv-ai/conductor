@@ -132,7 +132,7 @@ That gives these routes:
 | Route | What it does |
 |---|---|
 | `GET /nodes` | The caller's palette: `registry.describe()`, each node with its fields. |
-| `POST /load` | A graph as an editor draws it: `graph.describe()`. Each node has its problems, how often it runs, and its inputs, each a `field` beside its `source`, which says where the input gets its value on each call. The graph's own inputs are each an `address`, a `node_id` and a `field`. |
+| `POST /compile` | A graph as an editor draws it: `graph.describe()`. Each node has its problems, how often it runs, and its inputs, each a `field` beside its `source`, which says where the input gets its value on each call. The graph's own inputs are each an `address`, a `node_id` and a `field`. |
 | `POST /runs` | Start a run of `{"graph": ..., "inputs": {...}}`; 202 with its `id`, 422 listing every problem. |
 | `POST /graphs/{name}/runs` | Start a graph you offer, on its inputs alone. Only with `published=`. |
 | `GET /runs/{id}` | Its `status`, what is `waiting` for a person (as of the last leg's end, so while a leg runs it still lists what was just answered; a client hides the ones it answered), `outputs` once complete (each as its type writes it: a table as `{"columns": [{"name", "type", "values"}]}`, a float that isn't finite as its text, a host's type by its own schema), `refused` answers, and the `cause` of a run that failed, stopped, was cancelled or timed out (an `item_limit` cause says the `items` and `max_items`, for choosing a resume's ceiling). |
@@ -146,7 +146,7 @@ Every refusal the router makes has one body, `{"detail": [problem, ...]}`, each 
 
 ## What each part is for
 
-**Who can reach `POST /runs`.** That route takes any graph, so whoever reaches it runs any node on any value. It is an author's route: guard it, and `/nodes` and `/load`, with your own check, `app.include_router(router, dependencies=[Depends(...)])`. For an end user, offer saved graphs with `published=`: the body fills a graph's inputs and nothing else.
+**Who can reach `POST /runs`.** That route takes any graph, so whoever reaches it runs any node on any value. It is an author's route: guard it, and `/nodes` and `/compile`, with your own check, `app.include_router(router, dependencies=[Depends(...)])`. For an end user, offer saved graphs with `published=`: the body fills a graph's inputs and nothing else.
 
 **Who may see a run.** You say: `may_see(caller, started_by)` is asked on every route under `/runs/{id}`, and a caller it turns away gets 404, `no_such_run`, as for an id that names no run. Above, only the caller who started a run may read it or act on it; `may_see=lambda caller, started_by: caller.team == started_by.team` lets a team in. There is no default when you name a `caller`, because the obvious one, the same caller, compares everything your `caller` returns: a record with a `last_login` would lock Anna out of her own run the next time she logs in.
 
@@ -173,7 +173,7 @@ def nodes_of(member: Member) -> NodeRegistry:
     return tenant_nodes(member.tenant)
 ```
 
-Pass `registry=nodes_of` and a `caller` that returns a `Member`. A graph that names a node its tenant can't use loads with `unknown_node` at that node, so `/load` shows the author where.
+Pass `registry=nodes_of` and a `caller` that returns a `Member`. A graph that names a node its tenant can't use compiles with `unknown_node` at that node, so `/compile` shows the author where.
 
 **What a node receives.** A leg runs on a thread of its own, and a node with `Policy(concurrency=4)` on four more. So `context` gives a node a way to connect, and the node opens its own connection:
 

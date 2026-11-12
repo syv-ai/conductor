@@ -434,7 +434,7 @@ def test_a_graph_that_cannot_run_is_a_422_before_anything_is_saved_and_load_says
             broken = {"nodes": [{"id": "x", "node": "nonesuch"}]}
             refused = await a.client.post("/runs", json={"graph": broken})
             assert refused.status_code == 422 and [p["type"] for p in refused.json()["detail"]] == ["unknown_node"]
-            described = (await a.client.post("/load", json=broken)).json()
+            described = (await a.client.post("/compile", json=broken)).json()
             assert [p["type"] for p in described["nodes"]["x"]["problems"]] == ["unknown_node"]
             assert "greet" in {node["id"] for node in (await a.client.get("/nodes")).json()["nodes"]}
 

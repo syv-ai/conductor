@@ -293,9 +293,10 @@ def run_router(
         """The nodes the caller may use, as an editor's palette reads them."""
         return nodes_for(who).describe()
 
-    @router.post("/load")
-    def load_graph(graph: GraphRecord, who: Annotated[C, Depends(caller)]) -> GraphDescription:
-        """The graph as loading reads it: each node's fields, where it runs, and every problem."""
+    @router.post("/compile")
+    def compile_graph(graph: GraphRecord, who: Annotated[C, Depends(caller)]) -> GraphDescription:
+        """Compile the graph record and describe the result: each node's inputs and outputs, how often it is called,
+        and every problem. Nothing is run or stored."""
         return Graph.compile(graph, nodes_for(who)).describe()
 
     @router.post("/runs", status_code=202)
