@@ -1346,6 +1346,22 @@ except NodeDeclarationError as error:
 
 **Fix.** Drop the `/` and `*args`: the engine passes every input by its name.
 
+### `pydantic_field_in_hint`
+
+```python
+from pydantic import Field
+
+try:
+    @node("repeat", title="Repeat", description="Repeats a text.")
+    def repeat(text: str, times: Annotated[int, Field(ge=0)] = 1) -> str:
+        return text * times
+except NodeDeclarationError as error:
+    print(error.code)  # pydantic_field_in_hint
+    print(error)  # @node('repeat') on repeat: times: pydantic's Field(...) in the hint; an input or output takes its title, description and limits from Param, so write Annotated[int, Param(ge=0)] where you had Annotated[int, Field(ge=0)]
+```
+
+**Fix.** Write the title, the description and the limits on `Param`, which takes them by the same names: `Annotated[int, Param(ge=0)]`. There is one way to write them on an input or an output, so `Field(...)` is refused wherever it is written in the hint: on the parameter, on the return type, on an item (`Series[Annotated[int, Field(ge=0)]]`, `list[Annotated[int, Field(ge=0)]]`) and on a column of a table's row type. A type that has its limits is still a type: `PositiveInt`, `constr(min_length=1)` and `Annotated[int, annotated_types.Gt(0)]` are read as pydantic reads them, a union is told apart with `Discriminator("kind")`, and `Field(...)` on the fields of your own model or dataclass is that class's.
+
 ### `replaces_another_node`
 
 ```python
@@ -1511,7 +1527,7 @@ except NodeDeclarationError as error:
     print(error)  # @node('note') on note: text: a widget in Annotated goes on Param: Annotated[..., Param(widget=...)]
 ```
 
-**Fix.** Put the widget on the field's `Param`: `Annotated[str, Param(widget=Textarea())]`. Other metadata in `Annotated` is pydantic's and is read as pydantic reads it; a widget there would be passed by, and the field would show no control.
+**Fix.** Put the widget on the field's `Param`: `Annotated[str, Param(widget=Textarea())]`. Other metadata in `Annotated` is pydantic's and is read as pydantic reads it, except `Field(...)` ([`pydantic_field_in_hint`](#pydantic_field_in_hint)); a widget there would be passed by, and the field would show no control.
 
 ## `check_registry`
 

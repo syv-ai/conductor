@@ -17,6 +17,7 @@ from weakref import WeakValueDictionary
 
 from pydantic import ConfigDict, JsonValue, TypeAdapter, ValidationError
 from pydantic.errors import PydanticInvalidForJsonSchema, PydanticSchemaGenerationError
+from pydantic.fields import FieldInfo
 from pydantic_core import (
     CoreSchema,
     PydanticSerializationError,
@@ -246,10 +247,17 @@ class Type:
         refuses a ``bool``, which pydantic alone reads as 1 (``numbers_refuse_bools``).
 
         Raises:
-            NodeDeclarationError: A ``Param`` that doesn't fit, a misplaced ``Context``, or a type pydantic has no
-                schema for (``type_not_carried``).
+            NodeDeclarationError: A ``Param`` that doesn't fit, a misplaced ``Context``, pydantic's ``Field(...)``
+                written where ``Param`` goes (``pydantic_field_in_hint``), or a type pydantic has no schema for
+                (``type_not_carried``).
         """
         bare, param, others = self._parts
+        if any(isinstance(other, FieldInfo) for other in others):  # Annotated[int, Field(ge=0)], here or on an item of a list
+            raise NodeDeclarationError(
+                "pydantic's Field(...) in the hint; an input or output takes its title, description and limits from Param, "
+                "so write Annotated[int, Param(ge=0)] where you had Annotated[int, Field(ge=0)]",
+                code="pydantic_field_in_hint",
+            )
         options = []
         for option in union_members(bare):
             if get_origin(option) in _CONTAINERS or get_origin(option) in _KINDS:

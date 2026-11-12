@@ -174,16 +174,57 @@ def test_a_list_of_whole_numbers_lands_on_a_list_of_numbers_and_never_on_a_list_
     assert [problem.type for problem in graph.problems] == ["type_mismatch"]
 
 
-def test_a_limit_spelled_as_pydantic_spells_it_is_carried() -> None:
-    from pydantic import Field, PositiveInt
+def test_a_pydantic_type_is_carried_with_the_limits_it_has() -> None:
+    from annotated_types import Gt
+    from pydantic import PositiveInt, constr
 
     @node("count", title="Count", description="For a test.")
-    def count(times: PositiveInt, least: Annotated[int, Field(ge=2)] = 2) -> int:
-        return times * least
+    def count(times: PositiveInt, least: Annotated[int, Gt(1)] = 2, word: constr(min_length=1) = "a") -> str:  # type: ignore[valid-type]
+        return word * times * least
 
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "q", "node": "count", "constants": {"times": 0}}]}), registry_of(count))
+    for wrong in ({"times": 0}, {"times": 1, "least": 1}, {"times": 1, "word": ""}):
+        graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "q", "node": "count", "constants": wrong}]}), registry_of(count))
+        assert [problem.type for problem in graph.problems] == ["invalid_value"], wrong
+    assert _run(count, times=3).outputs == {"q.result": "aaaaaa"}
+
+
+def test_a_pydantic_field_in_a_hint_is_refused_showing_the_param_to_write() -> None:
+    from pydantic import Field
+
+    limit = Field(ge=0)
+    hints = (
+        Annotated[int, limit], Annotated[int, limit] | None, Annotated[int, Field(title="Times")], Annotated[Annotated[int, limit], Param(title="Times")],
+        Series[Annotated[int, limit]], list[Annotated[int, limit]], dict[str, Annotated[int, limit]],
+    )
+    for hint in hints:
+        with pytest.raises(NodeDeclarationError, match=r"value: pydantic's Field\(\.\.\.\) in the hint.*Annotated\[int, Param\(ge=0\)\]") as raised:
+            node("count", title="Count", description="For a test.")(_returning_its_input(hint))
+        assert raised.value.code == "pydantic_field_in_hint", hint
+
+    class Row(TypedDict):
+        times: Annotated[int, limit]
+
+    for returned in (Annotated[int, limit], Table[Row]):  # an output, and a column of a table
+        with pytest.raises(NodeDeclarationError) as raised:
+            node("count", title="Count", description="For a test.")(_returning(returned))
+        assert raised.value.code == "pydantic_field_in_hint", returned
+
+
+def test_a_pydantic_field_inside_a_hosts_own_model_is_the_models() -> None:
+    from pydantic import Field
+
+    @host_type("stock", title="Stock")
+    class Stock(BaseModel):
+        count: int = Field(ge=0)
+        name: Annotated[str, Field(min_length=1)] = "a"
+
+    @node("restock", title="Restock", description="For a test.")
+    def restock(stock: Stock) -> int:
+        return stock.count
+
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "q", "node": "restock", "constants": {"stock": {"count": -1}}}]}), registry_of(restock))
     assert [problem.type for problem in graph.problems] == ["invalid_value"]
-    assert _run(count, times=3).outputs == {"q.result": 6}
+    assert _run(restock, stock={"count": 2}).outputs == {"q.result": 2}
 
 
 def test_a_subclass_of_a_builtin_with_no_schema_of_its_own_is_validated_as_the_builtin_and_made_the_subclass() -> None:
@@ -358,6 +399,14 @@ def test_a_widget_in_annotated_outside_param_is_refused_saying_where_it_goes() -
         return text
 
     assert note.describe().inputs[0].widget["type"] == "textarea"
+
+
+def _returning(hint: Any) -> Any:
+    def passes(value: int):  # type: ignore[no-untyped-def]
+        return value
+
+    passes.__annotations__["return"] = hint
+    return passes
 
 
 def _returning_its_input(hint: Any) -> Any:

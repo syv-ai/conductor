@@ -41,6 +41,8 @@ class Param:
         times: Annotated[int, Param(title="Times", ge=0)] = 1
 
     The limits and choices hold wherever pydantic reads the type, in a field or in a host's own model.
+    On a node's input or output it is the only way to write them: pydantic's ``Field(...)`` there is refused
+    (``pydantic_field_in_hint``).
 
     Attributes:
         title: What a person reads for the field; its name in everyday words when not given.

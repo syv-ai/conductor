@@ -46,7 +46,7 @@ A second node under an id the host already has raises. `extra` is your own JSON 
 
 `Annotated[..., Param(...)]` says what an editor shows for a field: a `title`, a `description` and a `widget`, the control to edit it with. Without a title, a field's label is its name made readable (`case_sensitive` is "Case sensitive"). A node declares what a person reads for it, `@node("id", title=, description=)`, and both are required; the docstring is for developers and never reaches a person.
 
-`Param` also takes pydantic's limits: `ge`, `gt`, `le`, `lt`, `multiple_of`, `min_length`, `max_length` and `pattern`. They are checked on every value someone types in or a caller gives:
+`Param` also takes pydantic's limits: `ge`, `gt`, `le`, `lt`, `multiple_of`, `min_length`, `max_length` and `pattern`. `Param` is the one way to write them on an input or an output: pydantic's own `Field(...)` in a node's hint is refused when the node is declared (`pydantic_field_in_hint`), with the `Param` to write. A type that has its limits is still a type, so `PositiveInt`, `constr(min_length=1)` and `Annotated[int, annotated_types.Gt(0)]` work as hints, and `Field(...)` stays the way to write the fields of your own pydantic model. The limits are checked on every value someone types in or a caller gives:
 
 ```python
 drawn = {"nodes": [{"id": "repeat", "node": "repeat", "constants": {"times": 20}}]}  # as an editor saves it

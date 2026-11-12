@@ -19,7 +19,8 @@ What changes in how you work, before the name-by-name tables:
   `R`'s columns. A node may hold type variables (`def split[T](value: Table[T] | list[T]) -> Series[T]`),
   bound from its edges when a graph loads. Generic arguments are compared (`list[int]` lands on
   `list[float]`, never on `list[str]`) and shown in a type's id. `Annotated` metadata that is no `Param`
-  is pydantic's. A host type is declared with `@host_type("money", title="Money", accepts=[...])` above the class, checked when the class statement ends;
+  is pydantic's, except pydantic's `Field(...)`, which is refused (`pydantic_field_in_hint`): `Param` is the one way to
+  write a title, a description and limits on an input or an output. A host type is declared with `@host_type("money", title="Money", accepts=[...])` above the class, checked when the class statement ends;
   `accepts` widens what lands on it, and a subclass of a builtin needs no schema of its own. A table's one JSON form is
   `{"columns": [{"name", "type", "values"}]}`. `syv-conductor-nodes` gains `series-stack`.
 

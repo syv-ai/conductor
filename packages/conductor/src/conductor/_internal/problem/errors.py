@@ -109,6 +109,7 @@ DeclarationCode = Literal[
     "output_without_type",
     "outputs_not_frozen",
     "parameter_not_by_name",
+    "pydantic_field_in_hint",
     "replaces_another_node",
     "type_declaration_invalid",
     "type_not_carried",

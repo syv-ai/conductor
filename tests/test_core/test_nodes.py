@@ -9,8 +9,8 @@ from dataclasses import FrozenInstanceError, dataclass
 from typing import Annotated, Any, Literal, TypedDict
 
 import polars as pl
-import pydantic
 import pytest
+from annotated_types import Ge
 from conductor import (
     Choice,
     Context,
@@ -980,11 +980,11 @@ def test_a_default_reaches_the_function_as_its_declared_type():
     assert load(kind).run().results["kind"]["result"] == "Whole Text"
 
 
-def test_annotated_metadata_that_is_not_a_param_is_pydantics_so_a_note_is_ignored_and_a_field_limit_is_held():
+def test_annotated_metadata_that_is_not_a_param_is_pydantics_so_a_note_is_ignored_and_a_limit_of_annotated_types_is_held():
     def noted(x: Annotated[int, "a note"]) -> int:
         return x
 
-    def limited(x: Annotated[int, pydantic.Field(ge=0)]) -> str:
+    def limited(x: Annotated[int, Ge(0)]) -> str:
         return str(x)
 
     assert declared(noted).inputs["x"].type.bare is int
