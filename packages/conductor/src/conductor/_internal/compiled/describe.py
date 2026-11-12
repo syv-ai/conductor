@@ -1,4 +1,10 @@
-"""A loaded graph as a host reads it: where each node runs, how each input is fed, the graph's inputs, its problems."""
+"""What a host is shown of a compiled graph by ``describe()``: every node with its inputs and outputs, whether each
+node is called once or once per item, where each input gets its value, the graph inputs and outputs, and the
+problems.
+
+In the graph ``lines -> shout -> join``, ``shout`` is called once per item of ``lines.result``, so its ``runs`` is
+``{"mode": "per_item", "series": "lines.result", "msg": "per item of lines.result"}``.
+"""
 
 from __future__ import annotations
 
@@ -20,12 +26,13 @@ from conductor._internal.problem import Problem
 
 
 class RunsOn(ConductorModel):
-    """Where a node runs.
+    """Whether a node is called once or once per item of a list.
 
     Attributes:
-        mode: ``once``, or ``per_item`` of a Series.
-        series: The address of the Series it runs per item of; ``None`` for a node that runs once.
-        msg: The same, in English.
+        mode: ``once``, or ``per_item`` of a ``Series`` output.
+        series: The address of the ``Series`` output whose items the node is called for: the list of the innermost
+            loop the node is inside. ``None`` for a node called once.
+        msg: The same in English, for a person to read.
     """
 
     mode: Literal["once", "per_item"]
@@ -45,7 +52,7 @@ class InputSource(ConductorModel):
             ``constant``: a value written in the graph record, or the input's default; the same on every call in
             every run.
             ``graph_input``: the caller gives it when a run starts.
-            ``one_value``: an output of a node that is called once.
+            ``one_value``: an output of a node that is called once, read by a node that is called once too.
             ``item``: one item of the list ``series``; the node is called once per item.
             ``outer_value``: an output of a node outside the innermost loop this node is inside; every call of
             that loop gets the same value.
@@ -55,7 +62,7 @@ class InputSource(ConductorModel):
             For ``outer_value``, the list of the loop the value's own node is inside, and ``None`` when that node
             is inside no loop. ``None`` for every other mode, and for ``collected`` when the input is wired to
             one value, which it gets as a list of one.
-        msg: The same, in English.
+        msg: The same in English, for a person to read.
     """
 
     mode: Literal["constant", "graph_input", "one_value", "item", "outer_value", "collected", "missing"]
@@ -64,10 +71,11 @@ class InputSource(ConductorModel):
 
 
 class NodeInputDescription(ConductorModel):
-    """An input of a node in a loaded graph.
+    """An input of a node in a compiled graph.
 
     Attributes:
-        field: The input as its node's hooks and edges made it.
+        field: The input as compiled: an input a hook added is here too, and a type variable is replaced by the
+            type the input's edges read.
         source: Where it gets its value on each call of its node.
     """
 
@@ -76,18 +84,19 @@ class NodeInputDescription(ConductorModel):
 
 
 class GraphNodeDescription(ConductorModel):
-    """One node of a loaded graph as an editor draws it.
+    """One node of a compiled graph, as an editor draws it.
 
     Attributes:
-        node: The id of the definition it uses.
-        version: The version of that definition.
-        found: Whether its fields are known: its definition was found at its version and its hooks gave its
-            fields. ``problems`` says why when they aren't.
-        problems: The problems placed on it. A node whose fields are known may hold some: an input an edge is
-            refused for has the source ``missing``.
-        runs: Where it runs, when its fields are known.
-        inputs: Its inputs as its hooks made them, when its fields are known.
-        outputs: Its outputs as its hooks made them, when its fields are known.
+        node: The id of the node definition it uses (``"shout"``).
+        version: The version of that node definition.
+        found: Whether the node was compiled: its definition was found at its version, and its hooks returned its
+            inputs and outputs. When it was not, ``problems`` says why and the node has no ``runs``, ``inputs``
+            or ``outputs``.
+        problems: The problems on this node. A compiled node can have some too: an input that gets no value
+            because of a problem has the source ``missing``.
+        runs: Whether it is called once or once per item; ``None`` when it was not compiled.
+        inputs: Its inputs as compiled; empty when it was not compiled.
+        outputs: Its outputs as compiled; empty when it was not compiled.
     """
 
     node: str
@@ -100,13 +109,14 @@ class GraphNodeDescription(ConductorModel):
 
 
 class GraphInput(ConductorModel):
-    """An open input of a first node, a value of ``graph.inputs``: what a caller fills.
+    """A graph input: an input of a node that no edge leads to, which the caller gives a value for when a run
+    starts. The values of ``graph.inputs`` are these. In the example, ``lines.text``.
 
     Attributes:
-        address: Where the caller's value goes, ``node.input``.
+        address: The key the caller's value is kept under, ``node.input``.
         node_id: The node whose input it is.
-        field: The input. Its ``default`` is what it holds when the caller gives nothing (the record's default,
-            else the node's), as JSON, and it is ``required`` when there is none.
+        field: The input. Its ``default`` is the value used when the caller gives none (the graph record's
+            default, else the node's), as JSON, and it is ``required`` when there is none.
     """
 
     address: str
@@ -115,13 +125,15 @@ class GraphInput(ConductorModel):
 
 
 class GraphDescription(ConductorModel):
-    """A loaded graph as an editor draws it.
+    """A compiled graph as an editor draws it.
 
     Attributes:
-        nodes: Each node of the record, by id.
-        inputs: The graph's inputs, by name.
-        outputs: The graph's outputs, as addresses.
-        problems: Every problem of the graph.
+        nodes: Each node of the graph record, by id.
+        inputs: The graph inputs, by name: the input's own name, or its address (``node.input``) when two graph
+            inputs share a name.
+        outputs: The graph outputs, as addresses (``"join.result"``): every output of every node that no edge
+            leaves.
+        problems: Every problem of the graph, those on nodes included.
     """
 
     nodes: dict[str, GraphNodeDescription]
@@ -131,7 +143,8 @@ class GraphDescription(ConductorModel):
 
 
 def runs_on(loops: tuple[OutputAddress, ...]) -> RunsOn:
-    """Where a node of ``loops`` runs."""
+    """Returns whether a node inside ``loops`` is called once or once per item: ``per_item`` of the list of the
+    innermost loop, or ``once`` when ``loops`` is empty."""
     return RunsOn(mode="per_item", series=str(loops[-1]), msg=f"per item of {loops[-1]}") if loops else RunsOn(mode="once", msg="once")
 
 
@@ -140,6 +153,8 @@ def input_source_of(loops: tuple[OutputAddress, ...], plan: InputPlan) -> InputS
 
     In ``lines -> shout -> join``: ``shout.line`` is an ``item`` of ``lines.result``, ``shout.mark`` is a
     ``constant``, ``join.texts`` is ``collected`` from ``lines.result``, and ``lines.text`` is a ``graph_input``.
+    An input of a node inside the loop over ``lines.result``, wired to an output of a node called once, is an
+    ``outer_value``.
     """
     match plan:
         case InputConstant():
@@ -153,7 +168,7 @@ def input_source_of(loops: tuple[OutputAddress, ...], plan: InputPlan) -> InputS
         case InputWrapsOneValue():
             return InputSource(mode="collected", msg="the one value, as a Series of one")
         case InputReadsOneValue(loops=value_loops):
-            if value_loops != loops:  # the value is made outside the node's innermost loop
+            if value_loops != loops:  # the value is returned outside the node's innermost loop
                 made_for = f"the item of {value_loops[-1]}" if value_loops else "the graph"
                 return InputSource(mode="outer_value", series=str(value_loops[-1]) if value_loops else None, msg=f"the value of {made_for}")
             if value_loops:
