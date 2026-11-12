@@ -91,6 +91,9 @@ from conductor._internal.scheduler.node_events import NodeEvents
 #: own failure, an output its type refuses, a question for a person. Calling again would raise the same.
 _NEVER_RETRIED = (NodeError, CallRejectedError, Ask)
 
+#: How long the scheduler waits for a thread before it asks ``stop`` again, in seconds.
+_SECONDS_BETWEEN_STOP_CHECKS = 0.05
+
 _logger = logging.getLogger("conductor")
 
 
@@ -310,7 +313,7 @@ class Scheduler:
                     self._wait()
             if self.checkpoints is not None and self.running:  # the process may die before the attempts on threads are back
                 self._checkpoint(self.checkpoints)
-            while self.running:  # a call that was made is not made again: wait for its outcome, as long as its timeout allows
+            while self.running:  # a call that was made is never made again: wait for its outcome
                 self._wait()
         finally:
             if self.pool is not None:
@@ -386,8 +389,11 @@ class Scheduler:
         if not isinstance(arguments, dict):  # a Skipped or NotCalled outcome
             self._record(node, item_indexes, arguments, trying_every_call)
         elif (
-            (reusable := self.reusable) and policy.reuse_when_inputs_match and (of_node := reusable.get(node.node_path)) is not None
-            and (previous := reused_outcome(of_node, node, item_indexes, arguments, self.all_outcomes, lambda: self._in_turn(node, item_indexes))) is not None
+            (reusable := self.reusable)
+            and policy.reuse_when_inputs_match
+            and (of_node := reusable.get(node.node_path)) is not None
+            and (previous := reused_outcome(of_node, node, item_indexes, arguments, self.all_outcomes, lambda: self._in_turn(node, item_indexes)))
+            is not None
         ):
             if previous is NotReady.NOT_ITS_TURN:
                 self.out_of_turn = True
@@ -401,9 +407,15 @@ class Scheduler:
             if policy.threaded or policy.retries:
                 self._make_attempt(_Attempt(node, item_indexes, arguments, 0), trying_every_call)
             else:
-                self._record(node, item_indexes, self._outcome(node, item_indexes, arguments, *call(node, arguments, self.context)), trying_every_call)
+                # speed only: what `call` returns goes straight to `_outcome` and is not kept in a local here. An exception in a
+                # local of this frame is a reference cycle (its traceback has the frame of `call`, which points back to this
+                # one), left for the garbage collector. That costs 20% of a run of 2,000 calls that each ask a person.
+                outcome = self._outcome(node, item_indexes, arguments, *call(node, arguments, self.context))
+                self._record(node, item_indexes, outcome, trying_every_call)
 
-    def _record(self, node: FlatFunctionNode, item_indexes: ItemIndexes, outcome: Outcome | Problem, trying_every_call: bool = False) -> None:
+    def _record(
+        self, node: FlatFunctionNode, item_indexes: ItemIndexes, outcome: Outcome | Problem, trying_every_call: bool = False
+    ) -> None:
         """One call is over: write its outcome into the run, and do what follows from it.
 
         Example: ``_record(lines, (), Done({"result": ["a", "b", "c"]}))`` writes ``outcomes["lines"][()]`` and
@@ -419,7 +431,8 @@ class Scheduler:
             outcome: The call's outcome, or the problem it failed with.
             trying_every_call: True from ``_try_every_call``, which reaches the downstream calls itself.
         """
-        if type(outcome) is Problem:  # speed only: isinstance of a pydantic model costs four times as much, and no class derives from Problem
+        # speed only: isinstance of a pydantic model costs four times as much, and no class derives from Problem
+        if type(outcome) is Problem:
             self._fail(node, outcome)
             return
         outcomes = self.outcomes[node]
@@ -431,11 +444,12 @@ class Scheduler:
             self.changed = True
         if (checkpoints := self.checkpoints) is not None and time.monotonic() >= checkpoints.next_at:
             self._checkpoint(checkpoints)
-        if self.max_items is not None and node.looped_outputs and outcome.has_outputs and self._stop_if_over_item_limit(node, item_indexes, outcome, self.max_items):
-            return
+        if self.max_items is not None and node.looped_outputs and outcome.has_outputs:
+            if self._stop_if_over_item_limit(node, item_indexes, outcome, self.max_items):
+                return
         if self.node_events is not None:
             self.node_events.outcome_recorded(node, item_indexes, outcome)
-        if not trying_every_call and self.going and outcome.has_outputs:  # a call that reads a waiting outcome is not ready
+        if not trying_every_call and self.going and outcome.has_outputs:  # no call that reads a waiting outcome is ready
             self._make_downstream_ready(node, item_indexes)
 
     def _fail(self, node: FlatFunctionNode, cause: Problem) -> None:
@@ -454,14 +468,15 @@ class Scheduler:
         indexes, and that call goes on ``ready``.
         """
         depth = len(item_indexes)
-        for reader, places in node.downstream:
-            if places < depth:
-                self.collectors.add((reader, item_indexes[:places]))
-            elif len(reader.loops) == depth:  # speed only: the branch below finds this one call too. Worth about 2% of a run whose 6,000 calls all come back from threads.
-                heapq.heappush(self.ready, (reader.position, item_indexes))
+        for downstream, shared_indexes in node.downstream:
+            if shared_indexes < depth:
+                self.collectors.add((downstream, item_indexes[:shared_indexes]))
+            # speed only: the branch below finds this one call too. Worth about 2% of a run whose 6,000 calls all come back from threads.
+            elif len(downstream.loops) == depth:
+                heapq.heappush(self.ready, (downstream.position, item_indexes))
             else:
-                for downstream_indexes in all_item_indexes(self.all_outcomes, reader.loops, item_indexes)[0]:
-                    heapq.heappush(self.ready, (reader.position, downstream_indexes))
+                for downstream_indexes in all_item_indexes(self.all_outcomes, downstream.loops, item_indexes)[0]:
+                    heapq.heappush(self.ready, (downstream.position, downstream_indexes))
 
     def _when_nothing_is_ready(self) -> bool:
         """``ready`` is empty: find more to try, and say whether ``run`` goes on.
@@ -500,11 +515,11 @@ class Scheduler:
         Returns:
             Whether any call was put on ``ready``.
         """
-        working = list(self.running)
+        running = list(self.running)
         released = False
         for node, item_indexes in list(self.collectors):
-            above = all_upstream(node)
-            if not any(n in above and k[: len(item_indexes)] == item_indexes for n, k in working):
+            upstream, depth = all_upstream(node), len(item_indexes)
+            if not any(running_node in upstream and running_indexes[:depth] == item_indexes for running_node, running_indexes in running):
                 self.collectors.discard((node, item_indexes))
                 released = True
                 for call_indexes in all_item_indexes(self.all_outcomes, node.loops, item_indexes)[0]:
@@ -530,11 +545,13 @@ class Scheduler:
                 continue
             if Waiting in {type(outcome) for outcome in outcomes.values()}:
                 waiting.add(node)
-            elif not (has_every_outcome(self.all_outcomes, node) if node.loops else outcomes):  # speed only: has_every_outcome says the same of a node inside no loop. Not calling it is worth 2% of a run of 500 chained nodes.
+            # speed only: has_every_outcome says the same of a node inside no loop. Not calling it is worth 2% of a run of 500 chained nodes.
+            elif not (has_every_outcome(self.all_outcomes, node) if node.loops else outcomes):
                 unfinished.add(node)
         if self.going and not waiting:
             if unfinished:
-                raise RuntimeError(f"the leg ended with nothing to try and no unit for every instance of {sorted(node.node_path for node in unfinished)}")
+                lacking = sorted(node.node_path for node in unfinished)
+                raise RuntimeError(f"the scheduler has nothing to try, and no outcome for every call of {lacking}")
             self.state, self.finished = COMPLETE, frozenset(node.node_path for node in self.nodes)
             self.reusable.clear()
         else:
@@ -569,11 +586,11 @@ class Scheduler:
         """
         node, item_indexes, arguments = attempt.node, attempt.item_indexes, attempt.arguments
         if not node.policy.threaded:
-            out, error = call(node, arguments, self.context)
+            outputs, error = call(node, arguments, self.context)
             if not self._retry(attempt, error):
                 if attempt.number:
                     self.running.pop((node, item_indexes), None)
-                self._record(node, item_indexes, self._outcome(node, item_indexes, arguments, out, error), trying_every_call)
+                self._record(node, item_indexes, self._outcome(node, item_indexes, arguments, outputs, error), trying_every_call)
             return
         self.running[(node, item_indexes)] = attempt
         self.waiting_for_thread[node].append(attempt)
@@ -601,18 +618,18 @@ class Scheduler:
         thread, as it would be raised for a node called there.
         """
         try:
-            out, error = call(attempt.node, attempt.arguments, self.context)
-        except BaseException as raised:  # noqa: BLE001  the pool would swallow it, and the scheduler would wait for this attempt for ever
+            outputs, error = call(attempt.node, attempt.arguments, self.context)
+        except BaseException as raised:  # noqa: BLE001  the pool would swallow it, and the scheduler would wait for the attempt for ever
             self.returned.put(raised)
         else:
-            self.returned.put(_Returned(attempt, out, error))
+            self.returned.put(_Returned(attempt, outputs, error))
 
     def _wait(self) -> None:
         """Wait until an attempt is back from its thread, a timer is due, or it is time to ask ``stop`` again.
         Then handle the attempt that is back, if any, and every timer that is due."""
         timeout = self.timers[0].when - time.monotonic() if self.timers else None
         if self.stop is not None:
-            timeout = 0.05 if timeout is None else min(timeout, 0.05)
+            timeout = _SECONDS_BETWEEN_STOP_CHECKS if timeout is None else min(timeout, _SECONDS_BETWEEN_STOP_CHECKS)
         try:
             if timeout is None:
                 returned = self.returned.get()
@@ -643,7 +660,7 @@ class Scheduler:
         without an error, and the run is ending. The call was made, so its outcome is recorded and a later
         ``resume()`` does not make it again.
         """
-        attempt, out, error = returned.attempt, returned.outputs, returned.error
+        attempt, outputs, error = returned.attempt, returned.outputs, returned.error
         node, item_indexes = attempt.node, attempt.item_indexes
         self.on_threads[node] -= 1
         latest = self.attempts.get((node, item_indexes)) == attempt.number
@@ -652,12 +669,12 @@ class Scheduler:
         if not current:
             if latest and error is None and not self.going and item_indexes not in self.outcomes[node]:
                 self.attempts.pop((node, item_indexes))
-                self._record(node, item_indexes, Done(out))
+                self._record(node, item_indexes, Done(outputs))
             return
         self.attempts.pop((node, item_indexes))
         if not self._retry(attempt, error):
             del self.running[(node, item_indexes)]
-            self._record(node, item_indexes, self._outcome(node, item_indexes, attempt.arguments, out, error))
+            self._record(node, item_indexes, self._outcome(node, item_indexes, attempt.arguments, outputs, error))
 
     def _retry(self, attempt: _Attempt, error: BaseException | None) -> bool:
         """Set a timer to make the call again, if ``attempt`` failed and its node's ``Policy`` retries the error.
@@ -700,7 +717,9 @@ class Scheduler:
             del self.running[(node, item_indexes)]
             self._record(node, item_indexes, problem.timeout(*outcome_loc(node, item_indexes), seconds=timer.seconds))
 
-    def _outcome(self, node: FlatFunctionNode, item_indexes: ItemIndexes, arguments: dict[str, Any], out: Any, error: BaseException | None) -> Outcome | Problem:
+    def _outcome(
+        self, node: FlatFunctionNode, item_indexes: ItemIndexes, arguments: dict[str, Any], outputs: Any, error: BaseException | None
+    ) -> Outcome | Problem:
         """The outcome of a call from what ``call`` returned: ``Done`` with the outputs, ``Waiting`` with the
         question when the function raised ``Ask``, or the problem the call failed with.
 
@@ -708,7 +727,7 @@ class Scheduler:
         and an ``Ask`` that does not fit the node's outputs, are problems.
         """
         if error is None:
-            return Done(out)
+            return Done(outputs)
         if isinstance(error, Ask):
             try:
                 inputs = jsonable(arguments)
@@ -752,9 +771,12 @@ class Scheduler:
         turn = self.answer_orders.get(node)
         if turn is None or item_indexes not in turn.place:
             order = all_item_indexes(self.all_outcomes, node.loops, ())[0]
-            turn = self.answer_orders[node] = _AnswerOrder(order, {k: i for i, k in enumerate(order)})
+            turn = self.answer_orders[node] = _AnswerOrder(order, {indexes: position for position, indexes in enumerate(order)})
         order, outcomes, passed, reached = turn.order, self.outcomes[node], turn.passed, turn.reached
-        while reached < len(order) and ((next_indexes := order[reached]) in outcomes or (node, next_indexes) in self.running or next_indexes in passed):
+        while reached < len(order):
+            next_indexes = order[reached]
+            if not (next_indexes in outcomes or (node, next_indexes) in self.running or next_indexes in passed):
+                break
             reached += 1
         turn.reached = reached
         return turn.place.get(item_indexes, 0) <= reached
@@ -772,7 +794,7 @@ class Scheduler:
         passed_any = False
         for node, turn in self.answer_orders.items():
             outcomes = self.outcomes[node]
-            untried = {k for k in turn.order[turn.reached :] if k not in outcomes and k not in turn.passed}
+            untried = {indexes for indexes in turn.order[turn.reached :] if indexes not in outcomes and indexes not in turn.passed}
             turn.passed |= untried
             passed_any = passed_any or bool(untried)
         return passed_any
@@ -792,7 +814,9 @@ class Scheduler:
                         self._stop_at_item_limit(node, item_indexes, output, length(outcome.outputs[output]), item_limit)
                         return
 
-    def _stop_if_over_item_limit(self, node: FlatFunctionNode, item_indexes: ItemIndexes, outcome: Done | Answered | Skipped | NotCalled, item_limit: int) -> bool:
+    def _stop_if_over_item_limit(
+        self, node: FlatFunctionNode, item_indexes: ItemIndexes, outcome: Done | Answered | Skipped | NotCalled, item_limit: int
+    ) -> bool:
         """End the run as ``stopped`` if a series in ``outcome`` that a loop runs over has more items than
         ``item_limit``.
 
@@ -817,7 +841,8 @@ class Scheduler:
         if self.going:
             named, series_output = node.looped_outputs[output]
             loc = outcome_loc(named, item_indexes[: len(named.parent.loops) if named.parent is not None else 0])
-            self.end(EndedEarly("stopped", problem.item_limit(*loc, series=f"{named.compiled_node.id}.{series_output}", items=items, max_items=item_limit)))
+            series = f"{named.compiled_node.id}.{series_output}"
+            self.end(EndedEarly("stopped", problem.item_limit(*loc, series=series, items=items, max_items=item_limit)))
 
     def _checkpoint(self, checkpoints: _Checkpoints) -> None:
         """Hand the host a copy of the run now, with its outcomes in item order, and set when the next is due."""
