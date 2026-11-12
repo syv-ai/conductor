@@ -538,7 +538,7 @@ class _Compiler:
             fields = [f"{source_id}.{output}.{f}" for f in field.type.fields]
             self.problems.append(problem.unknown_output(node_id, name, source=address, outputs=fields, record_field=expected or None))
             return None
-        return EdgeSource(source_id, output, source.loops_around(output), expected or None, sources, field.many)
+        return EdgeSource(source_id, output, source.loops_around(output), expected or None, sources, item=field.many)
 
     def _edge_order(self, source: EdgeSource) -> tuple[int, int, str]:
         """Where an edge into an input falls among several: its node's place in the record, then the output's in its node."""

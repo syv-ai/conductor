@@ -216,7 +216,7 @@ def display_plans_of(node: FlatFunctionNode, output: str) -> tuple[InputReadsOne
     plans = node.display_plans.get(output)
     if plans is None:
         field = node.compiled_node.outputs[output]
-        source = (SeriesAsList if field.many else EdgeSource)(node.name, output, _loops_by_name(node.loops), None, field.type, False)
+        source = (SeriesAsList if field.many else EdgeSource)(node.name, output, _loops_by_name(node.loops), None, field.type, item=False)
         functions = {source_node.name: source_node for source_node in (node, *(series_node for series_node, _ in node.loops))}
         per_loop = [_collect_plan(_DISPLAY_FIELD, looped_over, (source,), functions) for looped_over in node.loops]
         plans = node.display_plans[output] = tuple(per_loop) or (InputReadsOneValue(_DISPLAY_FIELD, (source,), source.loops),)
@@ -297,7 +297,7 @@ def _add_flat_nodes(graph: CompiledGraph, parent: FlatSubgraph | None, function_
                 items_of = (functions[series.node_id], series.output)  # what the functions it gathers through read outside the items can settle it too
                 read_at += [(read, places) for inner in plan.loop_body for read, places in inner.upstream.items() if items_of not in read.loops]
                 collecting.setdefault(series, []).append((name, plan.field.accepts_none_items))
-                whole = EdgeSource(series.node_id, series.output, series.loops, None, functions[series.node_id].compiled_node.outputs[series.output].whole, False)
+                whole = EdgeSource(series.node_id, series.output, series.loops, None, functions[series.node_id].compiled_node.outputs[series.output].whole, item=False)
                 edge_inputs.append((name, InputReadsOneValue(plan.field, (whole,), series.loops), plan.field.whole.optional))  # it needs its Series, and then its items
             edge_inputs.append((name, plan, plan.field.whole.optional))
             for read, places in read_at:
@@ -364,7 +364,7 @@ def _flat_plan(plan: InputPlan, nodes_by_id: Mapping[str, FlatNode], parent_path
         source_node, output = _source_function(OutputAddress(source.node_id, source.output), nodes_by_id)
         if opened and source.item:
             source_node.looped_outputs.setdefault(output, (nodes_by_id[source.node_id], source.output))
-        return EdgeSource(source_node.name, output, _loops_by_name(source_node.loops), source.record_field, source.type, source.item)
+        return EdgeSource(source_node.name, output, _loops_by_name(source_node.loops), source.record_field, source.type, item=source.item)
 
     match plan:
         case InputReadsOneValue(field=field, reads=reads):
