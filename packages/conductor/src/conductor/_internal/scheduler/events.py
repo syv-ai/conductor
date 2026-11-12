@@ -166,8 +166,9 @@ class NodeFailed(_NodeEvent):
     """A call of the node failed and is not retried, so the run fails.
 
     The function raised an exception that its ``Policy`` does not retry, or it has no retries left. The stream then
-    goes on with the ``NodeComplete`` of nodes that are complete, and ends with ``RunEnd(status="failed")``, whose
-    ``cause`` is this event's ``cause``. For a node ``broken`` after ``lines`` that raises for the first line:
+    goes on with the ``NodeComplete`` of nodes that are complete (a node that is not complete has no more events),
+    and ends with ``RunEnd(status="failed")``, whose ``cause`` is this event's ``cause``. For a node ``broken``
+    after ``lines`` that raises for the first line:
     ``NodeFailed(loc=("broken",), cause=Problem(type="execution_failed", loc=("broken", 0), ...))``.
 
     Attributes:
@@ -231,7 +232,7 @@ class RunEnd(EventBase):
 
     Attributes:
         status: ``complete``; ``waiting`` (for a person's answer); or how the run ended early: ``failed`` (a call
-            failed), ``stopped`` (a series had more items than the item limit, ``max_items``), ``cancelled`` (the
+            failed), ``stopped`` (a series had more items than the run's item limit, set with ``run.with_max_items(...)``), ``cancelled`` (the
             stream's ``cancel`` was set) or ``timed_out`` (the stream's ``timeout`` passed).
         cause: The problem that ended the run early. ``None`` when the status is ``complete`` or ``waiting``.
         run: The run as the stream left it, with all its values, for the host (the program that uses conductor) to
