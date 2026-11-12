@@ -39,7 +39,7 @@ def test_an_ending_says_its_status_and_cause_and_leaves_the_run_out():
     assert ending.run.outputs == {"s.result": ["a", "b"]}
 
 
-def test_a_waiting_units_question_and_a_failures_cause_are_records():
+def test_a_waiting_calls_question_and_a_failures_cause_are_written_as_records():
     @node("ask", title="Ask", description="For a test.")
     def ask(text: str) -> Annotated[str, Param(title="Svar", widget=Textarea())]:
         raise Ask("Hvad?", default="forslag")
@@ -47,10 +47,10 @@ def test_a_waiting_units_question_and_a_failures_cause_are_records():
     (waiting,) = [e for e in _events(GraphRecord(nodes=[NodeRecord(id="ask", node="ask", constants={"text": "x"})]), ask) if isinstance(e, NodeWaiting)]
     failed = _payload(NodeFailed(loc=("n",), cause=Problem(type="boom", msg="Boom.", loc=("n", 2))))
 
-    unit = _payload(waiting)["waiting"]
-    (question,) = unit["questions"]
-    assert (unit["id"].partition("~")[0], unit["prompt"], question["title"], question["default"], question["widget"]["type"], question["schema"]["type"]) == ("ask", "Hvad?", "Svar", "forslag", "textarea", "string")
-    assert unit["inputs"] == {"text": "x"}
+    waiting_record = _payload(waiting)["waiting"]
+    (question,) = waiting_record["questions"]
+    assert (waiting_record["id"].partition("~")[0], waiting_record["prompt"], question["title"], question["default"], question["widget"]["type"], question["schema"]["type"]) == ("ask", "Hvad?", "Svar", "forslag", "textarea", "string")
+    assert waiting_record["inputs"] == {"text": "x"}
     assert failed["cause"] == {"type": "boom", "msg": "Boom.", "loc": ["n", 2], "ctx": {}}
 
 
@@ -71,7 +71,7 @@ def if_empty(text: str) -> Emptiness:
     return Emptiness(not_empty=text, empty=SKIPPED) if text.strip() else Emptiness(not_empty=SKIPPED, empty=text)
 
 
-def test_a_branch_nodes_completion_streams_with_the_branch_not_taken_blank():
+def test_a_branch_nodes_completion_streams_with_none_for_the_branch_not_chosen():
     events = _events(GraphRecord(nodes=[NodeRecord(id="d", node="if-empty", constants={"text": "x"})]), if_empty)
 
     (completed,) = [_payload(event) for event in events if event.type == "node_complete"]

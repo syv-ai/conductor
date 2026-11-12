@@ -1,4 +1,4 @@
-"""A ``RunStore`` in memory that a test can wait on, and the graphs the worker's and the routes' tests hold mid-leg."""
+"""A ``RunStore`` in memory that a test can wait on, and the graphs the worker's and the routes' tests per_item mid-leg."""
 
 from __future__ import annotations
 
@@ -52,10 +52,10 @@ class MemoryStore:
     async def events(self, run_id: str, after: int) -> list[tuple[int, str]]:
         return [(seq, body) for seq, body in enumerate(self.written[run_id]) if seq > after]
 
-    async def until(self, run_id: str, holds: Callable[[StoredRun], bool]) -> StoredRun:
-        """The run's row once ``holds`` is true of it, awaited on the store's own writes."""
+    async def until(self, run_id: str, condition: Callable[[StoredRun], bool]) -> StoredRun:
+        """The run's row once ``condition`` is true of it, awaited on the store's own writes."""
         async with asyncio.timeout(10):
-            while not holds(self.rows[run_id]):
+            while not condition(self.rows[run_id]):
                 self._changed.clear()
                 await self._changed.wait()
         return self.rows[run_id]
@@ -114,8 +114,8 @@ def asking(items: bool = False) -> tuple[NodeRegistry, GraphRecord, ThreadEvent,
 
 def gated() -> tuple[NodeRegistry, GraphRecord, dict[str, ThreadEvent], list[str]]:
     """A graph whose first leg waits on ``first`` beside a question, and whose leg after the answer waits on ``second``
-    on its first item of two; ``held`` is set once that item is called."""
-    registry, gates, calls = NodeRegistry(), {name: ThreadEvent() for name in ("first", "second", "held")}, []
+    on its first item of two; ``per_item_called`` is set once that item is called."""
+    registry, gates, calls = NodeRegistry(), {name: ThreadEvent() for name in ("first", "second", "per_item_called")}, []
 
     @registry.node("items", title="Items", description="For a test.")
     def items(text: str) -> Series[str]:
@@ -130,12 +130,12 @@ def gated() -> tuple[NodeRegistry, GraphRecord, dict[str, ThreadEvent], list[str
     def approve(text: str) -> bool:
         raise Ask("Go on?")
 
-    @registry.node("hold", title="Hold", description="For a test.")
-    def hold(item: str, ok: bool) -> str:
+    @registry.node("per_item", title="Per item", description="For a test.")
+    def per_item(item: str, ok: bool) -> str:
         calls.append(item)
-        gates["held"].set()
+        gates["per_item_called"].set()
         gates["second"].wait(5)
         return item
 
-    graph = make_graph(items, busy, approve, hold, edges=[("items.result", "hold.item"), ("approve.result", "hold.ok")])
+    graph = make_graph(items, busy, approve, per_item, edges=[("items.result", "per_item.item"), ("approve.result", "per_item.ok")])
     return registry, graph, gates, calls

@@ -196,8 +196,8 @@ def test_a_run_started_on_one_worker_is_followed_read_and_answered_on_the_other(
             assert completed == {"type": "node_complete", "loc": ["gate"], "outcomes": 1, "not_called": 0, "reused": 0}
             assert await a.frames(run_id) == seen  # a follower that comes late gets every event
 
-            (unit,) = (await b.read(run_id))["waiting"]
-            assert (await b.client.post(f"/runs/{run_id}/answers", json={unit["id"]: True})).json() == {"answers": "started"}
+            (waiting_call,) = (await b.read(run_id))["waiting"]
+            assert (await b.client.post(f"/runs/{run_id}/answers", json={waiting_call["id"]: True})).json() == {"answers": "started"}
             done = await a.until_status(run_id, "complete")
             assert done["outputs"] == {"ask.result": True}
             assert served.calls == ["gate"]  # what ran did not run again
@@ -205,16 +205,16 @@ def test_a_run_started_on_one_worker_is_followed_read_and_answered_on_the_other(
     _run(scenario)
 
 
-def test_two_workers_answering_one_run_at_once_start_one_leg(served: Served) -> None:
+def test_two_workers_answering_one_run_at_once_start_one_resume_call(served: Served) -> None:
     async def scenario() -> None:
         async with _workers(served) as (a, b):
             served.open_the_gate()
             run_id = await a.start(_APPROVE, {"n": 1})
-            (unit,) = (await a.until_status(run_id, "waiting"))["waiting"]
+            (waiting_call,) = (await a.until_status(run_id, "waiting"))["waiting"]
 
             first, second = await asyncio.gather(
-                a.client.post(f"/runs/{run_id}/answers", json={unit["id"]: True}),
-                b.client.post(f"/runs/{run_id}/answers", json={unit["id"]: False}),
+                a.client.post(f"/runs/{run_id}/answers", json={waiting_call["id"]: True}),
+                b.client.post(f"/runs/{run_id}/answers", json={waiting_call["id"]: False}),
             )
             said = sorted([first.json() if first.status_code == 202 else 409, second.json() if second.status_code == 202 else 409], key=str)
             # the later answer is refused at once, or, if it read the run once the leg had started, queued and then refused
@@ -223,7 +223,7 @@ def test_two_workers_answering_one_run_at_once_start_one_leg(served: Served) -> 
             assert served.calls == ["after"]
             if said[0] != 409:
                 refused = (await a.until_refused(run_id))["refused"]
-                assert [problem["type"] for problem in refused[unit["id"]]] == ["not_waiting"]
+                assert [problem["type"] for problem in refused[waiting_call["id"]]] == ["not_waiting"]
 
     _run(scenario)
 
@@ -236,14 +236,14 @@ def test_a_run_whose_worker_is_killed_is_finished_by_the_other_from_its_last_che
             a.stop(signal.SIGKILL)
 
             await b.until_status(run_id, "complete")
-            made = [call for call in served.calls if call.startswith("work")]
-            assert sorted(set(made)) == sorted(f"work {i}" for i in range(40))
-            assert len(made) - 40 <= 6, made  # only what the last checkpoint had no record of is called again
+            work_calls = [call for call in served.calls if call.startswith("work")]
+            assert sorted(set(work_calls)) == sorted(f"work {i}" for i in range(40))
+            assert len(work_calls) - 40 <= 6, work_calls  # only what the last checkpoint had no record of is called again
 
     _run(scenario)
 
 
-def test_a_deploy_hands_its_legs_to_another_worker_and_no_call_is_made_twice(served: Served) -> None:
+def test_a_deploy_hands_its_runs_to_another_worker_and_no_call_is_made_twice(served: Served) -> None:
     async def scenario() -> None:
         async with _workers(served) as (a, b):
             run_id = await a.start(_WORK, {"n": 30})
@@ -256,14 +256,14 @@ def test_a_deploy_hands_its_legs_to_another_worker_and_no_call_is_made_twice(ser
     _run(scenario)
 
 
-def test_a_cancel_sent_to_either_worker_stops_the_leg_and_a_resume_finishes_it(served: Served) -> None:
+def test_a_cancel_sent_to_either_worker_stops_the_run_and_a_resume_finishes_it(served: Served) -> None:
     async def scenario() -> None:
         async with _workers(served) as (a, b):
             run_id = await a.start(_GATE_ASK)
             await served.until_calls(1)
             assert (await b.client.post(f"/runs/{run_id}/cancel")).json() == {"cancelled": True}
             await asyncio.sleep(0.6)  # the worker running the leg sees the flag at its next renewal
-            served.open_the_gate()  # a cancel waits for the call already made, and keeps it
+            served.open_the_gate()  # a cancel waits for the call already work_calls, and keeps it
             await a.until_status(run_id, "cancelled")
 
             assert (await b.client.post(f"/runs/{run_id}/resume", json={})).status_code == 202
@@ -273,7 +273,7 @@ def test_a_cancel_sent_to_either_worker_stops_the_leg_and_a_resume_finishes_it(s
     _run(scenario)
 
 
-def test_a_leg_that_timed_out_is_resumed_by_its_route(served: Served) -> None:
+def test_a_run_that_timed_out_is_resumed_by_its_route_until_it_completes(served: Served) -> None:
     async def scenario() -> None:
         async with _workers(served, count=1, RESUME_TIMEOUT="0.1") as (a,):
             run_id = await a.start(_WORK, {"n": 30})
@@ -288,7 +288,7 @@ def test_a_leg_that_timed_out_is_resumed_by_its_route(served: Served) -> None:
     _run(scenario)
 
 
-def test_answers_sent_while_a_leg_runs_are_applied_when_it_ends(served: Served) -> None:
+def test_answers_sent_while_a_resume_call_runs_are_applied_when_it_ends(served: Served) -> None:
     async def scenario() -> None:
         async with _workers(served) as (a, b):
             run_id = await a.start(_APPROVE, {"n": 2})
@@ -303,7 +303,7 @@ def test_answers_sent_while_a_leg_runs_are_applied_when_it_ends(served: Served) 
     _run(scenario)
 
 
-def test_a_wrong_answer_sent_while_a_leg_runs_keeps_its_problems_and_costs_nobody_else_theirs(served: Served) -> None:
+def test_a_wrong_answer_sent_while_a_resume_call_runs_is_refused_alone_and_the_others_are_applied(served: Served) -> None:
     async def scenario() -> None:
         async with _workers(served) as (a, b):
             run_id = await a.start(_APPROVE, {"n": 3})
@@ -318,13 +318,13 @@ def test_a_wrong_answer_sent_while_a_leg_runs_keeps_its_problems_and_costs_nobod
                 if row["status"] == "waiting" and len(row["waiting"]) == 1:
                     break
                 await asyncio.sleep(0.01)
-            assert [unit["id"] for unit in row["waiting"]] == [third["id"]]
+            assert [waiting_call["id"] for waiting_call in row["waiting"]] == [third["id"]]
             assert [problem["type"] for problem in row["refused"][third["id"]]] == ["invalid_answer"]
 
     _run(scenario)
 
 
-def test_an_answer_sent_while_a_leg_runs_to_a_unit_that_waits_for_nothing_is_refused_when_it_ends(served: Served) -> None:
+def test_an_answer_sent_while_a_resume_call_runs_to_an_id_nothing_waits_on_is_refused_when_it_ends(served: Served) -> None:
     async def scenario() -> None:
         async with _workers(served) as (a, b):
             run_id = await a.start(_APPROVE, {"n": 2})
@@ -334,13 +334,13 @@ def test_an_answer_sent_while_a_leg_runs_to_a_unit_that_waits_for_nothing_is_ref
             assert (await b.client.post(f"/runs/{run_id}/answers", json={"nobody": True})).json() == {"answers": "queued"}
             served.open_the_gate()
             row = await b.until_refused(run_id)
-            assert row["status"] == "waiting" and [unit["id"] for unit in row["waiting"]] == [second["id"]]
+            assert row["status"] == "waiting" and [waiting_call["id"] for waiting_call in row["waiting"]] == [second["id"]]
             assert [problem["type"] for problem in row["refused"]["nobody"]] == ["not_waiting"]
 
     _run(scenario)
 
 
-def test_a_second_answer_to_a_unit_answered_while_a_leg_runs_is_a_409(served: Served) -> None:
+def test_a_second_answer_to_a_call_answered_while_a_resume_call_runs_is_a_409(served: Served) -> None:
     async def scenario() -> None:
         async with _workers(served) as (a, b):
             run_id = await a.start(_APPROVE, {"n": 2})
@@ -357,7 +357,7 @@ def test_a_second_answer_to_a_unit_answered_while_a_leg_runs_is_a_409(served: Se
     _run(scenario)
 
 
-def test_an_answer_sent_while_a_leg_runs_that_ends_the_run_is_refused_when_it_ends(served: Served) -> None:
+def test_an_answer_sent_while_the_last_resume_call_runs_is_refused_when_the_run_completes(served: Served) -> None:
     async def scenario() -> None:
         async with _workers(served) as (a, b):
             run_id = await a.start(_chain("gate"))
@@ -374,8 +374,8 @@ def test_an_answer_sent_while_a_leg_runs_that_ends_the_run_is_refused_when_it_en
 def test_a_node_the_run_context_does_not_fit_is_shown_at_compile_and_its_run_is_refused_before_it_starts(served: Served) -> None:
     async def scenario() -> None:
         async with _workers(served, count=1) as (a,):
-            drawn = (await a.client.post("/compile", json=_chain("needs_missing"))).json()
-            assert [(p["type"], p["loc"]) for p in drawn["problems"]] == [("context_does_not_fit", ["needs_missing", "value"])]
+            compiled = (await a.client.post("/compile", json=_chain("needs_missing"))).json()
+            assert [(p["type"], p["loc"]) for p in compiled["problems"]] == [("context_does_not_fit", ["needs_missing", "value"])]
             created = await a.client.post("/runs", json={"graph": _chain("needs_missing"), "inputs": {}})
             assert created.status_code == 422
             assert [(p["type"], p["loc"]) for p in created.json()["detail"]] == [("context_does_not_fit", ["needs_missing", "value"])]
@@ -408,19 +408,19 @@ def test_a_run_is_seen_only_by_the_caller_who_started_it(served: Served) -> None
     _run(scenario)
 
 
-def test_a_wrong_answer_is_a_422_listing_every_fault_and_a_complete_run_is_a_409(served: Served) -> None:
+def test_a_wrong_answer_is_a_422_listing_every_problem_and_a_complete_run_is_a_409(served: Served) -> None:
     async def scenario() -> None:
         async with _workers(served, count=1) as (a,):
             served.open_the_gate()
             run_id = await a.start(_GATE_ASK)
             row = await a.until_status(run_id, "waiting")
-            (unit,) = row["waiting"]
+            (waiting_call,) = row["waiting"]
 
-            wrong = await a.client.post(f"/runs/{run_id}/answers", json={unit["id"]: "not a bool", "nonesuch": True})
+            wrong = await a.client.post(f"/runs/{run_id}/answers", json={waiting_call["id"]: "not a bool", "nonesuch": True})
             assert wrong.status_code == 422 and len(wrong.json()["detail"]) == 2
             assert (await a.read(run_id))["status"] == "waiting"
 
-            answered = await a.client.post(f"/runs/{run_id}/answers", json={unit["id"]: False})
+            answered = await a.client.post(f"/runs/{run_id}/answers", json={waiting_call["id"]: False})
             assert answered.status_code == 202
             await a.until_status(run_id, "complete")
             assert (await a.client.post(f"/runs/{run_id}/answers", json={})).status_code == 409
@@ -429,7 +429,7 @@ def test_a_wrong_answer_is_a_422_listing_every_fault_and_a_complete_run_is_a_409
     _run(scenario)
 
 
-def test_a_graph_that_cannot_run_is_a_422_before_anything_is_saved_and_load_says_where(served: Served) -> None:
+def test_a_graph_that_cannot_run_is_a_422_before_anything_is_saved_and_compile_says_where(served: Served) -> None:
     async def scenario() -> None:
         async with _workers(served, count=1) as (a,):
             broken = {"nodes": [{"id": "x", "node": "nonesuch"}]}

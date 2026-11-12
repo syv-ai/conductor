@@ -191,7 +191,7 @@ async def test_a_route_answers_with_what_the_worker_did_and_the_run_reads_as_its
         assert (await store.ended(run_id)).outputs == {"busy.result": "x", "after.result": True}
 
 
-async def test_an_answer_to_a_question_that_waits_in_a_cancelled_run_starts_its_next_leg() -> None:
+async def test_an_answer_to_a_question_that_waits_in_a_cancelled_run_starts_the_next_resume_call() -> None:
     registry, asked, gate = NodeRegistry(), Event(), Event()
 
     @registry.node("busy", title="Busy", description="For a test.")
