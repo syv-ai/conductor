@@ -20,10 +20,9 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-import pydantic_core
 from pydantic_core import PydanticSerializationError
 
-from conductor._internal.base import ItemIndexes, canonical_json, short_hash
+from conductor._internal.base import ItemIndexes, json_hash
 from conductor._internal.compiled import FlatFunctionNode
 from conductor._internal.types import untyped_to_hash
 
@@ -120,10 +119,6 @@ def arguments_fingerprint(code_fingerprint: str, arguments: dict[str, Any], *, p
             in another order, so otherwise the keys are sorted first.
     """
     try:
-        written = (
-            pydantic_core.to_json([code_fingerprint, arguments], fallback=untyped_to_hash) if plain
-            else canonical_json([code_fingerprint, arguments], fallback=untyped_to_hash)
-        )
+        return json_hash([code_fingerprint, arguments], 12, keys_sorted=not plain, fallback=untyped_to_hash)
     except (TypeError, ValueError, PydanticSerializationError):
         return None
-    return short_hash(written, 12)

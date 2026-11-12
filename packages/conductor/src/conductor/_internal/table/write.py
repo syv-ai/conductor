@@ -9,9 +9,9 @@ from decimal import Decimal
 from typing import Any
 
 import polars as pl
-from pydantic_core import CoreSchema, core_schema, to_json
+from pydantic_core import CoreSchema, core_schema
 
-from conductor._internal.base import short_hash
+from conductor._internal.base import json_hash
 
 #: The classes a table's column may be declared or written as, each with the polars dtype that holds it and how
 #: its cells are read back from JSON. A column of any other kind (a list, a struct) is written under the word
@@ -76,7 +76,7 @@ def table_digest(frame: pl.DataFrame) -> str:
     kept = _DIGESTS.get(id(frame))
     if kept is not None and kept[0]() is frame:
         return kept[1]
-    digest = short_hash(to_json(written_table(frame)), 16)
+    digest = json_hash(written_table(frame), 16, keys_sorted=False)
     key = id(frame)
     _DIGESTS[key] = (weakref.ref(frame, lambda _: _DIGESTS.pop(key, None)), digest)
     return digest

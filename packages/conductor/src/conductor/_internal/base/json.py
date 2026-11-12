@@ -2,16 +2,14 @@
 
 ``NON_FINITE_FLOATS`` is how all JSON conductor writes holds a float that is not finite; ``plain_json`` writes a
 Python value as the plain data its JSON text reads back as; ``validate_as_json`` validates a Python value as
-pydantic validates its JSON text; ``canonical_json`` writes a value as JSON text with its keys sorted, to hash.
+pydantic validates its JSON text.
 """
 
 from __future__ import annotations
 
-import json
 from collections.abc import Callable
 from typing import Any, Final
 
-import pydantic_core
 from pydantic import JsonValue, TypeAdapter
 from pydantic_core import SchemaValidator, from_json, to_json
 
@@ -61,17 +59,3 @@ def validate_as_json(validator: SchemaValidator | TypeAdapter[Any], value: Any, 
     """
     return validator.validate_json(to_json(value, inf_nan_mode="constants", fallback=fallback), strict=True)
 
-
-def canonical_json(value: Any, fallback: Callable[[Any], Any] | None = None) -> bytes:
-    """``value`` as JSON with the keys of every object sorted.
-
-    ``canonical_json({"b": 1, "a": 2})`` returns ``b'{"a":2,"b":1}'``. A database may give a JSON object back with
-    its keys in another order; hashing this text gives the same hash either way. For a value with no dict in it,
-    callers hash pydantic's own JSON instead, which is faster.
-
-    Args:
-        value: What to write.
-        fallback: Called for a value pydantic cannot write as JSON; it returns what to write in its place.
-    """
-    plain = pydantic_core.to_jsonable_python(value, fallback=fallback)
-    return json.dumps(plain, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()

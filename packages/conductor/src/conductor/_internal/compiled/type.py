@@ -27,7 +27,7 @@ import functools
 from dataclasses import dataclass
 from typing import Annotated
 
-from conductor._internal.base import NodePath, canonical_json, plural, short_hash, split_address
+from conductor._internal.base import NodePath, json_hash, plural, split_address
 from conductor._internal.field import Field
 from conductor._internal.gate import ContextDoor, InputsDoor, RefusedError
 from conductor._internal.problem import InvalidCallError, Problem
@@ -244,7 +244,7 @@ class CompiledGraph:
         """
         own = self.record.model_dump(mode="json", exclude={"nodes": {"__all__": {"display"}}})
         subgraph_fingerprints = {p.id: p.inner.fingerprint for p in self._nodes.values() if isinstance(p, CompiledSubgraphNode)}
-        return short_hash(canonical_json([own, subgraph_fingerprints]), 8)
+        return json_hash([own, subgraph_fingerprints], 8, keys_sorted=True)
 
     @functools.cached_property
     def _context_door(self) -> ContextDoor:

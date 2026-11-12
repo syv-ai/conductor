@@ -11,10 +11,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-import pydantic_core
-
 from conductor._internal.ask import QuestionOverrides, answer_required
-from conductor._internal.base import ConductorModel, Loc, canonical_json, loc_text, short_hash
+from conductor._internal.base import ConductorModel, Loc, json_hash, loc_text
 from conductor._internal.compiled import CompiledFunctionNode
 from conductor._internal.field import Field, FieldDescription
 
@@ -98,5 +96,4 @@ def question_fingerprint(compiled_node: CompiledFunctionNode, waiting: Unanswere
     inputs = waiting.question.inputs
     values = [inputs[name] for name in sorted(inputs)]  # saved, so the names may come back from a store in any order
     hashed = [compiled_node.id, compiled_node.code_fingerprint, values]
-    written = canonical_json(hashed) if {type(v) for v in values} & {dict, list} else pydantic_core.to_json(hashed)  # plain values have no keys to sort
-    return short_hash(written, 4)
+    return json_hash(hashed, 4, keys_sorted=bool({type(v) for v in values} & {dict, list}))  # plain values have no keys to sort
