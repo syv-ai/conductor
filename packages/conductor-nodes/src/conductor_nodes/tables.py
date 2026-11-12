@@ -51,6 +51,19 @@ def _column_inputs(columns: list[str], constant_columns: list[str]) -> dict[str,
     return {**{name: Series[Any] for name in columns}, **{name: Any for name in constant_columns}}
 
 
+def _refuse_taken(new_columns: list[str], columns_of_records: list[str]) -> None:
+    """Raises ``NodeError`` (``column_taken``) when a new column has the name of a column the records already have.
+
+    ``_table`` calls it when the graph is compiled, for records whose row type names their columns; ``collect`` calls
+    it when the node runs, for a ``Table`` of any columns, whose columns are known only then.
+    """
+    taken = [name for name in new_columns if name in columns_of_records]
+    if taken:
+        raise NodeError(
+            f"The records already have a column '{taken[0]}'. Give the new column another name.", code="column_taken", ctx={"column": taken[0]},
+        )
+
+
 def _table(records: type, columns: list[str], **added: type) -> dict[str, Any]:
     """Returns the type of the table ``collect`` returns: the records' columns, then each new column.
 
@@ -67,11 +80,7 @@ def _table(records: type, columns: list[str], **added: type) -> dict[str, Any]:
     if not typing.is_typeddict(records):
         return {"result": Table}
     known = typing.get_type_hints(records)
-    taken = [name for name in added if name in known]
-    if taken:
-        raise NodeError(
-            f"The records already have a column '{taken[0]}'. Give the new column another name.", code="column_taken", ctx={"column": taken[0]},
-        )
+    _refuse_taken(list(added), list(known))
     new = {name: arriving | None if name in columns else arriving for name, arriving in added.items()}
     return {"result": _Table[TypedDict("Collected", {**known, **new})]}  # type: ignore[operator]  # a row type built at compile
 
@@ -87,8 +96,10 @@ def collect(records: Table, columns: Names = [], constant_columns: Names = [], *
     ``columns``, one value for a name in ``constant_columns``.
 
     Raises:
-        NodeError: A list of ``columns`` has another number of values than there are records (``columns_not_aligned``).
+        NodeError: A new column has the name of a column of the records (``column_taken``), or a list of ``columns`` has
+            another number of values than there are records (``columns_not_aligned``).
     """
+    _refuse_taken([*columns, *constant_columns], records.columns)
     for name in columns:
         count = len(values[name])
         if count != records.height:

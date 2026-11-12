@@ -222,6 +222,21 @@ def test_collect_refuses_a_new_column_the_records_already_have_naming_it():
     assert (problem.type, problem.loc, problem.ctx["error"], problem.ctx["error_ctx"]) == ("compute_hook_failed", ("table-collect",), "column_taken", {"column": "email"})
 
 
+@pytest.mark.parametrize(("nodes", "edges", "constants"), [
+    ((csv, sentence), [("csv.result", "table-collect.records"), ("sentence.result", "table-collect.age")], {"table-collect.constant_columns": ["age"]}),
+    ((csv, series.split), [("csv.result", "series-split.value"), ("series-split.result", "table-collect.records"), ("series-split.result.name", "table-collect.age")],
+     {"table-collect.columns": ["age"]}),
+])
+def test_collect_refuses_a_new_column_that_a_table_of_any_columns_already_has_when_it_runs(
+    nodes: tuple[Any, ...], edges: list[tuple[str, str]], constants: dict[str, Any],
+):
+    """A bare ``Table``'s columns are known only when the node runs, so a new column with one of their names fails then."""
+    graph = load(*nodes, tables.collect, edges=edges, constants=constants)
+    assert graph.problems == []
+    cause = graph.run().state.cause
+    assert (cause.type, cause.loc, cause.ctx) == ("column_taken", ("table-collect",), {"column": "age"})
+
+
 def test_collect_refuses_a_column_named_twice():
     graph = load(tables.collect, edges=[], constants={"table-collect.columns": ["team"], "table-collect.constant_columns": ["team"]})
     (problem,) = graph.problems
