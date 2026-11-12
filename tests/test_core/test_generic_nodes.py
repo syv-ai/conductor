@@ -10,7 +10,17 @@ from typing import Annotated, Any, TypedDict
 
 import polars as pl
 import pytest
-from conductor import SKIPPED, Graph, GraphRecord, NodeDeclarationError, Param, Series, Table, node
+from conductor import (
+    SKIPPED,
+    Ask,
+    Graph,
+    GraphRecord,
+    NodeDeclarationError,
+    Param,
+    Series,
+    Table,
+    node,
+)
 
 from tests.test_core.nodes import registry_of
 
@@ -119,6 +129,17 @@ def test_an_output_is_checked_against_the_type_the_edge_bound() -> None:
 
     run = _compiled(text, liar, edges=[["text.result", "liar.value"]]).run()
     assert (run.status, run.state.cause.type) == ("failed", "invalid_output")
+
+
+def test_the_choices_of_an_ask_are_checked_against_the_type_the_edge_bound() -> None:
+    @node("pick", title="Pick", description="For a test.", asks=True)
+    def pick[T](value: T) -> T:
+        raise Ask("Which?", choices=[1, 2])
+
+    asked_for_numbers = _compiled(number, pick, edges=[["number.result", "pick.value"]]).run()
+    asked_for_texts = _compiled(text, pick, edges=[["text.result", "pick.value"]]).run()
+    assert asked_for_numbers.status == "waiting"
+    assert (asked_for_texts.status, asked_for_texts.state.cause.type) == ("failed", "invalid_ask")
 
 
 def test_a_series_wired_to_a_type_variable_is_looped_over_and_binds_the_item_type() -> None:
