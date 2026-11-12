@@ -16,7 +16,7 @@ from conductor import (
     Table,
     host_type,
     node,
-    stored_graph,
+    subgraph,
 )
 
 
@@ -394,7 +394,7 @@ def _embedding(inner_nodes: dict[str, str], inner_edges: list[tuple[str, str]]) 
     registry = NodeRegistry()
     registry.add_subregistry(REGISTRY)
     record = GraphRecord.model_validate({"nodes": [{"id": i, "node": n} for i, n in inner_nodes.items()], "edges": [list(edge) for edge in inner_edges]})
-    registry.add(stored_graph("inner", title="Inner", description="A subgraph.")(record))
+    registry.add(subgraph("inner", title="Inner", description="A subgraph.")(record))
     return registry
 
 

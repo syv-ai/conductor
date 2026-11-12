@@ -33,7 +33,7 @@ from conductor import (
     host_type,
     make_graph,
     node,
-    stored_graph,
+    subgraph,
 )
 from conductor._internal import outcomes
 from conductor._internal.outcomes import Done, Skipped
@@ -594,7 +594,7 @@ def test_a_save_names_the_graphs_embedded_in_its_graph_too():
         return text.lower()
 
     def with_inner(*nodes: NodeRecord) -> Any:
-        return registry_of(shout, quiet, stored_graph("inner", title="Inner", description="For a test.")(GraphRecord(nodes=list(nodes))))
+        return registry_of(shout, quiet, subgraph("inner", title="Inner", description="For a test.")(GraphRecord(nodes=list(nodes))))
 
     outer = GraphRecord(nodes=[NodeRecord(id="e", node="inner")])
     saved = Graph.compile(outer, with_inner(NodeRecord(id="x", node="shout"))).run(text="a").to_json()

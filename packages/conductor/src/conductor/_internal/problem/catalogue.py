@@ -94,7 +94,7 @@ def edge_names_missing_node(*loc: str | int, missing: str, source: str, target: 
 
 
 @PROBLEMS.problem()
-def embeds_itself(*loc: str | int, node: str) -> str:
+def subgraph_contains_itself(*loc: str | int, node: str) -> str:
     """A node is a graph that contains itself.
 
     Args:
@@ -193,22 +193,22 @@ def series_not_nested(node_id: str, *, series: list[str], inputs: list[str], wir
     )
 
 
-@PROBLEMS.problem("series_not_nested", hint="inside_stored_graph")
-def loops_not_nested_inside_subgraph(node_id: str, *, series: list[str], inputs: list[str], stored_graphs: list[str]) -> str:
+@PROBLEMS.problem("series_not_nested", hint="inside_subgraph")
+def loops_not_nested_inside_subgraph(node_id: str, *, series: list[str], inputs: list[str], subgraphs: list[str]) -> str:
     """A node reads items of two Series, neither is made inside the other, and one of them is a list inside a
-    stored graph, so no edge of this graph can put one inside the other.
+    subgraph, so no edge of this graph can put one inside the other.
 
     Args:
         node_id: The node.
-        series: The two Series, by the address of each one's output; a list inside a stored graph is named
-            by the stored graph's node and its address there, ``e.documents.result``.
+        series: The two Series, by the address of each one's output; a list inside a subgraph is named
+            by the subgraph's node and its address there, ``e.documents.result``.
         inputs: The two inputs that read them.
-        stored_graphs: The ids of the stored graphs' nodes a list of the two is inside.
+        subgraphs: The ids of the subgraphs' nodes a list of the two is inside.
     """
     return (
         f"'{node_id}' reads items of {comma_separated(series)}, and neither is made inside the other, so nothing says which item goes with which. "
-        f"A list inside a stored graph ({comma_separated(stored_graphs)}) is looped over where that graph loops over it, so no edge here can change that. "
-        "Give one of them whole to a Series input, or change the stored graph so it returns both outputs from the same loop."
+        f"A list inside a subgraph ({comma_separated(subgraphs)}) is looped over where that graph loops over it, so no edge here can change that. "
+        "Give one of them whole to a Series input, or change the subgraph so it returns both outputs from the same loop."
     )
 
 

@@ -129,17 +129,17 @@ def items_and_note(text: str, note: str | None) -> Listed:
     return Listed(text.split(), note)
 
 
-REGISTRY.stored_graph("pair-then-up-or-none", title="Pair then up", description="A pair, in capitals, or none.")(
+REGISTRY.subgraph("pair-then-up-or-none", title="Pair then up", description="A pair, in capitals, or none.")(
     make_graph(pair, up_or_none, edges=[("pair.result", "up-or-none.a")])
 )
 
 
-REGISTRY.stored_graph("items-then-up", title="Items then up", description="Each word of a text, in capitals.")(
+REGISTRY.subgraph("items-then-up", title="Items then up", description="Each word of a text, in capitals.")(
     make_graph(items, up, edges=[("items.result", "up.a")])
 )
 
 
-REGISTRY.stored_graph("pair-then-items-then-up", title="Pair then items then up", description="Each word of a pair, in capitals.")(
+REGISTRY.subgraph("pair-then-items-then-up", title="Pair then items then up", description="Each word of a pair, in capitals.")(
     make_graph(pair, items, up, edges=[("pair.result", "items.text"), ("items.result", "up.a")])
 )
 
@@ -363,7 +363,7 @@ def both(a: Series[str], b: Series[str]) -> str:
     return f"{'|'.join(a)}:{''.join(b)}"
 
 
-REGISTRY.stored_graph("summary-and-letters", title="Summary and letters", description="A text in capitals beside its letters in capitals.")(
+REGISTRY.subgraph("summary-and-letters", title="Summary and letters", description="A text in capitals beside its letters in capitals.")(
     make_graph(up, chars, maybe, both, edges=[("chars.result", "maybe.a"), ("up.result", "both.a"), ("maybe.result", "both.b")])
 )
 
@@ -434,7 +434,7 @@ def test_an_embedded_graph_run_per_item_shows_a_list_for_each_item_and_none_for_
     assert never.results["e"]["up.result"] is None and never.outputs["e.up.result"] is None and never.outputs_json() == '{"e.up.result":null}'
 
 
-REGISTRY.stored_graph("words-up-and-letters", title="Words and letters", description="Each word in capitals, and each letter of each word.")(
+REGISTRY.subgraph("words-up-and-letters", title="Words and letters", description="Each word in capitals, and each letter of each word.")(
     make_graph(items, up, chars, maybe, edges=[("items.result", "up.a"), ("items.result", "chars.a"), ("chars.result", "maybe.a")])
 )
 

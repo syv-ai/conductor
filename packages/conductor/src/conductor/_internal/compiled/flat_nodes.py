@@ -61,7 +61,7 @@ class _FlatNodeBase:
         name: The path as a run and a save name the node, ``e/ask``.
         loops: Every map it runs in, outermost first, each as the function whose ``Series`` output it is and
             that output: those of the subgraph's node it is inside, then those of its own scope. A loop
-            over a ``Series`` a stored graph offers is the loop inside that graph (``_series_looped_over``).
+            over a ``Series`` a subgraph offers is the loop inside that graph (``_series_looped_over``).
     """
 
     parent: FlatSubgraph | None
@@ -319,7 +319,7 @@ def _add_flat_nodes(graph: CompiledGraph, parent: FlatSubgraph | None, function_
 
 def _source_function(port: OutputAddress, nodes_by_id: Mapping[str, FlatNode]) -> tuple[FlatFunctionNode, str]:
     """The function that returns the output ``port`` names, and the output's name there: the node itself, or
-    for a stored graph's node the function inside it that returns what the node offers."""
+    for a subgraph's node the function inside it that returns what the node offers."""
     source_node = nodes_by_id[port.node_id]
     return source_node.output_sources[port.output] if isinstance(source_node, FlatSubgraph) else (source_node, port.output)
 
@@ -327,13 +327,13 @@ def _source_function(port: OutputAddress, nodes_by_id: Mapping[str, FlatNode]) -
 def _series_looped_over(loop: OutputAddress, parent_path: NodePath, nodes_by_name: Mapping[str, FlatNode]) -> tuple[FlatFunctionNode, str]:
     """The list one loop of a node's scope goes through, as the function that returns it and the output's name.
 
-    A loop over a function's ``Series`` output is that output. A loop a stored graph's node names is a loop
-    inside the stored graph. Example: ``e`` is the stored graph ``documents -> lines -> shout``, and a node
+    A loop over a function's ``Series`` output is that output. A loop a subgraph's node names is a loop
+    inside the subgraph. Example: ``e`` is the subgraph ``documents -> lines -> shout``, and a node
     outside is called once per item of ``e.documents.result``: that is ``result`` of ``e/documents``.
 
     Args:
         loop: The loop, as a graph's scope names it.
-        parent_path: The path of the stored graph's node that graph is inside; empty for the run's own graph.
+        parent_path: The path of the subgraph's node that graph is inside; empty for the run's own graph.
         nodes_by_name: Every node placed so far, by its name.
     """
     source_node = nodes_by_name[node_path_text((*parent_path, loop.node_id))]
@@ -352,13 +352,13 @@ def _flat_plan(plan: InputPlan, nodes_by_id: Mapping[str, FlatNode], parent_path
     """A plan of a compiled graph as the plan of its node where it stands: each output names the function that
     returns it by its ``name``, in the loops that function is called in.
 
-    An output of a stored graph's node is the output of a function inside it: an edge from
+    An output of a subgraph's node is the output of a function inside it: an edge from
     ``e.shout.result`` reads ``result`` of ``e/shout``.
 
     Args:
         plan: The plan, as its graph loaded it.
         nodes_by_id: The nodes of that graph placed so far, where they stand, by id.
-        parent_path: The path of the stored graph's node that graph is inside; empty for the run's own graph.
+        parent_path: The path of the subgraph's node that graph is inside; empty for the run's own graph.
         functions: Every function placed so far, by its name.
     """
 

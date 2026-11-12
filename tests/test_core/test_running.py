@@ -33,7 +33,7 @@ from conductor import (
     host_type,
     make_graph,
     node,
-    stored_graph,
+    subgraph,
 )
 from pydantic import BaseModel, model_serializer
 
@@ -1179,7 +1179,7 @@ def test_a_blank_into_an_embedding_leaves_the_nodes_inside_uncalled_as_it_would_
     def upper(text: str) -> str:
         return text.upper()
 
-    inner = stored_graph("twice", title="Twice", description="For a test.")(GraphRecord(nodes=[NodeRecord(id="u", node="upper"), NodeRecord(id="v", node="upper")], edges=[("u.result", "v.text")]))
+    inner = subgraph("twice", title="Twice", description="For a test.")(GraphRecord(nodes=[NodeRecord(id="u", node="upper"), NodeRecord(id="v", node="upper")], edges=[("u.result", "v.text")]))
     graph = Graph.compile(GraphRecord(
         nodes=[NodeRecord(id="w", node="words"), NodeRecord(id="emb", node="twice")], edges=[("w.result", "emb.text")],
     ), registry_of(words, upper, inner))

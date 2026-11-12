@@ -1,4 +1,4 @@
-"""``CompiledGraph``: a stored graph checked against the nodes it uses.
+"""``CompiledGraph``: a graph record compiled against the nodes it uses.
 
 A table is one value. A subgraph is one node: its inputs are the inner
 graph's inputs, its outputs the inner graph's outputs. It loads once, alone,
@@ -57,7 +57,7 @@ class InputField:
 @dataclass(frozen=True, eq=False)
 class CompiledGraph:
     """A graph record checked against the nodes it uses, made by the compiler: its problems, its open inputs and its
-    nodes placed. The ``Graph`` a host holds is a compiled graph that can start a run; a stored graph used as a node
+    nodes placed. The ``Graph`` a host holds is a compiled graph that can start a run; a subgraph
     is checked alone as one (``CompiledSubgraphNode.inner``) and never run alone.
 
     ``record``, ``problems`` and ``inputs`` are what a host reads of one, and ``Graph`` says what each holds.

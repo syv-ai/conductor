@@ -1,4 +1,4 @@
-"""``GraphRecord`` and ``NodeRecord``, the stored graph.
+"""``GraphRecord`` and ``NodeRecord``: a graph as it is stored.
 
 A graph record is its nodes and its edges, and nothing else::
 

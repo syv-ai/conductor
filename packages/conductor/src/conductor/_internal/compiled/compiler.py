@@ -1,4 +1,4 @@
-"""Loading: a stored graph checked against the nodes it uses, into a ``CompiledGraph``.
+"""Compiling: a graph record checked against the nodes it uses, into a ``CompiledGraph``.
 
 Loading does everything once: every edge and value is checked, and each node
 gets the scope it runs in. What is wrong becomes a ``Problem`` with a place,
@@ -58,7 +58,7 @@ from conductor._internal.node_definition import (
     FunctionDefinition,
     HookName,
     NodeDefinition,
-    StoredGraphDefinition,
+    SubgraphDefinition,
     is_node_id,
     read_by_hooks,
 )
@@ -173,7 +173,7 @@ class _Compiler:
             match self._resolve(known[node_id]):
                 case FunctionDefinition() as function:
                     self._compile_function_node(known[node_id], function, into[node_id])
-                case StoredGraphDefinition() as graph:
+                case SubgraphDefinition() as graph:
                     self._compile_subgraph_node(known[node_id], graph, into[node_id])
                 case None:
                     pass
@@ -273,7 +273,7 @@ class _Compiler:
                 id=record.id, loops=planned.loops, inputs=planned.inputs, outputs=outputs, definition=definition,
             ), planned.required_branches)
 
-    def _compile_subgraph_node(self, record: NodeRecord, definition: StoredGraphDefinition, edges: dict[str, list[str]]) -> None:
+    def _compile_subgraph_node(self, record: NodeRecord, definition: SubgraphDefinition, edges: dict[str, list[str]]) -> None:
         """Place a subgraph as one node: the inner graph loaded alone, its inputs and outputs this node's fields.
 
         An input is offered under the name the inner graph gives it (``graph.inputs``), and an output under its
@@ -286,7 +286,7 @@ class _Compiler:
         isn't known.
         """
         if definition.id in self.inside_subgraphs:
-            self.problems.append(problem.embeds_itself(record.id, node=definition.id))
+            self.problems.append(problem.subgraph_contains_itself(record.id, node=definition.id))
             return
         stack = (*self.inside_subgraphs, definition.id)
         key = (definition.id, definition.version, stack)
@@ -382,10 +382,10 @@ class _Compiler:
                 series = [loops[-1], plan.loops[-1]]
                 outer, inner = sorted(series, key=lambda port: list(self.nodes).index(port.node_id))  # the one placed later can read the other with no cycle
                 reading = next(n for n, p in inputs.items() if isinstance(p, InputFromEdges) and p.loops == loops)
-                stored_graphs = list(dict.fromkeys(port.node_id for port in series if isinstance(self.nodes[port.node_id], CompiledSubgraphNode)))
-                if stored_graphs:  # an edge of this graph can't move a list inside a stored graph
+                subgraphs = list(dict.fromkeys(port.node_id for port in series if isinstance(self.nodes[port.node_id], CompiledSubgraphNode)))
+                if subgraphs:  # an edge of this graph can't move a list inside a subgraph
                     self.problems.append(problem.loops_not_nested_inside_subgraph(
-                        record.id, series=[str(s) for s in series], inputs=[reading, name], stored_graphs=stored_graphs,
+                        record.id, series=[str(s) for s in series], inputs=[reading, name], subgraphs=subgraphs,
                     ))
                 else:
                     self.problems.append(problem.series_not_nested(

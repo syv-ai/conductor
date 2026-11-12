@@ -32,7 +32,7 @@ from conductor import (
     Series,
     Table,
     node,
-    stored_graph,
+    subgraph,
 )
 from conductor.events import (
     NodeComplete,
@@ -268,7 +268,7 @@ REGISTRY = NodeRegistry()
 for _definition in (words, sentences, chars, upper, exclaim, greet, count, ask, fetch, flaky, stuck, boom, maybe, decide, signed, columns, table, stamp, stagger, letters, height, sheets, record, note):
     REGISTRY.add(_definition)
 for _id, _record in INNER.items():
-    REGISTRY.add(stored_graph(_id, title=_id.capitalize(), description=f"The {_id} node.")(GraphRecord.model_validate(_record)))
+    REGISTRY.add(subgraph(_id, title=_id.capitalize(), description=f"The {_id} node.")(GraphRecord.model_validate(_record)))
 
 
 def load(nodes: dict[str, str | dict[str, Any]], edges: list[tuple[str, str]] = ()):  # type: ignore[assignment]
@@ -351,7 +351,7 @@ def mapped_with_problems(inner: str):
 
 
 def test_a_graph_that_embeds_itself_is_refused_at_the_node_that_closes_the_circle():
-    assert problems(load({"e": "self-a"})) == [("embeds_itself", ("e", "x", "y"))]
+    assert problems(load({"e": "self-a"})) == [("subgraph_contains_itself", ("e", "x", "y"))]
 
 
 def test_an_output_returned_inside_loops_is_offered_as_one_series_per_loop():
@@ -381,7 +381,7 @@ def chain_node(node_id: str) -> str:
     """The id of a subgraph of the one node ``node_id``, registered when first asked for."""
     embedded = f"only-{node_id}"
     if embedded not in REGISTRY:
-        REGISTRY.add(stored_graph(embedded, title=embedded.capitalize(), description=f"The {embedded} node.")(GraphRecord.model_validate(chain(("d", node_id)))))
+        REGISTRY.add(subgraph(embedded, title=embedded.capitalize(), description=f"The {embedded} node.")(GraphRecord.model_validate(chain(("d", node_id)))))
     return embedded
 
 
@@ -854,7 +854,7 @@ def test_an_embedded_graph_with_no_output_is_done_when_the_nodes_inside_it_are_a
 def test_an_embedded_graph_of_no_nodes_runs_to_nothing_as_a_graph_of_no_nodes_does():
     registry = NodeRegistry()
     registry.add(upper)
-    registry.add(stored_graph("nothing", title="Nothing", description="The nothing node.")(GraphRecord.model_validate({"nodes": [], "edges": []})))
+    registry.add(subgraph("nothing", title="Nothing", description="The nothing node.")(GraphRecord.model_validate({"nodes": [], "edges": []})))
     alone = Graph.compile(GraphRecord.model_validate({"nodes": [], "edges": []}), registry).run()
     graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "u", "node": "upper"}, {"id": "e", "node": "nothing"}], "edges": []}), registry)
     run = graph.run(text="x")

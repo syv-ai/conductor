@@ -24,7 +24,7 @@ from conductor import (
     Series,
     host_type,
     node,
-    stored_graph,
+    subgraph,
 )
 from pydantic import AfterValidator, GetCoreSchemaHandler, JsonValue
 from pydantic_core import core_schema
@@ -772,7 +772,7 @@ def test_again_with_one_of_an_embeddings_inputs_changed_calls_only_the_inner_nod
         calls["confirm"] += 1
         raise Ask(f"ok {b}?")
 
-    box = stored_graph("two", title="Two", description="For a test.")(GraphRecord(nodes=[NodeRecord(id="x", node="mark"), NodeRecord(id="y", node="confirm")]))
+    box = subgraph("two", title="Two", description="For a test.")(GraphRecord(nodes=[NodeRecord(id="x", node="mark"), NodeRecord(id="y", node="confirm")]))
     graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "e", "node": "two"}]}), registry_of(mark, confirm, box))
     first = graph.run({"e.a": "1", "e.b": "2"})
     first = first.answer(first.waiting[0], True).resume()

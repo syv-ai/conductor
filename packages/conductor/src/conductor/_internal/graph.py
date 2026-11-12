@@ -26,7 +26,7 @@ class Graph(CompiledGraph):
     ``problems`` is everything wrong with it, and a graph with none runs: ``graph.run(**inputs)``.
 
     Attributes:
-        record: The stored graph it was loaded from.
+        record: The graph record it was compiled from.
         problems: Everything wrong with it; empty for a graph that runs.
         inputs: The open inputs of its first nodes, by name (``node.input`` where two share a name): what a
             caller fills.

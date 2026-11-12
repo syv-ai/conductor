@@ -1,6 +1,6 @@
 """Three ways to say where something is in a run, and the text form of each.
 
-The example used in this file: a graph has a node ``e``, which is a subgraph (a stored graph used as
+The example used in this file: a graph has a node ``e``, which is a subgraph (a graph record used as
 one node). ``e`` is called once per document. Inside it, a node ``ask`` is called once per line of the document.
 
 - A **node path** names a node: ``("e", "ask")``. As text it is ``"e/ask"``.

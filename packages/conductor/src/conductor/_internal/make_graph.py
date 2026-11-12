@@ -113,7 +113,7 @@ def _chain_edges(
             case FunctionDefinition(), FunctionDefinition():
                 outputs = list(before.outputs)
                 open_inputs = [name for name, field in after.inputs.items() if field.default is REQUIRED and name not in filled]
-            case _:  # a stored graph's fields are known only when it loads, so a chain can't be drawn through it
+            case _:  # a subgraph's fields are known only when it loads, so a chain can't be drawn through it
                 outputs, open_inputs = [], []
         if len(outputs) != 1 or len(open_inputs) != 1:
             problems.append(problem.not_a_chain(after_id, before=before_id, inputs=open_inputs, outputs=outputs))

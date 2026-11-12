@@ -10,7 +10,7 @@ This page is a reviewer's guide to 2.0's design. It goes topic by topic: what ea
 ## The front door and the registry
 
 - **A graph is data.** There is no `@graph` decorator and no placing nodes in Python. A graph built in code is the same record an editor saves. Most graphs are drawn, and two ways to define one would mean two sets of rules.
-- **`@node` wraps a function and registers nothing.** It returns a frozen, callable `FunctionDefinition`, so calling it like the function is its unit test; `stored_graph(...)(record)` returns a `StoredGraphDefinition`, which has no function to call. `NodeDefinition` is either one. `@registry.node(...)` and `registry.stored_graph(...)` take the same arguments as the two, and add the node.
+- **`@node` wraps a function and registers nothing.** It returns a frozen, callable `FunctionDefinition`, so calling it like the function is its unit test; `subgraph(...)(record)` returns a `SubgraphDefinition`, which has no function to call. `NodeDefinition` is either one. `@registry.node(...)` and `registry.subgraph(...)` take the same arguments as the two, and add the node.
 - **`NodeRegistry` works like a FastAPI router.** `add_subregistry` copies another registry's nodes in, so a package keeps one registry per module. One merge rule applies wherever a node enters: the registry's tags come first, then the node's; the node's own `category` wins; `extra` merges key by key. Replacing `extra` whole would drop a registry's filter key from any node with an `extra` of its own. Live, linked subregistries were not built, because nothing needs them.
 - **One way each.** The decorator is for your own nodes, `add(*definitions)` for other people's, and the constructor takes no node list. `add` raises on a repeated id; `replace` and `remove` are explicit.
 - **`registry.filter(predicate)` returns a registry of its own.** The predicate gets the whole definition. `extra` is the host's JSON, typed as JSON: shown by `describe()`, never read by conductor.
@@ -184,18 +184,18 @@ print(asked.answer(asked.waiting[0], "casual").resume().outputs)  # {'tone.resul
 - **Nodes run on the leg's own thread by default** (`Policy(concurrency=1)`). An author asks for threads with `concurrency` or `attempt_timeout`. Threads by default would surprise code that isn't thread-safe, and calling inline is most of the core's speed.
 - **Values are checked where it matters.** A node's return is read strictly against its type (`invalid_output`). An edge's value is read again only where its source's type doesn't settle it, decided at load, so a plain chain checks nothing at run time.
 - **Only `ExternalError`, or a class the node's `retry_on` names, is retried.** A `NodeError` of the node's own, an output its type refused and an `Ask` are never retried, whatever `retry_on` says: repeating the call repeats them. After a failure, calls already on threads finish and are kept, so resuming repeats none.
-- **A stored graph is a node:** `stored_graph("id", title=..., description=...)(record)`, taking no policy or hook, as its own nodes run by theirs. From outside it is one node with the inputs and outputs it offers, which are its graph's own loaded alone, as its hooks made them. It loads once however many graphs use it, and nothing of it is copied into the graph around it: a run walks the tree those graphs make. A node inside keeps its calls as any node does, one per item of the stored graph's node and of its own Series, and is named by a path: the node and item of each stored graph around it, then the inner node. So a blank or a skip that arrives reaches the inner nodes that read it, exactly as drawn flat, and the stored graph is never called, blank or skipped itself. A run per item of the stored graph was built first and removed: a 2,000-item save was 34 times a flat graph's.
+- **A graph record can be a node, a subgraph:** `subgraph("id", title=..., description=...)(record)`, taking no policy or hook, as its own nodes run by theirs. From outside it is one node with the inputs and outputs it offers, which are its graph's own loaded alone, as its hooks made them. It loads once however many graphs use it, and nothing of it is copied into the graph around it: a run walks the tree those graphs make. A node inside keeps its calls as any node does, one per item of the subgraph's node and of its own Series, and is named by a path: the node and item of each subgraph around it, then the inner node. So a blank or a skip that arrives reaches the inner nodes that read it, exactly as drawn flat, and the subgraph is never called, blank or skipped itself. A run per item of the subgraph was built first and removed: a 2,000-item save was 34 times a flat graph's.
 
 ```python
-from conductor import stored_graph
+from conductor import subgraph
 
-shout = stored_graph("shout", title="Shout", description="Turns a text into capital letters.")(make_graph(upper))
+shout = subgraph("shout", title="Shout", description="Turns a text into capital letters.")(make_graph(upper))
 registry.add(shout)
 shouted = Graph.compile(make_graph(shout, join, edges=[("shout.upper.result", "join.texts")]), registry)
 print(list(shouted.inputs), shouted.outputs)  # ['text'] ['join.result']
 ```
 
-**Worth questioning:** a stored graph's node keeps one unit per item, what its outputs came to there, so a stored graph run per item costs about a quarter more than the same nodes drawn flat. Reading its outputs straight from the nodes inside would close that, at the price of two ways for an output to get out.
+**Worth questioning:** a subgraph's node keeps one unit per item, what its outputs came to there, so a subgraph run per item costs about a quarter more than the same nodes drawn flat. Reading its outputs straight from the nodes inside would close that, at the price of two ways for an output to get out.
 
 **Worth questioning:** a host whose slow nodes forget `concurrency` runs them in series. This holds because the slow node knows it's slow, and saying so is one argument.
 
@@ -257,7 +257,7 @@ print(Settings.model_json_schema()["properties"]["temperature"])  # {'default': 
 
 ## The companion packages
 
-- **`conductor-nodes`:** the 34 standard nodes, a registry per module, and `conductor_nodes.registry` holding them all. It has no types of its own. A failure a person can act on is a `NodeError` with a code. A stored graph names a node by its id, so an id changes only in a major release, with the old and the new id listed in the changelog.
+- **`conductor-nodes`:** the 34 standard nodes, a registry per module, and `conductor_nodes.registry` holding them all. It has no types of its own. A failure a person can act on is a `NodeError` with a code. A graph record names a node by its id, so an id changes only in a major release, with the old and the new id listed in the changelog.
 - **`conductor-providers`:** `run_router(store=, registry=, caller=, may_see=)`, a FastAPI router mounted with `app.include_router(...)`. Starting, reading, following, answering, resuming, running again and cancelling are routes, by run id, served from any worker.
 - **The host owns storage and login.** `RunStore` is six async methods over one row per run, and every change is a compare-and-set on a revision. A lease lets another worker resume a dead worker's run from its last checkpoint. `caller` is a FastAPI dependency whose return type is kept on the run as JSON, so any worker can rebuild the registry for that caller. A run is visible only to whoever started it, unless the host widens `may_see`; `again` by another caller loads the run on that caller's own nodes.
 - **What the router promises.** An answer sent while a leg runs is queued, and the write that ends the leg either takes it or refuses it in the run's `refused`, never drops it; only a leg that ends `waiting` takes answers; a second answer to a question already queued is 409. The ceiling a run was started or resumed with holds for every later leg. A cancel stays set through a takeover, so only an explicit resume restarts the run. One leg may run 5 minutes by default (`leg_timeout`), and a timed-out run waits for a resume.

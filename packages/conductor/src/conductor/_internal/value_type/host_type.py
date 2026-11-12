@@ -49,7 +49,7 @@ class TypeDeclaration:
     that needs behaviour of its own is a subclass of ``Type``, as ``Series`` and ``Table`` have.
 
     Attributes:
-        id: The name an editor and a stored graph know the type by, such as ``"money"``. A word with none of
+        id: The name an editor and a graph record know the type by, such as ``"money"``. A word with none of
             ``[ ] | , :`` or a space, since the id of ``list[Money]`` is written ``list[money]``.
         title: What a person reads for the type, such as ``"Money"``.
         accepts: Other classes whose values an edge may pass to an input of this type.
@@ -80,7 +80,7 @@ def host_type[C: type](id: str, *, title: str, accepts: list[type] | tuple[type,
     the parent class and then made the subclass. A subclass does not inherit the declaration; declare it too.
 
     Args:
-        id: The name an editor and a stored graph know the type by.
+        id: The name an editor and a graph record know the type by.
         title: What a person reads for the type.
         accepts: Other classes whose values an edge may pass to an input of this type.
 

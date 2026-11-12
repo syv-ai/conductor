@@ -16,7 +16,7 @@ from conductor import (
     Table,
     make_graph,
     node,
-    stored_graph,
+    subgraph,
 )
 from conductor._internal.table import Records
 
@@ -167,7 +167,7 @@ def test_a_series_of_records_returned_per_item_inside_a_stored_graph_reaches_a_s
 
     registry = registry_of(parts, contacts, count)
     inner = GraphRecord(nodes=[NodeRecord(id="p", node="parts"), NodeRecord(id="c", node="contacts")], edges=[("p.result", "c.text")])
-    registry.add(stored_graph("inner", title="Inner", description="For a test.")(inner))
+    registry.add(subgraph("inner", title="Inner", description="For a test.")(inner))
     graph = Graph.compile(GraphRecord(nodes=[NodeRecord(id="e", node="inner"), NodeRecord(id="count", node="count")], edges=[("e.c.result", "count.found")]), registry)
     RECEIVED.clear()
     run = graph.run(text="x,y")
@@ -334,7 +334,7 @@ def test_a_table_shared_inside_an_embedded_graph_is_written_once_under_the_nodes
 
     registry = registry_of(people, split, greet)
     inner = GraphRecord(nodes=[NodeRecord(id="people", node="people"), NodeRecord(id="split", node=split.id)], edges=[("people.result", "split.value")])
-    registry.add(stored_graph("inner", title="Inner", description="For a test.")(inner))
+    registry.add(subgraph("inner", title="Inner", description="For a test.")(inner))
     graph = Graph.compile(GraphRecord(nodes=[NodeRecord(id="e", node="inner"), NodeRecord(id="greet", node="greet")], edges=[("e.split.result.name", "greet.name")]), registry)
     run = graph.run(text="x")
 

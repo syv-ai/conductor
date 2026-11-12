@@ -30,11 +30,11 @@ from conductor._internal.node_definition import (
     NodeDefinition,
     NodeDescription,
     Policy,
-    StoredGraphDefinition,
-    StoredGraphDescription,
+    SubgraphDefinition,
+    SubgraphDescription,
     Upgrade,
     node,
-    stored_graph,
+    subgraph,
 )
 from conductor._internal.problem import (
     PROBLEMS,
@@ -57,10 +57,10 @@ from conductor._internal.value_type import Choice, Param, host_type
 __all__ = [
     # Writing a node
     "node",
-    "stored_graph",
+    "subgraph",
     "NodeDefinition",
     "FunctionDefinition",
-    "StoredGraphDefinition",
+    "SubgraphDefinition",
     "Upgrade",
     "Policy",
     "Deprecation",
@@ -94,7 +94,7 @@ __all__ = [
     "FieldDescription",
     "NodeDescription",
     "FunctionNodeDescription",
-    "StoredGraphDescription",
+    "SubgraphDescription",
     "RegistryDescription",
     "TypeDescription",
     "GraphDescription",

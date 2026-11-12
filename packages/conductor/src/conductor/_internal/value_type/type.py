@@ -190,7 +190,7 @@ class Type:
 
     @functools.cached_property
     def id(self) -> str:
-        """The name an editor and a stored graph know the type by, ``| None`` off.
+        """The name an editor and a graph record know the type by, ``| None`` off.
 
         A host's class is known by the id its ``@host_type`` declares, a union by its members' (``money | int``), a generic by its
         class and arguments (``list[int]``, a bare ``list`` for ``list[Any]``), a ``Literal`` by the types of its values, a ``TypedDict`` as

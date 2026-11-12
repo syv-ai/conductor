@@ -33,7 +33,7 @@ from conductor import (
     host_type,
     make_graph,
     node,
-    stored_graph,
+    subgraph,
 )
 
 from tests.test_core.nodes import registry_of
@@ -1393,7 +1393,7 @@ def test_the_output_of_a_node_called_inside_two_loops_is_a_list_per_outer_item_a
     assert Graph.compile(_PER_LINE, registry).with_inputs(text="a,b||c").results["shout"] == {"result": None}
     assert through_json(flat).results == flat.results
 
-    per_line = stored_graph("per-line", title="Per line", description="For a test.")(make_graph(_lines, _shout, edges=[("lines.result", "shout.line")]))
+    per_line = subgraph("per-line", title="Per line", description="For a test.")(make_graph(_lines, _shout, edges=[("lines.result", "shout.line")]))
     embedding = Graph.compile(make_graph(_documents, per_line, edges=[("documents.result", "per-line.document")]), registry_of(_documents, _lines, _shout, per_line))
     embedded = embedding.run(text="a,b||c")
     assert embedded.results["per-line"] == {"shout.result": [["A", "B"], None, ["C"]]}
@@ -1467,7 +1467,7 @@ def test_the_ceiling_stops_a_leg_whose_items_wait_for_a_thread_and_resuming_call
 
 def embedded(node_id: str, *nodes: dict[str, Any], edges: tuple[tuple[str, str], ...] = ()) -> Any:
     """A graph of ``nodes`` as one node ``node_id``: its inputs are the open inputs of its first nodes."""
-    return stored_graph(node_id, title=node_id.replace("-", " ").replace("_", " ").strip().capitalize(), description="For a test.")(GraphRecord.model_validate({"nodes": [{"node": n["id"], **n} for n in nodes], "edges": [list(e) for e in edges]}))
+    return subgraph(node_id, title=node_id.replace("-", " ").replace("_", " ").strip().capitalize(), description="For a test.")(GraphRecord.model_validate({"nodes": [{"node": n["id"], **n} for n in nodes], "edges": [list(e) for e in edges]}))
 
 
 def test_two_series_into_one_embedding_are_refused_once_with_the_authors_addresses():
@@ -1663,7 +1663,7 @@ def test_an_embedding_with_one_output_per_inner_item_and_one_per_run_runs_per_it
         values={"names.text": "Ida Bo"},
     )
     registry = registry_of(split, names, case, greet, count, shout)
-    registry.add(stored_graph("inner", title="Inner", description="For a test.")(inner))
+    registry.add(subgraph("inner", title="Inner", description="For a test.")(inner))
     graph = Graph.compile(make_graph(split, registry["inner"], edges=[("split.result", "inner.value")], values={"split.text": "A-1,B-2"}), registry)
     assert graph.runs_on["inner"].series == "split.result"
     assert graph.run().results["inner"] == {"count.result": [2, 2], "shout.result": [["IDA A-1", "BO A-1"], ["IDA B-2", "BO B-2"]]}

@@ -12,7 +12,7 @@ from typing import Annotated
 
 from conductor import (
     Ask, EndedEarly, ExternalError, FromRun, Graph, GraphRecord, InvalidCallError, NodeDeclarationError,
-    NodeError, NodeRegistry, Param, Policy, Run, Series, Upgrade, host_type, make_graph, node, stored_graph,
+    NodeError, NodeRegistry, Param, Policy, Run, Series, Upgrade, host_type, make_graph, node, subgraph,
 )
 from conductor.testing import check_registry
 
@@ -205,19 +205,19 @@ print(told(drawing)[0])  # The edge from 'a.result' to 'ghost.text' names 'ghost
 
 Its `ctx` keys are in the reference: `python -m conductor.about edge-names-missing-node`.
 
-### `embeds_itself`
+### `subgraph_contains_itself`
 
 ```python
 inner_record = GraphRecord.model_validate({"nodes": [{"id": "again", "node": "itself"}]})
-itself = stored_graph("itself", title="Itself", description="A graph that contains itself.")(inner_record)
+itself = subgraph("itself", title="Itself", description="A graph that contains itself.")(inner_record)
 looping = NodeRegistry()
 looping.add(itself)
 broken = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "i", "node": "itself"}]}), looping).problems[0]
-print(broken.type, broken.loc)  # embeds_itself ('i', 'again')
+print(broken.type, broken.loc)  # subgraph_contains_itself ('i', 'again')
 print(broken.msg)  # The node 'itself' is a graph that contains itself; embed a graph that does not contain this one.
 ```
 
-**Fix.** A stored graph can't contain itself, directly or through another. Remove the node that leads back. The problem
+**Fix.** A subgraph can't contain itself, directly or through another. Remove the node that leads back. The problem
 sits on the node that closes the circle: a problem of a graph used as a node is that graph's own, with the id of the
 node that uses it in front of its `loc`.
 
@@ -334,7 +334,7 @@ print(unpaired.msg)  # 'g' reads items of names.result, greetings.result, and ne
 
 Its `ctx` keys are in the reference: `python -m conductor.about series-not-nested`.
 
-When one of the two lists is inside a stored graph, no edge of the outer graph can put one inside the other. The problem then has `ctx.hint` set to `inside_stored_graph` and `ctx.stored_graphs` in place of `wire_from` and `wire_into`, and its message says to give one of them whole to a `Series` input or to change the stored graph so it returns both outputs from the same loop.
+When one of the two lists is inside a subgraph, no edge of the outer graph can put one inside the other. The problem then has `ctx.hint` set to `inside_subgraph` and `ctx.subgraphs` in place of `wire_from` and `wire_into`, and its message says to give one of them whole to a `Series` input or to change the subgraph so it returns both outputs from the same loop.
 
 ### `several_edges_into_one_input`
 
@@ -678,7 +678,7 @@ print(refused(lambda: make_graph(upper, greet)))  # ['not_a_chain']
 print(said(lambda: make_graph(upper, greet))[0])  # 'greet' can't follow 'upper' in a chain: a chain takes its one required open input (it has name, greeting) from the one output of the node before it (that has result); pass edges= to make_graph.
 ```
 
-**Fix.** Pass `edges=[("upper.result", "greet.name")]`. `make_graph` chains nodes only when each takes one required open input from the one output before it. A chain reads the fields each node declares; a stored graph, or a node whose fields a hook works out, takes `edges=`.
+**Fix.** Pass `edges=[("upper.result", "greet.name")]`. `make_graph` chains nodes only when each takes one required open input from the one output before it. A chain reads the fields each node declares; a subgraph, or a node whose fields a hook works out, takes `edges=`.
 
 Its `ctx` keys are in the reference: `python -m conductor.about not-a-chain`.
 

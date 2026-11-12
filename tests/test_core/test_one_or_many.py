@@ -21,7 +21,7 @@ from conductor import (
     Param,
     Run,
     Series,
-    stored_graph,
+    subgraph,
 )
 from pydantic import BaseModel, ValidationError
 
@@ -222,7 +222,7 @@ def test_an_embedded_graph_fed_one_file_per_outer_item_runs_per_item_whether_it_
     reg.add_subregistry(registry)
     per = drawn(("read", "read"), ("review", "review"), edges=(("read.result", "review.text"),))
     together = drawn(("read", "read"), ("overall", "overall"), edges=(("read.result", "overall.texts"),))
-    reg.add(stored_graph("per", title="Per", description="For a test.")(GraphRecord.model_validate(per)), stored_graph("together", title="Together", description="For a test.")(GraphRecord.model_validate(together)))
+    reg.add(subgraph("per", title="Per", description="For a test.")(GraphRecord.model_validate(per)), subgraph("together", title="Together", description="For a test.")(GraphRecord.model_validate(together)))
     for inner, results in (("per", ["rev(X)", "rev(Y)", "rev(Z)"]), ("together", ["overall(1)", "overall(1)", "overall(1)"])):
         outer = drawn(("s", "split"), ("e", inner), edges=(("s.result", "e.file"),))
         assert list(ran(outer, reg, text="x,y,z").outputs.values()) == [results]

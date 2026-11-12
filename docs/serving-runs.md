@@ -208,4 +208,4 @@ A connection or session opened on the event loop and passed in either fails or i
 
 **Running again.** `POST /runs/{id}/again` with `{"csv": edited}` starts a new run with that input changed. A call that receives what it received before takes its earlier result or answer, so after one line of a CSV of 5,000 is edited, a node that runs per item is called for that one. The new run is the caller's, on the caller's own nodes: a caller who may see another's run (`may_see`) but whose registry can't run its graph gets the 422 at `again`, as starting the graph would.
 
-**Graphs that embed saved graphs.** They load through a registry of the request's own ([a graph inside a graph](embedded-graphs.md#graphs-saved-per-request)): pass `registry=` a function that builds it, so the shared registry is left as it was.
+**Graphs that embed saved graphs.** They load through a registry of the request's own ([a graph inside a graph](subgraphs.md#graphs-saved-per-request)): pass `registry=` a function that builds it, so the shared registry is left as it was.

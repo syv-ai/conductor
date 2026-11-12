@@ -25,7 +25,7 @@ from conductor import (
     host_type,
     make_graph,
     node,
-    stored_graph,
+    subgraph,
 )
 from pydantic import ValidationError
 
@@ -384,7 +384,7 @@ def test_an_input_given_by_name_and_by_address_and_a_ceiling_below_one_are_refus
 
 
 def test_a_stored_graph_with_problems_of_its_own_is_one_problem_where_it_is_used():
-    broken = stored_graph("broken", title="Broken", description="For a test.")(GraphRecord(nodes=[NodeRecord(id="x", node="gone")]))
+    broken = subgraph("broken", title="Broken", description="For a test.")(GraphRecord(nodes=[NodeRecord(id="x", node="gone")]))
     graph = Graph.compile(GraphRecord(nodes=[NodeRecord(id="b", node="broken"), NodeRecord(id="u", node="upper")], edges=[("b.result", "u.text")]), registry_of(upper, broken))
 
     assert [(problem.type, problem.loc) for problem in graph.problems] == [("unknown_node", ("b", "x"))]
@@ -444,10 +444,10 @@ def split(text: str) -> Series[str]:
     return text.split(",")
 
 
-ENRICH = stored_graph("enrich", title="Enrich", description="For a test.")(make_graph(upper, tail))
-PAIR = stored_graph("pair", title="Pair", description="For a test.")(GraphRecord(nodes=[NodeRecord(id="x", node="upper"), NodeRecord(id="y", node="upper"), NodeRecord(id="b", node="both")],
+ENRICH = subgraph("enrich", title="Enrich", description="For a test.")(make_graph(upper, tail))
+PAIR = subgraph("pair", title="Pair", description="For a test.")(GraphRecord(nodes=[NodeRecord(id="x", node="upper"), NodeRecord(id="y", node="upper"), NodeRecord(id="b", node="both")],
                                 edges=[("x.result", "b.yes"), ("y.result", "b.no")]))
-GATHER = stored_graph("gather", title="Gather", description="For a test.")(GraphRecord(nodes=[NodeRecord(id="hold", node="upper"), NodeRecord(id="all", node="join")], edges=[("hold.result", "all.texts")]))
+GATHER = subgraph("gather", title="Gather", description="For a test.")(GraphRecord(nodes=[NodeRecord(id="hold", node="upper"), NodeRecord(id="all", node="join")], edges=[("hold.result", "all.texts")]))
 EMBEDDED = registry_of(upper, tail, split, join, both, ENRICH, PAIR, GATHER)
 
 

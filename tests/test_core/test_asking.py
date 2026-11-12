@@ -29,7 +29,7 @@ from conductor import (
     Table,
     make_graph,
     node,
-    stored_graph,
+    subgraph,
 )
 from conductor.widgets import Textarea
 
@@ -810,7 +810,7 @@ def test_a_question_inside_an_embedding_is_the_inner_nodes_own_and_its_waiting_u
         raise Ask(f"again {text}?")
 
     registry = NodeRegistry()
-    registry.add(ask, ask2, stored_graph("both", title="Both", description="For a test.")(GraphRecord(nodes=[NodeRecord(id="q", node="ask"), NodeRecord(id="q2", node="ask2")])))
+    registry.add(ask, ask2, subgraph("both", title="Both", description="For a test.")(GraphRecord(nodes=[NodeRecord(id="q", node="ask"), NodeRecord(id="q2", node="ask2")])))
     run = Graph.compile(make_graph(registry["both"], values={"both.q.text": "a", "both.q2.text": "b"}), registry).run()
     assert [(w.id.partition("~")[0], w.loc, [q.name for q in w.questions]) for w in run.waiting] == [("both/q", ("both", "q"), ["result"]), ("both/q2", ("both", "q2"), ["result"])]
     done = run.answer({w.id: "yes" for w in run.waiting}).resume()
@@ -832,7 +832,7 @@ def test_a_form_inside_an_embedding_is_answered_by_the_inner_nodes_own_field_nam
         raise Ask("two?")
 
     registry = NodeRegistry()
-    registry.add(form, stored_graph("both", title="Both", description="For a test.")(GraphRecord(nodes=[NodeRecord(id="z1", node="form"), NodeRecord(id="z2", node="form")])))
+    registry.add(form, subgraph("both", title="Both", description="For a test.")(GraphRecord(nodes=[NodeRecord(id="z1", node="form"), NodeRecord(id="z2", node="form")])))
     run = Graph.compile(GraphRecord(nodes=[NodeRecord(id="e", node="both")]), registry).run({"z1.t": "1", "z2.t": "2"})
     answers = {w.id: {q.name: "A" if q.name == "a" else 5 for q in w.questions} for w in run.waiting}
     assert {w.loc: sorted(answers[w.id]) for w in run.waiting} == {("e", "z1"): ["a", "b"], ("e", "z2"): ["a", "b"]}

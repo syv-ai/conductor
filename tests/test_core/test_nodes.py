@@ -32,7 +32,7 @@ from conductor import (
     host_type,
     make_graph,
     node,
-    stored_graph,
+    subgraph,
 )
 from conductor._internal.value_type import FieldValueError
 from conductor.widgets import Dropdown, FileUpload, ListInput, Textarea, TextInput, Widget
@@ -124,7 +124,7 @@ def test_node_given_a_record_in_place_of_a_function_raises_pythons_own_error_tha
 def test_an_empty_title_or_description_is_refused_where_a_node_or_a_stored_graph_is_declared(title, description, empty):
     for declaration in (
         lambda: node("x", title=title, description=description),
-        lambda: stored_graph("x", title=title, description=description),
+        lambda: subgraph("x", title=title, description=description),
     ):
         with pytest.raises(NodeDeclarationError) as raised:
             declaration()
@@ -683,7 +683,7 @@ def test_a_definition_may_hold_a_graph_at_a_version_of_its_own():
     def read(text: str) -> str:
         return text
 
-    inner = stored_graph("inner", title="Inner", description="For a test.", version=3)(make_graph(read))
+    inner = subgraph("inner", title="Inner", description="For a test.", version=3)(make_graph(read))
     assert inner.version == 3 and inner.versions == (3,)
     assert next(n for n in registry_of(read, inner).describe().nodes if n.id == "inner").kind == "graph"
     graph = load(read, inner, record=GraphRecord(nodes=[placed("e", "inner", version=3)]))
@@ -1367,7 +1367,7 @@ def test_a_declared_choice_is_read_as_an_answer_is_so_an_enums_value_or_its_memb
 ])
 def test_a_stored_graph_takes_no_policy_or_hook_since_its_own_nodes_run_by_theirs(given: dict[str, Any]) -> None:
     with pytest.raises(TypeError, match="unexpected keyword argument"):
-        stored_graph("x", title="X", description="d", **given)
+        subgraph("x", title="X", description="d", **given)
 
 
 def test_a_limit_pydantic_holds_on_a_type_is_taken_and_one_it_cant_is_refused_in_a_model_a_node_takes_too():

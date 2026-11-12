@@ -1,4 +1,4 @@
-"""The nodes of a compiled graph, as the compiler places them: a function node, or a stored graph used as a node."""
+"""The nodes of a compiled graph, as the compiler places them: a function node, or a subgraph."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from conductor._internal.compiled.input_plans import (
     OutputAddress,
 )
 from conductor._internal.field import Field, FieldDescription
-from conductor._internal.node_definition import FunctionDefinition, StoredGraphDefinition
+from conductor._internal.node_definition import FunctionDefinition, SubgraphDefinition
 from conductor._internal.outcomes import Skipped, outputs_when_not_called, outputs_when_skipped
 from conductor._internal.series import Series
 from conductor._internal.value_type import Type
@@ -110,8 +110,8 @@ class CompiledFunctionNode(_CompiledNodeBase):
 @typing.final
 @dataclass(frozen=True, kw_only=True)
 class CompiledSubgraphNode(_CompiledNodeBase):
-    """A node of a compiled graph that is a stored graph: the compiler makes one where a record uses a
-    ``StoredGraphDefinition``, checking that definition's record alone as ``inner``, whose nodes run where it stands.
+    """A node of a compiled graph that is a subgraph: the compiler makes one where a record uses a
+    ``SubgraphDefinition``, checking that definition's record alone as ``inner``, whose nodes run where it stands.
 
     Its inputs are the inner graph's (``inner.inputs``) by their names there, and its outputs the inner graph's
     (``inner.outputs``) by their addresses there. It has no policy and no unit of it is reused whole: the nodes
@@ -130,12 +130,12 @@ class CompiledSubgraphNode(_CompiledNodeBase):
         inner: The subgraph, checked alone; it is never run alone.
     """
 
-    definition: StoredGraphDefinition
+    definition: SubgraphDefinition
     inner: CompiledGraph
 
     def loops_around(self, output: str) -> tuple[OutputAddress, ...]:
         """The lists looped over to make one value of ``output``, outermost first: the loops this node is called
-        in, then the loops inside the stored graph.
+        in, then the loops inside the subgraph.
 
         Example: ``e`` above is called once, and ``loops_around("shout.result")`` is
         ``(e.documents.result, e.lines.result)``. A loop inside is named by this node's id and the address of

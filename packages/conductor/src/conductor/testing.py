@@ -57,7 +57,7 @@ from conductor._internal.markers import REQUIRED
 from conductor._internal.node_definition import (
     FunctionDefinition,
     NodeDefinition,
-    StoredGraphDefinition,
+    SubgraphDefinition,
     declared_inputs,
     read_by_hooks,
 )
@@ -142,7 +142,7 @@ def _hook_problems(version: NodeDefinition, registry: NodeRegistry) -> list[Prob
     match version:
         case FunctionDefinition(hook_parameters=hooks) if hooks:
             pass
-        case FunctionDefinition() | StoredGraphDefinition():  # no hooks; a stored graph has none of its own
+        case FunctionDefinition() | SubgraphDefinition():  # no hooks; a subgraph has none of its own
             return []
     read = sorted(read_by_hooks(version))
     values = {name: _made_up(version.inputs[name]) for name in read if version.inputs[name].default is REQUIRED}
@@ -179,7 +179,7 @@ def _run_problems(version: NodeDefinition, registry: NodeRegistry, example: _Exa
     """Run one example through the engine: what went wrong."""
     definitions: dict[str, NodeDefinition]
     match version:
-        case StoredGraphDefinition():  # a stored graph runs on the nodes of the registry
+        case SubgraphDefinition():  # a subgraph runs on the nodes of the registry
             definitions, changed = {d.id: d for d in registry}, list[str]()
             definitions[version.id] = version
         case FunctionDefinition():

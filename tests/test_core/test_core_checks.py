@@ -29,7 +29,7 @@ from conductor import (
     Upgrade,
     make_graph,
     node,
-    stored_graph,
+    subgraph,
 )
 
 from tests.test_core.nodes import (
@@ -248,8 +248,8 @@ def test_embedded_graph_and_versions():
     """The second version keeps the id of its last node, so what read ``e.tail.result`` still does."""
     enrich_v1 = make_graph(upper, tail)
     enrich_v2 = {"nodes": [{"id": "lower", "node": "lower"}, {"id": "dot", "node": "tail"}, {"id": "tail", "node": "tail"}], "edges": [["lower.result", "dot.text"], ["dot.result", "tail.text"]]}
-    v1 = stored_graph("enrich", description="For a test.", title="Enrich")(enrich_v1)
-    v2 = stored_graph("enrich", title="Enrich", description="For a test.", replaces=v1)(GraphRecord.model_validate(enrich_v2))
+    v1 = subgraph("enrich", description="For a test.", title="Enrich")(enrich_v1)
+    v2 = subgraph("enrich", title="Enrich", description="For a test.", replaces=v1)(GraphRecord.model_validate(enrich_v2))
     reg = registry_of(upper, lower, tail, v2)
     outer = GraphRecord.model_validate({"nodes": [{"id": "e", "node": "enrich", "version": 1}, {"id": "u", "node": "upper"}], "edges": [["e.tail.result", "u.text"]]})
     assert Graph.compile(outer, reg).run(text="Hi").outputs == {"u.result": "HI."}
@@ -260,8 +260,8 @@ def test_embedded_graph_and_versions():
 
 
 def test_an_upgrade_moves_an_edge_reading_an_embeddings_output_to_the_address_the_newer_version_gives_it():
-    v1 = stored_graph("enrich", description="For a test.", title="Enrich")(make_graph(upper, tail))
-    v2 = stored_graph("enrich", title="Enrich", description="For a test.", replaces=v1, upgrade=Upgrade(renamed_outputs={"tail.result": "tail-2.result"}))(make_graph(lower, tail, tail))
+    v1 = subgraph("enrich", description="For a test.", title="Enrich")(make_graph(upper, tail))
+    v2 = subgraph("enrich", title="Enrich", description="For a test.", replaces=v1, upgrade=Upgrade(renamed_outputs={"tail.result": "tail-2.result"}))(make_graph(lower, tail, tail))
     reg = registry_of(upper, lower, tail, v2)
     outer = GraphRecord.model_validate({"nodes": [{"id": "e", "node": "enrich", "version": 1}, {"id": "u", "node": "upper"}], "edges": [["e.tail.result", "u.text"]]})
     newer = reg.upgrade(outer, "e")

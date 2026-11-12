@@ -53,11 +53,11 @@ from conductor._internal.node_definition import (
     FunctionDefinition,
     NodeDefinition,
     NodeDescription,
-    StoredGraphDefinition,
-    StoredGraphDescription,
+    SubgraphDefinition,
+    SubgraphDescription,
     declared_inputs,
     node,
-    stored_graph,
+    subgraph,
 )
 from conductor._internal.problem import InvalidCallError, NodeDeclarationError
 from conductor._internal.problem import catalogue as problem
@@ -102,8 +102,8 @@ class NodeRegistry:
         self._nodes: dict[str, NodeDefinition] = {}
         #: Every type, by id: the ones the nodes declare, then the named ones.
         self._types: dict[str, type] = _by_id(self._named_types)
-        #: Each stored graph's description, by id, as these nodes make it; emptied whenever what is held changes.
-        self._graph_descriptions: dict[str, StoredGraphDescription] = {}
+        #: Each subgraph's description, by id, as these nodes make it; emptied whenever what is held changes.
+        self._graph_descriptions: dict[str, SubgraphDescription] = {}
 
     def __repr__(self) -> str:
         """How many nodes it holds, then each as its own repr, one per line."""
@@ -149,17 +149,17 @@ class NodeRegistry:
 
         return decorate
 
-    @_takes_the_arguments_of(stored_graph)
-    def stored_graph(self, *args: Any, **kwargs: Any) -> Any:
-        """Make a stored graph a node as ``stored_graph`` does, with the same arguments, and add it here::
+    @_takes_the_arguments_of(subgraph)
+    def subgraph(self, *args: Any, **kwargs: Any) -> Any:
+        """Make a graph record a node, a subgraph, as ``subgraph`` does, with the same arguments, and add it here::
 
-            enrich = registry.stored_graph("enrich", title="Enrich", description="Adds the company's details.")(record)
+            enrich = registry.subgraph("enrich", title="Enrich", description="Adds the company's details.")(record)
 
         An id already held raises, as with ``registry.node``. The definition
         returned is the one this registry holds, with the registry's defaults
         applied.
         """
-        declare = stored_graph(*args, **kwargs)
+        declare = subgraph(*args, **kwargs)
 
         def add(record: GraphRecord | str | bytes) -> NodeDefinition:
             definition = declare(record)
@@ -260,17 +260,17 @@ class NodeRegistry:
         )
 
     def _described(self, definition: NodeDefinition) -> NodeDescription:
-        """A node as the palette shows it; a stored graph with the fields it offers, worked out against this registry once."""
+        """A node as the palette shows it; a subgraph with the fields it offers, worked out against this registry once."""
         match definition:
             case FunctionDefinition():
                 return definition.describe()
-            case StoredGraphDefinition():
+            case SubgraphDefinition():
                 pass
         if definition.id not in self._graph_descriptions:
             record = GraphRecord(nodes=[NodeRecord(id="node", node=definition.id, version=definition.version)])
             described = compile_graph(record, self._nodes, CompiledGraph).describe().nodes["node"]
             self._graph_descriptions[definition.id] = definition.described_as(
-                StoredGraphDescription, inputs=[described_input.field for described_input in described.inputs], outputs=described.outputs,
+                SubgraphDescription, inputs=[described_input.field for described_input in described.inputs], outputs=described.outputs,
             )
         return self._graph_descriptions[definition.id]
 
@@ -387,7 +387,7 @@ def _where_declared(definition: NodeDefinition) -> str:
     match definition:
         case FunctionDefinition(function=function):
             return f"{function.__module__}.{function.__qualname__}"
-        case StoredGraphDefinition():
+        case SubgraphDefinition():
             return f"a node that is a graph, titled {definition.title!r} (versions {', '.join(map(str, definition.versions))})"
 
 
@@ -399,7 +399,7 @@ def _types_declared_by(definitions: Iterable[NodeDefinition]) -> list[type]:
             match step:
                 case FunctionDefinition():
                     fields = (*step.inputs.values(), *step.outputs.values())
-                case StoredGraphDefinition():  # a graph declares no classes of its own
+                case SubgraphDefinition():  # a graph declares no classes of its own
                     continue
             found.extend(cls for field in fields for cls in field.whole.classes)
     return list(dict.fromkeys(found))

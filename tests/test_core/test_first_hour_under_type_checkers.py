@@ -55,7 +55,7 @@ assert results["rows"]["result"] == 1
 """
 
 _AN_EMBEDDED_GRAPH = """
-from conductor import Graph, NodeRegistry, make_graph, node, stored_graph
+from conductor import Graph, NodeRegistry, make_graph, node, subgraph
 
 
 @node("trim", title="Trim", description="For a test.")
@@ -70,7 +70,7 @@ def upper(text: str) -> str:
 
 base = NodeRegistry()
 base.add(trim, upper)
-clean = stored_graph("clean", title="Clean", description="For a test.")(make_graph(trim, upper))
+clean = subgraph("clean", title="Clean", description="For a test.")(make_graph(trim, upper))
 base.add(clean)
 outer = make_graph(clean, upper, edges=[("clean.upper.result", "upper.text")], values={"clean.text": "  hi  "})
 assert Graph.compile(outer, base).run().outputs == {"upper.result": "HI"}
@@ -193,13 +193,13 @@ def test_a_checker_keeps_a_tables_row_type(tmp_path: pathlib.Path) -> None:
 
 
 _WRONG_KEYWORDS = """
-from conductor import Ask, GraphRecord, Param, stored_graph
+from conductor import Ask, GraphRecord, Param, subgraph
 from conductor.widgets import Textarea
 
 times = Param(gee=1)
 text = Param(widget=Textarea)
 asked = Ask("?", choices="ab")
-called = stored_graph("inner", title="Inner", description="A stored graph.")(GraphRecord(nodes=[]))("a")
+called = subgraph("inner", title="Inner", description="A subgraph.")(GraphRecord(nodes=[]))("a")
 """
 
 

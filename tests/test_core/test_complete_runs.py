@@ -20,7 +20,7 @@ from conductor import (
     Policy,
     Series,
     node,
-    stored_graph,
+    subgraph,
 )
 
 from tests.test_core.nodes import units_missing
@@ -130,11 +130,11 @@ def _registry(threaded: frozenset[str]) -> NodeRegistry:
         registry.add(node(name, title=name.capitalize(), description=f"The {name} node.", **policy)(function))
     chain = [["w.result", "u.text"]]
     inner = {"nodes": [{"id": "w", "node": "words"}, {"id": "u", "node": "upper"}], "edges": chain}
-    registry.add(stored_graph("shout-words", title="Shout words", description="Each word of a text, in capitals.")(GraphRecord.model_validate(inner)))
+    registry.add(subgraph("shout-words", title="Shout words", description="Each word of a text, in capitals.")(GraphRecord.model_validate(inner)))
     joined = {"nodes": [*inner["nodes"], {"id": "j", "node": "join"}], "edges": [*chain, ["u.result", "j.items"]]}
-    registry.add(stored_graph("join-words", title="Join words", description="The words of a text in capitals, joined.")(GraphRecord.model_validate(joined)))
+    registry.add(subgraph("join-words", title="Join words", description="The words of a text in capitals, joined.")(GraphRecord.model_validate(joined)))
     stamped = {"nodes": [{"id": "u", "node": "upper"}, {"id": "k", "node": "upper", "values": {"text": "k"}}], "edges": []}
-    registry.add(stored_graph("shout-and-stamp", title="Shout and stamp", description="A text in capitals, and a K.")(GraphRecord.model_validate(stamped)))
+    registry.add(subgraph("shout-and-stamp", title="Shout and stamp", description="A text in capitals, and a K.")(GraphRecord.model_validate(stamped)))
     return registry
 
 

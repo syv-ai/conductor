@@ -29,7 +29,7 @@ from conductor import (
     host_type,
     make_graph,
     node,
-    stored_graph,
+    subgraph,
 )
 from conductor.widgets import Dropdown, Textarea
 from pydantic import ValidationError
@@ -156,17 +156,17 @@ def refuses(mode: str = "ok") -> dict[str, Any]:
     return {}
 
 
-enrich = stored_graph("enrich", title="Enrich", description="For a test.")(make_graph(upper, tail))
-inner = stored_graph("inner", title="Inner", description="For a test.")(GraphRecord(nodes=[NodeRecord(id="up", node="upper")]))
-top = stored_graph("top", title="Top", description="For a test.")(GraphRecord(nodes=[NodeRecord(id="inner", node="inner")]))
-defaulted = stored_graph("defaulted", title="Defaulted", description="For a test.")(GraphRecord(nodes=[NodeRecord(id="g", node="greet", defaults={"text": "inside"})]))
+enrich = subgraph("enrich", title="Enrich", description="For a test.")(make_graph(upper, tail))
+inner = subgraph("inner", title="Inner", description="For a test.")(GraphRecord(nodes=[NodeRecord(id="up", node="upper")]))
+top = subgraph("top", title="Top", description="For a test.")(GraphRecord(nodes=[NodeRecord(id="inner", node="inner")]))
+defaulted = subgraph("defaulted", title="Defaulted", description="For a test.")(GraphRecord(nodes=[NodeRecord(id="g", node="greet", defaults={"text": "inside"})]))
 @node("each-person", title="Each person", description="For a test.")
 def each_person(table: Table[Person]) -> Series[Person]:
     return table.to_dicts()
 
 
-team = stored_graph("team", title="Team", description="For a test.")(make_graph(people))
-wrapped = stored_graph("wrapped", title="Wrapped", description="For a test.", deprecation=Deprecation(header="Gone"))(make_graph(upper))
+team = subgraph("team", title="Team", description="For a test.")(make_graph(people))
+wrapped = subgraph("wrapped", title="Wrapped", description="For a test.", deprecation=Deprecation(header="Gone"))(make_graph(upper))
 
 REGISTRY = registry_of(
     upper, tail, join, fan, both_ints, maybe, greet, people, each_person, styled, name_of, nonempty, two, columns, anything, height, refuses,
@@ -498,7 +498,7 @@ def test_a_graph_inside_a_graph_is_one_node_from_outside():
 
 
 def test_renaming_a_node_inside_an_embedding_keeps_its_inputs_names_and_moves_its_outputs_address():
-    renamed = stored_graph("enrich", title="Enrich", description="For a test.")(GraphRecord(nodes=[NodeRecord(id="shout", node="upper"), NodeRecord(id="end", node="tail")], edges=[("shout.result", "end.text")]))
+    renamed = subgraph("enrich", title="Enrich", description="For a test.")(GraphRecord(nodes=[NodeRecord(id="shout", node="upper"), NodeRecord(id="end", node="tail")], edges=[("shout.result", "end.text")]))
     record = {"nodes": [{"id": "g", "node": "greet"}, {"id": "e", "node": "enrich"}], "edges": [["g.result", "e.text"]]}
     for embedded, output in ((enrich, "e.tail.result"), (renamed, "e.end.result")):
         graph = Graph.compile(GraphRecord.model_validate(record), registry_of(greet, upper, tail, embedded))
@@ -541,10 +541,10 @@ def formula(formula: str, **values: float) -> float:
     return sum(values.values())
 
 
-gone_inside = stored_graph("gone_inside", title="Gone inside", description="For a test.")(GraphRecord(nodes=[NodeRecord(id="x", node="gone")]))
-around = stored_graph("around", title="Around", description="For a test.")(GraphRecord(nodes=[NodeRecord(id="b", node="gone_inside")]))
-invalid_inside = stored_graph("invalid_inside", title="Invalid inside", description="For a test.")(GraphRecord(nodes=[NodeRecord(id="n", node="nonempty", values={"text": ""})]))
-unfed_inside = stored_graph("unfed_inside", title="Unfed inside", description="For a test.")(make_graph(upper, pair, edges=[("upper.result", "pair.a")]))
+gone_inside = subgraph("gone_inside", title="Gone inside", description="For a test.")(GraphRecord(nodes=[NodeRecord(id="x", node="gone")]))
+around = subgraph("around", title="Around", description="For a test.")(GraphRecord(nodes=[NodeRecord(id="b", node="gone_inside")]))
+invalid_inside = subgraph("invalid_inside", title="Invalid inside", description="For a test.")(GraphRecord(nodes=[NodeRecord(id="n", node="nonempty", values={"text": ""})]))
+unfed_inside = subgraph("unfed_inside", title="Unfed inside", description="For a test.")(make_graph(upper, pair, edges=[("upper.result", "pair.a")]))
 BROKEN = registry_of(upper, pair, nonempty, formula, gone_inside, around, invalid_inside, unfed_inside)
 
 
@@ -642,11 +642,11 @@ def refuses_bad(mode: str = "ok") -> dict[str, Any]:
     return {"result": mode}
 
 
-halves = stored_graph("halves", title="Halves", description="For a test.")(GraphRecord(
+halves = subgraph("halves", title="Halves", description="For a test.")(GraphRecord(
     nodes=[NodeRecord(id="x", node="upper"), NodeRecord(id="y", node="upper"), NodeRecord(id="b", node="both_halves")],
     edges=[("x.result", "b.a"), ("y.result", "b.b")],
 ))
-picky = stored_graph("picky", title="Picky", description="For a test.")(make_graph(refuses_bad))
+picky = subgraph("picky", title="Picky", description="For a test.")(make_graph(refuses_bad))
 OUTSIDE = registry_of(upper, tail, refuses_bad, both_halves, taken, taken_from_run, enrich, halves, picky)
 
 
@@ -751,7 +751,7 @@ def test_an_inner_nodes_own_error_is_said_where_it_is_inside_the_embedding_with_
     def unreadable(text: str) -> str:
         raise NodeError("The document could not be read.", code="unreadable", ctx=ctx)
 
-    embedding = stored_graph("e", title="E", description="For a test.")(make_graph(unreadable))
+    embedding = subgraph("e", title="E", description="For a test.")(make_graph(unreadable))
     run = Graph.compile(make_graph(embedding), registry_of(unreadable, embedding)).run(text="hi")
 
     assert (run.status, run.state.cause.msg) == ("failed", "The document could not be read.")
@@ -822,7 +822,7 @@ def _nested_forty_deep() -> tuple[Any, str]:
 
     inner = "upper"
     for depth in range(40):
-        registry.add(stored_graph(f"nest-{depth}", title=f"Nest {depth}", description="For a test.")(GraphRecord(nodes=[NodeRecord(id="n", node=inner)])))
+        registry.add(subgraph(f"nest-{depth}", title=f"Nest {depth}", description="For a test.")(GraphRecord(nodes=[NodeRecord(id="n", node=inner)])))
         inner = f"nest-{depth}"
     return registry, inner
 
@@ -878,7 +878,7 @@ def test_what_the_outside_gives_an_embedded_input_replaces_the_inner_default():
         return "hi"
 
     registry = NodeRegistry()
-    registry.add(upper, hello, stored_graph("shout", title="Shout", description="For a test.")(make_graph(upper, defaults={"upper.text": "inner"})))
+    registry.add(upper, hello, subgraph("shout", title="Shout", description="For a test.")(make_graph(upper, defaults={"upper.text": "inner"})))
     shout = registry["shout"]
     assert Graph.compile(make_graph(shout), registry).run().outputs == {"shout.upper.result": "INNER"}
     typed = Graph.compile(make_graph(shout, values={"shout.text": "outer"}), registry)
@@ -1093,7 +1093,7 @@ def adds(names: list[str] = [], **values: Any) -> str:  # noqa: B006
 def test_an_embedding_offers_the_fields_its_graph_offers_alone_as_its_hooks_made_them():
     added = GraphRecord(nodes=[NodeRecord(id="a", node="adds", values={"names": ["who"]})])
     made = GraphRecord(nodes=[NodeRecord(id="c", node="columns", values={"names": ["x", "y"]})])
-    registry = registry_of(adds, columns, stored_graph("box_in", title="Box in", description="For a test.")(added), stored_graph("box_out", title="Box out", description="For a test.")(made))
+    registry = registry_of(adds, columns, subgraph("box_in", title="Box in", description="For a test.")(added), subgraph("box_out", title="Box out", description="For a test.")(made))
     assert list(Graph.compile(added, registry).inputs) == ["who"]
     graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "b", "node": "box_in"}]}), registry)
     assert graph.problems == [] and list(graph.inputs) == ["who"] and graph.run(who="x").outputs == {"b.a.result": "who=x"}

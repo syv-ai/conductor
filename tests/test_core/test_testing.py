@@ -15,7 +15,7 @@ from conductor import (
     Upgrade,
     make_graph,
     node,
-    stored_graph,
+    subgraph,
 )
 from conductor.testing import check_registry
 
@@ -71,7 +71,7 @@ def who(session: FromRun[Session], text: str) -> str:
     return text
 
 
-shout = stored_graph("shout", title="Shout", description="For a test.")(make_graph(upper))
+shout = subgraph("shout", title="Shout", description="For a test.")(make_graph(upper))
 
 GOOD_EXAMPLES: dict[Any, list[dict[str, Any]]] = {
     "upper": [{"text": "a", "times": 2}],

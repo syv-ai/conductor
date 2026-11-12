@@ -23,7 +23,7 @@ from conductor import (
     Upgrade,
     host_type,
     node,
-    stored_graph,
+    subgraph,
 )
 from conductor.widgets import Textarea
 
@@ -291,8 +291,8 @@ def test_a_definition_with_no_steps_only_has_its_version_set():
     def embedded(inner_id: str) -> GraphRecord:
         return GraphRecord(nodes=[NodeRecord(id=inner_id, node="echo")])
 
-    first = stored_graph("embedded", title="Embedded", description="d")(embedded("inner"))
-    registry = registry_of(echo, stored_graph("embedded", title="Embedded", description="d", replaces=first)(embedded("renamed")))
+    first = subgraph("embedded", title="Embedded", description="d")(embedded("inner"))
+    registry = registry_of(echo, subgraph("embedded", title="Embedded", description="d", replaces=first)(embedded("renamed")))
     graph = GraphRecord(nodes=[
         NodeRecord(id="f", node="embedded", values={"text": "x"}),
     ])

@@ -1,4 +1,4 @@
-"""``@node``: a plain function, or a stored graph, becomes a frozen ``NodeDefinition``.
+"""``@node``: a plain function, or a graph record, becomes a frozen ``NodeDefinition``.
 
 A node is a function. Its typed signature is its interface::
 
@@ -45,8 +45,8 @@ inputs, which the function takes as ``**kwargs``; ``compute_outputs`` gives
 every output, and the function returns them as a mapping. A hook that raises
 is a problem of the graph, not an exception.
 
-A stored graph is a node too: ``stored_graph("enrich", title="Enrich", description="...")(record)``. Loading a
-graph that uses it puts the stored graph's nodes in its place.
+A graph record can be a node too, a subgraph: ``subgraph("enrich", title="Enrich", description="...")(record)``. Loading a
+graph that uses it puts the subgraph's nodes in its place.
 """
 
 from __future__ import annotations
@@ -179,9 +179,9 @@ class Upgrade:
 
 @dataclass(frozen=True, eq=False, kw_only=True)
 class _Version:
-    """What every version of a node has, whether it is a function or a stored graph.
+    """What every version of a node has, whether it is a function or a subgraph.
 
-    Never made on its own: a version is a ``FunctionDefinition`` or a ``StoredGraphDefinition``, the two kinds of
+    Never made on its own: a version is a ``FunctionDefinition`` or a ``SubgraphDefinition``, the two kinds of
     ``NodeDefinition``.
 
     Attributes:
@@ -230,7 +230,7 @@ class _Version:
         """Every version number, newest first."""
         return (self.version, *(step.version for step in self._replaced))
 
-    def described_as[D: FunctionNodeDescription | StoredGraphDescription](self, record: type[D], **more: Any) -> D:
+    def described_as[D: FunctionNodeDescription | SubgraphDescription](self, record: type[D], **more: Any) -> D:
         """Describes this version as an editor's palette shows it.
 
         Args:
@@ -304,14 +304,14 @@ class FunctionDefinition[**P, R](_Version):
 
 
 @dataclass(frozen=True, eq=False, kw_only=True, repr=False)  # the version's own __repr__
-class StoredGraphDefinition(_Version):
-    """A graph record registered as a node, one version of it: ``stored_graph(...)(record)`` makes one. Loading a graph that uses it checks its record alone and places it there as a subgraph, whose
+class SubgraphDefinition(_Version):
+    """A graph record registered as a node, one version of it: ``subgraph(...)(record)`` makes one. Loading a graph that uses it checks its record alone and places it there as a subgraph, whose
     nodes run where the node stands.
 
     It has no function, so calling it is a type error; its fields are the graph's, worked out at that load.
 
     Attributes:
-        graph: The stored graph this node is.
+        graph: The graph record this subgraph is.
     """
 
     graph: GraphRecord
@@ -326,8 +326,8 @@ class StoredGraphDefinition(_Version):
         there are when it has none. ``version in definition.versions`` asks first."""
         return _version_of(self.version_chain, version)
 
-#: One version of a node: a function, or a stored graph.
-type NodeDefinition = FunctionDefinition[..., Any] | StoredGraphDefinition
+#: One version of a node: a function, or a subgraph.
+type NodeDefinition = FunctionDefinition[..., Any] | SubgraphDefinition
 
 
 def _version_of(version_chain: tuple[NodeDefinition, ...], version: int) -> NodeDefinition:
@@ -339,7 +339,7 @@ def _version_of(version_chain: tuple[NodeDefinition, ...], version: int) -> Node
 
 class _NodeDescription(ConductorModel):
     """What an editor's palette shows of every node. Never made on its own: a node is described as a function or as a
-    stored graph.
+    subgraph.
 
     Attributes:
         id: The id a graph names the node by.
@@ -386,8 +386,8 @@ class FunctionNodeDescription(_NodeDescription):
     computes_outputs: bool
 
 
-class StoredGraphDescription(_NodeDescription):
-    """A node that is a stored graph, as an editor's palette shows it: its fields are the ones its graph offers,
+class SubgraphDescription(_NodeDescription):
+    """A node that is a subgraph, as an editor's palette shows it: its fields are the ones its graph offers,
     which only a registry holding the nodes that graph uses can work out.
 
     Attributes:
@@ -398,7 +398,7 @@ class StoredGraphDescription(_NodeDescription):
 
 
 #: A node as an editor's palette shows it, one of two kinds told apart by ``kind``.
-NodeDescription = Annotated[FunctionNodeDescription | StoredGraphDescription, PydanticField(discriminator="kind")]
+NodeDescription = Annotated[FunctionNodeDescription | SubgraphDescription, PydanticField(discriminator="kind")]
 
 
 class NodeDecorator(Protocol):
@@ -443,12 +443,12 @@ def node(
     - ``replaces`` is the version this one replaces, a ``@node`` of the same
       id, and ``upgrade`` says how a node saved at that version moves here.
       ``version`` is one past the version replaced, or 1, unless given: a host
-      whose stored graphs have their own numbers names them. ``deprecation``
+      whose subgraphs have their own numbers names them. ``deprecation``
       marks this version going away.
     - ``compute_added_inputs`` and ``compute_outputs`` are hooks run when a
       graph is loaded, which shape the node from what is typed into it.
 
-    A stored graph becomes a node with ``stored_graph``.
+    A graph record becomes a node, a subgraph, with ``subgraph``.
     """
     number = _version_number("@node", id, title, description, version, replaces, upgrade)
 
@@ -484,7 +484,7 @@ def node(
     return make
 
 
-def stored_graph(
+def subgraph(
     id: str,
     /,
     *,
@@ -498,23 +498,23 @@ def stored_graph(
     deprecation: Deprecation | None = None,
     replaces: NodeDefinition | None = None,
     upgrade: Upgrade | None = None,
-) -> Callable[[GraphRecord | str | bytes], StoredGraphDefinition]:
-    """Make a stored graph a node with the id ``id``, so other graphs can use it as one node::
+) -> Callable[[GraphRecord | str | bytes], SubgraphDefinition]:
+    """Make a graph record a node, a subgraph, with the id ``id``, so other graphs can use it as one node::
 
-        enrich = stored_graph("enrich", title="Enrich", description="Looks up and adds the company's details.")(record)
+        enrich = subgraph("enrich", title="Enrich", description="Looks up and adds the company's details.")(record)
 
     The record is given as ``Graph.compile`` takes one: a ``GraphRecord`` or
     its JSON text. Text of the wrong shape raises ``InvalidCallError`` with
     ``invalid_record`` problems. The arguments mean what they mean on
     ``@node``. There is no ``policy`` and there are no hooks: the nodes inside
-    the stored graph are called by their own. It registers nothing:
-    ``registry.add(enrich)`` offers it, and ``registry.stored_graph`` takes
+    the subgraph are called by their own. It registers nothing:
+    ``registry.add(enrich)`` offers it, and ``registry.subgraph`` takes
     the same arguments and adds the node too.
     """
-    number = _version_number("stored_graph", id, title, description, version, replaces, upgrade)
+    number = _version_number("subgraph", id, title, description, version, replaces, upgrade)
 
-    def make(record: GraphRecord | str | bytes, /) -> StoredGraphDefinition:
-        return StoredGraphDefinition(
+    def make(record: GraphRecord | str | bytes, /) -> SubgraphDefinition:
+        return SubgraphDefinition(
             graph=as_record(record), id=id, version=number, title=title, description=description, category=category,
             tags=tuple(tags), extra=MappingProxyType(dict(extra)), docs=docs, deprecation=deprecation, replaces=replaces,
             upgrade=upgrade or Upgrade(),
@@ -526,10 +526,10 @@ def stored_graph(
 def _version_number(
     declared_with: str, id: str, title: str, description: str, version: int | None, replaces: NodeDefinition | None, upgrade: Upgrade | None,
 ) -> int:
-    """Check the arguments ``@node`` and ``stored_graph`` share, and return the node's version number.
+    """Check the arguments ``@node`` and ``subgraph`` share, and return the node's version number.
 
     Args:
-        declared_with: ``"@node"`` or ``"stored_graph"``, to start each message with.
+        declared_with: ``"@node"`` or ``"subgraph"``, to start each message with.
         id: The node's id.
         title: The node's title.
         description: The node's description.
@@ -737,11 +737,11 @@ def _declared_default(declared: dataclasses.Field[Any]) -> Any:
 
 
 def declared_inputs(definition: NodeDefinition) -> Mapping[str, Field]:
-    """The inputs a version declares; a stored graph declares none of its own, its fields being known only when a graph using it loads."""
+    """The inputs a version declares; a subgraph declares none of its own, its fields being known only when a graph using it loads."""
     match definition:
         case FunctionDefinition():
             return definition.inputs
-        case StoredGraphDefinition():
+        case SubgraphDefinition():
             return {}
 
 
@@ -798,7 +798,7 @@ def _raise_if_upgrade_is_missing(older: NodeDefinition, newer: FunctionDefinitio
     rename, since the edges out of it are what moves.
     """
     match older:
-        case StoredGraphDefinition():  # its fields are known only when a graph using it loads
+        case SubgraphDefinition():  # its fields are known only when a graph using it loads
             return
         case FunctionDefinition():
             gone_inputs = set(older.inputs) - set(newer.inputs)

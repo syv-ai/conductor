@@ -20,7 +20,7 @@ from conductor import (
     host_type,
     make_graph,
     node,
-    stored_graph,
+    subgraph,
 )
 from conductor_nodes.control import decision
 from conductor_nodes.series import split
@@ -401,7 +401,7 @@ def test_scenario_10_a_nested_approval_saved_and_resumed_in_another_process():
 
 
 def test_scenario_11_a_sub_graph_per_item():
-    enrich = stored_graph("enrich", title="Enrich a contact", description="Looks a contact up and writes a greeting.")(
+    enrich = subgraph("enrich", title="Enrich a contact", description="Looks a contact up and writes a greeting.")(
         make_graph(llm, values={"llm.prompt": "Write a greeting for"})
     )
     graph = Graph.compile(make_graph(read_contacts, split, enrich, edges=[
@@ -415,7 +415,7 @@ def test_scenario_11_a_sub_graph_per_item():
 
 
 def test_scenario_12_a_sub_graph_given_the_whole_table():
-    table_report = stored_graph("table-report", title="Report on a table", description="Writes a report on a table.")(
+    table_report = subgraph("table-report", title="Report on a table", description="Writes a report on a table.")(
         make_graph(describe_table, llm, edges=[("describe-table.result", "llm.text")], values={"llm.prompt": "Write a report on"})
     )
     graph = Graph.compile(make_graph(read_csv, table_report, edges=[("read-csv.result", "table-report.table")]), registry_with(table_report))

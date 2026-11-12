@@ -1,7 +1,7 @@
-"""A stored graph offers an output made inside loops as one ``Series`` per loop, and a node outside the stored
+"""A subgraph offers an output made inside loops as one ``Series`` per loop, and a node outside the stored
 graph that reads it is called as it would be with the same nodes drawn in its own graph.
 
-The stored graph of most tests is ``documents -> lines -> shout``: ``documents`` returns a list of documents
+The subgraph of most tests is ``documents -> lines -> shout``: ``documents`` returns a list of documents
 (``None`` for an empty one), ``lines`` is called once per document and returns its lines, ``shout`` is called once
 per line. So ``shout`` is called inside two loops, and its return values are a list per document.
 """
@@ -63,16 +63,16 @@ def side_by_side(loud: Series[str], quiet: Series[str]) -> str:
 SHOUT_EDGES = [("documents.result", "lines.document"), ("lines.result", "shout.line")]
 WHISPER_EDGES = [*SHOUT_EDGES, ("lines.result", "whisper.line")]
 
-REGISTRY.stored_graph("shout-lines", title="Shout lines", description="Every line of every document, in capitals.")(
+REGISTRY.subgraph("shout-lines", title="Shout lines", description="Every line of every document, in capitals.")(
     make_graph(documents, lines, shout, edges=SHOUT_EDGES)
 )
-REGISTRY.stored_graph("split-lines", title="Split lines", description="The lines of every document.")(
+REGISTRY.subgraph("split-lines", title="Split lines", description="The lines of every document.")(
     make_graph(documents, lines, edges=SHOUT_EDGES[:1])
 )
-REGISTRY.stored_graph("shout-and-whisper", title="Shout and whisper", description="Every line in capitals, and in small letters.")(
+REGISTRY.subgraph("shout-and-whisper", title="Shout and whisper", description="Every line in capitals, and in small letters.")(
     make_graph(documents, lines, shout, whisper, edges=WHISPER_EDGES)
 )
-REGISTRY.stored_graph("wrapped", title="Wrapped", description="A stored graph whose one node is the stored graph shout-lines.")(
+REGISTRY.subgraph("wrapped", title="Wrapped", description="A subgraph whose one node is the subgraph shout-lines.")(
     make_graph(REGISTRY["shout-lines"])
 )
 
@@ -165,7 +165,7 @@ def label(heading: str, values: Series[str]) -> str:
 
 
 TITLE_EDGES = [*WHISPER_EDGES, ("documents.result", "title.document")]
-REGISTRY.stored_graph("titled", title="Titled", description="Each document's title, and every line in capitals and in small letters.")(
+REGISTRY.subgraph("titled", title="Titled", description="Each document's title, and every line in capitals and in small letters.")(
     make_graph(documents, lines, shout, whisper, title, edges=TITLE_EDGES)
 )
 
@@ -185,10 +185,10 @@ def test_one_value_per_document_beside_the_list_of_that_documents_lines_reach_on
 
 
 def test_one_item_of_a_list_inside_a_stored_graph_and_of_a_list_outside_it_is_refused_with_what_the_author_can_do() -> None:
-    """``whisper`` runs once per line inside the stored graph; outside, each title is split into a list of its
+    """``whisper`` runs once per line inside the subgraph; outside, each title is split into a list of its
     own. A node that takes one item of each has two lists side by side, and no edge outside can nest them."""
     edges = [("titled.title.result", "lines.document"), ("lines.result", "pair.b"), ("titled.whisper.result", "pair.a")]
     refused = Graph.compile(make_graph(REGISTRY["titled"], lines, pair, edges=edges), REGISTRY).problems[0]
-    assert (refused.type, refused.ctx["hint"], refused.ctx["stored_graphs"]) == ("series_not_nested", "inside_stored_graph", ["titled"])
+    assert (refused.type, refused.ctx["hint"], refused.ctx["subgraphs"]) == ("series_not_nested", "inside_subgraph", ["titled"])
     assert sorted(refused.ctx["series"]) == ["lines.result", "titled.lines.result"]
     assert "wire '" not in refused.msg and "Give one of them whole to a Series input" in refused.msg

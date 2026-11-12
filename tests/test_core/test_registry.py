@@ -28,7 +28,7 @@ from conductor import (
     Upgrade,
     host_type,
     node,
-    stored_graph,
+    subgraph,
 )
 from conductor._internal import registry as registry_module
 from conductor._internal.markers import REQUIRED
@@ -141,10 +141,10 @@ def test_replaces_naming_a_node_the_registry_does_not_hold_is_still_a_duplicate(
 def test_two_nodes_built_from_graphs_under_one_id_are_told_apart_by_title():
     inner = GraphRecord(nodes=[NodeRecord(id="a", node="upper")])
     registry = NodeRegistry()
-    registry.add(stored_graph("g", description="For a test.", title="First")(inner))
+    registry.add(subgraph("g", description="For a test.", title="First")(inner))
 
     with pytest.raises(NodeDeclarationError, match="titled 'First'.*titled 'Second'"):
-        registry.add(stored_graph("g", description="For a test.", title="Second")(inner))
+        registry.add(subgraph("g", description="For a test.", title="Second")(inner))
 
 
 def test_a_second_node_under_one_id_is_refused_naming_where_both_were_written():
@@ -702,12 +702,12 @@ def test_a_registry_is_a_container_and_not_a_mapping():
 
 
 def test_a_stored_graph_made_a_node_is_read_as_load_reads_a_record():
-    from conductor import InvalidCallError, stored_graph
+    from conductor import InvalidCallError, subgraph
 
     with pytest.raises(InvalidCallError) as refused:
-        stored_graph("e", title="E", description="For a test.")(json.dumps({"nodes": [{"id": "a", "node": "x", "vaules": {}}]}))
+        subgraph("e", title="E", description="For a test.")(json.dumps({"nodes": [{"id": "a", "node": "x", "vaules": {}}]}))
     assert [(p.type, p.loc) for p in refused.value.errors()] == [("invalid_record", ("record", "nodes", 0, "vaules"))]
-    assert stored_graph("e", title="E", description="For a test.")('{"nodes": [{"id": "a", "node": "x"}]}').graph == GraphRecord(nodes=[NodeRecord(id="a", node="x")])
+    assert subgraph("e", title="E", description="For a test.")('{"nodes": [{"id": "a", "node": "x"}]}').graph == GraphRecord(nodes=[NodeRecord(id="a", node="x")])
 
 
 def test_an_infinite_default_writes_as_text():
@@ -729,7 +729,7 @@ def test_a_stored_graphs_fields_are_listed_by_the_registry_that_holds_its_nodes_
     def upper(text: str) -> str:
         return text.upper()
 
-    shout = stored_graph("shout", title="Shout", description="For a test.")(make_graph(upper))
+    shout = subgraph("shout", title="Shout", description="For a test.")(make_graph(upper))
     registry = NodeRegistry()
     registry.add(upper, shout)
     listed = next(n for n in registry.describe().nodes if n.id == "shout")
@@ -739,14 +739,14 @@ def test_a_stored_graphs_fields_are_listed_by_the_registry_that_holds_its_nodes_
 
 
 def test_a_stored_graph_is_described_once_until_the_registry_changes(monkeypatch: pytest.MonkeyPatch) -> None:
-    """``describe()`` is what an editor's palette asks on every open, so a stored graph's fields are worked out once."""
+    """``describe()`` is what an editor's palette asks on every open, so a subgraph's fields are worked out once."""
     registry = NodeRegistry()
 
     @registry.node("shout", title="Shout", description="For a test.")
     def shout(text: str) -> str:
         return text.upper()
 
-    registry.add(stored_graph("loud", title="Loud", description="For a test.")(GraphRecord(nodes=[NodeRecord(id="s", node="shout")])))
+    registry.add(subgraph("loud", title="Loud", description="For a test.")(GraphRecord(nodes=[NodeRecord(id="s", node="shout")])))
     loads = []
     compile_graph = registry_module.compile_graph
     monkeypatch.setattr(registry_module, "compile_graph", lambda record, *rest: loads.append(record) or compile_graph(record, *rest))

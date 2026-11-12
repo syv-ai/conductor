@@ -28,8 +28,8 @@ class FieldDescription(ConductorModel):
             subclass adds: from a ``Literal``, ``Param(choices=)`` or, on a question, the ``Ask``.
         widget: The control a person edits it with, as JSON.
         exclusive_group: The group of alternative outputs it belongs to.
-        loops: For an output of a stored graph returned inside loops: the lists looped over, outermost first,
-            each by its address inside the stored graph, ``["documents.result", "lines.result"]``. Two outputs
+        loops: For an output of a subgraph returned inside loops: the lists looped over, outermost first,
+            each by its address inside the subgraph, ``["documents.result", "lines.result"]``. Two outputs
             whose loops start the same are returned in the same loops, so a node outside that reads both is
             called once per item with the values of that item. Empty for every other field.
     """

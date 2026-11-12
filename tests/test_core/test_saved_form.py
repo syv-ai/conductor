@@ -24,7 +24,7 @@ from conductor import (
     Table,
     host_type,
     node,
-    stored_graph,
+    subgraph,
 )
 from pydantic import BaseModel
 
@@ -111,7 +111,7 @@ def _registry() -> NodeRegistry:
     registry = NodeRegistry()
     registry.add(lines, gate, maybe, letters, ask, frame, typed_frame, reading, join, loose, float_or_text)
     inner = GraphRecord(nodes=[NodeRecord(id="q", node="ask"), NodeRecord(id="m", node="maybe")], edges=[("q.result", "m.text")])
-    registry.add(stored_graph("inner", title="Inner", description="For a test.")(inner))
+    registry.add(subgraph("inner", title="Inner", description="For a test.")(inner))
     return registry
 
 

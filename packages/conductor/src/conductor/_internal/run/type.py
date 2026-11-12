@@ -502,8 +502,8 @@ class Run:
 
     def _function_of(self, address: str) -> tuple[FlatFunctionNode, str]:
         """The function node that returns the output at ``address`` (``node.output``), and the output's name on
-        that function. For a stored graph used as a node (``e.upper.result``) it is the function inside the
-        stored graph, since the stored graph's node is never called itself."""
+        that function. For a subgraph (``e.upper.result``) it is the function inside the
+        subgraph, since the subgraph's node is never called itself."""
         node_id, _, output = address.partition(".")
         node = self.graph._nodes_by_name[node_id]
         return node.output_sources[output] if type(node) is FlatSubgraph else (node, output)

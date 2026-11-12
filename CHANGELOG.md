@@ -7,7 +7,7 @@ released together at one version. The format follows
 
 ## [Unreleased]
 
-Ships as 2.0.0, a new major. The node contract, the stored graph, loading and the engine are each
+Ships as 2.0.0, a new major. The node contract, the graph record, loading and the engine are each
 replaced, and no alias keeps a 1.x name alive. Conductor depends on `polars>=2.0` and
 `pydantic>=2.11`. The README walks through the design, and `python -m conductor.about` has every
 rule.
@@ -26,7 +26,7 @@ What changes in how you work, before the name-by-name tables:
 - **A field's description is one flat record.** It has `many`, `type`, `schema` (always set) and
   `type_variables`; there is no `shape` and no `columns`, a table's columns are in its type and its
   schema. A placed input and a graph input hold the field as `field`. A node's description is a
-  `FunctionNodeDescription` or a `StoredGraphDescription`, told apart by `kind`, and a stored graph's
+  `FunctionNodeDescription` or a `SubgraphDescription`, told apart by `kind`, and a subgraph's
   fields are listed by `registry.describe()` only. `Policy` is a pydantic model, a policy out of bounds
   raises pydantic's validation error, and `PolicyDescription` is gone.
 
@@ -42,7 +42,7 @@ What changes in how you work, before the name-by-name tables:
   every class a field's type id names: each member of a union, a `Literal`'s value types and a
   generic's class (`list[str]` names `list`); `Any`, `None`, a type alias and a table name none.
 - **A node is a typed function.** `@node("id", title=, description=)` (registers nothing) or
-  `@registry.node(...)` returns a frozen, callable `FunctionDefinition` (`stored_graph(...)(record)` returns a `StoredGraphDefinition`,
+  `@registry.node(...)` returns a frozen, callable `FunctionDefinition` (`subgraph(...)(record)` returns a `SubgraphDefinition`,
   with no function to call; `NodeDefinition` is either). Its title and description are
   required, and the docstring never reaches a person. The signature is the interface:
   `Annotated[str, Param(title=, widget=, ge=, ...)]` for what a person sees and the limits a value
@@ -60,13 +60,13 @@ What changes in how you work, before the name-by-name tables:
   holding one fails as its class is made. Limits are pydantic's own: bounds on numbers, a `Decimal`,
   dates, times and durations, lengths on texts, bytes and collections. `Param` is a frozen dataclass whose limits
   are its fields, so an argument it doesn't have is Python's own `TypeError`.
-- **A stored graph becomes a node with `stored_graph`.** `stored_graph("id", title=, description=)(record)`
-  and `registry.stored_graph(...)` take a `GraphRecord` or its JSON text and return a
-  `StoredGraphDefinition`. `node(...)` and `@registry.node(...)` take only a function. `stored_graph` has no
+- **A graph record becomes a node, a subgraph, with `subgraph`.** `subgraph("id", title=, description=)(record)`
+  and `registry.subgraph(...)` take a `GraphRecord` or its JSON text and return a
+  `SubgraphDefinition`. `node(...)` and `@registry.node(...)` take only a function. `subgraph` has no
   `policy`, `compute_added_inputs` or `compute_outputs` argument, so passing one is Python's own `TypeError`,
   and the declaration code `not_for_a_graph` is gone.
-- **A node's title and description are not empty.** `@node`, `@registry.node`, `stored_graph` and
-  `registry.stored_graph` raise `NodeDeclarationError` with the code `empty_title_or_description` for a
+- **A node's title and description are not empty.** `@node`, `@registry.node`, `subgraph` and
+  `registry.subgraph` raise `NodeDeclarationError` with the code `empty_title_or_description` for a
   `title` or `description` that is empty or only spaces; the message names the node and which one.
 - **The types decide one or many.** A `Series[X]` output wired to an input typed for one `X` runs
   that node once per item, and everything after it; the node never sees the difference. A
@@ -97,9 +97,9 @@ What changes in how you work, before the name-by-name tables:
   `Graph.compile(record, registry).problems`. A record's `values`, `defaults` and
   `display` are JSON values; `make_graph` writes each value typed in as its JSON, a float that isn't
   finite as `"NaN"` or `"Infinity"`, so a record equals its JSON, and an `upgrade` rewrite is written
-  the same way (`invalid_value` where it has no JSON form). A stored graph used as a node offers
+  the same way (`invalid_value` where it has no JSON form). A subgraph offers
   its graph's inputs by their names there and its outputs by their addresses there
-  (`e.upper.result`), and `stored_graph` takes no `policy` or hook. Its nodes run where it stands, each with a unit per item of the node that
+  (`e.upper.result`), and `subgraph` takes no `policy` or hook. Its nodes run where it stands, each with a unit per item of the node that
   embeds it, so they are called, retried, timed out, cancelled and reused by `run.again` as the
   same nodes drawn in the graph itself, and say their events once, under `("e", "upper")`. A blank
   arriving at the embedding leaves the inner nodes that read it uncalled, and `run.not_called`
@@ -116,7 +116,7 @@ What changes in how you work, before the name-by-name tables:
   `EndedEarly` with its `cause` (`match run.state`). It pauses for a person (`raise Ask(...)`, then `run.answer(...)` and `run.resume()`), writes
   itself as JSON (`run.to_json()`, `Run.from_json(saved, graph)`, which reads a save from its JSON text; a save that
   doesn't fit is `state_unreadable`, `ctx.at` its place in the save, such as `outcomes.upper.outputs.result.1`; a save holds each node's
-  units as a column per output with a slot per instance, a `Series` of records returned as a table as that table, under `e/ask` for a node inside an embedded graph, and how the run stands under `state`;
+  units as a column per output with a slot per instance, a `Series` of records returned as a table as that table, under `e/ask` for a node inside a subgraph, and how the run stands under `state`;
   a float that isn't finite is saved as its text and read back by its declared type, the float under `float` and the text under `Any`) and runs again on changed inputs,
   calling the nodes only for the items that changed (`run.again(...)`). A leg's `max_items` is a whole number of
   at least 1 and its `timeout` and `checkpoint_every` finite seconds above 0, a `bool` neither,
@@ -148,20 +148,20 @@ What changes in how you work, before the name-by-name tables:
 - **`syv-conductor-nodes` has a `series` category.** It holds `series-gather` ("Gather"), which runs once
   and gives the value made for every item as one list. `split` and `stack` are `series-split` and
   `series-stack` and live in `conductor_nodes.series`. `decision`, `logic-if-empty` and `logic-if-equals`
-  are `control-decide`, `control-if-empty` and `control-if-equals`. A stored graph that names an old id
+  are `control-decide`, `control-if-empty` and `control-if-equals`. A graph record that names an old id
   needs the new one, and a run saved from a graph that used an old id is refused by `Run.from_json`
   (`state_of_another_graph`), because the graph's fingerprint includes the ids of its nodes.
 - **A declared choice's `id` is the field type's JSON form.** `Decimal` choices show `"1"` and a `datetime` its seconds, so the id a question shows is an answer it takes.
 - **A table answer and a caller's records have one reader.** Extra columns are dropped for every table from outside, and a missing column is refused. An answer's cells are read strictly from their JSON form; a caller's records are read cell by cell, laxly, never from polars' dtype, so a bool among ints or a number among texts is `invalid_input`. A value that is neither a frame nor a list of records is refused as `invalid_answer` or `invalid_input` with the reason "a table is a frame or a list of records, one object per row".
 - **A default no caller reaches is a problem at load.** `make_graph(..., defaults={"pad.width": 8})` on a node that is not an open input of the graph writes the record, and `Graph.compile(record, registry).problems` holds `default_on_later_node`.
-- **A run's results are what a node reading them would be given.** For an output made per item, `run.results`, `run.outputs` and `outputs_json` hold `null` where the Series was never made for a blank outside the items, or a branch there wasn't taken (they held `[]`, the same as for a Series made with no items), and `null` where every item is skipped from outside (they held a list of `null`s). A blank outside still shows a blank in each place. The same nodes inside a stored graph show the same.
-- **An output made inside two loops is shown as a list of lists.** `run.results`, `run.outputs` and `outputs_json` show the output of a node called per item of a list that is itself made per item as one list per outer item, `null` for an outer item whose inner list was never made (it was one flat list over every item): three documents split into lines, the second empty, show `[["A", "B"], null, ["C"]]`. The same nodes inside a stored graph show the same.
-- **A node outside a stored graph reads its outputs as it would read the same nodes drawn in its own graph.** For the stored graph `documents -> lines -> shout`, a `Series[str]` input wired to `shout.result` is called once per document with that document's lines (it was called once, with one flat list over every document), and an input of one `str` once per line; a node outside and `run.results` see the same list per document. A loop outside is named by the list inside that is looped over (`runs_on` says `per item of e.documents.result`; it named the offered output), so outputs returned in the same loop inside line up: one item of each of two of them reaches one call (it was `series_not_nested`), and a `Series` input beside an input of one value wired to the same per-item output receives that item's one value, as drawn flat (it received every item). The output is described as `many` with one `Series` per loop (`type` `Series[str]` for a list per document) and lists its `loops`; every field description gains `loops`, empty but here. A `Series` returned once per document is `Series[Series[T]]` too (it was a `Series` of whole lists). `series_not_nested` for a list inside a stored graph has `ctx.hint` `inside_stored_graph` and tells the author what they can do.
+- **A run's results are what a node reading them would be given.** For an output made per item, `run.results`, `run.outputs` and `outputs_json` hold `null` where the Series was never made for a blank outside the items, or a branch there wasn't taken (they held `[]`, the same as for a Series made with no items), and `null` where every item is skipped from outside (they held a list of `null`s). A blank outside still shows a blank in each place. The same nodes inside a subgraph show the same.
+- **An output made inside two loops is shown as a list of lists.** `run.results`, `run.outputs` and `outputs_json` show the output of a node called per item of a list that is itself made per item as one list per outer item, `null` for an outer item whose inner list was never made (it was one flat list over every item): three documents split into lines, the second empty, show `[["A", "B"], null, ["C"]]`. The same nodes inside a subgraph show the same.
+- **A node outside a subgraph reads its outputs as it would read the same nodes drawn in its own graph.** For the subgraph `documents -> lines -> shout`, a `Series[str]` input wired to `shout.result` is called once per document with that document's lines (it was called once, with one flat list over every document), and an input of one `str` once per line; a node outside and `run.results` see the same list per document. A loop outside is named by the list inside that is looped over (`runs_on` says `per item of e.documents.result`; it named the offered output), so outputs returned in the same loop inside line up: one item of each of two of them reaches one call (it was `series_not_nested`), and a `Series` input beside an input of one value wired to the same per-item output receives that item's one value, as drawn flat (it received every item). The output is described as `many` with one `Series` per loop (`type` `Series[str]` for a list per document) and lists its `loops`; every field description gains `loops`, empty but here. A `Series` returned once per document is `Series[Series[T]]` too (it was a `Series` of whole lists). `series_not_nested` for a list inside a subgraph has `ctx.hint` `inside_subgraph` and tells the author what they can do.
 - **`Run.from_json` takes the JSON text `run.to_json()` wrote**, as `str` or `bytes`. It took a mapping too; a host that holds one writes `Run.from_json(json.dumps(saved), graph)`.
 - **`run.results` reads a run in any state and never raises.** A run that failed because an edge named a field its record lacks (`invalid_edge_value`) shows a blank where that field was read; the failure is the run's cause.
 - **A run's item ceiling is raised in one way: `run.with_max_items(n)`.** It gives the same run under the ceiling `n`, with nothing started, so `run.with_max_items(100).resume()` goes on with a run that stopped at its ceiling. `run.resume` and `run.stream` take no `max_items`; `graph.run`, `graph.with_inputs`, `run.with_inputs` and `run.again` set it where a run is made. The router's `POST /runs/{id}/resume` stores the run with the raised ceiling as it claims it, so a leg killed before its first checkpoint is gone on with under the raised ceiling.
-- **A stored graph used as a node costs what its nodes cost.** Its node holds no result of its own: what reads one of its outputs reads the node inside that makes it, and `results`, the events and `not_called` say of it what the nodes inside came to. Two `Series` inputs fed by two outputs it makes per item of one Series inside are kept in step, as they are drawn flat. A save's `complete` lists function nodes only, the stored graph's node says no `node_progress`, and one with no nodes inside says no events.
-- **A `Series` input fed one value made where its node runs receives that value, as a Series of one.** A node that runs per document, because another input gathers the document's lines, and whose `Series[str]` input is wired to the document's summary, receives its own document's summary. It received every document's summaries on each call, and the same nodes inside a stored graph received one.
+- **A subgraph costs what its nodes cost.** Its node holds no result of its own: what reads one of its outputs reads the node inside that makes it, and `results`, the events and `not_called` say of it what the nodes inside came to. Two `Series` inputs fed by two outputs it makes per item of one Series inside are kept in step, as they are drawn flat. A save's `complete` lists function nodes only, the subgraph's node says no `node_progress`, and one with no nodes inside says no events.
+- **A `Series` input fed one value made where its node runs receives that value, as a Series of one.** A node that runs per document, because another input gathers the document's lines, and whose `Series[str]` input is wired to the document's summary, receives its own document's summary. It received every document's summaries on each call, and the same nodes inside a subgraph received one.
 - **`run.not_called` is a list of `NotCalled` records** (`loc`, `input`), exported from `conductor`, not a list of dicts. It is in item order on a live run, in a checkpoint and after a load.
 - **A graph with problems is still drawn.** `graph.describe()` gives a node with a problem its fields and where it runs (`loaded` true), and the nodes that read it too; an input whose edge is refused is fed `unset`, a mode `Feed.mode` gains. `loaded` is false only where a node's fields aren't known.
 - **Faults say more.** `invalid_edge_value` carries `ctx.record_field` when an edge names a field its record lacks. A hook that returns no mapping is `compute_hook_failed` with `error: not_a_mapping`; an `AttributeError` in a hook's hint is the host's own bug and raises out of `load`. `table-collect` fails with `columns_not_aligned` (`column`, `records`, `values`) when a column doesn't hold one value per record.
@@ -177,11 +177,11 @@ What changes in how you work, before the name-by-name tables:
 - **A store that fails for one statement costs the runs router one try.** A sweep for runs whose lease ran out, a take-over of one of them and a renewal of a lease are each logged with their traceback when they raise, and the next one runs (a sweep that raised once took over nothing for the worker's life, and a renewal that raised once let another worker take a healthy leg and call its units again).
 - **The worker behind the runs router is a class with no HTTP in it.** `conductor_providers.fastapi.worker.Worker` begins, answers, resumes and cancels runs and takes over those whose lease ran out; `run_router` makes one and its routes call it. A host calls `run_router` as before.
 - **The runs router's schema reads as a generated client needs it.** Its operations are `list_nodes`, `load_graph`, `start_run`, `start_published`, `read_run`, `follow_run`, `answer_run`, `resume_run`, `run_again` and `cancel_run`, each with a description; the body of a resume is the component `Resume`; the three free-form bodies say what they hold. `conductor_providers.fastapi` exports `run_router`, `RunStore`, `StoredRun`, `RunChanges` and `ROUTER_PROBLEMS`; the wire models (`RunView`, `StartRun`, `Started`, `Answered`, `Cancelled`) are read in the schema and no longer exported.
-- **A kind of problem is declared by one function.** `ProblemCatalogue().problem()` over a function makes a `ProblemKind`: the function's name is the code, a keyword-only parameter is a `ctx` key (one that defaults to `None` may be left out), a named positional parameter is a place in `loc` and a `ctx` key, `*loc` is a place the sentence doesn't read, and the function returns the English. Calling the kind makes the `Problem`, so a type checker refuses a misspelled code, a `ctx` key left out and a value of the wrong type where the problem is made; a signature outside those three rules is a `TypeError` where it is declared. A kind has its `code`, `hint`, `sentence` (the English with a slot per key) and `ctx_type` (a `TypedDict`). The reference (`python -m conductor.about`) prints each kind from its function: the sentence, and each `ctx` key with its type, whether it is always given and what it holds; `python -m conductor.about not-a-chain` prints one. `check_registry`'s problems are declared the same way and listed in the reference, and each holds in `ctx` what its sentence is made from: `reason` (the sentences of the problems behind it), and `newest`, `status` or `named` where the sentence says them. `PROBLEMS` is the catalogue of conductor's core, every code it writes; a host reads every code as `PROBLEMS.codes`, and `conductor.PROBLEM_CODES` is gone. Every kind's `sentence` can be filled with `sentence.format(**problem.ctx)`; `from_run_missing`'s ended `pass from_run={<class>: ...}.`, whose braces `str.format` refused, and now ends `pass from_run with a value for <class>.` A problem whose sentence names its node or field holds them in `ctx` too, as `node_id` and `field`, so a host fills its own sentence from `ctx` alone: the id is the node's in the graph that holds it, as the sentence says it, where `loc` of a problem inside an embedded graph has the embedding node in front. A waiting id and a saved run's `code` digests differ from an earlier build's for a node that runs per item (the digest is made of the scope's addresses as text). Two older keys that used those words for something else are renamed: `edge_names_missing_node` names the node that isn't there as `ctx.missing`, and `unknown_output` and `invalid_edge_value` name the field of a record an edge reads as `ctx.record_field`.
+- **A kind of problem is declared by one function.** `ProblemCatalogue().problem()` over a function makes a `ProblemKind`: the function's name is the code, a keyword-only parameter is a `ctx` key (one that defaults to `None` may be left out), a named positional parameter is a place in `loc` and a `ctx` key, `*loc` is a place the sentence doesn't read, and the function returns the English. Calling the kind makes the `Problem`, so a type checker refuses a misspelled code, a `ctx` key left out and a value of the wrong type where the problem is made; a signature outside those three rules is a `TypeError` where it is declared. A kind has its `code`, `hint`, `sentence` (the English with a slot per key) and `ctx_type` (a `TypedDict`). The reference (`python -m conductor.about`) prints each kind from its function: the sentence, and each `ctx` key with its type, whether it is always given and what it holds; `python -m conductor.about not-a-chain` prints one. `check_registry`'s problems are declared the same way and listed in the reference, and each holds in `ctx` what its sentence is made from: `reason` (the sentences of the problems behind it), and `newest`, `status` or `named` where the sentence says them. `PROBLEMS` is the catalogue of conductor's core, every code it writes; a host reads every code as `PROBLEMS.codes`, and `conductor.PROBLEM_CODES` is gone. Every kind's `sentence` can be filled with `sentence.format(**problem.ctx)`; `from_run_missing`'s ended `pass from_run={<class>: ...}.`, whose braces `str.format` refused, and now ends `pass from_run with a value for <class>.` A problem whose sentence names its node or field holds them in `ctx` too, as `node_id` and `field`, so a host fills its own sentence from `ctx` alone: the id is the node's in the graph that holds it, as the sentence says it, where `loc` of a problem inside a subgraph has the embedding node in front. A waiting id and a saved run's `code` digests differ from an earlier build's for a node that runs per item (the digest is made of the scope's addresses as text). Two older keys that used those words for something else are renamed: `edge_names_missing_node` names the node that isn't there as `ctx.missing`, and `unknown_output` and `invalid_edge_value` name the field of a record an edge reads as `ctx.record_field`.
 - **A leg doesn't hang on Python 3.12 when a timer falls due as it starts to wait.** CPython 3.12's `SimpleQueue.get(timeout=)` never returns when its timeout runs out before its first look at an empty queue, so a run with a retry or an attempt deadline due within about a microsecond of the leg's wait stood still for ever (3.13 and 3.14 don't do it). The leg looks at its queue once without waiting before it waits with a timeout.
 - **A call on a thread that raises past the engine ends the run with it.** A node with `concurrency` above 1 or an `attempt_timeout` that raised `SystemExit` or `KeyboardInterrupt`, or whose output type's own check raised what is no refusal, was kept by its thread: the leg waited for the call for ever, and a stream of it couldn't be cancelled. The exception is handed back and raised from the call that ran the leg, as it is for a node called on the leg's own thread.
 
-A 1.x graph doesn't load as saved. Convert each stored graph with the table under
+A 1.x graph doesn't load as saved. Convert each graph record with the table under
 "Converting a stored 1.x graph", then save the `GraphRecord`.
 
 ### From 1.12.2, name by name
@@ -201,7 +201,7 @@ Every public name of 1.12.2, by the module it was imported from. A name not list
 | `conductor.registry.dynamic_outputs.ComputeOutputsFn` | `compute_outputs=`, a plain function returning `{name: type hint}` |
 | `conductor.registry.dynamic_outputs.IncomingBinding` | gone: a hook parameter annotated `type` receives the type arriving on that input |
 | `conductor.registry.dynamic_outputs.strip_sub_output_prefix` | gone: an output is named by its field |
-| `conductor.registry.NodeDefinition` | `NodeDefinition`, the union of `FunctionDefinition` (frozen and callable, returned by `@node`) and `StoredGraphDefinition` (returned by `stored_graph`) |
+| `conductor.registry.NodeDefinition` | `NodeDefinition`, the union of `FunctionDefinition` (frozen and callable, returned by `@node`) and `SubgraphDefinition` (returned by `subgraph`) |
 | `conductor.types.Base64Str` | gone: any type pydantic carries travels; `bytes` is one |
 | `conductor.types.Date` | `datetime.date` |
 | `conductor.types.MultiNamedFile` | gone: `Series[YourFile]` |
@@ -256,12 +256,12 @@ Every public name of 1.12.2, by the module it was imported from. A name not list
 | `conductor.flow_format.load_flow` | `Graph.compile(json_text, registry)` or `GraphRecord.model_validate_json` |
 | `conductor.flow_format.yaml_to_flow` | gone: YAML isn't read |
 | `conductor.graph.compiler.DecisionGuard` | gone with CEL guards: outputs of one `exclusive_group` are the branches |
-| `conductor.graph.compiler.ExtensionResolver` | gone: a stored graph is a node, `stored_graph("id", title=, description=)(record)`, added to a registry |
+| `conductor.graph.compiler.ExtensionResolver` | gone: a graph record is a node, `subgraph("id", title=, description=)(record)`, added to a registry |
 | `conductor.graph.dynamic_inputs.resolve_node_inputs` | `Graph.compile(record, registry).describe()`, a `GraphDescription` with each node's fields as its hooks made them |
 | `DefinitionSource` | gone with `RegistryView` |
 | `expr` | gone with CEL guards on edges |
 | `Flow` | `GraphRecord`; see "Converting a stored 1.x graph" |
-| `FlowDependency` | gone: a graph embeds another as a node, `stored_graph("id", title=, description=)(record)` |
+| `FlowDependency` | gone: a graph embeds another as a node, `subgraph("id", title=, description=)(record)` |
 | `FlowTrigger` | gone: the host decides when a graph runs |
 | `GraphEdge` | a pair `("a.result", "b.text")` in `GraphRecord.edges` |
 | `GraphNode` | `NodeRecord`; see "Converting a stored 1.x graph" |
@@ -310,8 +310,8 @@ Every public name of 1.12.2, by the module it was imported from. A name not list
 | `resume_sync` | `run.resume()` |
 | `resume` | `run.answer(...)`, then `run.resume()` |
 | `SUBPROCESS` | gone with the subprocess node |
-| `SubprocessNode` | a stored graph is a node, `stored_graph("id", title=, description=)(record)` |
-| `SubprocessRegistry` | gone: an embedded graph's node goes in a registry like any other |
+| `SubprocessNode` | a graph record is a node, `subgraph("id", title=, description=)(record)` |
+| `SubprocessRegistry` | gone: a subgraph's node goes in a registry like any other |
 | `WHILE` | gone with the while node |
 | `WhileNode` | gone: a graph has no cycles |
 | **Errors** | |
@@ -416,7 +416,7 @@ A 1.x `Flow` becomes a `GraphRecord`, `{"nodes": [...], "edges": [[from, to], ..
 | `Flow.version` | not stored: each node has its own `version` |
 | `Flow.name` | not stored: the host's own, or the embedding node's `title` |
 | `Flow.description` | not stored: the host's own, or the embedding node's `description` |
-| `Flow.dependencies` | gone: an embedded graph is a node added to the registry |
+| `Flow.dependencies` | gone: a subgraph is a node added to the registry |
 | `Flow.triggers` | gone: the host decides when a graph runs |
 | `Flow.on_error_default` | gone: a failed unit ends the leg `failed` |
 

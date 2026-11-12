@@ -35,7 +35,7 @@ from conductor import (
     host_type,
     make_graph,
     node,
-    stored_graph,
+    subgraph,
 )
 from pydantic import BaseModel
 
@@ -694,7 +694,7 @@ def test_again_with_changed_items_above_an_embedded_graph_gives_its_inner_fixed_
     def same(text: str) -> str:
         return text
 
-    inner = stored_graph("tagged", title="Tagged", description="For a test.")(GraphRecord(
+    inner = subgraph("tagged", title="Tagged", description="For a test.")(GraphRecord(
         nodes=[NodeRecord(id="same", node="same"), NodeRecord(id="label", node="label", values={"prefix": "p"}), NodeRecord(id="pair", node="pair")],
         edges=[("same.result", "pair.text"), ("label.result", "pair.tag")],
     ))
@@ -1534,7 +1534,7 @@ def test_an_inner_nodes_wrong_output_fails_where_the_node_is_inside_and_names_th
     def b(y: str) -> int:
         return 1
 
-    box = stored_graph("emb", title="Emb", description="For a test.")(make_graph(a, b, edges=[]))
+    box = subgraph("emb", title="Emb", description="For a test.")(make_graph(a, b, edges=[]))
     graph = Graph.compile(make_graph(box), registry_of(a, b, box))
     run = graph.run(x="q", y="w")
 
@@ -1619,7 +1619,7 @@ def test_again_and_with_inputs_take_an_input_by_its_address_as_graph_run_does():
     def join(a: str, b: str) -> str:
         return a + b
 
-    box = stored_graph("box", title="Box", description="For a test.")(GraphRecord(nodes=[NodeRecord(id="j", node="join")]))
+    box = subgraph("box", title="Box", description="For a test.")(GraphRecord(nodes=[NodeRecord(id="j", node="join")]))
     graph = Graph.compile(GraphRecord(nodes=[NodeRecord(id="u", node="upper"), NodeRecord(id="e", node="box")]), registry_of(upper, join, box))
     first = graph.run({"u.text": "a", "e.a": "x", "e.b": "y"})
 

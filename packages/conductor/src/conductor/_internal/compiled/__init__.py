@@ -1,4 +1,4 @@
-"""A stored graph checked against the nodes it uses, ready to run: loading, what loading makes, and what a host is shown.
+"""A graph record compiled against the nodes it uses, ready to run: loading, what loading makes, and what a host is shown.
 
 Code outside this package imports from here only. ``compiler.py`` has ``compile_graph`` and the compiler; ``type.py``
 ``CompiledGraph``; ``nodes.py`` its nodes as the compiler places them; ``input_plans.py`` what an edge brings and how each input gets its value;
