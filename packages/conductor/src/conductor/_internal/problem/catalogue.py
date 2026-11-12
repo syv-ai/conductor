@@ -1,14 +1,18 @@
 """Every kind of problem conductor's core reports, one function each, in ``PROBLEMS``.
 
-A kind is a function under ``@PROBLEMS.problem()``. Its name is the problem's code, its positional parameters are
-``loc``, its keyword-only parameters are the keys of ``ctx``, and it returns the message. Calling it makes the
-problem::
+A kind is a function under ``@PROBLEMS.problem()``. Its name is the problem's code. Its positional parameters are the
+parts of ``loc``, and a named one is a key of ``ctx`` too; its keyword-only parameters are the other keys of ``ctx``.
+It returns the message. Calling it makes the problem::
 
     unknown_input("upper", "txet", inputs=["text"])
     # Problem(type="unknown_input", loc=("upper", "txet"), msg="'upper' has no input 'txet'; it has text.",
     #         ctx={"node_id": "upper", "field": "txet", "inputs": ["text"]})
 
-A type checker checks every call against the function's signature. ``ProblemCatalogue.problem`` gives the rules.
+A type checker checks every call against the function's signature; ``ProblemCatalogue.problem`` in ``type.py`` gives
+the rules for the signature in full. A few kinds name their code in the decorator,
+``@PROBLEMS.problem("type_mismatch", variant="split_first")``: a second message under that code, for one particular
+mistake, and the problem's ``ctx.variant`` says which. ``of_a_hook=True`` marks a problem in a node's ``compute_...``
+hook, which the node's developer fixes rather than the graph's author; ``check_registry`` reports those as its own.
 
 Each kind's docstring is its entry on the problems page (``python -m conductor.about problems``): what is wrong and
 how to fix it, a line for each ``loc`` and ``ctx`` parameter, and an example. The example runs after the setup at
@@ -431,7 +435,7 @@ def type_mismatch_split_first(node_id: str, field: str, *, source: str, got: str
     """A whole table or list is wired into an input that takes one value.
 
     A table or a list is one value. To call the node once per row or item, put a node between that returns them as a
-    series (``series-split`` in ``syv-conductor-nodes``), and wire that node's result, or one field of it
+    series (the node ``series-split``, titled Split, in ``syv-conductor-nodes``), and wire that node's result, or one field of it
     (``series-split.result.email``).
 
     Args:
@@ -576,7 +580,7 @@ def unknown_output_split_first(*loc: str | int, source: str, outputs: list[str],
     """An edge's source names a field of a whole table or list.
 
     A table or a list is one value, so it has no field to wire. Put a node after it that returns its rows or items as
-    a series (``series-split`` in ``syv-conductor-nodes``), and wire the field from that node's result:
+    a series (the node ``series-split``, titled Split, in ``syv-conductor-nodes``), and wire the field from that node's result:
     ``series-split.result.email``.
 
     Args:
@@ -671,7 +675,8 @@ def answer_stale(*loc: str | int, waiting_id: str, current: str, moved_to: str |
         loc: The node and the item indexes of the call the answer is for.
         waiting_id: The waiting id the answer was given for.
         current: The waiting id of the question that waits in its place.
-        moved_to: Where the answered question waits now, when it moved.
+        moved_to: The waiting id the same question has now, when it waits for another call of the node: a change of
+            inputs gave its item another index.
 
     Example:
         asked = Graph.compile(make_graph(approve), registry).run(amount=5000)
@@ -746,11 +751,11 @@ def invalid_answer(*loc: str | int, waiting_id: str, reason: str, question: str 
         loc: The node and the item indexes of the call the answer is for.
         waiting_id: The waiting id the answer was given for.
         reason: What is wrong with the answer.
-        question: The question, when the fault is in the question rather than in the answer.
+        question: For a node that asks several questions (one per output), the name of the one the fault is in.
 
     Example:
         waiting = Graph.compile(make_graph(approve), registry).run(amount=5000)
-        refused(lambda: waiting.answer(waiting.waiting[0], "yes"))
+        refused(lambda: waiting.answer(waiting.waiting[0].id, "yes"))
     """
     return f"That is not a valid answer: {reason.rstrip('.')}"
 
@@ -948,7 +953,8 @@ def not_waiting(*loc: str | int, waiting_id: str, status: str, moved_to: str | N
         loc: The node and the item indexes the waiting id names; the node alone when the id names no call.
         waiting_id: The waiting id the answer was given for.
         status: The run's status.
-        moved_to: Where the answered question waits now, when it moved.
+        moved_to: The waiting id the same question has now, when it waits for another call of the node: a change of
+            inputs gave its item another index.
 
     Example:
         waiting = Graph.compile(make_graph(approve), registry).run(amount=5000)
@@ -1094,9 +1100,10 @@ def external_failed(*loc: str | int, error: str | None = None) -> str:
 def failed(*loc: str | int) -> str:
     """A node raised a ``NodeError`` that gives no code of its own.
 
-    The problem's message and ``ctx`` are the ones the node gave. A node gives a code of its own with
+    The problem is made from the node's ``NodeError``, not by calling this function: its message and ``ctx`` are the
+    ones the node gave. This function declares the code, and its message is a fallback for a host that has no message
+    of its own for the code. A node gives a code of its own with
     ``NodeError(message, code=)``, and the values a host fills its own message from with ``ctx=``, JSON values only.
-    This kind's message is for a host that has none of its own for the code.
 
     Args:
         loc: The call that failed.

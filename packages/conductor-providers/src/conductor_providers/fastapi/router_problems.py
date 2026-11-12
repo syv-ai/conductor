@@ -1,8 +1,8 @@
 """The kinds of problem the runs router reports itself, one function each, in ``ROUTER_PROBLEMS``, and the two exceptions
 that carry them.
 
-A kind is called to make its ``Problem``, as the kinds of ``conductor.PROBLEMS`` are (``ProblemCatalogue.problem`` gives
-the rules)::
+A kind is a function that returns the message; the decorator makes it a kind, which is called to make its ``Problem``,
+as the kinds of ``conductor.PROBLEMS`` are. ``ProblemCatalogue.problem`` says how the function's signature is read::
 
     already_answered(waiting_id="approve")
     # Problem(type="already_answered", loc=(), msg="An answer to 'approve' is already queued ...", ctx={"waiting_id": "approve"})
@@ -107,7 +107,7 @@ def run_changed() -> str:
 def resume_failed() -> str:
     """The worker raised an exception outside any node while it resumed the run, so ``resume()`` returned no run.
 
-    The ``cause`` of a run whose status is ``failed``: ``context`` raised, or the function that returns a caller's
+    The ``cause`` of a run whose status is ``failed``: the ``context`` function given to ``run_router`` raised, or the function that returns a caller's
     registry raised. A run conductor itself refused to resume has conductor's problem as its cause
     (``context_missing``, ``saved_run_unreadable``, ``run_unwritable``). An exception from the store fails no run: the
     run is resumed again once its lease runs out. The run is kept as its last checkpoint, and answers queued meanwhile
