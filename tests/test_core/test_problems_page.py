@@ -1,4 +1,4 @@
-"""Every message conductor writes says what to do, and each example on ``docs/problems.md`` prints the code of its section."""
+"""Every message conductor writes says what to do, and every example on the problems page makes the problem it is listed under."""
 
 from __future__ import annotations
 
@@ -6,20 +6,25 @@ import ast
 import contextlib
 import re
 import sys
-from ast import Call, Constant, JoinedStr, Name
+from ast import Call, Constant, Expr, Expression, JoinedStr, Module, Name
 from io import StringIO
 from pathlib import Path
 from types import ModuleType
 
-from conductor import PROBLEMS
+import pytest
+from conductor import PROBLEMS, Problem, ProblemKind
+from conductor.about import _kind_docs
+from conductor.testing.problems import REGISTRY_CHECK_PROBLEMS
 from pytest import MonkeyPatch
 
 _ROOT = Path(__file__).parents[2]
 _PACKAGE = _ROOT / "packages" / "conductor" / "src" / "conductor"
-_PAGE = (_ROOT / "docs" / "problems.md").read_text()
+_TEMPLATE = (_PACKAGE / "about" / "problems.md").read_text()
 #: Messages that carry no fix of their own: a node's failure keeps the node's words, an outside failure has none a
 #: person can act on, and an answer's ``reason`` is pydantic's account of what the answer lacks.
 _NO_FIX = {"failed", "external_failed", "invalid_answer"}
+#: The kinds whose message is the one the node gave its ``NodeError``, so an example's message is not the kind's own.
+_MESSAGE_IS_THE_NODES = {"failed"}
 
 
 def _template(message: ast.expr) -> str:
@@ -58,19 +63,58 @@ def test_every_declaration_message_says_what_to_do() -> None:
     assert without == []
 
 
-def test_each_example_prints_its_code(monkeypatch: MonkeyPatch) -> None:
-    page = ModuleType("problems_page")  # a dataclass on the page looks its module up by name
+def _setup() -> str:
+    """The setup at the top of the problems page: its first Python block."""
+    return re.findall(r"```python\n(.*?)```", _TEMPLATE, re.S)[0]
+
+
+def _made_by(kind: ProblemKind[...], problem: Problem) -> bool:
+    """Whether ``problem`` is of ``kind``: its code and variant, and a message the kind's sentence writes."""
+    if (problem.type, problem.ctx.get("variant")) != (kind.code, kind.variant):
+        return False
+    if kind.code in _MESSAGE_IS_THE_NODES:
+        return True
+    pattern = re.escape(kind.sentence)
+    for slot in re.findall(r"\\\{\w+\\\}", pattern):
+        pattern = pattern.replace(slot, ".*")
+    return re.fullmatch(pattern, problem.msg, re.S) is not None
+
+
+_KINDS = [*PROBLEMS, *REGISTRY_CHECK_PROBLEMS]
+
+
+@pytest.mark.parametrize("kind", _KINDS, ids=[f"{kind.code}-{kind._message.__name__}" for kind in _KINDS])
+def test_a_kinds_example_makes_its_problem_and_no_other(kind: ProblemKind[...], monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    """The example runs after the page's setup, alone, and its last line gives problems of this kind only."""
+    monkeypatch.chdir(tmp_path)
+    page = ModuleType("problems_page")  # a dataclass in an example looks its module up by name
     monkeypatch.setitem(sys.modules, page.__name__, page)
-    blocks = [(match.start(), match.group(1)) for match in re.finditer(r"```python\n(.*?)```", _PAGE, re.S)]
-    starts = [(match.start(), match.group(1)) for match in re.finditer(r"^### `([a-z_]+)`", _PAGE, re.M)]
-    namespace = page.__dict__
-    exec(compile(blocks[0][1], "docs/problems.md", "exec"), namespace)  # noqa: S102  the page's first block, as a reader runs it
+    example = _kind_docs(kind).example
+    assert example, f"{kind.code} has no example"
+    *body, last = ast.parse(example).body
+    assert isinstance(last, Expr), f"{kind.code}: the example's last line gives its problems"
+    exec(compile(_setup(), "problems page: setup", "exec"), page.__dict__)  # noqa: S102  the page's own code
+    exec(compile(Module(body=body, type_ignores=[]), f"problems page: {kind.code}", "exec"), page.__dict__)  # noqa: S102
+    made = eval(compile(Expression(last.value), f"problems page: {kind.code}", "eval"), page.__dict__)  # noqa: S307
+    made = made if isinstance(made, list) else [made]
+    assert made and [problem for problem in made if not _made_by(kind, problem)] == []
+
+
+def test_each_declaration_example_prints_its_code(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    """The page's section on declaring a node is written by hand: each example there prints the code it is under."""
+    monkeypatch.chdir(tmp_path)
+    page = ModuleType("problems_page")
+    monkeypatch.setitem(sys.modules, page.__name__, page)
+    declaring = _TEMPLATE[_TEMPLATE.index("## Declaring a node"):_TEMPLATE.index("## `check_registry`")]
+    blocks = [(match.start(), match.group(1)) for match in re.finditer(r"```python\n(.*?)```", declaring, re.S)]
+    starts = [(match.start(), match.group(1)) for match in re.finditer(r"^### `([a-z_]+)`", declaring, re.M)]
+    exec(compile(_setup(), "problems page: setup", "exec"), page.__dict__)  # noqa: S102
     wrong = []
-    for at, block in blocks[1:]:
+    for at, block in blocks:
         code = [name for start, name in starts if start < at][-1]
         printed = StringIO()
         with contextlib.redirect_stdout(printed):
-            exec(compile(block, f"docs/problems.md: {code}", "exec"), namespace)  # noqa: S102
+            exec(compile(block, f"problems page: {code}", "exec"), page.__dict__)  # noqa: S102
         if code not in printed.getvalue():
             wrong.append((code, printed.getvalue()))
     assert wrong == []

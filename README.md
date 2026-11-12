@@ -216,7 +216,7 @@ for waiting in run.waiting:
 - [Writing nodes for others](https://github.com/syv-ai/conductor/blob/main/docs/writing-nodes.md): types, controls, branches, questions, errors, versions, and one test for a whole registry.
 - [How it works](https://github.com/syv-ai/conductor/blob/main/docs/OVERVIEW.md): items, legs and pauses on one page.
 - [A graph inside a graph](https://github.com/syv-ai/conductor/blob/main/docs/subgraphs.md): a saved graph used as one node of another.
-- [Problem codes](https://github.com/syv-ai/conductor/blob/main/docs/problems.md): every code, with an example and the fix.
+- `python -m conductor.about problems`: every problem code, with an example and the fix, printed from the code that declares it.
 - [Serving runs over HTTP](https://github.com/syv-ai/conductor/blob/main/docs/serving-runs.md): a FastAPI router from `syv-conductor-providers`, on as many workers as you run.
 - [`syv-conductor-nodes`](https://github.com/syv-ai/conductor/tree/main/packages/conductor-nodes): ready nodes for text, numbers, JSON, patterns, tables and a decision.
 - [`examples/`](https://github.com/syv-ai/conductor/tree/main/examples): notebooks.

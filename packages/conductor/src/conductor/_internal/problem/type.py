@@ -70,10 +70,11 @@ class ProblemKind[**Params]:
             other fault of loading is fixed in the graph.
         sentence: The English with ``{key}`` where a ``ctx`` value goes.
         ctx_type: The ``ctx`` the kind writes, as a ``TypedDict``; a key that may be left out is not required.
+        section: The title of the catalogue's section the kind is declared in; empty when the catalogue has none.
     """
 
-    def __init__(self, write_message: Callable[Params, str], code: str, variant: str | None, of_a_hook: bool) -> None:
-        self.code, self.variant, self.of_a_hook = code, variant, of_a_hook
+    def __init__(self, write_message: Callable[Params, str], code: str, variant: str | None, of_a_hook: bool, section: str) -> None:
+        self.code, self.variant, self.of_a_hook, self.section = code, variant, of_a_hook, section
         self.__doc__ = write_message.__doc__
         self._message = write_message
         signature = inspect.signature(write_message, eval_str=True)
@@ -144,6 +145,14 @@ class ProblemCatalogue:
 
     def __init__(self) -> None:
         self._kinds: list[ProblemKind[...]] = []
+        self.sections: dict[str, str] = {}
+
+    def section(self, title: str, text: str) -> None:
+        """Starts a section: the kinds declared after it belong to ``title``, and ``text`` says what they have in common.
+
+        The problems page prints each section as a heading with its text, then its kinds.
+        """
+        self.sections[title] = text
 
     def problem[**Params](self, code: str | None = None, *, variant: str | None = None, of_a_hook: bool = False) -> Callable[[Callable[Params, str]], ProblemKind[Params]]:
         """Declares the function under it a kind of problem, and gives back what a caller calls to make one.
@@ -178,7 +187,7 @@ class ProblemCatalogue:
                 than ``str``, or a ``variant`` for a code the catalogue has not declared.
         """
         def declared(write_message: Callable[Params, str]) -> ProblemKind[Params]:
-            kind = ProblemKind(write_message, code or write_message.__name__, variant, of_a_hook)
+            kind = ProblemKind(write_message, code or write_message.__name__, variant, of_a_hook, next(reversed(self.sections), ""))
             if variant and kind.code not in self.codes:
                 raise TypeError(f"{write_message.__name__}: a hint is a second sentence under a code, and '{kind.code}' is not declared before it")
             self._kinds.append(kind)

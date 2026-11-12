@@ -5,13 +5,14 @@ from __future__ import annotations
 
 import sys
 
-from conductor.about import get_content, get_section, list_sections
+from conductor.about import get_content, get_section, list_sections, problems_page
 
 _USAGE = """\
 Usage: python -m conductor.about [section]
 
-  (no args)              print the full reference text
-  sections               list available section slugs
+  (no args)              print the rules
+  problems               print every problem, with an example of each
+  sections               list the section slugs of both pages
   <slug>                 print the matching section (prefix/substring ok)
   -h, --help             show this message
 """
@@ -26,6 +27,10 @@ def main(argv: list[str]) -> int:
 
     if arg in ("-h", "--help"):
         sys.stdout.write(_USAGE)
+        return 0
+
+    if arg == "problems":
+        sys.stdout.write(problems_page())
         return 0
 
     if arg == "sections":

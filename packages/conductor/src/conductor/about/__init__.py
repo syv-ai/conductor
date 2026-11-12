@@ -1,19 +1,15 @@
-"""Conductor's reference: one Markdown page, shipped in the package as ``conductor/about/llms.txt``.
+"""Conductor's reference, shipped in the package: the rules on one page, ``llms.txt``, and every problem on another, ``problems.md``.
 
-The page is written for a developer or a coding assistant that uses conductor, and says how the library behaves.
-Two kinds of list in it are not written by hand but made from the code each time the page is read, so they cannot
-go out of date:
-
-- A line ``<!-- names: conductor.events -->`` is replaced by the names the module ``conductor.events`` exports,
-  in the order of its ``__all__``, each with the first paragraph of its docstring.
-- A line ``<!-- problems: conductor.PROBLEMS -->`` is replaced by every kind of problem in the catalogue
-  ``conductor.PROBLEMS``: its code, its message and the keys of its ``ctx``, read from the function that
-  declares the kind.
+Both pages are templates. A line ``<!-- names: conductor.events -->`` is replaced by the names the module exports, from
+its ``__all__``, each with the first paragraph of its docstring. A line ``<!-- problems: conductor.PROBLEMS -->`` is
+replaced by every kind of problem the catalogue declares, each from the function that declares it: its docstring, its
+example, its sentence and its ``ctx`` keys. So nothing on either page is a copy of something in the code.
 
 From a shell::
 
-    python -m conductor.about                  # the whole reference
-    python -m conductor.about sections         # the slug of every section
+    python -m conductor.about                  # the rules
+    python -m conductor.about problems         # every problem, with an example of each
+    python -m conductor.about sections         # the section slugs of both pages
     python -m conductor.about one-or-many      # one section, by its slug or a part of it
 
 A section's slug is its heading in lower case with a hyphen for each run of other characters: the heading "One or
@@ -25,15 +21,17 @@ from __future__ import annotations
 import inspect
 import re
 import typing
+from dataclasses import dataclass
 from importlib import import_module
 from importlib.resources import files
 
-from conductor._internal.problem import ProblemCatalogue
+from conductor._internal.problem import ProblemCatalogue, ProblemKind
 
 _HEADING = re.compile(r"^(##+) (.+)$", re.MULTILINE)
 _NAMES = re.compile(r"^<!-- names: ([\w.]+) -->$", re.MULTILINE)
 _PROBLEMS = re.compile(r"^<!-- problems: ([\w.]+)\.(\w+) -->$", re.MULTILINE)
 _ARGUMENT = re.compile(r"^    (\w+): ", re.MULTILINE)
+_DOCSTRING_SECTION = re.compile(r"^(Args|Example):\n", re.MULTILINE)
 
 
 def _names(module_name: str) -> str:
@@ -63,14 +61,54 @@ def _names(module_name: str) -> str:
     return "\n".join(lines)
 
 
-def _problems(catalogue: ProblemCatalogue) -> str:
-    """The kinds of problem in a catalogue, each as a ``####`` section headed by its code.
+@dataclass(frozen=True)
+class _KindDocs:
+    """The docstring of the function that declares a kind of problem, in the parts the problems page prints.
 
-    Each kind of problem is declared by a function, and the kind keeps that function's docstring. Its section has:
-    the first paragraph of the docstring; its message, with a ``{key}`` for each ``ctx`` value; what its ``loc`` is, when the function takes
-    a ``*loc`` argument and its docstring says what it is under ``Args:``; and a table of its ``ctx`` keys, with
-    each key's type, whether the key is always given, and the key's line under ``Args:``. The key ``variant``,
-    which says which of a code's messages this is, needs no line.
+    Attributes:
+        text: The paragraphs before ``Args:``, in Markdown's single backticks.
+        arguments: The line under ``Args:`` for each parameter, by the parameter's name, on one line.
+        example: The code under ``Example:``, without its indent; empty when there is none.
+    """
+
+    text: str
+    arguments: dict[str, str]
+    example: str
+
+
+def _kind_docs(kind: ProblemKind[...]) -> _KindDocs:
+    """Splits the docstring of the function that declares ``kind``.
+
+    The docstring is the kind's text, then ``Args:`` with a line for each parameter, then ``Example:`` with code that
+    makes the problem::
+
+        A node is on a cycle of edges.
+
+        A graph calls each node after the nodes upstream of it, ...
+
+        Args:
+            loc: The node.
+
+        Example:
+            problems({"nodes": [...], "edges": [...]})
+    """
+    text, *sections = _DOCSTRING_SECTION.split(inspect.cleandoc(kind.__doc__ or ""))
+    by_name = dict(zip(sections[::2], sections[1::2]))
+    pieces = _ARGUMENT.split(by_name.get("Args", ""))
+    return _KindDocs(
+        text=text.strip().replace("``", "`"),
+        arguments={name: " ".join(line.split()).replace("``", "`") for name, line in zip(pieces[1::2], pieces[2::2])},
+        example=inspect.cleandoc(by_name.get("Example", "")),
+    )
+
+
+def _problems(catalogue: ProblemCatalogue) -> str:
+    """Every kind of problem a catalogue declares, a ``###`` section each, under a ``##`` heading for each section of
+    the catalogue.
+
+    A kind's section has its docstring's text, its example, its sentence with a slot for each ``ctx`` value, what
+    its ``*loc`` is when it has one, and a table of its ``ctx`` keys: the type, whether the key is always given,
+    and the key's line under ``Args:``.
 
     Args:
         catalogue: The catalogue.
@@ -79,30 +117,39 @@ def _problems(catalogue: ProblemCatalogue) -> str:
         The sections, in the order the kinds are declared.
 
     Raises:
-        LookupError: A kind's docstring has no line under ``Args:`` for one of its ``ctx`` keys.
+        LookupError: A kind's docstring has no ``Args:`` line for one of its ``ctx`` keys.
     """
-    sections = []
+    out = []
+    section = ""
     for kind in catalogue:
-        summary, _, arguments = inspect.cleandoc(kind.__doc__ or "").partition("\nArgs:\n")
-        pieces = _ARGUMENT.split(arguments)
-        explained = {name: " ".join(text.split()).replace("``", "`") for name, text in zip(pieces[1::2], pieces[2::2])}
+        if kind.section != section:
+            section = kind.section
+            out.append(f"## {section}\n\n{catalogue.sections[section]}")
+        docs = _kind_docs(kind)
         rows = []
         for key, hint in typing.get_type_hints(kind.ctx_type).items():
             if key == "variant":
                 rows.append(f"| `variant` | `'{kind.variant}'` | always | Which of the code's sentences this is. |")
                 continue
-            if key not in explained:
+            if key not in docs.arguments:
                 raise LookupError(f"{kind.code}: the docstring of its function has no Args line for the ctx key '{key}'")
             given = "always" if key in kind.ctx_type.__required_keys__ else "when it applies"
-            rows.append(f"| `{key}` | `{inspect.formatannotation(hint)}` | {given} | {explained[key]} |")
-        sections.append("\n\n".join([
-            f"#### `{kind.code}`" + (f", variant `{kind.variant}`" if kind.variant else ""),
-            " ".join(summary.split("\n\n")[0].split()).replace("``", "`"),
+            rows.append(f"| `{key}` | `{inspect.formatannotation(hint)}` | {given} | {docs.arguments[key]} |")
+        out.append("\n\n".join([
+            f"### `{kind.code}`" + (f", variant `{kind.variant}`" if kind.variant else ""),
+            docs.text,
+            *([f"```python\n{docs.example}\n```"] if docs.example else []),
             f"> {kind.sentence}",
-            *([f"`loc`: {explained['loc']}"] if "loc" in explained else []),
-            "\n".join(["| `ctx` | type | given | holds |", "|---|---|---|---|", *rows]),
+            *([f"`loc`: {docs.arguments['loc']}"] if "loc" in docs.arguments else []),
+            "\n".join(["| `ctx` | type | given | meaning |", "|---|---|---|---|", *rows]),
         ]))
-    return "\n\n".join(sections)
+    return "\n\n".join(out)
+
+
+def write_markers(page: str) -> str:
+    """``page`` with each ``names`` and ``problems`` marker line replaced by what it stands for."""
+    page = _NAMES.sub(lambda marker: _names(marker[1]), page)
+    return _PROBLEMS.sub(lambda marker: _problems(getattr(import_module(marker[1]), marker[2])), page)
 
 
 def _parse_sections(text: str) -> dict[str, str]:
@@ -127,28 +174,39 @@ def _parse_sections(text: str) -> dict[str, str]:
 
 
 def get_content() -> str:
-    """The whole reference as Markdown, with every ``<!-- names: ... -->`` and ``<!-- problems: ... -->`` line
-    replaced by the list it names."""
-    page = files("conductor.about").joinpath("llms.txt").read_text(encoding="utf-8")
-    page = _NAMES.sub(lambda marker: _names(marker[1]), page)
-    return _PROBLEMS.sub(lambda marker: _problems(getattr(import_module(marker[1]), marker[2])), page)
+    """The rules, ``llms.txt``, with each public module's names written in."""
+    return write_markers(files("conductor.about").joinpath("llms.txt").read_text(encoding="utf-8"))
+
+
+def problems_page() -> str:
+    """The problems page, ``problems.md``, with every kind of problem of the core and of ``check_registry`` written in."""
+    return write_markers(files("conductor.about").joinpath("problems.md").read_text(encoding="utf-8"))
+
+
+def _both_pages() -> list[dict[str, str]]:
+    """The sections of the rules, then those of the problems page."""
+    return [_parse_sections(get_content()), _parse_sections(problems_page())]
 
 
 def list_sections() -> list[str]:
-    """The slug of every ``##`` and ``###`` section, in the order the reference has them."""
-    return list(_parse_sections(get_content()).keys())
+    """The slug of every ``##`` and ``###`` section, the rules' first."""
+    return [slug for sections in _both_pages() for slug in sections]
 
 
 def get_section(name: str) -> str | None:
-    """One section by its slug, or else the first section whose slug contains ``name``; ``None`` when none does.
+    """One section by its slug, or the first whose slug contains ``name``; ``None`` when none does.
 
-    ``get_section("one-or")`` returns the section "One or many", heading included."""
-    sections = _parse_sections(get_content())
-    if name in sections:
-        return sections[name]
-    for slug, body in sections.items():
-        if name.lower() in slug:
-            return body
+    The rules are searched before the problems page, so ``asking`` finds the rules' section and ``cycle`` the problem.
+    ``get_section("one-or")`` returns the section "One or many", heading included.
+    """
+    pages = _both_pages()
+    for sections in pages:
+        if name in sections:
+            return sections[name]
+    for sections in pages:
+        for slug, body in sections.items():
+            if name.lower() in slug:
+                return body
     return None
 
 

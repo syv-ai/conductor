@@ -181,19 +181,31 @@ def test_every_name_the_reference_puts_in_backticks_exists():
     assert missing == set()
 
 
-def test_the_reference_has_every_kind_of_problem_with_its_sentence_and_its_ctx_keys():
+def test_the_problems_page_has_every_kind_of_problem_with_its_sentence_its_ctx_keys_and_its_example():
     from conductor import PROBLEMS
+    from conductor.testing.problems import REGISTRY_CHECK_PROBLEMS
 
-    text = about.get_content()
+    page = about.problems_page()
 
-    assert "<!-- problems:" not in text
-    for kind in PROBLEMS:
-        assert f"#### `{kind.code}`" in text and f"> {kind.sentence}" in text
+    assert "<!-- problems:" not in page and "<!-- problems:" not in about.get_content()
+    for kind in [*PROBLEMS, *REGISTRY_CHECK_PROBLEMS]:
+        assert f"### `{kind.code}`" in page and f"> {kind.sentence}" in page
+    for section in PROBLEMS.sections:
+        assert f"\n## {section}\n" in page
     entry = about.get_section("context-missing")
     assert entry is not None
     assert "> '{node_id}' needs a {needs} for '{parameter}', and context gives none (it gives {given}); pass context with a value for {needs}." in entry
     assert "| `node_id` | `str` | always | The node. |" in entry
     assert "| `given` | `list[str]` | always | The names of the classes `context` has values for. |" in entry
+    assert "```python\nrefused(lambda: Graph.compile(make_graph(who), registry).run())\n```" in entry
+
+
+def test_the_cli_prints_the_problems_page():
+    result = subprocess.run(
+        [sys.executable, "-m", "conductor.about", "problems"],
+        capture_output=True, text=True, check=True,
+    )
+    assert result.stdout == about.problems_page()
 
 
 def test_a_key_that_may_be_left_out_and_a_variant_are_said_in_a_kinds_entry():
@@ -206,11 +218,16 @@ def test_a_key_that_may_be_left_out_and_a_variant_are_said_in_a_kinds_entry():
     def room_closed(*loc: str | int, until: str, opener: str | None = None) -> str:
         """A room is closed.
 
+        Come back later.
+
         Args:
             loc: The room and the door.
             until: When it opens,
                 on the wall clock.
             opener: Who opens it, when someone is named.
+
+        Example:
+            room_closed("hall", "front", until="noon")
         """
         return f"The room is closed until {until}."
 
@@ -226,10 +243,14 @@ def test_a_key_that_may_be_left_out_and_a_variant_are_said_in_a_kinds_entry():
 
     entries = _problems(catalogue)
 
-    assert "#### `room_closed`\n\nA room is closed.\n\n> The room is closed until {until}.\n\n`loc`: The room and the door." in entries
+    assert (
+        "### `room_closed`\n\nA room is closed.\n\nCome back later.\n\n"
+        '```python\nroom_closed("hall", "front", until="noon")\n```\n\n'
+        "> The room is closed until {until}.\n\n`loc`: The room and the door."
+    ) in entries
     assert "| `until` | `str` | always | When it opens, on the wall clock. |" in entries
     assert "| `opener` | `str` | when it applies | Who opens it, when someone is named. |" in entries
-    assert "#### `room_closed`, variant `holiday`" in entries
+    assert "### `room_closed`, variant `holiday`" in entries
     assert "| `variant` | `'holiday'` | always | Which of the code's sentences this is. |" in entries
 
 

@@ -37,6 +37,11 @@ What changes in how you work, before the name-by-name tables:
   A type's `accepted_as` is read from `registry.describe().types`.
 - **`conductor.about` has no names.** Its `__all__` is empty. `get_content`, `list_sections` and `get_section`
   are what `python -m conductor.about` calls, and are not part of the public API.
+- **The problems page is printed from the code.** `python -m conductor.about problems` prints every
+  problem code with an example, its message, what its `ctx` keys mean and how to fix it, each kind from the
+  docstring of the function that declares it, and a test runs every example. The docs build writes the same
+  page; there is no `docs/problems.md`. `ProblemCatalogue.section(title, text)` groups a catalogue's kinds,
+  and `ProblemKind.section` says which group a kind is in.
 - **What a person sees for a type is declared.** Each entry of `registry.describe().types` has the
   `id` and `title` its owner declared: conductor's own types from one fixed table (`str` is `Text`,
   `int` `Whole number`), a host's class from its `@host_type` declaration;
@@ -55,7 +60,7 @@ What changes in how you work, before the name-by-name tables:
   `bool` never lands on a number, a `Literal` of numbers or a union holding a number and no
   `bool` (`int | float`) included, as a field's value or in a table's column. `async def` and
   auto-discovery are gone. A node declared wrong raises `NodeDeclarationError` at import, with a
-  `code`; [`docs/problems.md`](docs/problems.md) lists them, and the parameter is typed as those
+  `code`; `python -m conductor.about problems` lists them, and the parameter is typed as those
   codes, so a type checker refuses one conductor doesn't have. A `Param` is checked against its type as pydantic
   builds the schema: a limit pydantic doesn't hold on the type (`ge` on a `bool` or an `IntEnum`), or
   a choice that isn't a value of it, is `bound_invalid` or `choices_invalid`, so a host's `BaseModel`

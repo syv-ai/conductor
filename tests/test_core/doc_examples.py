@@ -1,6 +1,7 @@
 """The Python a reader copies from conductor's documents, each document as one module, for the tests that check it.
 
-The documents are the README files, ``docs/``, ``skills/`` and ``about/llms.txt`` (the pages), and the notebooks.
+The documents are the README files, ``docs/``, ``skills/``, ``about/llms.txt`` and the problems page (the pages), and the
+notebooks. The problems page is read as ``python -m conductor.about problems`` prints it, each problem's example in it.
 Each page is its ``python`` blocks in order; a notebook is its code cells, a cell that awaits at the top read as a
 coroutine. ``llms.txt`` names conductor's public names without importing them, so it is read after a star import of
 ``conductor`` and ``conductor.widgets``.
@@ -12,7 +13,11 @@ import json
 import re
 from pathlib import Path
 
+from conductor.about import problems_page
+
 ROOT = Path(__file__).parents[2]
+#: The module name the problems page runs as.
+PROBLEMS_PAGE = "doc_problems"
 _STAR_IMPORTS = "from typing import Annotated\nfrom conductor import *\nfrom conductor.widgets import *\n"
 
 
@@ -26,6 +31,7 @@ def pages() -> dict[str, str]:
             found[_module_name(path)] = "\n".join(blocks)
     llms = ROOT / "packages" / "conductor" / "src" / "conductor" / "about" / "llms.txt"
     found[_module_name(llms)] = _STAR_IMPORTS + "\n".join(_doctest_free(b) for b in re.findall(r"```python\n(.*?)```", llms.read_text(), re.S))
+    found[PROBLEMS_PAGE] = "\n".join(re.findall(r"```python\n(.*?)```", problems_page(), re.S))
     return found
 
 
