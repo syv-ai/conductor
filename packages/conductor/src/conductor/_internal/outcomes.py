@@ -167,59 +167,76 @@ def outputs_when_not_called(outputs: Mapping[str, Field]) -> dict[str, Any]:
     return {name: SKIPPED if output.param.exclusive_group is not None else None for name, output in outputs.items()}
 
 
-def all_item_indexes(outcomes: dict[str, dict[ItemIndexes, Outcome]], loops: tuple[tuple[FlatFunctionNode, str], ...], prefix: ItemIndexes, *, counted: bool = False) -> tuple[list[ItemIndexes], bool]:
+def all_item_indexes(outcomes: dict[str, dict[ItemIndexes, Outcome]], loops: tuple[tuple[FlatFunctionNode, str], ...], prefix: ItemIndexes) -> tuple[list[ItemIndexes], bool]:
     """The item indexes of every call a node has, and whether that list is complete yet.
 
     In the example, ``clean`` is inside one loop, over ``load.result``. After ``load`` has returned two
-    documents, ``all_item_indexes(outcomes, clean.maps, ())`` returns ``([(0,), (1,)], True)``. Before ``load`` has
+    documents, ``all_item_indexes(outcomes, clean.loops, ())`` returns ``([(0,), (1,)], True)``. Before ``load`` has
     returned, or while it is waiting for a person, it returns ``([], False)``: no call is known so far,
-    and more may come.
+    and more may come. ``load`` is inside no loop, so for it the result is always ``([()], True)``: one call.
 
     Args:
         outcomes: The run's outcomes, by node name and then by item indexes.
         loops: The loops the node is inside, outermost first. Each is the node that returns the list and the
             name of the output that is the list.
         prefix: Return only the item indexes that start with these. ``()`` returns all of them. With two
-            nested loops, ``(1,)`` returns the paths inside item 1 of the outer list: ``(1, 0)``, ``(1, 1)``, ...
-        counted: Count the items of the innermost loop without making a path for each. The list returned
-            then has at most one entry, and it is a count, not item indexes: ``[(2,)]`` means two calls in all.
+            nested loops, ``(1,)`` returns the calls inside item 1 of the outer list: ``(1, 0)``, ``(1, 1)``, ...
 
     Returns:
         The item indexes of each call, and ``True`` when every list the node loops over exists.
     """
     start, deepest = len(prefix), len(loops)
-    if start >= deepest:
-        return [prefix[:deepest]], True
-    paths, complete = [prefix], True
+    if start == deepest:
+        return [prefix], True
+    every_item_indexes, complete = [prefix], True
     for depth in range(start, deepest):
         series_node, output = loops[depth]
         of_series_node = outcomes[series_node.name]
-        below: list[ItemIndexes] = []
-        for parent in paths:
-            outcome = of_series_node.get(parent)
+        one_loop_deeper: list[ItemIndexes] = []
+        for item_indexes in every_item_indexes:
+            outcome = of_series_node.get(item_indexes)
             if outcome is None or type(outcome) is Waiting:
                 complete = False
                 continue
-            count = length(outcome.outputs[output])
-            if counted and depth == deepest - 1:
-                below = [(below[0][0] + count,)] if below else [(count,)]
-            else:
-                below.extend((*parent, i) for i in range(count))
-        paths = below
-    return paths, complete
+            one_loop_deeper.extend((*item_indexes, index) for index in range(length(outcome.outputs[output])))
+        every_item_indexes = one_loop_deeper
+    return every_item_indexes, complete
+
+
+def calls_expected(outcomes: dict[str, dict[ItemIndexes, Outcome]], loops: tuple[tuple[FlatFunctionNode, str], ...]) -> tuple[int, bool]:
+    """How many calls a node inside ``loops`` gets in this run, and whether that number is final yet.
+
+    A node inside no loop gets one call. In the example that is ``load`` and ``report``: ``(1, True)``. ``clean``
+    is inside the loop over ``load.result``: ``(2, True)`` once ``load`` has returned two documents, and
+    ``(0, False)`` before that. With two nested loops the number is the sum of the lengths of the inner lists.
+
+    Args:
+        outcomes: The run's outcomes, by node name and then by item indexes.
+        loops: The loops the node is inside, outermost first, as ``all_item_indexes`` takes them.
+    """
+    if not loops:
+        return 1, True
+    calls_of_series_node, complete = all_item_indexes(outcomes, loops[:-1], ())
+    series_node, output = loops[-1]
+    of_series_node = outcomes[series_node.name]
+    expected = 0
+    for item_indexes in calls_of_series_node:
+        outcome = of_series_node.get(item_indexes)
+        if outcome is None or type(outcome) is Waiting:
+            complete = False
+        else:
+            expected += length(outcome.outputs[output])
+    return expected, complete
 
 
 def has_every_outcome(outcomes: dict[str, dict[ItemIndexes, Outcome]], node: FlatFunctionNode) -> bool:
     """Whether ``node`` has an outcome for every call it will ever have.
 
     In the example, ``clean`` has every outcome when ``load`` has returned and ``clean`` has one outcome per
-    document. An ``Waiting`` outcome counts: the call was made, though its answer has not come.
+    document. A ``Waiting`` outcome counts: the call was made, though its answer has not come.
     """
-    of_node = outcomes[node.name]
-    if not node.loops:
-        return bool(of_node)
-    counted, complete = all_item_indexes(outcomes, node.loops, (), counted=True)
-    return complete and len(of_node) == (counted[0][0] if counted else 0)
+    expected, complete = calls_expected(outcomes, node.loops)
+    return complete and len(outcomes[node.name]) == expected
 
 
 def length(value: Any) -> int:

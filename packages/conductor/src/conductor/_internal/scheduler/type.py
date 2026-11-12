@@ -66,6 +66,7 @@ from conductor._internal.outcomes import (
     Skipped,
     Waiting,
     all_item_indexes,
+    calls_expected,
     has_every_outcome,
     length,
 )
@@ -571,7 +572,7 @@ class Scheduler:
             if not any(n in above and k[: len(item_indexes)] == item_indexes for n, k in working):
                 self.collectors.discard((node, item_indexes))
                 released = True
-                for call_indexes in all_item_indexes(self.all_outcomes, node.loops, item_indexes)[0] if len(item_indexes) < len(node.loops) else (item_indexes,):
+                for call_indexes in all_item_indexes(self.all_outcomes, node.loops, item_indexes)[0]:
                     heapq.heappush(self.ready, (node.position, call_indexes))
         return released
 
@@ -655,8 +656,7 @@ class Scheduler:
                     self.skipped.add(around)
                     self.emit(NodeSkipped(loc=around.node_path))
                 else:
-                    counted, _ = all_item_indexes(self.all_outcomes, around.loops, (), counted=True)
-                    self.emit(NodeComplete(loc=around.node_path, outcomes=(counted[0][0] if counted else 0) if around.loops else 1))
+                    self.emit(NodeComplete(loc=around.node_path, outcomes=calls_expected(self.all_outcomes, around.loops)[0]))
             around = around.parent
 
     def _finished(self, node: FlatFunctionNode, may_wait: bool = True) -> bool:
