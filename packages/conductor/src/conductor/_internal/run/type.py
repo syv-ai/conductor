@@ -44,7 +44,6 @@ from conductor._internal.address import (
 )
 from conductor._internal.ask import (
     Waiting,
-    answer_outputs,
     question_fingerprint,
     waiting_record,
 )
@@ -322,11 +321,11 @@ class Run[C]:
             if (node, item_indexes) in answered:
                 problems.append(problem.invalid_answer(*loc, waiting_id=unit_id, reason="the unit is answered twice in one call"))
                 continue
-            read, faults = answer_outputs(compiled_node, one, found.question.overrides)
-            problems.extend(
-                problem.invalid_answer(*loc, waiting_id=unit_id, reason=reason, question=q or None) for q, reason in faults
-            )
-            answered[(node, item_indexes)] = Answered(read, found.question) if not faults else found
+            try:
+                answered[(node, item_indexes)] = Answered(compiled_node.answer_door(one, found.question.overrides, loc=loc, waiting_id=unit_id), found.question)
+            except RefusedError as refused:
+                problems.extend(refused.problems)
+                answered[(node, item_indexes)] = found
         if problems:
             raise InvalidCallError(problems)
         run = self._copy(share_outcomes=True)

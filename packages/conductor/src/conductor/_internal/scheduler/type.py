@@ -65,7 +65,7 @@ from queue import Empty, SimpleQueue
 from typing import Any, Literal
 
 from conductor._internal.address import ItemIndexes, NodePath
-from conductor._internal.ask import Ask, question_asked
+from conductor._internal.ask import Ask
 from conductor._internal.compiled import FlatFunctionNode, all_upstream, outcome_loc
 from conductor._internal.gate import RefusedError
 from conductor._internal.outcomes import (
@@ -731,7 +731,7 @@ class Scheduler:
             return Done(outputs)
         if isinstance(error, Ask):
             try:
-                return Waiting(question_asked(error, node.compiled_node.outputs, jsonable(arguments)))
+                return Waiting(node.compiled_node.ask_door(error, jsonable(arguments)))
             except RefusedError as refused:
                 return self._failure(node, item_indexes, refused)
         return self._failure(node, item_indexes, error)

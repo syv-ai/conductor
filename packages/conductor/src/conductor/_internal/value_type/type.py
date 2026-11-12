@@ -464,17 +464,8 @@ class Type:
         type it is the frame; for ``Type(int)`` and ``5`` it is ``None``."""
         return None
 
-    def read_answer(self, value: Any) -> Any:
-        """Validates a person's answer from its JSON form and returns it as the run stores it.
-        ``Type(int).read_answer(3)`` is ``3``; for a ``Series`` the list is returned as a ``SeriesItems``.
-
-        Raises:
-            ValidationError: ``value`` has no JSON form, or is not valid for the type.
-        """
-        return self.read_json(value)
-
     def read_json(self, value: Any) -> Any:
-        """Reads ``value`` strictly from its JSON form, as a person's answer and a declared choice are.
+        """Reads ``value`` strictly from its JSON form, as a declared choice is.
 
         A yes or no is ``true`` or ``false`` and a number is a number, never a text that spells one; a date is
         still its ISO text, as JSON writes it.

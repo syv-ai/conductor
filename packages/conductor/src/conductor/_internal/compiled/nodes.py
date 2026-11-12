@@ -24,7 +24,7 @@ from conductor._internal.address import split_address
 from conductor._internal.ask import output_questions
 from conductor._internal.compiled.input_plans import InputPlan, OutputAddress
 from conductor._internal.field import Field, FieldDescription
-from conductor._internal.gate import ReturnDoor
+from conductor._internal.gate import AnswerDoor, AskDoor, ReturnDoor
 from conductor._internal.hashing import short_hash
 from conductor._internal.node_definition import FunctionDefinition, SubgraphDefinition
 from conductor._internal.outcomes import Skipped, outputs_when_not_called, outputs_when_skipped
@@ -164,6 +164,18 @@ class CompiledFunctionNode(_CompiledNodeBase):
         """The question a person is asked for each output when the function raises ``Ask``, made from the
         output's type; the ``Ask`` can add a prompt, choices and a default to it."""
         return output_questions(self.outputs)
+
+    @functools.cached_property
+    def ask_door(self) -> AskDoor:
+        """Checks an ``Ask`` the function raises against the node's outputs, and keeps it as the call's question.
+        Built when the node first asks."""
+        return AskDoor(self.outputs)
+
+    @functools.cached_property
+    def answer_door(self) -> AnswerDoor:
+        """Reads a person's answer to a waiting call of the node into its outputs: ``{"result": True}`` for
+        ``approve`` answered ``True``. Built when the node is first answered."""
+        return AnswerDoor(self.outputs, self.questions)
 
 
 @typing.final

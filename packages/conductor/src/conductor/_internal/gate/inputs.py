@@ -1,10 +1,10 @@
 """The inputs door: the graph inputs a caller gives to start a run, and the run's limits.
 
-Example: the graph ``lines -> shout -> join`` has the graph inputs ``text`` (``lines.text``, required) and ``mark``
-(``shout.mark``, default ``"!"``). ``graph.run(text="a\\nb")`` gives the door ``{"text": "a\\nb"}``, which returns
-``{"lines.text": "a\\nb", "shout.mark": "!"}``: every graph input by its address, a default where the caller gave
-none. Given ``{"text": 3, "lines.text": "b", "colour": "red"}`` it raises ``RefusedError`` with every fault at once:
-``input_given_twice`` for ``text``, ``not_offered`` for ``colour``, then ``invalid_input`` for ``text``.
+Example: the graph of one node, ``make_graph(shout)``, has the graph inputs ``line`` (``shout.line``, required) and
+``mark`` (``shout.mark``, default ``"!"``). ``graph.run(line="b")`` gives the door ``{"line": "b"}``, which returns
+``{"shout.line": "b", "shout.mark": "!"}``: every graph input by its address, its default where the caller gave
+none. Given ``{"line": 3, "shout.line": "b", "colour": "red"}`` it raises ``RefusedError`` with every fault at
+once: ``input_given_twice`` for ``line``, ``not_offered`` for ``colour``, then ``invalid_input`` for ``line``.
 
 The limits (``max_items``, ``timeout``, ``checkpoint_every``) are the same for every graph, so they are checked by
 one function, ``check_limits``. A yes or no is not a number: ``max_items=True`` is refused, as is ``max_items=2.5``.

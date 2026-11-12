@@ -428,6 +428,8 @@ def test_a_reader_left_with_no_items_by_an_answer_shows_so_before_the_next_leg()
     (lambda: Ask("?", default=SKIPPED), "the default for 'result' is not an answer it takes: the value has no JSON form"),
     (lambda: Ask("?", choices=["a", 2]), "a choice for 'result' is not what it returns: Input should be a valid string"),
     (lambda: Ask("?", choices=["a"], default="b"), "the default for 'result' is not an answer it takes: the answer is not one of the choices"),
+    (lambda: Ask("?", choices=["a", object()]), "a choice for 'result' is not what it returns: the value has no JSON form"),
+    (lambda: Ask("?", choices=[Choice(object(), "Thing")]), "a choice for 'result' is not what it returns: the value has no JSON form"),
     (lambda: Ask("?", choices=["a", "a"]), "a choice for 'result' is offered twice"),
     (lambda: Ask("?", choices=[]), "'result' is offered no choices"),
     (lambda: Ask("?", choices={"result": ["a"]}), "the node has one output, so it is answered with a value, and choices= is a list"),

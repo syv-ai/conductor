@@ -22,14 +22,17 @@ in the file named; they move here one by one.
                                                             invalid_input, invalid_input_make_a_series,
                                                             invalid_max_items, invalid_timeout,
                                                             invalid_checkpoint_every
-    a person's answer                                       answer (not yet: ask.py)
+    a person's answer                                       answer
                                                             invalid_answer
     what a node's function returns                          returned
                                                             invalid_output
     a value an edge gives an input that demands more        edge
         than the edge's source declares                     invalid_edge_value
-    what a node raises: NodeError's ctx, an Ask's choices   raised (not yet: problem/errors.py, ask.py)
-        and default                                         invalid_ask
+    what a node raises: an Ask's choices and default        raised
+                                                            invalid_ask
+    what a node raises: a NodeError's ctx                   problem/errors.py, which stays there: NodeError
+                                                            reads it when the node makes one
+                                                            (pydantic's ValidationError at the node's raise)
     the context= a host passes to start or resume a run     context
                                                             invalid_context, context_missing
     a saved run                                             run/json/read.py, which stays there: its reader
@@ -40,10 +43,12 @@ A node author's declarations (a default, ``Param``'s choices, a host type's chec
 declared, by the type they are declared on.
 """
 
+from conductor._internal.gate.answer import AnswerDoor
 from conductor._internal.gate.context import ContextDoor
 from conductor._internal.gate.edge import EdgeDoor, demands_more
 from conductor._internal.gate.inputs import InputsDoor, check_limits
+from conductor._internal.gate.raised import AskDoor
 from conductor._internal.gate.refused import RefusedError
 from conductor._internal.gate.returned import ReturnDoor
 
-__all__ = ["ContextDoor", "EdgeDoor", "InputsDoor", "RefusedError", "ReturnDoor", "check_limits", "demands_more"]
+__all__ = ["AnswerDoor", "AskDoor", "ContextDoor", "EdgeDoor", "InputsDoor", "RefusedError", "ReturnDoor", "check_limits", "demands_more"]

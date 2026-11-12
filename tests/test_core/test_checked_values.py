@@ -19,6 +19,7 @@ import polars as pl
 import pytest
 from conductor import (
     SKIPPED,
+    Ask,
     Graph,
     GraphRecord,
     InvalidCallError,
@@ -118,6 +119,18 @@ class Square(Shape):
     @classmethod
     def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> Any:
         return core_schema.no_info_plain_validator_function(lambda value: value)
+
+
+def test_an_answer_is_held_to_its_types_own_class_as_a_return_is():
+    @node("square", title="Square", description="For a test.")
+    def square() -> Square:
+        raise Ask("Which square?")
+
+    waiting = Graph.compile(GraphRecord(nodes=[NodeRecord(id="g", node="square")]), registry_of(square)).run()
+    with pytest.raises(InvalidCallError) as refused:
+        waiting.answer(waiting.waiting[0].id, {"side": 2})
+
+    assert [(p.type, p.ctx["reason"]) for p in refused.value.errors()] == [("invalid_answer", "its type's own check gave a dict, not a Square")]
 
 
 def test_a_type_whose_own_check_does_not_give_the_type_fails_the_node_naming_the_type():

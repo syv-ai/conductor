@@ -103,12 +103,3 @@ class SeriesType(Type, of=_Series):
     def written_once(self, stored: Any) -> Any | None:
         """Returns the table a stored Series is kept as, if it is kept as one; else ``None``."""
         return stored.written_once()
-
-    def read_answer(self, value: Any) -> StoredSeries | None:
-        """Validates a person's answer for the Series from its JSON form and returns it as the run stores it.
-
-        Raises:
-            ValidationError: ``value`` is not valid for the type.
-        """
-        items = self.read_json(value)
-        return items if items is None else SeriesItems(items)
