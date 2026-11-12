@@ -6,7 +6,7 @@ Code outside this package imports from here only. ``compiler.py`` has ``compile_
 """
 
 from conductor._internal.compiled.compiler import compile_graph
-from conductor._internal.compiled.describe import Feed, GraphDescription, GraphInput, RunsOn
+from conductor._internal.compiled.describe import GraphDescription, GraphInput, InputSource, RunsOn
 from conductor._internal.compiled.flat_nodes import (
     FlatFunctionNode,
     FlatNode,

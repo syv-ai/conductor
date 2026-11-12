@@ -181,13 +181,13 @@ def test_a_series_read_by_an_input_of_one_value_opens_a_map_and_what_reads_the_r
     graph = load({"d": "documents", "u": "upper", "v": "upper"}, [("d.result", "u.text"), ("u.result", "v.text")])
     assert graph.is_runnable
     assert {n: (r.mode, r.series) for n, r in graph.runs_on.items()} == {"d": ("once", None), "u": ("per_item", "d.result"), "v": ("per_item", "d.result")}
-    assert feeds(graph, "u") == {"text": ("per_item", "d.result")}
+    assert feeds(graph, "u") == {"text": ("item", "d.result")}
 
 
 def test_a_value_from_an_enclosing_scope_is_captured():
     graph = load({"d": "documents", "u": "upper", "p": "pair"}, [("d.result", "p.a"), ("u.result", "p.b")])
     assert graph.runs_on["p"].series == "d.result"
-    assert feeds(graph, "p") == {"a": ("per_item", "d.result"), "b": ("outer_value", None)}
+    assert feeds(graph, "p") == {"a": ("item", "d.result"), "b": ("outer_value", None)}
 
 
 def test_a_series_input_gathers_one_map_and_sits_where_its_series_was_made():
@@ -218,7 +218,7 @@ def test_a_gather_inside_a_map_captured_from_deeper_in_the_same_map_is_on_one_pa
         [("d.result", "l.document"), ("l.result", "c.items"), ("l.result", "p.a"), ("d.result", "p.b")],
     )
     assert graph.is_runnable
-    assert feeds(graph, "p") == {"a": ("per_item", "l.result"), "b": ("outer_value", "d.result")}
+    assert feeds(graph, "p") == {"a": ("item", "l.result"), "b": ("outer_value", "d.result")}
 
 
 # -- what is refused ----------------------------------------------------------------------------------
@@ -312,7 +312,7 @@ def test_a_series_of_tables_is_read_one_table_per_item_by_a_table_input_as_any_s
     graph = load({"s": "sheets", "h": "height", "n": "names"}, [("s.result", "h.table"), ("s.result", "n.table")])
     assert graph.is_runnable
     assert {n: (graph.runs_on[n].mode, graph.runs_on[n].series, feeds(graph, n)["table"]) for n in ("h", "n")} == {
-        "h": ("per_item", "s.result", ("per_item", "s.result")), "n": ("per_item", "s.result", ("per_item", "s.result")),
+        "h": ("per_item", "s.result", ("item", "s.result")), "n": ("per_item", "s.result", ("item", "s.result")),
     }
 
 

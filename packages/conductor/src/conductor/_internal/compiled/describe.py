@@ -33,23 +33,32 @@ class RunsOn(ConductorModel):
     msg: str
 
 
-class Feed(ConductorModel):
-    """How an input is fed on each call of its node.
+class InputSource(ConductorModel):
+    """Where one input of a node gets its value on each call.
+
+    In the graph ``lines -> shout -> join``, ``shout.line`` is wired to the list ``lines.result`` and takes one
+    text, so its source is ``{"mode": "item", "series": "lines.result", "msg": "per item of lines.result"}``.
+    ``shout.mark`` has only its default: ``{"mode": "constant", "series": None, "msg": "a constant"}``.
 
     Attributes:
-        mode: ``constant`` for a value written in the graph record or the input's default, the same on every call
-            in every run; ``graph_input`` for a value the caller gives when a run starts; ``one_value`` for the
-            output of a node that is called once; ``per_item`` for one item of
-            ``series``; ``outer_value`` for a value made outside the items the node runs per; ``collected`` for
-            every item of ``series`` as one list; ``unset`` for an input with no value to give, which a problem
-            of the graph says why.
-        series: The address of the Series the mode names: for ``outer_value``, the one whose item the value
-            belongs to. ``None`` for ``constant``, ``graph_input`` and ``one_value``, for an ``outer_value`` made once in the graph, and for the
-            one value of a source that runs once, ``collected`` as a Series of one.
+        mode: One of seven.
+            ``constant``: a value written in the graph record, or the input's default; the same on every call in
+            every run.
+            ``graph_input``: the caller gives it when a run starts.
+            ``one_value``: an output of a node that is called once.
+            ``item``: one item of the list ``series``; the node is called once per item.
+            ``outer_value``: an output of a node outside the innermost loop this node is inside; every call of
+            that loop gets the same value.
+            ``collected``: every item of ``series``, as one list.
+            ``missing``: no value; a problem of the graph says why.
+        series: The address of a ``Series`` output. For ``item`` and ``collected``, the list the items are of.
+            For ``outer_value``, the list of the loop the value's own node is inside, and ``None`` when that node
+            is inside no loop. ``None`` for every other mode, and for ``collected`` when the input is wired to
+            one value, which it gets as a list of one.
         msg: The same, in English.
     """
 
-    mode: Literal["constant", "graph_input", "one_value", "per_item", "outer_value", "collected", "unset"]
+    mode: Literal["constant", "graph_input", "one_value", "item", "outer_value", "collected", "missing"]
     series: str | None = None
     msg: str
 
@@ -59,11 +68,11 @@ class NodeInputDescription(ConductorModel):
 
     Attributes:
         field: The input as its node's hooks and edges made it.
-        feed: How it is fed on each call of its node.
+        feed: Where it gets its value on each call of its node.
     """
 
     field: FieldDescription
-    feed: Feed
+    feed: InputSource
 
 
 class GraphNodeDescription(ConductorModel):
@@ -75,7 +84,7 @@ class GraphNodeDescription(ConductorModel):
         found: Whether its fields are known: its definition was found at its version and its hooks gave its
             fields. ``problems`` says why when they aren't.
         problems: The problems placed on it. A node whose fields are known may hold some: an input an edge is
-            refused for is fed ``unset``.
+            refused for has the source ``missing``.
         runs: Where it runs, when its fields are known.
         inputs: Its inputs as its hooks made them, when its fields are known.
         outputs: Its outputs as its hooks made them, when its fields are known.
@@ -126,29 +135,29 @@ def runs_on(loops: tuple[OutputAddress, ...]) -> RunsOn:
     return RunsOn(mode="per_item", series=str(loops[-1]), msg=f"per item of {loops[-1]}") if loops else RunsOn(mode="once", msg="once")
 
 
-def input_source_of(loops: tuple[OutputAddress, ...], plan: InputPlan) -> Feed:
+def input_source_of(loops: tuple[OutputAddress, ...], plan: InputPlan) -> InputSource:
     """Returns how an input with ``plan`` gets its value on each call, for a node inside ``loops``.
 
-    In ``lines -> shout -> join``: ``shout.line`` is ``per_item`` of ``lines.result``, ``shout.mark`` is a
+    In ``lines -> shout -> join``: ``shout.line`` is an ``item`` of ``lines.result``, ``shout.mark`` is a
     ``constant``, ``join.texts`` is ``collected`` from ``lines.result``, and ``lines.text`` is a ``graph_input``.
     """
     match plan:
         case InputConstant():
-            return Feed(mode="constant", msg="a constant")
+            return InputSource(mode="constant", msg="a constant")
         case InputFromGraphInput():
-            return Feed(mode="graph_input", msg="the graph input")
+            return InputSource(mode="graph_input", msg="the graph input")
         case InputMissing():
-            return Feed(mode="unset", msg="no value: a problem of the graph says why")
+            return InputSource(mode="missing", msg="no value: a problem of the graph says why")
         case InputCollectsLoopResults(series=series):
-            return Feed(mode="collected", series=series.address, msg=f"every item of {series.address}")
+            return InputSource(mode="collected", series=series.address, msg=f"every item of {series.address}")
         case InputWrapsOneValue():
-            return Feed(mode="collected", msg="the one value, as a Series of one")
+            return InputSource(mode="collected", msg="the one value, as a Series of one")
         case InputReadsOneValue(loops=value_loops):
             if value_loops != loops:  # the value is made outside the node's innermost loop
                 made_for = f"the item of {value_loops[-1]}" if value_loops else "the graph"
-                return Feed(mode="outer_value", series=str(value_loops[-1]) if value_loops else None, msg=f"the value of {made_for}")
+                return InputSource(mode="outer_value", series=str(value_loops[-1]) if value_loops else None, msg=f"the value of {made_for}")
             if value_loops:
-                return Feed(mode="per_item", series=str(value_loops[-1]), msg=f"per item of {value_loops[-1]}")
-            return Feed(mode="one_value", msg="one value")
+                return InputSource(mode="item", series=str(value_loops[-1]), msg=f"per item of {value_loops[-1]}")
+            return InputSource(mode="one_value", msg="one value")
         case _:
             assert_never(plan)

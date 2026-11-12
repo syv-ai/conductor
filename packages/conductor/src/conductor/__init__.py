@@ -16,7 +16,7 @@ Everything in ``conductor._internal`` is the library's own and may move.
 from typing import TYPE_CHECKING
 
 from conductor._internal.ask import Ask, Waiting
-from conductor._internal.compiled import Feed, GraphDescription, GraphInput, RunsOn
+from conductor._internal.compiled import GraphDescription, GraphInput, InputSource, RunsOn
 from conductor._internal.context import Context
 from conductor._internal.field import FieldDescription
 from conductor._internal.graph import Graph
@@ -100,7 +100,7 @@ __all__ = [
     "GraphDescription",
     "GraphInput",
     "RunsOn",
-    "Feed",
+    "InputSource",
     # Errors
     "NodeDeclarationError",
     "InvalidCallError",

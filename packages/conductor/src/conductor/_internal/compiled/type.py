@@ -111,7 +111,7 @@ class CompiledGraph:
         """The graph as an editor draws it: every node of the record, with its fields and where it runs.
 
         Each node lists its own ``problems``, and ``problems`` beside the nodes lists every one. A node with a
-        problem is drawn with its fields all the same, an input whose edge is refused fed ``unset``, and so is a
+        problem is drawn with its fields all the same, an input whose edge is refused has the source ``missing``, and so is a
         node that reads it. A ``type_mismatch`` names the input in its ``loc``; a ``cycle`` and
         ``series_not_nested`` name the node. Only a node whose fields aren't known is there with ``found``
         false and no fields, its problems saying why: an unknown node or version, an id no address can say, a

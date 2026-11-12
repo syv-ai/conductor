@@ -687,7 +687,7 @@ def test_a_node_with_a_refused_edge_is_drawn_with_its_fields_and_so_is_a_sound_n
         "edges": [["f.result", "u.text"], ["u.result", "t.text"], ["t.result", "j.texts"]],
     }), REGISTRY)
     assert [(p.type, p.loc) for p in graph.problems] == [("type_mismatch", ("u", "text"))]
-    assert _drawn(graph, "u") == (True, "once", {"text": "unset"}, ["result"], ["type_mismatch"])
+    assert _drawn(graph, "u") == (True, "once", {"text": "missing"}, ["result"], ["type_mismatch"])
     assert _drawn(graph, "t") == (True, "once", {"text": "one_value"}, ["result"], [])
     assert _drawn(graph, "j") == (True, "once", {"texts": "collected"}, ["result"], [])
     assert list(graph.runs_on) == ["f", "u", "t", "j"] and not graph.is_runnable
@@ -702,7 +702,7 @@ def test_the_nodes_on_a_cycle_and_a_node_below_it_are_drawn_with_their_fields():
         "edges": [["a.result", "b.text"], ["b.result", "a.text"], ["b.result", "c.text"]],
     }), REGISTRY)
     assert [(p.type, p.loc) for p in graph.problems] == [("cycle", ("a",)), ("cycle", ("b",))]
-    assert _drawn(graph, "a") == (True, "once", {"text": "unset"}, ["result"], ["cycle"])  # the edge that closes the cycle brings it nothing
+    assert _drawn(graph, "a") == (True, "once", {"text": "missing"}, ["result"], ["cycle"])  # the edge that closes the cycle brings it nothing
     assert _drawn(graph, "b") == (True, "once", {"text": "one_value"}, ["result"], ["cycle"])
     assert _drawn(graph, "c") == (True, "once", {"text": "one_value"}, ["result"], [])
 
@@ -713,8 +713,8 @@ def test_an_input_whose_series_never_pairs_with_the_nodes_other_is_marked_and_th
         "edges": [["x.result", "b.a"], ["y.result", "b.b"], ["b.result", "t.text"]],
     }), REGISTRY)
     assert [(p.type, p.loc) for p in graph.problems] == [("series_not_nested", ("b",))]
-    assert _drawn(graph, "b") == (True, "per item of x.result", {"a": "per_item", "b": "unset"}, ["result"], ["series_not_nested"])
-    assert _drawn(graph, "t") == (True, "per item of x.result", {"text": "per_item"}, ["result"], [])
+    assert _drawn(graph, "b") == (True, "per item of x.result", {"a": "item", "b": "missing"}, ["result"], ["series_not_nested"])
+    assert _drawn(graph, "t") == (True, "per item of x.result", {"text": "item"}, ["result"], [])
 
 
 def test_only_a_node_whose_definition_or_hook_gave_no_fields_is_drawn_without_them_and_its_reader_keeps_its_own():
@@ -727,7 +727,7 @@ def test_only_a_node_whose_definition_or_hook_gave_no_fields_is_drawn_without_th
     for unknown in ("gone", "old", "r"):
         assert _drawn(graph, unknown)[:4] == (False, None, {}, [])
     for reader in ("u", "t", "v"):
-        assert _drawn(graph, reader) == (True, "once", {"text": "unset"}, ["result"], [])
+        assert _drawn(graph, reader) == (True, "once", {"text": "missing"}, ["result"], [])
 
 
 @pytest.mark.parametrize("declared", ["taken", "taken_from_context"])
