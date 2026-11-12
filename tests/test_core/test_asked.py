@@ -377,3 +377,15 @@ def test_an_async_asking_function_is_refused():
         return ok
 
     assert _declaration_code(lambda: node("asked", title="Asked", description="For a test.")(asked)) == "async_run"
+
+
+def test_a_saved_answer_for_a_call_that_does_not_wait_or_on_a_node_with_no_asked_parameter_is_refused():
+    import json
+
+    graph = _graph()
+    run = graph.run(text="A:900,B:100")
+    saved = json.loads(run.answer(run.waiting[0], True).to_json())
+    assert saved["answers"] == {"approve": {"0": True}}
+    for answers in ({"approve": {"1": True}}, {"approve": {"7": True}}, {"invoices": {"0": True}}):
+        (problem,) = _refused(lambda answers=answers: Run.from_json(json.dumps({**saved, "answers": answers}), graph))
+        assert problem.type == "saved_run_unreadable"

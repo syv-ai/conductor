@@ -68,7 +68,7 @@ def run_from_json(run_type: type[Run], saved: str | bytes, graph: Graph) -> Run:
     if graph.problems:
         raise InvalidCallError(graph.problems)
     try:
-        read: SavedRun[list[Outcome | Answer | None], ReusableOutcomes] = graph._run_codec.validator.validate_json(saved)
+        read: SavedRun[list[Outcome | None], ReusableOutcomes] = graph._run_codec.validator.validate_json(saved)
     except ValidationError as error:
         first = error.errors(include_url=False, include_input=False)[0]
         if first["type"] == "union_tag_invalid" and not first["loc"]:  # the fingerprint under "graph" is not this graph's
@@ -76,7 +76,6 @@ def run_from_json(run_type: type[Run], saved: str | bytes, graph: Graph) -> Run:
         where = ".".join(str(step) for step in first["loc"][1:]) or "the run"  # pydantic's loc starts with the graph's fingerprint
         raise InvalidCallError([problem.saved_run_unreadable("saved_run", where=where, reason=value_free_errors(error.errors(include_url=False, include_input=False))[0]["msg"])]) from None
     outcomes: dict[str, dict[ItemIndexes, Outcome]] = {}
-    answers: dict[str, dict[ItemIndexes, Answer]] = {}
     for node in graph._flat_function_nodes:
         outcomes[node.name] = {}
         if (in_call_order := read.outcomes.get(node.name)) is not None:
@@ -84,12 +83,10 @@ def run_from_json(run_type: type[Run], saved: str | bytes, graph: Graph) -> Run:
             if len(in_call_order) != len(every_item_indexes):
                 reason = f"its lists have {len(in_call_order)} entries, but the saved series give the node {len(every_item_indexes)} calls"
                 raise InvalidCallError([problem.saved_run_unreadable("saved_run", where=f"outcomes.{node.name}", reason=reason)])
-            of_node = outcomes[node.name]
-            for item_indexes, outcome in zip(every_item_indexes, in_call_order, strict=True):
-                if isinstance(outcome, Answer):
-                    answers.setdefault(node.name, {})[item_indexes] = outcome
-                elif outcome is not None:
-                    of_node[item_indexes] = outcome
+            outcomes[node.name] = {
+                item_indexes: outcome for item_indexes, outcome in zip(every_item_indexes, in_call_order, strict=True) if outcome is not None
+            }
+    answers = _answers_from_saved(graph, read.answers or {}, outcomes)
     functions = graph._functions
     code_changed = {
         path: fingerprint for name, fingerprint in read.code.items() if fingerprint != functions[path := parse_node_path(name)].code_fingerprint
@@ -102,11 +99,41 @@ def run_from_json(run_type: type[Run], saved: str | bytes, graph: Graph) -> Run:
     )
 
 
-def outcomes_from_saved(
-    skipped_outputs: dict[str, Any], not_called_outputs: dict[str, Any], asked: str, saved: SavedOutcomes,
-) -> list[Outcome | Answer | None]:
-    """Returns one node's outcomes from their saved lists, in call-number order; ``None`` for a call with no outcome,
-    and an ``Answer`` for a call with none that a person answered the node's ``Asked`` parameter for.
+def _answers_from_saved(
+    graph: Graph, saved: Mapping[str, Mapping[int, Any]], outcomes: dict[str, dict[ItemIndexes, Outcome]],
+) -> dict[str, dict[ItemIndexes, Answer]]:
+    """Turns each waiting call that a saved run has an answer for into that answer, kept until the node is called.
+
+    ``{"approve": {1: True}}`` with ``approve``'s second call waiting takes that ``Waiting`` out of ``outcomes`` and
+    returns ``{"approve": {(1,): Answer(its question, "ok", True)}}``.
+
+    Args:
+        graph: The run's graph.
+        saved: The saved run's ``answers``, each read by its node's ``Asked`` parameter: the codec takes them only
+            for such a node.
+        outcomes: The outcomes read so far, by node name. Changed in place.
+
+    Raises:
+        InvalidCallError: An answer names a call that is not waiting (``saved_run_unreadable``).
+    """
+    answers: dict[str, dict[ItemIndexes, Answer]] = {}
+    for name, by_call_number in saved.items():
+        node = graph._function_nodes_by_name[name]
+        (parameter,) = node.compiled_node.answer_fields
+        every_item_indexes, _ = all_item_indexes(outcomes, node.loops, ())
+        for call_number, value in by_call_number.items():
+            item_indexes = every_item_indexes[call_number] if call_number < len(every_item_indexes) else None
+            waiting = outcomes[name].get(item_indexes) if item_indexes is not None else None
+            if type(waiting) is not Waiting or item_indexes is None:
+                reason = "it names a call that is not waiting for a person"
+                raise InvalidCallError([problem.saved_run_unreadable("saved_run", where=f"answers.{name}.{call_number}", reason=reason)])
+            del outcomes[name][item_indexes]
+            answers.setdefault(name, {})[item_indexes] = Answer(waiting.question, parameter, value)
+    return answers
+
+
+def outcomes_from_saved(skipped_outputs: dict[str, Any], not_called_outputs: dict[str, Any], saved: SavedOutcomes) -> list[Outcome | None]:
+    """Returns one node's outcomes from their saved lists, in call-number order; ``None`` for a call with no outcome.
 
     For ``shout`` not called for its second line::
 
@@ -117,14 +144,12 @@ def outcomes_from_saved(
     Args:
         skipped_outputs: The ``outputs`` a ``Skipped`` outcome of the node has.
         not_called_outputs: The ``outputs`` a ``NotCalled`` outcome of the node has.
-        asked: The name of the node's ``Asked`` parameter; ``""`` for a node with none, whose ``answers`` the codec
-            refuses.
         saved: The saved lists, each value already validated by its output's type.
 
     Raises:
         PydanticCustomError: The list of an output is not as long as ``states`` (``lengths_differ``); or
-            ``skipped``, ``skipped_items``, ``questions``, ``answers`` or ``not_called_because`` names a call that
-            does not exist or that cannot have it (``misplaced``).
+            ``skipped``, ``skipped_items``, ``questions`` or ``not_called_because`` names a call that does not
+            exist or that cannot have it (``misplaced``).
     """
     states, outputs = saved.states, saved.outputs
     if any(len(values) != len(states) for values in outputs.values()):
@@ -147,17 +172,14 @@ def outcomes_from_saved(
             outputs_by_call = [{} for _ in states]
         done, skipped = SAVED_DONE, SAVED_SKIPPED
         skipped_outcome = Skipped(skipped_outputs)
-        outcomes: list[Outcome | Answer | None] = [
+        outcomes: list[Outcome | None] = [
             Done(of_call) if state == done else skipped_outcome if state == skipped else None
             for state, of_call in zip(states, outputs_by_call, strict=True)
         ]
-        answers = saved.answers or {}
-        if not answers.keys() <= (saved.questions or {}).keys():
-            raise LookupError(answers)
         for call_number, question in (saved.questions or {}).items():
             outcome = outcomes[call_number]
             if states[call_number] is None:
-                outcomes[call_number] = Waiting(question) if call_number not in answers else Answer(question, asked, answers[call_number])
+                outcomes[call_number] = Waiting(question)
             elif type(outcome) is Done:
                 outcomes[call_number] = Answered(outcome.outputs, question)
             else:
@@ -167,14 +189,14 @@ def outcomes_from_saved(
                 raise LookupError(call_number)
             outcomes[call_number] = NotCalled(not_called_outputs, input_name)
     except (LookupError, TypeError, AttributeError):  # a call number past the end of the lists, or a call of another kind
-        message = "'skipped', 'skipped_items', 'questions', 'answers' or 'not_called_because' names a call that does not exist or cannot have it"
+        message = "'skipped', 'skipped_items', 'questions' or 'not_called_because' names a call that does not exist or cannot have it"
         raise PydanticCustomError("misplaced", message) from None
     return outcomes
 
 
 def with_shared_tables(
-    outputs: Mapping[str, Mapping[str, Field]], saved: SavedRun[list[Outcome | Answer | None], ReusableOutcomes],
-) -> SavedRun[list[Outcome | Answer | None], ReusableOutcomes]:
+    outputs: Mapping[str, Mapping[str, Field]], saved: SavedRun[list[Outcome | None], ReusableOutcomes],
+) -> SavedRun[list[Outcome | None], ReusableOutcomes]:
     """Fills in the outputs that a saved run wrote as ``null`` and listed under ``tables_written_once``.
 
     The saved run lists ``{"output": ["split", "result", 0], "same_as": ["people", "result", 0]}``. The table
@@ -212,7 +234,7 @@ def with_shared_tables(
     return saved
 
 
-def reusable_from_saved(saved: SavedReusable[list[Outcome | Answer | None]]) -> ReusableOutcomes:
+def reusable_from_saved(saved: SavedReusable[list[Outcome | None]]) -> ReusableOutcomes:
     """Returns the outcomes one node may reuse from the previous run, from their saved shape.
 
     The three saved outcomes of ``shout`` with ``"item_indexes": {"0": [0], "1": [1], "2": [2]}`` come back as a

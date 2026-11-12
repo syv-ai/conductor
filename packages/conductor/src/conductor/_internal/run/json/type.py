@@ -44,11 +44,6 @@ class SavedOutcomes:
         "shout": {"states": ["done", null, "done"], "outputs": {"result": ["A!", null, "C!"]},
                   "not_called_because": {"1": "line"}}
 
-    A call of a node with an ``Asked`` parameter that a person answered, and that the node is not yet called for,
-    has its question and the answer, read by the parameter's type::
-
-        "approve": {"states": [null], "outputs": {"result": [null]}, "questions": {"0": {...}}, "answers": {"0": true}}
-
     A key after ``outputs`` that is ``None`` is left out of the JSON. The attributes of this class are the keys
     of the JSON, and nothing else declares them.
 
@@ -56,10 +51,8 @@ class SavedOutcomes:
         states: For each call, ``"done"`` when it has outputs (its function returned, or a person answered),
             ``"skipped"`` when it was skipped, else ``None``.
         outputs: By output name, the value of the output for each call; ``None`` for a call that has no outputs.
-        questions: By call number, the question the call asked a person; the call is waiting unless it is done or
-            has an answer under ``answers``.
-        answers: By call number, a person's answer to the node's ``Asked`` parameter, for a call the node is not
-            yet called for.
+        questions: By call number, the question the call asked a person; the call is waiting unless it is done, or
+            the saved run's ``answers`` has an answer for it.
         not_called_because: By call number, the input that got ``None`` and does not accept it, so that the
             call was not made.
         skipped: By output name, the call numbers of the done calls that returned ``SKIPPED`` for the output.
@@ -70,7 +63,6 @@ class SavedOutcomes:
     states: list[SavedOutcomeState | None]
     outputs: dict[str, list[Any]]
     questions: dict[NonNegativeInt, Question] | None = None
-    answers: dict[NonNegativeInt, Any] | None = None
     not_called_because: dict[NonNegativeInt, str] | None = None
     skipped: dict[str, list[NonNegativeInt]] | None = None
     skipped_items: dict[str, dict[NonNegativeInt, list[NonNegativeInt]]] | None = None
@@ -172,6 +164,9 @@ class SavedRun[OutcomesT, ReusableT]:
             them complete again.
         tables_written_once: The outputs in ``outcomes`` written as ``null`` because another output has the
             same table; left out of the JSON when ``None``.
+        answers: By node and then call number, a person's answer to the node's ``Asked`` parameter, read by the
+            parameter's type, for a call that waited and that the node is not yet called for: ``{"approve": {"1":
+            true}}``. Its question is under the node's ``questions``. Left out of the JSON when ``None``.
     """
 
     __pydantic_config__: ClassVar[ConfigDict] = _SAVED
@@ -184,3 +179,4 @@ class SavedRun[OutcomesT, ReusableT]:
     code: dict[str, str]
     complete: list[str]
     tables_written_once: list[SameAs] | None = None
+    answers: dict[str, dict[NonNegativeInt, Any]] | None = None

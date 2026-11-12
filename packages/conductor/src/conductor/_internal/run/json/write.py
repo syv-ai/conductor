@@ -50,6 +50,9 @@ _STATE_OF: Mapping[type, SavedOutcomeState] = {Done: SAVED_DONE, Answered: SAVED
 #: The outcome classes whose outputs are written: what a function returned, or what a person answered.
 _HAS_OUTPUTS = frozenset({Done, Answered})
 
+#: The classes whose question is written: a call answered, waiting, or with an answer to its ``Asked`` parameter.
+_HAS_QUESTION = frozenset({Answered, Waiting, Answer})
+
 
 def run_to_json(run: Run) -> str:
     r"""Returns the whole run as JSON text.
@@ -116,10 +119,15 @@ def saved_run(run: Run) -> SavedRun[SavedOutcomes, SavedReusable[SavedOutcomes]]
         name: run._code_changed.get(path) or compiled_node.code_fingerprint
         for path, compiled_node in functions.items() if (name := node_path_text(path)) in outcomes or name in reusable
     }
+    answers = {
+        node.name: {call_number: answer.value for call_number, answer in enumerate(_outcomes_by_call_number(run, node)) if type(answer) is Answer}
+        for node in graph._flat_function_nodes if node.name in run._answers
+    }
     return SavedRun(
         graph=graph.fingerprint, state=run.state, max_items=run.max_items, inputs=run.inputs, outcomes=outcomes, reusable=reusable, code=code,
         complete=[node.name for node in graph._flat_function_nodes if node.node_path in run._finished_nodes],
         tables_written_once=tables_written_once(codec.outputs, codec.shareable, outcomes) if codec.shareable else None,
+        answers=answers or None,
     )
 
 
@@ -148,14 +156,14 @@ def saved_outcomes(outputs: Mapping[str, Field], outcomes: list[Outcome | Answer
     Args:
         outputs: The outputs of the node, by name.
         outcomes: The outcomes in call-number order; ``None`` for a call with no outcome, and an ``Answer`` for one
-            with none that a person answered the node's ``Asked`` parameter for.
+            with none that a person answered the node's ``Asked`` parameter for, whose question is written and whose
+            answer the saved run's ``answers`` has.
     """
     classes = set(map(type, outcomes))
     values_by_output: dict[str, list[Any]] = {}
     skipped: dict[str, list[int]] = {}
     skipped_items: dict[str, dict[int, list[int]]] = {}
     questions: dict[int, Question] | None = None
-    answers: dict[int, Any] | None = None
     not_called_because: dict[int, str] | None = None
     if classes & _HAS_OUTPUTS:
         if classes <= _HAS_OUTPUTS:  # speed only: every call has outputs, as in a node that is complete
@@ -181,17 +189,15 @@ def saved_outcomes(outputs: Mapping[str, Field], outcomes: list[Outcome | Answer
                             skipped_items.setdefault(name, {})[call_number] = skipped_indexes
     else:
         values_by_output = {name: [None] * len(outcomes) for name in outputs}
-    if Answered in classes or Waiting in classes or Answer in classes:
+    if classes & _HAS_QUESTION:
         questions = {
             call_number: outcome.question for call_number, outcome in enumerate(outcomes)
             if type(outcome) is Answered or type(outcome) is Waiting or type(outcome) is Answer
         }
-    if Answer in classes:
-        answers = {call_number: outcome.value for call_number, outcome in enumerate(outcomes) if type(outcome) is Answer}
     if NotCalled in classes:
         not_called_because = {call_number: outcome.input for call_number, outcome in enumerate(outcomes) if type(outcome) is NotCalled}
     return SavedOutcomes(
-        states=list(map(_STATE_OF.get, map(type, outcomes))), outputs=values_by_output, questions=questions, answers=answers,
+        states=list(map(_STATE_OF.get, map(type, outcomes))), outputs=values_by_output, questions=questions,
         not_called_because=not_called_because, skipped=skipped or None, skipped_items=skipped_items or None,
     )
 

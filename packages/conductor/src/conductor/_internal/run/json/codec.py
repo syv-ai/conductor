@@ -85,22 +85,17 @@ def run_codec(
         inputs: The type of each graph input, by address.
         outputs: The outputs of each function node, by the node's name in a saved run.
         asked: The ``Asked`` parameter of each function node that has one, by the node's name in a saved run: its
-            answers under ``answers`` are read by its type. Any other node's ``answers`` must be left out.
+            answers under the run's ``answers`` are read by its type, and no other node may have any.
         nodes: The name in a saved run of every function node.
     """
     shared: dict[str, CoreSchema] = {}
     outcomes_schema, reusable_schema = _inline_definitions(_OUTCOMES, shared), _inline_definitions(_REUSABLE, shared)
-    # by what the schema of a node depends on: for each output its name, its type, whether it is a Series, and its value when not called;
-    # then the name and type of its Asked parameter
-    references: dict[tuple[tuple[tuple[str, Type, bool, Any], ...], tuple[str, Type] | None], tuple[CoreSchema, CoreSchema]] = {}
+    # by what the schema of a node depends on: for each output its name, its type, whether it is a Series, and its value when not called
+    references: dict[tuple[tuple[str, Type, bool, Any], ...], tuple[CoreSchema, CoreSchema]] = {}
     outcomes, reusable = {}, {}
     for node, node_outputs in outputs.items():
         skipped_outputs, not_called_outputs = outputs_when_skipped(node_outputs), outputs_when_not_called(node_outputs)
-        asked_field = asked.get(node)
-        same_outputs = (
-            tuple((name, output.saved_list_type, output.is_series, not_called_outputs[name]) for name, output in node_outputs.items()),
-            None if asked_field is None else (asked_field.name, asked_field.whole),
-        )
+        same_outputs = tuple((name, output.saved_list_type, output.is_series, not_called_outputs[name]) for name, output in node_outputs.items())
         if same_outputs not in references:
             outcomes_ref, reusable_ref = f"outcomes:{len(references)}", f"reusable:{len(references)}"
             of_node = _with_field_schemas(
@@ -110,13 +105,9 @@ def run_codec(
                 ),
                 skipped=_exact_keys_schema({}, dict.fromkeys(node_outputs, _CALL_NUMBERS)),
                 skipped_items=_exact_keys_schema({}, {name: _INDEXES_BY_CALL_NUMBER for name, output in node_outputs.items() if output.is_series}),
-                answers=core_schema.none_schema() if asked_field is None else core_schema.nullable_schema(core_schema.dict_schema(
-                    _CALL_NUMBER, _inline_definitions(numbers_refuse_bools(asked_field.whole.saved_schema), shared),
-                )),
             )
             shared[outcomes_ref] = core_schema.no_info_after_validator_function(
-                functools.partial(outcomes_from_saved, skipped_outputs, not_called_outputs, "" if asked_field is None else asked_field.name), of_node,
-                ref=outcomes_ref,
+                functools.partial(outcomes_from_saved, skipped_outputs, not_called_outputs), of_node, ref=outcomes_ref,
             )
             reusable_of_node = _with_field_schemas(reusable_schema, outcomes=core_schema.definition_reference_schema(outcomes_ref))
             shared[reusable_ref] = core_schema.no_info_after_validator_function(reusable_from_saved, reusable_of_node, ref=reusable_ref)
@@ -129,6 +120,10 @@ def run_codec(
         outcomes=_exact_keys_schema({}, outcomes),
         reusable=_exact_keys_schema({}, reusable),
         code=_exact_keys_schema({}, dict.fromkeys(outcomes, core_schema.str_schema())),
+        answers=core_schema.nullable_schema(_exact_keys_schema({}, {
+            node: core_schema.dict_schema(_CALL_NUMBER, _inline_definitions(numbers_refuse_bools(field.whole.saved_schema), shared))
+            for node, field in asked.items()
+        })),
         complete=core_schema.list_schema(core_schema.literal_schema(names)) if (names := list(nodes)) else core_schema.list_schema(max_length=0),
     )
     shareable = tuple((node, name) for node, node_outputs in outputs.items() for name, output in node_outputs.items() if output.whole.may_write_once)

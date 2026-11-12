@@ -62,7 +62,7 @@ def call(node: FlatFunctionNode, arguments: dict[str, Any], context: Any) -> tup
     except BaseException as error:  # noqa: BLE001  the scheduler turns it into a problem or a Waiting outcome
         if isinstance(error, (KeyboardInterrupt, SystemExit)):
             raise
-        if isinstance(error, Ask) and not definition.asks:
+        if not definition.asks and isinstance(error, Ask):
             return None, RefusedError([problem.ask_not_declared()])
         return None, error
     try:
