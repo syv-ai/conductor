@@ -1,5 +1,5 @@
-"""One call of a node's function: the arguments validated where the graph's types leave a doubt, the function
-called, and what it returns read into the node's outputs by its return door.
+"""One call of a node's function: the arguments read by the node's edge door where the graph's types leave a
+doubt, the function called, and what it returns read into the node's outputs by its return door.
 
 Example: ``call(shout, {"line": "b", "mark": "!"}, {})`` returns ``({"result": "B!"}, None)``. When ``shout`` raises,
 or returns something that is not a ``str``, it returns ``(None, the exception)``.
@@ -10,13 +10,10 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from pydantic import ValidationError
 from pydantic_core import PydanticSerializationError
 
 from conductor._internal.compiled import FlatFunctionNode
-from conductor._internal.field import Field
 from conductor._internal.gate import RefusedError
-from conductor._internal.markers import SKIPPED
 from conductor._internal.plain_json import plain_json
 from conductor._internal.problem import catalogue as problem
 from conductor._internal.value_type import untyped_as_json
@@ -25,8 +22,8 @@ from conductor._internal.value_type import untyped_as_json
 def call(node: FlatFunctionNode, arguments: dict[str, Any], context: Mapping[type, Any]) -> tuple[Any, BaseException | None]:
     """Call the function of ``node`` with ``arguments``.
 
-    Before the call, each input in ``node.validated_inputs`` is validated against its type: these are the inputs
-    whose edge does not guarantee the type (the source is ``Any``, say). The ``Context`` values the function asks
+    Before the call, the node's edge door reads the inputs whose type demands more than their edges' sources
+    declare (a source of ``Any``, say), each by its type. The ``Context`` values the function asks
     for are added to the arguments. After the call, the node's return door reads what the function returned into
     its outputs.
 
@@ -43,8 +40,8 @@ def call(node: FlatFunctionNode, arguments: dict[str, Any], context: Mapping[typ
     compiled_node = node.compiled_node
     definition = compiled_node.definition
     try:
-        for name in node.validated_inputs:
-            arguments = {**arguments, name: _checked(compiled_node.inputs[name].field, name, arguments[name])}
+        if (edge_door := node.edge_door) is not None:
+            arguments = edge_door(arguments)
         if definition.context:
             arguments = {**arguments, **{name: context[needed] for name, needed in definition.context.items()}}
         returned = definition.function(**arguments)
@@ -56,21 +53,6 @@ def call(node: FlatFunctionNode, arguments: dict[str, Any], context: Mapping[typ
         return compiled_node.return_door(returned), None
     except RefusedError as refused:
         return None, refused
-
-
-def _checked(field: Field, name: str, value: Any) -> Any:
-    """``value``, which an edge gave the input ``name``, read by the input's type. ``SKIPPED`` is returned as it is.
-
-    Raises:
-        RefusedError: The type refuses the value (``invalid_edge_value``, which quotes nothing of the value).
-    """
-    if value is SKIPPED:
-        return value
-    try:
-        return field.whole.read(value)
-    except ValidationError as error:
-        refused = field.whole.refusal(error.errors(include_url=False, include_input=False))
-        raise RefusedError([problem.invalid_edge_value(name=name, reason=refused.reason, errors=refused.errors, column=refused.column)]) from None
 
 
 def jsonable(arguments: dict[str, Any]) -> Any:

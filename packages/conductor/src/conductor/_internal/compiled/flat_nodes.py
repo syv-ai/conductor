@@ -52,6 +52,7 @@ from conductor._internal.compiled.nodes import (
     CompiledSubgraphNode,
 )
 from conductor._internal.field import Field
+from conductor._internal.gate import EdgeDoor, demands_more
 from conductor._internal.markers import REQUIRED
 from conductor._internal.node_definition import Policy
 from conductor._internal.outcomes import ItemIndexes
@@ -108,8 +109,8 @@ class FlatFunctionNode(_FlatNodeBase):
         lists_from_same_loop: The collecting inputs, grouped by the loop they collect: each input's name and
             whether it accepts ``None`` items. An item that is ``None`` for an input that does not accept it is
             left out of every list of its group, so the lists of one group have the same items.
-        validated_inputs: The names of the inputs whose value is validated by the input's type before each
-            call, because the types of the outputs its edges read do not guarantee it.
+        edge_door: Reads before each call the inputs whose type demands more than the outputs their edges read
+            declare (``gate/edge.py``); ``None`` when no input does.
         looped_outputs: The ``Series`` outputs of the node that some edge reads one item at a time, by output
             name. A run holds each to ``max_items``. The value is the node and output that the reading node's
             graph names the list by: this node, or, when the reading node is outside a subgraph this node is
@@ -133,7 +134,7 @@ class FlatFunctionNode(_FlatNodeBase):
     graph_inputs: tuple[tuple[str, str], ...]
     edge_inputs: tuple[tuple[str, InputFromEdges, bool], ...]
     lists_from_same_loop: tuple[tuple[tuple[str, bool], ...], ...]
-    validated_inputs: tuple[str, ...]
+    edge_door: EdgeDoor | None
     looped_outputs: dict[str, tuple[FlatNode, str]] = dataclasses.field(default_factory=dict[str, tuple["FlatNode", str]])
     upstream: dict[FlatFunctionNode, int] = dataclasses.field(default_factory=dict["FlatFunctionNode", int])
     downstream: list[tuple[FlatFunctionNode, int]] = dataclasses.field(default_factory=list[tuple["FlatFunctionNode", int]])
@@ -327,10 +328,12 @@ def _add_flat_nodes(
             depth = len(plan.loops)
             for upstream_node, shared_indexes in (*[(functions[read.node_id], min(read.depth, depth)) for read in outputs_read], *outside_the_loop):
                 upstream[upstream_node] = min(shared_indexes, upstream.get(upstream_node, shared_indexes))
+        read_by_door = {name: plan.field for name, plan in inputs.items() if _demands_more(plan)}
         node = FlatFunctionNode(
             compiled_node=compiled_node, parent=parent, node_path=node_path, name=node_path_text(node_path), loops=loops, policy=compiled_node.definition.policy,
             constants=constants, graph_inputs=tuple(graph_inputs), edge_inputs=tuple(edge_inputs), lists_from_same_loop=tuple(map(tuple, collecting.values())),
-            validated_inputs=tuple(name for name, plan in inputs.items() if _needs_validation(plan)), upstream=upstream, position=len(functions),
+            edge_door=EdgeDoor(read_by_door) if read_by_door else None,
+            upstream=upstream, position=len(functions),
         )
         if loops and min(node.upstream.values(), default=0) < len(loops):
             # it reads something made outside its innermost loop, which may exist before the list looped over does
@@ -425,15 +428,15 @@ def _loop_body_of(series: tuple[FlatFunctionNode, str], sources: list[FlatFuncti
     return tuple(sorted(loop_body, key=lambda inner: inner.position))
 
 
-def _needs_validation(plan: InputPlan) -> bool:
-    """Whether the value of the input is validated by the input's type before each call. It is not when every
-    edge into it reads a type the input accepts as it is, with no limit or choice to check the value against."""
+def _demands_more(plan: InputPlan) -> bool:
+    """Whether the input of ``plan`` is read by its edge door before each call: an input that edges lead to, whose
+    type demands more than the outputs they read declare (``demands_more``)."""
     match plan:
         case InputConstant() | InputFromGraphInput() | InputMissing():
             return False
         case InputReadsOneValue(field=field, sources=sources):
-            return not all(field.whole.holds(source.type) for source in sources)
+            return demands_more(field, [source.type for source in sources], per_item=False)
         case InputCollectsLoopResults(field=field, sources=sources) | InputWrapsOneValue(field=field, sources=sources):
-            return field.whole.record is not None or not all(field.type.holds(source.type) for source in sources)
+            return demands_more(field, [source.type for source in sources], per_item=True)
         case _:
             assert_never(plan)

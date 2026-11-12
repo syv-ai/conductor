@@ -26,7 +26,7 @@ in the file named; they move here one by one.
                                                             invalid_answer
     what a node's function returns                          returned
                                                             invalid_output
-    a value an edge gives an input that demands more        edge (not yet: scheduler/call.py)
+    a value an edge gives an input that demands more        edge
         than the edge's source declares                     invalid_edge_value
     what a node raises: NodeError's ctx, an Ask's choices   raised (not yet: problem/errors.py, ask.py)
         and default; and the context= values of a run       invalid_ask, context_missing
@@ -38,7 +38,8 @@ A node author's declarations (a default, ``Param``'s choices, a host type's chec
 declared, by the type they are declared on.
 """
 
+from conductor._internal.gate.edge import EdgeDoor, demands_more
 from conductor._internal.gate.refused import RefusedError
 from conductor._internal.gate.returned import ReturnDoor
 
-__all__ = ["RefusedError", "ReturnDoor"]
+__all__ = ["EdgeDoor", "RefusedError", "ReturnDoor", "demands_more"]
