@@ -150,12 +150,12 @@ def report(notes: Series[str]) -> str:
     return "; ".join(notes)
 
 
-@node("describe-table", title="Describe a table", description="Writes what a table holds as text.")
+@node("describe-table", title="Describe a table", description="Writes a table's size and columns as text.")
 def describe_table(table: Table) -> str:
     return f"{table.height} lines of {', '.join(table.columns)}"
 
 
-@node("join-tables", title="Join tables", description="Joins two tables where a column of each holds the same value.")
+@node("join-tables", title="Join tables", description="Joins two tables on rows whose values in one column are equal.")
 def join_tables(left: Table, right: Table, on: str) -> Table:
     return left.join(right, on=on)
 
