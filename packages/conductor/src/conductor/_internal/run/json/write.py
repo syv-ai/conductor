@@ -17,6 +17,7 @@ from conductor._internal.compiled import FlatFunctionNode
 from conductor._internal.field import Field
 from conductor._internal.problem import InvalidCallError
 from conductor._internal.problem import catalogue as problem
+from conductor._internal.run.json.codec import codec_of
 from conductor._internal.run.json.type import (
     SAVED_DONE,
     SAVED_SKIPPED,
@@ -56,7 +57,7 @@ def run_to_json(run: Run) -> str:
     Raises:
         InvalidCallError: A value cannot be written as JSON (``run_unwritable``, naming the input or the output).
     """
-    saved, codec = saved_run(run), run.graph._run_codec
+    saved, codec = saved_run(run), codec_of(run.graph)
     try:
         return codec.serializer.to_json(saved, exclude_defaults=True).decode()
     except PydanticSerializationError:
@@ -98,7 +99,7 @@ def saved_run(run: Run) -> SavedRun[SavedOutcomes, SavedReusable[SavedOutcomes]]
     key at all.
     """
     graph = run.graph
-    functions, codec = graph._functions, graph._run_codec
+    functions, codec = graph._functions, codec_of(graph)
     outcomes = {
         node.name: saved_outcomes(node.compiled_node.outputs, _outcomes_by_call_number(run, node))
         for node in graph._flat_function_nodes if run._outcomes[node.name] or node.name in run._answers

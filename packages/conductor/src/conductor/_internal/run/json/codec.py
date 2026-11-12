@@ -11,11 +11,16 @@ import functools
 from collections.abc import Iterable, Mapping
 from types import MappingProxyType
 from typing import Any, NamedTuple
+from weakref import WeakKeyDictionary
 
 from pydantic import NonNegativeInt, TypeAdapter
 from pydantic_core import CoreConfig, CoreSchema, SchemaSerializer, SchemaValidator, core_schema
 
-from conductor._internal.compiled import outputs_when_not_called, outputs_when_skipped
+from conductor._internal.compiled import (
+    CompiledGraph,
+    outputs_when_not_called,
+    outputs_when_skipped,
+)
 from conductor._internal.field import Field
 from conductor._internal.gate import numbers_refuse_bools
 from conductor._internal.run.json.read import (
@@ -182,3 +187,22 @@ def _inline_definitions(schema: CoreSchema, shared: dict[str, CoreSchema]) -> Co
     # every definition has its ref
     shared.update((definition["ref"], definition) for definition in schema["definitions"])  # type: ignore[typeddict-item]
     return schema["schema"]
+
+
+#: Each compiled graph's codec, built the first time one of its runs is read or written. Held weakly, so a graph
+#: nobody holds is freed with its codec.
+_CODECS: WeakKeyDictionary[CompiledGraph, RunCodec] = WeakKeyDictionary()
+
+
+def codec_of(graph: CompiledGraph) -> RunCodec:
+    """How the runs of ``graph`` are read from JSON and written as it, built once per graph."""
+    codec = _CODECS.get(graph)
+    if codec is None:
+        codec = _CODECS[graph] = run_codec(
+            graph.fingerprint,
+            inputs={address: graph_input.field.whole for address, graph_input in graph._input_fields.items()},
+            outputs={node.name: node.compiled_node.outputs for node in graph._flat_function_nodes},
+            asked={node.name: asked.field for node in graph._flat_function_nodes if (asked := node.compiled_node.definition.asked) is not None},
+            nodes=[node.name for node in graph._flat_function_nodes],
+        )
+    return codec

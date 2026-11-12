@@ -32,13 +32,14 @@ from conductor._internal.run.reuse import ReusableOutcomes
 
 if TYPE_CHECKING:
     from conductor._internal.graph import Graph
+    from conductor._internal.run.json.codec import RunCodec
     from conductor._internal.run.type import Run
 
 
-def run_from_json(run_type: type[Run], saved: str | bytes, graph: Graph) -> Run:
+def run_from_json(run_type: type[Run], saved: str | bytes, graph: Graph, codec: RunCodec) -> Run:
     """Returns the run of ``graph`` that ``run_to_json`` wrote as ``saved``.
 
-    For the README graph, ``run_from_json(Run, run.to_json(), graph)`` returns a run with the inputs, the
+    For the README graph, ``run_from_json(Run, run.to_json(), graph, codec_of(graph))`` returns a run with the inputs, the
     outcomes and the state of ``run``: its ``results["shout"]["result"]`` is ``["A!", "B!", "C!"]`` again.
 
     The graph's codec validates the JSON text in one pass, and reads each value the way its type reads JSON: a
@@ -50,17 +51,15 @@ def run_from_json(run_type: type[Run], saved: str | bytes, graph: Graph) -> Run:
         run_type: The class ``Run``. It is passed in because ``run/type.py`` imports this package.
         saved: The JSON text.
         graph: The graph the run was made on.
+        codec: The graph's codec (``codec_of(graph)``), which validates the text.
 
     Raises:
-        InvalidCallError: ``graph`` has problems (they are raised, and nothing of ``saved`` is read); ``saved``
-            was written for another graph (``saved_run_of_another_graph``); or ``saved`` is not a saved run of
-            this graph (``saved_run_unreadable``, whose ``where`` names the key, the node, the output and the
-            call number, and which quotes no value).
+        InvalidCallError: ``saved`` was written for another graph (``saved_run_of_another_graph``), or is not a
+            saved run of this graph (``saved_run_unreadable``, whose ``where`` names the key, the node, the output
+            and the call number, and which quotes no value).
     """
-    if graph.problems:
-        raise InvalidCallError(graph.problems)
     try:
-        read: SavedRun[list[Outcome | None], ReusableOutcomes] = graph._run_codec.validator.validate_json(saved)
+        read: SavedRun[list[Outcome | None], ReusableOutcomes] = codec.validator.validate_json(saved)
     except ValidationError as error:
         first = error.errors(include_url=False, include_input=False)[0]
         if first["type"] == "union_tag_invalid" and not first["loc"]:  # the fingerprint under "graph" is not this graph's

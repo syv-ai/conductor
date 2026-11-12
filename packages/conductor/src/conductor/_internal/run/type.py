@@ -47,7 +47,7 @@ from conductor._internal.run.events import (
     RunEnd,
     RunStart,
 )
-from conductor._internal.run.json import outputs_to_json, run_from_json, run_to_json
+from conductor._internal.run.json import codec_of, outputs_to_json, run_from_json, run_to_json
 from conductor._internal.run.outcome import (
     Answered,
     Outcome,
@@ -505,7 +505,9 @@ class Run[C]:
                 saved run of this graph (``saved_run_unreadable``, whose ``where`` names the key, the node, the
                 output and the call number, and which quotes no value).
         """
-        return run_from_json(cls, saved, graph)
+        if graph.problems:
+            raise InvalidCallError(graph.problems)
+        return run_from_json(cls, saved, graph, codec_of(graph))
 
     def to_json(self) -> str:
         """Returns the whole run as JSON text: its inputs, its state, every node's outcomes, and the outcomes

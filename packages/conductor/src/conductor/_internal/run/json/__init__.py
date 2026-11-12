@@ -6,6 +6,6 @@ Code outside this package imports from here only, and ``Run`` is its one caller:
 builds one graph's validator and serializer for that shape. ``read.py`` and ``write.py`` do the two directions.
 """
 
-from conductor._internal.run.json.codec import RunCodec, run_codec
+from conductor._internal.run.json.codec import codec_of
 from conductor._internal.run.json.read import run_from_json
 from conductor._internal.run.json.write import outputs_to_json, run_to_json

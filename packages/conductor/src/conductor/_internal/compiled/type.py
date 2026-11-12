@@ -15,6 +15,10 @@ compiled graph, which is compiled once, on its own, and none of its nodes is cop
 edge names one of its outputs (``loud.shout.result``), never a node inside it. The nodes of a compiled graph are
 in ``node.py``. The flat graph, which a run works on and which has the function nodes inside subgraphs too, is
 in ``flat.py``.
+
+The names with an underscore (``_nodes``, ``_flat_function_nodes``, ``_inputs_door``, ...) are what the engine reads:
+the compiler, a subgraph node and a run. They keep the underscore because ``Graph`` is a ``CompiledGraph``, and a
+host that holds a ``Graph`` must not see them.
 """
 
 from __future__ import annotations
@@ -42,7 +46,8 @@ from conductor._internal.compiled.node import (
     RequiredBranch,
 )
 from conductor._internal.field import Field
-from conductor._internal.problem import Problem
+from conductor._internal.gate import ContextDoor, InputsDoor, RefusedError
+from conductor._internal.problem import InvalidCallError, Problem
 from conductor._internal.record import GraphRecord
 from conductor._internal.types import Param
 
@@ -239,3 +244,28 @@ class CompiledGraph:
         own = self.record.model_dump(mode="json", exclude={"nodes": {"__all__": {"display"}}})
         subgraph_fingerprints = {p.id: p.inner.fingerprint for p in self._nodes.values() if isinstance(p, CompiledSubgraphNode)}
         return short_hash(canonical_json([own, subgraph_fingerprints]), 8)
+
+    @functools.cached_property
+    def _context_door(self) -> ContextDoor:
+        """Checks the ``context=`` of each call that starts or resumes a run: built once, from the registry's
+        ``context_type`` and every node that takes the context."""
+        takers = [(node.node_path, context) for node in self._flat_function_nodes if (context := node.compiled_node.definition.context) is not None]
+        return ContextDoor(self._context_type, takers)
+
+    def _checked_context[C](self, context: C | None) -> C | None:
+        """``context`` as the host passed it, once the context door let it in.
+
+        Raises:
+            InvalidCallError: The door refused it: of another class (``invalid_context``), or none for a graph with a
+                node that takes it (``context_missing``).
+        """
+        try:
+            checked: C | None = self._context_door(context)
+        except RefusedError as refused:
+            raise InvalidCallError(refused.problems) from None
+        return checked
+
+    @functools.cached_property
+    def _inputs_door(self) -> InputsDoor:
+        """Reads the graph inputs of each call that makes a run: built when the first run is made."""
+        return InputsDoor({address: (graph_input.name, graph_input.field) for address, graph_input in self._input_fields.items()})

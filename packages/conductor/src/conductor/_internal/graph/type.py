@@ -2,24 +2,16 @@
 
 from __future__ import annotations
 
-import functools
 from collections.abc import Mapping
 from types import MappingProxyType
 from typing import Any
 
 from conductor._internal.compiled import CompiledGraph, compile_graph
-from conductor._internal.gate import (
-    ContextDoor,
-    InputsDoor,
-    RefusedError,
-    check_limits,
-    read_record,
-)
+from conductor._internal.gate import RefusedError, check_limits, read_record
 from conductor._internal.problem import InvalidCallError
 from conductor._internal.record import GraphRecord
 from conductor._internal.registry import NodeRegistry
 from conductor._internal.run import Run, no_outcomes
-from conductor._internal.run.json import RunCodec, run_codec
 
 
 class Graph[C](CompiledGraph):
@@ -88,39 +80,3 @@ class Graph[C](CompiledGraph):
         """Run the graph with these inputs until it is done, waits for a person, fails or stops:
         ``graph.with_inputs(...).resume(context=context, timeout=timeout)``."""
         return self.with_inputs(inputs, max_items=max_items, **by_name).resume(context=context, timeout=timeout)
-
-    @functools.cached_property
-    def _context_door(self) -> ContextDoor:
-        """Checks the ``context=`` of each call that starts or resumes a run: built once, from the registry's
-        ``context_type`` and every node that takes the context."""
-        takers = [(node.node_path, context) for node in self._flat_function_nodes if (context := node.compiled_node.definition.context) is not None]
-        return ContextDoor(self._context_type, takers)
-
-    def _checked_context(self, context: C | None) -> C | None:
-        """``context`` as the host passed it, once the context door let it in.
-
-        Raises:
-            InvalidCallError: The door refused it: of another class (``invalid_context``), or none for a graph with a
-                node that takes it (``context_missing``).
-        """
-        try:
-            checked: C | None = self._context_door(context)
-        except RefusedError as refused:
-            raise InvalidCallError(refused.problems) from None
-        return checked
-
-    @functools.cached_property
-    def _inputs_door(self) -> InputsDoor:
-        """Reads the graph inputs of each call that makes a run: built when the first run is made."""
-        return InputsDoor({address: (graph_input.name, graph_input.field) for address, graph_input in self._input_fields.items()})
-
-    @functools.cached_property
-    def _run_codec(self) -> RunCodec:
-        """How this graph's runs are read from JSON and written as it, made when the first one is."""
-        return run_codec(
-            self.fingerprint,
-            inputs={address: graph_input.field.whole for address, graph_input in self._input_fields.items()},
-            outputs={node.name: node.compiled_node.outputs for node in self._flat_function_nodes},
-            asked={node.name: asked.field for node in self._flat_function_nodes if (asked := node.compiled_node.definition.asked) is not None},
-            nodes=[node.name for node in self._flat_function_nodes],
-        )
