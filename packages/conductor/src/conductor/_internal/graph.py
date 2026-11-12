@@ -70,10 +70,10 @@ class Graph(CompiledGraph):
 
     def run(
         self, inputs: Mapping[str, Any] = types.MappingProxyType({}), /, *, max_items: int | None = None,
-        from_run: Mapping[type, Any] = types.MappingProxyType({}), timeout: float | None = None, **by_name: Any,
+        context: Mapping[type, Any] = types.MappingProxyType({}), timeout: float | None = None, **by_name: Any,
     ) -> Run:
         """Run the graph with these inputs until it is done, waits for a person, fails or stops."""
-        return self.with_inputs(inputs, max_items=max_items, **by_name).resume(from_run=from_run, timeout=timeout)
+        return self.with_inputs(inputs, max_items=max_items, **by_name).resume(context=context, timeout=timeout)
 
     @functools.cached_property
     def _run_codec(self) -> RunCodec:

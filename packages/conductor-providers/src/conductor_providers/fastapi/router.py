@@ -180,7 +180,7 @@ def _everyone(caller: None, started_by: None) -> bool:
 
 
 def _no_values(caller: object) -> Mapping[type, Any]:
-    """The ``FromRun`` values when the host gives none."""
+    """The ``Context`` values when the host gives none."""
     return {}
 
 
@@ -191,7 +191,7 @@ def run_router(
     registry: NodeRegistry | Callable[[C], NodeRegistry],
     caller: Callable[..., C],
     may_see: Callable[[C, C], bool],
-    from_run: Callable[[C], Mapping[type, Any]] = ...,
+    context: Callable[[C], Mapping[type, Any]] = ...,
     published: Callable[..., GraphRecord] | None = None,
     max_items: int | None = None,
     lease: float = 30.0,
@@ -206,7 +206,7 @@ def run_router(
     *,
     store: RunStore,
     registry: NodeRegistry | Callable[[None], NodeRegistry],
-    from_run: Callable[[None], Mapping[type, Any]] = ...,
+    context: Callable[[None], Mapping[type, Any]] = ...,
     published: Callable[..., GraphRecord] | None = None,
     max_items: int | None = None,
     lease: float = 30.0,
@@ -222,7 +222,7 @@ def run_router(
     registry: NodeRegistry | Callable[[C], NodeRegistry],
     caller: Callable[..., Any] = _nobody,
     may_see: Callable[[Any, Any], bool] = _everyone,
-    from_run: Callable[[C], Mapping[type, Any]] = _no_values,
+    context: Callable[[C], Mapping[type, Any]] = _no_values,
     published: Callable[..., GraphRecord] | None = None,
     max_items: int | None = None,
     lease: float = 30.0,
@@ -242,7 +242,7 @@ def run_router(
             run keeps its caller as they were when it started.
         may_see: ``may_see(caller, started_by)`` says whether a caller may read and act on a run. Given whenever
             ``caller`` is: ``lambda caller, started_by: caller.id == started_by.id`` for the starter alone.
-        from_run: Gives a leg its ``FromRun`` values from the caller who started it. A leg runs on threads of its
+        context: Gives a leg its ``Context`` values from the caller who started it. A leg runs on threads of its
             own, so a value is a way to connect, never an open connection.
         published: A FastAPI dependency taking the path's ``name`` and giving a ``GraphRecord``, raising
             ``HTTPException(404)`` for one it doesn't offer; with it, ``POST /graphs/{name}/runs`` starts that
@@ -264,7 +264,7 @@ def run_router(
         raise TypeError("run_router(caller=...) needs may_see=: say who may see a run, as lambda caller, started_by: caller.id == started_by.id")
     nodes_for: Callable[[C], NodeRegistry] = (lambda who: registry) if isinstance(registry, NodeRegistry) else registry
     worker: Worker[C] = Worker(
-        store=store, nodes_for=nodes_for, callers=TypeAdapter(_caller_type(caller)), from_run=from_run,
+        store=store, nodes_for=nodes_for, callers=TypeAdapter(_caller_type(caller)), context=context,
         max_items=max_items, lease=lease, checkpoint_every=checkpoint_every, leg_timeout=leg_timeout, poll=poll,
     )
     router = APIRouter(lifespan=lambda _: worker.serving(), route_class=_RefusingRoute)

@@ -31,7 +31,7 @@ HERE = Path(__file__).parent
 
 #: What a test changes on the page's app: short leases and checkpoints, the test nodes, and a caller named by header.
 _TEST_SETTINGS = """
-from conductor import FromRun
+from conductor import Context
 from fastapi import Header
 
 from served_nodes import served
@@ -40,7 +40,7 @@ registry.add_subregistry(served)
 
 
 @registry.node("who", title="Who", description="For a test.")
-def who(caller: FromRun[Caller]) -> str:
+def who(caller: Context[Caller]) -> str:
     return caller.name
 
 
@@ -375,7 +375,7 @@ def test_a_leg_that_cannot_start_leaves_the_run_failed_and_its_follower_is_told(
         async with _workers(served, count=1) as (a,):
             run_id = await a.start(_chain("needs_missing"))
             failed = await a.until_status(run_id, "failed")
-            assert (failed["cause"]["type"], failed["cause"]["loc"]) == ("from_run_missing", ["needs_missing", "value"])
+            assert (failed["cause"]["type"], failed["cause"]["loc"]) == ("context_missing", ["needs_missing", "value"])
             assert (await a.frames(run_id))[-1] == {"type": "run_end", "status": "failed", "cause": failed["cause"]}
 
     _run(scenario)

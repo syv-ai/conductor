@@ -129,11 +129,11 @@ class Scheduler:
     def __init__(
         self, *, nodes: list[FlatFunctionNode], threads: int, outcomes: dict[str, dict[ItemIndexes, Outcome]], reusable: dict[NodePath, ReusableOutcomes], finished: frozenset[NodePath],
         max_items: int | None, arguments_for: Callable[[FlatFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NotCalled | Literal[NotReady.NOT_READY]],
-        emit: Callable[[EventBase], None] | None, stop: Callable[[], RunState | None] | None, from_run: dict[type, Any],
+        emit: Callable[[EventBase], None] | None, stop: Callable[[], RunState | None] | None, context: dict[type, Any],
         checkpoint: Callable[[RunState], None] | None = None, checkpoint_every: float | None = None,
     ) -> None:
         self.nodes, self.threads, self.all_outcomes, self.max_items, self.arguments_for = nodes, threads, outcomes, max_items, arguments_for
-        self.emit, self.stop, self.from_run, self.checkpoint = emit, stop, from_run, checkpoint
+        self.emit, self.stop, self.context, self.checkpoint = emit, stop, context, checkpoint
         #: How the run stands for this leg: running, until the leg ends it early or closes.
         self.state: RunState = RUNNING
         #: The nodes every unit of which is finished: those the run came with, then as the leg leaves them.
@@ -364,7 +364,7 @@ class Scheduler:
             if policy.threaded or policy.retries:
                 self._attempt(node, item_indexes, arguments, 0, trying_every_call)
             else:
-                self._record(node, item_indexes, self._outcome(node, item_indexes, arguments, *call(node, arguments, self.from_run)), trying_every_call)
+                self._record(node, item_indexes, self._outcome(node, item_indexes, arguments, *call(node, arguments, self.context)), trying_every_call)
 
     def _close(self) -> None:
         """Say how the run stands now the leg is over, and which of its nodes are finished."""
@@ -399,7 +399,7 @@ class Scheduler:
 
     def _attempt(self, node: FlatFunctionNode, item_indexes: ItemIndexes, arguments: dict[str, Any], attempt: int, trying_every_call: bool = False) -> None:
         if not node.policy.threaded:
-            out, error = call(node, arguments, self.from_run)
+            out, error = call(node, arguments, self.context)
             if not self._retry(node, item_indexes, arguments, attempt, error):
                 if attempt:
                     self.running.pop((node, item_indexes), None)
@@ -413,7 +413,7 @@ class Scheduler:
         """Make the call and hand what it came to back to the leg. What ``call`` lets out (an exit, a defect in a
         type's own check) goes back too and is raised on the leg's thread, as it is for a node called there."""
         try:
-            out, error = call(node, arguments, self.from_run)
+            out, error = call(node, arguments, self.context)
         except BaseException as raised:  # noqa: BLE001  a pool thread would keep it, and the leg would wait for the call for ever
             self.returned.put(raised)
         else:

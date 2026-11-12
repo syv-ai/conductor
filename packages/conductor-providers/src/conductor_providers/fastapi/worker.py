@@ -88,7 +88,7 @@ class Worker(Generic[C]):
         store: RunStore,
         nodes_for: Callable[[C], NodeRegistry],
         callers: TypeAdapter[C],
-        from_run: Callable[[C], Mapping[type, Any]],
+        context: Callable[[C], Mapping[type, Any]],
         max_items: int | None,
         lease: float,
         checkpoint_every: float,
@@ -101,7 +101,7 @@ class Worker(Generic[C]):
             store: Where runs and their events are kept.
             nodes_for: The nodes a caller's graphs may use; called for every call and every leg.
             callers: Reads and writes a caller as the JSON a run keeps.
-            from_run: The ``FromRun`` values of a leg, from the caller who started its run.
+            context: The ``Context`` values of a leg, from the caller who started its run.
             max_items: The ceiling on the items of any one Series that a run starts with.
             lease: The seconds this worker holds a run between renewals.
             checkpoint_every: The seconds between saves of a running leg.
@@ -112,7 +112,7 @@ class Worker(Generic[C]):
         self._store = store
         self._nodes_for = nodes_for
         self._callers = callers
-        self._from_run = from_run
+        self._context = context
         self._max_items = max_items
         self._lease = lease
         self._checkpoint_every = checkpoint_every
@@ -485,7 +485,7 @@ class Worker(Generic[C]):
             is handed back, how the leg ended. A raise anywhere in the leg outside a node is logged and ends it
             as a leg that raised, which lists what waits in the run as the row holds it: the run as loaded, or
             the last checkpoint the store was given; nothing, for a run that could not be loaded. Its cause is
-            conductor's own problem where conductor refused the leg (a ``FromRun`` value nobody gives, a run
+            conductor's own problem where conductor refused the leg (a ``Context`` value nobody gives, a run
             that can't be read or written), the first of them where there are several; else ``leg_failed``.
         """
         waiting: list[Waiting] = []  # in the run as the row holds it; nothing, until the run is loaded
@@ -494,7 +494,7 @@ class Worker(Generic[C]):
             run = await asyncio.to_thread(_loaded, row, self._nodes_for(who))
             waiting = run.waiting
             stream = run.stream(
-                from_run=self._from_run(who), timeout=self._leg_timeout,
+                context=self._context(who), timeout=self._leg_timeout,
                 cancel=hold.stop, hand_back=self._handing_back, checkpoint_every=self._checkpoint_every,
             )
             async with contextlib.aclosing(stream):

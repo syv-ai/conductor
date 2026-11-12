@@ -15,8 +15,8 @@ import polars as pl
 import pytest
 from conductor import (
     Choice,
+    Context,
     Deprecation,
-    FromRun,
     Graph,
     GraphRecord,
     InvalidCallError,
@@ -622,12 +622,12 @@ class _Service:
     pass
 
 
-def _taken_from_run(formula: str) -> dict[str, Any]:
+def _taken_from_context(formula: str) -> dict[str, Any]:
     return {"service": str}
 
 
-@node("taken_from_run", title="Taken from run", description="For a test.", compute_added_inputs=_taken_from_run)
-def taken_from_run(formula: str, service: FromRun[_Service], **values: str) -> str:
+@node("taken_from_context", title="Taken from run", description="For a test.", compute_added_inputs=_taken_from_context)
+def taken_from_context(formula: str, service: Context[_Service], **values: str) -> str:
     return formula
 
 
@@ -647,7 +647,7 @@ halves = subgraph("halves", title="Halves", description="For a test.")(GraphReco
     edges=[("x.result", "b.a"), ("y.result", "b.b")],
 ))
 picky = subgraph("picky", title="Picky", description="For a test.")(make_graph(refuses_bad))
-OUTSIDE = registry_of(upper, tail, refuses_bad, both_halves, taken, taken_from_run, enrich, halves, picky)
+OUTSIDE = registry_of(upper, tail, refuses_bad, both_halves, taken, taken_from_context, enrich, halves, picky)
 
 
 def test_only_the_nodes_on_a_cycle_are_a_cycle_and_a_node_below_keeps_its_fields():
@@ -729,7 +729,7 @@ def test_only_a_node_whose_definition_or_hook_gave_no_fields_is_drawn_without_th
         assert _drawn(graph, reader) == (True, "once", {"text": "unset"}, ["result"], [])
 
 
-@pytest.mark.parametrize("declared", ["taken", "taken_from_run"])
+@pytest.mark.parametrize("declared", ["taken", "taken_from_context"])
 def test_an_input_a_hook_adds_under_a_name_the_node_declares_is_the_hooks_failure(declared: str):
     [problem] = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "d", "node": declared, "constants": {"formula": "x"}}]}), OUTSIDE).problems
     assert (problem.type, problem.loc, problem.ctx["error"]) == ("compute_hook_failed", ("d",), "added_input_taken")

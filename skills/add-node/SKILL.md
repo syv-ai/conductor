@@ -1,6 +1,6 @@
 ---
 name: add-node
-description: Declares a conductor node as a function under @node. Use when adding or changing a syv-conductor node or choosing its widgets, types, outputs, branches, versions, retries, FromRun values or questions to a person; or on "add a node", "register a node", "expose X as a node".
+description: Declares a conductor node as a function under @node. Use when adding or changing a syv-conductor node or choosing its widgets, types, outputs, branches, versions, retries, Context values or questions to a person; or on "add a node", "register a node", "expose X as a node".
 ---
 
 # Adding a conductor node
@@ -46,7 +46,7 @@ assert registry["greet"] is greet
 | A branch | return `SKIPPED` on the output not taken; share an `exclusive_group` |
 | A blank (an empty cell) | `email: str \| None`; otherwise the node is not called for that item and its outputs are blank there |
 | A person's answer | `raise Ask(prompt, choices=..., default=...)`; the return type says what the answer is and how to ask, its `Param` how it looks (`-> str` free text, `bool` yes or no, a frozen dataclass a form; every type in `python -m conductor.about legs-and-asking`). Each has the answer's shape: on several outputs it goes by output name; `Choice(id, title)` titles a choice |
-| A client, a clock, the caller | `FromRun[T]`, supplied by `run.resume(from_run={T: value})` |
+| A client, a clock, the caller | `Context[T]`, supplied by `run.resume(context={T: value})` |
 | Retries, a timeout, a concurrency bound | `@node("x", title="X", description="...", policy=Policy(retries=3, attempt_timeout=10, concurrency=4))` |
 | A second version | `replaces=node("x", title="X", description="...")(run_v1), upgrade=Upgrade(renamed_inputs={...})` on `@node` |
 | A type that follows what arrives | a type variable: `def keep[T](value: T) -> T`, `def split[T](value: Table[T] \| list[T]) -> Series[T]`, a generic frozen dataclass of outputs. `T` is the type on the edge, bound when the graph loads |
@@ -65,7 +65,7 @@ from conductor.testing import check_registry
 assert check_registry(registry, examples={"greet": [{"name": "Ida"}]}) == []
 ```
 
-A body is called only for a node given an example (a node may send mail), once per example, through the engine. `("greet", 1)` keys an older version's examples, and `from_run={T: value}` gives the examples' `FromRun` values, as `graph.run` takes them. A known failure goes in a test of its own marked `pytest.mark.xfail(strict=True)`, over `registry.filter(...)` (`docs/problems.md`, under `run_failed`, shows one).
+A body is called only for a node given an example (a node may send mail), once per example, through the engine. `("greet", 1)` keys an older version's examples, and `context={T: value}` gives the examples' `Context` values, as `graph.run` takes them. A known failure goes in a test of its own marked `pytest.mark.xfail(strict=True)`, over `registry.filter(...)` (`docs/problems.md`, under `run_failed`, shows one).
 
 ## Common mistakes
 

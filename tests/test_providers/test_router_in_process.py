@@ -16,7 +16,7 @@ import pytest
 
 httpx = pytest.importorskip("httpx")
 
-from conductor import Ask, FromRun, GraphRecord, NodeRecord, NodeRegistry, Problem, make_graph  # noqa: E402
+from conductor import Ask, Context, GraphRecord, NodeRecord, NodeRegistry, Problem, make_graph  # noqa: E402
 from conductor_providers.fastapi import ROUTER_PROBLEMS, RunChanges, run_router  # noqa: E402
 from fastapi import FastAPI, Header  # noqa: E402
 
@@ -105,12 +105,12 @@ async def test_a_class_as_the_caller_is_kept_as_that_class_so_its_starter_sees_t
     registry, seen = NodeRegistry(), []
 
     @registry.node("whoami", title="Whoami", description="For a test.")
-    def whoami(text: str, who: FromRun[_Member]) -> str:
+    def whoami(text: str, who: Context[_Member]) -> str:
         seen.append(who)
         return who.x_user
 
     store = MemoryStore()
-    app = _app(store=store, registry=registry, caller=_Member, from_run=lambda caller: {_Member: caller})
+    app = _app(store=store, registry=registry, caller=_Member, context=lambda caller: {_Member: caller})
 
     async with _serving(app) as client:
         started = await client.post("/runs", json={"graph": make_graph(whoami).model_dump(mode="json"), "inputs": {"text": "hi"}}, headers={"x-user": "bo"})

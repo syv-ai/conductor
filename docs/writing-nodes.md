@@ -517,10 +517,10 @@ print(run.status, len(attempts))  # complete 3
 
 ## What the host gives the run
 
-Some values come from the host, not from the graph: who runs it, a database session, a client. Ask for them with `FromRun[T]`. The host passes them by type:
+Some values come from the host, not from the graph: who runs it, a database session, a client. They are the run's context: values the host passes for this run, by type, never saved. Ask for one with `Context[T]`:
 
 ```python
-from conductor import FromRun
+from conductor import Context
 
 
 class Caller:
@@ -529,11 +529,11 @@ class Caller:
 
 
 @registry.node("sign", title="Sign", description="Signs a text with the name of the person running it.")
-def sign(text: str, who: FromRun[Caller]) -> str:
+def sign(text: str, who: Context[Caller]) -> str:
     return f"{text}, {who.name}"
 
 
-run = Graph.compile(make_graph(sign), registry).run(text="Done", from_run={Caller: Caller("Ida")})
+run = Graph.compile(make_graph(sign), registry).run(text="Done", context={Caller: Caller("Ida")})
 print(run.outputs)  # {'sign.result': 'Done, Ida'}
 ```
 
@@ -584,7 +584,7 @@ problems = check_registry(registry, examples={
     "tag": [{"line": "hello", "sender": "Ida"}],
     "count": [{"texts": ["hello"]}],
     "cells": [{"line": "Ida,Aarhus", "names": ["name", "city"]}],
-}, from_run={Caller: Caller("Ida")})
+}, context={Caller: Caller("Ida")})
 print(problems)  # []
 ```
 

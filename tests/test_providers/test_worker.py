@@ -15,7 +15,7 @@ import polars as pl
 import pytest
 from conductor import (
     Ask,
-    FromRun,
+    Context,
     Graph,
     GraphRecord,
     InvalidCallError,
@@ -41,7 +41,7 @@ from tests.test_providers.in_memory import MemoryStore, asking, gated, left_runn
 
 def _worker(store: MemoryStore, registry: NodeRegistry, **settings: Any) -> Worker[str]:
     """A worker on ``store`` whose callers are names, with the router's own defaults where ``settings`` name none."""
-    defaults: dict[str, Any] = {"from_run": lambda who: {}, "max_items": None, "lease": 30.0, "checkpoint_every": 5.0, "leg_timeout": 300.0, "poll": 0.1}
+    defaults: dict[str, Any] = {"context": lambda who: {}, "max_items": None, "lease": 30.0, "checkpoint_every": 5.0, "leg_timeout": 300.0, "poll": 0.1}
     return Worker(store=store, nodes_for=lambda who: registry, callers=TypeAdapter(str), **{**defaults, **settings})
 
 
@@ -504,7 +504,7 @@ async def test_an_answer_queued_during_a_leg_that_raised_stays_queued_and_is_tak
         return {}
 
     store = MemoryStore()
-    worker = _worker(store, registry, from_run=fails_on_the_first_leg)
+    worker = _worker(store, registry, context=fails_on_the_first_leg)
     left = left_running("left", graph, Graph.compile(graph, registry).with_inputs(inputs), owner="a-dead-worker")
     await store.create(left)
     assert await worker.answer(await worker.read("left"), {waiting_id: True}) == "queued"
@@ -769,7 +769,7 @@ async def test_a_leg_that_raised_outside_a_node_reads_failed_with_a_cause_that_i
     registry, graph = _shout()
     store = MemoryStore()
 
-    run_id = await _started(_worker(store, registry, from_run=_no_values), graph, {"text": "a"})
+    run_id = await _started(_worker(store, registry, context=_no_values), graph, {"text": "a"})
     failed = await store.ended(run_id)
 
     assert failed.cause is not None and (failed.status, failed.cause.type, failed.cause.loc) == ("failed", "leg_failed", ())
@@ -777,7 +777,7 @@ async def test_a_leg_that_raised_outside_a_node_reads_failed_with_a_cause_that_i
 
 
 class Tenant:
-    """A value a leg's ``from_run`` is to give."""
+    """A value a leg's ``context`` is to give."""
 
 
 class Clock:
@@ -788,13 +788,13 @@ async def test_a_leg_conductor_refuses_to_start_fails_with_the_first_of_its_own_
     registry, store = NodeRegistry(), MemoryStore()
 
     @registry.node("stamp", title="Stamp", description="For a test.")
-    def stamp(text: str, tenant: FromRun[Tenant], clock: FromRun[Clock]) -> str:
+    def stamp(text: str, tenant: Context[Tenant], clock: Context[Clock]) -> str:
         return text
 
     run_id = await _started(_worker(store, registry), make_graph(stamp), {"text": "a"})
     failed = await store.ended(run_id)
 
-    assert failed.cause is not None and (failed.status, failed.cause.type, failed.cause.loc) == ("failed", "from_run_missing", ("stamp", "tenant"))
+    assert failed.cause is not None and (failed.status, failed.cause.type, failed.cause.loc) == ("failed", "context_missing", ("stamp", "tenant"))
     assert failed.cause.ctx["needs"] == "Tenant"
     assert await store.stored_events(run_id) == [{"type": "run_end", "status": "failed", "cause": failed.cause.model_dump(mode="json")}]
     (logged,) = [record.getMessage() for record in caplog.records if run_id in record.getMessage()]
@@ -846,7 +846,7 @@ async def test_a_run_whose_leg_raised_lists_what_waits_in_the_run_as_stored_and_
             raise ConnectionError("the secrets service is down")
         return {}
 
-    worker = _worker(store, registry, from_run=fails_on_the_second_leg)
+    worker = _worker(store, registry, context=fails_on_the_second_leg)
     run_id = await _started(worker, make_graph(many, approve), {"n": 3})
     first, second, third = (unit.id for unit in (await store.ended(run_id)).waiting)
 

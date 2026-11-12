@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Annotated, Any
 
-from conductor import SKIPPED, Ask, Choice, Deprecation, ExternalError, FromRun, Param, Policy, Series, Upgrade, node
+from conductor import SKIPPED, Ask, Choice, Context, Deprecation, ExternalError, Param, Policy, Series, Upgrade, node
 from conductor.widgets import Switch, Textarea, TextInput
 
 
@@ -33,7 +33,7 @@ class Caller:
 
 
 @node("approve", title="Approve", description="Asks a person to approve or rewrite the proposal.", category="review")
-def approve(proposal: Annotated[str, Param(title="Proposal", widget=Textarea())], who: FromRun[Caller]) -> Annotated[str, Param(title="Decision", widget=Textarea())]:
+def approve(proposal: Annotated[str, Param(title="Proposal", widget=Textarea())], who: Context[Caller]) -> Annotated[str, Param(title="Decision", widget=Textarea())]:
     # what is asked is what the node returns, and how it looks is its Param; a default proposes an answer
     raise Ask(f"{who.name}, approve?", default=proposal)
 
@@ -82,7 +82,7 @@ def check[T](value: T, ok: bool) -> Checked[T]:        # a node for any type: T 
     return Checked(passed=value, failed=SKIPPED) if ok else Checked(passed=SKIPPED, failed=value)
 
 
-assert approve.from_run == {"who": Caller}
+assert approve.context == {"who": Caller}
 ```
 
 - A pydantic model a node returns is one value, not one output per field.

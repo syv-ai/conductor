@@ -10,7 +10,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from conductor import Ask, FromRun, NodeRegistry, Series
+from conductor import Ask, Context, NodeRegistry, Series
 
 served = NodeRegistry()
 
@@ -71,9 +71,9 @@ def after(approved: bool) -> bool:
 
 @dataclass(frozen=True)
 class Missing:
-    """A value no ``from_run`` gives."""
+    """A value no ``context`` gives."""
 
 
 @served.node("needs_missing", title="Needs missing", description="For a test.")
-def needs_missing(value: FromRun[Missing]) -> str:
+def needs_missing(value: Context[Missing]) -> str:
     return ""

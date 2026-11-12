@@ -11,7 +11,7 @@ It checks what ``@node`` can't see in a declaration. A body is called only
 for a node given an example, since a node may send mail; ``examples`` maps a
 node id to the inputs of its calls, by name, and ``(id, version)`` to those
 of an older version. Each example runs through the engine as a graph of that
-one node, its inputs typed in, given ``from_run={T: value}`` as ``graph.run``
+one node, its inputs typed in, given ``context={T: value}`` as ``graph.run``
 is.
 
 Every problem is a ``Problem``. Its ``loc`` is ``(node_id, version)``, except for
@@ -86,7 +86,7 @@ def check_registry(
     /,
     *,
     examples: Mapping[str | tuple[str, int], Sequence[_Example]] = types.MappingProxyType({}),
-    from_run: Mapping[type, Any] = types.MappingProxyType({}),
+    context: Mapping[type, Any] = types.MappingProxyType({}),
 ) -> list[Problem]:
     """Every way a node of ``registry`` breaks what a host relies on, all at once; ``[]`` when none does."""
     found: list[Problem] = []
@@ -104,26 +104,26 @@ def check_registry(
             place = key
         by_version.setdefault(place, []).extend(calls)
     for definition in registry:
-        found += _problems_of(definition, registry, by_version, from_run)
+        found += _problems_of(definition, registry, by_version, context)
     return found
 
 
 def _problems_of(
-    definition: NodeDefinition, registry: NodeRegistry, examples: Mapping[tuple[str, int], Sequence[_Example]], from_run: Mapping[type, Any],
+    definition: NodeDefinition, registry: NodeRegistry, examples: Mapping[tuple[str, int], Sequence[_Example]], context: Mapping[type, Any],
 ) -> list[Problem]:
-    found = _version_problems(definition, registry, examples.get((definition.id, definition.version), ()), from_run)
+    found = _version_problems(definition, registry, examples.get((definition.id, definition.version), ()), context)
     for older in definition.version_chain[1:]:
         given = examples.get((older.id, older.version), ())
         found += _upgrade_problems(older, registry, given)
-        found += _version_problems(older, registry, given, from_run)
+        found += _version_problems(older, registry, given, context)
     return found
 
 
-def _version_problems(version: NodeDefinition, registry: NodeRegistry, given: Sequence[_Example], from_run: Mapping[type, Any]) -> list[Problem]:
+def _version_problems(version: NodeDefinition, registry: NodeRegistry, given: Sequence[_Example], context: Mapping[type, Any]) -> list[Problem]:
     """The hooks checked when there is no example, else each example run: what went wrong."""
     if not given:
         return _hook_problems(version, registry)
-    return [problem for example in given for problem in _run_problems(version, registry, example, from_run)]
+    return [problem for example in given for problem in _run_problems(version, registry, example, context)]
 
 
 def _one_node_graph(version: NodeDefinition, constants: Mapping[str, Any]) -> GraphRecord:
@@ -175,7 +175,7 @@ def _upgrade_problems(older: NodeDefinition, registry: NodeRegistry, given: Sequ
     return [kit_problem.upgrade_broken(older.id, older.version, newest=newest, reason=reason, cause=[p.type for p in problems], problems=[p.model_dump(mode="json") for p in problems])]
 
 
-def _run_problems(version: NodeDefinition, registry: NodeRegistry, example: _Example, from_run: Mapping[type, Any]) -> list[Problem]:
+def _run_problems(version: NodeDefinition, registry: NodeRegistry, example: _Example, context: Mapping[type, Any]) -> list[Problem]:
     """Run one example through the engine: what went wrong."""
     definitions: dict[str, NodeDefinition]
     match version:
@@ -193,7 +193,7 @@ def _run_problems(version: NodeDefinition, registry: NodeRegistry, example: _Exa
     if graph.problems:
         return _not_loaded(version, graph.problems)
     try:
-        run = graph.run(from_run=from_run)
+        run = graph.run(context=context)
     except InvalidCallError as refused:
         faults = refused.errors()
         return [kit_problem.example_refused(
@@ -228,7 +228,7 @@ def _watched(version: FunctionDefinition[..., Any]) -> tuple[FunctionDefinition[
     def watched(**kwargs: Any) -> Any:
         before: dict[str, object] = {}
         for name, value in kwargs.items():
-            if name not in version.from_run:
+            if name not in version.context:
                 try:
                     kept = copy.deepcopy(value)
                 except Exception:  # noqa: BLE001, S112  a value that can't be copied can't be compared

@@ -246,7 +246,7 @@ class Type:
         refuses a ``bool``, which pydantic alone reads as 1 (``numbers_refuse_bools``).
 
         Raises:
-            NodeDeclarationError: A ``Param`` that doesn't fit, a misplaced ``FromRun``, or a type pydantic has no
+            NodeDeclarationError: A ``Param`` that doesn't fit, a misplaced ``Context``, or a type pydantic has no
                 schema for (``type_not_carried``).
         """
         bare, param, others = self._parts

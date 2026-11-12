@@ -64,8 +64,8 @@ from pydantic import ConfigDict, JsonValue
 from pydantic import Field as PydanticField
 
 from conductor._internal.conductor_model import ConductorModel
+from conductor._internal.context import _Context
 from conductor._internal.field import Field, FieldDescription
-from conductor._internal.from_run import _FromRun
 from conductor._internal.graph_record import GraphRecord, as_record
 from conductor._internal.markers import REQUIRED
 from conductor._internal.problem import CallRejectedError, InvalidCallError, NodeDeclarationError
@@ -252,8 +252,8 @@ class FunctionDefinition[**P, R](_Version):
 
     Attributes:
         function: What each call runs.
-        inputs: Each input by name, as its signature declares it. A ``FromRun`` parameter is not an input: it is in
-            ``from_run``. An input a hook adds is not here either; a loaded graph's node holds it.
+        inputs: Each input by name, as its signature declares it. A ``Context`` parameter is not an input: it is in
+            ``context``. An input a hook adds is not here either; a loaded graph's node holds it.
         outputs: Each output by name: ``result`` for one value, a field each for a frozen dataclass returned.
         returns: What the function returns: one ``result``, a frozen dataclass of outputs, the mapping of outputs a
             ``compute_outputs`` hook gave, or nothing.
@@ -262,7 +262,7 @@ class FunctionDefinition[**P, R](_Version):
             them as ``**kwargs``.
         compute_outputs: A hook run at load that gives every output, from the values typed in and the types
             arriving; the function returns them as a mapping.
-        from_run: The ``FromRun`` parameters: the type whose value goes under each name in a call.
+        context: The ``Context`` parameters: the type whose value goes under each name in a call.
         hook_parameters: Each hook's parameters, by the hook's name (``compute_added_inputs``, ``compute_outputs``)
             and then the parameter's: what the parameter receives. Read from the hooks' signatures once, at
             ``@node``.
@@ -276,7 +276,7 @@ class FunctionDefinition[**P, R](_Version):
     policy: Policy = Policy()
     compute_added_inputs: Callable[..., Mapping[Any, Any]] | None = None
     compute_outputs: Callable[..., Mapping[Any, Any]] | None = None
-    from_run: Mapping[str, type] = dataclasses.field(default_factory=dict[str, type])
+    context: Mapping[str, type] = dataclasses.field(default_factory=dict[str, type])
     hook_parameters: Mapping[HookName, Mapping[str, HookParameter]] = dataclasses.field(default_factory=dict[HookName, Mapping[str, HookParameter]])
     generic: bool = False
 
@@ -456,7 +456,7 @@ def node(
         try:
             if inspect.iscoroutinefunction(target) or inspect.isasyncgenfunction(target):
                 raise NodeDeclarationError("a node is a plain def; the engine gives a slow one threads with Policy(concurrency=)", code="async_run")
-            inputs, from_run, outputs, returns = _read_signature(target, compute_outputs is not None)
+            inputs, context, outputs, returns = _read_signature(target, compute_outputs is not None)
             takes_kwargs = any(p.kind is p.VAR_KEYWORD for p in inspect.signature(target).parameters.values())
             if compute_added_inputs is not None and not takes_kwargs:
                 raise NodeDeclarationError("a node with compute_added_inputs takes them as **kwargs; add **values to its signature", code="compute_added_inputs_without_var_keyword")
@@ -468,7 +468,7 @@ def node(
                 for kind, hook in hooks.items() if hook is not None
             }
             definition = FunctionDefinition(
-                function=target, inputs=inputs, outputs=outputs, returns=returns, from_run=from_run,
+                function=target, inputs=inputs, outputs=outputs, returns=returns, context=context,
                 id=id, version=number, title=title, description=description,
                 category=category, tags=tuple(tags), extra=MappingProxyType(dict(extra)), docs=docs, deprecation=deprecation,
                 replaces=replaces, upgrade=upgrade or Upgrade(), policy=policy or Policy(),
@@ -576,29 +576,29 @@ def is_node_id(value: str) -> bool:
     return bool(value) and not _RESERVED_ID_CHARACTERS & set(value)
 
 
-def from_run_values(definitions: Iterable[tuple[str, FunctionDefinition[..., Any]]], from_run: Mapping[type, Any]) -> dict[type, Any]:
-    """The value each ``FromRun`` parameter of these placed nodes takes, keyed by the class it names and no other;
+def context_values(definitions: Iterable[tuple[str, FunctionDefinition[..., Any]]], context: Mapping[type, Any]) -> dict[type, Any]:
+    """The value each ``Context`` parameter of these placed nodes takes, keyed by the class it names and no other;
     ``InvalidCallError`` listing every parameter it can't fill.
 
     Args:
         definitions: Each placed function node, as its id and definition.
-        from_run: The values the caller gave, by class.
+        context: The values the caller gave, by class.
 
     ReturnShape:
-        ``from_run`` as a dict, once every parameter is known to be filled.
+        ``context`` as a dict, once every parameter is known to be filled.
 
     Raises:
-        InvalidCallError: One ``from_run_missing`` problem per parameter whose class is not a key of ``from_run``.
+        InvalidCallError: One ``context_missing`` problem per parameter whose class is not a key of ``context``.
     """
     problems = [
-        problem.from_run_missing(node_id, name, needs=needed.__name__, given=[key.__name__ for key in from_run])
+        problem.context_missing(node_id, name, needs=needed.__name__, given=[key.__name__ for key in context])
         for node_id, definition in definitions
-        for name, needed in definition.from_run.items()
-        if needed not in from_run
+        for name, needed in definition.context.items()
+        if needed not in context
     ]
     if problems:
         raise InvalidCallError(problems)
-    return dict(from_run)
+    return dict(context)
 
 
 @dataclass(frozen=True, slots=True)
@@ -664,7 +664,7 @@ def _read_signature(function: Callable[..., Any], computed_outputs: bool) -> tup
     A type variable in it (``def keep[T](value: T) -> T``) stays in the field's hint, to be bound when a graph loads.
 
     ReturnShape:
-        The inputs by name, the ``FromRun`` parameters (the class each takes), the outputs by name, and what kind
+        The inputs by name, the ``Context`` parameters (the class each takes), the outputs by name, and what kind
         of value the function returns them as.
 
     Raises:
@@ -673,7 +673,7 @@ def _read_signature(function: Callable[..., Any], computed_outputs: bool) -> tup
     parameters = inspect.signature(function).parameters  # read first: for what is not a function it raises Python's "is not a callable object"
     hints = typing.get_type_hints(function, include_extras=True)
     inputs: dict[str, Field] = {}
-    from_run: dict[str, type] = {}
+    context: dict[str, type] = {}
     for name, parameter in parameters.items():
         if parameter.kind is parameter.VAR_KEYWORD:
             continue
@@ -683,11 +683,11 @@ def _read_signature(function: Callable[..., Any], computed_outputs: bool) -> tup
             raise NodeDeclarationError(f"{name}: an input needs a type hint; write one, as it is the input's interface", code="input_without_type")
         default = REQUIRED if parameter.default is inspect.Parameter.empty else parameter.default
         hint = hints[name]
-        if typing.get_origin(hint) is Annotated and any(isinstance(mark, _FromRun) for mark in typing.get_args(hint)[1:]):
+        if typing.get_origin(hint) is Annotated and any(isinstance(mark, _Context) for mark in typing.get_args(hint)[1:]):
             needed = typing.get_args(hint)[0]
             if not isinstance(needed, type):
-                raise NodeDeclarationError(f"{name}: FromRun names the class of the value the run is given, FromRun[Session]", code="from_run_not_a_class")
-            from_run[name] = needed
+                raise NodeDeclarationError(f"{name}: Context names the class of the value the run is given, Context[Session]", code="context_not_a_class")
+            context[name] = needed
             continue
         inputs[name] = Field(name, hint, default)
         if inputs[name].param.exclusive_group is not None:
@@ -724,7 +724,7 @@ def _read_signature(function: Callable[..., Any], computed_outputs: bool) -> tup
                     f"{field.name}: the type variable {variable.__name__} is on no input, so no edge can say what it is; put it on an input",
                     code="type_variable_only_in_return",
                 )
-    return inputs, from_run, outputs, kind
+    return inputs, context, outputs, kind
 
 
 def _declared_default(declared: dataclasses.Field[Any]) -> Any:

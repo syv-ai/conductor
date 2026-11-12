@@ -19,8 +19,8 @@ import pytest
 from conductor import (
     SKIPPED,
     Ask,
+    Context,
     ExternalError,
-    FromRun,
     Graph,
     GraphRecord,
     InvalidCallError,
@@ -180,7 +180,7 @@ class Session:
 
 
 @_node("signed")
-def signed(text: str, session: FromRun[Session]) -> str:
+def signed(text: str, session: Context[Session]) -> str:
     return f"{text} by {session.name}"
 
 
@@ -460,10 +460,10 @@ def test_a_blank_inside_is_listed_as_not_called_by_its_path():
 
 def test_a_node_inside_takes_what_the_host_gives_every_run():
     graph = mapped("signed-inner")
-    assert graph.run(text="a b", from_run={Session: Session("ida")}).results["e"]["s.result"] == ["a by ida", "b by ida"]
+    assert graph.run(text="a b", context={Session: Session("ida")}).results["e"]["s.result"] == ["a by ida", "b by ida"]
     with pytest.raises(InvalidCallError) as refused:
         graph.run(text="a b")
-    assert [p.type for p in refused.value.errors()] == ["from_run_missing"]
+    assert [p.type for p in refused.value.errors()] == ["context_missing"]
 
 
 def test_the_item_ceiling_holds_inside_and_is_raised_by_resume():

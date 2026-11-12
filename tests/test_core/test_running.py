@@ -19,8 +19,8 @@ import pytest
 from conductor import (
     SKIPPED,
     Ask,
+    Context,
     ExternalError,
-    FromRun,
     Graph,
     GraphRecord,
     InvalidCallError,
@@ -823,7 +823,7 @@ def test_a_stream_that_cannot_start_raises_at_the_call_before_any_event():
         pass
 
     @node("signed", title="Signed", description="For a test.")
-    def signed(text: str, who: FromRun[Caller]) -> str:
+    def signed(text: str, who: Context[Caller]) -> str:
         return text
 
     prepared = Graph.compile(GraphRecord(nodes=[NodeRecord(id="s", node="signed")]), registry_of(signed)).with_inputs(text="x")
@@ -831,7 +831,7 @@ def test_a_stream_that_cannot_start_raises_at_the_call_before_any_event():
     with pytest.raises(InvalidCallError) as refused:
         prepared.stream()
 
-    assert [p.type for p in refused.value.errors()] == ["from_run_missing"]
+    assert [p.type for p in refused.value.errors()] == ["context_missing"]
     assert refused.value.errors()[0].ctx == {"node_id": "s", "parameter": "who", "needs": "Caller", "given": []}
 
 
@@ -843,12 +843,12 @@ def test_a_type_no_node_needs_from_the_run_is_fine():
         pass
 
     @node("signed", title="Signed", description="For a test.")
-    def signed(text: str, who: FromRun[Caller]) -> str:
+    def signed(text: str, who: Context[Caller]) -> str:
         return text
 
     graph = Graph.compile(GraphRecord(nodes=[NodeRecord(id="s", node="signed")]), registry_of(signed))
 
-    assert graph.run(text="x", from_run={Caller: Caller(), Unused: Unused()}).outputs == {"s.result": "x"}
+    assert graph.run(text="x", context={Caller: Caller(), Unused: Unused()}).outputs == {"s.result": "x"}
 
 
 def test_running_a_graph_under_a_running_event_loop_ends_as_it_does_outside_one():

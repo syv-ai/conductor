@@ -47,5 +47,5 @@ assert [unit.inputs["proposal"] for unit in second.waiting] == ["first"]
 
 - An asking node waits with its readers; the rest runs on. Each entry of `run.waiting` carries `id`, `loc` (the node, then its item), `prompt`, `inputs` and `questions`: one per output, the field record `describe()` writes, with the `choices`, `default` and `widget` the node asked with.
 - `run.answer(unit, value)` takes the unit or its id, and a value of what the node returns (a mapping by output name for several outputs); `run.answer({unit_id: value, ...})` answers several at once. A unit not answered goes on waiting and is not called again.
-- A wrong answer raises `InvalidCallError`; a missing `FromRun` value raises `InvalidCallError` too. `run.again(**changed)` reuses the calls whose inputs match, and runs the rest.
+- A wrong answer raises `InvalidCallError`; a missing `Context` value raises `InvalidCallError` too. `run.again(**changed)` reuses the calls whose inputs match, and runs the rest.
 - An event writes itself as JSON (`event.model_dump(mode="json")`), its outputs already JSON. Leaving `async for event in run.stream():` ends the leg before its next unit.

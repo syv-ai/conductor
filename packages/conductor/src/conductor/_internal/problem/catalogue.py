@@ -409,16 +409,16 @@ def cannot_move_to_version(*loc: str | int, node: str, version: int, target: int
 
 
 @PROBLEMS.problem()
-def from_run_missing(node_id: str, parameter: str, *, needs: str, given: list[str]) -> str:
-    """A node takes a value from the run, and the call's ``from_run`` has none under that class.
+def context_missing(node_id: str, parameter: str, *, needs: str, given: list[str]) -> str:
+    """A node takes a value from the run, and the call's ``context`` has none under that class.
 
     Args:
         node_id: The node.
-        parameter: Its ``FromRun`` parameter.
+        parameter: Its ``Context`` parameter.
         needs: The name of the class the parameter names.
-        given: The names of the classes ``from_run`` has values for.
+        given: The names of the classes ``context`` has values for.
     """
-    return f"'{node_id}' needs a {needs} for '{parameter}', and from_run gives none (it gives {comma_separated(given)}); pass from_run with a value for {needs}."
+    return f"'{node_id}' needs a {needs} for '{parameter}', and context gives none (it gives {comma_separated(given)}); pass context with a value for {needs}."
 
 
 @PROBLEMS.problem()

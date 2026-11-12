@@ -185,17 +185,17 @@ class _Compiler:
             inputs[name] = graph_input
             input_fields[graph_input.address] = InputField(name, graph_input.address, field)
         downstream: dict[str, list[CompiledNode]] = {node_id: [] for node_id in self.nodes}
-        needs_from_run: list[tuple[str, FunctionDefinition[..., Any]]] = []
+        needs_context: list[tuple[str, FunctionDefinition[..., Any]]] = []
         for compiled_node in self.nodes.values():
             match compiled_node:
                 case CompiledFunctionNode(definition=function):
-                    if function.from_run:
-                        needs_from_run.append((compiled_node.id, function))
+                    if function.context:
+                        needs_context.append((compiled_node.id, function))
                 case CompiledSubgraphNode(inner=inner):
-                    needs_from_run += inner._needs_from_run
+                    needs_context += inner._needs_context
             for source_id in compiled_node.reads:
                 downstream[source_id].append(compiled_node)
-        return graph_type(record, self.problems, inputs, self.nodes, input_fields, downstream, needs_from_run)
+        return graph_type(record, self.problems, inputs, self.nodes, input_fields, downstream, needs_context)
 
     def _resolve(self, record: NodeRecord) -> NodeDefinition | None:
         """The definition a node of the record names, at its version; ``None`` with the problem when there is none."""
@@ -256,7 +256,7 @@ class _Compiler:
             if made is None:
                 return
             added = made
-            taken = sorted(added.keys() & (fields.keys() | definition.from_run.keys()))
+            taken = sorted(added.keys() & (fields.keys() | definition.context.keys()))
             if taken:
                 self.problems.append(problem.compute_hook_failed(record.id, reason=f"it adds {taken[0]!r}, which the node already declares", error="added_input_taken"))
                 return

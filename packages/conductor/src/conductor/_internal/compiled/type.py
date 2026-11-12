@@ -73,8 +73,8 @@ class CompiledGraph:
     _input_fields: dict[str, InputField]
     #: The nodes that read each node.
     _readers: dict[str, list[CompiledNode]]
-    #: The nodes with a ``FromRun`` parameter, a subgraph's too, as ``from_run_values`` reads them.
-    _needs_from_run: list[tuple[str, FunctionDefinition[..., Any]]]
+    #: The nodes with a ``Context`` parameter, a subgraph's too, as ``context_values`` reads them.
+    _needs_context: list[tuple[str, FunctionDefinition[..., Any]]]
 
     def __repr__(self) -> str:
         state = "runnable" if self.is_runnable else f"{len(self.problems)} problem{'s' if len(self.problems) != 1 else ''}"

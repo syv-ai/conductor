@@ -5,8 +5,8 @@ from typing import Annotated, Any
 import pytest
 from conductor import (
     Ask,
+    Context,
     ExternalError,
-    FromRun,
     Graph,
     InvalidCallError,
     NodeRegistry,
@@ -67,7 +67,7 @@ class Session:
 
 
 @node("who", title="Who", description="For a test.")
-def who(session: FromRun[Session], text: str) -> str:
+def who(session: Context[Session], text: str) -> str:
     return text
 
 
@@ -82,27 +82,27 @@ GOOD_EXAMPLES: dict[Any, list[dict[str, Any]]] = {
 
 
 def test_nodes_that_keep_the_contract_give_no_problem():
-    assert found(registry_of(upper, columns, count, approve, who), examples=GOOD_EXAMPLES, from_run={Session: Session()}) == []
+    assert found(registry_of(upper, columns, count, approve, who), examples=GOOD_EXAMPLES, context={Session: Session()}) == []
 
 
 def test_a_node_built_from_a_graph_runs_its_example_as_any_node_does():
     assert found(registry_of(upper, shout), examples={"shout": [{"text": "hi"}]}) == []
 
 
-def test_a_from_run_value_is_taken_by_the_class_the_node_names_and_a_subclass_key_does_not_fill_it():
+def test_a_context_value_is_taken_by_the_class_the_node_names_and_a_subclass_key_does_not_fill_it():
     class TestSession(Session):
         pass
 
     registry = registry_of(who)
-    assert found(registry, examples={"who": [{"text": "a"}]}, from_run={Session: TestSession()}) == []
+    assert found(registry, examples={"who": [{"text": "a"}]}, context={Session: TestSession()}) == []
     graph = Graph.compile(make_graph(who, constants={"who.text": "a"}), registry)
-    assert graph.run(from_run={Session: TestSession()}).outputs == {"who.result": "a"}
+    assert graph.run(context={Session: TestSession()}).outputs == {"who.result": "a"}
     with pytest.raises(InvalidCallError) as refused:
-        graph.run(from_run={TestSession: TestSession()})
-    assert [(p.type, p.ctx["given"]) for p in refused.value.errors()] == [("from_run_missing", ["TestSession"])]
+        graph.run(context={TestSession: TestSession()})
+    assert [(p.type, p.ctx["given"]) for p in refused.value.errors()] == [("context_missing", ["TestSession"])]
     with pytest.raises(InvalidCallError) as refused:
-        graph.run(from_run={int: 3})
-    assert [(p.type, p.ctx["given"]) for p in refused.value.errors()] == [("from_run_missing", ["int"])]
+        graph.run(context={int: 3})
+    assert [(p.type, p.ctx["given"]) for p in refused.value.errors()] == [("context_missing", ["int"])]
     assert "it gives int" in refused.value.errors()[0].msg
 
 
@@ -210,7 +210,7 @@ def test_an_example_that_does_not_run_to_the_end_or_a_pause_is_run_failed():
     assert [(p.type, p.loc, p.ctx["cause"]) for p in problems] == [
         ("run_failed", ("unsure", 1), ["invalid_ask"]),
         ("run_failed", ("offline", 1), ["external_failed"]),
-        ("run_failed", ("who", 1), ["from_run_missing"]),
+        ("run_failed", ("who", 1), ["context_missing"]),
         ("run_failed", ("upper", 1), ["unknown_input"]),
     ]
 
@@ -270,20 +270,20 @@ def test_a_body_returning_what_its_type_refuses_is_run_failed():
     ]
 
 
-def test_a_protocol_from_run_given_under_another_key_is_from_run_missing():
+def test_a_protocol_context_given_under_another_key_is_context_missing():
     from typing import Protocol
 
     class Authority(Protocol):
         def may_read(self, document: str) -> bool: ...
 
     @node("read", title="Read", description="For a test.")
-    def read(x: int, authority: FromRun[Authority]) -> int:
+    def read(x: int, authority: Context[Authority]) -> int:
         return x
 
     graph = Graph.compile(make_graph(read, constants={"read.x": 1}), registry_of(read))
     with pytest.raises(InvalidCallError) as refused:
-        graph.run(from_run={str: "a session"})
-    assert [p.type for p in refused.value.errors()] == ["from_run_missing"]
+        graph.run(context={str: "a session"})
+    assert [p.type for p in refused.value.errors()] == ["context_missing"]
 
 
 def test_what_a_check_says_is_made_from_its_ctx_alone():

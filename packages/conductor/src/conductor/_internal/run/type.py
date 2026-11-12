@@ -56,7 +56,7 @@ from conductor._internal.compiled import (
     outcome_loc,
 )
 from conductor._internal.conductor_model import ConductorModel
-from conductor._internal.node_definition import from_run_values
+from conductor._internal.node_definition import context_values
 from conductor._internal.outcomes import (
     Answered,
     Outcome,
@@ -174,20 +174,20 @@ class Run:
         checked_max_items(max_items=max_items)
         return dataclasses.replace(self, max_items=max_items)
 
-    def resume(self, *, from_run: Mapping[type, Any] = MappingProxyType({}), timeout: float | None = None) -> Run:
+    def resume(self, *, context: Mapping[type, Any] = MappingProxyType({}), timeout: float | None = None) -> Run:
         """Go on: start every unit whose inputs exist, until the run is done, waits, fails, reaches its ceiling or its ``timeout``.
 
-        ``from_run`` gives each ``FromRun`` type its value. Past its
+        ``context`` gives each ``Context`` type its value. Past its
         ``timeout`` a leg starts nothing more but waits for the calls already
         on threads, as far as their ``attempt_timeout``, and keeps them; so it
         can end later than ``timeout``, and a call that came back is never made
         again.
         """
         checked_max_items(timeout=timeout)
-        return self._run_scheduler(from_run_values(self.graph._needs_from_run, from_run), None, _deadline(timeout))
+        return self._run_scheduler(context_values(self.graph._needs_context, context), None, _deadline(timeout))
 
     def stream(
-        self, *, from_run: Mapping[type, Any] = MappingProxyType({}), timeout: float | None = None, cancel: asyncio.Event | None = None,
+        self, *, context: Mapping[type, Any] = MappingProxyType({}), timeout: float | None = None, cancel: asyncio.Event | None = None,
         hand_back: asyncio.Event | None = None, checkpoint_every: float | None = None,
     ) -> AsyncGenerator[Event]:
         """``resume``, saying what happens as it happens: ``async for event in run.stream(): ...``.
@@ -210,10 +210,10 @@ class Run:
         that can't start raises here, before anything is iterated.
         """
         checked_max_items(timeout=timeout, checkpoint_every=checkpoint_every)
-        return self._stream(from_run_values(self.graph._needs_from_run, from_run), timeout, cancel, hand_back, checkpoint_every)
+        return self._stream(context_values(self.graph._needs_context, context), timeout, cancel, hand_back, checkpoint_every)
 
     async def _stream(
-        self, from_run: dict[type, Any], timeout: float | None, cancel: asyncio.Event | None, hand_back: asyncio.Event | None,
+        self, context: dict[type, Any], timeout: float | None, cancel: asyncio.Event | None, hand_back: asyncio.Event | None,
         checkpoint_every: float | None,
     ) -> AsyncGenerator[Event]:
         loop, events = asyncio.get_running_loop(), asyncio.Queue["Event | None"]()
@@ -231,7 +231,7 @@ class Run:
 
         def leg() -> None:
             try:
-                self._run_scheduler(from_run, lambda event: _hand_over(loop, events, event), stop, checkpoint_every)
+                self._run_scheduler(context, lambda event: _hand_over(loop, events, event), stop, checkpoint_every)
             except BaseException as error:  # the engine's own defect reaches the caller
                 failed.append(error)
             finally:
@@ -248,7 +248,7 @@ class Run:
             cancelled.set()
 
     def _run_scheduler(
-        self, from_run: dict[type, Any], emit: Callable[[EventBase], None] | None, stop: Callable[[], RunState | None] | None,
+        self, context: dict[type, Any], emit: Callable[[EventBase], None] | None, stop: Callable[[], RunState | None] | None,
         checkpoint_every: float | None = None,
     ) -> Run:
         """One leg over a copy of this run, which is handed back as the leg left it.
@@ -270,7 +270,7 @@ class Run:
         graph = self.graph
         run.state, run._finished_nodes = Scheduler(
             nodes=graph._flat_function_nodes, threads=graph._threads, outcomes=run._outcomes, reusable=run._reusable, finished=run._finished_nodes,
-            max_items=run.max_items, arguments_for=run._reader.arguments_for, emit=emit, stop=stop, from_run=from_run,
+            max_items=run.max_items, arguments_for=run._reader.arguments_for, emit=emit, stop=stop, context=context,
             checkpoint=checkpoint, checkpoint_every=checkpoint_every,
         ).run()
         if emit is not None:  # a leg handed back left its run running: the run didn't end, and the host stores it as it stands
@@ -421,14 +421,14 @@ class Run:
         }
 
     def again(
-        self, inputs: Mapping[str, Any] = MappingProxyType({}), /, *, max_items: int | None = None, from_run: Mapping[type, Any] = MappingProxyType({}),
+        self, inputs: Mapping[str, Any] = MappingProxyType({}), /, *, max_items: int | None = None, context: Mapping[type, Any] = MappingProxyType({}),
         timeout: float | None = None, **by_name: Any,
     ) -> Run:
         """Run again with changed inputs, the rest as before: ``run.with_inputs(...).resume(...)``.
 
         A unit that receives what it received before is not called again.
         """
-        return self.with_inputs(inputs, max_items=max_items, **by_name).resume(from_run=from_run, timeout=timeout)
+        return self.with_inputs(inputs, max_items=max_items, **by_name).resume(context=context, timeout=timeout)
 
     # -- reading ----------------------------------------------------------------
 

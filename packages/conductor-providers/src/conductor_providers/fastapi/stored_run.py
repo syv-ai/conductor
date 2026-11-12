@@ -23,7 +23,7 @@ class StoredRun:
     Attributes:
         id: The run's id.
         graph: The ``GraphRecord`` the run is of, as JSON; never changed.
-        caller: The caller who started it, as JSON, so any worker can build the run's ``from_run`` again; never changed.
+        caller: The caller who started it, as JSON, so any worker can build the run's ``context`` again; never changed.
         run: ``run.to_json()``: the last checkpoint while a leg runs, the whole run once it ends.
         status: ``running`` while a leg is wanted, else how the last leg left the run. It is for the host's own
             queries: the router writes it in the same ``update`` as ``state``, from it, and reads only ``state``.

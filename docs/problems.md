@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import Annotated
 
 from conductor import (
-    Ask, EndedEarly, ExternalError, FromRun, Graph, GraphRecord, InvalidCallError, NodeDeclarationError,
+    Ask, Context, EndedEarly, ExternalError, Graph, GraphRecord, InvalidCallError, NodeDeclarationError,
     NodeError, NodeRegistry, Param, Policy, Run, Series, Upgrade, host_type, make_graph, node, subgraph,
 )
 from conductor.testing import check_registry
@@ -66,7 +66,7 @@ class Caller:
 
 
 @registry.node("who", title="Who", description="Tells the name of the person running it.")
-def who(caller: FromRun[Caller]) -> str:
+def who(caller: Context[Caller]) -> str:
     return caller.name
 
 
@@ -556,14 +556,14 @@ print(said(lambda: registry.upgrade(record, "upper", to=3))[0])  # 'upper' canno
 
 Its `ctx` keys are in the reference: `python -m conductor.about cannot-move-to-version`.
 
-### `from_run_missing`
+### `context_missing`
 
 ```python
-print(refused(lambda: asking_who.run()))  # ['from_run_missing']
-print(said(lambda: asking_who.run())[0])  # 'who' needs a Caller for 'caller', and from_run gives none (it gives none); pass from_run with a value for Caller.
+print(refused(lambda: asking_who.run()))  # ['context_missing']
+print(said(lambda: asking_who.run())[0])  # 'who' needs a Caller for 'caller', and context gives none (it gives none); pass context with a value for Caller.
 ```
 
-**Fix.** Pass the value by its type: `graph.run(from_run={Caller: Caller("Ida")})`. It is never saved with the run, so pass it again on each `resume`.
+**Fix.** Pass the value by its type: `graph.run(context={Caller: Caller("Ida")})`. It is never saved with the run, so pass it again on each `resume`.
 
 Its `ctx` keys are in the reference: `python -m conductor.about from-run-missing`.
 
@@ -1183,36 +1183,36 @@ except NodeDeclarationError as error:
 
 **Fix.** Put `exclusive_group` on the outputs that are branches, the fields of the frozen dataclass the node returns.
 
-### `from_run_misplaced`
+### `context_misplaced`
 
 ```python
 class Session: ...
 
 try:
     @node("maybe", title="Maybe", description="Passes the text on as it is.")
-    def maybe(session: FromRun[Session] | None = None) -> str:
+    def maybe(session: Context[Session] | None = None) -> str:
         return ""
 except NodeDeclarationError as error:
-    print(error.code)  # from_run_misplaced
-    print(error)  # @node('maybe') on maybe: session: FromRun is a whole parameter the host always gives, name: FromRun[Session]; anywhere else, a caller would fill it
+    print(error.code)  # context_misplaced
+    print(error)  # @node('maybe') on maybe: session: Context is a whole parameter the host always gives, name: Context[Session]; anywhere else, a caller would fill it
 ```
 
-**Fix.** Write the parameter as `name: FromRun[Session]`, never inside `| None`, a list or a return type. The host
+**Fix.** Write the parameter as `name: Context[Session]`, never inside `| None`, a list or a return type. The host
 gives that value on every run, so a node can trust it; anywhere else it would be an input a caller fills.
 
-### `from_run_not_a_class`
+### `context_not_a_class`
 
 ```python
 try:
     @node("listed", title="Listed", description="Hands back an empty text.")
-    def listed(names: FromRun[list[str]]) -> str:
+    def listed(names: Context[list[str]]) -> str:
         return ""
 except NodeDeclarationError as error:
-    print(error.code)  # from_run_not_a_class
-    print(error)  # @node('listed') on listed: names: FromRun names the class of the value the run is given, FromRun[Session]
+    print(error.code)  # context_not_a_class
+    print(error)  # @node('listed') on listed: names: Context names the class of the value the run is given, Context[Session]
 ```
 
-**Fix.** Name a class, `FromRun[Session]`: the run is given its value by that class, `from_run={Session: ...}`.
+**Fix.** Name a class, `Context[Session]`: the run is given its value by that class, `context={Session: ...}`.
 
 ### `hook_parameter_unknown`
 
@@ -1695,6 +1695,6 @@ A 409 from `POST /runs/{run_id}/answers` or `/resume`: between the read of the r
 print("leg_failed:", router_sentence["leg_failed"])  # leg_failed: The run's worker failed before the leg could end; its operator finds why in the server log. Resume it to carry on.
 ```
 
-The `cause` of a run that reads `failed` because its worker raised outside any node in a way that would raise again and that conductor has no problem of its own for: `from_run` raised, the function that gives a caller's registry raised. A leg conductor itself refused has conductor's problem as its cause (`from_run_missing`, `saved_run_unreadable`, `run_unwritable`). A raise from the store is not one: it fails no run, and the run is gone on with once its lease runs out. It is in `GET /runs/{run_id}` and on the leg's `run_end` event. The run is kept as its last checkpoint, and answers queued during the leg stay queued until a leg ends with a run. `waiting` lists what waits in that checkpoint, the run an answer is given to; nothing, when the run could not be loaded.
+The `cause` of a run that reads `failed` because its worker raised outside any node in a way that would raise again and that conductor has no problem of its own for: `context` raised, the function that gives a caller's registry raised. A leg conductor itself refused has conductor's problem as its cause (`context_missing`, `saved_run_unreadable`, `run_unwritable`). A raise from the store is not one: it fails no run, and the run is gone on with once its lease runs out. It is in `GET /runs/{run_id}` and on the leg's `run_end` event. The run is kept as its last checkpoint, and answers queued during the leg stay queued until a leg ends with a run. `waiting` lists what waits in that checkpoint, the run an answer is given to; nothing, when the run could not be loaded.
 
 **Fix.** `POST /runs/{run_id}/resume`. The exception is in the log `conductor_providers.fastapi`, with the run's id.

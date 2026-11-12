@@ -1,4 +1,4 @@
-"""Events and pipelining, Policy, hooks, a host's own types, FromRun, exclusive groups and describe(), through the public door."""
+"""Events and pipelining, Policy, hooks, a host's own types, Context, exclusive groups and describe(), through the public door."""
 import asyncio
 import base64
 import json
@@ -13,8 +13,8 @@ import pytest
 from conductor import (
     SKIPPED,
     Ask,
+    Context,
     ExternalError,
-    FromRun,
     Graph,
     GraphRecord,
     InvalidCallError,
@@ -539,7 +539,7 @@ def test_a_json_null_is_a_value_of_a_json_input_and_never_a_blank():
     assert run.outputs == {"b.result": "null"} and run.not_called == []
 
 
-# -- 5. FromRun -----------------------------------------------------------------------------------
+# -- 5. Context -----------------------------------------------------------------------------------
 
 
 
@@ -549,21 +549,21 @@ class Session:
 
 
 @node("greet", title="Greet", description="For a test.")
-def greet(text: str, session: FromRun[Session]) -> str:
+def greet(text: str, session: Context[Session]) -> str:
     return f"{text} from {session.who}"
 
 
-def test_from_run_is_supplied_not_wired_nor_fingerprinted():
+def test_context_is_supplied_not_wired_nor_fingerprinted():
     graph = Graph.compile(GraphRecord.model_validate(chain("split", "greet")), registry_of(split, greet))
     assert list(graph.inputs) == ["text"] and "session" not in graph._nodes["greet"].definition.inputs
     try:
         graph.run(text="a")
         raise AssertionError
     except InvalidCallError as error:
-        assert error.errors()[0].type == "from_run_missing"
-    run = graph.with_inputs(text="a,b").resume(from_run={Session: Session("Bo")})
+        assert error.errors()[0].type == "context_missing"
+    run = graph.with_inputs(text="a,b").resume(context={Session: Session("Bo")})
     assert run.results["greet"]["result"] == ["a from Bo", "b from Bo"]
-    events = collect(graph.with_inputs(text="a"), from_run={Session: Session("Al")})
+    events = collect(graph.with_inputs(text="a"), context={Session: Session("Al")})
     assert events[-1].run.outputs == {"greet.result": ["a from Al"]}
     bad = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "g", "node": "greet"}]}), reg) if "greet" in reg else None
     assert bad is None
@@ -623,7 +623,7 @@ def test_describe_for_a_palette_and_a_drawing():
     palette = json.loads(reg7.describe().model_dump_json())
     nodes = {n["id"]: n for n in palette["nodes"]}
     assert nodes["slow"]["policy"]["concurrency"] == 8 and nodes["formula"]["takes_added_inputs"] and nodes["route"]["computes_outputs"]
-    assert [f["name"] for f in nodes["greet"]["inputs"]] == ["text"]  # FromRun is no input
+    assert [f["name"] for f in nodes["greet"]["inputs"]] == ["text"]  # Context is no input
     assert nodes["decide"]["outputs"][0]["exclusive_group"] == "answer"
     types = {t["id"]: t["accepted_as"] for t in palette["types"]}
     assert "number" in types["integer"] and "integer" not in types["number"], types

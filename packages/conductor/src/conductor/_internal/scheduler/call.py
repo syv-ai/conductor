@@ -17,7 +17,7 @@ from conductor._internal.problem import catalogue as problem
 from conductor._internal.value_type import FieldValueError, untyped_as_json
 
 
-def call(node: FlatFunctionNode, arguments: dict[str, Any], from_run: Mapping[type, Any]) -> tuple[Any, BaseException | None]:
+def call(node: FlatFunctionNode, arguments: dict[str, Any], context: Mapping[type, Any]) -> tuple[Any, BaseException | None]:
     """Call ``node`` on what a unit received: its outputs as a run keeps them, or what went wrong.
 
     A value an edge brings is checked against the input first where its source's type doesn't settle it, and what
@@ -28,8 +28,8 @@ def call(node: FlatFunctionNode, arguments: dict[str, Any], from_run: Mapping[ty
     try:
         for name in node.validated_inputs:
             arguments = {**arguments, name: _checked(compiled_node.inputs[name].field, name, arguments[name], returned=False)}
-        if definition.from_run:
-            arguments = {**arguments, **{name: from_run[needed] for name, needed in definition.from_run.items()}}
+        if definition.context:
+            arguments = {**arguments, **{name: context[needed] for name, needed in definition.context.items()}}
         returned = definition.function(**arguments)
     except BaseException as error:  # noqa: BLE001  a node's own failure, or its Ask, is the run's to record
         if isinstance(error, (KeyboardInterrupt, SystemExit)):
