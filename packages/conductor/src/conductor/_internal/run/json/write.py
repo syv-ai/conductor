@@ -12,7 +12,7 @@ import pydantic_core
 from pydantic_core import PydanticSerializationError
 
 from conductor._internal.address import node_path_text
-from conductor._internal.ask import Question
+from conductor._internal.ask import Answer, Question
 from conductor._internal.field import Field
 from conductor._internal.markers import SKIPPED
 from conductor._internal.outcomes import (
@@ -106,7 +106,7 @@ def saved_run(run: Run) -> SavedRun[SavedOutcomes, SavedReusable[SavedOutcomes]]
     functions, codec = graph._functions, graph._run_codec
     outcomes = {
         node.name: saved_outcomes(node.compiled_node.outputs, _outcomes_by_call_number(run, node))
-        for node in graph._flat_function_nodes if run._outcomes[node.name]
+        for node in graph._flat_function_nodes if run._outcomes[node.name] or node.name in run._answers
     }
     reusable = {
         node_path_text(path): saved_reusable(functions[path].outputs, of_node)
@@ -123,21 +123,23 @@ def saved_run(run: Run) -> SavedRun[SavedOutcomes, SavedReusable[SavedOutcomes]]
     )
 
 
-def _outcomes_by_call_number(run: Run, node: FlatFunctionNode) -> list[Outcome | None]:
+def _outcomes_by_call_number(run: Run, node: FlatFunctionNode) -> list[Outcome | Answer | None]:
     """Returns the outcomes of ``node`` as a list with one entry per call, in the order of the calls' item indexes.
 
     For ``shout`` after its first two calls of three: ``[Done(...), Done(...), None]``. The place of an entry
-    is the call number of its call; ``None`` is a call that has no outcome yet.
+    is the call number of its call; ``None`` is a call that has no outcome yet, and an ``Answer`` one that has none
+    and a person's answer to the node's ``Asked`` parameter.
     """
     outcomes = run._outcomes[node.name]
     # speed only: the outcomes are in call order already, as the line below would list them. Without it to_json takes 1.3 to 1.9
     # times as long.
     if has_every_outcome(run._outcomes, node):
         return list(outcomes.values())
-    return [outcomes.get(item_indexes) for item_indexes in all_item_indexes(run._outcomes, node.loops, ())[0]]
+    answers = run._answers.get(node.name, {})
+    return [outcomes.get(item_indexes) or answers.get(item_indexes) for item_indexes in all_item_indexes(run._outcomes, node.loops, ())[0]]
 
 
-def saved_outcomes(outputs: Mapping[str, Field], outcomes: list[Outcome | None]) -> SavedOutcomes:
+def saved_outcomes(outputs: Mapping[str, Field], outcomes: list[Outcome | Answer | None]) -> SavedOutcomes:
     """Returns the outcomes of one node as a saved run writes them: a list per output, with one entry per call.
 
     ``[Done({"result": "A!"}), NotCalled({"result": None}, "line"), Done({"result": "C!"})]`` becomes
@@ -145,13 +147,15 @@ def saved_outcomes(outputs: Mapping[str, Field], outcomes: list[Outcome | None])
 
     Args:
         outputs: The outputs of the node, by name.
-        outcomes: The outcomes in call-number order; ``None`` for a call with no outcome.
+        outcomes: The outcomes in call-number order; ``None`` for a call with no outcome, and an ``Answer`` for one
+            with none that a person answered the node's ``Asked`` parameter for.
     """
     classes = set(map(type, outcomes))
     values_by_output: dict[str, list[Any]] = {}
     skipped: dict[str, list[int]] = {}
     skipped_items: dict[str, dict[int, list[int]]] = {}
     questions: dict[int, Question] | None = None
+    answers: dict[int, Any] | None = None
     not_called_because: dict[int, str] | None = None
     if classes & _HAS_OUTPUTS:
         if classes <= _HAS_OUTPUTS:  # speed only: every call has outputs, as in a node that is complete
@@ -177,14 +181,17 @@ def saved_outcomes(outputs: Mapping[str, Field], outcomes: list[Outcome | None])
                             skipped_items.setdefault(name, {})[call_number] = skipped_indexes
     else:
         values_by_output = {name: [None] * len(outcomes) for name in outputs}
-    if Answered in classes or Waiting in classes:
+    if Answered in classes or Waiting in classes or Answer in classes:
         questions = {
-            call_number: outcome.question for call_number, outcome in enumerate(outcomes) if type(outcome) is Answered or type(outcome) is Waiting
+            call_number: outcome.question for call_number, outcome in enumerate(outcomes)
+            if type(outcome) is Answered or type(outcome) is Waiting or type(outcome) is Answer
         }
+    if Answer in classes:
+        answers = {call_number: outcome.value for call_number, outcome in enumerate(outcomes) if type(outcome) is Answer}
     if NotCalled in classes:
         not_called_because = {call_number: outcome.input for call_number, outcome in enumerate(outcomes) if type(outcome) is NotCalled}
     return SavedOutcomes(
-        states=list(map(_STATE_OF.get, map(type, outcomes))), outputs=values_by_output, questions=questions,
+        states=list(map(_STATE_OF.get, map(type, outcomes))), outputs=values_by_output, questions=questions, answers=answers,
         not_called_because=not_called_because, skipped=skipped or None, skipped_items=skipped_items or None,
     )
 
@@ -235,7 +242,7 @@ def saved_reusable(outputs: Mapping[str, Field], reusable: ReusableOutcomes) -> 
         outputs: The outputs of the node, by name.
         reusable: The outcomes the node may reuse.
     """
-    outcomes: list[Outcome | None] = [done for _, done in reusable.by_item_indexes.values()]
+    outcomes: list[Outcome | Answer | None] = [done for _, done in reusable.by_item_indexes.values()]
     fingerprints = [fingerprint for fingerprint, _ in reusable.by_item_indexes.values()]
     item_indexes = dict(enumerate(reusable.by_item_indexes))
     already_saved = set(fingerprints)  # by_fingerprint has these outcomes too: the first call that got those arguments

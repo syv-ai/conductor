@@ -37,6 +37,9 @@ _OUTCOMES, _REUSABLE, _RUN = (TypeAdapter(saved_class).core_schema for saved_cla
 _CALL_NUMBERS = TypeAdapter(list[NonNegativeInt]).core_schema
 _INDEXES_BY_CALL_NUMBER = TypeAdapter(dict[NonNegativeInt, list[NonNegativeInt]]).core_schema
 
+#: The schema of a call number as a key: a whole number of at least 0, written as text in JSON.
+_CALL_NUMBER = TypeAdapter(NonNegativeInt).core_schema
+
 
 class RunCodec(NamedTuple):
     """Pydantic's validator and serializer for the saved runs of one graph, with the types they were built from.
@@ -44,6 +47,7 @@ class RunCodec(NamedTuple):
     Attributes:
         inputs: The type of each graph input, by address.
         outputs: The outputs of each function node, by the node's name in a saved run (``"shout"``, ``"loud/shout"``).
+        asked: The ``Asked`` parameter of each function node that has one, by the node's name in a saved run.
         shareable: The ``(node, output)`` pairs whose value may be a table that another output also has, in the
             order they are saved; writing looks only at these for a table to write once.
         validator: Reads the JSON text of a saved run into a ``SavedRun``.
@@ -52,12 +56,15 @@ class RunCodec(NamedTuple):
 
     inputs: Mapping[str, Type]
     outputs: Mapping[str, Mapping[str, Field]]
+    asked: Mapping[str, Field]
     shareable: tuple[tuple[str, str], ...]
     validator: SchemaValidator
     serializer: SchemaSerializer
 
 
-def run_codec(fingerprint: str, inputs: Mapping[str, Type], outputs: Mapping[str, Mapping[str, Field]], nodes: Iterable[str]) -> RunCodec:
+def run_codec(
+    fingerprint: str, inputs: Mapping[str, Type], outputs: Mapping[str, Mapping[str, Field]], asked: Mapping[str, Field], nodes: Iterable[str],
+) -> RunCodec:
     """Builds the codec of one graph.
 
     For the README graph ``lines -> shout -> join``, the validator accepts only a saved run whose ``graph`` is
@@ -77,16 +84,23 @@ def run_codec(fingerprint: str, inputs: Mapping[str, Type], outputs: Mapping[str
         fingerprint: The graph's fingerprint.
         inputs: The type of each graph input, by address.
         outputs: The outputs of each function node, by the node's name in a saved run.
+        asked: The ``Asked`` parameter of each function node that has one, by the node's name in a saved run: its
+            answers under ``answers`` are read by its type. Any other node's ``answers`` must be left out.
         nodes: The name in a saved run of every function node.
     """
     shared: dict[str, CoreSchema] = {}
     outcomes_schema, reusable_schema = _inline_definitions(_OUTCOMES, shared), _inline_definitions(_REUSABLE, shared)
-    # by what the schema of a node depends on: for each output its name, its type, whether it is a Series, and its value when not called
-    references: dict[tuple[tuple[str, Type, bool, Any], ...], tuple[CoreSchema, CoreSchema]] = {}
+    # by what the schema of a node depends on: for each output its name, its type, whether it is a Series, and its value when not called;
+    # then the name and type of its Asked parameter
+    references: dict[tuple[tuple[tuple[str, Type, bool, Any], ...], tuple[str, Type] | None], tuple[CoreSchema, CoreSchema]] = {}
     outcomes, reusable = {}, {}
     for node, node_outputs in outputs.items():
         skipped_outputs, not_called_outputs = outputs_when_skipped(node_outputs), outputs_when_not_called(node_outputs)
-        same_outputs = tuple((name, output.saved_list_type, output.is_series, not_called_outputs[name]) for name, output in node_outputs.items())
+        asked_field = asked.get(node)
+        same_outputs = (
+            tuple((name, output.saved_list_type, output.is_series, not_called_outputs[name]) for name, output in node_outputs.items()),
+            None if asked_field is None else (asked_field.name, asked_field.whole),
+        )
         if same_outputs not in references:
             outcomes_ref, reusable_ref = f"outcomes:{len(references)}", f"reusable:{len(references)}"
             of_node = _with_field_schemas(
@@ -96,9 +110,13 @@ def run_codec(fingerprint: str, inputs: Mapping[str, Type], outputs: Mapping[str
                 ),
                 skipped=_exact_keys_schema({}, dict.fromkeys(node_outputs, _CALL_NUMBERS)),
                 skipped_items=_exact_keys_schema({}, {name: _INDEXES_BY_CALL_NUMBER for name, output in node_outputs.items() if output.is_series}),
+                answers=core_schema.none_schema() if asked_field is None else core_schema.nullable_schema(core_schema.dict_schema(
+                    _CALL_NUMBER, _inline_definitions(numbers_refuse_bools(asked_field.whole.saved_schema), shared),
+                )),
             )
             shared[outcomes_ref] = core_schema.no_info_after_validator_function(
-                functools.partial(outcomes_from_saved, skipped_outputs, not_called_outputs), of_node, ref=outcomes_ref,
+                functools.partial(outcomes_from_saved, skipped_outputs, not_called_outputs, "" if asked_field is None else asked_field.name), of_node,
+                ref=outcomes_ref,
             )
             reusable_of_node = _with_field_schemas(reusable_schema, outcomes=core_schema.definition_reference_schema(outcomes_ref))
             shared[reusable_ref] = core_schema.no_info_after_validator_function(reusable_from_saved, reusable_of_node, ref=reusable_ref)
@@ -119,7 +137,7 @@ def run_codec(fingerprint: str, inputs: Mapping[str, Type], outputs: Mapping[str
     # a tagged union of one, so that a saved run of another graph is refused by its "graph" key before anything else is read
     schema = core_schema.definitions_schema(core_schema.tagged_union_schema({fingerprint: run}, discriminator="graph"), list(shared.values()))
     config = CoreConfig(ser_json_inf_nan="strings")
-    return RunCodec(inputs, outputs, shareable, SchemaValidator(schema, config), SchemaSerializer(schema, config))
+    return RunCodec(inputs, outputs, asked, shareable, SchemaValidator(schema, config), SchemaSerializer(schema, config))
 
 
 def _with_field_schemas(saved_class_schema: Any, **schemas: CoreSchema) -> CoreSchema:

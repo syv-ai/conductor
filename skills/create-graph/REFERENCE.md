@@ -26,7 +26,7 @@ broken = Graph.compile(GraphRecord(nodes=[NodeRecord(id="loud", node="text-upper
 assert [p.type for p in broken.problems] == ["edge_names_missing_node"]
 
 
-@node("approve", title="Approve", description="Asks a person to approve a proposal.", category="review")
+@node("approve", title="Approve", description="Asks a person to approve a proposal.", category="review", asks=True)
 def approve(proposal: Annotated[str, Param(title="Proposal", widget=Textarea())]) -> Annotated[str, Param(title="Decision", widget=Textarea())]:
     raise Ask("Approve this?", default=proposal)
 

@@ -746,7 +746,7 @@ def test_a_float_that_is_not_finite_as_a_constant_is_written_as_text_so_a_record
     def half(n: float) -> float:
         return n / 2
 
-    @node("ask", title="Ask", description="For a test.")
+    @node("ask", title="Ask", description="For a test.", asks=True)
     def ask(x: float) -> str:
         raise Ask("ok?")
 

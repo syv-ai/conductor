@@ -3,6 +3,10 @@ doubt, the function called, and what it returns read into the node's outputs by 
 
 Example: ``call(shout, {"line": "b", "mark": "!"}, None)`` returns ``({"result": "B!"}, None)``. When ``shout`` raises,
 or returns something that is not a ``str``, it returns ``(None, the exception)``.
+
+A node with an ``Asked`` parameter, ``approve(invoice, ok: Annotated[bool, Asked(approval)])``, is called with ``ok``
+from the arguments when a person's answer is there, and else from ``approval(invoice=...)``, read by its door. When
+``approval`` raises ``Ask``, ``approve`` is not called and the ``Ask`` is returned.
 """
 
 from __future__ import annotations
@@ -11,6 +15,7 @@ from typing import Any
 
 from pydantic_core import PydanticSerializationError
 
+from conductor._internal.ask import Ask
 from conductor._internal.compiled import FlatFunctionNode
 from conductor._internal.gate import RefusedError
 from conductor._internal.plain_json import plain_json
@@ -22,28 +27,43 @@ def call(node: FlatFunctionNode, arguments: dict[str, Any], context: Any) -> tup
     """Call the function of ``node`` with ``arguments``, by name, and ``context`` first when the node takes it.
 
     Before the call, the node's edge door reads the inputs whose type demands more than their edges' sources
-    declare (a source of ``Any``, say), each by its type. After the call, the node's return door reads what the
-    function returned into its outputs.
+    declare (a source of ``Any``, say), each by its type, and an ``Asked`` parameter not in ``arguments`` gets its
+    function's return value. After the call, the node's return door reads what the function returned into its
+    outputs.
 
     Args:
         node: The node to call.
-        arguments: The call's arguments by input name, as ``arguments_for`` returns them.
+        arguments: The call's arguments by input name, as ``arguments_for`` returns them, and the answer to the
+            node's ``Asked`` parameter by the parameter's name when a person gave one.
         context: The run's context, as the context door let it in; passed only to a node that takes it.
 
     Returns:
         ``(outputs, None)``: the node's outputs by name, as a run keeps them. Or ``(None, error)``: what the
-        function raised (an ``Ask`` included), or ``RefusedError`` for an argument or an output that its type
-        refuses. ``KeyboardInterrupt`` and ``SystemExit`` are raised, not returned.
+        function raised; an ``Ask`` from a node that declares it may ask (``asks=True``, or from the function of
+        its ``Asked`` parameter); ``RefusedError`` for an argument or an output that its type refuses, or for an
+        ``Ask`` from a node that does not declare it (``ask_not_declared``). ``KeyboardInterrupt`` and
+        ``SystemExit`` are raised, not returned.
     """
     compiled_node = node.compiled_node
     definition = compiled_node.definition
     try:
         if (edge_door := node.edge_door) is not None:
             arguments = edge_door(arguments)
+        if (asked := definition.asked) is not None and asked.field.name not in arguments:
+            given = {name: arguments[name] for name in asked.inputs}
+            if asked.context is not None:
+                given[asked.context] = context
+            try:
+                value = asked.door(asked.function(**given))
+            except Ask as ask:
+                return None, ask
+            arguments = {**arguments, asked.field.name: value}
         returned = definition.function(**arguments) if definition.context is None else definition.function(context, **arguments)
     except BaseException as error:  # noqa: BLE001  the scheduler turns it into a problem or a Waiting outcome
         if isinstance(error, (KeyboardInterrupt, SystemExit)):
             raise
+        if isinstance(error, Ask) and not definition.asks:
+            return None, RefusedError([problem.ask_not_declared()])
         return None, error
     try:
         return compiled_node.return_door(returned), None

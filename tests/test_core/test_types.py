@@ -55,7 +55,7 @@ def _run(definition: Any, *more: Any, edges: list[list[str]] | None = None, **va
 
 
 def test_an_answer_to_a_series_of_dates_is_read_from_its_json() -> None:
-    @node("days", title="Days", description="For a test.")
+    @node("days", title="Days", description="For a test.", asks=True)
     def days() -> Series[datetime.date]:
         raise Ask("Which days?")
 

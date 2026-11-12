@@ -43,7 +43,7 @@ def read(document: str) -> Series[str]:
     return [f"{document}#{index}" for index in range(int(document[-1]))]
 
 
-@node("approve", title="Approve", description="For a test.")
+@node("approve", title="Approve", description="For a test.", asks=True)
 def approve(invoice: str) -> bool:
     raise Ask(f"Approve {invoice}?")
 
@@ -128,7 +128,7 @@ def test_a_full_resume_after_it_repeats_no_call_and_no_event_of_the_free_nodes()
 
 @pytest.mark.parametrize("raised", [Ask("Which files?"), NodeError("No files.")])
 def test_a_free_node_that_raises_has_no_outcome_and_raises_again_at_the_next_resume(raised: Exception) -> None:
-    @node("pick", title="Pick", description="For a test.", policy=FREE)
+    @node("pick", title="Pick", description="For a test.", policy=FREE, asks=True)
     def pick(files: list[str]) -> Series[str]:
         raise raised
 

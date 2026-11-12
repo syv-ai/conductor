@@ -71,7 +71,7 @@ def slow2(text: str) -> str:
     return text + "!"
 
 
-@node("gate", title="Gate", description="For a test.")
+@node("gate", title="Gate", description="For a test.", asks=True)
 def gate(text: str) -> str:
     if text == "b":
         raise Ask("ok?")
@@ -742,7 +742,7 @@ def test_again_with_one_subgraph_input_changed_calls_only_the_inner_node_that_re
         calls["mark"] += 1
         return a + "!"
 
-    @node("confirm", title="Confirm", description="For a test.")
+    @node("confirm", title="Confirm", description="For a test.", asks=True)
     def confirm(b: str) -> bool:
         calls["confirm"] += 1
         raise Ask(f"ok {b}?")

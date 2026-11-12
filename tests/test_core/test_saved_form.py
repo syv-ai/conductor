@@ -67,7 +67,7 @@ def letters(text: str) -> Series[str]:
     return [SKIPPED if letter == "x" else letter for letter in text]
 
 
-@node("ask", title="Ask", description="For a test.")
+@node("ask", title="Ask", description="For a test.", asks=True)
 def ask(text: str) -> str:
     if text.startswith("a"):
         raise Ask(f"What of {text}?")

@@ -40,7 +40,7 @@ def test_an_ending_says_its_status_and_cause_and_leaves_the_run_out():
 
 
 def test_a_waiting_calls_question_and_a_failures_cause_are_written_as_records():
-    @node("ask", title="Ask", description="For a test.")
+    @node("ask", title="Ask", description="For a test.", asks=True)
     def ask(text: str) -> Annotated[str, Param(title="Svar", widget=Textarea())]:
         raise Ask("Hvad?", default="forslag")
 

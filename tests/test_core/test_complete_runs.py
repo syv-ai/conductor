@@ -127,7 +127,7 @@ def _registry(threaded: frozenset[str]) -> NodeRegistry:
     for function in FUNCTIONS:
         name = function.__name__
         policy = {"policy": Policy(concurrency=4)} if name in threaded else {}
-        registry.add(node(name, title=name.capitalize(), description=f"The {name} node.", **policy)(function))
+        registry.add(node(name, title=name.capitalize(), description=f"The {name} node.", asks=function is ask, **policy)(function))
     chain = [["w.result", "u.text"]]
     inner = {"nodes": [{"id": "w", "node": "words"}, {"id": "u", "node": "upper"}], "edges": chain}
     registry.add(subgraph("shout-words", title="Shout words", description="Each word of a text, in capitals.")(GraphRecord.model_validate(inner)))

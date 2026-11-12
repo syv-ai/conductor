@@ -119,7 +119,7 @@ def _waiting_after(definition: Any, *, per_item: bool = False) -> Any:
     """
     seen: list[Any] = []
 
-    @node("check", title="Check", description="For a test.")
+    @node("check", title="Check", description="For a test.", asks=True)
     def check(value: Any) -> str:
         raise Ask("Right?")
 
@@ -335,7 +335,7 @@ def test_every_column_type_reads_back_exactly_and_the_downstream_node_gets_the_s
     def everything(text: str) -> Table[Everything]:
         return pl.DataFrame(_EVERYTHING)
 
-    @node("check-table", title="Check table", description="For a test.")
+    @node("check-table", title="Check table", description="For a test.", asks=True)
     def check_table(rows: pl.DataFrame) -> str:
         raise Ask("Right?")
 
@@ -659,7 +659,7 @@ def sheet_rows(sheet: Table) -> Series[SheetRow]:
     return sheet.to_dicts()
 
 
-@node("ok_row", title="Ok row", description="For a test.")
+@node("ok_row", title="Ok row", description="For a test.", asks=True)
 def ok_row(zeta: str, alpha: int) -> str:
     _CALLS.append(f"ok {zeta}")
     raise Ask(f"{zeta} for {alpha}?")
@@ -714,7 +714,7 @@ def test_a_saved_run_read_into_a_graph_missing_a_node_definition_is_refused_with
     def middle(x: int) -> int:
         return x
 
-    @node("ask", title="Ask", description="For a test.")
+    @node("ask", title="Ask", description="For a test.", asks=True)
     def ask(x: int) -> bool:
         raise Ask("ok?")
 
@@ -809,7 +809,7 @@ def upper_word(word: str) -> str:
     return word.upper()
 
 
-@node("ok_word", title="Ok word", description="For a test.")
+@node("ok_word", title="Ok word", description="For a test.", asks=True)
 def ok_word(word: str) -> bool:
     raise Ask("ok?")
 
@@ -869,7 +869,7 @@ def short_or_skipped(email: str) -> str:
     return email if len(email) < 3 else SKIPPED
 
 
-@node("confirm", title="Confirm", description="For a test.")
+@node("confirm", title="Confirm", description="For a test.", asks=True)
 def confirm(email: str) -> bool:
     raise Ask(f"Send to {email}?")
 
@@ -897,7 +897,7 @@ def test_a_not_called_and_a_skipped_call_read_back_and_the_resumed_run_lists_the
 _SAVED_IN_ANOTHER_PROCESS = """
 from conductor import Ask, Graph, NodeRegistry, make_graph, node
 
-@node("check", title="Check", description="For a test.")
+@node("check", title="Check", description="For a test.", asks=True)
 def check(kind: str) -> str:
     if kind in {"invoice", "receipt", "order", "bill"}:
         raise Ask("ok?")

@@ -1,7 +1,7 @@
 """Conductor: typed Python functions as nodes, graphs of them as data, runs as JSON.
 
 A node author writes ``@node`` functions with ``Param``, ``Series``, ``Table``,
-``SKIPPED``, ``Ask`` and ``Choice``. A host collects them in a ``NodeRegistry``, loads a
+``SKIPPED``, ``Ask``, ``Asked`` and ``Choice``. A host collects them in a ``NodeRegistry``, loads a
 ``GraphRecord`` into a ``Graph``, and runs it: a ``Run`` pauses for a person,
 takes answers, resumes and goes again, and is JSON throughout.
 
@@ -15,7 +15,7 @@ Everything in ``conductor._internal`` is the library's own and may move.
 
 from typing import TYPE_CHECKING
 
-from conductor._internal.ask import Ask, Waiting
+from conductor._internal.ask import Ask, Asked, Waiting
 from conductor._internal.compiled import GraphDescription, GraphInput, InputSource, RunsOn
 from conductor._internal.context import Context
 from conductor._internal.field import FieldDescription
@@ -73,6 +73,7 @@ __all__ = [
     # Inside a node
     "SKIPPED",
     "Ask",
+    "Asked",
     "Choice",
     "NodeError",
     "ExternalError",

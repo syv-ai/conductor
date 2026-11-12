@@ -123,7 +123,7 @@ class Square(Shape):
 
 
 def test_an_answer_is_checked_against_its_types_own_class_as_a_return_is():
-    @node("square", title="Square", description="For a test.")
+    @node("square", title="Square", description="For a test.", asks=True)
     def square() -> Square:
         raise Ask("Which square?")
 

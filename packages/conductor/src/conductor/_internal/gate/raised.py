@@ -1,9 +1,10 @@
-"""The door for what a node raises: an ``Ask``'s choices and default, checked when the node raises it.
+"""The door for what a node raises: an ``Ask``'s choices and default, checked when it is raised.
 
 Example: ``assign(ticket: str) -> str`` raises ``Ask("Who takes it?", choices=[Choice("ida", "Ida B."), "bo"])``.
 The door returns the call's ``Question``, whose overrides for ``result`` are the two choices as records, each id in
 its JSON form. Given ``choices=[1, 2]`` it raises ``RefusedError`` with ``invalid_ask``: a choice is what an answer
-picks, so each is read as an answer is, and ``1`` is not a ``str``. A default is held to every rule an answer is,
+picks, so each is read as an answer is, and ``1`` is not a ``str``. An ``Ask`` raised by the function of an
+``Asked`` parameter is checked against that parameter in the same way. A default is held to every rule an answer is,
 the ``Ask``'s own choices included.
 
 A ``NodeError``'s ``ctx`` is the other value a node raises; it is read where it is made, by ``NodeError`` itself, so
@@ -29,21 +30,21 @@ from conductor._internal.value_type import Choice
 
 
 class AskDoor:
-    """Checks an ``Ask`` a node raised against the node's outputs, and keeps it as the call's question. Built once
-    per node.
+    """Checks an ``Ask`` raised for a node against the fields its answer fills (the node's outputs, or its
+    ``Asked`` parameter), and keeps it as the call's question. Built once per node.
 
     Raises (when called):
-        RefusedError: The ``Ask``'s choices or default don't fit the outputs (``invalid_ask``, whose ``reason``
+        RefusedError: The ``Ask``'s choices or default don't fit the fields (``invalid_ask``, whose ``reason``
             says which part, quoting no value).
     """
 
-    def __init__(self, outputs: Mapping[str, Field]) -> None:
-        """Builds the door for the node whose outputs are ``outputs``, by name."""
-        self._outputs = outputs
+    def __init__(self, fields: Mapping[str, Field]) -> None:
+        """Builds the door for a node whose answer fills ``fields``, by name."""
+        self._outputs = fields
 
     def __call__(self, ask: Ask, inputs: dict[str, Any]) -> Question:
         """Returns the question the call keeps until it is answered: the ``Ask``'s prompt, what the node received,
-        and what the ``Ask`` set on each output's question.
+        and what the ``Ask`` set on each field's question.
 
         Args:
             ask: What the node raised.
@@ -74,7 +75,7 @@ class AskDoor:
         outputs = self._outputs
         if len(outputs) == 1:
             if argument == "choices" and isinstance(given, Mapping):
-                raise RefusedError([problem.invalid_ask(reason="the node has one output, so it is answered with a value, and choices= is a list")])
+                raise RefusedError([problem.invalid_ask(reason="the node asks one question, so it is answered with a value, and choices= is a list")])
             return {next(iter(outputs)): given}
         if not isinstance(given, Mapping):
             reason = f"the node has {len(outputs)} outputs, so it is answered by output name, and {argument}= goes by output name too"

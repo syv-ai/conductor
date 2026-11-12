@@ -973,7 +973,7 @@ def test_a_bool_is_refused_for_a_hosts_number_type_that_accepts_int():
     def half(value: Number) -> Number:
         return Number(value / 2)
 
-    @registry.node("ask_number", title="Ask number", description="For a test.")
+    @registry.node("ask_number", title="Ask number", description="For a test.", asks=True)
     def ask_number() -> Number:
         raise Ask("How many?")
 

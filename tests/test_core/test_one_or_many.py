@@ -82,7 +82,7 @@ def split(text: str) -> Series[str]:
     return text.split(",")
 
 
-@registry.node("approve", title="Approve", description="For a test.")
+@registry.node("approve", title="Approve", description="For a test.", asks=True)
 def approve(text: str) -> bool:
     raise Ask(f"approve {text}?")
 

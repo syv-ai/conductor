@@ -82,7 +82,7 @@ def read(csv: str) -> Series[Invoice]:
     return [Invoice(name=name, amount=int(amount)) for name, amount in found]
 
 
-@registry.node("approve", title="Approve", description="Approves an invoice, or asks a person to.")
+@registry.node("approve", title="Approve", description="Approves an invoice, or asks a person to.", asks=True)
 def approve(name: str, amount: int) -> bool:
     if amount < 1000:
         return True
@@ -99,7 +99,7 @@ print(approve("Ida", 100))  # True
 
 A node can still be called like the function, so that is its unit test. The registry is the set of nodes your graphs may use.
 
-`read` returns a `Series` of invoices, each a record with a `name` and an `amount`. `raise Ask(...)` stops and asks a person. The return type, `bool`, says what they answer: yes or no.
+`read` returns a `Series` of invoices, each a record with a `name` and an `amount`. `raise Ask(...)` stops and asks a person, and `asks=True` says the node may. The return type, `bool`, says what they answer: yes or no.
 
 ## Compile a graph
 

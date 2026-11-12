@@ -88,7 +88,7 @@ def asking(items: bool = False) -> tuple[NodeRegistry, GraphRecord, ThreadEvent,
         gate.wait(5)
         return text
 
-    @registry.node("approve", title="Approve", description="For a test.")
+    @registry.node("approve", title="Approve", description="For a test.", asks=True)
     def approve(text: str) -> bool:
         raise Ask("Go on?")
 
@@ -128,7 +128,7 @@ def gated() -> tuple[NodeRegistry, GraphRecord, dict[str, ThreadEvent], list[str
         gates["first"].wait(5)
         return text
 
-    @registry.node("approve", title="Approve", description="For a test.")
+    @registry.node("approve", title="Approve", description="For a test.", asks=True)
     def approve(text: str) -> bool:
         raise Ask("Go on?")
 

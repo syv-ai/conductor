@@ -14,6 +14,14 @@ rule.
 
 What changes in how you work, before the name-by-name tables:
 
+- **A node that asks says so.** `@node(..., asks=True)` on a node whose function raises `Ask`; a raise
+  without it fails the call as `ask_not_declared`, so `describe().asks` tells a host which graphs can
+  pause. A parameter can be the question instead: `ok: Annotated[bool, Asked(approval)]`, filled by a
+  function that returns the value or raises `Ask`, and the node is called once, with the value or the
+  person's answer. New codes: `ask_not_declared`, `invalid_asked_value`, and at declaration
+  `asked_twice`, `asked_and_asks`, `asked_with_default`, `asked_not_on_a_parameter`,
+  `asking_function_parameter_unknown`, `asking_function_returns_another_type`. A saved run keeps an
+  answer not yet used under `answers`.
 - **A type means what it says, wherever it is read.** `Series[T]` and `Table[R]` are ordinary generic
   types: a table stands in a union, a `Series` and a record, and `Table[R]` read anywhere has exactly
   `R`'s columns. A node may have type variables (`def split[T](value: Table[T] | list[T]) -> Series[T]`),

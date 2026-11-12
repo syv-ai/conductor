@@ -199,7 +199,7 @@ async def test_an_answer_to_a_question_that_waits_in_a_cancelled_run_starts_the_
         gate.wait(5)
         return text
 
-    @registry.node("approve", title="Approve", description="For a test.")
+    @registry.node("approve", title="Approve", description="For a test.", asks=True)
     def approve(text: str) -> bool:
         asked.set()
         raise Ask("Go on?")

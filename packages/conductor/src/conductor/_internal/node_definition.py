@@ -17,7 +17,8 @@ never reads.
 
 One output is ``result``, of whatever type is returned, a ``dict`` included;
 a frozen dataclass returned gives one output per field. ``Series[X]`` gives many values, each an item, and ``Table[R]`` one table; ``SKIPPED`` on an output
-is a branch not taken, and ``raise Ask(...)`` stops that call for a person.
+is a branch not taken. A node that may stop a call to ask a person says so: ``asks=True`` when its own function raises
+``Ask``, or a parameter ``Annotated[bool, Asked(approval)]`` filled by a function that may raise it.
 
 A newer version of a node names the one it ``replaces``, itself a ``@node``
 of the same id, and says with ``upgrade`` how a node saved at that one moves
@@ -66,10 +67,11 @@ from pydantic import ConfigDict, JsonValue
 from pydantic import Field as PydanticField
 
 from conductor._internal.address import is_name
+from conductor._internal.ask import Asked
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.context import ContextParameter, is_context
 from conductor._internal.field import Field, FieldDescription
-from conductor._internal.gate import RefusedError, declared_field, read_record
+from conductor._internal.gate import AskedValueDoor, RefusedError, declared_field, read_record
 from conductor._internal.gate.returned import (
     HookOutputs,
     NoOutputs,
@@ -82,7 +84,7 @@ from conductor._internal.markers import REQUIRED
 from conductor._internal.problem import InvalidCallError, NodeDeclarationError
 from conductor._internal.problem import declarations as declaration
 from conductor._internal.text import qualified_name
-from conductor._internal.value_type import Type
+from conductor._internal.value_type import Type, split_hint
 
 
 class NodeFunction[**P, R](Protocol):
@@ -197,6 +199,28 @@ class Upgrade:
     rewrite: Callable[[dict[str, JsonValue]], Mapping[str, Any]] | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class AskedParameter:
+    """A node's ``Asked`` parameter, as ``@node`` reads it from the signature.
+
+    For ``approve(invoice: Invoice, ok: Annotated[bool, Asked(approval)])``, with ``approval(invoice: Invoice) -> bool``,
+    it is the parameter ``ok``, the function ``approval``, the inputs ``("invoice",)`` and no context.
+
+    Attributes:
+        field: The parameter as a field: its name, its type and its ``Param``, the type an answer is read by.
+        function: The function that gives it its value.
+        inputs: The node's inputs the function takes, by name.
+        context: The name the function takes the node's context by, or ``None`` when it takes none.
+        door: Reads what the function returns by the parameter's type (``invalid_asked_value``).
+    """
+
+    field: Field
+    function: Callable[..., Any]
+    inputs: tuple[str, ...]
+    context: str | None
+    door: AskedValueDoor
+
+
 @dataclass(frozen=True, eq=False, kw_only=True)
 class _Version:
     """What every version of a node has, whether it is a function or a subgraph.
@@ -288,6 +312,10 @@ class FunctionDefinition[**P, R](_Version):
             and then the parameter's: what the parameter receives. Read from the hooks' signatures once, at
             ``@node``.
         generic: Whether an input's type holds a type variable, which a graph binds from its edges as it loads.
+        asks: Whether the function itself may raise ``Ask``, as ``@node(asks=True)`` declares; the answer is then
+            its outputs.
+        asked: The parameter filled by a function that may raise ``Ask`` (``Annotated[bool, Asked(approval)]``), or
+            ``None``. It is not in ``inputs``: no edge or constant reaches it.
     """
 
     function: NodeFunction[P, R]
@@ -300,6 +328,8 @@ class FunctionDefinition[**P, R](_Version):
     context: ContextParameter | None = None
     hook_parameters: Mapping[HookName, Mapping[str, HookParameter]] = dataclasses.field(default_factory=dict[HookName, Mapping[str, HookParameter]])
     generic: bool = False
+    asks: bool = False
+    asked: AskedParameter | None = None
 
     def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R:
         """Call the function, as a test or a host would."""
@@ -328,6 +358,7 @@ class FunctionDefinition[**P, R](_Version):
             FunctionNodeDescription, policy=self.policy,
             inputs=[field.description for field in self.inputs.values()], outputs=[field.description for field in self.outputs.values()],
             takes_added_inputs=self.compute_added_inputs is not None, computes_outputs=self.compute_outputs is not None,
+            asks=self.asks or self.asked is not None, asked=None if self.asked is None else self.asked.field.description,
         )
 
 
@@ -415,12 +446,18 @@ class FunctionNodeDescription(_NodeDescription):
         policy: How the engine calls it.
         takes_added_inputs: Whether what is typed into it adds inputs.
         computes_outputs: Whether its outputs depend on what is typed into it and on what arrives.
+        asks: Whether a call may wait for a person: its function raises ``Ask``, or it has an ``Asked`` parameter. A
+            graph with such a node can pause, so a host can't run it unattended.
+        asked: The ``Asked`` parameter a person may be asked to fill, drawn like an input though no edge reaches it;
+            ``None`` when the node has none.
     """
 
     kind: Literal["function"] = "function"
     policy: Policy
     takes_added_inputs: bool
     computes_outputs: bool
+    asks: bool
+    asked: FieldDescription | None
 
 
 class SubgraphDescription(_NodeDescription):
@@ -463,6 +500,7 @@ def node(
     compute_outputs: Callable[..., Mapping[Any, Any]] | None = None,
     replaces: NodeDefinition | None = None,
     upgrade: Upgrade | None = None,
+    asks: bool = False,
 ) -> NodeDecorator:
     """Make the function below it a node with the id ``id``::
 
@@ -486,6 +524,10 @@ def node(
       marks this version going away.
     - ``compute_added_inputs`` and ``compute_outputs`` are hooks run when a
       graph is loaded, which shape the node from what is typed into it.
+    - ``asks=True`` says the function may raise ``Ask`` to ask a person, who
+      answers with its outputs. A raise from a node that doesn't say so fails
+      the call (``ask_not_declared``). A parameter a person may fill is
+      ``Asked`` instead, and needs no ``asks``.
 
     A graph record becomes a node, a subgraph, with ``subgraph``.
     """
@@ -495,7 +537,9 @@ def node(
         try:
             if inspect.iscoroutinefunction(target) or inspect.isasyncgenfunction(target):
                 raise NodeDeclarationError(declaration.async_run())
-            inputs, context, outputs, returns = _read_signature(target, compute_outputs is not None)
+            inputs, context, outputs, returns, asked = _read_signature(target, compute_outputs is not None)
+            if asks and asked is not None:
+                raise NodeDeclarationError(declaration.asked_and_asks(), asked.field.name)
             takes_kwargs = any(p.kind is p.VAR_KEYWORD for p in inspect.signature(target).parameters.values())
             if compute_added_inputs is not None and not takes_kwargs:
                 raise NodeDeclarationError(declaration.compute_added_inputs_without_var_keyword())
@@ -514,7 +558,7 @@ def node(
                 category=category, tags=tuple(tags), extra=MappingProxyType(dict(extra)), docs=docs, deprecation=deprecation,
                 replaces=replaces, upgrade=upgrade or Upgrade(), policy=policy or Policy(),
                 compute_added_inputs=compute_added_inputs, compute_outputs=compute_outputs, hook_parameters=hook_parameters,
-                generic=any(field.whole.variables for field in inputs.values()),
+                generic=any(field.whole.variables for field in inputs.values()), asks=asks, asked=asked,
             )
             if replaces is not None:
                 _raise_if_upgrade_is_missing(replaces, definition)
@@ -603,14 +647,16 @@ def _version_number(
     return number
 
 
-def _read_signature(function: Callable[..., Any], computed_outputs: bool) -> tuple[dict[str, Field], ContextParameter | None, dict[str, Field], ReturnShape]:
+def _read_signature(
+    function: Callable[..., Any], computed_outputs: bool,
+) -> tuple[dict[str, Field], ContextParameter | None, dict[str, Field], ReturnShape, AskedParameter | None]:
     """Reads a function's signature.
 
     A type variable in it (``def keep[T](value: T) -> T``) stays in the field's hint, to be bound when a graph loads.
 
     Returns:
         The inputs by name, the ``Context`` parameter (``None`` when the first parameter is not one), the outputs
-        by name, and what kind of value the function returns them as.
+        by name, what kind of value the function returns them as, and the ``Asked`` parameter (``None`` for none).
 
     Raises:
         NodeDeclarationError: A parameter or the return type is declared in a way a node can't have.
@@ -619,6 +665,7 @@ def _read_signature(function: Callable[..., Any], computed_outputs: bool) -> tup
     hints = typing.get_type_hints(function, include_extras=True)
     inputs: dict[str, Field] = {}
     context: ContextParameter | None = None
+    asked: tuple[str, Any, Asked] | None = None
     for position, (name, parameter) in enumerate(parameters.items()):
         # A Context anywhere else is read as an input below, and its type refuses to be read (context_misplaced).
         if position == 0 and name in hints and is_context(hints[name]) and parameter.kind in (parameter.POSITIONAL_ONLY, parameter.POSITIONAL_OR_KEYWORD):
@@ -633,13 +680,22 @@ def _read_signature(function: Callable[..., Any], computed_outputs: bool) -> tup
             raise NodeDeclarationError(declaration.parameter_not_by_name(), name)
         if name not in hints:
             raise NodeDeclarationError(declaration.input_without_type(), name)
+        hint, marker = _without_asked(hints[name], name)
+        if marker is not None:
+            if asked is not None:
+                raise NodeDeclarationError(declaration.asked_twice(), name)
+            if parameter.default is not Parameter.empty:
+                raise NodeDeclarationError(declaration.asked_with_default(), name)
+            asked = (name, hint, marker)
+            continue
         default = REQUIRED if parameter.default is Parameter.empty else parameter.default
-        inputs[name] = declared_field(name, hints[name], default)
+        inputs[name] = declared_field(name, hint, default)
         if inputs[name].param.exclusive_group is not None:
             raise NodeDeclarationError(declaration.exclusive_group_on_input(), name)
     if "return" not in hints:
         raise NodeDeclarationError(declaration.output_without_type())
     returns = hints["return"]
+    _refuse_asked(returns, None)
     outputs: dict[str, Field] = {}
     kind: ReturnShape
     outputs_class = typing.get_origin(returns) or returns  # a generic dataclass of outputs is written with its arguments
@@ -652,6 +708,8 @@ def _read_signature(function: Callable[..., Any], computed_outputs: bool) -> tup
             raise NodeDeclarationError(declaration.outputs_not_frozen())
         given = dict(zip(getattr(outputs_class, "__parameters__", ()), typing.get_args(returns), strict=True))  # the class's variables as the signature names them
         own = typing.get_type_hints(outputs_class, include_extras=True)
+        for name, hint in own.items():
+            _refuse_asked(hint, name)
         outputs = {f.name: declared_field(f.name, Type(own[f.name]).bind(given).hint if given else own[f.name], _declared_default(f)) for f in dataclasses.fields(outputs_class)}
         kind = OutputsClass(outputs_class)
     else:
@@ -663,7 +721,83 @@ def _read_signature(function: Callable[..., Any], computed_outputs: bool) -> tup
                 raise NodeDeclarationError(declaration.type_variable_constrained(variable=variable.__name__), field.name)
             if variable not in on_inputs:
                 raise NodeDeclarationError(declaration.type_variable_only_in_return(variable=variable.__name__), field.name)
-    return inputs, context, outputs, kind
+    if asked is None:
+        return inputs, context, outputs, kind, None
+    name, hint, marker = asked
+    return inputs, context, outputs, kind, _asked_parameter(function, declared_field(name, hint, REQUIRED), marker, inputs, context)
+
+
+def _without_asked(hint: Any, name: str) -> tuple[Any, Asked | None]:
+    """A parameter's hint with the ``Asked`` around it taken off, and that ``Asked``.
+
+    ``Annotated[bool, Param(title="OK"), Asked(approval)]`` is ``Annotated[bool, Param(title="OK")]`` and
+    ``Asked(approval)``; a hint with no ``Asked`` around it is itself and ``None``.
+
+    Raises:
+        NodeDeclarationError: Two ``Asked`` around one parameter (``asked_twice``), or one inside its type
+            (``asked_not_on_a_parameter``).
+    """
+    marker: Asked | None = None
+    if typing.get_origin(hint) is Annotated:
+        markers = [m for m in hint.__metadata__ if isinstance(m, Asked)]
+        if len(markers) > 1:
+            raise NodeDeclarationError(declaration.asked_twice(), name)
+        if markers:
+            (marker,) = markers
+            kept = tuple(m for m in hint.__metadata__ if not isinstance(m, Asked))
+            hint = Annotated[(hint.__origin__, *kept)] if kept else hint.__origin__
+    _refuse_asked(hint, name)
+    return hint, marker
+
+
+def _refuse_asked(hint: Any, name: str | None) -> None:
+    """Raises when ``hint`` holds an ``Asked``: the hint of an output, or a parameter's with the ``Asked`` around it
+    taken off.
+
+    Raises:
+        NodeDeclarationError: ``asked_not_on_a_parameter``, naming the field when there is a name.
+    """
+    if any(isinstance(m, Asked) for m in split_hint(hint)[2]):
+        raise NodeDeclarationError(declaration.asked_not_on_a_parameter(), *([name] if name else []))
+
+
+def _asked_parameter(
+    function: Callable[..., Any], field: Field, marker: Asked, inputs: Mapping[str, Field], context: ContextParameter | None,
+) -> AskedParameter:
+    """Reads an ``Asked`` parameter's function against the node it is on.
+
+    For ``ok: Annotated[bool, Asked(approval)]`` on ``approve(invoice: Invoice, ok: ...)``, with
+    ``approval(invoice: Invoice) -> bool``, it is ``ok``, filled by ``approval``, which takes the input ``invoice``.
+
+    Args:
+        function: The node's function, whose signature names the parameter's type.
+        field: The parameter, read by its hint without the ``Asked``.
+        marker: The ``Asked``.
+        inputs: The node's inputs, by name.
+        context: The node's ``Context`` parameter, or ``None``.
+
+    Raises:
+        NodeDeclarationError: Naming the parameter: the function is ``async def`` (``async_run``), one of its
+            parameters is not a parameter of the node taken by name (``asking_function_parameter_unknown``), or it
+            does not return the parameter's type (``asking_function_returns_another_type``).
+    """
+    asking = marker.function
+    name = field.name
+    if inspect.iscoroutinefunction(asking) or inspect.isasyncgenfunction(asking):
+        raise NodeDeclarationError(declaration.async_run(), name)
+    may_name = [*inputs, *([context.name] if context is not None else [])]
+    taken: list[str] = []
+    for parameter in inspect.signature(asking).parameters.values():
+        if parameter.name not in may_name or parameter.kind not in (parameter.POSITIONAL_OR_KEYWORD, parameter.KEYWORD_ONLY):
+            raise NodeDeclarationError(declaration.asking_function_parameter_unknown(parameter=parameter.name, parameters=may_name), name)
+        taken.append(parameter.name)
+    returns = typing.get_type_hints(asking).get("return", Parameter.empty)
+    declared = typing.get_type_hints(function)[name]
+    if returns != declared:
+        written = "nothing declared" if returns is Parameter.empty else Type(returns).id
+        raise NodeDeclarationError(declaration.asking_function_returns_another_type(returns=written, type=field.whole.id), name)
+    context_name = context.name if context is not None and context.name in taken else None
+    return AskedParameter(field, asking, tuple(n for n in taken if n != context_name), context_name, AskedValueDoor(field))
 
 
 def _declared_default(declared: DataclassField[Any]) -> Any:

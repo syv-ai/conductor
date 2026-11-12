@@ -24,8 +24,8 @@ from conductor import SKIPPED, Ask, Graph, GraphRecord, NodeRegistry, Param, Run
 REGISTRY = NodeRegistry()
 
 
-def _node(node_id: str) -> Any:
-    return REGISTRY.node(node_id, title=node_id, description=node_id)
+def _node(node_id: str, **declared: Any) -> Any:
+    return REGISTRY.node(node_id, title=node_id, description=node_id, **declared)
 
 
 @_node("items")
@@ -424,7 +424,7 @@ def test_an_output_of_nested_loops_is_a_list_per_outer_item_or_none_when_never_r
     assert shown(nodes, edges, "u", kind="no-value") == (None, None, None)
 
 
-@_node("approve")
+@_node("approve", asks=True)
 def approve(a: str) -> str:
     raise Ask("ok?")
 

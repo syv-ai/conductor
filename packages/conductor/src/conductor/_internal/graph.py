@@ -123,5 +123,6 @@ class Graph[C](CompiledGraph):
             self.fingerprint,
             inputs={address: graph_input.field.whole for address, graph_input in self._input_fields.items()},
             outputs={node.name: node.compiled_node.outputs for node in self._flat_function_nodes},
+            asked={node.name: asked.field for node in self._flat_function_nodes if (asked := node.compiled_node.definition.asked) is not None},
             nodes=[node.name for node in self._flat_function_nodes],
         )

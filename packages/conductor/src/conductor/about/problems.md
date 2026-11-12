@@ -14,7 +14,7 @@ from typing import Annotated, Protocol, TypedDict
 
 import polars as pl
 from conductor import (
-    Ask, Context, EndedEarly, Graph, GraphRecord, InvalidCallError, NodeDeclarationError, NodeError, NodeRegistry,
+    Ask, Asked, Context, EndedEarly, Graph, GraphRecord, InvalidCallError, NodeDeclarationError, NodeError, NodeRegistry,
     Param, Policy, Problem, Run, SKIPPED, Series, Table, Upgrade, host_type, make_graph, node, subgraph,
 )
 from conductor.testing import check_registry
@@ -69,7 +69,7 @@ def route(text: str) -> Route:
     return Route(short=text, long=SKIPPED) if len(text) < 4 else Route(short=SKIPPED, long=text)
 
 
-@registry.node("approve", title="Approve", description="Asks a person to approve an amount in kroner.")
+@registry.node("approve", title="Approve", description="Asks a person to approve an amount in kroner.", asks=True)
 def approve(amount: int) -> bool:
     raise Ask(f"Approve {amount} kr.?")
 

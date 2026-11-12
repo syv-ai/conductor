@@ -290,15 +290,15 @@ def test_ask_forms_and_several():
         approved: bool
         note: str
 
-    @node("review", title="Review", description="For a test.")
+    @node("review", title="Review", description="For a test.", asks=True)
     def review(name: str) -> Review:
         raise Ask(f"Review {name}", default={"approved": True, "note": ""})
 
-    @node("tags", title="Tags", description="For a test.")
+    @node("tags", title="Tags", description="For a test.", asks=True)
     def tags(name: str) -> Series[str]:
         raise Ask(f"Tags for {name}", choices=["red", "green", "blue"])
 
-    @node("pick", title="Pick", description="For a test.")
+    @node("pick", title="Pick", description="For a test.", asks=True)
     def pick(name: str) -> bool:
         raise Ask(f"Keep {name}?")
 
@@ -318,7 +318,7 @@ def test_ask_forms_and_several():
 
 
 def test_pause_on_a_nested_item():
-    @node("check", title="Check", description="For a test.")
+    @node("check", title="Check", description="For a test.", asks=True)
     def check(text: str) -> str:
         if text == "b":
             raise Ask("b?")
@@ -354,7 +354,7 @@ def test_concurrency():
 
 
 def test_again_waiting_read_back_and_answered_alike_sends_no_mail_again():
-    @node("gate", title="Gate", description="For a test.")
+    @node("gate", title="Gate", description="For a test.", asks=True)
     def gate(name: str, email: str) -> str:
         if name.startswith("B"):
             raise Ask(f"Address for {name}?")

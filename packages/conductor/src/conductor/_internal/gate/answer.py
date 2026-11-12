@@ -1,7 +1,9 @@
-"""The answer door: a person's answer to a call that waits, read into the node's outputs.
+"""The answer door: a person's answer to a call that waits, read into the fields it fills.
 
 Example: ``approve(line: str) -> bool`` raises ``Ask("Approve b?")``. ``run.answer(waiting_id, True)`` gives the
-door ``True``, and it returns ``{"result": True}``, the outputs the call then has. ``"yes"`` is refused with
+door ``True``, and it returns ``{"result": True}``, the outputs the call then has. For a node with an ``Asked``
+parameter, ``ok: Annotated[bool, Asked(approval)]``, the field is the parameter: the door returns ``{"ok": True}``,
+and the node is then called with ``ok=True``. ``"yes"`` is refused with
 ``invalid_answer``, "Input should be a valid boolean": an answer is read strictly from its JSON form, so a yes or
 no is ``true`` or ``false``, never a text that spells one.
 
@@ -11,7 +13,7 @@ left out when it has a default (its field's, or one the ``Ask`` set), is one of 
 limit what an answer may be.
 
 An answer is read from JSON by the validator that reads what a node returns (``rules.output_validator_of``): the
-answer becomes the call's outputs, as a return would.
+answer is the value of the function that asked, as a return would be.
 """
 
 from __future__ import annotations
@@ -34,31 +36,32 @@ from conductor._internal.value_type import Type, untyped_as_json
 
 
 class AnswerDoor:
-    """Reads a person's answer to a waiting call of one node into the node's outputs. Built once per node.
+    """Reads a person's answer to a waiting call of one node into the fields it fills: the node's outputs, or its
+    ``Asked`` parameter. Built once per node.
 
     Raises (when called):
         RefusedError: With an ``invalid_answer`` for every fault, quoting nothing of the answer: the answer is not
-            a mapping where the node has several outputs, names a question there is none of, leaves out one that
+            a mapping where there are several questions, names a question there is none of, leaves out one that
             must be answered, gives a value its type refuses or that is not one of the choices, or answers none
             or two of an exclusive group.
     """
 
-    def __init__(self, outputs: Mapping[str, Field], questions: Mapping[str, FieldDescription]) -> None:
+    def __init__(self, fields: Mapping[str, Field], questions: Mapping[str, FieldDescription]) -> None:
         """Builds the door for a node.
 
         Args:
-            outputs: The node's outputs, by name.
-            questions: The question of each output as its type sets it (``output_questions``), by name.
+            fields: The fields the answer fills, by name.
+            questions: The question about each field as its type sets it (``field_questions``), by name.
         """
-        self._outputs = outputs
+        self._fields = fields
         self._questions = questions
 
     def __call__(self, answer: Any, overrides: Mapping[str, QuestionOverrides], *, loc: Loc, waiting_id: str) -> dict[str, Any]:
-        """Returns the node's outputs by name, read from ``answer``.
+        """Returns the fields the answer fills, by name, read from ``answer``.
 
         Args:
-            answer: The answer: a value for a node with one output, a mapping by output name for several.
-            overrides: What the node's ``Ask`` set on each question, by output name.
+            answer: The answer: a value for one question, a mapping by question name for several.
+            overrides: What the ``Ask`` set on each question, by field name.
             loc: Where the call that waits is, for the problems.
             waiting_id: The waiting id the answer was given for, for the problems.
 
@@ -71,9 +74,9 @@ class AnswerDoor:
         return read
 
     def _read(self, answer: Any, overrides: Mapping[str, QuestionOverrides]) -> tuple[dict[str, Any], list[tuple[str | None, str]]]:
-        """The outputs read from ``answer``, and every fault as ``(question, reason)``, the question ``None`` for a
+        """The fields read from ``answer``, and every fault as ``(question, reason)``, the question ``None`` for a
         fault of the whole answer."""
-        outputs = self._outputs
+        outputs = self._fields
         if len(outputs) == 1:
             ((name, field),) = outputs.items()
             try:
@@ -114,16 +117,16 @@ class AnswerDoor:
 def answer_value(field: Field, value: Any, choices: list[dict[str, Any]] | None) -> Any:
     """Reads one question's answer into the form a run keeps, held to ``choices``.
 
-    ``answer_value(field, "bo", [{"id": "ida", ...}, {"id": "bo", ...}])`` for an output ``-> str`` is ``"bo"``;
+    ``answer_value(field, "bo", [{"id": "ida", ...}, {"id": "bo", ...}])`` for a field ``str`` is ``"bo"``;
     ``"al"`` is not one of the choices. A ``Series`` output picks several, each once.
 
     Args:
-        field: The output the question is about.
+        field: The field the question is about.
         value: The answer to it.
         choices: The choices it is limited to, each its record with the id in its JSON form; ``None`` for none.
 
     Raises:
-        PydanticCustomError: The answer is not a value of the output's type, not one of the choices, or, for a
+        PydanticCustomError: The answer is not a value of the field's type, not one of the choices, or, for a
             pick of several, picks a choice twice. Its message says which, quoting nothing of the answer.
     """
     read = from_json(field.whole, value)

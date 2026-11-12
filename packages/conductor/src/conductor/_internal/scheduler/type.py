@@ -70,7 +70,7 @@ from queue import Empty, SimpleQueue
 from typing import Any, Literal
 
 from conductor._internal.address import ItemIndexes, NodePath
-from conductor._internal.ask import Ask
+from conductor._internal.ask import Answer, Ask
 from conductor._internal.compiled import FlatFunctionNode, all_upstream, outcome_loc
 from conductor._internal.gate import RefusedError
 from conductor._internal.outcomes import (
@@ -202,6 +202,7 @@ class Scheduler:
         threads: int,
         outcomes: dict[str, dict[ItemIndexes, Outcome]],
         reusable: dict[NodePath, ReusableOutcomes],
+        answers: dict[str, dict[ItemIndexes, Answer]],
         finished: frozenset[NodePath],
         max_items: int | None,
         arguments_for: Callable[[FlatFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NotCalled | Literal[NotReady.NOT_READY]],
@@ -220,6 +221,8 @@ class Scheduler:
             outcomes: The run's outcomes, by node name and item indexes. The scheduler writes into this dict.
             reusable: The outcomes of an earlier run that each node may take, by node path. The scheduler removes
                 what is taken and what can no longer be taken.
+            answers: A person's answers to an ``Asked`` parameter, by node name and item indexes, each for a call
+                that has no outcome yet. The scheduler only reads them.
             finished: The node paths of the nodes that were complete when the run was last resumed.
             max_items: The item limit: the most items a series that a loop runs over may have. None for no limit.
             arguments_for: Returns the arguments of one call, or why it cannot be called (``run/arguments.py``).
@@ -236,6 +239,8 @@ class Scheduler:
             arguments_for = _only_costs_nothing(arguments_for)
         self.nodes, self.threads, self.all_outcomes, self.max_items, self.arguments_for = nodes, threads, outcomes, max_items, arguments_for
         self.stop, self.context, self.only_costs_nothing = stop, context, only_costs_nothing
+        #: A person's answers to an ``Asked`` parameter, by node name and item indexes.
+        self.answers = answers
 
         # 1. Choosing the next call.
         #: The state ``run`` returns: ``RUNNING`` until ``end`` or ``_close`` sets another.
@@ -412,6 +417,8 @@ class Scheduler:
                 self.node_events.outcome_reused(node)
             self._record(node, item_indexes, previous, trying_every_call)
         else:
+            if self.answers and (answer := self._answer(node, item_indexes)) is not None:
+                arguments = {**arguments, answer.parameter: answer.value}
             if self.node_events is not None:
                 self.node_events.call_starts(node)
             if policy.threaded or policy.retries:
@@ -683,7 +690,7 @@ class Scheduler:
         if not current:
             if latest and error is None and not self.going and item_indexes not in self.outcomes[node]:
                 self.attempts.pop((node, item_indexes))
-                self._record(node, item_indexes, Done(outputs))
+                self._record(node, item_indexes, self._outcome(node, item_indexes, attempt.arguments, outputs, None))
             return
         self.attempts.pop((node, item_indexes))
         if not self._retry(attempt, error):
@@ -734,8 +741,9 @@ class Scheduler:
     def _outcome(
         self, node: FlatFunctionNode, item_indexes: ItemIndexes, arguments: dict[str, Any], outputs: Any, error: BaseException | None
     ) -> Outcome | Problem | None:
-        """The outcome of a call from what ``call`` returned: ``Done`` with the outputs, ``Waiting`` with the
-        question when the function raised ``Ask``, or the problem the call failed with.
+        """The outcome of a call from what ``call`` returned: ``Done`` with the outputs (``Answered``, with the
+        question, for a call given a person's answer to its ``Asked`` parameter), ``Waiting`` with the question when
+        the function raised ``Ask``, or the problem the call failed with.
 
         A ``Waiting`` outcome has the call's arguments as JSON, to show the person. Arguments with no JSON form,
         and an ``Ask`` that does not fit the node's outputs, are problems. While only the nodes that cost nothing
@@ -743,6 +751,8 @@ class Scheduler:
         calls it again, and it fails or asks then.
         """
         if error is None:
+            if self.answers and (answer := self._answer(node, item_indexes)) is not None:
+                return Answered(outputs, answer.question)
             return Done(outputs)
         if self.only_costs_nothing:
             return None
@@ -752,6 +762,11 @@ class Scheduler:
             except RefusedError as refused:
                 return self._failure(node, item_indexes, refused)
         return self._failure(node, item_indexes, error)
+
+    def _answer(self, node: FlatFunctionNode, item_indexes: ItemIndexes) -> Answer | None:
+        """A person's answer to the ``Asked`` parameter of the call ``node`` ``item_indexes``, or ``None``."""
+        of_node = self.answers.get(node.name)
+        return None if of_node is None else of_node.get(item_indexes)
 
     def _failure(self, node: FlatFunctionNode, item_indexes: ItemIndexes, error: BaseException) -> Problem:
         """The problem for an exception a call raised, with the call's loc.

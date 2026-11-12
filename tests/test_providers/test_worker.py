@@ -167,7 +167,7 @@ async def test_an_item_limit_raised_by_a_resume_applies_to_every_resume_call_aft
     def split(n: int) -> Series[int]:
         return list(range(n))
 
-    @registry.node("ask", title="Ask", description="For a test.")
+    @registry.node("ask", title="Ask", description="For a test.", asks=True)
     def ask(x: int) -> int:
         raise Ask("ok?")
 
@@ -553,7 +553,7 @@ class Fragile:
 async def test_a_queued_answer_whose_check_raises_is_refused_and_starts_no_second_resume_call() -> None:
     registry, store, gate = NodeRegistry(), MemoryStore(), ThreadEvent()
 
-    @registry.node("ask", title="Ask", description="For a test.")
+    @registry.node("ask", title="Ask", description="For a test.", asks=True)
     def ask(text: str) -> Fragile:
         raise Ask("Which?")
 
@@ -605,7 +605,7 @@ def _asked_beside_a_chain() -> tuple[NodeRegistry, GraphRecord, dict[str, Any], 
     called."""
     registry, gates, calls = NodeRegistry(), {name: ThreadEvent() for name in ("first", "in_second", "second")}, []
 
-    @registry.node("approve", title="Approve", description="For a test.")
+    @registry.node("approve", title="Approve", description="For a test.", asks=True)
     def approve(text: str) -> bool:
         raise Ask("Go on?")
 
@@ -690,7 +690,7 @@ async def test_a_question_that_waits_in_a_failed_run_is_answered_without_a_resum
     def many(n: int) -> Series[int]:
         return list(range(n))
 
-    @registry.node("approve", title="Approve", description="For a test.")
+    @registry.node("approve", title="Approve", description="For a test.", asks=True)
     def approve(x: int) -> bool:
         if x == 2:
             raise NodeError("item 2 fails")
@@ -805,7 +805,7 @@ async def test_a_run_conductor_refuses_to_resume_fails_with_its_first_problem_an
 async def test_a_run_whose_resume_call_raised_after_a_checkpoint_lists_the_calls_waiting_in_that_checkpoint() -> None:
     registry, store, gate = NodeRegistry(), MemoryStore(), ThreadEvent()
 
-    @registry.node("approve", title="Approve", description="For a test.")
+    @registry.node("approve", title="Approve", description="For a test.", asks=True)
     def approve(text: str) -> bool:
         raise Ask("Go on?")
 
@@ -837,7 +837,7 @@ async def test_a_run_whose_resume_call_raised_lists_the_calls_waiting_as_stored_
     def many(n: int) -> Series[int]:
         return list(range(n))
 
-    @registry.node("approve", title="Approve", description="For a test.")
+    @registry.node("approve", title="Approve", description="For a test.", asks=True)
     def approve(x: int) -> bool:
         raise Ask(f"approve {x}?")
 
@@ -1272,7 +1272,7 @@ async def test_a_run_that_stopped_running_has_no_lease_so_no_sweep_takes_it_agai
     def shout(text: str) -> str:
         return text.upper()
 
-    @registry.node("approve", title="Approve", description="For a test.")
+    @registry.node("approve", title="Approve", description="For a test.", asks=True)
     def approve(text: str) -> bool:
         raise Ask("Go on?")
 

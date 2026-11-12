@@ -32,7 +32,7 @@ class AppContext:                     # the run's context: one object the host p
     caller_name: str
 
 
-@node("approve", title="Approve", description="Asks a person to approve or rewrite the proposal.", category="review")
+@node("approve", title="Approve", description="Asks a person to approve or rewrite the proposal.", category="review", asks=True)
 def approve(ctx: Context[AppContext], proposal: Annotated[str, Param(title="Proposal", widget=Textarea())]) -> Annotated[str, Param(title="Decision", widget=Textarea())]:
     # the context is the first parameter; what is asked is what the node returns, and how it looks is its Param
     raise Ask(f"{ctx.caller_name}, approve?", default=proposal)
@@ -45,7 +45,7 @@ class Review:                         # a form: one question per field; a field'
     note: Annotated[str | None, Param(widget=Textarea())] = None
 
 
-@node("review", title="Review", description="Asks a person to review a proposal.", category="review")
+@node("review", title="Review", description="Asks a person to review a proposal.", category="review", asks=True)
 def review(proposal: str) -> Review:
     # several outputs: what only the run knows goes by output name
     raise Ask(f"Review {proposal}", choices={"owner": [Choice("ida", "Ida B."), Choice("bo", "Bo K.")]})

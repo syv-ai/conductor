@@ -35,7 +35,7 @@ def gate() -> float:
     return 1.0
 
 
-@served.node("ask", title="Ask", description="For a test.")
+@served.node("ask", title="Ask", description="For a test.", asks=True)
 def ask(value: float) -> bool:
     raise Ask("Approve?")
 
@@ -57,7 +57,7 @@ def work(i: int) -> int:
     return i
 
 
-@served.node("approve_each", title="Approve each", description="For a test.")
+@served.node("approve_each", title="Approve each", description="For a test.", asks=True)
 def approve_each(i: int) -> bool:
     raise Ask(f"Approve {i}?")
 

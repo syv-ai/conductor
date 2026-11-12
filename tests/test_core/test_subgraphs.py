@@ -103,7 +103,7 @@ def count(items: Series[str]) -> int:
     return len(items)
 
 
-@_node("ask")
+@_node("ask", asks=True)
 def ask(text: str) -> str:
     CALLS["ask"] += 1
     raise Ask(f"What about {text}?")

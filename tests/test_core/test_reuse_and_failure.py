@@ -122,7 +122,7 @@ def test_a_node_error_a_wrong_output_and_an_ask_are_never_retried_whatever_retry
         calls.append("wrong")
         return "not a number"  # type: ignore[return-value]
 
-    @node("asks", title="Asks", description="For a test.", policy=policy)
+    @node("asks", title="Asks", description="For a test.", policy=policy, asks=True)
     def asks(text: str = "") -> str:
         calls.append("asks")
         raise Ask("Which?")
@@ -485,7 +485,7 @@ def test_a_value_with_no_json_form_is_called_again_and_never_fails_the_run():
 
 
 def test_an_answer_stays_with_its_item_when_an_item_is_inserted_first_and_an_edited_item_asks_again():
-    @node("approve", title="Approve", description="For a test.")
+    @node("approve", title="Approve", description="For a test.", asks=True)
     def approve(name: str) -> bool:
         raise Ask(f"Approve {name}?")
 
@@ -773,7 +773,7 @@ def test_a_document_inserted_first_in_a_nested_loop_calls_only_its_own_items():
 
 
 def _approvals() -> Any:
-    @node("approve", title="Approve", description="For a test.")
+    @node("approve", title="Approve", description="For a test.", asks=True)
     def approve(name: str) -> bool:
         raise Ask(f"Approve {name}?")
 
@@ -829,7 +829,7 @@ def test_an_again_cancelled_before_the_node_runs_then_resumed_sends_only_the_new
 def test_after_an_answered_question_again_with_one_item_added_sends_one_mail():
     sent: list[str] = []
 
-    @node("approve", title="Approve", description="For a test.")
+    @node("approve", title="Approve", description="For a test.", asks=True)
     def approve(name: str) -> str:
         raise Ask(f"Mail {name}?")
 
@@ -984,7 +984,7 @@ def _alone_node() -> Any:
 def test_waiting_items_and_a_saved_run_keep_node_then_item_order_whatever_threads_did():
     import random
 
-    @node("slow-ask", title="Slow ask", description="For a test.", policy=Policy(concurrency=4))
+    @node("slow-ask", title="Slow ask", description="For a test.", policy=Policy(concurrency=4), asks=True)
     def slow_ask(text: str) -> str:
         import time
 
@@ -1031,7 +1031,7 @@ def test_a_saved_run_that_does_not_fit_is_refused_naming_where_and_never_with_a_
 
 
 def _answered(names: list[str], answers: list[bool]) -> Any:
-    @node("approve", title="Approve", description="For a test.")
+    @node("approve", title="Approve", description="For a test.", asks=True)
     def approve(name: str) -> bool:
         raise Ask(f"Mail {name}?")
 
@@ -1071,7 +1071,7 @@ def test_identical_lines_answered_differently_under_documents_keep_their_documen
     def lines(doc: str) -> Series[str]:
         return ["x", "x"]
 
-    @node("approve", title="Approve", description="For a test.")
+    @node("approve", title="Approve", description="For a test.", asks=True)
     def approve(line: str) -> bool:
         raise Ask(f"{line}?")
 
@@ -1110,7 +1110,7 @@ def test_an_answer_survives_an_edit_and_its_revert_while_the_edited_item_still_w
     """
     sent: list[str] = []
 
-    @node("approve", title="Approve", description="For a test.")
+    @node("approve", title="Approve", description="For a test.", asks=True)
     def approve(name: str) -> str:
         raise Ask(f"Mail {name}?")
 
@@ -1172,7 +1172,7 @@ def test_an_outcome_a_complete_node_did_not_reuse_is_dropped_so_an_edit_undone_t
 def test_a_waiting_call_moves_with_its_item_and_is_not_asked_again():
     asked: list[str] = []
 
-    @node("approve", title="Approve", description="For a test.")
+    @node("approve", title="Approve", description="For a test.", asks=True)
     def approve(name: str) -> bool:
         asked.append(name)
         raise Ask(f"Mail {name}?")
@@ -1189,7 +1189,7 @@ def test_a_waiting_call_moves_with_its_item_and_is_not_asked_again():
 def test_a_waiting_call_moves_with_its_item_through_a_cancelled_again():
     asked: list[str] = []
 
-    @node("approve", title="Approve", description="For a test.", policy=Policy(concurrency=2))
+    @node("approve", title="Approve", description="For a test.", policy=Policy(concurrency=2), asks=True)
     def approve(name: str) -> bool:
         asked.append(name)
         raise Ask(f"Mail {name}?")
@@ -1207,7 +1207,7 @@ def test_a_waiting_call_moves_with_its_item_through_a_cancelled_again():
 
 
 def test_an_answer_to_a_call_whose_item_moved_is_answer_stale_naming_the_question_there_and_where_its_own_went():
-    @node("approve", title="Approve", description="For a test.")
+    @node("approve", title="Approve", description="For a test.", asks=True)
     def approve(name: str) -> bool:
         raise Ask(f"Mail {name}?")
 
@@ -1226,11 +1226,11 @@ def test_an_answer_to_a_call_whose_item_moved_is_answer_stale_naming_the_questio
 
 
 def test_an_upgraded_node_asks_again_with_its_new_prompt_under_another_waiting_id():
-    @node("approve", title="Approve", description="For a test.")
+    @node("approve", title="Approve", description="For a test.", asks=True)
     def approve(name: str) -> bool:
         raise Ask(f"Mail {name}?")
 
-    @node("approve", title="Approve v2", description="For a test.", replaces=approve)
+    @node("approve", title="Approve v2", description="For a test.", replaces=approve, asks=True)
     def approve_v2(name: str) -> bool:
         raise Ask(f"Send to {name}?")
 
@@ -1319,7 +1319,7 @@ def _waiting_id(source: str) -> str:
     exec(source, namespace)
     function = namespace["ask"]
     record = GraphRecord(nodes=[NodeRecord(id="a", node="ask")])
-    (waiting,) = Graph.compile(record, registry_of(node("ask", title="Ask", description="For a test.")(function))).run(name="ida").waiting
+    (waiting,) = Graph.compile(record, registry_of(node("ask", title="Ask", description="For a test.", asks=True)(function))).run(name="ida").waiting
     return waiting.id
 
 
@@ -1555,7 +1555,7 @@ def test_identical_items_reuse_previous_answers_in_item_order_whatever_thread_fi
             first_done.set()
         return "bo"
 
-    @node("approve", title="Approve", description="For a test.")
+    @node("approve", title="Approve", description="For a test.", asks=True)
     def approve(name: str) -> bool:
         raise Ask(f"Mail {name}?")
 
@@ -1580,12 +1580,12 @@ def test_again_with_the_same_inputs_keeps_the_waiting_questions_of_two_nodes_and
     def split(text: str) -> Series[str]:
         return text.split()
 
-    @node("ask_a", title="Ask a", description="For a test.")
+    @node("ask_a", title="Ask a", description="For a test.", asks=True)
     def ask_a(text: str) -> str:
         calls.append(f"a {text}")
         raise Ask(f"A {text}?")
 
-    @node("ask_b", title="Ask b", description="For a test.")
+    @node("ask_b", title="Ask b", description="For a test.", asks=True)
     def ask_b(text: str) -> str:
         calls.append(f"b {text}")
         raise Ask(f"B {text}?")

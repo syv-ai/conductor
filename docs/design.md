@@ -154,6 +154,8 @@ print([(skipped.loc, skipped.input) for skipped in sent.not_called])  # [(('send
 ## `Ask`
 
 - **`raise Ask(prompt, choices=, default=)` pauses one call.** The return type says what the answer is and how to ask: `bool` is yes or no, a `Literal` one of its values, a frozen dataclass a form. `AskBool`, `AskMulti` and a `type=` argument were rejected as a second declaration. That call and whatever reads it wait; the rest runs on.
+- **A node that asks says so where it is declared**: `asks=True` on its `@node`, and a raise without it fails as `ask_not_declared`. A host learns from `describe().asks` which graphs can pause, without guessing from the code. The word is on the decorator, not in the return type: asking is something the function does, like raising, not something its value is, and a marker on the return type would be a second word beside `Asked` and would sit oddly on `-> None` or a dataclass of outputs. **Worth questioning:** the signature no longer says everything a node does.
+- **A parameter can be the question** (`ok: Annotated[bool, Asked(approval)]`), filled by a function that returns a value or raises `Ask`. It is for a node whose outputs are more than the answer, an approval that hands the invoice on: one box where two were needed, and the body called once with a real `bool`. One rule covers both: a function that raises `Ask` is answered with a value of its return type. Rejected: a pre-built approval node (the person must send the invoice back, and a forged one goes on), a static `Asked[bool]` (it can't skip the question or propose a draft), `ok = ask(...)` replayed (the body runs twice, and nothing is known at load), the node called again with `ok=None` (a body that forgets the check never asks), and two-phase nodes.
 - **`Ask` carries only what the run knows, typed.** How a question looks is its type's `Param` (a widget, a title, choices known when the node is written), so a hook's output types carry it too; `widget=` on `Ask` was a second home for it and went. `-> str` with a bare `Ask(prompt)` is free text. Each argument has the answer's shape: a value for one output, a mapping by output name, naming only some, for several. There is no plural `defaults=`.
 - **A question is the same record as a field:** the `FieldDescription` a palette reads, with the `choices` and `default` the `Ask` set. A host draws it the way it draws an input. One JSON Schema for the whole answer was rejected: it loses a host type's id, whether a field is one or many, and exclusive groups, and has no place for a widget.
 - **`run.answer(waiting, value)` or `run.answer({id: value, ...})`.** Every fault is refused at once and nothing is half-answered. Each answer is read strictly from its JSON form (`true`, never `"yes"`). A declared choice is read exactly the same way, held to the field's limits, so an enum's value or a date's ISO text is a choice. A choice's id is its value as the field's type writes it in JSON: `Decimal("1.0")` has the id `"1.0"`, and a `datetime` its ISO text, `"2026-01-02T03:04:05"`.
@@ -165,7 +167,7 @@ from typing import Literal
 from conductor import Ask
 
 
-@registry.node("tone", title="Tone", description="Asks a person which tone a text should have.")
+@registry.node("tone", title="Tone", description="Asks a person which tone a text should have.", asks=True)
 def tone(text: str) -> Literal["formal", "casual"]:
     raise Ask(f"Which tone for {text!r}?")
 

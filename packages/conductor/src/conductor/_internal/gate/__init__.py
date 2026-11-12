@@ -25,10 +25,10 @@ The doors, with the module each is in:
                                                             invalid_input, invalid_input_make_a_series,
                                                             invalid_max_items, invalid_timeout,
                                                             invalid_checkpoint_every
-    a person's answer                                       answer
-                                                            invalid_answer
-    what a node's function returns                          returned
-                                                            invalid_output
+    a person's answer, to a node's outputs or to its        answer
+        Asked parameter                                     invalid_answer
+    what a node's function returns, and what the function  returned
+        of an Asked parameter returns                       invalid_output, invalid_asked_value
     a value an edge gives an input that demands more        edge
         than the edge's source declares                     invalid_edge_value
     what a node raises: an Ask's choices and default        raised
@@ -56,11 +56,11 @@ from conductor._internal.gate.inputs import InputsDoor, check_limits
 from conductor._internal.gate.raised import AskDoor
 from conductor._internal.gate.record import read_record, record_values
 from conductor._internal.gate.refused import RefusedError
-from conductor._internal.gate.returned import ReturnDoor
+from conductor._internal.gate.returned import AskedValueDoor, ReturnDoor
 from conductor._internal.gate.rules import numbers_refuse_bools, output_validator_of, validator_of
 
 __all__ = [
-    "AnswerDoor", "AskDoor", "ContextDoor", "EdgeDoor", "InputsDoor", "RefusedError", "ReturnDoor", "bound_field", "check_limits", "declared_field",
+    "AnswerDoor", "AskDoor", "AskedValueDoor", "ContextDoor", "EdgeDoor", "InputsDoor", "RefusedError", "ReturnDoor", "bound_field", "check_limits", "declared_field",
     "demands_more", "numbers_refuse_bools", "output_validator_of", "read_constant", "read_hook_fields", "read_record", "record_values",
     "validator_of",
 ]

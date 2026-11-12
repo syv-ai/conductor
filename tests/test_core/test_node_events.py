@@ -50,7 +50,7 @@ def join(texts: Series[str]) -> str:
     return "+".join(texts)
 
 
-@node("approve", title="Approve", description="For a test.")
+@node("approve", title="Approve", description="For a test.", asks=True)
 def approve(line: str) -> bool:
     raise Ask(f"Approve {line}?")
 

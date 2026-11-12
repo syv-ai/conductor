@@ -107,7 +107,7 @@ def excel(table: Table, name: str = "result") -> File:
     return File(name=f"{name}.xlsx", text=table.write_csv())
 
 
-@node("approve", title="Approve", description="Asks a person to approve an invoice over 500.")
+@node("approve", title="Approve", description="Asks a person to approve an invoice over 500.", asks=True)
 def approve(number: str, amount: float) -> bool:
     if amount <= 500:
         return True

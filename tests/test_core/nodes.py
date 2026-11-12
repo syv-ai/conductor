@@ -38,7 +38,7 @@ def read_csv(text: str) -> Table[Invoice]:
     return pl.read_csv(StringIO(text))
 
 
-@invoices.node("approve", title="Approve", description="For a test.")
+@invoices.node("approve", title="Approve", description="For a test.", asks=True)
 def approve(name: str, amount: int) -> Literal["yes", "no", "auto"]:
     note_call(f"approve {name}")
     if amount < 1000:

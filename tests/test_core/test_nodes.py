@@ -283,7 +283,7 @@ def test_describe_is_the_node_as_json_with_no_keys_beyond_its_own():
     described = json.loads(v2.describe().model_dump_json())
     assert set(described) == {
         "id", "version", "versions", "title", "description", "category", "tags", "extra", "docs", "deprecation", "kind",
-        "policy", "inputs", "outputs", "takes_added_inputs", "computes_outputs",
+        "policy", "inputs", "outputs", "takes_added_inputs", "computes_outputs", "asks", "asked",
     }
     assert (described["id"], described["version"], described["versions"], described["tags"]) == ("v", 2, [2, 1], ["words"])
     assert described["kind"] == "function" and described["policy"]["retries"] == 2
@@ -1191,7 +1191,7 @@ def test_a_fields_choices_have_one_home_that_titles_a_literal_and_limits_any_oth
     def size(name: Annotated[str, Param(choices=["S", "M"])]) -> str:
         return name
 
-    @node("rate", title="Rate", description="For a test.")
+    @node("rate", title="Rate", description="For a test.", asks=True)
     def rate(text: str) -> Annotated[Literal["low", "high"], Param(choices=titled)]:
         raise Ask("How urgent?")
 

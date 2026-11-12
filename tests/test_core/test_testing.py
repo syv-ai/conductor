@@ -58,7 +58,7 @@ def count(number: int) -> int:
     return number
 
 
-@node("approve", title="Approve", description="For a test.")
+@node("approve", title="Approve", description="For a test.", asks=True)
 def approve(text: str) -> bool:
     raise Ask(f"Approve {text}?")
 
@@ -193,7 +193,7 @@ def test_a_body_that_changes_a_value_it_was_given_is_changed_its_inputs():
 
 
 def test_an_example_that_does_not_run_to_the_end_or_a_pause_is_run_failed():
-    @node("unsure", title="Unsure", description="For a test.")
+    @node("unsure", title="Unsure", description="For a test.", asks=True)
     def unsure(text: str) -> bool:
         raise Ask("Sure?", default="maybe")  # type: ignore[arg-type]
 

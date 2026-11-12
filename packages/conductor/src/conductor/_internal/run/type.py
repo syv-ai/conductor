@@ -43,6 +43,7 @@ from conductor._internal.address import (
     split_address,
 )
 from conductor._internal.ask import (
+    Answer,
     Waiting,
     question_fingerprint,
     waiting_record,
@@ -139,6 +140,9 @@ class Run[C]:
     _code_changed: dict[NodePath, str] = field(default_factory=dict[NodePath, str])
     #: The nodes every unit of which was finished when the last leg ended, so a later leg doesn't say them complete again.
     _finished_nodes: frozenset[NodePath] = frozenset()
+    #: A person's answers to a node's ``Asked`` parameter, by node name and item indexes, each kept until its call is
+    #: made: ``_answers["approve"][(1,)]`` once ``run.answer`` is given ``True`` for ``approve@1``. Never changed in place.
+    _answers: dict[str, dict[ItemIndexes, Answer]] = field(default_factory=dict[str, dict[ItemIndexes, Answer]])
 
     def __repr__(self) -> str:
         return f"<Run {self.status}: {sum(len(outcomes) for outcomes in self._outcomes.values())} outcomes>"
@@ -270,10 +274,16 @@ class Run[C]:
 
         graph = self.graph
         run.state, run._finished_nodes = Scheduler(
-            nodes=graph._flat_function_nodes, threads=graph._threads, outcomes=run._outcomes, reusable=run._reusable, finished=run._finished_nodes,
+            nodes=graph._flat_function_nodes, threads=graph._threads, outcomes=run._outcomes, reusable=run._reusable, answers=run._answers,
+            finished=run._finished_nodes,
             max_items=run.max_items, arguments_for=run._reader.arguments_for, emit=emit, stop=stop, context=context,
             checkpoint=checkpoint, checkpoint_every=checkpoint_every, only_costs_nothing=only_costs_nothing,
         ).run()
+        if run._answers:  # an answer goes once its call has an outcome
+            outcomes_of = run._outcomes
+            run._answers = {
+                name: left for name, of_node in run._answers.items() if (left := {i: a for i, a in of_node.items() if i not in outcomes_of[name]})
+            }
         if emit is not None:  # a leg handed back left its run running: the run didn't end, and the host stores it as it stands
             emit(RunCheckpoint(run=run) if run.state is RUNNING else RunEnd.of(run))
         return run
@@ -287,17 +297,20 @@ class Run[C]:
     def answer(self, waiting: Waiting | str | Mapping[str, Any], value: Any = _NOT_GIVEN, /) -> Run[C]:
         """Give waiting units their answers, checked against their questions; nothing runs until ``resume``.
 
-        ``run.answer(unit, value)`` answers one, ``run.answer({unit_id: value, ...})``
-        several. A node with one output is answered with its value, one with
-        several with a mapping by output name, where a question with a default
-        or a blank-taking type without choices may be left out, and of an
-        ``exclusive_group`` exactly one is answered; a question limited by
-        choices is answered unless it has a default. Every fault is refused at
-        once and the run is left as it was: a unit answered twice in one call,
-        an id that names nothing waiting (``not_waiting``), or one whose place
-        now holds another question (``answer_stale``, with ``ctx.moved_to``
-        when that question waits elsewhere). A run that ended early takes
-        answers as a waiting one does, a cancelled one included.
+        ``run.answer(waiting, value)`` answers one, ``run.answer({waiting_id: value, ...})``
+        several. One question is answered with its value, several (a node
+        with several outputs) with a mapping by question name, where a
+        question with a default or a blank-taking type without choices may be
+        left out, and of an ``exclusive_group`` exactly one is answered; a
+        question limited by choices is answered unless it has a default. The
+        answer to a node's outputs is the call's outcome. The answer to an
+        ``Asked`` parameter is kept by the run, and ``resume`` calls the node
+        with it. Every fault is refused at once and the run is left as it
+        was: a call answered twice in one call of ``answer``, an id that names
+        nothing waiting (``not_waiting``), or one whose call now asks another
+        question (``answer_stale``, with ``ctx.moved_to`` when that question
+        waits elsewhere). A run that ended early takes answers as a waiting
+        one does, a cancelled one included.
         """
         if value is not _NOT_GIVEN:
             given: Mapping[str, Any] = {waiting.id if isinstance(waiting, Waiting) else str(waiting): value}
@@ -306,7 +319,7 @@ class Run[C]:
         else:
             raise TypeError("run.answer takes a unit and its answer, or a mapping of unit ids to answers")
         problems: list[Problem] = []
-        answered: dict[tuple[FlatFunctionNode, ItemIndexes], Outcome] = {}
+        answered: dict[tuple[FlatFunctionNode, ItemIndexes], Outcome | Answer] = {}
         for unit_id, one in given.items():
             place, _, fingerprint = unit_id.partition("~")
             try:
@@ -329,17 +342,26 @@ class Run[C]:
                 problems.append(problem.invalid_answer(*loc, waiting_id=unit_id, reason="the unit is answered twice in one call"))
                 continue
             try:
-                answered[(node, item_indexes)] = Answered(compiled_node.answer_door(one, found.question.overrides, loc=loc, waiting_id=unit_id), found.question)
+                read = compiled_node.answer_door(one, found.question.overrides, loc=loc, waiting_id=unit_id)
             except RefusedError as refused:
                 problems.extend(refused.problems)
                 answered[(node, item_indexes)] = found
+                continue
+            asked = compiled_node.definition.asked
+            answered[(node, item_indexes)] = Answered(read, found.question) if asked is None else Answer(found.question, asked.field.name, read[asked.field.name])
         if problems:
             raise InvalidCallError(problems)
         run = self._copy(share_outcomes=True)
-        for changed in {node for node, _ in answered}:  # its own units for each node it changes; every other node's are shared
+        for changed in {node for node, _ in answered}:  # its own outcomes and answers for each node it changes; every other node's are shared
             run._outcomes[changed.name] = dict(self._outcomes[changed.name])
+            if changed.compiled_node.definition.asked is not None:
+                run._answers = {**run._answers, changed.name: dict(self._answers.get(changed.name, {}))}
         for (node, item_indexes), now in answered.items():
-            run._outcomes[node.name][item_indexes] = now
+            if isinstance(now, Answer):  # the call has no outcome until the node is called with the answer
+                del run._outcomes[node.name][item_indexes]
+                run._answers[node.name][item_indexes] = now
+            else:
+                run._outcomes[node.name][item_indexes] = now
         return run
 
     def _moved_to(self, nodes: NodePath, fingerprint: str) -> str | None:

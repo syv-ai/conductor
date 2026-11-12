@@ -215,7 +215,7 @@ def test_a_fast_node_over_many_items_reports_progress_a_few_times_a_second_endin
 
 
 def test_a_run_that_ends_waiting_reports_the_last_progress_of_the_node_that_waits():
-    @node("maybe", title="Maybe", description="For a test.")
+    @node("maybe", title="Maybe", description="For a test.", asks=True)
     def maybe(text: str) -> str:
         if text == "ask":
             raise Ask("Is this right?")
@@ -602,7 +602,7 @@ def test_a_question_or_a_second_failure_from_a_call_still_running_after_a_failur
     """A person's question is kept like any finished call; a second failure goes to the log, not onto the run."""
     release = ThreadEvent()
 
-    @node("mixed", title="Mixed", description="For a test.", policy=Policy(concurrency=4))
+    @node("mixed", title="Mixed", description="For a test.", policy=Policy(concurrency=4), asks=True)
     def mixed(text: str) -> str:
         if text == "0":
             raise ValueError("first")
@@ -846,7 +846,7 @@ def test_a_float_that_is_not_finite_inside_a_model_reads_back_from_a_saved_run_t
     def measure(text: str) -> Reading:
         return Reading(value=math.nan, low=-math.inf, high=math.inf)
 
-    @node("check", title="Check", description="For a test.")
+    @node("check", title="Check", description="For a test.", asks=True)
     def check(reading: Reading) -> str:
         raise Ask(f"Is {reading.low}..{reading.high} right?")
 
@@ -930,7 +930,7 @@ def test_node_start_comes_first_for_a_node_whose_items_are_reused_from_the_previ
     def read(text: str) -> Series[str]:
         return text.split(",")
 
-    @node("approve", title="Approve", description="For a test.")
+    @node("approve", title="Approve", description="For a test.", asks=True)
     def approve(name: str) -> bool:
         if name == "ida":
             return True

@@ -412,7 +412,7 @@ Reach for a hook only for names a constant decides. A type that follows what arr
 
 ## Asking a person
 
-`raise Ask(prompt)` stops that call of the node and asks a person. Your return type says what they answer: `-> bool` asks a yes or no, and a frozen dataclass asks a form, one question per field, each field's default offered. What every type asks is in the reference (`python -m conductor.about asking`).
+`raise Ask(prompt)` stops that call of the node and asks a person, and `asks=True` on the `@node` says the node may: a host then knows, before any run, which graphs can pause. A node that raises `Ask` without it fails as [`ask_not_declared`](problems.md#ask_not_declared). Your return type says what they answer: `-> bool` asks a yes or no, and a frozen dataclass asks a form, one question per field, each field's default offered. What every type asks is in the reference (`python -m conductor.about asking`).
 
 With no more than a prompt, `-> str` asks for a line of free text: `raise Ask(f"Why was {ticket} closed?")`. How a question looks is its type's, as for an input: `-> Annotated[str, Param(title="Reason", widget=Textarea())]`.
 
@@ -422,7 +422,7 @@ With no more than a prompt, `-> str` asks for a line of free text: `raise Ask(f"
 from conductor import Ask
 
 
-@registry.node("assign", title="Assign", description="Asks a person who should take a ticket.")
+@registry.node("assign", title="Assign", description="Asks a person who should take a ticket.", asks=True)
 def assign(ticket: str) -> str:
     raise Ask(f"Who takes {ticket}?", choices=["ida", "bo"], default="ida")
 
@@ -445,7 +445,7 @@ class Review:
     note: Annotated[str | None, Param(widget=Textarea())] = None
 
 
-@registry.node("review", title="Review", description="Asks a person to review a proposal.")
+@registry.node("review", title="Review", description="Asks a person to review a proposal.", asks=True)
 def review(proposal: str) -> Review:
     raise Ask(f"Review: {proposal}", choices={"owner": [Choice("ida", "Ida B."), Choice("bo", "Bo K.")]})
 
@@ -465,6 +465,40 @@ print(run.outputs)  # {'review.approved': True, 'review.owner': 'ida', 'review.n
 The node isn't called again for that call: the answer is its outputs. `note` has a default, so the answer may leave it out. An answer that doesn't fit its question is refused before anything runs. An `Ask` that doesn't fit your outputs, say a default your type refuses, fails the node as `invalid_ask`.
 
 `Ask` is a `BaseException`, so an `except Exception` in your node lets it through.
+
+### A parameter a person fills
+
+The answer above is the node's outputs. When the outputs are more than the answer, say an approval that hands the invoice on, a parameter can be the question instead. `Asked(function)` marks it, and the function returns its value or raises `Ask`:
+
+```python
+from conductor import Asked
+
+
+class Bill(TypedDict):
+    number: str
+    amount: int
+
+
+def approval(bill: Bill) -> bool:
+    if bill["amount"] <= 500:
+        return True
+    raise Ask(f"Pay {bill['number']}, {bill['amount']} kr.?")
+
+
+@registry.node("pay", title="Pay", description="Pays a bill a person approves, and holds the rest.")
+def pay(bill: Bill, ok: Annotated[bool, Asked(approval)]) -> str:
+    return f"{'paid' if ok else 'held'} {bill['number']}"
+
+
+graph = Graph.compile(make_graph(pay), registry)
+print(graph.run(bill={"number": "B-1", "amount": 100}).outputs)  # {'pay.result': 'paid B-1'}
+
+run = graph.run(bill={"number": "B-2", "amount": 900})
+print([(question.name, question.type) for question in run.waiting[0].questions])  # [('ok', 'bool')]
+print(run.answer(run.waiting[0], False).resume().outputs)  # {'pay.result': 'held B-2'}
+```
+
+`pay` is called once, with `ok` a real `bool`: the function's return value, or the person's answer. The function's parameters are the node's, by name (its inputs, and its context when it takes one), and it returns the parameter's type, which is what the person answers; `pay(bill, ok=True)` is the unit test. No edge reaches `ok`, so it is not an input; `describe()` shows it as `asked`. A node has one such parameter, and doesn't also say `asks=True`. Its waiting id is the node's, as for any question, made from all the node's inputs: a change to any of them asks again.
 
 ## When something fails
 

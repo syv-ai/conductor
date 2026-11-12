@@ -336,7 +336,7 @@ def test_a_skipped_input_wins_over_a_none_input_whichever_parameter_comes_first(
 def test_a_skipped_input_skips_the_node_at_once_while_its_other_input_waits_for_a_person(waiting_into):
     """One input skipped and the other waiting for a person: the node is skipped in the same ``resume()`` call,
     whichever parameter is first, so the nodes downstream are called while the question waits."""
-    @node("asking", title="Asking", description="For a test.")
+    @node("asking", title="Asking", description="For a test.", asks=True)
     def asking(text: str) -> str:
         raise Ask(f"What about {text}?")
 
@@ -1321,7 +1321,7 @@ def questions(items: list[str], for_each: Any = None) -> Series[str]:
     return items
 
 
-@node("answer", title="Answer", description="For a test.")
+@node("answer", title="Answer", description="For a test.", asks=True)
 def answer(doc: str, question: str) -> bool:
     raise Ask(f"{doc}: {question}")
 
@@ -1802,7 +1802,7 @@ def test_an_approval_per_line_of_each_document_pauses_saves_resumes_and_a_new_do
     def lines(document: str) -> Series[str]:
         return document.split(",")
 
-    @node("approve", title="Approve", description="Asks a person about one line.")
+    @node("approve", title="Approve", description="Asks a person about one line.", asks=True)
     def approve(line: str) -> Literal["yes", "no"]:
         asked.append(line)
         raise Ask(f"approve {line}?")
@@ -1845,7 +1845,7 @@ def test_a_collecting_node_over_no_items_waits_for_a_value_its_loop_reads_from_o
     nobody knows whether any call of ``p`` could be from_a_node, so ``n``, which collects ``p``, is not called, even when
     ``s`` has no items: ``m`` may still turn out a branch not chosen, which skips ``n``."""
 
-    @node("mark", title="Mark", description="Asks a person for the mark.")
+    @node("mark", title="Mark", description="Asks a person for the mark.", asks=True)
     def mark() -> str:
         raise Ask("which mark?")
 
