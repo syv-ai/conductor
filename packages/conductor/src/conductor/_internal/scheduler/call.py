@@ -1,5 +1,9 @@
-"""One call of a node: what it receives checked where its edges don't settle it, and what it returns checked
-against its declared outputs."""
+"""One call of a node's function: the arguments validated where the graph's types leave a doubt, the function
+called, and what it returns validated against the node's outputs.
+
+Example: ``call(shout, {"line": "b", "mark": "!"}, {})`` returns ``({"result": "B!"}, None)``. When ``shout`` raises,
+or returns something that is not a ``str``, it returns ``(None, the exception)``.
+"""
 
 from __future__ import annotations
 
@@ -19,10 +23,22 @@ from conductor._internal.value_type import FieldValueError, untyped_as_json
 
 
 def call(node: FlatFunctionNode, arguments: dict[str, Any], context: Mapping[type, Any]) -> tuple[Any, BaseException | None]:
-    """Call ``node`` on what a unit received: its outputs as a run keeps them, or what went wrong.
+    """Call the function of ``node`` with ``arguments``.
 
-    A value an edge brings is checked against the input first where its source's type doesn't settle it, and what
-    the node returns against its declared outputs; either refusal is a ``CallRejectedError``, whose problem quotes no value.
+    Before the call, each input in ``node.validated_inputs`` is validated against its type: these are the inputs
+    whose edge does not guarantee the type (the source is ``Any``, say). The ``Context`` values the function asks
+    for are added to the arguments. After the call, what the function returned is validated against the node's
+    outputs (``checked_outputs``).
+
+    Args:
+        node: The node to call.
+        arguments: The call's arguments by input name, as ``arguments_for`` returns them.
+        context: The value of each ``Context`` type.
+
+    Returns:
+        ``(outputs, None)``: the node's outputs by name, as a run keeps them. Or ``(None, error)``: what the
+        function raised (an ``Ask`` included), or a ``CallRejectedError`` for an argument or an output that its
+        type refuses. ``KeyboardInterrupt`` and ``SystemExit`` are raised, not returned.
     """
     compiled_node = node.compiled_node
     definition = compiled_node.definition
@@ -32,7 +48,7 @@ def call(node: FlatFunctionNode, arguments: dict[str, Any], context: Mapping[typ
         if definition.context:
             arguments = {**arguments, **{name: context[needed] for name, needed in definition.context.items()}}
         returned = definition.function(**arguments)
-    except BaseException as error:  # noqa: BLE001  a node's own failure, or its Ask, is the run's to record
+    except BaseException as error:  # noqa: BLE001  the scheduler turns it into a problem or a Waiting outcome
         if isinstance(error, (KeyboardInterrupt, SystemExit)):
             raise
         return None, error
@@ -43,24 +59,28 @@ def call(node: FlatFunctionNode, arguments: dict[str, Any], context: Mapping[typ
 
 
 def checked_outputs(returns: ReturnShape, outputs: Mapping[str, Field], returned: Any) -> dict[str, Any]:
-    """What a node returned, as its outputs by name as a run keeps them; ``SKIPPED`` returned for the whole node
-    is ``SKIPPED`` on every output.
+    """What a function returned, as the node's outputs by name, each validated against its type.
 
-    Each is read strictly by its declared type (a value already of its class as it is, a model from a dict, never
-    ``"12"`` for an ``int``), and of an ``exclusive_group`` at most one output holds a value.
+    Example: ``shout`` returns ``"B!"``, and the result is ``{"result": "B!"}``. A function that returns
+    ``SKIPPED`` gets ``SKIPPED`` for every output.
+
+    Validation is strict: a value that is already of the output's class is kept as it is, a dict is read as a
+    model, and ``"12"`` is not an ``int``. Of the outputs in one exclusive group at most one may have a value;
+    the others are ``SKIPPED``.
 
     Args:
-        returns: How the node's function returns its outputs.
+        returns: How the function returns its outputs: one value, a dataclass, a mapping, or nothing.
         outputs: The node's outputs, by name.
         returned: What the function returned.
 
     Raises:
-        CallRejectedError: An output is not of its type, or two of one group hold a value (``invalid_output``).
+        CallRejectedError: An output is not of its type, or two outputs of one exclusive group have a value
+            (problem ``invalid_output``).
     """
     if returned is SKIPPED:
         return dict.fromkeys(outputs, SKIPPED)
-    spread, settled = returns.spread(returned, outputs)
-    if settled:
+    spread, needs_no_validation = returns.spread(returned, outputs)
+    if needs_no_validation:
         return spread
     groups: dict[str, str] = {}
     for name, field in outputs.items():
@@ -68,16 +88,24 @@ def checked_outputs(returns: ReturnShape, outputs: Mapping[str, Field], returned
         group = field.param.exclusive_group
         if group is not None and spread[name] is not SKIPPED:
             if group in groups:
-                raise CallRejectedError(problem.invalid_output(reason=f"'{groups[group]}' and '{name}' are alternatives of '{group}', and both hold a value", name=name))
+                reason = f"'{groups[group]}' and '{name}' are alternatives of '{group}', and both hold a value"
+                raise CallRejectedError(problem.invalid_output(reason=reason, name=name))
             groups[group] = name
     return spread
 
 
 def _checked(field: Field, name: str, value: Any, *, returned: bool) -> Any:
-    """``value`` as the field ``name`` reads it: an output a node returned, or what an edge brought to an input.
+    """``value`` validated against the type of the input or output ``name``. ``SKIPPED`` is returned as it is.
+
+    Args:
+        field: The input or output.
+        name: Its name, for the problem.
+        value: An argument that came over an edge, or a value the function returned.
+        returned: True for a value the function returned, which is validated strictly.
 
     Raises:
-        CallRejectedError: The field's type refuses the value: ``invalid_output`` for a return, else ``invalid_edge_value``.
+        CallRejectedError: The type refuses the value: problem ``invalid_output`` for a returned value, else
+            ``invalid_edge_value``. The problem does not quote the value.
     """
     if value is SKIPPED:
         return value
@@ -85,19 +113,27 @@ def _checked(field: Field, name: str, value: Any, *, returned: bool) -> Any:
         read = field.whole.read_returned(value) if returned else field.whole.read(value)
     except FieldValueError as refused:
         if returned:
-            raise CallRejectedError(problem.invalid_output(reason=refused.reason, name=name, errors=refused.errors, column=refused.column)) from None
-        raise CallRejectedError(problem.invalid_edge_value(name=name, reason=refused.reason, errors=refused.errors, column=refused.column)) from None
+            wrong = problem.invalid_output(reason=refused.reason, name=name, errors=refused.errors, column=refused.column)
+        else:
+            wrong = problem.invalid_edge_value(name=name, reason=refused.reason, errors=refused.errors, column=refused.column)
+        raise CallRejectedError(wrong) from None
     exact = field.whole.exact_classes
     if returned and exact and not isinstance(read, exact):
-        raise CallRejectedError(problem.invalid_output(reason=f"its type's own check gave a {type(read).__name__}, not a {field.whole.id}", name=name))
+        reason = f"its type's own check gave a {type(read).__name__}, not a {field.whole.id}"
+        raise CallRejectedError(problem.invalid_output(reason=reason, name=name))
     return read
 
 
-
-
 def jsonable(arguments: dict[str, Any]) -> Any:
-    """What a unit received, as JSON; a float that isn't finite as text. ``CallRejectedError`` as ``question_unwritable`` names
-    the first input with no JSON form."""
+    """A call's arguments as JSON values, to show a person who is asked a question.
+
+    Example: ``jsonable({"line": "b", "mark": "!"})`` returns the same dict. ``inf`` and ``nan`` become the
+    strings ``"Infinity"`` and ``"NaN"``.
+
+    Raises:
+        CallRejectedError: An argument has no JSON form (problem ``question_unwritable``, which names the first
+            such input).
+    """
     try:
         return plain_json(arguments, fallback=untyped_as_json)
     except (TypeError, ValueError, PydanticSerializationError) as error:
