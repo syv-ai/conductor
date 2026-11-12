@@ -15,6 +15,7 @@ from conductor import (
     NodeDeclarationError,
     NodeRegistry,
     Param,
+    Run,
     Series,
     Table,
     host_type,
@@ -260,7 +261,7 @@ def test_a_table_stands_in_a_union_and_in_a_series() -> None:
     assert _run(size, value=["a", "b"]).outputs == {"q.result": 2}
     run = _run(size, each, edges=[["each.result", "q.value"]])
     assert run.outputs == {"q.result": [1, 2]}
-    back = Graph.compile(run.graph.record, registry_of(size, each)).load_run(run.to_json())
+    back = Run.from_json(run.to_json(), Graph.compile(run.graph.record, registry_of(size, each)))
     assert [frame.to_dicts() for frame in back.results["each"]["result"]] == [[{"name": "Ann"}], [{"name": "Bo"}, {"name": "Cy"}]]
 
 

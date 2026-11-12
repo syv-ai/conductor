@@ -134,7 +134,7 @@ class RunCheckpoint(EventBase):
     """The run as it stands mid-leg, for a host to store, every ``checkpoint_every`` seconds and once when the leg is stopped.
 
     ``run`` is a copy, its ``status`` ``running``, or once stopped how it stopped (``cancelled``, ``failed``,
-    ``stopped``, ``timed_out``) with its ``cause``: ``graph.load_run`` takes its JSON and ``resume()`` calls only
+    ``stopped``, ``timed_out``) with its ``cause``: ``Run.from_json`` takes its JSON and ``resume()`` calls only
     the units it holds no record of, so a process that dies mid-leg repeats at most the calls that were in
     flight. Like ``RunEnd``'s, it stays out of what the event writes. A leg handed back (``stream(hand_back=)``)
     says one last, in place of ``RunEnd``: its ``run`` is ``running`` and holds every call the leg waited for.

@@ -1,9 +1,9 @@
-"""Saving a run and loading it back: ``run.to_json()`` and ``graph.load_run(...)``.
+"""Saving a run and loading it back: ``run.to_json()`` and ``Run.from_json(..., graph)``.
 
 A saved run is strict JSON: each node's outputs are a column per output,
 written by the output's own type, so a value reads back as itself, a float
 that isn't finite included. A save that doesn't fit the graph, damaged or
-written for another one, is refused at ``load_run`` as ``state_unreadable``,
+written for another one, is refused at ``Run.from_json`` as ``state_unreadable``,
 and a value with no JSON form at ``to_json`` as ``state_unwritable``; each
 names where, and quotes no stored value.
 """
@@ -50,19 +50,19 @@ def _every_save_reads_back_and_writes_the_same(monkeypatch: pytest.MonkeyPatch) 
 
     def written_and_read(run: Run) -> str:
         text = write(run)
-        assert write(run.graph.load_run(text)) == text
+        assert write(Run.from_json(text, run.graph)) == text
         return text
 
     monkeypatch.setattr(Run, "to_json", written_and_read)
 
 
 def _round_trip(run: Any) -> Any:
-    return run.graph.load_run(run.to_json())
+    return Run.from_json(run.to_json(), run.graph)
 
 
 def _refused(graph: Any, saved: dict[str, Any]) -> Any:
     with pytest.raises(InvalidCallError) as refused:
-        graph.load_run(json.dumps(saved))
+        Run.from_json(json.dumps(saved), graph)
     (problem,) = refused.value.errors()
     assert problem.type == "state_unreadable"
     return problem
@@ -146,7 +146,7 @@ def test_a_float_that_is_not_finite_comes_back_a_float_and_its_reader_receives_i
         saved = paused.to_json()
         _strict(saved)
 
-        loaded = graph.load_run(saved)
+        loaded = Run.from_json(saved, graph)
         value = loaded.results["m"]["result"]
         done = loaded.answer("c", "yes").resume()
 
@@ -172,7 +172,7 @@ def test_a_float_per_item_keeps_the_ones_that_are_not_finite():
     graph, _ = _paused_after(per_item, per_item=True)
     paused = graph.run(text="nan,inf,-inf")
 
-    assert _is_nan_inf_minus_inf(graph.load_run(paused.to_json()).results["m"]["result"])
+    assert _is_nan_inf_minus_inf(Run.from_json(paused.to_json(), graph).results["m"]["result"])
 
 
 class Reading(TypedDict):
@@ -345,7 +345,7 @@ def test_every_column_type_comes_back_exactly_and_a_reader_receives_the_same():
     paused = graph.run(text="x")
     before = paused.results["e"]["result"]
 
-    loaded = graph.load_run(paused.to_json())
+    loaded = Run.from_json(paused.to_json(), graph)
     after = loaded.results["e"]["result"]
     loaded.answer("c", "yes").resume()
 
@@ -494,7 +494,7 @@ def test_a_blank_saved_on_an_output_reads_back_as_none():
     graph, saved = _saved_mails()
     saved["outcomes"]["echo"]["outputs"]["result"][1] = None
 
-    assert graph.load_run(json.dumps(saved)).results["echo"]["result"] == ["secret-a", None, "secret-c"]
+    assert Run.from_json(json.dumps(saved), graph).results["echo"]["result"] == ["secret-a", None, "secret-c"]
 
 
 @pytest.mark.parametrize(
@@ -578,10 +578,10 @@ def test_a_save_names_its_graph_and_an_edited_graph_refuses_it_while_display_alo
     drawn = record.model_copy(update={"nodes": (_Node(id="s", node="shout", defaults={"text": "a"}, display={"x": 1}),)})
 
     with pytest.raises(InvalidCallError) as refused:
-        Graph.compile(edited, registry_of(shout)).load_run(saved)
+        Run.from_json(saved, Graph.compile(edited, registry_of(shout)))
     (problem,) = refused.value.errors()
     assert problem.type == "state_of_another_graph" and set(problem.ctx) == {"saved", "graph"}
-    assert Graph.compile(drawn, registry_of(shout)).load_run(saved).results == {"s": {"result": "A"}}
+    assert Run.from_json(saved, Graph.compile(drawn, registry_of(shout))).results == {"s": {"result": "A"}}
 
 
 def test_a_save_names_the_graphs_embedded_in_its_graph_too():
@@ -600,7 +600,7 @@ def test_a_save_names_the_graphs_embedded_in_its_graph_too():
     saved = Graph.compile(outer, with_inner(NodeRecord(id="x", node="shout"))).run(text="a").to_json()
 
     with pytest.raises(InvalidCallError) as refused:
-        Graph.compile(outer, with_inner(NodeRecord(id="x", node="quiet"))).load_run(saved)
+        Run.from_json(saved, Graph.compile(outer, with_inner(NodeRecord(id="x", node="quiet"))))
     assert [p.type for p in refused.value.errors()] == ["state_of_another_graph"]
 
 
@@ -685,7 +685,7 @@ def test_a_record_and_a_save_whose_keys_a_store_reordered_still_load_answer_and_
 
     stored = Graph.compile(reorder(json.dumps(record)), registry)  # the record as the store gave it back
     assert stored.fingerprint == graph.fingerprint
-    loaded = stored.load_run(reorder(first.to_json()))
+    loaded = Run.from_json(reorder(first.to_json()), stored)
     assert [w.id for w in loaded.waiting] == ids
     resumed = loaded.answer(answers).resume()
     assert resumed.results["o"] == straight.results["o"] and resumed.results["q"] == straight.results["q"]
@@ -693,7 +693,7 @@ def test_a_record_and_a_save_whose_keys_a_store_reordered_still_load_answer_and_
     assert resumed.results["s"]["result"].columns == ["zeta", "alpha", "mid"]
 
     _CALLS.clear()
-    again = stored.load_run(reorder(resumed.to_json())).again()  # the dict value read back in another order is the same value
+    again = Run.from_json(reorder(resumed.to_json()), stored).again()  # the dict value read back in another order is the same value
     assert again.results["o"] == straight.results["o"] and _CALLS == []
 
 
@@ -717,7 +717,7 @@ def test_a_save_loaded_into_a_graph_that_lost_a_node_is_refused_with_the_graphs_
     narrow = Graph.compile(record, full.filter(lambda d: d.id != gone))
 
     with pytest.raises(InvalidCallError) as refused:
-        narrow.load_run(saved)
+        Run.from_json(saved, narrow)
 
     assert refused.value.errors() == narrow.problems and (narrow.problems[0].type, narrow.problems[0].loc[0]) == ("unknown_node", gone)
 
@@ -879,7 +879,7 @@ def test_a_blank_and_a_skipped_unit_come_back_from_a_save_and_a_resumed_run_name
     assert list(run._outcomes["s"].values()) == [Done({"result": "ab"}), outcomes.NotCalled({"result": None}, "email"), Done({"result": SKIPPED}), Done({"result": "cd"})]
     assert [type(u) for u in run._outcomes["c"].values()] == [outcomes.Waiting, outcomes.NotCalled, Skipped, outcomes.Waiting]
     assert run._outcomes["c"][(1,)] == outcomes.NotCalled({"result": None}, "email")
-    loaded = graph.load_run(run.to_json())
+    loaded = Run.from_json(run.to_json(), graph)
     assert loaded._outcomes == run._outcomes
     assert loaded.resume().not_called == run.not_called == [
         NotCalled(loc=("s", 1), input="email"),

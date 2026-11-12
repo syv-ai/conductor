@@ -11,6 +11,7 @@ from conductor import (
     GraphRecord,
     InvalidCallError,
     NodeRecord,
+    Run,
     Series,
     Table,
     make_graph,
@@ -100,7 +101,7 @@ def test_a_series_returned_as_a_table_is_held_and_saved_as_that_table_with_only_
     ]}]
     assert json.loads(_graph(listed).run(text="x").to_json())["outcomes"]["c"]["outputs"]["result"] == [[{"name": "ida", "email": "ida@x.dk"}, {"name": "bo", "email": None}]]
 
-    loaded = graph.load_run(run.to_json())
+    loaded = Run.from_json(run.to_json(), graph)
     assert type(loaded._outcomes["c"][()].outputs["result"]) is Records
     assert loaded.to_json() == run.to_json() and loaded.results == run.results
     RECEIVED.clear()
@@ -145,7 +146,7 @@ def test_a_table_of_any_columns_is_a_series_of_its_records() -> None:
     run = graph.run(text="x")
 
     assert run.outputs["show.result"] == ["{'name': 'ida', 'email': 'ida@x.dk', 'age': 41}", "{'name': 'bo', 'email': None, 'age': 52}"]
-    assert graph.load_run(run.to_json()).results == run.results
+    assert Run.from_json(run.to_json(), graph).results == run.results
 
 
 def test_a_series_of_records_held_as_a_table_counts_its_items_against_the_ceiling() -> None:
@@ -173,7 +174,7 @@ def test_a_series_of_records_returned_per_item_inside_a_stored_graph_reaches_a_s
 
     records = [{"name": "ida", "email": "ida@x.dk"}, {"name": "bo", "email": None}]
     assert (run.status, run.outputs["count.result"]) == ("complete", [2, 2]) and RECEIVED == [records, records]  # one call per part
-    assert graph.load_run(run.to_json()).outputs == run.outputs
+    assert Run.from_json(run.to_json(), graph).outputs == run.outputs
 
 
 def test_split_returns_the_table_it_was_given_and_the_run_holds_it_by_column() -> None:
@@ -298,7 +299,7 @@ def test_a_table_read_and_then_split_is_written_once_in_a_save_and_is_one_table_
     assert saved["tables_written_once"] == [{"output": ["series-split", "result", 0], "same_as": ["people", "result", 0]}]
     assert run.to_json().count('"ida@x.dk"') == 1
 
-    loaded = graph.load_run(run.to_json())
+    loaded = Run.from_json(run.to_json(), graph)
     table, records = loaded._outcomes["people"][()].outputs["result"], loaded._outcomes["series-split"][()].outputs["result"]
     assert type(records) is Records and records.frame is table
     assert loaded.to_json() == run.to_json() and loaded.outputs == run.outputs
@@ -311,7 +312,7 @@ def test_a_table_with_equal_cells_that_is_another_object_is_written_in_full_and_
     saved = json.loads(run.to_json())
 
     assert "tables_written_once" not in saved and saved["outcomes"]["copied"]["outputs"]["result"] == saved["outcomes"]["people"]["outputs"]["result"]
-    assert graph.load_run(run.to_json()).results["copied"]["result"].equals(run.results["copied"]["result"])
+    assert Run.from_json(run.to_json(), graph).results["copied"]["result"].equals(run.results["copied"]["result"])
 
 
 def test_a_save_of_a_graph_with_no_table_has_no_tables_written_once_key() -> None:
@@ -325,7 +326,7 @@ def test_work_carried_from_an_earlier_run_shares_its_table_in_a_save_as_the_firs
     saved = json.loads(again.to_json())
 
     assert saved["tables_written_once"] == [{"output": ["series-split", "result", 0], "same_as": ["people", "result", 0]}]
-    assert graph.load_run(again.to_json()).to_json() == again.to_json()
+    assert Run.from_json(again.to_json(), graph).to_json() == again.to_json()
 
 
 def test_a_table_shared_inside_an_embedded_graph_is_written_once_under_the_nodes_names_in_the_save() -> None:
@@ -338,7 +339,7 @@ def test_a_table_shared_inside_an_embedded_graph_is_written_once_under_the_nodes
     run = graph.run(text="x")
 
     assert json.loads(run.to_json())["tables_written_once"] == [{"output": ["e/split", "result", 0], "same_as": ["e/people", "result", 0]}]
-    loaded = graph.load_run(run.to_json())
+    loaded = Run.from_json(run.to_json(), graph)
     assert loaded.to_json() == run.to_json() and loaded.outputs == {"greet.result": ["hi ida", "hi bo"]}
 
 
@@ -355,7 +356,7 @@ def test_a_save_whose_tables_written_once_names_an_output_that_is_no_table_writt
     saved["tables_written_once"][0]["same_as"] = same_as
 
     with pytest.raises(InvalidCallError) as refused:
-        graph.load_run(json.dumps(saved))
+        Run.from_json(json.dumps(saved), graph)
     (found,) = refused.value.errors()
     assert found.type == "state_unreadable" and "tables_written_once: 'series-split.result[0]' can't be read as the table at" in found.msg and "not an output written in full" in found.msg
 
@@ -375,7 +376,7 @@ def test_a_save_whose_tables_written_once_names_a_table_of_other_columns_is_refu
     saved["outcomes"]["any-table"]["outputs"]["result"][0]["columns"][0]["name"] = "nom"  # a table of any columns takes it
 
     with pytest.raises(InvalidCallError) as refused:
-        graph.load_run(json.dumps(saved))
+        Run.from_json(json.dumps(saved), graph)
     (found,) = refused.value.errors()
     assert found.type == "state_unreadable" and "the column 'name' its row type declares is missing" in found.msg
 

@@ -1,6 +1,6 @@
 """The graph record: its shape, how it is saved, what loading it reports, and ``make_graph``.
 
-A record is ``{"nodes": [...], "edges": [[from, to], ...]}``. ``registry.load``
+A record is ``{"nodes": [...], "edges": [[from, to], ...]}``. ``Graph.compile``
 reads it into a ``Graph``; what the record says that can't be meant is a
 problem of that graph, never an exception.
 """
@@ -18,6 +18,7 @@ from conductor import (
     NodeRecord,
     Param,
     Problem,
+    Run,
     Series,
     Table,
     Upgrade,
@@ -518,7 +519,7 @@ def test_a_skipped_item_of_a_series_output_is_a_gap_that_reads_back_from_json():
     run = graph.run(text="x")
 
     assert run.results["some"]["result"] == ["a", None, "c"] and run.results["upper"]["result"] == ["A", None, "C"]
-    assert graph.load_run(run.to_json()).results == run.results
+    assert Run.from_json(run.to_json(), graph).results == run.results
 
 
 def test_a_table_input_gets_its_declared_columns():
@@ -729,7 +730,7 @@ def test_a_float_that_isnt_finite_typed_in_is_written_as_its_text_so_a_record_eq
     assert record.nodes[0].values == {"n": "NaN"}
     assert reloaded == record and Graph.compile(reloaded, registry).fingerprint == Graph.compile(record, registry).fingerprint
     stored = Graph.compile(waiting.record.model_dump_json(), registry)
-    assert stored.load_run(waiting.run().to_json()).status == "waiting"
+    assert Run.from_json(waiting.run().to_json(), stored).status == "waiting"
     with pytest.raises(ValidationError):
         NodeRecord(id="x", node="half", display={"z": float("inf")})
     with pytest.raises(ValidationError):

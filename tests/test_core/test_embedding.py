@@ -28,6 +28,7 @@ from conductor import (
     NodeRegistry,
     Param,
     Policy,
+    Run,
     Series,
     Table,
     node,
@@ -469,21 +470,22 @@ def test_the_item_ceiling_holds_inside_and_is_raised_by_resume():
     graph = mapped("deep-inner")
     run = graph.run(text="ab cdef", max_items=3)
     assert run.status == "stopped" and run.state.cause.type == "item_ceiling" and run.state.cause.loc == ("e", 1, "c")
-    resumed = graph.load_run(run.to_json()).with_max_items(10).resume()
+    resumed = Run.from_json(run.to_json(), graph).with_max_items(10).resume()
     assert resumed.status == "complete" and resumed.results["e"]["up.result"] == [[["A", "B"]], [["C", "D", "E", "F"]]]
-    assert graph.load_run(run.to_json()).resume().status == "stopped"  # the ceiling it was saved under still holds inside
+    assert Run.from_json(run.to_json(), graph).resume().status == "stopped"  # the ceiling it was saved under still holds inside
 
 
 # -- pausing inside, saved, loaded in a fresh process --------------------------------------------------------
 
 _CHILD = """
 import importlib.util, json, sys
+from conductor import Run
 spec = importlib.util.spec_from_file_location("embedding_nodes", {module!r})
 nodes = importlib.util.module_from_spec(spec)
 sys.modules["embedding_nodes"] = nodes
 spec.loader.exec_module(nodes)
 graph = nodes.mapped("asking-inner")
-run = graph.load_run(open({path!r}).read())
+run = Run.from_json(open({path!r}).read(), graph)
 ids = [w.id for w in run.waiting]
 half = run.answer(ids[0], "first").resume()
 open({path!r}, "w").write(half.to_json())
@@ -505,10 +507,10 @@ def test_pausing_inside_a_mapped_embedding_half_answered_in_a_fresh_process_and_
     child = subprocess.run([sys.executable, "-c", _CHILD.format(module=__file__, path=str(path))], capture_output=True, text=True, timeout=120, check=False)
     assert child.returncode == 0, child.stderr
     assert json.loads(child.stdout) == {"status": "waiting", "ids": ids, "left": ids[1:], "calls": {}}  # the fresh process calls nothing again
-    done = graph.load_run(path.read_text()).answer(ids[1], "second").resume()
+    done = Run.from_json(path.read_text(), graph).answer(ids[1], "second").resume()
     assert done.status == "complete" and done.results["e"]["q.result"] == ["first", "second"]
     assert CALLS == {}
-    assert graph.load_run(done.to_json()).outputs == done.outputs  # the embedding's unit is not saved: it is read back from the units inside
+    assert Run.from_json(done.to_json(), graph).outputs == done.outputs  # the embedding's unit is not saved: it is read back from the units inside
     assert sorted(json.loads(done.to_json())["outcomes"]) == ["e/q", "e/up", "w"]  # a node inside is saved as any node, under its path
 
 
@@ -546,7 +548,7 @@ def test_a_cancel_inside_keeps_the_calls_on_threads_and_a_resume_repeats_none():
     assert cancelled.status == "cancelled" and cancelled.state.cause.type == "run_cancelled"
     assert CALLS["fetch"] in (1, 2)  # the ones that had a thread when the cancel was seen; those waiting for one were dropped
     assert cancelled.results["e"] == {"up.result": [None, None, None, None]}
-    resumed = graph.load_run(cancelled.to_json()).resume()
+    resumed = Run.from_json(cancelled.to_json(), graph).resume()
     assert resumed.status == "complete" and resumed.results["e"]["up.result"] == ["A?", "B?", "C?", "D?"]
     assert CALLS["fetch"] == 4  # the calls kept were not made again
 
@@ -556,7 +558,7 @@ def test_the_leg_timeout_crosses_into_the_embedded_graph():
     run = graph.run(text="a b c d", timeout=0.05)
     assert run.status == "timed_out" and run.state.cause.type == "run_timed_out"
     assert CALLS["fetch"] == 2
-    assert graph.load_run(run.to_json()).resume().status == "complete" and CALLS["fetch"] == 4
+    assert Run.from_json(run.to_json(), graph).resume().status == "complete" and CALLS["fetch"] == 4
 
 
 def test_an_inner_nodes_retry_is_its_own_policy():
@@ -573,7 +575,7 @@ def test_an_inner_nodes_attempt_timeout_fails_the_run_at_its_path_and_keeps_the_
     assert run.status == "failed" and run.state.cause.type == "timeout" and run.state.cause.loc == ("e", 1, "s")
     assert run.results["e"]["up.result"] == ["OK", None]
     CALLS.clear()
-    assert graph.load_run(run.to_json()).resume().status == "failed" and CALLS == {"stuck": 1}  # only the unit that failed
+    assert Run.from_json(run.to_json(), graph).resume().status == "failed" and CALLS == {"stuck": 1}  # only the unit that failed
 
 
 def test_a_failure_inside_keeps_the_finished_work_inside_for_a_resume():
@@ -582,7 +584,7 @@ def test_a_failure_inside_keeps_the_finished_work_inside_for_a_resume():
     run = events[-1].run
     assert run.status == "failed" and run.state.cause.loc == ("e", 1, "b") and run.state.cause.type == "failed"
     assert [(e.loc, e.cause.loc) for e in events if isinstance(e, NodeFailed)] == [(("e", "b"), ("e", 1, "b"))]  # the node, and in its cause the unit
-    again = graph.load_run(run.to_json()).resume()
+    again = Run.from_json(run.to_json(), graph).resume()
     assert again.status == "failed" and CALLS["upper"] == 2 and CALLS["boom"] == 3  # only the failed unit is called again
 
 
@@ -593,7 +595,7 @@ def test_a_checkpoint_mid_leg_loads_and_resumes_with_no_inner_call_repeated():
     mid = next(e.run for e in events if isinstance(e, RunCheckpoint) and 0 < _made(e.run, "e", "f") < 4)
     assert mid.status == "running"
     made = _made(mid, "e", "f")
-    resumed = graph.load_run(mid.to_json()).resume()  # as a process that died mid-leg would
+    resumed = Run.from_json(mid.to_json(), graph).resume()  # as a process that died mid-leg would
     assert resumed.status == "complete" and resumed.results["e"]["up.result"] == ["A?", "B?", "C?", "D?"]
     assert CALLS["fetch"] == 4 + (4 - made)  # only the calls the checkpoint holds no record of
 
@@ -631,7 +633,7 @@ def test_an_embedded_graph_inside_an_embedded_graph_goes_by_path():
     with pytest.raises(InvalidCallError) as refused:
         run.answer("e@1/in/q~00000000", "x")
     assert refused.value.errors()[0].loc == ("e", 1, "in", "q")
-    done = graph.load_run(run.answer({ids[1]: "two"}).resume().to_json()).answer(ids[0], "one").resume()
+    done = Run.from_json(run.answer({ids[1]: "two"}).resume().to_json(), graph).answer(ids[0], "one").resume()
     assert done.status == "complete" and done.outputs == {"e.in.q.result": ["one", "two"]} and CALLS["upper"] == 2
 
 
@@ -648,7 +650,7 @@ def test_again_calls_inside_only_what_it_would_drawn_flat_after_a_change_and_aft
         assert run.again(text="zz ab cd ef").results[at[0]][at[1]] == ["ZZ!", "AB!", "CD!", "EF!"]
         assert CALLS == {"words": 1, "upper": 1, "exclaim": 1}
         CALLS.clear()
-        assert graph.load_run(run.again(text="ab").to_json()).again(text="ab cd").status == "complete"
+        assert Run.from_json(run.again(text="ab").to_json(), graph).again(text="ab cd").status == "complete"
         assert CALLS == {"words": 2, "upper": 1, "exclaim": 1}  # what a run carried and didn't take is saved, and taken later
 
 
@@ -683,7 +685,7 @@ def test_identical_items_take_their_answers_in_item_order_whatever_thread_finish
     run = run.answer({w.id: f"answer {w.loc[1]}" for w in run.waiting}).resume()
     assert run.results["e"]["q.result"] == ["answer 0", "answer 1", "answer 2"]
     CALLS.clear()
-    again = graph.load_run(run.to_json()).again()  # stagger is called again, and its first call comes back last
+    again = Run.from_json(run.to_json(), graph).again()  # stagger is called again, and its first call comes back last
     assert again.status == "complete" and CALLS["stagger"] == 3 and CALLS["ask"] == 0
     assert again.results["e"]["q.result"] == ["answer 0", "answer 1", "answer 2"]
     CALLS.clear()
@@ -741,7 +743,7 @@ def read(run) -> tuple[Any, ...]:
 
 
 def reads_alike_loaded(run) -> bool:
-    assert read(run) == read(run.graph.load_run(run.to_json()))
+    assert read(run) == read(Run.from_json(run.to_json(), run.graph))
     return True
 
 
@@ -754,7 +756,7 @@ def test_an_embedded_graph_reads_alike_live_and_loaded_at_every_pause_and_after_
     while run.status == "waiting":
         first, *rest = run.waiting
         one = run.answer(first, "yes")  # one answer, not resumed: what it settles reads as it will loaded
-        assert reads_alike_loaded(one) and read(run) == read(run.graph.load_run(run.to_json()))  # and the run it was given to is as it was
+        assert reads_alike_loaded(one) and read(run) == read(Run.from_json(run.to_json(), run.graph))  # and the run it was given to is as it was
         answered = one.answer({unit.id: "yes" for unit in rest})
         assert reads_alike_loaded(answered)
         run = answered.resume()
@@ -835,7 +837,7 @@ def test_an_embedded_graph_with_no_output_says_the_same_on_a_fresh_run_and_on_on
     graph = load({"e": "quiet-inner"})
     said = [("node_start", ("e",)), ("node_start", ("e", "n")), ("node_complete", ("e", "n")), ("node_complete", ("e",))]
     assert _said_of(stream(graph.with_inputs(text="x")), "e") == said
-    assert _said_of(stream(graph.load_run(graph.with_inputs(text="x").to_json())), "e") == said
+    assert _said_of(stream(Run.from_json(graph.with_inputs(text="x").to_json(), graph)), "e") == said
 
 
 def test_an_embedded_graph_with_no_output_is_done_when_the_nodes_inside_it_are_and_not_before():
@@ -844,7 +846,7 @@ def test_an_embedded_graph_with_no_output_is_done_when_the_nodes_inside_it_are_a
     waiting = graph.run(text="x")
     first = stream(graph.with_inputs(text="x"))
     assert (waiting.status, _said_of(first, "e"), CALLS["note"]) == ("waiting", [], 0)
-    for run in (waiting, graph.load_run(waiting.to_json())):
+    for run in (waiting, Run.from_json(waiting.to_json(), graph)):
         said = _said_of(stream(run.answer(run.waiting[0].id, "y")), "e")
         assert said == [("node_start", ("e",)), ("node_start", ("e", "n")), ("node_complete", ("e", "n")), ("node_complete", ("e",))]
 
@@ -858,4 +860,4 @@ def test_an_embedded_graph_of_no_nodes_runs_to_nothing_as_a_graph_of_no_nodes_do
     run = graph.run(text="x")
     assert graph.problems == [] and (alone.status, alone.results) == ("complete", {})
     assert (run.status, run.results) == ("complete", {"u": {"result": "X"}, "e": {}})
-    assert graph.load_run(run.to_json()).results == run.results
+    assert Run.from_json(run.to_json(), graph).results == run.results

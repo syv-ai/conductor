@@ -825,7 +825,7 @@ async def test_a_run_whose_leg_raised_after_a_checkpoint_lists_what_waits_in_tha
     failed = await store.ended(run_id)
 
     assert failed.cause is not None and (failed.status, failed.cause.type) == ("failed", "state_unwritable")
-    stored = Graph.compile(graph, registry).load_run(store.rows[run_id].run)
+    stored = Run.from_json(store.rows[run_id].run, Graph.compile(graph, registry))
     assert [unit.id for unit in failed.waiting] == [unit.id for unit in stored.waiting] and len(failed.waiting) == 1
 
 
@@ -1025,7 +1025,7 @@ async def test_a_run_handed_back_by_a_worker_shutting_down_reads_as_running_with
     run = await worker.read(run_id)
     view = RunView.of(run)
     assert (view.status, view.cause, run.row.owner, run.row.lease_until) == ("running", None, None, 0.0)
-    assert Graph.compile(run.row.graph, registry).load_run(run.row.run).status == "running"
+    assert Run.from_json(run.row.run, Graph.compile(run.row.graph, registry)).status == "running"
 
 
 async def test_a_run_handed_back_at_shutdown_stores_no_run_end_and_the_worker_that_takes_it_repeats_no_call() -> None:

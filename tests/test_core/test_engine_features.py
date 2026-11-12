@@ -20,6 +20,7 @@ from conductor import (
     InvalidCallError,
     Param,
     Policy,
+    Run,
     Series,
     host_type,
     node,
@@ -172,7 +173,7 @@ def test_failure_keeps_calls_already_made():
         seen.append(text)
         return text
 
-    again = Graph.compile(GraphRecord.model_validate(chain("split", "boom")), registry_of(split, fixed)).load_run(run.to_json()).resume()
+    again = Run.from_json(run.to_json(), Graph.compile(GraphRecord.model_validate(chain("split", "boom")), registry_of(split, fixed))).resume()
     assert again.status == "complete" and seen == ["c"], seen  # nothing finished runs twice
 
 
@@ -463,7 +464,7 @@ def test_own_types_accept_and_round_trip():
     assert not graph.problems, graph.problems
     run = graph.run(text="abc")
     assert run.outputs == {"s.result": 3}
-    again = graph.load_run(run.to_json())
+    again = Run.from_json(run.to_json(), graph)
     assert again.results["a"]["result"].content == b"6.0"
     assert Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "d", "node": "double", "values": {"x": "1,5"}}]}), reg4).run().outputs == {"d.result": 3.0}
     wrong = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "d", "node": "double"}, {"id": "c", "node": "count"}], "edges": [["d.result", "c.text"]]}), reg4)
@@ -669,7 +670,7 @@ def test_a_timed_out_or_cancelled_leg_keeps_the_calls_already_on_threads():
 
     graph = Graph.compile(GraphRecord.model_validate(chain("split", "mail4")), registry_of(split, mail4))
     stopped = graph.with_inputs(text="a,b,c,d").resume(timeout=0.05)
-    finished = graph.load_run(stopped.to_json()).resume()
+    finished = Run.from_json(stopped.to_json(), graph).resume()
 
     assert stopped.status == "timed_out" and sorted(sent) == ["a", "b", "c", "d"]
     assert finished.status == "complete" and sorted(sent) == ["a", "b", "c", "d"]

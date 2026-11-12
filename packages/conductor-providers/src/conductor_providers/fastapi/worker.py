@@ -634,4 +634,4 @@ def _loaded(row: StoredRun, nodes: NodeRegistry) -> Run:
     Returns:
         The run as the row's ``run`` saved it.
     """
-    return Graph.compile(row.graph, nodes).load_run(row.run)
+    return Run.from_json(row.run, Graph.compile(row.graph, nodes))

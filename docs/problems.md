@@ -12,7 +12,7 @@ from typing import Annotated
 
 from conductor import (
     Ask, EndedEarly, ExternalError, FromRun, Graph, GraphRecord, InvalidCallError, NodeDeclarationError,
-    NodeError, NodeRegistry, Param, Policy, Series, Upgrade, host_type, make_graph, node, stored_graph,
+    NodeError, NodeRegistry, Param, Policy, Run, Series, Upgrade, host_type, make_graph, node, stored_graph,
 )
 from conductor.testing import check_registry
 
@@ -718,8 +718,8 @@ Its `ctx` keys are in the reference: `python -m conductor.about run-not-complete
 ### `state_of_another_graph`
 
 ```python
-print(refused(lambda: counting.load_run(uppering.run(text="a").to_json())))  # ['state_of_another_graph']
-print(said(lambda: counting.load_run(uppering.run(text="a").to_json()))[0])  # The saved run is of another graph (2071554324bb5138) than this one (afb5e890aac04b55); an edited graph starts a new run.
+print(refused(lambda: Run.from_json(uppering.run(text="a").to_json(), counting)))  # ['state_of_another_graph']
+print(said(lambda: Run.from_json(uppering.run(text="a").to_json(), counting))[0])  # The saved run is of another graph (2071554324bb5138) than this one (afb5e890aac04b55); an edited graph starts a new run.
 ```
 
 **Fix.** Load the save into the graph it was saved from. An edited graph starts a new run.
@@ -733,8 +733,8 @@ import json
 
 tampered = json.loads(uppering.run(text="a").to_json())
 tampered["outcomes"] = {"upper": "not units"}
-print(refused(lambda: uppering.load_run(json.dumps(tampered))))  # ['state_unreadable']
-print(said(lambda: uppering.load_run(json.dumps(tampered)))[0])  # The saved run does not fit this graph at 'outcomes.upper': Input should be an object. Load it into the graph it was saved from.
+print(refused(lambda: Run.from_json(json.dumps(tampered), uppering)))  # ['state_unreadable']
+print(said(lambda: Run.from_json(json.dumps(tampered), uppering))[0])  # The saved run does not fit this graph at 'outcomes.upper': Input should be an object. Load it into the graph it was saved from.
 ```
 
 **Fix.** Load what `run.to_json()` wrote, unchanged. `ctx.at` says where it stopped fitting.

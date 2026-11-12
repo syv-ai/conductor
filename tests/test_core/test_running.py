@@ -27,6 +27,7 @@ from conductor import (
     NodeRecord,
     NotCalled,
     Policy,
+    Run,
     Series,
     Table,
     host_type,
@@ -103,7 +104,7 @@ def test_node_complete_counts_the_items_a_blank_kept_the_node_from_and_a_saved_r
 
     (mail,) = [e for e in events if e.type == "node_complete" and e.loc[0] == "send"]
     assert (mail.outcomes, mail.not_called, mail.reused) == (3, 1, 0)
-    loaded = graph.load_run(events[-1].run.to_json())
+    loaded = Run.from_json(events[-1].run.to_json(), graph)
     assert loaded.not_called == [NotCalled(loc=("send", 1), input="email")]
     assert loaded.results["send"]["result"] == ["sent ida@a.dk", None, "sent al@a.dk"]
     assert loaded.status == "complete"
@@ -371,7 +372,7 @@ def test_units_recorded_as_threads_return_are_read_in_item_order_live_in_a_check
     checkpoints = [event.run for event in events if event.type == "run_checkpoint"]
 
     assert [call.loc for call in run.not_called] == in_item_order
-    assert [call.loc for call in graph.load_run(run.to_json()).not_called] == in_item_order
+    assert [call.loc for call in Run.from_json(run.to_json(), graph).not_called] == in_item_order
     assert checkpoints and all([call.loc for call in held.not_called] == sorted(call.loc for call in held.not_called) for held in checkpoints)
     assert any(len(held.not_called) > 1 for held in checkpoints)  # some checkpoint held the later items before the first
 
@@ -449,7 +450,7 @@ def test_one_leg_starts_everything_its_own_units_make_ready_and_a_further_resume
 
     assert run.status == "complete" and run.outputs == outputs and len(calls) == expected
     assert all(value is not None for values in run.results.values() for value in values.values())
-    assert run.resume().outputs == outputs and graph.load_run(run.to_json()).resume().outputs == outputs and len(calls) == expected
+    assert run.resume().outputs == outputs and Run.from_json(run.to_json(), graph).resume().outputs == outputs and len(calls) == expected
 
 
 def test_concurrency_one_with_an_attempt_timeout_never_has_two_calls_in_flight():
@@ -891,7 +892,7 @@ def test_a_float_that_is_not_finite_inside_a_model_survives_a_saved_run_and_the_
     ), registry_of(measure, check, width))
     paused = graph.run(text="x")
 
-    loaded = graph.load_run(paused.to_json())
+    loaded = Run.from_json(paused.to_json(), graph)
 
     reading = loaded.results["m"]["result"]
     assert math.isnan(reading.value) and (reading.low, reading.high) == (-math.inf, math.inf)
@@ -947,7 +948,7 @@ def test_a_table_with_a_blank_cell_survives_a_saved_run():
     ), registry_of(contacts, records, send))
     run = graph.run(text="x")
 
-    loaded = graph.load_run(run.to_json())
+    loaded = Run.from_json(run.to_json(), graph)
 
     assert loaded.results["c"]["result"].to_dicts() == [{"name": "ida", "email": "ida@a.dk"}, {"name": "bo", "email": None}]
     assert loaded.not_called == [NotCalled(loc=("m", 1), input="email")]
@@ -1049,8 +1050,8 @@ def test_a_stream_offers_checkpoints_and_resuming_the_last_one_repeats_only_the_
     saved, before = _bounded(until_killed())
     time.sleep(0.1)  # the abandoned leg's threads come back
     calls.clear()
-    held = sum(r is not None for r in graph.load_run(saved).results["llm"]["result"])
-    resumed = graph.load_run(saved).resume()
+    held = sum(r is not None for r in Run.from_json(saved, graph).results["llm"]["result"])
+    resumed = Run.from_json(saved, graph).resume()
 
     assert 0 < held <= before < 400
     assert resumed.status == "complete" and resumed.results["llm"]["result"] == [n * 2 for n in range(400)]
@@ -1097,7 +1098,7 @@ def test_a_leg_handed_back_keeps_the_calls_in_flight_and_ends_with_a_checkpoint_
     assert left.status == "running" and 0 < sum(v is not None for v in left.results["llm"]["result"]) == len(calls) < 6  # the calls in flight came back and are kept
 
     calls.clear()
-    resumed = graph.load_run(left.to_json()).resume()  # another process goes on, repeating no call
+    resumed = Run.from_json(left.to_json(), graph).resume()  # another process goes on, repeating no call
     assert resumed.status == "complete" and resumed.results["llm"]["result"] == [2, 4, 6, 8, 10, 12]
     assert len(calls) == 6 - sum(v is not None for v in left.results["llm"]["result"])
 
@@ -1146,7 +1147,7 @@ def test_each_checkpoint_of_a_leg_that_reuses_earlier_work_resumes_without_a_cal
     taken = _bounded(checkpoints())
     assert len(taken) > 5 and calls == []
     for snapshot in taken:
-        assert graph.load_run(snapshot.to_json()).resume().results == first.results
+        assert Run.from_json(snapshot.to_json(), graph).resume().results == first.results
     assert calls == []
 
 

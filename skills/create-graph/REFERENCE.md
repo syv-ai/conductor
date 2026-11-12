@@ -5,7 +5,7 @@ One module, on three text nodes declared at the top. Events, errors and serving 
 ```python
 from typing import Annotated
 
-from conductor import Ask, Graph, GraphRecord, NodeRecord, NodeRegistry, Param, Series, node
+from conductor import Ask, Graph, GraphRecord, NodeRecord, NodeRegistry, Param, Run, Series, node
 from conductor.widgets import Textarea
 
 registry = NodeRegistry(category="text")
@@ -39,7 +39,7 @@ asking = Graph.compile(GraphRecord(
 
 first = asking.run()
 assert first.status == "waiting" and [unit.inputs["proposal"] for unit in first.waiting] == ["first", "second"]
-stored = asking.load_run(first.to_json())               # how a host keeps the run between legs
+stored = Run.from_json(first.to_json(), asking)               # how a host keeps the run between legs
 answered = stored.answer(stored.waiting[1].id, "Second, approved")
 second = answered.resume()
 assert [unit.inputs["proposal"] for unit in second.waiting] == ["first"]

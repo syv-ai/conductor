@@ -24,6 +24,7 @@ from conductor import (
     NodeDeclarationError,
     Param,
     Policy,
+    Run,
     Series,
     Table,
     make_graph,
@@ -184,7 +185,7 @@ def test_a_number_and_a_date_are_read_from_their_json_form_into_the_outputs_type
                                               "edges": [["q.result", "w.day"]]}), registry_of(when, weekday))
     run = graph.run()
     assert run.waiting[0].questions[0].json_schema == {"format": "date", "type": "string"}
-    done = graph.load_run(run.answer("q", "2026-11-10").to_json()).resume()
+    done = Run.from_json(run.answer("q", "2026-11-10").to_json(), graph).resume()
     assert done.results["q"]["result"] == datetime.date(2026, 11, 10) and done.outputs == {"w.result": 2}
     assert _refused(lambda: run.answer("q", "next tuesday"))[0].type == "invalid_answer"
 
@@ -269,7 +270,7 @@ def test_a_form_field_whose_default_is_skipped_proposes_nothing_and_left_out_is_
     answered = run.answer({"q@0": {"note": "fine"}, "q@1": {"note": "late", "escalate": "boss"}}).resume()
 
     assert answered.results["q"] == {"note": ["fine", "late"], "escalate": [None, "boss"]}
-    assert answered.results["q"] == run.graph.load_run(answered.to_json()).results["q"]
+    assert answered.results["q"] == Run.from_json(answered.to_json(), run.graph).results["q"]
 
 
 class Line(TypedDict):
@@ -306,13 +307,13 @@ def test_a_table_is_answered_as_records_which_are_its_rows_and_keep_through_json
     (question,) = run.waiting[0].questions
     assert not question.many and question.type.startswith("Table") and [c["properties"]["name"]["const"] for c in question.json_schema["properties"]["columns"]["prefixItems"]] == ["sku", "qty"]
     assert question.default == {"columns": [{"name": "sku", "type": "str", "values": ["A"]}, {"name": "qty", "type": "int", "values": [1]}]}  # a table as conductor writes one
-    answered = graph.load_run(graph.load_run(run.to_json()).answer("q", [{"sku": "B", "qty": 2}, {"sku": "C", "qty": 3}]).to_json())
+    answered = Run.from_json(Run.from_json(run.to_json(), graph).answer("q", [{"sku": "B", "qty": 2}, {"sku": "C", "qty": 3}]).to_json(), graph)
     assert answered.resume().outputs == {"e.result": ["BB", "CCC"]}
 
 
 def test_a_table_default_survives_saving_and_answers_like_any_value():
     graph = _lines_graph()
-    run = graph.load_run(graph.run().to_json())
+    run = Run.from_json(graph.run().to_json(), graph)
     assert run.answer("q", run.waiting[0].questions[0].default).resume().outputs == {"e.result": ["A"]}
 
 
@@ -388,12 +389,12 @@ def test_a_series_of_a_literal_is_a_pick_of_several_run_end_to_end_through_json(
         "nodes": [{"id": "s", "node": "split", "values": {"text": "Ida,Bo"}}, {"id": "q", "node": "colours"}, {"id": "u", "node": "upper"}, {"id": "j", "node": "join"}],
         "edges": [["s.result", "q.name"], ["q.result", "u.text"], ["u.result", "j.texts"]],
     }), registry_of(split, colours, upper, join))
-    run = graph.load_run(graph.run().to_json())
+    run = Run.from_json(graph.run().to_json(), graph)
     (question,) = run.waiting[0].questions
     assert (question.many, question.default, [c["id"] for c in question.choices]) == (True, ["red"], ["red", "green", "blue"])
     faults = _refused(lambda: run.answer({"q@0": ["red", "red"], "q@1": ["pink"]}))
     assert [f.msg for f in faults] == ["That is not a valid answer: a choice is picked twice", "That is not a valid answer: Input should be 'red', 'green' or 'blue'"]
-    answered = graph.load_run(run.answer({"q@0": ["red", "blue"], "q@1": []}).to_json())
+    answered = Run.from_json(run.answer({"q@0": ["red", "blue"], "q@1": []}).to_json(), graph)
     assert answered.results["u"]["result"] == [[None, None], []]  # the picks are items, a list for each name; nothing read them yet
     done = answered.resume()
     assert done.status == "complete" and done.results["q"]["result"] == [["red", "blue"], []] and done.results["j"]["result"] == ["RED+BLUE", ""]
@@ -609,7 +610,7 @@ def test_after_an_answer_the_next_leg_calls_only_what_waited_on_it_and_an_item_l
     }), registry_of(split, gate, upper))
     run = graph.run()
     called.clear()
-    leg = graph.load_run(run.answer("q@1", "yes").to_json()).resume()
+    leg = Run.from_json(run.answer("q@1", "yes").to_json(), graph).resume()
     assert called == [] and leg.status == "waiting" and [place(w) for w in leg.waiting] == ["q@2"]
     assert leg.results["u"]["result"] == ["A", "YES", None]
     assert leg.waiting[0] == run.waiting[1]  # the question is as it was asked
@@ -663,7 +664,7 @@ def test_waiting_units_are_in_node_then_item_order_whatever_order_they_asked_in(
     }), registry_of(split, slow_ask, ask))
     run = graph.run()
     assert [place(w) for w in run.waiting] == ["a@0", "a@1", "a@2", "b@0", "b@1", "b@2"]
-    assert [place(w) for w in graph.load_run(run.to_json()).waiting] == [place(w) for w in run.waiting]
+    assert [place(w) for w in Run.from_json(run.to_json(), graph).waiting] == [place(w) for w in run.waiting]
 
 
 def test_a_waiting_unit_keeps_the_table_and_series_it_received_through_a_save():
@@ -688,15 +689,15 @@ def test_a_waiting_unit_keeps_the_table_and_series_it_received_through_a_save():
     }), registry_of(rows, records, look))
     run = graph.run()
     assert run.waiting[0].inputs == {"names": ["Ida", "Bo"], "table": {"columns": [{"name": "name", "type": "str", "values": ["Ida", "Bo"]}]}}
-    assert graph.load_run(run.to_json()).waiting == run.waiting
+    assert Run.from_json(run.to_json(), graph).waiting == run.waiting
 
 
 def test_items_made_of_what_a_caller_gives_pause_save_answer_and_finish():
     gate, _ = _counted()
     graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "s", "node": "split"}, {"id": "q", "node": "gate"}], "edges": [["s.result", "q.text"]]}), registry_of(split, gate))
-    run = graph.load_run(graph.run(text="a,b").to_json())
+    run = Run.from_json(graph.run(text="a,b").to_json(), graph)
     assert [place(w) for w in run.waiting] == ["q@1"]
-    assert graph.load_run(run.answer("q@1", "B").to_json()).resume().outputs == {"q.result": ["a", "B"]}
+    assert Run.from_json(run.answer("q@1", "B").to_json(), graph).resume().outputs == {"q.result": ["a", "B"]}
 
 
 def test_an_answer_names_an_item_by_its_place_so_one_for_an_item_that_no_longer_waits_is_refused():
@@ -716,7 +717,7 @@ def test_a_saved_waiting_unit_the_graph_never_made_is_refused_on_load():
     asked["states"].append(None)
     asked["outputs"]["result"].append(None)
     asked["questions"]["2"] = asked["questions"]["1"]
-    (fault,) = _refused(lambda: graph.load_run(json.dumps(saved)))
+    (fault,) = _refused(lambda: Run.from_json(json.dumps(saved), graph))
     assert (fault.type, fault.ctx["at"]) == ("state_unreadable", "outcomes.q")
 
 
@@ -727,7 +728,7 @@ def test_a_save_cannot_hold_a_waiting_unit_without_its_question():
     saved = json.loads(run.to_json())
     assert saved["outcomes"]["q"]["states"] == ["done", None] and list(saved["outcomes"]["q"]["questions"]) == ["1"]
     del saved["outcomes"]["q"]["questions"]
-    loaded = graph.load_run(json.dumps(saved))
+    loaded = Run.from_json(json.dumps(saved), graph)
     assert loaded.waiting == []
     assert [place(w) for w in loaded.resume().waiting] == ["q@1"]  # the node is called for it, and asks again
 

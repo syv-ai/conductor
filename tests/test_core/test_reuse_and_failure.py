@@ -29,6 +29,7 @@ from conductor import (
     NodeRecord,
     Param,
     Policy,
+    Run,
     Series,
     Table,
     host_type,
@@ -310,7 +311,7 @@ def test_a_run_that_failed_resumes_from_its_json_calling_only_what_had_not_finis
     graph = Graph.compile(make_graph(split, mail, values={"split.text": "a,b,c"}), registry_of(split, mail))
     failed = graph.run()
     broken["on"] = False
-    resumed = graph.load_run(failed.to_json()).resume()
+    resumed = Run.from_json(failed.to_json(), graph).resume()
 
     assert failed.status == "failed" and failed.state.cause.loc == ("mail", 1)
     assert resumed.results["mail"]["result"] == ["sent a", "sent b", "sent c"]
@@ -341,7 +342,7 @@ def test_a_cancelled_leg_keeps_what_it_finished_and_resuming_calls_none_of_it_ag
         return last.run  # type: ignore[union-attr]
 
     stopped = asyncio.run(cancel_after_two())
-    finished = graph.load_run(stopped.to_json()).resume()
+    finished = Run.from_json(stopped.to_json(), graph).resume()
 
     assert finished.results["count-calls"]["result"] == ["a", "b", "c", "d"]
     assert sorted(calls) == ["a", "b", "c", "d"]
@@ -432,7 +433,7 @@ def test_a_dict_given_again_in_another_key_order_is_the_same_work():
         return 1
 
     graph = Graph.compile(GraphRecord(nodes=[NodeRecord(id="t", node="take-mapping")]), registry_of(take_mapping))
-    first = graph.load_run(graph.run(value={"a": 1, "b": 2}).to_json())
+    first = Run.from_json(graph.run(value={"a": 1, "b": 2}).to_json(), graph)
     first.again(value={"b": 2, "a": 1})
 
     assert calls == [{"a": 1, "b": 2}]
@@ -546,7 +547,7 @@ def test_a_table_output_reads_back_by_its_own_column_types_whatever_graphs_came_
     for i in range(60):
         kind = "date" if i % 2 == 0 else "str"
         graph = Graph.compile(GraphRecord(nodes=[NodeRecord(id="m", node="mk", values={"kind": kind})]), registry)
-        value = graph.load_run(graph.run().to_json()).results["m"]["result"]["v"][0]
+        value = Run.from_json(graph.run().to_json(), graph).results["m"]["result"]["v"][0]
         assert isinstance(value, date) == (kind == "date"), (i, value)
         del graph
         gc.collect()
@@ -826,7 +827,7 @@ def test_an_again_that_fails_before_it_reaches_the_old_items_still_reuses_them_o
     failed = first.again(items=["eva", "ida", "bo"])
     assert failed.status == "failed" and sent == ["eva"]
     broken["on"] = False
-    resumed = graph.load_run(failed.to_json()).resume()
+    resumed = Run.from_json(failed.to_json(), graph).resume()
 
     assert sent == ["eva", "eva"] and resumed.results["m"]["result"] == ["sent eva", "sent ida", "sent bo"]
 
@@ -840,7 +841,7 @@ def test_an_again_cancelled_before_the_node_runs_then_resumed_sends_only_the_new
 
     stopped = _events(first.with_inputs(items=["ida", "bo", "al"]), cancel=cancel)[-1].run
     assert stopped.status == "cancelled"
-    resumed = graph.load_run(stopped.to_json()).resume()
+    resumed = Run.from_json(stopped.to_json(), graph).resume()
 
     assert sent == ["al", "confirm sent al"] and resumed.results["confirm"]["result"] == ["SENT IDA", "SENT BO", "SENT AL"]
 
@@ -902,7 +903,7 @@ def test_a_cancelled_leg_between_two_runs_reuses_what_one_direct_leg_does():
         direct_calls = sorted(sent)
         sent.clear()
         stopped = _events(run.with_inputs(items=edited), cancel=cancel)[-1].run
-        through = graph.load_run(stopped.to_json()).resume()
+        through = Run.from_json(stopped.to_json(), graph).resume()
         assert sorted(sent) == direct_calls and through.results == direct.results
         run, items = direct, edited
 
@@ -929,7 +930,7 @@ def test_a_call_that_returned_skipped_is_a_result_and_is_not_made_again_live_or_
 
     events = _events(first.with_inputs())
     again = events[-1].run
-    loaded_again = graph.load_run(first.to_json()).again()
+    loaded_again = Run.from_json(first.to_json(), graph).again()
 
     assert calls == ["a", "abc", "b"]
     assert [(e.outcomes, e.reused) for e in events if e.type == "node_complete" and e.loc == ("o",)] == [(3, 3)]
@@ -985,7 +986,7 @@ def test_a_table_column_its_row_type_doesnt_name_reads_back_from_json_as_written
         return pl.DataFrame({"when": [dt.date(2026, 1, 1)], "at": [dt.time(1, 2)], "x": [math.nan], "n": [1]})
 
     graph = Graph.compile(GraphRecord(nodes=[NodeRecord(id="m", node="mixed")]), registry_of(mixed))
-    frame = graph.load_run(graph.run(text="a").to_json()).results["m"]["result"]
+    frame = Run.from_json(graph.run(text="a").to_json(), graph).results["m"]["result"]
 
     assert frame.schema == pl.Schema({"when": pl.Date, "at": pl.Time, "x": pl.Float64, "n": pl.Int64})
     assert math.isnan(frame["x"][0])
@@ -1040,7 +1041,7 @@ def test_a_saved_run_that_does_not_fit_is_refused_naming_where_and_never_with_a_
         copy = json.loads(json.dumps(saved))
         tamper(copy)
         with pytest.raises(InvalidCallError) as refused:
-            graph.load_run(json.dumps(copy))
+            Run.from_json(json.dumps(copy), graph)
         (problem,) = refused.value.errors()
         assert (problem.type, problem.ctx["at"]) == ("state_unreadable", at), problem
 
@@ -1071,7 +1072,7 @@ def test_identical_items_keep_their_own_answers_kth_to_kth_when_an_item_is_inser
 def test_identical_answered_items_keep_their_answers_in_order_when_they_all_move_and_through_json():
     run = _answered(["bo", "al", "bo"], [True, True, False])
 
-    moved = run.graph.load_run(run.to_json()).again(items=["al", "bo", "bo"])
+    moved = Run.from_json(run.to_json(), run.graph).again(items=["al", "bo", "bo"])
 
     assert moved.results["a"]["result"] == [True, True, False] and moved.waiting == []
 
@@ -1146,7 +1147,7 @@ def test_an_answer_survives_an_edit_and_its_revert_while_the_edited_item_still_w
     assert [w.inputs["name"] for w in b.waiting] == ["bob"]
     sent.clear()
 
-    c = graph.load_run(b.to_json()).again(items=["ida", "bo"])
+    c = Run.from_json(b.to_json(), graph).again(items=["ida", "bo"])
 
     assert c.status == "complete" and c.results["m"]["result"] == ["sent ida@a.dk", "sent bo@a.dk"] and sent == []
 
@@ -1219,7 +1220,7 @@ def test_a_waiting_item_carried_through_a_cancelled_again_waits_at_its_new_place
     stopped = _events(run.with_inputs(items=["eva", "ida", "bo"]), cancel=cancel)[-1].run
     asked.clear()
 
-    resumed = graph.load_run(stopped.to_json()).resume()
+    resumed = Run.from_json(stopped.to_json(), graph).resume()
 
     assert asked == ["eva"] and [w.inputs["name"] for w in resumed.waiting] == ["eva", "ida", "bo"]
 
@@ -1274,7 +1275,7 @@ def test_a_node_redeclared_under_its_id_and_version_with_other_code_is_new_work_
     record = GraphRecord(nodes=[NodeRecord(id="e", node="echo")])
     saved = Graph.compile(record, registry_of(echo)).run(text="Ab").to_json()
 
-    again = Graph.compile(record, registry_of(echo_changed)).load_run(saved).again(text="Ab")
+    again = Run.from_json(saved, Graph.compile(record, registry_of(echo_changed))).again(text="Ab")
 
     assert again.results["e"]["result"] == "ab"
 
@@ -1297,7 +1298,7 @@ def test_a_node_redeclared_under_its_id_and_version_with_the_same_code_and_anoth
     record = GraphRecord(nodes=[NodeRecord(id="m", node="made")])
     saved = Graph.compile(record, registry_of(declared(before))).run(value=given).to_json()
 
-    Graph.compile(record, registry_of(declared(after))).load_run(saved).again(value=given)
+    Run.from_json(saved, Graph.compile(record, registry_of(declared(after)))).again(value=given)
 
     assert calls == [given, given]
 
@@ -1329,7 +1330,7 @@ def test_a_node_redeclared_to_take_a_blank_is_called_for_the_blank_item_it_was_n
     )
     saved = Graph.compile(record, registry_of(rows, records, send)).run(text="x").to_json()
 
-    again = Graph.compile(record, registry_of(rows, records, send_blank)).load_run(saved).again()
+    again = Run.from_json(saved, Graph.compile(record, registry_of(rows, records, send_blank))).again()
 
     assert again.results["s"]["result"] == ["to i@a.dk", "to None"]
 
@@ -1405,7 +1406,7 @@ def test_forget_is_not_started_survives_json_and_refuses_a_node_the_graph_lacks(
     calls.clear()
 
     assert forgotten.status == "ready" and forgotten.results["f"] == {"result": None}
-    assert graph.load_run(forgotten.to_json()).resume().status == "complete" and calls == ["fetch a"]
+    assert Run.from_json(forgotten.to_json(), graph).resume().status == "complete" and calls == ["fetch a"]
     with pytest.raises(InvalidCallError) as refused:
         run.forget("nope")
     assert [(p.type, p.loc) for p in refused.value.errors()] == [("node_not_in_graph", ("nope",))]
@@ -1431,7 +1432,7 @@ def test_identical_answered_items_keep_their_answers_across_a_cancelled_leg_as_o
     cancel.set()
     stopped = _events(run.with_inputs(items=["eva", "bo", "bo", "al"]), cancel=cancel)[-1].run
 
-    through = run.graph.load_run(stopped.to_json()).resume()
+    through = Run.from_json(stopped.to_json(), run.graph).resume()
 
     assert through.results == direct.results and direct.results["a"] == {"result": [None, True, False, True]}
     assert [w.inputs for w in through.waiting] == [w.inputs for w in direct.waiting] == [{"name": "eva"}]
@@ -1454,7 +1455,7 @@ def test_a_save_of_a_node_redeclared_so_it_runs_per_other_items_does_not_fit_and
     saved = Graph.compile(record, registry_of(split, count)).run(text="ab,c").to_json()
 
     with pytest.raises(InvalidCallError) as refused:
-        Graph.compile(record, registry_of(split, count_all)).load_run(saved)
+        Run.from_json(saved, Graph.compile(record, registry_of(split, count_all)))
 
     assert [(p.type, p.ctx["at"]) for p in refused.value.errors()] == [("state_unreadable", "outcomes.c")]
 
@@ -1568,7 +1569,7 @@ def test_a_saved_run_stays_the_same_size_over_one_row_edits_at_ten_thousand_rows
     run = graph.run(csv=csv)
     sizes = []
     for edit in range(5):
-        run = graph.load_run(run.to_json()).again(csv=csv.replace("p5,", f"p5v{edit},", 1))
+        run = Run.from_json(run.to_json(), graph).again(csv=csv.replace("p5,", f"p5v{edit},", 1))
         sizes.append(len(run.to_json()))
 
     assert run.status == "complete" and max(sizes) - min(sizes) < 100, sizes
@@ -1602,7 +1603,7 @@ def test_an_edited_graph_takes_an_earlier_runs_work_for_the_nodes_the_edit_left_
     edited = drawn("Long")
     assert edited.fingerprint != first.graph.fingerprint
 
-    second = edited.with_inputs(items=texts, earlier=first.graph.load_run(first.to_json())).resume()
+    second = edited.with_inputs(items=texts, earlier=Run.from_json(first.to_json(), first.graph)).resume()
 
     assert second.results["s"]["result"][0] == "Long: T0" and calls == [f"summarize T{i}" for i in range(300)]
     calls.clear()

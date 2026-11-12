@@ -12,7 +12,7 @@ from conductor._internal.graph_record import GraphRecord, as_record
 from conductor._internal.markers import REQUIRED
 from conductor._internal.problem import InvalidCallError, Problem
 from conductor._internal.problem import catalogue as problem
-from conductor._internal.run import Run, checked_max_items, no_outcomes, run_from_json
+from conductor._internal.run import Run, checked_max_items, no_outcomes
 from conductor._internal.run.json import RunCodec, run_codec
 from conductor._internal.value_type import FieldValueError
 
@@ -74,13 +74,6 @@ class Graph(CompiledGraph):
     ) -> Run:
         """Run the graph with these inputs until it is done, waits for a person, fails or stops."""
         return self.with_inputs(inputs, max_items=max_items, **by_name).resume(from_run=from_run, timeout=timeout)
-
-    def load_run(self, saved: str | bytes) -> Run:
-        """A run of this graph from the JSON text ``run.to_json()`` wrote; a graph with problems refuses it with them.
-
-        Each value in the save is read the way its type reads JSON, a date from its text for example.
-        """
-        return run_from_json(self, saved)
 
     @functools.cached_property
     def _run_codec(self) -> RunCodec:

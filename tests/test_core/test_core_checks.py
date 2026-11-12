@@ -23,6 +23,7 @@ from conductor import (
     NotCalled,
     Param,
     Policy,
+    Run,
     Series,
     Table,
     Upgrade,
@@ -238,7 +239,7 @@ def test_max_items():
     (run, called) = calls(lambda: graph.run(text=",".join(f"x{i}" for i in range(50)), max_items=10))
     assert run.status == "stopped" and run.state.cause.type == "item_ceiling" and called == []
     assert run.state.cause.ctx == {"series": "s.result", "items": 50, "max_items": 10}
-    saved = graph.load_run(run.to_json())
+    saved = Run.from_json(run.to_json(), graph)
     (done, called) = calls(lambda: saved.with_max_items(100).resume())
     assert done.status == "complete" and len(called) == 50
 
@@ -309,7 +310,7 @@ def test_ask_forms_and_several():
     approved, note = by["r@0"].questions
     assert (approved.name, approved.json_schema, approved.default, note.default) == ("approved", {"type": "boolean"}, True, "")
     assert by["p@1"].questions[0].json_schema == {"type": "boolean"} and by["t@0"].questions[0].many
-    run = graph.load_run(run.to_json())
+    run = Run.from_json(run.to_json(), graph)
     run = run.answer("r@0", {"approved": False, "note": "late"}).answer("r@1", {"approved": True, "note": ""})
     run = run.answer("t@0", ["red", "blue"]).answer("t@1", []).answer("p@0", True).answer("p@1", False).resume()
     assert run.status == "complete", run.status
@@ -328,7 +329,7 @@ def test_pause_on_a_nested_item():
                                 {"id": "j", "node": "join"}], "edges": [["docs.result", "lines.text"], ["lines.result", "c.text"], ["c.result", "j.texts"]]}), reg)
     run = graph.run(text="a,b;c")
     assert [place(w) for w in run.waiting] == ["c@0@1"] and run.results["j"]["result"] == [None, "c"]
-    run = graph.load_run(run.to_json()).answer("c@0@1", "B").resume()
+    run = Run.from_json(run.to_json(), graph).answer("c@0@1", "B").resume()
     assert run.results["j"]["result"] == ["a+B", "c"]
 
 
@@ -368,5 +369,5 @@ def test_again_paused_saved_and_resumed_keeps_earlier_items():
     run, _ = calls(run.answer("g@1", "bo@b.dk").resume)
     paused, called = calls(lambda: run.again(text=CSV.replace("Bo,", "Bob,")))
     assert [place(w) for w in paused.waiting] == ["g@1"] and called == []
-    resumed, called = calls(lambda: graph.load_run(paused.to_json()).answer("g@1", "bo@b.dk").resume())
+    resumed, called = calls(lambda: Run.from_json(paused.to_json(), graph).answer("g@1", "bo@b.dk").resume())
     assert resumed.status == "complete" and called == [], called  # the mail to Bo's address went out once

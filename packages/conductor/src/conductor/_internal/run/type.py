@@ -121,7 +121,7 @@ class NotCalled(ConductorModel):
 class Run:
     """One run of a graph. Every call returns a new ``Run``; ``to_json`` is all of it.
 
-    A run is made by ``graph.with_inputs(...)``, ``graph.run(...)`` or ``graph.load_run(saved)``, which check
+    A run is made by ``graph.with_inputs(...)``, ``graph.run(...)`` or ``Run.from_json(saved, graph)``, which check
     what it is made of.
 
     Attributes:
@@ -522,6 +522,30 @@ class Run:
 
     # -- JSON -------------------------------------------------------------------
 
+    @classmethod
+    def from_json(cls, saved: str | bytes, graph: Graph) -> Run:
+        """The run of ``graph`` that ``run.to_json()`` wrote as ``saved``: ``Run.from_json(run.to_json(), graph)`` is ``run`` again.
+
+        A graph with problems takes no run, so they are what is refused, before anything of the save is read. The
+        save is read once, by the graph's ``RunCodec``, from its JSON text, so each value is read as its type reads
+        JSON: a date, and a float that isn't finite, from their text.
+
+        Raises:
+            InvalidCallError: The graph's problems; ``state_of_another_graph``; or ``state_unreadable`` at the place
+                pydantic names (the section, the node, the output, the slot), quoting nothing of a value.
+        """
+        if graph.problems:
+            raise InvalidCallError(graph.problems)
+        try:
+            read = graph._run_codec.validator.validate_json(saved)
+        except ValidationError as error:
+            first = error.errors(include_url=False, include_input=False)[0]
+            if first["type"] == "union_tag_invalid" and not first["loc"]:  # a save is read as one of this graph, which its fingerprint says it is
+                raise InvalidCallError([problem.state_of_another_graph("state", saved=first["ctx"]["tag"], graph=graph.fingerprint)]) from None
+            at = ".".join(str(step) for step in first["loc"][1:]) or "the run"  # a place in the save comes after the fingerprint it was read under
+            raise InvalidCallError([problem.state_unreadable("state", at=at, reason=value_free_errors(error)[0]["msg"])]) from None
+        return _from_saved(graph, read)
+
     def to_json(self) -> str:
         """The run as JSON: its inputs, each node's units as a column per output, and what it went on from."""
         saved, codec = self._to_saved(), self.graph._run_codec
@@ -577,30 +601,6 @@ def no_outcomes(graph: Graph) -> dict[str, dict[ItemIndexes, Outcome]]:
     """The units of a run of ``graph`` that hasn't started: none, for every function of the graph and of each
     graph embedded in it."""
     return {node.name: {} for node in graph._flat_function_nodes}
-
-
-def run_from_json(graph: Graph, saved: str | bytes) -> Run:
-    """A run of ``graph`` from what ``run.to_json()`` wrote; a caller reaches it through ``graph.load_run``.
-
-    A graph with problems takes no run, so they are what is refused, before anything of the save is read. The
-    save is read once, by the graph's ``RunCodec``, from its JSON text, so each value is read as its type reads
-    JSON: a date, and a float that isn't finite, from their text.
-
-    Raises:
-        InvalidCallError: The graph's problems; ``state_of_another_graph``; or ``state_unreadable`` at the place
-            pydantic names (the section, the node, the output, the slot), quoting nothing of a value.
-    """
-    if graph.problems:
-        raise InvalidCallError(graph.problems)
-    try:
-        read = graph._run_codec.validator.validate_json(saved)
-    except ValidationError as error:
-        first = error.errors(include_url=False, include_input=False)[0]
-        if first["type"] == "union_tag_invalid" and not first["loc"]:  # a save is read as one of this graph, which its fingerprint says it is
-            raise InvalidCallError([problem.state_of_another_graph("state", saved=first["ctx"]["tag"], graph=graph.fingerprint)]) from None
-        at = ".".join(str(step) for step in first["loc"][1:]) or "the run"  # a place in the save comes after the fingerprint it was read under
-        raise InvalidCallError([problem.state_unreadable("state", at=at, reason=value_free_errors(error)[0]["msg"])]) from None
-    return _from_saved(graph, read)
 
 
 def _from_saved(graph: Graph, saved: SavedRun[list[Outcome | None], ReusableOutcomes]) -> Run:

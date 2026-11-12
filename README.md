@@ -21,7 +21,7 @@ uv add syv-conductor
 Three functions, a graph of them, a run:
 
 ```python
-from conductor import Graph, NodeRegistry, Series, make_graph
+from conductor import Graph, NodeRegistry, Run, Series, make_graph
 
 registry = NodeRegistry()
 
@@ -177,7 +177,7 @@ saved = run.to_json()
 Days later, in another process, load the same graph, read the run back and answer:
 
 ```python
-run = Graph.compile(drawing, registry).load_run(saved)
+run = Run.from_json(saved, Graph.compile(drawing, registry))
 run = run.answer(run.waiting[0], True).resume()
 
 print(run.status)   # complete

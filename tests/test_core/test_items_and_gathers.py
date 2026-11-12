@@ -26,6 +26,7 @@ from conductor import (
     NotCalled,
     Param,
     Policy,
+    Run,
     RunsOn,
     Series,
     Table,
@@ -176,7 +177,7 @@ def problems(*nodes: dict[str, Any], edges: tuple[tuple[str, str], ...] = (), re
 
 
 def through_json(run: Any) -> Any:
-    return run.graph.load_run(run.to_json())
+    return Run.from_json(run.to_json(), run.graph)
 
 
 def streamed(run: Any) -> list[Any]:
@@ -231,7 +232,7 @@ def test_a_table_that_may_be_nothing_takes_a_callers_none_a_return_of_none_and_a
 
     made = graph({"id": "m", "node": "maybe-table"}, {"id": "c", "node": "count-rows"}, edges=(("m.result", "c.t"),), registry=registry_of(maybe_table, count_rows))
     assert made.run(x=-1).outputs == {"c.result": -1} and made.run(x=3).outputs == {"c.result": 1}
-    assert made.load_run(made.run(x=-1).to_json()).results["m"] == {"result": None}
+    assert Run.from_json(made.run(x=-1).to_json(), made).results["m"] == {"result": None}
 
     never = graph({"id": "b", "node": "may-be-blank"}, {"id": "m", "node": "maybe-table"}, {"id": "c", "node": "count-rows"},
                   edges=(("b.result", "m.x"), ("m.result", "c.t")), registry=registry_of(may_be_blank, maybe_table, count_rows))
@@ -1335,7 +1336,7 @@ def test_questions_listed_per_document_are_asked_of_each_document_and_each_answe
     assert loaded.runs_on["q"].msg == "per item of l.result"
     assert [w.prompt for w in run.waiting] == ["x: a", "x: b", "x: c", "y: a", "y: b", "y: c"]
     assert [w.loc[1:] for w in run.waiting] == [(0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2)]
-    saved = loaded.load_run(run.to_json())
+    saved = Run.from_json(run.to_json(), loaded)
     done = saved.answer({w.id: w.loc[1:] == (1, 2) for w in saved.waiting}).resume()
     assert done.results["q"]["result"] == [[False, False, False], [False, False, True]]
 
@@ -1426,7 +1427,7 @@ def test_with_max_items_is_the_same_run_with_its_ceiling_raised_and_starts_nothi
     assert (raised.max_items, stopped.max_items) == (3, 2) and CALLED == []
     assert raised.state == stopped.state and raised.results == stopped.results and raised.inputs == stopped.inputs
     assert json.loads(raised.to_json()) == {**json.loads(stopped.to_json()), "max_items": 3}
-    assert loaded.load_run(raised.to_json()).resume().status == "complete"
+    assert Run.from_json(raised.to_json(), loaded).resume().status == "complete"
     with pytest.raises(InvalidCallError) as refused:
         stopped.with_max_items(0)
     assert [(p.type, p.loc) for p in refused.value.errors()] == [("invalid_max_items", ("max_items",))]
@@ -1799,7 +1800,7 @@ def test_an_approval_per_line_of_each_document_pauses_saves_resumes_and_a_new_do
         ("a", (0, 0), "approve a1?"), ("a", (0, 1), "approve a2?"), ("a", (1, 0), "approve b1?"),
     ]
 
-    saved = loaded.load_run(paused.to_json())
+    saved = Run.from_json(paused.to_json(), loaded)
     assert [w.id for w in saved.waiting] == [w.id for w in paused.waiting]
     done = saved.answer({w.id: "no" if w.prompt == "approve a2?" else "yes" for w in saved.waiting}).resume()
     assert done.status == "complete" and done.results["a"]["result"] == [["yes", "no"], ["yes"]]

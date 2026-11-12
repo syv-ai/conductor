@@ -145,7 +145,7 @@ class InvalidCallError(ConductorError, ValueError):
 
     Raised by ``graph.run``, ``graph.with_inputs``, ``run.resume``,
     ``run.stream``, ``run.answer``, ``run.with_inputs``, ``run.again``, ``run.forget``,
-    ``run.outputs``, ``graph.load_run``, ``Graph.compile`` (for a record
+    ``run.outputs``, ``Run.from_json``, ``Graph.compile`` (for a record
     that isn't one), ``registry.upgrade`` and ``make_graph`` from the call
     that caused it, before anything runs,
     listing every problem at once. The run the caller holds is untouched. A

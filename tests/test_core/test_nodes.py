@@ -25,6 +25,7 @@ from conductor import (
     NodeRegistry,
     Param,
     Policy,
+    Run,
     Series,
     Table,
     Upgrade,
@@ -483,7 +484,7 @@ def test_a_pydantic_model_travels_on_an_edge_and_through_json():
 
     graph = load(make, show)
     run = graph.run(who="Bo")
-    back = graph.load_run(run.to_json())
+    back = Run.from_json(run.to_json(), graph)
     assert back.results == run.results and back.results["show"]["result"] == "Bo 2026-01-02"
     assert isinstance(back.results["make"]["result"], Visit)
 

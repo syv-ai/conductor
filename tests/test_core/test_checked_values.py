@@ -25,6 +25,7 @@ from conductor import (
     NodeRecord,
     Param,
     Policy,
+    Run,
     Series,
     Table,
     host_type,
@@ -600,6 +601,6 @@ def test_a_run_that_failed_on_a_field_a_record_lacks_shows_its_results_with_a_bl
     graph = Graph.compile(make_graph(_words, give, reader, _all_of, edges=edges), registry_of(_words, give, reader, _all_of))
     run = graph.run({"words.text": "a b"})
     assert (run.status, run.state.cause.type, run.state.cause.ctx["record_field"]) == ("failed", "invalid_edge_value", "name")
-    for read in (run, graph.load_run(run.to_json())):
+    for read in (run, Run.from_json(run.to_json(), graph)):
         assert read.results["words"] == {"result": ["a", "b"]}
         assert read.results[reader.id] == {"result": [None, None]} and read.results["all-of"] == {"result": None}

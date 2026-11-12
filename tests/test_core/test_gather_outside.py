@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Annotated, Any
 
 import pytest
-from conductor import SKIPPED, Ask, Graph, GraphRecord, NodeRegistry, Param, Series, make_graph
+from conductor import SKIPPED, Ask, Graph, GraphRecord, NodeRegistry, Param, Run, Series, make_graph
 
 REGISTRY = NodeRegistry()
 
@@ -389,7 +389,7 @@ def test_a_series_input_fed_the_one_value_made_for_the_item_its_node_runs_for_re
 def shown(nodes: dict[str, str], edges: list[tuple[str, str]], node_id: str, output: str = "result", **inputs: str) -> tuple[Any, Any, Any]:
     """An output in ``run.results``, in ``run.outputs``, and in the results of the run saved and loaded."""
     run = ran(nodes, edges, **inputs)
-    return run.results[node_id][output], run.outputs.get(f"{node_id}.{output}", "read below"), run.graph.load_run(run.to_json()).results[node_id][output]
+    return run.results[node_id][output], run.outputs.get(f"{node_id}.{output}", "read below"), Run.from_json(run.to_json(), run.graph).results[node_id][output]
 
 
 @pytest.mark.parametrize(("kind", "result"), [("blank", None), ("skip", None), ("", []), ("a b", ["A", "B"])])
@@ -422,7 +422,7 @@ def test_the_results_of_a_run_that_waits_show_the_items_so_far_with_a_blank_wher
     assert waiting.results["q"]["result"] == [None, None]
     one = waiting.answer(waiting.waiting[0].id, "yes").resume()
     assert one.status == "waiting"
-    assert one.results["q"]["result"] == ["yes", None] == graph.load_run(one.to_json()).results["q"]["result"]
+    assert one.results["q"]["result"] == ["yes", None] == Run.from_json(one.to_json(), graph).results["q"]["result"]
 
 
 def test_an_embedded_graph_run_per_item_shows_a_list_for_each_item_and_none_for_one_whose_series_inside_was_never_made() -> None:

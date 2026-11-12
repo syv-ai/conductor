@@ -19,6 +19,7 @@ from conductor import (
     InvalidCallError,
     NodeRegistry,
     Param,
+    Run,
     Series,
     stored_graph,
 )
@@ -207,7 +208,7 @@ def test_a_run_that_waits_per_item_saves_and_loads_back_onto_the_same_items():
     graph = Graph.compile(GraphRecord.model_validate(drawn(("s", "split"), ("q", "approve"), edges=(("s.result", "q.text"),))), registry)
     run = graph.run(text="a,b")
     assert [w.loc[1:] for w in run.waiting] == [(0,), (1,)]
-    saved = graph.load_run(run.to_json())
+    saved = Run.from_json(run.to_json(), graph)
     assert saved.graph is graph and saved.graph.runs_on["q"].mode == "per_item"
     done = saved.answer({w.id: w.loc[1:] == (1,) for w in saved.waiting}).resume()
     assert done.outputs == {"q.result": [False, True]}

@@ -13,7 +13,7 @@ Keep your nodes in a registry. Its `category`, `tags` and `extra` are defaults f
 ```python
 from typing import Annotated
 
-from conductor import Graph, GraphRecord, NodeRegistry, Param, make_graph
+from conductor import Graph, GraphRecord, NodeRegistry, Param, Run, make_graph
 from conductor.widgets import NumberInput, TextInput
 
 text_nodes = NodeRegistry(category="text", tags=["acme"])
@@ -456,7 +456,7 @@ graph = Graph.compile(make_graph(review), registry)
 run = graph.run(proposal="Move the server")
 stored = run.to_json()  # a waiting run is JSON: store it, and the person may answer next week
 
-run = graph.load_run(stored)  # in another process, on the same graph
+run = Run.from_json(stored, graph)  # in another process, on the same graph
 (waiting,) = run.waiting
 print([question.name for question in waiting.questions])  # ['approved', 'owner', 'note']
 

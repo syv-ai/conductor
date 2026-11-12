@@ -14,6 +14,7 @@ from conductor import (
     Graph,
     NodeRegistry,
     Param,
+    Run,
     Series,
     Table,
     host_type,
@@ -390,9 +391,9 @@ def test_scenario_10_a_nested_approval_saved_and_resumed_in_another_process():
     assert (first.loc[0], first.loc[1:], second.loc[1:]) == ("approve", (0, 1), (2, 1))  # invoice 1 of document 0, invoice 1 of document 2
 
     saved = run.to_json()
-    resumed = graph.load_run(saved).answer(second.id, False).resume()
+    resumed = Run.from_json(saved, graph).answer(second.id, False).resume()
     assert resumed.status == "waiting" and [w.loc[1:] for w in resumed.waiting] == [(0, 1)]
-    done = graph.load_run(resumed.to_json()).answer(first.id, True).resume()
+    done = Run.from_json(resumed.to_json(), graph).answer(first.id, True).resume()
     assert done.outputs == {"approve.result": [[True, True], [], [True, False, True]]}  # a list for each document, in order: two of a.pdf, none of b.pdf, three of c.pdf
 
 
