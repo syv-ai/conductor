@@ -36,6 +36,7 @@ from __future__ import annotations
 import heapq
 import logging
 import typing
+from collections import Counter
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol, TypeVar
@@ -184,11 +185,11 @@ class _Compiler:
                     self._compile_subgraph_node(node_record, graph, keyed.edges_into[node_id])
                 case None:
                     pass
-        names = [field.name for _, field in self.graph_inputs]
+        names = Counter(field.name for _, field in self.graph_inputs)
         inputs: dict[str, GraphInputDescription] = {}
         input_fields: dict[str, InputField] = {}
         for graph_input, field in self.graph_inputs:
-            name = field.name if names.count(field.name) == 1 else graph_input.address  # two graph inputs with one name go by address
+            name = field.name if names[field.name] == 1 else graph_input.address  # two graph inputs with one name go by address
             inputs[name] = graph_input
             input_fields[graph_input.address] = InputField(name, graph_input.address, field)
         downstream: dict[str, list[CompiledNode]] = {node_id: [] for node_id in self.nodes}
