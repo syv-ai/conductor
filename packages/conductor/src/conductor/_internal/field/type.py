@@ -116,7 +116,7 @@ class Field:
         choices, widget = self.type.choices, self.param.widget
         return FieldDescription(
             name=self.name, title=self.param.title or self.name.replace("-", " ").replace("_", " ").strip().capitalize(),
-            description=self.param.description, many=self.many, type=self.type.id, type_variables=[variable.__name__ for variable in self.whole.variables],
+            description=self.param.description, is_series=self.many, type=self.type.id, type_variables=[variable.__name__ for variable in self.whole.variables],
             schema=self.type.json_schema, required=self.default is REQUIRED, default=self.default_json,
             choices=None if choices is None else [choice.model_dump(mode="json") for choice in choices],
             widget=None if widget is None else widget.model_dump(mode="json"), exclusive_group=self.param.exclusive_group,

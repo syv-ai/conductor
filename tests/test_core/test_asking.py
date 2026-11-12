@@ -305,7 +305,7 @@ def test_a_table_is_answered_as_records_which_are_its_rows_and_keep_through_json
     graph = _lines_graph()
     run = graph.run()
     (question,) = run.waiting[0].questions
-    assert not question.many and question.type.startswith("Table") and [c["properties"]["name"]["const"] for c in question.json_schema["properties"]["columns"]["prefixItems"]] == ["sku", "qty"]
+    assert not question.is_series and question.type.startswith("Table") and [c["properties"]["name"]["const"] for c in question.json_schema["properties"]["columns"]["prefixItems"]] == ["sku", "qty"]
     assert question.default == {"columns": [{"name": "sku", "type": "str", "values": ["A"]}, {"name": "qty", "type": "int", "values": [1]}]}  # a table as conductor writes one
     answered = Run.from_json(Run.from_json(run.to_json(), graph).answer("q", [{"sku": "B", "qty": 2}, {"sku": "C", "qty": 3}]).to_json(), graph)
     assert answered.resume().outputs == {"e.result": ["BB", "CCC"]}
@@ -391,7 +391,7 @@ def test_a_series_of_a_literal_is_a_pick_of_several_run_end_to_end_through_json(
     }), registry_of(split, colours, upper, join))
     run = Run.from_json(graph.run().to_json(), graph)
     (question,) = run.waiting[0].questions
-    assert (question.many, question.default, [c["id"] for c in question.choices]) == (True, ["red"], ["red", "green", "blue"])
+    assert (question.is_series, question.default, [c["id"] for c in question.choices]) == (True, ["red"], ["red", "green", "blue"])
     faults = _refused(lambda: run.answer({"q@0": ["red", "red"], "q@1": ["pink"]}))
     assert [f.msg for f in faults] == ["That is not a valid answer: a choice is picked twice", "That is not a valid answer: Input should be 'red', 'green' or 'blue'"]
     answered = Run.from_json(run.answer({"q@0": ["red", "blue"], "q@1": []}).to_json(), graph)
@@ -407,7 +407,7 @@ def test_a_series_with_choices_the_run_knows_is_a_pick_of_several_of_those():
 
     _, run = _once(people, team="sales")
     (question,) = run.waiting[0].questions
-    assert (question.many, [c["title"] for c in question.choices]) == (True, ["Ida B.", "Bo K.", "Carl"])
+    assert (question.is_series, [c["title"] for c in question.choices]) == (True, ["Ida B.", "Bo K.", "Carl"])
     assert _refused(lambda: run.answer("q", ["ida", "eve"]))[0].msg == "That is not a valid answer: the answer is not one of the choices"
     assert run.answer("q", ["carl", "ida"]).resume().outputs == {"q.result": ["carl", "ida"]}
 
@@ -744,7 +744,7 @@ def test_a_question_record_is_json_a_host_draws_from_with_no_graph_loaded():
     assert written == {
         "loc": ["q"], "prompt": "Who takes T-1?", "inputs": {"ticket": "T-1"},
         "questions": [{
-            "name": "result", "title": "Assignee", "many": False, "required": False, "type": "str", "type_variables": [], "schema": {"type": "string"}, "loops": [],
+            "name": "result", "title": "Assignee", "is_series": False, "required": False, "type": "str", "type_variables": [], "schema": {"type": "string"}, "loops": [],
             "choices": [{"id": "ida", "title": "Ida B."}], "default": "ida", "widget": {"type": "textarea", "rows": 4},
             "description": None, "exclusive_group": None,
         }],

@@ -94,7 +94,7 @@ def _loaded(*definitions: Any, edges: list[list[str]], constants: dict[str, dict
 def _types(graph: Any, node_id: str) -> dict[str, tuple[bool, str]]:
     described = graph.describe().nodes[node_id]
     fields = [*(placed.field for placed in described.inputs), *described.outputs]
-    return {field.name: (field.many, field.type) for field in fields}
+    return {field.name: (field.is_series, field.type) for field in fields}
 
 
 def test_a_type_variable_is_what_arrives_on_the_edge_in_every_input_and_in_the_return() -> None:

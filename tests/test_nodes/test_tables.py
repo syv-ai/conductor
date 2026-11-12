@@ -104,7 +104,7 @@ def columns_of(field) -> dict[str, Any]:
 def test_split_gives_a_tables_records_typed_as_its_row_type_declares_them():
     graph = load(contacts, series.split, edges=[("contacts.result", "series-split.value")])
     described = output(graph, "series-split")
-    assert graph.problems == [] and (described.many, described.type) == (True, "record")
+    assert graph.problems == [] and (described.is_series, described.type) == (True, "record")
     assert described.json_schema["properties"] == {
         "name": {"title": "Name", "type": "string"}, "email": {"anyOf": [{"type": "string"}, {"type": "null"}], "title": "Email"},
     }
@@ -137,7 +137,7 @@ def test_split_gives_records_of_unknown_columns_for_a_table_of_any_and_a_field_o
 
 def test_split_gives_a_lists_items_of_the_lists_own_type():
     graph = load(tags, series.split, shout, edges=[("tags.result", "series-split.value"), ("series-split.result", "shout.text")])
-    assert graph.problems == [] and (output(graph, "series-split").many, output(graph, "series-split").type) == (True, "str")
+    assert graph.problems == [] and (output(graph, "series-split").is_series, output(graph, "series-split").type) == (True, "str")
     assert graph.runs_on["shout"].series == "series-split.result" and graph.run().results["shout"]["result"] == ["RED", "BLUE"]
 
 
@@ -155,7 +155,7 @@ def test_stack_puts_the_tables_made_per_item_into_one_table_of_their_row_type():
     graph = load(contacts, series.split, one_row, series.stack, edges=[
         ("contacts.result", "series-split.value"), ("series-split.result", "one-row.contact"), ("one-row.result", "series-stack.tables"),
     ])
-    assert graph.problems == [] and not output(graph, "series-stack").many and output(graph, "series-stack").type.startswith("Table") and set(columns_of(output(graph, "series-stack"))) == {"name", "email"}
+    assert graph.problems == [] and not output(graph, "series-stack").is_series and output(graph, "series-stack").type.startswith("Table") and set(columns_of(output(graph, "series-stack"))) == {"name", "email"}
     stacked = graph.run().results["series-stack"]["result"]
     assert stacked.to_dicts() == graph.run().results["contacts"]["result"].to_dicts()
 

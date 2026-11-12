@@ -718,8 +718,8 @@ def test_a_field_reads_as_its_author_wrote_it():
         return type(whole).__name__
 
     fields = {f.name: f for f in kinds.describe().inputs}
-    assert fields["maybe"].title == "Maybe" and not fields["maybe"].many
-    assert fields["many"].many and fields["some"].many
+    assert fields["maybe"].title == "Maybe" and not fields["maybe"].is_series
+    assert fields["many"].is_series and fields["some"].is_series
     graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "k", "node": "kinds"}]}), registry_of(kinds))
     assert graph.run().outputs == {"k.result": "Whole"}
     assert Table is not None

@@ -309,7 +309,7 @@ def test_ask_forms_and_several():
     by = {place(w): w for w in run.waiting}
     approved, note = by["r@0"].questions
     assert (approved.name, approved.json_schema, approved.default, note.default) == ("approved", {"type": "boolean"}, True, "")
-    assert by["p@1"].questions[0].json_schema == {"type": "boolean"} and by["t@0"].questions[0].many
+    assert by["p@1"].questions[0].json_schema == {"type": "boolean"} and by["t@0"].questions[0].is_series
     run = Run.from_json(run.to_json(), graph)
     run = run.answer("r@0", {"approved": False, "note": "late"}).answer("r@1", {"approved": True, "note": ""})
     run = run.answer("t@0", ["red", "blue"]).answer("t@1", []).answer("p@0", True).answer("p@1", False).resume()

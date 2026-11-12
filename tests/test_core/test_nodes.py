@@ -339,7 +339,7 @@ def test_the_bare_type_is_what_a_field_is_typed_as_when_it_may_be_blank():
     def f(many: Series[Text | None], one: Text | None) -> Text | None:
         return None
 
-    assert [(i.name, i.type, i.many) for i in f.describe().inputs] == [("many", "Text", True), ("one", "Text", False)]
+    assert [(i.name, i.type, i.is_series) for i in f.describe().inputs] == [("many", "Text", True), ("one", "Text", False)]
     output = field_of(f, "result", "outputs")
     assert output.type == "Text" and {"type": "null"} in output.json_schema["anyOf"]
     assert load(f, record=GraphRecord(nodes=[placed("f", "f", constants={"many": [None], "one": None})])).run().results["f"] == {"result": None}
@@ -495,7 +495,7 @@ def test_an_any_input_has_a_json_form_before_anything_is_wired():
         return ""
 
     assert json.loads(f.describe().model_dump_json(exclude_none=True))["inputs"][0] == {
-        "name": "x", "title": "X", "many": False, "required": True, "type": "Any", "type_variables": [], "schema": {}, "loops": [],
+        "name": "x", "title": "X", "is_series": False, "required": True, "type": "Any", "type_variables": [], "schema": {}, "loops": [],
     }
 
 
@@ -532,7 +532,7 @@ def test_a_series_input_takes_many_values_of_its_element_type_and_a_list_is_one_
     def f(texts: Series[Text], numbers: list[float]) -> str:
         return ""
 
-    assert [(i.many, i.type) for i in f.describe().inputs] == [(True, "Text"), (False, "list[float]")]
+    assert [(i.is_series, i.type) for i in f.describe().inputs] == [(True, "Text"), (False, "list[float]")]
 
 
 def test_a_table_declares_its_columns_and_their_types():
@@ -546,9 +546,9 @@ def test_a_table_declares_its_columns_and_their_types():
 
     output = field_of(read, "result", "outputs")
     columns = {c["properties"]["name"]["const"]: c["properties"]["values"]["items"] for c in output.json_schema["properties"]["columns"]["prefixItems"]}
-    assert not output.many and output.type == "Table[name: str, amount: int]" and columns == {"name": {"type": "string"}, "amount": {"type": "integer"}}
+    assert not output.is_series and output.type == "Table[name: str, amount: int]" and columns == {"name": {"type": "string"}, "amount": {"type": "integer"}}
     any_columns = field_of(bare, "result", "outputs")
-    assert (any_columns.many, any_columns.type) == (False, "Table") and "prefixItems" not in any_columns.json_schema["properties"]["columns"]
+    assert (any_columns.is_series, any_columns.type) == (False, "Table") and "prefixItems" not in any_columns.json_schema["properties"]["columns"]
 
 
 # -- Param and widgets -------------------------------------------------------------------------
@@ -1108,7 +1108,7 @@ def test_a_bare_series_is_many_values_of_anything():
     def count(xs: Series) -> int:
         return len(xs)
 
-    assert [(i.many, i.type) for i in count.describe().inputs] == [(True, "Any")]
+    assert [(i.is_series, i.type) for i in count.describe().inputs] == [(True, "Any")]
     assert load(count, record=GraphRecord(nodes=[placed("c", "count", constants={"xs": [1, "a"]})])).run().results["c"]["result"] == 2
 
 
@@ -1117,7 +1117,7 @@ def test_a_series_that_may_be_none_is_still_many_values():
     def f(xs: Series[int] | None = None) -> str:
         return repr(xs)
 
-    assert [(i.many, i.type) for i in f.describe().inputs] == [(True, "int")]
+    assert [(i.is_series, i.type) for i in f.describe().inputs] == [(True, "int")]
 
 
 def test_a_limit_its_type_cant_hold_names_the_type_as_it_is_written():

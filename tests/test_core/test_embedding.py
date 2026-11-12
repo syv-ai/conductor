@@ -377,14 +377,14 @@ def test_an_output_returned_inside_loops_is_offered_as_one_series_per_loop():
     deep = load({"e": "deep-inner", "n": "count", "x": "exclaim"}, [("e.up.result", "n.items"), ("e.up.result", "x.text")])
     assert deep.is_runnable and (deep.runs_on["n"].series, deep.runs_on["x"].series) == ("e.w.result", "e.c.result")  # each loop by the list inside
     described = {inner: load({"e": inner}).describe().nodes["e"].outputs[0] for inner in ("lines-inner", "deep-inner", "series-per-item-inner")}
-    assert [(output.many, output.type) for output in described.values()] == [(True, "str"), (True, "Series[str]"), (True, "Series[str]")]
+    assert [(output.is_series, output.type) for output in described.values()] == [(True, "str"), (True, "Series[str]"), (True, "Series[str]")]
     assert [output.loops for output in described.values()] == [["w.result"], ["w.result", "c.result"], ["w.result", "c.result"]]
 
 
 def test_a_table_made_per_item_inside_is_a_series_of_tables():
     graph = load({"e": "table-per-item-inner"})
     tables = graph.describe().nodes["e"].outputs[0]
-    assert graph.problems == [] and (tables.many, tables.type, tables.loops) == (True, "Table", ["w.result"])
+    assert graph.problems == [] and (tables.is_series, tables.type, tables.loops) == (True, "Table", ["w.result"])
 
 
 def test_a_decision_inside_is_the_embeddings_by_where_it_is_made():

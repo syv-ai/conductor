@@ -148,7 +148,7 @@ print(graph.describe().nodes["per-line"].outputs[0].type)  # Series[str]
 
 `join` takes a `Series[str]`, so it collects one loop: it is called once per document, with that document's lines.
 A node that takes one `str` would be called once per line. Both are what the same four nodes do drawn in one
-graph, and both see the list per document that `run.results` shows. The description says `many` with the type
+graph, and both see the list per document that `run.results` shows. The description says `is_series` with the type
 `Series[str]`, one `Series` for each loop, and its `loops` are `["documents.result", "lines.result"]`.
 
 ## A blank or a skip coming in

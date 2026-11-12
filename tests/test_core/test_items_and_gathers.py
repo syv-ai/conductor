@@ -1043,12 +1043,12 @@ def test_a_table_made_per_document_is_described_as_a_table_with_its_columns():
     loaded = graph(DOCS, READ, LINES, {"id": "check", "node": "check"}, edges=(*READ_EDGES, ("lines.result.vendor", "check.vendor")))
     assert loaded.problems == []
     (result,) = loaded.describe().nodes["read"].outputs
-    assert not result.many and result.type.startswith("Table") and {c["properties"]["name"]["const"]: c["properties"]["values"]["items"] for c in result.json_schema["properties"]["columns"]["prefixItems"]}["amount"] == {"type": "number"}
+    assert not result.is_series and result.type.startswith("Table") and {c["properties"]["name"]["const"]: c["properties"]["values"]["items"] for c in result.json_schema["properties"]["columns"]["prefixItems"]}["amount"] == {"type": "number"}
 
 
 def test_a_bare_table_offers_no_columns():
     (result,) = graph({"id": "s", "node": "show"}).describe().nodes["s"].outputs
-    assert (result.many, result.type) == (False, "Table") and "prefixItems" not in result.json_schema["properties"]["columns"]
+    assert (result.is_series, result.type) == (False, "Table") and "prefixItems" not in result.json_schema["properties"]["columns"]
 
 
 def test_a_typed_in_list_of_records_is_one_table_not_many():

@@ -203,7 +203,7 @@ class CompiledSubgraphNode(_CompiledNodeBase):
     def described_outputs(self) -> list[FieldDescription]:
         """Each output as an editor reads it: one ``Series`` for each loop inside, and the loops by name.
 
-        Example: ``shout.result`` of ``e`` above is ``many`` with the type ``Series[str]``, which reads
+        Example: ``shout.result`` of ``e`` above is ``is_series`` with the type ``Series[str]``, which reads
         ``Series[Series[str]]``, and its ``loops`` are ``["documents.result", "lines.result"]``.
         """
         described = []

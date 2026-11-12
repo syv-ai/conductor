@@ -17,7 +17,8 @@ class FieldDescription(ConductorModel):
         name: The parameter's name, or the output's.
         title: What a person reads as its name.
         description: A longer text for its help.
-        many: Whether it is a ``Series``: an output that makes items, an input that gathers them.
+        is_series: Whether it is declared ``Series[T]``: an output that returns a list a graph can loop over, or an input
+            that takes every item of a loop as one list.
         type: The id of one value's type, a ``Series``' item's; a table's names its columns.
         type_variables: The names of the type variables its hint leaves open, which an edge binds; two fields that
             share a name have the same type once it is bound.
@@ -41,7 +42,7 @@ class FieldDescription(ConductorModel):
     name: str
     title: str
     description: str | None = None
-    many: bool
+    is_series: bool
     type: str
     type_variables: list[str] = []
     json_schema: dict[str, Any] = PydanticField(alias="schema")
