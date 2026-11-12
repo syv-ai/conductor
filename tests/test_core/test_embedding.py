@@ -229,6 +229,11 @@ def show(value: Any) -> str:
     return str(value)
 
 
+@_node("pair")
+def pair(first: Series[str], second: Series[str]) -> int:
+    return len(first)
+
+
 def chain(*nodes: tuple[str, str]) -> dict[str, Any]:
     """Nodes in a line, each reading the ``result`` of the one before into its ``text``."""
     return {"nodes": [{"id": i, "node": n} for i, n in nodes], "edges": [[f"{a[0]}.result", f"{b[0]}.text"] for a, b in zip(nodes, nodes[1:], strict=False)]}
@@ -279,7 +284,7 @@ INNER = {
 }
 
 REGISTRY = NodeRegistry()
-for _definition in (words, sentences, chars, upper, exclaim, greet, count, ask, fetch, flaky, stuck, boom, maybe, decide, signed, columns, table, stamp, stagger, letters, height, sheets, record, note, show):
+for _definition in (words, sentences, chars, upper, exclaim, greet, count, ask, fetch, flaky, stuck, boom, maybe, decide, signed, columns, table, stamp, stagger, letters, height, sheets, record, note, show, pair):
     REGISTRY.add(_definition)
 for _id, _record in INNER.items():
     REGISTRY.add(subgraph(_id, title=_id.capitalize(), description=f"The {_id} node.")(GraphRecord.model_validate(_record)))
@@ -413,6 +418,16 @@ def test_a_decision_made_per_item_inside_is_not_needed_by_an_input_outside_that_
     drawn_flat = load({**{n["id"]: n["node"] for n in record["nodes"]}, **nodes}, flat_edges)
     # n1 and n2 are each called whatever d chose for a word, so both have a value: they are no alternatives
     assert problems(inside) == problems(drawn_flat) == [("several_edges_into_one_input", ("g", "value"))]
+
+
+def test_two_lists_collected_from_opposite_branches_of_a_decision_inside_are_refused_as_drawn_flat():
+    edges = [("w.result", "{}text"), ("{}s.result", "p.first"), ("{}l.result", "p.second")]
+    inside = load({"w": "words", "e": "deciding-inner", "p": "pair"}, [(a.format("e."), b.format("e.")) for a, b in edges])
+    record = INNER["deciding-inner"]
+    flat_edges = [("w.result", "d.text"), *map(tuple, record["edges"]), *[(a.format(""), b.format("")) for a, b in edges[1:]]]
+    drawn_flat = load({"w": "words", **{n["id"]: n["node"] for n in record["nodes"]}, "p": "pair"}, flat_edges)
+    # a word is short or long, so it is left out of one list, and then out of both: neither list would ever have an item
+    assert problems(inside) == problems(drawn_flat) == [("lists_from_different_loops", ("p",))]
 
 
 def chain_node(node_id: str) -> str:

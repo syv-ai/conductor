@@ -282,9 +282,11 @@ class ResultReader:
 
 
 class DisplayReader(ResultReader):
-    """Reads what the units of a run hold as they stand, for a host that reads a run in any state: an output that
-    isn't settled reads as a blank, where a call waits for it. So a host is shown the items so far, with a
-    blank in the place of one that hasn't run or waits for a person.
+    """Reads the outputs of a run for a host (``run.results``, ``run.outputs``), whatever the run's status.
+
+    In the example, while ``shout`` has returned for the first line only, ``results["shout"]["result"]`` is
+    ``["A!", None]``. Where a ``ResultReader`` returns ``NOT_READY`` (a call that has not returned, or that
+    waits for a person), this reader returns ``None``, so a host is shown the values so far.
 
     An edge can name one field of a record (``give.result.name``). When the record has no such field, the
     node the edge leads to fails and the run ends ``failed`` with that as its cause. Reading the run
