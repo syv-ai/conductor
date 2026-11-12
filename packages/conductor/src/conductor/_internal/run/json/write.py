@@ -27,7 +27,7 @@ from conductor._internal.run.json.type import (
     SavedReusable,
     SavedRun,
 )
-from conductor._internal.run.outcome import Answered, Done, NotCalled, Outcome, Skipped, Unanswered
+from conductor._internal.run.outcome import Answered, Done, NoneInput, Outcome, Skipped, Unanswered
 from conductor._internal.run.progress import all_item_indexes, has_every_outcome
 from conductor._internal.run.results import function_of
 from conductor._internal.run.reuse import ReusableOutcomes
@@ -143,7 +143,7 @@ def _outcomes_by_call_number(run: Run, node: FlatFunctionNode) -> list[Outcome |
 def saved_outcomes(outputs: Mapping[str, Field], outcomes: list[Outcome | Answer | None]) -> SavedOutcomes:
     """Returns the outcomes of one node as a saved run writes them: a list per output, with one entry per call.
 
-    ``[Done({"result": "A!"}), NotCalled({"result": None}, "line"), Done({"result": "C!"})]`` becomes
+    ``[Done({"result": "A!"}), NoneInput({"result": None}, "line"), Done({"result": "C!"})]`` becomes
     ``SavedOutcomes(states=["done", None, "done"], outputs={"result": ["A!", None, "C!"]}, not_called_because={1: "line"})``.
 
     Args:
@@ -187,8 +187,8 @@ def saved_outcomes(outputs: Mapping[str, Field], outcomes: list[Outcome | Answer
             call_number: outcome.question for call_number, outcome in enumerate(outcomes)
             if type(outcome) is Answered or type(outcome) is Unanswered or type(outcome) is Answer
         }
-    if NotCalled in classes:
-        not_called_because = {call_number: outcome.input for call_number, outcome in enumerate(outcomes) if type(outcome) is NotCalled}
+    if NoneInput in classes:
+        not_called_because = {call_number: outcome.input for call_number, outcome in enumerate(outcomes) if type(outcome) is NoneInput}
     return SavedOutcomes(
         states=list(map(_STATE_OF.get, map(type, outcomes))), outputs=values_by_output, questions=questions,
         not_called_because=not_called_because, skipped=skipped or None, skipped_items=skipped_items or None,

@@ -15,7 +15,7 @@ When a node cannot be called, ``arguments_for`` returns why instead. The checks 
    The node is skipped, whatever its other inputs are: the result is a ``Skipped`` outcome.
 2. A value an input reads does not exist yet. The result is ``NOT_READY``, and the node is tried again later.
 3. An input reads ``None`` and its parameter does not accept ``None``. The node is not called: the result is a
-   ``NotCalled`` outcome.
+   ``NoneInput`` outcome.
 
 ``join.texts`` is a collecting input: it gets one value per item of a loop, as a list. Before it reads the
 items it asks one question: can any item have a value here? Suppose ``mark`` comes from a branch that was not
@@ -45,7 +45,7 @@ from conductor._internal.compiled.input import (
 )
 from conductor._internal.gate import RefusedError
 from conductor._internal.problem import catalogue as problem
-from conductor._internal.run.outcome import NotCalled, NotReady, Outcome, Skipped
+from conductor._internal.run.outcome import NoneInput, NotReady, Outcome, Skipped
 from conductor._internal.series import places_of_none, without_places
 from conductor._internal.types.record import NoSuchFieldError, field_of
 
@@ -75,24 +75,24 @@ class ResultReader:
 
     def __init__(self, outcomes: dict[str, dict[ItemIndexes, Outcome]], graph_inputs: Mapping[str, Any]) -> None:
         self.outcomes, self.graph_inputs = outcomes, graph_inputs
-        self.for_any_item: dict[str, dict[str, Any] | Skipped | NotCalled | Literal[NotReady.NOT_READY]] = {}
+        self.for_any_item: dict[str, dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]] = {}
 
-    def arguments_for(self, node: FlatFunctionNode, item_indexes: ItemIndexes) -> dict[str, Any] | Skipped | NotCalled | Literal[NotReady.NOT_READY]:
+    def arguments_for(self, node: FlatFunctionNode, item_indexes: ItemIndexes) -> dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]:
         """Returns the arguments of the call of ``node`` for ``item_indexes``, or why the node is not called.
 
         In the example, ``arguments_for(shout, (1,))`` returns ``{"line": "b", "mark": "!"}``.
 
-        Every input is read before ``NOT_READY`` or ``NotCalled`` is returned, because a later input may read
+        Every input is read before ``NOT_READY`` or ``NoneInput`` is returned, because a later input may read
         ``SKIPPED``, and that skips the node whatever the earlier inputs are. So the order of a node's
         parameters never changes the result.
 
         ``_list_looped_over`` calls this with item indexes one index shorter than the node's own. The result
-        then says what a call of the node would be for any item: ``Skipped`` or ``NotCalled`` when every item
+        then says what a call of the node would be for any item: ``Skipped`` or ``NoneInput`` when every item
         would be, and arguments (some of them ``MAY_HAVE_VALUE``) when an item may be called.
 
         Returns:
             The arguments by parameter name. Or the node's ``Skipped`` outcome, when an input reads ``SKIPPED``.
-            Or ``NOT_READY``, when a value an input reads does not exist yet. Or a ``NotCalled`` outcome, when an
+            Or ``NOT_READY``, when a value an input reads does not exist yet. Or a ``NoneInput`` outcome, when an
             input reads ``None`` and its parameter does not accept ``None``.
 
         Raises:
@@ -121,7 +121,7 @@ class ResultReader:
         if not ready:
             return NotReady.NOT_READY
         if none_input is not None:
-            return NotCalled(node.compiled_node.outputs_when_not_called, none_input)
+            return NoneInput(node.compiled_node.outputs_when_not_called, none_input)
         return self.align_lists(node, arguments) if node.lists_from_same_loop else arguments
 
     def read_input(self, plan: InputFromEdges, item_indexes: ItemIndexes) -> Any:

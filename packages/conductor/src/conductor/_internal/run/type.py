@@ -2,7 +2,7 @@
 
 For the README graph, ``graph.run(text="a\\nb")`` calls ``lines`` once, ``shout`` once per line and ``join`` once, and
 the run keeps one outcome per call: ``Done`` (it returned), ``Answered`` (a person answered for it), ``Skipped`` (it
-is on a branch that was not chosen), ``NotCalled`` (an argument was ``None`` and its input does not accept ``None``)
+is on a branch that was not chosen), ``NoneInput`` (an argument was ``None`` and its input does not accept ``None``)
 or ``Unanswered`` (it asked a person and waits for an answer). A call with no outcome has not been made yet.
 ``resume()`` calls every node that is ready, until the run is complete, waiting, failed or stopped, so a run can
 stop anywhere (a person to ask, a failure, the item limit, a timeout) and go on from its JSON in another process.
@@ -38,7 +38,6 @@ from conductor._internal.compiled import (
 from conductor._internal.gate import RefusedError, check_limits
 from conductor._internal.problem import InvalidCallError, Problem
 from conductor._internal.problem import catalogue as problem
-from conductor._internal.run import outcome as outcomes
 from conductor._internal.run.arguments import ResultReader
 from conductor._internal.run.events import (
     Event,
@@ -50,6 +49,7 @@ from conductor._internal.run.events import (
 from conductor._internal.run.json import codec_of, outputs_to_json, run_from_json, run_to_json
 from conductor._internal.run.outcome import (
     Answered,
+    NoneInput,
     Outcome,
     Skipped,
     Unanswered,
@@ -84,12 +84,15 @@ _NOT_GIVEN: Any = object()
 
 
 class NotCalled(ConductorModel):
-    """A call a node didn't get, because an input got a blank there.
+    """A call a node was not given because one of its arguments was ``None`` and the input does not accept ``None``.
+
+    ``strip(line: str) -> str | None`` returns ``None`` for the line ``" "``, and ``shout(line: str)`` is wired to it:
+    ``run.not_called`` lists ``NotCalled(loc=("shout", 1), input="line")``.
 
     Attributes:
-        loc: Which call it was, as a ``Problem``'s ``loc`` says it: the node, then the place of its item in each
-            Series the node runs per item of; inside a subgraph, the subgraph node and its item first.
-        input: The input that got nothing.
+        loc: Which call it was, as a ``Problem``'s ``loc`` says it: the node, then the index of its item in each
+            loop the node is inside; inside a subgraph, the subgraph node and its item first.
+        input: The input whose argument was ``None``.
     """
 
     loc: Loc
@@ -376,7 +379,7 @@ class Run[C]:
             compiled_node = node.compiled_node
             of_node = work[node.node_path] = ReusableOutcomes()
             for item_indexes, outcome in self._outcomes[node.name].items():
-                if type(outcome) is Skipped or type(outcome) is outcomes.NotCalled:
+                if type(outcome) is Skipped or type(outcome) is NoneInput:
                     continue
                 arguments = cast("dict[str, Any]", reader.arguments_for(node, item_indexes))  # the unit was called, so what it reads is settled and it received a call's arguments
                 fingerprint = arguments_fingerprint(compiled_node.code_fingerprint, arguments, plain=compiled_node.plain_inputs)
@@ -444,7 +447,7 @@ class Run[C]:
         inside a subgraph where its node stands."""
         return [
             NotCalled(loc=outcome_loc(node, item_indexes), input=outcome.input)
-            for node in self.graph._flat_function_nodes for item_indexes, outcome in self._outcomes[node.name].items() if type(outcome) is outcomes.NotCalled
+            for node in self.graph._flat_function_nodes for item_indexes, outcome in self._outcomes[node.name].items() if type(outcome) is NoneInput
         ]
 
     @property

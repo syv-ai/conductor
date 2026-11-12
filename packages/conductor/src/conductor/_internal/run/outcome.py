@@ -29,10 +29,10 @@ class each. The examples add one small node to the graph above.
   which a node gives a value to exactly one per call and ``SKIPPED`` to the others. A node ``route(line)`` with
   the branches ``short`` and ``long`` gives ``long`` a value for ``"longer"`` and ``short`` one for ``"a"``. With
   ``shout`` wired to ``route.long``, the call of ``shout`` for ``"a"`` is ``Skipped({"result": SKIPPED})``.
-- **not called** (``NotCalled``): the function was not called, because an argument was ``None`` and the
+- **none input** (``NoneInput``): the function was not called, because an argument was ``None`` and the
   parameter does not accept ``None``. A node ``strip(line: str) -> str | None`` between ``lines`` and ``shout``
   returns ``None`` for the line ``" "``. ``shout``'s ``line: str`` does not accept ``None``, so that call of
-  ``shout`` is ``NotCalled({"result": None}, input="line")``.
+  ``shout`` is ``NoneInput({"result": None}, input="line")``.
 
 Two more words have no outcome of their own:
 
@@ -119,7 +119,7 @@ class Skipped:
     ``Skipped({"result": SKIPPED})``, and so is the call for that line of any node in the loop that is wired to
     ``shout.result``.
 
-    ``Skipped`` and ``NotCalled`` have the same ``outputs``. They are two classes because a run reports them
+    ``Skipped`` and ``NoneInput`` have the same ``outputs``. They are two classes because a run reports them
     differently: ``run.not_called`` lists the calls that were not called, and no list has the skipped ones.
 
     Attributes:
@@ -133,11 +133,11 @@ class Skipped:
 
 @final
 @dataclass(frozen=True, slots=True)
-class NotCalled:
+class NoneInput:
     """The function was not called, because an argument was ``None`` and the parameter does not accept ``None``.
 
     With ``strip`` returning ``None`` for the line ``" "``, the call of ``shout`` for that line is
-    ``NotCalled({"result": None}, input="line")``.
+    ``NoneInput({"result": None}, input="line")``.
 
     Attributes:
         outputs: The call's outputs by name. Each is ``None``, except an output that is a branch: no branch was
@@ -168,4 +168,4 @@ class Unanswered:
 
 
 #: What happened to one call: one of the five kinds of outcome.
-Outcome = Done | Answered | Skipped | NotCalled | Unanswered
+Outcome = Done | Answered | Skipped | NoneInput | Unanswered

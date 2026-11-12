@@ -26,7 +26,7 @@ from conductor._internal.run.json.type import (
     SavedReusable,
     SavedRun,
 )
-from conductor._internal.run.outcome import Answered, Done, NotCalled, Outcome, Skipped, Unanswered
+from conductor._internal.run.outcome import Answered, Done, NoneInput, Outcome, Skipped, Unanswered
 from conductor._internal.run.progress import all_item_indexes
 from conductor._internal.run.reuse import ReusableOutcomes
 
@@ -130,11 +130,11 @@ def outcomes_from_saved(skipped_outputs: dict[str, Any], not_called_outputs: dic
 
         {"states": ["done", null, "done"], "outputs": {"result": ["A!", null, "C!"]}, "not_called_because": {"1": "line"}}
 
-    it returns ``[Done({"result": "A!"}), NotCalled({"result": None}, "line"), Done({"result": "C!"})]``.
+    it returns ``[Done({"result": "A!"}), NoneInput({"result": None}, "line"), Done({"result": "C!"})]``.
 
     Args:
         skipped_outputs: The ``outputs`` a ``Skipped`` outcome of the node has.
-        not_called_outputs: The ``outputs`` a ``NotCalled`` outcome of the node has.
+        not_called_outputs: The ``outputs`` a ``NoneInput`` outcome of the node has.
         saved: The saved lists, each value already validated by its output's type.
 
     Raises:
@@ -178,7 +178,7 @@ def outcomes_from_saved(skipped_outputs: dict[str, Any], not_called_outputs: dic
         for call_number, input_name in (saved.not_called_because or {}).items():
             if outcomes[call_number] is not None:
                 raise LookupError(call_number)
-            outcomes[call_number] = NotCalled(not_called_outputs, input_name)
+            outcomes[call_number] = NoneInput(not_called_outputs, input_name)
     except (LookupError, TypeError, AttributeError):  # a call number past the end of the lists, or a call of another kind
         message = "'skipped', 'skipped_items', 'questions' or 'not_called_because' names a call that does not exist or cannot have it"
         raise PydanticCustomError("misplaced", message) from None

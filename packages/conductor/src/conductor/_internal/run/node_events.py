@@ -57,7 +57,7 @@ from conductor._internal.run.events import (
     NodeStart,
     NodeWaiting,
 )
-from conductor._internal.run.outcome import Answered, Done, NotCalled, Outcome, Skipped, Unanswered
+from conductor._internal.run.outcome import Answered, Done, NoneInput, Outcome, Skipped, Unanswered
 from conductor._internal.run.progress import call_count, calls_expected, has_every_outcome
 from conductor._internal.run.waiting import waiting_record
 
@@ -131,7 +131,7 @@ class NodeEvents:
     def outcome_recorded(self, node: FlatFunctionNode, item_indexes: ItemIndexes, outcome: Outcome) -> None:
         """``outcome`` was written for the call ``item_indexes`` of ``node``.
 
-        An outcome that was not a call (reused, or ``NotCalled``) starts its node as a call does. ``Skipped`` does not.
+        An outcome that was not a call (reused, or ``NoneInput``) starts its node as a call does. ``Skipped`` does not.
         """
         self.changed.add(node)
         if type(outcome) is not Skipped:
@@ -172,7 +172,7 @@ class NodeEvents:
                 self.skipped.add(node)
                 self.emit(NodeSkipped(loc=node.node_path))
             else:
-                not_called = sum(type(outcome) is NotCalled for outcome in outcomes.values())
+                not_called = sum(type(outcome) is NoneInput for outcome in outcomes.values())
                 self.emit(NodeComplete(loc=node.node_path, outcomes=len(outcomes), not_called=not_called, reused=self.reused[node]))
             self._complete_subgraphs_around(node, announce=True)
 

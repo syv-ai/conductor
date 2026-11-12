@@ -23,9 +23,6 @@ CLASSES_THAT_STAY_THROUGH = {
     "polars": "*",
     "pandas": "*",
     "datetime": {"date", "time", "datetime"},
-    # the public record `NotCalled` has the same name; the engine's own is written `outcomes.NotCalled` in the
-    # files where both appear
-    "conductor._internal.run.outcome": {"NotCalled"},
 }
 
 # A class in lower case reads as a function (`functools.partial`, `weakref.ref`), so it

@@ -81,7 +81,7 @@ from conductor._internal.run.node_events import NodeEvents
 from conductor._internal.run.outcome import (
     Answered,
     Done,
-    NotCalled,
+    NoneInput,
     NotReady,
     Outcome,
     Skipped,
@@ -203,7 +203,7 @@ class Scheduler:
         answers: dict[str, dict[ItemIndexes, Answer]],
         finished: frozenset[NodePath],
         max_items: int | None,
-        arguments_for: Callable[[FlatFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NotCalled | Literal[NotReady.NOT_READY]],
+        arguments_for: Callable[[FlatFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]],
         emit: Callable[[EventBase], None] | None,
         stop: Callable[[], RunState | None] | None,
         context: Any,
@@ -401,7 +401,7 @@ class Scheduler:
         if arguments is NotReady.NOT_READY:
             return
         policy = node.policy
-        if not isinstance(arguments, dict):  # a Skipped or NotCalled outcome
+        if not isinstance(arguments, dict):  # a Skipped or NoneInput outcome
             self._record(node, item_indexes, arguments, trying_every_call)
         elif (
             (reusable := self.reusable)
@@ -838,7 +838,7 @@ class Scheduler:
                         return
 
     def _stop_if_over_item_limit(
-        self, node: FlatFunctionNode, item_indexes: ItemIndexes, outcome: Done | Answered | Skipped | NotCalled, item_limit: int
+        self, node: FlatFunctionNode, item_indexes: ItemIndexes, outcome: Done | Answered | Skipped | NoneInput, item_limit: int
     ) -> bool:
         """End the run as ``stopped`` if a series in ``outcome`` that a loop runs over has more items than
         ``item_limit``.
@@ -875,16 +875,16 @@ class Scheduler:
 
 
 def _with_answers(
-    arguments_for: Callable[[FlatFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NotCalled | Literal[NotReady.NOT_READY]],
+    arguments_for: Callable[[FlatFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]],
     answers: dict[str, dict[ItemIndexes, Answer]],
-) -> Callable[[FlatFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NotCalled | Literal[NotReady.NOT_READY]]:
+) -> Callable[[FlatFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]]:
     """``arguments_for``, with a person's answer to a call's ``Asked`` parameter among its arguments.
 
     ``approve (1,)`` answered ``True`` gets ``{"invoice": ..., "ok": True}``, so ``call`` calls ``approve`` with it and
     not ``approval``. Such a call waited for its answer, so no earlier run has an outcome it could reuse.
     """
 
-    def with_answer(node: FlatFunctionNode, item_indexes: ItemIndexes) -> dict[str, Any] | Skipped | NotCalled | Literal[NotReady.NOT_READY]:
+    def with_answer(node: FlatFunctionNode, item_indexes: ItemIndexes) -> dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]:
         arguments = arguments_for(node, item_indexes)
         of_node = answers.get(node.name)
         if of_node is not None and type(arguments) is dict and (answer := of_node.get(item_indexes)) is not None:
@@ -895,15 +895,15 @@ def _with_answers(
 
 
 def _only_costs_nothing(
-    arguments_for: Callable[[FlatFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NotCalled | Literal[NotReady.NOT_READY]],
-) -> Callable[[FlatFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NotCalled | Literal[NotReady.NOT_READY]]:
+    arguments_for: Callable[[FlatFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]],
+) -> Callable[[FlatFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]]:
     """``arguments_for``, with every call of a node whose ``Policy`` does not say ``costs_nothing`` not ready.
 
     So a ``resume()`` restricted to the nodes that cost nothing goes as any other, and never calls ``shout`` when
     only ``lines`` costs nothing.
     """
 
-    def restricted(node: FlatFunctionNode, item_indexes: ItemIndexes) -> dict[str, Any] | Skipped | NotCalled | Literal[NotReady.NOT_READY]:
+    def restricted(node: FlatFunctionNode, item_indexes: ItemIndexes) -> dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]:
         return arguments_for(node, item_indexes) if node.policy.costs_nothing else NotReady.NOT_READY
 
     return restricted
