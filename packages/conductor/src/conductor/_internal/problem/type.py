@@ -1,10 +1,22 @@
-"""A problem, and how a package declares the kinds of problem it writes.
+"""A problem, and how a package declares the kinds of problem it reports.
 
-Everything wrong that a person has to hear about is one record, ``Problem``. A package that writes problems holds a
-``ProblemCatalogue`` and declares each kind with one function under ``@catalogue.problem()``: the function's name is the
-code, its signature is what the problem holds, and it returns the English. Calling the function makes the problem, so
-a type checker holds every problem made to its declaration, and a host that translates by code reads the catalogue
-for the codes and the keys of each one's ``ctx``.
+Everything wrong that a person needs to hear about is one record, a ``Problem``, with the four fields of a pydantic
+error: ``type`` (a code), ``loc``, ``msg`` and ``ctx``. A package declares each kind of problem it reports as a
+function, and keeps them in a ``ProblemCatalogue``::
+
+    PROBLEMS = ProblemCatalogue()
+
+    @PROBLEMS.problem()
+    def unknown_input(node_id: str, field: str, *, inputs: list[str]) -> str:
+        return f"'{node_id}' has no input '{field}'; it has {comma_separated(inputs)}."
+
+    unknown_input("upper", "txet", inputs=["text"])
+    # Problem(type="unknown_input", loc=("upper", "txet"), msg="'upper' has no input 'txet'; it has text.",
+    #         ctx={"node_id": "upper", "field": "txet", "inputs": ["text"]})
+
+The function's name is the code, its parameters are ``loc`` and ``ctx``, and it returns the message. A type checker
+checks every call against the function's signature, and a host that writes its own messages iterates the catalogue
+for each code and the keys of its ``ctx``.
 """
 
 from __future__ import annotations
@@ -22,31 +34,32 @@ from conductor._internal.conductor_model import ConductorModel
 
 @final
 class Problem(ConductorModel):
-    """One thing wrong, in pydantic's shape: ``type``, ``loc``, ``msg`` and ``ctx``.
+    """One thing that is wrong, with the four fields of a pydantic error::
 
-    ``type`` is the stable code a host keys on. ``msg`` is for a person,
-    never parsed; a host with its own wording translates by ``type`` and fills
-    its sentence from ``ctx``, the values the message was made from under
-    stable keys. ``loc`` says what it is about, and how to read it depends on
-    who reported it, as it does between pydantic's body and query:
+        Problem(type="unknown_input", loc=("upper", "txet"), msg="'upper' has no input 'txet'; it has text.",
+                ctx={"node_id": "upper", "field": "txet", "inputs": ["text"]})
 
-    ========================  ==================================================
-    a problem of a graph      ``(node_id)`` or ``(node_id, field)``; of a graph
-                              embedded in it, the same with the id of the node
-                              that embeds it in front: ``("e", "upper", "text")``
-    a node's failure          ``(node_id, *item)``: ``("b", 2, 0)`` is the first
-                              item inside the third of what ``b`` runs per.
-                              Inside a subgraph, each subgraph node and
-                              its item come first: ``("e", 1, "b", 2)``
-    a run stopped as a whole  ``()``
-    a refused call            ``("inputs", name)``, ``(node_id, *item)`` for an
-                              answer, ``("saved_run",)``, ``("record", *where)``
-                              for a record that isn't one; a graph that can't
-                              run is refused with its own problems
-    ========================  ==================================================
+    ``loc`` says where, and what it names depends on where the problem is reported:
 
-    A graph problem's field need not exist: several are about a value for a
-    removed input or an edge to an unknown output.
+    ==========================  ==============================================================================
+    a problem of a graph        ``(node_id,)`` or ``(node_id, input)``. For a node inside a subgraph, the
+                                subgraph node's id comes first: ``("loud", "shout", "line")``
+    a call that failed          ``(node_id, *item_indexes)``: ``("shout", 1)`` is the call of ``shout`` for
+                                the second item. Inside a subgraph, the subgraph node and its item indexes
+                                come first: ``("loud", 1, "shout")``
+    a run that stopped          ``()``, when no one call stopped it (a timeout, a cancel)
+    a refused call              what the call got wrong: ``("inputs", name)``, ``("saved_run",)``,
+                                ``("record", *steps)``, or a node and item indexes for an answer
+    ==========================  ==============================================================================
+
+    The input or output in a graph problem's ``loc`` may not exist: an edge to an output the node does not have is
+    reported at that name.
+
+    Attributes:
+        type: The code, which does not change between versions; a host translates by it.
+        loc: Where the problem is.
+        msg: The message, in English, for a person; never parsed.
+        ctx: The values the message is made from, by name, so a host can write its own message.
     """
 
     type: str
@@ -59,17 +72,20 @@ class Problem(ConductorModel):
 
 @final
 class ProblemKind[**Params]:
-    """One kind of problem, declared by the function that says it; calling it makes the ``Problem``.
+    """One kind of problem: the function that writes its message, and what is read from that function's signature.
 
-    ``ProblemCatalogue.problem`` makes one and says how the function's signature is read.
+    ``@catalogue.problem()`` makes one from a function; calling it makes a ``Problem``. For ``unknown_input`` above:
+    ``code`` is ``"unknown_input"``, ``sentence`` is ``"'{node_id}' has no input '{field}'; it has {inputs}."``, and
+    ``ctx_type`` is a ``TypedDict`` with the keys ``node_id``, ``field`` and ``inputs``.
 
     Attributes:
         code: The problem's ``type``.
-        variant: What ``ctx.variant`` says when the kind is a code said for one mistake, else ``None``.
-        of_a_hook: Whether the fault is in a node's ``compute_...`` hook, which the node's developer fixes, where any
-            other fault of loading is fixed in the graph.
-        sentence: The English with ``{key}`` where a ``ctx`` value goes.
-        ctx_type: The ``ctx`` the kind writes, as a ``TypedDict``; a key that may be left out is not required.
+        variant: For a second message under a code, for one particular mistake: the value of ``ctx.variant``.
+            ``None`` for a code's main message.
+        of_a_hook: Whether the problem is in a node's ``compute_...`` hook, which the node's developer fixes. Any
+            other problem of a compiled graph is fixed in the graph.
+        sentence: The message with ``{key}`` in place of each ``ctx`` value.
+        ctx_type: The keys of ``ctx`` and their types, as a ``TypedDict``. A key that may be left out is not required.
         section: The title of the catalogue's section the kind is declared in; empty when the catalogue has none.
     """
 
@@ -89,26 +105,26 @@ class ProblemKind[**Params]:
         keys = [p for p in parameters if p.kind is not p.VAR_POSITIONAL]
         placeholders = {p.name: ["{" + p.name + "}"] if typing.get_origin(p.annotation) is list else "{" + p.name + "}" for p in keys if p.default is not None}
         self.sentence = typing.cast("Callable[..., str]", write_message)(**placeholders)
-        self.ctx_type: Any = typing.cast("Any", TypedDict)(code, {  # the fields are read off a signature, which a type checker takes only as a literal
+        self.ctx_type: Any = typing.cast("Any", TypedDict)(code, {  # a type checker reads TypedDict's fields only from a literal
             **{p.name: NotRequired[_without_none(p.annotation)] if p.default is None else p.annotation for p in keys},
             **({"variant": Literal[variant]} if variant else {}),
         })
 
     def __call__(self, *loc: Params.args, **ctx: Params.kwargs) -> Problem:
-        """The problem at ``loc``. What is given is conductor's own, typed where it is written, and is not read again."""
+        """Makes the problem at ``loc``. The values are not validated: every call is checked by a type checker."""
         given = {key: value for key, value in ctx.items() if value is not None} if self._has_optional_ctx else ctx
         return Problem.model_construct(type=self.code, loc=loc, msg=self._message(*loc, **ctx), ctx={**dict(zip(self._loc_parameters, loc)), **given, **self._variant_ctx})
 
 
 def _check_parameter(function: str, parameter: Parameter) -> None:
-    """Refuses a parameter of a kind's function that is none of a place, ``*loc`` and a ``ctx`` key.
+    """Checks that a parameter of a kind's function is one of the three ``ProblemCatalogue.problem`` allows.
 
     Args:
         function: The function's name, for the message.
         parameter: One of its parameters.
 
     Raises:
-        TypeError: The parameter fits none of the three rules ``ProblemCatalogue.problem`` states.
+        TypeError: The parameter is none of the three.
     """
     prefix = f"{function}: parameter '{parameter.name}'"
     match parameter.kind:
@@ -132,15 +148,19 @@ def _check_parameter(function: str, parameter: Parameter) -> None:
 
 
 def _without_none(annotation: Any) -> Any:
-    """``X | None`` as ``X``: a key that may be left out is absent, never ``None``."""
+    """``X | None`` as ``X``: a ``ctx`` key that may be left out is then absent, never ``None``."""
     return Union[tuple(option for option in typing.get_args(annotation) if option is not type(None))]
 
 
 @final
 class ProblemCatalogue:
-    """The kinds of problem one package writes, in the order they are declared.
+    """The kinds of problem one package reports, in the order they are declared.
 
-    A host that translates by code iterates it: each kind has its ``code``, its ``sentence`` and the type of its ``ctx``.
+    A host that writes its own messages iterates it: each kind has its ``code``, its ``sentence`` and its
+    ``ctx_type``.
+
+    Attributes:
+        sections: The text of each section, by title, in the order they are started.
     """
 
     def __init__(self) -> None:
@@ -155,36 +175,36 @@ class ProblemCatalogue:
         self.sections[title] = text
 
     def problem[**Params](self, code: str | None = None, *, variant: str | None = None, of_a_hook: bool = False) -> Callable[[Callable[Params, str]], ProblemKind[Params]]:
-        """Declares the function under it a kind of problem, and gives back what a caller calls to make one.
+        """Makes the function under it a kind of problem, and returns the kind, which is called to make a problem.
 
-        The function returns the English a person reads, built from its parameters and nothing else. Each parameter
-        is one of three things:
+        The function returns the message, made from its parameters and nothing else. Each parameter is one of three
+        things:
 
         - **A keyword-only parameter is a key of** ``ctx``, with its type. One that defaults to ``None`` may be left
-          out, and is then absent from ``ctx``; no other default is taken::
+          out, and is then absent from ``ctx``; no other default is allowed::
 
               def timeout(*loc: str | int, seconds: float) -> str: ...
               timeout("fetch", 2, seconds=30.0)                    # ctx == {"seconds": 30.0}
 
-        - **A named positional parameter is a place in** ``loc`` **and a key of** ``ctx``, a ``str`` or an ``int``,
-          so the two can't disagree::
+        - **A named positional parameter is a part of** ``loc`` **and a key of** ``ctx``, a ``str`` or an ``int``,
+          so the two always agree::
 
               def unknown_input(node_id: str, field: str, *, inputs: list[str]) -> str: ...
               unknown_input("upper", "txet", inputs=["text"])      # loc == ("upper", "txet"), ctx has node_id and field
 
-        - ``*loc: str | int`` **is a place the sentence doesn't read**; it is in ``loc`` alone::
+        - ``*loc: str | int`` **is the parts of** ``loc`` **the message does not use**; they are in ``loc`` only::
 
               def cycle(*loc: str | int) -> str: ...
               cycle("a")                                           # loc == ("a",), ctx == {}
 
         Args:
             code: The problem's ``type``; the function's name when left out.
-            variant: What ``ctx.variant`` says, for a second sentence under a code the catalogue has declared.
+            variant: For a second message under a code declared before it: the value of ``ctx.variant``.
             of_a_hook: Whether the fault is in a node's ``compute_...`` hook.
 
         Raises:
             TypeError: When the function is declared, for a parameter that is none of the three, a return type other
-                than ``str``, or a ``variant`` for a code the catalogue has not declared.
+                than ``str``, or a ``variant`` for a code not declared before it.
         """
         def declared(write_message: Callable[Params, str]) -> ProblemKind[Params]:
             kind = ProblemKind(write_message, code or write_message.__name__, variant, of_a_hook, next(reversed(self.sections), ""))
@@ -200,6 +220,6 @@ class ProblemCatalogue:
 
     @property
     def codes(self) -> frozenset[str]:
-        """Every code the catalogue's kinds write."""
+        """Every code of the catalogue's kinds."""
         return frozenset(kind.code for kind in self._kinds)
 

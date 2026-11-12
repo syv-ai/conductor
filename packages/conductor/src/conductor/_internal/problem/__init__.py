@@ -1,9 +1,9 @@
-"""A problem, the kinds of it conductor writes, and the exceptions that carry one.
+"""A problem, the kinds of problem conductor's core reports, and the exceptions.
 
-Code outside this package imports from here only. ``type.py`` has ``Problem`` and how a package declares its kinds,
-``catalogue.py`` the core's kinds, one function per code (other modules import it as
-``from conductor._internal.problem import catalogue as problem`` and call a kind as ``problem.cycle(...)``), and
-``errors.py`` the exceptions.
+Code outside this package imports from here. ``type.py`` is ``Problem`` and how a package declares the kinds of
+problem it reports (``ProblemCatalogue``). ``catalogue.py`` is the core's kinds, one function each; a module that
+reports one imports it as ``from conductor._internal.problem import catalogue as problem`` and calls
+``problem.cycle(node_id)``. ``errors.py`` is the exceptions.
 """
 
 from conductor._internal.problem import catalogue
