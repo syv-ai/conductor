@@ -42,12 +42,7 @@ from conductor._internal.address import (
     parse_loc_text,
     split_address,
 )
-from conductor._internal.ask import (
-    Answer,
-    Waiting,
-    question_fingerprint,
-    waiting_record,
-)
+from conductor._internal.ask import Answer
 from conductor._internal.compiled import (
     FlatFunctionNode,
     display_plans_of,
@@ -74,6 +69,7 @@ from conductor._internal.run.reuse import (
     outer_items_fingerprint,
 )
 from conductor._internal.run.state import READY, RUNNING, EndedEarly, Going, RunState, RunStatus
+from conductor._internal.run.waiting import Waiting, question_fingerprint, waiting_record
 from conductor._internal.scheduler import (
     Event,
     EventBase,

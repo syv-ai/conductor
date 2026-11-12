@@ -45,7 +45,6 @@ from collections import defaultdict
 from collections.abc import Callable, Iterable
 
 from conductor._internal.address import ItemIndexes, NodePath
-from conductor._internal.ask import waiting_record
 from conductor._internal.compiled import FlatFunctionNode, FlatNode, all_upstream, outcome_loc
 from conductor._internal.markers import SKIPPED
 from conductor._internal.outcomes import (
@@ -60,6 +59,7 @@ from conductor._internal.outcomes import (
 )
 from conductor._internal.problem import Problem
 from conductor._internal.run.progress import call_count
+from conductor._internal.run.waiting import waiting_record
 from conductor._internal.scheduler.events import (
     EventBase,
     NodeComplete,
