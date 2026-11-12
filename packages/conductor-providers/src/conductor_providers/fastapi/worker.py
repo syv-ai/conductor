@@ -28,7 +28,7 @@ from pydantic import TypeAdapter
 from pydantic_core import from_json
 
 from conductor_providers.fastapi import router_problems
-from conductor_providers.fastapi.leg_end import HandedBack, LegEnd, Raised, end_of
+from conductor_providers.fastapi.resume_end import HandedBack, Raised, ResumeEnd, end_of
 from conductor_providers.fastapi.router_problems import NoSuchRunError, RefusedError
 from conductor_providers.fastapi.store import RunStore
 from conductor_providers.fastapi.stored_run import (
@@ -93,7 +93,7 @@ class Worker(Generic[C]):
         max_items: int | None,
         lease: float,
         checkpoint_every: float,
-        leg_timeout: float | None,
+        resume_timeout: float | None,
         poll: float,
     ) -> None:
         """A worker on ``store``.
@@ -106,7 +106,7 @@ class Worker(Generic[C]):
             max_items: The ceiling on the items of any one Series that a run starts with.
             lease: The seconds this worker holds a run between renewals.
             checkpoint_every: The seconds between saves of a running leg.
-            leg_timeout: The seconds one leg may run.
+            resume_timeout: The seconds one call of ``resume()`` may take before the run ends ``timed_out``; ``None`` for no limit.
             poll: The seconds between a follower's reads of new events.
         """
         self.id = uuid.uuid4().hex
@@ -117,7 +117,7 @@ class Worker(Generic[C]):
         self._max_items = max_items
         self._lease = lease
         self._checkpoint_every = checkpoint_every
-        self._leg_timeout = leg_timeout
+        self._resume_timeout = resume_timeout
         self._poll = poll
         self._holds: dict[_Hold, Task[None]] = {}
         self._handing_back = Event()
@@ -447,7 +447,7 @@ class Worker(Generic[C]):
             except Exception:
                 log.exception("the lease of run %s was not renewed; the next renewal tries again", hold.run_id)
 
-    async def _leg(self, hold: _Hold, row: StoredRun) -> LegEnd:
+    async def _leg(self, hold: _Hold, row: StoredRun) -> ResumeEnd:
         """Run one leg of a held run and store its events and checkpoints.
 
         The leg's own work is done in ``_leg_steps``, and every call to the store is made here. So a raise that
@@ -461,11 +461,11 @@ class Worker(Generic[C]):
             How the leg ended: with the run of its ``run_end``; handed back, when the worker shuts down and no
             cancel was asked, its run stored as the leg's last checkpoint; or as a leg that raised.
         """
-        end: LegEnd = HandedBack()
+        end: ResumeEnd = HandedBack()
         async with contextlib.aclosing(self._leg_steps(hold, row)) as steps:  # a raise in this loop ends the leg before its next unit
             async for step in steps:
                 match step:
-                    case LegEnd():
+                    case ResumeEnd():
                         end = step
                     case str():
                         if not await self._store.add_event(row.id, self.id, step):
@@ -474,7 +474,7 @@ class Worker(Generic[C]):
                         await self._write(hold, step)
         return end
 
-    async def _leg_steps(self, hold: _Hold, row: StoredRun) -> AsyncGenerator[str | RunChanges | LegEnd]:
+    async def _leg_steps(self, hold: _Hold, row: StoredRun) -> AsyncGenerator[str | RunChanges | ResumeEnd]:
         """Run one leg of a held run, and say what the store is to take of it. Nothing here calls the store.
 
         Args:
@@ -495,7 +495,7 @@ class Worker(Generic[C]):
             run = await asyncio.to_thread(_loaded, row, self._nodes_for(who))
             waiting = run.waiting
             stream = run.stream(
-                context=self._context(who), timeout=self._leg_timeout,
+                context=self._context(who), timeout=self._resume_timeout,
                 cancel=hold.stop, hand_back=self._handing_back, checkpoint_every=self._checkpoint_every,
             )
             async with contextlib.aclosing(stream):
@@ -515,7 +515,7 @@ class Worker(Generic[C]):
             log.exception("the leg of run %s failed", row.id)
             yield Raised.because(router_problems.leg_failed(), waiting)
 
-    async def _finish(self, hold: _Hold, row: StoredRun, end: LegEnd) -> StoredRun:
+    async def _finish(self, hold: _Hold, row: StoredRun, end: ResumeEnd) -> StoredRun:
         """Write how a leg ended, decided from the row's state as read for each try of the write, so a cancel or an
         answer that lands meanwhile is never written over.
 

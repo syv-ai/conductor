@@ -56,7 +56,7 @@ app.dependency_overrides[current_caller] = header_caller
 def _app_source() -> str:
     blocks = re.findall(r"```python\n(.*?)```", PAGE.read_text(), re.S)
     source = "from typing import Annotated\n" + "\n".join(blocks)
-    settings = 'lease=0.6, checkpoint_every=0.05, leg_timeout=float(os.environ.get("LEG_TIMEOUT", "300")), '
+    settings = 'lease=0.6, checkpoint_every=0.05, resume_timeout=float(os.environ.get("RESUME_TIMEOUT", "300")), '
     assert source.count("run_router(\n") == 1
     return "import os\n" + source.replace("run_router(\n", "run_router(\n    " + settings, 1) + _TEST_SETTINGS
 
@@ -275,7 +275,7 @@ def test_a_cancel_sent_to_either_worker_stops_the_leg_and_a_resume_finishes_it(s
 
 def test_a_leg_that_timed_out_is_resumed_by_its_route(served: Served) -> None:
     async def scenario() -> None:
-        async with _workers(served, count=1, LEG_TIMEOUT="0.1") as (a,):
+        async with _workers(served, count=1, RESUME_TIMEOUT="0.1") as (a,):
             run_id = await a.start(_WORK, {"n": 30})
             await a.until_status(run_id, "timed_out")
             while (await a.client.post(f"/runs/{run_id}/resume", json={})).status_code == 202:

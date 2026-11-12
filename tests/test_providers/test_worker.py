@@ -43,7 +43,7 @@ from tests.test_providers.in_memory import MemoryStore, asking, gated, left_runn
 
 def _worker(store: MemoryStore, registry: NodeRegistry, **settings: Any) -> Worker[str]:
     """A worker on ``store`` whose callers are names, with the router's own defaults where ``settings`` name none."""
-    defaults: dict[str, Any] = {"context": lambda who: {}, "max_items": None, "lease": 30.0, "checkpoint_every": 5.0, "leg_timeout": 300.0, "poll": 0.1}
+    defaults: dict[str, Any] = {"context": lambda who: {}, "max_items": None, "lease": 30.0, "checkpoint_every": 5.0, "resume_timeout": 300.0, "poll": 0.1}
     return Worker(store=store, nodes_for=lambda who: registry, callers=TypeAdapter(str), **{**defaults, **settings})
 
 
@@ -465,7 +465,7 @@ async def test_an_answer_queued_during_a_leg_that_stops_at_its_ceiling_is_taken_
 async def test_an_answer_queued_for_a_question_a_timed_out_leg_never_asked_is_refused_by_the_runs_own_code() -> None:
     registry, graph, gate, inputs, waiting_id = asking(items=True)
     store = MemoryStore()
-    worker = _worker(store, registry, leg_timeout=0.2)
+    worker = _worker(store, registry, resume_timeout=0.2)
 
     run_id = await _started(worker, graph, inputs)
     assert await worker.answer(await worker.read(run_id), {waiting_id: True}) == "queued"

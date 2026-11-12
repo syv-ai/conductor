@@ -1,7 +1,9 @@
-"""How a leg of a stored run ended, and what its row holds once that is written.
+"""How one call of ``resume()`` on a stored run ended, and what the run's row in the store is changed to.
 
-A leg ends in one of three ways: with a run, having raised, or handed back by a worker that shuts down. Each is a
-record that says, from the row's state as last read, what the row holds after it.
+A worker loads the run from its row and resumes it (as ``run.stream()``, which is ``run.resume()`` with its events).
+That call ends in one of three ways, each a class here: ``Ended`` with the run it returned, ``Raised`` when it
+raised, ``HandedBack`` when the worker shut down before it ended. Each has ``row_after(state)``, which takes the
+row's state as last read and returns the state and columns to write.
 """
 
 from __future__ import annotations
@@ -21,29 +23,29 @@ log = logging.getLogger("conductor_providers.fastapi")
 
 
 @dataclass(frozen=True)
-class RowAfterALeg:
-    """What a row holds once the end of a leg is written.
+class RowAfterResume:
+    """What to write to a run's row after one call of ``resume()`` ended.
 
     Attributes:
-        state: The row's state; a next leg is wanted when it says so.
-        changes: The row's ``run`` and ``outcome``, each where it changes.
+        state: The row's new state. Its ``leg_wanted`` says whether the run is to be resumed again.
+        changes: The new values of the row's ``run`` and ``outcome`` columns; a column that stays as it is, is left out.
     """
 
     state: StoredState
     changes: RunChanges
 
 
-class LegEnd(ABC):
-    """How a leg ended.
+class ResumeEnd(ABC):
+    """How one call of ``resume()`` on a stored run ended.
 
     Attributes:
-        run_end: The leg's ``run_end`` event to store, as JSON; ``None`` for a leg handed back, whose run did not end.
+        run_end: The call's ``run_end`` event to store, as JSON; ``None`` when the worker shut down before the run ended.
     """
 
     run_end: str | None
 
     @abstractmethod
-    def row_after(self, state: StoredState) -> RowAfterALeg:
+    def row_after(self, state: StoredState) -> RowAfterResume:
         """What a row holds after this end.
 
         Args:
@@ -55,7 +57,7 @@ class LegEnd(ABC):
 
 
 @dataclass(frozen=True)
-class Ended(LegEnd):
+class Ended(ResumeEnd):
     """A leg that ended with a run.
 
     Attributes:
@@ -70,7 +72,7 @@ class Ended(LegEnd):
     outcome: str
     run_end: str
 
-    def row_after(self, state: StoredState) -> RowAfterALeg:
+    def row_after(self, state: StoredState) -> RowAfterResume:
         """What a row holds after this end, once the run has been given the answers queued during the leg.
 
         Each queued answer is given to the run on its own, as ``run.answer`` takes one whatever the run's status:
@@ -95,11 +97,11 @@ class Ended(LegEnd):
         after = settled.model_copy(update={
             "run_state": RUNNING if taken else self.run.state, "queued_answers": {}, "refused": {**settled.refused, **refused}, "cancel_asked": unheard,
         })
-        return RowAfterALeg(after, {"run": run.to_json() if taken else self.saved, "outcome": self.outcome})
+        return RowAfterResume(after, {"run": run.to_json() if taken else self.saved, "outcome": self.outcome})
 
 
 @dataclass(frozen=True)
-class Raised(LegEnd):
+class Raised(ResumeEnd):
     """A leg that raised outside a node, or that conductor refused: it ended with no run to store.
 
     Attributes:
@@ -146,26 +148,26 @@ class Raised(LegEnd):
         """
         return cls.because(refusal.errors()[0], waiting)
 
-    def row_after(self, state: StoredState) -> RowAfterALeg:
+    def row_after(self, state: StoredState) -> RowAfterResume:
         """What a row holds after this end: the run failed, and the row keeps its last checkpoint, lists what
         waits in it, and keeps the answers queued during the leg for the end of the next leg to deal with."""
         after = state.model_copy(update={"run_state": EndedEarly("failed", self.cause), "cancel_asked": False})
-        return RowAfterALeg(after, {"outcome": self.outcome})
+        return RowAfterResume(after, {"outcome": self.outcome})
 
 
 @dataclass(frozen=True)
-class HandedBack(LegEnd):
+class HandedBack(ResumeEnd):
     """A leg its worker stopped to shut down: the run did not end, and the row holds it as the leg left it."""
 
     run_end: None = None
 
-    def row_after(self, state: StoredState) -> RowAfterALeg:
+    def row_after(self, state: StoredState) -> RowAfterResume:
         """What a row holds after this end: what it held, a cancel asked meanwhile included, for the worker that
         takes the run to go on from."""
-        return RowAfterALeg(state, {})
+        return RowAfterResume(state, {})
 
 
-def end_of(run_end: RunEnd, stored: list[Waiting]) -> LegEnd:
+def end_of(run_end: RunEnd, stored: list[Waiting]) -> ResumeEnd:
     """The end of a leg whose stream ended with a ``run_end``.
 
     A run that can't be written as JSON (``run_unwritable``: a value in it has no JSON form) can't be stored

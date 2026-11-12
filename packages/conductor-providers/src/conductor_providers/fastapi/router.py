@@ -196,7 +196,7 @@ def run_router(
     max_items: int | None = None,
     lease: float = 30.0,
     checkpoint_every: float = 5.0,
-    leg_timeout: float | None = 300.0,
+    resume_timeout: float | None = 300.0,
     poll: float = 0.1,
 ) -> APIRouter: ...
 
@@ -211,7 +211,7 @@ def run_router(
     max_items: int | None = None,
     lease: float = 30.0,
     checkpoint_every: float = 5.0,
-    leg_timeout: float | None = 300.0,
+    resume_timeout: float | None = 300.0,
     poll: float = 0.1,
 ) -> APIRouter: ...
 
@@ -227,7 +227,7 @@ def run_router(
     max_items: int | None = None,
     lease: float = 30.0,
     checkpoint_every: float = 5.0,
-    leg_timeout: float | None = 300.0,
+    resume_timeout: float | None = 300.0,
     poll: float = 0.1,
 ) -> APIRouter:
     """The runs routes, with the worker that runs their legs; mount them with ``app.include_router(...)``.
@@ -251,7 +251,7 @@ def run_router(
             resume may raise it for that run, and the raised ceiling holds for its later legs.
         lease: The seconds a worker holds a run between renewals.
         checkpoint_every: The seconds between saves of a running leg.
-        leg_timeout: The seconds one leg may run.
+        resume_timeout: The seconds one call of ``resume()`` may take before the run ends ``timed_out``; ``None`` for no limit.
         poll: The seconds between a follower's reads of new events.
 
     Returns:
@@ -265,7 +265,7 @@ def run_router(
     nodes_for: Callable[[C], NodeRegistry] = (lambda who: registry) if isinstance(registry, NodeRegistry) else registry
     worker: Worker[C] = Worker(
         store=store, nodes_for=nodes_for, callers=TypeAdapter(_caller_type(caller)), context=context,
-        max_items=max_items, lease=lease, checkpoint_every=checkpoint_every, leg_timeout=leg_timeout, poll=poll,
+        max_items=max_items, lease=lease, checkpoint_every=checkpoint_every, resume_timeout=resume_timeout, poll=poll,
     )
     router = APIRouter(lifespan=lambda _: worker.serving(), route_class=_RefusingRoute)
 
